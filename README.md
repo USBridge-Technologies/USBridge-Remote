@@ -47,34 +47,97 @@
 Документация:
 - `docs/NBD_ANDROID_USAGE.md` (Android NBD)
 
-## Быстрый старт
+## Сборка и зависимости
 
-### Требования
+### Общие требования
 
-- Go 1.25+
-- Зависимости Fyne для GUI
+- Go 1.21+
 - GStreamer 1.0+ (для видео)
 - `qemu-nbd` (опционально, для VMDK/QCOW2/VDI)
 
-### Установка зависимостей (Linux)
+### Linux
+
+Зависимости Fyne:
 
 ```bash
 sudo apt-get install gcc libgl1-mesa-dev xorg-dev
 ```
 
-### Сборка
+Сборка:
 
 ```bash
-go build -o usbridge-client ./cmd
+scripts/build_linux.sh
 ```
 
-Скрипты сборки для платформ:
-- `scripts/build_windows.sh`
-- `scripts/build_macos.sh`
-- `scripts/build_android_gradle.sh`
-- `scripts/build_gstreamer_dynamic_android.sh`
+Результат: `dist/linux/USBBridgeClient.bin` (+ `config.yaml` при наличии).
 
-### Запуск
+### macOS
+
+Установка GStreamer (Homebrew):
+
+```bash
+brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+```
+
+Сборка:
+
+```bash
+scripts/build_macos.sh
+```
+
+Результат: `dist/macos/USBBridgeClient/` (бинарник + `run.sh` с правильным окружением).
+
+### Windows (кросс-сборка на Linux)
+
+Зависимости:
+- `mingw-w64`
+- `pkg-config` и `x86_64-w64-mingw32-pkg-config` (или `GSTREAMER_ROOT` с MinGW GStreamer SDK)
+
+Сборка:
+
+```bash
+scripts/build_windows.sh
+```
+
+Опционально для портативного пакета с GStreamer:
+
+```bash
+export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
+scripts/build_windows.sh
+```
+
+Результат: `dist/windows/USB_Bridge_Client.exe` + копия `config.yaml` и, при наличии, библиотеки GStreamer.
+
+### Android (Gradle APK с камерой/QR/SAF)
+
+Зависимости:
+- JDK (скрипт проверяет `java`, рекомендуем `openjdk-21-jdk`)
+- Android SDK + NDK (`ANDROID_HOME`, `ANDROID_NDK_HOME`)
+- `gomobile` (`go install golang.org/x/mobile/cmd/gomobile@latest`)
+
+Сборка:
+
+```bash
+scripts/build_android_gradle.sh
+```
+
+Скрипт сам:
+- собирает GStreamer dynamic (`.so`) или использует prebuilt,
+- делает `gomobile bind` для `nbdbridge`,
+- собирает Fyne APK и переносит `.so`,
+- делает Gradle `assembleRelease` и подписывает debug‑ключом.
+
+Результат: `dist/android/USB_Bridge_Client_gradle.apk`
+
+### iOS
+
+Сборка возможна только на macOS (нужен Xcode). Скрипт‑обёртка:
+
+```bash
+scripts/build_ios.sh
+```
+
+## Запуск
 
 ```bash
 ./usbridge-client
