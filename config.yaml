@@ -18,12 +18,6 @@ supported_types:
   - ".vmdk"
   - ".vdi"
 
-# WebRTC настройки (через MediaMTX)
-# IP адрес тот же, что вводится в адресной строке
-mediamtx_webrtc: 8889
-mediamtx_rtsp: 8554
-mediamtx_hls: 8888
-
 # Видео UDP (новый протокол, минимальная задержка)
 video_udp_port: 55000
 

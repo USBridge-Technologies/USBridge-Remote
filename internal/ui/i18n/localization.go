@@ -253,6 +253,7 @@ type LocalizedStrings struct {
 	DeviceKeyboard          string // "Keyboard"
 	DeviceMouse             string // "Mouse"
 	DeviceTouch             string // "Touch" (touchscreen mode)
+	DeviceAbsolute          string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard       string // "Network Card (RNDIS)"
 
 	// Deep link handler
@@ -558,6 +559,7 @@ func EN() *LocalizedStrings {
 		DeviceKeyboard:          "Keyboard",
 		DeviceMouse:             "Mouse",
 		DeviceTouch:             "Touch",
+		DeviceAbsolute:          "Absolute",
 		DeviceNetworkCard:       "Network Card (RNDIS)",
 
 		// Deep link handler
@@ -864,6 +866,7 @@ func RU() *LocalizedStrings {
 		DeviceKeyboard:          "Клавиатура",
 		DeviceMouse:             "Мышь",
 		DeviceTouch:             "Тачскрин",
+		DeviceAbsolute:          "Абсолютный",
 		DeviceNetworkCard:       "Сетевая карта (RNDIS)",
 
 		// Deep link handler

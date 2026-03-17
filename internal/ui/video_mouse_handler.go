@@ -296,6 +296,18 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 		}
 	}
 
+	// Absolute: позиционирование курсора через touch_position (без tip), кнопки остаются мышиными.
+	if t.videoWidget.GetMouseInputMode() == "absolute" {
+		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
+			t.videoWidget.lastAbsX = x
+			t.videoWidget.lastAbsY = y
+			go func() {
+				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			}()
+		}
+	}
+
 	t.videoWidget.currentMouseX = ev.Position.X
 	t.videoWidget.currentMouseY = ev.Position.Y
 }
@@ -307,6 +319,11 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.currentMouseX = ev.Position.X
 	t.videoWidget.currentMouseY = ev.Position.Y
+	if t.videoWidget.GetMouseInputMode() == "absolute" {
+		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		t.videoWidget.lastAbsX = x
+		t.videoWidget.lastAbsY = y
+	}
 }
 
 // MouseOut обрабатывает выход курсора из области (desktop)
@@ -448,6 +465,20 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 
+	if t.videoWidget.GetMouseInputMode() == "absolute" {
+		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
+			t.videoWidget.lastAbsX = x
+			t.videoWidget.lastAbsY = y
+			go func() {
+				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			}()
+		}
+		t.videoWidget.lastMouseX = ev.Position.X
+		t.videoWidget.lastMouseY = ev.Position.Y
+		return
+	}
+
 	// Мышь: относительное перемещение
 	rawDx := ev.Position.X - t.videoWidget.lastMouseX
 	rawDy := ev.Position.Y - t.videoWidget.lastMouseY
@@ -493,6 +524,17 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 					}()
 				}
 			}
+		} else if t.videoWidget.GetMouseInputMode() == "absolute" {
+			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+			if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
+				t.videoWidget.lastAbsX = x
+				t.videoWidget.lastAbsY = y
+				go func() {
+					_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+				}()
+			}
+			t.videoWidget.lastMouseX = ev.Position.X
+			t.videoWidget.lastMouseY = ev.Position.Y
 		} else {
 			// Тачпад: относительное перемещение
 			rawDx := ev.Position.X - t.videoWidget.lastMouseX

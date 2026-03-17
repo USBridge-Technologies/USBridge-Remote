@@ -48,7 +48,6 @@ func main() {
 	logrus.Infof("📋 Конфигурация загружена:")
 	//logrus.Infof("  USB Bridge 2: %s:%d", config.USBHost, config.USBPort)
 	logrus.Infof("  NBD порт: %d", config.NBDPort)
-	logrus.Infof("  MediaMTX: %s:%d", config.MediaMTXHost, config.MediaMTXWebRTC)
 
 	// Создаем главное окно (локализация будет загружена внутри)
 	mainWindow := ui.NewMainWindow(config)

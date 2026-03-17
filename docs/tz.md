@@ -13,8 +13,6 @@
 
 ### Видео и медиа
 - **Fyne Canvas** - для отображения видео
-- **WebRTC** - получение видео+аудио потока
-- **Pion WebRTC** - Go WebRTC библиотека
 - **FFmpeg bindings** - обработка видео потоков
 - **OpenGL** - аппаратное ускорение (через Fyne)
 
@@ -25,11 +23,8 @@
 │                    Fyne App (Гибридное приложение)                    │
 │                                                                       │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐       │
-│  │   UI Клиент     │    │   NBD Сервер    │    │   WebRTC     │       │
 │  │                 │    │                 │    │   Клиент     │       │
 │  │ - Video Widget  │◄───┤ - Disk Manager  │    │              │       │
-│  │ - Keyboard UI   │    │ - Export List   │    │ - MediaMTX   │       │
-│  │ - Settings      │    │ - Client Mgmt   │    │ - Pion WebRTC│       │
 │  │                 │    │ - Stats         │    │              │       │
 │  └─────────────────┘    └─────────────────┘    └──────────────┘       │
 │           │                       │                       │           │
@@ -38,9 +33,7 @@
 │  │                    USB Bridge 2 (Целевое устройство)            │  │
 │  │                                                                 │  │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │  │
-│  │  │ NBD Клиент  │    │ HTTP API    │    │   MediaMTX Server   │  │  │
 │  │  │             │    │             │    │                     │  │  │
-│  │  │ - Connect   │◄───┤ - Service   │    │ - WebRTC :8889      │  │  │
 │  │  │ - Read ISO  │    │ - Keyboard  │    │ - RTSP :8554        │  │  │
 │  │  │ - Mount     │    │ - Video API │    │ - HLS :8888         │  │  │
 │  │  └─────────────┘    └─────────────┘    └─────────────────────┘  │  │
@@ -51,7 +44,6 @@
 │  │  │                                                           │  │  │
 │  │  │ - /dev/video0 (UVC Camera)                                │  │  │
 │  │  │ - H.264 Encoding                                          │  │  │
-│  │  │ - RTSP Stream to MediaMTX                                 │  │  │
 │  │  └───────────────────────────────────────────────────────────┘  │  │
 │  └─────────────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────┘
@@ -61,7 +53,6 @@
 Приложение одновременно является:
 
 **🎮 Клиентом USB Bridge 2:**
-- **Получает видео+аудио** через WebRTC от MediaMTX на USB Bridge 2
 - **Отправляет команды клавиатуры** через HTTP API на USB Bridge 2
 - **Управляет USB Bridge 2** (через HTTP API старт/стоп сервиса, видео стриминг)
 
@@ -76,9 +67,7 @@
 2. **Приложение запускает NBD сервер** с выбранным ISO
 3. **Приложение отправляет команды** на USB Bridge 2:
    - `POST /api/service/start` - запуск сервиса (подключение NBD клиента)
-   - `POST /api/video/start` - запуск видео стриминга (FFmpeg + MediaMTX)
 4. **USB Bridge 2 подключается** к нашему NBD серверу
-5. **Приложение подключается** к WebRTC потоку через MediaMTX (`http://USB_BRIDGE_IP:8889/stream/`)
 6. **Получаем видео+аудио** и можем управлять клавиатурой
 
 ## Структура проекта
@@ -95,11 +84,9 @@ usbridge-client/
 │   │   └── disk_widget.go         # Управление дисками
 │   ├── service/                   # Business Logic Layer
 │   │   ├── nbd_service.go         # NBD сервер + ISO управление
-│   │   ├── webrtc_service.go      # WebRTC клиент + видео/аудио
 │   │   └── usb_service.go         # USB Bridge 2 клиент
 │   ├── api/                       # API Layer
 │   │   ├── usb_client.go          # HTTP клиент для USB Bridge 2
-│   │   ├── webrtc_client.go       # WebRTC клиент
 │   │   └── nbd_client_manager.go  # Управление NBD клиентами
 │   └── models/                    # Модели данных
 │       ├── disk.go                # DiskInfo, Export
@@ -119,12 +106,10 @@ usbridge-client/
 
 **Business Logic Layer (service/)**
 - **nbd_service.go** - NBD сервер + управление ISO экспортами
-- **webrtc_service.go** - WebRTC клиент + обработка видео/аудио
 - **usb_service.go** - координация работы с USB Bridge 2
 
 **API Layer (api/)**
 - **usb_client.go** - HTTP клиент для USB Bridge 2 API
-- **webrtc_client.go** - WebRTC клиент для подключения к потоку
 - **nbd_client_manager.go** - управление NBD клиентами (подключениями)
 
 **Models (models/)**
@@ -149,11 +134,7 @@ go get github.com/spf13/cast
 go get github.com/spf13/jwalterweatherman
 go get github.com/spf13/pflag
 
-# MediaMTX WebRTC клиент
-go get github.com/pion/webrtc/v3
-go get github.com/pion/webrtc/v3/pkg/media
 go get github.com/subosito/gotenv
-go get github.com/pion/webrtc/v3
 go get github.com/pion/ice/v2
 go get github.com/pion/stun
 go get github.com/pion/turn/v2
@@ -268,7 +249,6 @@ type DiskInfo struct {
 
 ### Видео плеер
 - **Canvas.Image** для отображения кадров
-- **WebRTC** для получения видео потока
 - **FFmpeg** для декодирования H.264
 - **OpenGL** для аппаратного ускорения
 - Полноэкранный режим
@@ -299,10 +279,8 @@ type DiskInfo struct {
 - **Обработка запросов** чтения/записи
 - **Управление сессиями** и разрывом соединений
 
-## WebRTC функциональность
 
 ### Видео поток
-- **Pion WebRTC** для подключения к USB Bridge 2
 - **H.264 декодирование** видео потока
 - **Canvas.Image** для отображения кадров
 - **Real-time** обработка видео
@@ -454,22 +432,12 @@ func (c *USBClient) StartVideo() error
 func (c *USBClient) StopVideo() error
 ```
 
-### WebRTC клиент для MediaMTX
 ```go
-type WebRTCClient struct {
-    peerConnection *webrtc.PeerConnection
-    videoTrack     *webrtc.TrackRemote
-    audioTrack     *webrtc.TrackRemote
     mediaMTXURL    string  // "http://192.168.1.109:8889/stream/"
     rtspURL        string  // "rtsp://192.168.1.109:8554/stream"
     isConnected    bool
 }
 
-// Подключение к WebRTC потоку через MediaMTX
-func (c *WebRTCClient) ConnectToMediaMTX(usbHost string, port int) error
-func (c *WebRTCClient) ConnectToRTSP(usbHost string, port int) error
-func (c *WebRTCClient) Disconnect() error
-func (c *WebRTCClient) GetConnectionState() webrtc.ICEConnectionState
 ```
 
 ## Конфигурация гибридного приложения
@@ -487,11 +455,6 @@ type AppConfig struct {
     ScanPaths      []string `json:"scan_paths"`  // Пути для сканирования дисков
     SupportedTypes []string `json:"supported_types"` // Поддерживаемые типы файлов
     
-    // WebRTC настройки (через MediaMTX)
-    MediaMTXHost     string `json:"mediamtx_host"`    // IP MediaMTX (обычно тот же USBHost)
-    MediaMTXWebRTC   int    `json:"mediamtx_webrtc"` // Порт WebRTC (8889)
-    MediaMTXRTSP     int    `json:"mediamtx_rtsp"`   // Порт RTSP (8554)
-    MediaMTXHLS      int    `json:"mediamtx_hls"`    // Порт HLS (8888)
     STUNServers      []string `json:"stun_servers"`  // STUN серверы
     TURNServers      []string `json:"turn_servers"`  // TURN серверы
     
@@ -541,12 +504,8 @@ func (app *MainApp) ConnectToUSB(isoPath string) error {
     }
     log.Println("✅ Видео стриминг запущен на USB Bridge 2")
     
-    // 4. Подключаемся к WebRTC потоку через MediaMTX
-    err = app.webrtcClient.ConnectToMediaMTX(app.config.MediaMTXHost, app.config.MediaMTXWebRTC)
     if err != nil {
-        return fmt.Errorf("ошибка подключения WebRTC через MediaMTX: %v", err)
     }
-    log.Println("✅ WebRTC подключение через MediaMTX установлено")
     
     return nil
 }
@@ -585,7 +544,6 @@ func (app *MainApp) startNBDServerWithISO(isoPath string) error {
 2. **Запускаем NBD сервер** с этим ISO
 3. **Отправляем POST /api/service/start** на USB Bridge 2
 4. **Отправляем POST /api/video/start** на USB Bridge 2  
-5. **Подключаемся к WebRTC** потоку от USB Bridge 2
 6. **Получаем видео+аудио** и можем управлять клавиатурой
 
 ### Настройка USB Bridge 2
@@ -603,10 +561,8 @@ USB Bridge 2 должен быть настроен на подключение 
 // Запуск сервиса (подключает NBD клиент к нашему серверу)
 POST http://USB_BRIDGE_IP:8080/api/service/start
 
-// Запуск видео стриминга (включает FFmpeg + MediaMTX)
 POST http://USB_BRIDGE_IP:8080/api/video/start
 
-// Получение информации о видео (включает MediaMTX URLs)
 GET http://USB_BRIDGE_IP:8080/api/video/info
 
 // Получение статуса
@@ -620,24 +576,16 @@ POST http://USB_BRIDGE_IP:8080/api/keyboard
 }
 ```
 
-### MediaMTX WebRTC подключение
 ```go
-// WebRTC интерфейс MediaMTX
 http://USB_BRIDGE_IP:8889/stream/
 
-// RTSP поток MediaMTX  
 rtsp://USB_BRIDGE_IP:8554/stream
 
-// HLS поток MediaMTX
 http://USB_BRIDGE_IP:8888/stream/index.m3u8
 
-// Подключение к WebRTC через Pion WebRTC
-func (c *WebRTCClient) ConnectToMediaMTX(host string, port int) error {
     c.mediaMTXURL = fmt.Sprintf("http://%s:%d/stream/", host, port)
     c.rtspURL = fmt.Sprintf("rtsp://%s:8554/stream", host)
     
-    // Используем Pion WebRTC для подключения к MediaMTX
-    return c.establishWebRTCConnection()
 }
 ```
 
@@ -689,7 +637,6 @@ func (dmw *DiskManagerWidget) AddDiskExport(diskPath string) error {
 ⚡ **Простая разработка** - интуитивный API Fyne
 🔄 **Гибридная архитектура** - клиент USB Bridge 2 + NBD сервер
 💾 **NBD сервер** - раздача ISO образов через NBD протокол
-📹 **WebRTC клиент** - получение видео+аудио от USB Bridge 2
 🎮 **Управление клавиатурой** - отправка команд на USB Bridge 2
 🔒 **Безопасность** - аутентификация и шифрование
 📊 **Мониторинг** - real-time статистика и логи
@@ -697,7 +644,6 @@ func (dmw *DiskManagerWidget) AddDiskExport(diskPath string) error {
 🌐 **Real-time** - низкая задержка видео/аудио потока
 
 Этот подход даст вам **гибридное приложение** на Go, которое одновременно:
-- **Получает видео+аудио** от USB Bridge 2 через WebRTC
 - **Отправляет команды клавиатуры** на USB Bridge 2
 - **Раздает ISO образы** через NBD сервер для USB Bridge 2
 

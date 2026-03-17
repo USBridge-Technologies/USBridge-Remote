@@ -71,7 +71,7 @@ type VideoWidget struct {
 	touchStartY      float32
 	touchStartTime   time.Time
 	mousePollingQuit chan bool // Канал для остановки polling горутины
-	mouseInputMode   string   // "touchpad" (по умолчанию) или "touchscreen"
+	mouseInputMode   string   // "mouse" (по умолчанию), "touchscreen" или "absolute"
 	touchpadSizeW    float32  // Ширина области ввода (для перевода в абсолютные координаты)
 	touchpadSizeH    float32  // Высота области ввода
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
@@ -81,6 +81,8 @@ type VideoWidget struct {
 	contentRectH float32
 	lastTouchX        int       // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
 	lastTouchY        int
+	lastAbsX          int       // последние отправленные координаты absolute (touch_position) чтобы не спамить
+	lastAbsY          int
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
@@ -936,8 +938,8 @@ func (vw *VideoWidget) processMouseMovement() {
 		return
 	}
 
-	// Тачскрин: touch шлём только из MouseDown / MouseMoved / MouseUp, не из polling (иначе один клик даёт десятки событий)
-	if vw.GetMouseInputMode() == "touchscreen" {
+	// Тачскрин и absolute: события шлём только из обработчиков ввода, не из polling
+	if vw.GetMouseInputMode() == "touchscreen" || vw.GetMouseInputMode() == "absolute" {
 		return
 	}
 
@@ -974,7 +976,7 @@ func (vw *VideoWidget) processMouseMovement() {
 	}
 }
 
-// GetMouseInputMode возвращает тип манипулятора: "mouse" (мышь/тачпад) или "touchscreen" (тачскрин).
+// GetMouseInputMode возвращает тип манипулятора: "mouse" (мышь/тачпад), "touchscreen" (тачскрин) или "absolute".
 // Задаётся при запуске устройства на экране устройств.
 func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
@@ -983,9 +985,9 @@ func (vw *VideoWidget) GetMouseInputMode() string {
 	return vw.mouseInputMode
 }
 
-// SetMouseInputMode задаёт тип манипулятора: "mouse" или "touchscreen" (вызывается после старта устройства).
+// SetMouseInputMode задаёт тип манипулятора: "mouse", "touchscreen" или "absolute" (вызывается после старта устройства).
 func (vw *VideoWidget) SetMouseInputMode(mode string) {
-	if mode != "mouse" && mode != "touchscreen" {
+	if mode != "mouse" && mode != "touchscreen" && mode != "absolute" {
 		mode = "mouse"
 	}
 	vw.mouseInputMode = mode

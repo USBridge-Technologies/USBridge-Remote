@@ -97,7 +97,7 @@ type DriveItem struct {
 	DiskInfo       *models.DiskInfo   // Для локальных файлов
 	IsKeyboard     bool               // Для клавиатуры
 	IsMouse        bool               // Для мыши
-	MouseType      string             // "mouse" (мышь/тачпад) или "touchscreen" (тачскрин), только для мыши
+	MouseType      string             // "mouse" (мышь/тачпад), "touchscreen" (тачскрин) или "absolute" (абсолютный), только для мыши
 	IsRNDIS        bool               // Для сетевой карты
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	ReadOnly       bool               // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay (только чтение не портит базовый образ)
@@ -183,7 +183,7 @@ func (dw *DiskWidget) createInterface() {
 			modeRowIconText.Hide()
 			modeTitleLabel := widget.NewLabel("Manipulator")
 			modeTitleLabel.Hide()
-			modeSelect := widget.NewSelect([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch}, nil)
+			modeSelect := widget.NewSelect([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, nil)
 			modeSelect.Hide()
 
 			// Оборачиваем чекбокс в контейнер фиксированного размера для лучшего touch-взаимодействия
@@ -315,9 +315,12 @@ func (dw *DiskWidget) createInterface() {
 							if drive.Source == "rndis" {
 								modeRowIconText.Text = "🌐"
 							} else {
-								if drive.MouseType == "touchscreen" {
+								switch drive.MouseType {
+								case "touchscreen":
 									modeRowIconText.Text = "🖥️" // Экран/доска — тачскрин
-								} else {
+								case "absolute":
+									modeRowIconText.Text = "📍"
+								default:
 									modeRowIconText.Text = "🖱️"
 								}
 							}
@@ -337,10 +340,13 @@ func (dw *DiskWidget) createInterface() {
 							modeSelect.SetOptions(rndisModeOptions)
 							modeSelect.SetSelected(normalizeRNDISMode(drive.RNDISMode))
 						} else {
-							modeSelect.SetOptions([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch})
-							if drive.MouseType == "touchscreen" {
+							modeSelect.SetOptions([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
+							switch drive.MouseType {
+							case "touchscreen":
 								modeSelect.SetSelected(i18n.Current.DeviceTouch)
-							} else {
+							case "absolute":
+								modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
+							default:
 								modeSelect.SetSelected(i18n.Current.DeviceMouse)
 							}
 						}
@@ -354,6 +360,12 @@ func (dw *DiskWidget) createInterface() {
 										dw.allDrives[rowID].MouseType = "touchscreen"
 										if modeRowIconText != nil {
 											modeRowIconText.Text = "🖥️"
+											borderContainer.Refresh()
+										}
+									} else if s == i18n.Current.DeviceAbsolute {
+										dw.allDrives[rowID].MouseType = "absolute"
+										if modeRowIconText != nil {
+											modeRowIconText.Text = "📍"
 											borderContainer.Refresh()
 										}
 									} else {
@@ -846,7 +858,7 @@ func (dw *DiskWidget) combineDrives() {
 	dw.allDrives = append(dw.allDrives, keyboardItem)
 
 	// Добавляем мышь (тип мышь/тачскрин сохраняем из предыдущего состояния списка)
-	if oldMouseType != "mouse" && oldMouseType != "touchscreen" {
+	if oldMouseType != "mouse" && oldMouseType != "touchscreen" && oldMouseType != "absolute" {
 		oldMouseType = "mouse"
 	}
 	oldRNDISMode = normalizeRNDISMode(oldRNDISMode)
@@ -1195,7 +1207,7 @@ func (dw *DiskWidget) handleMount() {
 			} else if selectedDrive.Source == "mouse" {
 				// Мышь или тачскрин (тип выбран в строке устройства)
 				mouseType := selectedDrive.MouseType
-				if mouseType != "mouse" && mouseType != "touchscreen" {
+				if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
 					mouseType = "mouse"
 				}
 				deviceRequest = &models.DeviceStartRequest{
@@ -1451,7 +1463,7 @@ func (dw *DiskWidget) handleMount() {
 		for _, req := range deviceRequests {
 			if req.Device == "mouse" && dw.onMouseTypeChanged != nil {
 				t := req.Type
-				if t != "mouse" && t != "touchscreen" {
+				if t != "mouse" && t != "touchscreen" && t != "absolute" {
 					t = "mouse"
 				}
 				dw.onMouseTypeChanged(t)
@@ -1671,7 +1683,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 	}
 	if drive.Source == "mouse" {
 		mouseType := drive.MouseType
-		if mouseType != "mouse" && mouseType != "touchscreen" {
+		if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
 			mouseType = "mouse"
 		}
 		return &models.DeviceStartRequest{

@@ -1,20 +1,31 @@
-# Реализация тачпада для управления мышью
+# Управление указателем: touchpad / touchscreen / absolute
 
 ## Описание
 
-Реализован тачпад на экране видео, который позволяет управлять мышью на удаленной машине. Работает как на desktop (с обычной мышью), так и на мобильных устройствах (через сенсорный экран).
+Клиент умеет управлять указателем на удалённой машине поверх видео тремя режимами:
+
+- **`mouse` (touchpad / относительный)** — движение передаётся как `dx/dy` (HID mouse).
+- **`touchscreen` (touchscreen / абсолютный + касание)** — движение и клики передаются как `x/y` + `tip` (HID touchscreen).
+- **`absolute` (absolute / абсолютный без касания)** — позиция передаётся как `x/y` без касания; клики — отдельными мышиными кликами.
+
+Выбор режима делается в строке **Manipulator** в списке устройств (экран `Devices`) и уходит в `/api/device/start` в поле `type`.
 
 ## Возможности
 
 ### Desktop (мышь)
-- **Перемещение курсора**: движение мыши над областью видео
+- **Перемещение курсора**:
+  - `mouse`: относительное (`dx/dy`)
+  - `absolute`: абсолютное позиционирование (`x/y`, без касания)
 - **Клик левой кнопкой**: обычный клик мыши
 - **Клик правой кнопкой**: правый клик для контекстного меню
 - **Drag & Drop**: зажатие кнопки и перемещение
 - **Прокрутка**: колесико мыши
 
 ### Mobile (сенсорный экран)
-- **Перемещение курсора**: свайп пальцем по экрану
+- **Перемещение курсора**:
+  - `touchscreen`: движение пальцем = касание/перетаскивание (`touch` + `tip`)
+  - `mouse`: свайп = относительное перемещение (`dx/dy`)
+  - `absolute`: движение пальцем = абсолютная позиция (`touch_position`, без касания)
 - **Клик**: короткое касание (тап)
 - **Drag**: долгое касание и перемещение
 
@@ -24,13 +35,15 @@
 
 1. **internal/models/usb.go**
    - `MouseRequest` - модель для запросов к API мыши
-   - Поддержка действий: move, click, scroll, action
+   - Действия: `move`, `click`, `scroll`, `action`, `touch`, `touch_position`
 
 2. **internal/api/usb_client.go**
    - `SendMouseMove(dx, dy)` - перемещение курсора
    - `SendMouseClick(button)` - клик кнопкой (1=левая, 2=правая, 3=средняя)
    - `SendMouseScroll(scroll)` - прокрутка колесика
    - `SendMouseAction(button, dx, dy, scroll)` - комплексное действие
+   - `SendTouch(x, y, tip)` - касание тачскрина (down/up)
+   - `SendTouchPositionOnly(x, y, tip)` - абсолютная позиция без касания
 
 3. **internal/ui/video_mouse_handler.go**
    - `TouchpadWrapper` - обертка для video canvas
@@ -45,8 +58,39 @@
    - Добавлено поле `isMouseConnected` - флаг подключенной мыши
    - `checkMouseConnected()` - проверка статуса мыши через API
    - Интеграция TouchpadWrapper в videoContainer
+   - `UpdateTouchpadAndContentRect` + `PositionToAbsolute` — перевод координат из области виджета в абсолютные `0..4095` с учётом `ImageFillContain` (letterbox)
 
 ## Логика работы
+
+## Режимы и что уходит в API
+
+Ниже — **реальное поведение клиента** (см. `internal/ui/video_mouse_handler.go` и `internal/api/usb_client.go`).
+
+### 1) `mouse` (touchpad, относительный)
+
+- **Движение**: `POST /api/mouse` `{ "action":"move", "dx":..., "dy":... }`
+- **Клики**: `{ "action":"click", "button":1|2|3 }`
+- **Скролл**: `{ "action":"scroll", "scroll":... }`
+- **Drag**: на desktop может идти через polling и серию `move` при зажатой кнопке (клик/удержание реализованы на клиенте отдельной логикой).
+
+### 2) `touchscreen` (touchscreen, абсолютный + касание)
+
+- **Короткий тап**: серия `touch`:
+  - down: `{ "action":"touch", "x":..., "y":..., "tip":true }`
+  - up: `{ "action":"touch", "x":..., "y":..., "tip":false }`
+- **Перетаскивание**: во время движения шлются `touch` с `tip:true`, на отпускании — `tip:false`.
+- **Правый клик**: чтобы не получить «двойной левый», клиент делает:
+  - сначала позицию: `{ "action":"touch_position", "x":..., "y":..., "tip":false }`
+  - потом клик: `{ "action":"click", "button":2 }`
+
+### 3) `absolute` (absolute, абсолютный без касания)
+
+- **Движение**: `POST /api/mouse` `{ "action":"touch_position", "x":..., "y":..., "tip":false }`
+  - Это **абсолютное позиционирование указателя** без “касания” (аналог “absolute mouse/tablet”).
+- **Клики**: как мышь — `{ "action":"click", "button":... }`
+- **Скролл**: как мышь — `{ "action":"scroll", "scroll":... }`
+
+Важно: в `absolute` **не отправляется** `action:"touch"` (нет `tip:true/false` как на тачскрине).
 
 ### Проверка подключения мыши
 
@@ -101,6 +145,17 @@ POST /api/mouse
   "action": "move",
   "dx": 10,
   "dy": -5
+}
+```
+
+**Абсолютное позиционирование (без касания):**
+```json
+POST /api/mouse
+{
+  "action": "touch_position",
+  "x": 3500,
+  "y": 500,
+  "tip": false
 }
 ```
 

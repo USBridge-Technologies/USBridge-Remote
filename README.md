@@ -169,10 +169,6 @@ scan_paths: ["./iso", "/home/user/iso", "/mnt/iso"]
 supported_types: [".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"]
 nbd_export_read_only: true
 
-mediamtx_webrtc: 8889
-mediamtx_rtsp: 8554
-mediamtx_hls: 8888
-
 video_udp_port: 55000
 stun_servers: ["stun:stun.l.google.com:19302"]
 turn_servers: []
@@ -244,7 +240,6 @@ usbridge-client/
 ├── internal/
 │   ├── api/              # HTTP/WebSocket клиент Bridge
 │   ├── models/           # Модели и конфиг
-│   ├── service/          # NBD, FRP, GStreamer, WebRTC
 │   └── ui/               # Fyne UI
 ├── nbdbridge/            # NBD backend для Android (gomobile)
 ├── android/              # Android оболочка/Gradle проект

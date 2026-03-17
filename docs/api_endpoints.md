@@ -1,15 +1,3 @@
-Отлично! Теперь я вижу актуальные endpoints из кода. Давайте дополним описание с учетом реальной реализации и MediaMTX:
-
-
-[3 tools called]
-
-Теперь давайте посмотрим на MediaMTX конфигурацию:
-
-
-[1 tool called]
-
-Отлично! Теперь у меня есть полная картина. Вот **актуальные API endpoints** с учетом реальной реализации и MediaMTX:
-
 # Актуальные API Endpoints USB Bridge 2
 
 ## Системные endpoints
@@ -186,9 +174,6 @@ GET /api/config
     "video_buffer_size": 2,
     "video_stream_format": "mjpeg",
     "video_low_latency": true,
-    "mediamtx_enabled": true,
-    "mediamtx_port": 8554,
-    "rtsp_path": "/stream",
     "web_server": {
       "enabled": true,
       "host": "0.0.0.0",
@@ -209,8 +194,7 @@ POST /api/config
   "nbd_server": "192.168.1.108",
   "video_width": 1280,
   "video_height": 720,
-  "video_fps": 15,
-  "mediamtx_port": 8555
+  "video_fps": 15
 }
 ```
 **Ответ**:
@@ -262,7 +246,117 @@ POST /api/keyboard
 }
 ```
 
-## Видео управление (с MediaMTX)
+## Управление мышью / тачем (HID)
+
+### Единый endpoint
+
+```http
+POST /api/mouse
+Content-Type: application/json
+```
+
+Сервер принимает JSON-объект формата `MouseRequest` (см. `internal/models/usb.go`).
+
+#### Поля запроса
+
+- **`action`** *(string, обязателен)*:
+  - **`"move"`** — относительное перемещение мыши (тачпад/обычная мышь)
+  - **`"click"`** — клик мыши
+  - **`"scroll"`** — прокрутка колеса
+  - **`"action"`** — комплексное действие (обычно используется для drag: кнопка + dx/dy + scroll)
+  - **`"touch"`** — тачскрин: касание/отпускание в абсолютных координатах
+  - **`"touch_position"`** — установка абсолютной позиции указателя без касания (используется для правого клика в режиме тача и для режима **absolute**)
+
+- **`dx`, `dy`** *(int)*: используются для `action="move"` / `action="action"`.
+  - Диапазон: **-127..127** (HID)
+
+- **`x`, `y`** *(int)*: используются для `action="touch"` / `action="touch_position"`.
+  - Диапазон: **0..4095** (как реализовано в клиенте сейчас; см. `VideoWidget.PositionToAbsolute`)
+
+- **`tip`** *(bool, обязателен в JSON как поле; в модели без `omitempty`)*:
+  - Для `action="touch"`: **`true` = касание (down)**, **`false` = отпускание (up)**
+  - Для `action="touch_position"`: клиент обычно шлёт `false` (позиция без касания)
+
+- **`button`** *(int)*: используется для `action="click"` / `action="action"`.
+  - 1 = левая, 2 = правая, 3 = средняя
+
+- **`scroll`** *(int)*: используется для `action="scroll"` / `action="action"`.
+  - Диапазон: **-127..127**
+
+#### Ответ
+
+```json
+{
+  "success": true,
+  "message": "Команда отправлена"
+}
+```
+
+### Примеры
+
+#### 1) Тачпад/обычная мышь (относительное перемещение)
+
+```json
+{
+  "action": "move",
+  "dx": 12,
+  "dy": -4,
+  "tip": false
+}
+```
+
+#### 2) Клик
+
+```json
+{
+  "action": "click",
+  "button": 1,
+  "tip": false
+}
+```
+
+#### 3) Тачскрин (касание)
+
+```json
+{
+  "action": "touch",
+  "x": 2048,
+  "y": 1024,
+  "tip": true
+}
+```
+
+Отпускание:
+
+```json
+{
+  "action": "touch",
+  "x": 2048,
+  "y": 1024,
+  "tip": false
+}
+```
+
+#### 4) Абсолютное позиционирование без касания (режим `absolute`)
+
+```json
+{
+  "action": "touch_position",
+  "x": 3500,
+  "y": 500,
+  "tip": false
+}
+```
+
+### Режимы манипулятора на стороне клиента (важно для `/api/device/start`)
+
+При запуске устройства `"mouse"` через `/api/device/start` клиент может передать `type`:
+
+- **`"mouse"`** — тачпад/обычная мышь (сервер ожидает `action="move"` с `dx/dy`)
+- **`"touchscreen"`** — тачскрин (сервер ожидает `action="touch"` с `x/y` и `tip`)
+- **`"absolute"`** — абсолютный режим (сервер ожидает `action="touch_position"` с `x/y`, клики идут отдельными `action="click"`)
+
+## Видео управление
 
 ### Информация о видео
 ```http
@@ -287,10 +381,6 @@ GET /api/video/info
     "stream_format": "mjpeg",
     "low_latency": true,
     "streaming": true,
-    "mediamtx_enabled": true,
-    "mediamtx_port": 8554,
-    "rtsp_path": "/stream",
-    "rtsp_url": "rtsp://127.0.0.1:8554/stream",
     "clients_count": 2
   }
 }
@@ -300,7 +390,7 @@ GET /api/video/info
 ```http
 POST /api/video/start
 ```
-**Описание**: Запустить видео стриминг через MediaMTX и FFmpeg
+**Описание**: Запустить видео стриминг
 **Ответ**:
 ```json
 {
@@ -330,16 +420,6 @@ GET /
 ```
 **Описание**: Веб-интерфейс для управления устройством
 **Ответ**: HTML страница с интерфейсом управления
-
-## MediaMTX интеграция
-
-### Особенности реализации
-- **MediaMTX сервис** работает как внешний RTSP сервер
-- **RTMP URL**: `rtmp://192.168.1.109:1935/stream`
-- **WebRTC**: http://192.168.1.109:8889/stream/ <- Использовать его для видео!
-- **Проверка статуса** через `systemctl is-active mediamtx`
-- **Проверка порта** через `netstat -ln | grep :8554`
-
 
 ## Коды клавиш (HID)
 
@@ -383,4 +463,4 @@ GET /
 - `405` - Метод не поддерживается
 - `500` - Внутренняя ошибка сервера
 
-Это актуальные endpoints из реальной реализации USB Bridge 2 с MediaMTX! 🚀
+Это актуальные endpoints из реальной реализации USB Bridge 2.
