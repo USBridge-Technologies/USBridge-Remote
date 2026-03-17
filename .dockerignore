@@ -1,0 +1,25 @@
+.git
+.idea
+.vscode
+dist
+logs
+tmp_gstreamer
+gstreamer
+gstreamer-android
+gstreamer-android-dynamic
+gstreamer-android-static
+android
+arm64
+armv7
+x86
+x86_64
+USB Bridge Client.exe
+USBBridgeClient.bin
+USB_Bridge_Client.apk
+USB_Bridge_Client.apk.idsig
+USB_Bridge_Client_gradle.apk
+USB_Bridge_Client_gradle.apk.idsig
+USB_Bridge_Client_gstreamer.apk
+android_build.log
+gstreamer_build.log
+gstreamer_static_build.log

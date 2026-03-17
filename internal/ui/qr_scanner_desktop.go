@@ -1,0 +1,34 @@
+//go:build !android
+// +build !android
+
+package ui
+
+import (
+	"fmt"
+
+	"usbridge-client/internal/ui/i18n"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
+	"github.com/sirupsen/logrus"
+)
+
+// ShowCameraScannerNative показывает окно камеры для сканирования QR (desktop)
+func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
+	qs.window = parent
+
+	logrus.Info("📷 Desktop: запуск сканера QR-кода")
+
+	// Создание pipeline (gst.Init, NewPipelineFromString) тяжёлое — делаем в фоне, чтобы не тормозить UI
+	go func() {
+		scanner, err := newQRCameraScanner(parent, qs)
+		fyne.Do(func() {
+			if err != nil {
+				logrus.Warnf("Камера недоступна: %v", err)
+				dialog.ShowError(fmt.Errorf(i18n.Current.ErrorStartingCamera, err), parent)
+				return
+			}
+			scanner.Run()
+		})
+	}()
+}

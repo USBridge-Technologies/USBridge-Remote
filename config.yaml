@@ -1,0 +1,59 @@
+# Конфигурация USB Bridge Client
+
+# USB Bridge 2 подключение (как клиент)
+# IP адрес вводится в адресной строке интерфейса
+usb_port: 8080
+api_timeout: 30
+
+# NBD сервер (как сервер)
+nbd_port: 10809
+max_clients: 5
+scan_paths:
+  - "./iso"
+  - "/home/user/iso"
+  - "/mnt/iso"
+supported_types:
+  - ".iso"
+  - ".img"
+  - ".vmdk"
+  - ".vdi"
+
+# WebRTC настройки (через MediaMTX)
+# IP адрес тот же, что вводится в адресной строке
+mediamtx_webrtc: 8889
+mediamtx_rtsp: 8554
+mediamtx_hls: 8888
+
+# Видео UDP (новый протокол, минимальная задержка)
+video_udp_port: 55000
+
+stun_servers:
+  - "stun:stun.l.google.com:19302"
+turn_servers: []
+
+# Видео настройки
+video_codec: "H.264"
+video_bitrate: 2000
+video_width: 640
+video_height: 480
+video_fps: 30
+
+# Аудио настройки
+audio_codec: "Opus"
+audio_bitrate: 128
+audio_sample_rate: 48000
+audio_channels: 2
+
+# UI настройки
+window_width: 1200
+window_height: 800
+theme: "light"
+log_level: "debug"
+
+# FRP QUIC туннель (шифрование всего трафика)
+frp_server_port: 443
+frp_auth_token: "usbridge-secret-token"
+frp_enabled: true
+frp_tls_cert: "./certs/server.crt"
+frp_tls_key: "./certs/server.key"
+frp_tls_ca: "./certs/ca.crt"

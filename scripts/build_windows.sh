@@ -1,0 +1,455 @@
+#!/bin/bash
+# Сборка USB Bridge Client для Windows: бинарник + папка dist с библиотеками
+# Требования: Go, mingw-w64, Fyne, GStreamer (MinGW x86_64)
+#
+# Для портативного пакета с GStreamer:
+#   export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
+#   scripts/build_windows.sh
+#
+# Без GSTREAMER_ROOT — создаётся только exe + config (GStreamer должен быть установлен на целевой машине)
+
+set -e
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
+if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
+    export USBRIDGE_LOGGING_ACTIVE=1
+    LOG_DIR="$REPO_ROOT/logs"
+    mkdir -p "$LOG_DIR"
+    LOG_FILE="$LOG_DIR/$(basename "$0" .sh).log"
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') [$0] ==="
+fi
+
+OUTPUT_NAME="USBBridgeClient"
+DIST_WIN="dist/windows"
+EXE_NAME="USB_Bridge_Client.exe"
+
+# Цвета
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${GREEN}🪟 Сборка USB Bridge Client для Windows${NC}"
+
+# 1. Проверка Go
+if ! command -v go &> /dev/null; then
+    echo -e "${RED}❌ Go не найден! Установите: https://golang.org/dl/${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Go: $(go version)"
+
+# 2. Проверка mingw-w64
+echo -e "\n${YELLOW}🛠️ Проверка mingw-w64...${NC}"
+if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+    echo -e "${RED}❌ mingw-w64 не найден${NC}"
+    echo "   Для кросс-сборки Windows на Linux нужен компилятор:"
+    echo "   sudo apt-get install -y mingw-w64"
+    exit 1
+else
+    echo -e "${GREEN}✓${NC} mingw-w64 найден"
+    export CGO_ENABLED=1
+    # Use native gcc for host tools, MinGW only for Windows target.
+    export CC="${CC:-gcc}"
+    export CXX="${CXX:-g++}"
+    export CC_FOR_BUILD="${CC_FOR_BUILD:-gcc}"
+    export CXX_FOR_BUILD="${CXX_FOR_BUILD:-g++}"
+    export CC_FOR_TARGET=x86_64-w64-mingw32-gcc
+    export CXX_FOR_TARGET=x86_64-w64-mingw32-g++
+    export CC_FOR_windows_amd64=x86_64-w64-mingw32-gcc
+    export CXX_FOR_windows_amd64=x86_64-w64-mingw32-g++
+fi
+
+# 2.5. pkg-config (target: Windows)
+# Важно: нельзя использовать host pkg-config (он отдаст /usr/include и сборка будет ломаться).
+echo -e "\n${YELLOW}🧩 Проверка pkg-config (Windows target)...${NC}"
+PKG_CONFIG_BIN=""
+if command -v x86_64-w64-mingw32-pkg-config &>/dev/null; then
+    PKG_CONFIG_BIN="x86_64-w64-mingw32-pkg-config"
+elif command -v pkg-config &>/dev/null; then
+    PKG_CONFIG_BIN="pkg-config"
+fi
+
+if [ -z "$PKG_CONFIG_BIN" ]; then
+    echo -e "${RED}❌ pkg-config не найден${NC}"
+    echo "   Установите: sudo apt-get install -y pkg-config"
+    exit 1
+fi
+
+# Если задан GSTREAMER_ROOT (Linux path), подключаем его pkgconfig.
+# Примечание: для Windows SDK важно, чтобы *.pc содержали пути, существующие на Linux.
+if [ -n "$GSTREAMER_ROOT" ] && [ -d "$GSTREAMER_ROOT" ]; then
+    if [ -d "$GSTREAMER_ROOT/lib/pkgconfig" ]; then
+        export PKG_CONFIG_LIBDIR="$GSTREAMER_ROOT/lib/pkgconfig"
+        export PKG_CONFIG_PATH="$GSTREAMER_ROOT/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+        echo -e "${GREEN}✓${NC} GSTREAMER_ROOT: $GSTREAMER_ROOT"
+        echo -e "${GREEN}✓${NC} PKG_CONFIG_LIBDIR: $PKG_CONFIG_LIBDIR"
+    else
+        echo -e "${YELLOW}⚠${NC} GSTREAMER_ROOT задан, но нет $GSTREAMER_ROOT/lib/pkgconfig"
+    fi
+fi
+
+# Защита от ситуации, когда pkg-config видит только host glib/gstreamer.
+if [ "$PKG_CONFIG_BIN" = "pkg-config" ] && [ -z "${PKG_CONFIG_LIBDIR:-}" ]; then
+    echo -e "${RED}❌ Для кросс-сборки Windows нужен pkg-config для target или PKG_CONFIG_LIBDIR${NC}"
+    echo "   Сейчас найден только host pkg-config, он будет тянуть /usr/include и сборка упадёт."
+    echo "   Варианты:"
+    echo "   1) Установить x86_64-w64-mingw32-pkg-config (пакет обычно: pkg-config-mingw-w64-x86-64)"
+    echo "   2) Скачать/подготовить Windows (MinGW) GStreamer SDK и указать GSTREAMER_ROOT (Linux path),"
+    echo "      чтобы там был lib/pkgconfig с корректными путями."
+    exit 1
+fi
+
+# Явно задаём PKG_CONFIG для CGO.
+export PKG_CONFIG="$PKG_CONFIG_BIN"
+echo -e "${GREEN}✓${NC} PKG_CONFIG: $PKG_CONFIG"
+
+# Быстрая проверка: glib/gstreamer должны находиться в target окружении.
+if ! "$PKG_CONFIG" --exists glib-2.0 2>/dev/null; then
+    echo -e "${RED}❌ pkg-config не находит glib-2.0 для Windows target${NC}"
+    echo "   Это означает, что вы кросс-компилируете, но dev-зависимости под Windows не подключены."
+    echo "   Решение: установите/подготовьте Windows (MinGW) GStreamer/GLib SDK и задайте GSTREAMER_ROOT."
+    exit 1
+fi
+
+if ! "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
+    echo -e "${RED}❌ pkg-config не находит gstreamer-1.0 для Windows target${NC}"
+    echo "   Решение: Windows (MinGW) GStreamer SDK + GSTREAMER_ROOT."
+    exit 1
+fi
+
+# 3. Проверка fyne
+echo -e "\n${YELLOW}📦 Проверка fyne...${NC}"
+FYNE_BIN=""
+GOPATH_BIN="$(go env GOPATH)/bin"
+# На Windows/MSYS2 исполняемый файл — fyne.exe
+for name in fyne fyne.exe; do
+    if command -v "$name" &> /dev/null; then
+        FYNE_BIN="$name"
+        break
+    fi
+    if [ -x "$GOPATH_BIN/$name" ]; then
+        FYNE_BIN="$GOPATH_BIN/$name"
+        break
+    fi
+done
+if [ -z "$FYNE_BIN" ]; then
+    echo -e "${YELLOW}⚠${NC} fyne не найден, устанавливаю..."
+    go install fyne.io/tools/cmd/fyne@latest
+    for name in fyne.exe fyne; do
+        if [ -x "$GOPATH_BIN/$name" ]; then
+            FYNE_BIN="$GOPATH_BIN/$name"
+            break
+        fi
+    done
+    [ -z "$FYNE_BIN" ] && FYNE_BIN="$GOPATH_BIN/fyne"
+fi
+echo -e "${GREEN}✓${NC} fyne: $FYNE_BIN"
+
+# 4. Иконка
+ICON_PATH="$REPO_ROOT/Icon.png"
+if [ ! -f "$ICON_PATH" ]; then
+    echo -e "${RED}❌ Иконка не найдена: $ICON_PATH${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Иконка: $ICON_PATH"
+
+# 5. Компиляция
+echo -e "\n${YELLOW}🔨 Компиляция...${NC}"
+cd "$REPO_ROOT/cmd"
+export GOOS=windows
+export GOARCH=amd64
+export GOMAXPROCS=12
+# Disable VCS stamping (common failure inside containers)
+export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
+if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
+    export GOFLAGS="${GOFLAGS} -ldflags=-H=console"
+    echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: собираем консольную версию"
+fi
+# Добавляем GOPATH/bin в PATH для корректного запуска fyne (MSYS2/Windows)
+export PATH="$GOPATH_BIN:$PATH"
+
+echo "--- Вывод fyne package ---"
+FYNE_CC="x86_64-w64-mingw32-gcc"
+FYNE_CXX="x86_64-w64-mingw32-g++"
+FYNE_PKG_CONFIG="${PKG_CONFIG:-x86_64-w64-mingw32-pkg-config}"
+if ! env \
+    CC="$FYNE_CC" \
+    CXX="$FYNE_CXX" \
+    PKG_CONFIG="$FYNE_PKG_CONFIG" \
+    CGO_ENABLED=1 \
+    "$FYNE_BIN" package \
+    --target windows \
+    --app-id "com.usbridge.client" \
+    --name "USB Bridge Client" \
+    --app-version "1.0.0" \
+    --icon "$ICON_PATH" \
+    --release \
+    -- -j 12 2>&1; then
+    echo -e "\n${RED}❌ fyne package завершился с ошибкой${NC}"
+    echo "Содержимое $(pwd):"
+    ls -la
+    exit 1
+fi
+echo "--- Конец вывода fyne ---"
+
+# Ищем созданный exe
+EXE_SRC=""
+for n in "USB_Bridge_Client.exe" "USB Bridge Client.exe"; do
+    if [ -f "$n" ]; then
+        EXE_SRC="$n"
+        break
+    fi
+done
+
+if [ -z "$EXE_SRC" ]; then
+    echo -e "${RED}❌ exe не создан${NC}"
+    ls -la
+    exit 1
+fi
+
+# 6. Создание dist
+echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
+cd "$REPO_ROOT"
+rm -rf "$DIST_WIN"
+mkdir -p "$DIST_WIN"
+
+# Копируем exe
+cp "$REPO_ROOT/cmd/$EXE_SRC" "$DIST_WIN/$EXE_NAME"
+echo -e "${GREEN}✓${NC} $EXE_NAME"
+
+# Копируем config
+[ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
+
+# 7. Копирование GStreamer
+# По умолчанию — стандартный путь установки; можно переопределить: export GSTREAMER_ROOT="..."
+if [ -z "$GSTREAMER_ROOT" ]; then
+    GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
+fi
+
+# Список путей для поиска (GSTREAMER_ROOT и типичные форматы)
+GST_CANDIDATES=(
+    "$GSTREAMER_ROOT"
+    "${GSTREAMER_ROOT//\\/\/}"
+    "/c/gstreamer/1.0/mingw_x86_64"
+    "C:/gstreamer/1.0/mingw_x86_64"
+)
+
+# Если pkg-config знает GStreamer (MSYS2 pacman)
+if pkg-config --exists gstreamer-1.0 2>/dev/null; then
+    GST_PKG_PREFIX=$(pkg-config --variable=prefix gstreamer-1.0 2>/dev/null)
+    [ -n "$GST_PKG_PREFIX" ] && GST_CANDIDATES+=("$GST_PKG_PREFIX")
+fi
+
+GST_ROOT=""
+for cand in "${GST_CANDIDATES[@]}"; do
+    [ -z "$cand" ] && continue
+    # GStreamer: bin/ с DLL и lib/gstreamer-1.0/ с плагинами
+    if [ -d "$cand/bin" ] && [ -d "$cand/lib/gstreamer-1.0" ]; then
+        GST_ROOT="$cand"
+        break
+    fi
+    # Только bin с DLL (standalone installer)
+    if [ -d "$cand/bin" ]; then
+        dll_count=$(find "$cand/bin" -maxdepth 1 -name "*.dll" 2>/dev/null | wc -l)
+        [ "$dll_count" -gt 0 ] && GST_ROOT="$cand" && break
+    fi
+done
+
+echo -e "\n${YELLOW}📚 Копирование GStreamer...${NC}"
+
+if [ -n "$GST_ROOT" ]; then
+    echo -e "   Найден: $GST_ROOT"
+
+    mkdir -p "$DIST_WIN/bin"
+
+    OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
+    if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
+        OBJDUMP_BIN="objdump"
+    fi
+
+    is_core_dll() {
+        local name="$1"
+        for core in "${CORE_DLLS[@]}"; do
+            if [ "${core,,}" = "${name,,}" ]; then
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    copy_dll_by_name() {
+        local name="$1"
+        if [ -z "$name" ]; then
+            return
+        fi
+        if [ -f "$GST_ROOT/bin/$name" ]; then
+            if is_core_dll "$name"; then
+                cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/" 2>/dev/null || true
+            else
+                cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+            fi
+            return
+        fi
+        if [ -f "$GST_ROOT/lib/$name" ]; then
+            if is_core_dll "$name"; then
+                cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/" 2>/dev/null || true
+            else
+                cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+            fi
+            return
+        fi
+        local found
+        found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
+        if [ -n "$found" ]; then
+            if is_core_dll "$name"; then
+                cp -L "$found" "$DIST_WIN/" 2>/dev/null || true
+            else
+                cp -L "$found" "$DIST_WIN/bin/" 2>/dev/null || true
+            fi
+        fi
+    }
+
+    collect_deps() {
+        local file="$1"
+        [ -f "$file" ] || return
+        "$OBJDUMP_BIN" -p "$file" 2>/dev/null | awk -F': ' '/DLL Name:/ {gsub(/\\r/,"",$2); print $2}'
+    }
+
+    MINIMAL_GST="${MINIMAL_GST:-1}"
+    if [ "$MINIMAL_GST" = "1" ]; then
+        mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
+        PLUGINS_DEFAULT=(
+            "libgstcoreelements.dll"
+            "libgstapp.dll"
+            "libgstrtp.dll"
+            "libgstudp.dll"
+            "libgstvideoconvert.dll"
+            "libgstvideoconvertscale.dll"
+            "libgstvideoscale.dll"
+            "libgstplayback.dll"
+            "libgsttypefindfunctions.dll"
+            "libgstd3d11.dll"
+            "libgstvideoparsersbad.dll"
+            "libgstvideoparsers.dll"
+            "libgstwinks.dll"
+        )
+        PLUGINS=("${PLUGINS_DEFAULT[@]}")
+        if [ -n "${GST_PLUGIN_ALLOWLIST:-}" ]; then
+            IFS=',' read -r -a PLUGINS <<< "$GST_PLUGIN_ALLOWLIST"
+        fi
+
+        needed_dlls=()
+        while IFS= read -r dep; do
+            needed_dlls+=("$dep")
+        done < <(collect_deps "$DIST_WIN/$EXE_NAME")
+
+        # Core runtime DLLs (safe minimal baseline)
+        CORE_DLLS=(
+            "libgobject-2.0-0.dll"
+            "libglib-2.0-0.dll"
+            "libgio-2.0-0.dll"
+            "libgmodule-2.0-0.dll"
+            "libgstreamer-1.0-0.dll"
+            "libgstbase-1.0-0.dll"
+            "libgstvideo-1.0-0.dll"
+            "libgstpbutils-1.0-0.dll"
+            "libgstapp-1.0-0.dll"
+            "libintl-8.dll"
+            "libffi-7.dll"
+            "libpcre2-8-0.dll"
+            "libgcc_s_seh-1.dll"
+            "libwinpthread-1.dll"
+            "libz-1.dll"
+        )
+        needed_dlls+=("${CORE_DLLS[@]}")
+
+        for plugin in "${PLUGINS[@]}"; do
+            [ -z "$plugin" ] && continue
+            if [ -f "$GST_ROOT/lib/gstreamer-1.0/$plugin" ]; then
+                cp -L "$GST_ROOT/lib/gstreamer-1.0/$plugin" "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
+                while IFS= read -r dep; do
+                    needed_dlls+=("$dep")
+                done < <(collect_deps "$GST_ROOT/lib/gstreamer-1.0/$plugin")
+            fi
+        done
+
+        # unique + copy deps
+        if [ "${#needed_dlls[@]}" -gt 0 ]; then
+            printf "%s\n" "${needed_dlls[@]}" | sort -u | while read -r dll; do
+                copy_dll_by_name "$dll"
+            done
+        fi
+
+        echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
+    else
+        if [ -d "$GST_ROOT/bin" ]; then
+            cp -L "$GST_ROOT"/bin/*.dll "$DIST_WIN/bin/" 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} bin/*.dll"
+        fi
+
+        if [ -d "$GST_ROOT/lib/gstreamer-1.0" ]; then
+            mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
+            cp -L "$GST_ROOT/lib/gstreamer-1.0"/*.dll "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} lib/gstreamer-1.0/*.dll"
+        fi
+    fi
+
+    # libintl_setlocale — явная проверка (gettext), критично для glib/GStreamer
+    for libintl in "$GST_ROOT/bin/libintl"*.dll "$GST_ROOT/lib/libintl"*.dll /ucrt64/bin/libintl*.dll /mingw64/bin/libintl*.dll; do
+        if [ -f "$libintl" ]; then
+            cp -L "$libintl" "$DIST_WIN/bin/" 2>/dev/null && cp -L "$libintl" "$DIST_WIN/" 2>/dev/null
+            echo -e "${GREEN}✓${NC} $(basename "$libintl") (libintl_setlocale)"
+            break
+        fi
+    done
+else
+    echo -e "${YELLOW}⚠ GStreamer не найден. Проверка путей:${NC}"
+    for cand in "${GST_CANDIDATES[@]}"; do
+        [ -z "$cand" ] && continue
+        if [ ! -d "$cand" ]; then
+            echo "   - $cand — папки нет"
+        elif [ ! -d "$cand/bin" ]; then
+            echo "   - $cand — нет bin/"
+        elif [ ! -d "$cand/lib/gstreamer-1.0" ]; then
+            echo "   - $cand — нет lib/gstreamer-1.0/"
+        else
+            echo "   - $cand — структура есть, но *.dll не найдены"
+        fi
+    done
+    echo ""
+    echo "   Установите GStreamer (MinGW x86_64):"
+    echo "   https://gstreamer.freedesktop.org/download/#windows"
+    echo "   Путь по умолчанию: C:\\gstreamer\\1.0\\mingw_x86_64"
+fi
+
+# 8. README
+cat > "$DIST_WIN/README.txt" << 'README'
+USB Bridge Client для Windows
+=============================
+
+Запуск:
+  USB_Bridge_Client.exe — напрямую
+
+Если папка содержит bin/ и lib/gstreamer-1.0/ — пакет портативный.
+Используется минимальный набор плагинов GStreamer.
+
+Если GStreamer не вложен — установите GStreamer (MinGW x86_64):
+  https://gstreamer.freedesktop.org/download/#windows
+
+Конфигурация: config.yaml (в этой папке или %APPDATA%\usbridge-client\)
+README
+
+echo -e "${GREEN}✓${NC} README.txt"
+
+# 9. Итог
+echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
+echo -e "   Результат: $DIST_WIN/"
+echo -e "   Содержимое:"
+ls -la "$DIST_WIN/"
+echo ""
+echo -e "   Для запуска на другой машине — скопируйте папку $DIST_WIN целиком."
+echo ""

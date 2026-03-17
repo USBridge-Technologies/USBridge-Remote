@@ -1,0 +1,17 @@
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+sys_root = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+pkg_config_libdir = ''
+needs_exe_wrapper = true
+
+[binaries]
+c = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang'
+cpp = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang++'
+ar = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+pkg-config = 'false'
