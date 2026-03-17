@@ -38,7 +38,7 @@ func NewFRPService(serverAddr string, serverPort int, authToken string) *FRPServ
 }
 
 // Connect establishes QUIC encrypted connection to FRP server and sets up tunnels
-func (f *FRPService) Connect(httpPort, rtspPort, nbdPort, videoPort int) error {
+func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 	if f.isRunning {
 		return fmt.Errorf("FRP service already running")
 	}

@@ -8,7 +8,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/pion/rtp v1.10.1
-	github.com/pion/webrtc/v3 v3.3.6
 	github.com/pojntfx/go-nbd v0.3.2
 	github.com/samber/lo v1.52.0
 	github.com/sirupsen/logrus v1.9.4

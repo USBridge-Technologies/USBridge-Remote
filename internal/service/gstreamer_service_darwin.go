@@ -716,7 +716,7 @@ func (gs *GStreamerService) monitorProcess() {
 	}
 }
 
-// Disconnect отключается от RTSP потока
+// Disconnect отключается от RTP/UDP потока
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
@@ -726,7 +726,7 @@ func (gs *GStreamerService) Disconnect() error {
 		return nil
 	}
 
-	logrus.Info("🔌 macOS: Отключение от RTSP потока...")
+	logrus.Info("🔌 macOS: Отключение от RTP/UDP потока...")
 
 	gs.manualDisconnect = true
 	gs.isConnected = false
@@ -796,7 +796,7 @@ func (gs *GStreamerService) Disconnect() error {
 	return nil
 }
 
-// attemptReconnect пытается переподключиться к RTSP потоку
+// attemptReconnect пытается переподключиться к RTP/UDP потоку
 func (gs *GStreamerService) attemptReconnect() {
 	gs.mutex.Lock()
 
@@ -871,7 +871,7 @@ func (gs *GStreamerService) attemptReconnect() {
 	logrus.Infof("⏳ macOS: Задержка перед переподключением: %v", delay)
 	time.Sleep(delay)
 
-	if err := gs.ConnectToRTSP(); err != nil {
+	if err := gs.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ macOS: Ошибка переподключения GStreamer #%d: %v", attempt, err)
 		gs.mutex.Lock()
 		gs.isReconnecting = false
@@ -928,22 +928,21 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 	}
 }
 
-// UpdateHost обновляет хост MediaMTX
+// UpdateHost обновляет хост видеопотока
 func (gs *GStreamerService) UpdateHost(host string) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
-	gs.config.MediaMTXHost = host
+	gs.config.VideoHost = host
 	logrus.Infof("🔧 macOS: GStreamer сервис: хост обновлен на %s", host)
 }
 
-// UpdateRTSPPort обновляет RTSP порт (совместимость, теперь используется VideoUDPPort)
-func (gs *GStreamerService) UpdateRTSPPort(port int) {
+// UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
+func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
-	gs.config.MediaMTXRTSP = port
-	gs.config.VideoUDPPort = port
+		gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 macOS: GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
@@ -978,8 +977,8 @@ func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.reconnectAttempts = 0
 }
 
-// ConnectToRTSP подключается к UDP H.264 (через QUIC/SUDP туннель или напрямую)
-func (gs *GStreamerService) ConnectToRTSP() error {
+// ConnectToRTP подключается к RTP H.264 (через QUIC/SUDP туннель или напрямую)
+func (gs *GStreamerService) ConnectToRTP() error {
 	port := gs.config.VideoUDPPort
 	if port <= 0 {
 		port = models.DefaultVideoUDPPort
@@ -1008,6 +1007,6 @@ func (gs *GStreamerService) Reconnect() error {
 
 	// Подключаемся заново
 	logrus.Info("🔗 macOS: Подключаемся к новому устройству...")
-	return gs.ConnectToRTSP()
+	return gs.ConnectToRTP()
 }
 

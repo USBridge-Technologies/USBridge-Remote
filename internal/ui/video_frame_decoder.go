@@ -145,7 +145,7 @@ func (vfd *VideoFrameDecoder) CreateAnimatedFrame(width, height int) image.Image
 	}
 
 	// Добавляем информацию о времени
-	vfd.drawText(img, "WebRTC Video Stream", 50, 50, color.White)
+	vfd.drawText(img, "RTP/UDP Video Stream", 50, 50, color.White)
 	vfd.drawText(img, time.Now().Format("15:04:05.000"), 50, 80, color.White)
 	vfd.drawText(img, "Frame: "+fmt.Sprintf("%d", vfd.frameCount+1), 50, 110, color.White)
 

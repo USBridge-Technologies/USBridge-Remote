@@ -173,11 +173,11 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ConnectingRTSP, attempt, maxRetries))
+			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ConnectingRTP, attempt, maxRetries))
 		})
 		logrus.Infof("🔄 Попытка подключения к UDP H.264 через GStreamer #%d/%d", attempt, maxRetries)
 
-		err := vw.gstreamerService.ConnectToRTSP()
+		err := vw.gstreamerService.ConnectToRTP()
 		if err != nil {
 			logrus.Errorf("❌ Попытка подключения #%d неудачна: %v", attempt, err)
 
@@ -186,7 +186,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 				fyne.Do(func() {
 					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.VideoLaunchFailed, maxRetries))
 				})
-				logrus.Errorf("❌ Все %d попыток подключения к RTSP неудачны", maxRetries)
+				logrus.Errorf("❌ Все %d попыток подключения к RTP/UDP неудачны", maxRetries)
 				return false
 			}
 
@@ -209,7 +209,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 	return false
 }
 
-// updateWebRTCStats переименован в updateGStreamerStats
+// updateGStreamerStats обновляет статистику RTP/UDP потока
 func (vw *VideoWidget) updateGStreamerStats() {
 	if vw.gstreamerService == nil {
 		return

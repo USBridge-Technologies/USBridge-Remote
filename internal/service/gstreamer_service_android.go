@@ -1528,7 +1528,7 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 
 // UpdateHost обновляет хост
 func (gs *GStreamerService) UpdateHost(host string) {
-	gs.config.MediaMTXHost = host
+	gs.config.VideoHost = host
 }
 
 // ConnectToUDPViaPipe — pipe mode для FRP relay (Android: заглушка)
@@ -1537,20 +1537,19 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	return fmt.Errorf("UDP relay (pipe) пока не реализован на Android, используйте прямое подключение")
 }
 
-// ConnectToRTSP — алиас для ConnectToUDP (совместимость)
-func (gs *GStreamerService) ConnectToRTSP() error {
+// ConnectToRTP — алиас для ConnectToUDP (совместимость)
+func (gs *GStreamerService) ConnectToRTP() error {
 	port := gs.config.VideoUDPPort
 	if port <= 0 {
 		port = models.DefaultVideoUDPPort
 	}
-	logrus.Infof("🎬 Android: ConnectToRTSP port=%d (VideoUDPPort, FRP proxy шлёт сюда)", port)
+	logrus.Infof("🎬 Android: ConnectToRTP port=%d (VideoUDPPort, FRP proxy шлёт сюда)", port)
 	return gs.ConnectToUDP(port)
 }
 
-// UpdateRTSPPort обновляет RTSP порт (совместимость, теперь VideoUDPPort)
-func (gs *GStreamerService) UpdateRTSPPort(port int) {
-	gs.config.MediaMTXRTSP = port
-	gs.config.VideoUDPPort = port
+// UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
+func (gs *GStreamerService) UpdateVideoPort(port int) {
+		gs.config.VideoUDPPort = port
 }
 
 // UpdateVideoUDPPort обновляет порт приёма UDP видео
@@ -1597,5 +1596,5 @@ func (gs *GStreamerService) Reconnect() error {
 
 	// Подключаемся заново
 	logrus.Info("🔗 Android: Подключаемся к новому устройству...")
-	return gs.ConnectToRTSP()
+	return gs.ConnectToRTP()
 }

@@ -642,7 +642,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		logrus.Infof("🔍 [DEBUG] FRP сервис создан")
 
 		// Устанавливаем QUIC туннель через FRP
-		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.MediaMTXRTSP, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
+		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
 			logrus.Errorf("❌ Ошибка установки QUIC туннеля: %v", err)
 			fyne.Do(func() {
 				mw.connectionBtn.SetText("🔌")
@@ -665,15 +665,15 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.tokenEntry.Disable()
 
 		// Подключаемся к локальным портам которые слушают STCP visitors
-		httpPort, rtspPort, _ := mw.frpService.GetServerPorts()
+		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
 
 		// Приложение подключается к локальным visitor портам
 		mw.usbClient = api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
 
 		// GStreamer подключается к локальным visitor портам (UDP видео)
 		mw.gstreamerService.UpdateHost("127.0.0.1")
-		mw.gstreamerService.UpdateRTSPPort(rtspPort) // FRP туннелирует видео порт
-		mw.gstreamerService.UpdateVideoUDPPort(rtspPort)
+		mw.gstreamerService.UpdateVideoPort(videoPort) // FRP туннелирует видео порт
+		mw.gstreamerService.UpdateVideoUDPPort(videoPort)
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
 

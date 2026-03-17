@@ -36,7 +36,6 @@ type LocalizedStrings struct {
 	FullscreenButton        string
 	StartingVideoCapture    string
 	WaitingServerStart      string
-	ConnectingWebRTC        string
 	VideoActive             string
 	StoppingVideoCapture    string
 	VideoStopped            string
@@ -213,7 +212,7 @@ type LocalizedStrings struct {
 	StartVideo              string
 	Starting                string
 	SwitchingDevice         string
-	ConnectingRTSP          string
+	ConnectingRTP          string
 	VideoLaunchFailed       string
 	CancelVideoStart        string
 
@@ -271,14 +270,6 @@ type LocalizedStrings struct {
 	VideoWaitingConnection  string // "Waiting for connection..."
 	VideoInfoReceived       string // "Video information received"
 	VideoInfoUnavailable    string // "Video information unavailable"
-	WebRTCError             string // "WebRTC error: %v"
-	WebRTCConnected         string // "WebRTC connection established"
-	WebRTCDisconnected      string // "WebRTC connection lost"
-	WebRTCFailed            string // "WebRTC connection failed"
-	WebRTCStatsFormat       string // "WebRTC: %s | State: %s | Dropped: %d | Low latency: %s"
-	FallbackModeTestVideo   string // "Fallback: generating test video..."
-	FallbackModeFrame       string // "Fallback: frame %d (WebRTC unavailable)"
-	FallbackModeActive      string // "Fallback mode active (WebRTC unavailable)"
 	VirtualKeyboardClickToType string // "click to type"
 	UnitPx                  string // "px"
 	UnitPercent             string // "%"
@@ -344,7 +335,6 @@ func EN() *LocalizedStrings {
 		FullscreenButton:        "🔍",
 		StartingVideoCapture:    "Starting video capture...",
 		WaitingServerStart:      "Waiting for server to start...",
-		ConnectingWebRTC:        "Connecting to WebRTC (%d/%d)...",
 		VideoActive:             "✅ Video capture active",
 		StoppingVideoCapture:    "Stopping video capture...",
 		VideoStopped:            "🛑 Video capture stopped",
@@ -519,12 +509,12 @@ func EN() *LocalizedStrings {
 		StartVideo:              "Start",
 		Starting:                "Starting...",
 		SwitchingDevice:         "Switching device...",
-		ConnectingRTSP:          "Connecting to RTSP (%d/%d)...",
+		ConnectingRTP:          "Connecting to RTP/UDP (%d/%d)...",
 		VideoLaunchFailed:       "Failed to connect after %d attempts",
 		CancelVideoStart:        "Cancel video start",
 
 		// GStreamer Status
-		GStreamerConnected:      "GStreamer RTSP connection established",
+		GStreamerConnected:      "GStreamer RTP/UDP connection established",
 		GStreamerPaused:         "GStreamer paused",
 		GStreamerDisconnected:   "GStreamer disconnected",
 		GStreamerEndOfStream:    "GStreamer: end of stream",
@@ -577,14 +567,6 @@ func EN() *LocalizedStrings {
 		VideoWaitingConnection:  "Waiting for connection...",
 		VideoInfoReceived:       "Video information received",
 		VideoInfoUnavailable:    "Video information unavailable",
-		WebRTCError:             "WebRTC error: %v",
-		WebRTCConnected:         "WebRTC connection established",
-		WebRTCDisconnected:      "WebRTC connection lost",
-		WebRTCFailed:            "WebRTC connection failed",
-		WebRTCStatsFormat:       "WebRTC: %s | State: %s | Dropped: %d | Low latency: %s",
-		FallbackModeTestVideo:   "Fallback: generating test video...",
-		FallbackModeFrame:       "Fallback: frame %d (WebRTC unavailable)",
-		FallbackModeActive:      "Fallback mode active (WebRTC unavailable)",
 		VirtualKeyboardClickToType: "click to type",
 		UnitPx:                  "px",
 		UnitPercent:             "%",
@@ -651,7 +633,6 @@ func RU() *LocalizedStrings {
 		FullscreenButton:        "🔍",
 		StartingVideoCapture:    "Запуск видео захвата...",
 		WaitingServerStart:      "Ожидание запуска сервера...",
-		ConnectingWebRTC:        "Подключение к WebRTC (%d/%d)...",
 		VideoActive:             "✅ Видео захват активен",
 		StoppingVideoCapture:    "Остановка видео захвата...",
 		VideoStopped:            "🛑 Видео захват остановлен",
@@ -826,12 +807,12 @@ func RU() *LocalizedStrings {
 		StartVideo:              "Запустить",
 		Starting:                "Запуск...",
 		SwitchingDevice:         "Переключение устройства...",
-		ConnectingRTSP:          "Подключение к RTSP (%d/%d)...",
+		ConnectingRTP:          "Подключение к RTP/UDP (%d/%d)...",
 		VideoLaunchFailed:       "Не удалось подключиться после %d попыток",
 		CancelVideoStart:        "Отмена запуска видео",
 
 		// GStreamer Status
-		GStreamerConnected:      "GStreamer RTSP соединение установлено",
+		GStreamerConnected:      "GStreamer RTP/UDP соединение установлено",
 		GStreamerPaused:         "GStreamer приостановлен",
 		GStreamerDisconnected:   "GStreamer отключен",
 		GStreamerEndOfStream:    "GStreamer: конец потока",
@@ -884,14 +865,6 @@ func RU() *LocalizedStrings {
 		VideoWaitingConnection:  "Ожидание подключения...",
 		VideoInfoReceived:       "Информация о видео получена",
 		VideoInfoUnavailable:    "Информация о видео недоступна",
-		WebRTCError:             "WebRTC ошибка: %v",
-		WebRTCConnected:         "WebRTC соединение установлено",
-		WebRTCDisconnected:      "WebRTC соединение потеряно",
-		WebRTCFailed:            "WebRTC соединение не удалось",
-		WebRTCStatsFormat:       "WebRTC: %s | Состояние: %s | Сброшено кадров: %d | Режим низкой задержки: %s",
-		FallbackModeTestVideo:   "Fallback: генерация тестового видео...",
-		FallbackModeFrame:       "Fallback: кадр %d (WebRTC недоступен)",
-		FallbackModeActive:      "Fallback режим активен (WebRTC недоступен)",
 		VirtualKeyboardClickToType: "нажмите для ввода",
 		UnitPx:                  "px",
 		UnitPercent:             "%",

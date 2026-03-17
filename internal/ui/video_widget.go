@@ -36,13 +36,11 @@ type VideoWidget struct {
 	// Состояние
 	isStreaming          bool
 	streamURL            string
-	isWebRTCConnected    bool
 	isGStreamerConnected bool
 	isMouseConnected     bool // Флаг подключенной мыши
 
 	// Сервисы
 	usbClient        *api.USBClient
-	webrtcService    *service.WebRTCService
 	gstreamerService *service.GStreamerService
 	frpService       *service.FRPService // для проверки режима FRP
 	updateStatus     func()
@@ -90,21 +88,6 @@ type VideoWidget struct {
 	touchDownDelayTimer *time.Timer
 	touchDownDelayMu    sync.Mutex
 	touchActive         bool // touch(true) уже отправлен и ещё не отправлен touch(false); MouseMoved шлёт только при true
-}
-
-// NewVideoWidget создает новый виджет видео
-func NewVideoWidget(usbClient *api.USBClient, webrtcService *service.WebRTCService, updateStatus func()) *VideoWidget {
-	vw := &VideoWidget{
-		usbClient:     usbClient,
-		webrtcService: webrtcService,
-		updateStatus:  updateStatus,
-		isStreaming:   false,
-		frameDecoder:  NewVideoFrameDecoder(),
-	}
-
-	vw.createInterface()
-	vw.setupWebRTCCallbacks()
-	return vw
 }
 
 // createInterface создает интерфейс виджета
@@ -194,89 +177,15 @@ func (vw *VideoWidget) handleStartVideo() {
 
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
-	// Если есть GStreamer сервис, используем его
-	if vw.gstreamerService != nil {
-		vw.handleVideoStartWithParamsGStreamer(request)
-		return
-	}
-
-	// Иначе используем старый WebRTC метод
-	fyne.Do(func() {
-		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
-		vw.startBtn.Disable()
-	})
-
-	// Запускаем видео захват на USB Bridge 2 с параметрами
-	if err := vw.usbClient.StartVideo(request); err != nil {
-		logrus.Errorf("Ошибка запуска видео: %v", err)
+	if vw.gstreamerService == nil {
+		logrus.Warn("⚠️ GStreamer сервис не инициализирован")
 		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-			vw.startBtn.Enable()
+			vw.statusLabel.SetText(i18n.Current.VideoLaunchFailed)
 		})
 		return
 	}
 
-	// Если видео уже было запущено, логируем это
-	logrus.Info("✅ Видео захват готов к работе")
-
-	// Даем время серверу на запуск (1 секунда для реалтайма)
-	fyne.Do(func() {
-		vw.statusLabel.SetText(i18n.Current.WaitingServerStart)
-	})
-	logrus.Info("⏳ Waiting for server to start (1 second)...")
-	time.Sleep(1 * time.Second)
-
-	// Пытаемся подключиться к WebRTC потоку с множественными попытками
-	vw.connectToWebRTCWithRetries()
-
-	vw.isStreaming = true
-	vw.updateButtons()
-	vw.updateStatus()
-
-	// Проверяем статус мыши сразу после запуска видео
-	vw.checkMouseConnected()
-}
-
-// connectToWebRTCWithRetries пытается подключиться к WebRTC с множественными попытками
-func (vw *VideoWidget) connectToWebRTCWithRetries() {
-	const maxRetries = 5
-	const retryDelay = 3 * time.Second
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ConnectingWebRTC, attempt, maxRetries))
-		})
-		logrus.Infof("🔄 Попытка подключения к WebRTC #%d/%d", attempt, maxRetries)
-
-		if err := vw.webrtcService.ConnectToMediaMTX(); err != nil {
-			logrus.Errorf("❌ Попытка подключения #%d неудачна: %v", attempt, err)
-
-			if attempt == maxRetries {
-				// Последняя попытка неудачна
-				fyne.Do(func() {
-					vw.statusLabel.SetText(fmt.Sprintf("❌ "+i18n.Current.VideoLaunchFailed, maxRetries))
-				})
-				logrus.Errorf("❌ Все %d попыток подключения к WebRTC неудачны", maxRetries)
-
-				// Включаем fallback режим
-				vw.enableFallbackMode()
-				return
-			}
-
-			// Ждем перед следующей попыткой
-			logrus.Infof("⏳ Ожидание %v перед следующей попыткой...", retryDelay)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Успешное подключение
-		vw.isWebRTCConnected = true
-		fyne.Do(func() {
-			vw.statusLabel.SetText(i18n.Current.VideoActive)
-		})
-		logrus.Info("✅ WebRTC connection established successfully")
-		return
-	}
+	vw.handleVideoStartWithParamsGStreamer(request)
 }
 
 // handleStopVideo обрабатывает остановку видео
@@ -297,14 +206,10 @@ func (vw *VideoWidget) handleStopVideo() {
 	// Отключаемся от WebSocket для мыши
 	vw.usbClient.DisconnectMouseWebSocket()
 
-	// Отключаемся от WebRTC/GStreamer потока
+	// Отключаемся от GStreamer потока
 	if vw.gstreamerService != nil {
 		if err := vw.gstreamerService.Disconnect(); err != nil {
 			logrus.Errorf("Ошибка отключения GStreamer: %v", err)
-		}
-	} else if vw.webrtcService != nil {
-		if err := vw.webrtcService.Disconnect(); err != nil {
-			logrus.Errorf("Ошибка отключения WebRTC: %v", err)
 		}
 	}
 
@@ -316,7 +221,6 @@ func (vw *VideoWidget) handleStopVideo() {
 	}
 
 	vw.isStreaming = false
-	vw.isWebRTCConnected = false
 	vw.isGStreamerConnected = false
 	vw.isMouseConnected = false
 
@@ -369,23 +273,15 @@ func (vw *VideoWidget) Refresh() {
 
 	fyne.Do(func() {
 		if videoInfo.Success && videoInfo.Data != nil {
-			// Информация о видео получена - обновляем только если нет активного WebRTC статуса
-			if !vw.isWebRTCConnected {
-				vw.infoLabel.SetText(i18n.Current.VideoInfoReceived)
-			}
+			vw.infoLabel.SetText(i18n.Current.VideoInfoReceived)
 		} else {
-			// Информация о видео недоступна - обновляем только если нет активного WebRTC статуса
-			if !vw.isWebRTCConnected {
-				vw.infoLabel.SetText(i18n.Current.VideoInfoUnavailable)
-			}
+			vw.infoLabel.SetText(i18n.Current.VideoInfoUnavailable)
 		}
 	})
 
-	// Обновляем статистику WebRTC/GStreamer
+	// Обновляем статистику GStreamer
 	if vw.gstreamerService != nil {
 		vw.updateGStreamerStats()
-	} else {
-		vw.updateWebRTCStats()
 	}
 }
 
@@ -466,27 +362,6 @@ func (vw *VideoWidget) checkMouseConnected() {
 	}
 }
 
-// setupWebRTCCallbacks настраивает callbacks для WebRTC
-func (vw *VideoWidget) setupWebRTCCallbacks() {
-	// Callback для получения видео кадров
-	vw.webrtcService.SetOnFrameReceived(func(frame image.Image) {
-		vw.handleVideoFrame(frame)
-	})
-
-	// Callback для изменения состояния соединения
-	vw.webrtcService.SetOnStateChanged(func(state service.ICEConnectionState) {
-		vw.handleWebRTCStateChange(state)
-	})
-
-	// Callback для ошибок
-	vw.webrtcService.SetOnError(func(err error) {
-		logrus.Errorf("WebRTC ошибка: %v", err)
-		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.WebRTCError, err))
-		})
-	})
-}
-
 // handleVideoFrame обрабатывает полученный видео кадр
 func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	if frame == nil {
@@ -529,29 +404,6 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	})
 }
 
-// handleWebRTCStateChange обрабатывает изменение состояния WebRTC
-func (vw *VideoWidget) handleWebRTCStateChange(state service.ICEConnectionState) {
-	fyne.Do(func() {
-		stateStr := fmt.Sprintf("%v", state)
-		switch stateStr {
-		case "connected":
-			vw.isWebRTCConnected = true
-			vw.infoLabel.SetText("✅ " + i18n.Current.WebRTCConnected)
-			// Очищаем UI при переподключении чтобы убрать старый кадр
-			vw.clearVideo()
-			// Сбрасываем время последнего кадра чтобы новые кадры не считались старыми
-			vw.frameMutex.Lock()
-			vw.lastFrameTime = time.Time{}
-			vw.frameMutex.Unlock()
-		case "disconnected":
-			vw.isWebRTCConnected = false
-			vw.infoLabel.SetText("⚠️ " + i18n.Current.WebRTCDisconnected)
-		case "failed":
-			vw.isWebRTCConnected = false
-			vw.infoLabel.SetText("❌ " + i18n.Current.WebRTCFailed)
-		}
-	})
-}
 
 // handleFullscreen обрабатывает переключение в полноэкранный режим
 func (vw *VideoWidget) handleFullscreen() {
@@ -643,28 +495,6 @@ func (vw *VideoWidget) updateStats() {
 	vw.statsLabel.SetText(stats)
 }
 
-// updateWebRTCStats обновляет статистику WebRTC
-func (vw *VideoWidget) updateWebRTCStats() {
-	if vw.webrtcService == nil {
-		return
-	}
-
-	stats := vw.webrtcService.GetStats()
-	connected := stats["connected"].(bool)
-	state := stats["connection_state"].(string)
-	framesDropped := stats["frames_dropped"].(int64)
-	lowLatencyMode := stats["low_latency_mode"].(bool)
-
-	webrtcInfo := fmt.Sprintf(i18n.Current.WebRTCStatsFormat,
-		map[bool]string{true: "✅", false: "❌"}[connected],
-		state,
-		framesDropped,
-		map[bool]string{true: "✅", false: "❌"}[lowLatencyMode])
-
-	fyne.Do(func() {
-		vw.infoLabel.SetText(webrtcInfo)
-	})
-}
 
 // SetParentWindow устанавливает родительское окно для диалогов
 func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
@@ -847,50 +677,6 @@ func (vw *VideoWidget) GetFrameDecoder() *VideoFrameDecoder {
 	return vw.frameDecoder
 }
 
-// enableFallbackMode включает fallback режим с тестовым видео
-func (vw *VideoWidget) enableFallbackMode() {
-	logrus.Info("🔄 Включение fallback режима с тестовым видео")
-
-	fyne.Do(func() {
-		vw.statusLabel.SetText("🔄 " + i18n.Current.FallbackModeTestVideo)
-	})
-
-	// Запускаем генерацию тестовых кадров
-	go func() {
-		frameCount := 0
-		ticker := time.NewTicker(100 * time.Millisecond) // 10 FPS
-		defer ticker.Stop()
-
-		for range ticker.C {
-			frameCount++
-
-			// Создаем анимированный тестовый кадр
-			testFrame := vw.frameDecoder.CreateAnimatedFrame(800, 600)
-
-			// Отображаем его
-			vw.handleVideoFrame(testFrame)
-
-			// Обновляем статус периодически
-			if frameCount%50 == 0 { // каждые 5 секунд
-				fyne.Do(func() {
-					vw.statusLabel.SetText(fmt.Sprintf("🎭 "+i18n.Current.FallbackModeFrame, frameCount))
-				})
-			}
-
-			// Останавливаемся если видео остановлено
-			if !vw.isStreaming {
-				logrus.Info("🛑 Остановка fallback режима")
-				return
-			}
-		}
-	}()
-
-	fyne.Do(func() {
-		vw.statusLabel.SetText("🎭 " + i18n.Current.FallbackModeActive)
-	})
-
-	logrus.Info("✅ Fallback режим активирован")
-}
 
 // startDesktopMousePolling запускает горутину polling для плавного управления мышью
 func (vw *VideoWidget) startDesktopMousePolling() {

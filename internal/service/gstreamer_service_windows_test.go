@@ -26,11 +26,11 @@ func TestWindowsLiveStreamDecoding(t *testing.T) {
 		atomic.AddInt64(&framesReceived, 1)
 	})
 
-	if err := gs.ConnectToRTSP(); err != nil {
+	if err := gs.ConnectToRTP(); err != nil {
 		if strings.Contains(err.Error(), "Failed to change state to PLAYING") {
 			t.Skipf("порт %d занят или недоступен — закройте приложение и другие процессы, затем повторите: %v", models.DefaultVideoUDPPort, err)
 		}
-		t.Fatalf("ConnectToRTSP (как в UI): %v", err)
+		t.Fatalf("ConnectToRTP (как в UI): %v", err)
 	}
 	defer gs.Disconnect()
 

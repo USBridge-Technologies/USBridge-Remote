@@ -446,7 +446,7 @@ func (decoder *H264Decoder) createImageFromH264Data(nalData []byte, nalType byte
 	decoder.drawText(img, fmt.Sprintf("Size: %dx%d", width, height), 50, 140, color.White)
 	decoder.drawText(img, fmt.Sprintf("NAL: %d bytes", len(nalData)), 50, 170, color.White)
 	decoder.drawText(img, fmt.Sprintf("Total: %d bytes", len(fullH264Data)), 50, 200, color.White)
-	decoder.drawText(img, "WebRTC Live Stream (1080p)", 50, 230, color.White)
+	decoder.drawText(img, "RTP/UDP Live Stream (1080p)", 50, 230, color.White)
 
 	return img, nil
 }

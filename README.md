@@ -170,8 +170,6 @@ supported_types: [".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".
 nbd_export_read_only: true
 
 video_udp_port: 55000
-stun_servers: ["stun:stun.l.google.com:19302"]
-turn_servers: []
 
 video_codec: "H.264"
 video_bitrate: 2000

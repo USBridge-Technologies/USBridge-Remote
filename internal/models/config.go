@@ -31,16 +31,11 @@ type AppConfig struct {
 	SupportedTypes   []string `json:"supported_types" mapstructure:"supported_types"`     // Поддерживаемые типы файлов
 	NBDExportReadOnly bool    `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = экспорт только для чтения (безопасный дефолт), false = RW через overlay
 
-	// Порты видеосервиса (legacy)
-	MediaMTXHost   string   `json:"-"`                                              // Хост видеосервиса (устанавливается динамически из адресной строки)
-	MediaMTXWebRTC int      `json:"mediamtx_webrtc" mapstructure:"mediamtx_webrtc"` // Порт WebRTC (8889)
-	MediaMTXRTSP   int      `json:"mediamtx_rtsp" mapstructure:"mediamtx_rtsp"`     // Порт RTSP (8554)
-	MediaMTXHLS    int      `json:"mediamtx_hls" mapstructure:"mediamtx_hls"`       // Порт HLS (8888)
+	// Хост видеопотока (задаётся из адресной строки; в конфиге не хранится)
+	VideoHost string `json:"-"`
 
 	// Видео UDP (новый протокол)
 	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма H.264 по UDP (55000 — свободен на Win/Mac/Linux/Android)
-	STUNServers    []string `json:"stun_servers" mapstructure:"stun_servers"`       // STUN серверы
-	TURNServers    []string `json:"turn_servers" mapstructure:"turn_servers"`       // TURN серверы
 
 	// Видео настройки
 	VideoCodec     string `json:"video_codec" mapstructure:"video_codec"`     // H.264, VP8, VP9
@@ -87,15 +82,8 @@ func DefaultConfig() *AppConfig {
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
 		NBDExportReadOnly: true, // безопасный дефолт: RO; false = экспорт RW через overlay (база не портится)
 
-		// Видео порты (legacy)
-		MediaMTXWebRTC: 8889,
-		MediaMTXRTSP:   8554,
-		MediaMTXHLS:    8888,
-
 		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
 		VideoUDPPort: DefaultVideoUDPPort,
-		STUNServers:    []string{"stun:stun.l.google.com:19302"},
-		TURNServers:    []string{},
 
 		// Видео
 		VideoCodec:     "H.264",

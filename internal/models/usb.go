@@ -70,10 +70,6 @@ type VideoStatus struct {
 	BufferSize      int    `json:"buffer_size"`
 	StreamFormat    string `json:"stream_format"`
 	LowLatency      bool   `json:"low_latency"`
-	MediaMTXEnabled bool   `json:"mediamtx_enabled"`
-	MediaMTXPort    int    `json:"mediamtx_port"`
-	RTSPPath        string `json:"rtsp_path"`
-	RTSPURL         string `json:"rtsp_url"`
 	ClientsCount    int    `json:"clients_count"`
 	Streaming       bool   `json:"streaming"`
 }
@@ -223,9 +219,6 @@ type ConfigRequest struct {
 	VideoBufferSize   int              `json:"video_buffer_size,omitempty"`
 	VideoStreamFormat string           `json:"video_stream_format,omitempty"`
 	VideoLowLatency   bool             `json:"video_low_latency,omitempty"`
-	MediaMTXEnabled   bool             `json:"mediamtx_enabled,omitempty"`
-	MediaMTXPort      int              `json:"mediamtx_port,omitempty"`
-	RTSPPath          string           `json:"rtsp_path,omitempty"`
 	WebServer         *WebServerConfig `json:"web_server,omitempty"`
 	CheckInterval     int              `json:"check_interval,omitempty"`
 }
