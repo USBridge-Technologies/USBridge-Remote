@@ -136,10 +136,8 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 	// Absolute: чтобы клик попал точно под курсор, сначала синхронизируем позицию.
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.lastAbsX = x
-		t.videoWidget.lastAbsY = y
 		go func() {
-			_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			t.videoWidget.SendAbsolutePosition(x, y, true)
 			_ = t.videoWidget.usbClient.SendMouseClick(1)
 		}()
 		return
@@ -168,10 +166,8 @@ func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 	}
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.lastAbsX = x
-		t.videoWidget.lastAbsY = y
 		go func() {
-			_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			t.videoWidget.SendAbsolutePosition(x, y, true)
 			_ = t.videoWidget.usbClient.SendMouseClick(2)
 		}()
 		return
@@ -222,10 +218,8 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	// Absolute: синхронизируем позицию сразу при нажатии (минимизировать рассинхрон с последующим кликом).
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.lastAbsX = x
-		t.videoWidget.lastAbsY = y
 		go func() {
-			_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			t.videoWidget.SendAbsolutePosition(x, y, true)
 		}()
 	}
 }
@@ -329,13 +323,9 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	// Absolute: позиционирование курсора через touch_position (без tip), кнопки остаются мышиными.
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
-			t.videoWidget.lastAbsX = x
-			t.videoWidget.lastAbsY = y
-			go func() {
-				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
-			}()
-		}
+		go func() {
+			t.videoWidget.SendAbsolutePosition(x, y, false)
+		}()
 	}
 
 	t.videoWidget.currentMouseX = ev.Position.X
@@ -351,8 +341,9 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	t.videoWidget.currentMouseY = ev.Position.Y
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.lastAbsX = x
-		t.videoWidget.lastAbsY = y
+		go func() {
+			t.videoWidget.SendAbsolutePosition(x, y, true)
+		}()
 	}
 }
 
@@ -409,7 +400,7 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 		// MouseMoved/TouchMove обновляют lastAbsX/Y, но на некоторых платформах скролл может прийти без движения.
 		x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
 		go func() {
-			_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			t.videoWidget.SendAbsolutePosition(x, y, true)
 			_ = t.videoWidget.usbClient.SendMouseScroll(scroll)
 		}()
 		return
@@ -443,10 +434,8 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	}
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.lastAbsX = x
-		t.videoWidget.lastAbsY = y
 		go func() {
-			_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+			t.videoWidget.SendAbsolutePosition(x, y, true)
 		}()
 	}
 }
@@ -482,10 +471,8 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if dx < 10 && dy < 10 && duration < 300*time.Millisecond {
 		if t.videoWidget.GetMouseInputMode() == "absolute" {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			t.videoWidget.lastAbsX = x
-			t.videoWidget.lastAbsY = y
 			go func() {
-				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+				t.videoWidget.SendAbsolutePosition(x, y, true)
 				_ = t.videoWidget.usbClient.SendMouseClick(1)
 			}()
 		} else {
@@ -496,10 +483,8 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	} else if duration >= 1*time.Second && dx < 20 && dy < 20 {
 		if t.videoWidget.GetMouseInputMode() == "absolute" {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			t.videoWidget.lastAbsX = x
-			t.videoWidget.lastAbsY = y
 			go func() {
-				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
+				t.videoWidget.SendAbsolutePosition(x, y, true)
 				_ = t.videoWidget.usbClient.SendMouseClick(2)
 			}()
 		} else {
@@ -536,13 +521,9 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
-			t.videoWidget.lastAbsX = x
-			t.videoWidget.lastAbsY = y
-			go func() {
-				_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
-			}()
-		}
+		go func() {
+			t.videoWidget.SendAbsolutePosition(x, y, false)
+		}()
 		t.videoWidget.lastMouseX = ev.Position.X
 		t.videoWidget.lastMouseY = ev.Position.Y
 		return
@@ -595,13 +576,9 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 			}
 		} else if t.videoWidget.GetMouseInputMode() == "absolute" {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			if x != t.videoWidget.lastAbsX || y != t.videoWidget.lastAbsY {
-				t.videoWidget.lastAbsX = x
-				t.videoWidget.lastAbsY = y
-				go func() {
-					_ = t.videoWidget.usbClient.SendTouchPositionOnly(x, y, false)
-				}()
-			}
+			go func() {
+				t.videoWidget.SendAbsolutePosition(x, y, false)
+			}()
 			t.videoWidget.lastMouseX = ev.Position.X
 			t.videoWidget.lastMouseY = ev.Position.Y
 		} else {

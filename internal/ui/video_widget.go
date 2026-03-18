@@ -81,6 +81,7 @@ type VideoWidget struct {
 	lastTouchY        int
 	lastAbsX          int       // последние отправленные координаты absolute (touch_position) чтобы не спамить
 	lastAbsY          int
+	lastAbsSentTime   time.Time // время последней отправки absolute (для дебаунса)
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
@@ -778,6 +779,39 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	}
 	vw.mouseInputMode = mode
 	logrus.Debugf("🖱️ Тип манипулятора: %s", mode)
+}
+
+// SendAbsolutePosition отправляет абсолютную позицию с небольшим дебаунсом, чтобы убрать микродрожание.
+// force=true используется для кликов/тапов — позиция всегда синхронизируется.
+func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
+	if vw.usbClient == nil {
+		return
+	}
+	const deadzone = 2         // минимальный шаг в абсолютных координатах (0..4095)
+	const minInterval = 8 * time.Millisecond
+
+	dx := x - vw.lastAbsX
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := y - vw.lastAbsY
+	if dy < 0 {
+		dy = -dy
+	}
+
+	if !force {
+		if dx < deadzone && dy < deadzone {
+			return
+		}
+		if !vw.lastAbsSentTime.IsZero() && time.Since(vw.lastAbsSentTime) < minInterval {
+			return
+		}
+	}
+
+	vw.lastAbsX = x
+	vw.lastAbsY = y
+	vw.lastAbsSentTime = time.Now()
+	_ = vw.usbClient.SendTouchPositionOnly(x, y, false)
 }
 
 // CancelTouchDownDelay отменяет отложенную отправку touch(down). Вызывать из Tapped, чтобы один тап давал только пару down+up из Tapped.
