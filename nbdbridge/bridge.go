@@ -196,7 +196,7 @@ func StartNBD(fd int, size int64, addr string, readOnly bool) error {
 	exports := []*nbd.Export{
 		{
 			Name:        "",
-			Description: "USB Bridge NBD Export",
+			Description: "USBridge NBD Export",
 			Backend:     backend,
 		},
 	}

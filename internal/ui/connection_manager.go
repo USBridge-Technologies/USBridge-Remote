@@ -47,7 +47,7 @@ type ConnectionManager struct {
 	qrScanner *QRScanner
 
 	// Callbacks
-	onConnect       func(host, token string)
+	onConnect        func(host, token string)
 	onLanguageChange func()
 }
 
@@ -136,8 +136,8 @@ func (cm *ConnectionManager) createInterface() {
 // showLanguageMenu показывает меню выбора языка (компактный popup)
 func (cm *ConnectionManager) showLanguageMenu(btn *widget.Button) {
 	menu := fyne.NewMenu("",
-		fyne.NewMenuItem("English", func() { cm.setLanguage("en") }),
-		fyne.NewMenuItem("Русский", func() { cm.setLanguage("ru") }),
+		fyne.NewMenuItem(i18n.Current.LanguageEnglish, func() { cm.setLanguage("en") }),
+		fyne.NewMenuItem(i18n.Current.LanguageRussian, func() { cm.setLanguage("ru") }),
 	)
 	popup := widget.NewPopUpMenu(menu, cm.window.Canvas())
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(btn)

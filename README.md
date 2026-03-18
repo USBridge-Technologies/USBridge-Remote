@@ -1,6 +1,6 @@
-# USB Bridge Client
+# USBridge Client
 
-Нативный кросс‑платформенный клиент на Go (Fyne) для управления USB Bridge 2.
+Нативный кросс‑платформенный клиент на Go (Fyne) для управления USBridge 2.
 
 Проект объединяет управление устройствами, NBD‑экспорты образов и видео‑стриминг с минимальной задержкой. Основной режим подключения — через защищённый QUIC‑туннель FRP, с опцией прямого подключения в локальной сети.
 
@@ -69,7 +69,7 @@ sudo apt-get install gcc libgl1-mesa-dev xorg-dev
 scripts/build_linux.sh
 ```
 
-Результат: `dist/linux/USBBridgeClient.bin` (+ `config.yaml` при наличии).
+Результат: `dist/linux/USBridgeClient.bin` (+ `config.yaml` при наличии).
 
 ### macOS
 
@@ -85,7 +85,7 @@ brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
 scripts/build_macos.sh
 ```
 
-Результат: `dist/macos/USBBridgeClient/` (бинарник + `run.sh` с правильным окружением).
+Результат: `dist/macos/USBridgeClient/` (бинарник + `run.sh` с правильным окружением).
 
 ### Windows (кросс-сборка на Linux)
 
@@ -106,7 +106,7 @@ export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
 scripts/build_windows.sh
 ```
 
-Результат: `dist/windows/USB_Bridge_Client.exe` + копия `config.yaml` и, при наличии, библиотеки GStreamer.
+Результат: `dist/windows/USBridge_Client.exe` + копия `config.yaml` и, при наличии, библиотеки GStreamer.
 
 ### Android (Gradle APK с камерой/QR/SAF)
 
@@ -127,7 +127,7 @@ scripts/build_android_gradle.sh
 - собирает Fyne APK и переносит `.so`,
 - делает Gradle `assembleRelease` и подписывает debug‑ключом.
 
-Результат: `dist/android/USB_Bridge_Client_gradle.apk`
+Результат: `dist/android/USBridge_Client_gradle.apk`
 
 ### iOS
 

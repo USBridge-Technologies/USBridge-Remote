@@ -51,10 +51,10 @@ type MainWindow struct {
 	pcpanelWidget *PCPanelWidget
 
 	// Адресная строка
-	hostEntry           *widget.Entry
-	tokenEntry          *widget.Entry // Скрыто, используется для подключения из сохранённых
-	sdStorageProgress   *StorageProgressBar // Прогресс места на флешке — на всех экранах
-	deepLinkHandler *DeepLinkHandler // Глобальный handler для deep links
+	hostEntry         *widget.Entry
+	tokenEntry        *widget.Entry       // Скрыто, используется для подключения из сохранённых
+	sdStorageProgress *StorageProgressBar // Прогресс места на флешке — на всех экранах
+	deepLinkHandler   *DeepLinkHandler    // Глобальный handler для deep links
 
 	// Иконки статуса (используем Button для поддержки tooltip)
 	connectionIcon *widget.Button
@@ -108,7 +108,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	mw.nbdServer = service.NewNBDServer(config) // Оставляем для совместимости, но не используем
 	mw.gstreamerService = service.NewGStreamerService(config)
 
-	logrus.Info("✅ GStreamer сервис инициализирован")
+	logrus.Info("✅ GStreamer service initialized")
 
 	// USB клиент будет создан при подключении с хостом из адресной строки
 	mw.usbClient = nil
@@ -583,29 +583,29 @@ func (mw *MainWindow) handleConnectionToggle() {
 
 // handleConnect обрабатывает подключение
 func (mw *MainWindow) handleConnect() {
-	logrus.Infof("🔍 [DEBUG] handleConnect() вызван")
+	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
 	// Получаем IP адрес и токен из полей
 	host := mw.hostEntry.Text
 	token := mw.tokenEntry.Text
 
-	logrus.Infof("🔍 [DEBUG] Прочитано из полей: host='%s', token='%s'", host, token)
-	logrus.Infof("🔍 [DEBUG] Токен из конфига: '%s'", mw.config.FRPAuthToken)
+	logrus.Infof("🔍 [DEBUG] Read from inputs: host='%s', token='%s'", host, token)
+	logrus.Infof("🔍 [DEBUG] Token from config: '%s'", mw.config.FRPAuthToken)
 
 	if host == "" {
-		logrus.Warn("Введите IP адрес")
+		logrus.Warn("Enter a server address")
 		return
 	}
 
 	if token == "" {
-		logrus.Warnf("🔍 [DEBUG] Токен пустой! Используем токен из конфига: '%s'", mw.config.FRPAuthToken)
+		logrus.Warnf("🔍 [DEBUG] Token is empty, using token from config: '%s'", mw.config.FRPAuthToken)
 		token = mw.config.FRPAuthToken // Используем токен из конфига если не указан
 	} else {
-		logrus.Infof("🔍 [DEBUG] Токен НЕ пустой, используем токен из поля: '%s'", token)
+		logrus.Infof("🔍 [DEBUG] Token is not empty, using the value from the input: '%s'", token)
 	}
 
-	logrus.Infof("🔍 [DEBUG] Итоговые параметры для подключения: host='%s', token='%s'", host, token)
-	logrus.Info("Установка QUIC соединения...")
+	logrus.Infof("🔍 [DEBUG] Final connection parameters: host='%s', token='%s'", host, token)
+	logrus.Info("Establishing QUIC connection...")
 
 	// Визуальная обратная связь - блокируем кнопку и меняем текст
 	originalText := mw.connectionBtn.Text
@@ -633,17 +633,17 @@ func (mw *MainWindow) handleConnect() {
 func (mw *MainWindow) doConnect(host, token string) {
 	// Создаем FRP клиент с QUIC если включено
 	if mw.config.FRPEnabled {
-		logrus.Infof("🔍 [DEBUG] Создаём FRP сервис с параметрами: host='%s', port=%d, token='%s'", host, mw.config.FRPServerPort, token)
+		logrus.Infof("🔍 [DEBUG] Creating FRP service: host='%s', port=%d, token='%s'", host, mw.config.FRPServerPort, token)
 		mw.frpService = service.NewFRPService(
 			host,
 			mw.config.FRPServerPort,
 			token,
 		)
-		logrus.Infof("🔍 [DEBUG] FRP сервис создан")
+		logrus.Infof("🔍 [DEBUG] FRP service created")
 
 		// Устанавливаем QUIC туннель через FRP
 		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
-			logrus.Errorf("❌ Ошибка установки QUIC туннеля: %v", err)
+			logrus.Errorf("❌ Failed to establish QUIC tunnel: %v", err)
 			fyne.Do(func() {
 				mw.connectionBtn.SetText("🔌")
 				mw.connectionBtn.Importance = widget.MediumImportance
@@ -654,8 +654,8 @@ func (mw *MainWindow) doConnect(host, token string) {
 			return
 		}
 
-		logrus.Info("✅ QUIC туннель через FRP установлен")
-		logrus.Info("Ожидание стабилизации туннеля...")
+		logrus.Info("✅ QUIC tunnel established via FRP")
+		logrus.Info("Waiting for tunnel stabilization...")
 
 		// Ждем стабилизации портов (FRP нужно время на полную настройку проброса)
 		time.Sleep(2 * time.Second)
@@ -677,18 +677,18 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
 
-		logrus.Info("🔌 Готов к подключению через FRP туннель")
+		logrus.Info("🔌 Ready to connect through FRP tunnel")
 
 		// NBD серверы работают локально на клиенте localhost:10809-10824
 		// Сервер подключается к нам через FRP туннель (все 16 портов уже настроены)
 	} else {
 		// Прямое подключение без FRP (старый метод)
-		logrus.Info("Тестирование соединения...")
+		logrus.Info("Testing connection...")
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 
 		// Тестируем соединение
 		if err := tempClient.TestConnection(); err != nil {
-			logrus.Errorf("Ошибка подключения: %v", err)
+			logrus.Errorf("Connection failed: %v", err)
 			fyne.Do(func() {
 				mw.connectionBtn.SetText("🔌")
 				mw.connectionBtn.Importance = widget.MediumImportance
@@ -705,16 +705,16 @@ func (mw *MainWindow) doConnect(host, token string) {
 
 		// Тестируем соединение только для прямого подключения
 		if err := tempClient.TestConnection(); err != nil {
-			logrus.Errorf("Ошибка подключения: %v", err)
+			logrus.Errorf("Connection failed: %v", err)
 			fyne.Do(func() { mw.connectionBtn.Enable() })
 			return
 		}
 	}
 
 	// Для FRP туннеля проверяем соединение после стабилизации
-	logrus.Info("Проверка соединения...")
+	logrus.Info("Verifying connection...")
 	if err := mw.usbClient.TestConnection(); err != nil {
-		logrus.Errorf("❌ Ошибка подключения: %v", err)
+		logrus.Errorf("❌ Connection verification failed: %v", err)
 		if mw.frpService != nil && mw.frpService.IsRunning() {
 			mw.frpService.Disconnect()
 			mw.frpService = nil
@@ -729,7 +729,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		})
 		return
 	}
-	logrus.Info("Загрузка устройств...")
+	logrus.Info("Loading devices...")
 
 	// Загружаем устройства и обновляем виджеты
 	mw.diskWidget.UpdateClient(mw.usbClient)
@@ -753,37 +753,37 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.showMainContent()
 	})
 
-	logrus.Info("✅ Подключение к USB Bridge 2 установлено через QUIC")
+	logrus.Info("✅ Connected to USBridge via QUIC")
 }
 
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
-	logrus.Info("Отключение...")
+	logrus.Info("Disconnecting...")
 
 	// Останавливаем видео если запущено (проверяем через videoWidget)
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
-		logrus.Info("🛑 Остановка видео перед отключением...")
+		logrus.Info("🛑 Stopping video before disconnect...")
 		mw.videoWidget.handleStopVideo()
 	}
 
-	// Останавливаем сервис USB Bridge 2
+	// Останавливаем сервис USBridge 2
 	if mw.usbClient != nil {
 		if err := mw.usbClient.StopService(); err != nil {
-			logrus.Errorf("Ошибка остановки сервиса: %v", err)
+			logrus.Errorf("Failed to stop service: %v", err)
 		}
 	}
 
 	// Останавливаем NBD сервер
 	if mw.nbdServer.IsRunning() {
 		if err := mw.nbdServer.Stop(); err != nil {
-			logrus.Errorf("Ошибка остановки NBD сервера: %v", err)
+			logrus.Errorf("Failed to stop NBD server: %v", err)
 		}
 	}
 
 	// Отключаем FRP туннель только по кнопке отключения (не зависит от видео старт/стоп)
 	if mw.frpService != nil && mw.frpService.IsRunning() {
 		if err := mw.frpService.Disconnect(); err != nil {
-			logrus.Errorf("Ошибка остановки FRP туннеля: %v", err)
+			logrus.Errorf("Failed to stop FRP tunnel: %v", err)
 		}
 		mw.frpService = nil
 	}
@@ -821,14 +821,14 @@ func (mw *MainWindow) handleDisconnect() {
 	// Переключаемся на менеджер подключений
 	mw.showConnectionManager()
 
-	logrus.Info("🛑 Отключение от USB Bridge 2 завершено")
+	logrus.Info("🛑 Disconnected from USBridge")
 }
 
 // handleRefresh обрабатывает обновление
 func (mw *MainWindow) handleRefresh() {
 	// Проверяем что есть активное подключение перед обновлением
 	if !mw.isConnected || mw.usbClient == nil {
-		logrus.Warn("Невозможно обновить: нет подключения")
+		logrus.Warn("Cannot refresh: no active connection")
 		return
 	}
 

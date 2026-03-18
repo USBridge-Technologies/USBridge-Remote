@@ -23,7 +23,7 @@ tcpdump -i lo0 -n udp port 64624 -c 50
 # Замени 64624 на актуальный порт из лога приложения
 ```
 
-## Проверка на USB Bridge (сервер)
+## Проверка на USBridge (сервер)
 
 ```bash
 # UDP на порт 55000 (FRP proxy) — видео модуль должен слать сюда
@@ -46,14 +46,14 @@ gst-launch-1.0 -v udpsrc port=64624 buffer-size=2097152 caps="application/x-rtp,
 ## Схема потока
 
 ```
-[USB Bridge: FFmpeg RTP] → 127.0.0.1:55000 → [FRP video_sudp proxy] →
+[USBridge: FFmpeg RTP] → 127.0.0.1:55000 → [FRP video_sudp proxy] →
   QUIC туннель →
 [Клиент: FRP visitor] → 127.0.0.1:ПОРТ → [GStreamer udpsrc RTP → rtph264depay]
 ```
 
 ## Чеклист
 
-- [ ] На USB Bridge: `tcpdump -i lo udp port 55000` показывает пакеты при запуске видео
+- [ ] На USBridge: `tcpdump -i lo udp port 55000` показывает пакеты при запуске видео
 - [ ] FRP proxy `video_sudp` с `localPort: 55000` в конфиге
 - [ ] FRP visitor на клиенте слушает 18555
 - [ ] Bootstrap отправляет пакеты на 18555 до старта GStreamer

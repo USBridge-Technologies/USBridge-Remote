@@ -4,7 +4,7 @@
 
 ### Backend + UI (Go)
 - **Fyne** - кросс-платформенный GUI фреймворк
-- **Gin** - HTTP API сервер (для проксирования к USB Bridge 2)
+- **Gin** - HTTP API сервер (для проксирования к USBridge 2)
 - **WebSocket** - real-time обновления
 - **Viper** - конфигурация
 - **Logrus** - логирование
@@ -30,7 +30,7 @@
 │           │                       │                       │           │
 │           ▼                       ▼                       ▼           │
 │  ┌─────────────────────────────────────────────────────────────────┐  │
-│  │                    USB Bridge 2 (Целевое устройство)            │  │
+│  │                    USBridge 2 (Целевое устройство)            │  │
 │  │                                                                 │  │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │  │
 │  │  │             │    │             │    │                     │  │  │
@@ -52,22 +52,22 @@
 ### Роль гибридного приложения
 Приложение одновременно является:
 
-**🎮 Клиентом USB Bridge 2:**
-- **Отправляет команды клавиатуры** через HTTP API на USB Bridge 2
-- **Управляет USB Bridge 2** (через HTTP API старт/стоп сервиса, видео стриминг)
+**🎮 Клиентом USBridge 2:**
+- **Отправляет команды клавиатуры** через HTTP API на USBridge 2
+- **Управляет USBridge 2** (через HTTP API старт/стоп сервиса, видео стриминг)
 
 **💾 NBD сервером:**
 - **Раздает ISO образы** через NBD протокол
-- **USB Bridge 2 подключается** к нашему NBD серверу как клиент
+- **USBridge 2 подключается** к нашему NBD серверу как клиент
 - **Управляет дисками** и экспортами через UI
 - **Предоставляет UI** для выбора и стриминга дисков
 
 ### Последовательность работы
 1. **Пользователь выбирает ISO** в UI приложения
 2. **Приложение запускает NBD сервер** с выбранным ISO
-3. **Приложение отправляет команды** на USB Bridge 2:
+3. **Приложение отправляет команды** на USBridge 2:
    - `POST /api/service/start` - запуск сервиса (подключение NBD клиента)
-4. **USB Bridge 2 подключается** к нашему NBD серверу
+4. **USBridge 2 подключается** к нашему NBD серверу
 6. **Получаем видео+аудио** и можем управлять клавиатурой
 
 ## Структура проекта
@@ -84,14 +84,14 @@ usbridge-client/
 │   │   └── disk_widget.go         # Управление дисками
 │   ├── service/                   # Business Logic Layer
 │   │   ├── nbd_service.go         # NBD сервер + ISO управление
-│   │   └── usb_service.go         # USB Bridge 2 клиент
+│   │   └── usb_service.go         # USBridge 2 клиент
 │   ├── api/                       # API Layer
-│   │   ├── usb_client.go          # HTTP клиент для USB Bridge 2
+│   │   ├── usb_client.go          # HTTP клиент для USBridge 2
 │   │   └── nbd_client_manager.go  # Управление NBD клиентами
 │   └── models/                    # Модели данных
 │       ├── disk.go                # DiskInfo, Export
 │       ├── config.go              # Config
-│       └── usb.go                 # USB Bridge 2 модели
+│       └── usb.go                 # USBridge 2 модели
 ├── go.mod
 └── README.md
 ```
@@ -106,16 +106,16 @@ usbridge-client/
 
 **Business Logic Layer (service/)**
 - **nbd_service.go** - NBD сервер + управление ISO экспортами
-- **usb_service.go** - координация работы с USB Bridge 2
+- **usb_service.go** - координация работы с USBridge 2
 
 **API Layer (api/)**
-- **usb_client.go** - HTTP клиент для USB Bridge 2 API
+- **usb_client.go** - HTTP клиент для USBridge 2 API
 - **nbd_client_manager.go** - управление NBD клиентами (подключениями)
 
 **Models (models/)**
 - **disk.go** - структуры для дисков и экспортов
 - **config.go** - конфигурация приложения
-- **usb.go** - модели для USB Bridge 2 API
+- **usb.go** - модели для USBridge 2 API
 
 ## Go модули и зависимости
 # Просто установи нужные модули вручную:
@@ -296,7 +296,7 @@ type DiskInfo struct {
 ### Основное окно
 ```go
 func NewMainWindow(app fyne.App) *MainWindow {
-    window := app.NewWindow("USB Bridge Client")
+    window := app.NewWindow("USBridge Client")
     window.Resize(fyne.NewSize(1200, 800))
     
     mw := &MainWindow{
@@ -400,9 +400,9 @@ COPY --from=builder /app/usbridge2-frontend /usr/local/bin/
 CMD ["usbridge2-frontend"]
 ```
 
-## API клиент для USB Bridge 2
+## API клиент для USBridge 2
 
-### HTTP клиент для управления USB Bridge 2
+### HTTP клиент для управления USBridge 2
 ```go
 type USBClient struct {
     baseURL    string
@@ -444,9 +444,9 @@ func (c *USBClient) StopVideo() error
 
 ```go
 type AppConfig struct {
-    // USB Bridge 2 подключение (как клиент)
-    USBHost        string `json:"usb_host"`        // IP адрес USB Bridge 2
-    USBPort        int    `json:"usb_port"`        // Порт USB Bridge 2 (8080)
+    // USBridge 2 подключение (как клиент)
+    USBHost        string `json:"usb_host"`        // IP адрес USBridge 2
+    USBPort        int    `json:"usb_port"`        // Порт USBridge 2 (8080)
     APITimeout     int    `json:"api_timeout"`    // Таймаут API запросов
     
     // NBD сервер (как сервер)
@@ -479,7 +479,7 @@ type AppConfig struct {
 }
 ```
 
-## Интеграция с USB Bridge 2
+## Интеграция с USBridge 2
 
 ### Правильная последовательность подключения
 ```go
@@ -490,19 +490,19 @@ func (app *MainApp) ConnectToUSB(isoPath string) error {
         return fmt.Errorf("ошибка запуска NBD сервера: %v", err)
     }
     
-    // 2. Отправляем API запрос на запуск сервиса USB Bridge 2
+    // 2. Отправляем API запрос на запуск сервиса USBridge 2
     err = app.usbClient.StartService()
     if err != nil {
-        return fmt.Errorf("ошибка запуска сервиса USB Bridge 2: %v", err)
+        return fmt.Errorf("ошибка запуска сервиса USBridge 2: %v", err)
     }
-    log.Println("✅ Сервис USB Bridge 2 запущен")
+    log.Println("✅ Сервис USBridge 2 запущен")
     
-    // 3. Запускаем видео стриминг на USB Bridge 2
+    // 3. Запускаем видео стриминг на USBridge 2
     err = app.usbClient.StartVideo()
     if err != nil {
         return fmt.Errorf("ошибка запуска видео стриминга: %v", err)
     }
-    log.Println("✅ Видео стриминг запущен на USB Bridge 2")
+    log.Println("✅ Видео стриминг запущен на USBridge 2")
     
     if err != nil {
     }
@@ -523,7 +523,7 @@ func (app *MainApp) startNBDServerWithISO(isoPath string) error {
         FilePath:    isoPath,
         Size:        getFileSize(isoPath),
         ReadOnly:    true,
-        Description: "ISO образ для USB Bridge 2",
+        Description: "ISO образ для USBridge 2",
         IsActive:    true,
     }
     
@@ -533,7 +533,7 @@ func (app *MainApp) startNBDServerWithISO(isoPath string) error {
     }
     
     log.Printf("🚀 NBD сервер запущен с ISO: %s", export.Name)
-    log.Printf("📡 USB Bridge 2 должен подключиться к порту: %d", app.config.NBDPort)
+    log.Printf("📡 USBridge 2 должен подключиться к порту: %d", app.config.NBDPort)
     
     return nil
 }
@@ -542,12 +542,12 @@ func (app *MainApp) startNBDServerWithISO(isoPath string) error {
 ### Workflow подключения
 1. **Выбираем ISO образ** в UI
 2. **Запускаем NBD сервер** с этим ISO
-3. **Отправляем POST /api/service/start** на USB Bridge 2
-4. **Отправляем POST /api/video/start** на USB Bridge 2  
+3. **Отправляем POST /api/service/start** на USBridge 2
+4. **Отправляем POST /api/video/start** на USBridge 2  
 6. **Получаем видео+аудио** и можем управлять клавиатурой
 
-### Настройка USB Bridge 2
-USB Bridge 2 должен быть настроен на подключение к нашему NBD серверу:
+### Настройка USBridge 2
+USBridge 2 должен быть настроен на подключение к нашему NBD серверу:
 ```json
 {
   "nbd_server": "IP_АДРЕС_НАШЕГО_ПРИЛОЖЕНИЯ",
@@ -556,7 +556,7 @@ USB Bridge 2 должен быть настроен на подключение 
 }
 ```
 
-### API запросы к USB Bridge 2
+### API запросы к USBridge 2
 ```go
 // Запуск сервиса (подключает NBD клиент к нашему серверу)
 POST http://USB_BRIDGE_IP:8080/api/service/start
@@ -635,16 +635,16 @@ func (dmw *DiskManagerWidget) AddDiskExport(diskPath string) error {
 🎨 **Современный UI** - Material Design из коробки
 📱 **Мобильная поддержка** - Android/iOS через Go Mobile
 ⚡ **Простая разработка** - интуитивный API Fyne
-🔄 **Гибридная архитектура** - клиент USB Bridge 2 + NBD сервер
+🔄 **Гибридная архитектура** - клиент USBridge 2 + NBD сервер
 💾 **NBD сервер** - раздача ISO образов через NBD протокол
-🎮 **Управление клавиатурой** - отправка команд на USB Bridge 2
+🎮 **Управление клавиатурой** - отправка команд на USBridge 2
 🔒 **Безопасность** - аутентификация и шифрование
 📊 **Мониторинг** - real-time статистика и логи
 🎵 **Аудио управление** - volume control и mute функциональность
 🌐 **Real-time** - низкая задержка видео/аудио потока
 
 Этот подход даст вам **гибридное приложение** на Go, которое одновременно:
-- **Отправляет команды клавиатуры** на USB Bridge 2
-- **Раздает ISO образы** через NBD сервер для USB Bridge 2
+- **Отправляет команды клавиатуры** на USBridge 2
+- **Раздает ISO образы** через NBD сервер для USBridge 2
 
 Одно приложение - полный контроль! 🎉

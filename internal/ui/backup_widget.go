@@ -172,7 +172,7 @@ func (bw *BackupWidget) renderCurrentFlash(borderContainer *fyne.Container) {
 	}
 
 	if statusLabel == nil || sizeLabel == nil || dateLabel == nil {
-		logrus.Warnf("⚠️ Не все элементы найдены в renderCurrentFlash")
+		logrus.Warnf("⚠️ Not all UI elements were found in renderCurrentFlash")
 		return
 	}
 
@@ -242,7 +242,7 @@ func (bw *BackupWidget) renderSnapshot(borderContainer *fyne.Container, id widge
 	}
 
 	if statusLabel == nil || sizeLabel == nil || dateLabel == nil {
-		logrus.Warnf("⚠️ Не все элементы найдены в renderSnapshot")
+		logrus.Warnf("⚠️ Not all UI elements were found in renderSnapshot")
 		return
 	}
 
@@ -257,7 +257,7 @@ func (bw *BackupWidget) renderSnapshot(borderContainer *fyne.Container, id widge
 
 	// Обновляем содержимое для снапшота (используем size_human от API)
 	sizeLabel.SetText(snapshot.DisplaySize())
-	dateLabel.SetText(snapshot.CreatedAt.Format("02.01.2006 15:04"))
+	dateLabel.SetText(snapshot.CreatedAt.Format(i18n.Current.DateTimeFormat))
 
 	// Устанавливаем иконку статуса подключения (как на экране дисков)
 	if snapshot.Connected {
@@ -613,7 +613,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 		}
 
 		// Логируем успешный ответ API
-		logrus.Infof("✅ API ответ от USB Bridge 2:")
+		logrus.Infof("✅ API ответ от USBridge 2:")
 		logrus.Infof("  - Success: %v", deviceResp.Success)
 		logrus.Infof("  - Message: %s", deviceResp.Message)
 		if deviceResp.Data != nil {
@@ -683,7 +683,7 @@ func (bw *BackupWidget) handleMountSnapshot(id widget.ListItemID, snapshot *mode
 		}
 
 		// Логируем успешный ответ API
-		logrus.Infof("✅ API ответ от USB Bridge 2:")
+		logrus.Infof("✅ API ответ от USBridge 2:")
 		logrus.Infof("  - Success: %v", deviceResp.Success)
 		logrus.Infof("  - Message: %s", deviceResp.Message)
 		if deviceResp.Data != nil {

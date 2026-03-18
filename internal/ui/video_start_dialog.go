@@ -52,7 +52,7 @@ func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
 		parent: parent,
 		resolutions: []ResolutionPreset{
-			{"800×600 (SVGA)", 800, 600},   // По умолчанию
+			{"800×600 (SVGA)", 800, 600}, // По умолчанию
 			{"640×480 (VGA)", 640, 480},
 			{"1024×768 (XGA)", 1024, 768},
 			{"1280×720 (HD)", 1280, 720},
@@ -80,10 +80,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.fpsSlider = widget.NewSlider(15, 60)
 	vsd.fpsSlider.Value = 30
 	vsd.fpsSlider.Step = 5
-	vsd.fpsLabel = widget.NewLabel("30 fps")
+	vsd.fpsLabel = widget.NewLabel("")
 
 	vsd.fpsSlider.OnChanged = func(value float64) {
-		vsd.fpsLabel.SetText(fmt.Sprintf("%.0f fps", value))
+		vsd.fpsLabel.SetText(fmt.Sprintf("%.0f %s", value, i18n.Current.FramesPerSecond))
 	}
 
 	// Качество
@@ -100,10 +100,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.bitrateSlider = widget.NewSlider(1000, 8000)
 	vsd.bitrateSlider.Value = 2000
 	vsd.bitrateSlider.Step = 500
-	vsd.bitrateLabel = widget.NewLabel("2.0 Mbps")
+	vsd.bitrateLabel = widget.NewLabel("")
 
 	vsd.bitrateSlider.OnChanged = func(value float64) {
-		vsd.bitrateLabel.SetText(fmt.Sprintf("%.1f Mbps", value/1000))
+		vsd.bitrateLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
 	}
 
 	// Кнопки
@@ -166,6 +166,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	// Создаем всплывающее окно (переработанный диалог запуска видео)
 	vsd.dialog = widget.NewModalPopUp(form, vsd.parent.Canvas())
 	vsd.dialog.Resize(fyne.NewSize(420, 480))
+	vsd.fpsSlider.OnChanged(vsd.fpsSlider.Value)
+	vsd.qualitySlider.OnChanged(vsd.qualitySlider.Value)
+	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
 }
 
 // Show показывает диалог
@@ -217,7 +220,7 @@ func (vsd *VideoStartDialog) handleStart() {
 		VideoBitrate: fmt.Sprintf("%.0fK", vsd.bitrateSlider.Value),
 	}
 
-	logrus.Infof("🎥 Запуск видео: %dx%d @ %d fps, качество %d%%, битрейт %s",
+	logrus.Infof("🎥 Starting video: %dx%d @ %d fps, quality %d%%, bitrate %s",
 		request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
 
 	// Скрываем диалог сразу
@@ -233,7 +236,7 @@ func (vsd *VideoStartDialog) handleStart() {
 
 // handleCancel обрабатывает нажатие кнопки отмены
 func (vsd *VideoStartDialog) handleCancel() {
-	logrus.Info("❌ Отмена запуска видео")
+	logrus.Info("❌ Video start cancelled")
 	vsd.Hide()
 }
 

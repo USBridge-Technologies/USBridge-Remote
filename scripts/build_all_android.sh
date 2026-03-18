@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Полная сборка USB Bridge Client для Android
-# scripts/build_all_android.sh — Gradle APK с QR-сканером и GStreamer (dynamic .so)
+# Full USBridge Client build for Android
+# scripts/build_all_android.sh - Gradle APK with QR scanner and GStreamer (dynamic .so)
 
 set -e
 

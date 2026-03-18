@@ -65,7 +65,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// USBClient HTTP клиент для USB Bridge 2 API
+// USBClient HTTP клиент для USBridge 2 API
 type USBClient struct {
 	baseURL    string
 	httpClient *http.Client
@@ -96,7 +96,7 @@ func (c *USBClient) GetStatus() (*models.USBStatus, error) {
 
 	var status models.USBStatus
 	if err := json.Unmarshal(resp, &status); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга статуса: %v", err)
+		return nil, fmt.Errorf("failed to parse status: %v", err)
 	}
 
 	return &status, nil
@@ -111,7 +111,7 @@ func (c *USBClient) GetServiceStatus() (*models.APIResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	return &apiResp, nil
@@ -128,23 +128,23 @@ func (c *USBClient) StartDevice(request *models.DeviceStartRequest) (*models.API
 func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (*models.APIResponse, error) {
 	requestJSON, err := json.Marshal(requests)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	url := c.baseURL + "/api/device/start"
 	logrus.Infof("🚀 [API-START-DEVICES] POST %s", url)
-	logrus.Infof("   📤 [API-START-DEVICES] Тело запроса (JSON): %s", string(requestJSON))
+	logrus.Infof("   📤 [API-START-DEVICES] Request body (JSON): %s", string(requestJSON))
 	for i, req := range requests {
-		logrus.Infof("   📤 [API-START-DEVICES] Устройство %d: device=%s", i+1, req.Device)
+		logrus.Infof("   📤 [API-START-DEVICES] Device %d: device=%s", i+1, req.Device)
 		if req.Device == "mouse" {
-			logrus.Infof("      🖱️ манипулятор type=%q (mouse=тачпад, touchscreen=тачскрин)", req.Type)
+			logrus.Infof("      🖱️ pointer type=%q (mouse=touchpad, touchscreen=touchscreen)", req.Type)
 		}
 		if req.Device == "rndis" {
 			logrus.Infof("      🌐 rndis_mode=%q", req.RNDISMode)
 		}
 		if req.Device == "drive" {
 			if req.Port > 0 {
-				logrus.Infof("      NBD: server=%s, port=%d, export=%s (Bridge подключается к 127.0.0.1:%d через FRP)", req.Server, req.Port, req.ExportName, req.Port)
+				logrus.Infof("      NBD: server=%s, port=%d, export=%s (bridge connects to 127.0.0.1:%d via FRP)", req.Server, req.Port, req.ExportName, req.Port)
 			} else {
 				logrus.Infof("      Local: %s", req.Server)
 			}
@@ -154,26 +154,26 @@ func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (
 	// 200 = синхронный успех, 202 = Accepted (монтирование в фоне)
 	respBody, statusCode, err := c.makeRequestWithAcceptStatuses("POST", "/api/device/start", requestJSON, []int{http.StatusOK, http.StatusAccepted})
 	if err != nil {
-		logrus.Errorf("❌ [API-START-DEVICES] Ошибка ответа: %v", err)
+		logrus.Errorf("❌ [API-START-DEVICES] Request failed: %v", err)
 		return nil, err
 	}
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		logrus.Errorf("❌ [API-START-DEVICES] Ошибка парсинга ответа: %v, body=%s", err, string(respBody))
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		logrus.Errorf("❌ [API-START-DEVICES] Failed to parse response: %v, body=%s", err, string(respBody))
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
-	logrus.Infof("✅ [API-START-DEVICES] Ответ сервера: HTTP %d, success=%v, message=%s", statusCode, apiResp.Success, apiResp.Message)
+	logrus.Infof("✅ [API-START-DEVICES] Server response: HTTP %d, success=%v, message=%s", statusCode, apiResp.Success, apiResp.Message)
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка запуска устройств: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to start devices: %s", apiResp.Message)
 	}
 
 	if statusCode == http.StatusAccepted {
-		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted — монтирование в фоне, опрашивать /api/device/info")
+		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted: mounting in background, poll /api/device/info")
 	}
 
-	logrus.Infof("✅ Успешно запущено %d устройств", len(requests))
+	logrus.Infof("✅ Successfully started %d devices", len(requests))
 	return &apiResp, nil
 }
 
@@ -185,7 +185,7 @@ func (c *USBClient) StopDevice(deviceID int) error {
 
 // StopAllDevices останавливает все устройства (новый API)
 func (c *USBClient) StopAllDevices() error {
-	logrus.Infof("🛑 Остановка всех устройств")
+	logrus.Infof("🛑 Stopping all devices")
 
 	resp, err := c.makeRequest("POST", "/api/device/stop", nil)
 	if err != nil {
@@ -194,14 +194,14 @@ func (c *USBClient) StopAllDevices() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка остановки устройств: %s", apiResp.Message)
+		return fmt.Errorf("failed to stop devices: %s", apiResp.Message)
 	}
 
-	logrus.Infof("✅ Все устройства остановлены")
+	logrus.Infof("✅ All devices stopped")
 	return nil
 }
 
@@ -214,22 +214,22 @@ func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения информации об устройствах: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get device information: %s", apiResp.Message)
 	}
 
 	// Парсим data в DeviceInfoResponse
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации данных: %v", err)
+		return nil, fmt.Errorf("failed to marshal data: %v", err)
 	}
 
 	var deviceInfo models.DeviceInfoResponse
 	if err := json.Unmarshal(dataBytes, &deviceInfo); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга информации об устройствах: %v", err)
+		return nil, fmt.Errorf("failed to parse device information: %v", err)
 	}
 	for _, d := range deviceInfo.Devices {
 		logrus.Infof("🔎 [API-DEVICE-INFO] device=%s type=%s status=%s name=%s product=%s",
@@ -328,7 +328,7 @@ func (c *USBClient) GetDeviceStatus() (*models.DeviceStatusResponse, error) {
 	return &deviceStatus, nil
 }
 
-// StartService запускает сервис USB Bridge 2 (старый API для совместимости)
+// StartService запускает сервис USBridge 2 (старый API для совместимости)
 func (c *USBClient) StartService() error {
 	return c.startServiceWithRetry(0)
 }
@@ -376,11 +376,11 @@ func (c *USBClient) startServiceWithRetry(retryCount int) error {
 		return fmt.Errorf("ошибка запуска сервиса: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Сервис USB Bridge 2 запущен")
+	logrus.Info("✅ Сервис USBridge 2 запущен")
 	return nil
 }
 
-// StopService останавливает сервис USB Bridge 2
+// StopService останавливает сервис USBridge 2
 func (c *USBClient) StopService() error {
 	resp, err := c.makeRequest("POST", "/api/service/stop", nil)
 	if err != nil {
@@ -396,7 +396,7 @@ func (c *USBClient) StopService() error {
 		return fmt.Errorf("ошибка остановки сервиса: %s", apiResp.Message)
 	}
 
-	logrus.Info("🛑 Сервис USB Bridge 2 остановлен")
+	logrus.Info("🛑 Сервис USBridge 2 остановлен")
 	return nil
 }
 
@@ -423,7 +423,7 @@ func (c *USBClient) ForceDisconnectUSBGadget() error {
 	return nil
 }
 
-// RestartService перезапускает сервис USB Bridge 2
+// RestartService перезапускает сервис USBridge 2
 func (c *USBClient) RestartService() error {
 	resp, err := c.makeRequest("POST", "/api/service/restart", nil)
 	if err != nil {
@@ -439,7 +439,7 @@ func (c *USBClient) RestartService() error {
 		return fmt.Errorf("ошибка перезапуска сервиса: %s", apiResp.Message)
 	}
 
-	logrus.Info("🔄 Сервис USB Bridge 2 перезапущен")
+	logrus.Info("🔄 Сервис USBridge 2 перезапущен")
 	return nil
 }
 
@@ -494,7 +494,7 @@ func (c *USBClient) UpdateConfig(config *models.ConfigRequest) error {
 		return fmt.Errorf("ошибка обновления конфигурации: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Конфигурация USB Bridge 2 обновлена")
+	logrus.Info("✅ Конфигурация USBridge 2 обновлена")
 	return nil
 }
 
@@ -989,14 +989,14 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 	return nil, resp.StatusCode, fmt.Errorf("HTTP ошибка %d: %s", resp.StatusCode, string(respBody))
 }
 
-// TestConnection проверяет соединение с USB Bridge 2
+// TestConnection проверяет соединение с USBridge 2
 func (c *USBClient) TestConnection() error {
 	_, err := c.GetDeviceInfo()
 	if err != nil {
-		return fmt.Errorf("не удается подключиться к USB Bridge 2: %v", err)
+		return fmt.Errorf("не удается подключиться к USBridge 2: %v", err)
 	}
 
-	logrus.Info("✅ Соединение с USB Bridge 2 установлено")
+	logrus.Info("✅ Соединение с USBridge 2 установлено")
 	return nil
 }
 

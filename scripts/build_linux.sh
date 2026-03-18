@@ -1,6 +1,6 @@
 #!/bin/bash
-# Сборка USBBridgeClient для Linux
-# Результат: dist/linux/USBBridgeClient.bin (+ config.yaml если есть)
+# Build USBridgeClient for Linux
+# Output: dist/linux/USBridgeClient.bin (+ config.yaml if present)
 
 set -euo pipefail
 
@@ -20,11 +20,11 @@ fi
 OUT_DIR="$REPO_ROOT/dist/linux"
 mkdir -p "$OUT_DIR"
 
-# Подавить предупреждение format-security из зависимости go-gst (gst_debug.go)
+# Suppress format-security warnings from the go-gst dependency (gst_debug.go)
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 
-go build -o "$OUT_DIR/USBBridgeClient.bin" ./cmd/main.go
+go build -o "$OUT_DIR/USBridgeClient.bin" ./cmd/main.go
 
 [ -f "$REPO_ROOT/config.yaml" ] && cp -f "$REPO_ROOT/config.yaml" "$OUT_DIR/"
 
-echo "✅ Готово: $OUT_DIR/USBBridgeClient.bin"
+echo "✅ Done: $OUT_DIR/USBridgeClient.bin"

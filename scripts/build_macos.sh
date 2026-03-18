@@ -1,6 +1,6 @@
 #!/bin/bash
-# Сборка USBBridgeClient для macOS: бинарник + бандл с библиотеками
-# Требования: Go, Homebrew GStreamer (brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad)
+# Build USBridgeClient for macOS: binary + bundled libraries
+# Requirements: Go, Homebrew GStreamer (brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad)
 
 set -e
 
@@ -17,7 +17,7 @@ if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') [$0] ==="
 fi
 
-OUTPUT_NAME="USBBridgeClient"
+OUTPUT_NAME="USBridgeClient"
 DIST_ROOT="$REPO_ROOT/dist"
 DIST_OS="$DIST_ROOT/macos"
 if [ -d "$DIST_OS" ] && [ ! -w "$DIST_OS" ]; then
@@ -35,7 +35,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}🍎 Сборка USBBridgeClient для macOS${NC}"
+echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
 # 1. Проверка GStreamer
 echo -e "\n${YELLOW}📦 Проверка зависимостей...${NC}"
@@ -97,24 +97,24 @@ elif [ -d "/usr/local/lib" ]; then
     export DYLD_FALLBACK_LIBRARY_PATH="/usr/local/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
 fi
 
-exec "./USBBridgeClient.bin" "$@"
+exec "./USBridgeClient.bin" "$@"
 RUNSCRIPT
 chmod +x "$DIST_DIR/run.sh"
 
 # 5. Создаём README для dist
 cat > "$DIST_DIR/README.txt" << 'README'
-USBBridgeClient для macOS
+USBridgeClient for macOS
 =========================
 
-Запуск:
-  ./run.sh          — через скрипт (рекомендуется)
-  ./USBBridgeClient.bin — напрямую (если GStreamer в PATH)
+Run:
+  ./run.sh         - via wrapper script (recommended)
+  ./USBridgeClient.bin - directly (if GStreamer is in PATH)
 
-Требования:
+Requirements:
   - GStreamer: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
   - macOS 10.15+
 
-Конфигурация: config.yaml (в этой папке или ~/.config/usbridge-client/)
+Configuration: config.yaml (in this folder or ~/.config/usbridge-client/)
 README
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"

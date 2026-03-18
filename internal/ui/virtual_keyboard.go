@@ -491,19 +491,19 @@ func (vk *VirtualKeyboard) toggleModifier(keyCode int) {
 	case 224, 228: // Ctrl (Left/Right)
 		vk.ctrlPressed = !vk.ctrlPressed
 		vk.updateModifierButton(vk.ctrlBtn, "Ctrl", vk.ctrlPressed)
-		logrus.Infof("⌨️ Ctrl переключен: %v", vk.ctrlPressed)
+		logrus.Infof("⌨️ Ctrl toggled: %v", vk.ctrlPressed)
 	case 226, 230: // Alt (Left/Right)
 		vk.altPressed = !vk.altPressed
 		vk.updateModifierButton(vk.altBtn, "Alt", vk.altPressed)
-		logrus.Infof("⌨️ Alt переключен: %v", vk.altPressed)
+		logrus.Infof("⌨️ Alt toggled: %v", vk.altPressed)
 	case 225, 229: // Shift (Left/Right)
 		vk.shiftPressed = !vk.shiftPressed
 		vk.updateModifierButton(vk.shiftBtn, "Shift", vk.shiftPressed)
-		logrus.Infof("⌨️ Shift переключен: %v", vk.shiftPressed)
+		logrus.Infof("⌨️ Shift toggled: %v", vk.shiftPressed)
 	case 227, 231: // Win/GUI (Left/Right)
 		vk.winPressed = !vk.winPressed
 		vk.updateModifierButton(vk.winBtn, "Win", vk.winPressed)
-		logrus.Infof("⌨️ Win переключен: %v", vk.winPressed)
+		logrus.Infof("⌨️ Win toggled: %v", vk.winPressed)
 	case 57: // Caps Lock
 		vk.capsLockPressed = !vk.capsLockPressed
 		vk.updateModifierButton(vk.capsLockBtn, "Caps", vk.capsLockPressed)
@@ -511,7 +511,7 @@ func (vk *VirtualKeyboard) toggleModifier(keyCode int) {
 		if vk.onKeyPress != nil {
 			vk.onKeyPress(57, 0)
 		}
-		logrus.Infof("⌨️ CapsLock переключен: %v", vk.capsLockPressed)
+		logrus.Infof("⌨️ CapsLock toggled: %v", vk.capsLockPressed)
 	}
 }
 
@@ -548,7 +548,7 @@ func (vk *VirtualKeyboard) handleKeyPress(keyCode int, modifiers int) {
 		currentModifiers |= 8 // Left GUI (Windows)
 	}
 
-	logrus.Infof("⌨️ Виртуальная клавиатура: нажата клавиша %d с модификаторами %d (активные: Ctrl=%v, Shift=%v, Alt=%v, Win=%v)",
+	logrus.Infof("⌨️ Virtual keyboard: key %d pressed with modifiers %d (active: Ctrl=%v, Shift=%v, Alt=%v, Win=%v)",
 		keyCode, currentModifiers, vk.ctrlPressed, vk.shiftPressed, vk.altPressed, vk.winPressed)
 
 	if vk.onKeyPress != nil {
@@ -598,7 +598,7 @@ func (vk *VirtualKeyboard) Show() {
 		vk.toggleBtn.Resize(btnSize)
 	}
 
-	logrus.Info("⌨️ Виртуальная клавиатура показана")
+	logrus.Info("⌨️ Virtual keyboard shown")
 }
 
 // ShowInSeparateWindow показывает клавиатуру в отдельном окне
@@ -607,7 +607,7 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 		return
 	}
 
-	logrus.Info("⌨️ Открытие виртуальной клавиатуры в отдельном окне")
+	logrus.Info("⌨️ Opening virtual keyboard in a separate window")
 
 	// Создаем отдельное окно для клавиатуры
 	vk.keyboardWindow = fyne.CurrentApp().NewWindow(i18n.Current.VirtualKeyboard)
@@ -617,7 +617,7 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 
 	// Настраиваем окно клавиатуры
 	vk.keyboardWindow.SetOnClosed(func() {
-		logrus.Info("⌨️ Окно виртуальной клавиатуры закрыто")
+		logrus.Info("⌨️ Virtual keyboard window closed")
 		vk.isVisible = false
 		vk.keyboardWindow = nil
 	})
@@ -626,7 +626,7 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 	vk.keyboard.Show()
 	vk.keyboardWindow.Show()
 
-	logrus.Info("⌨️ Виртуальная клавиатура показана в отдельном окне")
+	logrus.Info("⌨️ Virtual keyboard shown in a separate window")
 }
 
 // Hide скрывает клавиатуру
@@ -649,7 +649,7 @@ func (vk *VirtualKeyboard) Hide() {
 		vk.keyboard.Hide()
 	}
 
-	logrus.Info("⌨️ Виртуальная клавиатура скрыта")
+	logrus.Info("⌨️ Virtual keyboard hidden")
 }
 
 // IsVisible возвращает состояние видимости
@@ -664,7 +664,7 @@ func (vk *VirtualKeyboard) GetContainer() *fyne.Container {
 
 // GetKeyboardLayout возвращает только layout клавиатуры без кнопки переключения
 func (vk *VirtualKeyboard) GetKeyboardLayout() *fyne.Container {
-	logrus.Infof("⌨️ [DEBUG] GetKeyboardLayout вызван, keyboard=%v, MinSize=%v, Visible=%v",
+	logrus.Infof("⌨️ [DEBUG] GetKeyboardLayout called, keyboard=%v, MinSize=%v, Visible=%v",
 		vk.keyboard != nil, vk.keyboard.MinSize(), vk.keyboard.Visible())
 	return vk.keyboard
 }

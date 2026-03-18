@@ -69,17 +69,17 @@ type VideoWidget struct {
 	touchStartY      float32
 	touchStartTime   time.Time
 	mousePollingQuit chan bool // Канал для остановки polling горутины
-	mouseInputMode   string   // "mouse" (по умолчанию), "touchscreen" или "absolute"
-	touchpadSizeW    float32  // Ширина области ввода (для перевода в абсолютные координаты)
-	touchpadSizeH    float32  // Высота области ввода
+	mouseInputMode   string    // "mouse" (по умолчанию), "touchscreen" или "absolute"
+	touchpadSizeW    float32   // Ширина области ввода (для перевода в абсолютные координаты)
+	touchpadSizeH    float32   // Высота области ввода
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
-	contentRectX float32
-	contentRectY float32
-	contentRectW float32
-	contentRectH float32
-	lastTouchX        int       // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
+	contentRectX      float32
+	contentRectY      float32
+	contentRectW      float32
+	contentRectH      float32
+	lastTouchX        int // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
 	lastTouchY        int
-	lastAbsX          int       // последние отправленные координаты absolute (touch_position) чтобы не спамить
+	lastAbsX          int // последние отправленные координаты absolute (touch_position) чтобы не спамить
 	lastAbsY          int
 	lastAbsSentTime   time.Time // время последней отправки absolute (для дебаунса)
 	absButtons        uint8     // битмаска кнопок для absolute режима
@@ -153,7 +153,7 @@ func (vw *VideoWidget) createInfoPanel() *fyne.Container {
 // handleStartVideo обрабатывает запуск видео
 func (vw *VideoWidget) handleStartVideo() {
 	if vw.usbClient == nil {
-		logrus.Warn("⚠️ USB клиент не инициализирован")
+		logrus.Warn("⚠️ USB client is not initialized")
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
 		})
@@ -180,7 +180,7 @@ func (vw *VideoWidget) handleStartVideo() {
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
 	if vw.gstreamerService == nil {
-		logrus.Warn("⚠️ GStreamer сервис не инициализирован")
+		logrus.Warn("⚠️ GStreamer service is not initialized")
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.VideoLaunchFailed)
 		})
@@ -211,13 +211,13 @@ func (vw *VideoWidget) handleStopVideo() {
 	// Отключаемся от GStreamer потока
 	if vw.gstreamerService != nil {
 		if err := vw.gstreamerService.Disconnect(); err != nil {
-			logrus.Errorf("Ошибка отключения GStreamer: %v", err)
+			logrus.Errorf("Failed to disconnect GStreamer: %v", err)
 		}
 	}
 
-	// Останавливаем видео захват на USB Bridge 2
+	// Останавливаем видео захват на USBridge 2
 	if err := vw.usbClient.StopVideo(); err != nil {
-		logrus.Warnf("⚠️ Ошибка остановки видео на сервере: %v (игнорируем, видео уже может быть остановлено)", err)
+		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
 		// Не возвращаем ошибку - видео уже может быть остановлено или сервер недоступен
 		// Продолжаем локальную очистку
 	}
@@ -236,7 +236,7 @@ func (vw *VideoWidget) handleStopVideo() {
 	})
 
 	vw.updateStatus()
-	logrus.Info("🛑 Видео захват остановлен")
+	logrus.Info("🛑 Video capture stopped")
 }
 
 // updateButtons обновляет состояние кнопок
@@ -253,7 +253,7 @@ func (vw *VideoWidget) updateButtons() {
 // Refresh обновляет виджет
 func (vw *VideoWidget) Refresh() {
 	if vw.usbClient == nil {
-		logrus.Debug("USB клиент не инициализирован, пропускаем обновление видео")
+		logrus.Debug("USB client is not initialized, skipping video refresh")
 		fyne.Do(func() {
 			vw.infoLabel.SetText(i18n.Current.VideoWaitingConnection)
 		})
@@ -266,7 +266,7 @@ func (vw *VideoWidget) Refresh() {
 	// Получаем информацию о видео
 	videoInfo, err := vw.usbClient.GetVideoInfo()
 	if err != nil {
-		logrus.Errorf("Ошибка получения информации о видео: %v", err)
+		logrus.Errorf("Failed to get video information: %v", err)
 		fyne.Do(func() {
 			vw.infoLabel.SetText(i18n.Current.ErrorVideoInfo)
 		})
@@ -290,7 +290,7 @@ func (vw *VideoWidget) Refresh() {
 // checkMouseConnected проверяет, подключена ли мышь
 func (vw *VideoWidget) checkMouseConnected() {
 	if vw.usbClient == nil {
-		logrus.Debug("🖱️ checkMouseConnected: USB клиент не инициализирован")
+		logrus.Debug("🖱️ checkMouseConnected: USB client is not initialized")
 		vw.isMouseConnected = false
 		return
 	}
@@ -298,17 +298,17 @@ func (vw *VideoWidget) checkMouseConnected() {
 	// Получаем информацию о подключенных устройствах
 	deviceInfo, err := vw.usbClient.GetDeviceInfo()
 	if err != nil {
-		logrus.Infof("🖱️ Ошибка получения информации о устройствах: %v", err)
+		logrus.Infof("🖱️ Failed to get device information: %v", err)
 		vw.isMouseConnected = false
 		return
 	}
 
-	logrus.Debugf("🖱️ checkMouseConnected: получено %d устройств", len(deviceInfo.Devices))
+	logrus.Debugf("🖱️ checkMouseConnected: received %d devices", len(deviceInfo.Devices))
 
 	// Проверяем, есть ли подключенный манипулятор (мышь, тачскрин или absolute)
 	mouseConnected := false
 	for _, device := range deviceInfo.Devices {
-		logrus.Debugf("🖱️ Проверка устройства: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
+		logrus.Debugf("🖱️ Inspecting device: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
 
 		// Мышь или тачскрин — оба дают возможность ввода на экране управления
 		if device.Status == "connected" &&
@@ -320,24 +320,24 @@ func (vw *VideoWidget) checkMouseConnected() {
 			} else if device.Type == "absolute" {
 				vw.SetMouseInputMode("absolute")
 			}
-			logrus.Infof("🖱️ ✅ Манипулятор подключён: %s (type: %s)", device.Name, device.Type)
+			logrus.Infof("🖱️ ✅ Pointer device connected: %s (type: %s)", device.Name, device.Type)
 			break
 		}
 	}
 
-	logrus.Debugf("🖱️ checkMouseConnected: результат mouseConnected=%v (было %v)", mouseConnected, vw.isMouseConnected)
+	logrus.Debugf("🖱️ checkMouseConnected: mouseConnected=%v (previously %v)", mouseConnected, vw.isMouseConnected)
 
 	if vw.isMouseConnected != mouseConnected {
 		vw.isMouseConnected = mouseConnected
 		if mouseConnected {
-			logrus.Info("🖱️ Тачпад активирован: мышь подключена")
+			logrus.Info("🖱️ Touchpad activated: pointer device connected")
 
 			// Подключаемся к WebSocket для управления мышью
 			go func() {
 				if err := vw.usbClient.ConnectMouseWebSocket(); err != nil {
-					logrus.Warnf("⚠️ Не удалось подключиться к WebSocket для мыши: %v (будет использоваться HTTP fallback)", err)
+					logrus.Warnf("⚠️ Failed to connect mouse WebSocket: %v (HTTP fallback will be used)", err)
 				} else {
-					logrus.Info("✅ WebSocket для мыши подключен успешно")
+					logrus.Info("✅ Mouse WebSocket connected successfully")
 				}
 			}()
 
@@ -345,9 +345,9 @@ func (vw *VideoWidget) checkMouseConnected() {
 			vw.startDesktopMousePolling()
 
 			// Подсказка теперь только в логах
-			logrus.Info("🖱️ Мышь подключена (WebSocket)")
+			logrus.Info("🖱️ Pointer device connected (WebSocket)")
 		} else {
-			logrus.Info("🖱️ Тачпад деактивирован: мышь не подключена")
+			logrus.Info("🖱️ Touchpad deactivated: pointer device disconnected")
 
 			// Останавливаем polling горутину
 			vw.stopDesktopMousePolling()
@@ -382,10 +382,10 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	vw.frameDecoder.IncrementFrameCount()
 
 	if frameNum == 1 {
-		logrus.Info("✅ [VIDEO] Шаг 7: Кадр отображён в UI")
+		logrus.Info("✅ [VIDEO] Step 7: frame rendered in UI")
 	}
 	if frameNum%300 == 0 {
-		logrus.Infof("🖼️ [VIDEO] UI: обработано %d кадров", frameNum)
+		logrus.Infof("🖼️ [VIDEO] UI: processed %d frames", frameNum)
 	}
 
 	go fyne.Do(func() {
@@ -406,13 +406,12 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	})
 }
 
-
 // handleFullscreen обрабатывает переключение в полноэкранный режим
 func (vw *VideoWidget) handleFullscreen() {
 	// Ленивая инициализация диалога при первом использовании
 	if vw.fullscreenDialog == nil {
 		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Родительское окно не установлено")
+			logrus.Warn("⚠️ Parent window is not set")
 			return
 		}
 		vw.fullscreenDialog = NewFullscreenDialog(vw.parentWindow)
@@ -431,7 +430,7 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 	// Ленивая инициализация клавиатуры при первом использовании
 	if vw.virtualKeyboard == nil {
 		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Родительское окно не установлено")
+			logrus.Warn("⚠️ Parent window is not set")
 			return
 		}
 		vw.virtualKeyboard = NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
@@ -447,10 +446,10 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			// Android: скрываем встроенную клавиатуру
 			vw.contentContainer.Hide()
 			vw.container.Refresh()
-			logrus.Info("⌨️ Виртуальная клавиатура скрыта (Android режим)")
+			logrus.Info("⌨️ Virtual keyboard hidden (Android mode)")
 		} else {
 			// Desktop: закрываем отдельное окно (обрабатывается в Hide())
-			logrus.Info("⌨️ Виртуальная клавиатура скрыта (Desktop режим)")
+			logrus.Info("⌨️ Virtual keyboard hidden (desktop mode)")
 		}
 	} else {
 		if isAndroid {
@@ -467,18 +466,18 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			keyboardSize := fyne.NewSize(canvasSize.Width, 300) // Высота клавиатуры
 			keyboardLayout.Resize(keyboardSize)
 			keyboardLayout.Move(fyne.NewPos(0, 0))
-			logrus.Infof("⌨️ [DEBUG] keyboardLayout после Resize: Size=%v, Position=%v", keyboardLayout.Size(), keyboardLayout.Position())
+			logrus.Infof("⌨️ [DEBUG] keyboardLayout after resize: size=%v, position=%v", keyboardLayout.Size(), keyboardLayout.Position())
 
 			vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
 			vw.contentContainer.Resize(keyboardSize)
 			vw.contentContainer.Show()
 			vw.container.Refresh()
 			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
-			logrus.Info("⌨️ Виртуальная клавиатура показана под видео (Android режим)")
+			logrus.Info("⌨️ Virtual keyboard shown below video (Android mode)")
 		} else {
 			// Desktop: открываем в отдельном окне
 			vw.virtualKeyboard.ShowInSeparateWindow()
-			logrus.Info("⌨️ Виртуальная клавиатура показана в отдельном окне (Desktop режим)")
+			logrus.Info("⌨️ Virtual keyboard shown in a separate window (desktop mode)")
 		}
 	}
 }
@@ -500,7 +499,6 @@ func (vw *VideoWidget) updateStats() {
 	vw.statsLabel.SetText(stats)
 }
 
-
 // SetParentWindow устанавливает родительское окно для диалогов
 func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 	vw.parentWindow = window
@@ -515,7 +513,7 @@ func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 	// Добавляем обработчик горячих клавиш для полноэкранного режима
 	window.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
 		if event.Name == fyne.KeyF11 && vw.isStreaming {
-			logrus.Info("🔍 Нажата клавиша F11 - вход в полноэкранный режим")
+			logrus.Info("🔍 F11 pressed, entering fullscreen mode")
 			if vw.fullscreenDialog != nil {
 				vw.fullscreenDialog.Show()
 			}
@@ -559,7 +557,7 @@ func (vw *VideoWidget) sendPhysicalKeyToRemote(event *fyne.KeyEvent) {
 		return
 	}
 	if err := vw.usbClient.SendKey(keyCode); err != nil {
-		logrus.Errorf("⌨️ Ошибка отправки клавиши: %v", err)
+		logrus.Errorf("⌨️ Failed to send key: %v", err)
 	}
 }
 
@@ -580,46 +578,46 @@ func (vw *VideoWidget) sendRuneToRemote(r rune) {
 		err = vw.usbClient.SendKey(keyCode)
 	}
 	if err != nil {
-		logrus.Errorf("⌨️ Ошибка отправки символа: %v", err)
+		logrus.Errorf("⌨️ Failed to send rune: %v", err)
 	}
 }
 
 // handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ Виртуальная клавиатура: получено нажатие клавиши %d с модификаторами %d", keyCode, modifiers)
+	logrus.Infof("⌨️ Virtual keyboard: received key %d with modifiers %d", keyCode, modifiers)
 
 	// Всегда пытаемся отправить клавишу на хост, если USB клиент доступен
 	if vw.usbClient == nil {
-		logrus.Warnf("⌨️ USB клиент не подключен, игнорируем клавишу: %d", keyCode)
+		logrus.Warnf("⌨️ USB client is not connected, ignoring key: %d", keyCode)
 		return
 	}
 
-	logrus.Infof("⌨️ Отправляем клавишу на удаленную машину: код=%d, модификаторы=%d", keyCode, modifiers)
+	logrus.Infof("⌨️ Sending key to remote machine: code=%d, modifiers=%d", keyCode, modifiers)
 	// Отправляем клавишу на удаленную машину
 	go vw.sendKeyToRemote(keyCode, modifiers)
 }
 
 // sendKeyToRemote отправляет клавишу на удаленную машину через HID
 func (vw *VideoWidget) sendKeyToRemote(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ sendKeyToRemote: отправка клавиши %d с модификаторами %d", keyCode, modifiers)
+	logrus.Infof("⌨️ sendKeyToRemote: sending key %d with modifiers %d", keyCode, modifiers)
 
 	// Отправляем клавишу
 	var err error
 	if modifiers > 0 {
 		// Отправляем комбинацию клавиш
 		err = vw.usbClient.SendCombo(modifiers, keyCode)
-		logrus.Infof("⌨️ Отправлена комбинация: модификаторы=%d, клавиша=%d", modifiers, keyCode)
+		logrus.Infof("⌨️ Combination sent: modifiers=%d, key=%d", modifiers, keyCode)
 	} else {
 		// Отправляем одиночную клавишу
-		logrus.Infof("⌨️ Отправляем одиночную клавишу: %d", keyCode)
+		logrus.Infof("⌨️ Sending single key: %d", keyCode)
 		err = vw.usbClient.SendKey(keyCode)
-		logrus.Infof("⌨️ Отправлена клавиша: %d - результат: %v", keyCode, err)
+		logrus.Infof("⌨️ Key sent: %d, result=%v", keyCode, err)
 	}
 
 	if err != nil {
-		logrus.Errorf("⚠️ Ошибка отправки клавиши: %v", err)
+		logrus.Errorf("⚠️ Failed to send key: %v", err)
 	} else {
-		logrus.Infof("✅ Клавиша успешно отправлена: код=%d, модификаторы=%d", keyCode, modifiers)
+		logrus.Infof("✅ Key sent successfully: code=%d, modifiers=%d", keyCode, modifiers)
 	}
 }
 
@@ -682,7 +680,6 @@ func (vw *VideoWidget) GetFrameDecoder() *VideoFrameDecoder {
 	return vw.frameDecoder
 }
 
-
 // startDesktopMousePolling запускает горутину polling для плавного управления мышью
 func (vw *VideoWidget) startDesktopMousePolling() {
 	// Останавливаем предыдущую горутину если была
@@ -691,7 +688,7 @@ func (vw *VideoWidget) startDesktopMousePolling() {
 	// Создаем канал для остановки
 	vw.mousePollingQuit = make(chan bool)
 
-	logrus.Info("🖱️ Запуск desktop mouse polling (60 FPS)")
+	logrus.Info("🖱️ Starting desktop mouse polling (60 FPS)")
 
 	go vw.processDesktopMousePolling()
 }
@@ -701,7 +698,7 @@ func (vw *VideoWidget) stopDesktopMousePolling() {
 	if vw.mousePollingQuit != nil {
 		close(vw.mousePollingQuit)
 		vw.mousePollingQuit = nil
-		logrus.Info("🖱️ Desktop mouse polling остановлен")
+		logrus.Info("🖱️ Desktop mouse polling stopped")
 	}
 }
 
@@ -782,7 +779,7 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 		mode = "mouse"
 	}
 	vw.mouseInputMode = mode
-	logrus.Debugf("🖱️ Тип манипулятора: %s", mode)
+	logrus.Debugf("🖱️ Pointer mode: %s", mode)
 }
 
 // SendAbsolutePosition отправляет абсолютную позицию с небольшим дебаунсом, чтобы убрать микродрожание.
@@ -791,7 +788,7 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	if vw.usbClient == nil {
 		return
 	}
-	const deadzone = 2         // минимальный шаг в абсолютных координатах (0..4095)
+	const deadzone = 2 // минимальный шаг в абсолютных координатах (0..4095)
 	const minInterval = 8 * time.Millisecond
 
 	dx := x - vw.lastAbsX

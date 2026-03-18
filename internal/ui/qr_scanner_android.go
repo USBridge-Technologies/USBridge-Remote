@@ -122,7 +122,7 @@ func deliverQRCancelFromJNI() {
 func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	qs.window = parent
 
-	logrus.Info("📷 Android: запуск сканера QR-кода (окно камеры)")
+	logrus.Info("📷 Android: starting QR scanner (camera window)")
 
 	// Очищаем предыдущий результат
 	nbdbridge.ClearQRResult()
@@ -132,7 +132,7 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	err := driver.RunNative(func(ctx any) error {
 		androidCtx, ok := ctx.(*driver.AndroidContext)
 		if !ok {
-			logrus.Error("❌ Не удалось получить AndroidContext")
+			logrus.Error("❌ Failed to get AndroidContext")
 			return nil
 		}
 
@@ -141,10 +141,10 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 			C.uintptr_t(androidCtx.Ctx),
 		)
 		if result == 0 {
-			logrus.Error("❌ MainActivity.launchQRScanner не найден. Используйте Gradle-сборку: scripts/build_all_android.sh gradle")
+			logrus.Error("❌ MainActivity.launchQRScanner not found. Use the Gradle build: scripts/build_all_android.sh gradle")
 			return fmt.Errorf("QR scanner unavailable: MainActivity required. Build with: scripts/build_all_android.sh gradle")
 		}
-		logrus.Info("📷 QR Scanner запущен успешно")
+		logrus.Info("📷 QR scanner started successfully")
 		launchSuccess = true
 		return nil
 	})
@@ -159,21 +159,21 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 
 	// Запускаем polling ВНЕ RunNative callback
 	if launchSuccess {
-		logrus.Info("📷 Запускаем polling горутину...")
+		logrus.Info("📷 Starting polling goroutine...")
 		go qs.pollQRResult(parent)
 	}
 }
 
 // pollQRResult опрашивает nbdbridge (результат приходит через JNI → QRResultBridge → main app)
 func (qs *QRScanner) pollQRResult(parent fyne.Window) {
-	logrus.Info("📷 [POLL] Начинаем polling результата QR...")
+	logrus.Info("📷 [POLL] Starting QR result polling...")
 
 	for i := 0; i < 600; i++ { // максимум 60 секунд
 		time.Sleep(100 * time.Millisecond)
 
 		ready := nbdbridge.IsQRResultReady()
 		if i%50 == 0 {
-			logrus.Infof("📷 [POLL] Итерация %d, ready=%v", i, ready)
+			logrus.Infof("📷 [POLL] Iteration %d, ready=%v", i, ready)
 		}
 
 		if !ready {
@@ -189,21 +189,21 @@ func (qs *QRScanner) pollQRResult(parent fyne.Window) {
 		return
 	}
 
-	logrus.Warn("📷 [POLL] ⚠️ Timeout ожидания результата QR (60 сек)")
+	logrus.Warn("📷 [POLL] ⚠️ Timed out waiting for QR result (60 sec)")
 }
 
 func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.Window) {
-	logrus.Infof("📷 [POLL] Получен результат QR: contents=%q, imageLen=%d, cancelled=%v",
+	logrus.Infof("📷 [POLL] QR result received: contents=%q, imageLen=%d, cancelled=%v",
 		result.Contents, len(result.ImageData), result.Cancelled)
 
 	if result.Cancelled {
-		logrus.Info("📷 [POLL] Пользователь отменил сканирование")
+		logrus.Info("📷 [POLL] User cancelled scanning")
 		return
 	}
 
 	if result.Contents != "" {
 		contentsCopy := strings.Clone(result.Contents)
-		logrus.Infof("📷 [POLL] ✅ QR отсканирован: %s", contentsCopy)
+		logrus.Infof("📷 [POLL] ✅ QR scanned: %s", contentsCopy)
 		fyne.Do(func() {
 			qs.parseAndApply(contentsCopy, parent)
 		})
@@ -213,21 +213,21 @@ func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.W
 	if len(result.ImageData) > 0 {
 		dataCopy := make([]byte, len(result.ImageData))
 		copy(dataCopy, result.ImageData)
-		logrus.Infof("📷 [POLL] Получено изображение с камеры: %d bytes", len(dataCopy))
+		logrus.Infof("📷 [POLL] Camera image received: %d bytes", len(dataCopy))
 		fyne.Do(func() {
 			qs.scanImageData(dataCopy, parent)
 		})
 		return
 	}
 
-	logrus.Warn("📷 [POLL] Результат пустой")
+	logrus.Warn("📷 [POLL] Empty result")
 }
 
 // scanImageData декодирует PNG/JPEG (с камеры) и сканирует QR код
 func (qs *QRScanner) scanImageData(data []byte, parent fyne.Window) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		logrus.Errorf("Ошибка декодирования изображения: %v", err)
+		logrus.Errorf("Failed to decode image: %v", err)
 		fyne.Do(func() {
 			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorDecodingImage, err), parent)
 		})

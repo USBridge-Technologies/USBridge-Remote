@@ -1454,7 +1454,7 @@ func (dw *DiskWidget) handleMount() {
 		}
 
 		// Логируем успешный ответ API
-		logrus.Infof("✅ [MOUNT-API-2] API ответ от USB Bridge 2:")
+		logrus.Infof("✅ [MOUNT-API-2] API ответ от USBridge 2:")
 		logrus.Infof("  - Success: %v", deviceResp.Success)
 		logrus.Infof("  - Message: %s", deviceResp.Message)
 		if deviceResp.Data != nil {
@@ -2039,7 +2039,7 @@ func (dw *DiskWidget) getLocalIP() (string, error) {
 		host = host[:idx]
 	}
 
-	// Пытаемся подключиться к USB Bridge 2 чтобы определить локальный IP
+	// Пытаемся подключиться к USBridge 2 чтобы определить локальный IP
 	conn, err := net.Dial("udp", host+":8080")
 	if err != nil {
 		return "", fmt.Errorf("не удается определить локальный IP: %v", err)
@@ -2900,17 +2900,17 @@ func (dw *DiskWidget) deleteImageFromDevice(filename string, displayName string)
 // 1. Кнопка выбора папки в UI (рядом с кнопкой добавления образа)
 // 2. Dialog выбора папки (desktop + Android SAF)
 // 3. Создание NBD сервера для папки (виртуальный образ файловой системы)
-// 4. Отправка NBD источника на USB Bridge 2 в формате:
+// 4. Отправка NBD источника на USBridge 2 в формате:
 //    {
 //      "device": "drive",
 //      "server": "127.0.0.1",
 //      "port": 10809,
 //      "export_name": "FolderName"
 //    }
-// 5. USB Bridge 2 подключает NBD и монтирует как MTP устройство
+// 5. USBridge 2 подключает NBD и монтирует как MTP устройство
 //
 // Требования:
 // - NBD backend должен уметь создавать виртуальный образ из папки
-// - Или NBD клиент на стороне USB Bridge 2 должен поддерживать прямую отдачу папки
+// - Или NBD клиент на стороне USBridge 2 должен поддерживать прямую отдачу папки
 //
 // См. закомментированный код ниже для референса:

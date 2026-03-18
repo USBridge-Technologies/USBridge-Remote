@@ -1,4 +1,4 @@
-# Актуальные API Endpoints USB Bridge 2
+# Актуальные API Endpoints USBridge 2
 
 ## Системные endpoints
 
@@ -485,4 +485,4 @@ GET /
 - `405` - Метод не поддерживается
 - `500` - Внутренняя ошибка сервера
 
-Это актуальные endpoints из реальной реализации USB Bridge 2.
+Это актуальные endpoints из реальной реализации USBridge 2.

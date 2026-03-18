@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// USBStatus статус USB Bridge 2
+// USBStatus статус USBridge 2
 type USBStatus struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`

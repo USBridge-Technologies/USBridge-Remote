@@ -1,5 +1,5 @@
 #!/bin/bash
-# Сборка USB Bridge Client для Windows: бинарник + папка dist с библиотеками
+# Build USBridge Client for Windows: binary + dist folder with libraries
 # Требования: Go, mingw-w64, Fyne, GStreamer (MinGW x86_64)
 #
 # Для портативного пакета с GStreamer:
@@ -23,9 +23,9 @@ if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') [$0] ==="
 fi
 
-OUTPUT_NAME="USBBridgeClient"
+OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
-EXE_NAME="USB_Bridge_Client.exe"
+EXE_NAME="USBridge_Client.exe"
 
 # Цвета
 RED='\033[0;31m'
@@ -33,7 +33,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}🪟 Сборка USB Bridge Client для Windows${NC}"
+echo -e "${GREEN}🪟 Building USBridge Client for Windows${NC}"
 
 # 1. Проверка Go
 if ! command -v go &> /dev/null; then
@@ -184,7 +184,7 @@ if ! env \
     "$FYNE_BIN" package \
     --target windows \
     --app-id "com.usbridge.client" \
-    --name "USB Bridge Client" \
+    --name "USBridge Client" \
     --app-version "1.0.0" \
     --icon "$ICON_PATH" \
     --release \
@@ -198,7 +198,7 @@ echo "--- Конец вывода fyne ---"
 
 # Ищем созданный exe
 EXE_SRC=""
-for n in "USB_Bridge_Client.exe" "USB Bridge Client.exe"; do
+for n in "USBridge_Client.exe" "USBridge Client.exe"; do
     if [ -f "$n" ]; then
         EXE_SRC="$n"
         break
@@ -428,19 +428,19 @@ fi
 
 # 8. README
 cat > "$DIST_WIN/README.txt" << 'README'
-USB Bridge Client для Windows
-=============================
+USBridge Client for Windows
+===========================
 
-Запуск:
-  USB_Bridge_Client.exe — напрямую
+Run:
+  USBridge_Client.exe - directly
 
-Если папка содержит bin/ и lib/gstreamer-1.0/ — пакет портативный.
-Используется минимальный набор плагинов GStreamer.
+If the folder contains bin/ and lib/gstreamer-1.0/, the package is portable.
+It uses a minimal GStreamer plugin set.
 
-Если GStreamer не вложен — установите GStreamer (MinGW x86_64):
+If GStreamer is not bundled, install GStreamer (MinGW x86_64):
   https://gstreamer.freedesktop.org/download/#windows
 
-Конфигурация: config.yaml (в этой папке или %APPDATA%\usbridge-client\)
+Configuration: config.yaml (in this folder or %APPDATA%\usbridge-client\)
 README
 
 echo -e "${GREEN}✓${NC} README.txt"

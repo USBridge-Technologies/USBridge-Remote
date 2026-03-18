@@ -1,6 +1,6 @@
-# Конфигурация USB Bridge Client
+# Конфигурация USBridge Client
 
-# USB Bridge 2 подключение (как клиент)
+# USBridge 2 подключение (как клиент)
 # IP адрес вводится в адресной строке интерфейса
 usb_port: 8080
 api_timeout: 30

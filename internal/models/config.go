@@ -12,8 +12,8 @@ const DefaultVideoUDPPort = 55000
 
 // AppConfig конфигурация приложения
 type AppConfig struct {
-	// USB Bridge 2 подключение (как клиент)
-	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // Порт USB Bridge 2 (8080)
+	// USBridge 2 подключение (как клиент)
+	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // Порт USBridge 2 (8080)
 	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // Таймаут API запросов
 
 	// FRP настройки (QUIC туннель)
@@ -63,7 +63,7 @@ type AppConfig struct {
 // DefaultConfig возвращает конфигурацию по умолчанию
 func DefaultConfig() *AppConfig {
 	return &AppConfig{
-		// USB Bridge 2
+		// USBridge 2
 		USBPort:    8080,
 		APITimeout: 30,
 

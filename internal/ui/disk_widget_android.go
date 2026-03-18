@@ -1,3 +1,4 @@
+//go:build android
 // +build android
 
 package ui
@@ -27,7 +28,7 @@ var (
 // handleAddImageAndroid обрабатывает добавление образа через SAF на Android
 func (dw *DiskWidget) handleAddImageAndroid() {
 	if dw.window == nil {
-		logrus.Warn("⚠️ Окно не установлено")
+		logrus.Warn("⚠️ Window is not set")
 		return
 	}
 
@@ -64,7 +65,7 @@ func (dw *DiskWidget) showNbdDialog() {
 
 	// Pick file button - использует SAF через NbdBridge.startSAFPicker()
 	pickBtn := widget.NewButton(i18n.Current.NBDSelectImage, func() {
-		logrus.Info("📁 Установка SAF callbacks и запуск пикера...")
+		logrus.Info("📁 Installing SAF callbacks and preparing the picker...")
 
 		// Устанавливаем callbacks
 		nbdbridge.SetSAFCallbacks(
@@ -74,7 +75,7 @@ func (dw *DiskWidget) showNbdDialog() {
 				nbdSelectedFd = fd
 				nbdSelectedSize = size
 
-				logrus.Infof("✅ Образ выбран: %s, fd=%d, size=%d", uri, fd, size)
+				logrus.Infof("✅ Image selected: %s, fd=%d, size=%d", uri, fd, size)
 
 				fyne.Do(func() {
 					fileInfoLabel.SetText(fmt.Sprintf(i18n.Current.NBDImageSelected,
@@ -86,7 +87,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			},
 			// Error callback
 			func(error string) {
-				logrus.Errorf("❌ Ошибка выбора файла: %s", error)
+				logrus.Errorf("❌ File selection failed: %s", error)
 				fyne.Do(func() {
 					dialog.ShowError(fmt.Errorf(i18n.Current.ErrorSelectingFile, error), dw.window)
 				})
@@ -179,12 +180,12 @@ func (dw *DiskWidget) showNbdDialog() {
 // startNbdServiceJNI запускает NBD через foreground service с использованием JNI
 // readOnly: false = RW (запись возможна, для overlay); true = только чтение
 func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOnly bool) {
-	logrus.Infof("🚀 Запуск NBD service через JNI: fd=%d, size=%d, addr=%s, readOnly=%v", fd, size, addr, readOnly)
+	logrus.Infof("🚀 Starting NBD service via JNI: fd=%d, size=%d, addr=%s, readOnly=%v", fd, size, addr, readOnly)
 
 	// Start NBD backend (readOnly=false чтобы хост мог писать в loop без I/O error)
 	err := nbdbridge.StartNBD(fd, size, addr, readOnly)
 	if err != nil {
-		logrus.Errorf("❌ Ошибка запуска NBD backend: %v", err)
+		logrus.Errorf("❌ Failed to start NBD backend: %v", err)
 		fyne.Do(func() {
 			dialog.ShowError(fmt.Errorf(i18n.Current.NBDStartFailed, err), dw.window)
 		})
@@ -193,7 +194,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 
 	// TODO: Start foreground service via app.RunOnJVM calling NbdBridge.startNbdService()
 
-	logrus.Info("✅ NBD сервер запущен")
+	logrus.Info("✅ NBD server started")
 	fyne.Do(func() {
 		dialog.ShowInformation(
 			i18n.Current.NBDStarted,
@@ -205,18 +206,18 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 
 // stopNbdService останавливает NBD service
 func (dw *DiskWidget) stopNbdService() {
-	logrus.Info("🛑 Остановка NBD service")
+	logrus.Info("🛑 Stopping NBD service")
 
 	err := nbdbridge.StopNBD()
 	if err != nil {
-		logrus.Errorf("❌ Ошибка остановки NBD: %v", err)
+		logrus.Errorf("❌ Failed to stop NBD: %v", err)
 		fyne.Do(func() {
 			dialog.ShowError(fmt.Errorf(i18n.Current.NBDStopError, err), dw.window)
 		})
 		return
 	}
 
-	logrus.Info("✅ NBD сервер остановлен")
+	logrus.Info("✅ NBD server stopped")
 	fyne.Do(func() {
 		dialog.ShowInformation(i18n.Current.NBDStopped, i18n.Current.NBDStoppedSuccess, dw.window)
 	})
@@ -240,7 +241,7 @@ func getNbdStatusText() string {
 // Инициализация для Android
 func init() {
 	if runtime.GOOS == "android" {
-		logrus.Info("🤖 Android: NBD интеграция с SAF через JNI включена")
-		logrus.Info("📱 Используется правильная JNI интеграция для SAF и Foreground Service")
+		logrus.Info("🤖 Android: NBD integration with SAF via JNI is enabled")
+		logrus.Info("📱 Using JNI integration for SAF and foreground service")
 	}
 }

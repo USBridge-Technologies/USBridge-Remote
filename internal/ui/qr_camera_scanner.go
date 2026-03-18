@@ -24,7 +24,7 @@ import (
 
 // QRCameraScanner сканирует QR с камеры в реальном времени (desktop)
 type QRCameraScanner struct {
-	parent   fyne.Window
+	parent    fyne.Window
 	qrScanner *QRScanner
 
 	pipeline *gst.Pipeline
@@ -49,7 +49,7 @@ func newQRCameraScanner(parent fyne.Window, qs *QRScanner) (*QRCameraScanner, er
 	pipelineStr := getCameraPipelineStr()
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)
 	if err != nil {
-		return nil, fmt.Errorf("создание pipeline: %w", err)
+		return nil, fmt.Errorf("failed to create pipeline: %w", err)
 	}
 
 	sinkEl, err := pipeline.GetElementByName("sink")
@@ -123,7 +123,7 @@ func (q *QRCameraScanner) Run() {
 				result, err := qrReader.Decode(bmp, nil)
 				if err == nil {
 					contents := result.GetText()
-					logrus.Infof("✅ QR обнаружен: %s", contents)
+					logrus.Infof("✅ QR detected: %s", contents)
 
 					// ВАЖНО: Не вызывать q.Stop() из callback GStreamer - deadlock!
 					// Вся очистка через fyne.Do на главном потоке

@@ -72,7 +72,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 
 	// Получаем текст из QR-кода
 	qrText := result.GetText()
-	logrus.Infof("QR-код отсканирован: %s", qrText)
+	logrus.Infof("QR code scanned: %s", qrText)
 
 	// Парсим данные в формате host:token
 	qs.parseAndApply(qrText, parent)
@@ -101,7 +101,7 @@ func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 func parseQRContents(qrText string) (host, token string, err error) {
 	qrText = strings.TrimSpace(qrText)
 	if qrText == "" {
-		return "", "", fmt.Errorf("пустой QR-код")
+		return "", "", fmt.Errorf("empty QR code")
 	}
 
 	// Формат usbridge://connect?host=X&token=Y
@@ -111,7 +111,7 @@ func parseQRContents(qrText string) (host, token string, err error) {
 			return "", "", parseErr
 		}
 		if u.Scheme != "usbridge" || u.Host != "connect" {
-			return "", "", fmt.Errorf("неподдерживаемый формат deep link")
+			return "", "", fmt.Errorf("unsupported deep link format")
 		}
 		query := u.Query()
 		host = strings.TrimSpace(query.Get("host"))
@@ -119,13 +119,13 @@ func parseQRContents(qrText string) (host, token string, err error) {
 		if host != "" && token != "" {
 			return host, token, nil
 		}
-		return "", "", fmt.Errorf("отсутствуют host или token в ссылке")
+		return "", "", fmt.Errorf("host or token is missing in the link")
 	}
 
 	// Формат host:token
 	parts := strings.SplitN(qrText, ":", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("ожидается формат host:token или usbridge://connect?host=X&token=Y")
+		return "", "", fmt.Errorf("expected format host:token or usbridge://connect?host=X&token=Y")
 	}
 	host = strings.TrimSpace(parts[0])
 	token = strings.TrimSpace(parts[1])
@@ -154,7 +154,7 @@ func (qs *QRScanner) showPreview(host, token string, parent fyne.Window) {
 		}
 		if qs.onSave != nil {
 			qs.onSave(host, host, token) // название = адрес хоста
-			logrus.Infof("QR сохранено: host=%s", host)
+			logrus.Infof("QR saved: host=%s", host)
 		}
 	})
 	saveBtn.Importance = widget.MediumImportance
@@ -165,7 +165,7 @@ func (qs *QRScanner) showPreview(host, token string, parent fyne.Window) {
 		}
 		if qs.onConnect != nil {
 			qs.onConnect(host, token)
-			logrus.Infof("QR подключение: host=%s", host)
+			logrus.Infof("QR connect: host=%s", host)
 		}
 	})
 	connectBtn.Importance = widget.HighImportance

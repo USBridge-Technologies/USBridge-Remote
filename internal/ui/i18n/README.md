@@ -1,6 +1,6 @@
 # Localization (i18n)
 
-This directory contains the localization system for USB Bridge Client.
+This directory contains the localization system for USBridge Client.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ i18n.Init("en")
 ```go
 func DE() *LocalizedStrings {
 	return &LocalizedStrings{
-		AppTitle: "USB Bridge Client",
+		AppTitle: "USBridge Client",
 		ServerAddress: "Serveradresse",
 		// ... add all string translations
 	}

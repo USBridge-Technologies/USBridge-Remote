@@ -89,7 +89,7 @@ func (vfd *VideoFrameDecoder) CreateTestFrame(width, height int) image.Image {
 	}
 
 	// Добавляем текст (упрощенная версия)
-	vfd.drawText(img, "USB Bridge Video Stream", 50, 50, color.White)
+	vfd.drawText(img, "USBridge Video Stream", 50, 50, color.White)
 	vfd.drawText(img, time.Now().Format("15:04:05"), 50, 80, color.White)
 
 	return img

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Сборка USB Bridge Client для Android через Gradle
-# Включает MainActivity с камерой, QR-сканером и SAF
+# Build USBridge Client for Android with Gradle
+# Includes MainActivity with camera, QR scanner, and SAF
 
 set -e
 
@@ -26,7 +26,7 @@ DIST_DIR="$REPO_ROOT/dist/android"
 mkdir -p "$DIST_DIR"
 
 echo "=============================================="
-echo "  USB Bridge Client — Gradle сборка (камера)"
+echo "  USBridge Client - Gradle build (camera)"
 echo "=============================================="
 echo ""
 
@@ -154,7 +154,7 @@ cd "$ANDROID_SRC"
 "$HOME/go/bin/fyne" package \
     --target android/arm64 \
     --app-id com.usbridge.client \
-    --name "USB Bridge Client" \
+    --name "USBridge Client" \
     --app-version "1.0.0" \
     --icon "$REPO_ROOT/Icon.png" \
     --release
@@ -163,9 +163,9 @@ echo ""
 
 # 4. Извлечение .so из Fyne APK
 echo "📂 Шаг 4/5: Извлечение нативных библиотек..."
-FYNE_APK="$REPO_ROOT/cmd/android/USB_Bridge_Client.apk"
+FYNE_APK="$REPO_ROOT/cmd/android/USBridge_Client.apk"
 if [ ! -f "$FYNE_APK" ]; then
-    FYNE_APK="$REPO_ROOT/USB_Bridge_Client.apk"
+    FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
 fi
 if [ ! -f "$FYNE_APK" ]; then
     echo -e "${RED}❌ Fyne APK не найден${NC}"
@@ -175,9 +175,9 @@ fi
 TEMP_APK=$(mktemp -d)
 unzip -q "$FYNE_APK" -d "$TEMP_APK"
 
-# Копируем libUSB_Bridge_Client.so в jniLibs
+# Copy libUSBridge_Client.so into jniLibs
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
-cp "$TEMP_APK/lib/arm64-v8a/libUSB_Bridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
+cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
 cp android/jniLibs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
 rm -rf "$TEMP_APK"
 echo -e "${GREEN}✓${NC} Нативные библиотеки скопированы"
@@ -196,7 +196,7 @@ cd android
 # Иконка — используем из Fyne APK если нет mipmap
 if [ ! -d "app/src/main/res/mipmap-hdpi" ]; then
     mkdir -p app/src/main/res/mipmap-hdpi
-    unzip -q -j "$REPO_ROOT/USB_Bridge_Client.apk" "res/mipmap-xxxhdpi-v4/icon.png" -d /tmp/ 2>/dev/null && \
+    unzip -q -j "$REPO_ROOT/USBridge_Client.apk" "res/mipmap-xxxhdpi-v4/icon.png" -d /tmp/ 2>/dev/null && \
         cp /tmp/icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png 2>/dev/null || true
 fi
 # Создаём mipmap если нет
@@ -223,7 +223,7 @@ if [ -f "$APK_OUT" ]; then
             -dname "CN=Android Debug,O=Android,C=US"
     fi
 
-    FINAL_APK="$DIST_DIR/USB_Bridge_Client_gradle.apk"
+    FINAL_APK="$DIST_DIR/USBridge_Client_gradle.apk"
     # Ищем apksigner: сначала в ANDROID_HOME (Linux), затем в стандартном пути macOS
     APKSIGNER=""
     if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/build-tools" ]; then

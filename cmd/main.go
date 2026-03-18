@@ -22,9 +22,9 @@ const (
 func main() {
 	// Парсим аргументы командной строки
 	var (
-		configFile  = flag.String("config", "", "Путь к файлу конфигурации")
-		logLevel    = flag.String("log-level", "info", "Уровень логирования (debug, info, warn, error)")
-		showVersion = flag.Bool("version", false, "Показать версию")
+		configFile  = flag.String("config", "", "Path to the configuration file")
+		logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+		showVersion = flag.Bool("version", false, "Show version")
 	)
 	flag.Parse()
 
@@ -37,23 +37,22 @@ func main() {
 	// Настраиваем логирование
 	setupLogging(*logLevel)
 
-	logrus.Infof("🚀 Запуск %s версии %s", appName, version)
+	logrus.Infof("🚀 Starting %s version %s", appName, version)
 
 	// Загружаем конфигурацию
 	config, err := loadConfig(*configFile)
 	if err != nil {
-		logrus.Fatalf("Ошибка загрузки конфигурации: %v", err)
+		logrus.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	logrus.Infof("📋 Конфигурация загружена:")
-	//logrus.Infof("  USB Bridge 2: %s:%d", config.USBHost, config.USBPort)
-	logrus.Infof("  NBD порт: %d", config.NBDPort)
+	logrus.Infof("📋 Configuration loaded:")
+	logrus.Infof("  NBD port: %d", config.NBDPort)
 
 	// Создаем главное окно (локализация будет загружена внутри)
 	mainWindow := ui.NewMainWindow(config)
 
 	// Запускаем приложение
-	logrus.Info("🎨 Запуск графического интерфейса")
+	logrus.Info("🎨 Starting GUI")
 	mainWindow.Show()
 }
 
@@ -62,7 +61,7 @@ func setupLogging(level string) {
 	// Устанавливаем уровень логирования
 	logLevel, err := logrus.ParseLevel(level)
 	if err != nil {
-		logrus.Warnf("Неверный уровень логирования %s, используем info", level)
+		logrus.Warnf("Invalid log level %s, using info", level)
 		logLevel = logrus.InfoLevel
 	}
 	logrus.SetLevel(logLevel)
@@ -93,7 +92,7 @@ func setupLogging(level string) {
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		logrus.SetOutput(os.Stdout)
-		logrus.Warnf("Не удалось открыть лог-файл: %v", err)
+		logrus.Warnf("Failed to open log file: %v", err)
 		return
 	}
 	logrus.SetOutput(io.MultiWriter(os.Stdout, logFile))
@@ -107,9 +106,9 @@ func loadConfig(configFile string) (*models.AppConfig, error) {
 	// Если указан файл конфигурации, загружаем его
 	if configFile != "" {
 		if err := loadConfigFromFile(config, configFile); err != nil {
-			return nil, fmt.Errorf("ошибка загрузки файла конфигурации: %v", err)
+			return nil, fmt.Errorf("failed to load configuration file: %v", err)
 		}
-		logrus.Infof("📁 Конфигурация загружена из %s", configFile)
+		logrus.Infof("📁 Configuration loaded from %s", configFile)
 	} else {
 		// Пытаемся загрузить из стандартных мест
 		configPaths := []string{
@@ -125,7 +124,7 @@ func loadConfig(configFile string) (*models.AppConfig, error) {
 		for _, path := range configPaths {
 			if _, err := os.Stat(path); err == nil {
 				if err := loadConfigFromFile(config, path); err == nil {
-					logrus.Infof("📁 Конфигурация загружена из %s", path)
+					logrus.Infof("📁 Configuration loaded from %s", path)
 					break
 				}
 			}

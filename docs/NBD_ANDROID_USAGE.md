@@ -2,7 +2,7 @@
 
 ## Обзор
 
-USB Bridge Client для Android теперь поддерживает **NBD (Network Block Device)** сервер для стриминга образов дисков (.iso, .img) с microSD карты по сети.
+USBridge Client для Android теперь поддерживает **NBD (Network Block Device)** сервер для стриминга образов дисков (.iso, .img) с microSD карты по сети.
 
 ### Возможности
 
@@ -19,7 +19,7 @@ USB Bridge Client для Android теперь поддерживает **NBD (Ne
 
 ### 1. Открыть NBD диалог
 
-1. Запустите приложение **USB Bridge Client**
+1. Запустите приложение **USBridge Client**
 2. Перейдите в раздел **"Устройства"**
 3. Нажмите кнопку **"Добавить образ"** (на Android откроется NBD диалог)
 

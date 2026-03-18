@@ -16,9 +16,9 @@ import (
 
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
-	onConnect func(host, token string)             // Подключиться
-	onSave    func(name, host, token string)       // Только сохранить без подключения
-	lastURI   string                               // Последний обработанный URI (чтобы не обрабатывать дважды)
+	onConnect func(host, token string)       // Подключиться
+	onSave    func(name, host, token string) // Только сохранить без подключения
+	lastURI   string                         // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 
 // NewDeepLinkHandler создает новый обработчик
@@ -35,7 +35,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	// Получаем URI из Intent
 	uri, err := platform.GetIntentDataURI()
 	if err != nil {
-		logrus.Errorf("❌ Ошибка получения deep link: %v", err)
+		logrus.Errorf("❌ Failed to read deep link: %v", err)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 		return
 	}
 
-	logrus.Infof("🔗 Обнаружен новый deep link: %s", uri)
+	logrus.Infof("🔗 New deep link detected: %s", uri)
 
 	// Запоминаем текущий URI
 	h.lastURI = uri
@@ -58,7 +58,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	// Парсим URI
 	host, token, err := h.parseDeepLink(uri)
 	if err != nil {
-		logrus.Errorf("❌ Ошибка парсинга deep link: %v", err)
+		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		dialog.ShowError(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
 		return
 	}
@@ -72,17 +72,17 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (host, token string, err err
 	// Парсим URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", fmt.Errorf("некорректный формат ссылки: %v", err)
+		return "", "", fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Проверяем схему (только usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", fmt.Errorf("неподдерживаемая схема: %s (используйте usbridge://)", u.Scheme)
+		return "", "", fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Формат: usbridge://connect?host=192.168.1.1&token=secret
 	if u.Host != "connect" {
-		return "", "", fmt.Errorf("неподдерживаемый путь: %s (используйте usbridge://connect)", u.Host)
+		return "", "", fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Получаем параметры
@@ -92,14 +92,14 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (host, token string, err err
 
 	// Проверяем обязательные параметры
 	if host == "" {
-		return "", "", fmt.Errorf("не указан параметр host")
+		return "", "", fmt.Errorf("missing host parameter")
 	}
 
 	if token == "" {
-		return "", "", fmt.Errorf("не указан параметр token")
+		return "", "", fmt.Errorf("missing token parameter")
 	}
 
-	logrus.Infof("✅ Распознан deep link - host: %s, token: %s", host, token)
+	logrus.Infof("✅ Deep link parsed: host=%s, token=%s", host, token)
 	return host, token, nil
 }
 
@@ -129,7 +129,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 	var d dialog.Dialog
 
 	connectBtn := widget.NewButton(i18n.Current.DeepLinkConnect, func() {
-		logrus.Infof("✅ Пользователь выбрал подключение через deep link")
+		logrus.Infof("✅ User chose to connect via deep link")
 		if d != nil {
 			d.Hide()
 		}
@@ -140,7 +140,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 	connectBtn.Importance = widget.HighImportance
 
 	saveBtn := widget.NewButton(i18n.Current.DeepLinkSave, func() {
-		logrus.Infof("💾 Пользователь выбрал сохранение подключения через deep link")
+		logrus.Infof("💾 User chose to save the connection from deep link")
 		if d != nil {
 			d.Hide()
 		}
@@ -152,7 +152,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 	saveBtn.Importance = widget.MediumImportance
 
 	cancelBtn := widget.NewButton(i18n.Current.Cancel, func() {
-		logrus.Info("❌ Пользователь отменил подключение через deep link")
+		logrus.Info("❌ User cancelled deep link connection")
 		if d != nil {
 			d.Hide()
 		}
@@ -177,10 +177,10 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 			hostValue,
 			tokenLabel,
 			tokenEntry,
-		),     // Верх
-		buttons,   // Низ
-		nil, nil,  // Лево, Право
-		nil,       // Центр
+		), // Верх
+		buttons,  // Низ
+		nil, nil, // Лево, Право
+		nil, // Центр
 	)
 
 	// Создаем кастомный диалог с полным контентом
