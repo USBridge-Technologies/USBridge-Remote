@@ -354,8 +354,8 @@ func (mw *MainWindow) updateStatusBar() {
 					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
 						keyboardConnected = true
 					}
-					// Мышь или тачскрин — показываем иконку манипулятора
-					if device.Type == "mouse" || device.Type == "touchscreen" || strings.HasPrefix(device.Type, "mouse:") {
+					// Мышь, тачскрин или absolute — показываем иконку манипулятора
+					if device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:") {
 						mouseConnected = true
 					}
 					if device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:") {

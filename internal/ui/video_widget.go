@@ -303,20 +303,20 @@ func (vw *VideoWidget) checkMouseConnected() {
 
 	logrus.Debugf("🖱️ checkMouseConnected: получено %d устройств", len(deviceInfo.Devices))
 
-	// Проверяем, есть ли подключенный манипулятор (мышь или тачскрин)
+	// Проверяем, есть ли подключенный манипулятор (мышь, тачскрин или absolute)
 	mouseConnected := false
 	for _, device := range deviceInfo.Devices {
 		logrus.Debugf("🖱️ Проверка устройства: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
 
 		// Мышь или тачскрин — оба дают возможность ввода на экране управления
 		if device.Status == "connected" &&
-			(device.Type == "mouse" || device.Type == "touchscreen" || strings.HasPrefix(device.Type, "mouse:")) {
+			(device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
 			mouseConnected = true
 			// Синхронизируем режим ввода с типом устройства на сервере
 			if device.Type == "touchscreen" {
 				vw.SetMouseInputMode("touchscreen")
-			} else {
-				vw.SetMouseInputMode("mouse")
+			} else if device.Type == "absolute" {
+				vw.SetMouseInputMode("absolute")
 			}
 			logrus.Infof("🖱️ ✅ Манипулятор подключён: %s (type: %s)", device.Name, device.Type)
 			break

@@ -970,11 +970,13 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					logrus.Debugf("⌨️ Найдена подключенная клавиатура: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 					break
 				}
-				// Для мыши проверяем тип (мышь или тачскрин)
-				if drive.IsMouse && (device.Type == "mouse" || device.Type == "touchscreen" || strings.HasPrefix(device.Type, "mouse:")) {
+				// Для мыши проверяем тип (мышь, тачскрин или absolute)
+				if drive.IsMouse && (device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
 					isMounted = true
 					if device.Type == "touchscreen" {
 						drive.MouseType = "touchscreen"
+					} else if device.Type == "absolute" {
+						drive.MouseType = "absolute"
 					} else {
 						drive.MouseType = "mouse"
 					}

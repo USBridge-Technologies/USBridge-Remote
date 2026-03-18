@@ -231,6 +231,10 @@ func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 	if err := json.Unmarshal(dataBytes, &deviceInfo); err != nil {
 		return nil, fmt.Errorf("ошибка парсинга информации об устройствах: %v", err)
 	}
+	for _, d := range deviceInfo.Devices {
+		logrus.Infof("🔎 [API-DEVICE-INFO] device=%s type=%s status=%s name=%s product=%s",
+			d.Device, d.Type, d.Status, d.Name, d.ProductName)
+	}
 
 	return &deviceInfo, nil
 }

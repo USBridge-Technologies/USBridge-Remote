@@ -506,9 +506,16 @@ func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string
 					KeyboardMode: true,
 				})
 				addedKeyboard = true
-			case (device.Type == "mouse" || strings.HasPrefix(device.Type, "mouse:")) && !addedMouse:
+			case (device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) && !addedMouse:
+				mouseType := "mouse"
+				if device.Type == "touchscreen" {
+					mouseType = "touchscreen"
+				} else if device.Type == "absolute" {
+					mouseType = "absolute"
+				}
 				requests = append(requests, models.DeviceStartRequest{
 					Device:       "mouse",
+					Type:         mouseType,
 					VendorID:     "0x1d6b",
 					ProductID:    "0x0104",
 					ProductName:  "USBridge Mouse",
