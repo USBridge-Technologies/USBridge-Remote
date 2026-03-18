@@ -118,6 +118,7 @@ type MouseRequest struct {
 	Tip    bool   `json:"tip"`              // для action "touch": true = касание, false = отпускание (обязательно передавать; без omitempty чтобы false не опускался в JSON)
 	Button int    `json:"button,omitempty"` // Кнопка мыши (1=левая, 2=правая, 3=средняя)
 	Scroll int    `json:"scroll,omitempty"` // Прокрутка колесика (от -127 до 127)
+	ButtonState int `json:"button_state,omitempty"` // Битмаска кнопок (bit0=L, bit1=R, bit2=M) для absolute_event
 }
 
 // DeviceStartRequest запрос на запуск устройства (старый формат - deprecated)

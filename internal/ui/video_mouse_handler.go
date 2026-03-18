@@ -137,8 +137,10 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		go func() {
-			t.videoWidget.SendAbsolutePosition(x, y, true)
-			_ = t.videoWidget.usbClient.SendMouseClick(1)
+			t.videoWidget.SetAbsoluteButton(1, true)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+			t.videoWidget.SetAbsoluteButton(1, false)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
 		}()
 		return
 	}
@@ -167,8 +169,10 @@ func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		go func() {
-			t.videoWidget.SendAbsolutePosition(x, y, true)
-			_ = t.videoWidget.usbClient.SendMouseClick(2)
+			t.videoWidget.SetAbsoluteButton(2, true)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+			t.videoWidget.SetAbsoluteButton(2, false)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
 		}()
 		return
 	}
@@ -219,7 +223,8 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		go func() {
-			t.videoWidget.SendAbsolutePosition(x, y, true)
+			t.videoWidget.SetAbsoluteButton(btn, true)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
 		}()
 	}
 }
@@ -259,6 +264,18 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 			t.videoWidget.dragButton = 0
 			t.videoWidget.isDragging = false
 		}
+		return
+	}
+
+	if t.videoWidget.GetMouseInputMode() == "absolute" {
+		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		button := t.videoWidget.dragButton
+		t.videoWidget.dragButton = 0
+		t.videoWidget.isDragging = false
+		go func() {
+			t.videoWidget.SetAbsoluteButton(button, false)
+			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+		}()
 		return
 	}
 
@@ -324,7 +341,11 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		go func() {
-			t.videoWidget.SendAbsolutePosition(x, y, false)
+			if t.videoWidget.dragButton != 0 || t.videoWidget.isDragging {
+				t.videoWidget.SendAbsoluteEvent(x, y, 0, false)
+			} else {
+				t.videoWidget.SendAbsolutePosition(x, y, false)
+			}
 		}()
 	}
 
@@ -400,8 +421,7 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 		// MouseMoved/TouchMove обновляют lastAbsX/Y, но на некоторых платформах скролл может прийти без движения.
 		x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
 		go func() {
-			t.videoWidget.SendAbsolutePosition(x, y, true)
-			_ = t.videoWidget.usbClient.SendMouseScroll(scroll)
+			t.videoWidget.SendAbsoluteEvent(x, y, scroll, true)
 		}()
 		return
 	}

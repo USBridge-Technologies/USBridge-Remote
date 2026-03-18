@@ -82,6 +82,7 @@ type VideoWidget struct {
 	lastAbsX          int       // последние отправленные координаты absolute (touch_position) чтобы не спамить
 	lastAbsY          int
 	lastAbsSentTime   time.Time // время последней отправки absolute (для дебаунса)
+	absButtons        uint8     // битмаска кнопок для absolute режима
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
@@ -812,6 +813,38 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
 	_ = vw.usbClient.SendTouchPositionOnly(x, y, false)
+}
+
+// SetAbsoluteButton обновляет битмаску кнопок для absolute режима.
+// button: 1=left, 2=right, 3=middle.
+func (vw *VideoWidget) SetAbsoluteButton(button int, pressed bool) {
+	var bit uint8
+	switch button {
+	case 1:
+		bit = 0x01
+	case 2:
+		bit = 0x02
+	case 3:
+		bit = 0x04
+	default:
+		return
+	}
+	if pressed {
+		vw.absButtons |= bit
+	} else {
+		vw.absButtons &^= bit
+	}
+}
+
+// SendAbsoluteEvent отправляет атомарное абсолютное событие (позиция + кнопки + колесо).
+func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
+	if vw.usbClient == nil {
+		return
+	}
+	vw.lastAbsX = x
+	vw.lastAbsY = y
+	vw.lastAbsSentTime = time.Now()
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, scroll)
 }
 
 // CancelTouchDownDelay отменяет отложенную отправку touch(down). Вызывать из Tapped, чтобы один тап давал только пару down+up из Tapped.

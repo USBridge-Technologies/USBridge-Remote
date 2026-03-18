@@ -610,6 +610,23 @@ func (c *USBClient) SendMouseScroll(scroll int) error {
 	return c.sendMouseRequest(request)
 }
 
+// SendAbsoluteEvent отправляет атомарное абсолютное событие (позиция + кнопки + колесо).
+func (c *USBClient) SendAbsoluteEvent(x, y int, buttons uint8, scroll int) error {
+	if scroll > 127 {
+		scroll = 127
+	} else if scroll < -127 {
+		scroll = -127
+	}
+	request := models.MouseRequest{
+		Action:      "absolute_event",
+		X:           x,
+		Y:           y,
+		ButtonState: int(buttons),
+		Scroll:      scroll,
+	}
+	return c.sendMouseRequest(request)
+}
+
 // SendMouseAction отправляет комплексное действие мыши
 func (c *USBClient) SendMouseAction(button, dx, dy, scroll int) error {
 	request := models.MouseRequest{
