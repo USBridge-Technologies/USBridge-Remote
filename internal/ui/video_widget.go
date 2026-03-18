@@ -418,6 +418,9 @@ func (vw *VideoWidget) handleFullscreen() {
 		vw.fullscreenDialog = NewFullscreenDialog(vw.parentWindow)
 		vw.fullscreenDialog.SetVideoWidget(vw)
 		vw.fullscreenDialog.SetGStreamerService(vw.gstreamerService)
+		if vw.usbClient != nil {
+			vw.fullscreenDialog.SetUSBClient(vw.usbClient)
+		}
 	}
 
 	vw.fullscreenDialog.Show()
