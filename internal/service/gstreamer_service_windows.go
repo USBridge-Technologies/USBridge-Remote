@@ -20,7 +20,8 @@ import (
 // GStreamerService сервис для работы с GStreamer H264 потоком на Windows
 // Использует d3d11h264dec для аппаратного декодирования (Direct3D11/DXVA)
 type GStreamerService struct {
-	config *models.AppConfig
+	config    *models.AppConfig
+	videoMode string
 
 	// GStreamer pipeline
 	pipeline *gst.Pipeline
@@ -46,9 +47,9 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime  time.Time
-	frameCount     int64
-	framesDropped  int64
+	lastFrameTime time.Time
+	frameCount    int64
+	framesDropped int64
 
 	// Мьютексы
 	mutex sync.RWMutex
@@ -66,6 +67,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		autoReconnect:         true,
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
+		videoMode:             models.VideoModeH264,
 		frameChan:             make(chan image.Image, 1), // Один кадр — минимальная задержка
 		stopChan:              make(chan struct{}),
 		frameProcessorRunning: false,
@@ -114,7 +116,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Info("🔗 [Windows] Подключение к RTP H.264 потоку (d3d11h264dec)...")
+	logrus.Infof("🔗 [Windows] Подключение к RTP потоку mode=%s...", gs.videoMode)
 
 	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
 	gst.Init(nil)
@@ -159,7 +161,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnected = true
 	gs.mutex.Unlock()
 
-	logrus.Info("✅ [Windows] GStreamer RTP H.264 подключение установлено (аппаратное декодирование)")
+	logrus.Infof("✅ [Windows] GStreamer RTP подключение установлено (mode=%s)", gs.videoMode)
 	return nil
 }
 
@@ -177,7 +179,11 @@ func (gs *GStreamerService) createPipeline() error {
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
-	logrus.Infof("📹 [Windows] UDP порт приёма RTP H.264: %d", udpPort)
+	logrus.Infof("📹 [Windows] UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
+
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		return gs.createPipelineJPEG(udpPort)
+	}
 
 	// Вариант 1: d3d11h264dec ! d3d11download — перевод D3D11-памяти в системную, иначе переход в PLAYING часто падает
 	hwWithDownload := fmt.Sprintf(
@@ -221,6 +227,89 @@ func (gs *GStreamerService) createPipeline() error {
 	logrus.Info("✅ [Windows] GStreamer pipeline создан (d3d11h264dec - аппаратное декодирование)")
 	gs.pipeline = pipeline
 	return gs.attachAppsink()
+}
+
+func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
+	pipelines := []struct {
+		name string
+		str  string
+	}{
+		{
+			name: "jpegdec (SW preferred)",
+			str: fmt.Sprintf(
+				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				udpPort,
+			),
+		},
+		{
+			name: "avdec_mjpeg",
+			str: fmt.Sprintf(
+				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! avdec_mjpeg ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				udpPort,
+			),
+		},
+		{
+			name: "decodebin",
+			str: fmt.Sprintf(
+				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! decodebin ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				udpPort,
+			),
+		},
+		{
+			name: "qsvjpegdec (HW)",
+			str: fmt.Sprintf(
+				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! qsvjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				udpPort,
+			),
+		},
+		{
+			name: "wicjpegdec",
+			str: fmt.Sprintf(
+				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! wicjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				udpPort,
+			),
+		},
+	}
+
+	var lastErr error
+	for _, candidate := range pipelines {
+		pipeline, err := gst.NewPipelineFromString(candidate.str)
+		if err != nil {
+			lastErr = err
+			logrus.Warnf("⚠️ [Windows/JPEG] pipeline недоступен (%s): %v", candidate.name, err)
+			continue
+		}
+
+		gs.pipeline = pipeline
+		if err := gs.attachAppsink(); err != nil {
+			lastErr = err
+			gs.pipeline.SetState(gst.StateNull)
+			gs.pipeline = nil
+			continue
+		}
+		logrus.Infof("✅ [Windows/JPEG] GStreamer pipeline создан: %s", candidate.name)
+		return nil
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("не найдено подходящих JPEG декодеров GStreamer")
+	}
+	return lastErr
 }
 
 // createPipelineSoftware создает pipeline только с программным декодером avdec_h264 (fallback при ошибке PLAYING или отсутствии d3d11).
@@ -804,7 +893,7 @@ func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
-		gs.config.VideoUDPPort = port
+	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
@@ -815,6 +904,20 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 
 	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
+}
+
+func (gs *GStreamerService) SetVideoMode(mode string) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	if mode == "" {
+		mode = models.VideoModeH264
+	}
+	gs.videoMode = mode
+}
+
+func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
+	_ = width
+	_ = height
 }
 
 // GetConfig возвращает конфигурацию

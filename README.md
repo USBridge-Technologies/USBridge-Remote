@@ -171,7 +171,6 @@ nbd_export_read_only: true
 
 video_udp_port: 55000
 
-video_codec: "H.264"
 video_bitrate: 2000
 video_width: 640
 video_height: 480

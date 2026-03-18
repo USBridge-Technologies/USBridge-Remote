@@ -17,11 +17,11 @@ import (
 // NewVideoWidgetGStreamer создает новый виджет видео с GStreamer
 func NewVideoWidgetGStreamer(usbClient *api.USBClient, gstreamerService *service.GStreamerService, updateStatus func()) *VideoWidget {
 	vw := &VideoWidget{
-		usbClient:          usbClient,
-		gstreamerService:   gstreamerService,
-		updateStatus:       updateStatus,
-		isStreaming:        false,
-		frameDecoder:       NewVideoFrameDecoder(),
+		usbClient:        usbClient,
+		gstreamerService: gstreamerService,
+		updateStatus:     updateStatus,
+		isStreaming:      false,
+		frameDecoder:     NewVideoFrameDecoder(),
 	}
 
 	vw.createInterface()
@@ -113,6 +113,8 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if vw.gstreamerService != nil {
 		vw.gstreamerService.SetAutoReconnect(true)
 		vw.gstreamerService.SetMaxReconnectAttempts(5)
+		vw.gstreamerService.SetVideoMode(request.VideoMode)
+		vw.gstreamerService.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
 	}
 
 	// Порт приёма UDP (статический DefaultVideoUDPPort, proxy при FRP, прямой при локальном)
@@ -122,8 +124,13 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	}
 	request.ClientPort = clientPort
 
+	mode := request.VideoMode
+	if mode == "" {
+		mode = models.VideoModeH264
+	}
+
 	// 1. Запускаем GStreamer: udpsrc RTP на clientPort (при FRP — proxy слушает, Bridge visitor шлёт)
-	logrus.Infof("🎬 [VIDEO] Шаг 1: Запуск GStreamer (udpsrc RTP port=%d)...", clientPort)
+	logrus.Infof("🎬 [VIDEO] Шаг 1: Запуск GStreamer (mode=%s, udpsrc RTP port=%d)...", mode, clientPort)
 	if !vw.connectToGStreamerWithRetries() {
 		logrus.Error("❌ Не удалось запустить GStreamer")
 		fyne.Do(func() {
@@ -143,7 +150,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	time.Sleep(2 * time.Second)
 
 	// 2. ПОТОМ запускаем видео на сервере — Bridge FFmpeg шлёт RTP, visitor пересылает в proxy video_sudp
-	logrus.Infof("🎥 [VIDEO] Шаг 2: POST /api/video/start (client_port=%d)", request.ClientPort)
+	logrus.Infof("🎥 [VIDEO] Шаг 2: POST /api/video/start (mode=%s, client_port=%d)", mode, request.ClientPort)
 	if err := vw.usbClient.StartVideo(request); err != nil {
 		vw.gstreamerService.Disconnect()
 		logrus.Errorf("Ошибка запуска видео: %v", err)
@@ -154,7 +161,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		return
 	}
 
-	logrus.Infof("✅ Видео захват запущен (UDP порт %d)", clientPort)
+	logrus.Infof("✅ Видео захват запущен (mode=%s, UDP порт %d)", mode, clientPort)
 
 	vw.isStreaming = true
 	fyne.Do(func() {
@@ -175,7 +182,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ConnectingRTP, attempt, maxRetries))
 		})
-		logrus.Infof("🔄 Попытка подключения к UDP H.264 через GStreamer #%d/%d", attempt, maxRetries)
+		logrus.Infof("🔄 Попытка подключения к RTP video через GStreamer #%d/%d", attempt, maxRetries)
 
 		err := vw.gstreamerService.ConnectToRTP()
 		if err != nil {
@@ -201,7 +208,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.VideoActive)
 		})
-		logrus.Info("✅ GStreamer UDP H.264 подключение установлено успешно")
+		logrus.Info("✅ GStreamer RTP video подключение установлено успешно")
 		return true
 	}
 
@@ -235,6 +242,6 @@ func (vw *VideoWidget) updateGStreamerStats() {
 // Добавляем поле в VideoWidget
 type VideoWidgetWithGStreamer struct {
 	*VideoWidget
-	gstreamerService      *service.GStreamerService
-	isGStreamerConnected  bool
+	gstreamerService     *service.GStreamerService
+	isGStreamerConnected bool
 }

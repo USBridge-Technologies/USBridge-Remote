@@ -1549,12 +1549,21 @@ func (gs *GStreamerService) ConnectToRTP() error {
 
 // UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
 func (gs *GStreamerService) UpdateVideoPort(port int) {
-		gs.config.VideoUDPPort = port
+	gs.config.VideoUDPPort = port
 }
 
 // UpdateVideoUDPPort обновляет порт приёма UDP видео
 func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	gs.config.VideoUDPPort = port
+}
+
+func (gs *GStreamerService) SetVideoMode(mode string) {
+	_ = mode
+}
+
+func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
+	_ = width
+	_ = height
 }
 
 // GetConfig возвращает конфигурацию

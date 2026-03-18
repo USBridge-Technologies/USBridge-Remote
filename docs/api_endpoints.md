@@ -168,12 +168,8 @@ GET /api/config
     "video_height": 480,
     "video_fps": 30,
     "video_quality": 80,
-    "video_codec": "hevc_v4l2m2m",
     "video_bitrate": "2M",
-    "video_pixel_format": "yuyv422",
     "video_buffer_size": 2,
-    "video_stream_format": "mjpeg",
-    "video_low_latency": true,
     "web_server": {
       "enabled": true,
       "host": "0.0.0.0",
@@ -396,14 +392,15 @@ GET /api/video/info
     "height": 480,
     "fps": 30,
     "quality": 80,
-    "codec": "hevc_v4l2m2m",
     "bitrate": "2M",
-    "pixel_format": "yuyv422",
     "buffer_size": 2,
-    "stream_format": "mjpeg",
-    "low_latency": true,
+    "mode": "jpeg_rtp",
+    "transport": "rtp",
+    "encoding": "jpeg",
+    "source_format": "mjpeg",
+    "server_decodes_jpeg": false,
     "streaming": true,
-    "clients_count": 2
+    "udp_port": 55000
   }
 }
 ```
@@ -413,6 +410,18 @@ GET /api/video/info
 POST /api/video/start
 ```
 **Описание**: Запустить видео стриминг
+**Тело запроса**:
+```json
+{
+  "video_width": 1280,
+  "video_height": 720,
+  "video_fps": 60,
+  "video_quality": 80,
+  "video_bitrate": "4M",
+  "video_mode": "jpeg_rtp",
+  "client_port": 55000
+}
+```
 **Ответ**:
 ```json
 {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -58,20 +59,74 @@ type KernelInfo struct {
 
 // VideoStatus статус видео
 type VideoStatus struct {
-	Enabled         bool   `json:"enabled"`
-	Device          string `json:"device"`
-	Width           int    `json:"width"`
-	Height          int    `json:"height"`
-	FPS             int    `json:"fps"`
-	Quality         int    `json:"quality"`
-	Codec           string `json:"codec"`
-	Bitrate         string `json:"bitrate"`
-	PixelFormat     string `json:"pixel_format"`
-	BufferSize      int    `json:"buffer_size"`
-	StreamFormat    string `json:"stream_format"`
-	LowLatency      bool   `json:"low_latency"`
-	ClientsCount    int    `json:"clients_count"`
-	Streaming       bool   `json:"streaming"`
+	Enabled           bool                 `json:"enabled"`
+	Device            string               `json:"device"`
+	Width             int                  `json:"width"`
+	Height            int                  `json:"height"`
+	FPS               int                  `json:"fps"`
+	Quality           int                  `json:"quality"`
+	Bitrate           string               `json:"bitrate"`
+	BufferSize        int                  `json:"buffer_size"`
+	Mode              string               `json:"mode"`
+	Transport         string               `json:"transport"`
+	Encoding          string               `json:"encoding"`
+	SourceFormat      string               `json:"source_format"`
+	ServerDecodesJPEG bool                 `json:"server_decodes_jpeg"`
+	CaptureModes      []VideoCaptureMode   `json:"capture_modes,omitempty"`
+	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`
+	ClientsCount      int                  `json:"clients_count"`
+	Streaming         bool                 `json:"streaming"`
+}
+
+const (
+	VideoModeH264    = "h264"
+	VideoModeJPEGRTP = "jpeg_rtp"
+)
+
+type VideoTransportMode struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Transport         string `json:"transport"`
+	Encoding          string `json:"encoding"`
+	ServerDecodesJPEG bool   `json:"server_decodes_jpeg"`
+}
+
+type VideoCaptureMode struct {
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	FPS         []int  `json:"fps"`
+	PixelFormat string `json:"pixel_format"`
+}
+
+type VideoInfoData struct {
+	VideoStatus
+	UDPPort          int    `json:"udp_port"`
+	StreamURL        string `json:"stream_url"`
+	UDPListenerReady bool   `json:"udp_listener_ready"`
+}
+
+func ParseVideoInfoData(data interface{}) (*VideoInfoData, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal video info data: %w", err)
+	}
+
+	var parsed VideoInfoData
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse video info data: %w", err)
+	}
+
+	if parsed.Mode == "" {
+		parsed.Mode = VideoModeH264
+	}
+	if parsed.Encoding == "" {
+		parsed.Encoding = "h264"
+	}
+	if parsed.Transport == "" {
+		parsed.Transport = "rtp"
+	}
+	return &parsed, nil
 }
 
 // PCPanelLedsData данные о состоянии светодиодов PC Panel
@@ -110,15 +165,15 @@ type KeyboardRequest struct {
 
 // MouseRequest запрос на управление мышью или тачскрином
 type MouseRequest struct {
-	Action string `json:"action"`           // move, click, scroll, action (мышь) или touch (тачскрин)
-	DX     int    `json:"dx,omitempty"`     // Смещение по X (от -128 до 127)
-	DY     int    `json:"dy,omitempty"`     // Смещение по Y (от -128 до 127)
-	X      int    `json:"x,omitempty"`      // X для тачскрина (0..4095)
-	Y      int    `json:"y,omitempty"`      // Y для тачскрина (0..4095)
-	Tip    bool   `json:"tip"`              // для action "touch": true = касание, false = отпускание (обязательно передавать; без omitempty чтобы false не опускался в JSON)
-	Button int    `json:"button,omitempty"` // Кнопка мыши (1=левая, 2=правая, 3=средняя)
-	Scroll int    `json:"scroll,omitempty"` // Прокрутка колесика (от -127 до 127)
-	ButtonState int `json:"button_state,omitempty"` // Битмаска кнопок (bit0=L, bit1=R, bit2=M) для absolute_event
+	Action      string `json:"action"`                 // move, click, scroll, action (мышь) или touch (тачскрин)
+	DX          int    `json:"dx,omitempty"`           // Смещение по X (от -128 до 127)
+	DY          int    `json:"dy,omitempty"`           // Смещение по Y (от -128 до 127)
+	X           int    `json:"x,omitempty"`            // X для тачскрина (0..4095)
+	Y           int    `json:"y,omitempty"`            // Y для тачскрина (0..4095)
+	Tip         bool   `json:"tip"`                    // для action "touch": true = касание, false = отпускание (обязательно передавать; без omitempty чтобы false не опускался в JSON)
+	Button      int    `json:"button,omitempty"`       // Кнопка мыши (1=левая, 2=правая, 3=средняя)
+	Scroll      int    `json:"scroll,omitempty"`       // Прокрутка колесика (от -127 до 127)
+	ButtonState int    `json:"button_state,omitempty"` // Битмаска кнопок (bit0=L, bit1=R, bit2=M) для absolute_event
 }
 
 // DeviceStartRequest запрос на запуск устройства (старый формат - deprecated)
@@ -191,37 +246,34 @@ type VideoStartRequest struct {
 	VideoFPS     int    `json:"video_fps"`
 	VideoQuality int    `json:"video_quality"`
 	VideoBitrate string `json:"video_bitrate"`
+	VideoMode    string `json:"video_mode,omitempty"`
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientPort int `json:"client_port,omitempty"`
 }
 
 // ConfigRequest запрос на обновление конфигурации
 type ConfigRequest struct {
-	NBDDevice         string           `json:"nbd_device,omitempty"`
-	NBDServer         string           `json:"nbd_server,omitempty"`
-	NBDPort           int              `json:"nbd_port,omitempty"`
-	ExportName        string           `json:"export_name,omitempty"`
-	GadgetName        string           `json:"gadget_name,omitempty"`
-	UDCName           string           `json:"udc_name,omitempty"`
-	VendorID          string           `json:"vendor_id,omitempty"`
-	ProductID         string           `json:"product_id,omitempty"`
-	ProductName       string           `json:"product_name,omitempty"`
-	Manufacturer      string           `json:"manufacturer,omitempty"`
-	KeyboardEnabled   bool             `json:"keyboard_enabled,omitempty"`
-	VideoEnabled      bool             `json:"video_enabled,omitempty"`
-	VideoDevice       string           `json:"video_device,omitempty"`
-	VideoWidth        int              `json:"video_width,omitempty"`
-	VideoHeight       int              `json:"video_height,omitempty"`
-	VideoFPS          int              `json:"video_fps,omitempty"`
-	VideoQuality      int              `json:"video_quality,omitempty"`
-	VideoCodec        string           `json:"video_codec,omitempty"`
-	VideoBitrate      string           `json:"video_bitrate,omitempty"`
-	VideoPixelFormat  string           `json:"video_pixel_format,omitempty"`
-	VideoBufferSize   int              `json:"video_buffer_size,omitempty"`
-	VideoStreamFormat string           `json:"video_stream_format,omitempty"`
-	VideoLowLatency   bool             `json:"video_low_latency,omitempty"`
-	WebServer         *WebServerConfig `json:"web_server,omitempty"`
-	CheckInterval     int              `json:"check_interval,omitempty"`
+	NBDDevice       string           `json:"nbd_device,omitempty"`
+	NBDServer       string           `json:"nbd_server,omitempty"`
+	NBDPort         int              `json:"nbd_port,omitempty"`
+	ExportName      string           `json:"export_name,omitempty"`
+	GadgetName      string           `json:"gadget_name,omitempty"`
+	UDCName         string           `json:"udc_name,omitempty"`
+	VendorID        string           `json:"vendor_id,omitempty"`
+	ProductID       string           `json:"product_id,omitempty"`
+	ProductName     string           `json:"product_name,omitempty"`
+	Manufacturer    string           `json:"manufacturer,omitempty"`
+	KeyboardEnabled bool             `json:"keyboard_enabled,omitempty"`
+	VideoEnabled    bool             `json:"video_enabled,omitempty"`
+	VideoDevice     string           `json:"video_device,omitempty"`
+	VideoWidth      int              `json:"video_width,omitempty"`
+	VideoHeight     int              `json:"video_height,omitempty"`
+	VideoFPS        int              `json:"video_fps,omitempty"`
+	VideoQuality    int              `json:"video_quality,omitempty"`
+	VideoBitrate    string           `json:"video_bitrate,omitempty"`
+	VideoBufferSize int              `json:"video_buffer_size,omitempty"`
+	WebServer       *WebServerConfig `json:"web_server,omitempty"`
+	CheckInterval   int              `json:"check_interval,omitempty"`
 }
 
 // WebServerConfig конфигурация веб-сервера

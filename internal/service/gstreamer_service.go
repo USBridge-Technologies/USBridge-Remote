@@ -19,7 +19,8 @@ import (
 
 // GStreamerService сервис для работы с GStreamer H264 потоком
 type GStreamerService struct {
-	config *models.AppConfig
+	config    *models.AppConfig
+	videoMode string
 
 	// GStreamer pipeline
 	pipeline *gst.Pipeline
@@ -45,9 +46,9 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime  time.Time
-	frameCount     int64
-	framesDropped  int64
+	lastFrameTime time.Time
+	frameCount    int64
+	framesDropped int64
 
 	// Мьютексы
 	mutex sync.RWMutex
@@ -65,6 +66,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		autoReconnect:         true,
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
+		videoMode:             models.VideoModeH264,
 		frameChan:             make(chan image.Image, 1), // Один кадр — минимальная задержка
 		stopChan:              make(chan struct{}),
 		frameProcessorRunning: false,
@@ -112,7 +114,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Info("🔗 Подключение к RTP H.264 потоку...")
+	logrus.Infof("🔗 Подключение к RTP потоку mode=%s...", gs.videoMode)
 
 	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
 	gst.Init(nil)
@@ -144,7 +146,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnected = true
 	gs.mutex.Unlock()
 
-	logrus.Info("✅ GStreamer RTP H.264 подключение установлено")
+	logrus.Infof("✅ GStreamer RTP подключение установлено (mode=%s)", gs.videoMode)
 	return nil
 }
 
@@ -154,13 +156,17 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	return fmt.Errorf("UDP relay (pipe) пока не реализован на Linux, используйте прямое подключение")
 }
 
-// createPipeline создает GStreamer pipeline для RTP H.264 (через FRP туннель)
+// createPipeline создает GStreamer pipeline для RTP video (через FRP туннель)
 func (gs *GStreamerService) createPipeline() error {
 	udpPort := gs.config.VideoUDPPort
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
-	logrus.Infof("📹 UDP порт приёма RTP H.264: %d", udpPort)
+	logrus.Infof("📹 UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
+
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		return gs.createJPEGPipeline(udpPort)
+	}
 
 	// Linux: пытаемся аппаратные декодеры сначала, затем программный fallback.
 	// Также даем варианты без h264parse, т.к. на некоторых дистрибутивах отсутствует gst-plugins-bad.
@@ -259,6 +265,58 @@ func (gs *GStreamerService) createPipeline() error {
 		lastErr = fmt.Errorf("не найдено подходящих элементов GStreamer")
 	}
 	return fmt.Errorf("ошибка создания pipeline: %v", lastErr)
+}
+
+func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
+	base := fmt.Sprintf(
+		"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpjpegdepay ! ",
+		udpPort,
+	)
+
+	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	pipelines := []struct {
+		name string
+		str  string
+	}{
+		{name: "jpegdec (SW preferred)", str: base + "jpegdec ! " + decoderPath},
+		{name: "avdec_mjpeg (SW fallback)", str: base + "jpegparse ! avdec_mjpeg ! " + decoderPath},
+		{name: "decodebin (generic fallback)", str: base + "jpegparse ! decodebin ! " + decoderPath},
+		{name: "vajpegdec (HW)", str: base + "jpegparse ! vajpegdec ! " + decoderPath},
+		{name: "qsvjpegdec (HW)", str: base + "jpegparse ! qsvjpegdec ! " + decoderPath},
+		{name: "nvjpegdec (HW)", str: base + "jpegparse ! nvjpegdec ! " + decoderPath},
+	}
+
+	var lastErr error
+	for idx, candidate := range pipelines {
+		logrus.Infof("🔄 [Linux/JPEG] Pipeline попытка %d/%d: %s", idx+1, len(pipelines), candidate.name)
+		logrus.Infof("🔧 [Linux/JPEG] GStreamer pipeline: %s", candidate.str)
+
+		pipeline, err := gst.NewPipelineFromString(candidate.str)
+		if err != nil {
+			lastErr = err
+			logrus.Warnf("⚠️ [Linux/JPEG] Pipeline недоступен (%s): %v", candidate.name, err)
+			continue
+		}
+
+		gs.pipeline = pipeline
+		if err := gs.attachAppsink(); err != nil {
+			lastErr = err
+			gs.pipeline.SetState(gst.StateNull)
+			gs.pipeline = nil
+			logrus.Warnf("⚠️ [Linux/JPEG] appsink attach не удался (%s): %v", candidate.name, err)
+			continue
+		}
+
+		logrus.Infof("✅ [Linux/JPEG] GStreamer pipeline создан: %s", candidate.name)
+		return nil
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("не найдено подходящих JPEG декодеров GStreamer")
+	}
+	return fmt.Errorf("ошибка создания JPEG pipeline: %v", lastErr)
 }
 
 // attachAppsink находит appsink в текущем pipeline и подключает callback для кадров.
@@ -819,7 +877,7 @@ func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
-		gs.config.VideoUDPPort = port
+	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
@@ -830,6 +888,20 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 
 	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
+}
+
+func (gs *GStreamerService) SetVideoMode(mode string) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	if mode == "" {
+		mode = models.VideoModeH264
+	}
+	gs.videoMode = mode
+}
+
+func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
+	_ = width
+	_ = height
 }
 
 // GetConfig возвращает конфигурацию

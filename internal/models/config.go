@@ -25,27 +25,26 @@ type AppConfig struct {
 	FRPTLSCa      string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Путь к CA сертификату
 
 	// NBD сервер (как сервер)
-	NBDPort          int      `json:"nbd_port" mapstructure:"nbd_port"`                     // Порт NBD сервера (10809)
-	MaxClients       int      `json:"max_clients" mapstructure:"max_clients"`               // Максимум NBD клиентов
-	ScanPaths        []string `json:"scan_paths" mapstructure:"scan_paths"`                 // Пути для сканирования устройств
-	SupportedTypes   []string `json:"supported_types" mapstructure:"supported_types"`     // Поддерживаемые типы файлов
-	NBDExportReadOnly bool    `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = экспорт только для чтения (безопасный дефолт), false = RW через overlay
+	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // Порт NBD сервера (10809)
+	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Максимум NBD клиентов
+	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Пути для сканирования устройств
+	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Поддерживаемые типы файлов
+	NBDExportReadOnly bool     `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = экспорт только для чтения (безопасный дефолт), false = RW через overlay
 
 	// Хост видеопотока (задаётся из адресной строки; в конфиге не хранится)
 	VideoHost string `json:"-"`
 
 	// Видео UDP (новый протокол)
-	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма H.264 по UDP (55000 — свободен на Win/Mac/Linux/Android)
+	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма RTP видео по UDP (55000 — свободен на Win/Mac/Linux/Android)
 
 	// Видео настройки
-	VideoCodec     string `json:"video_codec" mapstructure:"video_codec"`     // H.264, VP8, VP9
-	VideoBitrate   int    `json:"video_bitrate" mapstructure:"video_bitrate"` // kbps
-	VideoWidth     int    `json:"video_width" mapstructure:"video_width"`
-	VideoHeight    int    `json:"video_height" mapstructure:"video_height"`
-	VideoFPS       int    `json:"video_fps" mapstructure:"video_fps"`
-	LowLatencyMode bool   `json:"low_latency_mode" mapstructure:"low_latency_mode"` // Режим низкой задержки
-	BufferSize     int    `json:"buffer_size" mapstructure:"buffer_size"`           // Размер буфера кадров
-	SkipFrameDelay bool   `json:"skip_frame_delay" mapstructure:"skip_frame_delay"` // Пропускать задержки между кадрами
+	VideoBitrate   int  `json:"video_bitrate" mapstructure:"video_bitrate"` // kbps
+	VideoWidth     int  `json:"video_width" mapstructure:"video_width"`
+	VideoHeight    int  `json:"video_height" mapstructure:"video_height"`
+	VideoFPS       int  `json:"video_fps" mapstructure:"video_fps"`
+	LowLatencyMode bool `json:"low_latency_mode" mapstructure:"low_latency_mode"` // Режим низкой задержки
+	BufferSize     int  `json:"buffer_size" mapstructure:"buffer_size"`           // Размер буфера кадров
+	SkipFrameDelay bool `json:"skip_frame_delay" mapstructure:"skip_frame_delay"` // Пропускать задержки между кадрами
 
 	// Аудио настройки
 	AudioCodec      string `json:"audio_codec" mapstructure:"audio_codec"`     // Opus, G.711
@@ -86,7 +85,6 @@ func DefaultConfig() *AppConfig {
 		VideoUDPPort: DefaultVideoUDPPort,
 
 		// Видео
-		VideoCodec:     "H.264",
 		VideoBitrate:   2000,
 		VideoWidth:     640,
 		VideoHeight:    480,
@@ -123,8 +121,8 @@ type AppState struct {
 type SnapshotInfo struct {
 	Name        string    `json:"name"`
 	Size        int64     `json:"size"`
-	SizeHuman   string    `json:"size_human"`   // Размер в читаемом формате от API (например "0 B / 40.0 GB")
-	Changelog   string    `json:"changelog"`   // Changelog снапшота (сырой от btrfs)
+	SizeHuman   string    `json:"size_human"` // Размер в читаемом формате от API (например "0 B / 40.0 GB")
+	Changelog   string    `json:"changelog"`  // Changelog снапшота (сырой от btrfs)
 	CreatedAt   time.Time `json:"created_at"`
 	Description string    `json:"description,omitempty"`
 	Path        string    `json:"path"`
@@ -385,12 +383,12 @@ func (sjr *SnapshotsJSONResponse) ToSnapshotsResponse() *SnapshotsResponse {
 
 // ISOSpaceInfo информация о месте на SD-карте (btrfs раздел iso/data/backup)
 type ISOSpaceInfo struct {
-	TotalSpace      int64   `json:"total_space"`
-	UsedSpace       int64   `json:"used_space"`
-	AvailableSpace  int64   `json:"available_space"`
-	TotalSpaceGB    string  `json:"total_space_gb"`
+	TotalSpace     int64   `json:"total_space"`
+	UsedSpace      int64   `json:"used_space"`
+	AvailableSpace int64   `json:"available_space"`
+	TotalSpaceGB   string  `json:"total_space_gb"`
 	UsedSpaceGB    string  `json:"used_space_gb"`
-	AvailableGB     string  `json:"available_gb"`
-	UsedPercent     float64 `json:"used_percent"`
-	ISODirectory    string  `json:"iso_directory"`
+	AvailableGB    string  `json:"available_gb"`
+	UsedPercent    float64 `json:"used_percent"`
+	ISODirectory   string  `json:"iso_directory"`
 }

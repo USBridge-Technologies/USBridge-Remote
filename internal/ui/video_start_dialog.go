@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 
 	"usbridge-client/internal/models"
@@ -13,263 +14,372 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ResolutionPreset предустановленное разрешение
 type ResolutionPreset struct {
-	Name   string
-	Width  int
-	Height int
+	Label string
+	Mode  models.VideoCaptureMode
 }
 
-// VideoStartDialog диалог настройки параметров запуска видео
 type VideoStartDialog struct {
 	dialog *widget.PopUp
 	parent fyne.Window
 
-	// Предустановленные разрешения
-	resolutions      []ResolutionPreset
-	resolutionSelect *widget.Select
+	streamModes      []models.VideoTransportMode
+	captureModes     []models.VideoCaptureMode
+	modeLabels       map[string]string
+	resolutionLabels map[string]models.VideoCaptureMode
 
-	// Ползунки для параметров
-	fpsSlider     *widget.Slider
-	qualitySlider *widget.Slider
-	bitrateSlider *widget.Slider
+	modeSelect        *widget.RadioGroup
+	modeDescription   *widget.Label
+	resolutionSelect  *widget.Select
+	fpsSelect         *widget.Select
+	bitrateSlider     *widget.Slider
+	fpsValueLabel     *widget.Label
+	bitrateValueLabel *widget.Label
+	bitrateBlock      *fyne.Container
+	jpegHint          *widget.Label
 
-	// Лейблы для отображения значений
-	fpsLabel     *widget.Label
-	qualityLabel *widget.Label
-	bitrateLabel *widget.Label
-
-	// Кнопки
 	startBtn  *widget.Button
 	cancelBtn *widget.Button
 
-	// Callback для применения настроек
 	onApply func(request *models.VideoStartRequest)
 }
 
-// NewVideoStartDialog создает новый диалог запуска видео
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
-		parent: parent,
-		resolutions: []ResolutionPreset{
-			{"800×600 (SVGA)", 800, 600}, // По умолчанию
-			{"640×480 (VGA)", 640, 480},
-			{"1024×768 (XGA)", 1024, 768},
-			{"1280×720 (HD)", 1280, 720},
-			{"1600×900 (HD+)", 1600, 900},
-			{"1920×1080 (FHD)", 1920, 1080},
-			{"320×240 (QVGA)", 320, 240},
-		},
+		parent:           parent,
+		modeLabels:       make(map[string]string),
+		resolutionLabels: make(map[string]models.VideoCaptureMode),
 	}
-
 	vsd.createInterface()
 	return vsd
 }
 
-// createInterface создает интерфейс диалога
 func (vsd *VideoStartDialog) createInterface() {
-	// Создаем выпадающий список разрешений
-	resolutionOptions := make([]string, len(vsd.resolutions))
-	for i, res := range vsd.resolutions {
-		resolutionOptions[i] = res.Name
-	}
-	vsd.resolutionSelect = widget.NewSelect(resolutionOptions, nil)
-	// Значение по умолчанию будет установлено через SetDefaults() перед показом
+	vsd.modeDescription = widget.NewLabel("")
+	vsd.modeDescription.Wrapping = fyne.TextWrapWord
 
-	// FPS
-	vsd.fpsSlider = widget.NewSlider(15, 60)
-	vsd.fpsSlider.Value = 30
-	vsd.fpsSlider.Step = 5
-	vsd.fpsLabel = widget.NewLabel("")
+	vsd.modeSelect = widget.NewRadioGroup(nil, func(string) {
+		vsd.refreshModeUI()
+	})
 
-	vsd.fpsSlider.OnChanged = func(value float64) {
-		vsd.fpsLabel.SetText(fmt.Sprintf("%.0f %s", value, i18n.Current.FramesPerSecond))
-	}
+	vsd.resolutionSelect = widget.NewSelect(nil, func(string) {
+		vsd.refreshFPSOptions()
+	})
 
-	// Качество
-	vsd.qualitySlider = widget.NewSlider(50, 100)
-	vsd.qualitySlider.Value = 80
-	vsd.qualitySlider.Step = 10
-	vsd.qualityLabel = widget.NewLabel("80%")
+	vsd.fpsSelect = widget.NewSelect(nil, nil)
+	vsd.fpsValueLabel = widget.NewLabel("")
 
-	vsd.qualitySlider.OnChanged = func(value float64) {
-		vsd.qualityLabel.SetText(fmt.Sprintf("%.0f%%", value))
-	}
-
-	// Битрейт
-	vsd.bitrateSlider = widget.NewSlider(1000, 8000)
-	vsd.bitrateSlider.Value = 2000
+	vsd.bitrateSlider = widget.NewSlider(1000, 12000)
 	vsd.bitrateSlider.Step = 500
-	vsd.bitrateLabel = widget.NewLabel("")
-
+	vsd.bitrateSlider.Value = 2000
+	vsd.bitrateValueLabel = widget.NewLabel("")
 	vsd.bitrateSlider.OnChanged = func(value float64) {
-		vsd.bitrateLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
+		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
 	}
 
-	// Кнопки
+	vsd.jpegHint = widget.NewLabel("JPEG RTP: без decode на сервере, минимальная задержка, битрейт управляется камерой.")
+	vsd.jpegHint.Wrapping = fyne.TextWrapWord
+
 	vsd.startBtn = widget.NewButton("▶️ "+i18n.Current.StartVideo, vsd.handleStart)
 	vsd.startBtn.Importance = widget.HighImportance
-
 	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
 
-	// Создаем компактную форму
-	form := container.NewVBox(
-		// Заголовок
-		widget.NewLabelWithStyle("🎥 "+i18n.Current.VideoParameters, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		widget.NewSeparator(),
-
-		// Разрешение
-		container.NewVBox(
-			widget.NewLabelWithStyle("📐 "+i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{Bold: false}),
-			vsd.resolutionSelect,
+	vsd.bitrateBlock = container.NewVBox(
+		container.NewBorder(nil, nil,
+			widget.NewLabel("💾 "+i18n.Current.Bitrate),
+			vsd.bitrateValueLabel,
+			nil,
 		),
-
-		// FPS
-		container.NewVBox(
-			container.NewBorder(nil, nil,
-				widget.NewLabel("🎬 "+i18n.Current.FrameRate),
-				vsd.fpsLabel,
-				nil,
-			),
-			vsd.fpsSlider,
-		),
-
-		// Качество
-		container.NewVBox(
-			container.NewBorder(nil, nil,
-				widget.NewLabel("✨ "+i18n.Current.Quality),
-				vsd.qualityLabel,
-				nil,
-			),
-			vsd.qualitySlider,
-		),
-
-		// Битрейт
-		container.NewVBox(
-			container.NewBorder(nil, nil,
-				widget.NewLabel("💾 "+i18n.Current.Bitrate),
-				vsd.bitrateLabel,
-				nil,
-			),
-			vsd.bitrateSlider,
-		),
-
-		widget.NewSeparator(),
-
-		// Кнопки
-		container.NewGridWithColumns(2,
-			vsd.startBtn,
-			vsd.cancelBtn,
-		),
+		vsd.bitrateSlider,
 	)
 
-	// Создаем всплывающее окно (переработанный диалог запуска видео)
+	form := container.NewVBox(
+		widget.NewLabelWithStyle("🎥 "+i18n.Current.VideoParameters, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Режим стриминга", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		vsd.modeSelect,
+		vsd.modeDescription,
+		widget.NewSeparator(),
+		container.NewVBox(
+			widget.NewLabelWithStyle("📐 "+i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{}),
+			vsd.resolutionSelect,
+		),
+		container.NewVBox(
+			container.NewBorder(nil, nil, widget.NewLabel("🎬 "+i18n.Current.FrameRate), vsd.fpsValueLabel, nil),
+			vsd.fpsSelect,
+		),
+		vsd.bitrateBlock,
+		vsd.jpegHint,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(2, vsd.startBtn, vsd.cancelBtn),
+	)
+
 	vsd.dialog = widget.NewModalPopUp(form, vsd.parent.Canvas())
-	vsd.dialog.Resize(fyne.NewSize(420, 480))
-	vsd.fpsSlider.OnChanged(vsd.fpsSlider.Value)
-	vsd.qualitySlider.OnChanged(vsd.qualitySlider.Value)
+	vsd.dialog.Resize(fyne.NewSize(460, 430))
 	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
 }
 
-// Show показывает диалог
+func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth, defaultHeight, defaultFPS int, defaultBitrate string) {
+	vsd.streamModes = nil
+	vsd.captureModes = nil
+	vsd.modeLabels = make(map[string]string)
+	vsd.resolutionLabels = make(map[string]models.VideoCaptureMode)
+
+	if info != nil && len(info.SupportedModes) > 0 {
+		vsd.streamModes = append(vsd.streamModes, info.SupportedModes...)
+	}
+	if len(vsd.streamModes) == 0 {
+		vsd.streamModes = []models.VideoTransportMode{
+			{
+				ID:                models.VideoModeH264,
+				Name:              "H.264",
+				Description:       "Сервер декодирует MJPEG и кодирует H.264. Совместимый режим.",
+				Transport:         "rtp",
+				Encoding:          "h264",
+				ServerDecodesJPEG: true,
+			},
+			{
+				ID:                models.VideoModeJPEGRTP,
+				Name:              "JPEG RTP",
+				Description:       "Сервер не декодирует JPEG, а сразу шлёт RTP/JPEG для минимальной задержки.",
+				Transport:         "rtp",
+				Encoding:          "jpeg",
+				ServerDecodesJPEG: false,
+			},
+		}
+	}
+
+	if info != nil && len(info.CaptureModes) > 0 {
+		vsd.captureModes = append(vsd.captureModes, info.CaptureModes...)
+	}
+	if len(vsd.captureModes) == 0 {
+		vsd.captureModes = []models.VideoCaptureMode{
+			{Width: defaultWidth, Height: defaultHeight, FPS: []int{defaultFPS}, PixelFormat: "MJPG"},
+		}
+	}
+
+	sort.Slice(vsd.captureModes, func(i, j int) bool {
+		li := vsd.captureModes[i].Width * vsd.captureModes[i].Height
+		lj := vsd.captureModes[j].Width * vsd.captureModes[j].Height
+		if li != lj {
+			return li < lj
+		}
+		return vsd.captureModes[i].Width < vsd.captureModes[j].Width
+	})
+
+	modeOptions := make([]string, 0, len(vsd.streamModes))
+	for _, mode := range vsd.streamModes {
+		label := mode.Name
+		if label == "" {
+			label = mode.ID
+		}
+		vsd.modeLabels[label] = mode.ID
+		modeOptions = append(modeOptions, label)
+	}
+	vsd.modeSelect.Options = modeOptions
+	vsd.modeSelect.Refresh()
+
+	resolutionOptions := make([]string, 0, len(vsd.captureModes))
+	defaultResolutionLabel := ""
+	for _, captureMode := range vsd.captureModes {
+		label := fmt.Sprintf("%dx%d", captureMode.Width, captureMode.Height)
+		if len(captureMode.FPS) > 0 {
+			label = fmt.Sprintf("%s (%s)", label, formatFPSRange(captureMode.FPS))
+		}
+		vsd.resolutionLabels[label] = captureMode
+		resolutionOptions = append(resolutionOptions, label)
+		if captureMode.Width == defaultWidth && captureMode.Height == defaultHeight {
+			defaultResolutionLabel = label
+		}
+	}
+	vsd.resolutionSelect.Options = resolutionOptions
+	vsd.resolutionSelect.Refresh()
+
+	if defaultResolutionLabel == "" && len(resolutionOptions) > 0 {
+		defaultResolutionLabel = resolutionOptions[0]
+	}
+	if defaultResolutionLabel != "" {
+		vsd.resolutionSelect.SetSelected(defaultResolutionLabel)
+	}
+
+	selectedMode := models.VideoModeH264
+	if info != nil && info.Mode != "" {
+		selectedMode = info.Mode
+	}
+	if selectedMode == "" {
+		selectedMode = models.VideoModeH264
+	}
+	for label, id := range vsd.modeLabels {
+		if id == selectedMode {
+			vsd.modeSelect.SetSelected(label)
+			break
+		}
+	}
+	if vsd.modeSelect.Selected == "" && len(modeOptions) > 0 {
+		vsd.modeSelect.SetSelected(modeOptions[0])
+	}
+
+	if bitrate, ok := parseBitrate(defaultBitrate); ok {
+		vsd.bitrateSlider.SetValue(float64(bitrate))
+	} else {
+		vsd.bitrateSlider.SetValue(2000)
+	}
+
+	vsd.refreshFPSOptions()
+	vsd.setDefaultFPS(defaultFPS)
+	vsd.refreshModeUI()
+}
+
 func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest)) {
 	vsd.onApply = onApply
-
-	// Сбрасываем состояние кнопок перед показом
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
 	vsd.startBtn.SetText("▶️ " + i18n.Current.StartVideo)
-
 	vsd.dialog.Show()
 }
 
-// Hide скрывает диалог
 func (vsd *VideoStartDialog) Hide() {
 	vsd.dialog.Hide()
-
-	// Сбрасываем состояние кнопок после скрытия
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
 	vsd.startBtn.SetText("▶️ " + i18n.Current.StartVideo)
 }
 
-// handleStart обрабатывает нажатие кнопки запуска
+func (vsd *VideoStartDialog) refreshFPSOptions() {
+	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	if !ok {
+		return
+	}
+
+	options := make([]string, 0, len(mode.FPS))
+	for _, fps := range mode.FPS {
+		options = append(options, strconv.Itoa(fps))
+	}
+	if len(options) == 0 {
+		options = []string{"30"}
+	}
+	vsd.fpsSelect.Options = options
+	vsd.fpsSelect.Refresh()
+	if vsd.fpsSelect.Selected == "" {
+		vsd.fpsSelect.SetSelected(options[0])
+	}
+	vsd.fpsValueLabel.SetText(vsd.fpsSelect.Selected + " " + i18n.Current.FramesPerSecond)
+	vsd.fpsSelect.OnChanged = func(value string) {
+		vsd.fpsValueLabel.SetText(value + " " + i18n.Current.FramesPerSecond)
+	}
+}
+
+func (vsd *VideoStartDialog) setDefaultFPS(defaultFPS int) {
+	if defaultFPS <= 0 {
+		return
+	}
+	for _, option := range vsd.fpsSelect.Options {
+		if option == strconv.Itoa(defaultFPS) {
+			vsd.fpsSelect.SetSelected(option)
+			return
+		}
+	}
+}
+
+func (vsd *VideoStartDialog) refreshModeUI() {
+	modeID := vsd.selectedModeID()
+	description := ""
+	for _, mode := range vsd.streamModes {
+		if mode.ID == modeID {
+			description = mode.Description
+			break
+		}
+	}
+	vsd.modeDescription.SetText(description)
+
+	isJPEG := modeID == models.VideoModeJPEGRTP
+	if isJPEG {
+		vsd.bitrateBlock.Hide()
+		vsd.jpegHint.Show()
+	} else {
+		vsd.bitrateBlock.Show()
+		vsd.jpegHint.Hide()
+	}
+}
+
+func (vsd *VideoStartDialog) selectedModeID() string {
+	if id, ok := vsd.modeLabels[vsd.modeSelect.Selected]; ok {
+		return id
+	}
+	return models.VideoModeH264
+}
+
 func (vsd *VideoStartDialog) handleStart() {
-	// Немедленно отключаем кнопки для визуального отклика
 	vsd.startBtn.Disable()
 	vsd.cancelBtn.Disable()
 	vsd.startBtn.SetText("⏳ " + i18n.Current.Starting)
 
-	// Находим выбранное разрешение
-	selectedResolution := vsd.resolutionSelect.Selected
-	var resolution ResolutionPreset
-
-	for _, res := range vsd.resolutions {
-		if res.Name == selectedResolution {
-			resolution = res
-			break
-		}
+	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	if !ok {
+		selectedMode = models.VideoCaptureMode{Width: 800, Height: 600, FPS: []int{30}}
 	}
 
-	// Создаем запрос с текущими значениями
+	fps, err := strconv.Atoi(vsd.fpsSelect.Selected)
+	if err != nil || fps <= 0 {
+		fps = 30
+	}
+
 	request := &models.VideoStartRequest{
-		VideoWidth:   resolution.Width,
-		VideoHeight:  resolution.Height,
-		VideoFPS:     int(vsd.fpsSlider.Value),
-		VideoQuality: int(vsd.qualitySlider.Value),
+		VideoWidth:   selectedMode.Width,
+		VideoHeight:  selectedMode.Height,
+		VideoFPS:     fps,
+		VideoQuality: 80,
 		VideoBitrate: fmt.Sprintf("%.0fK", vsd.bitrateSlider.Value),
+		VideoMode:    vsd.selectedModeID(),
 	}
 
-	logrus.Infof("🎥 Starting video: %dx%d @ %d fps, quality %d%%, bitrate %s",
-		request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
+	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",
+		request.VideoMode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate)
 
-	// Скрываем диалог сразу
 	vsd.Hide()
-
-	// Вызываем callback в отдельной горутине, чтобы не блокировать UI-поток.
-	// Без этого handleVideoStartWithParamsGStreamer (с retries и sleep) блокирует
-	// рендер-цикл Fyne, и диалог визуально не скрывается.
 	if vsd.onApply != nil {
 		go vsd.onApply(request)
 	}
 }
 
-// handleCancel обрабатывает нажатие кнопки отмены
 func (vsd *VideoStartDialog) handleCancel() {
 	logrus.Info("❌ Video start cancelled")
 	vsd.Hide()
 }
 
-// SetDefaults устанавливает значения по умолчанию
-func (vsd *VideoStartDialog) SetDefaults(width, height, fps, quality int, bitrate string) {
-	// Находим подходящее разрешение
-	found := false
-	for _, resolution := range vsd.resolutions {
-		if resolution.Width == width && resolution.Height == height {
-			vsd.resolutionSelect.SetSelected(resolution.Name)
-			found = true
-			break
-		}
+func formatFPSRange(values []int) string {
+	if len(values) == 0 {
+		return "fps?"
 	}
-
-	// Если не нашли подходящее разрешение, устанавливаем SVGA по умолчанию
-	if !found {
-		vsd.resolutionSelect.SetSelected("800×600 (SVGA)")
+	if len(values) == 1 {
+		return fmt.Sprintf("%d fps", values[0])
 	}
+	return fmt.Sprintf("%d-%d fps", values[0], values[len(values)-1])
+}
 
-	vsd.fpsSlider.SetValue(float64(fps))
-	vsd.qualitySlider.SetValue(float64(quality))
-
-	// Парсим битрейт (например, "2M" -> 2000)
-	if bitrate != "" {
-		if bitrate[len(bitrate)-1] == 'M' {
-			if val, err := strconv.ParseFloat(bitrate[:len(bitrate)-1], 64); err == nil {
-				vsd.bitrateSlider.SetValue(val * 1000)
-			}
-		} else if bitrate[len(bitrate)-1] == 'K' {
-			if val, err := strconv.ParseFloat(bitrate[:len(bitrate)-1], 64); err == nil {
-				vsd.bitrateSlider.SetValue(val)
-			}
+func parseBitrate(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	last := value[len(value)-1]
+	switch last {
+	case 'M':
+		v, err := strconv.ParseFloat(value[:len(value)-1], 64)
+		if err != nil {
+			return 0, false
 		}
+		return int(v * 1000), true
+	case 'K':
+		v, err := strconv.ParseFloat(value[:len(value)-1], 64)
+		if err != nil {
+			return 0, false
+		}
+		return int(v), true
+	default:
+		v, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, false
+		}
+		return v, true
 	}
 }

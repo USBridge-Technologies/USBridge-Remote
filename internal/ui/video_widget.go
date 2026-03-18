@@ -172,8 +172,51 @@ func (vw *VideoWidget) handleStartVideo() {
 		vw.startDialog = NewVideoStartDialog(vw.parentWindow)
 	}
 
-	// Устанавливаем значения по умолчанию (800×600)
-	vw.startDialog.SetDefaults(800, 600, 30, 80, "2M")
+	var videoInfo *models.VideoInfoData
+	if resp, err := vw.usbClient.GetVideoInfo(); err != nil {
+		logrus.Warnf("⚠️ Failed to get video info before opening start dialog: %v", err)
+	} else if resp != nil && resp.Success && resp.Data != nil {
+		if parsed, err := models.ParseVideoInfoData(resp.Data); err != nil {
+			logrus.Warnf("⚠️ Failed to parse video info for start dialog: %v", err)
+		} else {
+			videoInfo = parsed
+		}
+	}
+
+	defaultWidth := 800
+	defaultHeight := 600
+	defaultFPS := 30
+	defaultBitrate := "2M"
+	if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+		if cfg.VideoWidth > 0 {
+			defaultWidth = cfg.VideoWidth
+		}
+		if cfg.VideoHeight > 0 {
+			defaultHeight = cfg.VideoHeight
+		}
+		if cfg.VideoFPS > 0 {
+			defaultFPS = cfg.VideoFPS
+		}
+		if cfg.VideoBitrate > 0 {
+			defaultBitrate = fmt.Sprintf("%dK", cfg.VideoBitrate)
+		}
+	}
+	if videoInfo != nil {
+		if videoInfo.Width > 0 {
+			defaultWidth = videoInfo.Width
+		}
+		if videoInfo.Height > 0 {
+			defaultHeight = videoInfo.Height
+		}
+		if videoInfo.FPS > 0 {
+			defaultFPS = videoInfo.FPS
+		}
+		if videoInfo.Bitrate != "" {
+			defaultBitrate = videoInfo.Bitrate
+		}
+	}
+
+	vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 	vw.startDialog.Show(vw.handleVideoStartWithParams)
 }
 

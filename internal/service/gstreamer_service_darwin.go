@@ -23,7 +23,8 @@ import (
 
 // GStreamerService сервис для работы с GStreamer на macOS через внешний процесс
 type GStreamerService struct {
-	config *models.AppConfig
+	config    *models.AppConfig
+	videoMode string
 
 	// Процесс GStreamer
 	cmd    *exec.Cmd
@@ -74,6 +75,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		autoReconnect:         true,
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
+		videoMode:             models.VideoModeH264,
 		frameChan:             make(chan image.Image, 1),
 		stop:                  newStopSignal(),
 		frameProcessorRunning: false,
@@ -116,8 +118,12 @@ func (gs *GStreamerService) getGStreamerEnv() []string {
 	return env
 }
 
-// buildPipelineArgs формирует аргументы pipeline для RTP H.264 (через QUIC/SUDP туннель)
+// buildPipelineArgs формирует аргументы pipeline для RTP video (через QUIC/SUDP туннель)
 func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		return gs.buildPipelineArgsJPEG(udpPort)
+	}
+
 	// Низкая задержка: udpsrc (малый буфер) -> rtpjitterbuffer latency=50 -> rtph264depay -> vtdec -> fdsink
 	return []string{
 		"-q",
@@ -138,6 +144,39 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 		"video/x-h264,stream-format=avc,alignment=au",
 		"!",
 		"vtdec",
+		"!",
+		"videoscale",
+		"!",
+		fmt.Sprintf("video/x-raw,width=%d,height=%d", gs.width, gs.height),
+		"!",
+		"videoconvert",
+		"!",
+		"video/x-raw,format=RGBA",
+		"!",
+		"fdsink",
+		"fd=1",
+		"sync=false",
+	}
+}
+
+func (gs *GStreamerService) buildPipelineArgsJPEG(udpPort int) []string {
+	return []string{
+		"-q",
+		"udpsrc",
+		fmt.Sprintf("port=%d", udpPort),
+		"buffer-size=65536",
+		`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
+		"!",
+		"rtpjitterbuffer",
+		"latency=15",
+		"faststart-min-packets=1",
+		"drop-on-latency=true",
+		"!",
+		"rtpjpegdepay",
+		"!",
+		"jpegparse",
+		"!",
+		"decodebin",
 		"!",
 		"videoscale",
 		"!",
@@ -221,7 +260,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 [VIDEO] Шаг 2: Подключение к RTP H.264 (port=%d)", udpPort)
+	logrus.Infof("🔗 [VIDEO] Шаг 2: Подключение к RTP video mode=%s (port=%d)", gs.videoMode, udpPort)
 	return gs.runGStreamerPipeline(gs.buildPipelineArgs(udpPort), nil)
 }
 
@@ -248,7 +287,7 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Info("🔗 [VIDEO] Подключение через pipe (UDP relay, raw H.264)")
+	logrus.Infof("🔗 [VIDEO] Подключение через pipe (UDP relay, mode=%s)", gs.videoMode)
 	// ExtraFiles[0] → fd 3 в дочернем процессе
 	return gs.runGStreamerPipeline(gs.buildPipelineArgsPipe(3), pipeReader)
 }
@@ -400,7 +439,6 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 		}
 	}()
 
-
 	if err := gs.cmd.Start(); err != nil {
 		gs.mutex.Lock()
 		gs.isConnecting = false
@@ -434,7 +472,7 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 	// isConnected останется false до получения первого кадра
 	gs.mutex.Unlock()
 
-	logrus.Info("🔗 [VIDEO] Шаг 3: GStreamer процесс запущен, ожидание RTP→rtph264depay→h264parse→vtdec→fdsink...")
+	logrus.Infof("🔗 [VIDEO] Шаг 3: GStreamer процесс запущен, ожидание первого кадра (mode=%s)...", gs.videoMode)
 	return nil
 }
 
@@ -546,7 +584,7 @@ func (gs *GStreamerService) readFrames() {
 			gs.mutex.Lock()
 			gs.frameCount++
 			frameNum := gs.frameCount
-			
+
 			// Устанавливаем isConnected = true при получении первого кадра
 			if !firstFrameReceived {
 				gs.isConnected = true
@@ -554,7 +592,7 @@ func (gs *GStreamerService) readFrames() {
 				closeWaitDone()
 				gs.mutex.Unlock()
 				logrus.Info("✅ [VIDEO] Шаг 6: Первый кадр получен! Соединение установлено.")
-				
+
 				// Вызываем callback если есть
 				gs.mutex.RLock()
 				stateCallback := gs.onStateChanged
@@ -942,7 +980,7 @@ func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
-		gs.config.VideoUDPPort = port
+	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 macOS: GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
@@ -953,6 +991,26 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 
 	gs.config.VideoUDPPort = port
 	logrus.Infof("🔧 macOS: GStreamer сервис: видео UDP порт обновлен на %d", port)
+}
+
+func (gs *GStreamerService) SetVideoMode(mode string) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	if mode == "" {
+		mode = models.VideoModeH264
+	}
+	gs.videoMode = mode
+}
+
+func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	if width > 0 {
+		gs.width = width
+	}
+	if height > 0 {
+		gs.height = height
+	}
 }
 
 // GetConfig возвращает конфигурацию
@@ -1009,4 +1067,3 @@ func (gs *GStreamerService) Reconnect() error {
 	logrus.Info("🔗 macOS: Подключаемся к новому устройству...")
 	return gs.ConnectToRTP()
 }
-

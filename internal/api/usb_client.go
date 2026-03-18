@@ -813,8 +813,12 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 		return fmt.Errorf("ошибка сериализации запроса: %v", err)
 	}
 
-	logrus.Infof("🎥 Запуск видео стриминга: %dx%d@%dfps, качество: %d, битрейт: %s",
-		request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
+	mode := request.VideoMode
+	if mode == "" {
+		mode = models.VideoModeH264
+	}
+	logrus.Infof("🎥 Запуск видео стриминга: mode=%s %dx%d@%dfps, качество: %d, битрейт: %s",
+		mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
 
 	resp, err := c.makeRequest("POST", "/api/video/start", requestJSON)
 	if err != nil {
