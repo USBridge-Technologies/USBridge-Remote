@@ -179,6 +179,10 @@ func (gs *GStreamerService) createPipeline() error {
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	logrus.Infof("📹 [Windows] UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
@@ -187,7 +191,7 @@ func (gs *GStreamerService) createPipeline() error {
 
 	// Вариант 1: d3d11h264dec ! d3d11download — перевод D3D11-памяти в системную, иначе переход в PLAYING часто падает
 	hwWithDownload := fmt.Sprintf(
-		"udpsrc port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
 			"rtpjitterbuffer latency=50 faststart-min-packets=3 ! "+
 			"rtph264depay ! "+
 			"h264parse config-interval=-1 ! "+
@@ -196,12 +200,12 @@ func (gs *GStreamerService) createPipeline() error {
 			"videoconvert ! "+
 			"video/x-raw,format=RGBA ! "+
 			"appsink name=sink sync=false max-buffers=3 drop=true",
-		udpPort,
+		bindHost, udpPort,
 	)
 
 	// Вариант 2: без d3d11download (старый пайплайн, на части систем может сработать)
 	hwWithoutDownload := fmt.Sprintf(
-		"udpsrc port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
 			"rtpjitterbuffer latency=50 faststart-min-packets=3 ! "+
 			"rtph264depay ! "+
 			"h264parse config-interval=-1 ! "+
@@ -209,7 +213,7 @@ func (gs *GStreamerService) createPipeline() error {
 			"videoconvert ! "+
 			"video/x-raw,format=RGBA ! "+
 			"appsink name=sink sync=false max-buffers=3 drop=true",
-		udpPort,
+		bindHost, udpPort,
 	)
 
 	logrus.Info("🔧 [Windows] GStreamer pipeline (аппаратное декодирование d3d11h264dec + d3d11download)")
@@ -230,6 +234,10 @@ func (gs *GStreamerService) createPipeline() error {
 }
 
 func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	pipelines := []struct {
 		name string
 		str  string
@@ -237,51 +245,51 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 		{
 			name: "jpegdec (SW preferred)",
 			str: fmt.Sprintf(
-				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! jpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
-				udpPort,
+				bindHost, udpPort,
 			),
 		},
 		{
 			name: "avdec_mjpeg",
 			str: fmt.Sprintf(
-				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! jpegparse ! avdec_mjpeg ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
-				udpPort,
+				bindHost, udpPort,
 			),
 		},
 		{
 			name: "decodebin",
 			str: fmt.Sprintf(
-				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! jpegparse ! decodebin ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
-				udpPort,
+				bindHost, udpPort,
 			),
 		},
 		{
 			name: "qsvjpegdec (HW)",
 			str: fmt.Sprintf(
-				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! jpegparse ! qsvjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
-				udpPort,
+				bindHost, udpPort,
 			),
 		},
 		{
 			name: "wicjpegdec",
 			str: fmt.Sprintf(
-				"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! wicjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
-				udpPort,
+				bindHost, udpPort,
 			),
 		},
 	}
@@ -318,8 +326,12 @@ func (gs *GStreamerService) createPipelineSoftware() error {
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	swPipeline := fmt.Sprintf(
-		"udpsrc port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
 			"rtpjitterbuffer latency=50 faststart-min-packets=3 ! "+
 			"rtph264depay ! "+
 			"h264parse config-interval=-1 ! "+
@@ -327,7 +339,7 @@ func (gs *GStreamerService) createPipelineSoftware() error {
 			"videoconvert ! "+
 			"video/x-raw,format=RGBA ! "+
 			"appsink name=sink sync=false max-buffers=3 drop=true",
-		udpPort,
+		bindHost, udpPort,
 	)
 	pipeline, err := gst.NewPipelineFromString(swPipeline)
 	if err != nil {

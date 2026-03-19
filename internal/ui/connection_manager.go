@@ -20,9 +20,11 @@ import (
 
 // SavedConnection сохраненное подключение
 type SavedConnection struct {
-	Name  string `json:"name"`
-	Host  string `json:"host"`
-	Token string `json:"token"`
+	Name            string `json:"name"`
+	Host            string `json:"host"`
+	Token           string `json:"token"`
+	Protocol        string `json:"protocol,omitempty"`
+	WireGuardInvite string `json:"wireguard_invite,omitempty"`
 }
 
 // ConnectionManager менеджер подключений
@@ -40,6 +42,7 @@ type ConnectionManager struct {
 	connectionsBox    *fyne.Container
 	hostEntry         *widget.Entry
 	tokenEntry        *widget.Entry
+	protocolSelect    *widget.Select
 	qrBtn             *widget.Button
 	addBtn            *widget.Button
 
@@ -47,38 +50,45 @@ type ConnectionManager struct {
 	qrScanner *QRScanner
 
 	// Callbacks
-	onConnect        func(host, token string)
+	onConnect        func(host, token, protocol, wireGuardInvite string)
 	onLanguageChange func()
 }
 
 // NewConnectionManager создает новый менеджер подключений
-func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, onConnect func(host, token string)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
-		app:           app,
-		window:        window,
-		hostEntry:     hostEntry,
-		tokenEntry:    tokenEntry,
-		onConnect:     onConnect,
-		selectedIndex: -1,
-		connections:   make([]SavedConnection, 0),
+		app:            app,
+		window:         window,
+		hostEntry:      hostEntry,
+		tokenEntry:     tokenEntry,
+		protocolSelect: protocolSelect,
+		onConnect:      onConnect,
+		selectedIndex:  -1,
+		connections:    make([]SavedConnection, 0),
 	}
 
 	cm.qrScanner = NewQRScanner(app,
-		func(host, token string) {
+		func(host, token, protocol, wireGuardInvite string) {
 			fyne.Do(func() {
 				cm.hostEntry.SetText(host)
 				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && protocol != "" {
+					cm.protocolSelect.SetSelected(protocol)
+				}
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token)
+				cm.onConnect(host, token, protocol, wireGuardInvite)
 			}
 			logrus.Infof("QR подключение: host=%s", host)
 		},
-		func(name, host, token string) {
-			cm.SaveConnection(name, host, token)
+		func(name, host, token, protocol, wireGuardInvite string) {
+			cm.SaveConnection(name, host, token, protocol, wireGuardInvite)
 			fyne.Do(func() {
 				cm.hostEntry.SetText(host)
 				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && protocol != "" {
+					cm.protocolSelect.SetSelected(protocol)
+				}
 			})
 			logrus.Infof("QR сохранено: host=%s", host)
 		},
@@ -179,6 +189,9 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 		fyne.Do(func() {
 			cm.hostEntry.SetText(conn.Host)
 			cm.tokenEntry.SetText(conn.Token)
+			if cm.protocolSelect != nil && conn.Protocol != "" {
+				cm.protocolSelect.SetSelected(conn.Protocol)
+			}
 			cm.selectedIndex = idx
 		})
 	}
@@ -203,9 +216,12 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 		fyne.Do(func() {
 			cm.hostEntry.SetText(conn.Host)
 			cm.tokenEntry.SetText(conn.Token)
+			if cm.protocolSelect != nil && conn.Protocol != "" {
+				cm.protocolSelect.SetSelected(conn.Protocol)
+			}
 			cm.selectedIndex = idx
 			if cm.onConnect != nil {
-				cm.onConnect(conn.Host, conn.Token)
+				cm.onConnect(conn.Host, conn.Token, conn.Protocol, conn.WireGuardInvite)
 			}
 		})
 	})
@@ -310,11 +326,14 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 			logrus.Warn("Название и адрес обязательны")
 			return
 		}
-		cm.connections[idx] = SavedConnection{Name: name, Host: host, Token: token}
+		cm.connections[idx] = SavedConnection{Name: name, Host: host, Token: token, Protocol: conn.Protocol, WireGuardInvite: conn.WireGuardInvite}
 		cm.saveConnections()
 		fyne.Do(func() {
 			cm.hostEntry.SetText(host)
 			cm.tokenEntry.SetText(token)
+			if cm.protocolSelect != nil && conn.Protocol != "" {
+				cm.protocolSelect.SetSelected(conn.Protocol)
+			}
 			cm.refreshConnectionsList()
 		})
 		logrus.Infof("Обновлено подключение: %s", name)
@@ -367,7 +386,11 @@ func (cm *ConnectionManager) showAddDialog() {
 		name := nameEntry.Text
 		host := hostEntry.Text
 		token := tokenEntry.Text
-		cm.SaveConnection(name, host, token)
+		protocol := ""
+		if cm.protocolSelect != nil {
+			protocol = cm.protocolSelect.Selected
+		}
+		cm.SaveConnection(name, host, token, protocol, "")
 		fyne.Do(func() {
 			cm.hostEntry.SetText(host)
 			cm.tokenEntry.SetText(token)
@@ -443,7 +466,7 @@ func (cm *ConnectionManager) SetLanguageChangeCallback(callback func()) {
 }
 
 // SaveConnection сохраняет подключение напрямую
-func (cm *ConnectionManager) SaveConnection(name, host, token string) string {
+func (cm *ConnectionManager) SaveConnection(name, host, token, protocol, wireGuardInvite string) string {
 	if host == "" {
 		logrus.Warn("Не указан IP адрес")
 		return ""
@@ -464,7 +487,7 @@ func (cm *ConnectionManager) SaveConnection(name, host, token string) string {
 		}
 	}
 
-	conn := SavedConnection{Name: name, Host: host, Token: token}
+	conn := SavedConnection{Name: name, Host: host, Token: token, Protocol: protocol, WireGuardInvite: wireGuardInvite}
 	cm.connections = append(cm.connections, conn)
 	cm.saveConnections()
 	fyne.Do(func() {

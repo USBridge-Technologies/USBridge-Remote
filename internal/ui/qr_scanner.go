@@ -26,12 +26,12 @@ type QRScanner struct {
 	window fyne.Window
 
 	// Callbacks
-	onConnect func(host, token string)       // Подключиться
-	onSave    func(name, host, token string) // Сохранить (name = host если пусто)
+	onConnect func(host, token, protocol, wireGuardInvite string)       // Подключиться
+	onSave    func(name, host, token, protocol, wireGuardInvite string) // Сохранить (name = host если пусто)
 }
 
 // NewQRScanner создает новый сканер QR-кодов
-func NewQRScanner(app fyne.App, onConnect func(host, token string), onSave func(name, host, token string)) *QRScanner {
+func NewQRScanner(app fyne.App, onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, host, token, protocol, wireGuardInvite string)) *QRScanner {
 	return &QRScanner{
 		app:       app,
 		onConnect: onConnect,
@@ -83,7 +83,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 // Вызывается только из main thread (fyne.Do или dialog callback) — не использовать fyne.DoAndWait,
 // иначе дедлок на Android при вызове из callback.
 func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
-	host, token, err := parseQRContents(qrText)
+	host, token, protocol, wireGuardInvite, err := parseQRContents(qrText)
 	if err != nil {
 		dialog.ShowError(errors.New(fmt.Sprintf(i18n.Current.InvalidQRFormat, qrText)), parent)
 		return
@@ -94,46 +94,48 @@ func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 		return
 	}
 
-	qs.showPreview(host, token, parent)
+	qs.showPreview(host, token, protocol, wireGuardInvite, parent)
 }
 
-// parseQRContents парсит содержимое QR в host и token
-func parseQRContents(qrText string) (host, token string, err error) {
+// parseQRContents парсит содержимое QR в host, token и protocol.
+func parseQRContents(qrText string) (host, token, protocol, wireGuardInvite string, err error) {
 	qrText = strings.TrimSpace(qrText)
 	if qrText == "" {
-		return "", "", fmt.Errorf("empty QR code")
+		return "", "", "", "", fmt.Errorf("empty QR code")
 	}
 
 	// Формат usbridge://connect?host=X&token=Y
 	if strings.HasPrefix(qrText, "usbridge://") {
 		u, parseErr := url.Parse(qrText)
 		if parseErr != nil {
-			return "", "", parseErr
+			return "", "", "", "", parseErr
 		}
 		if u.Scheme != "usbridge" || u.Host != "connect" {
-			return "", "", fmt.Errorf("unsupported deep link format")
+			return "", "", "", "", fmt.Errorf("unsupported deep link format")
 		}
 		query := u.Query()
 		host = strings.TrimSpace(query.Get("host"))
 		token = strings.TrimSpace(query.Get("token"))
-		if host != "" && token != "" {
-			return host, token, nil
+		protocol = strings.TrimSpace(query.Get("protocol"))
+		wireGuardInvite = strings.TrimSpace(query.Get("wireguard_invite"))
+		if host != "" && (token != "" || wireGuardInvite != "") {
+			return host, token, protocol, wireGuardInvite, nil
 		}
-		return "", "", fmt.Errorf("host or token is missing in the link")
+		return "", "", "", "", fmt.Errorf("host or auth data is missing in the link")
 	}
 
 	// Формат host:token
 	parts := strings.SplitN(qrText, ":", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("expected format host:token or usbridge://connect?host=X&token=Y")
+		return "", "", "", "", fmt.Errorf("expected format host:token or usbridge://connect?host=X&token=Y")
 	}
 	host = strings.TrimSpace(parts[0])
 	token = strings.TrimSpace(parts[1])
-	return host, token, nil
+	return host, token, "", "", nil
 }
 
 // showPreview показывает диалог с кнопками: Сохранить, Подключиться, Отменить
-func (qs *QRScanner) showPreview(host, token string, parent fyne.Window) {
+func (qs *QRScanner) showPreview(host, token, protocol, wireGuardInvite string, parent fyne.Window) {
 	hostLabel := widget.NewLabel(i18n.Current.ServerAddressLabel)
 	hostValue := widget.NewLabel(host)
 	hostValue.TextStyle = fyne.TextStyle{Bold: true}
@@ -153,7 +155,7 @@ func (qs *QRScanner) showPreview(host, token string, parent fyne.Window) {
 			d.Hide()
 		}
 		if qs.onSave != nil {
-			qs.onSave(host, host, token) // название = адрес хоста
+			qs.onSave(host, host, token, protocol, wireGuardInvite) // название = адрес хоста
 			logrus.Infof("QR saved: host=%s", host)
 		}
 	})
@@ -164,7 +166,7 @@ func (qs *QRScanner) showPreview(host, token string, parent fyne.Window) {
 			d.Hide()
 		}
 		if qs.onConnect != nil {
-			qs.onConnect(host, token)
+			qs.onConnect(host, token, protocol, wireGuardInvite)
 			logrus.Infof("QR connect: host=%s", host)
 		}
 	})

@@ -16,13 +16,13 @@ import (
 
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
-	onConnect func(host, token string)       // Подключиться
-	onSave    func(name, host, token string) // Только сохранить без подключения
-	lastURI   string                         // Последний обработанный URI (чтобы не обрабатывать дважды)
+	onConnect func(host, token, protocol, wireGuardInvite string)       // Подключиться
+	onSave    func(name, host, token, protocol, wireGuardInvite string) // Только сохранить без подключения
+	lastURI   string                                   // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 
 // NewDeepLinkHandler создает новый обработчик
-func NewDeepLinkHandler(onConnect func(host, token string), onSave func(name, host, token string)) *DeepLinkHandler {
+func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, host, token, protocol, wireGuardInvite string)) *DeepLinkHandler {
 	return &DeepLinkHandler{
 		onConnect: onConnect,
 		onSave:    onSave,
@@ -56,7 +56,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Парсим URI
-	host, token, err := h.parseDeepLink(uri)
+	host, token, protocol, wireGuardInvite, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		dialog.ShowError(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
@@ -64,48 +64,50 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	}
 
 	// Показываем диалог подтверждения
-	h.showConfirmDialog(host, token, parent)
+	h.showConfirmDialog(host, token, protocol, wireGuardInvite, parent)
 }
 
 // parseDeepLink парсит deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (host, token string, err error) {
+func (h *DeepLinkHandler) parseDeepLink(uri string) (host, token, protocol, wireGuardInvite string, err error) {
 	// Парсим URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Проверяем схему (только usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Формат: usbridge://connect?host=192.168.1.1&token=secret
 	if u.Host != "connect" {
-		return "", "", fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Получаем параметры
 	query := u.Query()
 	host = query.Get("host")
 	token = query.Get("token")
+	protocol = query.Get("protocol")
+	wireGuardInvite = query.Get("wireguard_invite")
 
 	// Проверяем обязательные параметры
 	if host == "" {
-		return "", "", fmt.Errorf("missing host parameter")
+		return "", "", "", "", fmt.Errorf("missing host parameter")
 	}
 
-	if token == "" {
-		return "", "", fmt.Errorf("missing token parameter")
+	if token == "" && wireGuardInvite == "" {
+		return "", "", "", "", fmt.Errorf("missing token or wireguard_invite parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: host=%s, token=%s", host, token)
-	return host, token, nil
+	logrus.Infof("✅ Deep link parsed: host=%s, token=%s, protocol=%s", host, token, protocol)
+	return host, token, protocol, wireGuardInvite, nil
 }
 
 // showConfirmDialog показывает диалог подтверждения подключения с возможностью сохранения
 // ВАЖНО: должна вызываться из UI потока (внутри fyne.Do)
-func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Window) {
+func (h *DeepLinkHandler) showConfirmDialog(host, token, protocol, wireGuardInvite string, parent fyne.Window) {
 	// Создаем превью с данными
 	titleLabel := widget.NewLabelWithStyle(
 		"🔗 "+i18n.Current.ConnectViaLink,
@@ -134,7 +136,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 			d.Hide()
 		}
 		if h.onConnect != nil {
-			h.onConnect(host, token)
+			h.onConnect(host, token, protocol, wireGuardInvite)
 		}
 	})
 	connectBtn.Importance = widget.HighImportance
@@ -146,7 +148,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 		}
 		// Вызываем callback для сохранения с пустым именем - будет сгенерировано автоматически
 		if h.onSave != nil {
-			h.onSave("", host, token)
+			h.onSave("", host, token, protocol, wireGuardInvite)
 		}
 	})
 	saveBtn.Importance = widget.MediumImportance
@@ -189,13 +191,21 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token string, parent fyne.Wind
 	d.Show()
 }
 
-// GenerateDeepLink генерирует deep link для подключения
-// Формат: usbridge://connect?host=<HOST>&token=<TOKEN>
-func GenerateDeepLink(host, token string) string {
+// GenerateDeepLink генерирует deep link для подключения.
+// Формат: usbridge://connect?host=<HOST>&token=<TOKEN>&protocol=<PROTOCOL>
+func GenerateDeepLink(host, token, protocol, wireGuardInvite string) string {
 	// Кодируем параметры
 	params := url.Values{}
 	params.Set("host", host)
-	params.Set("token", token)
+	if token != "" {
+		params.Set("token", token)
+	}
+	if protocol != "" {
+		params.Set("protocol", protocol)
+	}
+	if wireGuardInvite != "" {
+		params.Set("wireguard_invite", wireGuardInvite)
+	}
 
 	return fmt.Sprintf("usbridge://connect?%s", params.Encode())
 }

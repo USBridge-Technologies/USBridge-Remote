@@ -120,6 +120,10 @@ func (gs *GStreamerService) getGStreamerEnv() []string {
 
 // buildPipelineArgs формирует аргументы pipeline для RTP video (через QUIC/SUDP туннель)
 func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.buildPipelineArgsJPEG(udpPort)
 	}
@@ -128,6 +132,7 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 	return []string{
 		"-q",
 		"udpsrc",
+		fmt.Sprintf("address=%s", bindHost),
 		fmt.Sprintf("port=%d", udpPort),
 		"buffer-size=131072", // 128KB вместо 2MB — меньше буферизация
 		`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
@@ -160,9 +165,14 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 }
 
 func (gs *GStreamerService) buildPipelineArgsJPEG(udpPort int) []string {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	return []string{
 		"-q",
 		"udpsrc",
+		fmt.Sprintf("address=%s", bindHost),
 		fmt.Sprintf("port=%d", udpPort),
 		"buffer-size=65536",
 		`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,

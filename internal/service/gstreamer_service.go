@@ -162,6 +162,10 @@ func (gs *GStreamerService) createPipeline() error {
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	logrus.Infof("📹 UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
@@ -171,10 +175,10 @@ func (gs *GStreamerService) createPipeline() error {
 	// Linux: пытаемся аппаратные декодеры сначала, затем программный fallback.
 	// Также даем варианты без h264parse, т.к. на некоторых дистрибутивах отсутствует gst-plugins-bad.
 	base := fmt.Sprintf(
-		"udpsrc port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
 			"rtpjitterbuffer latency=40 faststart-min-packets=2 drop-on-latency=true ! "+
 			"rtph264depay ! ",
-		udpPort,
+		bindHost, udpPort,
 	)
 
 	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=3 drop=true"
@@ -268,11 +272,15 @@ func (gs *GStreamerService) createPipeline() error {
 }
 
 func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	base := fmt.Sprintf(
-		"udpsrc port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+		"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
 			"rtpjpegdepay ! ",
-		udpPort,
+		bindHost, udpPort,
 	)
 
 	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"

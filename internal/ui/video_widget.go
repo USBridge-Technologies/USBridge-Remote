@@ -172,16 +172,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		vw.startDialog = NewVideoStartDialog(vw.parentWindow)
 	}
 
-	var videoInfo *models.VideoInfoData
-	if resp, err := vw.usbClient.GetVideoInfo(); err != nil {
-		logrus.Warnf("⚠️ Failed to get video info before opening start dialog: %v", err)
-	} else if resp != nil && resp.Success && resp.Data != nil {
-		if parsed, err := models.ParseVideoInfoData(resp.Data); err != nil {
-			logrus.Warnf("⚠️ Failed to parse video info for start dialog: %v", err)
-		} else {
-			videoInfo = parsed
-		}
-	}
+	videoInfo := vw.fetchVideoInfoForStartDialog()
 
 	defaultWidth := 800
 	defaultHeight := 600
@@ -218,6 +209,36 @@ func (vw *VideoWidget) handleStartVideo() {
 
 	vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
 	vw.startDialog.Show(vw.handleVideoStartWithParams)
+}
+
+func (vw *VideoWidget) fetchVideoInfoForStartDialog() *models.VideoInfoData {
+	const maxAttempts = 5
+
+	var lastInfo *models.VideoInfoData
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := vw.usbClient.GetVideoInfo()
+		if err != nil {
+			logrus.Warnf("⚠️ Failed to get video info before opening start dialog (attempt %d/%d): %v", attempt, maxAttempts, err)
+		} else if resp != nil && resp.Success && resp.Data != nil {
+			parsed, parseErr := models.ParseVideoInfoData(resp.Data)
+			if parseErr != nil {
+				logrus.Warnf("⚠️ Failed to parse video info for start dialog (attempt %d/%d): %v", attempt, maxAttempts, parseErr)
+			} else {
+				lastInfo = parsed
+				if len(parsed.CaptureModes) > 0 {
+					logrus.Infof("✅ Video info for start dialog ready on attempt %d/%d: %d capture modes", attempt, maxAttempts, len(parsed.CaptureModes))
+					return parsed
+				}
+				logrus.Infof("ℹ️ Video info for start dialog attempt %d/%d returned no capture modes yet, retrying...", attempt, maxAttempts)
+			}
+		}
+
+		if attempt < maxAttempts {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+
+	return lastInfo
 }
 
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога

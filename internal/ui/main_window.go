@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ type MainWindow struct {
 	gstreamerService *service.GStreamerService
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
+	wgService        service.WireGuardService
 
 	// Состояние
 	config              *models.AppConfig
@@ -43,9 +45,12 @@ type MainWindow struct {
 	isConnected         bool
 	isStreaming         bool
 	isConnectionPending bool // Флаг блокировки кнопки подключения
+	connectedProtocol   string
+	pendingWireGuardInvite string
 
 	// Кнопка подключения/отключения
-	connectionBtn *widget.Button
+	connectionBtn  *widget.Button
+	protocolSelect *widget.Select
 
 	// PC Panel (Power/Reset LED кнопки)
 	pcpanelWidget *PCPanelWidget
@@ -115,6 +120,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 
 	// FRP сервис будет создан при подключении
 	mw.frpService = nil
+	mw.wgService = nil
 
 	// Создаем виджеты
 	mw.diskWidget = NewDiskWidget(mw.usbClient, mw.updateStatus, myApp, config)
@@ -139,6 +145,13 @@ func (mw *MainWindow) createInterface() {
 	mw.tokenEntry = widget.NewEntry()
 	mw.tokenEntry.SetPlaceHolder(i18n.Current.Token)
 	mw.tokenEntry.Password = true // Скрыто, используется при подключении из сохранённых
+
+	mw.protocolSelect = widget.NewSelect([]string{
+		models.ConnectionProtocolAuto,
+		models.ConnectionProtocolQUIC,
+		models.ConnectionProtocolWireGuard,
+	}, nil)
+	mw.protocolSelect.SetSelected(mw.config.ConnectionProtocol)
 
 	mw.connectionBtn = widget.NewButton("🔌", mw.handleConnectionToggle)
 	mw.connectionBtn.Importance = widget.HighImportance // Синяя по умолчанию
@@ -232,7 +245,7 @@ func (mw *MainWindow) recreateContainers() {
 // createAddressBar создает адресную строку: хост | [Power LED] [HDD LED] | прогрессбар | иконки устройств | кнопка подключения
 func (mw *MainWindow) createAddressBar() *fyne.Container {
 	mw.pcpanelWidget = NewPCPanelWidget(mw.window)
-	rightPart := container.NewHBox(mw.pcpanelWidget.GetContainer(), mw.sdStorageProgress, mw.statusPanel, mw.connectionBtn)
+	rightPart := container.NewHBox(mw.pcpanelWidget.GetContainer(), mw.sdStorageProgress, mw.statusPanel, mw.protocolSelect, mw.connectionBtn)
 	return container.New(
 		layout.NewBorderLayout(nil, nil, nil, rightPart),
 		mw.hostEntry,
@@ -518,25 +531,33 @@ func (mw *MainWindow) showMainContent() {
 
 // handleConnectionFromManager обрабатывает подключение из менеджера (стрелка на карточке).
 // Заполняет поля и вызывает единый обработчик handleConnectionToggle для защиты от множественных нажатий.
-func (mw *MainWindow) handleConnectionFromManager(host, token string) {
+func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string) {
 	mw.hostEntry.SetText(host)
 	mw.tokenEntry.SetText(token)
+	mw.pendingWireGuardInvite = wireGuardInvite
+	if protocol != "" {
+		mw.protocolSelect.SetSelected(protocol)
+	}
 	mw.handleConnectionToggle()
 }
 
 // handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
-func (mw *MainWindow) handleSaveFromDeepLink(name, host, token string) {
-	logrus.Infof("💾 handleSaveFromDeepLink вызван с: name='%s', host='%s', token='%s'", name, host, token)
+func (mw *MainWindow) handleSaveFromDeepLink(name, host, token, protocol, wireGuardInvite string) {
+	logrus.Infof("💾 handleSaveFromDeepLink вызван с: name='%s', host='%s', token='%s', protocol='%s'", name, host, token, protocol)
 
 	// Заполняем поля
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
 		mw.tokenEntry.SetText(token)
+		if protocol != "" {
+			mw.protocolSelect.SetSelected(protocol)
+		}
 	})
 
 	// Сохраняем через ConnectionManager (name будет пустой - сгенерируется автоматически)
 	if mw.connectionManager != nil {
-		generatedName := mw.connectionManager.SaveConnection(name, host, token)
+		mw.pendingWireGuardInvite = wireGuardInvite
+		generatedName := mw.connectionManager.SaveConnection(name, host, token, protocol, wireGuardInvite)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 
 		// Показываем информационное сообщение о сохранении
@@ -605,7 +626,7 @@ func (mw *MainWindow) handleConnect() {
 	}
 
 	logrus.Infof("🔍 [DEBUG] Final connection parameters: host='%s', token='%s'", host, token)
-	logrus.Info("Establishing QUIC connection...")
+	logrus.Infof("Establishing connection with protocol=%s...", mw.protocolSelect.Selected)
 
 	// Визуальная обратная связь - блокируем кнопку и меняем текст
 	originalText := mw.connectionBtn.Text
@@ -616,6 +637,7 @@ func (mw *MainWindow) handleConnect() {
 	// Блокируем поля ввода на время подключения
 	mw.hostEntry.Disable()
 	mw.tokenEntry.Disable()
+	mw.protocolSelect.Disable()
 
 	// ВАЖНО: Обновляем UI и даём время отрисовать песочные часы перед блокирующими операциями
 	mw.window.Canvas().Refresh(mw.connectionBtn)
@@ -631,8 +653,15 @@ func (mw *MainWindow) handleConnect() {
 
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины)
 func (mw *MainWindow) doConnect(host, token string) {
-	// Создаем FRP клиент с QUIC если включено
-	if mw.config.FRPEnabled {
+	protocol := mw.protocolSelect.Selected
+	if protocol == "" {
+		protocol = models.ConnectionProtocolAuto
+	}
+
+	connectQUIC := func() error {
+		if !mw.config.FRPEnabled {
+			return fmt.Errorf("FRP disabled in config")
+		}
 		logrus.Infof("🔍 [DEBUG] Creating FRP service: host='%s', port=%d, token='%s'", host, mw.config.FRPServerPort, token)
 		mw.frpService = service.NewFRPService(
 			host,
@@ -643,15 +672,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 
 		// Устанавливаем QUIC туннель через FRP
 		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
-			logrus.Errorf("❌ Failed to establish QUIC tunnel: %v", err)
-			fyne.Do(func() {
-				mw.connectionBtn.SetText("🔌")
-				mw.connectionBtn.Importance = widget.MediumImportance
-				mw.connectionBtn.Enable()
-				mw.hostEntry.Enable()
-				mw.tokenEntry.Enable()
-			})
-			return
+			return err
 		}
 
 		logrus.Info("✅ QUIC tunnel established via FRP")
@@ -674,14 +695,117 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.gstreamerService.UpdateHost("127.0.0.1")
 		mw.gstreamerService.UpdateVideoPort(videoPort) // FRP туннелирует видео порт
 		mw.gstreamerService.UpdateVideoUDPPort(videoPort)
+		mw.config.VideoBindHost = "127.0.0.1"
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
+		mw.connectedProtocol = models.ConnectionProtocolQUIC
+		mw.config.NBDBindHost = "127.0.0.1"
 
 		logrus.Info("🔌 Ready to connect through FRP tunnel")
 
 		// NBD серверы работают локально на клиенте localhost:10809-10824
 		// Сервер подключается к нам через FRP туннель (все 16 портов уже настроены)
-	} else {
+		return nil
+	}
+
+	connectWireGuard := func() error {
+		if !mw.config.WireGuardEnabled {
+			return fmt.Errorf("WireGuard disabled in config")
+		}
+		if !mw.config.FRPEnabled {
+			return fmt.Errorf("FRP bootstrap is required for WireGuard mode but FRP is disabled")
+		}
+		logrus.Info("🔐 [WireGuard] STEP 1: starting FRP bootstrap transport")
+		if err := connectQUIC(); err != nil {
+			return fmt.Errorf("wireguard bootstrap over FRP failed at transport stage: %w", err)
+		}
+		if mw.frpService == nil || !mw.frpService.IsRunning() {
+			return fmt.Errorf("FRP bootstrap transport is not running")
+		}
+
+		logrus.Info("🔐 [WireGuard] STEP 2: creating WireGuard client keypair")
+		wg := service.NewWireGuardService(mw.config)
+		pub, err := wg.GeneratePublicKey()
+		if err != nil {
+			return err
+		}
+		httpPort, _, _ := mw.frpService.GetServerPorts()
+		logrus.Infof("🔐 [WireGuard] STEP 3: requesting bootstrap via FRP localhost visitor port=%d", httpPort)
+		bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
+		bootstrap, err := bootstrapClient.BootstrapWireGuard(&models.WireGuardBootstrapRequest{
+			Token:           token,
+			ClientName:      "usbridge-client",
+			ClientPublicKey: pub,
+			EndpointHost:    host,
+			ServerHost:      host,
+		})
+		if err != nil {
+			return fmt.Errorf("wireguard bootstrap API failed: %w", err)
+		}
+		logrus.Infof("🔐 [WireGuard] STEP 4: bootstrap received server=%s client=%s endpoint=%s:%d", bootstrap.ServerAddress, bootstrap.ClientAddress, bootstrap.ServerEndpointHost, bootstrap.ServerEndpointPort)
+		logrus.Info("🔐 [WireGuard] STEP 5: bringing up local WireGuard interface")
+		if err := wg.Connect(bootstrap); err != nil {
+			return err
+		}
+		mw.wgService = wg
+		logrus.Infof("✅ [WireGuard] STEP 6: interface up client=%s server=%s", wg.GetClientHost(), wg.GetServerHost())
+		mw.config.NBDBindHost = wg.GetClientHost()
+		mw.usbClient = api.NewUSBClient(wg.GetServerHost(), mw.config.USBPort, mw.config.APITimeout)
+		mw.gstreamerService.UpdateHost(wg.GetServerHost())
+		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
+		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
+		mw.config.VideoBindHost = wg.GetClientHost()
+		mw.videoWidget.SetFRPService(nil)
+		mw.diskWidget.SetFRPService(nil)
+		mw.connectedProtocol = models.ConnectionProtocolWireGuard
+		logrus.Info("🔐 [WireGuard] STEP 7: switching application traffic to WireGuard")
+		return nil
+	}
+
+	switch protocol {
+	case models.ConnectionProtocolWireGuard:
+		if err := connectWireGuard(); err != nil {
+			logrus.Errorf("❌ Failed to establish WireGuard tunnel: %v", err)
+			fyne.Do(func() {
+				mw.connectionBtn.SetText("🔌")
+				mw.connectionBtn.Importance = widget.MediumImportance
+				mw.connectionBtn.Enable()
+				mw.hostEntry.Enable()
+				mw.tokenEntry.Enable()
+				mw.protocolSelect.Enable()
+			})
+			return
+		}
+	case models.ConnectionProtocolQUIC:
+		if err := connectQUIC(); err != nil {
+			logrus.Errorf("❌ Failed to establish QUIC tunnel: %v", err)
+			fyne.Do(func() {
+				mw.connectionBtn.SetText("🔌")
+				mw.connectionBtn.Importance = widget.MediumImportance
+				mw.connectionBtn.Enable()
+				mw.hostEntry.Enable()
+				mw.tokenEntry.Enable()
+				mw.protocolSelect.Enable()
+			})
+			return
+		}
+	case models.ConnectionProtocolAuto:
+		if err := connectWireGuard(); err != nil {
+			logrus.Warnf("⚠️ WireGuard auto-connect failed, falling back to QUIC: %v", err)
+			if err := connectQUIC(); err != nil {
+				logrus.Errorf("❌ Failed to establish connection in auto mode: %v", err)
+				fyne.Do(func() {
+					mw.connectionBtn.SetText("🔌")
+					mw.connectionBtn.Importance = widget.MediumImportance
+					mw.connectionBtn.Enable()
+					mw.hostEntry.Enable()
+					mw.tokenEntry.Enable()
+					mw.protocolSelect.Enable()
+				})
+				return
+			}
+		}
+	default:
 		// Прямое подключение без FRP (старый метод)
 		logrus.Info("Testing connection...")
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
@@ -695,13 +819,16 @@ func (mw *MainWindow) doConnect(host, token string) {
 				mw.connectionBtn.Enable()
 				mw.hostEntry.Enable()
 				mw.tokenEntry.Enable()
+				mw.protocolSelect.Enable()
 			})
 			return
 		}
 
 		mw.usbClient = tempClient
 		mw.gstreamerService.UpdateHost(host)
+		mw.config.VideoBindHost = "127.0.0.1"
 		mw.diskWidget.SetFRPService(nil) // Прямое подключение — FRP не используется
+		mw.connectedProtocol = "direct"
 
 		// Тестируем соединение только для прямого подключения
 		if err := tempClient.TestConnection(); err != nil {
@@ -719,6 +846,11 @@ func (mw *MainWindow) doConnect(host, token string) {
 			mw.frpService.Disconnect()
 			mw.frpService = nil
 		}
+		if mw.wgService != nil && mw.wgService.IsRunning() {
+			mw.wgService.Disconnect()
+			mw.wgService = nil
+			mw.config.NBDBindHost = "127.0.0.1"
+		}
 		mw.usbClient = nil
 		fyne.Do(func() {
 			mw.connectionBtn.SetText("🔌")
@@ -726,10 +858,18 @@ func (mw *MainWindow) doConnect(host, token string) {
 			mw.connectionBtn.Enable()
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
+			mw.protocolSelect.Enable()
 		})
 		return
 	}
 	logrus.Info("Loading devices...")
+	if mw.connectedProtocol == models.ConnectionProtocolWireGuard && mw.frpService != nil && mw.frpService.IsRunning() {
+		logrus.Info("🔐 [WireGuard] STEP 8: WireGuard verified, stopping FRP bootstrap transport")
+		if err := mw.frpService.Disconnect(); err != nil {
+			logrus.Warnf("⚠️ Failed to stop FRP after WireGuard handoff: %v", err)
+		}
+		mw.frpService = nil
+	}
 
 	// Загружаем устройства и обновляем виджеты
 	mw.diskWidget.UpdateClient(mw.usbClient)
@@ -753,7 +893,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.showMainContent()
 	})
 
-	logrus.Info("✅ Connected to USBridge via QUIC")
+	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
 }
 
 // handleDisconnect обрабатывает отключение
@@ -787,6 +927,12 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 		mw.frpService = nil
 	}
+	if mw.wgService != nil && mw.wgService.IsRunning() {
+		if err := mw.wgService.Disconnect(); err != nil {
+			logrus.Errorf("Failed to stop WireGuard tunnel: %v", err)
+		}
+		mw.wgService = nil
+	}
 
 	mw.isConnected = false
 	mw.isStreaming = false
@@ -817,6 +963,9 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.updateStatus()
 	mw.hostEntry.Enable()  // Разблокируем адресную строку для изменения
 	mw.tokenEntry.Enable() // Разблокируем поле токена
+	mw.protocolSelect.Enable()
+	mw.config.NBDBindHost = "127.0.0.1"
+	mw.config.VideoBindHost = "127.0.0.1"
 
 	// Переключаемся на менеджер подключений
 	mw.showConnectionManager()
@@ -895,7 +1044,7 @@ func (mw *MainWindow) Show() {
 			mw.createInterface()
 
 			// Создаем менеджер подключений (после создания hostEntry и tokenEntry)
-			mw.connectionManager = NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.handleConnectionFromManager)
+			mw.connectionManager = NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.handleConnectionFromManager)
 
 			// Пересоздаем контейнеры с менеджером
 			mw.recreateContainers()
@@ -946,7 +1095,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.tokenEntry.SetText(currentToken)
 
 	// Пересоздаем менеджер подключений с новым языком
-	mw.connectionManager = NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.handleConnectionFromManager)
+	mw.connectionManager = NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.handleConnectionFromManager)
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 
 	// Пересоздаем контейнеры

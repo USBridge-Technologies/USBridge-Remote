@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -249,6 +250,41 @@ type VideoStartRequest struct {
 	VideoMode    string `json:"video_mode,omitempty"`
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientPort int `json:"client_port,omitempty"`
+}
+
+type WireGuardBootstrapRequest struct {
+	Token           string `json:"token"`
+	ClientName      string `json:"client_name,omitempty"`
+	ClientPublicKey string `json:"client_public_key"`
+	EndpointHost    string `json:"endpoint_host,omitempty"`
+	ServerHost      string `json:"server_host,omitempty"`
+}
+
+type WireGuardBootstrapResponse struct {
+	InterfaceName       string   `json:"interface_name"`
+	ServerPublicKey     string   `json:"server_public_key"`
+	ServerEndpointHost  string   `json:"server_endpoint_host"`
+	ServerEndpointPort  int      `json:"server_endpoint_port"`
+	ServerAddress       string   `json:"server_address"`
+	ServerAddressCIDR   string   `json:"server_address_cidr"`
+	ClientAddress       string   `json:"client_address"`
+	ClientAddressCIDR   string   `json:"client_address_cidr"`
+	AllowedIPs          []string `json:"allowed_ips"`
+	PersistentKeepalive int      `json:"persistent_keepalive"`
+	MTU                 int      `json:"mtu"`
+	ClientPrivateKey    string   `json:"client_private_key,omitempty"`
+}
+
+func DecodeWireGuardInvite(invite string) (*WireGuardBootstrapResponse, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(invite))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode WireGuard invite: %w", err)
+	}
+	var resp WireGuardBootstrapResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse WireGuard invite: %w", err)
+	}
+	return &resp, nil
 }
 
 // ConfigRequest запрос на обновление конфигурации

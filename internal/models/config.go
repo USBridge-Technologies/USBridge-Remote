@@ -10,6 +10,12 @@ import (
 // свободен на Windows (nidmsrv/UPnP часто занимают 5000), macOS (AirPlay), Linux, Android.
 const DefaultVideoUDPPort = 55000
 
+const (
+	ConnectionProtocolAuto      = "auto"
+	ConnectionProtocolQUIC      = "quic"
+	ConnectionProtocolWireGuard = "wireguard"
+)
+
 // AppConfig конфигурация приложения
 type AppConfig struct {
 	// USBridge 2 подключение (как клиент)
@@ -17,22 +23,31 @@ type AppConfig struct {
 	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // Таймаут API запросов
 
 	// FRP настройки (QUIC туннель)
-	FRPServerPort int    `json:"frp_server_port" mapstructure:"frp_server_port"` // Порт FRP сервера (443)
-	FRPAuthToken  string `json:"frp_auth_token" mapstructure:"frp_auth_token"`   // Токен аутентификации FRP
-	FRPEnabled    bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Включить FRP туннель
-	FRPTLSCert    string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Путь к TLS сертификату
-	FRPTLSKey     string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Путь к TLS ключу
-	FRPTLSCa      string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Путь к CA сертификату
+	FRPServerPort      int    `json:"frp_server_port" mapstructure:"frp_server_port"` // Порт FRP сервера (443)
+	FRPAuthToken       string `json:"frp_auth_token" mapstructure:"frp_auth_token"`   // Токен аутентификации FRP
+	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Включить FRP туннель
+	FRPTLSCert         string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Путь к TLS сертификату
+	FRPTLSKey          string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Путь к TLS ключу
+	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Путь к CA сертификату
+	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
+
+	// WireGuard настройки
+	WireGuardEnabled       bool   `json:"wireguard_enabled" mapstructure:"wireguard_enabled"`
+	WireGuardInterfaceName string `json:"wireguard_interface_name" mapstructure:"wireguard_interface_name"`
+	WireGuardServerPort    int    `json:"wireguard_server_port" mapstructure:"wireguard_server_port"`
+	WireGuardListenPort    int    `json:"wireguard_listen_port" mapstructure:"wireguard_listen_port"`
 
 	// NBD сервер (как сервер)
-	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // Порт NBD сервера (10809)
+	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"` // Порт NBD сервера (10809)
+	NBDBindHost       string   `json:"nbd_bind_host" mapstructure:"nbd_bind_host"`
 	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Максимум NBD клиентов
 	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Пути для сканирования устройств
 	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Поддерживаемые типы файлов
 	NBDExportReadOnly bool     `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = экспорт только для чтения (безопасный дефолт), false = RW через overlay
 
 	// Хост видеопотока (задаётся из адресной строки; в конфиге не хранится)
-	VideoHost string `json:"-"`
+	VideoHost     string `json:"-"`
+	VideoBindHost string `json:"video_bind_host" mapstructure:"video_bind_host"`
 
 	// Видео UDP (новый протокол)
 	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма RTP видео по UDP (55000 — свободен на Win/Mac/Linux/Android)
@@ -67,22 +82,29 @@ func DefaultConfig() *AppConfig {
 		APITimeout: 30,
 
 		// FRP
-		FRPServerPort: 443,
-		FRPAuthToken:  "usbridge-secret-token",
-		FRPEnabled:    true,
-		FRPTLSCert:    "./certs/server.crt",
-		FRPTLSKey:     "./certs/server.key",
-		FRPTLSCa:      "./certs/ca.crt",
+		FRPServerPort:          443,
+		FRPAuthToken:           "usbridge-secret-token",
+		FRPEnabled:             true,
+		FRPTLSCert:             "./certs/server.crt",
+		FRPTLSKey:              "./certs/server.key",
+		FRPTLSCa:               "./certs/ca.crt",
+		ConnectionProtocol:     modelsafeProtocol(ConnectionProtocolAuto),
+		WireGuardEnabled:       true,
+		WireGuardInterfaceName: "usbwg0",
+		WireGuardServerPort:    51820,
+		WireGuardListenPort:    51821,
 
 		// NBD сервер
 		NBDPort:           10809,
+		NBDBindHost:       "127.0.0.1",
 		MaxClients:        5,
 		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
 		NBDExportReadOnly: true, // безопасный дефолт: RO; false = экспорт RW через overlay (база не портится)
 
 		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
-		VideoUDPPort: DefaultVideoUDPPort,
+		VideoUDPPort:  DefaultVideoUDPPort,
+		VideoBindHost: "127.0.0.1",
 
 		// Видео
 		VideoBitrate:   2000,
@@ -104,6 +126,15 @@ func DefaultConfig() *AppConfig {
 		WindowHeight: 640,
 		Theme:        "light",
 		LogLevel:     "info",
+	}
+}
+
+func modelsafeProtocol(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case ConnectionProtocolQUIC, ConnectionProtocolWireGuard:
+		return strings.ToLower(strings.TrimSpace(protocol))
+	default:
+		return ConnectionProtocolAuto
 	}
 }
 

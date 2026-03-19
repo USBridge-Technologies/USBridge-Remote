@@ -158,8 +158,11 @@ func (ns *NBDServer) Start(port int) error {
 		},
 	}
 
-	// Запускаем NBD сервер только на localhost (FRP туннель пробрасывает порты на localhost)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	bindHost := strings.TrimSpace(ns.config.NBDBindHost)
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", bindHost, port)
 	logrus.Infof("📍 [NBD-START-1] Создание TCP listener на %s (порт %d)", addr, port)
 	listener, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
@@ -224,7 +227,7 @@ func (ns *NBDServer) Stop() error {
 			}
 		}
 		// Overlay не удаляем — при следующем монтировании тот же overlay будет использован
-		}
+	}
 
 	// Сначала устанавливаем флаг остановки
 	ns.isRunning = false
