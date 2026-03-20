@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"usbridge-client/internal/gui"
 	"usbridge-client/internal/models"
-	"usbridge-client/internal/ui"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -49,7 +49,7 @@ func main() {
 	logrus.Infof("  NBD port: %d", config.NBDPort)
 
 	// Создаем главное окно (локализация будет загружена внутри)
-	mainWindow := ui.NewMainWindow(config)
+	mainWindow := gui.NewMainWindow(config)
 
 	// Запускаем приложение
 	logrus.Info("🎨 Starting GUI")

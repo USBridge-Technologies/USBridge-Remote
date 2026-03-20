@@ -1,0 +1,130 @@
+package input
+
+import (
+	"fyne.io/fyne/v2"
+)
+
+// GetKeyCode возвращает HID код клавиши по имени Fyne
+func GetKeyCode(keyName fyne.KeyName) int {
+	keyNameStr := string(keyName)
+	switch keyNameStr {
+	case "LeftAlt":
+		return 226 // Left Alt
+	case "RightAlt":
+		return 230 // Right Alt
+	case "LeftShift":
+		return 225 // Left Shift
+	case "RightShift":
+		return 229 // Right Shift
+	case "LeftControl":
+		return 224 // Left Control
+	case "RightControl":
+		return 228 // Right Control
+	case "LeftSuper":
+		return 227 // Left GUI (Windows/Command)
+	case "RightSuper":
+		return 231 // Right GUI
+	}
+
+	keyMap := map[fyne.KeyName]int{
+		fyne.KeyA: 4, fyne.KeyB: 5, fyne.KeyC: 6, fyne.KeyD: 7, fyne.KeyE: 8,
+		fyne.KeyF: 9, fyne.KeyG: 10, fyne.KeyH: 11, fyne.KeyI: 12, fyne.KeyJ: 13,
+		fyne.KeyK: 14, fyne.KeyL: 15, fyne.KeyM: 16, fyne.KeyN: 17, fyne.KeyO: 18,
+		fyne.KeyP: 19, fyne.KeyQ: 20, fyne.KeyR: 21, fyne.KeyS: 22, fyne.KeyT: 23,
+		fyne.KeyU: 24, fyne.KeyV: 25, fyne.KeyW: 26, fyne.KeyX: 27, fyne.KeyY: 28, fyne.KeyZ: 29,
+
+		fyne.Key1: 30, fyne.Key2: 31, fyne.Key3: 32, fyne.Key4: 33, fyne.Key5: 34,
+		fyne.Key6: 35, fyne.Key7: 36, fyne.Key8: 37, fyne.Key9: 38, fyne.Key0: 39,
+
+		fyne.KeyReturn: 40, fyne.KeyEscape: 41, fyne.KeyBackspace: 42, fyne.KeyTab: 43, fyne.KeySpace: 44,
+
+		fyne.KeyF1: 58, fyne.KeyF2: 59, fyne.KeyF3: 60, fyne.KeyF4: 61,
+		fyne.KeyF5: 62, fyne.KeyF6: 63, fyne.KeyF7: 64, fyne.KeyF8: 65,
+		fyne.KeyF9: 66, fyne.KeyF10: 67, fyne.KeyF11: 68, fyne.KeyF12: 69,
+
+		fyne.KeyInsert: 73, fyne.KeyHome: 74, fyne.KeyPageUp: 75,
+		fyne.KeyDelete: 76, fyne.KeyEnd: 77, fyne.KeyPageDown: 78,
+		fyne.KeyRight: 79, fyne.KeyLeft: 80, fyne.KeyDown: 81, fyne.KeyUp: 82,
+	}
+
+	if code, exists := keyMap[keyName]; exists {
+		return code
+	}
+	return 0
+}
+
+// GetKeyCodeFromPhysical возвращает HID код по физическому коду (пока не используется)
+func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
+	return 0
+}
+
+// IsPrintableKey возвращает true для клавиш, которые дают символ (TypedRune).
+// Для таких клавиш нужно обрабатывать только TypedRune (с модификаторами из rune),
+// и не отправлять TypedKey, иначе получается двойная отправка: сначала "a", потом "A" при Shift+A.
+func IsPrintableKey(keyName fyne.KeyName) bool {
+	switch keyName {
+	case fyne.KeyA, fyne.KeyB, fyne.KeyC, fyne.KeyD, fyne.KeyE, fyne.KeyF,
+		fyne.KeyG, fyne.KeyH, fyne.KeyI, fyne.KeyJ, fyne.KeyK, fyne.KeyL,
+		fyne.KeyM, fyne.KeyN, fyne.KeyO, fyne.KeyP, fyne.KeyQ, fyne.KeyR,
+		fyne.KeyS, fyne.KeyT, fyne.KeyU, fyne.KeyV, fyne.KeyW, fyne.KeyX,
+		fyne.KeyY, fyne.KeyZ:
+		return true
+	case fyne.Key0, fyne.Key1, fyne.Key2, fyne.Key3, fyne.Key4,
+		fyne.Key5, fyne.Key6, fyne.Key7, fyne.Key8, fyne.Key9:
+		return true
+	case fyne.KeySpace:
+		return true
+	// KeyReturn и KeyTab не считаем печатаемыми: на многих платформах TypedRune для Enter не приходит,
+	// поэтому отправляем их только из TypedKey (keyCode 40 и 43).
+	case fyne.KeyMinus, fyne.KeyEqual, fyne.KeyLeftBracket, fyne.KeyRightBracket,
+		fyne.KeyBackslash, fyne.KeySemicolon, fyne.KeyApostrophe, fyne.KeyBackTick,
+		fyne.KeyComma, fyne.KeyPeriod, fyne.KeySlash:
+		return true
+	default:
+		return false
+	}
+}
+
+// RuneKeyInfo информация о HID коде для символа
+type RuneKeyInfo struct {
+	KeyCode   int
+	Modifiers int
+}
+
+// GetRuneKeyCodeWithModifiers возвращает HID код и модификаторы для символа
+func GetRuneKeyCodeWithModifiers(r rune) (int, int) {
+	runeMap := map[rune]RuneKeyInfo{
+		'a': {4, 0}, 'b': {5, 0}, 'c': {6, 0}, 'd': {7, 0}, 'e': {8, 0},
+		'f': {9, 0}, 'g': {10, 0}, 'h': {11, 0}, 'i': {12, 0}, 'j': {13, 0},
+		'k': {14, 0}, 'l': {15, 0}, 'm': {16, 0}, 'n': {17, 0}, 'o': {18, 0},
+		'p': {19, 0}, 'q': {20, 0}, 'r': {21, 0}, 's': {22, 0}, 't': {23, 0},
+		'u': {24, 0}, 'v': {25, 0}, 'w': {26, 0}, 'x': {27, 0}, 'y': {28, 0}, 'z': {29, 0},
+
+		'A': {4, 2}, 'B': {5, 2}, 'C': {6, 2}, 'D': {7, 2}, 'E': {8, 2},
+		'F': {9, 2}, 'G': {10, 2}, 'H': {11, 2}, 'I': {12, 2}, 'J': {13, 2},
+		'K': {14, 2}, 'L': {15, 2}, 'M': {16, 2}, 'N': {17, 2}, 'O': {18, 2},
+		'P': {19, 2}, 'Q': {20, 2}, 'R': {21, 2}, 'S': {22, 2}, 'T': {23, 2},
+		'U': {24, 2}, 'V': {25, 2}, 'W': {26, 2}, 'X': {27, 2}, 'Y': {28, 2}, 'Z': {29, 2},
+
+		'1': {30, 0}, '2': {31, 0}, '3': {32, 0}, '4': {33, 0}, '5': {34, 0},
+		'6': {35, 0}, '7': {36, 0}, '8': {37, 0}, '9': {38, 0}, '0': {39, 0},
+
+		' ': {44, 0}, '-': {45, 0}, '=': {46, 0}, '[': {47, 0}, ']': {48, 0},
+		'\\': {49, 0}, ';': {51, 0}, '\'': {52, 0}, '`': {53, 0}, ',': {54, 0},
+		'.': {55, 0}, '/': {56, 0},
+		'\n': {40, 0}, '\r': {40, 0}, // Enter
+		'\t': {43, 0}, // Tab
+
+		'×': {37, 2}, '÷': {56, 0}, // умножение, деление (как * и /)
+
+		'!': {30, 2}, '@': {31, 2}, '#': {32, 2}, '$': {33, 2}, '%': {34, 2},
+		'^': {35, 2}, '&': {36, 2}, '*': {37, 2}, '(': {38, 2}, ')': {39, 2},
+		'_': {45, 2}, '+': {46, 2}, '{': {47, 2}, '}': {48, 2}, '|': {49, 2},
+		':': {51, 2}, '"': {52, 2}, '~': {53, 2}, '<': {54, 2}, '>': {55, 2}, '?': {56, 2},
+	}
+
+	if info, exists := runeMap[r]; exists {
+		return info.KeyCode, info.Modifiers
+	}
+	return 0, 0
+}

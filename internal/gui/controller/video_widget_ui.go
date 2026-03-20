@@ -1,0 +1,494 @@
+package controller
+
+import (
+	"fmt"
+	"image"
+	"strings"
+	"time"
+
+	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/graphics"
+	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/media"
+	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
+
+	"fyne.io/fyne/v2"
+	"github.com/sirupsen/logrus"
+)
+
+// createInterface создает интерфейс виджета.
+func (vw *VideoWidget) createInterface() {
+	vw.touchpadWrapper = NewTouchpadWrapper(vw)
+	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
+	vw.container = vw.ui.Container
+	vw.videoCanvas = vw.ui.VideoCanvas
+	vw.touchpadWrapper.SetImage(vw.videoCanvas)
+	vw.controls = vw.ui.Controls
+	vw.startBtn = vw.ui.StartBtn
+	vw.stopBtn = vw.ui.StopBtn
+	vw.statusLabel = vw.ui.StatusLabel
+	vw.infoLabel = vw.ui.InfoLabel
+	vw.statsLabel = vw.ui.StatsLabel
+	vw.contentContainer = vw.ui.ContentContainer
+
+	vw.updateButtons()
+}
+
+// handleStartVideo обрабатывает запуск видео.
+func (vw *VideoWidget) handleStartVideo() {
+	if vw.usbClient == nil {
+		logrus.Warn("⚠️ USB client is not initialized")
+		fyne.Do(func() {
+			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
+		})
+		return
+	}
+
+	if vw.startDialog == nil {
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window not set")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
+			})
+			return
+		}
+		vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
+	}
+
+	videoInfo := vw.fetchVideoInfoForStartDialog()
+
+	defaultWidth := 800
+	defaultHeight := 600
+	defaultFPS := 30
+	defaultBitrate := "2M"
+	if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+		if cfg.VideoWidth > 0 {
+			defaultWidth = cfg.VideoWidth
+		}
+		if cfg.VideoHeight > 0 {
+			defaultHeight = cfg.VideoHeight
+		}
+		if cfg.VideoFPS > 0 {
+			defaultFPS = cfg.VideoFPS
+		}
+		if cfg.VideoBitrate > 0 {
+			defaultBitrate = fmt.Sprintf("%dK", cfg.VideoBitrate)
+		}
+	}
+	if videoInfo != nil {
+		if videoInfo.Width > 0 {
+			defaultWidth = videoInfo.Width
+		}
+		if videoInfo.Height > 0 {
+			defaultHeight = videoInfo.Height
+		}
+		if videoInfo.FPS > 0 {
+			defaultFPS = videoInfo.FPS
+		}
+		if videoInfo.Bitrate != "" {
+			defaultBitrate = videoInfo.Bitrate
+		}
+	}
+
+	vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
+	vw.startDialog.Show(vw.handleVideoStartWithParams)
+}
+
+func (vw *VideoWidget) fetchVideoInfoForStartDialog() *models.VideoInfoData {
+	const maxAttempts = 5
+
+	var lastInfo *models.VideoInfoData
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := vw.usbClient.GetVideoInfo()
+		if err != nil {
+			logrus.Warnf("⚠️ Failed to get video info before opening start dialog (attempt %d/%d): %v", attempt, maxAttempts, err)
+		} else if resp != nil && resp.Success && resp.Data != nil {
+			parsed, parseErr := models.ParseVideoInfoData(resp.Data)
+			if parseErr != nil {
+				logrus.Warnf("⚠️ Failed to parse video info for start dialog (attempt %d/%d): %v", attempt, maxAttempts, parseErr)
+			} else {
+				lastInfo = parsed
+				if len(parsed.CaptureModes) > 0 {
+					logrus.Infof("✅ Video info for start dialog ready on attempt %d/%d: %d capture modes", attempt, maxAttempts, len(parsed.CaptureModes))
+					return parsed
+				}
+				logrus.Infof("ℹ️ Video info for start dialog attempt %d/%d returned no capture modes yet, retrying...", attempt, maxAttempts)
+			}
+		}
+
+		if attempt < maxAttempts {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+
+	return lastInfo
+}
+
+// handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога.
+func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
+	if vw.gstreamerService == nil {
+		logrus.Warn("⚠️ GStreamer service is not initialized")
+		fyne.Do(func() {
+			vw.statusLabel.SetText(i18n.Current.VideoLaunchFailed)
+		})
+		return
+	}
+
+	vw.handleVideoStartWithParamsGStreamer(request)
+}
+
+// handleStopVideo обрабатывает остановку видео.
+func (vw *VideoWidget) handleStopVideo() {
+	if vw.usbClient == nil {
+		logrus.Warn("⚠️ USB client not initialized")
+		fyne.Do(func() {
+			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
+		})
+		return
+	}
+
+	fyne.Do(func() {
+		vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
+		vw.stopBtn.Disable()
+	})
+
+	vw.usbClient.DisconnectMouseWebSocket()
+
+	if vw.gstreamerService != nil {
+		if err := vw.gstreamerService.Disconnect(); err != nil {
+			logrus.Errorf("Failed to disconnect GStreamer: %v", err)
+		}
+	}
+
+	if err := vw.usbClient.StopVideo(); err != nil {
+		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
+	}
+
+	vw.isStreaming = false
+	vw.isGStreamerConnected = false
+	vw.isMouseConnected = false
+
+	vw.clearVideo()
+
+	fyne.Do(func() {
+		vw.updateButtons()
+		vw.statusLabel.SetText(i18n.Current.VideoStopped)
+	})
+
+	vw.updateStatus()
+	logrus.Info("🛑 Video capture stopped")
+}
+
+// updateButtons обновляет состояние кнопок.
+func (vw *VideoWidget) updateButtons() {
+	if vw.isStreaming {
+		vw.startBtn.Disable()
+		vw.stopBtn.Enable()
+	} else {
+		vw.startBtn.Enable()
+		vw.stopBtn.Enable()
+	}
+}
+
+// Refresh обновляет виджет.
+func (vw *VideoWidget) Refresh() {
+	if vw.usbClient == nil {
+		logrus.Debug("USB client is not initialized, skipping video refresh")
+		fyne.Do(func() {
+			vw.infoLabel.SetText(i18n.Current.VideoWaitingConnection)
+		})
+		return
+	}
+
+	vw.checkMouseConnected()
+
+	videoInfo, err := vw.usbClient.GetVideoInfo()
+	if err != nil {
+		logrus.Errorf("Failed to get video information: %v", err)
+		fyne.Do(func() {
+			vw.infoLabel.SetText(i18n.Current.ErrorVideoInfo)
+		})
+		return
+	}
+
+	fyne.Do(func() {
+		if videoInfo.Success && videoInfo.Data != nil {
+			vw.infoLabel.SetText(i18n.Current.VideoInfoReceived)
+		} else {
+			vw.infoLabel.SetText(i18n.Current.VideoInfoUnavailable)
+		}
+	})
+
+	if vw.gstreamerService != nil {
+		vw.updateGStreamerStats()
+	}
+}
+
+// checkMouseConnected проверяет, подключена ли мышь.
+func (vw *VideoWidget) checkMouseConnected() {
+	if vw.usbClient == nil {
+		logrus.Debug("🖱️ checkMouseConnected: USB client is not initialized")
+		vw.isMouseConnected = false
+		return
+	}
+
+	deviceInfo, err := vw.usbClient.GetDeviceInfo()
+	if err != nil {
+		logrus.Infof("🖱️ Failed to get device information: %v", err)
+		vw.isMouseConnected = false
+		return
+	}
+
+	logrus.Debugf("🖱️ checkMouseConnected: received %d devices", len(deviceInfo.Devices))
+
+	mouseConnected := false
+	for _, device := range deviceInfo.Devices {
+		logrus.Debugf("🖱️ Inspecting device: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
+		if device.Status == "connected" &&
+			(device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+			mouseConnected = true
+			if device.Type == "touchscreen" {
+				vw.SetMouseInputMode("touchscreen")
+			} else if device.Type == "absolute" {
+				vw.SetMouseInputMode("absolute")
+			}
+			logrus.Infof("🖱️ ✅ Pointer device connected: %s (type: %s)", device.Name, device.Type)
+			break
+		}
+	}
+
+	logrus.Debugf("🖱️ checkMouseConnected: mouseConnected=%v (previously %v)", mouseConnected, vw.isMouseConnected)
+
+	if vw.isMouseConnected != mouseConnected {
+		vw.isMouseConnected = mouseConnected
+		if mouseConnected {
+			logrus.Info("🖱️ Touchpad activated: pointer device connected")
+			go func() {
+				if err := vw.usbClient.ConnectMouseWebSocket(); err != nil {
+					logrus.Warnf("⚠️ Failed to connect mouse WebSocket: %v (HTTP fallback will be used)", err)
+				} else {
+					logrus.Info("✅ Mouse WebSocket connected successfully")
+				}
+			}()
+			vw.startDesktopMousePolling()
+			logrus.Info("🖱️ Pointer device connected (WebSocket)")
+		} else {
+			logrus.Info("🖱️ Touchpad deactivated: pointer device disconnected")
+			vw.stopDesktopMousePolling()
+			vw.usbClient.DisconnectMouseWebSocket()
+			fyne.Do(func() {
+				if vw.statusLabel != nil {
+					vw.statusLabel.SetText("")
+				}
+			})
+		}
+	}
+}
+
+// handleVideoFrame обрабатывает полученный видео кадр.
+func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
+	if frame == nil {
+		return
+	}
+
+	vw.frameMutex.Lock()
+	vw.currentFrame = frame
+	vw.frameCount++
+	frameNum := vw.frameCount
+	vw.lastFrameTime = time.Now()
+	vw.frameMutex.Unlock()
+
+	vw.frameDecoder.IncrementFrameCount()
+
+	if frameNum == 1 {
+		logrus.Info("✅ [VIDEO] Step 7: frame rendered in UI")
+	}
+	if frameNum%300 == 0 {
+		logrus.Infof("🖼️ [VIDEO] UI: processed %d frames", frameNum)
+	}
+
+	go fyne.Do(func() {
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Image = frame
+			vw.videoCanvas.Refresh()
+		}
+		if vw.touchpadWrapper != nil {
+			vw.touchpadWrapper.Refresh()
+		}
+		if frameNum == 1 && vw.container != nil {
+			vw.container.Refresh()
+		}
+		if frameNum%30 == 0 {
+			vw.updateStats()
+		}
+	})
+}
+
+// handleFullscreen обрабатывает переключение в полноэкранный режим.
+func (vw *VideoWidget) handleFullscreen() {
+	if vw.fullscreenDialog == nil {
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window is not set")
+			return
+		}
+		vw.fullscreenDialog = NewFullscreenDialog(vw.parentWindow)
+		vw.fullscreenDialog.SetVideoWidget(vw)
+		vw.fullscreenDialog.SetGStreamerService(vw.gstreamerService)
+		if vw.usbClient != nil {
+			vw.fullscreenDialog.SetUSBClient(vw.usbClient)
+		}
+	}
+
+	vw.fullscreenDialog.Show()
+}
+
+// HandleVirtualKeyboard обрабатывает открытие/закрытие виртуальной клавиатуры.
+func (vw *VideoWidget) HandleVirtualKeyboard() {
+	if vw.virtualKeyboard == nil {
+		if vw.parentWindow == nil {
+			logrus.Warn("⚠️ Parent window is not set")
+			return
+		}
+		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
+	}
+
+	isAndroid := fyne.CurrentDevice().IsMobile()
+
+	if vw.virtualKeyboard.IsVisible() {
+		vw.virtualKeyboard.Hide()
+
+		if isAndroid {
+			vw.contentContainer.Hide()
+			vw.container.Refresh()
+			logrus.Info("⌨️ Virtual keyboard hidden (Android mode)")
+		} else {
+			logrus.Info("⌨️ Virtual keyboard hidden (desktop mode)")
+		}
+	} else {
+		if isAndroid {
+			keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
+			logrus.Infof("⌨️ [DEBUG] keyboardLayout MinSize: %v", keyboardLayout.MinSize())
+			keyboardLayout.Show()
+			vw.virtualKeyboard.SetVisibleState(true)
+
+			canvasSize := vw.parentWindow.Canvas().Size()
+			logrus.Infof("⌨️ [DEBUG] Canvas Size: %v", canvasSize)
+
+			keyboardSize := fyne.NewSize(canvasSize.Width, 300)
+			keyboardLayout.Resize(keyboardSize)
+			keyboardLayout.Move(fyne.NewPos(0, 0))
+			logrus.Infof("⌨️ [DEBUG] keyboardLayout after resize: size=%v, position=%v", keyboardLayout.Size(), keyboardLayout.Position())
+
+			vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
+			vw.contentContainer.Resize(keyboardSize)
+			vw.contentContainer.Show()
+			vw.container.Refresh()
+			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
+			logrus.Info("⌨️ Virtual keyboard shown below video (Android mode)")
+		} else {
+			vw.virtualKeyboard.ShowInSeparateWindow()
+			logrus.Info("⌨️ Virtual keyboard shown in a separate window (desktop mode)")
+		}
+	}
+}
+
+// updateStats обновляет статистику.
+func (vw *VideoWidget) updateStats() {
+	vw.frameMutex.RLock()
+	lastFrameTime := vw.lastFrameTime
+	vw.frameMutex.RUnlock()
+
+	decoderStats := vw.frameDecoder.GetFrameStats()
+	fps := decoderStats["fps"].(float64)
+
+	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
+	vw.statsLabel.SetText(stats)
+}
+
+// SetParentWindow устанавливает родительское окно для диалогов.
+func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
+	vw.parentWindow = window
+
+	vw.touchpadWrapper.SetKeyHandlers(vw.handlePhysicalKeyPress, vw.handlePhysicalRunePress)
+	vw.touchpadWrapper.SetWindowForFocus(window)
+
+	window.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
+		if event.Name == fyne.KeyF11 && vw.isStreaming {
+			logrus.Info("🔍 F11 pressed, entering fullscreen mode")
+			if vw.fullscreenDialog != nil {
+				vw.fullscreenDialog.Show()
+			}
+		}
+	})
+}
+
+// UpdateClient обновляет USB клиент.
+func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
+	vw.usbClient = usbClient
+	if vw.fullscreenDialog != nil {
+		vw.fullscreenDialog.SetUSBClient(usbClient)
+	}
+	vw.updateButtons()
+}
+
+// SetFRPService устанавливает FRP сервис.
+func (vw *VideoWidget) SetFRPService(frp *service.FRPService) {
+	vw.frpService = frp
+}
+
+// GetContainer возвращает контейнер виджета.
+func (vw *VideoWidget) GetContainer() *fyne.Container {
+	return vw.container
+}
+
+// IsStreaming возвращает состояние захвата.
+func (vw *VideoWidget) IsStreaming() bool {
+	return vw.isStreaming
+}
+
+// SetStreaming устанавливает состояние захвата.
+func (vw *VideoWidget) SetStreaming(streaming bool) {
+	vw.isStreaming = streaming
+	vw.updateButtons()
+}
+
+// StopVideo останавливает видеопоток через публичный API виджета.
+func (vw *VideoWidget) StopVideo() {
+	vw.handleStopVideo()
+}
+
+// ExitFullscreenIfNeeded закрывает fullscreen-режим, если он активен.
+func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
+	if vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen() {
+		return false
+	}
+	vw.fullscreenDialog.exitFullscreen()
+	return true
+}
+
+// clearVideo очищает видео.
+func (vw *VideoWidget) clearVideo() {
+	vw.frameMutex.Lock()
+	vw.currentFrame = nil
+	vw.frameCount = 0
+	vw.frameMutex.Unlock()
+
+	fyne.Do(func() {
+		vw.videoCanvas.Resource = nil
+		vw.videoCanvas.Refresh()
+	})
+}
+
+// GetCurrentFrame возвращает текущий кадр для полноэкранного режима.
+func (vw *VideoWidget) GetCurrentFrame() image.Image {
+	vw.frameMutex.RLock()
+	defer vw.frameMutex.RUnlock()
+	return vw.currentFrame
+}
+
+// GetFrameDecoder возвращает декодер кадров для полноэкранного режима.
+func (vw *VideoWidget) GetFrameDecoder() *media.FrameDecoder {
+	return vw.frameDecoder
+}

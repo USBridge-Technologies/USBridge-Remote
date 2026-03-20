@@ -1,0 +1,758 @@
+package controller
+
+import (
+	"fmt"
+	"runtime"
+	"strings"
+	"time"
+
+	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
+	"github.com/sirupsen/logrus"
+)
+
+// startDevicesWithRetry выполняет StartDevicesBatch с 3 попытками и паузой 3 с между ними.
+func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatchRequest) (*models.APIResponse, error) {
+	const maxAttempts = 3
+	const retryDelay = 3 * time.Second
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		resp, err := dw.usbClient.StartDevicesBatch(batchRequest)
+		if err == nil {
+			if attempt > 1 {
+				logrus.Infof("✅ [MOUNT-API-RETRY] Попытка %d/%d успешна", attempt, maxAttempts)
+			}
+			return resp, nil
+		}
+		lastErr = err
+		errStr := err.Error()
+		isRetryable := strings.Contains(errStr, "EOF") || strings.Contains(errStr, "NBD") ||
+			strings.Contains(errStr, "Failed to connect NBD") || strings.Contains(errStr, "connection reset") ||
+			strings.Contains(errStr, "connection refused")
+		if !isRetryable || attempt == maxAttempts {
+			return nil, err
+		}
+		logrus.Warnf("⚠️ [MOUNT-API-RETRY] Попытка %d/%d: %v, повтор через 3 с...", attempt, maxAttempts, err)
+		dw.updateStatusAsync(fmt.Sprintf("Повтор подключения %d/%d через 3 с...", attempt, maxAttempts))
+		time.Sleep(retryDelay)
+	}
+	return nil, lastErr
+}
+
+// handleMount обрабатывает монтирование.
+func (dw *DiskWidget) handleMount() {
+	dw.setButtonsEnabled(false)
+	logrus.Infof("📍 [MOUNT-1] handleMount вызван, GOOS: %s", runtime.GOOS)
+
+	if dw.usbClient == nil {
+		logrus.Warn("⚠️ USB клиент не инициализирован")
+		if dw.window != nil {
+			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+		}
+		dw.setButtonsEnabled(true)
+		return
+	}
+
+	var mountedDrives []DriveItem
+	for _, drive := range dw.allDrives {
+		if drive.IsMounted {
+			mountedDrives = append(mountedDrives, drive)
+		}
+	}
+
+	var selectedDrives []DriveItem
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) {
+			drive := dw.allDrives[id]
+			if !drive.IsMounted {
+				selectedDrives = append(selectedDrives, drive)
+			}
+		}
+	}
+
+	if len(selectedDrives) == 0 {
+		logrus.Warnf("⚠️ Нет выбранных устройств для подключения")
+		if dw.window != nil {
+			dialog.ShowError(fmt.Errorf("%s", i18n.Current.SelectDevicesToMount), dw.window)
+		}
+		dw.setButtonsEnabled(true)
+		return
+	}
+
+	totalCount := len(mountedDrives) + len(selectedDrives)
+	if totalCount > MaxDevicesToMount {
+		logrus.Warnf("⚠️ Слишком много устройств: %d (максимум %d)", totalCount, MaxDevicesToMount)
+		if dw.window != nil {
+			dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
+		}
+		dw.setButtonsEnabled(true)
+		return
+	}
+
+	logrus.Infof("📁 Подключено: %d, добавляем: %d, итого: %d", len(mountedDrives), len(selectedDrives), totalCount)
+
+	hasGoogleDriveFiles := false
+	for _, drive := range selectedDrives {
+		if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil {
+			if strings.Contains(drive.DiskInfo.Path, "com.google.android.apps.docs.storage") {
+				hasGoogleDriveFiles = true
+				break
+			}
+		}
+	}
+
+	var progressDialog dialog.Dialog
+	if hasGoogleDriveFiles {
+		logrus.Warnf("⚠️  Обнаружены файлы из Google Drive! Показываем предупреждение с прогрессом")
+
+		progressBar := widget.NewProgressBarInfinite()
+		progressContent := container.NewVBox(
+			widget.NewLabel(i18n.Current.LoadingFromCloud),
+			widget.NewLabel(""),
+			widget.NewLabel(i18n.Current.CloudFilesDetected),
+			widget.NewLabel(i18n.Current.AndroidBuffering),
+			widget.NewLabel(i18n.Current.MayTake30Seconds),
+			widget.NewLabel(""),
+			progressBar,
+			widget.NewLabel(""),
+			widget.NewLabel(i18n.Current.PleaseWait),
+		)
+
+		progressDialog = dialog.NewCustomWithoutButtons(i18n.Current.PreparingToMount, progressContent, dw.window)
+		progressDialog.Show()
+	}
+
+	logrus.Infof("Монтирование %d устройств...", len(selectedDrives))
+
+	go func() {
+		reEnableButtons := true
+		defer func() {
+			if progressDialog != nil {
+				fyne.Do(func() {
+					progressDialog.Hide()
+				})
+			}
+			if reEnableButtons {
+				dw.setButtonsEnabled(true)
+			}
+		}()
+
+		var deviceRequests []models.DeviceStartRequest
+
+		for _, mountedDrive := range mountedDrives {
+			req, err := dw.buildDeviceRequestForDrive(mountedDrive, true)
+			if err != nil {
+				logrus.Warnf("⚠️ Не удалось построить запрос для подключённого %s: %v", mountedDrive.Name, err)
+				continue
+			}
+			deviceRequests = append(deviceRequests, *req)
+		}
+
+		for _, selectedDrive := range selectedDrives {
+			var deviceRequest *models.DeviceStartRequest
+
+			if selectedDrive.Source == "keyboard" {
+				deviceRequest = &models.DeviceStartRequest{
+					Device:       "keyboard",
+					VendorID:     "0x1d6b",
+					ProductID:    "0x0104",
+					ProductName:  "USBridge Keyboard",
+					Manufacturer: "USBridge",
+					KeyboardMode: true,
+				}
+				logrus.Infof("⌨️ Подготовка клавиатуры для монтирования")
+			} else if selectedDrive.Source == "mouse" {
+				mouseType := selectedDrive.MouseType
+				if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
+					mouseType = "mouse"
+				}
+				deviceRequest = &models.DeviceStartRequest{
+					Device:       "mouse",
+					Type:         mouseType,
+					VendorID:     "0x1d6b",
+					ProductID:    "0x0104",
+					ProductName:  "USBridge Mouse",
+					Manufacturer: "USBridge",
+				}
+				logrus.Infof("🖱️ Подготовка манипулятора для монтирования: %s", mouseType)
+			} else if selectedDrive.Source == "rndis" {
+				rndisMode := normalizeRNDISMode(selectedDrive.RNDISMode)
+				deviceRequest = &models.DeviceStartRequest{
+					Device:       "rndis",
+					RNDISMode:    rndisMode,
+					VendorID:     "0x1d6b",
+					ProductID:    "0x0104",
+					ProductName:  "USBridge RNDIS",
+					Manufacturer: "USBridge",
+				}
+				logrus.Infof("🌐 Подготовка сетевой карты RNDIS для монтирования (mode=%s)", rndisMode)
+			} else if selectedDrive.Source == "api" && selectedDrive.LocalDrive != nil {
+				if selectedDrive.LocalDrive.SourceType == "mtp" {
+					deviceRequest = &models.DeviceStartRequest{
+						Device:       "mtp",
+						Server:       selectedDrive.LocalDrive.Name,
+						VendorID:     "0x1d6b",
+						ProductID:    "0x0104",
+						ProductName:  "BackupDrive",
+						Manufacturer: "USBridge",
+					}
+					logrus.Infof("📱 Подготовка MTP устройства из API: %s", selectedDrive.Name)
+				} else {
+					deviceRequest = &models.DeviceStartRequest{
+						Device:       "drive",
+						Server:       selectedDrive.LocalDrive.Name,
+						VendorID:     "0x1d6b",
+						ProductID:    "0x0104",
+						ProductName:  "USBridge Local CD-ROM",
+						Manufacturer: "USBridge",
+					}
+					logrus.Infof("📱 Подготовка устройства из API: %s", selectedDrive.Name)
+				}
+			} else if (selectedDrive.Source == "local" || selectedDrive.Source == "user") && selectedDrive.DiskInfo != nil {
+				localIP, err := dw.getLocalIP()
+				if err != nil {
+					dw.showErrorAsync(fmt.Errorf("ошибка получения локального IP: %v", err))
+					return
+				}
+
+				nbdPort, err := dw.getAvailablePort()
+				if err != nil {
+					dw.showErrorAsync(fmt.Errorf("ошибка получения свободного порта: %v", err))
+					return
+				}
+
+				exportName := selectedDrive.DiskInfo.Name
+				if existingServer, exists := dw.nbdServers[exportName]; exists {
+					logrus.Infof("⚠️ NBD сервер для экспорта '%s' уже существует, останавливаем его перед созданием нового", exportName)
+					if existingServer.IsRunning() {
+						if err := existingServer.Stop(); err != nil {
+							logrus.Warnf("⚠️ Ошибка остановки существующего NBD сервера: %v", err)
+						}
+					}
+					delete(dw.nbdServers, exportName)
+				}
+
+				nbdServer, err := dw.startNBDServer(selectedDrive.DiskInfo, nbdPort, exportName, selectedDrive.ReadOnly)
+				if err != nil {
+					dw.showErrorAsync(fmt.Errorf("ошибка запуска NBD сервера: %v", err))
+					return
+				}
+
+				dw.nbdServers[exportName] = nbdServer
+				exportNameForAPI := nbdServer.NBDExportNameForAPI()
+				logrus.Infof("📁 Подготовка локального файла: %s, export_name для API: %s", selectedDrive.Name, exportNameForAPI)
+
+				deviceRequest = &models.DeviceStartRequest{
+					Device:                  "drive",
+					Server:                  localIP,
+					Port:                    nbdPort,
+					ExportName:              exportNameForAPI,
+					NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
+					ReadOnly:                selectedDrive.ReadOnly,
+					VendorID:                "0x1d6b",
+					ProductID:               "0x0104",
+					ProductName:             "USBridge NBD CD-ROM",
+					Manufacturer:            "USBridge",
+				}
+			} else {
+				logrus.Warnf("⚠️ Неизвестный тип устройства: %s", selectedDrive.Name)
+				continue
+			}
+
+			if deviceRequest != nil {
+				deviceRequests = append(deviceRequests, *deviceRequest)
+			}
+		}
+
+		if len(deviceRequests) == 0 {
+			dw.showErrorAsync(fmt.Errorf("не удалось подготовить устройства для монтирования"))
+			return
+		}
+
+		nbdExportNamesForUI := make(map[string]bool)
+		for _, req := range deviceRequests {
+			if req.Device != "drive" {
+				continue
+			}
+			for name, srv := range dw.nbdServers {
+				if !srv.IsRunning() {
+					continue
+				}
+				st := srv.GetServerStatus()
+				if p, ok := st["server_port"]; ok {
+					var port int
+					switch v := p.(type) {
+					case int:
+						port = v
+					case int64:
+						port = int(v)
+					case float64:
+						port = int(v)
+					default:
+						continue
+					}
+					if port == req.Port {
+						nbdExportNamesForUI[name] = true
+						break
+					}
+				}
+			}
+		}
+
+		if len(dw.nbdServers) > 0 {
+			logrus.Infof("📡 [MOUNT-NBD-1] Запуск проверки готовности для %d NBD серверов...", len(dw.nbdServers))
+			for exportName, nbdServer := range dw.nbdServers {
+				logrus.Infof("  📡 [MOUNT-NBD-2] Запуск проверки готовности для: %s", exportName)
+				nbdServer.SignalReady()
+			}
+
+			logrus.Infof("⏱️ [MOUNT-NBD-3] Ожидание готовности %d NBD серверов (таймаут: 30 секунд)...", len(dw.nbdServers))
+
+			readyCount := 0
+			timeoutChan := time.After(30 * time.Second)
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+
+			serversToWait := make(map[string]service.NBDRunner)
+			for exportName, srv := range dw.nbdServers {
+				serversToWait[exportName] = srv
+			}
+
+		waitLoop:
+			for {
+				select {
+				case <-timeoutChan:
+					notReadyServers := []string{}
+					for exportName := range serversToWait {
+						notReadyServers = append(notReadyServers, exportName)
+					}
+					logrus.Errorf("❌ [MOUNT-NBD-TIMEOUT] Таймаут ожидания готовности NBD серверов. Не готовы: %v", notReadyServers)
+					dw.showErrorAsync(fmt.Errorf("таймаут ожидания готовности NBD серверов: %v", notReadyServers))
+					return
+				case <-ticker.C:
+					for exportName, nbdServer := range serversToWait {
+						select {
+						case <-nbdServer.WaitReady():
+							logrus.Infof("✅ [MOUNT-NBD-READY] NBD сервер %s готов к приему соединений", exportName)
+							delete(serversToWait, exportName)
+							readyCount++
+						default:
+						}
+					}
+
+					if len(serversToWait) == 0 {
+						logrus.Infof("✅ [MOUNT-NBD-4] Все %d NBD серверов готовы к приему соединений", readyCount)
+						break waitLoop
+					}
+				}
+			}
+		}
+
+		if len(dw.nbdServers) > 0 && dw.frpService != nil && !dw.frpService.IsRunning() {
+			logrus.Errorf("❌ [MOUNT-NBD-FRP] FRP туннель не активен, NBD proxies не зарегистрированы в frps")
+			dw.showErrorAsync(fmt.Errorf("FRP туннель не активен — переподключитесь перед монтированием NBD"))
+			return
+		}
+		if len(dw.nbdServers) > 0 && dw.frpService != nil {
+			logrus.Infof("✅ [MOUNT-NBD-FRP] FRP туннель активен, NBD proxies (nbd_srv1-16) зарегистрированы")
+		}
+
+		if len(dw.nbdServers) > 0 {
+			logrus.Infof("⏱️ [MOUNT-NBD-DELAY] Ожидание 1 с перед отправкой API (NBD готов, даём FRP/туннелю стабилизироваться)")
+			time.Sleep(1 * time.Second)
+		}
+
+		batchRequest := models.DeviceStartBatchRequest(deviceRequests)
+
+		dw.updateStatusAsync("Запуск устройств...")
+		logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств, отправляем запрос /api/device/start", len(deviceRequests))
+		for i, req := range deviceRequests {
+			logrus.Infof("   📤 [MOUNT-API-1] Устройство %d: device=%s, server=%s, port=%d, export_name=%s, read_only=%v", i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
+		}
+
+		deviceResp, err := dw.startDevicesWithRetry(batchRequest)
+		if err != nil {
+			logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
+			dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
+			return
+		}
+
+		logrus.Infof("✅ [MOUNT-API-2] API ответ от USBridge 2:")
+		logrus.Infof("  - Success: %v", deviceResp.Success)
+		logrus.Infof("  - Message: %s", deviceResp.Message)
+		if deviceResp.Data != nil {
+			logrus.Infof("  - Data: %+v", deviceResp.Data)
+		}
+
+		for _, req := range deviceRequests {
+			if req.Device == "mouse" && dw.onMouseTypeChanged != nil {
+				t := req.Type
+				if t != "mouse" && t != "touchscreen" && t != "absolute" {
+					t = "mouse"
+				}
+				dw.onMouseTypeChanged(t)
+				break
+			}
+		}
+
+		mountingExportNames := nbdExportNamesForUI
+		dw.updateUIAsync(func() {
+			dw.setMountingStateByExportNames(mountingExportNames, true)
+			dw.devicesList.Refresh()
+		})
+
+		dw.updateUIAsync(func() {
+			dw.selectedItems = make(map[int]bool)
+		})
+
+		reEnableButtons = false
+		go dw.pollMountStatus(mountingExportNames)
+
+		logrus.Infof("✅ Запрос на монтирование %d устройств отправлен", len(deviceRequests))
+	}()
+}
+
+// handleUnmount обрабатывает размонтирование.
+func (dw *DiskWidget) handleUnmount() {
+	dw.setButtonsEnabled(false)
+	if dw.usbClient == nil {
+		logrus.Warn("⚠️ USB клиент не инициализирован")
+		if dw.window != nil {
+			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+		}
+		dw.setButtonsEnabled(true)
+		return
+	}
+
+	var mountedDrives []DriveItem
+	var mountedIndices []int
+	for i, drive := range dw.allDrives {
+		if drive.IsMounted {
+			mountedDrives = append(mountedDrives, drive)
+			mountedIndices = append(mountedIndices, i)
+		}
+	}
+
+	if len(mountedDrives) == 0 {
+		logrus.Warnf("⚠️ Нет подключенных устройств для размонтирования")
+		if dw.window != nil {
+			dialog.ShowInformation(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
+		}
+		dw.setButtonsEnabled(true)
+		return
+	}
+
+	selectedAndMountedIndices := make(map[int]bool)
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) && dw.allDrives[id].IsMounted {
+			selectedAndMountedIndices[id] = true
+		}
+	}
+
+	confirmMsg := i18n.Current.UnmountAllConfirm
+	unmountAll := len(selectedAndMountedIndices) == 0
+	if !unmountAll {
+		confirmMsg = i18n.Current.UnmountSelectedConfirm
+	}
+
+	finalUnmountAll := unmountAll
+	finalSelectedIndices := make(map[int]bool)
+	for k, v := range selectedAndMountedIndices {
+		finalSelectedIndices[k] = v
+	}
+	finalMountedDrives := make([]DriveItem, len(mountedDrives))
+	copy(finalMountedDrives, mountedDrives)
+	finalMountedIndices := make([]int, len(mountedIndices))
+	copy(finalMountedIndices, mountedIndices)
+
+	view.ShowConfirmYesLeft(i18n.Current.Confirmation, confirmMsg, func(ok bool) {
+		if !ok {
+			dw.setButtonsEnabled(true)
+			return
+		}
+		go dw.doUnmount(finalUnmountAll, finalSelectedIndices, finalMountedDrives, finalMountedIndices)
+	}, dw.window)
+}
+
+// doUnmount выполняет размонтирование.
+func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, mountedDrives []DriveItem, mountedIndices []int) {
+	defer func() {
+		dw.updateUIAsync(func() {
+			dw.setButtonsEnabled(true)
+		})
+	}()
+
+	if unmountAll {
+		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
+		if err := dw.usbClient.StopAllDevices(); err != nil {
+			logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
+		} else {
+			logrus.Infof("✅ Все устройства остановлены")
+		}
+		dw.stopNBDAndCleanup(mountedDrives, true)
+	} else {
+		keepIndices := make(map[int]bool)
+		for _, idx := range mountedIndices {
+			if !selectedIndices[idx] {
+				keepIndices[idx] = true
+			}
+		}
+
+		drivesToUnmount := make([]DriveItem, 0, len(selectedIndices))
+		for idx := range selectedIndices {
+			if idx < len(dw.allDrives) {
+				drivesToUnmount = append(drivesToUnmount, dw.allDrives[idx])
+			}
+		}
+
+		if len(keepIndices) == 0 {
+			dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
+			if err := dw.usbClient.StopAllDevices(); err != nil {
+				logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
+			}
+			dw.stopNBDAndCleanup(drivesToUnmount, true)
+		} else {
+			var deviceRequests []models.DeviceStartRequest
+			for idx := range keepIndices {
+				if idx >= len(dw.allDrives) {
+					continue
+				}
+				req, err := dw.buildDeviceRequestForDrive(dw.allDrives[idx], true)
+				if err != nil {
+					logrus.Warnf("⚠️ Не удалось построить запрос для %s: %v", dw.allDrives[idx].Name, err)
+					continue
+				}
+				deviceRequests = append(deviceRequests, *req)
+			}
+			if len(deviceRequests) > 0 {
+				batchRequest := models.DeviceStartBatchRequest(deviceRequests)
+				dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
+				if _, err := dw.startDevicesWithRetry(batchRequest); err != nil {
+					logrus.Warnf("⚠️ Ошибка переподключения устройств: %v", err)
+				}
+			}
+			dw.stopNBDAndCleanup(drivesToUnmount, false)
+		}
+	}
+
+	time.Sleep(2 * time.Second)
+	dw.updateUIAsync(func() {
+		dw.loadMountedDevices()
+		dw.loadLocalDrives()
+	})
+	if dw.updateStatus != nil {
+		dw.updateStatus()
+	}
+	dw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
+	logrus.Infof("✅ Размонтирование завершено")
+}
+
+// stopNBDAndCleanup останавливает NBD серверы.
+func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
+	dw.updateStatusAsync(i18n.Current.StoppingNBDServers)
+	toStop := make(map[string]bool)
+	if stopAll {
+		for exportName := range dw.nbdServers {
+			toStop[exportName] = true
+		}
+	} else {
+		for _, drive := range drives {
+			if drive.DiskInfo != nil {
+				exportName := drive.DiskInfo.Name
+				if _, exists := dw.nbdServers[exportName]; exists {
+					toStop[exportName] = true
+				}
+			}
+		}
+	}
+	for exportName := range toStop {
+		if nbdServer, exists := dw.nbdServers[exportName]; exists {
+			if nbdServer.IsRunning() {
+				if err := nbdServer.Stop(); err != nil {
+					logrus.Warnf("⚠️ Ошибка остановки NBD сервера %s: %v", exportName, err)
+				}
+			}
+			delete(dw.nbdServers, exportName)
+		}
+	}
+	if stopAll {
+		dw.nbdServers = make(map[string]service.NBDRunner)
+	}
+	if runtime.GOOS == "android" && dw.safHelper != nil {
+		for _, drive := range drives {
+			if drive.DiskInfo != nil && strings.HasPrefix(drive.DiskInfo.URI, "content://") {
+				_ = dw.safHelper.CloseFD(drive.DiskInfo.URI)
+			}
+		}
+	}
+}
+
+// buildDeviceRequestForDrive строит DeviceStartRequest для drive.
+func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD bool) (*models.DeviceStartRequest, error) {
+	if drive.Source == "keyboard" {
+		return &models.DeviceStartRequest{
+			Device: "keyboard", VendorID: "0x1d6b", ProductID: "0x0104",
+			ProductName: "USBridge Keyboard", Manufacturer: "USBridge", KeyboardMode: true,
+		}, nil
+	}
+	if drive.Source == "mouse" {
+		mouseType := drive.MouseType
+		if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
+			mouseType = "mouse"
+		}
+		return &models.DeviceStartRequest{
+			Device: "mouse", Type: mouseType,
+			VendorID: "0x1d6b", ProductID: "0x0104",
+			ProductName: "USBridge Mouse", Manufacturer: "USBridge",
+		}, nil
+	}
+	if drive.Source == "rndis" {
+		rndisMode := normalizeRNDISMode(drive.RNDISMode)
+		return &models.DeviceStartRequest{
+			Device: "rndis", VendorID: "0x1d6b", ProductID: "0x0104",
+			ProductName: "USBridge RNDIS", Manufacturer: "USBridge", RNDISMode: rndisMode,
+		}, nil
+	}
+	if drive.Source == "api" && drive.LocalDrive != nil {
+		if drive.LocalDrive.SourceType == "mtp" {
+			return &models.DeviceStartRequest{
+				Device: "mtp", Server: drive.LocalDrive.Name,
+				VendorID: "0x1d6b", ProductID: "0x0104", ProductName: "BackupDrive", Manufacturer: "USBridge",
+			}, nil
+		}
+		return &models.DeviceStartRequest{
+			Device: "drive", Server: drive.LocalDrive.Name,
+			VendorID: "0x1d6b", ProductID: "0x0104", ProductName: "USBridge Local CD-ROM", Manufacturer: "USBridge",
+		}, nil
+	}
+	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingNBD {
+		exportName := drive.DiskInfo.Name
+		nbdServer, exists := dw.nbdServers[exportName]
+		if !exists || !nbdServer.IsRunning() {
+			return nil, fmt.Errorf("NBD сервер для %s не найден или не запущен", exportName)
+		}
+		status := nbdServer.GetServerStatus()
+		portVal, ok := status["server_port"]
+		if !ok {
+			return nil, fmt.Errorf("порт NBD сервера %s не найден", exportName)
+		}
+		var port int
+		switch p := portVal.(type) {
+		case int:
+			port = p
+		case int64:
+			port = int(p)
+		case float64:
+			port = int(p)
+		default:
+			return nil, fmt.Errorf("неверный тип порта для %s", exportName)
+		}
+		localIP, err := dw.getLocalIP()
+		if err != nil {
+			return nil, err
+		}
+		exportNameForAPI := nbdServer.NBDExportNameForAPI()
+		return &models.DeviceStartRequest{
+			Device:                  "drive",
+			Server:                  localIP,
+			Port:                    port,
+			ExportName:              exportNameForAPI,
+			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
+			ReadOnly:                drive.ReadOnly,
+			VendorID:                "0x1d6b",
+			ProductID:               "0x0104",
+			ProductName:             "USBridge NBD CD-ROM",
+			Manufacturer:            "USBridge",
+		}, nil
+	}
+	return nil, fmt.Errorf("неизвестный тип устройства: %s", drive.Name)
+}
+
+// countSelectedItems возвращает количество выбранных элементов.
+func (dw *DiskWidget) countSelectedItems() int {
+	count := 0
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) {
+			count++
+		}
+	}
+	return count
+}
+
+// updateButtons обновляет состояние кнопок.
+func (dw *DiskWidget) updateButtons() {
+	selectedCount := 0
+	selectedNotMountedCount := 0
+	mountedCount := 0
+
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) {
+			selectedCount++
+			if !dw.allDrives[id].IsMounted {
+				selectedNotMountedCount++
+			}
+		}
+	}
+	for _, drive := range dw.allDrives {
+		if drive.IsMounted {
+			mountedCount++
+		}
+	}
+
+	hasMountedDevices := mountedCount > 0
+	canAdd := selectedNotMountedCount > 0 && (mountedCount+selectedNotMountedCount) <= MaxDevicesToMount
+
+	fyne.Do(func() {
+		if selectedCount == 0 {
+			dw.mountBtn.Hide()
+			if dw.compactMountBtn != nil {
+				dw.compactMountBtn.Hide()
+			}
+		} else {
+			dw.mountBtn.Show()
+			if dw.compactMountBtn != nil {
+				dw.compactMountBtn.Show()
+			}
+		}
+
+		if hasMountedDevices {
+			dw.unmountBtn.Show()
+			dw.unmountBtn.Enable()
+			if dw.compactUnmountBtn != nil {
+				dw.compactUnmountBtn.Show()
+				dw.compactUnmountBtn.Enable()
+			}
+		} else {
+			dw.unmountBtn.Show()
+			dw.unmountBtn.Disable()
+			if dw.compactUnmountBtn != nil {
+				dw.compactUnmountBtn.Show()
+				dw.compactUnmountBtn.Disable()
+			}
+		}
+
+		if selectedCount == 0 {
+			return
+		}
+
+		if canAdd {
+			dw.mountBtn.Enable()
+			if dw.compactMountBtn != nil {
+				dw.compactMountBtn.Enable()
+			}
+		} else {
+			dw.mountBtn.Disable()
+			if dw.compactMountBtn != nil {
+				dw.compactMountBtn.Disable()
+			}
+		}
+	})
+}
