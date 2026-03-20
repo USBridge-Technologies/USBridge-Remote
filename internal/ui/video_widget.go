@@ -832,7 +832,11 @@ func (vw *VideoWidget) processMouseMovement() {
 // Задаётся при запуске устройства на экране устройств.
 func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
-		vw.mouseInputMode = "mouse"
+		if fyne.CurrentDevice().IsMobile() {
+			vw.mouseInputMode = "mouse"
+		} else {
+			vw.mouseInputMode = "absolute"
+		}
 	}
 	return vw.mouseInputMode
 }

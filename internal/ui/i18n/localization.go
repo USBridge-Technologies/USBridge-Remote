@@ -548,8 +548,8 @@ func EN() *LocalizedStrings {
 
 		// Device names
 		DeviceKeyboard:    "Keyboard",
-		DeviceMouse:       "Mouse",
-		DeviceTouch:       "Touch",
+		DeviceMouse:       "TouchPad",
+		DeviceTouch:       "TouchScreen",
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",
 

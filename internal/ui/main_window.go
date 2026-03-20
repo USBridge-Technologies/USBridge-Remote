@@ -40,12 +40,12 @@ type MainWindow struct {
 	wgService        service.WireGuardService
 
 	// Состояние
-	config              *models.AppConfig
-	appState            *models.AppState
-	isConnected         bool
-	isStreaming         bool
-	isConnectionPending bool // Флаг блокировки кнопки подключения
-	connectedProtocol   string
+	config                 *models.AppConfig
+	appState               *models.AppState
+	isConnected            bool
+	isStreaming            bool
+	isConnectionPending    bool // Флаг блокировки кнопки подключения
+	connectedProtocol      string
 	pendingWireGuardInvite string
 
 	// Кнопка подключения/отключения
@@ -72,6 +72,21 @@ type MainWindow struct {
 	backupIcon     *widget.Button
 	snapshotIcon   *widget.Button
 	statusPanel    *fyne.Container
+}
+
+func protocolButtonState(protocol string) (string, widget.ButtonImportance) {
+	switch protocol {
+	case models.ConnectionProtocolWireGuard:
+		return "🛑 WG", widget.SuccessImportance
+	case models.ConnectionProtocolQUIC:
+		return "🛑 QUIC", widget.WarningImportance
+	case "direct":
+		return "🛑 LAN", widget.MediumImportance
+	case models.ConnectionProtocolAuto:
+		return "🛑 AUTO", widget.MediumImportance
+	default:
+		return "🔌", widget.HighImportance
+	}
 }
 
 // NewMainWindow создает новое главное окно
@@ -164,6 +179,28 @@ func (mw *MainWindow) createInterface() {
 	if mw.backupWidget != nil {
 		mw.backupWidget.UpdateHostEntry(mw.hostEntry)
 	}
+
+	mw.refreshConnectionControls()
+}
+
+func (mw *MainWindow) refreshConnectionControls() {
+	if mw.connectionBtn == nil || mw.protocolSelect == nil {
+		return
+	}
+
+	if mw.isConnected {
+		text, importance := protocolButtonState(mw.connectedProtocol)
+		mw.connectionBtn.SetText(text)
+		mw.connectionBtn.Importance = importance
+		mw.protocolSelect.Hide()
+	} else {
+		mw.connectionBtn.SetText("🔌")
+		mw.connectionBtn.Importance = widget.HighImportance
+		mw.protocolSelect.Show()
+	}
+
+	mw.connectionBtn.Refresh()
+	mw.protocolSelect.Refresh()
 }
 
 // setDefaultValues устанавливает начальные значения для полей (после создания UI)
@@ -767,8 +804,9 @@ func (mw *MainWindow) doConnect(host, token string) {
 		if err := connectWireGuard(); err != nil {
 			logrus.Errorf("❌ Failed to establish WireGuard tunnel: %v", err)
 			fyne.Do(func() {
-				mw.connectionBtn.SetText("🔌")
-				mw.connectionBtn.Importance = widget.MediumImportance
+				mw.isConnected = false
+				mw.connectedProtocol = ""
+				mw.refreshConnectionControls()
 				mw.connectionBtn.Enable()
 				mw.hostEntry.Enable()
 				mw.tokenEntry.Enable()
@@ -780,8 +818,9 @@ func (mw *MainWindow) doConnect(host, token string) {
 		if err := connectQUIC(); err != nil {
 			logrus.Errorf("❌ Failed to establish QUIC tunnel: %v", err)
 			fyne.Do(func() {
-				mw.connectionBtn.SetText("🔌")
-				mw.connectionBtn.Importance = widget.MediumImportance
+				mw.isConnected = false
+				mw.connectedProtocol = ""
+				mw.refreshConnectionControls()
 				mw.connectionBtn.Enable()
 				mw.hostEntry.Enable()
 				mw.tokenEntry.Enable()
@@ -795,8 +834,9 @@ func (mw *MainWindow) doConnect(host, token string) {
 			if err := connectQUIC(); err != nil {
 				logrus.Errorf("❌ Failed to establish connection in auto mode: %v", err)
 				fyne.Do(func() {
-					mw.connectionBtn.SetText("🔌")
-					mw.connectionBtn.Importance = widget.MediumImportance
+					mw.isConnected = false
+					mw.connectedProtocol = ""
+					mw.refreshConnectionControls()
 					mw.connectionBtn.Enable()
 					mw.hostEntry.Enable()
 					mw.tokenEntry.Enable()
@@ -814,8 +854,9 @@ func (mw *MainWindow) doConnect(host, token string) {
 		if err := tempClient.TestConnection(); err != nil {
 			logrus.Errorf("Connection failed: %v", err)
 			fyne.Do(func() {
-				mw.connectionBtn.SetText("🔌")
-				mw.connectionBtn.Importance = widget.MediumImportance
+				mw.isConnected = false
+				mw.connectedProtocol = ""
+				mw.refreshConnectionControls()
 				mw.connectionBtn.Enable()
 				mw.hostEntry.Enable()
 				mw.tokenEntry.Enable()
@@ -853,8 +894,9 @@ func (mw *MainWindow) doConnect(host, token string) {
 		}
 		mw.usbClient = nil
 		fyne.Do(func() {
-			mw.connectionBtn.SetText("🔌")
-			mw.connectionBtn.Importance = widget.HighImportance
+			mw.isConnected = false
+			mw.connectedProtocol = ""
+			mw.refreshConnectionControls()
 			mw.connectionBtn.Enable()
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
@@ -883,8 +925,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 	mw.appState.LastConnected = time.Now()
 
 	fyne.Do(func() {
-		mw.connectionBtn.SetText("❌")
-		mw.connectionBtn.Importance = widget.SuccessImportance
+		mw.refreshConnectionControls()
 		mw.connectionBtn.Enable()
 		if mw.pcpanelWidget != nil {
 			mw.pcpanelWidget.SetClient(mw.usbClient)
@@ -936,6 +977,7 @@ func (mw *MainWindow) handleDisconnect() {
 
 	mw.isConnected = false
 	mw.isStreaming = false
+	mw.connectedProtocol = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false
@@ -952,8 +994,7 @@ func (mw *MainWindow) handleDisconnect() {
 	}
 
 	// Обновляем иконку кнопки на "подключиться" - синяя
-	mw.connectionBtn.SetText("🔌")
-	mw.connectionBtn.Importance = widget.HighImportance
+	mw.refreshConnectionControls()
 	mw.connectionBtn.Enable()
 
 	if mw.pcpanelWidget != nil {

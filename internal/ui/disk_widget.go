@@ -107,6 +107,13 @@ type DriveItem struct {
 	IsMounting     bool               // Идёт монтирование (202 Accepted)
 }
 
+func defaultMouseMode() string {
+	if fyne.CurrentDevice().IsMobile() {
+		return "mouse"
+	}
+	return "absolute"
+}
+
 // NewDiskWidget создает новый виджет устройств
 func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, config *models.AppConfig) *DiskWidget {
 	supportedTypes := []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"}
@@ -181,7 +188,7 @@ func (dw *DiskWidget) createInterface() {
 			modeRowIconText := canvas.NewText("🖱️", theme.Color(theme.ColorNameForeground))
 			modeRowIconText.TextSize = theme.TextSize() // Размер как у остальных иконок в списке
 			modeRowIconText.Hide()
-			modeTitleLabel := widget.NewLabel("Manipulator")
+			modeTitleLabel := widget.NewLabel("Mouse")
 			modeTitleLabel.Hide()
 			modeSelect := widget.NewSelect([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, nil)
 			modeSelect.Hide()
@@ -319,7 +326,7 @@ func (dw *DiskWidget) createInterface() {
 								case "touchscreen":
 									modeRowIconText.Text = "🖥️" // Экран/доска — тачскрин
 								case "absolute":
-									modeRowIconText.Text = "📍"
+									modeRowIconText.Text = "🖱️"
 								default:
 									modeRowIconText.Text = "🖱️"
 								}
@@ -331,7 +338,7 @@ func (dw *DiskWidget) createInterface() {
 							if drive.Source == "rndis" {
 								modeTitleLabel.SetText(i18n.Current.DeviceNetworkCard)
 							} else {
-								modeTitleLabel.SetText("Manipulator")
+								modeTitleLabel.SetText("Mouse")
 							}
 							modeTitleLabel.Show()
 						}
@@ -365,7 +372,7 @@ func (dw *DiskWidget) createInterface() {
 									} else if s == i18n.Current.DeviceAbsolute {
 										dw.allDrives[rowID].MouseType = "absolute"
 										if modeRowIconText != nil {
-											modeRowIconText.Text = "📍"
+											modeRowIconText.Text = "🖱️"
 											borderContainer.Refresh()
 										}
 									} else {
@@ -735,7 +742,7 @@ func (dw *DiskWidget) combineDrives() {
 	uploadingByPath := make(map[string]uploadState)
 	mountingByExportName := make(map[string]bool)
 	oldReadOnly := make(map[string]bool)
-	oldMouseType := "mouse" // сохраняем выбор пользователя (мышь/тачскрин)
+	oldMouseType := defaultMouseMode() // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
 	for _, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
@@ -859,7 +866,7 @@ func (dw *DiskWidget) combineDrives() {
 
 	// Добавляем мышь (тип мышь/тачскрин сохраняем из предыдущего состояния списка)
 	if oldMouseType != "mouse" && oldMouseType != "touchscreen" && oldMouseType != "absolute" {
-		oldMouseType = "mouse"
+		oldMouseType = defaultMouseMode()
 	}
 	oldRNDISMode = normalizeRNDISMode(oldRNDISMode)
 	mouseItem := DriveItem{

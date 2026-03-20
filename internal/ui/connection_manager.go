@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
+	"usbridge-client/internal/models"
 	"usbridge-client/internal/ui/i18n"
 
 	"fyne.io/fyne/v2"
@@ -17,6 +19,28 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
+
+func normalizeConnectionProtocol(protocol string) string {
+	switch strings.TrimSpace(protocol) {
+	case models.ConnectionProtocolQUIC:
+		return models.ConnectionProtocolQUIC
+	case models.ConnectionProtocolWireGuard:
+		return models.ConnectionProtocolWireGuard
+	default:
+		return models.ConnectionProtocolAuto
+	}
+}
+
+func connectionProtocolBadge(protocol string) string {
+	switch normalizeConnectionProtocol(protocol) {
+	case models.ConnectionProtocolWireGuard:
+		return "◆ WG"
+	case models.ConnectionProtocolQUIC:
+		return "▲ QUIC"
+	default:
+		return "● AUTO"
+	}
+}
 
 // SavedConnection сохраненное подключение
 type SavedConnection struct {
@@ -185,13 +209,12 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 
 // createConnectionRow создает карточку для подключения
 func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
+	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
+
 	fillForm := func() {
 		fyne.Do(func() {
 			cm.hostEntry.SetText(conn.Host)
 			cm.tokenEntry.SetText(conn.Token)
-			if cm.protocolSelect != nil && conn.Protocol != "" {
-				cm.protocolSelect.SetSelected(conn.Protocol)
-			}
 			cm.selectedIndex = idx
 		})
 	}
@@ -211,17 +234,43 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 	hostSelectBtn.Importance = widget.LowImportance
 	hostLabelWithClick := container.NewStack(hostLabel, container.NewMax(hostSelectBtn))
 
+	protocolBtn := widget.NewButton(connectionProtocolBadge(conn.Protocol), nil)
+	protocolBtn.Importance = widget.LowImportance
+	protocolBtn.OnTapped = func() {
+		menu := fyne.NewMenu("",
+			fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolAuto), func() {
+				cm.connections[idx].Protocol = models.ConnectionProtocolAuto
+				protocolBtn.SetText(connectionProtocolBadge(models.ConnectionProtocolAuto))
+				cm.saveConnections()
+				cm.refreshConnectionsList()
+			}),
+			fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolQUIC), func() {
+				cm.connections[idx].Protocol = models.ConnectionProtocolQUIC
+				protocolBtn.SetText(connectionProtocolBadge(models.ConnectionProtocolQUIC))
+				cm.saveConnections()
+				cm.refreshConnectionsList()
+			}),
+			fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolWireGuard), func() {
+				cm.connections[idx].Protocol = models.ConnectionProtocolWireGuard
+				protocolBtn.SetText(connectionProtocolBadge(models.ConnectionProtocolWireGuard))
+				cm.saveConnections()
+				cm.refreshConnectionsList()
+			}),
+		)
+		popup := widget.NewPopUpMenu(menu, cm.window.Canvas())
+		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(protocolBtn)
+		popup.ShowAtPosition(pos.Add(fyne.NewPos(0, protocolBtn.Size().Height)))
+	}
+
 	// Кнопка со стрелкой — заполняет форму и сразу подключается
 	useBtn := widget.NewButton("→", func() {
 		fyne.Do(func() {
 			cm.hostEntry.SetText(conn.Host)
 			cm.tokenEntry.SetText(conn.Token)
-			if cm.protocolSelect != nil && conn.Protocol != "" {
-				cm.protocolSelect.SetSelected(conn.Protocol)
-			}
 			cm.selectedIndex = idx
 			if cm.onConnect != nil {
-				cm.onConnect(conn.Host, conn.Token, conn.Protocol, conn.WireGuardInvite)
+				protocol := normalizeConnectionProtocol(cm.connections[idx].Protocol)
+				cm.onConnect(conn.Host, conn.Token, protocol, conn.WireGuardInvite)
 			}
 		})
 	})
@@ -244,7 +293,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 
 	// Нижняя строка: стрелка + адрес + пустое пространство + кнопки
 	bottomRow := container.NewBorder(nil, nil,
-		container.NewHBox(useBtn, hostLabelWithClick),
+		container.NewHBox(useBtn, protocolBtn, hostLabelWithClick),
 		container.NewHBox(editBtn, deleteBtn),
 		centerArea)
 

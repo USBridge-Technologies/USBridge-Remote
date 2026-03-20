@@ -138,7 +138,7 @@ func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (
 	for i, req := range requests {
 		logrus.Infof("   📤 [API-START-DEVICES] Device %d: device=%s", i+1, req.Device)
 		if req.Device == "mouse" {
-			logrus.Infof("      🖱️ pointer type=%q (mouse=touchpad, touchscreen=touchscreen)", req.Type)
+			logrus.Infof("      🖱️ pointer type=%q (mouse=touchpad, touchscreen=touchscreen, absolute=absolute)", req.Type)
 		}
 		if req.Device == "rndis" {
 			logrus.Infof("      🌐 rndis_mode=%q", req.RNDISMode)
