@@ -996,8 +996,26 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					logrus.Debugf("🌐 Найдена подключенная сетевая карта: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 					break
 				}
-				// Для дисков проверяем имя файла в названии устройства
-				if !drive.IsKeyboard && !drive.IsMouse && !drive.IsRNDIS && (device.Type == "local" || device.Type == "mtp" || device.Type == "nbd") {
+				// Для дисков сопоставляем только ожидаемый тип источника:
+				// - API-диски на bridge отображаются как local/mtp
+				// - локальные/пользовательские файлы клиента монтируются через NBD и должны матчиться только с nbd
+				if !drive.IsKeyboard && !drive.IsMouse && !drive.IsRNDIS {
+					expectedServerType := ""
+					switch drive.Source {
+					case "api":
+						if drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp" {
+							expectedServerType = "mtp"
+						} else {
+							expectedServerType = "local"
+						}
+					case "local", "user":
+						expectedServerType = "nbd"
+					}
+
+					if expectedServerType == "" || device.Type != expectedServerType {
+						continue
+					}
+
 					// Для пользовательских образов сравниваем по полному пути
 					var driveName string
 					if drive.Source == "user" && drive.DiskInfo != nil {
@@ -1021,16 +1039,24 @@ func (dw *DiskWidget) updateDevicesStatus() {
 						}
 					}
 
-					// Сравниваем имя файла с именем устройства в API
-					if strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name) {
-						isMounted = true
-						if device.Type == "mtp" {
-							logrus.Debugf("📱 Найден подключенный MTP диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
-						} else if device.Type == "nbd" {
-							logrus.Debugf("🌐 Найден подключенный NBD диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
-						} else {
-							logrus.Debugf("💿 Найден подключенный диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+					// Для bridge-local/MTP у нас есть стабильный device key disk:<name>/mtp:<name>, поэтому сравниваем точнее.
+					if drive.Source == "api" && drive.LocalDrive != nil {
+						expectedDeviceKey := fmt.Sprintf("%s:%s", expectedServerType, driveName)
+						if device.Device == expectedDeviceKey || device.Name == driveName {
+							isMounted = true
+							if device.Type == "mtp" {
+								logrus.Debugf("📱 Найден подключенный MTP диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+							} else {
+								logrus.Debugf("💿 Найден подключенный локальный диск bridge: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+							}
+							break
 						}
+					}
+
+					// Для NBD оставляем сравнение по имени как fallback после точного export_name-матчинга.
+					if device.Type == "nbd" && (strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name)) {
+						isMounted = true
+						logrus.Debugf("🌐 Найден подключенный NBD диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 						break
 					}
 				}
