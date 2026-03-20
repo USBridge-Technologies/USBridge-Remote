@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1353,6 +1354,10 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	}
 
 	req.Header.Set("Content-Type", contentType)
+	if fileSize > 0 {
+		req.Header.Set("X-File-Size", strconv.FormatInt(fileSize, 10))
+	}
+	req.Header.Set("Expect", "100-continue")
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
@@ -1376,6 +1381,9 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	logrus.Info("⏳ Отправка запроса (streaming mode)...")
 	uploadClient := &http.Client{
 		Timeout: 3600 * time.Second,
+		Transport: &http.Transport{
+			ExpectContinueTimeout: 10 * time.Second,
+		},
 	}
 	resp, err := uploadClient.Do(req)
 	if err != nil {

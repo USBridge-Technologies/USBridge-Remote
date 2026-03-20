@@ -300,7 +300,11 @@ func (ns *NBDServer) SignalReady() {
 
 // verifyReadiness проверяет готовность NBD протокола и закрывает readyChan когда готов
 func (ns *NBDServer) verifyReadiness(port int, hasListener bool, hasExports bool) {
-	checkAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	checkHost := strings.TrimSpace(ns.config.NBDBindHost)
+	if checkHost == "" {
+		checkHost = "127.0.0.1"
+	}
+	checkAddr := fmt.Sprintf("%s:%d", checkHost, port)
 	logrus.Infof("📍 [NBD-VERIFY-1] Запуск проверки готовности: подключаемся к %s (hasListener=%v, hasExports=%v)", checkAddr, hasListener, hasExports)
 
 	// Проверяем, что сервер действительно слушает порт и готов обрабатывать NBD протокол

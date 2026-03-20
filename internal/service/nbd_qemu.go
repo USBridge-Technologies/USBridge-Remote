@@ -38,6 +38,7 @@ type QemuNBDRunner struct {
 	filePath    string
 	format      string
 	readOnly    bool
+	bindHost    string
 	port        int
 	cmd         *exec.Cmd
 	overlayPath string
@@ -81,7 +82,7 @@ func IsQemuNbdFormatForPath(path string) bool {
 
 // NewQemuNBDRunner создаёт раннер для qemu-nbd. filePath — путь к образу (на десктопе).
 // Для RW при необходимости создаётся overlay; тогда экспортируется overlay.
-func NewQemuNBDRunner(filePath string, readOnly bool) *QemuNBDRunner {
+func NewQemuNBDRunner(filePath string, readOnly bool, bindHost string) *QemuNBDRunner {
 	ext := strings.ToLower(filePath)
 	if i := strings.LastIndex(ext, "."); i >= 0 {
 		ext = ext[i:]
@@ -93,6 +94,7 @@ func NewQemuNBDRunner(filePath string, readOnly bool) *QemuNBDRunner {
 		filePath:  filePath,
 		format:    format,
 		readOnly:  readOnly,
+		bindHost:  strings.TrimSpace(bindHost),
 		readyChan: make(chan struct{}),
 	}
 }
@@ -119,7 +121,7 @@ func (q *QemuNBDRunner) Start(port int) error {
 	args := []string{
 		"-f", q.format,
 		"-p", fmt.Sprintf("%d", port),
-		"-b", "127.0.0.1",
+		"-b", q.getBindHost(),
 	}
 	if q.readOnly {
 		args = append(args, "-r")
@@ -136,7 +138,7 @@ func (q *QemuNBDRunner) Start(port int) error {
 
 	q.port = port
 	q.running = true
-	logrus.Infof("✅ [NBD-QEMU] qemu-nbd запущен: порт=%d, формат=%s, readOnly=%v, путь=%s", port, q.format, q.readOnly, path)
+	logrus.Infof("✅ [NBD-QEMU] qemu-nbd запущен: bind=%s порт=%d, формат=%s, readOnly=%v, путь=%s", q.getBindHost(), port, q.format, q.readOnly, path)
 
 	// Готовность: даём qemu-nbd время открыть порт
 	go func() {
@@ -152,6 +154,13 @@ func (q *QemuNBDRunner) Start(port int) error {
 	}()
 
 	return nil
+}
+
+func (q *QemuNBDRunner) getBindHost() string {
+	if strings.TrimSpace(q.bindHost) == "" {
+		return "127.0.0.1"
+	}
+	return strings.TrimSpace(q.bindHost)
 }
 
 // Stop останавливает qemu-nbd и удаляет overlay при наличии.

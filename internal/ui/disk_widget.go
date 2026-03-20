@@ -2102,20 +2102,28 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 
 	if useQemuNbd {
 		logrus.Infof("📍 [START-NBD-QEMU] Формат образа требует qemu-nbd (экспорт виртуального диска)")
-		runner := service.NewQemuNBDRunner(diskInfo.Path, readOnly)
+		bindHost := strings.TrimSpace(dw.config.NBDBindHost)
+		if bindHost == "" {
+			bindHost = "127.0.0.1"
+		}
+		runner := service.NewQemuNBDRunner(diskInfo.Path, readOnly, bindHost)
 		if err := runner.EnsureQemuNbdForExport(); err != nil {
 			return nil, fmt.Errorf("для образов VMDK/QCOW2/VDI нужен qemu-nbd: %w", err)
 		}
 		if err := runner.Start(port); err != nil {
 			return nil, fmt.Errorf("для образов VMDK/QCOW2/VDI нужен qemu-nbd (установите QEMU): %w", err)
 		}
-		logrus.Infof("✅ [START-NBD-QEMU] qemu-nbd запущен на 127.0.0.1:%d для %s", port, diskInfo.Name)
-		logrus.Infof("   📡 FRP туннель: nbd_srv%d -> localhost:%d", port-10808, port)
+		logrus.Infof("✅ [START-NBD-QEMU] qemu-nbd запущен на %s:%d для %s", bindHost, port, diskInfo.Name)
+		logrus.Infof("   📡 NBD export: %s:%d", bindHost, port)
 		return runner, nil
 	}
 
 	// go-nbd: ISO, raw, img (файл как есть)
-	config := &models.AppConfig{NBDPort: port}
+	bindHost := strings.TrimSpace(dw.config.NBDBindHost)
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	config := &models.AppConfig{NBDPort: port, NBDBindHost: bindHost}
 	nbdServer := service.NewNBDServerWithApp(config, dw.app)
 	if err := nbdServer.Start(port); err != nil {
 		return nil, fmt.Errorf("ошибка запуска NBD сервера: %v", err)
@@ -2135,8 +2143,8 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 		return nil, fmt.Errorf("ошибка добавления экспорта: %v", err)
 	}
 
-	logrus.Infof("✅ [START-NBD-7-SUCCESS] NBD сервер для '%s' на 127.0.0.1:%d", diskInfo.Name, port)
-	logrus.Infof("   📡 FRP туннель: nbd_srv%d -> localhost:%d", port-10808, port)
+	logrus.Infof("✅ [START-NBD-7-SUCCESS] NBD сервер для '%s' на %s:%d", diskInfo.Name, bindHost, port)
+	logrus.Infof("   📡 NBD export: %s:%d", bindHost, port)
 	return nbdServer, nil
 }
 
