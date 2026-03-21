@@ -274,6 +274,11 @@ if [ -n "$GST_ROOT" ]; then
     is_core_dll() {
         local name="$1"
         for core in "${CORE_DLLS[@]}"; do
+            case "${name,,}" in
+                ${core,,})
+                    return 0
+                    ;;
+            esac
             if [ "${core,,}" = "${name,,}" ]; then
                 return 0
             fi
@@ -319,6 +324,102 @@ if [ -n "$GST_ROOT" ]; then
         "$OBJDUMP_BIN" -p "$file" 2>/dev/null | awk -F': ' '/DLL Name:/ {gsub(/\\r/,"",$2); print $2}'
     }
 
+    is_system_dll() {
+        local name="${1,,}"
+        case "$name" in
+            api-ms-win-*.dll|ext-ms-win-*.dll|kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|d3dcompiler_47.dll|opengl32.dll)
+                return 0
+                ;;
+        esac
+        return 1
+    }
+
+    resolve_dll_path() {
+        local name="$1"
+        [ -z "$name" ] && return
+
+        if [ -f "$GST_ROOT/bin/$name" ]; then
+            printf "%s\n" "$GST_ROOT/bin/$name"
+            return
+        fi
+        if [ -f "$GST_ROOT/lib/$name" ]; then
+            printf "%s\n" "$GST_ROOT/lib/$name"
+            return
+        fi
+
+        local found=""
+        found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
+        if [ -n "$found" ]; then
+            printf "%s\n" "$found"
+            return
+        fi
+
+        for extra in /ucrt64/bin /ucrt64/lib /mingw64/bin /mingw64/lib; do
+            if [ -f "$extra/$name" ]; then
+                printf "%s\n" "$extra/$name"
+                return
+            fi
+        done
+    }
+
+    copy_dll_to_dir() {
+        local name="$1"
+        local target_dir="$2"
+        local resolved=""
+        [ -z "$name" ] && return
+        [ -z "$target_dir" ] && return
+
+        resolved="$(resolve_dll_path "$name")"
+        if [ -n "$resolved" ] && [ -f "$resolved" ]; then
+            cp -L "$resolved" "$target_dir/" 2>/dev/null || true
+            printf "%s\n" "$(basename "$resolved")"
+        fi
+    }
+
+    expand_dll_pattern() {
+        local pattern="$1"
+        [ -z "$pattern" ] && return
+
+        {
+            find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$pattern" -printf "%f\n" 2>/dev/null
+            for extra in /ucrt64/bin /ucrt64/lib /mingw64/bin /mingw64/lib; do
+                find "$extra" -maxdepth 1 -type f -iname "$pattern" -printf "%f\n" 2>/dev/null
+            done
+        } | sort -u
+    }
+
+    collect_recursive_deps_into() {
+        local target_dir="$1"
+        shift
+        local queue=("$@")
+        local idx=0
+
+        while [ "$idx" -lt "${#queue[@]}" ]; do
+            local file="${queue[$idx]}"
+            idx=$((idx + 1))
+            [ -f "$file" ] || continue
+
+            while IFS= read -r dep; do
+                [ -z "$dep" ] && continue
+                if is_system_dll "$dep"; then
+                    continue
+                fi
+
+                local dep_name
+                dep_name="$(basename "$dep")"
+                if [ -f "$target_dir/$dep_name" ]; then
+                    continue
+                fi
+
+                local copied_name
+                copied_name="$(copy_dll_to_dir "$dep_name" "$target_dir")"
+                if [ -n "$copied_name" ] && [ -f "$target_dir/$copied_name" ]; then
+                    queue+=("$target_dir/$copied_name")
+                fi
+            done < <(collect_deps "$file")
+        done
+    }
+
     MINIMAL_GST="${MINIMAL_GST:-1}"
     if [ "$MINIMAL_GST" = "1" ]; then
         mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
@@ -358,8 +459,8 @@ if [ -n "$GST_ROOT" ]; then
             "libgstvideo-1.0-0.dll"
             "libgstpbutils-1.0-0.dll"
             "libgstapp-1.0-0.dll"
-            "libintl-8.dll"
-            "libffi-7.dll"
+            "libintl-*.dll"
+            "libffi-*.dll"
             "libpcre2-8-0.dll"
             "libgcc_s_seh-1.dll"
             "libwinpthread-1.dll"
@@ -380,8 +481,31 @@ if [ -n "$GST_ROOT" ]; then
         # unique + copy deps
         if [ "${#needed_dlls[@]}" -gt 0 ]; then
             printf "%s\n" "${needed_dlls[@]}" | sort -u | while read -r dll; do
-                copy_dll_by_name "$dll"
+                case "$dll" in
+                    *'*'*|*'?'*)
+                        while IFS= read -r matched; do
+                            [ -n "$matched" ] && copy_dll_by_name "$matched"
+                        done < <(expand_dll_pattern "$dll")
+                        ;;
+                    *)
+                        copy_dll_by_name "$dll"
+                        ;;
+                esac
             done
+        fi
+
+        root_dep_seeds=("$DIST_WIN/$EXE_NAME")
+        while IFS= read -r root_dll; do
+            root_dep_seeds+=("$root_dll")
+        done < <(find "$DIST_WIN" -maxdepth 1 -type f -iname "*.dll" 2>/dev/null | sort)
+        collect_recursive_deps_into "$DIST_WIN" "${root_dep_seeds[@]}"
+
+        bin_dep_seeds=()
+        while IFS= read -r bin_dll; do
+            bin_dep_seeds+=("$bin_dll")
+        done < <(find "$DIST_WIN/bin" "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" 2>/dev/null | sort)
+        if [ "${#bin_dep_seeds[@]}" -gt 0 ]; then
+            collect_recursive_deps_into "$DIST_WIN/bin" "${bin_dep_seeds[@]}"
         fi
 
         echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
