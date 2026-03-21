@@ -213,6 +213,8 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.diskWidget.SetFRPService(nil)
 		mw.connectedProtocol = models.ConnectionProtocolWireGuard
 		logrus.Info("🔐 [WireGuard] STEP 7: switching application traffic to WireGuard")
+		logrus.Infof("   📥 HTTP API switched to WireGuard: %s:%d", wg.GetServerHost(), mw.config.USBPort)
+		logrus.Infof("   📤 Local WireGuard client address: %s", wg.GetClientHost())
 		return nil
 	}
 

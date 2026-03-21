@@ -169,18 +169,27 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 	select {
 	case err := <-errChan:
 		return fmt.Errorf("FRP connection failed: %v", err)
-		case <-time.After(2 * time.Second):
-			// 2 секунды — время на стабилизацию QUIC и регистрацию всех proxy в frps
-			f.isRunning = true
-			f.httpPort = localHTTPPort
-			logrus.Info("✅ FRP QUIC tunnel established successfully")
-			f.videoPort = vp
-			logrus.Infof("   📥 HTTP API: localhost:%d -> QUIC -> %s:8080", f.httpPort, f.serverAddr)
-			logrus.Infof("   📤 Video UDP: localhost:%d (proxy) <- Bridge visitor -> QUIC -> %s", vp, f.serverAddr)
-			logrus.Infof("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 портов) -> %s", f.serverAddr)
-			logrus.Infof("   💡 Приложение работает через localhost:%d", f.httpPort)
-			return nil
+	case <-time.After(2 * time.Second):
+		// 2 секунды — базовое время на стабилизацию QUIC и регистрацию всех proxy в frps.
+		// Но для WireGuard bootstrap этого мало: нужно дождаться, пока локальный visitor реально
+		// начнет слушать localhost:httpPort, иначе первый POST упрется в connect refused.
+		if err := waitForLocalListener("127.0.0.1", localHTTPPort, 5*time.Second); err != nil {
+			if f.cancel != nil {
+				f.cancel()
+			}
+			return fmt.Errorf("FRP HTTP visitor localhost:%d is not ready: %w", localHTTPPort, err)
 		}
+
+		f.isRunning = true
+		f.httpPort = localHTTPPort
+		logrus.Info("✅ FRP QUIC tunnel established successfully")
+		f.videoPort = vp
+		logrus.Infof("   📥 HTTP API: localhost:%d -> QUIC -> %s:8080", f.httpPort, f.serverAddr)
+		logrus.Infof("   📤 Video UDP: localhost:%d (proxy) <- Bridge visitor -> QUIC -> %s", vp, f.serverAddr)
+		logrus.Infof("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 портов) -> %s", f.serverAddr)
+		logrus.Infof("   💡 Приложение работает через localhost:%d", f.httpPort)
+		return nil
+	}
 }
 
 // Disconnect stops the FRP service
@@ -244,4 +253,25 @@ func findAvailableLocalPort(preferred int) (int, error) {
 		return 0, fmt.Errorf("unexpected local addr type: %T", ln.Addr())
 	}
 	return addr.Port, nil
+}
+
+func waitForLocalListener(host string, port int, timeout time.Duration) error {
+	address := fmt.Sprintf("%s:%d", host, port)
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("timeout")
+	}
+	return lastErr
 }
