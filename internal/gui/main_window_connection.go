@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -9,7 +10,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,6 +49,20 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, host, token, protocol, wireGu
 	}
 }
 
+func (mw *MainWindow) canAttemptConnection() bool {
+	return strings.TrimSpace(mw.hostEntry.Text) != ""
+}
+
+func (mw *MainWindow) setConnectionLoading(loading bool) {
+	mw.isConnectionLoading = loading
+	mw.refreshConnectionControls()
+}
+
+func (mw *MainWindow) clearConnectionPending() {
+	mw.isConnectionPending = false
+	mw.isConnectionLoading = false
+}
+
 // handleConnectionToggle переключает состояние подключения
 func (mw *MainWindow) handleConnectionToggle() {
 	if mw.isConnectionPending {
@@ -57,24 +71,21 @@ func (mw *MainWindow) handleConnectionToggle() {
 	}
 
 	mw.isConnectionPending = true
-	mw.connectionBtn.Disable()
-
-	go func() {
-		time.Sleep(5 * time.Second)
-		mw.isConnectionPending = false
-		fyne.Do(func() {
-			if !mw.connectionBtn.Disabled() {
-				return
-			}
-			mw.connectionBtn.Enable()
-		})
-	}()
 
 	if mw.isConnected {
+		mw.refreshConnectionControls()
 		mw.handleDisconnect()
-	} else {
-		mw.handleConnect()
+		return
 	}
+
+	if !mw.canAttemptConnection() {
+		mw.clearConnectionPending()
+		mw.refreshConnectionControls()
+		return
+	}
+
+	mw.setConnectionLoading(true)
+	mw.handleConnect()
 }
 
 // handleConnect обрабатывает подключение
@@ -89,6 +100,8 @@ func (mw *MainWindow) handleConnect() {
 
 	if host == "" {
 		logrus.Warn("Enter a server address")
+		mw.clearConnectionPending()
+		mw.refreshConnectionControls()
 		return
 	}
 
@@ -102,13 +115,9 @@ func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] Final connection parameters: host='%s', token='%s'", host, token)
 	logrus.Infof("Establishing connection with protocol=%s...", mw.protocolSelect.Selected)
 
-	mw.connectionBtn.SetText("⏳")
-	mw.connectionBtn.Importance = widget.WarningImportance
-	mw.connectionBtn.Disable()
 	mw.hostEntry.Disable()
 	mw.tokenEntry.Disable()
 	mw.protocolSelect.Disable()
-	mw.window.Canvas().Refresh(mw.connectionBtn)
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -252,8 +261,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.connectedProtocol = "direct"
 
 		if err := tempClient.TestConnection(); err != nil {
-			logrus.Errorf("Connection failed: %v", err)
-			fyne.Do(func() { mw.connectionBtn.Enable() })
+			mw.handleConnectFailure("Connection failed", err)
 			return
 		}
 	}
@@ -272,10 +280,10 @@ func (mw *MainWindow) doConnect(host, token string) {
 		}
 		mw.usbClient = nil
 		fyne.Do(func() {
+			mw.clearConnectionPending()
 			mw.isConnected = false
 			mw.connectedProtocol = ""
 			mw.refreshConnectionControls()
-			mw.connectionBtn.Enable()
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
@@ -303,8 +311,8 @@ func (mw *MainWindow) doConnect(host, token string) {
 	mw.appState.LastConnected = time.Now()
 
 	fyne.Do(func() {
+		mw.clearConnectionPending()
 		mw.refreshConnectionControls()
-		mw.connectionBtn.Enable()
 		if mw.pcpanelWidget != nil {
 			mw.pcpanelWidget.SetClient(mw.usbClient)
 		}
@@ -318,10 +326,10 @@ func (mw *MainWindow) doConnect(host, token string) {
 func (mw *MainWindow) handleConnectFailure(message string, err error) {
 	logrus.Errorf("%s: %v", message, err)
 	fyne.Do(func() {
+		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
 		mw.refreshConnectionControls()
-		mw.connectionBtn.Enable()
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
@@ -379,8 +387,8 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.backupWidget.UpdateClient(nil)
 	}
 
+	mw.clearConnectionPending()
 	mw.refreshConnectionControls()
-	mw.connectionBtn.Enable()
 
 	if mw.pcpanelWidget != nil {
 		mw.pcpanelWidget.SetClient(nil)

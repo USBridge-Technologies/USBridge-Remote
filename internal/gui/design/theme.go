@@ -8,19 +8,22 @@ import (
 )
 
 var (
-	ColorBackground    = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff} // --cs-bg-color
-	ColorSurface       = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff} // --cs-surface-color
-	ColorAccent        = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0xff} // --cs-accent
-	ColorAccentHover   = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0xff} // --cs-accent-hover
-	ColorTextLight     = color.NRGBA{R: 0xf5, G: 0xf5, B: 0xf5, A: 0xff} // --cs-text-light
-	ColorTextMuted     = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
-	ColorBorder        = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
-	ColorSurfaceLight  = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff} // --cs-surface-light
-	ColorGray900       = color.NRGBA{R: 0x2c, G: 0x2c, B: 0x2c, A: 0xff} // --cs-gray-900
-	ColorGray950       = color.NRGBA{R: 0x1d, G: 0x1d, B: 0x1d, A: 0xff} // --cs-gray-950
-	ColorGray400       = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff} // --cs-gray-400
-	ColorAlphaWhite15  = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x26} // --cs-alpha-white-15
-	ColorAlphaAccent22 = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x38} // --cs-alpha-accent-22
+	ColorBackground         = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff} // --cs-bg-color
+	ColorSurface            = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff} // --cs-surface-color
+	ColorAccent             = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0xff} // --cs-accent
+	ColorAccentHover        = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0xff} // --cs-accent-hover
+	ColorTextLight          = color.NRGBA{R: 0xf5, G: 0xf5, B: 0xf5, A: 0xff} // --cs-text-light
+	ColorTextMuted          = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
+	ColorBorder             = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
+	ColorSurfaceLight       = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff} // --cs-surface-light
+	ColorGray900            = color.NRGBA{R: 0x2c, G: 0x2c, B: 0x2c, A: 0xff} // --cs-gray-900
+	ColorGray950            = color.NRGBA{R: 0x1d, G: 0x1d, B: 0x1d, A: 0xff} // --cs-gray-950
+	ColorGray400            = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff} // --cs-gray-400
+	ColorAlphaWhite15       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x26} // --cs-alpha-white-15
+	ColorAlphaWhite24       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x3d} // --cs-alpha-white-24
+	ColorAlphaAccent22      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x38} // --cs-alpha-accent-22
+	ColorAlphaAccent55      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x8c} // --cs-alpha-accent-55
+	ColorAlphaAccentHover55 = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0x8c} // --cs-alpha-accent-hover-55
 )
 
 const RadiusMD float32 = 8
@@ -64,11 +67,11 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameMenuBackground:
 		return ColorGray950
 	case fynetheme.ColorNameOverlayBackground:
-		return ColorSurface
+		return ColorGray950
 	case fynetheme.ColorNamePlaceHolder:
 		return ColorTextMuted
 	case fynetheme.ColorNamePressed:
-		return ColorAlphaAccent22
+		return ColorAlphaWhite24
 	case fynetheme.ColorNamePrimary:
 		return ColorAccent
 	case fynetheme.ColorNameScrollBar:

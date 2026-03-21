@@ -1,8 +1,11 @@
 package gui
 
 import (
+	"image/color"
+
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/controller"
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -14,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// MainWindow главное окно приложения
+// MainWindow главное окно приложения.
 type MainWindow struct {
 	app    fyne.App
 	window fyne.Window
@@ -41,24 +44,26 @@ type MainWindow struct {
 	appState               *models.AppState
 	isConnected            bool
 	isStreaming            bool
-	isConnectionPending    bool // Флаг блокировки кнопки подключения
+	isConnectionPending    bool
+	isConnectionLoading    bool
 	connectedProtocol      string
 	pendingWireGuardInvite string
 
 	// Кнопка подключения/отключения
-	connectionBtn  *widget.Button
-	protocolSelect *widget.Select
+	connectionBtn    *view.HeaderActionButton
+	protocolSelect   *widget.Select
+	protocolDropdown *view.HeaderDropdown
 
 	// PC Panel (Power/Reset LED кнопки)
 	pcpanelWidget *controller.PCPanelWidget
 
 	// Адресная строка
 	hostEntry         *widget.Entry
-	tokenEntry        *widget.Entry            // Скрыто, используется для подключения из сохранённых
-	sdStorageProgress *view.StorageProgressBar // Прогресс места на флешке — на всех экранах
-	deepLinkHandler   *DeepLinkHandler         // Глобальный handler для deep links
+	tokenEntry        *widget.Entry
+	sdStorageProgress *view.StorageProgressBar
+	deepLinkHandler   *DeepLinkHandler
 
-	// Иконки статуса (используем Button для поддержки tooltip)
+	// Иконки статуса
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
 	videoIcon      *widget.Button
@@ -71,35 +76,33 @@ type MainWindow struct {
 	statusPanel    *fyne.Container
 }
 
-func protocolButtonState(protocol string) (string, widget.ButtonImportance) {
+func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
-		return "🛑 WG", widget.SuccessImportance
+		return "x", design.ColorAccent, design.ColorBackground
 	case models.ConnectionProtocolQUIC:
-		return "🛑 QUIC", widget.WarningImportance
+		return "x", design.ColorAccentHover, design.ColorBackground
 	case "direct":
-		return "🛑 LAN", widget.MediumImportance
+		return "x", design.ColorSurfaceLight, design.ColorTextLight
 	case models.ConnectionProtocolAuto:
-		return "🛑 AUTO", widget.MediumImportance
+		return "x", design.ColorSurfaceLight, design.ColorTextLight
 	default:
-		return "🔌", widget.HighImportance
+		return "x", design.ColorSurfaceLight, design.ColorTextLight
 	}
 }
 
-// NewMainWindow создает новое главное окно
+// NewMainWindow создает новое главное окно.
 func NewMainWindow(config *models.AppConfig) *MainWindow {
 	myApp := newFyneApp()
-	// Устанавливаем метаданные приложения
-	myApp.SetIcon(nil) // Можно добавить иконку позже
+	myApp.SetIcon(nil)
 
-	// Загружаем сохраненный язык из настроек
 	savedLang := myApp.Preferences().StringWithFallback("language", "en")
 	i18n.Init(savedLang)
-	logrus.Infof("🌐 Localization initialized (%s)", savedLang)
+	logrus.Infof("Localization initialized (%s)", savedLang)
 
 	window := myApp.NewWindow(i18n.Current.AppTitle)
 	window.SetPadded(false)
-	// Размер из конфига; на десктопе — удобный по умолчанию для современных DPI/масштабирования
+
 	scale := startupWindowScale(myApp)
 	size := dpiAwareWindowSize(
 		config.WindowWidth,
@@ -124,29 +127,21 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 		},
 	}
 
-	// Инициализируем сервисы
-	mw.nbdServer = service.NewNBDServer(config) // Оставляем для совместимости, но не используем
+	mw.nbdServer = service.NewNBDServer(config)
 	mw.gstreamerService = service.NewGStreamerService(config)
 
-	logrus.Info("✅ GStreamer service initialized")
+	logrus.Info("GStreamer service initialized")
 
-	// USB клиент будет создан при подключении с хостом из адресной строки
 	mw.usbClient = nil
-
-	// FRP сервис будет создан при подключении
 	mw.frpService = nil
 	mw.wgService = nil
 
-	// Создаем виджеты
 	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, myApp, config)
 	mw.diskWidget.SetWindow(window)
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.usbClient, mw.gstreamerService, mw.updateStatus)
 	mw.videoWidget.SetParentWindow(window)
-	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus) // hostEntry будет установлен позже
+	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus)
 	mw.backupWidget.SetWindow(window)
-
-	// На Android НЕ создаем UI контент до ShowAndRun() - это вызывает ошибки threading
-	// Создание UI будет отложено до метода Show()
 
 	return mw
 }

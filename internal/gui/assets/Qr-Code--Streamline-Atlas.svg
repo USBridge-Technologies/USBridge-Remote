@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 16 16" id="Qr-Code--Streamline-Atlas" height="16" width="16">
+  <desc>
+    Qr Code Streamline Icon: https://streamlinehq.com
+  </desc>
+  <defs></defs>
+  <g id="QR_Code">
+    <path d="M0.9375 0.9375h5.36875v5.36875H0.9375Z" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m3.9187499999999997 4.518750000000001 -1.1937499999999999 0 0 -1.7937500000000002 1.7937500000000002 0" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m11.675 3.325 0 1.1937499999999999 -1.1937499999999999 0" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m4.518750000000001 12.275 -1.7937500000000002 0 0 -1.1937499999999999" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m14.0625 6.30625 -5.36875 0 0 -5.36875 5.36875 0 0 5.36875" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="M8.69375 8.69375h5.36875v5.36875h-5.36875Z" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="M0.9375 8.69375h5.36875v5.36875H0.9375Z" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="M10.48125 10.48125h1.1937499999999999v1.1937499999999999h-1.1937499999999999Z" fill="none" stroke="#000000" stroke-linecap="square" stroke-miterlimit="10" stroke-width="1"></path>
+  </g>
+</svg>

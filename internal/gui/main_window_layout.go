@@ -1,24 +1,38 @@
 package gui
 
 import (
+	"image/color"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	addressBarGap       float32 = 4
+	addressBarControlH  float32 = 40
+	addressBarModeW     float32 = 132
+	addressBarActionBtn float32 = 40
+)
+
 // createInterface инициализирует поля адресной строки.
 func (mw *MainWindow) createInterface() {
 	mw.hostEntry = widget.NewEntry()
 	mw.hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
+	mw.hostEntry.OnChanged = func(string) {
+		mw.refreshConnectionControls()
+	}
 
 	mw.tokenEntry = widget.NewEntry()
 	mw.tokenEntry.SetPlaceHolder(i18n.Current.Token)
@@ -29,10 +43,18 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolQUIC,
 		models.ConnectionProtocolWireGuard,
 	}, nil)
+	mw.protocolSelect.OnChanged = func(value string) {
+		if mw.protocolDropdown != nil {
+			mw.protocolDropdown.SetSelected(value)
+		}
+	}
+
+	mw.protocolDropdown = view.NewHeaderDropdown(mw.protocolSelect.Options, mw.config.ConnectionProtocol, func(value string) {
+		mw.protocolSelect.SetSelected(value)
+	})
 	mw.protocolSelect.SetSelected(mw.config.ConnectionProtocol)
 
-	mw.connectionBtn = widget.NewButton(i18n.Current.ConnectButton, mw.handleConnectionToggle)
-	mw.connectionBtn.Importance = widget.HighImportance
+	mw.connectionBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
 
 	mw.sdStorageProgress = view.NewStorageProgressBar()
 	mw.sdStorageProgress.Hide()
@@ -45,23 +67,52 @@ func (mw *MainWindow) createInterface() {
 }
 
 func (mw *MainWindow) refreshConnectionControls() {
-	if mw.connectionBtn == nil || mw.protocolSelect == nil {
+	if mw.connectionBtn == nil || mw.protocolSelect == nil || mw.protocolDropdown == nil {
 		return
 	}
 
 	if mw.isConnected {
-		text, importance := protocolButtonState(mw.connectedProtocol)
-		mw.connectionBtn.SetText(text)
-		mw.connectionBtn.Importance = importance
-		mw.protocolSelect.Hide()
+		text, fill, foreground := protocolButtonState(mw.connectedProtocol)
+		mw.connectionBtn.ApplySpec(view.HeaderActionButtonSpec{
+			Disabled:   mw.isConnectionPending,
+			Fill:       fill,
+			Foreground: foreground,
+			Stroke:     color.Transparent,
+			Text:       text,
+		})
+		mw.protocolDropdown.Hide()
 	} else {
-		mw.connectionBtn.SetText(i18n.Current.ConnectButton)
-		mw.connectionBtn.Importance = widget.HighImportance
-		mw.protocolSelect.Show()
+		hasHost := strings.TrimSpace(mw.hostEntry.Text) != ""
+		spec := view.HeaderActionButtonSpec{
+			Disabled:   mw.isConnectionPending || !hasHost,
+			Fill:       design.ColorAccent,
+			Foreground: design.ColorBackground,
+			Icon:       assets.ServerConnectBold,
+			Stroke:     color.Transparent,
+		}
+
+		if !hasHost {
+			spec.Fill = color.Transparent
+			spec.Foreground = design.ColorAccentHover
+			spec.Icon = assets.ServerConnectGlow
+			spec.Stroke = design.ColorAccentHover
+			spec.StrokeWidth = 1
+		}
+		if mw.isConnectionLoading {
+			spec.Disabled = true
+			spec.Fill = design.ColorAccent
+			spec.Foreground = design.ColorBackground
+			spec.Icon = nil
+			spec.Stroke = color.Transparent
+			spec.SpinnerFrames = assets.LoadingGrayFrames
+		}
+
+		mw.connectionBtn.ApplySpec(spec)
+		mw.protocolDropdown.SetDisabled(mw.isConnectionPending)
+		mw.protocolDropdown.Show()
 	}
 
-	mw.connectionBtn.Refresh()
-	mw.protocolSelect.Refresh()
+	mw.protocolDropdown.Refresh()
 }
 
 // setDefaultValues устанавливает начальные значения для полей.
@@ -127,15 +178,19 @@ func (mw *MainWindow) recreateContainers() {
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createAddressBar() *fyne.Container {
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
-	protocolPanel := view.NewOutlinedControl(mw.protocolSelect, 132, 40)
-	connectPanel := container.NewGridWrap(fyne.NewSize(132, 40), mw.connectionBtn)
-	rightPart := container.NewHBox(
+	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, addressBarModeW, addressBarControlH)
+	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
+	utilityPart := newCollapsingBox(
 		mw.pcpanelWidget.GetContainer(),
 		mw.sdStorageProgress,
 		mw.statusPanel,
+	)
+	rightPart := container.NewHBox(
+		headerGapSpacer(addressBarGap),
 		protocolPanel,
-		view.NewInset(container.NewWithoutLayout(), 12, 0, 0, 0),
+		headerGapSpacer(addressBarGap),
 		connectPanel,
+		newOptionalLeadingGap(addressBarGap, utilityPart),
 	)
 	row := container.New(
 		layout.NewBorderLayout(nil, nil, nil, rightPart),
@@ -143,6 +198,99 @@ func (mw *MainWindow) createAddressBar() *fyne.Container {
 		rightPart,
 	)
 	return view.NewHeaderBand("", row)
+}
+
+func headerGapSpacer(width float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(width, 1))
+	return spacer
+}
+
+type collapsingBoxLayout struct{}
+type optionalLeadingGapLayout struct {
+	gap float32
+}
+
+func newCollapsingBox(objects ...fyne.CanvasObject) *fyne.Container {
+	return container.New(&collapsingBoxLayout{}, objects...)
+}
+
+func newOptionalLeadingGap(width float32, content fyne.CanvasObject) *fyne.Container {
+	return container.New(&optionalLeadingGapLayout{gap: width}, headerGapSpacer(width), content)
+}
+
+func (l *collapsingBoxLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	x := float32(0)
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			obj.Resize(fyne.NewSize(0, 0))
+			continue
+		}
+		min := obj.MinSize()
+		obj.Move(fyne.NewPos(x, (size.Height-min.Height)/2))
+		obj.Resize(min)
+		x += min.Width
+	}
+}
+
+func (l *collapsingBoxLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(0)
+	height := float32(0)
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			continue
+		}
+		min := obj.MinSize()
+		width += min.Width
+		if min.Height > height {
+			height = min.Height
+		}
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (l *optionalLeadingGapLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) != 2 {
+		return
+	}
+
+	gapObj := objects[0]
+	content := objects[1]
+	if !hasVisibleContent(content) {
+		gapObj.Resize(fyne.NewSize(0, 0))
+		content.Resize(fyne.NewSize(0, 0))
+		return
+	}
+
+	contentMin := content.MinSize()
+	gapObj.Move(fyne.NewPos(0, 0))
+	gapObj.Resize(fyne.NewSize(l.gap, size.Height))
+	content.Move(fyne.NewPos(l.gap, (size.Height-contentMin.Height)/2))
+	content.Resize(contentMin)
+}
+
+func (l *optionalLeadingGapLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) != 2 || !hasVisibleContent(objects[1]) {
+		return fyne.NewSize(0, 0)
+	}
+
+	contentMin := objects[1].MinSize()
+	return fyne.NewSize(l.gap+contentMin.Width, contentMin.Height)
+}
+
+func hasVisibleContent(obj fyne.CanvasObject) bool {
+	if obj == nil || !obj.Visible() {
+		return false
+	}
+	if c, ok := obj.(*fyne.Container); ok {
+		for _, child := range c.Objects {
+			if hasVisibleContent(child) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // createStatusBar создает строку состояния.

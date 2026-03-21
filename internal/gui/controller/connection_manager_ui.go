@@ -1,32 +1,65 @@
 package controller
 
 import (
+	"net/url"
+
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
+	"github.com/sirupsen/logrus"
 )
 
-// createInterface создает интерфейс менеджера
 func (cm *ConnectionManager) createInterface() {
-	cm.ui = view.NewConnectionManagerUI(cm.showLanguageMenu, cm.handleQRScan, cm.showAddDialog)
+	cm.ui = view.NewConnectionManagerUI(cm.showLanguageMenu, cm.openQuickStartDocs, cm.handleQRScan, cm.showAddDialog)
 	cm.refreshConnectionsList()
 }
 
-// showLanguageMenu показывает меню выбора языка
-func (cm *ConnectionManager) showLanguageMenu(btn *widget.Button) {
-	menu := fyne.NewMenu("",
-		fyne.NewMenuItem(i18n.Current.LanguageEnglish, func() { cm.setLanguage("en") }),
-		fyne.NewMenuItem(i18n.Current.LanguageRussian, func() { cm.setLanguage("ru") }),
-	)
-	popup := widget.NewPopUpMenu(menu, cm.window.Canvas())
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(btn)
-	popup.ShowAtPosition(pos.Add(fyne.NewPos(0, btn.Size().Height)))
+func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
+	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
+	view.ShowStyledMenu(anchor, []view.StyledMenuItem{
+		{
+			Label:    i18n.Current.LanguageEnglish,
+			Selected: currentLanguage == "en",
+			OnTap: func() {
+				cm.setLanguage("en")
+			},
+		},
+		{
+			Label:    i18n.Current.LanguageRussian,
+			Selected: currentLanguage == "ru",
+			OnTap: func() {
+				cm.setLanguage("ru")
+			},
+		},
+	})
 }
 
-// refreshConnectionsList перерисовывает список подключений
+func (cm *ConnectionManager) openQuickStartDocs() {
+	const docsURL = "https://www.usbridge.io/docs/getting-started/quick-start-guide/"
+
+	uri, err := url.Parse(docsURL)
+	if err != nil {
+		logrus.Errorf("failed to parse docs URL %q: %v", docsURL, err)
+		return
+	}
+
+	app := cm.app
+	if app == nil {
+		app = fyne.CurrentApp()
+	}
+	if app == nil {
+		logrus.Error("failed to open docs URL: fyne app is nil")
+		return
+	}
+
+	if err := app.OpenURL(uri); err != nil {
+		logrus.Errorf("failed to open docs URL %q: %v", docsURL, err)
+	}
+}
+
 func (cm *ConnectionManager) refreshConnectionsList() {
 	if len(cm.connections) == 0 {
 		cm.ui.SetEmptyState()
@@ -40,7 +73,6 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 	cm.ui.SetRows(rows)
 }
 
-// createConnectionRow создает карточку для подключения
 func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
 	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
 
@@ -108,12 +140,10 @@ func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) 
 	cm.refreshConnectionsList()
 }
 
-// GetContainer возвращает контейнер
 func (cm *ConnectionManager) GetContainer() *fyne.Container {
 	return cm.ui.Container
 }
 
-// SetLanguageChangeCallback устанавливает callback для изменения языка
 func (cm *ConnectionManager) SetLanguageChangeCallback(callback func()) {
 	cm.onLanguageChange = callback
 }

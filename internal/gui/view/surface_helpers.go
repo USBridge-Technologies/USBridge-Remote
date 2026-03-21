@@ -84,7 +84,14 @@ func NewBrandText(text string, size float32, col color.Color, bold bool) *canvas
 }
 
 func NewOutlinedControl(content fyne.CanvasObject, width, height float32) *fyne.Container {
-	panel := NewCompactSurfacePanel(content, design.ColorSurface, design.RadiusMD)
+	bg := canvas.NewRectangle(design.ColorSurface)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(bg, content, border)
 	if width > 0 && height > 0 {
 		return container.NewGridWrap(fyne.NewSize(width, height), panel)
 	}

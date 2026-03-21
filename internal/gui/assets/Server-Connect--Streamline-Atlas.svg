@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 16 16" id="Server-Connect--Streamline-Atlas" height="16" width="16">
+  <desc>
+    Server Connect Streamline Icon: https://streamlinehq.com
+  </desc>
+  <defs></defs>
+  <g id="roll_brush">
+    <path d="M0.90625 0.925h13.1875v4.19375H0.90625Z" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="M0.90625 5.1187499999999995h13.1875v4.19375H0.90625Z" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m5.699999999999999 2.125 0 1.2" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m5.699999999999999 6.31875 0 1.2" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m3.30625 2.125 0 1.2" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m3.30625 6.31875 0 1.2" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m14.693750000000001 12.9125 -5.99375 0" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m6.3 12.9125 -5.99375 0" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="M6.3 11.712499999999999h2.4v2.4h-2.4Z" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m7.5 9.31875 0 2.39375" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m12.293750000000001 2.725 -2.39375 0" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+    <path d="m12.293750000000001 6.91875 -2.39375 0" fill="none" stroke="#000000" stroke-miterlimit="10" stroke-width="1"></path>
+  </g>
+</svg>
