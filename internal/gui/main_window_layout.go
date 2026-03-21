@@ -31,7 +31,7 @@ func (mw *MainWindow) createInterface() {
 	}, nil)
 	mw.protocolSelect.SetSelected(mw.config.ConnectionProtocol)
 
-	mw.connectionBtn = widget.NewButton("🔌", mw.handleConnectionToggle)
+	mw.connectionBtn = widget.NewButton(i18n.Current.ConnectButton, mw.handleConnectionToggle)
 	mw.connectionBtn.Importance = widget.HighImportance
 
 	mw.sdStorageProgress = view.NewStorageProgressBar()
@@ -55,7 +55,7 @@ func (mw *MainWindow) refreshConnectionControls() {
 		mw.connectionBtn.Importance = importance
 		mw.protocolSelect.Hide()
 	} else {
-		mw.connectionBtn.SetText("🔌")
+		mw.connectionBtn.SetText(i18n.Current.ConnectButton)
 		mw.connectionBtn.Importance = widget.HighImportance
 		mw.protocolSelect.Show()
 	}
@@ -115,7 +115,7 @@ func (mw *MainWindow) recreateContainers() {
 	mw.mainContent = container.NewBorder(addressBar, statusBar, nil, nil, mw.tabs)
 	mw.connectionContent = container.NewBorder(
 		addressBar,
-		statusBar,
+		nil,
 		nil,
 		nil,
 		mw.connectionManager.GetContainer(),
@@ -127,12 +127,22 @@ func (mw *MainWindow) recreateContainers() {
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createAddressBar() *fyne.Container {
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
-	rightPart := container.NewHBox(mw.pcpanelWidget.GetContainer(), mw.sdStorageProgress, mw.statusPanel, mw.protocolSelect, mw.connectionBtn)
-	return container.New(
+	protocolPanel := view.NewOutlinedControl(mw.protocolSelect, 132, 40)
+	connectPanel := container.NewGridWrap(fyne.NewSize(132, 40), mw.connectionBtn)
+	rightPart := container.NewHBox(
+		mw.pcpanelWidget.GetContainer(),
+		mw.sdStorageProgress,
+		mw.statusPanel,
+		protocolPanel,
+		view.NewInset(container.NewWithoutLayout(), 12, 0, 0, 0),
+		connectPanel,
+	)
+	row := container.New(
 		layout.NewBorderLayout(nil, nil, nil, rightPart),
 		mw.hostEntry,
 		rightPart,
 	)
+	return view.NewHeaderBand("", row)
 }
 
 // createStatusBar создает строку состояния.

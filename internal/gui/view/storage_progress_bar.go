@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 
+	"usbridge-client/internal/gui/design"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/theme"
@@ -75,9 +77,9 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	fgColor := t.Color(theme.ColorNameForeground, variant)
 
 	bg := canvas.NewRectangle(bgColor)
-	bg.CornerRadius = 6
+	bg.CornerRadius = design.RadiusMD
 	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
-	fill.CornerRadius = 6
+	fill.CornerRadius = design.RadiusMD
 
 	icon := widget.NewIcon(theme.StorageIcon())
 	percentText := canvas.NewText(s.percentText, fgColor)

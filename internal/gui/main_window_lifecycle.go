@@ -11,19 +11,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// createBackupFlashTab создает вкладку Backup Flash
+// createBackupFlashTab creates the Backup Flash tab.
 func (mw *MainWindow) createBackupFlashTab() fyne.CanvasObject {
 	return mw.backupWidget.GetContainer()
 }
 
-// setupEventHandlers настраивает обработчики событий
+// setupEventHandlers configures window event handlers.
 func (mw *MainWindow) setupEventHandlers() {
 	mw.window.SetCloseIntercept(func() {
 		mw.handleClose()
 	})
 }
 
-// handleHostChanged обрабатывает изменение IP адреса
+// handleHostChanged updates the current host.
 func (mw *MainWindow) handleHostChanged(host string) {
 	if host == "" {
 		return
@@ -37,14 +37,14 @@ func (mw *MainWindow) handleHostChanged(host string) {
 		mw.backupWidget.UpdateClient(tempClient)
 	}
 
-	logrus.Infof("🔄 Обновлен хост: %s", host)
+	logrus.Infof("Host updated: %s", host)
 }
 
-// showConnectionManager показывает менеджер подключений
+// showConnectionManager displays the connection manager.
 func (mw *MainWindow) showConnectionManager() {
 	fyne.Do(func() {
 		if mw.connectionContent == nil {
-			logrus.Warn("⚠️ showConnectionManager: connectionContent is nil")
+			logrus.Warn("showConnectionManager: connectionContent is nil")
 			return
 		}
 		if mw.deviceButtonsPanel != nil {
@@ -58,11 +58,11 @@ func (mw *MainWindow) showConnectionManager() {
 	})
 }
 
-// showMainContent показывает основной интерфейс
+// showMainContent displays the main interface.
 func (mw *MainWindow) showMainContent() {
 	fyne.Do(func() {
 		if mw.mainContent == nil {
-			logrus.Warn("⚠️ showMainContent: mainContent is nil")
+			logrus.Warn("showMainContent: mainContent is nil")
 			return
 		}
 		mw.window.SetContent(mw.mainContent)
@@ -74,10 +74,10 @@ func (mw *MainWindow) showMainContent() {
 	mw.updateDeviceButtonsVisibility()
 }
 
-// handleClose обрабатывает закрытие приложения
+// handleClose handles app shutdown.
 func (mw *MainWindow) handleClose() {
 	if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
-		logrus.Info("🔍 handleClose: обнаружен полноэкранный режим, выходим из него")
+		logrus.Info("handleClose: fullscreen active, exit it first")
 		return
 	}
 
@@ -87,7 +87,7 @@ func (mw *MainWindow) handleClose() {
 	mw.window.Close()
 }
 
-// Show показывает окно
+// Show displays the window.
 func (mw *MainWindow) Show() {
 	go func() {
 		time.Sleep(200 * time.Millisecond)
@@ -110,9 +110,9 @@ func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }
 
-// reloadUI перезагружает весь UI с новым языком
+// reloadUI reloads all UI with the current language.
 func (mw *MainWindow) reloadUI() {
-	logrus.Info("🔄 Reloading UI with new language...")
+	logrus.Info("Reloading UI with new language...")
 
 	currentHost := mw.hostEntry.Text
 	currentToken := mw.tokenEntry.Text
@@ -137,17 +137,17 @@ func (mw *MainWindow) reloadUI() {
 	}
 
 	mw.updateStatusBar()
-	logrus.Info("✅ UI reloaded successfully")
+	logrus.Info("UI reloaded successfully")
 }
 
-// checkDeepLink проверяет наличие deep link при запуске
+// checkDeepLink checks for a deep link on app start.
 func (mw *MainWindow) checkDeepLink() {
 	if mw.deepLinkHandler != nil {
 		mw.deepLinkHandler.CheckAndHandleDeepLink(mw.window)
 	}
 }
 
-// startDeepLinkMonitoring запускает мониторинг deep links в фоне
+// startDeepLinkMonitoring starts background deep-link monitoring.
 func (mw *MainWindow) startDeepLinkMonitoring() {
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)

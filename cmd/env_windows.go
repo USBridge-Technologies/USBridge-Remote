@@ -10,11 +10,15 @@ import (
 )
 
 func init() {
+	writeStartupTrace("env_windows: init entered")
+
 	exePath, err := os.Executable()
 	if err != nil {
+		writeStartupTrace("env_windows: os.Executable failed: %v", err)
 		return
 	}
 	exeDir := filepath.Dir(exePath)
+	writeStartupTrace("env_windows: exeDir=%s", exeDir)
 	_ = os.Chdir(exeDir)
 
 	prependPath(exeDir)
@@ -22,6 +26,7 @@ func init() {
 
 	setIfEmpty("GST_PLUGIN_PATH", filepath.Join(exeDir, "lib", "gstreamer-1.0"))
 	setIfEmpty("GST_PLUGIN_SYSTEM_PATH", filepath.Join(exeDir, "lib", "gstreamer-1.0"))
+	writeStartupTrace("env_windows: init done")
 }
 
 func prependPath(dir string) {

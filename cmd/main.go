@@ -20,45 +20,55 @@ const (
 )
 
 func main() {
-	// Парсим аргументы командной строки
+	writeStartupTrace("main: entered")
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			writeStartupPanicTrace(recovered)
+			panic(recovered)
+		}
+	}()
+
 	var (
 		configFile  = flag.String("config", "", "Path to the configuration file")
 		logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 		showVersion = flag.Bool("version", false, "Show version")
 	)
 	flag.Parse()
+	writeStartupTrace("main: flags parsed config=%q logLevel=%q version=%v", *configFile, *logLevel, *showVersion)
 
-	// Показываем версию если запрошено
 	if *showVersion {
+		writeStartupTrace("main: version requested")
 		fmt.Printf("%s version %s\n", appName, version)
 		os.Exit(0)
 	}
 
-	// Настраиваем логирование
+	writeStartupTrace("main: setupLogging start")
 	setupLogging(*logLevel)
+	writeStartupTrace("main: setupLogging done")
 
-	logrus.Infof("🚀 Starting %s version %s", appName, version)
+	logrus.Infof("Starting %s version %s", appName, version)
 
-	// Загружаем конфигурацию
+	writeStartupTrace("main: loadConfig start")
 	config, err := loadConfig(*configFile)
 	if err != nil {
+		writeStartupTrace("main: loadConfig failed: %v", err)
 		logrus.Fatalf("Failed to load configuration: %v", err)
 	}
+	writeStartupTrace("main: loadConfig done nbd_port=%d window=%dx%d", config.NBDPort, config.WindowWidth, config.WindowHeight)
 
-	logrus.Infof("📋 Configuration loaded:")
-	logrus.Infof("  NBD port: %d", config.NBDPort)
+	logrus.Infof("Configuration loaded")
+	logrus.Infof("NBD port: %d", config.NBDPort)
 
-	// Создаем главное окно (локализация будет загружена внутри)
+	writeStartupTrace("main: NewMainWindow start")
 	mainWindow := gui.NewMainWindow(config)
+	writeStartupTrace("main: NewMainWindow done")
 
-	// Запускаем приложение
-	logrus.Info("🎨 Starting GUI")
+	logrus.Info("Starting GUI")
+	writeStartupTrace("main: Show start")
 	mainWindow.Show()
 }
 
-// setupLogging настраивает логирование
 func setupLogging(level string) {
-	// Устанавливаем уровень логирования
 	logLevel, err := logrus.ParseLevel(level)
 	if err != nil {
 		logrus.Warnf("Invalid log level %s, using info", level)
@@ -66,13 +76,11 @@ func setupLogging(level string) {
 	}
 	logrus.SetLevel(logLevel)
 
-	// Настраиваем формат логов
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
 
-	// Создаем директорию для логов если не существует
 	logDir := os.Getenv("USBRIDGE_LOG_DIR")
 	if logDir == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -98,19 +106,15 @@ func setupLogging(level string) {
 	logrus.SetOutput(io.MultiWriter(os.Stdout, logFile))
 }
 
-// loadConfig загружает конфигурацию
 func loadConfig(configFile string) (*models.AppConfig, error) {
-	// Создаем конфигурацию по умолчанию
 	config := models.DefaultConfig()
 
-	// Если указан файл конфигурации, загружаем его
 	if configFile != "" {
 		if err := loadConfigFromFile(config, configFile); err != nil {
 			return nil, fmt.Errorf("failed to load configuration file: %v", err)
 		}
-		logrus.Infof("📁 Configuration loaded from %s", configFile)
+		logrus.Infof("Configuration loaded from %s", configFile)
 	} else {
-		// Пытаемся загрузить из стандартных мест
 		configPaths := []string{
 			"./config.yaml",
 			"./config.yml",
@@ -124,7 +128,7 @@ func loadConfig(configFile string) (*models.AppConfig, error) {
 		for _, path := range configPaths {
 			if _, err := os.Stat(path); err == nil {
 				if err := loadConfigFromFile(config, path); err == nil {
-					logrus.Infof("📁 Configuration loaded from %s", path)
+					logrus.Infof("Configuration loaded from %s", path)
 					break
 				}
 			}
@@ -134,20 +138,17 @@ func loadConfig(configFile string) (*models.AppConfig, error) {
 	return config, nil
 }
 
-// loadConfigFromFile загружает конфигурацию из файла
 func loadConfigFromFile(config *models.AppConfig, filename string) error {
 	viper.SetConfigFile(filename)
-	viper.SetConfigType(filepath.Ext(filename)[1:]) // Убираем точку
+	viper.SetConfigType(filepath.Ext(filename)[1:])
 
 	if err := viper.ReadInConfig(); err != nil {
 		return err
 	}
 
-	// Привязываем переменные окружения
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("USBRIDGE")
 
-	// Десериализуем в структуру
 	if err := viper.Unmarshal(config); err != nil {
 		return err
 	}

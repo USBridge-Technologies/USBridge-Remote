@@ -6,10 +6,13 @@ package gui
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"usbridge-client/internal/gui/design"
 )
 
 // newFyneApp создаёт приложение Fyne с постоянным ID ( desktop / mobile ),
 // чтобы работали предпочтения и прочее.
 func newFyneApp() fyne.App {
-	return app.NewWithID("usbridge-client")
+	a := app.NewWithID("usbridge-client")
+	a.Settings().SetTheme(design.NewBrandTheme())
+	return a
 }

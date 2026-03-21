@@ -98,15 +98,18 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	logrus.Infof("🌐 Localization initialized (%s)", savedLang)
 
 	window := myApp.NewWindow(i18n.Current.AppTitle)
+	window.SetPadded(false)
 	// Размер из конфига; на десктопе — удобный по умолчанию для современных DPI/масштабирования
-	w, h := config.WindowWidth, config.WindowHeight
-	if w < 640 {
-		w = 960
-	}
-	if h < 480 {
-		h = 640
-	}
-	window.Resize(fyne.NewSize(float32(w), float32(h)))
+	scale := startupWindowScale(myApp)
+	size := dpiAwareWindowSize(
+		config.WindowWidth,
+		config.WindowHeight,
+		scale,
+		fyne.NewSize(0, 0),
+	)
+	size = expandWindowSizeToPreferredArea(size, startupWindowPreferredSize(scale))
+	size = clampWindowSizeToAvailableArea(size, startupWindowMaxSize(scale))
+	window.Resize(size)
 	window.SetFixedSize(false)
 	window.CenterOnScreen()
 

@@ -126,23 +126,23 @@ func (vqd *VideoQualityDialog) handleApply() {
 	}
 
 	if width < 320 || width > 1920 {
-		dialog.ShowError(fmt.Errorf(i18n.Current.WidthRange), vqd.parent)
+		dialog.ShowError(fmt.Errorf("%s", i18n.Current.WidthRange), vqd.parent)
 		return
 	}
 	if height < 240 || height > 1080 {
-		dialog.ShowError(fmt.Errorf(i18n.Current.HeightRange), vqd.parent)
+		dialog.ShowError(fmt.Errorf("%s", i18n.Current.HeightRange), vqd.parent)
 		return
 	}
 	if fps < 1 || fps > 60 {
-		dialog.ShowError(fmt.Errorf(i18n.Current.FPSRange), vqd.parent)
+		dialog.ShowError(fmt.Errorf("%s", i18n.Current.FPSRange), vqd.parent)
 		return
 	}
 	if quality < 1 || quality > 100 {
-		dialog.ShowError(fmt.Errorf(i18n.Current.QualityRange), vqd.parent)
+		dialog.ShowError(fmt.Errorf("%s", i18n.Current.QualityRange), vqd.parent)
 		return
 	}
 	if bitrate < 100 || bitrate > 10000 {
-		dialog.ShowError(fmt.Errorf(i18n.Current.BitrateRange), vqd.parent)
+		dialog.ShowError(fmt.Errorf("%s", i18n.Current.BitrateRange), vqd.parent)
 		return
 	}
 

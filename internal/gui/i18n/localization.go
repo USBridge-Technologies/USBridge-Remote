@@ -17,6 +17,8 @@ type LocalizedStrings struct {
 	SavedConnections          string
 	ConnectionManagement      string
 	AddressAndTokenHint       string
+	ConnectionHeroEyebrow     string
+	ConnectionPanelHint       string
 	ConnectionNameLabel       string
 	ConnectionNamePlaceholder string
 	SaveButton                string
@@ -25,7 +27,12 @@ type LocalizedStrings struct {
 	QRScannerButton           string
 	EditConnectionTitle       string
 	AddConnectionTitle        string
+	AddNewDeviceTitle         string
 	NoSavedConnections        string
+	NoSavedConnectionsHint    string
+	OnboardingStepConnect     string
+	OnboardingStepIP          string
+	OnboardingStepScan        string
 	DeleteConnectionTitle     string
 	DeleteConnectionConfirm   string
 
@@ -317,6 +324,8 @@ func EN() *LocalizedStrings {
 		SavedConnections:          "Saved Connections:",
 		ConnectionManagement:      "💾 Connection Management",
 		AddressAndTokenHint:       "💡 Address and token are entered in the bar above",
+		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
+		ConnectionPanelHint:       "Launch a saved profile or create a new one.",
 		ConnectionNameLabel:       "Name for saving:",
 		ConnectionNamePlaceholder: "Connection name (e.g.: My PC)",
 		SaveButton:                "💾 Save",
@@ -325,7 +334,12 @@ func EN() *LocalizedStrings {
 		QRScannerButton:           "📷 QR",
 		EditConnectionTitle:       "Edit connection",
 		AddConnectionTitle:        "Add connection",
+		AddNewDeviceTitle:         "Add a new device",
 		NoSavedConnections:        "No saved connections yet",
+		NoSavedConnectionsHint:    "Use QR or add a connection below to get started.",
+		OnboardingStepConnect:     "Connect the power and Ethernet cables",
+		OnboardingStepIP:          "Press the Info button to get the IP address",
+		OnboardingStepScan:        "Enter the data above or scan the QR code",
 		DeleteConnectionTitle:     "Delete connection",
 		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
 
