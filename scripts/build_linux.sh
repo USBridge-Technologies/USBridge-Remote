@@ -23,7 +23,7 @@ mkdir -p "$OUT_DIR"
 # Suppress format-security warnings from the go-gst dependency (gst_debug.go)
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 
-go build -o "$OUT_DIR/USBridgeClient.bin" ./cmd/main.go
+go build -o "$OUT_DIR/USBridgeClient.bin" ./cmd
 
 [ -f "$REPO_ROOT/config.yaml" ] && cp -f "$REPO_ROOT/config.yaml" "$OUT_DIR/"
 
