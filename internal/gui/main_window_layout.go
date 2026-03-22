@@ -22,7 +22,6 @@ import (
 const (
 	addressBarGap       float32 = 4
 	addressBarControlH  float32 = 40
-	addressBarModeW     float32 = 132
 	addressBarActionBtn float32 = 40
 )
 
@@ -153,6 +152,8 @@ func (mw *MainWindow) recreateContainers() {
 
 	statusBar := mw.createStatusBar()
 	addressBar := mw.createAddressBar()
+	mainFooter := mw.createFooterBar(statusBar)
+	connectionFooter := mw.createFooterBar(nil)
 
 	mw.tabs = container.NewAppTabs(
 		container.NewTabItem(i18n.Current.TabDevices, mw.diskWidget.GetContainer()),
@@ -163,10 +164,10 @@ func (mw *MainWindow) recreateContainers() {
 		mw.updateDeviceButtonsVisibility()
 	}
 
-	mw.mainContent = container.NewBorder(addressBar, statusBar, nil, nil, mw.tabs)
+	mw.mainContent = container.NewBorder(addressBar, mainFooter, nil, nil, mw.tabs)
 	mw.connectionContent = container.NewBorder(
 		addressBar,
-		nil,
+		connectionFooter,
 		nil,
 		nil,
 		mw.connectionManager.GetContainer(),
@@ -178,7 +179,7 @@ func (mw *MainWindow) recreateContainers() {
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createAddressBar() *fyne.Container {
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
-	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, addressBarModeW, addressBarControlH)
+	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, 0, 0)
 	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
 	utilityPart := newCollapsingBox(
 		mw.pcpanelWidget.GetContainer(),
@@ -204,6 +205,48 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 	spacer := canvas.NewRectangle(color.Transparent)
 	spacer.SetMinSize(fyne.NewSize(width, 1))
 	return spacer
+}
+
+func (mw *MainWindow) createFooterBar(right fyne.CanvasObject) *fyne.Container {
+	var langBtn fyne.CanvasObject
+	langBtn = view.NewFooterIconButton(assets.LanguageIconDim, assets.LanguageIcon, fyne.NewSize(14, 14), func() {
+		if mw.connectionManager != nil {
+			mw.connectionManager.ShowLanguageMenu(langBtn)
+		}
+	})
+
+	helpBtn := view.NewFooterIconButton(assets.QuestionIconDim, assets.QuestionIcon, fyne.NewSize(13, 13), func() {
+		if mw.connectionManager != nil {
+			mw.connectionManager.OpenQuickStartDocs()
+		}
+	})
+
+	discordBtn := view.NewFooterIconButton(assets.DiscordIconDim, assets.DiscordIcon, fyne.NewSize(14, 14), func() {
+		if mw.connectionManager != nil {
+			mw.connectionManager.OpenDiscordInvite()
+		}
+	})
+
+	left := container.NewHBox(helpBtn, discordBtn, langBtn)
+	versionText := canvas.NewText("v"+appVersion, design.ColorTextMuted)
+	versionText.TextSize = 11
+
+	var rightContent fyne.CanvasObject = versionText
+	if right != nil {
+		rightContent = container.NewHBox(right, headerGapSpacer(8), versionText)
+	}
+
+	row := container.NewBorder(nil, nil, left, rightContent, nil)
+
+	bg := canvas.NewRectangle(design.ColorGray950)
+
+	bar := container.NewStack(
+		bg,
+		view.NewInset(row, 6, 8, 2, 2),
+	)
+
+	mw.footerBar = bar
+	return bar
 }
 
 type collapsingBoxLayout struct{}

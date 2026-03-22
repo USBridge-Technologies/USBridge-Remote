@@ -214,8 +214,22 @@ fi
 # 6. Создание dist
 echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
 cd "$REPO_ROOT"
-rm -rf "$DIST_WIN"
 mkdir -p "$DIST_WIN"
+cleanup_err="${TMPDIR:-/tmp}/usbridge_dist_cleanup.err"
+if ! find "$DIST_WIN" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>"$cleanup_err"; then
+    echo -e "${RED}❌ Failed to clean $DIST_WIN${NC}"
+    if [ -s "$cleanup_err" ]; then
+        sed 's/^/   /' "$cleanup_err"
+    fi
+    rm -f "$cleanup_err"
+    echo "   This usually means a file in dist/windows is open or locked."
+    echo "   Check the following:"
+    echo "   - USBridge_Client.exe is not running from dist/windows"
+    echo "   - no other terminal is currently inside dist/windows"
+    echo "   - Explorer, archiver, or antivirus is not locking files there"
+    exit 1
+fi
+rm -f "$cleanup_err"
 
 # Копируем exe
 cp "$REPO_ROOT/cmd/$EXE_SRC" "$DIST_WIN/$EXE_NAME"

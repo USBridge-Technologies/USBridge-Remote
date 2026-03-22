@@ -53,6 +53,7 @@ type MainWindow struct {
 	connectionBtn    *view.HeaderActionButton
 	protocolSelect   *widget.Select
 	protocolDropdown *view.HeaderDropdown
+	footerBar        *fyne.Container
 
 	// PC Panel (Power/Reset LED кнопки)
 	pcpanelWidget *controller.PCPanelWidget

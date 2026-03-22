@@ -13,6 +13,8 @@ var (
 	arrowRightIcon []byte
 	//go:embed language-svgrepo-com.svg
 	languageIcon []byte
+	//go:embed message-chat-square-svgrepo-com.svg
+	messageChatSquareIcon []byte
 	//go:embed loading-svgrepo-com.svg
 	loadingIcon []byte
 	//go:embed question-svgrepo-com.svg
@@ -30,13 +32,17 @@ var (
 )
 
 var (
-	ArrowLeftGray     = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#767676", true))
-	ArrowLeftWhite    = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#9B9B9B", true))
-	ArrowRightGray    = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#767676", false))
-	ArrowRightWhite   = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#9B9B9B", false))
+	ArrowLeftGray     = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#353535", true))
+	ArrowLeftWhite    = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#656565", true))
+	ArrowRightGray    = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#353535", false))
+	ArrowRightWhite   = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#656565", false))
+	DiscordIconDim    = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
+	DiscordIcon       = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
+	LanguageIconDim   = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
 	LanguageIconMuted = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
 	LanguageIcon      = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
 	LoadingGrayFrames = buildLoadingFrames(loadingIcon, "#111111")
+	QuestionIconDim   = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorStrokeIcon(questionIcon, "#8E8E8E", "2.6"))
 	QuestionIconMuted = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
 	QuestionIcon      = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
 	QRCodeIcon        = fyne.NewStaticResource("Qr-Code--Streamline-Atlas.svg", qrCodeIcon)

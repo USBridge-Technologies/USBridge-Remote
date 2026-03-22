@@ -60,6 +60,7 @@ func main() {
 	logrus.Infof("NBD port: %d", config.NBDPort)
 
 	writeStartupTrace("main: NewMainWindow start")
+	gui.SetAppVersion(version)
 	mainWindow := gui.NewMainWindow(config)
 	writeStartupTrace("main: NewMainWindow done")
 

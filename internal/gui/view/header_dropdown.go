@@ -71,7 +71,16 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (d *HeaderDropdown) MinSize() fyne.Size {
-	return fyne.NewSize(132, 40)
+	label := canvas.NewText(d.Selected, design.ColorTextLight)
+	label.TextSize = 14
+	width := label.MinSize().Width + 52
+	if width < 88 {
+		width = 88
+	}
+	if width > 132 {
+		width = 132
+	}
+	return fyne.NewSize(width, 40)
 }
 
 func (d *HeaderDropdown) Tapped(*fyne.PointEvent) {
@@ -168,10 +177,23 @@ func (d *HeaderDropdown) openPopup() {
 		return
 	}
 
+	menuWidth := menu.MinSize().Width
+	for _, option := range d.Options {
+		label := canvas.NewText(option, design.ColorTextLight)
+		label.TextSize = 14
+		optionWidth := label.MinSize().Width + 40
+		if optionWidth > menuWidth {
+			menuWidth = optionWidth
+		}
+	}
+	if d.Size().Width > menuWidth {
+		menuWidth = d.Size().Width
+	}
+
 	d.popup = newDropdownPopup(
 		menu,
 		canvasForObj,
-		fyne.NewSize(d.Size().Width, menu.MinSize().Height),
+		fyne.NewSize(menuWidth, menu.MinSize().Height),
 		d.popupDismissed,
 	)
 
@@ -357,8 +379,12 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 	d.border.Resize(size)
 
 	labelMin := d.label.MinSize()
+	labelWidth := size.Width - 56
+	if labelWidth < 24 {
+		labelWidth = 24
+	}
 	d.label.Move(fyne.NewPos(16, (size.Height-labelMin.Height)/2))
-	d.label.Resize(labelMin)
+	d.label.Resize(fyne.NewSize(labelWidth, labelMin.Height))
 
 	iconSize := fyne.NewSize(16, 16)
 	d.icon.Resize(iconSize)
@@ -414,6 +440,14 @@ func newDropdownPopup(content fyne.CanvasObject, canvas fyne.Canvas, size fyne.S
 }
 
 func ShowStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, false)
+}
+
+func ShowStyledMenuAbove(anchor fyne.CanvasObject, items []StyledMenuItem) {
+	showStyledMenu(anchor, items, true)
+}
+
+func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, openAbove bool) {
 	if anchor == nil || len(items) == 0 {
 		return
 	}
@@ -453,6 +487,14 @@ func ShowStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
 
 	menuMin := menu.MinSize()
 	width := menuMin.Width
+	for _, option := range items {
+		label := canvas.NewText(option.Label, design.ColorTextLight)
+		label.TextSize = 14
+		optionWidth := label.MinSize().Width + 40
+		if optionWidth > width {
+			width = optionWidth
+		}
+	}
 	if anchor.Size().Width > width {
 		width = anchor.Size().Width
 	}
@@ -465,7 +507,14 @@ func ShowStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem) {
 	)
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
-	popup.ShowAtPosition(pos.Add(fyne.NewPos(0, anchor.Size().Height+6)))
+	popupPos := pos.Add(fyne.NewPos(0, anchor.Size().Height+6))
+	if openAbove {
+		popupPos = pos.Add(fyne.NewPos(0, -menuMin.Height-6))
+		if popupPos.Y < 0 {
+			popupPos.Y = 0
+		}
+	}
+	popup.ShowAtPosition(popupPos)
 }
 
 func (p *dropdownPopup) CreateRenderer() fyne.WidgetRenderer {

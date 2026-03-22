@@ -13,13 +13,13 @@ import (
 )
 
 func (cm *ConnectionManager) createInterface() {
-	cm.ui = view.NewConnectionManagerUI(cm.showLanguageMenu, cm.openQuickStartDocs, cm.handleQRScan, cm.showAddDialog)
+	cm.ui = view.NewConnectionManagerUI(cm.handleQRScan, cm.showAddDialog)
 	cm.refreshConnectionsList()
 }
 
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
-	view.ShowStyledMenu(anchor, []view.StyledMenuItem{
+	view.ShowStyledMenuAbove(anchor, []view.StyledMenuItem{
 		{
 			Label:    i18n.Current.LanguageEnglish,
 			Selected: currentLanguage == "en",
@@ -40,9 +40,19 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 func (cm *ConnectionManager) openQuickStartDocs() {
 	const docsURL = "https://www.usbridge.io/docs/getting-started/quick-start-guide/"
 
-	uri, err := url.Parse(docsURL)
+	cm.openExternalLink(docsURL, "docs URL")
+}
+
+func (cm *ConnectionManager) openDiscordInvite() {
+	const discordURL = "https://discord.gg/XwNpCrGfsB"
+
+	cm.openExternalLink(discordURL, "Discord invite URL")
+}
+
+func (cm *ConnectionManager) openExternalLink(rawURL string, label string) {
+	uri, err := url.Parse(rawURL)
 	if err != nil {
-		logrus.Errorf("failed to parse docs URL %q: %v", docsURL, err)
+		logrus.Errorf("failed to parse %s %q: %v", label, rawURL, err)
 		return
 	}
 
@@ -51,13 +61,13 @@ func (cm *ConnectionManager) openQuickStartDocs() {
 		app = fyne.CurrentApp()
 	}
 	if app == nil {
-		logrus.Error("failed to open docs URL: fyne app is nil")
+		logrus.Errorf("failed to open %s: fyne app is nil", label)
 		return
 	}
 
 	go func() {
 		if err := openExternalURL(app, uri); err != nil {
-			logrus.Errorf("failed to open docs URL %q: %v", docsURL, err)
+			logrus.Errorf("failed to open %s %q: %v", label, rawURL, err)
 		}
 	}()
 }
@@ -148,4 +158,16 @@ func (cm *ConnectionManager) GetContainer() *fyne.Container {
 
 func (cm *ConnectionManager) SetLanguageChangeCallback(callback func()) {
 	cm.onLanguageChange = callback
+}
+
+func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
+	cm.showLanguageMenu(anchor)
+}
+
+func (cm *ConnectionManager) OpenQuickStartDocs() {
+	cm.openQuickStartDocs()
+}
+
+func (cm *ConnectionManager) OpenDiscordInvite() {
+	cm.openDiscordInvite()
 }

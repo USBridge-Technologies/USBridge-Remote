@@ -25,8 +25,6 @@ type ConnectionManagerUI struct {
 
 	contentArea *fyne.Container
 	headerArea  *fyne.Container
-	helpBtn     fyne.CanvasObject
-	langBtn     fyne.CanvasObject
 	topActions  *fyne.Container
 }
 
@@ -47,46 +45,33 @@ type ConnectionRowActions struct {
 
 const (
 	onboardingImageAspectRatio    float32 = 2000.0 / 1072.0
-	emptyStateMaxWidth            float32 = 1280
+	onboardingImageMaxWidth       float32 = 500
+	onboardingImageMaxHeight      float32 = 268
+	emptyStateMaxWidth            float32 = 1440
 	emptyStateMinWidth            float32 = 280
 	emptyStateTitleMaxWidth       float32 = 760
 	onboardingCarouselMinWidth    float32 = 260
 	onboardingCarouselMinHeight   float32 = 188
-	onboardingCarouselMaxHeight   float32 = 760
+	onboardingCarouselMaxHeight   float32 = 500
 	onboardingCaptionMaxWidth     float32 = 760
 	onboardingStageMinHeight      float32 = 132
-	onboardingDotsTopSpacing      float32 = 12
-	onboardingCaptionBottomGap    float32 = 8
-	onboardingArrowGap            float32 = 10
-	onboardingArrowEdgeMinInset   float32 = 8
-	onboardingArrowEdgeMaxInset   float32 = 28
+	onboardingDotsTopSpacing      float32 = 8
+	onboardingCaptionBottomGap    float32 = 4
+	onboardingArrowGap            float32 = 4
+	onboardingArrowEdgeMinInset   float32 = 4
+	onboardingArrowEdgeMaxInset   float32 = 22
 	onboardingActionGap           float32 = 12
-	onboardingActionMaxPrimaryW   float32 = 320
-	onboardingActionStackMinWidth float32 = 180
+	onboardingActionMinPrimaryW   float32 = 150
+	onboardingActionMaxPrimaryW   float32 = 190
+	onboardingActionStackMinWidth float32 = 160
 )
 
-func NewConnectionManagerUI(onLanguageMenu func(fyne.CanvasObject), onHelp func(), onQR func(), onAdd func()) *ConnectionManagerUI {
-	var langBtn fyne.CanvasObject
-	langBtn = newIconChromeButton(iconChromeButtonSpec{
-		NormalFill: color.Transparent,
-		HoverFill:  color.Transparent,
-		NormalIcon: assets.LanguageIconMuted,
-		HoverIcon:  assets.LanguageIcon,
-		IconSize:   fyne.NewSize(22, 22),
-		OnTapped: func() {
-			onLanguageMenu(langBtn)
-		},
-	})
+var (
+	onboardingIndicatorInactive = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff}
+	onboardingIndicatorActive   = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff}
+)
 
-	helpBtn := newIconChromeButton(iconChromeButtonSpec{
-		NormalFill: color.Transparent,
-		HoverFill:  color.Transparent,
-		NormalIcon: assets.QuestionIconMuted,
-		HoverIcon:  assets.QuestionIcon,
-		IconSize:   fyne.NewSize(18, 18),
-		OnTapped:   onHelp,
-	})
-
+func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 	topQRBtn := widget.NewButtonWithIcon(i18n.Current.QRScannerButton, theme.SearchIcon(), onQR)
 	topQRBtn.Importance = widget.MediumImportance
 
@@ -104,8 +89,7 @@ func NewConnectionManagerUI(onLanguageMenu func(fyne.CanvasObject), onHelp func(
 		OnTapped:    onQR,
 	})
 
-	centerAddBtn := widget.NewButtonWithIcon(i18n.Current.AddConnectionTitle, theme.ContentAddIcon(), onAdd)
-	centerAddBtn.Importance = widget.HighImportance
+	centerAddBtn := newOnboardingPrimaryButton("+  "+i18n.Current.AddConnectionTitle, onAdd)
 
 	connectionsBox := container.NewVBox()
 	connectionsScroll := container.NewScroll(connectionsBox)
@@ -134,19 +118,17 @@ func NewConnectionManagerUI(onLanguageMenu func(fyne.CanvasObject), onHelp func(
 		AddBtn:            centerAddBtn,
 		contentArea:       contentArea,
 		headerArea:        headerArea,
-		helpBtn:           helpBtn,
-		langBtn:           langBtn,
 		topActions:        topActions,
 	}
 
-	ui.setHeader("", ui.headerTools())
+	ui.setHeader("", nil)
 
 	return ui
 }
 
 func (ui *ConnectionManagerUI) SetEmptyState() {
 	ui.ConnectionsBox.RemoveAll()
-	ui.setHeader("", ui.headerTools())
+	ui.setHeader("", nil)
 
 	slides := []onboardingSlide{
 		{Image: assets.OnboardingStep01, Text: i18n.Current.OnboardingStepConnect},
@@ -176,7 +158,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	for _, row := range rows {
 		ui.ConnectionsBox.Add(row)
 	}
-	ui.setHeader(i18n.Current.SavedConnections, container.NewHBox(ui.topActions, centerSpacer(10), ui.headerTools()))
+	ui.setHeader(i18n.Current.SavedConnections, ui.topActions)
 	ui.contentArea.Objects = []fyne.CanvasObject{ui.ConnectionsScroll}
 	ui.ConnectionsBox.Refresh()
 	ui.contentArea.Refresh()
@@ -193,10 +175,6 @@ func (ui *ConnectionManagerUI) setHeader(title string, right fyne.CanvasObject) 
 	ui.headerArea.Refresh()
 }
 
-func (ui *ConnectionManagerUI) headerTools() fyne.CanvasObject {
-	return container.NewHBox(ui.helpBtn, centerSpacer(4), ui.langBtn)
-}
-
 type onboardingSlide struct {
 	Image fyne.Resource
 	Text  string
@@ -211,14 +189,15 @@ func newOnboardingCarousel(slides []onboardingSlide) fyne.CanvasObject {
 	image := canvas.NewImageFromResource(slides[currentSlide].Image)
 	image.FillMode = canvas.ImageFillContain
 
-	caption := widget.NewLabel(slides[currentSlide].Text)
-	caption.Alignment = fyne.TextAlignCenter
-	caption.Wrapping = fyne.TextWrapWord
+	captionLabel := widget.NewLabel(slides[currentSlide].Text)
+	captionLabel.Alignment = fyne.TextAlignCenter
+	captionLabel.Wrapping = fyne.TextWrapWord
+	caption := container.NewThemeOverride(captionLabel, newForegroundOverrideTheme(design.NewBrandTheme(), design.ColorTextMuted))
 
 	dots := make([]*canvas.Circle, len(slides))
 	dotItems := make([]fyne.CanvasObject, 0, len(slides)*2)
 	for idx := range slides {
-		dot := canvas.NewCircle(color.NRGBA{R: 0x76, G: 0x76, B: 0x76, A: 0xff})
+		dot := canvas.NewCircle(onboardingIndicatorInactive)
 		dots[idx] = dot
 		dotItems = append(dotItems, container.NewGridWrap(fyne.NewSize(10, 10), dot))
 		if idx < len(slides)-1 {
@@ -232,13 +211,13 @@ func newOnboardingCarousel(slides []onboardingSlide) fyne.CanvasObject {
 	applySlide := func() {
 		image.Resource = slides[currentSlide].Image
 		image.Refresh()
-		caption.SetText(slides[currentSlide].Text)
+		captionLabel.SetText(slides[currentSlide].Text)
 
 		for idx, dot := range dots {
 			if idx == currentSlide {
-				dot.FillColor = color.NRGBA{R: 0x9b, G: 0x9b, B: 0x9b, A: 0xff}
+				dot.FillColor = onboardingIndicatorActive
 			} else {
-				dot.FillColor = color.NRGBA{R: 0x76, G: 0x76, B: 0x76, A: 0xff}
+				dot.FillColor = onboardingIndicatorInactive
 			}
 			dot.Refresh()
 		}
@@ -269,12 +248,62 @@ func newOnboardingCarousel(slides []onboardingSlide) fyne.CanvasObject {
 	applySlide()
 	updateControls()
 
+	stage := newOnboardingStage(image, prevBtn, nextBtn, func(direction int) {
+		animateTo(currentSlide + direction)
+	})
+
 	return container.New(
 		newOnboardingCarouselLayout(),
 		caption,
-		container.New(newCarouselStageLayout(onboardingImageAspectRatio), image, prevBtn, nextBtn),
+		stage,
 		container.NewCenter(container.NewHBox(dotItems...)),
 	)
+}
+
+type onboardingStage struct {
+	widget.BaseWidget
+
+	image       fyne.CanvasObject
+	prev        fyne.CanvasObject
+	next        fyne.CanvasObject
+	onSwipe     func(int)
+	dragOffsetX float32
+}
+
+func newOnboardingStage(image fyne.CanvasObject, prev fyne.CanvasObject, next fyne.CanvasObject, onSwipe func(int)) *onboardingStage {
+	stage := &onboardingStage{
+		image:   image,
+		prev:    prev,
+		next:    next,
+		onSwipe: onSwipe,
+	}
+	stage.ExtendBaseWidget(stage)
+	return stage
+}
+
+func (s *onboardingStage) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(container.New(newCarouselStageLayout(onboardingImageAspectRatio), s.image, s.prev, s.next))
+}
+
+func (s *onboardingStage) MinSize() fyne.Size {
+	return fyne.NewSize(onboardingCarouselMinWidth, onboardingStageMinHeight)
+}
+
+func (s *onboardingStage) Dragged(event *fyne.DragEvent) {
+	s.dragOffsetX += event.Dragged.DX
+}
+
+func (s *onboardingStage) DragEnd() {
+	threshold := clampFloat32(s.Size().Width*0.12, 28, 72)
+	if s.onSwipe != nil {
+		switch {
+		case s.dragOffsetX >= threshold:
+			s.onSwipe(-1)
+		case s.dragOffsetX <= -threshold:
+			s.onSwipe(1)
+		}
+	}
+	s.dragOffsetX = 0
 }
 
 type arrowButton struct {
@@ -333,22 +362,72 @@ func (b *arrowButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *arrowButton) SetDisabled(disabled bool) {
 	b.disabled = disabled
+	if disabled {
+		b.hovered = false
+	}
 	b.refreshIcon()
 }
 
 func (b *arrowButton) refreshIcon() {
+	if b.icon == nil {
+		return
+	}
+
+	if b.disabled {
+		b.icon.Hide()
+		b.icon.Refresh()
+		return
+	}
+
+	b.icon.Show()
 	resource := b.normalIcon
-	if !b.disabled && b.hovered {
+	if b.hovered {
 		resource = b.hoveredIcon
 	}
 	b.icon.Resource = resource
 	b.icon.Refresh()
 }
 
+type foregroundOverrideTheme struct {
+	base       fyne.Theme
+	foreground color.Color
+}
+
+func newForegroundOverrideTheme(base fyne.Theme, foreground color.Color) fyne.Theme {
+	return &foregroundOverrideTheme{
+		base:       base,
+		foreground: foreground,
+	}
+}
+
+func (t *foregroundOverrideTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNameForeground {
+		return t.foreground
+	}
+	return t.base.Color(name, variant)
+}
+
+func (t *foregroundOverrideTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return t.base.Font(style)
+}
+
+func (t *foregroundOverrideTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return t.base.Icon(name)
+}
+
+func (t *foregroundOverrideTheme) Size(name fyne.ThemeSizeName) float32 {
+	return t.base.Size(name)
+}
+
 var (
 	_ fyne.Tappable     = (*arrowButton)(nil)
 	_ desktop.Hoverable = (*arrowButton)(nil)
 	_ fyne.Widget       = (*arrowButton)(nil)
+	_ fyne.Tappable     = (*onboardingPrimaryButton)(nil)
+	_ desktop.Hoverable = (*onboardingPrimaryButton)(nil)
+	_ fyne.Widget       = (*onboardingPrimaryButton)(nil)
+	_ fyne.Draggable    = (*onboardingStage)(nil)
+	_ fyne.Widget       = (*onboardingStage)(nil)
 	_ fyne.Tappable     = (*iconChromeButton)(nil)
 	_ desktop.Hoverable = (*iconChromeButton)(nil)
 	_ fyne.Widget       = (*iconChromeButton)(nil)
@@ -420,6 +499,79 @@ func centerSpacer(width float32) fyne.CanvasObject {
 	return spacer
 }
 
+type onboardingPrimaryButton struct {
+	widget.BaseWidget
+
+	labelText string
+	onTapped  func()
+	hovered   bool
+	bg        *canvas.Rectangle
+	label     *canvas.Text
+}
+
+func newOnboardingPrimaryButton(label string, onTapped func()) *onboardingPrimaryButton {
+	btn := &onboardingPrimaryButton{
+		labelText: label,
+		onTapped:  onTapped,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *onboardingPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(design.ColorAccent)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.label = canvas.NewText(b.labelText, design.ColorBackground)
+	b.label.TextSize = 15
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.label)))
+}
+
+func (b *onboardingPrimaryButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.labelText, design.ColorBackground)
+	measure.TextSize = 15
+	measure.TextStyle.Bold = true
+	labelSize := measure.MinSize()
+	return fyne.NewSize(labelSize.Width+24, 46)
+}
+
+func (b *onboardingPrimaryButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *onboardingPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *onboardingPrimaryButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *onboardingPrimaryButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *onboardingPrimaryButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *onboardingPrimaryButton) refreshVisuals() {
+	if b.bg == nil || b.label == nil {
+		return
+	}
+
+	if b.hovered {
+		b.bg.FillColor = design.ColorAccentHover
+	} else {
+		b.bg.FillColor = design.ColorAccent
+	}
+	b.bg.Refresh()
+	b.label.Refresh()
+}
+
 type iconChromeButtonSpec struct {
 	NormalFill  color.Color
 	HoverFill   color.Color
@@ -428,6 +580,7 @@ type iconChromeButtonSpec struct {
 	NormalIcon  fyne.Resource
 	HoverIcon   fyne.Resource
 	IconSize    fyne.Size
+	ButtonSize  fyne.Size
 	OnTapped    func()
 }
 
@@ -465,6 +618,9 @@ func (b *iconChromeButton) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (b *iconChromeButton) MinSize() fyne.Size {
+	if b.spec.ButtonSize.Width > 0 && b.spec.ButtonSize.Height > 0 {
+		return b.spec.ButtonSize
+	}
 	return fyne.NewSize(48, 48)
 }
 
@@ -505,6 +661,18 @@ func (b *iconChromeButton) refreshVisuals() {
 	b.bg.Refresh()
 	b.border.Refresh()
 	b.icon.Refresh()
+}
+
+func NewFooterIconButton(normalIcon fyne.Resource, hoverIcon fyne.Resource, iconSize fyne.Size, onTapped func()) fyne.CanvasObject {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill: color.Transparent,
+		HoverFill:  design.ColorSurfaceLight,
+		NormalIcon: normalIcon,
+		HoverIcon:  hoverIcon,
+		IconSize:   iconSize,
+		ButtonSize: fyne.NewSize(28, 28),
+		OnTapped:   onTapped,
+	})
 }
 
 type carouselLayout struct {
@@ -585,7 +753,11 @@ func (l *emptyStateLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	carousel := objects[1]
 	actions := objects[2]
 
-	contentWidth := clampFloat32(size.Width*0.72, emptyStateMinWidth, emptyStateMaxWidth)
+	contentWidth := clampFloat32(size.Width*0.82, emptyStateMinWidth, emptyStateMaxWidth)
+	carouselWidth := contentWidth
+	if size.Width <= 720 {
+		carouselWidth = clampFloat32(size.Width, emptyStateMinWidth, emptyStateMaxWidth)
+	}
 	titleWidth := minFloat32(contentWidth, emptyStateTitleMaxWidth)
 	titleMin := title.MinSize()
 	titleHeight := titleMin.Height
@@ -593,10 +765,10 @@ func (l *emptyStateLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	actionsWidth := minFloat32(contentWidth, onboardingActionMaxPrimaryW+56+onboardingActionGap)
 	actionsHeight := onboardingActionsHeight(actions, actionsWidth)
 
-	topInset := clampFloat32(size.Height*0.11, 28, 92)
-	titleToCarouselGap := clampFloat32(size.Height*0.03, 16, 34)
-	carouselToActionsGap := clampFloat32(size.Height*0.04, 20, 40)
-	bottomInset := clampFloat32(size.Height*0.07, 24, 56)
+	topInset := clampFloat32(size.Height*0.008, 0, 12)
+	titleToCarouselGap := clampFloat32(size.Height*0.035, 22, 40)
+	carouselToActionsGap := clampFloat32(size.Height*0.08, 44, 84)
+	bottomInset := clampFloat32(size.Height*0.05, 22, 40)
 
 	titleY := topInset
 	actionsY := size.Height - bottomInset - actionsHeight
@@ -614,8 +786,8 @@ func (l *emptyStateLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	title.Move(fyne.NewPos((size.Width-titleWidth)/2, titleY))
 	title.Resize(fyne.NewSize(titleWidth, titleHeight))
 
-	carousel.Move(fyne.NewPos((size.Width-contentWidth)/2, carouselY))
-	carousel.Resize(fyne.NewSize(contentWidth, carouselHeight))
+	carousel.Move(fyne.NewPos((size.Width-carouselWidth)/2, carouselY))
+	carousel.Resize(fyne.NewSize(carouselWidth, carouselHeight))
 
 	actions.Move(fyne.NewPos((size.Width-actionsWidth)/2, actionsY))
 	actions.Resize(fyne.NewSize(actionsWidth, actionsHeight))
@@ -703,8 +875,11 @@ func (l *carouselStageLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	prev := objects[1]
 	next := objects[2]
 
-	arrowSize := clampFloat32(minFloat32(size.Width*0.09, size.Height*0.26), 28, 42)
-	edgeInset := clampFloat32(size.Width*0.03, onboardingArrowEdgeMinInset, onboardingArrowEdgeMaxInset)
+	arrowSize := clampFloat32(minFloat32(size.Width*0.07, size.Height*0.2), 24, 36)
+	edgeInset := clampFloat32(size.Width*0.02, onboardingArrowEdgeMinInset, onboardingArrowEdgeMaxInset)
+	if size.Width <= 720 {
+		edgeInset = 0
+	}
 
 	prev.Move(fyne.NewPos(edgeInset, (size.Height-arrowSize)/2))
 	prev.Resize(fyne.NewSize(arrowSize, arrowSize))
@@ -729,9 +904,12 @@ func (l *carouselStageLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	if l.aspectRatio <= 0 {
 		l.aspectRatio = onboardingImageAspectRatio
 	}
+	if imageWidth > onboardingImageMaxWidth {
+		imageWidth = onboardingImageMaxWidth
+	}
 	imageHeight := imageWidth / l.aspectRatio
-	if imageHeight > availableHeight {
-		imageHeight = availableHeight
+	if imageHeight > availableHeight || imageHeight > onboardingImageMaxHeight {
+		imageHeight = minFloat32(availableHeight, onboardingImageMaxHeight)
 		imageWidth = imageHeight * l.aspectRatio
 	}
 	if imageWidth < 0 {
@@ -767,11 +945,12 @@ func (l *onboardingActionsLayout) Layout(objects []fyne.CanvasObject, size fyne.
 	primaryMin := primary.MinSize()
 	secondaryMin := secondary.MinSize()
 
-	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 44, 56)
 	secondarySize := actionHeight
-	primaryWidth := clampFloat32(size.Width-secondarySize-l.gap, primaryMin.Width, onboardingActionMaxPrimaryW)
+	availablePrimaryWidth := size.Width - secondarySize - l.gap
+	primaryWidth := minFloat32(availablePrimaryWidth, onboardingActionMaxPrimaryW)
 
-	if primaryWidth+secondarySize+l.gap <= size.Width {
+	if primaryWidth >= onboardingActionMinPrimaryW && primaryWidth+secondarySize+l.gap <= size.Width {
 		rowWidth := primaryWidth + secondarySize + l.gap
 		startX := (size.Width - rowWidth) / 2
 		primary.Move(fyne.NewPos(startX, maxFloat32(0, (size.Height-actionHeight)/2)))
@@ -782,7 +961,7 @@ func (l *onboardingActionsLayout) Layout(objects []fyne.CanvasObject, size fyne.
 		return
 	}
 
-	stackWidth := minFloat32(size.Width, maxFloat32(primaryMin.Width, onboardingActionStackMinWidth))
+	stackWidth := minFloat32(size.Width, maxFloat32(onboardingActionMinPrimaryW, onboardingActionStackMinWidth))
 	totalHeight := actionHeight + l.gap + secondarySize
 	startY := maxFloat32(0, (size.Height-totalHeight)/2)
 
@@ -800,9 +979,9 @@ func (l *onboardingActionsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 
 	primaryMin := objects[0].MinSize()
 	secondaryMin := objects[1].MinSize()
-	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 44, 56)
 	secondarySize := actionHeight
-	width := minFloat32(onboardingActionMaxPrimaryW+secondarySize+l.gap, maxFloat32(primaryMin.Width, onboardingActionStackMinWidth)+secondarySize+l.gap)
+	width := onboardingActionMaxPrimaryW + secondarySize + l.gap
 	height := actionHeight
 	return fyne.NewSize(width, height)
 }
@@ -873,9 +1052,9 @@ func onboardingActionsHeight(actions fyne.CanvasObject, width float32) float32 {
 
 	primaryMin := container.Objects[0].MinSize()
 	secondaryMin := container.Objects[1].MinSize()
-	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 44, 56)
 	secondarySize := actionHeight
-	if width >= primaryMin.Width+secondarySize+onboardingActionGap {
+	if width >= onboardingActionMinPrimaryW+secondarySize+onboardingActionGap {
 		return actionHeight
 	}
 
