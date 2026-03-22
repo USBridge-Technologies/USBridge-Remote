@@ -2,17 +2,42 @@ package controller
 
 import (
 	"fmt"
+	"image/color"
+	"time"
 
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
+
+const (
+	connectionDialogNameLabel  = "name"
+	connectionDialogHostLabel  = "ip address"
+	connectionDialogTokenLabel = "auth token"
+	qrScanSuccessText          = "\u2713 qr code successfully scanned"
+)
+
+type connectionDialogSpec struct {
+	title         string
+	connectLabel  string
+	saveLabel     string
+	closeLabel    string
+	nameValue     string
+	hostValue     string
+	tokenValue    string
+	feedbackText  string
+	feedbackColor color.Color
+	onConnect     func(name, host, token string) bool
+	onSave        func(name, host, token string) bool
+}
 
 func (cm *ConnectionManager) setLanguage(langCode string) {
 	cm.app.Preferences().SetString("language", langCode)
@@ -23,160 +48,570 @@ func (cm *ConnectionManager) setLanguage(langCode string) {
 	}
 }
 
-// formField создаёт поле формы: подпись сверху, поле ввода снизу
-func formField(label string, w fyne.CanvasObject) *widget.FormItem {
-	return &widget.FormItem{
-		Text:   "",
-		Widget: container.NewVBox(widget.NewLabel(label), w),
-	}
+func newConnectionDialogLabel(text string) fyne.CanvasObject {
+	label := canvas.NewText(text, design.ColorTextMuted)
+	label.TextSize = 12
+	return label
 }
 
-// createTokenFieldWithButtons создаёт поле токена с кнопками копирования и показа/скрытия
-func createTokenFieldWithButtons(tokenEntry *widget.Entry, window fyne.Window) *fyne.Container {
-	copyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewVBox(
+		view.NewInset(newConnectionDialogLabel(label), 10, 0, 0, 0),
+		view.NewInset(field, 0, 0, 0, 2),
+	)
+}
+
+func createTokenFieldWithButtons(tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+	reserve := canvas.NewRectangle(color.Transparent)
+	reserve.SetMinSize(fyne.NewSize(70, 1))
+	tokenEntry.ActionItem = reserve
+	tokenEntry.Refresh()
+
+	actions := newTokenActionItem(tokenEntry, window)
+	return container.New(&tokenFieldOverlayLayout{rightInset: 10}, tokenEntry, actions)
+}
+
+func newTokenActionItem(tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+	copyBtn := newConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := tokenEntry.Text
 		if txt != "" && window != nil {
 			window.Clipboard().SetContent(txt)
 		}
 	})
-	copyBtn.Importance = widget.LowImportance
 
-	var visibilityBtn *widget.Button
-	visibilityBtn = widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
+	visibilityIcon := theme.VisibilityOffIcon()
+	if !tokenEntry.Password {
+		visibilityIcon = theme.VisibilityIcon()
+	}
+
+	visibilityBtn := newConnectionDialogIconButton(visibilityIcon, nil)
+	visibilityBtn.onTapped = func() {
 		tokenEntry.Password = !tokenEntry.Password
 		if tokenEntry.Password {
-			visibilityBtn.SetIcon(theme.VisibilityIcon())
+			visibilityBtn.SetResource(theme.VisibilityOffIcon())
 		} else {
-			visibilityBtn.SetIcon(theme.VisibilityOffIcon())
+			visibilityBtn.SetResource(theme.VisibilityIcon())
 		}
-	})
-	visibilityBtn.Importance = widget.LowImportance
+		tokenEntry.Refresh()
+	}
 
-	return container.NewBorder(nil, nil, nil, container.NewHBox(copyBtn, visibilityBtn), tokenEntry)
+	actions := container.NewHBox(
+		copyBtn,
+		view.NewInset(visibilityBtn, 1, 0, 0, 0),
+	)
+	return container.NewGridWrap(fyne.NewSize(54, 28), container.NewCenter(actions))
 }
 
-// showEditDialog показывает диалог редактирования
+func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+	return container.NewVBox(
+		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
+		newConnectionDialogField(connectionDialogHostLabel, hostEntry),
+		newConnectionDialogField(connectionDialogTokenLabel, createTokenFieldWithButtons(tokenEntry, window)),
+	)
+}
+
+func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObject {
+	label := canvas.NewText(text, fill)
+	label.TextSize = 11
+	label.TextStyle.Bold = true
+	return label
+}
+
+func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, closeBtn *widget.Button) *widget.PopUp {
+	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+
+	bodyObjects := []fyne.CanvasObject{container.NewCenter(title)}
+	if feedback != nil {
+		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
+	}
+
+	var buttons fyne.CanvasObject
+	if connectBtn != nil {
+		buttons = container.NewGridWithColumns(3, connectBtn, saveBtn, closeBtn)
+	} else {
+		buttons = container.NewGridWithColumns(2, saveBtn, closeBtn)
+	}
+	bodyObjects = append(
+		bodyObjects,
+		view.NewInset(form, 0, 0, 16, 14),
+		buttons,
+	)
+	body := container.NewVBox(bodyObjects...)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	dim := canvas.NewRectangle(color.NRGBA{R: 0x06, G: 0x08, B: 0x0b, A: 0xb2})
+	content := container.New(&connectionDialogOverlayLayout{}, dim, panel)
+	popup := widget.NewModalPopUp(content, parent.Canvas())
+	popup.Move(fyne.NewPos(0, 0))
+	popup.Resize(parent.Canvas().Size())
+	popup.Show()
+	watchConnectionDialogPopup(parent, popup)
+	return popup
+}
+
+func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec connectionDialogSpec) *widget.PopUp {
+	nameEntry := newConnectionNameEntry(spec.nameValue)
+	hostEntry := newConnectionHostEntry(spec.hostValue)
+	tokenEntry := newConnectionTokenEntry(spec.tokenValue)
+	form := buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry, window)
+
+	var feedback fyne.CanvasObject
+	if spec.feedbackText != "" {
+		fill := spec.feedbackColor
+		if fill == nil {
+			fill = design.ColorAccent
+		}
+		feedback = newConnectionDialogFeedback(spec.feedbackText, fill)
+	}
+
+	saveLabel := spec.saveLabel
+	if saveLabel == "" {
+		saveLabel = i18n.Current.DeepLinkSave
+	}
+
+	closeLabel := spec.closeLabel
+	if closeLabel == "" {
+		closeLabel = i18n.Current.Close
+	}
+
+	var d *widget.PopUp
+	var connectBtn *widget.Button
+	if spec.onConnect != nil {
+		connectLabel := spec.connectLabel
+		if connectLabel == "" {
+			connectLabel = i18n.Current.DeepLinkConnect
+		}
+		connectBtn = widget.NewButton(connectLabel, func() {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+				return
+			}
+			if d != nil {
+				d.Hide()
+			}
+		})
+		connectBtn.Importance = widget.HighImportance
+		connectBtn.SetIcon(theme.LoginIcon())
+	}
+
+	saveBtn := widget.NewButton(saveLabel, func() {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+			return
+		}
+		if d != nil {
+			d.Hide()
+		}
+	})
+	saveBtn.Importance = widget.HighImportance
+	saveBtn.SetIcon(theme.ConfirmIcon())
+
+	closeBtn := widget.NewButton(closeLabel, func() {
+		if d != nil {
+			d.Hide()
+		}
+	})
+	closeBtn.Importance = widget.MediumImportance
+
+	d = showConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, closeBtn)
+	return d
+}
+
+func newConnectionNameEntry(value string) *widget.Entry {
+	entry := widget.NewEntry()
+	entry.SetText(value)
+	entry.SetPlaceHolder("Enter device name...")
+	return entry
+}
+
+func newConnectionHostEntry(value string) *widget.Entry {
+	entry := widget.NewEntry()
+	entry.SetText(value)
+	entry.SetPlaceHolder("xxx.xxx.x.x")
+	return entry
+}
+
+func newConnectionTokenEntry(value string) *widget.Entry {
+	entry := widget.NewEntry()
+	entry.SetText(value)
+	entry.SetPlaceHolder("")
+	entry.Password = true
+	return entry
+}
+
 func (cm *ConnectionManager) showEditDialog(idx int) {
 	if idx < 0 || idx >= len(cm.connections) {
 		return
 	}
 	conn := cm.connections[idx]
 
-	nameEntry := widget.NewEntry()
-	nameEntry.SetText(conn.Name)
-	nameEntry.SetPlaceHolder(i18n.Current.ConnectionNamePlaceholder)
-
-	hostEntry := widget.NewEntry()
-	hostEntry.SetText(conn.Host)
-	hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
-
-	tokenEntry := widget.NewEntry()
-	tokenEntry.SetText(conn.Token)
-	tokenEntry.SetPlaceHolder(i18n.Current.Token)
-	tokenEntry.Password = true
-
-	tokenRow := createTokenFieldWithButtons(tokenEntry, cm.window)
-	form := container.NewVBox(
-		container.NewVBox(widget.NewLabel(i18n.Current.ConnectionNamePlaceholder), nameEntry),
-		container.NewVBox(widget.NewLabel(i18n.Current.ServerAddress), hostEntry),
-		container.NewVBox(widget.NewLabel(i18n.Current.Token), tokenRow),
-	)
-
-	var d dialog.Dialog
-	applyBtn := widget.NewButton(i18n.Current.Apply, func() {
-		name := nameEntry.Text
-		host := hostEntry.Text
-		token := tokenEntry.Text
-		if name == "" || host == "" {
-			logrus.Warn("Название и адрес обязательны")
-			return
-		}
-		cm.connections[idx] = SavedConnection{Name: name, Host: host, Token: token, Protocol: conn.Protocol, WireGuardInvite: conn.WireGuardInvite}
-		cm.saveConnections()
-		fyne.Do(func() {
-			cm.hostEntry.SetText(host)
-			cm.tokenEntry.SetText(token)
-			if cm.protocolSelect != nil && conn.Protocol != "" {
-				cm.protocolSelect.SetSelected(conn.Protocol)
+	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
+		title:        i18n.Current.EditConnectionTitle,
+		connectLabel: i18n.Current.DeepLinkConnect,
+		saveLabel:    i18n.Current.DeepLinkSave,
+		closeLabel:   i18n.Current.Close,
+		nameValue:    conn.Name,
+		hostValue:    conn.Host,
+		tokenValue:   conn.Token,
+		onConnect: func(name, host, token string) bool {
+			if host == "" {
+				logrus.Warn("host is required")
+				return false
 			}
-			cm.refreshConnectionsList()
-		})
-		logrus.Infof("Обновлено подключение: %s", name)
-		if d != nil {
-			d.Hide()
-		}
-	})
-	applyBtn.Importance = widget.HighImportance
-	applyBtn.SetIcon(theme.ConfirmIcon())
+			fyne.Do(func() {
+				cm.hostEntry.SetText(host)
+				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && conn.Protocol != "" {
+					cm.protocolSelect.SetSelected(conn.Protocol)
+				}
+			})
+			if cm.onConnect != nil {
+				cm.onConnect(host, token, conn.Protocol, conn.WireGuardInvite)
+			}
+			return true
+		},
+		onSave: func(name, host, token string) bool {
+			if name == "" || host == "" {
+				logrus.Warn("name and address are required")
+				return false
+			}
 
-	cancelBtn := widget.NewButton(i18n.Current.Cancel, func() {
-		if d != nil {
-			d.Hide()
-		}
+			cm.connections[idx] = SavedConnection{
+				Name:            name,
+				Host:            host,
+				Token:           token,
+				Protocol:        conn.Protocol,
+				WireGuardInvite: conn.WireGuardInvite,
+			}
+			cm.saveConnections()
+			fyne.Do(func() {
+				cm.hostEntry.SetText(host)
+				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && conn.Protocol != "" {
+					cm.protocolSelect.SetSelected(conn.Protocol)
+				}
+				cm.refreshConnectionsList()
+			})
+			logrus.Infof("Updated connection: %s", name)
+			return true
+		},
 	})
-	cancelBtn.SetIcon(theme.CancelIcon())
-
-	content := container.NewVBox(form, widget.NewSeparator(), container.NewGridWithColumns(2, applyBtn, cancelBtn))
-	d = dialog.NewCustomWithoutButtons(i18n.Current.EditConnectionTitle, content, cm.window)
-	d.Show()
 }
 
-// showAddDialog показывает диалог добавления
 func (cm *ConnectionManager) showAddDialog() {
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder(i18n.Current.ConnectionNamePlaceholder)
-
-	hostEntry := widget.NewEntry()
-	hostEntry.SetText(cm.hostEntry.Text)
-	hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
-
-	tokenEntry := widget.NewEntry()
-	tokenEntry.SetText(cm.tokenEntry.Text)
-	tokenEntry.SetPlaceHolder(i18n.Current.Token)
-	tokenEntry.Password = true
-
-	tokenRow := createTokenFieldWithButtons(tokenEntry, cm.window)
-	form := container.NewVBox(
-		container.NewVBox(widget.NewLabel(i18n.Current.ConnectionNamePlaceholder), nameEntry),
-		container.NewVBox(widget.NewLabel(i18n.Current.ServerAddress), hostEntry),
-		container.NewVBox(widget.NewLabel(i18n.Current.Token), tokenRow),
-	)
-
-	var d dialog.Dialog
-	applyBtn := widget.NewButton(i18n.Current.Apply, func() {
-		name := nameEntry.Text
-		host := hostEntry.Text
-		token := tokenEntry.Text
-		protocol := ""
-		if cm.protocolSelect != nil {
-			protocol = cm.protocolSelect.Selected
-		}
-		cm.SaveConnection(name, host, token, protocol, "")
-		fyne.Do(func() {
-			cm.hostEntry.SetText(host)
-			cm.tokenEntry.SetText(token)
-			cm.refreshConnectionsList()
-		})
-		if d != nil {
-			d.Hide()
-		}
-	})
-	applyBtn.Importance = widget.HighImportance
-	applyBtn.SetIcon(theme.ConfirmIcon())
-
-	cancelBtn := widget.NewButton(i18n.Current.Cancel, func() {
-		if d != nil {
-			d.Hide()
-		}
-	})
-	cancelBtn.SetIcon(theme.CancelIcon())
-
-	content := container.NewVBox(form, widget.NewSeparator(), container.NewGridWithColumns(2, applyBtn, cancelBtn))
-	d = dialog.NewCustomWithoutButtons(i18n.Current.AddConnectionTitle, content, cm.window)
-	d.Show()
+	cm.showPrefilledAddDialog("", cm.hostEntry.Text, cm.tokenEntry.Text, "", "", false)
 }
 
-// handleDeleteConnection удаляет подключение по индексу
+func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol, wireGuardInvite string, scanned bool) {
+	feedbackText := ""
+	if scanned {
+		feedbackText = qrScanSuccessText
+	}
+
+	logrus.Infof("Opening add connection dialog: host=%s scanned=%v", host, scanned)
+
+	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
+		title:         i18n.Current.AddConnectionTitle,
+		connectLabel:  i18n.Current.DeepLinkConnect,
+		saveLabel:     i18n.Current.DeepLinkSave,
+		closeLabel:    i18n.Current.Close,
+		nameValue:     name,
+		hostValue:     host,
+		tokenValue:    token,
+		feedbackText:  feedbackText,
+		feedbackColor: design.ColorAccent,
+		onConnect: func(name, host, token string) bool {
+			if host == "" {
+				logrus.Warn("host is required")
+				return false
+			}
+
+			selectedProtocol := protocol
+			if selectedProtocol == "" && cm.protocolSelect != nil {
+				selectedProtocol = cm.protocolSelect.Selected
+			}
+
+			fyne.Do(func() {
+				cm.hostEntry.SetText(host)
+				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && selectedProtocol != "" {
+					cm.protocolSelect.SetSelected(selectedProtocol)
+				}
+			})
+			if cm.onConnect != nil {
+				cm.onConnect(host, token, selectedProtocol, wireGuardInvite)
+			}
+			return true
+		},
+		onSave: func(name, host, token string) bool {
+			if host == "" {
+				logrus.Warn("host is required")
+				return false
+			}
+
+			selectedProtocol := protocol
+			if selectedProtocol == "" && cm.protocolSelect != nil {
+				selectedProtocol = cm.protocolSelect.Selected
+			}
+
+			cm.SaveConnection(name, host, token, selectedProtocol, wireGuardInvite)
+			fyne.Do(func() {
+				cm.hostEntry.SetText(host)
+				cm.tokenEntry.SetText(token)
+				if cm.protocolSelect != nil && selectedProtocol != "" {
+					cm.protocolSelect.SetSelected(selectedProtocol)
+				}
+				cm.refreshConnectionsList()
+			})
+			return true
+		},
+	})
+}
+
+type connectionDialogIconButton struct {
+	widget.BaseWidget
+
+	resource fyne.Resource
+	onTapped func()
+	hovered  bool
+
+	bg   *canvas.Rectangle
+	icon *canvas.Image
+}
+
+func newConnectionDialogIconButton(resource fyne.Resource, onTapped func()) *connectionDialogIconButton {
+	btn := &connectionDialogIconButton{
+		resource: resource,
+		onTapped: onTapped,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *connectionDialogIconButton) SetResource(resource fyne.Resource) {
+	b.resource = resource
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogIconButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *connectionDialogIconButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *connectionDialogIconButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogIconButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *connectionDialogIconButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogIconButton) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (b *connectionDialogIconButton) MinSize() fyne.Size {
+	return fyne.NewSize(28, 28)
+}
+
+func (b *connectionDialogIconButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = 6
+
+	b.icon = canvas.NewImageFromResource(b.resource)
+	b.icon.FillMode = canvas.ImageFillContain
+	b.icon.ScaleMode = canvas.ImageScaleSmooth
+	b.icon.SetMinSize(fyne.NewSize(18, 18))
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.icon)))
+}
+
+func (b *connectionDialogIconButton) refreshVisuals() {
+	if b.bg == nil || b.icon == nil {
+		return
+	}
+
+	b.bg.FillColor = color.Transparent
+	b.icon.Resource = b.resource
+	b.icon.Translucency = 0.32
+	if b.hovered {
+		b.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+		b.icon.Translucency = 0.08
+	}
+
+	b.bg.Refresh()
+	b.icon.Refresh()
+}
+
+type tokenFieldOverlayLayout struct {
+	rightInset float32
+}
+
+func (l *tokenFieldOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	entry := objects[0]
+	actions := objects[1]
+
+	entry.Move(fyne.NewPos(0, 0))
+	entry.Resize(size)
+
+	actionsMin := actions.MinSize()
+	x := size.Width - actionsMin.Width - l.rightInset
+	if x < 0 {
+		x = 0
+	}
+	y := (size.Height - actionsMin.Height) / 2
+	if y < 0 {
+		y = 0
+	}
+	actions.Move(fyne.NewPos(x, y))
+	actions.Resize(actionsMin)
+}
+
+func (l *tokenFieldOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	return objects[0].MinSize()
+}
+
+type connectionDialogButtonsLayout struct {
+	gap float32
+}
+
+func (l *connectionDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	left := objects[0]
+	right := objects[1]
+	width := (size.Width - l.gap) / 2
+	if width < 0 {
+		width = 0
+	}
+
+	left.Move(fyne.NewPos(0, 0))
+	left.Resize(fyne.NewSize(width, size.Height))
+
+	right.Move(fyne.NewPos(width+l.gap, 0))
+	right.Resize(fyne.NewSize(width, size.Height))
+}
+
+func (l *connectionDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+	leftMin := objects[0].MinSize()
+	rightMin := objects[1].MinSize()
+	height := maxFloat32(leftMin.Height, rightMin.Height)
+	return fyne.NewSize(leftMin.Width+rightMin.Width+l.gap, height)
+}
+
+type connectionDialogOverlayLayout struct{}
+
+func (l *connectionDialogOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	dim := objects[0]
+	panel := objects[1]
+	dim.Move(fyne.NewPos(0, 0))
+	dim.Resize(size)
+
+	panelSize := connectionDialogPanelSize(panel, size)
+	panel.Move(fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2))
+	panel.Resize(panelSize)
+}
+
+func (l *connectionDialogOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, 0)
+}
+
+func watchConnectionDialogPopup(parent fyne.Window, popup *widget.PopUp) {
+	if parent == nil || popup == nil {
+		return
+	}
+
+	go func() {
+		lastSize := parent.Canvas().Size()
+		wasShown := false
+
+		for {
+			currentVisible := popup.Visible()
+			if currentVisible {
+				wasShown = true
+			} else if wasShown {
+				return
+			}
+
+			currentSize := parent.Canvas().Size()
+			if currentSize != lastSize {
+				lastSize = currentSize
+				fyne.Do(func() {
+					if popup == nil || !popup.Visible() {
+						return
+					}
+
+					popup.Move(fyne.NewPos(0, 0))
+					popup.Resize(currentSize)
+				})
+			}
+
+			time.Sleep(120 * time.Millisecond)
+		}
+	}()
+}
+
+func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fyne.Size {
+	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+	maxWidth := canvasSize.Width - margin*2
+	maxHeight := canvasSize.Height - margin*2
+	if maxWidth <= 0 {
+		maxWidth = canvasSize.Width
+	}
+	if maxHeight <= 0 {
+		maxHeight = canvasSize.Height
+	}
+
+	panelMin := panel.MinSize()
+	panelWidth := minFloat32(408, maxWidth)
+	if panelWidth < 0 {
+		panelWidth = 0
+	}
+
+	panelHeight := panelMin.Height
+	if panelHeight > maxHeight {
+		panelHeight = maxHeight
+	}
+
+	return fyne.NewSize(panelWidth, panelHeight)
+}
+
 func (cm *ConnectionManager) handleDeleteConnection(idx int) {
 	if idx < 0 || idx >= len(cm.connections) {
 		return
@@ -201,14 +636,13 @@ func (cm *ConnectionManager) handleDeleteConnection(idx int) {
 				cm.tokenEntry.SetText("")
 				cm.refreshConnectionsList()
 			})
-			logrus.Infof("Удалено подключение: %s", deletedName)
+			logrus.Infof("Deleted connection: %s", deletedName)
 		},
 		cm.window,
 	)
 }
 
-// handleQRScan обрабатывает нажатие на кнопку QR-сканера
 func (cm *ConnectionManager) handleQRScan() {
-	logrus.Info("Открытие QR-сканера")
+	logrus.Info("Opening QR scanner")
 	cm.qrScanner.ShowCameraScanner(cm.window)
 }

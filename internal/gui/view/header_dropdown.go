@@ -243,6 +243,8 @@ func (d *HeaderDropdown) refreshVisuals() {
 		iconResource = theme.NewDisabledResource(iconResource)
 	case d.opened:
 		fill = design.ColorSurfaceLight
+	case d.hovered:
+		fill = design.ColorSurfaceLight
 	}
 
 	d.bg.FillColor = fill
@@ -327,7 +329,13 @@ func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (i *dropdownItem) MinSize() fyne.Size {
-	return fyne.NewSize(120, 40)
+	label := canvas.NewText(i.text, design.ColorTextLight)
+	label.TextSize = 14
+	width := label.MinSize().Width + 28
+	if width < 72 {
+		width = 72
+	}
+	return fyne.NewSize(width, 36)
 }
 
 func (i *dropdownItem) Tapped(*fyne.PointEvent) {

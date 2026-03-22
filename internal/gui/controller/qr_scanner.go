@@ -20,38 +20,35 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// QRScanner структура для сканирования QR-кодов
 type QRScanner struct {
 	app    fyne.App
 	window fyne.Window
 
-	// Callbacks
-	onConnect func(host, token, protocol, wireGuardInvite string)       // Подключиться
-	onSave    func(name, host, token, protocol, wireGuardInvite string) // Сохранить (name = host если пусто)
+	onConnect func(host, token, protocol, wireGuardInvite string)
+	onSave    func(name, host, token, protocol, wireGuardInvite string)
+	onPrefill func(host, token, protocol, wireGuardInvite string)
 }
 
-// NewQRScanner создает новый сканер QR-кодов
-func NewQRScanner(app fyne.App, onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, host, token, protocol, wireGuardInvite string)) *QRScanner {
+func NewQRScanner(
+	app fyne.App,
+	onConnect func(host, token, protocol, wireGuardInvite string),
+	onSave func(name, host, token, protocol, wireGuardInvite string),
+	onPrefill func(host, token, protocol, wireGuardInvite string),
+) *QRScanner {
 	return &QRScanner{
 		app:       app,
 		onConnect: onConnect,
 		onSave:    onSave,
+		onPrefill: onPrefill,
 	}
 }
 
-// ShowCameraScanner показывает интерфейс сканирования с камеры
-// Использует платформо-специфичную реализацию (см. qr_scanner_android.go и qr_scanner_desktop.go)
 func (qs *QRScanner) ShowCameraScanner(parent fyne.Window) {
 	qs.window = parent
-
-	// Вызываем платформо-специфичную реализацию
 	qs.ShowCameraScannerNative(parent)
 }
 
-// scanQRCode сканирует QR-код из изображения
-// Вызывается только из main thread (fyne.Do или dialog callback)
 func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
-	// Конвертируем изображение в формат для gozxing
 	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf(i18n.Current.ErrorProcessingImage, err), parent)
@@ -59,10 +56,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 		return
 	}
 
-	// Создаем QR-декодер
 	qrReader := qrcode.NewQRCodeReader()
-
-	// Decode QR code
 	result, err := qrReader.Decode(bmp, nil)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf(i18n.Current.QRCodeNotFound), parent)
@@ -70,18 +64,11 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 		return
 	}
 
-	// Получаем текст из QR-кода
 	qrText := result.GetText()
 	logrus.Infof("QR code scanned: %s", qrText)
-
-	// Парсим данные в формате host:token
 	qs.parseAndApply(qrText, parent)
 }
 
-// parseAndApply парсит QR и показывает диалог
-// Поддерживает форматы: "host:token" и "usbridge://connect?host=X&token=Y"
-// Вызывается только из main thread (fyne.Do или dialog callback) — не использовать fyne.DoAndWait,
-// иначе дедлок на Android при вызове из callback.
 func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 	host, token, protocol, wireGuardInvite, err := parseQRContents(qrText)
 	if err != nil {
@@ -94,17 +81,23 @@ func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 		return
 	}
 
-	qs.showPreview(host, token, protocol, wireGuardInvite, parent)
+	fyne.Do(func() {
+		if qs.onPrefill != nil {
+			logrus.Infof("Opening prefilled connection dialog from QR: host=%s", host)
+			qs.onPrefill(host, token, protocol, wireGuardInvite)
+			return
+		}
+
+		qs.showPreview(host, token, protocol, wireGuardInvite, parent)
+	})
 }
 
-// parseQRContents парсит содержимое QR в host, token и protocol.
 func parseQRContents(qrText string) (host, token, protocol, wireGuardInvite string, err error) {
 	qrText = strings.TrimSpace(qrText)
 	if qrText == "" {
 		return "", "", "", "", fmt.Errorf("empty QR code")
 	}
 
-	// Формат usbridge://connect?host=X&token=Y
 	if strings.HasPrefix(qrText, "usbridge://") {
 		u, parseErr := url.Parse(qrText)
 		if parseErr != nil {
@@ -113,6 +106,7 @@ func parseQRContents(qrText string) (host, token, protocol, wireGuardInvite stri
 		if u.Scheme != "usbridge" || u.Host != "connect" {
 			return "", "", "", "", fmt.Errorf("unsupported deep link format")
 		}
+
 		query := u.Query()
 		host = strings.TrimSpace(query.Get("host"))
 		token = strings.TrimSpace(query.Get("token"))
@@ -124,17 +118,16 @@ func parseQRContents(qrText string) (host, token, protocol, wireGuardInvite stri
 		return "", "", "", "", fmt.Errorf("host or auth data is missing in the link")
 	}
 
-	// Формат host:token
 	parts := strings.SplitN(qrText, ":", 2)
 	if len(parts) != 2 {
 		return "", "", "", "", fmt.Errorf("expected format host:token or usbridge://connect?host=X&token=Y")
 	}
+
 	host = strings.TrimSpace(parts[0])
 	token = strings.TrimSpace(parts[1])
 	return host, token, "", "", nil
 }
 
-// showPreview показывает диалог с кнопками: Сохранить, Подключиться, Отменить
 func (qs *QRScanner) showPreview(host, token, protocol, wireGuardInvite string, parent fyne.Window) {
 	hostLabel := widget.NewLabel(i18n.Current.ServerAddressLabel)
 	hostValue := widget.NewLabel(host)
@@ -155,7 +148,7 @@ func (qs *QRScanner) showPreview(host, token, protocol, wireGuardInvite string, 
 			d.Hide()
 		}
 		if qs.onSave != nil {
-			qs.onSave(host, host, token, protocol, wireGuardInvite) // название = адрес хоста
+			qs.onSave(host, host, token, protocol, wireGuardInvite)
 			logrus.Infof("QR saved: host=%s", host)
 		}
 	})
@@ -178,9 +171,7 @@ func (qs *QRScanner) showPreview(host, token, protocol, wireGuardInvite string, 
 		}
 	})
 
-	// Connect (primary) слева, Save, Cancel
 	buttons := container.NewGridWithColumns(3, connectBtn, saveBtn, cancelBtn)
-
 	content := container.NewBorder(
 		container.NewVBox(
 			infoLabel,
@@ -199,7 +190,6 @@ func (qs *QRScanner) showPreview(host, token, protocol, wireGuardInvite string, 
 	d.Show()
 }
 
-// ShowTestQRCode показывает тестовый QR-код для демонстрации (для разработки)
 func ShowTestQRCode(parent fyne.Window) {
 	qrText := "192.168.88.244:supersecret"
 
@@ -211,15 +201,10 @@ func ShowTestQRCode(parent fyne.Window) {
 		dialog.ShowInformation(i18n.Current.Done, i18n.Current.TextCopiedToClipboard, parent)
 	})
 
-	content := container.NewVBox(
-		info,
-		copyBtn,
-	)
-
+	content := container.NewVBox(info, copyBtn)
 	dialog.NewCustom(i18n.Current.TestQRCode, i18n.Current.Close, content, parent).Show()
 }
 
-// CreateQRPreview создает виджет с превью QR-кода (если нужно показать QR в приложении)
 func CreateQRPreview(qrText string) fyne.CanvasObject {
 	label := widget.NewLabel(fmt.Sprintf(i18n.Current.QRCodeLabel, qrText))
 	label.Wrapping = fyne.TextWrapWord

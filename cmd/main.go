@@ -97,6 +97,7 @@ func setupLogging(level string) {
 	}
 
 	logrus.SetOutput(output)
+	logrus.Infof("Logging initialized: %s", logFilePath)
 }
 
 func loadConfig(configFile string) (*models.AppConfig, error) {

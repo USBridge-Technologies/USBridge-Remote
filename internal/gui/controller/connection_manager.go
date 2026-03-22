@@ -23,17 +23,13 @@ func normalizeConnectionProtocol(protocol string) string {
 }
 
 func connectionProtocolBadge(protocol string) string {
-	switch normalizeConnectionProtocol(protocol) {
-	case models.ConnectionProtocolWireGuard:
-		return "◆ WG"
-	case models.ConnectionProtocolQUIC:
-		return "▲ QUIC"
-	default:
-		return "● AUTO"
-	}
+	return normalizeConnectionProtocol(protocol)
 }
 
-// SavedConnection сохраненное подключение
+func connectionProtocolFromBadge(label string) string {
+	return normalizeConnectionProtocol(label)
+}
+
 type SavedConnection struct {
 	Name            string `json:"name"`
 	Host            string `json:"host"`
@@ -42,30 +38,25 @@ type SavedConnection struct {
 	WireGuardInvite string `json:"wireguard_invite,omitempty"`
 }
 
-// ConnectionManager менеджер подключений
 type ConnectionManager struct {
 	app    fyne.App
 	window fyne.Window
 	ui     *view.ConnectionManagerUI
 
-	// Данные
 	connections   []SavedConnection
 	selectedIndex int
 
-	// UI элементы
 	hostEntry      *widget.Entry
 	tokenEntry     *widget.Entry
 	protocolSelect *widget.Select
 
-	// QR сканер
 	qrScanner *QRScanner
 
-	// Callbacks
-	onConnect        func(host, token, protocol, wireGuardInvite string)
-	onLanguageChange func()
+	onConnect                func(host, token, protocol, wireGuardInvite string)
+	onLanguageChange         func()
+	onConnectionsStateChange func(bool)
 }
 
-// NewConnectionManager создает новый менеджер подключений
 func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:            app,
@@ -78,7 +69,8 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 		connections:    make([]SavedConnection, 0),
 	}
 
-	cm.qrScanner = NewQRScanner(app,
+	cm.qrScanner = NewQRScanner(
+		app,
 		func(host, token, protocol, wireGuardInvite string) {
 			fyne.Do(func() {
 				cm.hostEntry.SetText(host)
@@ -90,7 +82,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 			if cm.onConnect != nil {
 				cm.onConnect(host, token, protocol, wireGuardInvite)
 			}
-			logrus.Infof("QR подключение: host=%s", host)
+			logrus.Infof("QR connect: host=%s", host)
 		},
 		func(name, host, token, protocol, wireGuardInvite string) {
 			cm.SaveConnection(name, host, token, protocol, wireGuardInvite)
@@ -101,11 +93,25 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 					cm.protocolSelect.SetSelected(protocol)
 				}
 			})
-			logrus.Infof("QR сохранено: host=%s", host)
+			logrus.Infof("QR saved directly: host=%s", host)
+		},
+		func(host, token, protocol, wireGuardInvite string) {
+			cm.showPrefilledAddDialog("", host, token, protocol, wireGuardInvite, true)
 		},
 	)
 
 	cm.loadConnections()
 	cm.createInterface()
 	return cm
+}
+
+func (cm *ConnectionManager) SetConnectionsStateCallback(callback func(bool)) {
+	cm.onConnectionsStateChange = callback
+	cm.notifyConnectionsState()
+}
+
+func (cm *ConnectionManager) notifyConnectionsState() {
+	if cm.onConnectionsStateChange != nil {
+		cm.onConnectionsStateChange(len(cm.connections) > 0)
+	}
 }

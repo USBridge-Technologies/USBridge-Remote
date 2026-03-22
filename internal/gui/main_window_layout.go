@@ -150,9 +150,9 @@ func (mw *MainWindow) recreateContainers() {
 		mw.backupWidget.SetOnStorageInfoUpdate(storageUpdate)
 	}
 
-	statusBar := mw.createStatusBar()
+	mw.createStatusBar()
 	addressBar := mw.createAddressBar()
-	mainFooter := mw.createFooterBar(statusBar)
+	mainFooter := fyne.CanvasObject(nil)
 	connectionFooter := mw.createFooterBar(nil)
 
 	mw.tabs = container.NewAppTabs(
@@ -247,6 +247,25 @@ func (mw *MainWindow) createFooterBar(right fyne.CanvasObject) *fyne.Container {
 
 	mw.footerBar = bar
 	return bar
+}
+
+func (mw *MainWindow) updateConnectionFooterVisibility(hasConnections bool) {
+	if mw.footerBar == nil {
+		return
+	}
+
+	fyne.Do(func() {
+		if hasConnections {
+			mw.footerBar.Hide()
+		} else {
+			mw.footerBar.Show()
+		}
+
+		if content := mw.window.Content(); content != nil {
+			content.Refresh()
+			mw.window.Canvas().Refresh(content)
+		}
+	})
 }
 
 type collapsingBoxLayout struct{}

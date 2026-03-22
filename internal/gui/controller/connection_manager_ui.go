@@ -8,7 +8,6 @@ import (
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -75,6 +74,7 @@ func (cm *ConnectionManager) openExternalLink(rawURL string, label string) {
 func (cm *ConnectionManager) refreshConnectionsList() {
 	if len(cm.connections) == 0 {
 		cm.ui.SetEmptyState()
+		cm.notifyConnectionsState()
 		return
 	}
 
@@ -83,6 +83,7 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 		rows = append(rows, cm.createConnectionRow(conn, i))
 	}
 	cm.ui.SetRows(rows)
+	cm.notifyConnectionsState()
 }
 
 func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
@@ -101,7 +102,12 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			Name:          conn.Name,
 			Host:          conn.Host,
 			ProtocolBadge: connectionProtocolBadge(conn.Protocol),
-			EditLabel:     i18n.Current.EditButton,
+			ProtocolOptions: []string{
+				models.ConnectionProtocolAuto,
+				models.ConnectionProtocolQUIC,
+				models.ConnectionProtocolWireGuard,
+			},
+			EditLabel: i18n.Current.EditButton,
 		},
 		view.ConnectionRowActions{
 			OnSelect: fillForm,
@@ -122,28 +128,11 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			OnDelete: func() {
 				cm.handleDeleteConnection(idx)
 			},
-			OnProtocolMenu: func(btn *widget.Button) {
-				cm.showProtocolMenu(btn, idx)
+			OnProtocolChange: func(label string) {
+				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
 			},
 		},
 	)
-}
-
-func (cm *ConnectionManager) showProtocolMenu(protocolBtn *widget.Button, idx int) {
-	menu := fyne.NewMenu("",
-		fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolAuto), func() {
-			cm.updateConnectionProtocol(idx, models.ConnectionProtocolAuto)
-		}),
-		fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolQUIC), func() {
-			cm.updateConnectionProtocol(idx, models.ConnectionProtocolQUIC)
-		}),
-		fyne.NewMenuItem(connectionProtocolBadge(models.ConnectionProtocolWireGuard), func() {
-			cm.updateConnectionProtocol(idx, models.ConnectionProtocolWireGuard)
-		}),
-	)
-	popup := widget.NewPopUpMenu(menu, cm.window.Canvas())
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(protocolBtn)
-	popup.ShowAtPosition(pos.Add(fyne.NewPos(0, protocolBtn.Size().Height)))
 }
 
 func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) {

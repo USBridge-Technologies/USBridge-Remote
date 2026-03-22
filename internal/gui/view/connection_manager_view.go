@@ -2,6 +2,7 @@ package view
 
 import (
 	"image/color"
+	"strings"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -11,7 +12,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -29,18 +29,19 @@ type ConnectionManagerUI struct {
 }
 
 type ConnectionRowData struct {
-	Name          string
-	Host          string
-	ProtocolBadge string
-	EditLabel     string
+	Name            string
+	Host            string
+	ProtocolBadge   string
+	ProtocolOptions []string
+	EditLabel       string
 }
 
 type ConnectionRowActions struct {
-	OnSelect       func()
-	OnUse          func()
-	OnEdit         func()
-	OnDelete       func()
-	OnProtocolMenu func(*widget.Button)
+	OnSelect         func()
+	OnUse            func()
+	OnEdit           func()
+	OnDelete         func()
+	OnProtocolChange func(string)
 }
 
 const (
@@ -72,11 +73,21 @@ var (
 )
 
 func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
-	topQRBtn := widget.NewButtonWithIcon(i18n.Current.QRScannerButton, theme.SearchIcon(), onQR)
-	topQRBtn.Importance = widget.MediumImportance
+	topQRBtn := container.NewGridWrap(fyne.NewSize(40, 40), newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:  color.Transparent,
+		HoverFill:   design.ColorAccentHover,
+		Stroke:      design.ColorAccentHover,
+		StrokeWidth: 1,
+		NormalIcon:  assets.QRCodeAccent,
+		HoverIcon:   assets.QRCodeBoldBlack,
+		IconSize:    fyne.NewSize(20, 20),
+		OnTapped:    onQR,
+	}))
 
-	topAddBtn := widget.NewButtonWithIcon(i18n.Current.AddConnectionTitle, theme.ContentAddIcon(), onAdd)
-	topAddBtn.Importance = widget.HighImportance
+	topAddBtn := container.NewGridWrap(
+		fyne.NewSize(82, 40),
+		newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd),
+	)
 
 	centerQRBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
@@ -95,12 +106,12 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 	connectionsScroll := container.NewScroll(connectionsBox)
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 420))
 
-	topActions := container.NewHBox(topQRBtn, centerSpacer(10), topAddBtn)
+	topActions := container.NewHBox(topAddBtn, centerSpacer(8), topQRBtn)
 	headerArea := container.NewMax()
 	contentArea := container.NewMax()
 
 	mainContent := container.NewBorder(
-		NewInset(headerArea, 16, 8, 8, 4),
+		NewInset(headerArea, 16, 16, 8, 4),
 		nil,
 		nil,
 		nil,
@@ -167,7 +178,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 func (ui *ConnectionManagerUI) setHeader(title string, right fyne.CanvasObject) {
 	var left fyne.CanvasObject
 	if title != "" {
-		left = NewBrandText(title, 20, design.ColorTextLight, true)
+		left = NewBrandText(title, 18, design.ColorTextLight, true)
 	}
 	ui.headerArea.Objects = []fyne.CanvasObject{
 		container.NewBorder(nil, nil, left, right, nil),
@@ -438,60 +449,191 @@ func NewConnectionRow(data ConnectionRowData, actions ConnectionRowActions) *fyn
 	nameText.TextSize = theme.TextSubHeadingSize() + 2
 	nameText.TextStyle.Bold = true
 
-	nameSelectBtn := widget.NewButton("", actions.OnSelect)
-	nameSelectBtn.Importance = widget.LowImportance
-	nameRow := container.NewStack(nameText, container.NewMax(nameSelectBtn))
+	hostText := canvas.NewText(data.Host, design.ColorTextMuted)
+	hostText.TextSize = 13
 
-	hostLabel := canvas.NewText(data.Host, design.ColorTextMuted)
-	hostLabel.TextSize = 14
-
-	hostSelectBtn := widget.NewButton("", actions.OnSelect)
-	hostSelectBtn.Importance = widget.LowImportance
-	hostLabelWithClick := container.NewStack(container.NewMax(hostLabel), container.NewMax(hostSelectBtn))
-
-	protocolBtn := widget.NewButton(data.ProtocolBadge, nil)
-	protocolBtn.Importance = widget.MediumImportance
-	protocolBtn.OnTapped = func() {
-		actions.OnProtocolMenu(protocolBtn)
-	}
-
-	useBtn := widget.NewButtonWithIcon(i18n.Current.ConnectButton, theme.LoginIcon(), actions.OnUse)
-	useBtn.Importance = widget.HighImportance
-
-	editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), actions.OnEdit)
-	editBtn.Importance = widget.LowImportance
-
-	deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), actions.OnDelete)
-	deleteBtn.Importance = widget.LowImportance
-
-	centerSelectBtn := widget.NewButton("", actions.OnSelect)
-	centerSelectBtn.Importance = widget.LowImportance
-	centerArea := container.NewStack(layout.NewSpacer(), container.NewMax(centerSelectBtn))
-
-	topRow := container.NewBorder(nil, nil, nameRow, protocolBtn, nil)
-	bottomRow := container.NewBorder(nil, nil,
-		hostLabelWithClick,
-		container.NewHBox(useBtn, editBtn, deleteBtn),
-		centerArea,
+	nameSelectBtn := newTransparentTapOverlay(actions.OnSelect)
+	nameBlock := container.NewStack(
+		container.NewVBox(nameText, hostText),
+		nameSelectBtn,
 	)
 
-	accentLine := canvas.NewRectangle(design.ColorAlphaAccent22)
-	accentLine.SetMinSize(fyne.NewSize(0, 3))
+	protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
+		if actions.OnProtocolChange != nil {
+			actions.OnProtocolChange(value)
+		}
+	})
+	protocolBtn.SetSelected(data.ProtocolBadge)
+
+	useBtn := widget.NewButton(i18n.Current.ConnectButton, actions.OnUse)
+	useBtn.Importance = widget.HighImportance
+
+	editBtn := newConnectionSquareIconButton(theme.DocumentCreateIcon(), actions.OnEdit)
+	deleteBtn := newConnectionSquareIconButton(theme.DeleteIcon(), actions.OnDelete)
+
+	protocolWrap := container.NewGridWrap(protocolBtn.MinSize(), protocolBtn)
+	editWrap := container.NewGridWrap(fyne.NewSize(40, 40), editBtn)
+	deleteWrap := container.NewGridWrap(fyne.NewSize(40, 40), deleteBtn)
+	connectWidth := useBtn.MinSize().Width
+	if connectWidth < 104 {
+		connectWidth = 104
+	}
+	connectWrap := container.NewGridWrap(fyne.NewSize(connectWidth, 40), useBtn)
+
+	topActions := container.NewCenter(container.NewHBox(
+		protocolWrap,
+		inlineSpacer(3),
+		editWrap,
+		inlineSpacer(2),
+		deleteWrap,
+		inlineSpacer(3),
+		connectWrap,
+	))
+	topRow := container.NewBorder(nil, nil, nameBlock, topActions, nil)
 
 	card := NewCompactSurfacePanel(
-		container.NewBorder(
-			accentLine,
-			nil,
-			nil,
-			nil,
-			container.NewVBox(topRow, bottomRow),
-		),
-		design.ColorSurface,
+		NewInset(topRow, 10, 10, 10, 8),
+		design.ColorGray900,
 		design.RadiusMD,
 	)
 
-	return container.NewPadded(card)
+	return NewInset(card, 0, 0, 0, 8)
 }
+
+func inlineSpacer(width float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(width, 1))
+	return spacer
+}
+
+func newConnectionSquareIconButton(icon fyne.Resource, onTapped func()) fyne.CanvasObject {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:  design.ColorGray900,
+		HoverFill:   design.ColorSurfaceLight,
+		Stroke:      design.ColorBorder,
+		StrokeWidth: 1,
+		NormalIcon:  icon,
+		HoverIcon:   icon,
+		IconSize:    fyne.NewSize(18, 18),
+		ButtonSize:  fyne.NewSize(40, 40),
+		OnTapped:    onTapped,
+	})
+}
+
+func compactAddActionLabel(label string) string {
+	words := strings.Fields(strings.TrimSpace(label))
+	if len(words) == 0 {
+		return "+ Add"
+	}
+	return "+ " + words[0]
+}
+
+type outlinedActionButton struct {
+	widget.BaseWidget
+
+	labelText string
+	onTapped  func()
+	hovered   bool
+	bg        *canvas.Rectangle
+	border    *canvas.Rectangle
+	label     *canvas.Text
+}
+
+func newOutlinedActionButton(label string, onTapped func()) *outlinedActionButton {
+	btn := &outlinedActionButton{
+		labelText: label,
+		onTapped:  onTapped,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *outlinedActionButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.border = canvas.NewRectangle(color.Transparent)
+	b.border.CornerRadius = design.RadiusMD
+	b.border.StrokeColor = design.ColorAccentHover
+	b.border.StrokeWidth = 1
+
+	b.label = canvas.NewText(b.labelText, design.ColorAccentHover)
+	b.label.TextSize = 14
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.label), b.border))
+}
+
+func (b *outlinedActionButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.labelText, design.ColorAccentHover)
+	measure.TextSize = 14
+	measure.TextStyle.Bold = true
+	labelSize := measure.MinSize()
+	return fyne.NewSize(labelSize.Width+22, 40)
+}
+
+func (b *outlinedActionButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *outlinedActionButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *outlinedActionButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *outlinedActionButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *outlinedActionButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *outlinedActionButton) refreshVisuals() {
+	if b.bg == nil || b.border == nil || b.label == nil {
+		return
+	}
+
+	b.bg.FillColor = color.Transparent
+	b.label.Color = design.ColorAccentHover
+	if b.hovered {
+		b.bg.FillColor = design.ColorAccentHover
+		b.label.Color = design.ColorBackground
+	}
+
+	b.bg.Refresh()
+	b.border.Refresh()
+	b.label.Refresh()
+}
+
+type transparentTapOverlay struct {
+	widget.BaseWidget
+
+	onTapped func()
+}
+
+func newTransparentTapOverlay(onTapped func()) *transparentTapOverlay {
+	overlay := &transparentTapOverlay{onTapped: onTapped}
+	overlay.ExtendBaseWidget(overlay)
+	return overlay
+}
+
+func (o *transparentTapOverlay) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(canvas.NewRectangle(color.Transparent))
+}
+
+func (o *transparentTapOverlay) Tapped(*fyne.PointEvent) {
+	if o.onTapped != nil {
+		o.onTapped()
+	}
+}
+
+func (o *transparentTapOverlay) TappedSecondary(*fyne.PointEvent) {}
 
 func centerSpacer(width float32) fyne.CanvasObject {
 	spacer := canvas.NewRectangle(design.ColorGray950)

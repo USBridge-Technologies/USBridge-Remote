@@ -96,6 +96,7 @@ func (mw *MainWindow) Show() {
 			mw.createInterface()
 			mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.handleConnectionFromManager)
 			mw.recreateContainers()
+			mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 			mw.setupEventHandlers()
 			mw.setDefaultValues()
 			mw.showConnectionManager()
@@ -125,6 +126,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.handleConnectionFromManager)
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 	mw.recreateContainers()
+	mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 	mw.window.SetTitle(i18n.Current.AppTitle)
 
 	if wasConnected {
