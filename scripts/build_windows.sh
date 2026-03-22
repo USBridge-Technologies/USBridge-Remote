@@ -26,12 +26,76 @@ fi
 OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
 EXE_NAME="USBridge_Client.exe"
+WINTUN_VERSION="0.14.1"
+WINTUN_URL="https://www.wintun.net/builds/wintun-${WINTUN_VERSION}.zip"
 
 # Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+download_file() {
+    local url="$1"
+    local dest="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$dest"
+        return
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O "$dest" "$url"
+        return
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+        powershell -NoProfile -NonInteractive -Command \
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '$url' -OutFile '$dest'"
+        return
+    fi
+
+    echo -e "${RED}❌ Не найден downloader для $url${NC}"
+    echo "   Нужен один из инструментов: curl, wget или powershell."
+    exit 1
+}
+
+extract_zip() {
+    local archive="$1"
+    local dest="$2"
+
+    mkdir -p "$dest"
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -oq "$archive" -d "$dest"
+        return
+    fi
+    if command -v bsdtar >/dev/null 2>&1; then
+        bsdtar -xf "$archive" -C "$dest"
+        return
+    fi
+    if command -v tar >/dev/null 2>&1; then
+        tar -xf "$archive" -C "$dest"
+        return
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+        powershell -NoProfile -NonInteractive -Command "Expand-Archive -Path '$archive' -DestinationPath '$dest' -Force"
+        return
+    fi
+
+    echo -e "${RED}❌ Не найден архиватор для $archive${NC}"
+    echo "   Нужен один из инструментов: unzip, bsdtar, tar или powershell."
+    exit 1
+}
+
+resolve_wintun_arch() {
+    case "$1" in
+        amd64) echo "amd64" ;;
+        386) echo "x86" ;;
+        arm64) echo "arm64" ;;
+        *)
+            echo -e "${RED}❌ Неподдерживаемая архитектура для wintun: $1${NC}" >&2
+            return 1
+            ;;
+    esac
+}
 
 echo -e "${GREEN}🪟 Building USBridge Client for Windows${NC}"
 
@@ -237,6 +301,81 @@ echo -e "${GREEN}✓${NC} $EXE_NAME"
 
 # Копируем config
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
+
+# Копируем wintun.dll рядом с exe, потому что рантайм WireGuard ищет её
+# только в каталоге приложения или в System32.
+echo -e "\n${YELLOW}🔐 Подготовка WireGuard runtime...${NC}"
+WINTUN_TARGET_ARCH="$(resolve_wintun_arch "$GOARCH")"
+WINTUN_CANDIDATES=()
+if [ -n "${WINTUN_DLL:-}" ]; then
+    WINTUN_CANDIDATES+=("$WINTUN_DLL")
+fi
+if [ -n "${WINTUN_ROOT:-}" ]; then
+    WINTUN_CANDIDATES+=(
+        "$WINTUN_ROOT/wintun.dll"
+        "$WINTUN_ROOT/bin/wintun.dll"
+    )
+fi
+WINTUN_CANDIDATES+=(
+    "$REPO_ROOT/wintun.dll"
+    "$REPO_ROOT/third_party/wintun/wintun.dll"
+    "/c/Program Files/WireGuard/wintun.dll"
+    "/c/Windows/System32/wintun.dll"
+    "C:/Program Files/WireGuard/wintun.dll"
+    "C:/Windows/System32/wintun.dll"
+)
+
+WINTUN_DLL_SRC=""
+for cand in "${WINTUN_CANDIDATES[@]}"; do
+    [ -z "$cand" ] && continue
+    if [ -f "$cand" ]; then
+        WINTUN_DLL_SRC="$cand"
+        break
+    fi
+done
+
+if [ -n "$WINTUN_DLL_SRC" ]; then
+    cp -L "$WINTUN_DLL_SRC" "$DIST_WIN/wintun.dll"
+    echo -e "${GREEN}✓${NC} wintun.dll ($(basename "$WINTUN_DLL_SRC"))"
+else
+    echo -e "${YELLOW}⚠${NC} wintun.dll не найден локально, скачиваю ${WINTUN_URL}"
+
+    WINTUN_CACHE_DIR="${REPO_ROOT}/.cache/wintun/${WINTUN_VERSION}"
+    WINTUN_ZIP_PATH="${WINTUN_CACHE_DIR}/wintun-${WINTUN_VERSION}.zip"
+    WINTUN_EXTRACT_DIR="${WINTUN_CACHE_DIR}/unzipped"
+    mkdir -p "$WINTUN_CACHE_DIR"
+
+    if [ ! -f "$WINTUN_ZIP_PATH" ]; then
+        download_file "$WINTUN_URL" "$WINTUN_ZIP_PATH"
+    fi
+
+    rm -rf "$WINTUN_EXTRACT_DIR"
+    extract_zip "$WINTUN_ZIP_PATH" "$WINTUN_EXTRACT_DIR"
+
+    for cand in \
+        "$WINTUN_EXTRACT_DIR/wintun/bin/$WINTUN_TARGET_ARCH/wintun.dll" \
+        "$WINTUN_EXTRACT_DIR/bin/$WINTUN_TARGET_ARCH/wintun.dll" \
+        "$WINTUN_EXTRACT_DIR/$WINTUN_TARGET_ARCH/wintun.dll"; do
+        if [ -f "$cand" ]; then
+            WINTUN_DLL_SRC="$cand"
+            break
+        fi
+    done
+
+    if [ -z "$WINTUN_DLL_SRC" ]; then
+        WINTUN_DLL_SRC="$(find "$WINTUN_EXTRACT_DIR" -type f -path "*/$WINTUN_TARGET_ARCH/wintun.dll" 2>/dev/null | head -1)"
+    fi
+
+    if [ -n "$WINTUN_DLL_SRC" ] && [ -f "$WINTUN_DLL_SRC" ]; then
+        cp -L "$WINTUN_DLL_SRC" "$DIST_WIN/wintun.dll"
+        echo -e "${GREEN}✓${NC} wintun.dll скачан и добавлен для $WINTUN_TARGET_ARCH"
+    else
+        echo -e "${RED}❌ Не удалось подготовить wintun.dll для архитектуры $WINTUN_TARGET_ARCH${NC}"
+        echo "   Проверялся архив: $WINTUN_URL"
+        echo "   Можно задать WINTUN_DLL=/path/to/wintun.dll вручную."
+        exit 1
+    fi
+fi
 
 # 7. Копирование GStreamer
 # По умолчанию — стандартный путь установки; можно переопределить: export GSTREAMER_ROOT="..."

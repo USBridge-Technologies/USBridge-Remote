@@ -267,7 +267,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 	}
 
 	logrus.Info("Verifying connection...")
-	if err := mw.usbClient.TestConnection(); err != nil {
+	if err := mw.verifyActiveConnection(); err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)
 		if mw.frpService != nil && mw.frpService.IsRunning() {
 			mw.frpService.Disconnect()
@@ -321,6 +321,36 @@ func (mw *MainWindow) doConnect(host, token string) {
 	})
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
+}
+
+func (mw *MainWindow) verifyActiveConnection() error {
+	if mw.usbClient == nil {
+		return fmt.Errorf("usb client is not initialized")
+	}
+
+	if mw.connectedProtocol != models.ConnectionProtocolWireGuard {
+		return mw.usbClient.TestConnection()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= 6; attempt++ {
+		if attempt > 1 {
+			time.Sleep(1 * time.Second)
+		}
+
+		err := mw.usbClient.TestConnection()
+		if err == nil {
+			if attempt > 1 {
+				logrus.Infof("✅ [WireGuard] connection verified on retry %d/6", attempt)
+			}
+			return nil
+		}
+
+		lastErr = err
+		logrus.Warnf("⚠️ [WireGuard] verification attempt %d/6 failed: %v", attempt, err)
+	}
+
+	return lastErr
 }
 
 func (mw *MainWindow) handleConnectFailure(message string, err error) {

@@ -64,7 +64,9 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 		return fmt.Errorf("WireGuard bootstrap returned invalid endpoint host=%q port=%d", resp.ServerEndpointHost, resp.ServerEndpointPort)
 	}
 
-	_ = s.Disconnect()
+	if s.running || s.device != nil || s.tunDevice != nil {
+		_ = s.Disconnect()
+	}
 
 	mtu := resp.MTU
 	if mtu <= 0 {
@@ -72,6 +74,10 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 	}
 	s.ifaceName = userspaceDefaultInterfaceName(firstNonEmpty(resp.InterfaceName, s.config.WireGuardInterfaceName, s.ifaceName))
 	s.routeTargets = normalizeAllowedRoutes(resp)
+
+	if err := ensureWireGuardRuntimeAvailable(); err != nil {
+		return err
+	}
 
 	tunDevice, err := wgtun.CreateTUN(s.ifaceName, mtu)
 	if err != nil {
