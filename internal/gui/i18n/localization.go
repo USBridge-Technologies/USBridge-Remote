@@ -339,7 +339,7 @@ func EN() *LocalizedStrings {
 		NoSavedConnectionsHint:    "Use QR or add a connection below to get started.",
 		OnboardingStepConnect:     "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
 		OnboardingStepIP:          "Navigate to settings -> internet to connect your network.",
-		OnboardingStepScan:        "Enter the data above or scan the QR code",
+		OnboardingStepScan:        "Navigate to the auth token section and scan the qr code. You can also enter the ip and access token manually.",
 		DeleteConnectionTitle:     "Delete connection",
 		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
 

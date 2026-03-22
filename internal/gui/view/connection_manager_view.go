@@ -61,9 +61,9 @@ const (
 	onboardingArrowEdgeMinInset   float32 = 4
 	onboardingArrowEdgeMaxInset   float32 = 22
 	onboardingActionGap           float32 = 12
-	onboardingActionMinPrimaryW   float32 = 150
-	onboardingActionMaxPrimaryW   float32 = 190
-	onboardingActionStackMinWidth float32 = 160
+	onboardingActionMinPrimaryW   float32 = 120
+	onboardingActionMaxPrimaryW   float32 = 160
+	onboardingActionStackMinWidth float32 = 140
 )
 
 var (
@@ -89,7 +89,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 		OnTapped:    onQR,
 	})
 
-	centerAddBtn := newOnboardingPrimaryButton("+  "+i18n.Current.AddConnectionTitle, onAdd)
+	centerAddBtn := newOnboardingPrimaryButton("+ "+i18n.Current.AddConnectionTitle, onAdd)
 
 	connectionsBox := container.NewVBox()
 	connectionsScroll := container.NewScroll(connectionsBox)
@@ -523,7 +523,7 @@ func (b *onboardingPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg.CornerRadius = design.RadiusMD
 
 	b.label = canvas.NewText(b.labelText, design.ColorBackground)
-	b.label.TextSize = 15
+	b.label.TextSize = 14
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -532,10 +532,10 @@ func (b *onboardingPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
 
 func (b *onboardingPrimaryButton) MinSize() fyne.Size {
 	measure := canvas.NewText(b.labelText, design.ColorBackground)
-	measure.TextSize = 15
+	measure.TextSize = 14
 	measure.TextStyle.Bold = true
 	labelSize := measure.MinSize()
-	return fyne.NewSize(labelSize.Width+24, 46)
+	return fyne.NewSize(labelSize.Width+12, 42)
 }
 
 func (b *onboardingPrimaryButton) Tapped(*fyne.PointEvent) {
