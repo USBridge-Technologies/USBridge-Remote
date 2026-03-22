@@ -1,9 +1,10 @@
-//go:build !linux
+//go:build ios || (!linux && !windows && !darwin && !android)
 
 package service
 
 import (
 	"fmt"
+	"runtime"
 
 	"usbridge-client/internal/models"
 )
@@ -17,6 +18,9 @@ func newWireGuardService(config *models.AppConfig) WireGuardService {
 
 func (s *unsupportedWireGuardService) Connect(resp *models.WireGuardBootstrapResponse) error {
 	_ = resp
+	if runtime.GOOS == "ios" {
+		return fmt.Errorf("WireGuard on iOS requires a dedicated Network Extension / Packet Tunnel integration, which is not present in this project yet")
+	}
 	return fmt.Errorf("WireGuard runtime is not implemented on this platform yet")
 }
 
@@ -29,6 +33,9 @@ func (s *unsupportedWireGuardService) GetClientHost() string {
 	return ""
 }
 func (s *unsupportedWireGuardService) GeneratePublicKey() (string, error) {
+	if runtime.GOOS == "ios" {
+		return "", fmt.Errorf("WireGuard on iOS requires a dedicated Network Extension / Packet Tunnel integration, which is not present in this project yet")
+	}
 	return "", fmt.Errorf("WireGuard runtime is not implemented on this platform yet")
 }
 func (s *unsupportedWireGuardService) GetPrivateKey() string { return "" }

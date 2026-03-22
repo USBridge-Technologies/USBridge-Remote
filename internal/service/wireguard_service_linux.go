@@ -4,8 +4,8 @@ package service
 
 import (
 	"fmt"
-	"os/exec"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,12 +16,12 @@ import (
 )
 
 type linuxWireGuardService struct {
-	config      *models.AppConfig
-	ifaceName   string
-	serverHost  string
-	clientHost  string
-	privateKey  string
-	running     bool
+	config     *models.AppConfig
+	ifaceName  string
+	serverHost string
+	clientHost string
+	privateKey string
+	running    bool
 }
 
 func newWireGuardService(config *models.AppConfig) WireGuardService {
@@ -231,30 +231,4 @@ func shellEscape(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func normalizeAllowedRoutes(resp *models.WireGuardBootstrapResponse) []string {
-	routes := make([]string, 0, len(resp.AllowedIPs)+1)
-	seen := map[string]struct{}{}
-
-	add := func(route string) {
-		route = strings.TrimSpace(route)
-		if route == "" {
-			return
-		}
-		if _, ok := seen[route]; ok {
-			return
-		}
-		seen[route] = struct{}{}
-		routes = append(routes, route)
-	}
-
-	for _, allowedIP := range resp.AllowedIPs {
-		add(allowedIP)
-	}
-	if len(routes) == 0 && strings.TrimSpace(resp.ServerAddress) != "" {
-		add(strings.TrimSpace(resp.ServerAddress) + "/32")
-	}
-
-	return routes
 }
