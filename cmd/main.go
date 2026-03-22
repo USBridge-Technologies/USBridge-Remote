@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -82,29 +81,22 @@ func setupLogging(level string) {
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
 
-	logDir := os.Getenv("USBRIDGE_LOG_DIR")
-	if logDir == "" {
-		if wd, err := os.Getwd(); err == nil {
-			logDir = filepath.Join(wd, "logs")
-		} else if exePath, err := os.Executable(); err == nil {
-			logDir = filepath.Join(filepath.Dir(exePath), "logs")
-		} else {
-			logDir = filepath.Join(".", "logs")
-		}
-	}
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		logDir = filepath.Join(os.TempDir(), "usbridge-client-logs")
-		_ = os.MkdirAll(logDir, 0755)
-	}
-
-	logFilePath := filepath.Join(logDir, "app.log")
+	logFilePath := appLogPath()
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		logrus.SetOutput(os.Stdout)
 		logrus.Warnf("Failed to open log file: %v", err)
 		return
 	}
-	logrus.SetOutput(io.MultiWriter(os.Stdout, logFile))
+
+	output, err := setupPlatformLogOutput(logFile)
+	if err != nil {
+		logrus.SetOutput(logFile)
+		logrus.Warnf("Failed to redirect standard output to log file: %v", err)
+		return
+	}
+
+	logrus.SetOutput(output)
 }
 
 func loadConfig(configFile string) (*models.AppConfig, error) {
