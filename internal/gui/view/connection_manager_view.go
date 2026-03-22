@@ -45,6 +45,26 @@ type ConnectionRowActions struct {
 	OnProtocolMenu func(*widget.Button)
 }
 
+const (
+	onboardingImageAspectRatio    float32 = 2000.0 / 1072.0
+	emptyStateMaxWidth            float32 = 1280
+	emptyStateMinWidth            float32 = 280
+	emptyStateTitleMaxWidth       float32 = 760
+	onboardingCarouselMinWidth    float32 = 260
+	onboardingCarouselMinHeight   float32 = 188
+	onboardingCarouselMaxHeight   float32 = 760
+	onboardingCaptionMaxWidth     float32 = 760
+	onboardingStageMinHeight      float32 = 132
+	onboardingDotsTopSpacing      float32 = 12
+	onboardingCaptionBottomGap    float32 = 8
+	onboardingArrowGap            float32 = 10
+	onboardingArrowEdgeMinInset   float32 = 8
+	onboardingArrowEdgeMaxInset   float32 = 28
+	onboardingActionGap           float32 = 12
+	onboardingActionMaxPrimaryW   float32 = 320
+	onboardingActionStackMinWidth float32 = 180
+)
+
 func NewConnectionManagerUI(onLanguageMenu func(fyne.CanvasObject), onHelp func(), onQR func(), onAdd func()) *ConnectionManagerUI {
 	var langBtn fyne.CanvasObject
 	langBtn = newIconChromeButton(iconChromeButtonSpec{
@@ -95,8 +115,11 @@ func NewConnectionManagerUI(onLanguageMenu func(fyne.CanvasObject), onHelp func(
 	headerArea := container.NewMax()
 	contentArea := container.NewMax()
 
-	mainContent := container.NewVBox(
+	mainContent := container.NewBorder(
 		NewInset(headerArea, 16, 8, 8, 4),
+		nil,
+		nil,
+		nil,
 		NewInset(contentArea, 16, 16, 0, 16),
 	)
 
@@ -131,19 +154,19 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 		{Image: assets.OnboardingStep03, Text: i18n.Current.OnboardingStepScan},
 	}
 
-	actions := container.NewHBox(
-		container.NewGridWrap(fyne.NewSize(208, 48), ui.AddBtn),
-		centerSpacer(12),
-		container.NewGridWrap(fyne.NewSize(48, 48), ui.QRBtn),
-	)
-	emptyBlock := container.NewVBox(
-		container.NewCenter(NewBrandText(i18n.Current.AddNewDeviceTitle, 26, design.ColorTextLight, true)),
-		NewInset(newOnboardingCarousel(slides), 0, 0, 8, 8),
-		NewInset(container.NewCenter(actions), 0, 0, 12, 0),
+	title := NewBrandText(i18n.Current.AddNewDeviceTitle, 26, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+
+	actions := container.New(newOnboardingActionsLayout(onboardingActionGap), ui.AddBtn, ui.QRBtn)
+	emptyBlock := container.New(
+		newEmptyStateLayout(),
+		title,
+		newOnboardingCarousel(slides),
+		actions,
 	)
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
-		container.New(newCenterOffsetLayout(-42), emptyBlock),
+		emptyBlock,
 	}
 	ui.contentArea.Refresh()
 }
@@ -187,7 +210,6 @@ func newOnboardingCarousel(slides []onboardingSlide) fyne.CanvasObject {
 	currentSlide := 0
 	image := canvas.NewImageFromResource(slides[currentSlide].Image)
 	image.FillMode = canvas.ImageFillContain
-	image.SetMinSize(fyne.NewSize(520, 248))
 
 	caption := widget.NewLabel(slides[currentSlide].Text)
 	caption.Alignment = fyne.TextAlignCenter
@@ -247,10 +269,11 @@ func newOnboardingCarousel(slides []onboardingSlide) fyne.CanvasObject {
 	applySlide()
 	updateControls()
 
-	return container.NewVBox(
-		NewInset(container.NewCenter(container.NewGridWrap(fyne.NewSize(420, 40), caption)), 0, 0, 0, 4),
-		container.New(newCarouselLayout(28), container.NewGridWrap(fyne.NewSize(560, 280), image), prevBtn, nextBtn),
-		NewInset(container.NewCenter(container.NewHBox(dotItems...)), 0, 0, 14, 0),
+	return container.New(
+		newOnboardingCarouselLayout(),
+		caption,
+		container.New(newCarouselStageLayout(onboardingImageAspectRatio), image, prevBtn, nextBtn),
+		container.NewCenter(container.NewHBox(dotItems...)),
 	)
 }
 
@@ -547,6 +570,243 @@ func (l *carouselLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(imageMin.Width+l.edgeInset*2, height)
 }
 
+type emptyStateLayout struct{}
+
+func newEmptyStateLayout() fyne.Layout {
+	return &emptyStateLayout{}
+}
+
+func (l *emptyStateLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	title := objects[0]
+	carousel := objects[1]
+	actions := objects[2]
+
+	contentWidth := clampFloat32(size.Width*0.72, emptyStateMinWidth, emptyStateMaxWidth)
+	titleWidth := minFloat32(contentWidth, emptyStateTitleMaxWidth)
+	titleMin := title.MinSize()
+	titleHeight := titleMin.Height
+
+	actionsWidth := minFloat32(contentWidth, onboardingActionMaxPrimaryW+56+onboardingActionGap)
+	actionsHeight := onboardingActionsHeight(actions, actionsWidth)
+
+	topInset := clampFloat32(size.Height*0.11, 28, 92)
+	titleToCarouselGap := clampFloat32(size.Height*0.03, 16, 34)
+	carouselToActionsGap := clampFloat32(size.Height*0.04, 20, 40)
+	bottomInset := clampFloat32(size.Height*0.07, 24, 56)
+
+	titleY := topInset
+	actionsY := size.Height - bottomInset - actionsHeight
+	if actionsY < titleY+titleHeight+titleToCarouselGap {
+		actionsY = titleY + titleHeight + titleToCarouselGap
+	}
+
+	carouselY := titleY + titleHeight + titleToCarouselGap
+	carouselHeight := actionsY - carouselY - carouselToActionsGap
+	carouselHeight = clampFloat32(carouselHeight, onboardingCarouselMinHeight, onboardingCarouselMaxHeight)
+	if maxCarouselHeight := actionsY - carouselY - carouselToActionsGap; maxCarouselHeight < carouselHeight {
+		carouselHeight = maxFloat32(0, maxCarouselHeight)
+	}
+
+	title.Move(fyne.NewPos((size.Width-titleWidth)/2, titleY))
+	title.Resize(fyne.NewSize(titleWidth, titleHeight))
+
+	carousel.Move(fyne.NewPos((size.Width-contentWidth)/2, carouselY))
+	carousel.Resize(fyne.NewSize(contentWidth, carouselHeight))
+
+	actions.Move(fyne.NewPos((size.Width-actionsWidth)/2, actionsY))
+	actions.Resize(fyne.NewSize(actionsWidth, actionsHeight))
+}
+
+func (l *emptyStateLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	titleMin := objects[0].MinSize()
+	carouselMin := objects[1].MinSize()
+	actionsMin := objects[2].MinSize()
+
+	width := maxFloat32(titleMin.Width, maxFloat32(carouselMin.Width, actionsMin.Width))
+	height := titleMin.Height + 12 + carouselMin.Height + 16 + actionsMin.Height
+	return fyne.NewSize(width, height)
+}
+
+type onboardingCarouselLayout struct{}
+
+func newOnboardingCarouselLayout() fyne.Layout {
+	return &onboardingCarouselLayout{}
+}
+
+func (l *onboardingCarouselLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	caption := objects[0]
+	stage := objects[1]
+	dots := objects[2]
+
+	captionWidth := minFloat32(size.Width, onboardingCaptionMaxWidth)
+	captionHeight := caption.MinSize().Height
+	caption.Move(fyne.NewPos((size.Width-captionWidth)/2, 0))
+	caption.Resize(fyne.NewSize(captionWidth, captionHeight))
+
+	dotsMin := dots.MinSize()
+	dotsY := size.Height - dotsMin.Height
+	if dotsY < captionHeight+onboardingCaptionBottomGap {
+		dotsY = captionHeight + onboardingCaptionBottomGap
+	}
+	dots.Move(fyne.NewPos((size.Width-dotsMin.Width)/2, dotsY))
+	dots.Resize(dotsMin)
+
+	stageY := captionHeight + onboardingCaptionBottomGap
+	stageHeight := dotsY - stageY - onboardingDotsTopSpacing
+	stageHeight = maxFloat32(stageHeight, onboardingStageMinHeight)
+	if maxStageHeight := size.Height - stageY - dotsMin.Height - onboardingDotsTopSpacing; maxStageHeight < stageHeight {
+		stageHeight = maxFloat32(0, maxStageHeight)
+	}
+	stage.Move(fyne.NewPos(0, stageY))
+	stage.Resize(fyne.NewSize(size.Width, stageHeight))
+}
+
+func (l *onboardingCarouselLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	captionMin := objects[0].MinSize()
+	stageMin := objects[1].MinSize()
+	dotsMin := objects[2].MinSize()
+	width := maxFloat32(captionMin.Width, maxFloat32(stageMin.Width, dotsMin.Width))
+	height := captionMin.Height + onboardingCaptionBottomGap + stageMin.Height + onboardingDotsTopSpacing + dotsMin.Height
+	return fyne.NewSize(maxFloat32(width, onboardingCarouselMinWidth), maxFloat32(height, onboardingCarouselMinHeight))
+}
+
+type carouselStageLayout struct {
+	aspectRatio float32
+}
+
+func newCarouselStageLayout(aspectRatio float32) fyne.Layout {
+	return &carouselStageLayout{aspectRatio: aspectRatio}
+}
+
+func (l *carouselStageLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	image := objects[0]
+	prev := objects[1]
+	next := objects[2]
+
+	arrowSize := clampFloat32(minFloat32(size.Width*0.09, size.Height*0.26), 28, 42)
+	edgeInset := clampFloat32(size.Width*0.03, onboardingArrowEdgeMinInset, onboardingArrowEdgeMaxInset)
+
+	prev.Move(fyne.NewPos(edgeInset, (size.Height-arrowSize)/2))
+	prev.Resize(fyne.NewSize(arrowSize, arrowSize))
+
+	nextX := size.Width - edgeInset - arrowSize
+	if nextX < edgeInset {
+		nextX = edgeInset
+	}
+	next.Move(fyne.NewPos(nextX, (size.Height-arrowSize)/2))
+	next.Resize(fyne.NewSize(arrowSize, arrowSize))
+
+	availableWidth := size.Width - (arrowSize+edgeInset)*2 - onboardingArrowGap*2
+	availableHeight := size.Height
+	if availableWidth < 0 {
+		availableWidth = size.Width
+	}
+	if availableHeight < 0 {
+		availableHeight = 0
+	}
+
+	imageWidth := availableWidth
+	if l.aspectRatio <= 0 {
+		l.aspectRatio = onboardingImageAspectRatio
+	}
+	imageHeight := imageWidth / l.aspectRatio
+	if imageHeight > availableHeight {
+		imageHeight = availableHeight
+		imageWidth = imageHeight * l.aspectRatio
+	}
+	if imageWidth < 0 {
+		imageWidth = 0
+	}
+	if imageHeight < 0 {
+		imageHeight = 0
+	}
+
+	image.Move(fyne.NewPos((size.Width-imageWidth)/2, (size.Height-imageHeight)/2))
+	image.Resize(fyne.NewSize(imageWidth, imageHeight))
+}
+
+func (l *carouselStageLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(onboardingCarouselMinWidth, onboardingStageMinHeight)
+}
+
+type onboardingActionsLayout struct {
+	gap float32
+}
+
+func newOnboardingActionsLayout(gap float32) fyne.Layout {
+	return &onboardingActionsLayout{gap: gap}
+}
+
+func (l *onboardingActionsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	primary := objects[0]
+	secondary := objects[1]
+	primaryMin := primary.MinSize()
+	secondaryMin := secondary.MinSize()
+
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	secondarySize := actionHeight
+	primaryWidth := clampFloat32(size.Width-secondarySize-l.gap, primaryMin.Width, onboardingActionMaxPrimaryW)
+
+	if primaryWidth+secondarySize+l.gap <= size.Width {
+		rowWidth := primaryWidth + secondarySize + l.gap
+		startX := (size.Width - rowWidth) / 2
+		primary.Move(fyne.NewPos(startX, maxFloat32(0, (size.Height-actionHeight)/2)))
+		primary.Resize(fyne.NewSize(primaryWidth, actionHeight))
+
+		secondary.Move(fyne.NewPos(startX+primaryWidth+l.gap, maxFloat32(0, (size.Height-actionHeight)/2)))
+		secondary.Resize(fyne.NewSize(secondarySize, secondarySize))
+		return
+	}
+
+	stackWidth := minFloat32(size.Width, maxFloat32(primaryMin.Width, onboardingActionStackMinWidth))
+	totalHeight := actionHeight + l.gap + secondarySize
+	startY := maxFloat32(0, (size.Height-totalHeight)/2)
+
+	primary.Move(fyne.NewPos((size.Width-stackWidth)/2, startY))
+	primary.Resize(fyne.NewSize(stackWidth, actionHeight))
+
+	secondary.Move(fyne.NewPos((size.Width-secondarySize)/2, startY+actionHeight+l.gap))
+	secondary.Resize(fyne.NewSize(secondarySize, secondarySize))
+}
+
+func (l *onboardingActionsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	primaryMin := objects[0].MinSize()
+	secondaryMin := objects[1].MinSize()
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	secondarySize := actionHeight
+	width := minFloat32(onboardingActionMaxPrimaryW+secondarySize+l.gap, maxFloat32(primaryMin.Width, onboardingActionStackMinWidth)+secondarySize+l.gap)
+	height := actionHeight
+	return fyne.NewSize(width, height)
+}
+
 type centerOffsetLayout struct {
 	offsetY float32
 }
@@ -576,4 +836,48 @@ func (l *centerOffsetLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 		return fyne.NewSize(0, 0)
 	}
 	return objects[0].MinSize()
+}
+
+func minFloat32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxFloat32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func clampFloat32(value, minValue, maxValue float32) float32 {
+	if maxValue < minValue {
+		maxValue = minValue
+	}
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func onboardingActionsHeight(actions fyne.CanvasObject, width float32) float32 {
+	container, ok := actions.(*fyne.Container)
+	if !ok || len(container.Objects) < 2 {
+		return actions.MinSize().Height
+	}
+
+	primaryMin := container.Objects[0].MinSize()
+	secondaryMin := container.Objects[1].MinSize()
+	actionHeight := clampFloat32(maxFloat32(primaryMin.Height, secondaryMin.Height), 48, 60)
+	secondarySize := actionHeight
+	if width >= primaryMin.Width+secondarySize+onboardingActionGap {
+		return actionHeight
+	}
+
+	return actionHeight + onboardingActionGap + secondarySize
 }

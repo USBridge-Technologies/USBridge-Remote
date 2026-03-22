@@ -436,12 +436,15 @@ if [ -n "$GST_ROOT" ]; then
             "libgstd3d11.dll"
             "libgstvideoparsersbad.dll"
             "libgstvideoparsers.dll"
-            "libgstwinks.dll"
+            "libgstwinks.dll" # contains ksvideosrc for Windows QR camera capture
         )
         PLUGINS=("${PLUGINS_DEFAULT[@]}")
         if [ -n "${GST_PLUGIN_ALLOWLIST:-}" ]; then
             IFS=',' read -r -a PLUGINS <<< "$GST_PLUGIN_ALLOWLIST"
         fi
+        REQUIRED_PLUGINS=(
+            "libgstwinks.dll"
+        )
 
         needed_dlls=()
         while IFS= read -r dep; do
@@ -468,6 +471,7 @@ if [ -n "$GST_ROOT" ]; then
         )
         needed_dlls+=("${CORE_DLLS[@]}")
 
+        missing_required_plugins=()
         for plugin in "${PLUGINS[@]}"; do
             [ -z "$plugin" ] && continue
             if [ -f "$GST_ROOT/lib/gstreamer-1.0/$plugin" ]; then
@@ -475,8 +479,20 @@ if [ -n "$GST_ROOT" ]; then
                 while IFS= read -r dep; do
                     needed_dlls+=("$dep")
                 done < <(collect_deps "$GST_ROOT/lib/gstreamer-1.0/$plugin")
+            else
+                case " ${REQUIRED_PLUGINS[*]} " in
+                    *" $plugin "*) missing_required_plugins+=("$plugin") ;;
+                esac
             fi
         done
+
+        if [ "${#missing_required_plugins[@]}" -gt 0 ]; then
+            echo -e "${RED}❌ Missing required GStreamer plugin(s) in $GST_ROOT/lib/gstreamer-1.0:${NC}"
+            printf '   - %s\n' "${missing_required_plugins[@]}"
+            echo "   Windows camera capture uses ksvideosrc, which is provided by libgstwinks.dll."
+            echo "   Install a GStreamer build with gst-plugins-bad for Windows, then rebuild."
+            exit 1
+        fi
 
         # unique + copy deps
         if [ "${#needed_dlls[@]}" -gt 0 ]; then

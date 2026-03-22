@@ -55,9 +55,11 @@ func (cm *ConnectionManager) openQuickStartDocs() {
 		return
 	}
 
-	if err := app.OpenURL(uri); err != nil {
-		logrus.Errorf("failed to open docs URL %q: %v", docsURL, err)
-	}
+	go func() {
+		if err := openExternalURL(app, uri); err != nil {
+			logrus.Errorf("failed to open docs URL %q: %v", docsURL, err)
+		}
+	}()
 }
 
 func (cm *ConnectionManager) refreshConnectionsList() {

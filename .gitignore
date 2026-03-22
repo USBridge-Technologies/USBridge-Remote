@@ -2,6 +2,7 @@
 .git_old
 .idea
 .vscode
+.codex-cache
 certs
 *.key
 *.crt
@@ -24,6 +25,20 @@ x86_64
 *.gz
 *.lz4
 *.tgz
+*.dll
+*.so
+*.dylib
+*.cgo1.go
+*.test
+*.out
+# temp crosscompile Go files
+crosscompile_tmp/
+crosscompile_temp/
+crosscompile/
+build/
+build_tmp/
+build_temp/
+
 *.log
 old
 USBridge Client.exe
