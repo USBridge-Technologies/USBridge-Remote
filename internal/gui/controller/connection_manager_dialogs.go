@@ -28,8 +28,9 @@ const (
 type connectionDialogSpec struct {
 	title         string
 	connectLabel  string
+	connectIcon   fyne.Resource
 	saveLabel     string
-	closeLabel    string
+	deleteLabel   string
 	nameValue     string
 	hostValue     string
 	tokenValue    string
@@ -37,6 +38,7 @@ type connectionDialogSpec struct {
 	feedbackColor color.Color
 	onConnect     func(name, host, token string) bool
 	onSave        func(name, host, token string) bool
+	onDelete      func(close func())
 }
 
 func (cm *ConnectionManager) setLanguage(langCode string) {
@@ -117,21 +119,37 @@ func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObjec
 	return label
 }
 
-func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, closeBtn *widget.Button) *widget.PopUp {
+func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn *widget.Button) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
 
-	bodyObjects := []fyne.CanvasObject{container.NewCenter(title)}
+	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), nil)
+	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
+
+	bodyObjects := []fyne.CanvasObject{titleBar}
 	if feedback != nil {
 		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
 	}
 
-	var buttons fyne.CanvasObject
+	buttonItems := make([]fyne.CanvasObject, 0, 4)
 	if connectBtn != nil {
-		buttons = container.NewGridWithColumns(3, connectBtn, saveBtn, closeBtn)
-	} else {
-		buttons = container.NewGridWithColumns(2, saveBtn, closeBtn)
+		buttonItems = append(buttonItems, connectBtn)
 	}
+	if saveBtn != nil {
+		buttonItems = append(buttonItems, saveBtn)
+	}
+	if deleteBtn != nil {
+		buttonItems = append(buttonItems, deleteBtn)
+	}
+
+	columns := len(buttonItems)
+	if columns > 3 {
+		columns = 2
+	}
+	if columns == 0 {
+		columns = 1
+	}
+	buttons := container.NewGridWithColumns(columns, buttonItems...)
 	bodyObjects = append(
 		bodyObjects,
 		view.NewInset(form, 0, 0, 16, 14),
@@ -159,6 +177,9 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
 	popup.Show()
+	closeBtn.onTapped = func() {
+		popup.Hide()
+	}
 	watchConnectionDialogPopup(parent, popup)
 	return popup
 }
@@ -183,13 +204,14 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		saveLabel = i18n.Current.DeepLinkSave
 	}
 
-	closeLabel := spec.closeLabel
-	if closeLabel == "" {
-		closeLabel = i18n.Current.Close
+	deleteLabel := spec.deleteLabel
+	if deleteLabel == "" {
+		deleteLabel = i18n.Current.DeleteButton
 	}
 
 	var d *widget.PopUp
 	var connectBtn *widget.Button
+	var deleteBtn *widget.Button
 	if spec.onConnect != nil {
 		connectLabel := spec.connectLabel
 		if connectLabel == "" {
@@ -204,7 +226,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			}
 		})
 		connectBtn.Importance = widget.HighImportance
-		connectBtn.SetIcon(theme.LoginIcon())
+		if spec.connectIcon != nil {
+			connectBtn.SetIcon(spec.connectIcon)
+		}
 	}
 
 	saveBtn := widget.NewButton(saveLabel, func() {
@@ -218,14 +242,19 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	saveBtn.Importance = widget.HighImportance
 	saveBtn.SetIcon(theme.ConfirmIcon())
 
-	closeBtn := widget.NewButton(closeLabel, func() {
-		if d != nil {
-			d.Hide()
-		}
-	})
-	closeBtn.Importance = widget.MediumImportance
+	if spec.onDelete != nil {
+		deleteBtn = widget.NewButton(deleteLabel, func() {
+			spec.onDelete(func() {
+				if d != nil {
+					d.Hide()
+				}
+			})
+		})
+		deleteBtn.Importance = widget.DangerImportance
+		deleteBtn.SetIcon(theme.DeleteIcon())
+	}
 
-	d = showConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, closeBtn)
+	d = showConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn)
 	return d
 }
 
@@ -258,30 +287,12 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 	conn := cm.connections[idx]
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
-		title:        i18n.Current.EditConnectionTitle,
-		connectLabel: i18n.Current.DeepLinkConnect,
-		saveLabel:    i18n.Current.DeepLinkSave,
-		closeLabel:   i18n.Current.Close,
-		nameValue:    conn.Name,
-		hostValue:    conn.Host,
-		tokenValue:   conn.Token,
-		onConnect: func(name, host, token string) bool {
-			if host == "" {
-				logrus.Warn("host is required")
-				return false
-			}
-			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && conn.Protocol != "" {
-					cm.protocolSelect.SetSelected(conn.Protocol)
-				}
-			})
-			if cm.onConnect != nil {
-				cm.onConnect(host, token, conn.Protocol, conn.WireGuardInvite)
-			}
-			return true
-		},
+		title:       i18n.Current.EditConnectionTitle,
+		saveLabel:   i18n.Current.DeepLinkSave,
+		deleteLabel: i18n.Current.DeleteButton,
+		nameValue:   conn.Name,
+		hostValue:   conn.Host,
+		tokenValue:  conn.Token,
 		onSave: func(name, host, token string) bool {
 			if name == "" || host == "" {
 				logrus.Warn("name and address are required")
@@ -307,6 +318,9 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 			logrus.Infof("Updated connection: %s", name)
 			return true
 		},
+		onDelete: func(close func()) {
+			cm.handleDeleteConnection(idx, close)
+		},
 	})
 }
 
@@ -325,8 +339,8 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
 		title:         i18n.Current.AddConnectionTitle,
 		connectLabel:  i18n.Current.DeepLinkConnect,
+		connectIcon:   nil,
 		saveLabel:     i18n.Current.DeepLinkSave,
-		closeLabel:    i18n.Current.Close,
 		nameValue:     name,
 		hostValue:     host,
 		tokenValue:    token,
@@ -531,6 +545,37 @@ func (l *connectionDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyn
 	return fyne.NewSize(leftMin.Width+rightMin.Width+l.gap, height)
 }
 
+type connectionDialogTitleLayout struct{}
+
+func (l *connectionDialogTitleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	title := objects[0]
+	closeBtn := objects[1]
+	titleMin := title.MinSize()
+	closeMin := closeBtn.MinSize()
+
+	title.Move(fyne.NewPos(maxFloat32(0, (size.Width-titleMin.Width)/2), maxFloat32(0, (size.Height-titleMin.Height)/2)))
+	title.Resize(titleMin)
+
+	closeBtn.Move(fyne.NewPos(maxFloat32(0, size.Width-closeMin.Width), maxFloat32(0, (size.Height-closeMin.Height)/2)))
+	closeBtn.Resize(closeMin)
+}
+
+func (l *connectionDialogTitleLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	titleMin := objects[0].MinSize()
+	closeMin := objects[1].MinSize()
+	width := maxFloat32(titleMin.Width, closeMin.Width*2) + closeMin.Width
+	height := maxFloat32(titleMin.Height, closeMin.Height)
+	return fyne.NewSize(width, height)
+}
+
 type connectionDialogOverlayLayout struct{}
 
 func (l *connectionDialogOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -612,7 +657,7 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 	return fyne.NewSize(panelWidth, panelHeight)
 }
 
-func (cm *ConnectionManager) handleDeleteConnection(idx int) {
+func (cm *ConnectionManager) handleDeleteConnection(idx int, afterDelete func()) {
 	if idx < 0 || idx >= len(cm.connections) {
 		return
 	}
@@ -636,6 +681,9 @@ func (cm *ConnectionManager) handleDeleteConnection(idx int) {
 				cm.tokenEntry.SetText("")
 				cm.refreshConnectionsList()
 			})
+			if afterDelete != nil {
+				afterDelete()
+			}
 			logrus.Infof("Deleted connection: %s", deletedName)
 		},
 		cm.window,

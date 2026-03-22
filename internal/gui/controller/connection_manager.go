@@ -43,8 +43,10 @@ type ConnectionManager struct {
 	window fyne.Window
 	ui     *view.ConnectionManagerUI
 
-	connections   []SavedConnection
-	selectedIndex int
+	connections           []SavedConnection
+	selectedIndex         int
+	connectionPending     bool
+	activeConnectionIndex int
 
 	hostEntry      *widget.Entry
 	tokenEntry     *widget.Entry
@@ -59,14 +61,15 @@ type ConnectionManager struct {
 
 func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
-		app:            app,
-		window:         window,
-		hostEntry:      hostEntry,
-		tokenEntry:     tokenEntry,
-		protocolSelect: protocolSelect,
-		onConnect:      onConnect,
-		selectedIndex:  -1,
-		connections:    make([]SavedConnection, 0),
+		app:                   app,
+		window:                window,
+		hostEntry:             hostEntry,
+		tokenEntry:            tokenEntry,
+		protocolSelect:        protocolSelect,
+		onConnect:             onConnect,
+		selectedIndex:         -1,
+		connections:           make([]SavedConnection, 0),
+		activeConnectionIndex: -1,
 	}
 
 	cm.qrScanner = NewQRScanner(
@@ -113,5 +116,44 @@ func (cm *ConnectionManager) SetConnectionsStateCallback(callback func(bool)) {
 func (cm *ConnectionManager) notifyConnectionsState() {
 	if cm.onConnectionsStateChange != nil {
 		cm.onConnectionsStateChange(len(cm.connections) > 0)
+	}
+}
+
+func (cm *ConnectionManager) beginConnectionFromRow(idx int) bool {
+	if cm.connectionPending {
+		return false
+	}
+
+	cm.setConnectionPendingState(true, idx)
+	return true
+}
+
+func (cm *ConnectionManager) SetConnectionPending(pending bool) {
+	activeIndex := cm.activeConnectionIndex
+	if !pending {
+		activeIndex = -1
+	}
+	cm.setConnectionPendingState(pending, activeIndex)
+}
+
+func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex int) {
+	if pending && (activeIndex < 0 || activeIndex >= len(cm.connections)) {
+		activeIndex = -1
+	}
+	if !pending {
+		activeIndex = -1
+	}
+
+	if cm.connectionPending == pending && cm.activeConnectionIndex == activeIndex {
+		return
+	}
+
+	cm.connectionPending = pending
+	cm.activeConnectionIndex = activeIndex
+
+	if cm.ui != nil {
+		fyne.Do(func() {
+			cm.refreshConnectionsList()
+		})
 	}
 }

@@ -3,6 +3,7 @@
 .idea
 .vscode
 .codex-cache
+.gocache
 certs
 *.key
 *.crt

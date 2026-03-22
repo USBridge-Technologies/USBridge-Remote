@@ -21,8 +21,8 @@ import (
 
 const (
 	addressBarGap       float32 = 4
-	addressBarControlH  float32 = 40
-	addressBarActionBtn float32 = 40
+	addressBarControlH  float32 = 36
+	addressBarActionBtn float32 = 36
 )
 
 // createInterface инициализирует поля адресной строки.
@@ -112,6 +112,9 @@ func (mw *MainWindow) refreshConnectionControls() {
 	}
 
 	mw.protocolDropdown.Refresh()
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetConnectionPending(mw.isConnectionPending && !mw.isConnected)
+	}
 }
 
 // setDefaultValues устанавливает начальные значения для полей.
@@ -179,7 +182,8 @@ func (mw *MainWindow) recreateContainers() {
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createAddressBar() *fyne.Container {
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
-	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, 0, 0)
+	hostField := view.NewFixedHeight(mw.hostEntry, addressBarControlH)
+	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, 0, addressBarControlH)
 	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
 	utilityPart := newCollapsingBox(
 		mw.pcpanelWidget.GetContainer(),
@@ -195,7 +199,7 @@ func (mw *MainWindow) createAddressBar() *fyne.Container {
 	)
 	row := container.New(
 		layout.NewBorderLayout(nil, nil, nil, rightPart),
-		mw.hostEntry,
+		hostField,
 		rightPart,
 	)
 	return view.NewHeaderBand("", row)

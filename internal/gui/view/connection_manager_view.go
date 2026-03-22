@@ -2,7 +2,8 @@ package view
 
 import (
 	"image/color"
-	"strings"
+	"sync"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -33,14 +34,17 @@ type ConnectionRowData struct {
 	Host            string
 	ProtocolBadge   string
 	ProtocolOptions []string
-	EditLabel       string
+}
+
+type ConnectionRowState struct {
+	Disabled bool
+	Loading  bool
 }
 
 type ConnectionRowActions struct {
 	OnSelect         func()
 	OnUse            func()
 	OnEdit           func()
-	OnDelete         func()
 	OnProtocolChange func(string)
 }
 
@@ -61,52 +65,55 @@ const (
 	onboardingArrowGap            float32 = 4
 	onboardingArrowEdgeMinInset   float32 = 4
 	onboardingArrowEdgeMaxInset   float32 = 22
-	onboardingActionGap           float32 = 12
+	onboardingActionGap           float32 = 4
 	onboardingActionMinPrimaryW   float32 = 120
 	onboardingActionMaxPrimaryW   float32 = 160
 	onboardingActionStackMinWidth float32 = 140
+	connectionCompactActionSize   float32 = 30
+	connectionCompactActionGap    float32 = 4
+	connectionNameEditGap         float32 = 10
 )
 
 var (
 	onboardingIndicatorInactive = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff}
 	onboardingIndicatorActive   = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff}
+	connectionActionBlockedFill = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff}
 )
 
 func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
-	topQRBtn := container.NewGridWrap(fyne.NewSize(40, 40), newIconChromeButton(iconChromeButtonSpec{
+	topQRBtn := newCompactActionWrap(connectionCompactActionSize, newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
-		HoverFill:   design.ColorAccentHover,
-		Stroke:      design.ColorAccentHover,
-		StrokeWidth: 1,
-		NormalIcon:  assets.QRCodeAccent,
-		HoverIcon:   assets.QRCodeBoldBlack,
-		IconSize:    fyne.NewSize(20, 20),
+		HoverFill:   design.ColorSurfaceLight,
+		Stroke:      color.Transparent,
+		StrokeWidth: 0,
+		NormalIcon:  assets.QRCodeLight,
+		HoverIcon:   assets.QRCodeLight,
+		IconSize:    fyne.NewSize(15, 15),
+		ButtonSize:  fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
 		OnTapped:    onQR,
 	}))
 
-	topAddBtn := container.NewGridWrap(
-		fyne.NewSize(82, 40),
-		newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd),
-	)
+	topAddBtn := newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd))
 
-	centerQRBtn := newIconChromeButton(iconChromeButtonSpec{
+	centerQRBtn := newCompactActionWrap(connectionCompactActionSize, newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
-		HoverFill:   design.ColorAccentHover,
-		Stroke:      design.ColorAccentHover,
-		StrokeWidth: 1,
-		NormalIcon:  assets.QRCodeAccent,
-		HoverIcon:   assets.QRCodeBoldBlack,
-		IconSize:    fyne.NewSize(24, 24),
+		HoverFill:   design.ColorSurfaceLight,
+		Stroke:      color.Transparent,
+		StrokeWidth: 0,
+		NormalIcon:  assets.QRCodeLight,
+		HoverIcon:   assets.QRCodeLight,
+		IconSize:    fyne.NewSize(15, 15),
+		ButtonSize:  fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
 		OnTapped:    onQR,
-	})
+	}))
 
-	centerAddBtn := newOnboardingPrimaryButton("+ "+i18n.Current.AddConnectionTitle, onAdd)
+	centerAddBtn := newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd))
 
 	connectionsBox := container.NewVBox()
 	connectionsScroll := container.NewScroll(connectionsBox)
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 420))
 
-	topActions := container.NewHBox(topAddBtn, centerSpacer(8), topQRBtn)
+	topActions := container.NewHBox(topAddBtn, centerSpacer(connectionCompactActionGap), topQRBtn)
 	headerArea := container.NewMax()
 	contentArea := container.NewMax()
 
@@ -138,6 +145,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 }
 
 func (ui *ConnectionManagerUI) SetEmptyState() {
+	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
 	ui.setHeader("", nil)
 
@@ -165,6 +173,7 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 }
 
 func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
+	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
 	for _, row := range rows {
 		ui.ConnectionsBox.Add(row)
@@ -178,7 +187,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 func (ui *ConnectionManagerUI) setHeader(title string, right fyne.CanvasObject) {
 	var left fyne.CanvasObject
 	if title != "" {
-		left = NewBrandText(title, 18, design.ColorTextLight, true)
+		left = NewBrandText(title, 16, design.ColorTextLight, true)
 	}
 	ui.headerArea.Objects = []fyne.CanvasObject{
 		container.NewBorder(nil, nil, left, right, nil),
@@ -442,20 +451,29 @@ var (
 	_ fyne.Tappable     = (*iconChromeButton)(nil)
 	_ desktop.Hoverable = (*iconChromeButton)(nil)
 	_ fyne.Widget       = (*iconChromeButton)(nil)
+	_ fyne.Tappable     = (*connectionPrimaryButton)(nil)
+	_ desktop.Hoverable = (*connectionPrimaryButton)(nil)
+	_ fyne.Widget       = (*connectionPrimaryButton)(nil)
 )
 
-func NewConnectionRow(data ConnectionRowData, actions ConnectionRowActions) *fyne.Container {
+func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions ConnectionRowActions) *fyne.Container {
 	nameText := canvas.NewText(data.Name, design.ColorTextLight)
 	nameText.TextSize = theme.TextSubHeadingSize() + 2
 	nameText.TextStyle.Bold = true
 
-	hostText := canvas.NewText(data.Host, design.ColorTextMuted)
+	hostText := canvas.NewText(data.Host, design.ColorBorder)
 	hostText.TextSize = 13
 
 	nameSelectBtn := newTransparentTapOverlay(actions.OnSelect)
-	nameBlock := container.NewStack(
+	nameSelectBtn.SetDisabled(state.Disabled)
+	clickableName := container.NewStack(
 		container.NewVBox(nameText, hostText),
 		nameSelectBtn,
+	)
+	editBtn := newConnectionInlineIconButton(theme.DocumentCreateIcon(), actions.OnEdit, state.Disabled)
+	nameBlock := container.New(newConnectionNameLayout(),
+		clickableName,
+		editBtn,
 	)
 
 	protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
@@ -464,35 +482,20 @@ func NewConnectionRow(data ConnectionRowData, actions ConnectionRowActions) *fyn
 		}
 	})
 	protocolBtn.SetSelected(data.ProtocolBadge)
+	protocolBtn.SetDisabled(state.Disabled)
 
-	useBtn := widget.NewButton(i18n.Current.ConnectButton, actions.OnUse)
-	useBtn.Importance = widget.HighImportance
+	useBtn := newConnectionPrimaryButton(i18n.Current.ConnectButton, actions.OnUse)
+	useBtn.SetDisabled(state.Disabled)
+	useBtn.SetLoading(state.Loading)
 
-	editBtn := newConnectionSquareIconButton(theme.DocumentCreateIcon(), actions.OnEdit)
-	deleteBtn := newConnectionSquareIconButton(theme.DeleteIcon(), actions.OnDelete)
-
-	protocolWrap := container.NewGridWrap(protocolBtn.MinSize(), protocolBtn)
-	editWrap := container.NewGridWrap(fyne.NewSize(40, 40), editBtn)
-	deleteWrap := container.NewGridWrap(fyne.NewSize(40, 40), deleteBtn)
-	connectWidth := useBtn.MinSize().Width
-	if connectWidth < 104 {
-		connectWidth = 104
-	}
-	connectWrap := container.NewGridWrap(fyne.NewSize(connectWidth, 40), useBtn)
-
-	topActions := container.NewCenter(container.NewHBox(
-		protocolWrap,
-		inlineSpacer(3),
-		editWrap,
-		inlineSpacer(2),
-		deleteWrap,
-		inlineSpacer(3),
-		connectWrap,
-	))
-	topRow := container.NewBorder(nil, nil, nameBlock, topActions, nil)
+	rowContent := container.New(newConnectionRowLayout(),
+		nameBlock,
+		protocolBtn,
+		useBtn,
+	)
 
 	card := NewCompactSurfacePanel(
-		NewInset(topRow, 10, 10, 10, 8),
+		NewInset(rowContent, 10, 10, 10, 8),
 		design.ColorGray900,
 		design.RadiusMD,
 	)
@@ -506,26 +509,197 @@ func inlineSpacer(width float32) fyne.CanvasObject {
 	return spacer
 }
 
-func newConnectionSquareIconButton(icon fyne.Resource, onTapped func()) fyne.CanvasObject {
+type connectionRowLayout struct {
+	compact bool
+}
+
+func newConnectionRowLayout() fyne.Layout {
+	return &connectionRowLayout{}
+}
+
+func (l *connectionRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	nameBlock := objects[0]
+	protocolBtn := objects[1]
+	connectBtn := objects[2]
+
+	const (
+		actionGap        float32 = 12
+		rowGap           float32 = 10
+		minNameCompactW  float32 = 160
+		singleRowNameGap float32 = 16
+		compactThreshold float32 = 560
+	)
+
+	nameMin := nameBlock.MinSize()
+	protocolMin := protocolBtn.MinSize()
+	connectMin := connectBtn.MinSize()
+
+	secondaryWidth := protocolMin.Width + actionGap + connectMin.Width
+	singleRowWidth := minFloat32(size.Width, maxFloat32(320, nameMin.Width)) + singleRowNameGap + secondaryWidth
+	useCompact := size.Width < compactThreshold || size.Width < singleRowWidth
+	l.compact = useCompact
+
+	if !useCompact {
+		rowHeight := maxFloat32(nameMin.Height, maxFloat32(protocolMin.Height, connectMin.Height))
+		connectX := maxFloat32(0, size.Width-connectMin.Width)
+		protocolX := maxFloat32(0, connectX-actionGap-protocolMin.Width)
+		nameWidth := maxFloat32(0, protocolX-singleRowNameGap)
+
+		nameBlock.Move(fyne.NewPos(0, maxFloat32(0, (rowHeight-nameMin.Height)/2)))
+		nameBlock.Resize(fyne.NewSize(nameWidth, nameMin.Height))
+
+		protocolBtn.Move(fyne.NewPos(protocolX, maxFloat32(0, (rowHeight-protocolMin.Height)/2)))
+		protocolBtn.Resize(protocolMin)
+
+		connectBtn.Move(fyne.NewPos(connectX, maxFloat32(0, (rowHeight-connectMin.Height)/2)))
+		connectBtn.Resize(connectMin)
+		return
+	}
+
+	topRowHeight := nameMin.Height
+	nameWidth := size.Width
+	if nameWidth < minNameCompactW {
+		nameWidth = maxFloat32(0, size.Width)
+	}
+	if nameWidth < 0 {
+		nameWidth = 0
+	}
+
+	nameBlock.Move(fyne.NewPos(0, maxFloat32(0, (topRowHeight-nameMin.Height)/2)))
+	nameBlock.Resize(fyne.NewSize(nameWidth, nameMin.Height))
+
+	bottomRowHeight := maxFloat32(protocolMin.Height, connectMin.Height)
+	bottomY := topRowHeight + rowGap
+	bottomWidth := maxFloat32(0, size.Width-actionGap)
+	protocolWidth := maxFloat32(protocolMin.Width, bottomWidth/2)
+	connectWidth := size.Width - protocolWidth - actionGap
+	if connectWidth < connectMin.Width {
+		connectWidth = connectMin.Width
+		protocolWidth = maxFloat32(protocolMin.Width, size.Width-connectWidth-actionGap)
+	}
+	if protocolWidth+actionGap+connectWidth > size.Width {
+		protocolWidth = maxFloat32(0, size.Width-actionGap-connectWidth)
+	}
+
+	protocolBtn.Move(fyne.NewPos(0, bottomY+maxFloat32(0, (bottomRowHeight-protocolMin.Height)/2)))
+	protocolBtn.Resize(fyne.NewSize(protocolWidth, bottomRowHeight))
+
+	connectBtn.Move(fyne.NewPos(protocolWidth+actionGap, bottomY+maxFloat32(0, (bottomRowHeight-connectMin.Height)/2)))
+	connectBtn.Resize(fyne.NewSize(connectWidth, bottomRowHeight))
+}
+
+func (l *connectionRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	nameMin := objects[0].MinSize()
+	protocolMin := objects[1].MinSize()
+	connectMin := objects[2].MinSize()
+
+	const (
+		actionGap        float32 = 12
+		rowGap           float32 = 10
+		minNameCompactW  float32 = 160
+		singleRowNameGap float32 = 16
+	)
+
+	singleRowWidth := nameMin.Width + singleRowNameGap + protocolMin.Width + actionGap + connectMin.Width
+	singleRowHeight := maxFloat32(nameMin.Height, maxFloat32(protocolMin.Height, connectMin.Height))
+	if !l.compact {
+		return fyne.NewSize(singleRowWidth, singleRowHeight)
+	}
+
+	topWidth := minNameCompactW
+	bottomWidth := protocolMin.Width + actionGap + connectMin.Width
+	width := maxFloat32(topWidth, bottomWidth)
+	topHeight := nameMin.Height
+	bottomHeight := maxFloat32(protocolMin.Height, connectMin.Height)
+	height := topHeight + rowGap + bottomHeight
+
+	return fyne.NewSize(width, height)
+}
+
+type connectionNameLayout struct{}
+
+func newConnectionNameLayout() fyne.Layout {
+	return &connectionNameLayout{}
+}
+
+func (l *connectionNameLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	textBlock := objects[0]
+	editBtn := objects[1]
+	editMin := editBtn.MinSize()
+	textMin := textBlock.MinSize()
+	textWidth := minFloat32(textMin.Width, size.Width-editMin.Width-connectionNameEditGap)
+	if textWidth < 0 {
+		textWidth = 0
+	}
+
+	textBlock.Move(fyne.NewPos(0, 0))
+	textBlock.Resize(fyne.NewSize(textWidth, size.Height))
+
+	editY := float32(0)
+	if size.Height > editMin.Height {
+		editY = maxFloat32(0, (size.Height-editMin.Height)/2-8)
+	}
+	editBtn.Move(fyne.NewPos(textWidth+connectionNameEditGap, editY))
+	editBtn.Resize(editMin)
+}
+
+func (l *connectionNameLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	textMin := objects[0].MinSize()
+	editMin := objects[1].MinSize()
+	return fyne.NewSize(textMin.Width+connectionNameEditGap+editMin.Width, maxFloat32(textMin.Height, editMin.Height))
+}
+
+func newConnectionSquareIconButton(icon fyne.Resource, onTapped func(), disabled bool) fyne.CanvasObject {
 	return newIconChromeButton(iconChromeButtonSpec{
-		NormalFill:  design.ColorGray900,
-		HoverFill:   design.ColorSurfaceLight,
-		Stroke:      design.ColorBorder,
-		StrokeWidth: 1,
-		NormalIcon:  icon,
-		HoverIcon:   icon,
-		IconSize:    fyne.NewSize(18, 18),
-		ButtonSize:  fyne.NewSize(40, 40),
-		OnTapped:    onTapped,
+		Disabled:     disabled,
+		DisabledFill: connectionActionBlockedFill,
+		NormalFill:   design.ColorGray900,
+		HoverFill:    design.ColorSurfaceLight,
+		Stroke:       design.ColorBorder,
+		StrokeWidth:  1,
+		NormalIcon:   icon,
+		HoverIcon:    icon,
+		DisabledIcon: icon,
+		IconSize:     fyne.NewSize(18, 18),
+		ButtonSize:   fyne.NewSize(40, 40),
+		OnTapped:     onTapped,
+	})
+}
+
+func newConnectionInlineIconButton(icon fyne.Resource, onTapped func(), disabled bool) fyne.CanvasObject {
+	return newIconChromeButton(iconChromeButtonSpec{
+		Disabled:     disabled,
+		NormalFill:   color.Transparent,
+		HoverFill:    design.ColorSurfaceLight,
+		Stroke:       color.Transparent,
+		StrokeWidth:  0,
+		NormalIcon:   icon,
+		HoverIcon:    icon,
+		DisabledIcon: theme.NewDisabledResource(icon),
+		IconSize:     fyne.NewSize(15, 15),
+		ButtonSize:   fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
+		OnTapped:     onTapped,
 	})
 }
 
 func compactAddActionLabel(label string) string {
-	words := strings.Fields(strings.TrimSpace(label))
-	if len(words) == 0 {
-		return "+ Add"
-	}
-	return "+ " + words[0]
+	return "+"
 }
 
 type outlinedActionButton struct {
@@ -554,11 +728,11 @@ func (b *outlinedActionButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.border = canvas.NewRectangle(color.Transparent)
 	b.border.CornerRadius = design.RadiusMD
-	b.border.StrokeColor = design.ColorAccentHover
-	b.border.StrokeWidth = 1
+	b.border.StrokeColor = color.Transparent
+	b.border.StrokeWidth = 0
 
-	b.label = canvas.NewText(b.labelText, design.ColorAccentHover)
-	b.label.TextSize = 14
+	b.label = canvas.NewText(b.labelText, design.ColorTextMuted)
+	b.label.TextSize = 18
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -567,11 +741,15 @@ func (b *outlinedActionButton) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (b *outlinedActionButton) MinSize() fyne.Size {
-	measure := canvas.NewText(b.labelText, design.ColorAccentHover)
-	measure.TextSize = 14
+	measure := canvas.NewText(b.labelText, design.ColorTextMuted)
+	measure.TextSize = 18
 	measure.TextStyle.Bold = true
 	labelSize := measure.MinSize()
-	return fyne.NewSize(labelSize.Width+22, 40)
+	width := labelSize.Width + 14
+	if width < connectionCompactActionSize {
+		width = connectionCompactActionSize
+	}
+	return fyne.NewSize(width, connectionCompactActionSize)
 }
 
 func (b *outlinedActionButton) Tapped(*fyne.PointEvent) {
@@ -600,10 +778,10 @@ func (b *outlinedActionButton) refreshVisuals() {
 	}
 
 	b.bg.FillColor = color.Transparent
-	b.label.Color = design.ColorAccentHover
+	b.label.Color = design.ColorTextMuted
 	if b.hovered {
-		b.bg.FillColor = design.ColorAccentHover
-		b.label.Color = design.ColorBackground
+		b.bg.FillColor = design.ColorSurfaceLight
+		b.label.Color = design.ColorTextMuted
 	}
 
 	b.bg.Refresh()
@@ -611,10 +789,15 @@ func (b *outlinedActionButton) refreshVisuals() {
 	b.label.Refresh()
 }
 
+func newCompactActionWrap(size float32, child fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewCenter(container.NewGridWrap(fyne.NewSize(size, size), child))
+}
+
 type transparentTapOverlay struct {
 	widget.BaseWidget
 
 	onTapped func()
+	disabled bool
 }
 
 func newTransparentTapOverlay(onTapped func()) *transparentTapOverlay {
@@ -628,12 +811,234 @@ func (o *transparentTapOverlay) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (o *transparentTapOverlay) Tapped(*fyne.PointEvent) {
-	if o.onTapped != nil {
-		o.onTapped()
+	if o.disabled || o.onTapped == nil {
+		return
 	}
+
+	o.onTapped()
 }
 
 func (o *transparentTapOverlay) TappedSecondary(*fyne.PointEvent) {}
+
+func (o *transparentTapOverlay) SetDisabled(disabled bool) {
+	o.disabled = disabled
+}
+
+type animationStopper interface {
+	StopAnimations()
+}
+
+func stopCanvasAnimations(obj fyne.CanvasObject) {
+	if obj == nil {
+		return
+	}
+
+	if stopper, ok := obj.(animationStopper); ok {
+		stopper.StopAnimations()
+	}
+
+	if containerObj, ok := obj.(*fyne.Container); ok {
+		for _, child := range containerObj.Objects {
+			stopCanvasAnimations(child)
+		}
+	}
+}
+
+type connectionPrimaryButton struct {
+	widget.BaseWidget
+
+	labelText string
+	onTapped  func()
+	disabled  bool
+	loading   bool
+	hovered   bool
+
+	bg          *canvas.Rectangle
+	label       *canvas.Text
+	icon        *canvas.Image
+	spinnerMu   sync.Mutex
+	spinnerStop chan struct{}
+	spinnerStep int
+}
+
+func newConnectionPrimaryButton(label string, onTapped func()) *connectionPrimaryButton {
+	btn := &connectionPrimaryButton{
+		labelText: label,
+		onTapped:  onTapped,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *connectionPrimaryButton) SetDisabled(disabled bool) {
+	b.disabled = disabled
+	if disabled {
+		b.hovered = false
+	}
+	b.refreshVisuals()
+}
+
+func (b *connectionPrimaryButton) SetLoading(loading bool) {
+	b.loading = loading
+	if loading {
+		b.hovered = false
+	}
+	b.refreshVisuals()
+}
+
+func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.loading || b.onTapped == nil {
+		return
+	}
+
+	b.onTapped()
+}
+
+func (b *connectionPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *connectionPrimaryButton) MouseIn(*desktop.MouseEvent) {
+	if b.disabled || b.loading {
+		return
+	}
+
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *connectionPrimaryButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *connectionPrimaryButton) MouseOut() {
+	if !b.hovered {
+		return
+	}
+
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *connectionPrimaryButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.labelText, design.ColorBackground)
+	measure.TextSize = 14
+	measure.TextStyle.Bold = true
+	labelSize := measure.MinSize()
+	width := labelSize.Width + 28
+	if width < 104 {
+		width = 104
+	}
+	return fyne.NewSize(width, 40)
+}
+
+func (b *connectionPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(design.ColorAccent)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.label = canvas.NewText(b.labelText, design.ColorBackground)
+	b.label.TextSize = 14
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	b.icon = canvas.NewImageFromResource(nil)
+	b.icon.FillMode = canvas.ImageFillContain
+	b.icon.SetMinSize(fyne.NewSize(18, 18))
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(container.NewStack(b.icon, b.label))))
+}
+
+func (b *connectionPrimaryButton) refreshVisuals() {
+	if b.bg == nil || b.label == nil || b.icon == nil {
+		return
+	}
+
+	fill := design.ColorAccent
+	labelColor := design.ColorBackground
+	if b.loading {
+		fill = design.ColorAccent
+		labelColor = design.ColorBackground
+	} else if b.disabled {
+		fill = connectionActionBlockedFill
+		labelColor = design.ColorTextMuted
+	} else if b.hovered {
+		fill = design.ColorAccentHover
+	}
+
+	b.bg.FillColor = fill
+	b.bg.Refresh()
+
+	b.label.Color = labelColor
+	b.label.Refresh()
+
+	if b.loading {
+		b.label.Hide()
+		b.icon.Show()
+		b.startSpinner()
+		return
+	}
+
+	b.stopSpinner()
+	b.icon.Hide()
+	b.label.Show()
+}
+
+func (b *connectionPrimaryButton) startSpinner() {
+	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
+		return
+	}
+
+	b.stopSpinner()
+
+	stop := make(chan struct{})
+
+	b.spinnerMu.Lock()
+	b.spinnerStop = stop
+	b.spinnerStep = 0
+	b.spinnerMu.Unlock()
+
+	b.icon.Resource = assets.LoadingGrayFrames[0]
+	b.icon.Refresh()
+
+	go func() {
+		ticker := time.NewTicker(140 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() {
+					b.spinnerMu.Lock()
+					active := b.spinnerStop == stop
+					if active {
+						b.spinnerStep = (b.spinnerStep + 1) % len(assets.LoadingGrayFrames)
+					}
+					step := b.spinnerStep
+					b.spinnerMu.Unlock()
+					if !active || b.icon == nil {
+						return
+					}
+					b.icon.Resource = assets.LoadingGrayFrames[step]
+					b.icon.Refresh()
+				})
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+func (b *connectionPrimaryButton) stopSpinner() {
+	b.spinnerMu.Lock()
+	stop := b.spinnerStop
+	b.spinnerStop = nil
+	b.spinnerMu.Unlock()
+
+	if stop != nil {
+		close(stop)
+	}
+}
+
+func (b *connectionPrimaryButton) StopAnimations() {
+	b.stopSpinner()
+}
 
 func centerSpacer(width float32) fyne.CanvasObject {
 	spacer := canvas.NewRectangle(design.ColorGray950)
@@ -715,15 +1120,18 @@ func (b *onboardingPrimaryButton) refreshVisuals() {
 }
 
 type iconChromeButtonSpec struct {
-	NormalFill  color.Color
-	HoverFill   color.Color
-	Stroke      color.Color
-	StrokeWidth float32
-	NormalIcon  fyne.Resource
-	HoverIcon   fyne.Resource
-	IconSize    fyne.Size
-	ButtonSize  fyne.Size
-	OnTapped    func()
+	Disabled     bool
+	DisabledFill color.Color
+	NormalFill   color.Color
+	HoverFill    color.Color
+	Stroke       color.Color
+	StrokeWidth  float32
+	NormalIcon   fyne.Resource
+	HoverIcon    fyne.Resource
+	DisabledIcon fyne.Resource
+	IconSize     fyne.Size
+	ButtonSize   fyne.Size
+	OnTapped     func()
 }
 
 type iconChromeButton struct {
@@ -767,6 +1175,10 @@ func (b *iconChromeButton) MinSize() fyne.Size {
 }
 
 func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
+	if b.spec.Disabled {
+		return
+	}
+
 	if b.spec.OnTapped != nil {
 		b.spec.OnTapped()
 	}
@@ -775,6 +1187,10 @@ func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
 func (b *iconChromeButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
+	if b.spec.Disabled {
+		return
+	}
+
 	b.hovered = true
 	b.refreshVisuals()
 }
@@ -782,6 +1198,10 @@ func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
 func (b *iconChromeButton) MouseMoved(*desktop.MouseEvent) {}
 
 func (b *iconChromeButton) MouseOut() {
+	if b.spec.Disabled {
+		return
+	}
+
 	b.hovered = false
 	b.refreshVisuals()
 }
@@ -793,7 +1213,16 @@ func (b *iconChromeButton) refreshVisuals() {
 
 	b.bg.FillColor = b.spec.NormalFill
 	b.icon.Resource = b.spec.NormalIcon
-	if b.hovered {
+	b.icon.Translucency = 0
+	if b.spec.Disabled {
+		if b.spec.DisabledFill != nil {
+			b.bg.FillColor = b.spec.DisabledFill
+		}
+		if b.spec.DisabledIcon != nil {
+			b.icon.Resource = b.spec.DisabledIcon
+		}
+		b.icon.Translucency = 0.18
+	} else if b.hovered {
 		b.bg.FillColor = b.spec.HoverFill
 		if b.spec.HoverIcon != nil {
 			b.icon.Resource = b.spec.HoverIcon

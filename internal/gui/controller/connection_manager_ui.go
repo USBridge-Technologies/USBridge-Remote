@@ -88,8 +88,16 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 
 func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
 	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
+	rowState := view.ConnectionRowState{
+		Disabled: cm.connectionPending,
+		Loading:  cm.connectionPending && cm.activeConnectionIndex == idx,
+	}
 
 	fillForm := func() {
+		if cm.connectionPending {
+			return
+		}
+
 		fyne.Do(func() {
 			cm.hostEntry.SetText(conn.Host)
 			cm.tokenEntry.SetText(conn.Token)
@@ -107,11 +115,15 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				models.ConnectionProtocolQUIC,
 				models.ConnectionProtocolWireGuard,
 			},
-			EditLabel: i18n.Current.EditButton,
 		},
+		rowState,
 		view.ConnectionRowActions{
 			OnSelect: fillForm,
 			OnUse: func() {
+				if !cm.beginConnectionFromRow(idx) {
+					return
+				}
+
 				fyne.Do(func() {
 					cm.hostEntry.SetText(conn.Host)
 					cm.tokenEntry.SetText(conn.Token)
@@ -119,16 +131,21 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 					if cm.onConnect != nil {
 						protocol := normalizeConnectionProtocol(cm.connections[idx].Protocol)
 						cm.onConnect(conn.Host, conn.Token, protocol, conn.WireGuardInvite)
+						return
 					}
+					cm.SetConnectionPending(false)
 				})
 			},
 			OnEdit: func() {
+				if cm.connectionPending {
+					return
+				}
 				cm.showEditDialog(idx)
 			},
-			OnDelete: func() {
-				cm.handleDeleteConnection(idx)
-			},
 			OnProtocolChange: func(label string) {
+				if cm.connectionPending {
+					return
+				}
 				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
 			},
 		},

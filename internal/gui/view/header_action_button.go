@@ -81,7 +81,7 @@ func (b *HeaderActionButton) Tapped(*fyne.PointEvent) {
 func (b *HeaderActionButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *HeaderActionButton) MinSize() fyne.Size {
-	return fyne.NewSize(40, 40)
+	return fyne.NewSize(36, 36)
 }
 
 func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
@@ -95,10 +95,10 @@ func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.icon = canvas.NewImageFromResource(nil)
 	b.icon.FillMode = canvas.ImageFillContain
-	b.icon.SetMinSize(fyne.NewSize(24, 24))
+	b.icon.SetMinSize(fyne.NewSize(22, 22))
 
 	b.label = canvas.NewText("", b.spec.Foreground)
-	b.label.TextSize = 20
+	b.label.TextSize = 18
 	b.label.TextStyle.Bold = true
 
 	content := container.NewCenter(container.NewStack(b.icon, b.label))

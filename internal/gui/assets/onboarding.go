@@ -46,6 +46,8 @@ var (
 	QuestionIconMuted = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
 	QuestionIcon      = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
 	QRCodeIcon        = fyne.NewStaticResource("Qr-Code--Streamline-Atlas.svg", qrCodeIcon)
+	QRCodeMuted       = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-muted.svg", recolorStrokeIcon(qrCodeIcon, "#656565", "1.3"))
+	QRCodeLight       = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-light.svg", recolorStrokeIcon(qrCodeIcon, "#C9C9C9", "1.3"))
 	QRCodeAccent      = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-accent.svg", recolorStrokeIcon(qrCodeIcon, "#b6ea93", "1.3"))
 	QRCodeBoldBlack   = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-black.svg", recolorStrokeIcon(qrCodeIcon, "#111111", "1.3"))
 	ServerConnectIcon = fyne.NewStaticResource("Server-Connect--Streamline-Atlas.svg", serverConnectIcon)

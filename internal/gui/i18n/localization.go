@@ -321,7 +321,7 @@ func EN() *LocalizedStrings {
 
 		// Connection Manager
 		ConnectionManager:         "🔌 Connection Manager",
-		SavedConnections:          "Saved Connections:",
+		SavedConnections:          "Connections",
 		ConnectionManagement:      "💾 Connection Management",
 		AddressAndTokenHint:       "💡 Address and token are entered in the bar above",
 		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
@@ -329,7 +329,7 @@ func EN() *LocalizedStrings {
 		ConnectionNameLabel:       "Name for saving:",
 		ConnectionNamePlaceholder: "Connection name (e.g.: My PC)",
 		SaveButton:                "💾 Save",
-		DeleteButton:              "🗑️ Delete",
+		DeleteButton:              "Delete",
 		EditButton:                "✏️",
 		QRScannerButton:           "📷 QR",
 		EditConnectionTitle:       "Edit connection",
