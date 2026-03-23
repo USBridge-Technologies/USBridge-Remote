@@ -491,7 +491,7 @@ func (dw *DiskWidget) GetButtons() (mount, unmount, addImage *widget.Button) {
 	}
 
 	// Кнопка добавления ISO/IMG образа
-	addImageBtn := widget.NewButton("➕", dw.handleAddImage)
+	addImageBtn := widget.NewButton(i18n.Current.AddImageButton, dw.handleAddImage)
 
 	return dw.compactMountBtn, dw.compactUnmountBtn, addImageBtn
 }

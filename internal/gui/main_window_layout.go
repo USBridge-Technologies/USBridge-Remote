@@ -155,7 +155,7 @@ func (mw *MainWindow) recreateContainers() {
 
 	mw.createStatusBar()
 	addressBar := mw.createAddressBar()
-	mainFooter := fyne.CanvasObject(nil)
+	mainFooter := mw.createFooterBar(mw.deviceButtonsPanel)
 	connectionFooter := mw.createFooterBar(nil)
 
 	mw.tabs = container.NewAppTabs(
@@ -259,11 +259,8 @@ func (mw *MainWindow) updateConnectionFooterVisibility(hasConnections bool) {
 	}
 
 	fyne.Do(func() {
-		if hasConnections {
-			mw.footerBar.Hide()
-		} else {
-			mw.footerBar.Show()
-		}
+		_ = hasConnections
+		mw.footerBar.Show()
 
 		if content := mw.window.Content(); content != nil {
 			content.Refresh()
