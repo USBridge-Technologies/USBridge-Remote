@@ -255,7 +255,7 @@ for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
     cp "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png" 2>/dev/null || true
 done
 
-./gradlew assembleRelease --no-daemon
+./gradlew clean assembleRelease --no-daemon
 cd "$REPO_ROOT"
 echo ""
 

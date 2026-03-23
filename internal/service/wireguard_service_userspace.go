@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	wgtun "golang.zx2c4.com/wireguard/tun"
 
@@ -79,13 +78,17 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 		return err
 	}
 
-	tunDevice, err := wgtun.CreateTUN(s.ifaceName, mtu)
+	tunDevice, bind, ifaceName, err := s.createTUNDevice(resp, mtu)
 	if err != nil {
-		return fmt.Errorf("failed to create WireGuard TUN interface: %w", err)
+		return err
 	}
-	realIfaceName, err := tunDevice.Name()
-	if err == nil && strings.TrimSpace(realIfaceName) != "" {
-		s.ifaceName = realIfaceName
+	if strings.TrimSpace(ifaceName) != "" {
+		s.ifaceName = ifaceName
+	} else {
+		realIfaceName, err := tunDevice.Name()
+		if err == nil && strings.TrimSpace(realIfaceName) != "" {
+			s.ifaceName = realIfaceName
+		}
 	}
 
 	logger := &wgdevice.Logger{
@@ -97,9 +100,10 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 		},
 	}
 
-	dev := wgdevice.NewDevice(tunDevice, conn.NewDefaultBind(), logger)
+	dev := wgdevice.NewDevice(tunDevice, bind, logger)
 	ipcConfig, err := wireGuardIPCConfig(resp, s.privateKey, s.config.WireGuardListenPort)
 	if err != nil {
+		bind.Close()
 		tunDevice.Close()
 		return err
 	}
@@ -113,7 +117,7 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 		tunDevice.Close()
 		return fmt.Errorf("failed to start userspace WireGuard device: %w", err)
 	}
-	if err := s.configureInterface(resp, mtu, s.routeTargets); err != nil {
+	if err := s.afterDeviceUp(bind, resp, mtu, s.routeTargets); err != nil {
 		dev.Close()
 		tunDevice.Close()
 		return err
@@ -167,35 +171,4 @@ func (s *userspaceWireGuardService) GetServerHost() string {
 
 func (s *userspaceWireGuardService) GetClientHost() string {
 	return s.clientHost
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func userspaceDefaultInterfaceName(value string) string {
-	value = strings.TrimSpace(value)
-	switch runtime.GOOS {
-	case "darwin":
-		if value == "" || !strings.HasPrefix(value, "utun") {
-			return "utun"
-		}
-		return value
-	case "android":
-		if value == "" {
-			return "usbwg0"
-		}
-		return value
-	default:
-		if value == "" {
-			return "usbwg0"
-		}
-		return value
-	}
 }

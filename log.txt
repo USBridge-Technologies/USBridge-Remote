@@ -1,0 +1,531 @@
+leash of insets_animation#81965
+03-24 00:34:14.883  2199  2199 I Layer   : id=81964 Destroyed Surface(name=5d079f7 NavigationBar0)/@0xb5bda43 - animation-leash of insets_animation#81964
+03-24 00:34:14.883  4479  4479 D SystemUIService: SYSUI_RAM_OPTIMIZATION onTrimMemory=20
+03-24 00:34:14.883  4479  4479 D CentralSurfaces: SYSUI_RAM_OPTIMIZATION onTrimMemory=20
+03-24 00:34:14.883  4479  4585 D HWUI    : CacheManager::trimMemory(20)
+03-24 00:34:14.883  2199  2448 W RenderEngine: [SEC_SF_EFFECTS_HYBRID_HWC] WARNING!! SkiaRenderEngine::drawLayersInternal found hybridComposition on layer LauncherActivity$_4896#81970 with layer!=layers.back()
+03-24 00:34:14.885  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1610490 mBlastBufferQueue=0xb4000072214c85a0 fn= 4 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.885  3313  3370 W ProcessStats: Tracking association SourceState{46cde00 com.android.bluetooth/1002 ImpFg #930727} whose proc state 5 is better than process ProcessState{22e91a9 com.samsung.android.mcfserver/10126 pkg=com.samsung.android.mcfserver} proc state 8 (13 skipped)
+03-24 00:34:14.890  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{RemoteWallpaperAnim:1:1#7 parentId=81976 z=1} 1 children}] reparent to LayerHierarchy{RequestedLayerState{Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 parentId=4} 1 children}
+03-24 00:34:14.891  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 5.1355934, y: 2.8321946, scale : 0.99253935
+03-24 00:34:14.891  3313  3370 D WindowManager: mRunner#onAnimationStart for remote wallpaper=[android.view.RemoteAnimationTarget@b2156c], transaction=startRemoteWallpaperAnimation_259014175
+03-24 00:34:14.892  4896 11253 I HoneySpace.WallpaperAnimator: onAnimationStart, wallpapers: Surface(name=Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper)/@0x2170da3
+03-24 00:34:14.892  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d149d810 mBlastBufferQueue=0xb4000072214c85a0 fn= 5 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.892  2199  2448 W RenderEngine: [SEC_SF_EFFECTS_HYBRID_HWC] WARNING!! SkiaRenderEngine::drawLayersInternal found hybridComposition on layer LauncherActivity$_4896#81970 with layer!=layers.back()
+03-24 00:34:14.892  4896  4896 I HoneySpace.WallpaperAnimator: startWallpaperAnimation, isOpen-false, from:1.3, to:1.0, duration:350
+03-24 00:34:14.892  4896  4896 I HoneySpace.WallpaperAnimator: wallpaper animation start [151693472]
+03-24 00:34:14.897  2073  6958 I sensors-hal: handle_sns_std_sensor_event:127, [SSC_LIGHT] A: 13(13),c:4,b:57,m:0,cl:0,l:13,s:12,l0:22063,l1:3832,s0:78,s1:12,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:34:14.897  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 13(13),c:4,b:57,m:0,cl:0,l:13,s:12,l0:22063,l1:3832,s0:78,s1:12,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:34:14.899  2199  2199 E SurfaceFlinger: alpha changed 0.000 -> 1.000 - Surface(name=Task=1)/@0xfdfcabe_transition-leash#81974
+03-24 00:34:14.899  2199  2199 I SurfaceFlinger: RequestedLayer [Surface(name=cba46db StatusBar)/@0x3[...]tion-leash of insets_animation#81972] hidden!! flag  from(1) --> to(0)
+03-24 00:34:14.899  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 11.553203, y: 6.3714, scale : 0.98321646
+03-24 00:34:14.899  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1505f50 mBlastBufferQueue=0xb4000072214c85a0 fn= 6 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.901  3313  7511 D InputDispatcher: Focus entered window (0): 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity
+03-24 00:34:14.907  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 21.431793, y: 11.819278, scale : 0.96886563
+03-24 00:34:14.909  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d155e710 mBlastBufferQueue=0xb4000072214c85a0 fn= 7 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.909  4896  4896 I InputMethodManager: startInputInner - IInputMethodManagerGlobalInvoker.startInputOrWindowGainedFocus
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: startInputOrWindowGainedFocusInternalLocked: reason=WINDOW_FOCUS_GAIN client=android.os.BinderProxy@86a07b9 inputContext=null editorInfo=android.view.inputmethod.EditorInfo@be23735 startInputFlags=VIEW_HAS_FOCUS|INITIAL_CONNECTION softInputMode=STATE_UNSPECIFIED|ADJUST_NOTHING windowFlags=#81910100 unverifiedTargetSdkVersion=36 bindingController=com.android.server.inputmethod.InputMethodBindingController@51fcdf3 imeDispatcher=android.window.ImeOnBackInvokedDispatcher@421d7ca cs=ClientState{64cdcd7 mUid=10152 mPid=4896 mSelfReportedDisplayId=0} imeRequestedVisible=false
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: setWindowStateInner, windowToken=android.os.BinderProxy@69f5cbd, state=ImeTargetWindowState{ imeToken null imeFocusChanged true hasEditorFocused false requestedImeVisible false imeDisplayId 0 softInputModeState STATE_UNSPECIFIED|ADJUST_NOTHING isStartInputByGainFocus true}
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: Unspecified window will hide input
+03-24 00:34:14.910  3313  3873 I ImeTracker: com.sec.android.app.launcher:fd60799: onRequestHide at ORIGIN_SERVER reason HIDE_UNSPECIFIED_WINDOW fromUser false
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: applyImeVisibility state=6
+03-24 00:34:14.910  3313  3873 D SemInputMethodManagerServiceUtil: restorePreviousUsedInputMethod : failed to return the previous ime becuase the stored info is null or do not need restore
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: semComputeImeDisplayIdForTarget: displayToShowIme=0
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: Creating new accessibility sessions for client ClientState{64cdcd7 mUid=10152 mPid=4896 mSelfReportedDisplayId=0}
+03-24 00:34:14.910  4896  4896 I InputMethodManager: handleMessage: setImeVisibility visible=false
+03-24 00:34:14.910  4896  4896 I ImeTracker: com.sec.android.app.launcher:fd60799: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+03-24 00:34:14.910  3313  3873 D InputMethodManagerService: isImeSwitcherDisabledPackage : false
+03-24 00:34:14.910  3313  3873 D InputMethodManagerService: shouldShowImeSwitcherLocked : checking vis : 3
+03-24 00:34:14.910  3313  3873 V InputMethodManagerService: Enabling: SessionState{uid=10152 pid=4896 method=3d5b28d session=4722c42 channel=ClientState{64cdcd7 mUid=10152 mPid=4896 mSelfReportedDisplayId=0} userId=0}
+03-24 00:34:14.910  3313  3873 D InputMethodManagerService: checkDisplayOfStartInputAndUpdateKeyboard: displayId=0, mFocusedDisplayId=0
+03-24 00:34:14.910  3313  3873 D InputTransport: Input channel constructed: 'ClientS', fd=498
+03-24 00:34:14.910  3313  3873 D InputTransport: Input channel destroyed: 'ClientS', fd=498
+03-24 00:34:14.911  8169  8169 I HBD     : HoneyBoardService onFinishInput 
+03-24 00:34:14.911  3313  7511 D RestrictionPolicy: isScreenCaptureEnabled : ret=true userId=0
+03-24 00:34:14.911  8169  8169 I HBD     : a IC have been unbinding,  RemoteInputConnection{idHash=#82049f9}
+03-24 00:34:14.911  8169  8169 I HBD     : HoneyBoardService [PF_CL][onFinishInput]  0 ms 
+03-24 00:34:14.911  8169  8169 I HBD     : HoneyBoardService [IMI] onStartInput - caller pid : 4896 , caller uid : 10152 
+03-24 00:34:14.911  8169  8169 I HBD     : r updateConfigs 
+03-24 00:34:14.911  8169  8169 I HBD     : r isEnabledNightMode : true 
+03-24 00:34:14.911  3313  7511 I WindowManager: Cancelling animation restarting=true, leash=Surface(name=Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation)/@0x1aecfef
+03-24 00:34:14.911  8169  8169 I HBD     : a IC have been binding, RemoteInputConnection{idHash=#621d184} 
+03-24 00:34:14.911  3313  7511 I WindowManager: Reparenting to original parent: Surface(name=WindowToken{6e0af86 type=2011 android.os.Binder@12e861})/@0x3702594, destroy=false, surface=Surface(name=f30526e InputMethod)/@0x16ed664
+03-24 00:34:14.911  8169  8169 I HBD     : h [EditorInputType]setPrivateImeOptionsToTable privateImeOptions ( null )
+03-24 00:34:14.911  8169  8169 I HBD     : b incognitoMode : false 
+03-24 00:34:14.911  8169  8169 I HBD     : f needOff = true , isForceOff = false, isNullInputClass : true 
+03-24 00:34:14.911  3313  7511 I WindowManager: Reparenting to leash, surface=Surface(name=f30526e InputMethod)/@0x16ed664, leashParent=Surface(name=WindowToken{6e0af86 type=2011 android.os.Binder@12e861})/@0x3702594
+03-24 00:34:14.911  8169  8169 I HBD     : h getDefaultInputRange : UNKNOWN 
+03-24 00:34:14.911  8169  8169 I HBD     : h getDefaultInputRange : UNKNOWN 
+03-24 00:34:14.911  8169  8169 I HBD     : h getDefaultInputRange : UNKNOWN 
+03-24 00:34:14.911  8169  8169 I HBD     : i [AiWriter] isChildBlockCase:
+03-24 00:34:14.911  2199  2999 I SurfaceFlinger: id=81977 createSurf, flag=24004, Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81977
+03-24 00:34:14.911  3313  7511 D WindowManager: makeSurface duration=0 leash=Surface(name=Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation)/@0x16da696
+03-24 00:34:14.911  3313  7511 D InsetsSourceProvider: updateControlForTarget: control=InsetsSourceControl: {3 mType=ime mSurfacePosition=Point(0, 91) mInsetsHint=Insets{left=0, top=0, right=0, bottom=1026}}, target=Window{74a42b2 u0 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity}, from=com.android.server.wm.ImeInsetsSourceProvider.updateControlForTarget:17 com.android.server.wm.InsetsStateController.onControlTargetChanged:83 com.android.server.wm.DisplayContent.updateImeControlTarget:21 com.android.server.wm.DisplayContent.updateImeInputAndControlTarget:156 com.android.server.wm.WindowManagerService$LocalService.updateInputMethodTargetWindow:64 
+03-24 00:34:14.911  3313  7511 I ImeTracker: system_server:ab1d32b2: onRequestHide at ORIGIN_SERVER reason IME_REQUESTED_CHANGED_LISTENER fromUser false
+03-24 00:34:14.911  3313  3370 V InputMethodManagerService: Client requesting input be hidden
+03-24 00:34:14.911  3313  3370 V InputMethodManagerService: setWindowStateInner, windowToken=android.os.BinderProxy@69f5cbd, state=ImeTargetWindowState{ imeToken android.os.Binder@6f7a604 imeFocusChanged true hasEditorFocused false requestedImeVisible false imeDisplayId 0 softInputModeState STATE_UNSPECIFIED|ADJUST_NOTHING isStartInputByGainFocus true}
+03-24 00:34:14.911  3313  3370 I ImeTracker: system_server:ab1d32b2: onCancelled at PHASE_SERVER_SHOULD_HIDE
+03-24 00:34:14.911  3313  3370 V InputMethodManagerService: hideCurrentInputLocked : canceled, shouldHideSoftInput=false, mInputShown=false, mImeWindowVis=0
+03-24 00:34:14.911  3313  3371 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:14.912  3313  6126 I ActivityManager: Changes in 10120 15 to 7, 0 to 128
+03-24 00:34:14.912  9222  9692 I SamsungAccount: [AccountManagerProvider] isChildAccount
+03-24 00:34:14.912  9222  9692 I SamsungAccount: [AccountManagerProvider] Calling package : android.honeyboard.
+03-24 00:34:14.913  9222  9692 I SamsungAccount: [SignatureInfoDbHelper] searchOnUser(fromDb) - [10/lfgff][android.honeyboard.][64/3291d] => matched
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [AccountManagerProvider] This is the access of the allowed application
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [AccountManagerUtil] isSamsungAccountSignedIn : true
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [TPMU]  SIMState     :SIM_STATE_READY
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [CountryCodeUtil] isChinaCountryCode : false
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [TPMU] getMccFromUsim
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference Start
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference, mcc is same with previous mcc
+03-24 00:34:14.914  9222  9692 I SamsungAccount: [ChildAccountSupportedListManager] getSupportedListFromLocal from cache
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [TPMU]  SIMState     :SIM_STATE_READY
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [CountryCodeUtil] isChinaCountryCode : false
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [TPMU] getMccFromUsim
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference Start
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference, mcc is same with previous mcc
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [FamilyGroupUtil] meetKoreaCountryCondition(beforeSignUp=false): false
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [ChildAccountSupportedListManager] getSupportedListFromLocal from cache
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [TPMU]  SIMState     :SIM_STATE_READY
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [CountryCodeUtil] isChinaCountryCode : false
+03-24 00:34:14.915  2199  2199 I SurfaceFlinger: [Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81977] attach to parent LayerHierarchy{RequestedLayerState{WindowToken{6e0af86 type=2011 android.os.Binder@12e861}#130 parentId=15} 2 children}
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [TPMU] getMccFromUsim
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference Start
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference, mcc is same with previous mcc
+03-24 00:34:14.915  9222  9692 I SamsungAccount: [FamilyGroupUtil] meetServerCountryCondition(beforeSignUp=false): true
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [TPMU]  SIMState     :SIM_STATE_READY
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [CountryCodeUtil] isChinaCountryCode : false
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [TPMU] getMccFromUsim
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference Start
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [MccManager] saveMccToPreference, mcc is same with previous mcc
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [FamilyGroupUtil] meetKoreaOneUiCondition: false
+03-24 00:34:14.916  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 37.51639, y: 20.689667, scale : 0.9454993
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [ChildAccountSupportedListManager] getSupportedListFromLocal from cache
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [FamilyGroupUtil] meetServerOneUiCondition: true
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [FamilyGroupUtil] isSupportFamilyService: true
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [AccountManagerUtil] isSamsungAccountSignedIn : true
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [ChildAccount] isChildAccount : false
+03-24 00:34:14.916  9222  9692 I SamsungAccount: [AccountManagerProvider] makeResultBundle - resultCode : 0
+03-24 00:34:14.916  8169  8169 I HBD     : i [AiWriter] isChildAccount:false
+03-24 00:34:14.916  8169  8169 I HBD     : f needOff = true , isForceOff = false, isNullInputClass : true 
+03-24 00:34:14.916  8169  8169 I HBD     : f update cached prediction status : false 
+03-24 00:34:14.916  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1596e10 mBlastBufferQueue=0xb4000072214c85a0 fn= 8 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.916  8169  8169 I HBD     : h getDefaultInputRange : UNKNOWN 
+03-24 00:34:14.916  8169  8169 I HBD     : a currentState : 0 
+03-24 00:34:14.916  8169  8169 I HBD     : a [UpdatePolicy] [post] a: 0 cl: 3342336 kit: [0/0] vt: 0 ir: 1 
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger: Display 4630946249045481107 HWC layers:
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        CLIENT |           19237158518792 | 00000100 | RGBA_8888    |  106.0  230.0  974.0 2110.0 |    0    0 1080 2340 | Wallpaper BBQ wrapper 5_system#81 (1)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        CLIENT |           21028159898618 | 00002100 | RGBA_8888    |    0.0    0.0 1080.0 2340.0 |    0    0 1080 2340 | com.sec.android.app.launcher/com.sec[...]ivities.LauncherActivity$_4896#81970 (blurRegions) (6)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        CLIENT |            1309965025282 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2245.0 |   12   96 1073 2303 | com.usbridge.client/com.usbridge.client.MainActivity$_305#81963 (94)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        DEVICE |           19237158560812 | 00002100 | RGBA_8888    |    0.0   90.0 1080.0   91.0 |    0    0 1080    1 | StatusBar$_4479#109 (133155)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        DEVICE |           21028159898605 | 00002100 | RGBA_8888    |    0.0    0.0   67.0  342.0 | 1013  307 1080  649 | com.sec.android.app.launcher/com.sam[...]l.app.CocktailBarService$_4896#81896 (1)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:        DEVICE |           19237158560824 | 00002100 | RGBA_8888 
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger:    |    0.0    0.0 1080.0  144.0 |    0 2196 1080 2340 | NavigationBar0$_4479#107 (198733)
+03-24 00:34:14.918  2199  2199 D SurfaceFlinger: 
+03-24 00:34:14.918  2073   497 I sensors-hal: handle_sns_std_sensor_event:161, [7] Pressure 1019.218, cal 0.483, sw_offset 0.000 (lsb(bit) 0x81 0x94 0x63)
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: RequestedLayer [Surface(name=f30526e InputMethod)/@0[...]tion-leash of insets_animation#81977] hidden!! flag  from(1) --> to(0)
+03-24 00:34:14.924  2199  2199 E SurfaceFlinger: alpha changed 1.000 -> 0.000 - Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81977
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ImeContainer#15 parentId=135 relativeParentId=136 z=1} 1 children}] reparent to LayerHierarchy{RequestedLayerState{ActivityRecord{6303913 u0 com.sec.android.app.launcher/.activities.LauncherActivity t8}#135 parentId=134} 4 children}
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ImeContainer#15 parentId=135 relativeParentId=136 z=1} 1 children}] RelativeParent to LayerHierarchy{RequestedLayerState{74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 parentId=135} 2 children}
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{f30526e InputMethod#152 parentId=81977} no children}] reparent to LayerHierarchy{RequestedLayerState{Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81977 parentId=130} 1 children}
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967} no children}] reparent to OffscreenRoot
+03-24 00:34:14.924  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967} no children}] RelativeParent to null
+03-24 00:34:14.924  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 58.93389, y: 32.501064, scale : 0.9143857
+03-24 00:34:14.924  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1553f10 mBlastBufferQueue=0xb4000072214c85a0 fn= 9 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.924  8169  8169 I HBD     : a [NRIC] resetNoResponseState 
+03-24 00:34:14.924  2199  2996 I SurfaceFlinger: id=81967 Removed Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967 (289)
+03-24 00:34:14.924  8169  8169 I HBD     : f needOff = true , isForceOff = false, isNullInputClass : true 
+03-24 00:34:14.924  8169  8169 I HBD     : f update cached prediction status : false 
+03-24 00:34:14.924  8169  8169 I HBD     : b [AiWriter] setContact : com.sec.android.app.launcher
+03-24 00:34:14.924  8169  8169 I HBD     : a [AiWriter] setContact : com.sec.android.app.launcher
+03-24 00:34:14.924  8169  8169 I HBD     : F EBD si S 0 
+03-24 00:34:14.924  8169  8169 I HBD     : m updateContactDBLanguage : 3342336 
+03-24 00:34:14.924  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.925  8169  8169 I HBD     : g updateSelectedLanguageCache is succeeded. Russian 
+03-24 00:34:14.925  8169  8169 I HBD     : h writeToFile path : /data/user/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.925  8169  8169 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.926  8169  8169 I HBD     : h writeToFile complete 
+03-24 00:34:14.926  8169   525 I HBD     : h Write selected lang for DE  
+03-24 00:34:14.926  8169   525 I HBD     : h writeToFile path : /data/user_de/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.926  8169   525 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.926  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.926  8169  8169 I HBD     : o updateActionOptionFromPreference isCover = false 
+03-24 00:34:14.926  8169  8169 I HBD     : o before lang.activeOptionList =  [auto_spacing, prediction] 
+03-24 00:34:14.927  8169  8169 I HBD     : o after lang.activeOptionList = [auto_spacing, prediction] 
+03-24 00:34:14.927  8169   525 I HBD     : h writeToFile complete 
+03-24 00:34:14.927  8169  8169 I HBD     : h writeToFile path : /data/user/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.927  8169  8169 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.927  8169  8169 I HBD     : h writeToFile complete 
+03-24 00:34:14.927  8169  8169 I HBD     : m normal : updateLanguage : Russian 
+03-24 00:34:14.927  8169   526 I HBD     : h Write selected lang for DE  
+03-24 00:34:14.927  8169   526 I HBD     : h writeToFile path : /data/user_de/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.927  8169   526 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.927  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.927  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.927  8169  8169 I HBD     : o updateActionOptionFromPreference isCover = false 
+03-24 00:34:14.927  8169  8169 I HBD     : o before lang.activeOptionList =  [auto_spacing, prediction] 
+03-24 00:34:14.927  8169   526 I HBD     : h writeToFile complete 
+03-24 00:34:14.928  8169  8169 I HBD     : o after lang.activeOptionList = [auto_spacing, prediction] 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile path : /data/user/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile complete 
+03-24 00:34:14.928  8169  8169 I HBD     : m normal : updateLanguage : Russian 
+03-24 00:34:14.928  8169   527 I HBD     : h Write selected lang for DE  
+03-24 00:34:14.928  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.928  8169   527 I HBD     : h writeToFile path : /data/user_de/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.928  8169   527 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.928  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.928  8169  8169 I HBD     : g updateSelectedLanguageCache is succeeded. Russian 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile path : /data/user/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.928  8169   527 I HBD     : h writeToFile complete 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.928  8169  8169 I HBD     : h writeToFile complete 
+03-24 00:34:14.928  8169   528 I HBD     : h Write selected lang for DE  
+03-24 00:34:14.928  8169   528 I HBD     : h writeToFile path : /data/user_de/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.928  8169   528 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.929  8169  8169 I HBD     : g isCoverDisplay : false, cached selected json info : SelectedLanguageInfo(languageVersion=4.2, currentLanguageOrder=2, selectedLanguageList=[SelectedLanguage(id=4456448, isUsed=true, engName=Ukrainian, inputType=qwerty, activeOptionList=[auto_replace, auto_spacing, prediction], bilingualId=-1), SelectedLanguage(id=65537, isUsed=true, engName=English, inputType=qwerty, activeOptionList=[auto_spacing, writing_assistant, prediction], bilingualId=-1), SelectedLanguage(id=3342336, isUsed=true, engName=Russian, inputType=qwerty, activeOptionList=[auto_spacing, prediction], bilingualId=-1)]) 
+03-24 00:34:14.929  8169  8169 I HBD     : g updateSelectedLanguageCache is succeeded. Russian 
+03-24 00:34:14.929  8169  8169 I HBD     : h writeToFile path : /data/user/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.929  8169  8169 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: isChangeAllowed() : name = enabled_input_methods
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: edmUri: content://com.sec.knox.provider/RestrictionPolicy3
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: projectionArgs: isSettingsChangesAllowed
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: false
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: 10231
+03-24 00:34:14.929  8169   528 I HBD     : h writeToFile complete 
+03-24 00:34:14.929  3313  7511 D SecContentProvider: query(), uri = 17 selection = isSettingsChangesAllowed
+03-24 00:34:14.929  3313  7511 D SecContentProvider: called from android.uid.honeyboard:10231
+03-24 00:34:14.929  3313  7511 D RestrictionPolicy: isSettingsChangesAllowedAsUser, userId 0 : true
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: ret = 1
+03-24 00:34:14.929  8169  8169 I HBD     : h writeToFile complete 
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: isChangeAllowed() : name = default_input_method
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: edmUri: content://com.sec.knox.provider/RestrictionPolicy3
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: projectionArgs: isSettingsChangesAllowed
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: false
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: 10231
+03-24 00:34:14.929  8169   529 I HBD     : h Write selected lang for DE  
+03-24 00:34:14.929  3313  7511 D SecContentProvider: query(), uri = 17 selection = isSettingsChangesAllowed
+03-24 00:34:14.929  8169   529 I HBD     : h writeToFile path : /data/user_de/0/com.samsung.android.honeyboard/files/selected.json 
+03-24 00:34:14.929  8169   529 I HBD     : h writeToFile json : {"version":"4.2","currentLanguageOrder":2,"selected":[{"activeOptionList":["auto_replace","auto_spacing","prediction"],"bilingualId":-1,"engName":"Ukrainian","id":4456448,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","writing_assistant","prediction"],"bilingualId":-1,"engName":"English","id":65537,"inputType":"qwerty","isUsed":true},{"activeOptionList":["auto_spacing","prediction"],"bilingualId":-1,"engName":"Russian","id":3342336,"inputType":"qwerty","isUsed":true}]} 
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: isChangeAllowed() : name = enabled_input_methods
+03-24 00:34:14.929  8169  8169 I HBD     : a [UpdatePolicy] [post] a: 31 cl: 3342336 kit: [0/0] vt: 0 ir: 1 
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: edmUri: content://com.sec.knox.provider/RestrictionPolicy3
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: projectionArgs: isSettingsChangesAllowed
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: selectionArgs: false
+03-24 00:34:14.929  3313  7511 D SecContentProvider: called from android.uid.honeyboard:10231
+03-24 00:34:14.929  3313  7511 D RestrictionPolicy: isSettingsChangesAllowedAsUser, userId 0 : true
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: selectionArgs: 10231
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: ret = 1
+03-24 00:34:14.929  3313  6126 D SecContentProvider: query(), uri = 17 selection = isSettingsChangesAllowed
+03-24 00:34:14.929  3313  6126 D SecContentProvider: called from android.uid.honeyboard:10231
+03-24 00:34:14.929  3313  6126 D RestrictionPolicy: isSettingsChangesAllowedAsUser, userId 0 : true
+03-24 00:34:14.929  3313  6126 D KNOX_MDM_SettingsProvider: ret = 1
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: isChangeAllowed() : name = default_input_method
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: edmUri: content://com.sec.knox.provider/RestrictionPolicy3
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: projectionArgs: isSettingsChangesAllowed
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: false
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: selectionArgs: 10231
+03-24 00:34:14.929  8169  6727 I HBD     : p updated Sub Types. Russian 
+03-24 00:34:14.929  3313  7511 D SecContentProvider: query(), uri = 17 selection = isSettingsChangesAllowed
+03-24 00:34:14.929  3313  7511 D SecContentProvider: called from android.uid.honeyboard:10231
+03-24 00:34:14.929  3313  7511 D RestrictionPolicy: isSettingsChangesAllowedAsUser, userId 0 : true
+03-24 00:34:14.929  3313  7511 D KNOX_MDM_SettingsProvider: ret = 1
+03-24 00:34:14.929  8169   529 I HBD     : h writeToFile complete 
+03-24 00:34:14.929  8169 30329 I HBD     : p updated Sub Types. Russian 
+03-24 00:34:14.929  8169  8169 I HBD     : HoneyBoardService [PF_OP][onStartInput]  18 ms 
+03-24 00:34:14.930  8169   530 I HBD     : a InputMethodSubtype is set as local:ru 
+03-24 00:34:14.930  3313  3313 I InputMethodManagerService: subtype state: oldSubtype = android.view.inputmethod.InputMethodSubtype@330000 newSubtype = android.view.inputmethod.InputMethodSubtype@330000 force = false, intent received : false
+03-24 00:34:14.930  8169   531 I HBD     : a InputMethodSubtype is set as local:ru 
+03-24 00:34:14.930  3313  3313 I InputMethodManagerService: subtype state: oldSubtype = android.view.inputmethod.InputMethodSubtype@330000 newSubtype = android.view.inputmethod.InputMethodSubtype@330000 force = false, intent received : false
+03-24 00:34:14.932  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 85.781944, y: 47.30732, scale : 0.875383
+03-24 00:34:14.932  2199  2199 I SurfaceFlinger: destroyed Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967 form LifecycleManager
+03-24 00:34:14.932  2199  2199 I SurfaceFlinger: id=81967 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967 !handle})
+03-24 00:34:14.932  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d155e1d0 mBlastBufferQueue=0xb4000072214c85a0 fn= 10 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.932  2199  2199 I Layer   : id=81967 Destroyed Surface(name=f30526e InputMethod)/@0x16ed664 - animation-leash of insets_animation#81967
+03-24 00:34:14.933  8169  8169 I InputMethodService: scheduleImeSurfaceRemoval: removeImeSurface is posted.
+03-24 00:34:14.940  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 124.4378, y: 68.62538, scale : 0.819227
+03-24 00:34:14.941  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1507d10 mBlastBufferQueue=0xb4000072214c85a0 fn= 11 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.949  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 163.82036, y: 89.200615, scale : 0.76201516
+03-24 00:34:14.949  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d14d8910 mBlastBufferQueue=0xb4000072214c85a0 fn= 12 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.957  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 204.57268, y: 109.605255, scale : 0.70281357
+03-24 00:34:14.957  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d14c8990 mBlastBufferQueue=0xb4000072214c85a0 fn= 13 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.965  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 248.80865, y: 131.56897, scale : 0.6385512
+03-24 00:34:14.966  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1533ad0 mBlastBufferQueue=0xb4000072214c85a0 fn= 14 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.973  8169 30329 I HBD     : j [SKE_SPECIFIC] specific model[com.sec.android.app.launcher] loaded, 43295833 ns
+03-24 00:34:14.974  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 285.63687, y: 149.5481, scale : 0.5850502
+03-24 00:34:14.974  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1494350 mBlastBufferQueue=0xb4000072214c85a0 fn= 15 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.982  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 316.43594, y: 163.4643, scale : 0.5403078
+03-24 00:34:14.982  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d149a8d0 mBlastBufferQueue=0xb4000072214c85a0 fn= 16 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.986  3313  4286 D MdnieScenarioControlService:  packageName : com.sec.android.app.launcher    className : com.sec.android.app.launcher.Launcher
+03-24 00:34:14.986  3313  4286 V MdnieScenarioControlService: setUIMode from UI function(3)
+03-24 00:34:14.990  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 348.58954, y: 177.64073, scale : 0.4935977
+03-24 00:34:14.991  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d152cad0 mBlastBufferQueue=0xb4000072214c85a0 fn= 17 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:14.998  2073   497 I sensors-hal: handle_sns_std_sensor_event:161, [8] Pressure 1019.218, cal 0.483, sw_offset 0.000 (lsb(bit) 0x85 0x94 0x63)
+03-24 00:34:14.999  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 372.73355, y: 187.99301, scale : 0.4585233
+03-24 00:34:14.999  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d14d7410 mBlastBufferQueue=0xb4000072214c85a0 fn= 18 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.007  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 395.61276, y: 196.77075, scale : 0.4252862
+03-24 00:34:15.008  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d150a710 mBlastBufferQueue=0xb4000072214c85a0 fn= 19 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.016  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 416.1405, y: 204.80212, scale : 0.3954652
+03-24 00:34:15.016  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1509210 mBlastBufferQueue=0xb4000072214c85a0 fn= 20 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.024  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 434.38736, y: 211.50798, scale : 0.36895773
+03-24 00:34:15.024  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1543dd0 mBlastBufferQueue=0xb4000072214c85a0 fn= 21 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.032  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 450.02908, y: 217.55333, scale : 0.34623468
+03-24 00:34:15.032  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d14b6e10 mBlastBufferQueue=0xb4000072214c85a0 fn= 22 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.040  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 465.69867, y: 223.50285, scale : 0.3234712
+03-24 00:34:15.041  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1547cd0 mBlastBufferQueue=0xb4000072214c85a0 fn= 23 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.049  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 477.8866, y: 227.6842, scale : 0.3057655
+03-24 00:34:15.049  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1522d50 mBlastBufferQueue=0xb4000072214c85a0 fn= 24 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.057  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 488.9652, y: 231.2558, scale : 0.28967145
+03-24 00:34:15.057  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1580e50 mBlastBufferQueue=0xb4000072214c85a0 fn= 25 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.065  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 500.37402, y: 234.90509, scale : 0.2730977
+03-24 00:34:15.066  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d162e5d0 mBlastBufferQueue=0xb4000072214c85a0 fn= 26 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.074  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 509.10062, y: 238.11337, scale : 0.26042038
+03-24 00:34:15.074  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d166aa10 mBlastBufferQueue=0xb4000072214c85a0 fn= 27 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.078  2073   497 I sensors-hal: handle_sns_std_sensor_event:161, [9] Pressure 1019.218, cal 0.483, sw_offset 0.000 (lsb(bit) 0x89 0x94 0x63)
+03-24 00:34:15.082  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 517.397, y: 241.09073, scale : 0.2483681
+03-24 00:34:15.082  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15fcd10 mBlastBufferQueue=0xb4000072214c85a0 fn= 28 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.086  3313  4286 D DisplayAiqeManager: getContentMode : start
+03-24 00:34:15.086  3313  4286 D DisplayAiqeManagerService: getContentMode : start
+03-24 00:34:15.086  3313  4286 D DisplayAiqeAidl: getContentMode : UI
+03-24 00:34:15.086  3313  4286 D DisplayAiqeManagerService: getContentMode : mode - UI
+03-24 00:34:15.086  3313  4286 D DisplayAiqeManager: getContentMode : mode - UI
+03-24 00:34:15.086  3313  4286 V MdnieScenarioControlService: mAclOffEnabled : false
+03-24 00:34:15.090  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 525.4065, y: 243.90599, scale : 0.23673254
+03-24 00:34:15.090  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d157f250 mBlastBufferQueue=0xb4000072214c85a0 fn= 29 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.099  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.016384, clamping
+03-24 00:34:15.099  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 532.0412, y: 246.05745, scale : 0.22709419
+03-24 00:34:15.099  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1651090 mBlastBufferQueue=0xb4000072214c85a0 fn= 30 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.107  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.027246, clamping
+03-24 00:34:15.107  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 537.93756, y: 247.84557, scale : 0.21852846
+03-24 00:34:15.107  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15e3010 mBlastBufferQueue=0xb4000072214c85a0 fn= 31 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.116  2199  2199 E SurfaceFlinger: alpha changed 0.002 -> 0.000 - Surface(name=Task=5080)/@0xed88a6c_transition-leash#81975
+03-24 00:34:15.116  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.036481, clamping
+03-24 00:34:15.116  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 543.71735, y: 249.55962, scale : 0.210132
+03-24 00:34:15.116  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15b0950 mBlastBufferQueue=0xb4000072214c85a0 fn= 32 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.116  3313  3370 I DisplayDeviceRepository: Display device changed render timings: "Вбудований екран", renderFrameRate=120.00001, presentationDeadlineNanos=9333333, appVsyncOffsetNanos=8333333, frameRateOverrides=[{uid=10046 frameRateHz=120.00001}, {uid=10152 frameRateHz=120.00001}]
+03-24 00:34:15.118  3313  3371 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger: Display 4630946249045481107 HWC layers:
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger:        CLIENT |           19237158518792 | 00000100 | RGBA_8888    |    9.0   18.0 1071.0 2322.0 |    0    0 1080 2340 | Wallpaper BBQ wrapper 5_system#81 (1)
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger:        DEVICE |           21028159898618 | 00002100 | RGBA_8888    |    0.0    0.0 1080.0 2340.0 |    0    0 1080 2340 | com.sec.android.app.launcher/com.sec[...]ivities.LauncherActivity$_4896#81970 (blurRegions) (30)
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger:        DEVICE |           19237158560812 | 00002100 | RGBA_8888    |    0.0    2.0 1080.0   91.0 |    0    0 1080   89 | StatusBar$_4479#109 (133155)
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger:        DEVICE |           21028159898605 | 00002100 | RGBA_8888    |    0.0    0.0   67.0  342.0 | 1013  307 1080  649 | com.sec.android.app.launcher/com.sam[...]l.app.CocktailBarService$_4896#81896 (1)
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger:        DEVICE |           19237158560824 | 00002100 | RGBA_8888    |    0.0    0.0 1080.0  144.0 |    0 2196 1080 2340 | NavigationBar0$_4479#107 (198733)
+03-24 00:34:15.118  2199  2199 D SurfaceFlinger: 
+03-24 00:34:15.124  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.042785, clamping
+03-24 00:34:15.124  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 548.7298, y: 251.86028, scale : 0.20285034
+03-24 00:34:15.124  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15bf590 mBlastBufferQueue=0xb4000072214c85a0 fn= 33 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.132  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.047539, clamping
+03-24 00:34:15.132  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 552.51715, y: 253.59863, scale : 0.19734842
+03-24 00:34:15.132  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d164a790 mBlastBufferQueue=0xb4000072214c85a0 fn= 34 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.140  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.048903, clamping
+03-24 00:34:15.140  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 556.7779, y: 254.58257, scale : 0.19115871
+03-24 00:34:15.141  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15f65d0 mBlastBufferQueue=0xb4000072214c85a0 fn= 35 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.146  2080   515 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 711642317
+03-24 00:34:15.149  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.050438, clamping
+03-24 00:34:15.149  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 560.0083, y: 256.05966, scale : 0.18646584
+03-24 00:34:15.149  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1675750 mBlastBufferQueue=0xb4000072214c85a0 fn= 36 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.157  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.049232, clamping
+03-24 00:34:15.157  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 562.57605, y: 257.23373, scale : 0.18273564
+03-24 00:34:15.157  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15ee610 mBlastBufferQueue=0xb4000072214c85a0 fn= 37 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.165  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.047134, clamping
+03-24 00:34:15.165  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 565.4647, y: 257.5677, scale : 0.17853925
+03-24 00:34:15.166  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1624f50 mBlastBufferQueue=0xb4000072214c85a0 fn= 38 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.166  4896  4896 I InsetsController: cancelAnimation: types=statusBars, animType=0, host=com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity, from=android.view.InsetsController.notifyFinished:2006 android.view.InsetsAnimationThreadControlRunner$1.lambda$notifyFinished$0:82 android.view.InsetsAnimationThreadControlRunner$1.$r8$lambda$cDFF0h4Ncq-8EXdGszv69jrUu7c:0 
+03-24 00:34:15.174  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.044773, clamping
+03-24 00:34:15.174  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 567.4017, y: 258.44998, scale : 0.17572536
+03-24 00:34:15.174  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15d2610 mBlastBufferQueue=0xb4000072214c85a0 fn= 39 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.182  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.040076, clamping
+03-24 00:34:15.182  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 568.86566, y: 259.11682, scale : 0.17359862
+03-24 00:34:15.182  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1646f90 mBlastBufferQueue=0xb4000072214c85a0 fn= 40 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.190  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.035116, clamping
+03-24 00:34:15.190  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 570.51276, y: 259.86707, scale : 0.17120588
+03-24 00:34:15.191  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15aa910 mBlastBufferQueue=0xb4000072214c85a0 fn= 41 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.199  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.029535, clamping
+03-24 00:34:15.199  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 571.55255, y: 260.3407, scale : 0.1696953
+03-24 00:34:15.199  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d15f3690 mBlastBufferQueue=0xb4000072214c85a0 fn= 42 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.207  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.022974, clamping
+03-24 00:34:15.207  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 572.01575, y: 260.55167, scale : 0.16902246
+03-24 00:34:15.207  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1611610 mBlastBufferQueue=0xb4000072214c85a0 fn= 43 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.215  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.015622, clamping
+03-24 00:34:15.215  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 572.5368, y: 260.78903, scale : 0.1682655
+03-24 00:34:15.216  4896  7527 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d1617b90 mBlastBufferQueue=0xb4000072214c85a0 fn= 44 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.224  4896  4896 E SurfaceComposerClient: SurfaceComposerClient::Transaction::setAlpha: invalid alpha -0.007352, clamping
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] container x: 573.0, y: 261.0, scale : 0.1675926
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] value animator:[244810608] end
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: reset containerView, com.honeyspace.transition.anim.floating.ContainerView{b6f82 V.E...... ......ID 0,0-1080,1086}
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: remove positionListener - com.honeyspace.transition.anim.floating.c@a251b17
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: [Player:A(14.877)] reset
+03-24 00:34:15.224  4896  4896 I HoneySpace.IconView: setIconVisible : visible-true, currentForceHideBadge-true
+03-24 00:34:15.224  4896  4896 I HoneySpace.IconView: updateInvisibleState true APP_CLOSING current:2 new:0
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingAnimator: playerCount : 0
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingFinishHelper: finishInProgress: true
+03-24 00:34:15.224  4896  4896 I HoneySpace.AppCloseAnimationDelegate: animatorSet end
+03-24 00:34:15.224  4896  4896 I HoneySpace.DeJankUtils: postAfterTraversal is called com.honeyspace.common.performance.JankWrapper$addCujInstrumentation$1$4$1@1d59d53, immediate : true detail : app transition end
+03-24 00:34:15.224  4896  4896 I HoneySpace.AnimationResult: finish, false
+03-24 00:34:15.224  4896  4896 I HoneySpace.FloatingFinishHelper: isAppShow reset, immediate
+03-24 00:34:15.224  4896  4896 I HoneySpace.AppscreenViewModel: endGestureHint
+03-24 00:34:15.224  4896  4896 I HoneySpace.AppscreenViewModel: resetAnimatedValues
+03-24 00:34:15.224  4896  4896 I HoneySpace.HoneyScreenManagerImpl: transitionAnimator is ended, onCancel: false
+03-24 00:34:15.224  4896  4896 I HoneySpace.ContentsAnimator: ContentsAnimator end [154093289]
+03-24 00:34:15.224  4896 11308 I HoneySpace.AnimationResult: asyncFinishRunnable run
+03-24 00:34:15.224  4479  4520 V WindowManagerShell: Transition animation finished (aborted=false), notifying core (#5428) android.os.BinderProxy@6494b02@0
+03-24 00:34:15.225  4479  4520 I SurfaceControlRegistry: apply, t=FinishTransaction_SyncId<5428>, caller=android.view.SurfaceControl$Transaction.apply:3459 android.view.SurfaceControl$Transaction.apply:3447 android.view.SurfaceControl$Transaction.apply:3397 com.android.wm.shell.transition.Transitions.onFinish:315 com.android.wm.shell.transition.Transitions$$ExternalSyntheticLambda7.onTransitionFinished:12 com.android.wm.shell.transition.RemoteTransitionHandler$1$$ExternalSyntheticLambda0.run:78 
+03-24 00:34:15.225  4896  4896 I HoneySpace.AnimationResult: completeCallback run
+03-24 00:34:15.225  4896  4896 I HoneySpace.RunnableList: executeAllAndClear() called, size: 1
+03-24 00:34:15.225  4896  7526 I VRI[LauncherActivity]@36d1ce: mWNT: t=0xb4000071d161d310 mBlastBufferQueue=0xb4000072214c85a0 fn= 45 HdrRenderState mRenderHdrSdrRatio=1.0 caller= com.android.systemui.shared.launcher.ViewRootImplCompat.mergeWithNextTransaction:4 com.honeyspace.transition.utils.SurfaceTransactionApplier.scheduleApply$lambda$1:16 com.honeyspace.transition.utils.SurfaceTransactionApplier.b:0 
+03-24 00:34:15.225  3313  7511 V WindowManager: Finish Transition: TransitionRecord{9a85c7c id=5428 type=CLOSE flags=0x10 c=[
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{9c4341a container=ActivityRecord{6303913 u0 com.sec.android.app.launcher/.activities.LauncherActivity t8} flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{6864b4b container=ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080 f} isExiting} flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{9211928 container=Task{255c25a #5080 type=standard A=10485:com.usbridge.client} flags=0x10}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{5b21641 container=Display{#0 state=ON size=1080x2340 ROTATION_0} flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{6e177e6 container=RemoteWallpaperAnim:1:1@112477148 flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{26c5127 container=WallpaperWindowToken{735f670 showWhenLocked=false}_<system> flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{4029fd4 container=Task{b8a4262 #1 type=home} flags=0x30}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{3c8d57d container=DefaultTaskDisplayArea_d0@230759442 flags=0x0}
+03-24 00:34:15.225  3313  7511 V WindowManager:    ChangeInfo{93d2c72 container=Task{ee0c51d #8 type=home I=com.sec.android.app.launcher/.activities.LauncherActivity} flags=0x30}
+03-24 00:34:15.225  3313  7511 V WindowManager: ]
+03-24 00:34:15.225  3313  7511 V WindowManager: }, caller=com.android.server.wm.WindowOrganizerController.finishTransitionInner:31 com.android.server.wm.WindowOrganizerController.finishAllTransitions:60 android.window.IWindowOrganizerController$Stub.onTransact:283 
+03-24 00:34:15.225  3313  7511 V WindowManager: Setting visibility of Window{64cc007 u0 com.usbridge.client/com.usbridge.client.MainActivity EXITING}: false, caller=com.android.server.wm.WindowContainer.sendAppVisibilityToClients:19 com.android.server.wm.WindowToken.setClientVisible:48 com.android.server.wm.ActivityRecord.commitVisibility:186 com.android.server.wm.TransitionController.finishTransition:846 com.android.server.wm.WindowOrganizerController.finishTransitionInner:31 
+03-24 00:34:15.225  3313  3367 V WindowManager: Finish Transition (#5428): created at 03-24 00:34:14.780 collect-started=0.723ms request-sent=1.078ms started=5.081ms ready=66.69ms sent=87.971ms commit=7.335ms finished=444.707ms
+03-24 00:34:15.225  3313  7511 W ActivityManager: pid 3313 system sent binder code 7 with flags 1 to frozen apps and got error -32
+03-24 00:34:15.225  3313  7511 D ActivityManager: Too many transaction errors, throttling freezer binder callback.
+03-24 00:34:15.226  3313  7511 W WindowManager: Exception thrown during dispatchAppVisibility Window{64cc007 u0 com.usbridge.client/com.usbridge.client.MainActivity EXITING}
+03-24 00:34:15.226  3313  7511 W WindowManager: android.os.DeadObjectException
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.os.BinderProxy.transactNative(Native Method)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.os.BinderProxy.transact(BinderProxy.java:661)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.view.IWindow$Stub$Proxy.dispatchAppVisibility(IWindow.java:659)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowState.sendAppVisibilityToClients(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:63)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowContainer.sendAppVisibilityToClients(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:19)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowToken.setClientVisible(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:48)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.ActivityRecord.commitVisibility(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:186)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.TransitionController.finishTransition(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:846)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowOrganizerController.finishTransitionInner(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:31)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowOrganizerController.finishAllTransitions(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:60)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.window.IWindowOrganizerController$Stub.onTransact(IWindowOrganizerController.java:283)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at com.android.server.wm.WindowOrganizerController.onTransact(qb/106573977 970c3892a8eaa74829cf94d5fbec3ef3055ad47bee2a6f3fdc4bdb739f76e0cd:1)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.os.Binder.execTransactInternal(Binder.java:1462)
+03-24 00:34:15.226  3313  7511 W WindowManager:         at android.os.Binder.execTransact(Binder.java:1401)
+03-24 00:34:15.226  3313  7511 W Process : Unable to open /proc/305/status
+03-24 00:34:15.226  3313  7511 W Process : Unable to open /proc/305/status
+03-24 00:34:15.226  4896  4896 I HoneySpace.Launcher: onEnterAnimationComplete
+03-24 00:34:15.226  3313  7511 V WindowManager: Remove Window{64cc007 u0 com.usbridge.client/com.usbridge.client.MainActivity EXITING}: mSurfaceControl=Surface(name=com.usbridge.client/com.usbridge.client.MainActivity$_305)/@0xc2441b0 mAnimatingExit=true mRemoveOnExit=true mHasSurface=true surfaceShowing=true animating=false app-animation=false callers=com.android.server.wm.WindowToken.removeAllWindowsIfPossible:45 com.android.server.wm.WindowToken.removeIfPossible:16 com.android.server.wm.WindowToken.handleCompleteDeferredRemoval:5 com.android.server.wm.WindowContainer.handleCompleteDeferredRemoval:21 com.android.server.wm.TaskFragment.handleCompleteDeferredRemoval:17 com.android.server.wm.WindowContainer.handleCompleteDeferredRemoval:21 
+03-24 00:34:15.226  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.226  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.227  3313  7511 V WindowManager: Remove Window{64cc007 u0 com.usbridge.client/com.usbridge.client.MainActivity EXITING}: mSurfaceControl=Surface(name=com.usbridge.client/com.usbridge.client.MainActivity$_305)/@0xc2441b0 mAnimatingExit=true mRemoveOnExit=true mHasSurface=true surfaceShowing=true animating=false app-animation=false callers=com.android.server.wm.WindowToken.removeAllWindowsIfPossible:45 com.android.server.wm.WindowToken.removeIfPossible:16 com.android.server.wm.ActivityRecord.onRemovedFromDisplay:407 com.android.server.wm.ActivityRecord.removeImmediately:46 com.android.server.wm.WindowToken.removeIfPossible:19 com.android.server.wm.WindowToken.handleCompleteDeferredRemoval:5 
+03-24 00:34:15.227  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.227  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.227  2199  2999 I SurfaceFlinger: id=81956 Removed cdea86f ActivityRecordInputSink com.usbridge.client/.MainActivity#81956 (288)
+03-24 00:34:15.227  3313  7511 D RestrictionPolicy: isScreenCaptureEnabled : ret=true userId=0
+03-24 00:34:15.227  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.227  3313  7511 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.228  2199  2999 I SurfaceFlinger: id=81978 createSurf, flag=24004, Task=5080#81978
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController: onTransitionFinished: TransitionRecord{9a85c7c id=5428 type=CLOSE flags=0x10 c=[
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{9c4341a container=ActivityRecord{6303913 u0 com.sec.android.app.launcher/.activities.LauncherActivity t8} flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{6864b4b container=ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t-1 f}} flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{9211928 container=Task{255c25a #5080 type=standard A=10485:com.usbridge.client} flags=0x10}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{5b21641 container=Display{#0 state=ON size=1080x2340 ROTATION_0} flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{6e177e6 container=RemoteWallpaperAnim:1:1@112477148 flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{26c5127 container=WallpaperWindowToken{735f670 showWhenLocked=false}_<system> flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{4029fd4 container=Task{b8a4262 #1 type=home} flags=0x30}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{3c8d57d container=DefaultTaskDisplayArea_d0@230759442 flags=0x0}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController:    ChangeInfo{93d2c72 container=Task{ee0c51d #8 type=home I=com.sec.android.app.launcher/.activities.LauncherActivity} flags=0x30}
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController: ]
+03-24 00:34:15.228  3313  7511 D ChangeTransitionController: }
+03-24 00:34:15.228  4479  4520 V WindowManagerShell: Track 0 became idle
+03-24 00:34:15.228  4479  4520 V WindowManagerShell: All active transition animations finished
+03-24 00:34:15.228  4896  4896 I HoneySpace.TaskStackChangeRepositoryImpl: onTaskRemoved : 5080
+03-24 00:34:15.228  4896  5156 I HoneySpace.TopTaskSource: onTaskRemoved: 5080
+03-24 00:34:15.229  4896  4896 I HoneySpace.TaskListViewModel[207108684]: taskRemoveId, 5080
+03-24 00:34:15.229  4896  4896 W HoneySpace.TaskListViewModel[207108684]: task is already removed: 5080
+03-24 00:34:15.229  4896  4896 I HoneySpace.TaskStackChangeRepositoryImpl: onTaskRemoved : 5080
+03-24 00:34:15.229  4896  4896 I HoneySpace.TaskListViewModel[207108684]: taskRemoveId, 5080
+03-24 00:34:15.229  4896  4896 W HoneySpace.TaskListViewModel[207108684]: task is already removed: 5080
+03-24 00:34:15.229  4896  5156 I HoneySpace.TopTaskSource: onTaskRemoved: 5080
+03-24 00:34:15.232  4479  4479 D SystemUIService: SYSUI_RAM_OPTIMIZATION onTrimMemory=20
+03-24 00:34:15.232  4896  4896 I HoneySpace.DeJankUtils: traversals callback's received
+03-24 00:34:15.232  4479  4479 D CentralSurfaces: SYSUI_RAM_OPTIMIZATION onTrimMemory=20
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: RequestedLayer [Task=5080#81951] hidden!! flag  from(0) --> to(1)
+03-24 00:34:15.232  4896  4896 I HoneySpace.DeJankUtils: doActionRunnable is called com.honeyspace.common.performance.JankWrapper$addCujInstrumentation$1$4$1@1d59d53, immediate = true, detail : app transition end
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [Display 0 name="Вбудований екран"#49] setFrameRateCategory: Default
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=1#53 parentId=10} 2 children}] reparent to LayerHierarchy{RequestedLayerState{DefaultTaskDisplayArea_d0#10 parentId=9} 32 children}
+03-24 00:34:15.232  4479  4585 D HWUI    : CacheManager::trimMemory(20)
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{WallpaperWindowToken{735f670 showWhenLocked=false}#77 parentId=8 z=1} 1 children}] reparent to LayerHierarchy{RequestedLayerState{Leaf:1:1#8 parentId=7} 2 children}
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=5080#81951 parentId=10 z=29} 1 children}] reparent to LayerHierarchy{RequestedLayerState{DefaultTaskDisplayArea_d0#10 parentId=9} 33 children}
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Transition Root: Task=1#81973} 2 children}] reparent to OffscreenRoot
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Transition Root: Task=1#81973} 2 children}] RelativeParent to null
+03-24 00:34:15.232  2199  2199 I SurfaceFlinger: [Task=5080#81978] attach to parent Root
+03-24 00:34:15.232  4896  4896 I HoneySpace.AppTransitionAnimationAwait: proceed 1
+03-24 00:34:15.233  2199  2199 I SurfaceFlinger: id=81973 Removed Transition Root: Task=1#81973 (289)
+03-24 00:34:15.233  4479  4520 V ShellDesktopMode: Task Vanished: #5080 closed=true
+03-24 00:34:15.233  3313  3370 I DisplayDeviceRepository: Display device changed render timings: "Вбудований екран", renderFrameRate=120.00001, presentationDeadlineNanos=9333333, appVsyncOffsetNanos=8333333, frameRateOverrides=[]
+03-24 00:34:15.234  4896 26909 I HoneySpace.RecentTasks: onRunningTaskVanished
+03-24 00:34:15.234  4896 26909 I HoneySpace.RecentTasks: onRecentTasksChanged
+03-24 00:34:15.234  3313  3371 D SurfaceComposerClient: setCornerRadius ## 74a42b2 com.sec.android.app.launcher/com.sec.android.app.launcher.activities.LauncherActivity#136 cornerRadius=0.000000
+03-24 00:34:15.234  4479  4479 D DisplayLifecycle: updateDisplay id = 0
+03-24 00:34:15.234  4479  4559 D StackScroller: onDisplayChanged for predraw skip to 2
+03-24 00:34:15.234  3313  8939 D WifiDisplayAdapter: isFitToActiveDisplayLocked : false
+03-24 00:34:15.234  4896  4896 I HoneySpace.FloatingFinishHelper: finishInProgress: false
+03-24 00:34:15.234  4896 21502 I HoneySpace.Memory-Monitor: current state = 2, didTrim = false
+03-24 00:34:15.236  3313  7511 W ParceledListSlice: Element #9 is 31336 bytes.
+03-24 00:34:15.236  3313  7511 W ParceledListSlice: Element #18 is 19224 bytes.
+03-24 00:34:15.236  3313  7511 W ParceledListSlice: Element #21 is 23340 bytes.
+03-24 00:34:15.237  3313  7511 W ParceledListSlice: Element #26 is 31788 bytes.
+03-24 00:34:15.237  3313  7511 W ParceledListSlice: Element #31 is 31784 bytes.
+03-24 00:34:15.237  3313  7511 W ParceledListSlice: Overly large reply size: 95584
+03-24 00:34:15.238  4479  4561 W ndroid.systemui: Large reply transaction of 327756 bytes, interface descriptor com.android.wm.shell.recents.IRecentTasks, code 4
+03-24 00:34:15.240  2199  2199 I SurfaceFlinger: destroyed Transition Root: Task=1#81973 form LifecycleManager
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{com.usbridge.client/com.usbridge.client.MainActivity$_305#81963} no children}] reparent to OffscreenRoot
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{com.usbridge.client/com.usbridge.client.MainActivity$_305#81963} no children}] RelativeParent to null
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=5080#81951 z=29} 1 children}] reparent to OffscreenRoot
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=5080#81951 z=29} 1 children}] RelativeParent to null
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952} 2 children}] reparent to OffscreenRoot
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952} 2 children}] RelativeParent to null
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962} no children}] reparent to OffscreenRoot
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962} no children}] RelativeParent to null
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=5080#81978 z=29} no children}] reparent to OffscreenRoot
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Task=5080#81978 z=29} no children}] RelativeParent to null
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: id=81973 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Transition Root: Task=1#81973 !handle})
+03-24 00:34:15.241  2199  2199 I Layer   : id=81973 Destroyed Transition Root: Task=1#81973
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: id=81978 Removed Task=5080#81978 (288)
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: id=81952 Removed ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952 (288)
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: id=81962 Removed 64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962 (288)
+03-24 00:34:15.241  2199  2199 I SurfaceFlinger: id=81963 Removed com.usbridge.client/com.usbridge.client.MainActivity$_305#81963 (288)
+03-24 00:34:15.243  2199  2999 I SurfaceFlinger: id=81975 Removed Surface(name=Task=5080)/@0xed88a6c_transition-leash#81975 (288)
+03-24 00:34:15.243  2199  2999 I SurfaceFlinger: id=81974 Removed Surface(name=Task=1)/@0xfdfcabe_transition-leash#81974 (288)
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed com.usbridge.client/com.usbridge.client.MainActivity$_305#81963 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed Surface(name=Task=1)/@0xfdfcabe_transition-leash#81974 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed Task=5080#81978 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed cdea86f ActivityRecordInputSink com.usbridge.client/.MainActivity#81956 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed 64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: destroyed Surface(name=Task=5080)/@0xed88a6c_transition-leash#81975 form LifecycleManager
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81963 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{com.usbridge.client/com.usbridge.client.MainActivity$_305#81963 !handle})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81974 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Surface(name=Task=1)/@0xfdfcabe_transition-leash#81974 !handle z=2})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81978 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Task=5080#81978 !handle z=29})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81956 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{cdea86f ActivityRecordInputSink com.usbridge.client/.MainActivity#81956 !handle z=-2147483648})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81952 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952 !handle})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81962 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962 !handle})
+03-24 00:34:15.249  2199  2199 I SurfaceFlinger: id=81975 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Surface(name=Task=5080)/@0xed88a6c_transition-leash#81975 !handle z=5})
+03-24 00:34:15.249  4896  4896 I HoneySpace.WallpaperAnimator: destroyWallpaperSurface Surface(name=Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper)/@0x2170da3
+03-24 00:34:15.249  4896  4896 I HoneySpace.WallpaperAnimator: wallpaper animation end [151693472]
+03-24 00:34:15.249  3313  7511 I WindowManager: Cancelling animation restarting=false, leash=Surface(name=Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper)/@0x32d9dbe
+03-24 00:34:15.249  3313  7511 I WindowManager: Reparenting to original parent: Surface(name=OneHanded:0:14)/@0x5a72f67, destroy=false, surface=Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726
+03-24 00:34:15.249  2199  2199 E BpTransactionCompletedListener: Failed to transact (-32)
+03-24 00:34:15.249  2199  2199 I Layer   : id=81963 Destroyed com.usbridge.client/com.usbridge.client.MainActivity$_305#81963
+03-24 00:34:15.249  3313  7511 D WindowManager: mRunner#onAnimationCancelled, leash=Surface(name=Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper)/@0x32d9dbe, caller=com.android.server.wm.SurfaceAnimator.cancelAnimation:14 com.android.server.wm.SurfaceAnimator.cancelAnimation:1 com.android.server.wm.WindowContainer.cancelAnimation:3 com.android.server.wm.WindowManagerService.finishRemoteWallpaperAnimation:81 android.view.IWindowManager$Stub.onTransact:4336 
+03-24 00:34:15.249  4896 11253 I HoneySpace.WallpaperAnimator: onAnimationCancelled
+03-24 00:34:15.249  3313  7511 D WindowManager: finishRemoteWallpaperAnimation, success=true
+03-24 00:34:15.249  2199  2199 I Layer   : id=81974 Destroyed Surface(name=Task=1)/@0xfdfcabe_transition-leash#81974
+03-24 00:34:15.249  2199  2199 I Layer   : id=81978 Destroyed Task=5080#81978
+03-24 00:34:15.249  2199  2199 I Layer   : id=81956 Destroyed cdea86f ActivityRecordInputSink com.usbridge.client/.MainActivity#81956
+03-24 00:34:15.249  2199  2199 I Layer   : id=81952 Destroyed ActivityRecord{12579333 u0 com.usbridge.client/.MainActivity t5080}#81952
+03-24 00:34:15.249  2199  2199 I Layer   : id=81962 Destroyed 64cc007 com.usbridge.client/com.usbridge.client.MainActivity#81962
+03-24 00:34:15.249  2199  2199 I Layer   : id=81975 Destroyed Surface(name=Task=5080)/@0xed88a6c_transition-leash#81975
+03-24 00:34:15.265  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{RemoteWallpaperAnim:1:1#7 parentId=4 z=1} 1 children}] reparent to LayerHierarchy{RequestedLayerState{OneHanded:0:14#4 parentId=3} 4 children}
+03-24 00:34:15.265  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 z=1} no children}] reparent to OffscreenRoot
+03-24 00:34:15.265  2199  2199 I SurfaceFlinger: [LayerHierarchy{RequestedLayerState{Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 z=1} no children}] RelativeParent to null
+03-24 00:34:15.266  2199  2199 I SurfaceFlinger: id=81976 Removed Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 (281)
+03-24 00:34:15.274  2199  2199 I SurfaceFlinger: destroyed Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 form LifecycleManager
+03-24 00:34:15.274  2199  2199 I SurfaceFlinger: id=81976 onLayerDestroyed from LayerHierarchyBuilder(RequestedLayerState{Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976 !handle z=1})
+03-24 00:34:15.274  2199  2199 I Layer   : id=81976 Destroyed Surface(name=RemoteWallpaperAnim:1:1)/@0x35fe726 - animation-leash of remote_wallpaper#81976
+03-24 00:34:15.344  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
