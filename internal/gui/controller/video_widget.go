@@ -21,14 +21,12 @@ type VideoWidget struct {
 	container        *fyne.Container
 	videoCanvas      *canvas.Image
 	touchpadWrapper  *TouchpadWrapper
-	controls         *fyne.Container
-	startBtn         *widget.Button
-	stopBtn          *widget.Button
 	statusLabel      *widget.Label
 	infoLabel        *widget.Label
 	statsLabel       *widget.Label
 	contentContainer *fyne.Container // Контейнер для видео и клавиатуры
 	ui               *view.VideoWidgetUI
+	statsTickerStop  chan struct{}
 
 	// Состояние
 	isStreaming          bool
@@ -41,6 +39,9 @@ type VideoWidget struct {
 	gstreamerService *service.GStreamerService
 	frpService       *service.FRPService // для проверки режима FRP
 	updateStatus     func()
+	onFPSChanged     func(float64)
+	videoOpMu        sync.Mutex
+	videoOpRunning   bool
 
 	// Видео поток
 	currentFrame  image.Image

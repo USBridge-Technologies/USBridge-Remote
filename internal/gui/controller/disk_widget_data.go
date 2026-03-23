@@ -13,6 +13,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // uploadState сохраняет состояние загрузки для восстановления после combineDrives
 type uploadState struct {
 	progress float64
@@ -124,6 +133,22 @@ func (dw *DiskWidget) loadLocalFiles() {
 
 	dw.localFiles = foundFiles
 	logrus.Infof("Найдено %d локальных файлов", len(foundFiles))
+}
+
+func (dw *DiskWidget) loadVideoDevices() {
+	go func() {
+		devices, err := getAvailableVideoDevices(dw.usbClient)
+		if err != nil {
+			logrus.Debugf("video devices unavailable: %v", err)
+			return
+		}
+
+		dw.updateUIAsync(func() {
+			dw.videoDevices = devices
+			dw.combineDrives()
+			dw.devicesList.Refresh()
+		})
+	}()
 }
 
 // isSupportedFile проверяет, поддерживается ли файл
@@ -250,6 +275,20 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, item)
 	}
 
+	// Добавляем видеоустройства
+	for i := range dw.videoDevices {
+		device := dw.videoDevices[i]
+		item := DriveItem{
+			Name:        fmt.Sprintf("%s [%s]", firstNonEmpty(device.Description, device.Name, device.Path), device.Path),
+			Size:        device.Path,
+			Source:      "video",
+			IsMounted:   false,
+			IsVideo:     true,
+			VideoDevice: &dw.videoDevices[i],
+		}
+		dw.allDrives = append(dw.allDrives, item)
+	}
+
 	// Добавляем клавиатуру
 	keyboardItem := DriveItem{
 		Name:       i18n.Current.DeviceKeyboard,
@@ -305,7 +344,7 @@ func (dw *DiskWidget) combineDrives() {
 
 	dw.updateDevicesStatus()
 
-	logrus.Infof("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages))
+	logrus.Infof("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices))
 }
 
 // loadMountedDevices загружает смонтированные устройства через API
@@ -354,10 +393,26 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		}
 	}
 
+	var currentVideoPath string
+	videoStreaming := false
+	if info, err := getVideoInfoData(dw.usbClient); err == nil && info != nil {
+		currentVideoPath = info.Device
+		videoStreaming = info.Streaming
+	}
+
 	for i := range dw.allDrives {
 		drive := &dw.allDrives[i]
 		oldStatus := drive.IsMounted
 		isMounted := false
+
+		if drive.IsVideo {
+			if drive.VideoDevice != nil && videoStreaming && drive.VideoDevice.Path == currentVideoPath {
+				isMounted = true
+			}
+			drive.IsMounted = isMounted
+			logrus.Debugf("📺 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
+			continue
+		}
 
 		for _, device := range dw.mountedDevices {
 			if device.Status != "connected" {

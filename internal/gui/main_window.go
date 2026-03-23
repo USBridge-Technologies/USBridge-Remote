@@ -50,6 +50,7 @@ type MainWindow struct {
 	isConnectionLoading    bool
 	connectedProtocol      string
 	pendingWireGuardInvite string
+	currentVideoFPS        float64
 
 	// Кнопка подключения/отключения
 	connectionBtn    *view.HeaderActionButton

@@ -459,6 +459,26 @@ func (c *USBClient) GetDevices() (*models.APIResponse, error) {
 	return &apiResp, nil
 }
 
+// GetSystemDevices получает список системных устройств bridge из /api/devices.
+func (c *USBClient) GetSystemDevices() ([]models.SystemDevice, error) {
+	apiResp, err := c.GetDevices()
+	if err != nil {
+		return nil, err
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка сериализации списка устройств: %v", err)
+	}
+
+	var devices []models.SystemDevice
+	if err := json.Unmarshal(dataBytes, &devices); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга списка устройств: %v", err)
+	}
+
+	return devices, nil
+}
+
 // GetConfig получает конфигурацию
 func (c *USBClient) GetConfig() (*models.APIResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/config", nil)
@@ -807,6 +827,35 @@ func (c *USBClient) GetVideoInfo() (*models.APIResponse, error) {
 	return &apiResp, nil
 }
 
+func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
+	resp, err := c.makeRequest("GET", "/api/video/devices", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("ошибка получения видеоустройств: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка сериализации списка видеоустройств: %v", err)
+	}
+
+	var payload struct {
+		Devices []models.SystemDevice `json:"devices"`
+	}
+	if err := json.Unmarshal(dataBytes, &payload); err != nil {
+		return nil, fmt.Errorf("ошибка парсинга списка видеоустройств: %v", err)
+	}
+
+	return payload.Devices, nil
+}
+
 // StartVideo запускает видео стриминг с параметрами (новый API)
 func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 	requestJSON, err := json.Marshal(request)
@@ -818,8 +867,8 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 	if mode == "" {
 		mode = models.VideoModeH264
 	}
-	logrus.Infof("🎥 Запуск видео стриминга: mode=%s %dx%d@%dfps, качество: %d, битрейт: %s",
-		mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
+	logrus.Infof("🎥 Запуск видео стриминга: device=%s mode=%s %dx%d@%dfps, качество: %d, битрейт: %s",
+		request.VideoDevice, mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
 
 	resp, err := c.makeRequest("POST", "/api/video/start", requestJSON)
 	if err != nil {

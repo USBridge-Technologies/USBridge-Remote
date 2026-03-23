@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
@@ -147,6 +148,19 @@ func (mw *MainWindow) recreateContainers() {
 		mw.diskWidget.SetOnStorageInfoUpdate(storageUpdate)
 		if mw.videoWidget != nil {
 			mw.diskWidget.SetOnMouseTypeChanged(mw.videoWidget.SetMouseInputMode)
+			mw.diskWidget.SetOnVideoConfigRequested(func(devicePath string) {
+				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == 1, false)
+			})
+			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
+				mw.videoWidget.StartVideoDeviceAsync(devicePath)
+			})
+			mw.diskWidget.SetOnVideoDisconnect(func() {
+				mw.videoWidget.StopVideoAsync()
+			})
+			mw.videoWidget.SetOnFPSChanged(func(fps float64) {
+				mw.currentVideoFPS = fps
+				mw.updateVideoIconLabel()
+			})
 		}
 	}
 	if mw.backupWidget != nil {
@@ -165,6 +179,15 @@ func (mw *MainWindow) recreateContainers() {
 	)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
 		mw.updateDeviceButtonsVisibility()
+		if tab != nil && tab.Text == i18n.Current.TabControl {
+			if mw.videoWidget != nil && !mw.videoWidget.IsStreaming() {
+				mw.videoWidget.StartConfiguredVideoAsync()
+			}
+			return
+		}
+		if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
+			mw.videoWidget.StopVideoAsync()
+		}
 	}
 
 	mw.mainContent = container.NewBorder(addressBar, mainFooter, nil, nil, mw.tabs)
@@ -365,6 +388,11 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.nbdIcon = widget.NewButton("💿", func() {})
 	mw.nbdIcon.Importance = widget.LowImportance
 	mw.videoIcon = widget.NewButton("📺", func() {})
+	mw.videoIcon.OnTapped = func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(true)
+		}
+	}
 	mw.videoIcon.Importance = widget.LowImportance
 	mw.keyboardIcon = widget.NewButton("⌨️", func() {
 		if mw.videoWidget != nil {
@@ -388,6 +416,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mountBtn, unmountBtn, addImageBtn := mw.diskWidget.GetButtons()
 	mw.deviceButtonsPanel = container.NewHBox(addImageBtn, mountBtn, unmountBtn)
 	mw.deviceButtonsPanel.Hide()
+	mw.updateVideoIconLabel()
 
 	return container.NewBorder(nil, nil, mw.deviceButtonsPanel, nil, nil)
 }
@@ -518,5 +547,23 @@ func (mw *MainWindow) updateStatusBar() {
 			mw.statusPanel.Objects = []fyne.CanvasObject{}
 		}
 		mw.statusPanel.Refresh()
+	})
+}
+
+func (mw *MainWindow) updateVideoIconLabel() {
+	if mw.videoIcon == nil {
+		return
+	}
+
+	label := "📺"
+	if mw.currentVideoFPS > 0 {
+		label = fmt.Sprintf("📺\n%.1f", mw.currentVideoFPS)
+	} else {
+		label = "📺\n0"
+	}
+
+	fyne.Do(func() {
+		mw.videoIcon.SetText(label)
+		mw.videoIcon.Refresh()
 	})
 }

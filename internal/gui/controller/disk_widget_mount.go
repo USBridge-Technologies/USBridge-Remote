@@ -62,23 +62,33 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	var mountedDrives []DriveItem
+	var mountedVideoCount int
 	for _, drive := range dw.allDrives {
 		if drive.IsMounted {
-			mountedDrives = append(mountedDrives, drive)
-		}
-	}
-
-	var selectedDrives []DriveItem
-	for id, selected := range dw.selectedItems {
-		if selected && id < len(dw.allDrives) {
-			drive := dw.allDrives[id]
-			if !drive.IsMounted {
-				selectedDrives = append(selectedDrives, drive)
+			if drive.IsVideo {
+				mountedVideoCount++
+			} else {
+				mountedDrives = append(mountedDrives, drive)
 			}
 		}
 	}
 
-	if len(selectedDrives) == 0 {
+	var selectedDrives []DriveItem
+	var selectedVideos []DriveItem
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) {
+			drive := dw.allDrives[id]
+			if !drive.IsMounted {
+				if drive.IsVideo {
+					selectedVideos = append(selectedVideos, drive)
+				} else {
+					selectedDrives = append(selectedDrives, drive)
+				}
+			}
+		}
+	}
+
+	if len(selectedDrives) == 0 && len(selectedVideos) == 0 {
 		logrus.Warnf("⚠️ Нет выбранных устройств для подключения")
 		if dw.window != nil {
 			dialog.ShowError(fmt.Errorf("%s", i18n.Current.SelectDevicesToMount), dw.window)
@@ -97,7 +107,7 @@ func (dw *DiskWidget) handleMount() {
 		return
 	}
 
-	logrus.Infof("📁 Подключено: %d, добавляем: %d, итого: %d", len(mountedDrives), len(selectedDrives), totalCount)
+	logrus.Infof("📁 Подключено: gadget=%d, video=%d, добавляем gadget=%d, video=%d", len(mountedDrives), mountedVideoCount, len(selectedDrives), len(selectedVideos))
 
 	hasGoogleDriveFiles := false
 	for _, drive := range selectedDrives {
@@ -272,7 +282,7 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
-		if len(deviceRequests) == 0 {
+		if len(deviceRequests) == 0 && len(selectedVideos) == 0 {
 			dw.showErrorAsync(fmt.Errorf("не удалось подготовить устройства для монтирования"))
 			return
 		}
@@ -372,24 +382,35 @@ func (dw *DiskWidget) handleMount() {
 
 		batchRequest := models.DeviceStartBatchRequest(deviceRequests)
 
-		dw.updateStatusAsync("Запуск устройств...")
-		logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств, отправляем запрос /api/device/start", len(deviceRequests))
-		for i, req := range deviceRequests {
-			logrus.Infof("   📤 [MOUNT-API-1] Устройство %d: device=%s, server=%s, port=%d, export_name=%s, read_only=%v", i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
+		if len(deviceRequests) > 0 {
+			dw.updateStatusAsync("Запуск устройств...")
+			logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств, отправляем запрос /api/device/start", len(deviceRequests))
+			for i, req := range deviceRequests {
+				logrus.Infof("   📤 [MOUNT-API-1] Устройство %d: device=%s, server=%s, port=%d, export_name=%s, read_only=%v", i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
+			}
+
+			deviceResp, err := dw.startDevicesWithRetry(batchRequest)
+			if err != nil {
+				logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
+				dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
+				return
+			}
+
+			logrus.Infof("✅ [MOUNT-API-2] API ответ от USBridge 2:")
+			logrus.Infof("  - Success: %v", deviceResp.Success)
+			logrus.Infof("  - Message: %s", deviceResp.Message)
+			if deviceResp.Data != nil {
+				logrus.Infof("  - Data: %+v", deviceResp.Data)
+			}
 		}
 
-		deviceResp, err := dw.startDevicesWithRetry(batchRequest)
-		if err != nil {
-			logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
-			dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
-			return
-		}
-
-		logrus.Infof("✅ [MOUNT-API-2] API ответ от USBridge 2:")
-		logrus.Infof("  - Success: %v", deviceResp.Success)
-		logrus.Infof("  - Message: %s", deviceResp.Message)
-		if deviceResp.Data != nil {
-			logrus.Infof("  - Data: %+v", deviceResp.Data)
+		if len(selectedVideos) > 0 && dw.onVideoConnect != nil {
+			for _, videoDrive := range selectedVideos {
+				if videoDrive.VideoDevice == nil {
+					continue
+				}
+				dw.onVideoConnect(videoDrive.VideoDevice.Path)
+			}
 		}
 
 		for _, req := range deviceRequests {
@@ -414,9 +435,20 @@ func (dw *DiskWidget) handleMount() {
 		})
 
 		reEnableButtons = false
-		go dw.pollMountStatus(mountingExportNames)
+		if len(deviceRequests) == 0 {
+			go func() {
+				time.Sleep(1500 * time.Millisecond)
+				dw.updateUIAsync(func() {
+					dw.loadMountedDevices()
+					dw.devicesList.Refresh()
+					dw.setButtonsEnabled(true)
+				})
+			}()
+		} else {
+			go dw.pollMountStatus(mountingExportNames)
+		}
 
-		logrus.Infof("✅ Запрос на монтирование %d устройств отправлен", len(deviceRequests))
+		logrus.Infof("✅ Запрос на монтирование gadget=%d video=%d отправлен", len(deviceRequests), len(selectedVideos))
 	}()
 }
 
@@ -436,12 +468,22 @@ func (dw *DiskWidget) handleUnmount() {
 	var mountedIndices []int
 	for i, drive := range dw.allDrives {
 		if drive.IsMounted {
-			mountedDrives = append(mountedDrives, drive)
-			mountedIndices = append(mountedIndices, i)
+			if !drive.IsVideo {
+				mountedDrives = append(mountedDrives, drive)
+				mountedIndices = append(mountedIndices, i)
+			}
 		}
 	}
 
-	if len(mountedDrives) == 0 {
+	videoMounted := false
+	for _, drive := range dw.allDrives {
+		if drive.IsVideo && drive.IsMounted {
+			videoMounted = true
+			break
+		}
+	}
+
+	if len(mountedDrives) == 0 && !videoMounted {
 		logrus.Warnf("⚠️ Нет подключенных устройств для размонтирования")
 		if dw.window != nil {
 			dialog.ShowInformation(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
@@ -451,14 +493,18 @@ func (dw *DiskWidget) handleUnmount() {
 	}
 
 	selectedAndMountedIndices := make(map[int]bool)
+	selectedMountedVideo := false
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) && dw.allDrives[id].IsMounted {
+			if dw.allDrives[id].IsVideo {
+				selectedMountedVideo = true
+			}
 			selectedAndMountedIndices[id] = true
 		}
 	}
 
 	confirmMsg := i18n.Current.UnmountAllConfirm
-	unmountAll := len(selectedAndMountedIndices) == 0
+	unmountAll := len(selectedAndMountedIndices) == 0 && !selectedMountedVideo
 	if !unmountAll {
 		confirmMsg = i18n.Current.UnmountSelectedConfirm
 	}
@@ -491,6 +537,9 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	}()
 
 	if unmountAll {
+		if dw.onVideoDisconnect != nil {
+			dw.onVideoDisconnect()
+		}
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if err := dw.usbClient.StopAllDevices(); err != nil {
 			logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
@@ -499,6 +548,17 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		}
 		dw.stopNBDAndCleanup(mountedDrives, true)
 	} else {
+		videoSelected := false
+		for idx := range selectedIndices {
+			if idx < len(dw.allDrives) && dw.allDrives[idx].IsVideo {
+				videoSelected = true
+				break
+			}
+		}
+		if videoSelected && dw.onVideoDisconnect != nil {
+			dw.onVideoDisconnect()
+		}
+
 		keepIndices := make(map[int]bool)
 		for _, idx := range mountedIndices {
 			if !selectedIndices[idx] {
@@ -687,10 +747,21 @@ func (dw *DiskWidget) countSelectedItems() int {
 	return count
 }
 
+func (dw *DiskWidget) countSelectedGadgetItems() int {
+	count := 0
+	for id, selected := range dw.selectedItems {
+		if selected && id < len(dw.allDrives) && !dw.allDrives[id].IsVideo {
+			count++
+		}
+	}
+	return count
+}
+
 // updateButtons обновляет состояние кнопок.
 func (dw *DiskWidget) updateButtons() {
 	selectedCount := 0
 	selectedNotMountedCount := 0
+	selectedGadgetNotMountedCount := 0
 	mountedCount := 0
 
 	for id, selected := range dw.selectedItems {
@@ -699,16 +770,28 @@ func (dw *DiskWidget) updateButtons() {
 			if !dw.allDrives[id].IsMounted {
 				selectedNotMountedCount++
 			}
+			if !dw.allDrives[id].IsVideo && !dw.allDrives[id].IsMounted {
+				selectedGadgetNotMountedCount++
+			}
 		}
 	}
 	for _, drive := range dw.allDrives {
-		if drive.IsMounted {
+		if drive.IsMounted && !drive.IsVideo {
 			mountedCount++
 		}
 	}
 
 	hasMountedDevices := mountedCount > 0
-	canAdd := selectedNotMountedCount > 0 && (mountedCount+selectedNotMountedCount) <= MaxDevicesToMount
+	videoMounted := false
+	for _, drive := range dw.allDrives {
+		if drive.IsVideo && drive.IsMounted {
+			videoMounted = true
+			break
+		}
+	}
+	hasMountedDevices = hasMountedDevices || videoMounted
+
+	canAdd := selectedNotMountedCount > 0 && (mountedCount+selectedGadgetNotMountedCount) <= MaxDevicesToMount
 
 	fyne.Do(func() {
 		if selectedCount == 0 {

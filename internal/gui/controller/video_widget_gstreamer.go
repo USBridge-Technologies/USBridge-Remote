@@ -90,7 +90,6 @@ func (vw *VideoWidget) handleGStreamerStateChange(state string) {
 func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.VideoStartRequest) {
 	fyne.Do(func() {
 		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
-		vw.startBtn.Disable()
 	})
 
 	// Если видео уже запущено, значит это переключение устройства - переподключаемся
@@ -135,7 +134,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if !vw.connectToGStreamerWithRetries() {
 		logrus.Error("❌ Не удалось запустить GStreamer")
 		fyne.Do(func() {
-			vw.startBtn.Enable()
 			vw.statusLabel.SetText("❌ " + i18n.Current.VideoLaunchFailed)
 		})
 		return
@@ -157,7 +155,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		logrus.Errorf("Ошибка запуска видео: %v", err)
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-			vw.startBtn.Enable()
 		})
 		return
 	}

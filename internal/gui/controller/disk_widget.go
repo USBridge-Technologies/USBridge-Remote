@@ -38,6 +38,7 @@ type DiskWidget struct {
 	// Данные
 	localDrives []*models.LocalDrive // Устройства из API
 	localFiles  []*models.DiskInfo   // Локальные файлы из папки isos
+	videoDevices []models.SystemDevice
 	sdSpaceInfo *models.ISOSpaceInfo // Информация о месте на SD-карте (при монтировании)
 
 	// Callback для обновления общего прогрессбара в main window (место на флешке)
@@ -61,6 +62,9 @@ type DiskWidget struct {
 
 	// Callback: тип манипулятора при запуске мыши (mouse/touchscreen) — для синхронизации с VideoWidget
 	onMouseTypeChanged func(mouseType string)
+	onVideoConfigRequested func(devicePath string)
+	onVideoConnect         func(devicePath string)
+	onVideoDisconnect      func()
 
 	// SAF helper для Android
 	safHelper *platform.SAFHelper
@@ -97,6 +101,8 @@ type DriveItem struct {
 	MouseType      string             // "mouse" (мышь/тачпад), "touchscreen" (тачскрин) или "absolute" (абсолютный), только для мыши
 	IsRNDIS        bool               // Для сетевой карты
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
+	IsVideo        bool               // Для видеоустройства /dev/video*
+	VideoDevice    *models.SystemDevice
 	ReadOnly       bool               // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay (только чтение не портит базовый образ)
 	UploadProgress float64            // Прогресс загрузки 0-100
 	UploadSpeed    float64            // Скорость загрузки МБ/с
@@ -131,6 +137,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		config:         config,
 		localDrives:    make([]*models.LocalDrive, 0),
 		localFiles:     make([]*models.DiskInfo, 0),
+		videoDevices:   make([]models.SystemDevice, 0),
 		userImages:     make([]*models.DiskInfo, 0),
 		allDrives:      make([]DriveItem, 0),
 		mountedDevices: make([]*models.DeviceInfo, 0),
@@ -144,6 +151,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	dw.loadUserImagesFromPreferences() // Загружаем сохраненные образы
 	dw.loadLocalDrives()
 	dw.loadLocalFiles()
+	dw.loadVideoDevices()
 	dw.combineDrives()
 	dw.loadMountedDevices()
 
@@ -178,6 +186,7 @@ func (dw *DiskWidget) createInterface() {
 				modeSelect := row.ModeSelect
 				uploadBtn := row.UploadButton
 				deleteBtn := row.DeleteButton
+				settingsBtn := row.SettingsButton
 				modeRowIconText := row.ModeIcon
 				modeTitleLabel := row.ModeTitleLabel
 				if checkbox == nil || nameLabel == nil || statusLabel == nil {
@@ -270,6 +279,7 @@ func (dw *DiskWidget) createInterface() {
 
 				// Устанавливаем состояние чекбокса
 				checkbox.SetChecked(dw.selectedItems[id])
+				checkbox.Show()
 				if drive.IsMounting {
 					checkbox.Disable()
 				} else {
@@ -281,8 +291,8 @@ func (dw *DiskWidget) createInterface() {
 					}
 					if checked {
 						// Проверяем лимит: не более 5 устройств
-						selectedCount := dw.countSelectedItems()
-						if selectedCount >= MaxDevicesToMount {
+						selectedCount := dw.countSelectedGadgetItems()
+						if !drive.IsVideo && selectedCount >= MaxDevicesToMount {
 							checkbox.SetChecked(false)
 							if dw.window != nil {
 								dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
@@ -343,6 +353,20 @@ func (dw *DiskWidget) createInterface() {
 						}
 					} else {
 						deleteBtn.Hide()
+					}
+				}
+
+				if settingsBtn != nil {
+					if drive.IsVideo && drive.VideoDevice != nil {
+						settingsBtn.Show()
+						devicePath := drive.VideoDevice.Path
+						settingsBtn.OnTapped = func() {
+							if dw.onVideoConfigRequested != nil {
+								dw.onVideoConfigRequested(devicePath)
+							}
+						}
+					} else {
+						settingsBtn.Hide()
 					}
 				}
 
@@ -408,6 +432,8 @@ func (dw *DiskWidget) createInterface() {
 					sourcePrefix = "🖱️ "
 				} else if drive.Source == "rndis" {
 					sourcePrefix = "🌐 "
+				} else if drive.Source == "video" {
+					sourcePrefix = "📺 "
 				}
 
 				// Устанавливаем иконку статуса подключения
@@ -465,12 +491,25 @@ func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 	dw.onMouseTypeChanged = fn
 }
 
+func (dw *DiskWidget) SetOnVideoConfigRequested(fn func(devicePath string)) {
+	dw.onVideoConfigRequested = fn
+}
+
+func (dw *DiskWidget) SetOnVideoConnect(fn func(devicePath string)) {
+	dw.onVideoConnect = fn
+}
+
+func (dw *DiskWidget) SetOnVideoDisconnect(fn func()) {
+	dw.onVideoDisconnect = fn
+}
+
 // createButtonBar создает панель кнопок
 
 // Refresh обновляет виджет
 func (dw *DiskWidget) Refresh() {
 	dw.loadLocalDrives()
 	dw.loadLocalFiles()
+	dw.loadVideoDevices()
 	dw.combineDrives()
 	dw.loadMountedDevices()
 	dw.devicesList.Refresh()
@@ -612,6 +651,7 @@ func (dw *DiskWidget) startPeriodicRefresh() {
 			dw.updateUIAsync(func() {
 				dw.loadLocalDrives()
 				dw.loadLocalFiles()
+				dw.loadVideoDevices()
 				dw.combineDrives()
 				dw.loadMountedDevices()
 				dw.devicesList.Refresh()

@@ -242,6 +242,7 @@ type DeviceStatusResponse struct {
 
 // VideoStartRequest запрос на запуск видео стриминга
 type VideoStartRequest struct {
+	VideoDevice  string `json:"video_device,omitempty"`
 	VideoWidth   int    `json:"video_width"`
 	VideoHeight  int    `json:"video_height"`
 	VideoFPS     int    `json:"video_fps"`
@@ -250,6 +251,39 @@ type VideoStartRequest struct {
 	VideoMode    string `json:"video_mode,omitempty"`
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientPort int `json:"client_port,omitempty"`
+}
+
+// SystemDevice устройство, видимое на стороне bridge через /api/devices.
+type SystemDevice struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Connected   bool   `json:"connected"`
+	Description string `json:"description"`
+}
+
+// VideoDeviceConfig сохраненный клиентом конфиг запуска видео для конкретного /dev/video*.
+type VideoDeviceConfig struct {
+	DevicePath    string `json:"device_path"`
+	DeviceName    string `json:"device_name,omitempty"`
+	VideoWidth    int    `json:"video_width"`
+	VideoHeight   int    `json:"video_height"`
+	VideoFPS      int    `json:"video_fps"`
+	VideoQuality  int    `json:"video_quality"`
+	VideoBitrate  string `json:"video_bitrate"`
+	VideoMode     string `json:"video_mode"`
+	LastAppliedAt int64  `json:"last_applied_at,omitempty"`
+}
+
+func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
+	return &VideoStartRequest{
+		VideoDevice:  c.DevicePath,
+		VideoWidth:   c.VideoWidth,
+		VideoHeight:  c.VideoHeight,
+		VideoFPS:     c.VideoFPS,
+		VideoQuality: c.VideoQuality,
+		VideoBitrate: c.VideoBitrate,
+		VideoMode:    c.VideoMode,
+	}
 }
 
 type WireGuardBootstrapRequest struct {

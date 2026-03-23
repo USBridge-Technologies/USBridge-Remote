@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"image"
+	"math"
 	"strings"
 	"time"
 
@@ -25,14 +26,12 @@ func (vw *VideoWidget) createInterface() {
 	vw.container = vw.ui.Container
 	vw.videoCanvas = vw.ui.VideoCanvas
 	vw.touchpadWrapper.SetImage(vw.videoCanvas)
-	vw.controls = vw.ui.Controls
-	vw.startBtn = vw.ui.StartBtn
-	vw.stopBtn = vw.ui.StopBtn
 	vw.statusLabel = vw.ui.StatusLabel
 	vw.infoLabel = vw.ui.InfoLabel
 	vw.statsLabel = vw.ui.StatsLabel
 	vw.contentContainer = vw.ui.ContentContainer
 
+	vw.startStatsLoop()
 	vw.updateButtons()
 }
 
@@ -93,6 +92,9 @@ func (vw *VideoWidget) handleStartVideo() {
 	}
 
 	vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
+	vw.startDialog.SetDeviceLabel("")
+	vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
+	vw.startDialog.SetExtraAction("", nil)
 	vw.startDialog.Show(vw.handleVideoStartWithParams)
 }
 
@@ -128,6 +130,16 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog() *models.VideoInfoData {
 
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
+	if !vw.beginVideoOperation() {
+		logrus.Warn("⚠️ video operation already in progress, skipping start")
+		return
+	}
+	defer vw.endVideoOperation()
+
+	vw.startVideoWithParamsInternal(request)
+}
+
+func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRequest) {
 	if vw.gstreamerService == nil {
 		logrus.Warn("⚠️ GStreamer service is not initialized")
 		fyne.Do(func() {
@@ -149,10 +161,21 @@ func (vw *VideoWidget) handleStopVideo() {
 		return
 	}
 
+	if !vw.beginVideoOperation() {
+		logrus.Warn("⚠️ video operation already in progress, skipping stop")
+		return
+	}
+	defer vw.endVideoOperation()
+
+	vw.stopVideoInternal()
+}
+
+func (vw *VideoWidget) stopVideoInternal() {
+
 	fyne.Do(func() {
 		vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
-		vw.stopBtn.Disable()
 	})
+	resetVideoInfoCache()
 
 	vw.usbClient.DisconnectMouseWebSocket()
 
@@ -183,12 +206,8 @@ func (vw *VideoWidget) handleStopVideo() {
 
 // updateButtons обновляет состояние кнопок.
 func (vw *VideoWidget) updateButtons() {
-	if vw.isStreaming {
-		vw.startBtn.Disable()
-		vw.stopBtn.Enable()
-	} else {
-		vw.startBtn.Enable()
-		vw.stopBtn.Enable()
+	if vw.onFPSChanged != nil && !vw.isStreaming {
+		vw.onFPSChanged(0)
 	}
 }
 
@@ -320,9 +339,6 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		if frameNum == 1 && vw.container != nil {
 			vw.container.Refresh()
 		}
-		if frameNum%30 == 0 {
-			vw.updateStats()
-		}
 	})
 }
 
@@ -405,6 +421,9 @@ func (vw *VideoWidget) updateStats() {
 
 	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
 	vw.statsLabel.SetText(stats)
+	if vw.onFPSChanged != nil {
+		vw.onFPSChanged(math.Round(fps*10) / 10)
+	}
 }
 
 // SetParentWindow устанавливает родительское окно для диалогов.
@@ -422,6 +441,10 @@ func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 			}
 		}
 	})
+}
+
+func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
+	vw.onFPSChanged = fn
 }
 
 // UpdateClient обновляет USB клиент.
@@ -473,10 +496,13 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameMutex.Lock()
 	vw.currentFrame = nil
 	vw.frameCount = 0
+	vw.lastFrameTime = time.Time{}
 	vw.frameMutex.Unlock()
+	vw.frameDecoder.Reset()
 
 	fyne.Do(func() {
 		vw.videoCanvas.Resource = nil
+		vw.videoCanvas.Image = nil
 		vw.videoCanvas.Refresh()
 	})
 }
@@ -491,4 +517,43 @@ func (vw *VideoWidget) GetCurrentFrame() image.Image {
 // GetFrameDecoder возвращает декодер кадров для полноэкранного режима.
 func (vw *VideoWidget) GetFrameDecoder() *media.FrameDecoder {
 	return vw.frameDecoder
+}
+
+func (vw *VideoWidget) startStatsLoop() {
+	if vw.statsTickerStop != nil {
+		close(vw.statsTickerStop)
+	}
+	vw.statsTickerStop = make(chan struct{})
+
+	go func(stop <-chan struct{}) {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() {
+					vw.updateStats()
+				})
+			case <-stop:
+				return
+			}
+		}
+	}(vw.statsTickerStop)
+}
+
+func (vw *VideoWidget) beginVideoOperation() bool {
+	vw.videoOpMu.Lock()
+	defer vw.videoOpMu.Unlock()
+	if vw.videoOpRunning {
+		return false
+	}
+	vw.videoOpRunning = true
+	return true
+}
+
+func (vw *VideoWidget) endVideoOperation() {
+	vw.videoOpMu.Lock()
+	vw.videoOpRunning = false
+	vw.videoOpMu.Unlock()
 }

@@ -37,9 +37,11 @@ type VideoStartDialog struct {
 	bitrateValueLabel *widget.Label
 	bitrateBlock      *fyne.Container
 	jpegHint          *widget.Label
+	deviceLabel       *widget.Label
 
 	startBtn  *widget.Button
 	cancelBtn *widget.Button
+	extraBtn  *widget.Button
 
 	onApply func(request *models.VideoStartRequest)
 }
@@ -79,10 +81,14 @@ func (vsd *VideoStartDialog) createInterface() {
 
 	vsd.jpegHint = widget.NewLabel("JPEG RTP: без decode на сервере, минимальная задержка, битрейт управляется камерой.")
 	vsd.jpegHint.Wrapping = fyne.TextWrapWord
+	vsd.deviceLabel = widget.NewLabel("")
+	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
 
 	vsd.startBtn = widget.NewButton("▶️ "+i18n.Current.StartVideo, vsd.handleStart)
 	vsd.startBtn.Importance = widget.HighImportance
 	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
+	vsd.extraBtn = widget.NewButton("", nil)
+	vsd.extraBtn.Hide()
 
 	vsd.bitrateBlock = container.NewVBox(
 		container.NewBorder(nil, nil,
@@ -95,6 +101,7 @@ func (vsd *VideoStartDialog) createInterface() {
 
 	form := container.NewVBox(
 		widget.NewLabelWithStyle("🎥 "+i18n.Current.VideoParameters, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		vsd.deviceLabel,
 		widget.NewSeparator(),
 		widget.NewLabelWithStyle("Режим стриминга", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		vsd.modeSelect,
@@ -110,6 +117,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		),
 		vsd.bitrateBlock,
 		vsd.jpegHint,
+		vsd.extraBtn,
 		widget.NewSeparator(),
 		container.NewGridWithColumns(2, vsd.startBtn, vsd.cancelBtn),
 	)
@@ -234,8 +242,34 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.onApply = onApply
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
-	vsd.startBtn.SetText("▶️ " + i18n.Current.StartVideo)
 	vsd.dialog.Show()
+}
+
+func (vsd *VideoStartDialog) SetDeviceLabel(text string) {
+	vsd.deviceLabel.SetText(text)
+	if text == "" {
+		vsd.deviceLabel.Hide()
+		return
+	}
+	vsd.deviceLabel.Show()
+}
+
+func (vsd *VideoStartDialog) SetPrimaryAction(label string) {
+	if label == "" {
+		label = i18n.Current.StartVideo
+	}
+	vsd.startBtn.SetText("▶️ " + label)
+}
+
+func (vsd *VideoStartDialog) SetExtraAction(label string, onTap func()) {
+	if label == "" || onTap == nil {
+		vsd.extraBtn.Hide()
+		vsd.extraBtn.OnTapped = nil
+		return
+	}
+	vsd.extraBtn.SetText(label)
+	vsd.extraBtn.OnTapped = onTap
+	vsd.extraBtn.Show()
 }
 
 func (vsd *VideoStartDialog) Hide() {

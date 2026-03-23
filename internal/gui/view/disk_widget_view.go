@@ -50,6 +50,9 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	deleteBtn := widget.NewButton("🗑️", nil)
 	deleteBtn.Hide()
 
+	settingsBtn := widget.NewButton("⚙", nil)
+	settingsBtn.Hide()
+
 	modeRowIconText := canvas.NewText("🖱️", theme.Color(theme.ColorNameForeground))
 	modeRowIconText.TextSize = theme.TextSize()
 	modeRowIconText.Hide()
@@ -63,7 +66,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 
 	modeLabelWrap := container.NewHBox(modeRowIconText, modeTitleLabel)
 	centerContainer := container.NewStack(nameLabel, modeLabelWrap)
-	rightContainer := container.NewHBox(roRwBtn, modeSelect, uploadBtn, deleteBtn, statusLabel)
+	rightContainer := container.NewHBox(roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusLabel)
 
 	return container.NewBorder(nil, nil, checkboxContainer, rightContainer, centerContainer)
 }

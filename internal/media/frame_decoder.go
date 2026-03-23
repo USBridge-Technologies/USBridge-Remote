@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -22,6 +23,7 @@ type FrameDecoder struct {
 	frameCount     int64
 	frameTimes     []time.Time   // Времена получения кадров для скользящего окна
 	windowDuration time.Duration // Длительность скользящего окна (5 секунд)
+	mu             sync.Mutex
 }
 
 // NewFrameDecoder создает новый декодер видео кадров.
@@ -188,31 +190,33 @@ func (vfd *FrameDecoder) ResizeImage(src image.Image, width, height int) image.I
 
 // GetFrameStats возвращает статистику кадров
 func (vfd *FrameDecoder) GetFrameStats() map[string]interface{} {
+	vfd.mu.Lock()
+	defer vfd.mu.Unlock()
+
 	return map[string]interface{}{
 		"frame_count":     vfd.frameCount,
 		"last_frame_time": vfd.lastFrameTime,
-		"fps":             vfd.calculateFPS(),
+		"fps":             vfd.calculateFPSLocked(),
 	}
 }
 
 // calculateFPS вычисляет скользящее среднее FPS за последние 5 секунд
-func (vfd *FrameDecoder) calculateFPS() float64 {
+func (vfd *FrameDecoder) calculateFPSLocked() float64 {
 	now := time.Now()
 	cutoff := now.Add(-vfd.windowDuration)
 
 	// Удаляем старые кадры за пределами окна
-	validFrames := 0
 	for i, t := range vfd.frameTimes {
 		if t.After(cutoff) {
 			vfd.frameTimes = vfd.frameTimes[i:]
-			validFrames = len(vfd.frameTimes)
-			break
+			goto fpsReady
 		}
 	}
+	vfd.frameTimes = vfd.frameTimes[:0]
 
-	// Если нет кадров в окне
+fpsReady:
+	validFrames := len(vfd.frameTimes)
 	if validFrames == 0 {
-		vfd.frameTimes = vfd.frameTimes[:0]
 		return 0
 	}
 
@@ -228,11 +232,16 @@ func (vfd *FrameDecoder) calculateFPS() float64 {
 
 // UpdateFrameTime обновляет время последнего кадра
 func (vfd *FrameDecoder) UpdateFrameTime() {
+	vfd.mu.Lock()
+	defer vfd.mu.Unlock()
 	vfd.lastFrameTime = time.Now()
 }
 
 // IncrementFrameCount увеличивает счетчик кадров
 func (vfd *FrameDecoder) IncrementFrameCount() {
+	vfd.mu.Lock()
+	defer vfd.mu.Unlock()
+
 	now := time.Now()
 	if vfd.startTime.IsZero() {
 		vfd.startTime = now
@@ -242,4 +251,14 @@ func (vfd *FrameDecoder) IncrementFrameCount() {
 
 	// Добавляем время кадра для скользящего окна
 	vfd.frameTimes = append(vfd.frameTimes, now)
+}
+
+func (vfd *FrameDecoder) Reset() {
+	vfd.mu.Lock()
+	defer vfd.mu.Unlock()
+
+	vfd.startTime = time.Time{}
+	vfd.lastFrameTime = time.Time{}
+	vfd.frameCount = 0
+	vfd.frameTimes = vfd.frameTimes[:0]
 }

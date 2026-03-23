@@ -39,6 +39,7 @@ type DiskRowWidgets struct {
 	ModeSelect     *widget.Select
 	UploadButton   *widget.Button
 	DeleteButton   *widget.Button
+	SettingsButton *widget.Button
 	ModeIcon       *canvas.Text
 	ModeTitleLabel *widget.Label
 }
@@ -125,6 +126,8 @@ func ResolveDiskRowWidgets(obj fyne.CanvasObject) *DiskRowWidgets {
 					row.UploadButton = v
 				} else if buttonIndex == 2 {
 					row.DeleteButton = v
+				} else if buttonIndex == 3 {
+					row.SettingsButton = v
 				}
 				buttonIndex++
 			case *widget.Select:
