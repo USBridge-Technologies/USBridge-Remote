@@ -202,6 +202,7 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	t.videoWidget.touchStartX = ev.Position.X
 	t.videoWidget.touchStartY = ev.Position.Y
 	t.videoWidget.touchStartTime = time.Now()
+	t.videoWidget.resetRelativeMoveAccumulator()
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.currentMouseX = ev.Position.X
@@ -282,6 +283,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 		button := t.videoWidget.dragButton
 		t.videoWidget.dragButton = 0
 		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
 		go func() {
 			t.videoWidget.SetAbsoluteButton(button, false)
 			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
@@ -293,6 +295,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	if t.videoWidget.isDragging {
 		t.videoWidget.isDragging = false
 		t.videoWidget.dragButton = 0
+		t.videoWidget.resetRelativeMoveAccumulator()
 		return
 	}
 	if dx < 10 && dy < 10 && duration < 300*time.Millisecond {
@@ -318,6 +321,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 		t.videoWidget.dragButton = 0
 	}
 	t.videoWidget.isDragging = false
+	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
 // MouseMoved обрабатывает перемещение мыши (desktop)
@@ -370,6 +374,7 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.currentMouseX = ev.Position.X
 	t.videoWidget.currentMouseY = ev.Position.Y
+	t.videoWidget.resetRelativeMoveAccumulator()
 	if t.videoWidget.GetMouseInputMode() == "absolute" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		go func() {
@@ -406,6 +411,7 @@ func (t *TouchpadWrapper) MouseOut() {
 	if t.videoWidget.isDragging {
 		t.videoWidget.isDragging = false
 		t.videoWidget.dragButton = 0
+		t.videoWidget.resetRelativeMoveAccumulator()
 		go func() {
 			_ = t.videoWidget.usbClient.SendMouseAction(0, 0, 0, 0)
 		}()
@@ -449,6 +455,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.touchStartX = ev.Position.X
 	t.videoWidget.touchStartY = ev.Position.Y
 	t.videoWidget.touchStartTime = time.Now()
+	t.videoWidget.resetRelativeMoveAccumulator()
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
@@ -496,6 +503,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	// Режим мыши: как раньше
 	if t.videoWidget.isDragging {
 		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
 		return
 	}
 	if dx < 10 && dy < 10 && duration < 300*time.Millisecond {
@@ -524,6 +532,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		}
 	}
 	t.videoWidget.isDragging = false
+	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
 // TouchMove обрабатывает перемещение касания (mobile)
@@ -568,10 +577,10 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		t.videoWidget.isDragging = true
 	}
 	const touchpadSensitivity = 2.0
-	dx := int(float32(rawDx) * touchpadSensitivity)
-	dy := int(float32(rawDy) * touchpadSensitivity)
-	dx = clamp(dx, -127, 127)
-	dy = clamp(dy, -127, 127)
+	dx, dy := t.videoWidget.accumulateRelativeMove(rawDx, rawDy, touchpadSensitivity)
+	if dx == 0 && dy == 0 {
+		return
+	}
 	go func() {
 		_ = t.videoWidget.usbClient.SendMouseMove(dx, dy)
 	}()
@@ -580,6 +589,7 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 // TouchCancel обрабатывает отмену касания (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	t.videoWidget.isDragging = false
+	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
 // Dragged обрабатывает драг (реализация fyne.Draggable)
@@ -621,10 +631,10 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 				t.videoWidget.isDragging = true
 			}
 			const touchpadSensitivity = 2.0
-			dx := int(float32(rawDx) * touchpadSensitivity)
-			dy := int(float32(rawDy) * touchpadSensitivity)
-			dx = clamp(dx, -127, 127)
-			dy = clamp(dy, -127, 127)
+			dx, dy := t.videoWidget.accumulateRelativeMove(rawDx, rawDy, touchpadSensitivity)
+			if dx == 0 && dy == 0 {
+				return
+			}
 			go func() {
 				_ = t.videoWidget.usbClient.SendMouseMove(dx, dy)
 			}()
@@ -647,6 +657,7 @@ func (t *TouchpadWrapper) DragEnd() {
 		if t.videoWidget.isDragging {
 			logrus.Info("🖱️ [DRAGGED] Android: Swipe completed")
 			t.videoWidget.isDragging = false
+			t.videoWidget.resetRelativeMoveAccumulator()
 		}
 	}
 	// На desktop ничего не делаем - используется MouseUp

@@ -153,24 +153,31 @@ func (vw *VideoWidget) processMouseMovement() {
 		logrus.Debugf("🖱️ ✨ Drag/swipe STARTED (desktop touchpad mode, polling)")
 	}
 	const desktopSensitivity = 1.0
-	dx := int(float32(rawDx) * desktopSensitivity)
-	dy := int(float32(rawDy) * desktopSensitivity)
+	dx, dy := vw.accumulateRelativeMove(rawDx, rawDy, desktopSensitivity)
 	if dx == 0 && dy == 0 {
 		return
-	}
-	if dx < -127 {
-		dx = -127
-	} else if dx > 127 {
-		dx = 127
-	}
-	if dy < -127 {
-		dy = -127
-	} else if dy > 127 {
-		dy = 127
 	}
 	if err := vw.usbClient.SendMouseMove(dx, dy); err != nil {
 		logrus.Errorf("❌ Error sending mouse move: %v", err)
 	}
+}
+
+func (vw *VideoWidget) accumulateRelativeMove(rawDx, rawDy, sensitivity float32) (int, int) {
+	scaledDx := rawDx*sensitivity + vw.relativeRemainderX
+	scaledDy := rawDy*sensitivity + vw.relativeRemainderY
+
+	wholeDx := int(scaledDx)
+	wholeDy := int(scaledDy)
+
+	vw.relativeRemainderX = scaledDx - float32(wholeDx)
+	vw.relativeRemainderY = scaledDy - float32(wholeDy)
+
+	return clamp(wholeDx, -127, 127), clamp(wholeDy, -127, 127)
+}
+
+func (vw *VideoWidget) resetRelativeMoveAccumulator() {
+	vw.relativeRemainderX = 0
+	vw.relativeRemainderY = 0
 }
 
 // GetMouseInputMode возвращает тип манипулятора.
@@ -191,6 +198,7 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 		mode = "mouse"
 	}
 	vw.mouseInputMode = mode
+	vw.resetRelativeMoveAccumulator()
 	logrus.Debugf("🖱️ Pointer mode: %s", mode)
 }
 

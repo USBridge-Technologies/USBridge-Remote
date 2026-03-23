@@ -56,19 +56,21 @@ type VideoWidget struct {
 	virtualKeyboard  *graphics.VirtualKeyboard
 
 	// Мышь/тачпад
-	lastMouseX       float32
-	lastMouseY       float32
-	currentMouseX    float32 // Текущая позиция мыши (для polling)
-	currentMouseY    float32 // Текущая позиция мыши (для polling)
-	isDragging       bool
-	dragButton       int
-	touchStartX      float32
-	touchStartY      float32
-	touchStartTime   time.Time
-	mousePollingQuit chan bool // Канал для остановки polling горутины
-	mouseInputMode   string    // "mouse" (по умолчанию), "touchscreen" или "absolute"
-	touchpadSizeW    float32   // Ширина области ввода (для перевода в абсолютные координаты)
-	touchpadSizeH    float32   // Высота области ввода
+	lastMouseX         float32
+	lastMouseY         float32
+	currentMouseX      float32 // Текущая позиция мыши (для polling)
+	currentMouseY      float32 // Текущая позиция мыши (для polling)
+	relativeRemainderX float32 // накопленный дробный остаток относительного перемещения по X
+	relativeRemainderY float32 // накопленный дробный остаток относительного перемещения по Y
+	isDragging         bool
+	dragButton         int
+	touchStartX        float32
+	touchStartY        float32
+	touchStartTime     time.Time
+	mousePollingQuit   chan bool // Канал для остановки polling горутины
+	mouseInputMode     string    // "mouse" (по умолчанию), "touchscreen" или "absolute"
+	touchpadSizeW      float32   // Ширина области ввода (для перевода в абсолютные координаты)
+	touchpadSizeH      float32   // Высота области ввода
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
 	contentRectX      float32
 	contentRectY      float32
