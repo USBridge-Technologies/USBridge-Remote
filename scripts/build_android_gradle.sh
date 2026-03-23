@@ -39,10 +39,66 @@ echo ""
 echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
 GOBIN="$(go env GOBIN 2>/dev/null)"
 GOPATH_BIN="$(go env GOPATH 2>/dev/null)/bin"
-GOMOBILE_CMD=""
-[ -n "$GOBIN" ] && [ -x "$GOBIN/gomobile" ] && GOMOBILE_CMD="$GOBIN/gomobile"
-[ -z "$GOMOBILE_CMD" ] && [ -x "$GOPATH_BIN/gomobile" ] && GOMOBILE_CMD="$GOPATH_BIN/gomobile"
-[ -z "$GOMOBILE_CMD" ] && command -v gomobile >/dev/null 2>&1 && GOMOBILE_CMD="$(command -v gomobile)"
+
+find_go_tool() {
+    local tool="$1"
+
+    if [ -n "$GOBIN" ] && [ -x "$GOBIN/$tool" ]; then
+        echo "$GOBIN/$tool"
+        return 0
+    fi
+    if [ -x "$GOPATH_BIN/$tool" ]; then
+        echo "$GOPATH_BIN/$tool"
+        return 0
+    fi
+    if command -v "$tool" >/dev/null 2>&1; then
+        command -v "$tool"
+        return 0
+    fi
+
+    return 1
+}
+
+ensure_go_tool() {
+    local tool="$1"
+    local pkg="$2"
+    local force_install="${3:-0}"
+    local tool_path=""
+
+    if [ "$force_install" != "1" ]; then
+        tool_path="$(find_go_tool "$tool" 2>/dev/null || true)"
+    fi
+    if [ "$force_install" != "1" ] && [ -n "$tool_path" ]; then
+        echo "$tool_path"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Установка $tool...${NC}" >&2
+    if ! go install "$pkg"; then
+        echo -e "${RED}❌ Не удалось установить $tool${NC}" >&2
+        echo "   Проверьте доступ к сети и команду: go install $pkg" >&2
+        exit 1
+    fi
+
+    tool_path="$(find_go_tool "$tool" 2>/dev/null || true)"
+    if [ -z "$tool_path" ]; then
+        echo -e "${RED}❌ $tool не найден после установки${NC}" >&2
+        echo "   Проверьте PATH или используйте: $(go env GOPATH)/bin/$tool" >&2
+        exit 1
+    fi
+
+    echo "$tool_path"
+}
+
+GOMOBILE_CMD="$(ensure_go_tool gomobile golang.org/x/mobile/cmd/gomobile@latest)"
+GOBIND_CMD="$(find_go_tool gobind 2>/dev/null || true)"
+
+if [ -n "$GOBIN" ] && [ -d "$GOBIN" ]; then
+    export PATH="$GOBIN:$PATH"
+fi
+if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
+    export PATH="$GOPATH_BIN:$PATH"
+fi
 
 if ! command -v java >/dev/null 2>&1; then
     echo -e "${RED}❌ Java не найден${NC}"
@@ -50,23 +106,8 @@ if ! command -v java >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ -z "$GOMOBILE_CMD" ]; then
-    echo -e "${YELLOW}Установка gomobile...${NC}"
-    go install golang.org/x/mobile/cmd/gomobile@latest
-    GOMOBILE_CMD=""
-    [ -n "$GOBIN" ] && [ -x "$GOBIN/gomobile" ] && GOMOBILE_CMD="$GOBIN/gomobile"
-    [ -z "$GOMOBILE_CMD" ] && [ -x "$GOPATH_BIN/gomobile" ] && GOMOBILE_CMD="$GOPATH_BIN/gomobile"
-    [ -z "$GOMOBILE_CMD" ] && command -v gomobile >/dev/null 2>&1 && GOMOBILE_CMD="$(command -v gomobile)"
-fi
-
-if [ -z "$GOMOBILE_CMD" ]; then
-    echo -e "${RED}❌ gomobile не найден после установки${NC}"
-    echo "   Проверьте PATH или используйте: $(go env GOPATH)/bin/gomobile"
-    exit 1
-fi
-
 # Убедимся, что ANDROID_HOME/ANDROID_NDK_HOME заданы до gomobile init
-if [ -z "$ANDROID_HOME" ] || [ ! -d "$ANDROID_HOME" ]; then
+if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
     if [ -d "$HOME/Android/Sdk" ]; then
         export ANDROID_HOME="$HOME/Android/Sdk"
     elif [ -d "$HOME/Android/sdk" ]; then
@@ -75,8 +116,8 @@ if [ -z "$ANDROID_HOME" ] || [ ! -d "$ANDROID_HOME" ]; then
         export ANDROID_HOME="/usr/lib/android-sdk"
     fi
 fi
-if [ -z "$ANDROID_NDK_HOME" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
-    if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
+    if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/ndk" ]; then
         ANDROID_NDK_HOME="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | head -1)"
         ANDROID_NDK_HOME="${ANDROID_NDK_HOME%/}"
     elif [ -d "/usr/lib/android-ndk" ]; then
@@ -91,9 +132,14 @@ fi
     exit 1
 }
 
-if [ ! -x "$GOPATH_BIN/gobind" ] && ! command -v gobind >/dev/null 2>&1; then
+GOBIND_CMD="$(find_go_tool gobind 2>/dev/null || true)"
+if [ -z "$GOBIND_CMD" ]; then
+    GOBIND_CMD="$(ensure_go_tool gobind golang.org/x/mobile/cmd/gobind@latest)"
+fi
+
+if [ -z "$GOBIND_CMD" ]; then
     echo -e "${RED}❌ gobind не найден после gomobile init${NC}"
-    echo "   Попробуйте: $(go env GOPATH)/bin/gomobile init"
+    echo "   Попробуйте: go install golang.org/x/mobile/cmd/gobind@latest"
     exit 1
 fi
 
@@ -149,9 +195,17 @@ if [ -z "$ANDROID_NDK_HOME" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
 fi
 export ANDROID_NDK_HOME
 export CGO_ENABLED=1
+export GO111MODULE=on
+export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
+if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
+    export PATH="$GOPATH_BIN:$PATH"
+fi
+
+FYNE_INSTALL_VERSION="${FYNE_INSTALL_VERSION:-latest}"
+FYNE_BIN="$(ensure_go_tool fyne "fyne.io/tools/cmd/fyne@${FYNE_INSTALL_VERSION}" 1)"
 
 cd "$ANDROID_SRC"
-"$HOME/go/bin/fyne" package \
+"$FYNE_BIN" package \
     --target android/arm64 \
     --app-id com.usbridge.client \
     --name "USBridge Client" \
@@ -177,6 +231,8 @@ unzip -q "$FYNE_APK" -d "$TEMP_APK"
 
 # Copy libUSBridge_Client.so into jniLibs
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
+rm -f android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so
+rm -f android/app/src/main/jniLibs/arm64-v8a/libUSB_Bridge_Client.so
 cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
 cp android/jniLibs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
 rm -rf "$TEMP_APK"
@@ -193,18 +249,10 @@ if [ -z "$JAVA_HOME" ] || java -version 2>&1 | grep -q "version \"25"; then
 fi
 cd android
 
-# Иконка — используем из Fyne APK если нет mipmap
-if [ ! -d "app/src/main/res/mipmap-hdpi" ]; then
-    mkdir -p app/src/main/res/mipmap-hdpi
-    unzip -q -j "$REPO_ROOT/USBridge_Client.apk" "res/mipmap-xxxhdpi-v4/icon.png" -d /tmp/ 2>/dev/null && \
-        cp /tmp/icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png 2>/dev/null || true
-fi
-# Создаём mipmap если нет
+# Синхронизируем launcher icon с той же Icon.png, что используется в Windows build.
 for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
     mkdir -p "app/src/main/res/$d"
-    if [ ! -f "app/src/main/res/$d/ic_launcher.png" ]; then
-        cp "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png" 2>/dev/null || true
-    fi
+    cp "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png" 2>/dev/null || true
 done
 
 ./gradlew assembleRelease --no-daemon
