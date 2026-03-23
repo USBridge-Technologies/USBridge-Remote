@@ -23,14 +23,16 @@ type MainWindow struct {
 	window fyne.Window
 
 	// Виджеты
-	diskWidget         *controller.DiskWidget
-	videoWidget        *controller.VideoWidget
-	backupWidget       *controller.BackupWidget
-	connectionManager  *controller.ConnectionManager
-	mainContent        *fyne.Container
-	connectionContent  *fyne.Container
-	tabs               *container.AppTabs
-	deviceButtonsPanel *fyne.Container
+	diskWidget          *controller.DiskWidget
+	videoWidget         *controller.VideoWidget
+	backupWidget        *controller.BackupWidget
+	connectionManager   *controller.ConnectionManager
+	mainContent         *fyne.Container
+	connectionContent   *fyne.Container
+	tabs                *container.AppTabs
+	deviceButtonsPanel  *fyne.Container
+	deviceFooterBar     *fyne.Container
+	connectionFooterBar *fyne.Container
 
 	// Сервисы
 	nbdServer        *service.NBDServer
@@ -53,7 +55,6 @@ type MainWindow struct {
 	connectionBtn    *view.HeaderActionButton
 	protocolSelect   *widget.Select
 	protocolDropdown *view.HeaderDropdown
-	footerBar        *fyne.Container
 
 	// PC Panel (Power/Reset LED кнопки)
 	pcpanelWidget *controller.PCPanelWidget

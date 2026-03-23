@@ -155,8 +155,8 @@ func (mw *MainWindow) recreateContainers() {
 
 	mw.createStatusBar()
 	addressBar := mw.createAddressBar()
-	mainFooter := mw.createFooterBar(mw.deviceButtonsPanel)
-	connectionFooter := mw.createFooterBar(nil)
+	mainFooter := mw.createDeviceFooterBar()
+	connectionFooter := mw.createConnectionFooterBar()
 
 	mw.tabs = container.NewAppTabs(
 		container.NewTabItem(i18n.Current.TabDevices, mw.diskWidget.GetContainer()),
@@ -211,7 +211,7 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 	return spacer
 }
 
-func (mw *MainWindow) createFooterBar(right fyne.CanvasObject) *fyne.Container {
+func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 	var langBtn fyne.CanvasObject
 	langBtn = view.NewFooterIconButton(assets.LanguageIconDim, assets.LanguageIcon, fyne.NewSize(14, 14), func() {
 		if mw.connectionManager != nil {
@@ -231,16 +231,7 @@ func (mw *MainWindow) createFooterBar(right fyne.CanvasObject) *fyne.Container {
 		}
 	})
 
-	left := container.NewHBox(helpBtn, discordBtn, langBtn)
-	versionText := canvas.NewText("v"+appVersion, design.ColorTextMuted)
-	versionText.TextSize = 11
-
-	var rightContent fyne.CanvasObject = versionText
-	if right != nil {
-		rightContent = container.NewHBox(right, headerGapSpacer(8), versionText)
-	}
-
-	row := container.NewBorder(nil, nil, left, rightContent, nil)
+	row := container.NewCenter(container.NewHBox(helpBtn, discordBtn, langBtn))
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 
@@ -249,18 +240,29 @@ func (mw *MainWindow) createFooterBar(right fyne.CanvasObject) *fyne.Container {
 		view.NewInset(row, 6, 8, 2, 2),
 	)
 
-	mw.footerBar = bar
+	mw.connectionFooterBar = bar
+	return bar
+}
+
+func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bar := container.NewStack(
+		bg,
+		view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, 2),
+	)
+	mw.deviceFooterBar = bar
+	mw.deviceFooterBar.Hide()
 	return bar
 }
 
 func (mw *MainWindow) updateConnectionFooterVisibility(hasConnections bool) {
-	if mw.footerBar == nil {
+	if mw.connectionFooterBar == nil {
 		return
 	}
 
 	fyne.Do(func() {
 		_ = hasConnections
-		mw.footerBar.Show()
+		mw.connectionFooterBar.Show()
 
 		if content := mw.window.Content(); content != nil {
 			content.Refresh()
@@ -384,7 +386,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.statusPanel = container.NewHBox()
 
 	mountBtn, unmountBtn, addImageBtn := mw.diskWidget.GetButtons()
-	mw.deviceButtonsPanel = container.NewHBox(mountBtn, addImageBtn, unmountBtn)
+	mw.deviceButtonsPanel = container.NewHBox(addImageBtn, mountBtn, unmountBtn)
 	mw.deviceButtonsPanel.Hide()
 
 	return container.NewBorder(nil, nil, mw.deviceButtonsPanel, nil, nil)
@@ -392,17 +394,20 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 
 // updateDeviceButtonsVisibility обновляет видимость кнопок устройств.
 func (mw *MainWindow) updateDeviceButtonsVisibility() {
-	if mw.tabs == nil || mw.deviceButtonsPanel == nil {
+	if mw.tabs == nil || mw.deviceButtonsPanel == nil || mw.deviceFooterBar == nil {
 		return
 	}
 
 	fyne.Do(func() {
 		if mw.tabs.SelectedIndex() == 0 {
 			mw.deviceButtonsPanel.Show()
+			mw.deviceFooterBar.Show()
 		} else {
 			mw.deviceButtonsPanel.Hide()
+			mw.deviceFooterBar.Hide()
 		}
 		mw.deviceButtonsPanel.Refresh()
+		mw.deviceFooterBar.Refresh()
 	})
 }
 
