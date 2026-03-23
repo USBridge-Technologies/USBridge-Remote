@@ -81,15 +81,15 @@ type MainWindow struct {
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
-		return "x", design.ColorAccent, design.ColorBackground
+		return "WG", design.ColorAccent, design.ColorBackground
 	case models.ConnectionProtocolQUIC:
-		return "x", design.ColorAccentHover, design.ColorBackground
+		return "QC", design.ColorProtocolQUIC, design.ColorBackground
 	case "direct":
-		return "x", design.ColorSurfaceLight, design.ColorTextLight
+		return "ON", design.ColorSurfaceLight, design.ColorTextLight
 	case models.ConnectionProtocolAuto:
-		return "x", design.ColorSurfaceLight, design.ColorTextLight
+		return "ON", design.ColorSurfaceLight, design.ColorTextLight
 	default:
-		return "x", design.ColorSurfaceLight, design.ColorTextLight
+		return "ON", design.ColorSurfaceLight, design.ColorTextLight
 	}
 }
 

@@ -191,11 +191,11 @@ func (mw *MainWindow) createAddressBar() *fyne.Container {
 		mw.statusPanel,
 	)
 	rightPart := container.NewHBox(
+		newOptionalLeadingGap(addressBarGap, utilityPart),
 		headerGapSpacer(addressBarGap),
 		protocolPanel,
 		headerGapSpacer(addressBarGap),
 		connectPanel,
-		newOptionalLeadingGap(addressBarGap, utilityPart),
 	)
 	row := container.New(
 		layout.NewBorderLayout(nil, nil, nil, rightPart),

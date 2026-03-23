@@ -12,6 +12,7 @@ var (
 	ColorSurface            = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff} // --cs-surface-color
 	ColorAccent             = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0xff} // --cs-accent
 	ColorAccentHover        = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0xff} // --cs-accent-hover
+	ColorProtocolQUIC       = color.NRGBA{R: 0xe9, G: 0x8a, B: 0x2b, A: 0xff}
 	ColorTextLight          = color.NRGBA{R: 0xf5, G: 0xf5, B: 0xf5, A: 0xff} // --cs-text-light
 	ColorTextMuted          = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
 	ColorBorder             = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
