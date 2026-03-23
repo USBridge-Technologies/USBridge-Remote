@@ -91,6 +91,47 @@ type RuneKeyInfo struct {
 	Modifiers int
 }
 
+func mapRussianLayoutRuneToLatin(r rune) (rune, bool) {
+	layoutMap := map[rune]rune{
+		'ё': '`', 'Ё': '~',
+		'й': 'q', 'Й': 'Q',
+		'ц': 'w', 'Ц': 'W',
+		'у': 'e', 'У': 'E',
+		'к': 'r', 'К': 'R',
+		'е': 't', 'Е': 'T',
+		'н': 'y', 'Н': 'Y',
+		'г': 'u', 'Г': 'U',
+		'ш': 'i', 'Ш': 'I',
+		'щ': 'o', 'Щ': 'O',
+		'з': 'p', 'З': 'P',
+		'х': '[', 'Х': '{',
+		'ъ': ']', 'Ъ': '}',
+		'ф': 'a', 'Ф': 'A',
+		'ы': 's', 'Ы': 'S',
+		'в': 'd', 'В': 'D',
+		'а': 'f', 'А': 'F',
+		'п': 'g', 'П': 'G',
+		'р': 'h', 'Р': 'H',
+		'о': 'j', 'О': 'J',
+		'л': 'k', 'Л': 'K',
+		'д': 'l', 'Д': 'L',
+		'ж': ';', 'Ж': ':',
+		'э': '\'', 'Э': '"',
+		'я': 'z', 'Я': 'Z',
+		'ч': 'x', 'Ч': 'X',
+		'с': 'c', 'С': 'C',
+		'м': 'v', 'М': 'V',
+		'и': 'b', 'И': 'B',
+		'т': 'n', 'Т': 'N',
+		'ь': 'm', 'Ь': 'M',
+		'б': ',', 'Б': '<',
+		'ю': '.', 'Ю': '>',
+		'№': '#',
+	}
+	latin, ok := layoutMap[r]
+	return latin, ok
+}
+
 // GetRuneKeyCodeWithModifiers возвращает HID код и модификаторы для символа
 func GetRuneKeyCodeWithModifiers(r rune) (int, int) {
 	runeMap := map[rune]RuneKeyInfo{
@@ -125,6 +166,11 @@ func GetRuneKeyCodeWithModifiers(r rune) (int, int) {
 
 	if info, exists := runeMap[r]; exists {
 		return info.KeyCode, info.Modifiers
+	}
+	if latinRune, ok := mapRussianLayoutRuneToLatin(r); ok {
+		if info, exists := runeMap[latinRune]; exists {
+			return info.KeyCode, info.Modifiers
+		}
 	}
 	return 0, 0
 }

@@ -3,6 +3,7 @@ package gui
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
@@ -555,11 +556,14 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		return
 	}
 
-	label := "📺"
+	label := "0 FPS"
 	if mw.currentVideoFPS > 0 {
-		label = fmt.Sprintf("📺\n%.1f", mw.currentVideoFPS)
-	} else {
-		label = "📺\n0"
+		rounded := math.Round(mw.currentVideoFPS*10) / 10
+		if rounded == math.Trunc(rounded) {
+			label = fmt.Sprintf("%.0f FPS", rounded)
+		} else {
+			label = fmt.Sprintf("%.1f FPS", rounded)
+		}
 	}
 
 	fyne.Do(func() {

@@ -1075,13 +1075,22 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 // TestConnection проверяет соединение с USBridge 2
 func (c *USBClient) TestConnection() error {
-	_, err := c.GetDeviceInfo()
-	if err != nil {
-		return fmt.Errorf("не удается подключиться к USBridge 2: %v", err)
+	_, err := c.makeRequest("GET", "/api/healthz", nil)
+	if err == nil {
+		logrus.Info("✅ Соединение с USBridge 2 установлено")
+		return nil
 	}
 
-	logrus.Info("✅ Соединение с USBridge 2 установлено")
-	return nil
+	// Совместимость со старым сервером без healthz.
+	if strings.Contains(err.Error(), "HTTP ошибка 404") || strings.Contains(err.Error(), "404 page not found") {
+		if _, fallbackErr := c.GetDeviceInfo(); fallbackErr != nil {
+			return fmt.Errorf("не удается подключиться к USBridge 2: %v", fallbackErr)
+		}
+		logrus.Info("✅ Соединение с USBridge 2 установлено")
+		return nil
+	}
+
+	return fmt.Errorf("не удается подключиться к USBridge 2: %v", err)
 }
 
 // GetSnapshots получает список снапшотов

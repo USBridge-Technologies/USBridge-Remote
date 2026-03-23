@@ -81,7 +81,7 @@ func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
 		return nil, err
 	}
 	if resp == nil || !resp.Success || resp.Data == nil {
-		err := fmt.Errorf("video info unavailable")
+		err := fmt.Errorf(i18n.Current.VideoInfoUnavailable)
 		videoInfoCacheMu.Lock()
 		videoInfoCachedAt = time.Now()
 		videoInfoCachedData = nil
@@ -137,14 +137,14 @@ func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, 
 			current.Name = filepath.Base(info.Device)
 		}
 		if current.Description == "" {
-			current.Description = "Capture device"
+			current.Description = i18n.Current.CaptureDevice
 		}
 		current.Connected = info.Enabled || info.Streaming
 		merged[info.Device] = current
 	}
 
 	if len(merged) == 0 {
-		return nil, fmt.Errorf("capture video devices not found")
+		return nil, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
 	}
 
 	result := make([]models.SystemDevice, 0, len(merged))
@@ -167,7 +167,7 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 		return models.VideoDeviceConfig{}, err
 	}
 	if len(devices) == 0 {
-		return models.VideoDeviceConfig{}, fmt.Errorf("capture video devices not found")
+		return models.VideoDeviceConfig{}, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
 	}
 
 	deviceByPath := make(map[string]models.SystemDevice, len(devices))
@@ -231,7 +231,7 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 
 func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, restart bool) error {
 	if cfg.DevicePath == "" {
-		return fmt.Errorf("video device is empty")
+		return fmt.Errorf(i18n.Current.VideoDeviceEmpty)
 	}
 	if !vw.beginVideoOperation() {
 		return fmt.Errorf("video operation already in progress")
@@ -367,9 +367,9 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 
 			vw.startDialog.Configure(info, cfg.VideoWidth, cfg.VideoHeight, cfg.VideoFPS, cfg.VideoBitrate)
 			vw.startDialog.SetDeviceLabel(fmt.Sprintf("%s\n%s", device.Name, device.Path))
-			vw.startDialog.SetPrimaryAction("Применить")
+			vw.startDialog.SetPrimaryAction(i18n.Current.Apply)
 			if showFullscreen && vw.isStreaming {
-				vw.startDialog.SetExtraAction(i18n.Current.FullscreenButton, func() {
+				vw.startDialog.SetExtraAction(i18n.Current.FullscreenAction, func() {
 					vw.startDialog.Hide()
 					vw.handleFullscreen()
 				})

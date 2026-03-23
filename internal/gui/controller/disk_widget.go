@@ -36,10 +36,10 @@ type DiskWidget struct {
 	compactUnmountBtn *widget.Button
 
 	// Данные
-	localDrives []*models.LocalDrive // Устройства из API
-	localFiles  []*models.DiskInfo   // Локальные файлы из папки isos
+	localDrives  []*models.LocalDrive // Устройства из API
+	localFiles   []*models.DiskInfo   // Локальные файлы из папки isos
 	videoDevices []models.SystemDevice
-	sdSpaceInfo *models.ISOSpaceInfo // Информация о месте на SD-карте (при монтировании)
+	sdSpaceInfo  *models.ISOSpaceInfo // Информация о месте на SD-карте (при монтировании)
 
 	// Callback для обновления общего прогрессбара в main window (место на флешке)
 	onStorageInfoUpdate func(usedPct float64, available, total int64)
@@ -61,7 +61,7 @@ type DiskWidget struct {
 	supportedTypes []string
 
 	// Callback: тип манипулятора при запуске мыши (mouse/touchscreen) — для синхронизации с VideoWidget
-	onMouseTypeChanged func(mouseType string)
+	onMouseTypeChanged     func(mouseType string)
 	onVideoConfigRequested func(devicePath string)
 	onVideoConnect         func(devicePath string)
 	onVideoDisconnect      func()
@@ -103,11 +103,11 @@ type DriveItem struct {
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
 	VideoDevice    *models.SystemDevice
-	ReadOnly       bool               // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay (только чтение не портит базовый образ)
-	UploadProgress float64            // Прогресс загрузки 0-100
-	UploadSpeed    float64            // Скорость загрузки МБ/с
-	IsUploading    bool               // Идет ли загрузка
-	IsMounting     bool               // Идёт монтирование (202 Accepted)
+	ReadOnly       bool    // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay (только чтение не портит базовый образ)
+	UploadProgress float64 // Прогресс загрузки 0-100
+	UploadSpeed    float64 // Скорость загрузки МБ/с
+	IsUploading    bool    // Идет ли загрузка
+	IsMounting     bool    // Идёт монтирование (202 Accepted)
 }
 
 func defaultMouseMode() string {
@@ -193,6 +193,8 @@ func (dw *DiskWidget) createInterface() {
 					logrus.Warnf("disk row widgets missing essentials for row %d", id)
 					return
 				}
+				videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted
+				videoSelected := drive.IsVideo && drive.VideoDevice != nil && drive.VideoDevice.Path == selectedVideoDevicePath()
 
 				// Для строк mouse/rndis: показываем иконку + название + выпадающий список режима, иначе — подпись устройства
 				if nameLabel != nil && modeSelect != nil {
@@ -218,7 +220,7 @@ func (dw *DiskWidget) createInterface() {
 							if drive.Source == "rndis" {
 								modeTitleLabel.SetText(i18n.Current.DeviceNetworkCard)
 							} else {
-								modeTitleLabel.SetText("Mouse")
+								modeTitleLabel.SetText(i18n.Current.DeviceMouse)
 							}
 							modeTitleLabel.Show()
 						}
@@ -280,14 +282,17 @@ func (dw *DiskWidget) createInterface() {
 				// Устанавливаем состояние чекбокса
 				checkbox.SetChecked(dw.selectedItems[id])
 				checkbox.Show()
-				if drive.IsMounting {
+				if drive.IsMounting || videoUnavailable {
 					checkbox.Disable()
 				} else {
 					checkbox.Enable()
 				}
 				checkbox.OnChanged = func(checked bool) {
-					if drive.IsMounting {
+					if drive.IsMounting || videoUnavailable {
 						return
+					}
+					if checked && drive.IsVideo && drive.VideoDevice != nil {
+						dw.setPreferredVideoDevice(*drive.VideoDevice)
 					}
 					if checked {
 						// Проверяем лимит: не более 5 устройств
@@ -360,7 +365,13 @@ func (dw *DiskWidget) createInterface() {
 					if drive.IsVideo && drive.VideoDevice != nil {
 						settingsBtn.Show()
 						devicePath := drive.VideoDevice.Path
+						if videoUnavailable {
+							settingsBtn.Disable()
+						} else {
+							settingsBtn.Enable()
+						}
 						settingsBtn.OnTapped = func() {
+							dw.setPreferredVideoDevice(*drive.VideoDevice)
 							if dw.onVideoConfigRequested != nil {
 								dw.onVideoConfigRequested(devicePath)
 							}
@@ -447,15 +458,36 @@ func (dw *DiskWidget) createInterface() {
 					statusLabel.Importance = widget.HighImportance
 					statusLabel.TextStyle.Bold = true
 					nameLabel.TextStyle.Bold = true
+				} else if videoUnavailable {
+					statusLabel.SetText("◌")
+					statusLabel.Importance = widget.MediumImportance
+					statusLabel.TextStyle.Bold = false
+					nameLabel.TextStyle.Bold = false
 				} else {
 					statusLabel.SetText("⭕")
 					statusLabel.Importance = widget.MediumImportance
 					statusLabel.TextStyle.Bold = false
-					nameLabel.TextStyle.Bold = false
+					nameLabel.TextStyle.Bold = videoSelected
 				}
 
 				// Создаем текст без дублирования иконки статуса
-				deviceText := fmt.Sprintf("%s%s", sourcePrefix, drive.Name)
+				deviceName := drive.Name
+				if drive.IsVideo {
+					var tags []string
+					if videoSelected {
+						tags = append(tags, i18n.Current.VideoDeviceSelected)
+					}
+					if drive.IsMounted {
+						tags = append(tags, i18n.Current.VideoDeviceCurrent)
+					}
+					if videoUnavailable {
+						tags = append(tags, i18n.Current.VideoDeviceUnavailable)
+					}
+					if len(tags) > 0 {
+						deviceName = fmt.Sprintf("%s [%s]", deviceName, strings.Join(tags, ", "))
+					}
+				}
+				deviceText := fmt.Sprintf("%s%s", sourcePrefix, deviceName)
 				nameLabel.SetText(deviceText)
 			}
 		},
@@ -466,6 +498,10 @@ func (dw *DiskWidget) createInterface() {
 	dw.devicesList.OnSelected = func(id widget.ListItemID) {
 		if id < len(dw.allDrives) {
 			dw.selectedDrive = &dw.allDrives[id]
+			if dw.selectedDrive.IsVideo && dw.selectedDrive.VideoDevice != nil {
+				dw.setPreferredVideoDevice(*dw.selectedDrive.VideoDevice)
+				dw.devicesList.Refresh()
+			}
 			dw.updateButtons()
 		}
 	}
@@ -501,6 +537,16 @@ func (dw *DiskWidget) SetOnVideoConnect(fn func(devicePath string)) {
 
 func (dw *DiskWidget) SetOnVideoDisconnect(fn func()) {
 	dw.onVideoDisconnect = fn
+}
+
+func (dw *DiskWidget) setPreferredVideoDevice(device models.SystemDevice) {
+	if strings.TrimSpace(device.Path) == "" {
+		return
+	}
+	cfg := loadSavedVideoDeviceConfig(device.Path, device.Name)
+	cfg.DevicePath = device.Path
+	cfg.DeviceName = device.Name
+	saveVideoDeviceConfig(cfg)
 }
 
 // createButtonBar создает панель кнопок

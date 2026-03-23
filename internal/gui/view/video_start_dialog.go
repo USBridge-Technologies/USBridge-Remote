@@ -79,7 +79,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
 	}
 
-	vsd.jpegHint = widget.NewLabel("JPEG RTP: без decode на сервере, минимальная задержка, битрейт управляется камерой.")
+	vsd.jpegHint = widget.NewLabel(i18n.Current.VideoJPEGRTPHint)
 	vsd.jpegHint.Wrapping = fyne.TextWrapWord
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
@@ -103,7 +103,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		widget.NewLabelWithStyle("🎥 "+i18n.Current.VideoParameters, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 		vsd.deviceLabel,
 		widget.NewSeparator(),
-		widget.NewLabelWithStyle("Режим стриминга", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle(i18n.Current.StreamMode, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		vsd.modeSelect,
 		vsd.modeDescription,
 		widget.NewSeparator(),
@@ -140,16 +140,16 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		vsd.streamModes = []models.VideoTransportMode{
 			{
 				ID:                models.VideoModeH264,
-				Name:              "H.264",
-				Description:       "Сервер декодирует MJPEG и кодирует H.264. Совместимый режим.",
+				Name:              i18n.Current.VideoModeH264Name,
+				Description:       i18n.Current.VideoModeH264Description,
 				Transport:         "rtp",
 				Encoding:          "h264",
 				ServerDecodesJPEG: true,
 			},
 			{
 				ID:                models.VideoModeJPEGRTP,
-				Name:              "JPEG RTP",
-				Description:       "Сервер не декодирует JPEG, а сразу шлёт RTP/JPEG для минимальной задержки.",
+				Name:              i18n.Current.VideoModeJPEGName,
+				Description:       i18n.Current.VideoModeJPEGDescription,
 				Transport:         "rtp",
 				Encoding:          "jpeg",
 				ServerDecodesJPEG: false,

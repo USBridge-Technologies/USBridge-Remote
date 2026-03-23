@@ -56,7 +56,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	modeRowIconText := canvas.NewText("🖱️", theme.Color(theme.ColorNameForeground))
 	modeRowIconText.TextSize = theme.TextSize()
 	modeRowIconText.Hide()
-	modeTitleLabel := widget.NewLabel("Mouse")
+	modeTitleLabel := widget.NewLabel(i18n.Current.DeviceMouse)
 	modeTitleLabel.Hide()
 	modeSelect := widget.NewSelect([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, nil)
 	modeSelect.Hide()
