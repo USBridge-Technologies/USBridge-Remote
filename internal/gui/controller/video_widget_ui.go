@@ -204,6 +204,132 @@ func (vw *VideoWidget) stopVideoInternal() {
 	logrus.Info("🛑 Video capture stopped")
 }
 
+func isConnectedStorageDevice(device models.DeviceInfo) bool {
+	if device.Status != "connected" {
+		return false
+	}
+
+	switch {
+	case device.Type == "local":
+		return true
+	case device.Type == "mtp":
+		return true
+	case device.Type == "nbd":
+		return true
+	case strings.HasPrefix(device.Device, "disk:"):
+		return true
+	case strings.HasPrefix(device.Device, "drive"):
+		return true
+	case strings.HasPrefix(device.Device, "mtp"):
+		return true
+	}
+
+	return false
+}
+
+func (vw *VideoWidget) ensureControlHIDDevices() error {
+	if vw.usbClient == nil {
+		return nil
+	}
+
+	deviceInfo, err := vw.usbClient.GetDeviceInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get device info before HID auto-connect: %w", err)
+	}
+
+	keyboardConnected := false
+	mouseConnected := false
+	storageConnected := false
+
+	for _, device := range deviceInfo.Devices {
+		if device.Status != "connected" {
+			continue
+		}
+
+		switch {
+		case device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:"):
+			keyboardConnected = true
+		case device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:"):
+			mouseConnected = true
+		}
+
+		if isConnectedStorageDevice(device) {
+			storageConnected = true
+		}
+	}
+
+	if storageConnected {
+		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+		return nil
+	}
+
+	var requests models.DeviceStartBatchRequest
+	needKeyboard := !keyboardConnected
+	needMouse := !mouseConnected
+	if !keyboardConnected {
+		requests = append(requests, models.DeviceStartRequest{
+			Device:       "keyboard",
+			VendorID:     "0x1d6b",
+			ProductID:    "0x0104",
+			ProductName:  "USBridge Keyboard",
+			Manufacturer: "USBridge",
+			KeyboardMode: true,
+		})
+	}
+	if !mouseConnected {
+		requests = append(requests, models.DeviceStartRequest{
+			Device:       "mouse",
+			Type:         vw.GetMouseInputMode(),
+			VendorID:     "0x1d6b",
+			ProductID:    "0x0104",
+			ProductName:  "USBridge Mouse",
+			Manufacturer: "USBridge",
+		})
+	}
+
+	if len(requests) == 0 {
+		logrus.Info("⌨️🖱️ Control HID auto-connect: keyboard and mouse already connected")
+		return nil
+	}
+
+	logrus.Infof("⌨️🖱️ Control HID auto-connect: starting %d missing HID device(s)", len(requests))
+	if _, err := vw.usbClient.StartDevicesBatch(requests); err != nil {
+		return fmt.Errorf("failed to auto-connect HID devices: %w", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := vw.usbClient.GetDeviceInfo()
+		if err != nil {
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+
+		keyboardReady := !needKeyboard
+		mouseReady := !needMouse
+		for _, device := range info.Devices {
+			if device.Status != "connected" {
+				continue
+			}
+			if !keyboardReady && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
+				keyboardReady = true
+			}
+			if !mouseReady && (device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+				mouseReady = true
+			}
+		}
+
+		if keyboardReady && mouseReady {
+			logrus.Info("✅ Control HID auto-connect completed and devices are visible in device/info")
+			return nil
+		}
+
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	return fmt.Errorf("timed out waiting for HID devices after auto-connect")
+}
+
 // updateButtons обновляет состояние кнопок.
 func (vw *VideoWidget) updateButtons() {
 	if vw.onFPSChanged != nil && !vw.isStreaming {

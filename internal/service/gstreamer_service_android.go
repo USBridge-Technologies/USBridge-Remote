@@ -80,6 +80,9 @@ static volatile int g_hw_map_fail_count;
 static volatile gboolean g_force_sw_decoder;
 static volatile gboolean g_reconnect_requested;  // TRUE = Go должен сделать Reconnect; сбрасывается в hw_frame_store_init
 
+#define PIPELINE_MODE_H264 0
+#define PIPELINE_MODE_JPEG_RTP 1
+
 static gboolean ensure_egl_context(void) {
     if (g_egl_context != EGL_NO_CONTEXT) return TRUE;
 
@@ -190,6 +193,25 @@ static void log_element_src_caps(GstElement *element, const char *name) {
 static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer user_data);
 static void apply_gl_context_to_pipeline(GstElement *pipeline);
 static void drain_bus_messages(GstElement* pipeline);
+
+static gchar* find_android_decoder_by_name_fragments(const char *required1, const char *required2) {
+    GList *factories = gst_element_factory_list_get_elements(
+        GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO,
+        GST_RANK_NONE);
+    gchar *decoder_name = NULL;
+    for (GList *l = factories; l; l = l->next) {
+        GstElementFactory *f = (GstElementFactory *)l->data;
+        const gchar *fname = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(f));
+        if (!fname) continue;
+        if (required1 && !strstr(fname, required1)) continue;
+        if (required2 && !strstr(fname, required2)) continue;
+        decoder_name = g_strdup(fname);
+        LOGI("✅ Android decoder found: %s", fname);
+        break;
+    }
+    gst_plugin_feature_list_free(factories);
+    return decoder_name;
+}
 
 // create_hw_pipeline — создаёт HW pipeline через gst_parse_launch (надёжнее ручной линковки)
 // Пробует несколько вариантов цепочки GL→CPU для amcviddec (external-oes текстуры)
@@ -308,6 +330,185 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
     }
 
     LOGI("⚠️ Все HW варианты для %s не сработали", decoder_name);
+    return NULL;
+}
+
+static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
+    LOGI("🔧 Сборка JPEG HW pipeline (gst_parse_launch): декодер=%s", decoder_name);
+
+    GstElement *tmp_dec = gst_element_factory_make(decoder_name, NULL);
+    if (tmp_dec) {
+        log_element_src_caps(tmp_dec, decoder_name);
+        gst_object_unref(tmp_dec);
+    }
+
+    const char *gl_chains[] = {
+        "glcolorconvert ! gldownload ! video/x-raw",
+        "gldownload ! video/x-raw",
+        NULL
+    };
+    const char *gl_chain_names[] = {
+        "glcolorconvert+gldownload+raw",
+        "gldownload+raw",
+        "direct"
+    };
+
+    GstElement *pipeline = NULL;
+    for (int i = 0; i < 3; i++) {
+        gchar *pipeline_str;
+        if (gl_chains[i]) {
+            pipeline_str = g_strdup_printf(
+                "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+                "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
+                "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
+                "rtpjpegdepay ! "
+                "jpegparse ! "
+                "%s ! "
+                "%s ! "
+                "videoconvert ! "
+                "video/x-raw,format=RGBA ! "
+                "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
+                port, decoder_name, gl_chains[i]
+            );
+        } else {
+            pipeline_str = g_strdup_printf(
+                "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+                "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
+                "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
+                "rtpjpegdepay ! "
+                "jpegparse ! "
+                "%s ! "
+                "videoconvert ! "
+                "video/x-raw,format=RGBA ! "
+                "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
+                port, decoder_name
+            );
+        }
+
+        LOGI("📝 JPEG HW pipeline вариант %d (%s): %s", i+1, gl_chain_names[i], pipeline_str);
+
+        GError *error = NULL;
+        pipeline = gst_parse_launch(pipeline_str, &error);
+        g_free(pipeline_str);
+
+        if (error) {
+            LOGI("⚠️ JPEG HW вариант %d (%s): %s", i+1, gl_chain_names[i], error->message);
+            g_error_free(error);
+            if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
+            continue;
+        }
+
+        if (pipeline) {
+            apply_gl_context_to_pipeline(pipeline);
+            GstBus *bus = gst_element_get_bus(pipeline);
+            if (bus) {
+                gst_bus_set_sync_handler(bus, bus_sync_handler, pipeline, NULL);
+                gst_object_unref(bus);
+            }
+
+            GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_READY);
+            if (ret == GST_STATE_CHANGE_FAILURE) {
+                LOGI("⚠️ JPEG HW вариант %d (%s): set_state(READY) FAILURE — пробуем следующий", i+1, gl_chain_names[i]);
+                drain_bus_messages(pipeline);
+                gst_element_set_state(pipeline, GST_STATE_NULL);
+                gst_object_unref(pipeline);
+                pipeline = NULL;
+                continue;
+            }
+
+            GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
+            if (udpsrc) {
+                GstPad *pad = gst_element_get_static_pad(udpsrc, "src");
+                if (pad) {
+                    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, udpsrc_probe_cb, NULL, NULL);
+                    gst_object_unref(pad);
+                }
+                gst_object_unref(udpsrc);
+            }
+
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            LOGI("✅ JPEG HW pipeline с %s (%s) готов!", decoder_name, gl_chain_names[i]);
+            return pipeline;
+        }
+    }
+
+    LOGI("⚠️ Все JPEG HW варианты для %s не сработали", decoder_name);
+    return NULL;
+}
+
+static GstElement* create_jpeg_pipeline(int port) {
+    LOGI("📝 Creating RTP MJPEG pipeline for port: %d", port);
+
+    GstElement *pipeline = NULL;
+    gchar *jpeg_hw_name = NULL;
+    if (g_force_sw_decoder) {
+        LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем Android JPEG HW decoder");
+    } else {
+        jpeg_hw_name = find_android_decoder_by_name_fragments("amc", "jpeg");
+    }
+
+    if (jpeg_hw_name) {
+        pipeline = create_hw_jpeg_pipeline(port, jpeg_hw_name);
+        if (pipeline) {
+            LOGI("✅ Pipeline с JPEG HW декодером %s готов", jpeg_hw_name);
+            g_free(jpeg_hw_name);
+            return pipeline;
+        }
+        LOGI("⚠️ JPEG HW декодер %s не удалось использовать — пробуем software fallback", jpeg_hw_name);
+        g_free(jpeg_hw_name);
+    }
+
+    const char *candidates[] = {
+        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
+        "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
+        "rtpjpegdepay ! jpegdec ! videoconvert ! video/x-raw,format=RGBA ! "
+        "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
+
+        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
+        "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
+        "rtpjpegdepay ! jpegparse ! avdec_mjpeg max-threads=0 ! videoconvert ! video/x-raw,format=RGBA ! "
+        "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
+
+        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
+        "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
+        "rtpjpegdepay ! jpegparse ! decodebin ! videoconvert ! video/x-raw,format=RGBA ! "
+        "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
+    };
+
+    for (guint i = 0; i < G_N_ELEMENTS(candidates); i++) {
+        gchar *pipeline_str = g_strdup_printf(candidates[i], port);
+        LOGI("📝 JPEG fallback pipeline вариант %u: %s", i + 1, pipeline_str);
+
+        GError *error = NULL;
+        pipeline = gst_parse_launch(pipeline_str, &error);
+        g_free(pipeline_str);
+
+        if (error) {
+            LOGI("⚠️ JPEG fallback вариант %u: %s", i + 1, error->message);
+            g_error_free(error);
+            if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
+            continue;
+        }
+
+        if (pipeline) {
+            GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
+            if (udpsrc) {
+                GstPad *pad = gst_element_get_static_pad(udpsrc, "src");
+                if (pad) {
+                    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, udpsrc_probe_cb, NULL, NULL);
+                    gst_object_unref(pad);
+                }
+                gst_object_unref(udpsrc);
+            }
+            LOGI("✅ JPEG fallback pipeline готов (вариант %u)", i + 1);
+            return pipeline;
+        }
+    }
+
+    LOGE("❌ Failed to create any MJPEG pipeline!");
     return NULL;
 }
 
@@ -432,8 +633,14 @@ void gst_android_prepare_hw_pipeline(GstElement *pipeline) {
     apply_gl_context_to_pipeline(pipeline);
 }
 
-// create_pipeline создаёт pipeline для Android (аппаратно amcvideodec, как vtdec на Mac)
-static GstElement* create_pipeline(int port, int width, int height) {
+// create_pipeline создаёт pipeline для Android (HW H264/MJPEG, SW fallback)
+static GstElement* create_pipeline(int port, int width, int height, int mode) {
+    (void)width;
+    (void)height;
+    if (mode == PIPELINE_MODE_JPEG_RTP) {
+        return create_jpeg_pipeline(port);
+    }
+
     LOGI("📝 Creating RTP H.264 pipeline for port: %d", port);
 
     GstElement *pipeline = NULL;
@@ -444,19 +651,7 @@ static GstElement* create_pipeline(int port, int width, int height) {
     if (g_force_sw_decoder) {
         LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем amcviddec, сразу avdec_h264");
     } else {
-        GList *factories = gst_element_factory_list_get_elements(
-            GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO,
-            GST_RANK_NONE);
-        for (GList *l = factories; l; l = l->next) {
-            GstElementFactory *f = (GstElementFactory *)l->data;
-            const gchar *fname = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(f));
-            if (fname && strstr(fname, "amcviddec") != NULL) {
-                amc_name = g_strdup(fname);
-                LOGI("✅ amcviddec НАЙДЕН: %s", fname);
-                break;
-            }
-        }
-        gst_plugin_feature_list_free(factories);
+        amc_name = find_android_decoder_by_name_fragments("amcviddec", NULL);
     }
 
     // 2) Пробуем HW pipeline через gst_parse_launch (amcviddec + GL chain)
@@ -1042,6 +1237,7 @@ type GStreamerService struct {
 
 	// GStreamer pipeline
 	pipeline unsafe.Pointer
+	videoMode string
 
 	// Размеры кадра (как на Mac: 1920x1080)
 	width  int
@@ -1106,6 +1302,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		maxReconnectAttempts: 5,
 		width:                1920,
 		height:               1080,
+		videoMode:            models.VideoModeH264,
 	}
 
 	logrus.Info("✅ GStreamer сервис для Android инициализирован")
@@ -1129,7 +1326,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.stopChan = make(chan struct{})
 
 	gs.isConnecting = true
-	logrus.Info("🔗 Android: Подключение к UDP H.264 потоку...")
+	logrus.Infof("🔗 Android: Подключение к UDP видеопотоку mode=%s...", gs.videoMode)
 
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
@@ -1138,8 +1335,13 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	// Инициализируем хранилище кадров для callback-режима
 	C.hw_frame_store_init()
 
-	// Создаем pipeline (аппаратный amcvideodec, JNI установлен в NewGStreamerService)
-	pipeline := C.create_pipeline(C.int(udpPort), C.int(gs.width), C.int(gs.height))
+	pipelineMode := C.int(C.PIPELINE_MODE_H264)
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		pipelineMode = C.int(C.PIPELINE_MODE_JPEG_RTP)
+	}
+
+	// Создаем pipeline под выбранный видеорежим
+	pipeline := C.create_pipeline(C.int(udpPort), C.int(gs.width), C.int(gs.height), pipelineMode)
 	if pipeline == nil {
 		gs.isConnecting = false
 		return fmt.Errorf("ошибка создания GStreamer pipeline")
@@ -1184,7 +1386,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 		gs.onStateChanged("connected")
 	}
 
-	logrus.Info("✅ Android: GStreamer подключен к UDP H.264 потоку")
+	logrus.Infof("✅ Android: GStreamer подключен к UDP видеопотоку mode=%s", gs.videoMode)
 
 	// Запускаем UI refresh (30fps, не тормозит main thread)
 	go gs.uiRefreshLoop()
@@ -1543,7 +1745,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	if port <= 0 {
 		port = models.DefaultVideoUDPPort
 	}
-	logrus.Infof("🎬 Android: ConnectToRTP port=%d (VideoUDPPort, FRP proxy шлёт сюда)", port)
+	logrus.Infof("🎬 Android: ConnectToRTP port=%d mode=%s (VideoUDPPort, FRP proxy шлёт сюда)", port, gs.videoMode)
 	return gs.ConnectToUDP(port)
 }
 
@@ -1558,7 +1760,14 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 }
 
 func (gs *GStreamerService) SetVideoMode(mode string) {
-	_ = mode
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	switch mode {
+	case models.VideoModeJPEGRTP:
+		gs.videoMode = models.VideoModeJPEGRTP
+	default:
+		gs.videoMode = models.VideoModeH264
+	}
 }
 
 func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {

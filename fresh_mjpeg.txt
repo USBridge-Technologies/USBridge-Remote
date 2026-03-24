@@ -1,0 +1,778 @@
+--------- beginning of main
+03-24 00:41:59.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:41:59.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309319
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571821
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:41:59.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:41:59.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:41:59.689  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:41:59.690  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:41:59.690  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:41:59.697  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:41:59.768  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:41:59.894  1617  1656 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+--------- beginning of system
+03-24 00:42:00.004  3313  3313 I EyeComfortSolutionService: action  :  android.intent.action.TIME_TICK
+03-24 00:42:00.004  4479  4954 I DateTimeView: updateAll - getTimeFormat
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: onTimeTick. callers : com.android.keyguard.ClockEventController$keyguardUpdateMonitorCallback$1.refreshTime:19
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: com.android.keyguard.ClockEventController$keyguardUpdateMonitorCallback$1.onTimeChanged:1
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: com.android.keyguard.KeyguardUpdateMonitor$16.handleMessage:732
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: onTimeTick. callers : com.android.keyguard.ClockEventController$keyguardUpdateMonitorCallback$1.refreshTime:38
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: com.android.keyguard.ClockEventController$keyguardUpdateMonitorCallback$1.onTimeChanged:1
+03-24 00:42:00.004  4479  4479 D ClockFaceEvents: com.android.keyguard.KeyguardUpdateMonitor$16.handleMessage:732
+03-24 00:42:00.005  4479  4479 D FaceWidgetPagesController: onTimeChanged()
+03-24 00:42:00.006  4479  4954 D QSClockBellTower: onReceive(android.intent.action.TIME_TICK) mTimeZoneString:Europe/Madrid
+03-24 00:42:00.007  4479  4479 D QSClockBellTower: He is ready to ring the bell. (((QSClockBellSound - TimeText:00:42, TimeContentDescription:00:42, DateText:вт, 24 березня, ShortDateText:вт, 24 бер., Demo:false)))
+03-24 00:42:00.008  4479  4479 D QSClock : StatusBar clock=00:42 notifyTimeChanged(QSClockBellSound - TimeText:00:42, TimeContentDescription:00:42, DateText:вт, 24 березня, ShortDateText:вт, 24 бер., Demo:false) clockVisibleByPolicy=true, clockVisibleByUser=true, visible=true, parent=android.widget.LinearLayout{45ba896 V.E...... ......ID 0,0-102,72 #7f0a069b app:id/left_clock_container} caller=com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment.animateShow:52 com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment.updateStatusBarVisibilitiesInner:230 com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment.updateStatusBarVisibilities:65 com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment$$ExternalSyntheticLambda0.onStatusBarWindowStateChanged:6 com.android.systemui.statusbar.window.StatusBarWindowStateController$commandQueueCallback$1.setWindowState:39  
+03-24 00:42:00.009  4479  4479 D QSClockBellTower: Everyone heard the bell. run(currentTime:1774309320006, getTime():Tue Mar 24 00:42:00 GMT+01:00 2026, getTimeZone():libcore.util.ZoneInfo[mDstSavings=3600000,mUseDst=true,mDelegate=[id="Europe/Madrid",mRawOffset=3600000,mEarliestRawOffset=-884000,transitions=286]])
+03-24 00:42:00.014  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 3
+03-24 00:42:00.015  4479  4479 D {OngoingChipAdapter}: updateEnableMaxWidth : 319 -:> 314
+03-24 00:42:00.017  4479  4479 W RefactorFlag: New code path expects SceneContainerFlag to be enabled.
+03-24 00:42:00.022  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:00.024  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:00.024  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:00.095  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:00.180  8546  3273 I NearbyMediums: No BLE Fast/GATT advertisements found in the latest cycle.
+03-24 00:42:00.180  8546  3273 I NearbyMediums: Current Tracked Scanning Clients are : {NearbyConnections.EnvironmentMonitor, NearbySharing, NearbyConnections.TxAdvertisement}
+03-24 00:42:00.294  1125  1125 D io_stats: !@   8,0 r 36321154 856576444 w 23730265 411331476 d 2998019 278211560 f 1780677 2429204 iot 9341520 0 th 0 0 0 pt 0 inp 0 0 330792.975
+03-24 00:42:00.333  7390  7390 I SDHMS:LOAD: type: LoadsFreqs, value: 5:0:0:1017600:1017600:1017600:673151:1996800:556800:222:222:222
+03-24 00:42:00.338  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 19(19),c:12,b:57,m:0,cl:1,l:18,s:19,l0:32553,l1:5959,s0:117,s1:20,acl:1,opr:0.13,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:00.394  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:00.585  2073  6958 I sensors-hal: handle_sns_client_event:202, auto_rotation_debug_2 mode,255, type,1,0 acc,-0.971,6.145,7.657, ar,0, ver,14, pedo,1,e,1,i,3
+03-24 00:42:00.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309320
+03-24 00:42:00.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:00.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:00.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:00.593  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:00.593  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:00.593  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:00.593  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:00.648  3313  8939 D NetdEventListenerService: CSC Feature value: true
+03-24 00:42:00.648  3313  8939 D NetdEventListenerService: CSC Feature value: true
+03-24 00:42:00.689  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:00.690  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:00.690  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:00.697  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:00.768  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 69999 us
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [                 contacts = {contacts=547, raw_contacts=859, data=4005, account={secphone(1)=1, google(2)=17, google(3)=0, google(4)=0, sim(5)=0, sim2(6)=3, agg(7)=0, google(8)=0, google(9)=527, samsung(10)=0, mobileservice(11)=0, duo(13)=32, telegram(14)=264, com.github.android(20)=0, coreapp(21)=4, com.microsoft.msa.ltw(22)=0, com.twitter.android.auth.login(23)=0, telegram(25)=11, telegram(28)=0, com.reddit.account(30)=0, com.reddit.account(31)=0, www.instagram.com(35)=0, google(36)=0, google(37)=0, ai.x.grok(38)=0, google(39)=0, google(40)=0, google(41)=0, google(42)=0, whatsapp(43)=0, google(44)=0}, trash=0, trash_acc={}, trash_sync=0, database=contacts2.db} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [               aggregated = {[1,14]=1, [14,14]=1, [14]=26, [2,13]=2, [2,14,13]=1, [2,14]=8, [2]=6, [6]=3, [9,13,14,25]=1, [9,13]=8, [9,14,13]=19, [9,14,14,13]=1, [9,14,14]=2, [9,14,21]=3, [9,14,25]=2, [9,14]=195, [9,21]=1, [9,25]=8, [9,9]=1, [9]=285} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [                  request = {} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [                    calls = {types={[100]=3, [1000]=13, [1150]=28}, database=calllog.db} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [                  profile = {contacts=0, raw_contacts=0, data=0, account={secphone(1)=0, google(2)=0, google(3)=0, google(4)=0, sim(5)=0, sim2(6)=0, agg(7)=0, google(8)=0, google(9)=0, samsung(10)=0, mobileservice(11)=0, duo(13)=0, telegram(14)=0, com.github.android(20)=0, coreapp(21)=0, com.microsoft.msa.ltw(22)=0, com.twitter.android.auth.login(23)=0, telegram(25)=0, telegram(28)=0, com.reddit.account(30)=0, com.reddit.account(31)=0, www.instagram.com(35)=0, google(36)=0, google(37)=0, ai.x.grok(38)=0, google(39)=0, google(40)=0, google(41)=0, google(42)=0, whatsapp(43)=0, google(44)=0}, trash=0, trash_acc={}, trash_sync=0, database=profile.db} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [               sa_profile = {contacts=1, raw_contacts=1, data=2, account={secphone(1)=1, google(2)=0, google(3)=0, google(4)=0, sim(5)=0, sim2(6)=0, agg(7)=0, google(8)=0, google(9)=0, samsung(10)=0, mobileservice(11)=0, duo(13)=0, telegram(14)=0, com.github.android(20)=0, coreapp(21)=0, com.microsoft.msa.ltw(22)=0, com.twitter.android.auth.login(23)=0, telegram(25)=0, telegram(28)=0, com.reddit.account(30)=0, com.reddit.account(31)=0, www.instagram.com(35)=0, google(36)=0, google(37)=0, ai.x.grok(38)=0, google(39)=0, google(40)=0, google(41)=0, google(42)=0, whatsapp(43)=0, google(44)=0}, trash=0, trash_acc={}, trash_sync=0, database=profile_sa.db} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: [                      etc = {binders=0, country_iso=ES, version=15.6.28, db_version=2000, db_size=3, db_wal_size=4, csc=SFR/SFR, sec_enabled=false, is_roaming=false} ]
+03-24 00:42:00.784  7065  7143 V CpEventLog(u0): [P] cp_state: ------------------------------------------------------------------------------
+03-24 00:42:00.811  2553  2553 I CNSS    : /sys/wifi/max_chipset_log_size doesn't exist
+03-24 00:42:00.890  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:00.890  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:00.894  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:00.903  3313  4354 I SemWifiServiceDetector: Service det. resumed: T / T / 7214
+03-24 00:42:00.968  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:01.396  1617  2336 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:01.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309321
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:01.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:01.592  2187  2234 E HeatmapThread: !@Entered the read from path function
+03-24 00:42:01.592  2187  2234 E HeatmapThread: !@Read Extended_heatmap from efs is: 2864 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 615 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 804 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 792 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 845 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 736 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 832 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 968 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1148 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1179 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 943 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4051 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5955 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 12931 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 15730 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 18614 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 20149 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 20948 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11408 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11401 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11406 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 13104 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2082 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2363 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2445 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2325 0 0 0
+03-24 00:42:01.593  2187  2234 E HeatmapThread: !@Write Extended Heatmap to efs is: 2864 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 615 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 804 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 792 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 845 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 736 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 832 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 968 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1148 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1179 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 943 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4052 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5955 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 12931 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 15730 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 18614 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 20149 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 20948 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11408 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11401 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 11406 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 13104 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2082 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2363 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2445 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2325 0 0 0 
+03-24 00:42:01.593  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:01.705  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:01.707  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:01.707  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:01.713  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:01.784  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:01.794  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:01.797  3313  6656 D SemWifiUsabilityStatsMonitor: onWifiUsabilityStats - seqNum 70281, isSameBssidAndFreq true
+03-24 00:42:01.798  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:01.798  3313  4356 I SemWifiLinkQualityMonitor: Link stat: 333 / 22 / 1,00 (8) / 117 / -38.0 || 100.0 : 117,00 / 0.5 : 1,00 / 0.55 : 0,07 / G (G) || 8ac3332e2472: 0,145 / 54,994 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330794478 0 || Invalid
+03-24 00:42:01.799  3313  4357 D InsDataManager: onOutageCountUpdate() - Outage Data: 0, LQ : Y. Outage Triggered: false
+03-24 00:42:01.799  3313  4357 D InsDataManager: Trying to save initial normal data.
+03-24 00:42:01.799  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:01.799  3313  4357 E InsController: Error in onOutageCountUpdate: android.net.VpnTransportInfo cannot be cast to android.net.wifi.WifiInfo
+03-24 00:42:01.800  3313  4357 D SemInsManager: {"bssid": "8ac3332e2472","rssi": -38.0,"latency": 0.1454693159644928,"outage_count": 0,"lq_callback_triggered": true,"outage_log": "Link stat: 333 / 22 / 1,00 (8) / 117 / -38.0 || 100.0 : 117,00 / 0.5 : 1,00 / 0.55 : 0,07 / G (G) || 8ac3332e2472: 0,145 / 54,994 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330794478 0 || Invalid""Magnetic Sensor Events size": "0""Pressure Sensor Events size": "0"}
+03-24 00:42:01.800  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -38 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:01.800  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -38 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:01.800  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: getHandoverThresholdMet: value is: false
+03-24 00:42:01.894  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:02.295  1125  1125 D io_stats: !@ Read_top(KB): logcat:normal(3899) 36 usbridge.client:top(1617) 12 kworker/u17:1:/(21255) 4
+03-24 00:42:02.295  1125  1125 D io_stats: !@ Write_top(KB): kworker/u17:1:/(21255) 1416
+03-24 00:42:02.395  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:02.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309322
+03-24 00:42:02.591  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:02.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:02.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:02.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:02.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:02.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:02.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:02.689  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:02.690  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:02.690  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:02.697  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:02.768  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:02.834  4430  4430 I wpa_supplicant: Heartbeat 58995
+03-24 00:42:02.895  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:02.898  2073  6958 I sensors-hal: handle_sns_std_sensor_event:127, [SSC_LIGHT] A: 15(15),c:12,b:57,m:0,cl:1,l:15,s:15,l0:27831,l1:5020,s0:93,s1:16,acl:1,opr:0.13,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:02.899  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 15(15),c:12,b:57,m:0,cl:1,l:15,s:15,l0:27831,l1:5020,s0:93,s1:16,acl:1,opr:0.13,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:03.131  3313  3856 D InputReader: Btn_touch(4): value=1 when=330795.811406
+03-24 00:42:03.131  3313  3856 I InputReader: Touch event's action is 0x0 (id=6, t=0) [pCnt=1, s=0.1776 ] when=330795.811406
+03-24 00:42:03.132  3313  3855 I InputDispatcher: Delivering touch to (4479): action: 0x4, f=0x0, d=0, '5d079f7', t=1 
+03-24 00:42:03.132  3313  3855 I InputDispatcher: Delivering touch to (1617): action: 0x0, f=0x0, d=0, '795d903', t=1 +(0,-91)
+03-24 00:42:03.132  3313  3855 D PowerManagerService: [api] userActivityFromNative : touch displayId=0 eventTime=330795811
+03-24 00:42:03.133  3313  3855 D PowerManagerService: UserActivityStateListenerState: 1
+03-24 00:42:03.133  3313  3368 I GestureDetector: obtain mCurrentDownEvent. id: 37867392 caller: com.android.server.wm.SystemGesturesPointerEventListener.onPointerEvent:17 com.android.server.wm.PointerEventDispatcher.onInputEvent:51 android.view.InputEventReceiver.dispatchInputEvent:392 
+03-24 00:42:03.134  3313  3368 I GestureDetector: obtain mCurrentDownEvent. id: 37867392 caller: com.android.server.wm.SystemPerformancePointerEventListener.onPointerEvent:13 com.android.server.wm.PointerEventDispatcher.onInputEvent:51 android.view.InputEventReceiver.dispatchInputEvent:392 
+03-24 00:42:03.134  7390  7390 I SemDvfsHyPerManager: acquire hyper - TA_TOUCH_SHARE/7390@32, type = -999
+03-24 00:42:03.135  1617  1617 I VRI[MainActivity]@add1732: ViewPostIme pointer 0
+03-24 00:42:03.135  2080  2179 I HYPER-HAL: [RequestManager.cpp]acquire(): Acquired ID : 27546785  [7390 / 32]    HINT : TA_TOUCH_SHARE    list : [TIMEOUT / 1500] 
+03-24 00:42:03.136  3313  3368 I GestureDetector: obtain mCurrentMotionEventRaw. action: 2 id: 752490053
+03-24 00:42:03.136  3313  3368 I GestureDetector: obtain mCurrentMotionEventRaw. action: 2 id: 752490053
+03-24 00:42:03.138  1617  1654 I ImeTracker: com.usbridge.client:bd7ab0e5: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT fromUser false
+03-24 00:42:03.138  1617  1654 I InputMethodManager_LC: hsifw() - flag : 0
+03-24 00:42:03.138  1617  1654 I InputMethodManager_LC: hsifw() - mService.hideSoftInput
+03-24 00:42:03.138  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 2
+03-24 00:42:03.138  1617  1617 D InsetsController: hide(ime(), fromIme=false)
+03-24 00:42:03.138  1617  1617 I ImeTracker: com.usbridge.client:bd7ab0e5: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+03-24 00:42:03.146  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:03.190  3313  3856 D InputReader: Btn_touch(4): value=0 when=330795.870630
+03-24 00:42:03.190  3313  3856 I InputReader: Touch event's action is 0x1 (id=6, t=0) [pCnt=1, s=] when=330795.870630
+03-24 00:42:03.190  3313  3855 I InputDispatcher: Delivering touch to (1617): action: 0x1, f=0x0, d=0, '795d903', t=1 +(0,-91)
+03-24 00:42:03.190  1617  1617 I VRI[MainActivity]@add1732: ViewPostIme pointer 1
+03-24 00:42:03.264  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:03.264  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:03.368  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:03.396  1617  1656 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:03.433  3313  3368 I GestureDetector: handleMessage TAP
+03-24 00:42:03.434  3313  3313 I GestureDetector: handleMessage TAP
+03-24 00:42:03.441  1617  2336 W USBridge: time="00:42:03" level=info msg="🎬 [VIDEO] Шаг 1: Запуск GStreamer (mode=jpeg_rtp, udpsrc RTP port=55000)..."
+03-24 00:42:03.441  1617  2336 W USBridge: time="00:42:03" level=info msg="🔄 Попытка подключения к RTP video через GStreamer #1/5"
+03-24 00:42:03.441  1617  2336 W USBridge: time="00:42:03" level=info msg="🎬 Android: ConnectToRTP port=55000 (VideoUDPPort, FRP proxy шлёт сюда)"
+03-24 00:42:03.441  1617  2336 W USBridge: time="00:42:03" level=info msg="🔗 Android: Подключение к UDP H.264 потоку..."
+03-24 00:42:03.441  1617  2336 I GStreamer: ✅ hw_frame_store инициализирован (force_sw=1)
+03-24 00:42:03.441  1617  2336 I GStreamer: 📝 Creating RTP H.264 pipeline for port: 55000
+03-24 00:42:03.441  1617  2336 I GStreamer: ⚠️ g_force_sw_decoder=TRUE — пропускаем amcviddec, сразу avdec_h264
+03-24 00:42:03.441  1617  2336 I GStreamer: 📝 Pipeline (avdec_h264 multi-threaded): udpsrc name=udpsrc0 port=55000 buffer-size=131072 timeout=0 caps="application/x-rtp,media=video,encoding-name=H264,payload=96" ! rtpjitterbuffer latency=50 faststart-min-packets=3 ! rtph264depay ! h264parse config-interval=-1 ! avdec_h264 max-threads=0 ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink emit-signals=false max-buffers=3 drop=true sync=false
+03-24 00:42:03.450  1617  2336 I GStreamer: ✅ Fallback: pipeline с avdec_h264 (multi-threaded)
+03-24 00:42:03.451  1617  2336 I GStreamer: ⚠️ gst_gl_context_fill_info: ? (не критично)
+03-24 00:42:03.451  1617  1654 E Fyne    : 
+03-24 00:42:03.451  1617  1654 E Fyne    : ** (<unknown>:1617): CRITICAL **: 00:42:03.451: gst_gl_context_fill_info: assertion 'context->priv->active_thread == g_thread_self ()' failed
+03-24 00:42:03.451  1617  2336 I GStreamer: ✅ GL context предустановлен на pipeline: EGL display=0xb4000071a16a4ef0, ctx=0xb4000072a1516710, surface=0xb4000072a1517a30
+03-24 00:42:03.451  1617  2336 I GStreamer: ✅ Appsink callbacks установлены (gst_buffer_map на streaming thread)
+03-24 00:42:03.451  1617  2336 W USBridge: time="00:42:03" level=info msg="▶️ Android: Установка pipeline в PLAYING (udpsrc port=55000, ожидаем RTP)..."
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="▶️ Android: gst_element_set_state вернул: ASYNC"
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo"
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="✅ Android: GStreamer подключен к UDP H.264 потоку"
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="✅ GStreamer RTP video подключение установлено успешно"
+03-24 00:42:03.452  1617  1654 I GStreamer: 🔄 BUS STATE_CHANGED: NULL -> READY (pending: PLAYING)
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: stream-status from src
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: stream-status from src
+03-24 00:42:03.452  1617  1654 I GStreamer: 🔄 BUS STATE_CHANGED: READY -> PAUSED (pending: PLAYING)
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: stream-status from src
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: new-clock from pipeline5
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: stream-status from src
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="🎬 Android: Запуск обработки GStreamer кадров (callback mode)..."
+03-24 00:42:03.452  1617  1654 I GStreamer: 📨 BUS: stream-start from pipeline5
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="🎬 Android: Pipeline pointer: 0xb4000072014fbb70"
+03-24 00:42:03.452  1617  2336 W USBridge: time="00:42:03" level=info msg="🎬 Android: Callback установлен: true"
+03-24 00:42:03.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309323
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:03.590  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:03.590  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:03.646  3313  3373 E Watchdog: !@Sync: 11020 heap(MB): 163 / 188 native(MB): 93 FD: 1431 WaitTime: 5 ms GCcnt: 0 FullGC: 0 [2026-03-24 00:42:03.562]
+03-24 00:42:03.700  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:03.700  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:03.705  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 2
+03-24 00:42:03.713  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:03.784  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:03.895  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:03.908  3313  4354 I SemWifiServiceDetector: Service det. suspended: T / T / 7214
+03-24 00:42:03.953  1617  1656 W USBridge: time="00:42:03" level=info msg="🔗 [VIDEO] udpsrc port=55000 готов к приёму, запуск сервера..."
+03-24 00:42:03.953  1617  1656 W USBridge: time="00:42:03" level=info msg="🛑 [VIDEO] Шаг 1.6: POST /api/video/stop (сброс предыдущего стрима)"
+03-24 00:42:03.953  1617  1656 W USBridge: time="00:42:03" level=info msg="🛑 Остановка видео стриминга..."
+03-24 00:42:03.971  1617  1656 W USBridge: time="00:42:03" level=info msg="✅ Видео стриминг остановлен"
+03-24 00:42:04.075  2148  2979 I thermal_core: pivot(AP) : 292, skin : 297
+03-24 00:42:04.111  2076  2076 D AHAL_ModulePrimary_QTI: getVendorParameters: id count: 1
+03-24 00:42:04.111  2076  2076 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:04.112  2076  2076 D AHAL_SecModulePrimary: onGetSECGenericParameters get temperature for g_hw_speaker_amp_temp_rcv: 0
+03-24 00:42:04.112  2076  2093 D AHAL_ModulePrimary_QTI: getVendorParameters: id count: 1
+03-24 00:42:04.112  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:04.112  2076  2093 D AHAL_SecModulePrimary: onGetSECGenericParameters get temperature for g_hw_speaker_amp_temp_spk: 0
+03-24 00:42:04.115  7390  7892 I SDHMS:x : SIOP:: AP:292 BAT:281 USB:269 CHG:287 PA:288 WIFI:296 CF:290 BLK:0 SUBBAT:0 LRPTHM:287 SKIN:297 SKINF:292 SKINB:297 LRP:297 LRF:292 LRB:297 APT:292 APR:296 RCV:286 SPK:286 CHGF:292 CHGR:297 MEMF:291 MEMR:295 WIFIF:292 WIFIR:296 FCAM:270 UPSPK:290 DNSPK:269 VAP:295 VWIFI:300 AMB2:250 HIGH:0 AVGCUR:769 AVGSYS:144 POWER:3358
+03-24 00:42:04.116  7390  7892 I AudioManager: setParameters keyValuePairs = g_hw_speaker_amp_temp_spk=29
+03-24 00:42:04.116  2175  2438 D AudioFlinger: setParameters: filtered dev setParameters keyvalue g_hw_speaker_amp_temp_spk=29
+03-24 00:42:04.117  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters enter
+03-24 00:42:04.117  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters Exit
+03-24 00:42:04.117  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: configured g_hw_speaker_amp_temp_spk
+03-24 00:42:04.117  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: handler set on Feature:0
+03-24 00:42:04.117  2076  2093 D AHAL_SecModulePrimary: onSetSECGenericParameters set temperature for g_hw_speaker_amp_temp_spk: 29
+03-24 00:42:04.117  2076  2093 I PAL: API: pal_set_param: 1377: Enter: param id 3002
+03-24 00:42:04.117  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:04.118  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:04.118  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:04.119  7390  7892 I AudioManager: setParameters keyValuePairs = g_hw_speaker_amp_temp_rcv=29
+03-24 00:42:04.119  2175  2438 D AudioFlinger: setParameters: filtered dev setParameters keyvalue g_hw_speaker_amp_temp_rcv=29
+03-24 00:42:04.119  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters enter
+03-24 00:42:04.119  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters Exit
+03-24 00:42:04.119  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: configured g_hw_speaker_amp_temp_rcv
+03-24 00:42:04.119  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: handler set on Feature:0
+03-24 00:42:04.119  2076  2093 D AHAL_SecModulePrimary: onSetSECGenericParameters set temperature for g_hw_speaker_amp_temp_rcv: 29
+03-24 00:42:04.119  2076  2093 I PAL: API: pal_set_param: 1377: Enter: param id 3001
+03-24 00:42:04.119  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:04.120  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:04.120  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:04.296  1125  1125 D io_stats: !@   8,0 r 36321158 856576488 w 23730267 411331484 d 2998019 278211560 f 1780677 2429204 iot 9341528 0 th 0 0 0 pt 0 inp 0 0 330796.977
+03-24 00:42:04.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:04.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309324
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:04.593  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:04.593  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:04.637  2080  3920 I HYPER-HAL: [RequestManager.cpp]releaseLocked(): Released ID : 27546785
+03-24 00:42:04.699  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:04.699  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:04.704  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:04.713  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:04.784  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 69999 us
+03-24 00:42:04.835  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:04.839  3313  6656 D SemWifiUsabilityStatsMonitor: onWifiUsabilityStats - seqNum 70282, isSameBssidAndFreq true
+03-24 00:42:04.840  3313  4356 I SemWifiLinkQualityMonitor: Link stat: 544 / 17 / 1,00 (7) / 78 / -35.0 || 100.0 : 78,00 / G (B) || 8ac3332e2472: 0,177 / 45,227 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330797520 0 || Invalid
+03-24 00:42:04.840  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:04.840  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:04.841  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -35 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:04.841  3313  4357 D InsDataManager: onOutageCountUpdate() - Outage Data: 0, LQ : Y. Outage Triggered: false
+03-24 00:42:04.841  3313  4357 D InsDataManager: Trying to save initial normal data.
+03-24 00:42:04.841  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -35 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:04.841  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: getHandoverThresholdMet: value is: false
+03-24 00:42:04.841  3313  4357 E InsController: Error in onOutageCountUpdate: android.net.VpnTransportInfo cannot be cast to android.net.wifi.WifiInfo
+03-24 00:42:04.841  3313  4357 D SemInsManager: {"bssid": "8ac3332e2472","rssi": -35.0,"latency": 0.17688668320926387,"outage_count": 0,"lq_callback_triggered": true,"outage_log": "Link stat: 544 / 17 / 1,00 (7) / 78 / -35.0 || 100.0 : 78,00 / G (B) || 8ac3332e2472: 0,177 / 45,227 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330797520 0 || Invalid""Magnetic Sensor Events size": "0""Pressure Sensor Events size": "0"}
+03-24 00:42:04.895  1617  1651 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:05.395  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:05.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309325
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:05.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:05.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:05.682  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:05.682  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:05.687  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:05.696  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:05.768  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:05.880  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:05.880  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:05.894  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:05.967  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:05.972  1617  1653 W USBridge: time="00:42:05" level=info msg="🎥 [VIDEO] Шаг 2: POST /api/video/start (mode=jpeg_rtp, client_port=55000)"
+03-24 00:42:05.978  1617  1653 W USBridge: time="00:42:05" level=info msg="🎥 Запуск видео стриминга: device=/dev/video0 mode=jpeg_rtp 800x600@60fps, качество: 80, битрейт: 2000K"
+03-24 00:42:06.134  3313  3450 D PowerManagerService: UserActivityStateListenerState: 0
+03-24 00:42:06.150  1617  1656 W USBridge: time="00:42:06" level=info msg="✅ Видео стриминг запущен"
+03-24 00:42:06.150  1617  1656 W USBridge: time="00:42:06" level=info msg="✅ Видео захват запущен (mode=jpeg_rtp, UDP порт 55000)"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=keyboard:hid type=keyboard status=connected name=USB Keyboard product=USBridge Keyboard"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=mouse:hid type=absolute status=connected name=USB Mouse product=USBridge Mouse"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=rndis:usb0 type=rndis status=connected name=USB Ethernet (RNDIS) product=USBridge RNDIS"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔍 updateStatusBar: найдено 3 устройств"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔍 Устройство: Type=keyboard, Status=connected, Name=USB Keyboard, ProductName=USBridge Keyboard"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔍 Устройство: Type=absolute, Status=connected, Name=USB Mouse, ProductName=USBridge Mouse"
+03-24 00:42:06.158  1617  1676 W USBridge: time="00:42:06" level=info msg="🔍 Устройство: Type=rndis, Status=connected, Name=USB Ethernet (RNDIS), ProductName=USBridge RNDIS"
+03-24 00:42:06.164  1617  1653 W USBridge: time="00:42:06" level=info msg="🔍 Статусы: keyboard=true, mouse=true, rndis=true, cdrom=false, backup=false, snapshot=false"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=keyboard:hid type=keyboard status=connected name=USB Keyboard product=USBridge Keyboard"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=mouse:hid type=absolute status=connected name=USB Mouse product=USBridge Mouse"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🔎 [API-DEVICE-INFO] device=rndis:usb0 type=rndis status=connected name=USB Ethernet (RNDIS) product=USBridge RNDIS"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🖱️ ✅ Pointer device connected: USB Mouse (type: absolute)"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🖱️ Touchpad activated: pointer device connected"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🖱️ Desktop mouse polling stopped"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🖱️ Starting desktop mouse polling (60 FPS)"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🖱️ Pointer device connected (WebSocket)"
+03-24 00:42:06.171  1617  1653 W USBridge: time="00:42:06" level=info msg="🔌 Подключение к WebSocket: ws://192.168.8.1:8080/api/mouse/ws"
+03-24 00:42:06.183  1617  1651 W USBridge: time="00:42:06" level=info msg="✅ WebSocket для мыши подключен"
+03-24 00:42:06.183  1617  1651 W USBridge: time="00:42:06" level=info msg="✅ Mouse WebSocket connected successfully"
+03-24 00:42:06.194  2148  2148 I seh_thermal_service: getTemperaturesWithType SehTemperatureType: 3
+03-24 00:42:06.194  2146  2146 I sehhealth-service: updateLrpSysfs: write: 297
+03-24 00:42:06.195  2146  2229 E BatteryDump: !@new_battery_dump : 4362,670,850,850,87,281,269,287,281,0,297,283,0,Charging,NO_CHARGING,Normal,Good,USB,1,Normal,0,0,9300,0x20000000,0x10000,0x0,0,0,145,v0002,0000,0000,00000000,0,0,0,0,125,4308,8641,991,0,
+03-24 00:42:06.193  3313  3991 D [SS]BattFunctions: [sendRemainingChargingTimeChangedIntent]remainingChargingTime:3088 ,mLastRemainingChargingTime:3113
+03-24 00:42:06.196  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 2
+03-24 00:42:06.196  4479  4479 I AODBatteryManager: updateBatteryData: ACTION_BATTERY_CHANGED: false, isSleepModeChanged:false ,isRemainingTimeChanged: true, isUSBRestriction: false
+03-24 00:42:06.196  4479  4479 I ChargingInfoManager: updateChargingInfo: newState = AOD ChargingInfo [mState=BATTERY_AND_REMAIN_TIME, mIsCharging=true, mIsPlugged=true, mIsFullyCharged=false, mIsBatteryProtectMode=false, mBetteryLevel=87, mBetteryProtectModeType3, mIsSlowChargingfalse], oldState = AOD ChargingInfo [mState=BATTERY_AND_REMAIN_TIME, mIsCharging=true, mIsPlugged=true, mIsFullyCharged=false, mIsBatteryProtectMode=false, mBetteryLevel=87, mBetteryProtectModeType3, mIsSlowChargingfalse]
+03-24 00:42:06.196  4479  4479 D PowerUI : Remaining charging time : 3088
+03-24 00:42:06.196  4479  4479 D PowerUI : Charging time is changed, check charging notification
+03-24 00:42:06.196  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:06.196  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:06.196  4479  4479 D PowerUI.Notification: showChargingNotice - Battery Level : 87 -> 87, Charging Type : 11 -> 11, Charging Time : 3113 -> 3088, Maximum protection : false -> false, Maximum threshold : 80 -> 80
+03-24 00:42:06.197  4479  4479 I NotificationManager: com.android.systemui: notify(2131364006, charging_state, Notification(channel=CHR shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|ONLY_ALERT_ONCE color=0x00000000 category=sys groupKey=CHARGING vis=PUBLIC semFlags=0x0 semPriority=0 semMissedCount=0)) as user
+03-24 00:42:06.198  3313  3991 W PermissionService: getPermissionFlags: Unknown user -1
+03-24 00:42:06.198  3313  3991 W PermissionService: getPermissionFlags: Unknown user -1
+03-24 00:42:06.204  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:06.258  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 18(18),c:13,b:57,m:0,cl:1,l:18,s:18,l0:32863,l1:6031,s0:113,s1:18,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:06.283  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:06.297  1125  1125 D io_stats: !@   8,0 r 36321159 856576496 w 23730284 411332488 d 2998019 278211560 f 1780677 2429204 iot 9341556 0 th 0 0 0 pt 0 inp 0 0 330798.977
+03-24 00:42:06.297  1125  1125 D io_stats: !@ Read_top(KB): kworker/u17:2:/(984) 44 usbridge.client:top(1617) 8
+03-24 00:42:06.297  1125  1125 D io_stats: !@ Write_top(KB): kworker/u17:2:/(984) 992 usbridge.client:top(1617) 8 vendor.samsung.:normal(2146) 8
+03-24 00:42:06.395  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:06.400  3313  3313 I Telecom : SamsungTelecomServiceImpl : isInManagedCall - callingPackage : android / callingUser : UserHandle{0} / hasCrossUserAccess : true
+03-24 00:42:06.404  4896  9252 I HoneySpace.NotificationListener: onNotificationPosted com.android.systemui: -1|com.android.systemui|2131364006|charging_state|10046: 0
+03-24 00:42:06.404  4896  9252 I HoneySpace.NotificationListener: invalid notification: com.android.systemui UserHandle{-1}: canShowBadge is false
+03-24 00:42:06.405  4896  4896 I HoneySpace.LargeFolderOperator: updateMoreIconBadgeCount 0  [id:6] [title:Google] [color:-1711473409] [items:14] [container:0]
+03-24 00:42:06.412  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 5
+03-24 00:42:06.414  4479  4479 I LockscreenNotificationIconsOnlyController: onNotificationInfoUpdated 0
+03-24 00:42:06.415  4479  4479 I AODNotificationManager: updateNotification() 
+03-24 00:42:06.421  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:06.423  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:06.423  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:06.494  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:06.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309326
+03-24 00:42:06.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:06.593  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:06.593  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:06.593  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:06.593  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:06.593  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:06.593  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:06.604  4479  4479 D Bubbles : onEntryUpdated : shouldBubbleUp=false ,key=-1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.604  4479  4479 D InterruptionStateProvider:  no Heads up : edgelighting enabled app. -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.605  4479  4479 I {OngoingActivityController}: onEntryUpdated and OA data is empty. So update latest task info
+03-24 00:42:06.615  4479  4479 W RefactorFlag: New code path expects SceneContainerFlag to be enabled.
+03-24 00:42:06.615  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.615  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.616  4479  4479 I LockscreenNotificationIconsOnlyController: onNotificationInfoUpdated 0
+03-24 00:42:06.617  4479  4479 I AODNotificationManager: updateNotification() 
+03-24 00:42:06.621  4479  5019 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+03-24 00:42:06.622  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:06.622  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:06.622  4479  5019 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+03-24 00:42:06.624  4479  4479 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+03-24 00:42:06.629  4479  4479 W RefactorFlag: New code path expects SceneContainerFlag to be enabled.
+03-24 00:42:06.631  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.631  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.631  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.631  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.633  4479  4479 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+03-24 00:42:06.639  4479  4479 W RefactorFlag: New code path expects SceneContainerFlag to be enabled.
+03-24 00:42:06.639  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.639  4479  4479 D ExpandableNotifRow: mMaxSmallHeight different before reInflateViews mMaxSmallHeight: 216 mTempSmallHeight:0 -1|com.android.systemui|2131364006|charging_state|10046
+03-24 00:42:06.639  4479  4479 I LockscreenNotificationIconsOnlyController: onNotificationInfoUpdated 0
+03-24 00:42:06.639  4479  4479 I AODNotificationManager: updateNotification() 
+03-24 00:42:06.768  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:06.895  1617  1651 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:06.913  3313  4354 I SemWifiServiceDetector: Service det. resumed: T / T / 7214
+03-24 00:42:07.395  1617  1656 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:07.534  3313  3843 D ActivityManager: Received BROADCAST intent 0x4683fd0 Key{broadcastIntent pkg=com.sec.epdg intent=act=com.sec.epdg.PERIODIC_DPD_TIMER_EXPIRED xflg=0x4 flags=0x4000000 u=-1} requestCode=8 sent=0 from uid 1000
+03-24 00:42:07.538  3313  3376 D ActivityManager: sync unfroze 30451 com.android.settings for 10
+03-24 00:42:07.540  3313  4334 D BackgroundInstallControlService: Package event received: 0
+03-24 00:42:07.540  3313  3376 D ActivityManager: sync unfroze 19856 com.samsung.android.lool for 10
+03-24 00:42:07.541  3313  4334 D BackgroundInstallControlService: Package event received: 0
+03-24 00:42:07.541  3313  3376 D ActivityManager: sync unfroze 11769 com.samsung.android.forest for 10
+03-24 00:42:07.544  3313  3376 D ActivityManager: sync unfroze 17939 com.samsung.android.provider.filterprovider for 10
+03-24 00:42:07.545  3313  3376 D ActivityManager: sync unfroze 7695 com.android.keychain for 10
+03-24 00:42:07.546  3313  3376 D ActivityManager: sync unfroze 26110 com.samsung.android.dqagent for 10
+03-24 00:42:07.546  3313  3376 D ActivityManager: sync unfroze 32279 com.samsung.android.stickercenter for 10
+03-24 00:42:07.547  3313  3376 D ActivityManager: sync unfroze 21813 com.samsung.sait.sohservice for 10
+03-24 00:42:07.547  3313  3376 D ActivityManager: sync unfroze 27843 com.samsung.android.vtcamerasettings for 10
+03-24 00:42:07.548  3313  4334 D BackgroundInstallControlService: Package event received: 0
+03-24 00:42:07.548  3313  3376 D ActivityManager: sync unfroze 29193 com.samsung.android.biometrics.app.setting for 10
+03-24 00:42:07.549  3313  3376 D ActivityManager: sync unfroze 21846 com.samsung.android.fmm for 10
+03-24 00:42:07.549  3313  4334 D BackgroundInstallControlService: Package event received: 0
+03-24 00:42:07.549  3313  3376 D ActivityManager: sync unfroze 30540 com.samsung.android.sm.provider for 10
+03-24 00:42:07.549  3313  3376 D ActivityManager: sync unfroze 28312 com.skms.android.agent:remote for 10
+03-24 00:42:07.550  3313  3376 D ActivityManager: sync unfroze 27406 com.samsung.SMT for 10
+03-24 00:42:07.550  3313  3376 W ProcessStats: Tracking association SourceState{3d7c5c3 system/1000 ImpFg #931209} whose proc state 5 is better than process ProcessState{22e91a9 com.samsung.android.mcfserver/10126 pkg=com.samsung.android.mcfserver} proc state 8 (0 skipped)
+03-24 00:42:07.550  4697  5613 I EPDG -- SIM1 [EpdgIntentReceiver:Main]: received: com.sec.epdg.PERIODIC_DPD_TIMER_EXPIRED
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgIntentReceiver:Main]: handleIntentPeriodicDpdTimerExpired: ims
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgIntentReceiver:Main]: complete: com.sec.epdg.PERIODIC_DPD_TIMER_EXPIRED
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgHandler]: Event received: PERIODIC_DPD_TIMER_EXPIRED cid - 0
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgHandler]: handlePeriodicDpdTimerExpired: apnType=ims
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [IPSECDATACONNSM][8]: ConnectedState[i] Event: PERIODIC_DPD_TIMER_EXPIRED
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgPeriodicDpd]: getDpdPendingIntentKey apntype : ims, key 1
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgPeriodicDpd]: removePeriodicDpdPendingIntent apntype : ims, pIntent PendingIntent{1f297d6: android.os.BinderProxy@21078a2}
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [UTILS]: isAlwaysOnApn(): result is: true
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [IPSECDATACONNSM][8]: ConnectedState[i] SM start periodic DPD timer : 120 Seconds
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgPeriodicDpd]: startTimerForPeriodicDpd: apnType is: ims dpdTimer is: 120000 alarmExpTime is: 1097502755
+03-24 00:42:07.551  4697  5613 I EPDG -- SIM1 [EpdgPeriodicDpd]: getDpdPendingIntentKey apntype : ims, key 1
+03-24 00:42:07.551  4697  6119 E EPDG -- [IPSECADAPTER_ERIS]: checkConnection cid (9 ) - timeout : 5
+03-24 00:42:07.552  4697  5613 I EPDG -- SIM1 [EpdgPeriodicDpd]: getDpdPendingIntentKey apntype : ims, key 1
+03-24 00:42:07.552  4697  6119 I ErisClient -- ErisClient: checkConnection() [9:ims]
+03-24 00:42:07.552  4697  6119 I ErisClient -- ErisClient: sendRequestToDaemon()
+03-24 00:42:07.553  4697  6119 I ErisClient -- ErisClient: Write data to daemon
+03-24 00:42:07.553  6133  6165 I eris    : 16[DMN] [eris_interface] handle_request - type = MSG_TYPE_CHECKCONN
+03-24 00:42:07.553  6133  6165 I eris    : 16[IKE] sending DPD request
+03-24 00:42:07.553  6133  6165 I eris    : 16[ENC] generating INFORMATIONAL request 20 [ ]
+03-24 00:42:07.553  6133  6165 I eris    : 16[NET] sending packet: from 192.168.200.18[40813] to 92.58.249.252[4500] (80 bytes)
+03-24 00:42:07.553  6133  6165 I eris    : 16[DMN] Search sub-string again
+03-24 00:42:07.576  6133  6161 I eris    : 13[NET] received packet: from 92.58.249.252[4500] to 192.168.200.18[40813] (80 bytes)
+03-24 00:42:07.576  6133  6161 I eris    : 13[ENC] parsed INFORMATIONAL response 20 [ ]
+03-24 00:42:07.576  6133  6161 I eris    : 13[DMN] update {event 3, error 0, ike_error 0} for conn[9]
+03-24 00:42:07.576  6133  6161 I eris    : 13[DMN] [eris_interface] send_status 
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: getConnectionEventFromDaemonEvent()
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: parseDaemonResponse() {"msgType":4,"msgData":{"stateCode":3,"errorCode":0,"ikeErrorCode":0,"backoffTimer":-1,"cid":9,"mIkeSrcPort":40813}}
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: getErisErrorFromDaemonError()
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: BACKOFF_TIMER = -1s
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: sendConnectionReport() conn = [9:ims] event = EVENT_CONNECTION_ACTIVE error = ERIS_OK
+03-24 00:42:07.577  4697  6120 I ErisClient -- ErisClient: interrupt connection cid: 9
+03-24 00:42:07.577  4697  6119 I EPDG -- [IPSECADAPTER_ERIS]: Retrieving context ID from the DataBase : [9:ims]
+03-24 00:42:07.577  4697  6119 I EPDG -- [IPSECADAPTER_ERIS]: onIpSecAdapterConnectionStatusChanged received : EVENT_CONNECTION_ACTIVE cid : 9
+03-24 00:42:07.577  4697  6119 I EPDG -- [IPSECADAPTER_ERIS]: checkConnection wake lock release : IPSEC_EVENT_CONNECTION_ACTIVE
+03-24 00:42:07.577  4697  5613 I EPDG -- SIM1 [EpdgHandler]: Event received: DPD_SUCCESS cid - 9
+03-24 00:42:07.577  4697  7286 I EPDG -- SIM1 [IPSECDATACONNSM_HP]: Event received: DPD_SUCCESS
+03-24 00:42:07.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309327
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:07.590  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:07.590  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:07.688  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:07.689  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:07.689  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:07.696  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:07.766  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:07.848  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:07.851  3313  6656 D SemWifiUsabilityStatsMonitor: onWifiUsabilityStats - seqNum 70283, isSameBssidAndFreq true
+03-24 00:42:07.851  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:07.851  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:07.851  3313  4356 I SemWifiLinkQualityMonitor: Link stat: 879 / 18 / 1,14 (16) / 78 / -36.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,176 / 45,437 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330800531 0 || Invalid
+03-24 00:42:07.851  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -36 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:07.851  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -36 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:07.851  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: getHandoverThresholdMet: value is: false
+03-24 00:42:07.851  3313  4357 D InsDataManager: onOutageCountUpdate() - Outage Data: 0, LQ : Y. Outage Triggered: false
+03-24 00:42:07.852  3313  4357 D InsDataManager: Trying to save initial normal data.
+03-24 00:42:07.852  3313  4357 E InsController: Error in onOutageCountUpdate: android.net.VpnTransportInfo cannot be cast to android.net.wifi.WifiInfo
+03-24 00:42:07.852  3313  4357 D SemInsManager: {"bssid": "8ac3332e2472","rssi": -36.0,"latency": 0.1760693290449388,"outage_count": 0,"lq_callback_triggered": true,"outage_log": "Link stat: 879 / 18 / 1,14 (16) / 78 / -36.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,176 / 45,437 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330800531 0 || Invalid""Magnetic Sensor Events size": "0""Pressure Sensor Events size": "0"}
+03-24 00:42:07.895  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:07.943  2553  2553 I CNSS    : cnss_open_log_file: directory /data/vendor/log/wifi/ created
+03-24 00:42:08.018  2073  6958 I sensors-hal: handle_sns_std_sensor_event:127, [SSC_LIGHT] A: 19(19),c:13,b:57,m:0,cl:1,l:18,s:19,l0:32872,l1:6031,s0:118,s1:20,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:08.070  3313  3390 D BatteryExternalStatsWorker: update stats : procstate-change (10)
+03-24 00:42:08.070  3313  3390 D BatteryExternalStatsWorker: Fetch WiFi data
+03-24 00:42:08.070  3313  3390 D BatteryExternalStatsWorker: Update Rail Energy data
+03-24 00:42:08.076  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:08.076  3313  3390 D BatteryExternalStatsWorker: mStats lock released
+03-24 00:42:08.083  3313  3390 D BatteryExternalStatsWorker: Update wifi state
+03-24 00:42:08.083  3313  3390 D BatteryExternalStatsWorker: done updateExternalStatsLocked
+03-24 00:42:08.298  1125  1125 D io_stats: !@   8,0 r 36321173 856576568 w 23730287 411332504 d 2998019 278211560 f 1780677 2429205 iot 9341564 0 th 0 0 0 pt 0 inp 0 0 330800.978
+03-24 00:42:08.351  4447  5020 D SatelliteController: isInCarrierRoamingNbIotNtn: satellite is disabled
+03-24 00:42:08.352  4697  4697 I EPDG -- SIM1 [SMARTCELLULAR]: onSignalStrengthsChanged: SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=CellSignalStrengthLte: rssi=-75 rsrp=-113 rsrq=-18 rssnr=-4 cqiTableIndex=2147483647 cqi=2147483647 ta=2147483647 level=2 parametersUseForLevel=0,mNr=Invalid,SignalBarInfo{ lteLevel=1 },rat=14,primary=CellSignalStrengthLte}
+03-24 00:42:08.352  4697  6020 I EPDG -- SIM1 [SMARTCELLULAR]: lastLteRSRP is -113 currentLteRSRP is -113 lastLteRSRQ is -19 currentLteRSRQ is -18 lastLteSNR is -4 currentLteSNR is -4
+03-24 00:42:08.395  1617  1651 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:08.468  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]id:6
+03-24 00:42:08.469  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]prop.long:-9223372036854775808 ,prop.string:null
+03-24 00:42:08.469  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]id:4
+03-24 00:42:08.470  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]prop.long:-9223372036854775808 ,prop.string:null
+03-24 00:42:08.470  3313  4355 I SemWifiIntelligentTrainingManager: Tr. cond. check: true / 2 (2) / true / 0 (1)
+03-24 00:42:08.470  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]id:6
+03-24 00:42:08.470  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]prop.long:-9223372036854775808 ,prop.string:null
+03-24 00:42:08.471  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]id:4
+03-24 00:42:08.471  3313  4355 I BatteryService_BatteryPropertiesRegistrar: [getProperty]prop.long:-9223372036854775808 ,prop.string:null
+03-24 00:42:08.471  3313  4355 D SemWifiIntelligentConnectionManager: IWH tr data stats : 0 / 50
+03-24 00:42:08.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309328
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:08.591  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:08.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:08.668  1617  1651 W USBridge: time="00:42:08" level=info msg="Найдено 0 локальных файлов"
+03-24 00:42:08.676  1617  1656 W USBridge: time="00:42:08" level=info msg="Загружено 0 устройств из API"
+03-24 00:42:08.676  1617  1651 W USBridge: time="00:42:08" level=info msg="Объединено 5 элементов (API: 0, локальные: 0, пользовательские: 0, video: 2, клавиатура: 1, мышь: 1, RNDIS: 1)"
+03-24 00:42:08.685  1617  1654 W USBridge: time="00:42:08" level=info msg="🔎 [API-DEVICE-INFO] device=keyboard:hid type=keyboard status=connected name=USB Keyboard product=USBridge Keyboard"
+03-24 00:42:08.686  1617  1654 W USBridge: time="00:42:08" level=info msg="🔎 [API-DEVICE-INFO] device=mouse:hid type=absolute status=connected name=USB Mouse product=USBridge Mouse"
+03-24 00:42:08.686  1617  1654 W USBridge: time="00:42:08" level=info msg="🔎 [API-DEVICE-INFO] device=rndis:usb0 type=rndis status=connected name=USB Ethernet (RNDIS) product=USBridge RNDIS"
+03-24 00:42:08.699  1617  1653 W USBridge: time="00:42:08" level=info msg="Объединено 5 элементов (API: 0, локальные: 0, пользовательские: 0, video: 2, клавиатура: 1, мышь: 1, RNDIS: 1)"
+03-24 00:42:08.720  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:08.721  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:08.721  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:08.724  1617  1653 W USBridge: time="00:42:08" level=info msg="Объединено 5 элементов (API: 0, локальные: 0, пользовательские: 0, video: 2, клавиатура: 1, мышь: 1, RNDIS: 1)"
+03-24 00:42:08.728  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:08.834  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:08.894  1617  1649 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:08.909  4447  5582 D PhoneInterfaceManager: setDataEnabledForReason() Reason=1 Pid=3313 App=system
+03-24 00:42:09.138  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 19(19),c:13,b:57,m:0,cl:1,l:18,s:19,l0:32808,l1:6009,s0:117,s1:19,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:09.394  1617  1649 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:09.497  1617  2336 W USBridge: time="00:42:09" level=warning msg="⚠️ Android: Нет кадров уже 200 итераций (ожидаем callback)"
+03-24 00:42:09.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309329
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:09.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:09.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:09.680  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:09.680  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:09.686  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:09.695  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:09.766  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:09.895  1617  1676 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:10.046  2553  2553 I CNSS    : /sys/wifi/max_chipset_log_size doesn't exist
+03-24 00:42:10.135  3313  4354 I SemWifiServiceDetector: NSD results: [0, 0, 2, 0, 0, 0, 2, 1, 1] Traff. type 1 Thr 2391
+03-24 00:42:10.181  8546  3273 I NearbyMediums: No BLE Fast/GATT advertisements found in the latest cycle.
+03-24 00:42:10.182  8546  3273 I NearbyMediums: Current Tracked Scanning Clients are : {NearbyConnections.EnvironmentMonitor, NearbySharing, NearbyConnections.TxAdvertisement}
+03-24 00:42:10.270  4447  5020 D SatelliteController: isInCarrierRoamingNbIotNtn: satellite is disabled
+03-24 00:42:10.272  4697  4697 I EPDG -- SIM1 [SMARTCELLULAR]: onSignalStrengthsChanged: SignalStrength:{mCdma=Invalid,mGsm=Invalid,mWcdma=Invalid,mTdscdma=Invalid,mLte=CellSignalStrengthLte: rssi=-73 rsrp=-113 rsrq=-19 rssnr=-4 cqiTableIndex=2147483647 cqi=2147483647 ta=2147483647 level=2 parametersUseForLevel=0,mNr=Invalid,SignalBarInfo{ lteLevel=1 },rat=14,primary=CellSignalStrengthLte}
+03-24 00:42:10.272  4697  6020 I EPDG -- SIM1 [SMARTCELLULAR]: lastLteRSRP is -113 currentLteRSRP is -113 lastLteRSRQ is -18 currentLteRSRQ is -19 lastLteSNR is -4 currentLteSNR is -4
+03-24 00:42:10.299  1125  1125 D io_stats: !@   8,0 r 36321174 856576572 w 23730308 411334540 d 2998019 278211560 f 1780691 2429207 iot 9341644 0 th 0 0 0 pt 0 inp 0 0 330802.979
+03-24 00:42:10.299  1125  1125 D io_stats: !@ Read_top(KB): kworker/u17:2:/(984) 36 system_server:normal(3313) 28 cnss_diag:normal(2553) 4
+03-24 00:42:10.299  1125  1125 D io_stats: !@ Write_top(KB): kworker/u17:1:/(21255) 1848 system_server:normal(3313) 188 jbd2/sda7-8:/(1061) 12
+03-24 00:42:10.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:10.407  7390  7390 I SDHMS:LOAD: type: LoadsFreqs, value: 16:0:0:1017600:1017600:1017600:696575:2745600:556800:222:222:222
+03-24 00:42:10.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309330
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:10.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:10.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:10.680  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:10.680  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:10.686  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:10.695  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:10.766  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:10.829  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:10.829  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:10.860  4430  4430 I wpa_supplicant: nl80211: Vendor event: wiphy=0 vendor_id=0x1374 subcmd=182
+03-24 00:42:10.860  2640  4419 D LOWI-9.0.1.112.a: [LOWI-Scan] wait_event:Wait done with Cmd 103
+03-24 00:42:10.860  2640  4419 D LOWI-9.0.1.112.a: [LOWI-Scan] do_listen_events: Rcvd valid Netlink Cmd 0 Err 0
+03-24 00:42:10.860  2627  2627 I cnss-daemon: nl80211 response handler invoked
+03-24 00:42:10.861  2627  2627 I cnss-daemon: nl80211_response_handler: cmd 103, vendorID 4980, subcmd 182  received
+03-24 00:42:10.861  2075  4418 I WifiHAL : event received NL80211_CMD_VENDOR, vendor_id = 0x1374, subcmd = 0xb6
+03-24 00:42:10.862  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:10.865  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:10.865  3313  6656 D SemWifiUsabilityStatsMonitor: onWifiUsabilityStats - seqNum 70284, isSameBssidAndFreq true
+03-24 00:42:10.865  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:10.865  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -38 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:10.865  3313  4356 I SemWifiLinkQualityMonitor: Link stat: 2897 / 17 / 1,05 (20) / 78 / -38.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,175 / 45,717 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330803545 0 || Invalid
+03-24 00:42:10.865  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -38 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:10.865  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: getHandoverThresholdMet: value is: false
+03-24 00:42:10.866  3313  4357 D InsDataManager: onOutageCountUpdate() - Outage Data: 0, LQ : Y. Outage Triggered: false
+03-24 00:42:10.866  3313  4357 D InsDataManager: Trying to save initial normal data.
+03-24 00:42:10.866  3313  4357 E InsController: Error in onOutageCountUpdate: android.net.VpnTransportInfo cannot be cast to android.net.wifi.WifiInfo
+03-24 00:42:10.866  3313  4357 D SemInsManager: {"bssid": "8ac3332e2472","rssi": -38.0,"latency": 0.17498910256410255,"outage_count": 0,"lq_callback_triggered": true,"outage_log": "Link stat: 2897 / 17 / 1,05 (20) / 78 / -38.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,175 / 45,717 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330803545 0 || Invalid""Magnetic Sensor Events size": "0""Pressure Sensor Events size": "0"}
+03-24 00:42:10.895  1617  1651 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:10.916  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:11.284  8546  3396 I CastDatabase: Saving the database
+03-24 00:42:11.289  8546  3396 I SQLiteCastStore: [CastNetworkInfo] saved: 0, skipped: 0, [CastDeviceInfo]: saved 0, skipped 0, [ProbedNetworks]: saved 0, skipped: 0, [ProbedSocketAddress]: saved 0, skipped: 0, [Network-Device pairs]: saved: 0
+03-24 00:42:11.329  2073  6958 I sensors-hal: handle_sns_client_event:202, auto_rotation_debug_2 mode,255, type,1,0 acc,-1.589,5.728,7.643, ar,0, ver,14, pedo,1,e,1,i,3
+03-24 00:42:11.395  1617  1651 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:11.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309331
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:11.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:11.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:11.640  3313  4354 I SemWifiServiceDetector: NSD results: [0, 1, 2, 0, 0, 1, 2, 0, 1] Traff. type 1 Thr 2061
+03-24 00:42:11.697  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:11.697  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:11.703  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:11.711  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:11.783  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:11.842  4447  4644 D PhoneInterfaceManager: setDataEnabledForReason() Reason=1 Pid=3313 App=system
+03-24 00:42:11.858  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 18(18),c:13,b:57,m:0,cl:1,l:18,s:18,l0:32912,l1:6046,s0:115,s1:21,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:11.894  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:11.930  3313  3352 I system_server: Background young concurrent mark compact GC freed 39MB AllocSpace bytes, 237(4740KB) LOS objects, 24% free, 142MB/188MB, paused 1.027ms,5.015ms total 100.912ms
+03-24 00:42:12.028  3313  4283 W DeviceStorageMonitorService: check(/data) oldLevel:1, newLevel:1 (usableBytes=7945707520)
+03-24 00:42:12.028  3313  4283 W DeviceStorageMonitorService: updateBroadcasts(/data) oldLevel:1, newLevel:1, seq:1
+03-24 00:42:12.028  3313  4283 D DeviceStorageMonitorService: Available File Node Number is [13079949]
+03-24 00:42:12.028  3313  4283 W DeviceStorageMonitorService: updateBroadcasts_filenode(/data) fn_oldLevel:0, fn_newLevel:0, seq:1
+03-24 00:42:12.300  1125  1125 D io_stats: !@   8,0 r 36321193 856576740 w 23730324 411334796 d 2998019 278211560 f 1780695 2429211 iot 9341656 0 th 0 0 0 pt 0 inp 0 0 330804.980
+03-24 00:42:12.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:12.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309332
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:12.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:12.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:12.697  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:12.697  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:12.702  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:12.711  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:12.782  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:12.796  4639 30406 D IpClient/wlan0: interfaceLinkStateChanged: ifindex 45 up
+03-24 00:42:12.834  4430  4430 I wpa_supplicant: Heartbeat 58996
+03-24 00:42:12.894  1617  1654 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:13.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:13.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309333
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:13.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:13.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:13.618  2073  6958 I sensors-hal: handle_sns_std_sensor_event:127, [SSC_LIGHT] A: 18(18),c:13,b:57,m:0,cl:1,l:18,s:18,l0:32925,l1:6047,s0:114,s1:20,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:13.696  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:13.696  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:13.702  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:13.711  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:13.782  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 69999 us
+03-24 00:42:13.869  3313  4255 E WifiStaIfaceAidlImpl: getCachedScanData failed with service-specific exception: android.os.ServiceSpecificException:  (code 4)
+03-24 00:42:13.872  3313  6656 D SemWifiUsabilityStatsMonitor: onWifiUsabilityStats - seqNum 70285, isSameBssidAndFreq true
+03-24 00:42:13.872  3313  4356 I SemWifiLinkQualityMonitor: Link stat: 2939 / 0 / 1,00 (1) / 78 / -37.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,175 / 45,828 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330806552 0 || Invalid
+03-24 00:42:13.872  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:13.872  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: isProfiling, hash=258598385, started=true
+03-24 00:42:13.872  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -37 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:13.872  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: Rssi : -37 highrange : -66 lowrange : -75 mIsRssiInHystersis : false
+03-24 00:42:13.872  4697  4697 I EPDG -- SIM1 [SMARTWIFI]: getHandoverThresholdMet: value is: false
+03-24 00:42:13.873  3313  4357 D InsDataManager: onOutageCountUpdate() - Outage Data: 0, LQ : Y. Outage Triggered: false
+03-24 00:42:13.873  3313  4357 D InsDataManager: Trying to save initial normal data.
+03-24 00:42:13.873  3313  4357 E InsController: Error in onOutageCountUpdate: android.net.VpnTransportInfo cannot be cast to android.net.wifi.WifiInfo
+03-24 00:42:13.873  3313  4357 D SemInsManager: {"bssid": "8ac3332e2472","rssi": -37.0,"latency": 0.17456410256410257,"outage_count": 0,"lq_callback_triggered": true,"outage_log": "Link stat: 2939 / 0 / 1,00 (1) / 78 / -37.0 || 100.0 : 78,00 / B (B) || 8ac3332e2472: 0,175 / 45,828 / N || N N / 0 0 / Y 2.0 / Y X 0 / 330806552 0 || Invalid""Magnetic Sensor Events size": "0""Pressure Sensor Events size": "0"}
+03-24 00:42:13.895  1617  1649 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:14.116  2148  2979 I thermal_core: pivot(AP) : 297, skin : 297
+03-24 00:42:14.152  2076  2076 D AHAL_ModulePrimary_QTI: getVendorParameters: id count: 1
+03-24 00:42:14.152  2076  2076 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:14.152  2076  2076 D AHAL_SecModulePrimary: onGetSECGenericParameters get temperature for g_hw_speaker_amp_temp_rcv: 0
+03-24 00:42:14.153  2076  2093 D AHAL_ModulePrimary_QTI: getVendorParameters: id count: 1
+03-24 00:42:14.153  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:14.153  2076  2093 D AHAL_SecModulePrimary: onGetSECGenericParameters get temperature for g_hw_speaker_amp_temp_spk: 0
+03-24 00:42:14.154  7390  7892 I SDHMS:x : SIOP:: AP:297 BAT:281 USB:269 CHG:288 PA:292 WIFI:303 CF:292 BLK:0 SUBBAT:0 LRPTHM:289 SKIN:298 SKINF:293 SKINB:298 LRP:298 LRF:293 LRB:298 APT:293 APR:298 RCV:286 SPK:286 CHGF:293 CHGR:298 MEMF:292 MEMR:296 WIFIF:292 WIFIR:297 FCAM:269 UPSPK:290 DNSPK:269 VAP:296 VWIFI:300 AMB2:250 HIGH:0 AVGCUR:746 AVGSYS:162 POWER:3257
+03-24 00:42:14.154  7390  7892 I AudioManager: setParameters keyValuePairs = g_hw_speaker_amp_temp_spk=29
+03-24 00:42:14.155  2175  2438 D AudioFlinger: setParameters: filtered dev setParameters keyvalue g_hw_speaker_amp_temp_spk=29
+03-24 00:42:14.155  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters enter
+03-24 00:42:14.155  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters Exit
+03-24 00:42:14.155  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: configured g_hw_speaker_amp_temp_spk
+03-24 00:42:14.155  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: handler set on Feature:0
+03-24 00:42:14.155  2076  2093 D AHAL_SecModulePrimary: onSetSECGenericParameters set temperature for g_hw_speaker_amp_temp_spk: 29
+03-24 00:42:14.155  2076  2093 I PAL: API: pal_set_param: 1377: Enter: param id 3002
+03-24 00:42:14.155  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:14.156  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:14.156  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:14.156  7390  7892 I AudioManager: setParameters keyValuePairs = g_hw_speaker_amp_temp_rcv=29
+03-24 00:42:14.157  2175  2438 D AudioFlinger: setParameters: filtered dev setParameters keyvalue g_hw_speaker_amp_temp_rcv=29
+03-24 00:42:14.157  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters enter
+03-24 00:42:14.157  2076  2093 D AHAL_HFP_QTI: hfp_set_parameters Exit
+03-24 00:42:14.157  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: configured g_hw_speaker_amp_temp_rcv
+03-24 00:42:14.157  2076  2093 D AHAL_SecModulePrimary: processSetVendorParameters: handler set on Feature:0
+03-24 00:42:14.157  2076  2093 D AHAL_SecModulePrimary: onSetSECGenericParameters set temperature for g_hw_speaker_amp_temp_rcv: 29
+03-24 00:42:14.157  2076  2093 I PAL: API: pal_set_param: 1377: Enter: param id 3001
+03-24 00:42:14.157  2076  2093 I PAL: ResourceManager: getActiveStream_l: 6569: no active streams found for device 3 ret -2
+03-24 00:42:14.158  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:14.158  2175  2438 E ConversionHelperAidl: Function: parseAndSetVendorParameters Line: 94 Failed 
+03-24 00:42:14.300  1125  1125 D io_stats: !@   8,0 r 36321195 856576748 w 23730328 411334824 d 2998019 278211560 f 1780695 2429212 iot 9341660 0 th 0 0 0 pt 0 inp 0 0 330806.981
+03-24 00:42:14.301  1125  1125 D io_stats: !@ Read_top(KB): .gms.persistent:high(8546) 164 ewlogd:normal(2451) 8 system_server:normal(3313) 4
+03-24 00:42:14.301  1125  1125 D io_stats: !@ Write_top(KB): system_server:normal(3313) 244 .gms.persistent:high(8546) 32 kworker/2:0:/(22118) 4
+03-24 00:42:14.394  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:14.436 26672  3157 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.436 26672  3975 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.436 26672  1809 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.437  3313  4409 D NetdEventListenerService: DNS Requested by 201, 10339(com.google.android.apps.docs), 4(FAIL), isBlocked=true, 0ms
+03-24 00:42:14.437 26672 26813 E Cello   : [26813:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e17b8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.437 26672 26813 E Cello   : [26813:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e17b8: Content-Type=
+03-24 00:42:14.437 26672 26813 E Cello   : [26813:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e17b8: (no response body)
+03-24 00:42:14.437 26672 26852 E Cello   : [26852:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14db358: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.437 26672 26852 E Cello   : [26852:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14db358: Content-Type=
+03-24 00:42:14.437 26672 26852 E Cello   : [26852:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14db358: (no response body)
+03-24 00:42:14.437 26672 26827 E Cello   : [26827:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.438 26672 26814 E Cello   : [26814:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e3758: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.438  3313  4409 D NetdEventListenerService: DNS Requested by 201, 10339(com.google.android.apps.docs), 4(FAIL), isBlocked=true, 0ms
+03-24 00:42:14.438 26672 26814 E Cello   : [26814:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e3758: Content-Type=
+03-24 00:42:14.438 26672 26814 E Cello   : [26814:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e3758: (no response body)
+03-24 00:42:14.438 26672 26854 E Cello   : [26854:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.439  3313  4409 D NetdEventListenerService: DNS Requested by 201, 10339(com.google.android.apps.docs), 4(FAIL), isBlocked=true, 0ms
+03-24 00:42:14.439 26672 26828 E Cello   : [26828:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.537 26672  3984 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.538 26672  3975 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.538 26672 26869 E Cello   : [26869:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14df6b8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.538 26672 26869 E Cello   : [26869:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14df6b8: Content-Type=
+03-24 00:42:14.538 26672 26858 E Cello   : [26858:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14dfef8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.538 26672 26858 E Cello   : [26858:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14dfef8: Content-Type=
+03-24 00:42:14.538 26672 26869 E Cello   : [26869:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14df6b8: (no response body)
+03-24 00:42:14.538 26672 26858 E Cello   : [26858:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14dfef8: (no response body)
+03-24 00:42:14.538 26672 26871 E Cello   : [26871:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.538 26672 26860 E Cello   : [26860:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.550 26672  3982 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.551 26672 26879 E Cello   : [26879:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e0cb8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.551 26672 26879 E Cello   : [26879:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e0cb8: Content-Type=
+03-24 00:42:14.551 26672 26879 E Cello   : [26879:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e0cb8: (no response body)
+03-24 00:42:14.551 26672 26881 E Cello   : [26881:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309334
+03-24 00:42:14.591 26672  3982 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:14.592 26672 26888 E Cello   : [26888:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e35f8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:14.592 26672 26888 E Cello   : [26888:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e35f8: Content-Type=
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:14.592 26672 26888 E Cello   : [26888:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e35f8: (no response body)
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:14.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:14.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:14.592 26672 26890 E Cello   : [26890:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.620 26672  3984 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.620 26672 26901 E Cello   : [26901:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14df818: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.620 26672 26901 E Cello   : [26901:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14df818: Content-Type=
+03-24 00:42:14.620 26672 26901 E Cello   : [26901:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14df818: (no response body)
+03-24 00:42:14.620 26672 26903 E Cello   : [26903:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.649 26672  3157 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.649  3313  4354 I SemWifiServiceDetector: NSD results: [0, 1, 2, 0, 0, 1, 2, 1, 1] Traff. type 1 Thr 2378
+03-24 00:42:14.650 26672 26918 E Cello   : [26918:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e1e98: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.650 26672 26918 E Cello   : [26918:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e1e98: Content-Type=
+03-24 00:42:14.650 26672 26918 E Cello   : [26918:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e1e98: (no response body)
+03-24 00:42:14.650 26672 26920 E Cello   : [26920:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.673 26672  3157 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.673 26672 26926 E Cello   : [26926:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a149dc38: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.674 26672 26926 E Cello   : [26926:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a149dc38: Content-Type=
+03-24 00:42:14.674 26672 26926 E Cello   : [26926:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a149dc38: (no response body)
+03-24 00:42:14.674 26672 26928 E Cello   : [26928:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.686  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:14.686 26672  3982 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.686 26672 26945 E Cello   : [26945:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e26d8: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.686 26672 26945 E Cello   : [26945:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e26d8: Content-Type=
+03-24 00:42:14.686 26672 26945 E Cello   : [26945:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e26d8: (no response body)
+03-24 00:42:14.687  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:14.687  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:14.687 26672 26947 E Cello   : [26947:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.694  2199  3988 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:14.706 26672  3984 W HttpCallTransport: Fail read Http response and forward to Cello
+03-24 00:42:14.707 26672 26953 E Cello   : [26953:NonCelloThread] authenticated_transport.cc:183:DumpToLog Request 0xb4000071a14e2578: 0 transport: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE reader: drive::ds::Status::SUCCESS url: https://play.googleapis.com/log
+03-24 00:42:14.707 26672 26953 E Cello   : [26953:NonCelloThread] authenticated_transport.cc:183:DumpToLog req.hdr 0xb4000071a14e2578: Content-Type=
+03-24 00:42:14.707 26672 26953 E Cello   : [26953:NonCelloThread] authenticated_transport.cc:183:DumpToLog Response body 0xb4000071a14e2578: (no response body)
+03-24 00:42:14.707 26672 26955 E Cello   : [26955:MetricsTransportThread-CELLO] metrics_transport.cc:243:SendRequest Request failed: drive::ds::Status::UNAVAILABLE_WHILE_OFFLINE
+03-24 00:42:14.765  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:14.796  4447  4644 D PhoneInterfaceManager: setDataEnabledForReason() Reason=1 Pid=3313 App=system
+03-24 00:42:14.894  1617  1649 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:15.058  2073 31034 I sensors-hal: handle_sns_std_sensor_event:408, [SSC_LIGHT] P: 19(19),c:13,b:57,m:0,cl:1,l:18,s:19,l0:32825,l1:6019,s0:117,s1:20,acl:1,opr:0.12,f(r):95,u(bl):102,if:64,wi:0,si:0,64(N:0)
+03-24 00:42:15.395  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:15.526  1617  2336 W USBridge: time="00:42:15" level=warning msg="⚠️ Android: Нет кадров уже 400 итераций (ожидаем callback)"
+03-24 00:42:15.589  2187  2234 E HeatmapThread: ECT Thread time in milliseconds: 1774309335
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ batteryplugType : 2
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ batteryLevel : 87  batteryTemperature : 281 
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ Heatmap currtime: 29571822
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ Heatmap prevtime: 29571814
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ Heatmap plugstarttime: 29571813
+03-24 00:42:15.592  2187  2234 D HeatmapThread: !@ Heatmap prevv_dsoh_update_time: 29571788
+03-24 00:42:15.592  2187  2234 E HeatmapThread: !@ CAM New BSOH: 100
+03-24 00:42:15.703  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 1
+03-24 00:42:15.705  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:15.705  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:15.710  2199  2999 I VSyncReactor: Current= 120, Period= 120, Distance= 120
+03-24 00:42:15.789  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
+03-24 00:42:15.828  2113  2426 E SDM     : ScalarConfig::GetAIScaleSettingsInfo: AI Scaler Config for display 68 is not present
+03-24 00:42:15.828  2113  2426 W SDM     : ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+03-24 00:42:15.860  2627  2627 I cnss-daemon: nl80211 response handler invoked
+03-24 00:42:15.860  2627  2627 I cnss-daemon: nl80211_response_handler: cmd 103, vendorID 4980, subcmd 182  received
+03-24 00:42:15.860  4430  4430 I wpa_supplicant: nl80211: Vendor event: wiphy=0 vendor_id=0x1374 subcmd=182
+03-24 00:42:15.860  2075  4418 I WifiHAL : event received NL80211_CMD_VENDOR, vendor_id = 0x1374, subcmd = 0xb6
+03-24 00:42:15.860  2640  4419 D LOWI-9.0.1.112.a: [LOWI-Scan] wait_event:Wait done with Cmd 103
+03-24 00:42:15.860  2640  4419 D LOWI-9.0.1.112.a: [LOWI-Scan] do_listen_events: Rcvd valid Netlink Cmd 0 Err 0
+03-24 00:42:15.894  1617  1653 I DeepLink: ℹ️ [DEEPLINK] No data URI in intent
+03-24 00:42:15.915  2113  2440 I SDM     : DisplayBase::CommitThread: Received idle timeout, panel: cmd, timeout: 70000 us
