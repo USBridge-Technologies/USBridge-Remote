@@ -448,10 +448,10 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	vw.frameDecoder.IncrementFrameCount()
 
 	if frameNum == 1 {
-		logrus.Info("✅ [VIDEO] Step 7: frame rendered in UI")
+		logrus.Debug("✅ [VIDEO] Step 7: frame rendered in UI")
 	}
 	if frameNum%300 == 0 {
-		logrus.Infof("🖼️ [VIDEO] UI: processed %d frames", frameNum)
+		logrus.Debugf("🖼️ [VIDEO] UI: processed %d frames", frameNum)
 	}
 
 	go fyne.Do(func() {

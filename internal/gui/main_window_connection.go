@@ -149,7 +149,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		}
 
 		logrus.Info("✅ QUIC tunnel established via FRP")
-		logrus.Info("Waiting for tunnel stabilization...")
+		logrus.Debug("Waiting for tunnel stabilization...")
 		time.Sleep(2 * time.Second)
 
 		mw.hostEntry.Disable()
@@ -167,7 +167,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.connectedProtocol = models.ConnectionProtocolQUIC
 		mw.config.NBDBindHost = "127.0.0.1"
 
-		logrus.Info("🔌 Ready to connect through FRP tunnel")
+		logrus.Debug("🔌 Ready to connect through FRP tunnel")
 		return nil
 	}
 
@@ -291,7 +291,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		return
 	}
 
-	logrus.Info("Loading devices...")
+	logrus.Debug("Loading devices...")
 	if mw.connectedProtocol == models.ConnectionProtocolWireGuard && mw.frpService != nil && mw.frpService.IsRunning() {
 		logrus.Info("🔐 [WireGuard] STEP 8: WireGuard verified, stopping FRP bootstrap transport")
 		if err := mw.frpService.Disconnect(); err != nil {

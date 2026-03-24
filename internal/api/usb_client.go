@@ -233,7 +233,7 @@ func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 		return nil, fmt.Errorf("failed to parse device information: %v", err)
 	}
 	for _, d := range deviceInfo.Devices {
-		logrus.Infof("🔎 [API-DEVICE-INFO] device=%s type=%s status=%s name=%s product=%s",
+		logrus.Debugf("🔎 [API-DEVICE-INFO] device=%s type=%s status=%s name=%s product=%s",
 			d.Device, d.Type, d.Status, d.Name, d.ProductName)
 	}
 
@@ -724,7 +724,7 @@ func (c *USBClient) ConnectMouseWebSocket() error {
 		return fmt.Errorf("ошибка формирования WebSocket URL: %v", err)
 	}
 
-	logrus.Infof("🔌 Подключение к WebSocket: %s", wsURL)
+	logrus.Debugf("🔌 Подключение к WebSocket: %s", wsURL)
 
 	// Подключаемся к WebSocket
 	dialer := websocket.Dialer{

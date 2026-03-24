@@ -105,7 +105,7 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		}
 		proxies = append(proxies, nbdProxy)
 	}
-	logrus.Infof("   📤 NBD proxies: nbd_srv1-16 -> 127.0.0.1:10809-10824 (secretKey=sk-nbd)")
+	logrus.Debugf("   📤 NBD proxies: nbd_srv1-16 -> 127.0.0.1:10809-10824 (secretKey=sk-nbd)")
 
 	// Video SUDP: Bridge visitor serverName=video_sudp, secretKey=sk-video
 	vp := videoPort
@@ -124,7 +124,7 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		Secretkey: "sk-video",
 	}
 	proxies = append(proxies, videoProxy)
-	logrus.Infof("   📤 Video proxy: video_sudp -> 127.0.0.1:%d (secretKey=sk-video)", vp)
+	logrus.Debugf("   📤 Video proxy: video_sudp -> 127.0.0.1:%d (secretKey=sk-video)", vp)
 
 	// Тянем радксовый HTTP как локальный порт на клиенте
 	visitors := []v1.VisitorConfigurer{}
@@ -184,10 +184,10 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		f.httpPort = localHTTPPort
 		logrus.Info("✅ FRP QUIC tunnel established successfully")
 		f.videoPort = vp
-		logrus.Infof("   📥 HTTP API: localhost:%d -> QUIC -> %s:8080", f.httpPort, f.serverAddr)
-		logrus.Infof("   📤 Video UDP: localhost:%d (proxy) <- Bridge visitor -> QUIC -> %s", vp, f.serverAddr)
-		logrus.Infof("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 портов) -> %s", f.serverAddr)
-		logrus.Infof("   💡 Приложение работает через localhost:%d", f.httpPort)
+		logrus.Debugf("   📥 HTTP API: localhost:%d -> QUIC -> %s:8080", f.httpPort, f.serverAddr)
+		logrus.Debugf("   📤 Video UDP: localhost:%d (proxy) <- Bridge visitor -> QUIC -> %s", vp, f.serverAddr)
+		logrus.Debugf("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 портов) -> %s", f.serverAddr)
+		logrus.Debugf("   💡 Приложение работает через localhost:%d", f.httpPort)
 		return nil
 	}
 }

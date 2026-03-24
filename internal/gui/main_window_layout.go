@@ -461,9 +461,9 @@ func (mw *MainWindow) updateStatusBar() {
 	if mw.usbClient != nil {
 		deviceInfo, err := mw.usbClient.GetDeviceInfo()
 		if err == nil {
-			logrus.Infof("🔍 updateStatusBar: найдено %d устройств", len(deviceInfo.Devices))
+			logrus.Debugf("🔍 updateStatusBar: найдено %d устройств", len(deviceInfo.Devices))
 			for _, device := range deviceInfo.Devices {
-				logrus.Infof("🔍 Устройство: Type=%s, Status=%s, Name=%s, ProductName=%s",
+				logrus.Debugf("🔍 Устройство: Type=%s, Status=%s, Name=%s, ProductName=%s",
 					device.Type, device.Status, device.Name, device.ProductName)
 				if device.Status == "connected" {
 					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
@@ -483,7 +483,7 @@ func (mw *MainWindow) updateStatusBar() {
 					}
 					if device.Type == "nbd" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
 						snapshotConnected = true
-						logrus.Infof("📸 Найден снапшот: Type=%s, Name=%s, ProductName=%s", device.Type, device.Name, device.ProductName)
+						logrus.Debugf("📸 Найден снапшот: Type=%s, Name=%s, ProductName=%s", device.Type, device.Name, device.ProductName)
 					}
 				}
 			}
@@ -495,7 +495,7 @@ func (mw *MainWindow) updateStatusBar() {
 				for _, snapshot := range snapshotsResp.Snapshots {
 					if snapshot.Connected {
 						snapshotConnected = true
-						logrus.Infof("📸 Найден подключенный снапшот через API снапшотов: %s", snapshot.Name)
+						logrus.Debugf("📸 Найден подключенный снапшот через API снапшотов: %s", snapshot.Name)
 						break
 					}
 				}
@@ -503,7 +503,7 @@ func (mw *MainWindow) updateStatusBar() {
 		}
 	}
 
-	logrus.Infof("🔍 Статусы: keyboard=%v, mouse=%v, rndis=%v, cdrom=%v, backup=%v, snapshot=%v",
+	logrus.Debugf("🔍 Статусы: keyboard=%v, mouse=%v, rndis=%v, cdrom=%v, backup=%v, snapshot=%v",
 		keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected)
 
 	fyne.Do(func() {

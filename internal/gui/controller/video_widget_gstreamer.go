@@ -140,13 +140,13 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	}
 
 	// 1. Сначала, при необходимости, поднимаем HID и ждём завершения переконфигурации gadget.
-	logrus.Info("⌨️🖱️ [VIDEO] Шаг 1: Проверка и автоподключение HID перед стартом видео...")
+	logrus.Debug("⌨️🖱️ [VIDEO] Проверка и автоподключение HID перед стартом видео...")
 	if err := vw.ensureControlHIDDevices(); err != nil {
 		logrus.Warnf("⚠️ [VIDEO] HID auto-connect before video failed: %v", err)
 	}
 
 	// 2. Запускаем GStreamer: udpsrc RTP на clientPort (при FRP — proxy слушает, Bridge visitor шлёт)
-	logrus.Infof("🎬 [VIDEO] Шаг 2: Запуск GStreamer (mode=%s, udpsrc RTP port=%d)...", mode, clientPort)
+	logrus.Infof("🎬 [VIDEO] Подготовка video pipeline (mode=%s, port=%d)...", mode, clientPort)
 	if !vw.connectToGStreamerWithRetries() {
 		logrus.Error("❌ Не удалось запустить GStreamer")
 		fyne.Do(func() {
@@ -157,15 +157,15 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	// 2.5 Ждём привязки udpsrc к порту (gst-launch запускается асинхронно, POST — только после готовности приёма)
 	time.Sleep(500 * time.Millisecond)
-	logrus.Infof("🔗 [VIDEO] udpsrc port=%d готов к приёму, запуск сервера...", clientPort)
+	logrus.Debugf("🔗 [VIDEO] udpsrc port=%d готов к приёму, запуск сервера...", clientPort)
 
 	// 2.6 Останавливаем предыдущий стрим на сервере (если был) — иначе FFmpeg может не перезапуститься
-	logrus.Info("🛑 [VIDEO] Шаг 2.6: POST /api/video/stop (сброс предыдущего стрима)")
+	logrus.Debug("🛑 [VIDEO] POST /api/video/stop (сброс предыдущего стрима)")
 	_ = vw.usbClient.StopVideo()
 	time.Sleep(2 * time.Second)
 
 	// 3. ПОТОМ запускаем видео на сервере — Bridge FFmpeg шлёт RTP, visitor пересылает в proxy video_sudp
-	logrus.Infof("🎥 [VIDEO] Шаг 3: POST /api/video/start (mode=%s, client_port=%d)", mode, request.ClientPort)
+	logrus.Infof("🎥 [VIDEO] Запуск video capture (mode=%s, client_port=%d)", mode, request.ClientPort)
 	if err := vw.usbClient.StartVideo(request); err != nil {
 		vw.gstreamerService.Disconnect()
 		logrus.Errorf("Ошибка запуска видео: %v", err)
@@ -196,7 +196,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ConnectingRTP, attempt, maxRetries))
 		})
-		logrus.Infof("🔄 Попытка подключения к RTP video через GStreamer #%d/%d", attempt, maxRetries)
+		logrus.Debugf("🔄 Попытка подключения к RTP video через GStreamer #%d/%d", attempt, maxRetries)
 
 		err := vw.gstreamerService.ConnectToRTP()
 		if err != nil {
@@ -212,7 +212,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 			}
 
 			// Ждем перед следующей попыткой
-			logrus.Infof("⏳ Ожидание %v перед следующей попыткой...", retryDelay)
+			logrus.Debugf("⏳ Ожидание %v перед следующей попыткой...", retryDelay)
 			time.Sleep(retryDelay)
 			continue
 		}
@@ -222,7 +222,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.VideoActive)
 		})
-		logrus.Info("✅ GStreamer RTP video подключение установлено успешно")
+		logrus.Info("✅ Video pipeline ready")
 		return true
 	}
 

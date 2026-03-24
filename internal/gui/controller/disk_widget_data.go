@@ -48,7 +48,7 @@ func (dw *DiskWidget) loadLocalDrives() {
 			dw.localDrives[i] = &localDrives.Drives[i]
 		}
 
-		logrus.Infof("Загружено %d устройств из API", len(dw.localDrives))
+		logrus.Debugf("Загружено %d устройств из API", len(dw.localDrives))
 		dw.updateUIAsync(func() {
 			dw.combineDrives()
 			dw.devicesList.Refresh()
@@ -132,7 +132,7 @@ func (dw *DiskWidget) loadLocalFiles() {
 	}
 
 	dw.localFiles = foundFiles
-	logrus.Infof("Найдено %d локальных файлов", len(foundFiles))
+	logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
 }
 
 func (dw *DiskWidget) loadVideoDevices() {
@@ -344,7 +344,7 @@ func (dw *DiskWidget) combineDrives() {
 
 	dw.updateDevicesStatus()
 
-	logrus.Infof("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices))
+	logrus.Debugf("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices))
 }
 
 // loadMountedDevices загружает смонтированные устройства через API

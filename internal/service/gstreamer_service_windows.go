@@ -443,7 +443,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 			gs.mutex.Unlock()
 			chanLen := len(gs.frameChan)
 			chanCap := cap(gs.frameChan)
-			logrus.Infof("🎬 [Windows] GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
+			logrus.Debugf("🎬 [Windows] GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
 		}
 
 		// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
@@ -457,9 +457,9 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 			dropped := gs.framesDropped
 			gs.mutex.Unlock()
 			// Логируем каждый 30-й пропущенный кадр
-			if dropped%30 == 1 {
+			if dropped%120 == 1 {
 				chanLen := len(gs.frameChan)
-				logrus.Warnf("⏭️ [Windows] GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
+				logrus.Debugf("⏭️ [Windows] GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 			}
 		}
 	}
@@ -520,9 +520,9 @@ func (gs *GStreamerService) frameProcessor() {
 			processedCount++
 
 			// Логируем каждую секунду
-			if time.Since(lastLogTime) > time.Second {
+			if time.Since(lastLogTime) > 5*time.Second {
 				chanLen := len(gs.frameChan)
-				logrus.Infof("📤 [Windows] frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
+				logrus.Debugf("📤 [Windows] frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
 				lastLogTime = time.Now()
 			}
 
@@ -930,7 +930,7 @@ func (gs *GStreamerService) UpdateHost(host string) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoHost = host
-	logrus.Infof("🔧 [Windows] GStreamer сервис: хост обновлен на %s", host)
+	logrus.Debugf("🔧 [Windows] GStreamer сервис: хост обновлен на %s", host)
 }
 
 // UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
@@ -939,7 +939,7 @@ func (gs *GStreamerService) UpdateVideoPort(port int) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Infof("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
 // UpdateVideoUDPPort обновляет порт приёма UDP видео
@@ -948,7 +948,7 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Infof("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
 func (gs *GStreamerService) SetVideoMode(mode string) {

@@ -19,7 +19,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 			return
 		}
 
-		logrus.Info("📱 Загрузка актуальной бэкап флешки...")
+		logrus.Debug("📱 Загрузка актуальной бэкап флешки...")
 
 		localDrives, err := bw.usbClient.GetLocalDrives()
 		if err != nil {
@@ -110,11 +110,15 @@ func (bw *BackupWidget) loadSnapshots() {
 		}
 
 		bw.updateStatusAsync(i18n.Current.LoadingSnapshots)
-		logrus.Info("📦 Загрузка списка снапшотов...")
+		logrus.Debug("📦 Загрузка списка снапшотов...")
 
 		snapshotsResp, err := bw.usbClient.GetSnapshots()
 		if err != nil {
-			logrus.Errorf("Error loading snapshots: %v", err)
+			if strings.Contains(err.Error(), "/mnt/sdcard/backup/") && strings.Contains(err.Error(), "no such file or directory") {
+				logrus.Debugf("Snapshots directory is absent on device: %v", err)
+			} else {
+				logrus.Errorf("Error loading snapshots: %v", err)
+			}
 			bw.updateUIAsync(func() {
 				bw.ui.StatusLabel.SetText(i18n.Current.ErrorLoadingSnapshots)
 			})

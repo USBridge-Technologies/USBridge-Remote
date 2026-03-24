@@ -28,6 +28,8 @@ type GStreamerService struct {
 	appsink  *app.Sink
 	jpegCandidateIndex int
 	lastJPEGPipeline   string
+	failedJPEGPipelines map[string]bool
+	missingJPEGElements map[string]bool
 
 	// Состояние
 	isConnected    bool
@@ -72,6 +74,8 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		videoMode:             models.VideoModeH264,
 		frameChan:             make(chan image.Image, 1), // Один кадр — минимальная задержка
 		stopChan:              make(chan struct{}),
+		failedJPEGPipelines:   make(map[string]bool),
+		missingJPEGElements:   make(map[string]bool),
 		frameProcessorRunning: false,
 		monitorRunning:        false,
 	}
@@ -117,7 +121,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 Подключение к RTP потоку mode=%s...", gs.videoMode)
+	logrus.Debugf("🔗 Подключение к RTP потоку mode=%s...", gs.videoMode)
 
 	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
 	gst.Init(nil)
@@ -169,7 +173,7 @@ func (gs *GStreamerService) createPipeline() error {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
-	logrus.Infof("📹 UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
+	logrus.Debugf("📹 UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.createJPEGPipeline(udpPort)
@@ -286,25 +290,44 @@ func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
 		bindHost, udpPort,
 	)
 
-	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	softwareDecoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	vaapiDecoderPath := "vapostproc ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	vaapiDirectPath := "vapostproc ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
 	pipelines := []struct {
-		name string
-		str  string
+		name            string
+		requiredElement string
+		str             string
 	}{
-		{name: "vajpegdec (HW)", str: base + "jpegparse ! vajpegdec ! " + decoderPath},
-		{name: "qsvjpegdec (HW)", str: base + "jpegparse ! qsvjpegdec ! " + decoderPath},
-		{name: "nvjpegdec (HW)", str: base + "jpegparse ! nvjpegdec ! " + decoderPath},
-		{name: "jpegdec (SW preferred)", str: base + "jpegdec ! " + decoderPath},
-		{name: "avdec_mjpeg (SW fallback)", str: base + "jpegparse ! avdec_mjpeg ! " + decoderPath},
-		{name: "decodebin (generic fallback)", str: base + "jpegparse ! decodebin ! " + decoderPath},
+		{name: "vajpegdec + vapostproc (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDecoderPath},
+		{name: "vajpegdec + vapostproc direct (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDirectPath},
+		{name: "qsvjpegdec (HW)", requiredElement: "qsvjpegdec", str: base + "jpegparse ! qsvjpegdec ! " + softwareDecoderPath},
+		{name: "nvjpegdec (HW)", requiredElement: "nvjpegdec", str: base + "jpegparse ! nvjpegdec ! " + softwareDecoderPath},
+		{name: "jpegdec (SW preferred)", requiredElement: "jpegdec", str: base + "jpegdec ! " + softwareDecoderPath},
+		{name: "avdec_mjpeg (SW fallback)", requiredElement: "avdec_mjpeg", str: base + "jpegparse ! avdec_mjpeg ! " + softwareDecoderPath},
+		{name: "decodebin (generic fallback)", requiredElement: "decodebin", str: base + "jpegparse ! decodebin ! " + softwareDecoderPath},
 	}
 
 	var lastErr error
 	for idx := range pipelines {
 		candidateIdx := (gs.jpegCandidateIndex + idx) % len(pipelines)
 		candidate := pipelines[candidateIdx]
+		if gs.failedJPEGPipelines[candidate.name] {
+			logrus.Debugf("⏭️ [Linux/JPEG] Pipeline пропущен после runtime-fail: %s", candidate.name)
+			continue
+		}
+		if candidate.requiredElement != "" {
+			if gs.missingJPEGElements[candidate.requiredElement] {
+				logrus.Debugf("⏭️ [Linux/JPEG] Элемент уже помечен как отсутствующий: %s", candidate.requiredElement)
+				continue
+			}
+			if gst.Find(candidate.requiredElement) == nil {
+				gs.missingJPEGElements[candidate.requiredElement] = true
+				logrus.Debugf("⏭️ [Linux/JPEG] Элемент недоступен в registry: %s", candidate.requiredElement)
+				continue
+			}
+		}
 		logrus.Infof("🔄 [Linux/JPEG] Pipeline попытка %d/%d: %s", idx+1, len(pipelines), candidate.name)
-		logrus.Infof("🔧 [Linux/JPEG] GStreamer pipeline: %s", candidate.str)
+		logrus.Debugf("🔧 [Linux/JPEG] GStreamer pipeline: %s", candidate.str)
 
 		pipeline, err := gst.NewPipelineFromString(candidate.str)
 		if err != nil {
@@ -413,7 +436,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 			gs.mutex.Unlock()
 			chanLen := len(gs.frameChan)
 			chanCap := cap(gs.frameChan)
-			logrus.Infof("🎬 GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
+			logrus.Debugf("🎬 GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
 		}
 
 		// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
@@ -427,9 +450,9 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 			dropped := gs.framesDropped
 			gs.mutex.Unlock()
 			// Логируем каждый 30-й пропущенный кадр
-			if dropped%30 == 1 {
+			if dropped%120 == 1 {
 				chanLen := len(gs.frameChan)
-				logrus.Warnf("⏭️ GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
+				logrus.Debugf("⏭️ GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 			}
 		}
 	}
@@ -470,7 +493,7 @@ func (gs *GStreamerService) frameProcessor() {
 		gs.mutex.Lock()
 		gs.frameProcessorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 frameProcessor завершен и очищен")
+		logrus.Debug("🛑 frameProcessor завершен и очищен")
 	}()
 
 	processedCount := int64(0)
@@ -479,20 +502,20 @@ func (gs *GStreamerService) frameProcessor() {
 	for {
 		select {
 		case <-gs.stopChan:
-			logrus.Info("🛑 Остановка обработчика кадров по сигналу stopChan")
+			logrus.Debug("🛑 Остановка обработчика кадров по сигналу stopChan")
 			return
 		case frame, ok := <-gs.frameChan:
 			if !ok {
-				logrus.Info("🛑 frameChan закрыт, остановка обработчика")
+				logrus.Debug("🛑 frameChan закрыт, остановка обработчика")
 				return
 			}
 
 			processedCount++
 
 			// Логируем каждую секунду
-			if time.Since(lastLogTime) > time.Second {
+			if time.Since(lastLogTime) > 5*time.Second {
 				chanLen := len(gs.frameChan)
-				logrus.Infof("📤 frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
+				logrus.Debugf("📤 frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
 				lastLogTime = time.Now()
 			}
 
@@ -523,10 +546,10 @@ func (gs *GStreamerService) monitorPipeline() {
 		gs.mutex.Lock()
 		gs.monitorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 monitorPipeline завершен и очищен")
+		logrus.Debug("🛑 monitorPipeline завершен и очищен")
 	}()
 
-	logrus.Info("📊 Запуск мониторинга GStreamer pipeline")
+	logrus.Debug("📊 Запуск мониторинга GStreamer pipeline")
 
 	// Получаем bus для мониторинга сообщений
 	gs.mutex.RLock()
@@ -550,7 +573,7 @@ func (gs *GStreamerService) monitorPipeline() {
 		// Проверяем stopChan для немедленной остановки
 		select {
 		case <-stopChan:
-			logrus.Info("🛑 Остановка мониторинга по stopChan")
+			logrus.Debug("🛑 Остановка мониторинга по stopChan")
 			return
 		default:
 		}
@@ -564,12 +587,12 @@ func (gs *GStreamerService) monitorPipeline() {
 
 		// Если pipeline изменился или был удален, завершаем мониторинг
 		if currentPipeline != pipeline {
-			logrus.Info("🛑 Остановка мониторинга: pipeline изменился")
+			logrus.Debug("🛑 Остановка мониторинга: pipeline изменился")
 			return
 		}
 
 		if !connected || manualDisc {
-			logrus.Info("🛑 Остановка мониторинга: disconnected или manual disconnect")
+			logrus.Debug("🛑 Остановка мониторинга: disconnected или manual disconnect")
 			return
 		}
 
@@ -600,6 +623,7 @@ func (gs *GStreamerService) monitorPipeline() {
 			logrus.Errorf("❌ GStreamer ошибка: %v", err)
 			gs.mutex.Lock()
 			if gs.videoMode == models.VideoModeJPEGRTP && strings.Contains(fmt.Sprint(err), "Internal data stream error") {
+				gs.failedJPEGPipelines[gs.lastJPEGPipeline] = true
 				gs.jpegCandidateIndex++
 				logrus.Warnf("⚠️ [Linux/JPEG] Decoder %s failed at runtime, switching to next JPEG candidate (index=%d)", gs.lastJPEGPipeline, gs.jpegCandidateIndex)
 			}
@@ -643,11 +667,11 @@ func (gs *GStreamerService) Disconnect() error {
 
 	if !gs.isConnected && !gs.isConnecting {
 		gs.mutex.Unlock()
-		logrus.Info("🔌 Disconnect: уже отключен")
+		logrus.Debug("🔌 Disconnect: уже отключен")
 		return nil
 	}
 
-	logrus.Info("🔌 Отключение от RTP/UDP потока...")
+	logrus.Debug("🔌 Отключение от RTP/UDP потока...")
 
 	gs.manualDisconnect = true
 
@@ -664,16 +688,16 @@ func (gs *GStreamerService) Disconnect() error {
 	if stopChan != nil {
 		select {
 		case <-stopChan: // Канал уже закрыт
-			logrus.Info("🔌 stopChan уже закрыт")
+			logrus.Debug("🔌 stopChan уже закрыт")
 		default:
 			close(stopChan)
-			logrus.Info("🔌 stopChan закрыт")
+			logrus.Debug("🔌 stopChan закрыт")
 		}
 	}
 
 	// Отправляем EOS для корректного завершения pipeline
 	if pipeline != nil {
-		logrus.Info("🛑 Отправка EOS в GStreamer pipeline...")
+		logrus.Debug("🛑 Отправка EOS в GStreamer pipeline...")
 		pipeline.SendEvent(gst.NewEOSEvent())
 	}
 
@@ -702,7 +726,7 @@ func (gs *GStreamerService) Disconnect() error {
 	// Останавливаем pipeline
 	gs.mutex.Lock()
 	if gs.pipeline != nil {
-		logrus.Info("🛑 Остановка GStreamer pipeline...")
+		logrus.Debug("🛑 Остановка GStreamer pipeline...")
 		gs.pipeline.SetState(gst.StateNull)
 
 		// Небольшая задержка для корректного перехода в StateNull
@@ -710,7 +734,7 @@ func (gs *GStreamerService) Disconnect() error {
 
 		// НЕ вызываем Unref() - pipeline освобождается автоматически при SetState(StateNull)
 		gs.pipeline = nil
-		logrus.Info("✅ GStreamer pipeline остановлен")
+		logrus.Debug("✅ GStreamer pipeline остановлен")
 	}
 
 	// Очищаем канал кадров от оставшихся данных
@@ -726,11 +750,11 @@ func (gs *GStreamerService) Disconnect() error {
 			}
 		}
 	doneClearing:
-		logrus.Info("✅ Канал кадров очищен")
+		logrus.Debug("✅ Канал кадров очищен")
 	}
 	gs.mutex.Unlock()
 
-	logrus.Info("✅ GStreamer соединение закрыто")
+	logrus.Debug("✅ GStreamer соединение закрыто")
 	return nil
 }
 
@@ -764,29 +788,29 @@ func (gs *GStreamerService) attemptReconnect() {
 	gs.pipeline = nil
 	gs.mutex.Unlock()
 
-	logrus.Info("🧹 Очистка старого pipeline перед переподключением...")
+	logrus.Debug("🧹 Очистка старого pipeline перед переподключением...")
 
 	// Закрываем stopChan чтобы остановить горутины
 	if stopChan != nil {
 		select {
 		case <-stopChan:
-			logrus.Info("🔌 stopChan уже был закрыт")
+			logrus.Debug("🔌 stopChan уже был закрыт")
 		default:
 			close(stopChan)
-			logrus.Info("🔌 stopChan закрыт для переподключения")
+			logrus.Debug("🔌 stopChan закрыт для переподключения")
 		}
 	}
 
 	// Останавливаем старый pipeline
 	if oldPipeline != nil {
-		logrus.Info("🛑 Остановка старого pipeline...")
+		logrus.Debug("🛑 Остановка старого pipeline...")
 		oldPipeline.SetState(gst.StateNull)
 		time.Sleep(200 * time.Millisecond) // Увеличенная задержка для полной остановки
-		logrus.Info("✅ Старый pipeline остановлен")
+		logrus.Debug("✅ Старый pipeline остановлен")
 	}
 
 	// Ждем завершения горутин
-	logrus.Info("⏳ Ожидание завершения горутин...")
+	logrus.Debug("⏳ Ожидание завершения горутин...")
 	deadline := time.Now().Add(3 * time.Second) // Увеличено до 3 секунд
 	for time.Now().Before(deadline) {
 		gs.mutex.RLock()
@@ -794,7 +818,7 @@ func (gs *GStreamerService) attemptReconnect() {
 		gs.mutex.RUnlock()
 
 		if !running {
-			logrus.Info("✅ Все горутины завершены")
+			logrus.Debug("✅ Все горутины завершены")
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -815,21 +839,21 @@ func (gs *GStreamerService) attemptReconnect() {
 	maxAttempts := gs.maxReconnectAttempts
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔄 Попытка переподключения GStreamer #%d/%d...", attempt, maxAttempts)
+	logrus.Infof("🔄 Переподключение GStreamer #%d/%d...", attempt, maxAttempts)
 
 	// Задержка перед переподключением (увеличивается с каждой попыткой)
 	delay := time.Duration(attempt) * 2 * time.Second
 	if delay > 10*time.Second {
 		delay = 10 * time.Second // Максимум 10 секунд
 	}
-	logrus.Infof("⏳ Задержка перед переподключением: %v", delay)
+	logrus.Debugf("⏳ Задержка перед переподключением: %v", delay)
 	time.Sleep(delay)
 
 	gs.mutex.RLock()
 	abortReconnect := !gs.autoReconnect || gs.manualDisconnect
 	gs.mutex.RUnlock()
 	if abortReconnect {
-		logrus.Info("🛑 Переподключение отменено до нового ConnectToRTP")
+		logrus.Debug("🛑 Переподключение отменено до нового ConnectToRTP")
 		gs.mutex.Lock()
 		gs.isReconnecting = false
 		gs.mutex.Unlock()
@@ -900,7 +924,7 @@ func (gs *GStreamerService) UpdateHost(host string) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoHost = host
-	logrus.Infof("🔧 GStreamer сервис: хост обновлен на %s", host)
+	logrus.Debugf("🔧 GStreamer сервис: хост обновлен на %s", host)
 }
 
 // UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
@@ -909,7 +933,7 @@ func (gs *GStreamerService) UpdateVideoPort(port int) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Infof("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
 // UpdateVideoUDPPort обновляет порт приёма UDP видео
@@ -918,7 +942,7 @@ func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Infof("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 GStreamer сервис: видео UDP порт обновлен на %d", port)
 }
 
 func (gs *GStreamerService) SetVideoMode(mode string) {
