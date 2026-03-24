@@ -1211,6 +1211,28 @@ func nativeFullscreenPluginDirs(gstLaunchPath string) []string {
 	return dirs
 }
 
+func appendOrPrependEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		current := strings.TrimPrefix(entry, prefix)
+		if current == "" {
+			env[i] = prefix + value
+			return env
+		}
+		for _, part := range strings.Split(current, string(os.PathListSeparator)) {
+			if part == value {
+				return env
+			}
+		}
+		env[i] = prefix + value + string(os.PathListSeparator) + current
+		return env
+	}
+	return append(env, prefix+value)
+}
+
 // SetAutoReconnect включает/выключает автоматическое переподключение
 func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 	gs.mutex.Lock()
