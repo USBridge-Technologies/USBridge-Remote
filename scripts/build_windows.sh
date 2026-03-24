@@ -592,6 +592,9 @@ if [ -n "$GST_ROOT" ]; then
             "libgstjpegformat.dll"
             "libgstlibav.dll"
             "libgstautodetect.dll"
+            "libgstwic.dll"
+            "libgstqsv.dll"
+            "libgstmsdk.dll"
             "libgstvideoparsersbad.dll"
             "libgstvideoparsers.dll"
             "libgstwinks.dll" # contains ksvideosrc for Windows QR camera capture
@@ -710,6 +713,13 @@ if [ -n "$GST_ROOT" ]; then
             echo "   Портативный пакет всё ещё может работать, но часть плагинов может не обнаруживаться без scanner."
         fi
 
+        for tool in gst-launch-1.0.exe gst-launch-1.0 gst-inspect-1.0.exe gst-inspect-1.0; do
+            if [ -f "$GST_ROOT/bin/$tool" ]; then
+                cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN/bin/"
+                echo -e "${GREEN}✓${NC} $tool"
+            fi
+        done
+
         find "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
         echo -e "${GREEN}✓${NC} gstreamer-plugins.txt"
         echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
@@ -729,6 +739,11 @@ if [ -n "$GST_ROOT" ]; then
             mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
             cp -L "$GST_ROOT/libexec/gstreamer-1.0"/gst-plugin-scanner* "$DIST_WIN/libexec/gstreamer-1.0/" 2>/dev/null || true
             echo -e "${GREEN}✓${NC} libexec/gstreamer-1.0/gst-plugin-scanner*"
+        fi
+        if [ -d "$GST_ROOT/bin" ]; then
+            cp -L "$GST_ROOT/bin"/gst-launch-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
+            cp -L "$GST_ROOT/bin"/gst-inspect-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} gst-launch-1.0* / gst-inspect-1.0*"
         fi
     fi
 

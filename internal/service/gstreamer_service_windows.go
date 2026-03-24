@@ -4,10 +4,12 @@
 package service
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1083,21 +1085,24 @@ func (gs *GStreamerService) nativeFullscreenCandidates(bindHost string, udpPort 
 	}
 
 	return []nativeFullscreenCandidate{
-		{name: "d3d11videosink", args: append(append([]string{}, base...), "d3d11videosink", "fullscreen=true", "sync=false")},
+		{name: "d3d11videosink-fullscreen", args: append(append([]string{}, base...), "d3d11videosink", "fullscreen-toggle-mode=property", "fullscreen=true", "sync=false")},
+		{name: "d3d11videosink", args: append(append([]string{}, base...), "d3d11videosink", "sync=false")},
 		{name: "glimagesink", args: append(append([]string{}, base...), "glimagesink", "fullscreen=true", "sync=false")},
 		{name: "autovideosink", args: append(append([]string{}, base...), "autovideosink", "sync=false")},
 	}
 }
 
 func (gs *GStreamerService) startNativeFullscreenProcess(candidate nativeFullscreenCandidate) (*exec.Cmd, error) {
-	path, err := exec.LookPath("gst-launch-1.0")
+	path, err := findBundledGStreamerTool("gst-launch-1.0")
 	if err != nil {
 		return nil, fmt.Errorf("gst-launch-1.0 not found: %w", err)
 	}
 
 	cmd := exec.Command(path, candidate.args...)
+	cmd.Env = getWindowsNativeFullscreenEnv(path)
+	var stderr bytes.Buffer
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 
 	done := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
@@ -1119,10 +1124,91 @@ func (gs *GStreamerService) startNativeFullscreenProcess(candidate nativeFullscr
 		if err == nil {
 			err = fmt.Errorf("native fullscreen process exited immediately")
 		}
+		if details := strings.TrimSpace(stderr.String()); details != "" {
+			err = fmt.Errorf("%w: %s", err, details)
+		}
 		return nil, err
 	case <-time.After(1200 * time.Millisecond):
 		return cmd, nil
 	}
+}
+
+func findBundledGStreamerTool(name string) (string, error) {
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates := []string{
+			filepath.Join(exeDir, "bin", name+".exe"),
+			filepath.Join(exeDir, "bin", name),
+			filepath.Join(exeDir, name+".exe"),
+			filepath.Join(exeDir, name),
+		}
+		for _, candidate := range candidates {
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+
+	return exec.LookPath(name)
+}
+
+func getWindowsNativeFullscreenEnv(gstLaunchPath string) []string {
+	env := os.Environ()
+	for _, pluginDir := range nativeFullscreenPluginDirs(gstLaunchPath) {
+		env = appendOrPrependEnv(env, "GST_PLUGIN_PATH", pluginDir)
+		env = appendOrPrependEnv(env, "GST_PLUGIN_SYSTEM_PATH", pluginDir)
+		logrus.Infof("🔧 [Windows] native fullscreen GST plugin dir: %s", pluginDir)
+	}
+
+	baseDir := filepath.Dir(filepath.Clean(gstLaunchPath))
+	scannerCandidates := []string{
+		filepath.Join(baseDir, "..", "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe"),
+		filepath.Join(baseDir, "..", "libexec", "gstreamer-1.0", "gst-plugin-scanner"),
+		filepath.Join(baseDir, "gst-plugin-scanner.exe"),
+		filepath.Join(baseDir, "gst-plugin-scanner"),
+	}
+	for _, scannerPath := range scannerCandidates {
+		if info, err := os.Stat(scannerPath); err == nil && !info.IsDir() {
+			env = appendOrPrependEnv(env, "GST_PLUGIN_SCANNER", scannerPath)
+			logrus.Infof("🔧 [Windows] native fullscreen GST plugin scanner: %s", scannerPath)
+			break
+		}
+	}
+
+	env = appendOrPrependEnv(env, "PATH", baseDir)
+	return env
+}
+
+func nativeFullscreenPluginDirs(gstLaunchPath string) []string {
+	baseDir := filepath.Dir(filepath.Clean(gstLaunchPath))
+	patterns := []string{
+		filepath.Join(baseDir, "..", "lib", "gstreamer-1.0"),
+		filepath.Join(baseDir, "..", "lib64", "gstreamer-1.0"),
+		filepath.Join(baseDir, "..", "lib", "*", "gstreamer-1.0"),
+		filepath.Join(baseDir, "..", "lib64", "*", "gstreamer-1.0"),
+	}
+
+	var dirs []string
+	seen := make(map[string]struct{})
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(filepath.Clean(pattern))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			if _, exists := seen[match]; exists {
+				continue
+			}
+			seen[match] = struct{}{}
+			dirs = append(dirs, match)
+		}
+	}
+	return dirs
 }
 
 // SetAutoReconnect включает/выключает автоматическое переподключение
