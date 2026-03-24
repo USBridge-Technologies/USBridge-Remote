@@ -23,6 +23,8 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	wgtun "golang.zx2c4.com/wireguard/tun"
+
+	"usbridge-client/internal/models"
 )
 
 var (
@@ -82,10 +84,13 @@ func (s *userspaceWireGuardService) connectWithElevatedWireGuardHelper(resp *mod
 }
 
 func (s *userspaceWireGuardService) disconnectWithElevatedWireGuardHelper() error {
-	client, err := newWindowsWireGuardHelperClient()
-	if err != nil {
-		return err
+	windowsWireGuardHelperStateMu.Lock()
+	client := windowsWireGuardHelperState
+	windowsWireGuardHelperStateMu.Unlock()
+	if client == nil {
+		return nil
 	}
+
 	return client.down()
 }
 
