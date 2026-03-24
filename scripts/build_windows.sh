@@ -580,6 +580,7 @@ if [ -n "$GST_ROOT" ]; then
             "libgstcoreelements.dll"
             "libgstapp.dll"
             "libgstrtp.dll"
+            "libgstrtpmanager.dll"
             "libgstudp.dll"
             "libgstvideoconvert.dll"
             "libgstvideoconvertscale.dll"
@@ -587,6 +588,10 @@ if [ -n "$GST_ROOT" ]; then
             "libgstplayback.dll"
             "libgsttypefindfunctions.dll"
             "libgstd3d11.dll"
+            "libgstjpeg.dll"
+            "libgstjpegformat.dll"
+            "libgstlibav.dll"
+            "libgstautodetect.dll"
             "libgstvideoparsersbad.dll"
             "libgstvideoparsers.dll"
             "libgstwinks.dll" # contains ksvideosrc for Windows QR camera capture
@@ -596,6 +601,13 @@ if [ -n "$GST_ROOT" ]; then
             IFS=',' read -r -a PLUGINS <<< "$GST_PLUGIN_ALLOWLIST"
         fi
         REQUIRED_PLUGINS=(
+            "libgstrtp.dll"
+            "libgstrtpmanager.dll"
+            "libgstplayback.dll"
+            "libgsttypefindfunctions.dll"
+            "libgstjpeg.dll"
+            "libgstjpegformat.dll"
+            "libgstlibav.dll"
             "libgstwinks.dll"
         )
 
@@ -677,6 +689,29 @@ if [ -n "$GST_ROOT" ]; then
             collect_recursive_deps_into "$DIST_WIN/bin" "${bin_dep_seeds[@]}"
         fi
 
+        GST_PLUGIN_SCANNER_SRC=""
+        for scanner in \
+            "$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner.exe" \
+            "$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner" \
+            "$GST_ROOT/bin/gst-plugin-scanner.exe" \
+            "$GST_ROOT/bin/gst-plugin-scanner"; do
+            if [ -f "$scanner" ]; then
+                GST_PLUGIN_SCANNER_SRC="$scanner"
+                break
+            fi
+        done
+
+        if [ -n "$GST_PLUGIN_SCANNER_SRC" ]; then
+            mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
+            cp -L "$GST_PLUGIN_SCANNER_SRC" "$DIST_WIN/libexec/gstreamer-1.0/"
+            echo -e "${GREEN}✓${NC} gst-plugin-scanner ($(basename "$GST_PLUGIN_SCANNER_SRC"))"
+        else
+            echo -e "${YELLOW}⚠${NC} gst-plugin-scanner не найден в $GST_ROOT"
+            echo "   Портативный пакет всё ещё может работать, но часть плагинов может не обнаруживаться без scanner."
+        fi
+
+        find "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
+        echo -e "${GREEN}✓${NC} gstreamer-plugins.txt"
         echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
     else
         if [ -d "$GST_ROOT/bin" ]; then
@@ -688,6 +723,12 @@ if [ -n "$GST_ROOT" ]; then
             mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
             cp -L "$GST_ROOT/lib/gstreamer-1.0"/*.dll "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
             echo -e "${GREEN}✓${NC} lib/gstreamer-1.0/*.dll"
+        fi
+
+        if [ -d "$GST_ROOT/libexec/gstreamer-1.0" ]; then
+            mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
+            cp -L "$GST_ROOT/libexec/gstreamer-1.0"/gst-plugin-scanner* "$DIST_WIN/libexec/gstreamer-1.0/" 2>/dev/null || true
+            echo -e "${GREEN}✓${NC} libexec/gstreamer-1.0/gst-plugin-scanner*"
         fi
     fi
 
