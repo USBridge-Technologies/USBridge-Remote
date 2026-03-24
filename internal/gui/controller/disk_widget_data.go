@@ -140,6 +140,11 @@ func (dw *DiskWidget) loadVideoDevices() {
 		devices, err := getAvailableVideoDevices(dw.usbClient)
 		if err != nil {
 			logrus.Debugf("video devices unavailable: %v", err)
+			dw.updateUIAsync(func() {
+				dw.videoDevices = nil
+				dw.combineDrives()
+				dw.devicesList.Refresh()
+			})
 			return
 		}
 

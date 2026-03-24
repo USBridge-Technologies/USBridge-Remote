@@ -154,6 +154,14 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 				Encoding:          "jpeg",
 				ServerDecodesJPEG: false,
 			},
+			{
+				ID:                models.VideoModeRawYUYV,
+				Name:              i18n.Current.VideoModeRawYUYVName,
+				Description:       i18n.Current.VideoModeRawYUYVDescription,
+				Transport:         "rtp",
+				Encoding:          "raw",
+				ServerDecodesJPEG: false,
+			},
 		}
 	}
 
@@ -189,8 +197,18 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 
 	resolutionOptions := make([]string, 0, len(vsd.captureModes))
 	defaultResolutionLabel := ""
+	hasMultipleFormats := false
+	formatsSeen := map[string]bool{}
+	for _, captureMode := range vsd.captureModes {
+		formatsSeen[captureMode.PixelFormat] = true
+	}
+	hasMultipleFormats = len(formatsSeen) > 1
+
 	for _, captureMode := range vsd.captureModes {
 		label := fmt.Sprintf("%dx%d", captureMode.Width, captureMode.Height)
+		if captureMode.PixelFormat != "" && (hasMultipleFormats || true) {
+			label = fmt.Sprintf("%s [%s]", label, captureMode.PixelFormat)
+		}
 		if len(captureMode.FPS) > 0 {
 			label = fmt.Sprintf("%s (%s)", label, formatFPSRange(captureMode.FPS))
 		}
@@ -326,11 +344,16 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 	}
 	vsd.modeDescription.SetText(description)
 
-	isJPEG := modeID == models.VideoModeJPEGRTP
-	if isJPEG {
+	switch modeID {
+	case models.VideoModeJPEGRTP:
 		vsd.bitrateBlock.Hide()
+		vsd.jpegHint.SetText(i18n.Current.VideoJPEGRTPHint)
 		vsd.jpegHint.Show()
-	} else {
+	case models.VideoModeRawYUYV:
+		vsd.bitrateBlock.Hide()
+		vsd.jpegHint.SetText(i18n.Current.VideoRawYUYVHint)
+		vsd.jpegHint.Show()
+	default:
 		vsd.bitrateBlock.Show()
 		vsd.jpegHint.Hide()
 	}

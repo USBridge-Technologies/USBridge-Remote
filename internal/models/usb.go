@@ -82,6 +82,7 @@ type VideoStatus struct {
 const (
 	VideoModeH264    = "h264"
 	VideoModeJPEGRTP = "jpeg_rtp"
+	VideoModeRawYUYV = "raw_yuyv"
 )
 
 type VideoTransportMode struct {
@@ -258,6 +259,8 @@ type VideoStartRequest struct {
 type SystemDevice struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
+	Bus         string `json:"bus,omitempty"`
+	Index       int    `json:"index,omitempty"`
 	Connected   bool   `json:"connected"`
 	Description string `json:"description"`
 }

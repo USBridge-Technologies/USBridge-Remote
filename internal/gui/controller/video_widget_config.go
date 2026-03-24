@@ -24,33 +24,6 @@ var (
 	videoInfoCachedErr  error
 )
 
-func isLikelyCaptureVideoDevice(device models.SystemDevice) bool {
-	if !strings.HasPrefix(device.Path, "/dev/video") {
-		return false
-	}
-
-	text := strings.ToLower(device.Name + " " + device.Description + " " + filepath.Base(device.Path))
-	rejectTokens := []string{
-		"codec", "enc", "dec", "m2m", "isp", "metadata", "radio", "vbi", "platform", "pcie",
-		"mem2mem", "subdev", "stateless", "hw interface", "output",
-	}
-	for _, token := range rejectTokens {
-		if strings.Contains(text, token) {
-			return false
-		}
-	}
-
-	acceptTokens := []string{"capture", "camera", "uvc", "webcam", "hdmi", "usb video", "video device"}
-	for _, token := range acceptTokens {
-		if strings.Contains(text, token) {
-			return true
-		}
-	}
-
-	// Если сервер не прислал понятное описание, оставляем обычный /dev/videoX как fallback.
-	return true
-}
-
 func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
 	if usbClient == nil {
 		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
@@ -107,36 +80,15 @@ func resetVideoInfoCache() {
 	videoInfoCachedErr = nil
 }
 
-func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, error) {
-	if usbClient == nil {
-		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
-	}
-
-	merged := make(map[string]models.SystemDevice)
-	var info *models.VideoInfoData
-	if currentInfo, err := getVideoInfoData(usbClient); err == nil && currentInfo != nil {
-		info = currentInfo
-		for _, device := range currentInfo.AvailableDevices {
-			if isLikelyCaptureVideoDevice(device) {
-				merged[device.Path] = normalizeCaptureVideoDevice(device)
-			}
+func normalizeCaptureVideoDevices(devices []models.SystemDevice) []models.SystemDevice {
+	merged := make(map[string]models.SystemDevice, len(devices))
+	for _, device := range devices {
+		path := strings.TrimSpace(device.Path)
+		if path == "" {
+			continue
 		}
-	} else if err != nil {
-		logrus.Debugf("video info unavailable while loading capture devices: %v", err)
-	}
-
-	if len(merged) == 0 && info != nil && strings.HasPrefix(info.Device, "/dev/video") {
-		current := normalizeCaptureVideoDevice(models.SystemDevice{
-			Path:        info.Device,
-			Name:        filepath.Base(info.Device),
-			Description: i18n.Current.CaptureDevice,
-			Connected:   info.Enabled || info.Streaming,
-		})
-		merged[current.Path] = current
-	}
-
-	if len(merged) == 0 {
-		return nil, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
+		device.Path = path
+		merged[path] = normalizeCaptureVideoDevice(device)
 	}
 
 	result := make([]models.SystemDevice, 0, len(merged))
@@ -146,6 +98,87 @@ func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Path < result[j].Path
 	})
+	return result
+}
+
+func mergeVideoDeviceSet(dst map[string]models.SystemDevice, devices []models.SystemDevice) {
+	for _, device := range devices {
+		path := strings.TrimSpace(device.Path)
+		if path == "" {
+			continue
+		}
+		device.Path = path
+		if existing, ok := dst[path]; ok {
+			if strings.TrimSpace(existing.Name) == "" {
+				existing.Name = device.Name
+			}
+			if strings.TrimSpace(existing.Description) == "" {
+				existing.Description = device.Description
+			}
+			existing.Connected = existing.Connected || device.Connected
+			dst[path] = normalizeCaptureVideoDevice(existing)
+			continue
+		}
+		dst[path] = normalizeCaptureVideoDevice(device)
+	}
+}
+
+func currentVideoInfoDevice(info *models.VideoInfoData) []models.SystemDevice {
+	if info == nil {
+		return nil
+	}
+	path := strings.TrimSpace(info.Device)
+	if !strings.HasPrefix(path, "/dev/video") {
+		return nil
+	}
+
+	return []models.SystemDevice{
+		{
+			Path:        path,
+			Name:        filepath.Base(path),
+			Description: i18n.Current.CaptureDevice,
+			Connected:   info.Enabled || info.Streaming,
+		},
+	}
+}
+
+func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, error) {
+	if usbClient == nil {
+		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
+	}
+
+	merged := make(map[string]models.SystemDevice)
+	var fetchErrs []string
+
+	devices, err := usbClient.GetVideoDevices()
+	if err != nil {
+		logrus.Debugf("video devices endpoint unavailable: %v", err)
+		fetchErrs = append(fetchErrs, err.Error())
+	} else {
+		mergeVideoDeviceSet(merged, devices)
+	}
+
+	currentInfo, infoErr := getVideoInfoData(usbClient)
+	if infoErr != nil {
+		logrus.Debugf("video info endpoint unavailable: %v", infoErr)
+		fetchErrs = append(fetchErrs, infoErr.Error())
+	} else {
+		mergeVideoDeviceSet(merged, currentVideoInfoDevice(currentInfo))
+	}
+
+	result := normalizeCaptureVideoDevices(func() []models.SystemDevice {
+		items := make([]models.SystemDevice, 0, len(merged))
+		for _, device := range merged {
+			items = append(items, device)
+		}
+		return items
+	}())
+	if len(result) == 0 {
+		if len(fetchErrs) > 0 {
+			return nil, fmt.Errorf(strings.Join(fetchErrs, "; "))
+		}
+		return nil, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
+	}
 	return result, nil
 }
 

@@ -36,6 +36,8 @@ type GStreamerService struct {
 	lastJPEGPipeline       string
 	failedJPEGPipelines    map[string]bool
 	missingJPEGElements    map[string]bool
+	expectedWidth          int
+	expectedHeight         int
 
 	// Состояние
 	isConnected    bool
@@ -184,6 +186,9 @@ func (gs *GStreamerService) createPipeline() error {
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.createJPEGPipeline(udpPort)
 	}
+	if gs.videoMode == models.VideoModeRawYUYV {
+		return gs.createRawYUYVPipeline(udpPort)
+	}
 
 	// Linux: пытаемся аппаратные декодеры сначала, затем программный fallback.
 	// Также даем варианты без h264parse, т.к. на некоторых дистрибутивах отсутствует gst-plugins-bad.
@@ -282,6 +287,46 @@ func (gs *GStreamerService) createPipeline() error {
 		lastErr = fmt.Errorf("не найдено подходящих элементов GStreamer")
 	}
 	return fmt.Errorf("ошибка создания pipeline: %v", lastErr)
+}
+
+func (gs *GStreamerService) createRawYUYVPipeline(udpPort int) error {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	width := gs.expectedWidth
+	height := gs.expectedHeight
+	if width <= 0 {
+		width = gs.config.VideoWidth
+	}
+	if height <= 0 {
+		height = gs.config.VideoHeight
+	}
+	if width <= 0 {
+		width = 1280
+	}
+	if height <= 0 {
+		height = 720
+	}
+	pipelineStr := fmt.Sprintf(
+		"udpsrc address=%s port=%d buffer-size=4194304 caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)RAW,sampling=(string)YCbCr-4:2:2,depth=(string)8,width=(string)%d,height=(string)%d,colorimetry=(string)BT601-5,payload=(int)96\" ! "+
+			"rtpjitterbuffer latency=5 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! videoconvert ! video/x-raw,format=RGBA ! "+
+			"appsink name=sink sync=false max-buffers=2 drop=true",
+		bindHost, udpPort, width, height, width, height,
+	)
+	pipeline, err := gst.NewPipelineFromString(pipelineStr)
+	if err != nil {
+		return fmt.Errorf("ошибка создания RAW YUYV pipeline: %v", err)
+	}
+	gs.pipeline = pipeline
+	if err := gs.attachAppsink(); err != nil {
+		gs.pipeline.SetState(gst.StateNull)
+		gs.pipeline = nil
+		return fmt.Errorf("ошибка подключения appsink для RAW YUYV: %v", err)
+	}
+	logrus.Infof("✅ [Linux/RAW] GStreamer pipeline создан: %s", pipelineStr)
+	return nil
 }
 
 func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
@@ -961,8 +1006,10 @@ func (gs *GStreamerService) SetVideoMode(mode string) {
 }
 
 func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
-	_ = width
-	_ = height
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	gs.expectedWidth = width
+	gs.expectedHeight = height
 }
 
 // GetConfig возвращает конфигурацию

@@ -213,29 +213,32 @@ type LocalizedStrings struct {
 	BitrateRange         string
 
 	// Video Start Dialog
-	VideoParameters          string
-	Resolution               string
-	FrameRate                string
-	StreamMode               string
-	StartVideo               string
-	Starting                 string
-	SwitchingDevice          string
-	ConnectingRTP            string
-	VideoLaunchFailed        string
-	CancelVideoStart         string
-	CaptureDevice            string
-	VideoDevicesNotFound     string
-	VideoDeviceEmpty         string
-	VideoDeviceSelected      string
-	VideoDeviceUnavailable   string
-	VideoDeviceCurrent       string
-	SettingsAction           string
-	FullscreenAction         string
-	VideoJPEGRTPHint         string
-	VideoModeH264Name        string
-	VideoModeH264Description string
-	VideoModeJPEGName        string
-	VideoModeJPEGDescription string
+	VideoParameters             string
+	Resolution                  string
+	FrameRate                   string
+	StreamMode                  string
+	StartVideo                  string
+	Starting                    string
+	SwitchingDevice             string
+	ConnectingRTP               string
+	VideoLaunchFailed           string
+	CancelVideoStart            string
+	CaptureDevice               string
+	VideoDevicesNotFound        string
+	VideoDeviceEmpty            string
+	VideoDeviceSelected         string
+	VideoDeviceUnavailable      string
+	VideoDeviceCurrent          string
+	SettingsAction              string
+	FullscreenAction            string
+	VideoJPEGRTPHint            string
+	VideoRawYUYVHint            string
+	VideoModeH264Name           string
+	VideoModeH264Description    string
+	VideoModeJPEGName           string
+	VideoModeJPEGDescription    string
+	VideoModeRawYUYVName        string
+	VideoModeRawYUYVDescription string
 
 	// GStreamer Status
 	GStreamerConnected    string
@@ -532,29 +535,32 @@ func EN() *LocalizedStrings {
 		BitrateRange:         "bitrate must be from 100 to 10000 kbps",
 
 		// Video Start Dialog
-		VideoParameters:          "Video Parameters",
-		Resolution:               "Resolution",
-		FrameRate:                "Frame Rate",
-		StreamMode:               "Streaming Mode",
-		StartVideo:               "Start",
-		Starting:                 "Starting...",
-		SwitchingDevice:          "Switching device...",
-		ConnectingRTP:            "Connecting to RTP/UDP (%d/%d)...",
-		VideoLaunchFailed:        "Failed to connect after %d attempts",
-		CancelVideoStart:         "Cancel video start",
-		CaptureDevice:            "Capture device",
-		VideoDevicesNotFound:     "Capture video devices not found",
-		VideoDeviceEmpty:         "Video device is empty",
-		VideoDeviceSelected:      "Selected",
-		VideoDeviceUnavailable:   "Unavailable",
-		VideoDeviceCurrent:       "Current",
-		SettingsAction:           "Settings",
-		FullscreenAction:         "Fullscreen",
-		VideoJPEGRTPHint:         "JPEG RTP: server-side decode is disabled, latency is minimal, bitrate is controlled by the capture device.",
-		VideoModeH264Name:        "H.264",
-		VideoModeH264Description: "The server decodes MJPEG and re-encodes it to H.264. Compatible mode.",
-		VideoModeJPEGName:        "JPEG RTP",
-		VideoModeJPEGDescription: "The server forwards RTP/JPEG without decode for minimal latency.",
+		VideoParameters:             "Video Parameters",
+		Resolution:                  "Resolution",
+		FrameRate:                   "Frame Rate",
+		StreamMode:                  "Streaming Mode",
+		StartVideo:                  "Start",
+		Starting:                    "Starting...",
+		SwitchingDevice:             "Switching device...",
+		ConnectingRTP:               "Connecting to RTP/UDP (%d/%d)...",
+		VideoLaunchFailed:           "Failed to connect after %d attempts",
+		CancelVideoStart:            "Cancel video start",
+		CaptureDevice:               "Capture device",
+		VideoDevicesNotFound:        "Capture video devices not found",
+		VideoDeviceEmpty:            "Video device is empty",
+		VideoDeviceSelected:         "Selected",
+		VideoDeviceUnavailable:      "Unavailable",
+		VideoDeviceCurrent:          "Current",
+		SettingsAction:              "Settings",
+		FullscreenAction:            "Fullscreen",
+		VideoJPEGRTPHint:            "JPEG RTP: for MJPEG sources the server forwards JPEG directly; for YUYV sources it encodes JPEG before sending.",
+		VideoRawYUYVHint:            "RAW YUYV: uncompressed video over RTP. Very high bandwidth, use only on fast local links.",
+		VideoModeH264Name:           "H.264",
+		VideoModeH264Description:    "Capture -> H.264 encode -> RTP/UDP. Best compatibility and bandwidth.",
+		VideoModeJPEGName:           "JPEG RTP",
+		VideoModeJPEGDescription:    "JPEG over RTP. Direct passthrough for MJPEG sources, server-side JPEG encode for YUYV sources.",
+		VideoModeRawYUYVName:        "RAW YUYV",
+		VideoModeRawYUYVDescription: "Uncompressed YUYV over RTP with direct client rendering. Highest bandwidth, lowest processing.",
 
 		// GStreamer Status
 		GStreamerConnected:    "GStreamer RTP/UDP connection established",

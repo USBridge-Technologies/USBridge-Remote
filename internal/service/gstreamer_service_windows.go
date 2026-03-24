@@ -247,11 +247,13 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 		bindHost = "127.0.0.1"
 	}
 	pipelines := []struct {
-		name string
-		str  string
+		name            string
+		requiredElement string
+		str             string
 	}{
 		{
-			name: "qsvjpegdec (HW)",
+			name:            "qsvjpegdec (HW Intel)",
+			requiredElement: "qsvjpegdec",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -261,7 +263,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "nvjpegdec (HW)",
+			name:            "nvjpegdec (HW NVIDIA)",
+			requiredElement: "nvjpegdec",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -271,7 +274,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "wicjpegdec",
+			name:            "wicjpegdec (HW/OS)",
+			requiredElement: "wicjpegdec",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -281,7 +285,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "msdkmjpegdec (legacy HW)",
+			name:            "msdkmjpegdec (legacy HW Intel)",
+			requiredElement: "msdkmjpegdec",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -291,7 +296,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "jpegdec (SW preferred)",
+			name:            "jpegdec (SW preferred)",
+			requiredElement: "jpegdec",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -301,7 +307,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "avdec_mjpeg",
+			name:            "avdec_mjpeg (SW libav)",
+			requiredElement: "avdec_mjpeg",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -311,7 +318,8 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "decodebin",
+			name:            "decodebin",
+			requiredElement: "decodebin",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
@@ -322,10 +330,27 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 		},
 	}
 
+	availableJPEGElements := []string{"qsvjpegdec", "nvjpegdec", "wicjpegdec", "msdkmjpegdec", "jpegdec", "avdec_mjpeg", "decodebin"}
+	var detected []string
+	for _, element := range availableJPEGElements {
+		if gst.Find(element) != nil {
+			detected = append(detected, element)
+		}
+	}
+	if len(detected) > 0 {
+		logrus.Infof("🔎 [Windows/JPEG] available decoders/elements: %s", strings.Join(detected, ", "))
+	} else {
+		logrus.Warn("⚠️ [Windows/JPEG] no JPEG decoders detected in current GStreamer runtime")
+	}
+
 	var lastErr error
 	for idx := range pipelines {
 		candidateIdx := (gs.jpegCandidateIndex + idx) % len(pipelines)
 		candidate := pipelines[candidateIdx]
+		if candidate.requiredElement != "" && gst.Find(candidate.requiredElement) == nil {
+			logrus.Infof("ℹ️ [Windows/JPEG] пропускаем %s: element %q не установлен в текущем runtime", candidate.name, candidate.requiredElement)
+			continue
+		}
 		pipeline, err := gst.NewPipelineFromString(candidate.str)
 		if err != nil {
 			lastErr = err
