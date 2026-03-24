@@ -10,6 +10,7 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
 	"github.com/sirupsen/logrus"
 )
 
@@ -363,6 +364,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
+		dialog.ShowError(fmt.Errorf("%s: %w", message, err), mw.window)
 	})
 }
 

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build USBridgeClient for macOS: binary + bundled libraries
-# Requirements: Go, Homebrew GStreamer (brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad)
+# Build USBridgeClient for macOS as a native .app bundle
+# Requirements: Go, Homebrew GStreamer
 
 set -e
 
@@ -26,14 +26,66 @@ if [ -d "$DIST_OS" ] && [ ! -w "$DIST_OS" ]; then
     echo "   sudo chown -R \"$USER\":\"$USER\" \"$DIST_OS\""
     exit 1
 fi
-DIST_DIR="$DIST_OS/$OUTPUT_NAME"
-BINARY_NAME="${OUTPUT_NAME}.bin"
+DIST_DIR="$DIST_OS"
+APP_BUNDLE_NAME="${OUTPUT_NAME}.app"
+APP_CONTENTS_DIR="$DIST_DIR/$APP_BUNDLE_NAME/Contents"
+APP_MACOS_DIR="$APP_CONTENTS_DIR/MacOS"
+APP_RESOURCES_DIR="$APP_CONTENTS_DIR/Resources"
+BINARY_NAME="$OUTPUT_NAME"
+HELPER_NAME="USBridgeWireGuardHelper"
 
 # Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+has_rpath() {
+    local binary="$1"
+    local rpath="$2"
+    otool -l "$binary" 2>/dev/null | grep -Fq "path $rpath "
+}
+
+ensure_rpath() {
+    local binary="$1"
+    local rpath="$2"
+
+    if ! command -v install_name_tool >/dev/null 2>&1; then
+        return
+    fi
+
+    if has_rpath "$binary" "$rpath"; then
+        return
+    fi
+
+    install_name_tool -add_rpath "$rpath" "$binary"
+}
+
+create_app_icon() {
+    local icon_png="$1"
+    local icon_icns="$2"
+    local iconset_dir
+
+    if ! command -v sips >/dev/null 2>&1 || ! command -v iconutil >/dev/null 2>&1; then
+        return
+    fi
+
+    iconset_dir="$(mktemp -d)/AppIcon.iconset"
+    mkdir -p "$iconset_dir"
+    sips -z 16 16 "$icon_png" --out "$iconset_dir/icon_16x16.png" >/dev/null 2>&1
+    sips -z 32 32 "$icon_png" --out "$iconset_dir/icon_16x16@2x.png" >/dev/null 2>&1
+    sips -z 32 32 "$icon_png" --out "$iconset_dir/icon_32x32.png" >/dev/null 2>&1
+    sips -z 64 64 "$icon_png" --out "$iconset_dir/icon_32x32@2x.png" >/dev/null 2>&1
+    sips -z 128 128 "$icon_png" --out "$iconset_dir/icon_128x128.png" >/dev/null 2>&1
+    sips -z 256 256 "$icon_png" --out "$iconset_dir/icon_128x128@2x.png" >/dev/null 2>&1
+    sips -z 256 256 "$icon_png" --out "$iconset_dir/icon_256x256.png" >/dev/null 2>&1
+    sips -z 512 512 "$icon_png" --out "$iconset_dir/icon_256x256@2x.png" >/dev/null 2>&1
+    sips -z 512 512 "$icon_png" --out "$iconset_dir/icon_512x512.png" >/dev/null 2>&1
+    sips -z 1024 1024 "$icon_png" --out "$iconset_dir/icon_512x512@2x.png" >/dev/null 2>&1
+
+    iconutil -c icns "$iconset_dir" -o "$icon_icns" >/dev/null 2>&1 || true
+    rm -rf "$(dirname "$iconset_dir")"
+}
 
 echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
@@ -54,8 +106,12 @@ if [ -z "$GST_LAUNCH" ]; then
 fi
 echo -e "   gst-launch: $GST_LAUNCH"
 
-# 2. Сборка бинарника
-echo -e "\n${YELLOW}🔨 Компиляция...${NC}"
+# 2. Сборка .app bundle
+echo -e "\n${YELLOW}🔨 Компиляция .app...${NC}"
+# Убираем артефакты от старых/прерванных fyne package запусков.
+rm -f "$REPO_ROOT/cmd/fyne_metadata_init.go"
+rm -rf "$REPO_ROOT/cmd/$APP_BUNDLE_NAME"
+
 # Исправление линковки: pkg-config может возвращать устаревший путь (1.26.10),
 # а GStreamer обновлён (1.28.x). Добавляем -L/opt/homebrew/lib для поиска libs.
 HOMEBREW_PREFIX="/opt/homebrew"
@@ -65,59 +121,90 @@ export CGO_LDFLAGS="-L${HOMEBREW_PREFIX}/lib ${CGO_LDFLAGS:-}"
 export CGO_CPPFLAGS="-I${HOMEBREW_PREFIX}/include ${CGO_CPPFLAGS:-}"
 # Подавить предупреждение format-security из зависимости go-gst (gst_debug.go)
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
-go build -ldflags="-s -w" -o "$BINARY_NAME" ./cmd/main.go
-echo -e "${GREEN}   ✅ Бинарник: $BINARY_NAME${NC}"
-
-# 3. Создание dist с бандлом
-echo -e "\n${YELLOW}📁 Создание бандла...${NC}"
 rm -rf "$DIST_DIR"
-mkdir -p "$DIST_DIR"
+mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR"
+APP_BINARY_PATH="$APP_MACOS_DIR/$BINARY_NAME"
+go build -ldflags="-s -w" -o "$APP_BINARY_PATH" ./cmd
+HELPER_TMP="$(mktemp "/tmp/${HELPER_NAME}.XXXXXX")"
+go build -ldflags="-s -w" -o "$HELPER_TMP" ./cmd/wghelper
+cp "$HELPER_TMP" "$APP_RESOURCES_DIR/$HELPER_NAME"
+rm -f "$HELPER_TMP"
 
-# Копируем бинарник
-cp "$BINARY_NAME" "$DIST_DIR/"
-chmod +x "$DIST_DIR/$BINARY_NAME"
+# Добавляем стабильные rpath к Homebrew lib, чтобы .app запускался напрямую из Finder.
+ensure_rpath "$APP_BINARY_PATH" "/opt/homebrew/lib"
+ensure_rpath "$APP_BINARY_PATH" "/usr/local/lib"
+chmod +x "$APP_RESOURCES_DIR/$HELPER_NAME"
 
-# Копируем config если есть
-[ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
+chmod +x "$APP_BINARY_PATH"
 
-# 4. Создаём run-скрипт с правильным окружением
-cat > "$DIST_DIR/run.sh" << 'RUNSCRIPT'
-#!/bin/bash
-# Запуск с окружением для GStreamer
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$DIR"
+cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>USBridgeClient</string>
+    <key>CFBundleExecutable</key>
+    <string>USBridgeClient</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.usbridge.client</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>USBridgeClient</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.15</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+PLIST
 
-# Добавляем Homebrew в PATH для gst-launch
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-
-# Библиотеки GStreamer (бинарник линкуется на Homebrew libs)
-if [ -d "/opt/homebrew/lib" ]; then
-    export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-elif [ -d "/usr/local/lib" ]; then
-    export DYLD_FALLBACK_LIBRARY_PATH="/usr/local/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+if [ -f "$REPO_ROOT/Icon.png" ]; then
+    create_app_icon "$REPO_ROOT/Icon.png" "$APP_RESOURCES_DIR/AppIcon.icns"
+    if [ -f "$APP_RESOURCES_DIR/AppIcon.icns" ]; then
+        /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP_CONTENTS_DIR/Info.plist" >/dev/null 2>&1 || true
+    fi
 fi
 
-exec "./USBridgeClient.bin" "$@"
-RUNSCRIPT
-chmod +x "$DIST_DIR/run.sh"
+if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$DIST_DIR/$APP_BUNDLE_NAME" >/dev/null 2>&1 || true
+fi
+touch "$DIST_DIR/$APP_BUNDLE_NAME"
 
-# 5. Создаём README для dist
+echo -e "${GREEN}   ✅ App bundle: $DIST_DIR/$APP_BUNDLE_NAME${NC}"
+
+# 3. Подготовка dist
+echo -e "\n${YELLOW}📁 Подготовка dist...${NC}"
+
+# Копируем config если есть рядом с .app
+[ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
+
+# 4. Создаём README для dist
 cat > "$DIST_DIR/README.txt" << 'README'
 USBridgeClient for macOS
 =========================
 
 Run:
-  ./run.sh         - via wrapper script (recommended)
-  ./USBridgeClient.bin - directly (if GStreamer is in PATH)
+  Open USBridgeClient.app
 
 Requirements:
   - GStreamer: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
   - macOS 10.15+
 
-Configuration: config.yaml (in this folder or ~/.config/usbridge-client/)
+Configuration:
+  config.yaml next to the .app, or ~/.config/usbridge-client/
 README
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
-echo -e "   Результат: $DIST_DIR/"
-echo -e "   Запуск:    cd $DIST_DIR && ./run.sh"
+echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
+echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
 echo ""

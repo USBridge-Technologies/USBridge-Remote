@@ -1,4 +1,4 @@
-//go:build windows || darwin || android
+//go:build windows || android
 
 package service
 
