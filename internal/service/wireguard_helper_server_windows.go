@@ -355,6 +355,7 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 	if payload == nil || payload.Bootstrap == nil {
 		return nil, fmt.Errorf("missing WireGuard helper payload")
 	}
+	logrus.Infof("🔐 [WireGuard helper] STEP 1: received up request")
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -372,6 +373,7 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 	}
 	ifaceName := userspaceDefaultInterfaceName(firstNonEmpty(payload.IfaceName, payload.Bootstrap.InterfaceName))
 	routeTargets := normalizeAllowedRoutes(payload.Bootstrap)
+	logrus.Infof("🔐 [WireGuard helper] STEP 2: creating TUN iface=%s mtu=%d", ifaceName, mtu)
 
 	tunDevice, err := wgtun.CreateTUN(ifaceName, mtu)
 	if err != nil {
@@ -381,6 +383,7 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 	if err == nil && strings.TrimSpace(realIfaceName) != "" {
 		ifaceName = realIfaceName
 	}
+	logrus.Infof("🔐 [WireGuard helper] STEP 3: TUN ready iface=%s", ifaceName)
 
 	bind := conn.NewDefaultBind()
 	logger := &wgdevice.Logger{
@@ -406,12 +409,14 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 		bind.Close()
 		return nil, fmt.Errorf("failed to configure userspace WireGuard device: %w", err)
 	}
+	logrus.Infof("🔐 [WireGuard helper] STEP 4: IPC config applied iface=%s", ifaceName)
 	if err := device.Up(); err != nil {
 		device.Close()
 		tunDevice.Close()
 		bind.Close()
 		return nil, fmt.Errorf("failed to start userspace WireGuard device: %w", err)
 	}
+	logrus.Infof("🔐 [WireGuard helper] STEP 5: device up iface=%s", ifaceName)
 
 	worker := &userspaceWireGuardService{ifaceName: ifaceName, routeTargets: routeTargets}
 	if err := worker.configureInterface(payload.Bootstrap, mtu, routeTargets); err != nil {
@@ -420,6 +425,7 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 		bind.Close()
 		return nil, err
 	}
+	logrus.Infof("🔐 [WireGuard helper] STEP 6: interface configured iface=%s", ifaceName)
 
 	s.tunDevice = tunDevice
 	s.bind = bind

@@ -40,7 +40,11 @@ func (c *windowsWireGuardHelperClient) call(request windowsWireGuardHelperReques
 	}
 	defer conn.Close()
 
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	deadline := time.Now().Add(5 * time.Second)
+	if request.Command == "up" {
+		deadline = time.Now().Add(90 * time.Second)
+	}
+	_ = conn.SetDeadline(deadline)
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		return nil, fmt.Errorf("failed to send request to WireGuard helper: %w", err)
 	}
