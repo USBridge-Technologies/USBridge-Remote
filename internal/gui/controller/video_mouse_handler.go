@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"image/color"
 	"math"
 	"time"
 
@@ -31,6 +32,8 @@ type TouchpadWrapper struct {
 	videoWidget *VideoWidget
 	image       *canvas.Image
 	clip        *container.Clip
+	hScrollBar  *canvas.Rectangle
+	vScrollBar  *canvas.Rectangle
 
 	// Обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey может не работать)
 	window      fyne.Window
@@ -43,10 +46,14 @@ func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
 		image:       videoWidget.videoCanvas,
+		hScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
+		vScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 	}
 	if wrapper.image != nil {
 		wrapper.clip = container.NewClip(wrapper.image)
 	}
+	wrapper.hScrollBar.Hide()
+	wrapper.vScrollBar.Hide()
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
@@ -56,10 +63,14 @@ func NewTouchpadWrapperWithImage(videoWidget *VideoWidget, image *canvas.Image) 
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
 		image:       image,
+		hScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
+		vScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 	}
 	if wrapper.image != nil {
 		wrapper.clip = container.NewClip(wrapper.image)
 	}
+	wrapper.hScrollBar.Hide()
+	wrapper.vScrollBar.Hide()
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
@@ -128,9 +139,9 @@ func (r *touchpadRenderer) Refresh() {
 
 func (r *touchpadRenderer) Objects() []fyne.CanvasObject {
 	if r.wrapper.clip == nil {
-		return nil
+		return []fyne.CanvasObject{r.wrapper.hScrollBar, r.wrapper.vScrollBar}
 	}
-	return []fyne.CanvasObject{r.wrapper.clip}
+	return []fyne.CanvasObject{r.wrapper.clip, r.wrapper.hScrollBar, r.wrapper.vScrollBar}
 }
 
 func (r *touchpadRenderer) Destroy() {
@@ -152,6 +163,146 @@ func (t *TouchpadWrapper) wrapperLayoutImage(size fyne.Size) {
 	x, y, w, h := t.videoWidget.GetViewportRect()
 	t.image.Move(fyne.NewPos(x, y))
 	t.image.Resize(fyne.NewSize(w, h))
+	t.updateScrollIndicators(size, x, y, w, h)
+}
+
+func (t *TouchpadWrapper) updateScrollIndicators(size fyne.Size, x, y, w, h float32) {
+	if t.hScrollBar == nil || t.vScrollBar == nil {
+		return
+	}
+
+	const thickness = float32(3)
+	const margin = float32(6)
+	const minThumb = float32(28)
+
+	if w > size.Width {
+		thumbW := clampFloat((size.Width/w)*size.Width, minThumb, size.Width-(margin*2))
+		progress := clampFloat(-x/(w-size.Width), 0, 1)
+		trackW := size.Width - (margin * 2) - thumbW
+		t.hScrollBar.Show()
+		t.hScrollBar.Move(fyne.NewPos(margin+(trackW*progress), size.Height-margin-thickness))
+		t.hScrollBar.Resize(fyne.NewSize(thumbW, thickness))
+	} else {
+		t.hScrollBar.Hide()
+	}
+
+	if h > size.Height {
+		thumbH := clampFloat((size.Height/h)*size.Height, minThumb, size.Height-(margin*2))
+		progress := clampFloat(-y/(h-size.Height), 0, 1)
+		trackH := size.Height - (margin * 2) - thumbH
+		t.vScrollBar.Show()
+		t.vScrollBar.Move(fyne.NewPos(size.Width-margin-thickness, margin+(trackH*progress)))
+		t.vScrollBar.Resize(fyne.NewSize(thickness, thumbH))
+	} else {
+		t.vScrollBar.Hide()
+	}
+}
+
+func (t *TouchpadWrapper) beginScrollbarDrag(pos fyne.Position) bool {
+	axis := t.scrollbarAxisAt(pos)
+	if axis == "" {
+		return false
+	}
+	t.videoWidget.scrollDragAxis = axis
+	t.videoWidget.scrollDragLastX = pos.X
+	t.videoWidget.scrollDragLastY = pos.Y
+	return true
+}
+
+func (t *TouchpadWrapper) updateScrollbarDrag(pos fyne.Position) bool {
+	switch t.videoWidget.scrollDragAxis {
+	case "horizontal":
+		dx := pos.X - t.videoWidget.scrollDragLastX
+		t.videoWidget.scrollDragLastX = pos.X
+		t.videoWidget.scrollDragLastY = pos.Y
+		t.applyScrollbarDelta("horizontal", dx)
+		return true
+	case "vertical":
+		dy := pos.Y - t.videoWidget.scrollDragLastY
+		t.videoWidget.scrollDragLastX = pos.X
+		t.videoWidget.scrollDragLastY = pos.Y
+		t.applyScrollbarDelta("vertical", dy)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *TouchpadWrapper) endScrollbarDrag() bool {
+	if t.videoWidget.scrollDragAxis == "" {
+		return false
+	}
+	t.videoWidget.scrollDragAxis = ""
+	return true
+}
+
+func (t *TouchpadWrapper) applyScrollbarDelta(axis string, delta float32) {
+	size := t.Size()
+	if size.Width <= 0 || size.Height <= 0 {
+		return
+	}
+	_, _, w, h := t.videoWidget.GetViewportRect()
+	switch axis {
+	case "horizontal":
+		if w <= size.Width {
+			return
+		}
+		scrollRange := w - size.Width
+		trackRange := size.Width - clampFloat((size.Width/w)*size.Width, 28, size.Width-12)
+		if trackRange <= 0 {
+			return
+		}
+		viewportDelta := (delta / trackRange) * scrollRange
+		t.videoWidget.panOffsetX -= viewportDelta
+	case "vertical":
+		if h <= size.Height {
+			return
+		}
+		scrollRange := h - size.Height
+		trackRange := size.Height - clampFloat((size.Height/h)*size.Height, 28, size.Height-12)
+		if trackRange <= 0 {
+			return
+		}
+		viewportDelta := (delta / trackRange) * scrollRange
+		t.videoWidget.panOffsetY -= viewportDelta
+	default:
+		return
+	}
+	t.videoWidget.recalculateViewport()
+	t.Refresh()
+}
+
+func (t *TouchpadWrapper) scrollbarAxisAt(pos fyne.Position) string {
+	size := t.Size()
+	if size.Width <= 0 || size.Height <= 0 {
+		return ""
+	}
+	x, y, w, h := t.videoWidget.GetViewportRect()
+	const touchBand = float32(22)
+	const margin = float32(6)
+	const minThumb = float32(28)
+
+	if w > size.Width {
+		thumbW := clampFloat((size.Width/w)*size.Width, minThumb, size.Width-(margin*2))
+		progress := clampFloat(-x/(w-size.Width), 0, 1)
+		trackW := size.Width - (margin * 2) - thumbW
+		thumbX := margin + (trackW * progress)
+		if pos.Y >= size.Height-touchBand && pos.X >= thumbX-touchBand/2 && pos.X <= thumbX+thumbW+touchBand/2 {
+			return "horizontal"
+		}
+	}
+
+	if h > size.Height {
+		thumbH := clampFloat((size.Height/h)*size.Height, minThumb, size.Height-(margin*2))
+		progress := clampFloat(-y/(h-size.Height), 0, 1)
+		trackH := size.Height - (margin * 2) - thumbH
+		thumbY := margin + (trackH * progress)
+		if pos.X >= size.Width-touchBand && pos.Y >= thumbY-touchBand/2 && pos.Y <= thumbY+thumbH+touchBand/2 {
+			return "vertical"
+		}
+	}
+
+	return ""
 }
 
 // Tapped вызывается при полном клике (нажали и отпустили на виджете). В Fyne MouseUp приходит виджету под курсором при отпускании,
@@ -491,6 +642,9 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	if t.beginScrollbarDrag(ev.Position) {
+		return
+	}
 	t.videoWidget.touchStartX = ev.Position.X
 	t.videoWidget.touchStartY = ev.Position.Y
 	t.videoWidget.touchStartTime = time.Now()
@@ -527,6 +681,9 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	if t.endScrollbarDrag() {
+		return
+	}
 	dx := math.Abs(float64(ev.Position.X - t.videoWidget.touchStartX))
 	dy := math.Abs(float64(ev.Position.Y - t.videoWidget.touchStartY))
 	duration := time.Since(t.videoWidget.touchStartTime)
@@ -588,6 +745,9 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	if t.updateScrollbarDrag(ev.Position) {
+		return
+	}
 
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		if t.videoWidget.touchActive {
@@ -635,6 +795,7 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 
 // TouchCancel обрабатывает отмену касания (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
+	t.endScrollbarDrag()
 	t.videoWidget.isDragging = false
 	t.videoWidget.resetRelativeMoveAccumulator()
 }
@@ -651,6 +812,9 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	if t.updateScrollbarDrag(ev.Position) {
+		return
+	}
 
 	isAndroid := fyne.CurrentDevice().IsMobile()
 
@@ -704,6 +868,9 @@ func (t *TouchpadWrapper) DragEnd() {
 	isAndroid := fyne.CurrentDevice().IsMobile()
 
 	if isAndroid {
+		if t.endScrollbarDrag() {
+			return
+		}
 		logrus.Infof("🖱️ [DRAGGED] Android: DragEnd called, isDragging=%v", t.videoWidget.isDragging)
 		// На Android завершаем свайп
 		if t.videoWidget.isDragging {

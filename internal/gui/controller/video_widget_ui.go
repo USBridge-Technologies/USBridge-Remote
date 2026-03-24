@@ -280,14 +280,19 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		})
 	}
 	if !mouseConnected {
+		preferredMouseType := "absolute"
+		if fyne.CurrentDevice().IsMobile() {
+			preferredMouseType = "mouse"
+		}
 		requests = append(requests, models.DeviceStartRequest{
 			Device:       "mouse",
-			Type:         vw.GetMouseInputMode(),
+			Type:         preferredMouseType,
 			VendorID:     "0x1d6b",
 			ProductID:    "0x0104",
 			ProductName:  "USBridge Mouse",
 			Manufacturer: "USBridge",
 		})
+		logrus.Infof("⌨️🖱️ Control HID auto-connect: preferring mouse type %q on this platform", preferredMouseType)
 	}
 
 	if len(requests) == 0 {

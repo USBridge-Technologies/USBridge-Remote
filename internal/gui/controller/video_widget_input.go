@@ -461,6 +461,9 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	if nextZoom < 1 {
 		nextZoom = 1
 	}
+	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < 0.02 {
+		scaleFactor = 1
+	}
 	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
 		nextZoom *= scaleFactor
 	}
@@ -469,8 +472,8 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	vw.recalculateViewport()
 
 	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
-		localFocusX := focusX
-		localFocusY := focusY
+		localFocusX := clampFloat(focusX, 0, vw.touchpadSizeW)
+		localFocusY := clampFloat(focusY, 0, vw.touchpadSizeH)
 		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
 		v := clampFloat((localFocusY-oldY)/oldH, 0, 1)
 
