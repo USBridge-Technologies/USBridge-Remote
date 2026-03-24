@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,8 @@ type GStreamerService struct {
 	// GStreamer pipeline
 	pipeline *gst.Pipeline
 	appsink  *app.Sink
+	jpegCandidateIndex int
+	lastJPEGPipeline   string
 
 	// Состояние
 	isConnected    bool
@@ -288,16 +291,18 @@ func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
 		name string
 		str  string
 	}{
-		{name: "jpegdec (SW preferred)", str: base + "jpegdec ! " + decoderPath},
-		{name: "avdec_mjpeg (SW fallback)", str: base + "jpegparse ! avdec_mjpeg ! " + decoderPath},
-		{name: "decodebin (generic fallback)", str: base + "jpegparse ! decodebin ! " + decoderPath},
 		{name: "vajpegdec (HW)", str: base + "jpegparse ! vajpegdec ! " + decoderPath},
 		{name: "qsvjpegdec (HW)", str: base + "jpegparse ! qsvjpegdec ! " + decoderPath},
 		{name: "nvjpegdec (HW)", str: base + "jpegparse ! nvjpegdec ! " + decoderPath},
+		{name: "jpegdec (SW preferred)", str: base + "jpegdec ! " + decoderPath},
+		{name: "avdec_mjpeg (SW fallback)", str: base + "jpegparse ! avdec_mjpeg ! " + decoderPath},
+		{name: "decodebin (generic fallback)", str: base + "jpegparse ! decodebin ! " + decoderPath},
 	}
 
 	var lastErr error
-	for idx, candidate := range pipelines {
+	for idx := range pipelines {
+		candidateIdx := (gs.jpegCandidateIndex + idx) % len(pipelines)
+		candidate := pipelines[candidateIdx]
 		logrus.Infof("🔄 [Linux/JPEG] Pipeline попытка %d/%d: %s", idx+1, len(pipelines), candidate.name)
 		logrus.Infof("🔧 [Linux/JPEG] GStreamer pipeline: %s", candidate.str)
 
@@ -317,6 +322,7 @@ func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
 			continue
 		}
 
+		gs.lastJPEGPipeline = candidate.name
 		logrus.Infof("✅ [Linux/JPEG] GStreamer pipeline создан: %s", candidate.name)
 		return nil
 	}
@@ -592,6 +598,12 @@ func (gs *GStreamerService) monitorPipeline() {
 		case gst.MessageError:
 			err := msg.ParseError()
 			logrus.Errorf("❌ GStreamer ошибка: %v", err)
+			gs.mutex.Lock()
+			if gs.videoMode == models.VideoModeJPEGRTP && strings.Contains(fmt.Sprint(err), "Internal data stream error") {
+				gs.jpegCandidateIndex++
+				logrus.Warnf("⚠️ [Linux/JPEG] Decoder %s failed at runtime, switching to next JPEG candidate (index=%d)", gs.lastJPEGPipeline, gs.jpegCandidateIndex)
+			}
+			gs.mutex.Unlock()
 			gs.mutex.RLock()
 			errCallback := gs.onError
 			gs.mutex.RUnlock()
@@ -812,6 +824,17 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 	logrus.Infof("⏳ Задержка перед переподключением: %v", delay)
 	time.Sleep(delay)
+
+	gs.mutex.RLock()
+	abortReconnect := !gs.autoReconnect || gs.manualDisconnect
+	gs.mutex.RUnlock()
+	if abortReconnect {
+		logrus.Info("🛑 Переподключение отменено до нового ConnectToRTP")
+		gs.mutex.Lock()
+		gs.isReconnecting = false
+		gs.mutex.Unlock()
+		return
+	}
 
 	if err := gs.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ Ошибка переподключения GStreamer #%d: %v", attempt, err)

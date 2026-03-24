@@ -94,6 +94,10 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	// Если видео уже запущено, значит это переключение устройства - переподключаемся
 	wasStreaming := vw.isStreaming
+	if vw.gstreamerService != nil {
+		// Гасим старый reconnect-loop до нового ручного старта.
+		vw.gstreamerService.SetAutoReconnect(false)
+	}
 	if wasStreaming && vw.gstreamerService != nil {
 		logrus.Info("🔄 Видео уже запущено - переключение устройства...")
 		fyne.Do(func() {
@@ -107,6 +111,12 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 		// Небольшая задержка для корректного отключения
 		time.Sleep(300 * time.Millisecond)
+	}
+	if !wasStreaming && vw.gstreamerService != nil {
+		if err := vw.gstreamerService.Disconnect(); err != nil {
+			logrus.Warnf("⚠️ Ошибка отключения старого/зависшего потока перед новым стартом: %v", err)
+		}
+		time.Sleep(150 * time.Millisecond)
 	}
 
 	// Сбрасываем reconnect счетчик и включаем autoReconnect при новом запуске

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,8 @@ type GStreamerService struct {
 	// GStreamer pipeline
 	pipeline *gst.Pipeline
 	appsink  *app.Sink
+	jpegCandidateIndex int
+	lastJPEGPipeline   string
 
 	// Состояние
 	isConnected    bool
@@ -243,6 +246,36 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 		str  string
 	}{
 		{
+			name: "qsvjpegdec (HW)",
+			str: fmt.Sprintf(
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! qsvjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				bindHost, udpPort,
+			),
+		},
+		{
+			name: "msdkmjpegdec (HW)",
+			str: fmt.Sprintf(
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! msdkmjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				bindHost, udpPort,
+			),
+		},
+		{
+			name: "wicjpegdec",
+			str: fmt.Sprintf(
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! wicjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				bindHost, udpPort,
+			),
+		},
+		{
 			name: "jpegdec (SW preferred)",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
@@ -272,30 +305,12 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 				bindHost, udpPort,
 			),
 		},
-		{
-			name: "qsvjpegdec (HW)",
-			str: fmt.Sprintf(
-				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
-					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
-					"rtpjpegdepay ! jpegparse ! qsvjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
-					"appsink name=sink sync=false max-buffers=2 drop=true",
-				bindHost, udpPort,
-			),
-		},
-		{
-			name: "wicjpegdec",
-			str: fmt.Sprintf(
-				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
-					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
-					"rtpjpegdepay ! wicjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
-					"appsink name=sink sync=false max-buffers=2 drop=true",
-				bindHost, udpPort,
-			),
-		},
 	}
 
 	var lastErr error
-	for _, candidate := range pipelines {
+	for idx := range pipelines {
+		candidateIdx := (gs.jpegCandidateIndex + idx) % len(pipelines)
+		candidate := pipelines[candidateIdx]
 		pipeline, err := gst.NewPipelineFromString(candidate.str)
 		if err != nil {
 			lastErr = err
@@ -310,6 +325,7 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			gs.pipeline = nil
 			continue
 		}
+		gs.lastJPEGPipeline = candidate.name
 		logrus.Infof("✅ [Windows/JPEG] GStreamer pipeline создан: %s", candidate.name)
 		return nil
 	}
@@ -612,6 +628,12 @@ func (gs *GStreamerService) monitorPipeline() {
 		case gst.MessageError:
 			err := msg.ParseError()
 			logrus.Errorf("❌ [Windows] GStreamer ошибка: %v", err)
+			gs.mutex.Lock()
+			if gs.videoMode == models.VideoModeJPEGRTP && strings.Contains(fmt.Sprint(err), "Internal data stream error") {
+				gs.jpegCandidateIndex++
+				logrus.Warnf("⚠️ [Windows/JPEG] Decoder %s failed at runtime, switching to next JPEG candidate (index=%d)", gs.lastJPEGPipeline, gs.jpegCandidateIndex)
+			}
+			gs.mutex.Unlock()
 			gs.mutex.RLock()
 			errCallback := gs.onError
 			gs.mutex.RUnlock()
@@ -832,6 +854,17 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 	logrus.Infof("⏳ [Windows] Задержка перед переподключением: %v", delay)
 	time.Sleep(delay)
+
+	gs.mutex.RLock()
+	abortReconnect := !gs.autoReconnect || gs.manualDisconnect
+	gs.mutex.RUnlock()
+	if abortReconnect {
+		logrus.Info("🛑 [Windows] Переподключение отменено до нового ConnectToRTP")
+		gs.mutex.Lock()
+		gs.isReconnecting = false
+		gs.mutex.Unlock()
+		return
+	}
 
 	if err := gs.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ [Windows] Ошибка переподключения GStreamer #%d: %v", attempt, err)

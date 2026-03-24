@@ -202,6 +202,65 @@ func (gs *GStreamerService) buildPipelineArgsJPEG(udpPort int) []string {
 	}
 }
 
+func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]string {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+
+	base := []string{
+		"-q",
+		"udpsrc",
+		fmt.Sprintf("address=%s", bindHost),
+		fmt.Sprintf("port=%d", udpPort),
+		"buffer-size=65536",
+		`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
+		"!",
+		"rtpjitterbuffer",
+		"latency=15",
+		"faststart-min-packets=1",
+		"drop-on-latency=true",
+		"!",
+		"rtpjpegdepay",
+		"!",
+		"jpegparse",
+		"!",
+	}
+
+	suffix := []string{
+		"!",
+		"videoscale",
+		"!",
+		fmt.Sprintf("video/x-raw,width=%d,height=%d", gs.width, gs.height),
+		"!",
+		"videoconvert",
+		"!",
+		"video/x-raw,format=RGBA",
+		"!",
+		"fdsink",
+		"fd=1",
+		"sync=false",
+	}
+
+	makeArgs := func(decoder string, extra ...string) []string {
+		args := append([]string{}, base...)
+		if decoder != "" {
+			args = append(args, decoder)
+			args = append(args, "!")
+		}
+		args = append(args, extra...)
+		args = append(args, suffix...)
+		return args
+	}
+
+	return [][]string{
+		makeArgs("vtdec_hw"),
+		makeArgs("vtdec"),
+		makeArgs("decodebin"),
+		makeArgs("jpegdec"),
+	}
+}
+
 // buildPipelineArgsPipe — fdsrc для RTP H.264 из pipe (UDP relay с keepalive)
 func (gs *GStreamerService) buildPipelineArgsPipe(fd int) []string {
 	return []string{
@@ -271,6 +330,23 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.mutex.Unlock()
 
 	logrus.Infof("🔗 [VIDEO] Шаг 2: Подключение к RTP video mode=%s (port=%d)", gs.videoMode, udpPort)
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		var lastErr error
+		candidates := gs.buildPipelineArgsJPEGCandidates(udpPort)
+		for idx, args := range candidates {
+			logrus.Infof("🔄 macOS JPEG pipeline попытка %d/%d: %v", idx+1, len(candidates), args)
+			if err := gs.runGStreamerPipeline(args, nil); err != nil {
+				lastErr = err
+				logrus.Warnf("⚠️ macOS JPEG pipeline попытка %d неудачна: %v", idx+1, err)
+				continue
+			}
+			return nil
+		}
+		if lastErr == nil {
+			lastErr = fmt.Errorf("no usable macOS MJPEG pipeline candidates")
+		}
+		return lastErr
+	}
 	return gs.runGStreamerPipeline(gs.buildPipelineArgs(udpPort), nil)
 }
 
