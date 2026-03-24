@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/widget"
@@ -29,6 +30,7 @@ type TouchpadWrapper struct {
 	widget.BaseWidget
 	videoWidget *VideoWidget
 	image       *canvas.Image
+	clip        *container.Clip
 
 	// Обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey может не работать)
 	window      fyne.Window
@@ -42,6 +44,9 @@ func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 		videoWidget: videoWidget,
 		image:       videoWidget.videoCanvas,
 	}
+	if wrapper.image != nil {
+		wrapper.clip = container.NewClip(wrapper.image)
+	}
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
@@ -52,12 +57,20 @@ func NewTouchpadWrapperWithImage(videoWidget *VideoWidget, image *canvas.Image) 
 		videoWidget: videoWidget,
 		image:       image,
 	}
+	if wrapper.image != nil {
+		wrapper.clip = container.NewClip(wrapper.image)
+	}
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
 
 func (t *TouchpadWrapper) SetImage(image *canvas.Image) {
 	t.image = image
+	if image != nil {
+		t.clip = container.NewClip(image)
+	} else {
+		t.clip = nil
+	}
 	t.Refresh()
 }
 
@@ -91,8 +104,11 @@ type touchpadRenderer struct {
 }
 
 func (r *touchpadRenderer) Layout(size fyne.Size) {
+	if r.wrapper.clip != nil {
+		r.wrapper.clip.Resize(size)
+	}
 	if r.wrapper.image != nil {
-		r.wrapper.image.Resize(size)
+		r.wrapper.wrapperLayoutImage(size)
 	}
 }
 
@@ -101,16 +117,20 @@ func (r *touchpadRenderer) MinSize() fyne.Size {
 }
 
 func (r *touchpadRenderer) Refresh() {
+	if r.wrapper.clip != nil {
+		r.wrapper.wrapperLayoutImage(r.wrapper.Size())
+		canvas.Refresh(r.wrapper.clip)
+	}
 	if r.wrapper.image != nil {
 		canvas.Refresh(r.wrapper.image)
 	}
 }
 
 func (r *touchpadRenderer) Objects() []fyne.CanvasObject {
-	if r.wrapper.image == nil {
+	if r.wrapper.clip == nil {
 		return nil
 	}
-	return []fyne.CanvasObject{r.wrapper.image}
+	return []fyne.CanvasObject{r.wrapper.clip}
 }
 
 func (r *touchpadRenderer) Destroy() {
@@ -124,11 +144,24 @@ func (t *TouchpadWrapper) updateTouchpadSize() {
 	}
 }
 
+func (t *TouchpadWrapper) wrapperLayoutImage(size fyne.Size) {
+	if t.image == nil {
+		return
+	}
+	t.videoWidget.UpdateTouchpadAndContentRect(size.Width, size.Height)
+	x, y, w, h := t.videoWidget.GetViewportRect()
+	t.image.Move(fyne.NewPos(x, y))
+	t.image.Resize(fyne.NewSize(w, h))
+}
+
 // Tapped вызывается при полном клике (нажали и отпустили на виджете). В Fyne MouseUp приходит виджету под курсором при отпускании,
 // поэтому при отпускании вне виджета MouseUp мы не получим. Tapped же приходит только при завершённом клике по виджету — используем для тапа.
 func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 	t.requestFocus()
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if fyne.CurrentDevice().IsMobile() && t.videoWidget.shouldIgnoreTouchInput() {
 		return
 	}
 	t.updateTouchpadSize()
@@ -162,6 +195,9 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 // как левый клик, из-за чего получалось «двойной левый» вместо правого.
 func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if fyne.CurrentDevice().IsMobile() && t.videoWidget.shouldIgnoreTouchInput() {
 		return
 	}
 	t.updateTouchpadSize()
@@ -451,6 +487,9 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	if t.videoWidget.shouldIgnoreTouchInput() {
+		return
+	}
 	t.updateTouchpadSize()
 	t.videoWidget.touchStartX = ev.Position.X
 	t.videoWidget.touchStartY = ev.Position.Y
@@ -480,6 +519,11 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 // TouchUp обрабатывает окончание касания (mobile)
 func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if t.videoWidget.shouldIgnoreTouchInput() {
+		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
 		return
 	}
 	t.updateTouchpadSize()
@@ -540,6 +584,9 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	if t.videoWidget.shouldIgnoreTouchInput() {
+		return
+	}
 	t.updateTouchpadSize()
 
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
@@ -596,6 +643,11 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 // На desktop — обновление позиции для polling. На Android — основной способ движения пальца.
 func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if t.videoWidget.shouldIgnoreTouchInput() {
+		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
 		return
 	}
 	t.updateTouchpadSize()

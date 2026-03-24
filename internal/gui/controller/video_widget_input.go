@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"math"
 	"time"
 
 	"usbridge-client/internal/input"
@@ -332,6 +333,8 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
 	vw.contentRectY = 0
 	vw.contentRectW = w
 	vw.contentRectH = h
+	vw.baseContentRectW = w
+	vw.baseContentRectH = h
 	if vw.videoCanvas != nil && vw.videoCanvas.Image != nil {
 		b := vw.videoCanvas.Image.Bounds()
 		imgW := float32(b.Dx())
@@ -343,12 +346,11 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
 			}
 			renderW := imgW * scale
 			renderH := imgH * scale
-			vw.contentRectX = (w - renderW) / 2
-			vw.contentRectY = (h - renderH) / 2
-			vw.contentRectW = renderW
-			vw.contentRectH = renderH
+			vw.baseContentRectW = renderW
+			vw.baseContentRectH = renderH
 		}
 	}
+	vw.recalculateViewport()
 }
 
 // PositionToAbsolute переводит координаты из области ввода в абсолютные 0..4095.
@@ -383,4 +385,123 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 		y = 4095
 	}
 	return x, y
+}
+
+func (vw *VideoWidget) recalculateViewport() {
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return
+	}
+
+	baseW := vw.baseContentRectW
+	baseH := vw.baseContentRectH
+	if baseW <= 0 || baseH <= 0 {
+		baseW = vw.touchpadSizeW
+		baseH = vw.touchpadSizeH
+	}
+
+	scale := vw.zoomScale
+	if scale < 1 {
+		scale = 1
+	}
+
+	contentW := baseW * scale
+	contentH := baseH * scale
+	contentX := (vw.touchpadSizeW - contentW) / 2
+	contentY := (vw.touchpadSizeH - contentH) / 2
+
+	if contentW > vw.touchpadSizeW {
+		maxPanX := (contentW - vw.touchpadSizeW) / 2
+		vw.panOffsetX = clampFloat(vw.panOffsetX, -maxPanX, maxPanX)
+		contentX += vw.panOffsetX
+	} else {
+		vw.panOffsetX = 0
+	}
+
+	if contentH > vw.touchpadSizeH {
+		maxPanY := (contentH - vw.touchpadSizeH) / 2
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
+		contentY += vw.panOffsetY
+	} else {
+		vw.panOffsetY = 0
+	}
+
+	if contentW <= vw.touchpadSizeW && contentH <= vw.touchpadSizeH && scale <= 1.001 {
+		scale = 1
+		vw.zoomScale = 1
+		vw.panOffsetX = 0
+		vw.panOffsetY = 0
+		contentW = baseW
+		contentH = baseH
+		contentX = (vw.touchpadSizeW - contentW) / 2
+		contentY = (vw.touchpadSizeH - contentH) / 2
+	}
+
+	vw.contentRectX = contentX
+	vw.contentRectY = contentY
+	vw.contentRectW = contentW
+	vw.contentRectH = contentH
+}
+
+func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {
+	vw.recalculateViewport()
+	return vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
+}
+
+func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, panDy float32) {
+	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
+		return
+	}
+
+	oldX, oldY, oldW, oldH := vw.GetViewportRect()
+	if oldW <= 0 || oldH <= 0 {
+		return
+	}
+
+	nextZoom := vw.zoomScale
+	if nextZoom < 1 {
+		nextZoom = 1
+	}
+	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
+		nextZoom *= scaleFactor
+	}
+	nextZoom = clampFloat(nextZoom, 1, 6)
+	vw.zoomScale = nextZoom
+	vw.recalculateViewport()
+
+	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
+		localFocusX := focusX
+		localFocusY := focusY
+		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
+		v := clampFloat((localFocusY-oldY)/oldH, 0, 1)
+
+		newW := vw.contentRectW
+		newH := vw.contentRectH
+		if newW > vw.touchpadSizeW {
+			baseX := (vw.touchpadSizeW - newW) / 2
+			vw.panOffsetX = localFocusX - u*newW - baseX
+		}
+		if newH > vw.touchpadSizeH {
+			baseY := (vw.touchpadSizeH - newH) / 2
+			vw.panOffsetY = localFocusY - v*newH - baseY
+		}
+	}
+
+	vw.panOffsetX += panDx
+	vw.panOffsetY += panDy
+	vw.recalculateViewport()
+}
+
+func (vw *VideoWidget) resetViewport() {
+	vw.zoomScale = 1
+	vw.panOffsetX = 0
+	vw.panOffsetY = 0
+	vw.recalculateViewport()
+}
+
+func clampFloat(value, minValue, maxValue float32) float32 {
+	return float32(math.Max(float64(minValue), math.Min(float64(maxValue), float64(value))))
+}
+
+func almostEqual(a, b float32) bool {
+	return math.Abs(float64(a-b)) < 0.001
 }

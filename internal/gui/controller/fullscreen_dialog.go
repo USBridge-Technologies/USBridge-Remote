@@ -206,6 +206,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoImage.FillMode = canvas.ImageFillContain
 	fd.videoImage.ScaleMode = canvas.ImageScaleSmooth
 	fd.touchpadWrapper = NewTouchpadWrapperWithImage(fd.videoWidget, fd.videoImage)
+	fd.videoWidget.registerMobileGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
 	logrus.Info("✅ TouchpadWrapper создан для полноэкранного режима")

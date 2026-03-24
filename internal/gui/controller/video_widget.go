@@ -77,6 +77,13 @@ type VideoWidget struct {
 	contentRectY      float32
 	contentRectW      float32
 	contentRectH      float32
+	baseContentRectW  float32
+	baseContentRectH  float32
+	zoomScale         float32
+	panOffsetX        float32
+	panOffsetY        float32
+	multiTouchActive  bool
+	lastMultiTouchAt  time.Time
 	lastTouchX        int // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
 	lastTouchY        int
 	lastAbsX          int // последние отправленные координаты absolute (touch_position) чтобы не спамить

@@ -22,6 +22,7 @@ import (
 // createInterface создает интерфейс виджета.
 func (vw *VideoWidget) createInterface() {
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
+	vw.registerMobileGestureTarget()
 	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
 	vw.container = vw.ui.Container
 	vw.videoCanvas = vw.ui.VideoCanvas
@@ -33,6 +34,7 @@ func (vw *VideoWidget) createInterface() {
 
 	vw.startStatsLoop()
 	vw.updateButtons()
+	vw.resetViewport()
 }
 
 // handleStartVideo обрабатывает запуск видео.
@@ -193,6 +195,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 	vw.isGStreamerConnected = false
 	vw.isMouseConnected = false
 
+	vw.resetViewport()
 	vw.clearVideo()
 
 	fyne.Do(func() {
