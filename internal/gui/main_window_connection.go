@@ -64,6 +64,160 @@ func (mw *MainWindow) clearConnectionPending() {
 	mw.isConnectionLoading = false
 }
 
+func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
+	if client == nil {
+		return nil
+	}
+	client.SetTransportErrorHandler(func(err error) {
+		mw.handleTransportError(client, err)
+	})
+	return client
+}
+
+func (mw *MainWindow) handleTransportError(client *api.USBClient, err error) {
+	if client == nil || err == nil || !api.IsConnectionLostError(err) {
+		return
+	}
+	if mw.usbClient != client || !mw.isConnected {
+		return
+	}
+	if !mw.connectionLossInProgress.CompareAndSwap(false, true) {
+		return
+	}
+
+	logrus.Warnf("⚠️ Active connection lost: %v", err)
+	go mw.handleConnectionLost(err, client)
+}
+
+func (mw *MainWindow) cleanupDeadConnectionState() {
+	if mw.videoWidget != nil {
+		mw.videoWidget.HandleConnectionLost()
+	}
+
+	if mw.nbdServer.IsRunning() {
+		if stopErr := mw.nbdServer.Stop(); stopErr != nil {
+			logrus.Errorf("Failed to stop NBD server after connection loss: %v", stopErr)
+		}
+	}
+	if mw.frpService != nil && mw.frpService.IsRunning() {
+		if stopErr := mw.frpService.Disconnect(); stopErr != nil {
+			logrus.Errorf("Failed to stop FRP tunnel after connection loss: %v", stopErr)
+		}
+		mw.frpService = nil
+	}
+	if mw.wgService != nil && mw.wgService.IsRunning() {
+		if stopErr := mw.wgService.Disconnect(); stopErr != nil {
+			logrus.Errorf("Failed to stop WireGuard tunnel after connection loss: %v", stopErr)
+		}
+		mw.wgService = nil
+	}
+
+	mw.isConnected = false
+	mw.isStreaming = false
+	mw.connectedProtocol = ""
+	mw.appState.IsConnected = false
+	mw.appState.IsStreaming = false
+	mw.appState.IsNBDRunning = false
+	mw.appState.LastDisconnected = time.Now()
+	mw.usbClient = nil
+
+	mw.diskWidget.UpdateClient(nil)
+	mw.diskWidget.SetFRPService(nil)
+	mw.videoWidget.UpdateClient(nil)
+	mw.videoWidget.SetFRPService(nil)
+	if mw.backupWidget != nil {
+		mw.backupWidget.UpdateClient(nil)
+	}
+	if mw.pcpanelWidget != nil {
+		mw.pcpanelWidget.SetClient(nil)
+	}
+
+	mw.config.NBDBindHost = "127.0.0.1"
+	mw.config.VideoBindHost = "127.0.0.1"
+}
+
+func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause error) bool {
+	if client == nil || client != mw.usbClient {
+		return false
+	}
+
+	host := strings.TrimSpace(mw.hostEntry.Text)
+	if host == "" {
+		return false
+	}
+
+	token := strings.TrimSpace(mw.tokenEntry.Text)
+	if token == "" {
+		token = mw.config.FRPAuthToken
+	}
+
+	protocol := mw.connectedProtocol
+	if protocol == "" || protocol == "direct" {
+		return false
+	}
+
+	retryDelays := []time.Duration{
+		0,
+		1500 * time.Millisecond,
+		3 * time.Second,
+	}
+
+	for attempt, delay := range retryDelays {
+		if delay > 0 {
+			logrus.Infof("⏳ Waiting %v before recovery attempt %d/%d", delay, attempt+1, len(retryDelays))
+			time.Sleep(delay)
+		}
+
+		logrus.Warnf("🔄 Attempting to recover lost %s connection (%d/%d): %v", protocol, attempt+1, len(retryDelays), cause)
+		mw.cleanupDeadConnectionState()
+
+		fyne.Do(func() {
+			mw.clearConnectionPending()
+			mw.setConnectionLoading(true)
+			mw.hostEntry.Disable()
+			mw.tokenEntry.Disable()
+			mw.protocolSelect.Disable()
+		})
+
+		if err := mw.doConnectWithProtocol(host, token, protocol); err == nil {
+			return true
+		} else {
+			logrus.Warnf("⚠️ Recovery attempt %d/%d failed: %v", attempt+1, len(retryDelays), err)
+		}
+	}
+
+	return false
+}
+
+func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
+	if client != nil && client != mw.usbClient {
+		mw.connectionLossInProgress.Store(false)
+		return
+	}
+
+	if mw.tryRecoverConnectionAfterLoss(client, err) {
+		logrus.Infof("✅ Connection recovered automatically after transport loss")
+		mw.connectionLossInProgress.Store(false)
+		return
+	}
+
+	logrus.Errorf("❌ Connection lost, tearing down local state: %v", err)
+	mw.cleanupDeadConnectionState()
+
+	fyne.Do(func() {
+		mw.clearConnectionPending()
+		mw.refreshConnectionControls()
+		mw.hostEntry.Enable()
+		mw.tokenEntry.Enable()
+		mw.protocolSelect.Enable()
+		mw.updateStatus()
+		mw.showConnectionManager()
+		dialog.ShowError(fmt.Errorf("connection lost: %w", err), mw.window)
+	})
+
+	mw.connectionLossInProgress.Store(false)
+}
+
 // handleConnectionToggle переключает состояние подключения
 func (mw *MainWindow) handleConnectionToggle() {
 	if mw.isConnectionPending {
@@ -122,17 +276,22 @@ func (mw *MainWindow) handleConnect() {
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		mw.doConnect(host, token)
+		if err := mw.doConnect(host, token); err != nil {
+			mw.handleConnectFailure("Connection failed", err)
+		}
 	}()
 }
 
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины)
-func (mw *MainWindow) doConnect(host, token string) {
+func (mw *MainWindow) doConnect(host, token string) error {
 	protocol := mw.protocolSelect.Selected
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
+	return mw.doConnectWithProtocol(host, token, protocol)
+}
 
+func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error {
 	connectQUIC := func() error {
 		if !mw.config.FRPEnabled {
 			return fmt.Errorf("FRP disabled in config")
@@ -157,7 +316,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.tokenEntry.Disable()
 
 		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
-		mw.usbClient = api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
+		mw.usbClient = mw.attachUSBClient(api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout))
 
 		mw.gstreamerService.UpdateHost("127.0.0.1")
 		mw.gstreamerService.UpdateVideoPort(videoPort)
@@ -214,7 +373,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 		mw.wgService = wg
 		logrus.Infof("✅ [WireGuard] STEP 6: interface up client=%s server=%s", wg.GetClientHost(), wg.GetServerHost())
 		mw.config.NBDBindHost = wg.GetClientHost()
-		mw.usbClient = api.NewUSBClient(wg.GetServerHost(), mw.config.USBPort, mw.config.APITimeout)
+		mw.usbClient = mw.attachUSBClient(api.NewUSBClient(wg.GetServerHost(), mw.config.USBPort, mw.config.APITimeout))
 		mw.gstreamerService.UpdateHost(wg.GetServerHost())
 		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
 		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
@@ -231,39 +390,34 @@ func (mw *MainWindow) doConnect(host, token string) {
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
 		if err := connectWireGuard(); err != nil {
-			mw.handleConnectFailure("❌ Failed to establish WireGuard tunnel", err)
-			return
+			return fmt.Errorf("failed to establish WireGuard tunnel: %w", err)
 		}
 	case models.ConnectionProtocolQUIC:
 		if err := connectQUIC(); err != nil {
-			mw.handleConnectFailure("❌ Failed to establish QUIC tunnel", err)
-			return
+			return fmt.Errorf("failed to establish QUIC tunnel: %w", err)
 		}
 	case models.ConnectionProtocolAuto:
 		if err := connectWireGuard(); err != nil {
 			logrus.Warnf("⚠️ WireGuard auto-connect failed, falling back to QUIC: %v", err)
 			if err := connectQUIC(); err != nil {
-				mw.handleConnectFailure("❌ Failed to establish connection in auto mode", err)
-				return
+				return fmt.Errorf("failed to establish connection in auto mode: %w", err)
 			}
 		}
 	default:
 		logrus.Info("Testing connection...")
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 		if err := tempClient.TestConnection(); err != nil {
-			mw.handleConnectFailure("Connection failed", err)
-			return
+			return fmt.Errorf("connection failed: %w", err)
 		}
 
-		mw.usbClient = tempClient
+		mw.usbClient = mw.attachUSBClient(tempClient)
 		mw.gstreamerService.UpdateHost(host)
 		mw.config.VideoBindHost = "127.0.0.1"
 		mw.diskWidget.SetFRPService(nil)
 		mw.connectedProtocol = "direct"
 
 		if err := tempClient.TestConnection(); err != nil {
-			mw.handleConnectFailure("Connection failed", err)
-			return
+			return fmt.Errorf("connection failed: %w", err)
 		}
 	}
 
@@ -289,7 +443,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
 		})
-		return
+		return fmt.Errorf("connection verification failed: %w", err)
 	}
 
 	logrus.Debug("Loading devices...")
@@ -310,6 +464,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 	mw.isConnected = true
 	mw.appState.IsConnected = true
 	mw.appState.LastConnected = time.Now()
+	mw.connectionLossInProgress.Store(false)
 
 	fyne.Do(func() {
 		mw.clearConnectionPending()
@@ -322,6 +477,7 @@ func (mw *MainWindow) doConnect(host, token string) {
 	})
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
+	return nil
 }
 
 func (mw *MainWindow) verifyActiveConnection() error {
@@ -371,6 +527,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Info("Disconnecting...")
+	mw.connectionLossInProgress.Store(false)
 
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
 		logrus.Info("🛑 Stopping video before disconnect...")

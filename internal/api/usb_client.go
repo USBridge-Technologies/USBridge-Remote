@@ -71,6 +71,7 @@ type USBClient struct {
 	baseURL    string
 	httpClient *http.Client
 	apiKey     string
+	transportErrorHandler func(error)
 
 	// WebSocket для управления мышью
 	mouseWS       *websocket.Conn
@@ -86,6 +87,10 @@ func NewUSBClient(host string, port int, timeout int) *USBClient {
 			Timeout: time.Duration(timeout) * time.Second,
 		},
 	}
+}
+
+func (c *USBClient) SetTransportErrorHandler(handler func(error)) {
+	c.transportErrorHandler = handler
 }
 
 // GetStatus получает статус системы
@@ -1019,7 +1024,11 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка выполнения запроса: %v", err)
+		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
+			go c.transportErrorHandler(wrappedErr)
+		}
+		return nil, wrappedErr
 	}
 	defer resp.Body.Close()
 
@@ -1056,7 +1065,11 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("ошибка выполнения запроса: %v", err)
+		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
+			go c.transportErrorHandler(wrappedErr)
+		}
+		return nil, 0, wrappedErr
 	}
 	defer resp.Body.Close()
 
@@ -1275,6 +1288,22 @@ func isRetriableUploadError(err error) bool {
 		strings.Contains(s, "connection reset") ||
 		strings.Contains(s, "connection refused") ||
 		strings.Contains(s, "io: read/write on closed pipe") ||
+		strings.Contains(s, "use of closed network connection") ||
+		errors.Is(err, io.EOF)
+}
+
+func IsConnectionLostError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "no route to host") ||
+		strings.Contains(s, "network is unreachable") ||
+		strings.Contains(s, "host is down") ||
+		strings.Contains(s, "i/o timeout") ||
+		strings.Contains(s, "context deadline exceeded") ||
 		strings.Contains(s, "use of closed network connection") ||
 		errors.Is(err, io.EOF)
 }

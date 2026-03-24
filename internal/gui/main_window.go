@@ -2,6 +2,7 @@ package gui
 
 import (
 	"image/color"
+	"sync/atomic"
 
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/controller"
@@ -77,6 +78,8 @@ type MainWindow struct {
 	backupIcon     *widget.Button
 	snapshotIcon   *widget.Button
 	statusPanel    *fyne.Container
+
+	connectionLossInProgress atomic.Bool
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {

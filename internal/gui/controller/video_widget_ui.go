@@ -608,6 +608,34 @@ func (vw *VideoWidget) StopVideo() {
 	vw.handleStopVideo()
 }
 
+// HandleConnectionLost останавливает локальные video/input ресурсы без запроса к серверу.
+func (vw *VideoWidget) HandleConnectionLost() {
+	resetVideoInfoCache()
+
+	if vw.usbClient != nil {
+		vw.usbClient.DisconnectMouseWebSocket()
+	}
+	if vw.gstreamerService != nil {
+		if err := vw.gstreamerService.Disconnect(); err != nil {
+			logrus.Warnf("⚠️ Failed to disconnect GStreamer after transport loss: %v", err)
+		}
+	}
+
+	vw.isStreaming = false
+	vw.isGStreamerConnected = false
+	vw.isMouseConnected = false
+	vw.clearVideo()
+
+	fyne.Do(func() {
+		vw.updateButtons()
+		if vw.statusLabel != nil {
+			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
+		}
+	})
+
+	vw.updateStatus()
+}
+
 // ExitFullscreenIfNeeded закрывает fullscreen-режим, если он активен.
 func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	if vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen() {
