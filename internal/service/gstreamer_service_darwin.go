@@ -228,7 +228,6 @@ func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]str
 	}
 
 	suffix := []string{
-		"!",
 		"videoscale",
 		"!",
 		fmt.Sprintf("video/x-raw,width=%d,height=%d", gs.width, gs.height),
