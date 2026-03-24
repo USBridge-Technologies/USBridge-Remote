@@ -1236,7 +1236,7 @@ type GStreamerService struct {
 	config *models.AppConfig
 
 	// GStreamer pipeline
-	pipeline unsafe.Pointer
+	pipeline  unsafe.Pointer
 	videoMode string
 
 	// Размеры кадра (как на Mac: 1920x1080)
@@ -1778,6 +1778,22 @@ func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
 // GetConfig возвращает конфигурацию
 func (gs *GStreamerService) GetConfig() *models.AppConfig {
 	return gs.config
+}
+
+func (gs *GStreamerService) SupportsNativeFullscreen() bool {
+	return false
+}
+
+func (gs *GStreamerService) IsNativeFullscreenActive() bool {
+	return false
+}
+
+func (gs *GStreamerService) StartNativeFullscreen() error {
+	return fmt.Errorf("native fullscreen is not implemented on Android yet")
+}
+
+func (gs *GStreamerService) StopNativeFullscreen() error {
+	return nil
 }
 
 // SetAutoReconnect включает/выключает автоматическое переподключение

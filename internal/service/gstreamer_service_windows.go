@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +26,12 @@ type GStreamerService struct {
 	videoMode string
 
 	// GStreamer pipeline
-	pipeline *gst.Pipeline
-	appsink  *app.Sink
-	jpegCandidateIndex int
-	lastJPEGPipeline   string
+	pipeline               *gst.Pipeline
+	appsink                *app.Sink
+	nativeFullscreenCmd    *exec.Cmd
+	nativeFullscreenActive bool
+	jpegCandidateIndex     int
+	lastJPEGPipeline       string
 
 	// Состояние
 	isConnected    bool
@@ -970,6 +973,156 @@ func (gs *GStreamerService) GetConfig() *models.AppConfig {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
 	return gs.config
+}
+
+func (gs *GStreamerService) SupportsNativeFullscreen() bool {
+	return true
+}
+
+func (gs *GStreamerService) IsNativeFullscreenActive() bool {
+	gs.mutex.RLock()
+	defer gs.mutex.RUnlock()
+	return gs.nativeFullscreenActive
+}
+
+func (gs *GStreamerService) StartNativeFullscreen() error {
+	if err := gs.Disconnect(); err != nil {
+		return err
+	}
+
+	udpPort := gs.config.VideoUDPPort
+	if udpPort <= 0 {
+		udpPort = models.DefaultVideoUDPPort
+	}
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+
+	candidates := gs.nativeFullscreenCandidates(bindHost, udpPort)
+	var lastErr error
+	for _, candidate := range candidates {
+		cmd, err := gs.startNativeFullscreenProcess(candidate)
+		if err == nil {
+			gs.mutex.Lock()
+			gs.nativeFullscreenCmd = cmd
+			gs.nativeFullscreenActive = true
+			gs.mutex.Unlock()
+			logrus.Infof("✅ [Windows] native fullscreen started via %s", candidate.name)
+			return nil
+		}
+		lastErr = err
+		logrus.Warnf("⚠️ [Windows] native fullscreen candidate %s failed: %v", candidate.name, err)
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no native fullscreen candidates available")
+	}
+	return lastErr
+}
+
+func (gs *GStreamerService) StopNativeFullscreen() error {
+	gs.mutex.Lock()
+	cmd := gs.nativeFullscreenCmd
+	gs.nativeFullscreenCmd = nil
+	gs.nativeFullscreenActive = false
+	gs.mutex.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+
+	_ = cmd.Process.Kill()
+	return nil
+}
+
+type nativeFullscreenCandidate struct {
+	name string
+	args []string
+}
+
+func (gs *GStreamerService) nativeFullscreenCandidates(bindHost string, udpPort int) []nativeFullscreenCandidate {
+	base := []string{
+		"-q",
+		"udpsrc",
+		fmt.Sprintf("address=%s", bindHost),
+		fmt.Sprintf("port=%d", udpPort),
+		"buffer-size=65536",
+	}
+
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		base = append(base,
+			`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
+			"!",
+			"rtpjitterbuffer", "latency=10", "faststart-min-packets=1", "drop-on-latency=true",
+			"!",
+			"rtpjpegdepay",
+			"!",
+			"jpegparse",
+			"!",
+			"decodebin",
+			"!",
+			"queue", "max-size-buffers=2", "leaky=downstream",
+			"!",
+		)
+	} else {
+		base = append(base,
+			`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
+			"!",
+			"rtpjitterbuffer", "latency=10", "faststart-min-packets=1", "drop-on-latency=true",
+			"!",
+			"rtph264depay",
+			"!",
+			"h264parse", "config-interval=-1",
+			"!",
+			"decodebin",
+			"!",
+			"queue", "max-size-buffers=2", "leaky=downstream",
+			"!",
+		)
+	}
+
+	return []nativeFullscreenCandidate{
+		{name: "d3d11videosink", args: append(append([]string{}, base...), "d3d11videosink", "fullscreen=true", "sync=false")},
+		{name: "glimagesink", args: append(append([]string{}, base...), "glimagesink", "fullscreen=true", "sync=false")},
+		{name: "autovideosink", args: append(append([]string{}, base...), "autovideosink", "sync=false")},
+	}
+}
+
+func (gs *GStreamerService) startNativeFullscreenProcess(candidate nativeFullscreenCandidate) (*exec.Cmd, error) {
+	path, err := exec.LookPath("gst-launch-1.0")
+	if err != nil {
+		return nil, fmt.Errorf("gst-launch-1.0 not found: %w", err)
+	}
+
+	cmd := exec.Command(path, candidate.args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	done := make(chan error, 1)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	go func() {
+		err := cmd.Wait()
+		gs.mutex.Lock()
+		if gs.nativeFullscreenCmd == cmd {
+			gs.nativeFullscreenCmd = nil
+			gs.nativeFullscreenActive = false
+		}
+		gs.mutex.Unlock()
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			err = fmt.Errorf("native fullscreen process exited immediately")
+		}
+		return nil, err
+	case <-time.After(1200 * time.Millisecond):
+		return cmd, nil
+	}
 }
 
 // SetAutoReconnect включает/выключает автоматическое переподключение

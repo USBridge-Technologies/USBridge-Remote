@@ -113,34 +113,26 @@ func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, 
 	}
 
 	merged := make(map[string]models.SystemDevice)
-
-	if devices, err := usbClient.GetVideoDevices(); err == nil {
-		for _, device := range devices {
+	var info *models.VideoInfoData
+	if currentInfo, err := getVideoInfoData(usbClient); err == nil && currentInfo != nil {
+		info = currentInfo
+		for _, device := range currentInfo.AvailableDevices {
 			if isLikelyCaptureVideoDevice(device) {
-				merged[device.Path] = device
+				merged[device.Path] = normalizeCaptureVideoDevice(device)
 			}
 		}
-	} else if devices, err := usbClient.GetSystemDevices(); err == nil {
-		for _, device := range devices {
-			if isLikelyCaptureVideoDevice(device) {
-				merged[device.Path] = device
-			}
-		}
-	} else {
-		logrus.Debugf("system video devices unavailable: %v", err)
+	} else if err != nil {
+		logrus.Debugf("video info unavailable while loading capture devices: %v", err)
 	}
 
-	if info, err := getVideoInfoData(usbClient); err == nil && info != nil && strings.HasPrefix(info.Device, "/dev/video") {
-		current := merged[info.Device]
-		current.Path = info.Device
-		if current.Name == "" {
-			current.Name = filepath.Base(info.Device)
-		}
-		if current.Description == "" {
-			current.Description = i18n.Current.CaptureDevice
-		}
-		current.Connected = info.Enabled || info.Streaming
-		merged[info.Device] = current
+	if len(merged) == 0 && info != nil && strings.HasPrefix(info.Device, "/dev/video") {
+		current := normalizeCaptureVideoDevice(models.SystemDevice{
+			Path:        info.Device,
+			Name:        filepath.Base(info.Device),
+			Description: i18n.Current.CaptureDevice,
+			Connected:   info.Enabled || info.Streaming,
+		})
+		merged[current.Path] = current
 	}
 
 	if len(merged) == 0 {
@@ -155,6 +147,17 @@ func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, 
 		return result[i].Path < result[j].Path
 	})
 	return result, nil
+}
+
+func normalizeCaptureVideoDevice(device models.SystemDevice) models.SystemDevice {
+	device.Path = strings.TrimSpace(device.Path)
+	if device.Name == "" {
+		device.Name = filepath.Base(device.Path)
+	}
+	if device.Description == "" {
+		device.Description = i18n.Current.CaptureDevice
+	}
+	return device
 }
 
 func (vw *VideoWidget) GetAvailableVideoDevices() ([]models.SystemDevice, error) {
@@ -324,7 +327,7 @@ func (vw *VideoWidget) ShowCurrentVideoSettings(showFullscreen bool) {
 		logrus.Warnf("⚠️ cannot open video settings: %v", err)
 		return
 	}
-	vw.ShowVideoDeviceSettings(cfg.DevicePath, true, showFullscreen)
+	vw.ShowVideoDeviceSettings(cfg.DevicePath, true, false)
 }
 
 func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply bool, showFullscreen bool) {
@@ -368,14 +371,8 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			vw.startDialog.Configure(info, cfg.VideoWidth, cfg.VideoHeight, cfg.VideoFPS, cfg.VideoBitrate)
 			vw.startDialog.SetDeviceLabel(fmt.Sprintf("%s\n%s", device.Name, device.Path))
 			vw.startDialog.SetPrimaryAction(i18n.Current.Apply)
-			if showFullscreen && vw.isStreaming {
-				vw.startDialog.SetExtraAction(i18n.Current.FullscreenAction, func() {
-					vw.startDialog.Hide()
-					vw.handleFullscreen()
-				})
-			} else {
-				vw.startDialog.SetExtraAction("", nil)
-			}
+			_ = showFullscreen
+			vw.startDialog.SetExtraAction("", nil)
 
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
 				applied := models.VideoDeviceConfig{

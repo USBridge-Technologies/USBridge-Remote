@@ -68,9 +68,9 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 
 // USBClient HTTP клиент для USBridge 2 API
 type USBClient struct {
-	baseURL    string
-	httpClient *http.Client
-	apiKey     string
+	baseURL               string
+	httpClient            *http.Client
+	apiKey                string
 	transportErrorHandler func(error)
 
 	// WebSocket для управления мышью
@@ -599,8 +599,8 @@ func (c *USBClient) SendTouch(x, y int, tip bool) error {
 	logrus.Infof("🖐️ [Touch] отправлено: x=%d y=%d %s", x, y, action)
 	request := models.MouseRequest{
 		Action: "touch",
-		X:      x,
-		Y:      y,
+		X:      intPtr(x),
+		Y:      intPtr(y),
 		Tip:    tip,
 	}
 	return c.sendMouseRequest(request)
@@ -611,8 +611,8 @@ func (c *USBClient) SendTouch(x, y int, tip bool) error {
 func (c *USBClient) SendTouchPositionOnly(x, y int, tip bool) error {
 	request := models.MouseRequest{
 		Action: "touch_position",
-		X:      x,
-		Y:      y,
+		X:      intPtr(x),
+		Y:      intPtr(y),
 		Tip:    tip,
 	}
 	return c.sendMouseRequest(request)
@@ -645,12 +645,16 @@ func (c *USBClient) SendAbsoluteEvent(x, y int, buttons uint8, scroll int) error
 	}
 	request := models.MouseRequest{
 		Action:      "absolute_event",
-		X:           x,
-		Y:           y,
+		X:           intPtr(x),
+		Y:           intPtr(y),
 		ButtonState: int(buttons),
 		Scroll:      scroll,
 	}
 	return c.sendMouseRequest(request)
+}
+
+func intPtr(v int) *int {
+	return &v
 }
 
 // SendMouseAction отправляет комплексное действие мыши

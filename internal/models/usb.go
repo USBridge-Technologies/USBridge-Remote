@@ -102,9 +102,10 @@ type VideoCaptureMode struct {
 
 type VideoInfoData struct {
 	VideoStatus
-	UDPPort          int    `json:"udp_port"`
-	StreamURL        string `json:"stream_url"`
-	UDPListenerReady bool   `json:"udp_listener_ready"`
+	UDPPort          int            `json:"udp_port"`
+	StreamURL        string         `json:"stream_url"`
+	UDPListenerReady bool           `json:"udp_listener_ready"`
+	AvailableDevices []SystemDevice `json:"available_devices,omitempty"`
 }
 
 func ParseVideoInfoData(data interface{}) (*VideoInfoData, error) {
@@ -169,8 +170,8 @@ type MouseRequest struct {
 	Action      string `json:"action"`                 // move, click, scroll, action (мышь) или touch (тачскрин)
 	DX          int    `json:"dx,omitempty"`           // Смещение по X (от -128 до 127)
 	DY          int    `json:"dy,omitempty"`           // Смещение по Y (от -128 до 127)
-	X           int    `json:"x,omitempty"`            // X для тачскрина (0..4095)
-	Y           int    `json:"y,omitempty"`            // Y для тачскрина (0..4095)
+	X           *int   `json:"x,omitempty"`            // X для тачскрина (0..4095); указатель нужен, чтобы 0 не выпадал из JSON
+	Y           *int   `json:"y,omitempty"`            // Y для тачскрина (0..4095); указатель нужен, чтобы 0 не выпадал из JSON
 	Tip         bool   `json:"tip"`                    // для action "touch": true = касание, false = отпускание (обязательно передавать; без omitempty чтобы false не опускался в JSON)
 	Button      int    `json:"button,omitempty"`       // Кнопка мыши (1=левая, 2=правая, 3=средняя)
 	Scroll      int    `json:"scroll,omitempty"`       // Прокрутка колесика (от -127 до 127)

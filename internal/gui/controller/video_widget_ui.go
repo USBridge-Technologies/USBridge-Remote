@@ -455,14 +455,15 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	}
 
 	go fyne.Do(func() {
-		if vw.videoCanvas != nil {
+		mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
+		if mainWindowVisible && vw.videoCanvas != nil {
 			vw.videoCanvas.Image = frame
 			vw.videoCanvas.Refresh()
 		}
-		if vw.touchpadWrapper != nil {
+		if mainWindowVisible && vw.touchpadWrapper != nil {
 			vw.touchpadWrapper.Refresh()
 		}
-		if frameNum == 1 && vw.container != nil {
+		if mainWindowVisible && frameNum == 1 && vw.container != nil {
 			vw.container.Refresh()
 		}
 	})
@@ -470,6 +471,10 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 
 // handleFullscreen обрабатывает переключение в полноэкранный режим.
 func (vw *VideoWidget) handleFullscreen() {
+	vw.ShowFullscreen()
+}
+
+func (vw *VideoWidget) ShowFullscreen() {
 	if vw.fullscreenDialog == nil {
 		if vw.parentWindow == nil {
 			logrus.Warn("⚠️ Parent window is not set")
@@ -562,9 +567,7 @@ func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 	window.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
 		if event.Name == fyne.KeyF11 && vw.isStreaming {
 			logrus.Info("🔍 F11 pressed, entering fullscreen mode")
-			if vw.fullscreenDialog != nil {
-				vw.fullscreenDialog.Show()
-			}
+			vw.ShowFullscreen()
 		}
 	})
 }

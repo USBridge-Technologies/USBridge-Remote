@@ -229,6 +229,7 @@ type LocalizedStrings struct {
 	VideoDeviceSelected      string
 	VideoDeviceUnavailable   string
 	VideoDeviceCurrent       string
+	SettingsAction           string
 	FullscreenAction         string
 	VideoJPEGRTPHint         string
 	VideoModeH264Name        string
@@ -547,6 +548,7 @@ func EN() *LocalizedStrings {
 		VideoDeviceSelected:      "Selected",
 		VideoDeviceUnavailable:   "Unavailable",
 		VideoDeviceCurrent:       "Current",
+		SettingsAction:           "Settings",
 		FullscreenAction:         "Fullscreen",
 		VideoJPEGRTPHint:         "JPEG RTP: server-side decode is disabled, latency is minimal, bitrate is controlled by the capture device.",
 		VideoModeH264Name:        "H.264",

@@ -390,9 +390,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.nbdIcon.Importance = widget.LowImportance
 	mw.videoIcon = widget.NewButton("📺", func() {})
 	mw.videoIcon.OnTapped = func() {
-		if mw.videoWidget != nil {
-			mw.videoWidget.ShowCurrentVideoSettings(true)
-		}
+		mw.showVideoMenu()
 	}
 	mw.videoIcon.Importance = widget.LowImportance
 	mw.keyboardIcon = widget.NewButton("⌨️", func() {
@@ -570,4 +568,30 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		mw.videoIcon.SetText(label)
 		mw.videoIcon.Refresh()
 	})
+}
+
+func (mw *MainWindow) showVideoMenu() {
+	if mw.videoIcon == nil || mw.videoWidget == nil {
+		return
+	}
+
+	items := []view.StyledMenuItem{
+		{
+			Label: i18n.Current.SettingsAction,
+			OnTap: func() {
+				mw.videoWidget.ShowCurrentVideoSettings(false)
+			},
+		},
+	}
+
+	if mw.videoWidget.IsStreaming() {
+		items = append(items, view.StyledMenuItem{
+			Label: i18n.Current.FullscreenAction,
+			OnTap: func() {
+				mw.videoWidget.ShowFullscreen()
+			},
+		})
+	}
+
+	view.ShowStyledMenu(mw.videoIcon, items)
 }
