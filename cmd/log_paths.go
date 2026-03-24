@@ -32,6 +32,12 @@ func resolveLogDir() string {
 		return filepath.Join(".", "logs")
 	}
 
+	if runtime.GOOS == "darwin" {
+		if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+			return filepath.Join(homeDir, "Library", "Logs", "USBridgeClient")
+		}
+	}
+
 	if wd, err := os.Getwd(); err == nil {
 		return filepath.Join(wd, "logs")
 	}
