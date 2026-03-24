@@ -261,11 +261,11 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			),
 		},
 		{
-			name: "msdkmjpegdec (HW)",
+			name: "nvjpegdec (HW)",
 			str: fmt.Sprintf(
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
-					"rtpjpegdepay ! jpegparse ! msdkmjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"rtpjpegdepay ! jpegparse ! nvjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
 				bindHost, udpPort,
 			),
@@ -276,6 +276,16 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
 					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
 					"rtpjpegdepay ! wicjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
+					"appsink name=sink sync=false max-buffers=2 drop=true",
+				bindHost, udpPort,
+			),
+		},
+		{
+			name: "msdkmjpegdec (legacy HW)",
+			str: fmt.Sprintf(
+				"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+					"rtpjitterbuffer latency=15 faststart-min-packets=1 ! "+
+					"rtpjpegdepay ! jpegparse ! msdkmjpegdec ! videoconvert ! video/x-raw,format=RGBA ! "+
 					"appsink name=sink sync=false max-buffers=2 drop=true",
 				bindHost, udpPort,
 			),

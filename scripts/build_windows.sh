@@ -595,6 +595,8 @@ if [ -n "$GST_ROOT" ]; then
             "libgstwic.dll"
             "libgstqsv.dll"
             "libgstmsdk.dll"
+            "libgstnvcodec.dll"
+            "libgstamfcodec.dll"
             "libgstvideoparsersbad.dll"
             "libgstvideoparsers.dll"
             "libgstwinks.dll" # contains ksvideosrc for Windows QR camera capture
