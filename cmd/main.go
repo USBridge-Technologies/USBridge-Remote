@@ -8,6 +8,7 @@ import (
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -26,6 +27,14 @@ func main() {
 			panic(recovered)
 		}
 	}()
+
+	if len(os.Args) > 1 && os.Args[1] == "wg-helper" {
+		if err := service.RunWindowsWireGuardHelper(os.Args[2:]); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "wg-helper failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	var (
 		configFile  = flag.String("config", "", "Path to the configuration file")

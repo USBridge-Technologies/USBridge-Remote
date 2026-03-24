@@ -77,6 +77,9 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 	if err := ensureWireGuardRuntimeAvailable(); err != nil {
 		return err
 	}
+	if platformUsesWireGuardHelper() {
+		return s.connectWithElevatedWireGuardHelper(resp, mtu)
+	}
 
 	tunDevice, bind, ifaceName, err := s.createTUNDevice(resp, mtu)
 	if err != nil {
@@ -136,18 +139,24 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 func (s *userspaceWireGuardService) Disconnect() error {
 	var errs []string
 
-	if err := s.cleanupInterface(); err != nil {
-		errs = append(errs, err.Error())
-	}
-	if s.device != nil {
-		s.device.Close()
-		s.device = nil
-	}
-	if s.tunDevice != nil {
-		if err := s.tunDevice.Close(); err != nil && err != os.ErrClosed {
+	if platformUsesWireGuardHelper() {
+		if err := s.disconnectWithElevatedWireGuardHelper(); err != nil {
 			errs = append(errs, err.Error())
 		}
-		s.tunDevice = nil
+	} else {
+		if err := s.cleanupInterface(); err != nil {
+			errs = append(errs, err.Error())
+		}
+		if s.device != nil {
+			s.device.Close()
+			s.device = nil
+		}
+		if s.tunDevice != nil {
+			if err := s.tunDevice.Close(); err != nil && err != os.ErrClosed {
+				errs = append(errs, err.Error())
+			}
+			s.tunDevice = nil
+		}
 	}
 
 	s.running = false
