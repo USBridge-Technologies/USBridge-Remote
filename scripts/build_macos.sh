@@ -162,6 +162,8 @@ cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
     <string>1.0.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
+    <key>NSCameraUsageDescription</key>
+    <string>USBridgeClient uses the camera to scan QR codes for device connection.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
