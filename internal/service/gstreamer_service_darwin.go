@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,30 +95,73 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 // getGStreamerEnv возвращает окружение для gst-launch с путями к плагинам (applemedia/vtdec)
 func (gs *GStreamerService) getGStreamerEnv() []string {
 	env := os.Environ()
-	prefix := "GST_PLUGIN_PATH="
-	for _, pluginPath := range []string{
-		"/opt/homebrew/lib/gstreamer-1.0",
-		"/usr/local/lib/gstreamer-1.0",
-	} {
-		if info, err := os.Stat(pluginPath); err == nil && info.IsDir() {
-			existing := os.Getenv("GST_PLUGIN_PATH")
-			val := pluginPath
-			if existing != "" {
-				val = pluginPath + ":" + existing
-			}
-			// Убираем старый GST_PLUGIN_PATH и добавляем новый
-			filtered := make([]string, 0, len(env)+1)
-			for _, e := range env {
-				if !strings.HasPrefix(e, prefix) {
-					filtered = append(filtered, e)
-				}
-			}
-			filtered = append(filtered, prefix+val)
-			logrus.Infof("🔧 macOS: GST_PLUGIN_PATH=%s (vtdec/applemedia)", pluginPath)
-			return filtered
+
+	for _, binDir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+		if info, err := os.Stat(binDir); err == nil && info.IsDir() {
+			env = appendOrPrependDarwinEnv(env, "PATH", binDir)
 		}
 	}
+
+	for _, pluginPath := range []string{"/opt/homebrew/lib/gstreamer-1.0", "/usr/local/lib/gstreamer-1.0"} {
+		if info, err := os.Stat(pluginPath); err == nil && info.IsDir() {
+			env = appendOrPrependDarwinEnv(env, "GST_PLUGIN_PATH", pluginPath)
+			env = appendOrPrependDarwinEnv(env, "GST_PLUGIN_SYSTEM_PATH", pluginPath)
+			logrus.Infof("🔧 macOS: GST plugin dir=%s (vtdec/applemedia)", pluginPath)
+		}
+	}
+
+	for _, scannerPath := range []string{
+		"/opt/homebrew/libexec/gstreamer-1.0/gst-plugin-scanner",
+		"/usr/local/libexec/gstreamer-1.0/gst-plugin-scanner",
+	} {
+		if info, err := os.Stat(scannerPath); err == nil && !info.IsDir() {
+			env = appendOrPrependDarwinEnv(env, "GST_PLUGIN_SCANNER", scannerPath)
+			logrus.Infof("🔧 macOS: GST plugin scanner=%s", scannerPath)
+			break
+		}
+	}
+
 	return env
+}
+
+func appendOrPrependDarwinEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		current := strings.TrimPrefix(entry, prefix)
+		if current == "" {
+			env[i] = prefix + value
+			return env
+		}
+		for _, part := range strings.Split(current, string(os.PathListSeparator)) {
+			if part == value {
+				return env
+			}
+		}
+		env[i] = prefix + value + string(os.PathListSeparator) + current
+		return env
+	}
+	return append(env, prefix+value)
+}
+
+func findDarwinGStreamerTool(name string) (string, error) {
+	if path, err := exec.LookPath(name); err == nil {
+		return path, nil
+	}
+
+	candidates := []string{
+		filepath.Join("/opt/homebrew/bin", name),
+		filepath.Join("/usr/local/bin", name),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("%s not found in PATH, /opt/homebrew/bin, or /usr/local/bin", name)
 }
 
 // buildPipelineArgs формирует аргументы pipeline для RTP video (через QUIC/SUDP туннель)
@@ -444,15 +488,7 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeReader *os.File) error {
 	logrus.Infof("🔧 macOS: GStreamer pipeline: gst-launch-1.0 %v", pipelineArgs)
 
-	gstLaunchPath, err := exec.LookPath("gst-launch-1.0")
-	if err != nil {
-		for _, p := range []string{"/opt/homebrew/bin/gst-launch-1.0", "/usr/local/bin/gst-launch-1.0"} {
-			if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
-				gstLaunchPath = p
-				break
-			}
-		}
-	}
+	gstLaunchPath, err := findDarwinGStreamerTool("gst-launch-1.0")
 	if gstLaunchPath == "" {
 		gs.mutex.Lock()
 		gs.isConnecting = false
@@ -1219,14 +1255,14 @@ func (gs *GStreamerService) nativeFullscreenCandidates(udpPort int) []struct {
 		name string
 		args []string
 	}{
-		{name: "osxvideosink", args: append(append([]string{}, base...), "osxvideosink", "sync=false")},
 		{name: "glimagesink", args: append(append([]string{}, base...), "glimagesink", "fullscreen=true", "sync=false")},
 		{name: "autovideosink", args: append(append([]string{}, base...), "autovideosink", "sync=false")},
+		{name: "osxvideosink", args: append(append([]string{}, base...), "osxvideosink", "sync=false")},
 	}
 }
 
 func (gs *GStreamerService) startNativeFullscreenProcess(name string, args []string) (*exec.Cmd, error) {
-	path, err := exec.LookPath("gst-launch-1.0")
+	path, err := findDarwinGStreamerTool("gst-launch-1.0")
 	if err != nil {
 		return nil, fmt.Errorf("gst-launch-1.0 not found: %w", err)
 	}
