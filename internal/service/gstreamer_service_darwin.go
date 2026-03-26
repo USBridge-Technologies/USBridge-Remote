@@ -72,6 +72,16 @@ type GStreamerService struct {
 	onError         func(error)
 }
 
+type darwinPipelineCandidate struct {
+	name string
+	args []string
+}
+
+type darwinSinkSpec struct {
+	name string
+	args []string
+}
+
 // NewGStreamerService создает новый GStreamer сервис для macOS
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 	gs := &GStreamerService{
@@ -213,69 +223,98 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 }
 
 func (gs *GStreamerService) buildPipelineArgsJPEG(udpPort int) []string {
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
+	candidates := gs.buildDarwinFrameSinkCandidates(udpPort, 15)
+	if len(candidates) == 0 {
+		return nil
 	}
-	return []string{
-		"-q",
-		"udpsrc",
-		fmt.Sprintf("address=%s", bindHost),
-		fmt.Sprintf("port=%d", udpPort),
-		"buffer-size=65536",
-		`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
-		"!",
-		"rtpjitterbuffer",
-		"latency=15",
-		"faststart-min-packets=1",
-		"drop-on-latency=true",
-		"!",
-		"rtpjpegdepay",
-		"!",
-		"jpegparse",
-		"!",
-		"decodebin",
-		"!",
-		"videoscale",
-		"!",
-		fmt.Sprintf("video/x-raw,width=%d,height=%d", gs.width, gs.height),
-		"!",
-		"videoconvert",
-		"!",
-		"video/x-raw,format=RGBA",
-		"!",
-		"fdsink",
-		"fd=1",
-		"sync=false",
-	}
+	return candidates[0].args
 }
 
 func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]string {
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
+	candidates := gs.buildDarwinFrameSinkCandidates(udpPort, 15)
+	result := make([][]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, candidate.args)
 	}
+	return result
+}
 
+func (gs *GStreamerService) darwinBindHost() string {
+	if gs.config != nil && gs.config.VideoBindHost != "" {
+		return gs.config.VideoBindHost
+	}
+	return "127.0.0.1"
+}
+
+func (gs *GStreamerService) buildDarwinRTPBaseArgs(udpPort int, latency int) []string {
 	base := []string{
 		"-q",
 		"udpsrc",
-		fmt.Sprintf("address=%s", bindHost),
+		fmt.Sprintf("address=%s", gs.darwinBindHost()),
 		fmt.Sprintf("port=%d", udpPort),
 		"buffer-size=65536",
-		`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
-		"!",
-		"rtpjitterbuffer",
-		"latency=15",
-		"faststart-min-packets=1",
-		"drop-on-latency=true",
-		"!",
-		"rtpjpegdepay",
-		"!",
-		"jpegparse",
-		"!",
 	}
 
-	suffix := []string{
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		return append(base,
+			`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
+			"!",
+			"rtpjitterbuffer", fmt.Sprintf("latency=%d", latency), "faststart-min-packets=1", "drop-on-latency=true",
+			"!",
+			"rtpjpegdepay",
+			"!",
+			"jpegparse",
+		)
+	}
+
+	return append(base,
+		`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
+		"!",
+		"rtpjitterbuffer", fmt.Sprintf("latency=%d", latency), "faststart-min-packets=1", "drop-on-latency=true",
+		"!",
+		"rtph264depay",
+		"!",
+		"h264parse", "config-interval=-1",
+	)
+}
+
+func (gs *GStreamerService) darwinDecodeChains() [][]string {
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		return [][]string{
+			{"vtdec_hw"},
+			{"vtdec"},
+			{"jpegdec"},
+			{"decodebin"},
+		}
+	}
+	return [][]string{
+		{"vtdec"},
+		{"decodebin"},
+	}
+}
+
+func (gs *GStreamerService) buildDarwinPipelineCandidates(base []string, decodeChains [][]string, middle []string, sinks []darwinSinkSpec) []darwinPipelineCandidate {
+	candidates := make([]darwinPipelineCandidate, 0, len(decodeChains)*len(sinks))
+	for _, chain := range decodeChains {
+		for _, sink := range sinks {
+			args := append([]string{}, base...)
+			args = append(args, "!")
+			args = append(args, chain...)
+			args = append(args, "!")
+			args = append(args, middle...)
+			args = append(args, sink.args...)
+
+			candidates = append(candidates, darwinPipelineCandidate{
+				name: fmt.Sprintf("%s+%s", chain[0], sink.name),
+				args: args,
+			})
+		}
+	}
+	return candidates
+}
+
+func (gs *GStreamerService) buildDarwinFrameSinkCandidates(udpPort int, latency int) []darwinPipelineCandidate {
+	middle := []string{
 		"videoscale",
 		"!",
 		fmt.Sprintf("video/x-raw,width=%d,height=%d", gs.width, gs.height),
@@ -284,28 +323,21 @@ func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]str
 		"!",
 		"video/x-raw,format=RGBA",
 		"!",
-		"fdsink",
-		"fd=1",
-		"sync=false",
 	}
+	sinks := []darwinSinkSpec{
+		{name: "fdsink", args: []string{"fdsink", "fd=1", "sync=false"}},
+	}
+	return gs.buildDarwinPipelineCandidates(gs.buildDarwinRTPBaseArgs(udpPort, latency), gs.darwinDecodeChains(), middle, sinks)
+}
 
-	makeArgs := func(decoder string, extra ...string) []string {
-		args := append([]string{}, base...)
-		if decoder != "" {
-			args = append(args, decoder)
-			args = append(args, "!")
-		}
-		args = append(args, extra...)
-		args = append(args, suffix...)
-		return args
+func (gs *GStreamerService) buildDarwinFullscreenCandidates(udpPort int, latency int) []darwinPipelineCandidate {
+	middle := []string{"queue", "max-size-buffers=2", "leaky=downstream", "!"}
+	sinks := []darwinSinkSpec{
+		{name: "glimagesink", args: []string{"glimagesink", "fullscreen=true", "sync=false"}},
+		{name: "osxvideosink", args: []string{"osxvideosink", "sync=false"}},
+		{name: "autovideosink", args: []string{"autovideosink", "sync=false"}},
 	}
-
-	return [][]string{
-		makeArgs("vtdec_hw"),
-		makeArgs("vtdec"),
-		makeArgs("decodebin"),
-		makeArgs("jpegdec"),
-	}
+	return gs.buildDarwinPipelineCandidates(gs.buildDarwinRTPBaseArgs(udpPort, latency), gs.darwinDecodeChains(), middle, sinks)
 }
 
 // buildPipelineArgsPipe — fdsrc для RTP H.264 из pipe (UDP relay с keepalive)
@@ -1218,59 +1250,21 @@ func (gs *GStreamerService) nativeFullscreenCandidates(udpPort int) []struct {
 	name string
 	args []string
 } {
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
-
-	base := []string{
-		"-q",
-		"udpsrc",
-		fmt.Sprintf("address=%s", bindHost),
-		fmt.Sprintf("port=%d", udpPort),
-		"buffer-size=65536",
-	}
-
-	if gs.videoMode == models.VideoModeJPEGRTP {
-		base = append(base,
-			`caps=application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26`,
-			"!",
-			"rtpjitterbuffer", "latency=10", "faststart-min-packets=1", "drop-on-latency=true",
-			"!",
-			"rtpjpegdepay",
-			"!",
-			"jpegparse",
-			"!",
-			"decodebin",
-			"!",
-			"queue", "max-size-buffers=2", "leaky=downstream",
-			"!",
-		)
-	} else {
-		base = append(base,
-			`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
-			"!",
-			"rtpjitterbuffer", "latency=10", "faststart-min-packets=1", "drop-on-latency=true",
-			"!",
-			"rtph264depay",
-			"!",
-			"h264parse", "config-interval=-1",
-			"!",
-			"decodebin",
-			"!",
-			"queue", "max-size-buffers=2", "leaky=downstream",
-			"!",
-		)
-	}
-
-	return []struct {
+	built := gs.buildDarwinFullscreenCandidates(udpPort, 10)
+	candidates := make([]struct {
 		name string
 		args []string
-	}{
-		{name: "glimagesink", args: append(append([]string{}, base...), "glimagesink", "fullscreen=true", "sync=false")},
-		{name: "autovideosink", args: append(append([]string{}, base...), "autovideosink", "sync=false")},
-		{name: "osxvideosink", args: append(append([]string{}, base...), "osxvideosink", "sync=false")},
+	}, 0, len(built))
+	for _, candidate := range built {
+		candidates = append(candidates, struct {
+			name string
+			args []string
+		}{
+			name: candidate.name,
+			args: candidate.args,
+		})
 	}
+	return candidates
 }
 
 func (gs *GStreamerService) startNativeFullscreenProcess(name string, args []string) (*exec.Cmd, error) {

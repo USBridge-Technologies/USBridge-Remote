@@ -143,6 +143,32 @@ static bool usbridgeStartNativeCapture(void) {
     return true;
 }
 
+static bool usbridgePreflightListenEventAccess(void) {
+    return CGPreflightListenEventAccess();
+}
+
+static bool usbridgeRequestListenEventAccess(void) {
+    return CGRequestListenEventAccess();
+}
+
+static bool usbridgePromptAccessibilityAccess(void) {
+    const void *keys[] = { kAXTrustedCheckOptionPrompt };
+    const void *values[] = { kCFBooleanTrue };
+    CFDictionaryRef options = CFDictionaryCreate(
+        kCFAllocatorDefault,
+        keys,
+        values,
+        1,
+        &kCFCopyStringDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks
+    );
+    Boolean trusted = AXIsProcessTrustedWithOptions(options);
+    if (options != NULL) {
+        CFRelease(options);
+    }
+    return trusted;
+}
+
 static void usbridgeRunNativeCaptureLoop(void) {
     CFRunLoopRun();
 
@@ -236,6 +262,13 @@ func (c *darwinNativeFullscreenCapture) Start() error {
 	}
 	if !c.running.CompareAndSwap(false, true) {
 		return nil
+	}
+	if !bool(C.usbridgePreflightListenEventAccess()) {
+		C.usbridgeRequestListenEventAccess()
+		logrus.Warn("⚠️ macOS Input Monitoring access not confirmed by preflight; trying native event tap anyway")
+	}
+	if !bool(C.usbridgePromptAccessibilityAccess()) {
+		logrus.Warn("⚠️ macOS Accessibility access not confirmed; trying native event tap anyway")
 	}
 
 	activeDarwinCaptureMu.Lock()

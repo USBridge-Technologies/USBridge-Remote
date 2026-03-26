@@ -122,6 +122,27 @@ func (fd *FullscreenDialog) Show() {
 func (fd *FullscreenDialog) enterFullscreen() {
 	logrus.Info("🔍 Вход в полноэкранный режим с GStreamer")
 
+	restartWindowPipeline := false
+	if fd.gstreamerService != nil && fd.gstreamerService.SupportsNativeFullscreen() {
+		restartWindowPipeline = true
+		if err := fd.gstreamerService.StartNativeFullscreen(); err == nil {
+			fd.nativeCapture = newNativeFullscreenCapture(fd.usbClient, fd.exitFullscreen)
+			if fd.nativeCapture != nil {
+				if captureErr := fd.nativeCapture.Start(); captureErr != nil {
+					logrus.Warnf("⚠️ Native fullscreen input capture unavailable, stopping native fullscreen: %v", captureErr)
+					_ = fd.gstreamerService.StopNativeFullscreen()
+					fd.nativeCapture = nil
+				} else {
+					fd.isFullscreen = true
+					fd.nativeFullscreen = true
+					logrus.Info("✅ Активирован native fullscreen video sink с macOS input capture")
+					return
+				}
+			}
+		} else {
+			logrus.Warnf("⚠️ Native fullscreen недоступен, используем Fyne fallback: %v", err)
+		}
+	}
 	fd.isFullscreen = true
 	fd.nativeFullscreen = false
 	fd.createFullscreenWindow()
@@ -132,6 +153,13 @@ func (fd *FullscreenDialog) enterFullscreen() {
 			fd.updateVideoFrame(frame)
 		})
 		logrus.Info("✅ Fullscreen получает кадры без перерисовки скрытого основного canvas")
+		if restartWindowPipeline {
+			go func() {
+				if err := fd.gstreamerService.ConnectToRTP(); err != nil {
+					logrus.Warnf("⚠️ Не удалось восстановить video pipeline для Fyne fullscreen fallback: %v", err)
+				}
+			}()
+		}
 	} else {
 		logrus.Warn("⚠️ GStreamer сервис не установлен")
 	}
