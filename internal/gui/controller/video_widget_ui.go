@@ -58,7 +58,13 @@ func (vw *VideoWidget) handleStartVideo() {
 		vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
 	}
 
-	videoInfo := vw.fetchVideoInfoForStartDialog()
+	preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
+	preferredDevicePath := ""
+	if preferredErr == nil {
+		preferredDevicePath = preferredConfig.DevicePath
+	}
+
+	videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
 
 	defaultWidth := 800
 	defaultHeight := 600
@@ -97,28 +103,33 @@ func (vw *VideoWidget) handleStartVideo() {
 	vw.startDialog.SetDeviceLabel("")
 	vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
 	vw.startDialog.SetExtraAction("", nil)
-	vw.startDialog.Show(vw.handleVideoStartWithParams)
+	vw.startDialog.Show(func(request *models.VideoStartRequest) {
+		if preferredDevicePath != "" {
+			request.VideoDevice = preferredDevicePath
+		}
+		vw.handleVideoStartWithParams(request)
+	})
 }
 
-func (vw *VideoWidget) fetchVideoInfoForStartDialog() *models.VideoInfoData {
+func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.VideoInfoData {
 	const maxAttempts = 5
 
 	var lastInfo *models.VideoInfoData
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		resp, err := vw.usbClient.GetVideoInfo()
+		resp, err := vw.usbClient.GetVideoInfoForDevice(devicePath)
 		if err != nil {
-			logrus.Warnf("⚠️ Failed to get video info before opening start dialog (attempt %d/%d): %v", attempt, maxAttempts, err)
+			logrus.Warnf("⚠️ Failed to get video info before opening start dialog (attempt %d/%d, device=%s): %v", attempt, maxAttempts, devicePath, err)
 		} else if resp != nil && resp.Success && resp.Data != nil {
 			parsed, parseErr := models.ParseVideoInfoData(resp.Data)
 			if parseErr != nil {
-				logrus.Warnf("⚠️ Failed to parse video info for start dialog (attempt %d/%d): %v", attempt, maxAttempts, parseErr)
+				logrus.Warnf("⚠️ Failed to parse video info for start dialog (attempt %d/%d, device=%s): %v", attempt, maxAttempts, devicePath, parseErr)
 			} else {
 				lastInfo = parsed
 				if len(parsed.CaptureModes) > 0 {
-					logrus.Infof("✅ Video info for start dialog ready on attempt %d/%d: %d capture modes", attempt, maxAttempts, len(parsed.CaptureModes))
+					logrus.Infof("✅ Video info for start dialog ready on attempt %d/%d: %d capture modes (device=%s)", attempt, maxAttempts, len(parsed.CaptureModes), devicePath)
 					return parsed
 				}
-				logrus.Infof("ℹ️ Video info for start dialog attempt %d/%d returned no capture modes yet, retrying...", attempt, maxAttempts)
+				logrus.Infof("ℹ️ Video info for start dialog attempt %d/%d returned no capture modes yet, retrying... (device=%s)", attempt, maxAttempts, devicePath)
 			}
 		}
 

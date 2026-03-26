@@ -25,12 +25,16 @@ var (
 )
 
 func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
+	return getVideoInfoDataForDevice(usbClient, "")
+}
+
+func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*models.VideoInfoData, error) {
 	if usbClient == nil {
 		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
 	}
 
 	videoInfoCacheMu.Lock()
-	if time.Since(videoInfoCachedAt) < 750*time.Millisecond {
+	if strings.TrimSpace(devicePath) == "" && time.Since(videoInfoCachedAt) < 750*time.Millisecond {
 		cached := videoInfoCachedData
 		err := videoInfoCachedErr
 		videoInfoCacheMu.Unlock()
@@ -44,31 +48,37 @@ func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
 		videoInfoCacheMu.Unlock()
 	}
 
-	resp, err := usbClient.GetVideoInfo()
+	resp, err := usbClient.GetVideoInfoForDevice(devicePath)
 	if err != nil {
-		videoInfoCacheMu.Lock()
-		videoInfoCachedAt = time.Now()
-		videoInfoCachedData = nil
-		videoInfoCachedErr = err
-		videoInfoCacheMu.Unlock()
+		if strings.TrimSpace(devicePath) == "" {
+			videoInfoCacheMu.Lock()
+			videoInfoCachedAt = time.Now()
+			videoInfoCachedData = nil
+			videoInfoCachedErr = err
+			videoInfoCacheMu.Unlock()
+		}
 		return nil, err
 	}
 	if resp == nil || !resp.Success || resp.Data == nil {
 		err := fmt.Errorf(i18n.Current.VideoInfoUnavailable)
-		videoInfoCacheMu.Lock()
-		videoInfoCachedAt = time.Now()
-		videoInfoCachedData = nil
-		videoInfoCachedErr = err
-		videoInfoCacheMu.Unlock()
+		if strings.TrimSpace(devicePath) == "" {
+			videoInfoCacheMu.Lock()
+			videoInfoCachedAt = time.Now()
+			videoInfoCachedData = nil
+			videoInfoCachedErr = err
+			videoInfoCacheMu.Unlock()
+		}
 		return nil, err
 	}
 
 	info, err := models.ParseVideoInfoData(resp.Data)
-	videoInfoCacheMu.Lock()
-	videoInfoCachedAt = time.Now()
-	videoInfoCachedData = info
-	videoInfoCachedErr = err
-	videoInfoCacheMu.Unlock()
+	if strings.TrimSpace(devicePath) == "" {
+		videoInfoCacheMu.Lock()
+		videoInfoCachedAt = time.Now()
+		videoInfoCachedData = info
+		videoInfoCachedErr = err
+		videoInfoCacheMu.Unlock()
+	}
 	return info, err
 }
 
@@ -234,6 +244,11 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 	cfg := loadSavedVideoDeviceConfig(selectedPath, device.Name)
 	cfg.DeviceName = device.Name
 	cfg.DevicePath = selectedPath
+	if vw.usbClient != nil {
+		if deviceInfo, err := getVideoInfoDataForDevice(vw.usbClient, selectedPath); err == nil && deviceInfo != nil {
+			info = deviceInfo
+		}
+	}
 	if !hasSavedVideoDeviceConfig(selectedPath) && info != nil && info.Device == selectedPath {
 		cfg = mergeVideoConfigWithInfo(cfg, info)
 	}
@@ -391,7 +406,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 		cfg.DevicePath = device.Path
 		cfg.DeviceName = device.Name
 
-		info := vw.fetchVideoInfoForStartDialog()
+		info := vw.fetchVideoInfoForStartDialog(device.Path)
 		if info != nil && info.Device == device.Path {
 			cfg = mergeVideoConfigWithInfo(cfg, info)
 		}

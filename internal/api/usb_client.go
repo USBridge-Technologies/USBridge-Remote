@@ -823,7 +823,16 @@ func (c *USBClient) getWebSocketURL(path string) (string, error) {
 
 // GetVideoInfo получает информацию о видео
 func (c *USBClient) GetVideoInfo() (*models.APIResponse, error) {
-	resp, err := c.makeRequest("GET", "/api/video/info", nil)
+	return c.GetVideoInfoForDevice("")
+}
+
+func (c *USBClient) GetVideoInfoForDevice(devicePath string) (*models.APIResponse, error) {
+	path := "/api/video/info"
+	if strings.TrimSpace(devicePath) != "" {
+		path = path + "?device=" + url.QueryEscape(strings.TrimSpace(devicePath))
+	}
+
+	resp, err := c.makeRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
