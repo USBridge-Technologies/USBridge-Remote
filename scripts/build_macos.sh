@@ -202,9 +202,14 @@ Requirements:
 
 Configuration:
   config.yaml next to the .app, or ~/.config/usbridge-client/
+
+Application log:
+  ~/Library/Logs/USBridgeClient/app.log
+  If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
 echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
+echo -e "   Лог app:   ~/Library/Logs/USBridgeClient/app.log"
 echo ""
