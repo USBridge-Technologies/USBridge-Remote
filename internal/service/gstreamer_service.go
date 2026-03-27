@@ -51,7 +51,7 @@ type GStreamerService struct {
 	manualDisconnect     bool
 
 	// Канал для неблокирующей передачи кадров
-	frameChan chan image.Image
+	frameChan chan videoFramePacket
 	stopChan  chan struct{}
 
 	// Флаги для управления горутинами
@@ -59,9 +59,10 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime time.Time
-	frameCount    int64
-	framesDropped int64
+	lastFrameTime  time.Time
+	frameCount     int64
+	framesDropped  int64
+	latencyProfile videoLatencyProfile
 
 	// Мьютексы
 	mutex sync.RWMutex
@@ -80,7 +81,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
 		videoMode:             models.VideoModeH264,
-		frameChan:             make(chan image.Image, 1), // Один кадр — минимальная задержка
+		frameChan:             make(chan videoFramePacket, 1), // Один кадр — минимальная задержка
 		stopChan:              make(chan struct{}),
 		failedJPEGPipelines:   make(map[string]bool),
 		missingJPEGElements:   make(map[string]bool),
@@ -194,12 +195,12 @@ func (gs *GStreamerService) createPipeline() error {
 	// Также даем варианты без h264parse, т.к. на некоторых дистрибутивах отсутствует gst-plugins-bad.
 	base := fmt.Sprintf(
 		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
-			"rtpjitterbuffer latency=40 faststart-min-packets=2 drop-on-latency=true ! "+
+			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
 			"rtph264depay ! ",
 		bindHost, udpPort,
 	)
 
-	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=3 drop=true"
+	decoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true"
 	pipelines := []struct {
 		name string
 		str  string
@@ -432,6 +433,7 @@ func (gs *GStreamerService) attachAppsink() error {
 
 // processSample обрабатывает один sample
 func (gs *GStreamerService) processSample(sample *gst.Sample) {
+	producedAt := time.Now()
 	// Получаем buffer
 	buffer := sample.GetBuffer()
 	if buffer == nil {
@@ -475,6 +477,12 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	// Конвертируем в image.Image используя скопированные данные
 	img := gs.rgbaToImage(dataCopy, w, h)
 	if img != nil {
+		meta := videoLatencyFrameMeta{
+			producedAt:  producedAt,
+			copyTime:    time.Since(producedAt),
+			frameWidth:  w,
+			frameHeight: h,
+		}
 		gs.mutex.Lock()
 		gs.frameCount++
 		frameNum := gs.frameCount
@@ -492,8 +500,9 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 
 		// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
 		select {
-		case gs.frameChan <- img:
+		case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
 			// Кадр отправлен успешно
+			gs.recordIngressLatency(meta)
 		default:
 			// Канал полон - пропускаем кадр (критично для реалтайма!)
 			gs.mutex.Lock()
@@ -555,7 +564,7 @@ func (gs *GStreamerService) frameProcessor() {
 		case <-gs.stopChan:
 			logrus.Debug("🛑 Остановка обработчика кадров по сигналу stopChan")
 			return
-		case frame, ok := <-gs.frameChan:
+		case packet, ok := <-gs.frameChan:
 			if !ok {
 				logrus.Debug("🛑 frameChan закрыт, остановка обработчика")
 				return
@@ -580,7 +589,8 @@ func (gs *GStreamerService) frameProcessor() {
 				gs.lastFrameTime = time.Now()
 				gs.mutex.Unlock()
 
-				callback(frame)
+				gs.recordUIDelay(time.Since(packet.meta.producedAt), packet.meta, "Linux")
+				callback(packet.img)
 			}
 		}
 	}

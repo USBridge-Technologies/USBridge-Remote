@@ -44,7 +44,7 @@ type GStreamerService struct {
 	manualDisconnect     bool
 
 	// Канал для неблокирующей передачи кадров
-	frameChan chan image.Image
+	frameChan chan videoFramePacket
 	stop      *stopSignal // безопасное однократное закрытие
 
 	// Флаги для управления горутинами
@@ -53,9 +53,10 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime time.Time
-	frameCount    int64
-	framesDropped int64
+	lastFrameTime  time.Time
+	frameCount     int64
+	framesDropped  int64
+	latencyProfile videoLatencyProfile
 
 	// Размеры кадра (по умолчанию 1280x720 для HD захвата)
 	width  int
@@ -78,7 +79,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
 		videoMode:             models.VideoModeH264,
-		frameChan:             make(chan image.Image, 1),
+		frameChan:             make(chan videoFramePacket, 1),
 		stop:                  newStopSignal(),
 		frameProcessorRunning: false,
 		frameReaderRunning:    false,
@@ -130,7 +131,7 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 		return gs.buildPipelineArgsJPEG(udpPort)
 	}
 
-	// Низкая задержка: udpsrc (малый буфер) -> rtpjitterbuffer latency=50 -> rtph264depay -> vtdec -> fdsink
+	// Низкая задержка: удушаем jitterbuffer и разрешаем сбрасывать опоздавшие кадры.
 	return []string{
 		"-q",
 		"udpsrc",
@@ -140,8 +141,9 @@ func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 		`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
 		"!",
 		"rtpjitterbuffer",
-		"latency=50", // 50ms jitter — компромисс между задержкой и устойчивостью
-		"faststart-min-packets=3",
+		"latency=15",
+		"faststart-min-packets=1",
+		"drop-on-latency=true",
 		"!",
 		"rtph264depay",
 		"!",
@@ -271,8 +273,9 @@ func (gs *GStreamerService) buildPipelineArgsPipe(fd int) []string {
 		`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
 		"!",
 		"rtpjitterbuffer",
-		"latency=50",
-		"faststart-min-packets=3",
+		"latency=15",
+		"faststart-min-packets=1",
+		"drop-on-latency=true",
 		"!",
 		"rtph264depay",
 		"!",
@@ -666,8 +669,15 @@ func (gs *GStreamerService) readFrames() {
 			continue
 		}
 
+		producedAt := time.Now()
 		img := rgbaToImage(buffer, width, height)
 		if img != nil {
+			meta := videoLatencyFrameMeta{
+				producedAt:  producedAt,
+				copyTime:    time.Since(producedAt),
+				frameWidth:  width,
+				frameHeight: height,
+			}
 			gs.mutex.Lock()
 			gs.frameCount++
 			frameNum := gs.frameCount
@@ -703,8 +713,9 @@ func (gs *GStreamerService) readFrames() {
 
 			// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
 			select {
-			case gs.frameChan <- img:
+			case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
 				// Кадр отправлен успешно
+				gs.recordIngressLatency(meta)
 			default:
 				// Канал полон - пропускаем кадр (критично для реалтайма!)
 				gs.mutex.Lock()
@@ -754,7 +765,7 @@ func (gs *GStreamerService) frameProcessor() {
 		case <-done:
 			logrus.Info("🛑 macOS: Остановка обработчика кадров по сигналу stop")
 			return
-		case frame, ok := <-gs.frameChan:
+		case packet, ok := <-gs.frameChan:
 			if !ok {
 				logrus.Info("🛑 macOS: frameChan закрыт, остановка обработчика")
 				return
@@ -777,7 +788,8 @@ func (gs *GStreamerService) frameProcessor() {
 				gs.lastFrameTime = time.Now()
 				gs.mutex.Unlock()
 
-				callback(frame)
+				gs.recordUIDelay(time.Since(packet.meta.producedAt), packet.meta, "macOS")
+				callback(packet.img)
 			}
 		}
 	}

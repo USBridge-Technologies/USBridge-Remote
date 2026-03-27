@@ -79,6 +79,8 @@ static EGLSurface g_egl_surface = EGL_NO_SURFACE;
 static volatile int g_hw_map_fail_count;
 static volatile gboolean g_force_sw_decoder;
 static volatile gboolean g_reconnect_requested;  // TRUE = Go должен сделать Reconnect; сбрасывается в hw_frame_store_init
+static volatile gint64 g_last_rtp_packet_us;
+static volatile gint64 g_last_appsink_frame_us;
 
 #define PIPELINE_MODE_H264 0
 #define PIPELINE_MODE_JPEG_RTP 1
@@ -166,6 +168,7 @@ static GstPadProbeReturn udpsrc_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpo
     (void)pad;
     (void)user_data;
     static int first = 0;
+    g_last_rtp_packet_us = g_get_monotonic_time();
     if (first == 0) {
         first = 1;
         GstBuffer *buf = GST_PAD_PROBE_INFO_BUFFER(info);
@@ -252,27 +255,27 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=50 faststart-min-packets=3 ! "
+                "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtph264depay ! "
                 "h264parse config-interval=-1 ! "
                 "%s ! "
                 "%s ! "
                 "videoconvert ! "
                 "video/x-raw,format=RGBA ! "
-                "appsink name=sink emit-signals=false max-buffers=3 drop=true sync=false",
+                "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
                 port, decoder_name, gl_chains[i]
             );
         } else {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=50 faststart-min-packets=3 ! "
+                "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtph264depay ! "
                 "h264parse config-interval=-1 ! "
                 "%s ! "
                 "videoconvert ! "
                 "video/x-raw,format=RGBA ! "
-                "appsink name=sink emit-signals=false max-buffers=3 drop=true sync=false",
+                "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
                 port, decoder_name
             );
         }
@@ -677,13 +680,13 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     // avdec_h264 max-threads=0 — авто-выбор числа потоков (NEON на ARM64)
     pipeline_str = g_strdup_printf(
         "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-        "rtpjitterbuffer latency=50 faststart-min-packets=3 ! "
+        "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
         "rtph264depay ! "
         "h264parse config-interval=-1 ! "
         "avdec_h264 max-threads=0 ! "
         "videoconvert ! "
         "video/x-raw,format=RGBA ! "
-        "appsink name=sink emit-signals=false max-buffers=3 drop=true sync=false",
+        "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
         port
     );
     LOGI("📝 Pipeline (avdec_h264 multi-threaded): %s", pipeline_str);
@@ -1022,6 +1025,8 @@ void hw_frame_store_init() {
     hw_frame_store.active = TRUE;
     g_hw_map_fail_count = 0;
     g_reconnect_requested = FALSE;  // новый pipeline создан — больше не триггерить Reconnect
+    g_last_rtp_packet_us = 0;
+    g_last_appsink_frame_us = 0;
     LOGI("✅ hw_frame_store инициализирован (force_sw=%d)", g_force_sw_decoder);
 }
 
@@ -1135,6 +1140,7 @@ map_success:
 
     // Успех — сбрасываем счётчик провалов
     g_hw_map_fail_count = 0;
+    g_last_appsink_frame_us = g_get_monotonic_time();
     gsize frame_size = map.size;
     if (cb_count <= 5) LOGI("✅ [CB] gst_buffer_map OK #%d, size=%zu", cb_count, frame_size);
 
@@ -1198,6 +1204,18 @@ int hw_frame_poll(guint8 **data, gint *width, gint *height, gsize *size, int tim
     return 1;
 }
 
+long long video_latency_rtp_age_us() {
+    gint64 ts = g_last_rtp_packet_us;
+    if (ts <= 0) return -1;
+    return (long long)(g_get_monotonic_time() - ts);
+}
+
+long long video_latency_appsink_age_us() {
+    gint64 ts = g_last_appsink_frame_us;
+    if (ts <= 0) return -1;
+    return (long long)(g_get_monotonic_time() - ts);
+}
+
 // setup_appsink_callbacks — настраивает appsink на callback-режим.
 // Callback вызывается на streaming thread GStreamer, где GL контекст доступен.
 void setup_appsink_callbacks(GstElement *pipeline) {
@@ -1258,13 +1276,15 @@ type GStreamerService struct {
 	stopChan       chan struct{}
 
 	// Последний кадр для throttled UI (30fps, не тормозит main thread)
-	latestFrame   image.Image
-	latestFrameMu sync.RWMutex
+	latestFrame     image.Image
+	latestFrameMeta videoLatencyFrameMeta
+	latestFrameMu   sync.RWMutex
 
 	// Статистика
 	frameDropCount int64
 	lastFrameTime  time.Time
 	frameCount     int64
+	latencyProfile videoLatencyProfile
 
 	// Мьютексы
 	mutex sync.RWMutex
@@ -1307,6 +1327,13 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 
 	logrus.Info("✅ GStreamer сервис для Android инициализирован")
 	return gs
+}
+
+func durationFromMicroseconds(us C.longlong) time.Duration {
+	if us < 0 {
+		return 0
+	}
+	return time.Duration(int64(us)) * time.Microsecond
 }
 
 // ConnectToUDP подключается к UDP H.264 потоку (новый протокол)
@@ -1409,7 +1436,9 @@ func (gs *GStreamerService) uiRefreshLoop() {
 		case <-ticker.C:
 			gs.latestFrameMu.Lock()
 			img := gs.latestFrame
+			meta := gs.latestFrameMeta
 			gs.latestFrame = nil
+			gs.latestFrameMeta = videoLatencyFrameMeta{}
 			gs.latestFrameMu.Unlock()
 
 			if img == nil {
@@ -1421,6 +1450,7 @@ func (gs *GStreamerService) uiRefreshLoop() {
 			gs.mutex.RUnlock()
 
 			if callback != nil {
+				gs.recordUIDelay(time.Since(meta.producedAt), meta, "Android")
 				callback(img)
 			}
 		}
@@ -1522,6 +1552,7 @@ func (gs *GStreamerService) processFrames() {
 		noFrameCount = 0
 		frameNum++
 
+		copyStarted := time.Now()
 		w := int(width)
 		h := int(height)
 		frameData := C.GoBytes(unsafe.Pointer(data), C.int(frameSize))
@@ -1534,12 +1565,21 @@ func (gs *GStreamerService) processFrames() {
 		// Создаем RGBA image — данные уже в формате RGBA из GStreamer
 		img := image.NewRGBA(image.Rect(0, 0, w, h))
 		copy(img.Pix, frameData)
+		producedAt := time.Now()
+		meta := videoLatencyFrameMeta{
+			producedAt:  producedAt,
+			rtpAge:      durationFromMicroseconds(C.video_latency_rtp_age_us()),
+			appsinkAge:  durationFromMicroseconds(C.video_latency_appsink_age_us()),
+			copyTime:    producedAt.Sub(copyStarted),
+			frameWidth:  w,
+			frameHeight: h,
+		}
 
 		// Обновляем статистику
 		gs.mutex.Lock()
 		gs.frameCount++
 		currentCount := gs.frameCount
-		gs.lastFrameTime = time.Now()
+		gs.lastFrameTime = producedAt
 		gs.mutex.Unlock()
 
 		if currentCount <= 3 || currentCount%100 == 0 {
@@ -1549,7 +1589,9 @@ func (gs *GStreamerService) processFrames() {
 		// Сохраняем последний кадр — uiRefreshLoop заберёт и отправит в UI
 		gs.latestFrameMu.Lock()
 		gs.latestFrame = img
+		gs.latestFrameMeta = meta
 		gs.latestFrameMu.Unlock()
+		gs.recordIngressLatency(meta)
 	}
 }
 

@@ -473,7 +473,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		logrus.Debugf("🖼️ [VIDEO] UI: processed %d frames", frameNum)
 	}
 
-	go fyne.Do(func() {
+	fyne.Do(func() {
 		mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
 		if mainWindowVisible && vw.videoCanvas != nil {
 			vw.videoCanvas.Image = frame
