@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -109,6 +110,10 @@ func (mw *MainWindow) handleTransportError(client *api.USBClient, err error) {
 	if client == nil || err == nil || !api.IsConnectionLostError(err) {
 		return
 	}
+	if mw.connectedProtocol == models.ConnectionProtocolWireGuard {
+		// Для WireGuard потерю туннеля определяет отдельный TCP-monitor, а не фоновые HTTP-запросы.
+		return
+	}
 	if mw.usbClient != client || !mw.isConnected {
 		return
 	}
@@ -121,6 +126,8 @@ func (mw *MainWindow) handleTransportError(client *api.USBClient, err error) {
 }
 
 func (mw *MainWindow) cleanupDeadConnectionState() {
+	mw.stopWireGuardMonitor()
+
 	if mw.videoWidget != nil {
 		mw.videoWidget.HandleConnectionLost()
 	}
@@ -244,6 +251,77 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 	})
 
 	mw.connectionLossInProgress.Store(false)
+}
+
+func (mw *MainWindow) stopWireGuardMonitor() {
+	if mw.wireGuardMonitorStop == nil {
+		return
+	}
+
+	close(mw.wireGuardMonitorStop)
+	mw.wireGuardMonitorStop = nil
+}
+
+func (mw *MainWindow) startWireGuardMonitor(client *api.USBClient) {
+	mw.stopWireGuardMonitor()
+	if client == nil || mw.connectedProtocol != models.ConnectionProtocolWireGuard {
+		return
+	}
+
+	stopCh := make(chan struct{})
+	mw.wireGuardMonitorStop = stopCh
+
+	go func(expectedClient *api.USBClient, stop <-chan struct{}) {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		consecutiveFailures := 0
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
+
+			if expectedClient != mw.usbClient || !mw.isConnected || mw.connectedProtocol != models.ConnectionProtocolWireGuard {
+				return
+			}
+
+			if err := mw.verifyWireGuardTunnel(); err != nil {
+				consecutiveFailures++
+				logrus.Warnf("⚠️ [WireGuard] tunnel probe failed (%d/3): %v", consecutiveFailures, err)
+				if consecutiveFailures < 3 {
+					continue
+				}
+				if mw.connectionLossInProgress.CompareAndSwap(false, true) {
+					logrus.Warnf("⚠️ Active WireGuard tunnel lost: %v", err)
+					go mw.handleConnectionLost(err, expectedClient)
+				}
+				return
+			}
+
+			consecutiveFailures = 0
+		}
+	}(client, stopCh)
+}
+
+func (mw *MainWindow) verifyWireGuardTunnel() error {
+	if mw.wgService == nil || !mw.wgService.IsRunning() {
+		return fmt.Errorf("wireguard service is not running")
+	}
+
+	serverHost := strings.TrimSpace(mw.wgService.GetServerHost())
+	if serverHost == "" {
+		return fmt.Errorf("wireguard server host is empty")
+	}
+
+	address := net.JoinHostPort(serverHost, fmt.Sprintf("%d", mw.config.USBPort))
+	conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("tcp dial %s failed: %w", address, err)
+	}
+	_ = conn.Close()
+	return nil
 }
 
 // handleConnectionToggle переключает состояние подключения
@@ -563,6 +641,9 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 	mw.appState.IsConnected = true
 	mw.appState.LastConnected = time.Now()
 	mw.connectionLossInProgress.Store(false)
+	if mw.connectedProtocol == models.ConnectionProtocolWireGuard {
+		mw.startWireGuardMonitor(mw.usbClient)
+	}
 
 	fyne.Do(func() {
 		mw.clearConnectionPending()
@@ -593,7 +674,7 @@ func (mw *MainWindow) verifyActiveConnection() error {
 			time.Sleep(1 * time.Second)
 		}
 
-		err := mw.usbClient.TestConnection()
+		err := mw.verifyWireGuardTunnel()
 		if err == nil {
 			if attempt > 1 {
 				logrus.Infof("✅ [WireGuard] connection verified on retry %d/6", attempt)
@@ -627,6 +708,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
 	mw.connectionLossInProgress.Store(false)
+	mw.stopWireGuardMonitor()
 
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
 		logrus.Info("🛑 Stopping video before disconnect...")

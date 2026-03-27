@@ -91,6 +91,7 @@ type MainWindow struct {
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
+	wireGuardMonitorStop     chan struct{}
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"image"
 	"image/color"
 	"math"
 	"time"
@@ -154,7 +155,11 @@ func (r *touchpadRenderer) Destroy() {
 func (t *TouchpadWrapper) updateTouchpadSize() {
 	s := t.Size()
 	if s.Width > 0 && s.Height > 0 {
-		t.videoWidget.UpdateTouchpadAndContentRect(s.Width, s.Height)
+		var frame image.Image
+		if t.image != nil {
+			frame = t.image.Image
+		}
+		t.videoWidget.UpdateTouchpadAndContentRect(s.Width, s.Height, frame)
 	}
 }
 
@@ -162,7 +167,7 @@ func (t *TouchpadWrapper) wrapperLayoutImage(size fyne.Size) {
 	if t.image == nil {
 		return
 	}
-	t.videoWidget.UpdateTouchpadAndContentRect(size.Width, size.Height)
+	t.videoWidget.UpdateTouchpadAndContentRect(size.Width, size.Height, t.image.Image)
 	x, y, w, h := t.videoWidget.GetViewportRect()
 	t.image.Move(fyne.NewPos(x, y))
 	t.image.Resize(fyne.NewSize(w, h))

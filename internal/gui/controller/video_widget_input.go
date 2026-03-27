@@ -398,7 +398,7 @@ func (vw *VideoWidget) TryRecordTouchDown(x, y int) bool {
 }
 
 // UpdateTouchpadAndContentRect обновляет размер области ввода и прямоугольник видео.
-func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
+func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Image) {
 	if w <= 0 || h <= 0 {
 		return
 	}
@@ -410,8 +410,8 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
 	vw.contentRectH = h
 	vw.baseContentRectW = w
 	vw.baseContentRectH = h
-	if vw.videoCanvas != nil && vw.videoCanvas.Image != nil {
-		b := vw.videoCanvas.Image.Bounds()
+	if frame != nil {
+		b := frame.Bounds()
 		imgW := float32(b.Dx())
 		imgH := float32(b.Dy())
 		if imgW > 0 && imgH > 0 {

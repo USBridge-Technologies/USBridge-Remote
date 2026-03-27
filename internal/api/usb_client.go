@@ -73,6 +73,9 @@ type USBClient struct {
 	apiKey                string
 	transportErrorHandler func(error)
 	keyboardQueue         chan keyboardRequestTask
+	transportErrorMu      sync.Mutex
+	transportErrorCount   int
+	lastTransportErrorAt  time.Time
 
 	// WebSocket для управления мышью
 	mouseWS       *websocket.Conn
@@ -100,6 +103,33 @@ func NewUSBClient(host string, port int, timeout int) *USBClient {
 
 func (c *USBClient) SetTransportErrorHandler(handler func(error)) {
 	c.transportErrorHandler = handler
+}
+
+func (c *USBClient) noteSuccessfulTransportRequest() {
+	c.transportErrorMu.Lock()
+	c.transportErrorCount = 0
+	c.lastTransportErrorAt = time.Time{}
+	c.transportErrorMu.Unlock()
+}
+
+func (c *USBClient) shouldNotifyTransportError(err error) bool {
+	if err == nil || !IsConnectionLostError(err) {
+		return false
+	}
+
+	c.transportErrorMu.Lock()
+	defer c.transportErrorMu.Unlock()
+
+	now := time.Now()
+	if !c.lastTransportErrorAt.IsZero() && now.Sub(c.lastTransportErrorAt) > 4*time.Second {
+		c.transportErrorCount = 0
+	}
+
+	c.transportErrorCount++
+	c.lastTransportErrorAt = now
+
+	// Не рвём активное подключение из-за единичного фонового HTTP-сбоя.
+	return c.transportErrorCount >= 3
 }
 
 // GetStatus получает статус системы
@@ -1078,8 +1108,13 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+<<<<<<< HEAD
 		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
+=======
+		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
+>>>>>>> 807269d (-)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, wrappedErr
@@ -1095,6 +1130,7 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	c.noteSuccessfulTransportRequest()
 	return respBody, nil
 }
 
@@ -1119,8 +1155,13 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+<<<<<<< HEAD
 		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
+=======
+		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
+>>>>>>> 807269d (-)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, 0, wrappedErr
@@ -1134,6 +1175,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	for _, code := range acceptStatuses {
 		if resp.StatusCode == code {
+			c.noteSuccessfulTransportRequest()
 			return respBody, resp.StatusCode, nil
 		}
 	}

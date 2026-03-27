@@ -335,7 +335,6 @@ func (gs *GStreamerService) buildDarwinFullscreenCandidates(udpPort int, latency
 	sinks := []darwinSinkSpec{
 		{name: "glimagesink", args: []string{"glimagesink", "fullscreen=true", "sync=false"}},
 		{name: "osxvideosink", args: []string{"osxvideosink", "sync=false"}},
-		{name: "autovideosink", args: []string{"autovideosink", "sync=false"}},
 	}
 	return gs.buildDarwinPipelineCandidates(gs.buildDarwinRTPBaseArgs(udpPort, latency), gs.darwinDecodeChains(), middle, sinks)
 }
