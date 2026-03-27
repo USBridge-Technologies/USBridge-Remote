@@ -29,6 +29,7 @@ type FullscreenDialog struct {
 	virtualKeyboard  *graphics.VirtualKeyboard
 	videoImage       *canvas.Image
 	touchpadWrapper  *TouchpadWrapper
+	nativeCapture    nativeFullscreenCapture
 	lastFrame        image.Image
 	frameMutex       sync.RWMutex
 	originalContent  *fyne.Container
@@ -122,10 +123,19 @@ func (fd *FullscreenDialog) enterFullscreen() {
 
 	if fd.gstreamerService != nil && fd.gstreamerService.SupportsNativeFullscreen() {
 		if err := fd.gstreamerService.StartNativeFullscreen(); err == nil {
-			fd.isFullscreen = true
-			fd.nativeFullscreen = true
-			logrus.Info("✅ Активирован native fullscreen video sink")
-			return
+			fd.nativeCapture = newNativeFullscreenCapture(fd.usbClient, fd.exitFullscreen)
+			if fd.nativeCapture != nil {
+				if captureErr := fd.nativeCapture.Start(); captureErr != nil {
+					logrus.Warnf("⚠️ Native fullscreen input capture unavailable, stopping native fullscreen: %v", captureErr)
+					_ = fd.gstreamerService.StopNativeFullscreen()
+					fd.nativeCapture = nil
+				} else {
+					fd.isFullscreen = true
+					fd.nativeFullscreen = true
+					logrus.Info("✅ Активирован native fullscreen video sink с macOS input capture")
+					return
+				}
+			}
 		} else {
 			logrus.Warnf("⚠️ Native fullscreen недоступен, используем Fyne fallback: %v", err)
 		}
@@ -358,6 +368,12 @@ func (fd *FullscreenDialog) exitFullscreen() {
 	fd.isFullscreen = false
 	if fd.nativeFullscreen {
 		fd.nativeFullscreen = false
+		if fd.nativeCapture != nil {
+			if err := fd.nativeCapture.Stop(); err != nil {
+				logrus.Warnf("⚠️ Ошибка остановки native input capture: %v", err)
+			}
+			fd.nativeCapture = nil
+		}
 		if fd.gstreamerService != nil {
 			if err := fd.gstreamerService.StopNativeFullscreen(); err != nil {
 				logrus.Warnf("⚠️ Ошибка остановки native fullscreen: %v", err)

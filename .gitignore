@@ -4,6 +4,7 @@
 .vscode
 .codex-cache
 .gocache
+.cache
 certs
 *.key
 *.crt
