@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
@@ -68,8 +69,10 @@ func NewPCPanelWidget(w fyne.Window) *PCPanelWidget {
 	}
 	p.powerBtn = widget.NewButton("", p.onPowerClick)
 	p.powerBtn.Importance = widget.LowImportance
+	p.powerBtn.SetIcon(assets.PowerOffIcon)
 	p.hddBtn = widget.NewButton("", p.onHDDClick)
 	p.hddBtn.Importance = widget.LowImportance
+	p.hddBtn.SetIcon(assets.ResetIcon)
 
 	// Задаём минимальный размер как квадрат (высота строки)
 	p.powerBtn.Resize(fyne.NewSize(addressBarButtonSize, addressBarButtonSize))
@@ -162,19 +165,23 @@ func (p *PCPanelWidget) updateLEDIcons(powerOn, hddOn bool) {
 
 	// Power LED: ● = горит, ○ = погашен
 	if powerOn {
-		p.powerBtn.SetText("●")
+		p.powerBtn.SetIcon(assets.PowerOffIconActive)
+		p.powerBtn.SetText("")
 		p.powerBtn.Importance = widget.HighImportance
 	} else {
-		p.powerBtn.SetText("○")
+		p.powerBtn.SetIcon(assets.PowerOffIcon)
+		p.powerBtn.SetText("")
 		p.powerBtn.Importance = widget.LowImportance
 	}
 
 	// HDD LED: ● = горит, ○ = погашен
 	if hddOn {
-		p.hddBtn.SetText("●")
+		p.hddBtn.SetIcon(assets.ResetIconActive)
+		p.hddBtn.SetText("")
 		p.hddBtn.Importance = widget.HighImportance
 	} else {
-		p.hddBtn.SetText("○")
+		p.hddBtn.SetIcon(assets.ResetIcon)
+		p.hddBtn.SetText("")
 		p.hddBtn.Importance = widget.LowImportance
 	}
 

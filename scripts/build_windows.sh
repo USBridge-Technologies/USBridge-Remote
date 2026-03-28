@@ -101,13 +101,51 @@ resolve_wintun_arch() {
     esac
 }
 
-latest_source_newer_than() {
-    local target="$1"
-    shift
+hash_file_sha256() {
+    local file="$1"
 
-    [ -f "$target" ] || return 0
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+        return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+        return
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+        powershell -NoProfile -NonInteractive -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '$file').Hash.ToLowerInvariant()"
+        return
+    fi
 
-    find "$@" -type f -newer "$target" -print -quit 2>/dev/null | grep -q .
+    echo "No SHA-256 tool available for $file" >&2
+    return 1
+}
+
+build_cache_fingerprint() {
+    local path=""
+    local file=""
+    local hash=""
+
+    printf "BUILD_VARIANT=%s\n" "$BUILD_VARIANT"
+    printf "BUILD_LDFLAGS=%s\n" "$BUILD_LDFLAGS"
+    printf "GOOS=%s\n" "$GOOS"
+    printf "GOARCH=%s\n" "$GOARCH"
+    printf "CGO_ENABLED=%s\n" "${CGO_ENABLED:-}"
+    printf "PKG_CONFIG=%s\n" "${PKG_CONFIG:-}"
+    printf "DEBUG_CONSOLE=%s\n" "${DEBUG_CONSOLE:-0}"
+
+    for path in "$@"; do
+        if [ -d "$path" ]; then
+            while IFS= read -r file; do
+                [ -f "$file" ] || continue
+                hash="$(hash_file_sha256 "$file")" || return 1
+                printf "%s %s\n" "${file#$REPO_ROOT/}" "$hash"
+            done < <(find "$path" -type f | LC_ALL=C sort)
+        elif [ -f "$path" ]; then
+            hash="$(hash_file_sha256 "$path")" || return 1
+            printf "%s %s\n" "${path#$REPO_ROOT/}" "$hash"
+        fi
+    done
 }
 
 dist_keep_entry() {
@@ -150,6 +188,31 @@ write_gst_runtime_manifest() {
 echo -e "${GREEN}🪟 Building USBridge Client for Windows${NC}"
 
 # 1. Проверка Go
+find_dist_windows_processes() {
+    local dist_dir="$1"
+
+    if ! command -v powershell >/dev/null 2>&1; then
+        return 0
+    fi
+
+    powershell -NoProfile -NonInteractive -Command "
+        \$distDir = [System.IO.Path]::GetFullPath('$dist_dir').ToLowerInvariant()
+        Get-CimInstance Win32_Process -Filter \"Name='USBridge_Client.exe'\" -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                \$path = \$_.ExecutablePath
+                if (-not \$path) { return }
+                try {
+                    \$resolved = [System.IO.Path]::GetFullPath(\$path).ToLowerInvariant()
+                } catch {
+                    \$resolved = \$path.ToLowerInvariant()
+                }
+                if (\$resolved.StartsWith(\$distDir)) {
+                    '{0}|{1}' -f \$_.ProcessId, \$path
+                }
+            }
+    "
+}
+
 if ! command -v go &> /dev/null; then
     echo -e "${RED}❌ Go не найден! Установите: https://golang.org/dl/${NC}"
     exit 1
@@ -291,26 +354,51 @@ if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
 fi
 BUILD_CACHE_DIR="$BUILD_CACHE_ROOT/$BUILD_VARIANT"
 BUILD_CACHE_EXE="$BUILD_CACHE_DIR/$EXE_NAME"
+BUILD_CACHE_FINGERPRINT="$BUILD_CACHE_DIR/.build-inputs.sha256"
+BUILD_CACHE_FINGERPRINT_TMP="$BUILD_CACHE_DIR/.build-inputs.current"
 mkdir -p "$BUILD_CACHE_DIR"
 # Добавляем GOPATH/bin в PATH для корректного запуска fyne (MSYS2/Windows)
 export PATH="$GOPATH_BIN:$PATH"
 
 REBUILD_WINDOWS_EXE=0
-if [ "${FORCE_REBUILD:-0}" = "1" ]; then
-    REBUILD_WINDOWS_EXE=1
-elif latest_source_newer_than "$BUILD_CACHE_EXE" \
+REBUILD_WINDOWS_REASON=""
+if ! build_cache_fingerprint \
     "$REPO_ROOT/cmd" \
     "$REPO_ROOT/internal" \
     "$REPO_ROOT/go.mod" \
     "$REPO_ROOT/go.sum" \
-    "$REPO_ROOT/FyneApp.toml"; then
+    "$REPO_ROOT/FyneApp.toml" \
+    "$ICON_PATH" > "$BUILD_CACHE_FINGERPRINT_TMP"; then
+    echo -e "${RED}Fingerprint generation for build cache failed${NC}"
+    exit 1
+fi
+
+if [ "${FORCE_REBUILD:-0}" = "1" ]; then
     REBUILD_WINDOWS_EXE=1
+    REBUILD_WINDOWS_REASON="FORCE_REBUILD=1"
+elif [ ! -f "$BUILD_CACHE_EXE" ]; then
+    REBUILD_WINDOWS_EXE=1
+    REBUILD_WINDOWS_REASON="cached exe is missing"
+elif [ ! -f "$BUILD_CACHE_FINGERPRINT" ]; then
+    REBUILD_WINDOWS_EXE=1
+    REBUILD_WINDOWS_REASON="build fingerprint is missing"
+elif command -v cmp >/dev/null 2>&1; then
+    if ! cmp -s "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"; then
+        REBUILD_WINDOWS_EXE=1
+        REBUILD_WINDOWS_REASON="build inputs changed"
+    fi
+elif ! diff -q "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT" >/dev/null 2>&1; then
+    REBUILD_WINDOWS_EXE=1
+    REBUILD_WINDOWS_REASON="build inputs changed"
 fi
 
 if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
     echo -e "${YELLOW}🧱 Сборка Windows exe (Go cache: $GOCACHE)...${NC}"
+    echo "   Reason: $REBUILD_WINDOWS_REASON"
     go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_EXE" .
+    mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
 else
+    rm -f "$BUILD_CACHE_FINGERPRINT_TMP"
     echo -e "${GREEN}✓${NC} Используем готовый Windows exe из кэша: $BUILD_CACHE_EXE"
 fi
 
@@ -318,6 +406,9 @@ echo "--- Вывод fyne package ---"
 FYNE_CC="x86_64-w64-mingw32-gcc"
 FYNE_CXX="x86_64-w64-mingw32-g++"
 FYNE_PKG_CONFIG="${PKG_CONFIG:-x86_64-w64-mingw32-pkg-config}"
+PACKAGE_STAMP="$BUILD_CACHE_DIR/.fyne-package.stamp"
+touch "$PACKAGE_STAMP"
+rm -f "$REPO_ROOT/cmd/USBridge_Client.exe" "$REPO_ROOT/cmd/USBridge Client.exe"
 if ! env \
     CC="$FYNE_CC" \
     CXX="$FYNE_CXX" \
@@ -340,24 +431,47 @@ fi
 echo "--- Конец вывода fyne ---"
 
 # Ищем созданный exe
-EXE_SRC=""
+EXE_SRC="$BUILD_CACHE_EXE"
+EXE_SRC_LABEL="$BUILD_CACHE_EXE"
 for n in "USBridge_Client.exe" "USBridge Client.exe"; do
-    if [ -f "$n" ]; then
-        EXE_SRC="$n"
+    if [ -f "$n" ] && [ "$n" -nt "$PACKAGE_STAMP" ]; then
+        EXE_SRC="$REPO_ROOT/cmd/$n"
+        EXE_SRC_LABEL="$n"
         break
     fi
 done
 
-if [ -z "$EXE_SRC" ]; then
+if false && [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
     echo -e "${RED}❌ exe не создан${NC}"
     ls -la
     exit 1
+fi
+
+if [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
+    echo -e "${YELLOW}⚠${NC} fyne package did not produce a fresh Windows exe, using the rebuilt cache binary"
 fi
 
 # 6. Создание dist
 echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
 cd "$REPO_ROOT"
 mkdir -p "$DIST_WIN"
+
+running_dist_processes=()
+while IFS= read -r proc; do
+    [ -n "$proc" ] && running_dist_processes+=("$proc")
+done < <(find_dist_windows_processes "$DIST_WIN")
+
+if [ "${#running_dist_processes[@]}" -gt 0 ]; then
+    echo -e "${RED}âŒ Cannot clean $DIST_WIN while USBridge is running from that folder${NC}"
+    echo "   Stop these processes first:"
+    for proc in "${running_dist_processes[@]}"; do
+        proc_pid="${proc%%|*}"
+        proc_path="${proc#*|}"
+        echo "   - PID $proc_pid: $proc_path"
+    done
+    echo "   Then rerun scripts/build_windows.sh."
+    exit 1
+fi
 
 # Определяем GStreamer runtime заранее, чтобы при повторной сборке можно было
 # переиспользовать уже подготовленный portable bundle в dist/windows.
@@ -448,8 +562,8 @@ fi
 rm -f "$cleanup_err"
 
 # Копируем exe
-cp "$REPO_ROOT/cmd/$EXE_SRC" "$DIST_WIN/$EXE_NAME"
-echo -e "${GREEN}✓${NC} $EXE_NAME"
+cp "$EXE_SRC" "$DIST_WIN/$EXE_NAME"
+echo -e "${GREEN}✓${NC} $EXE_NAME ($(basename "$EXE_SRC_LABEL"))"
 
 # Копируем config
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"

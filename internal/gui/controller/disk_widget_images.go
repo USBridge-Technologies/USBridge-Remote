@@ -34,11 +34,11 @@ func (dw *DiskWidget) setUploadStateByPath(path string, uploading bool, progress
 func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil && dw.allDrives[i].DiskInfo.Path == path {
-			dw.devicesList.RefreshItem(i)
+			dw.requestDevicesRefresh()
 			return
 		}
 	}
-	dw.devicesList.Refresh()
+	dw.requestDevicesRefresh()
 }
 
 // handleAddImage обрабатывает добавление образа диска из файловой системы.
@@ -180,7 +180,7 @@ func (dw *DiskWidget) handleAddImage() {
 		logrus.Infof("📍 [ADD-IMAGE-9] Обновление UI...")
 		dw.updateUIAsync(func() {
 			dw.combineDrives()
-			dw.devicesList.Refresh()
+			dw.requestDevicesRefresh()
 			logrus.Infof("✅ [ADD-IMAGE-9-SUCCESS] UI обновлен, образ отображен в списке")
 		})
 	}, dw.window)
@@ -439,7 +439,7 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 						dw.saveUserImagesToPreferences()
 						dw.updateUIAsync(func() {
 							dw.combineDrives()
-							dw.devicesList.Refresh()
+							dw.requestDevicesRefresh()
 						})
 					}
 				},

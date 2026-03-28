@@ -3,6 +3,7 @@ package assets
 import (
 	_ "embed"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -23,6 +24,36 @@ var (
 	qrCodeIcon []byte
 	//go:embed Server-Connect--Streamline-Atlas.svg
 	serverConnectIcon []byte
+	//go:embed usb-svgrepo-com.svg
+	usbTabIcon []byte
+	//go:embed monitor-svgrepo-com.svg
+	monitorTabIcon []byte
+	//go:embed disk-floppy-save-storage-data-svgrepo-com.svg
+	snapshotsTabIcon []byte
+	//go:embed folder-svgrepo-com.svg
+	folderIcon []byte
+	//go:embed disc-svgrepo-com.svg
+	discIcon []byte
+	//go:embed upload-svgrepo-com.svg
+	uploadIcon []byte
+	//go:embed cam-svgrepo-com.svg
+	cameraIcon []byte
+	//go:embed keyboard-alt-1-svgrepo-com.svg
+	keyboardIcon []byte
+	//go:embed mouse-svgrepo-com.svg
+	mouseIcon []byte
+	//go:embed network-backup-svgrepo-com.svg
+	networkIcon []byte
+	//go:embed configuration-vertical-options-svgrepo-com.svg
+	configVerticalIcon []byte
+	//go:embed connection-internet-network-web-data-storage-svgrepo-com.svg
+	connectionStatusIcon []byte
+	//go:embed exit-svgrepo-com.svg
+	exitIcon []byte
+	//go:embed off.svg
+	powerOffIcon []byte
+	//go:embed reset.svg
+	resetIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
 	//go:embed onboarding/Front_panel1.png
@@ -32,30 +63,58 @@ var (
 )
 
 var (
-	ArrowLeftGray     = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#353535", true))
-	ArrowLeftWhite    = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#656565", true))
-	ArrowRightGray    = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#353535", false))
-	ArrowRightWhite   = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#656565", false))
-	DiscordIconDim    = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
-	DiscordIcon       = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
-	LanguageIconDim   = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
-	LanguageIconMuted = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
-	LanguageIcon      = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
-	LoadingGrayFrames = buildLoadingFrames(loadingIcon, "#111111")
-	QuestionIconDim   = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorStrokeIcon(questionIcon, "#8E8E8E", "2.6"))
-	QuestionIconMuted = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
-	QuestionIcon      = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
-	QRCodeIcon        = fyne.NewStaticResource("Qr-Code--Streamline-Atlas.svg", qrCodeIcon)
-	QRCodeMuted       = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-muted.svg", recolorStrokeIcon(qrCodeIcon, "#656565", "1.3"))
-	QRCodeLight       = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-light.svg", recolorStrokeIcon(qrCodeIcon, "#C9C9C9", "1.3"))
-	QRCodeAccent      = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-accent.svg", recolorStrokeIcon(qrCodeIcon, "#b6ea93", "1.3"))
-	QRCodeBoldBlack   = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-black.svg", recolorStrokeIcon(qrCodeIcon, "#111111", "1.3"))
-	ServerConnectIcon = fyne.NewStaticResource("Server-Connect--Streamline-Atlas.svg", serverConnectIcon)
-	ServerConnectBold = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-bold.svg", boldenServerIcon(serverConnectIcon, "#111111", "1.9"))
-	ServerConnectGlow = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-accent-hover.svg", boldenServerIcon(serverConnectIcon, "#b6ea93", "1.9"))
-	OnboardingStep01  = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
-	OnboardingStep02  = fyne.NewStaticResource("Front_panel1.png", onboardingStep02)
-	OnboardingStep03  = fyne.NewStaticResource("Front_panel2.png", onboardingStep03)
+	ArrowLeftGray              = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#353535", true))
+	ArrowLeftWhite             = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#656565", true))
+	ArrowRightGray             = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#353535", false))
+	ArrowRightWhite            = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#656565", false))
+	DiscordIconDim             = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
+	DiscordIcon                = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
+	LanguageIconDim            = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
+	LanguageIconMuted          = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
+	LanguageIcon               = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
+	LoadingGrayFrames          = buildLoadingFrames(loadingIcon, "#111111")
+	QuestionIconDim            = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorStrokeIcon(questionIcon, "#8E8E8E", "2.6"))
+	QuestionIconMuted          = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
+	QuestionIcon               = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
+	QRCodeIcon                 = fyne.NewStaticResource("Qr-Code--Streamline-Atlas.svg", qrCodeIcon)
+	QRCodeMuted                = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-muted.svg", recolorStrokeIcon(qrCodeIcon, "#656565", "1.3"))
+	QRCodeLight                = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-light.svg", recolorStrokeIcon(qrCodeIcon, "#C9C9C9", "1.3"))
+	QRCodeAccent               = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-accent.svg", recolorStrokeIcon(qrCodeIcon, "#b6ea93", "1.3"))
+	QRCodeBoldBlack            = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-black.svg", recolorStrokeIcon(qrCodeIcon, "#111111", "1.3"))
+	ServerConnectIcon          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas.svg", serverConnectIcon)
+	ServerConnectBold          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-bold.svg", boldenServerIcon(serverConnectIcon, "#111111", "1.9"))
+	ServerConnectGlow          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-accent-hover.svg", boldenServerIcon(serverConnectIcon, "#b6ea93", "1.9"))
+	USBTabIcon                 = fyne.NewStaticResource("usb-svgrepo-com.svg", recolorFillIcon(usbTabIcon, "#F5F5F5"))
+	USBTabIconActive           = fyne.NewStaticResource("usb-svgrepo-com-active.svg", recolorFillIcon(usbTabIcon, "#93C572"))
+	MonitorTabIcon             = fyne.NewStaticResource("monitor-svgrepo-com.svg", recolorStrokeIcon(monitorTabIcon, "#F5F5F5", "1.9"))
+	MonitorTabIconActive       = fyne.NewStaticResource("monitor-svgrepo-com-active.svg", recolorStrokeIcon(monitorTabIcon, "#93C572", "1.9"))
+	SnapshotsTabIcon           = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com.svg", recolorFillIcon(snapshotsTabIcon, "#F5F5F5"))
+	SnapshotsTabIconActive     = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-active.svg", recolorFillIcon(snapshotsTabIcon, "#93C572"))
+	FolderIcon                 = fyne.NewStaticResource("folder-svgrepo-com.svg", recolorFillIcon(folderIcon, "#C9C9C9"))
+	FolderIconActive           = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
+	DiscIcon                   = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))
+	DiscIconActive             = fyne.NewStaticResource("disc-svgrepo-com-active.svg", recolorFillIcon(discIcon, "#93C572"))
+	UploadIcon                 = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
+	UploadIconMuted            = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
+	CameraIcon                 = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
+	CameraIconActive           = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
+	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
+	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
+	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
+	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
+	NetworkIcon                = fyne.NewStaticResource("network-backup-svgrepo-com.svg", recolorFillIcon(networkIcon, "#C9C9C9"))
+	NetworkIconActive          = fyne.NewStaticResource("network-backup-svgrepo-com-active.svg", recolorFillIcon(networkIcon, "#93C572"))
+	ConfigVerticalIcon         = fyne.NewStaticResource("configuration-vertical-options-svgrepo-com.svg", recolorFillIcon(configVerticalIcon, "#F5F5F5"))
+	ConnectionStatusIcon       = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com.svg", recolorFillIcon(connectionStatusIcon, "#C9C9C9"))
+	ConnectionStatusIconActive = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-active.svg", recolorFillIcon(connectionStatusIcon, "#93C572"))
+	ExitIcon                   = fyne.NewStaticResource("exit-svgrepo-com.svg", recolorStrokeIcon(exitIcon, "#d66d6d", "2"))
+	PowerOffIcon               = fyne.NewStaticResource("off.svg", recolorFillIcon(powerOffIcon, "#F5F5F5"))
+	PowerOffIconActive         = fyne.NewStaticResource("off-active.svg", recolorFillIcon(powerOffIcon, "#111111"))
+	ResetIcon                  = fyne.NewStaticResource("reset.svg", recolorFillIcon(resetIcon, "#F5F5F5"))
+	ResetIconActive            = fyne.NewStaticResource("reset-active.svg", recolorFillIcon(resetIcon, "#111111"))
+	OnboardingStep01           = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
+	OnboardingStep02           = fyne.NewStaticResource("Front_panel1.png", onboardingStep02)
+	OnboardingStep03           = fyne.NewStaticResource("Front_panel2.png", onboardingStep03)
 )
 
 func colorizeArrow(source []byte, fill string, mirror bool) []byte {
@@ -69,13 +128,21 @@ func colorizeArrow(source []byte, fill string, mirror bool) []byte {
 }
 
 func recolorFillIcon(source []byte, fill string) []byte {
-	return []byte(strings.ReplaceAll(string(source), "#000000", fill))
+	svg := strings.ReplaceAll(string(source), "#000000", fill)
+	svg = strings.ReplaceAll(svg, "#0F0F0F", fill)
+	svg = strings.ReplaceAll(svg, "#222222", fill)
+	svg = strings.ReplaceAll(svg, `"black"`, fmt.Sprintf(`"%s"`, fill))
+	svg = strings.ReplaceAll(svg, "fill:black", "fill:"+fill)
+	return []byte(svg)
 }
 
 func recolorStrokeIcon(source []byte, stroke string, width string) []byte {
-	svg := strings.ReplaceAll(string(source), `stroke="#000000"`, fmt.Sprintf(`stroke="%s"`, stroke))
-	svg = strings.ReplaceAll(svg, `stroke-width="1"`, fmt.Sprintf(`stroke-width="%s"`, width))
-	svg = strings.ReplaceAll(svg, `stroke-width="2"`, fmt.Sprintf(`stroke-width="%s"`, width))
+	svg := string(source)
+	strokePattern := regexp.MustCompile(`stroke="(?:#000000|#0F0F0F|#222222|black)"`)
+	svg = strokePattern.ReplaceAllString(svg, fmt.Sprintf(`stroke="%s"`, stroke))
+	strokeWidthPattern := regexp.MustCompile(`stroke-width="[^"]+"`)
+	svg = strokeWidthPattern.ReplaceAllString(svg, fmt.Sprintf(`stroke-width="%s"`, width))
+	svg = strings.ReplaceAll(svg, "stroke:black", "stroke:"+stroke)
 	return []byte(svg)
 }
 

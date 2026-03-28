@@ -3,14 +3,16 @@ package i18n
 // LocalizedStrings contains all UI text strings
 type LocalizedStrings struct {
 	// Main Window
-	AppTitle         string
-	ServerAddress    string
-	Token            string
-	ConnectButton    string
-	DisconnectButton string
-	TabDevices       string
-	TabControl       string
-	TabSnapshots     string
+	AppTitle                string
+	ServerAddress           string
+	Token                   string
+	ConnectButton           string
+	DisconnectButton        string
+	DisconnectAllButton     string
+	VideoStreamActiveButton string
+	TabDevices              string
+	TabControl              string
+	TabSnapshots            string
 
 	// Connection Manager
 	ConnectionManager         string
@@ -91,30 +93,39 @@ type LocalizedStrings struct {
 	ChangelogOpChmod    string
 
 	// Disk Widget
-	Devices                string
-	AllAvailableDevices    string
-	LocalDrives            string
-	NetworkDrives          string
-	MountButton            string
-	MountButtonCompact     string
-	UnmountButton          string
-	UnmountButtonCompact   string
-	AddImageButton         string
-	RefreshButton          string
-	LoadingFromCloud       string
-	CloudFilesDetected     string
-	AndroidBuffering       string // Android буферизует облачные файлы
-	PreparingToMount       string // Подготовка к монтированию
-	MayTake30Seconds       string
-	PleaseWait             string
-	MaxDevicesReached      string // Выбрано максимум 5 устройств
-	UnmountAllConfirm      string // Отключить все подключенные устройства?
-	UnmountSelectedConfirm string // Отключить выбранные устройства?
-	NoMountedDevices       string // Нет подключенных устройств для размонтирования
-	SelectDevicesToMount   string // Выберите устройства для подключения
-	StoppingAllDevices     string // Остановка всех устройств...
-	StoppingNBDServers     string // Остановка NBD серверов...
-	AllDevicesUnmounted    string // Все устройства отключены
+	Devices                           string
+	AllAvailableDevices               string
+	DevicesSectionStorage             string
+	DevicesSectionStorageEyebrow      string
+	DevicesSectionStorageHint         string
+	DevicesSectionControl             string
+	DevicesSectionControlEyebrow      string
+	DevicesSectionControlHint         string
+	DevicesSectionConnectivity        string
+	DevicesSectionConnectivityEyebrow string
+	DevicesSectionConnectivityHint    string
+	LocalDrives                       string
+	NetworkDrives                     string
+	MountButton                       string
+	MountButtonCompact                string
+	UnmountButton                     string
+	UnmountButtonCompact              string
+	AddImageButton                    string
+	RefreshButton                     string
+	LoadingFromCloud                  string
+	CloudFilesDetected                string
+	AndroidBuffering                  string // Android буферизует облачные файлы
+	PreparingToMount                  string // Подготовка к монтированию
+	MayTake30Seconds                  string
+	PleaseWait                        string
+	MaxDevicesReached                 string // Выбрано максимум 5 устройств
+	UnmountAllConfirm                 string // Отключить все подключенные устройства?
+	UnmountSelectedConfirm            string // Отключить выбранные устройства?
+	NoMountedDevices                  string // Нет подключенных устройств для размонтирования
+	SelectDevicesToMount              string // Выберите устройства для подключения
+	StoppingAllDevices                string // Остановка всех устройств...
+	StoppingNBDServers                string // Остановка NBD серверов...
+	AllDevicesUnmounted               string // Все устройства отключены
 
 	// Status Messages
 	StatusConnected    string
@@ -327,14 +338,16 @@ type LocalizedStrings struct {
 func EN() *LocalizedStrings {
 	return &LocalizedStrings{
 		// Main Window
-		AppTitle:         "USBridge Client",
-		ServerAddress:    "Server Address",
-		Token:            "Token",
-		ConnectButton:    "Connect",
-		DisconnectButton: "Disconnect",
-		TabDevices:       "💽 Device",
-		TabControl:       "📺 Control",
-		TabSnapshots:     "💾 Snapshots",
+		AppTitle:                "USBridge Client",
+		ServerAddress:           "Server Address",
+		Token:                   "Token",
+		ConnectButton:           "Connect",
+		DisconnectButton:        "Disconnect",
+		DisconnectAllButton:     "Disconnect All",
+		VideoStreamActiveButton: "Open Control",
+		TabDevices:              "💽 Device",
+		TabControl:              "📺 Control",
+		TabSnapshots:            "💾 Snapshots",
 
 		// Connection Manager
 		ConnectionManager:         "🔌 Connection Manager",
@@ -413,30 +426,39 @@ func EN() *LocalizedStrings {
 		ChangelogOpChmod:    "permissions change",
 
 		// Disk Widget
-		Devices:                "💽 Devices",
-		AllAvailableDevices:    "All available and connected devices",
-		LocalDrives:            "Local Drives",
-		NetworkDrives:          "Network Drives",
-		MountButton:            "🔌 Mount",
-		MountButtonCompact:     "🔌 Mount",
-		UnmountButton:          "🔴 Unmount",
-		UnmountButtonCompact:   "❌",
-		AddImageButton:         "➕",
-		RefreshButton:          "🔄",
-		LoadingFromCloud:       "Loading from cloud",
-		CloudFilesDetected:     "Google Drive files detected among selected files.",
-		AndroidBuffering:       "Android is buffering cloud files to the device.",
-		PreparingToMount:       "Preparing to mount",
-		MayTake30Seconds:       "This may take up to 30 seconds per file.",
-		PleaseWait:             "Please wait...",
-		MaxDevicesReached:      "Maximum 5 devices can be selected",
-		UnmountAllConfirm:      "Unmount all connected devices?",
-		UnmountSelectedConfirm: "Unmount selected devices?",
-		NoMountedDevices:       "No connected devices to unmount",
-		SelectDevicesToMount:   "Select devices to connect",
-		StoppingAllDevices:     "Stopping all devices...",
-		StoppingNBDServers:     "Stopping NBD servers...",
-		AllDevicesUnmounted:    "All devices unmounted",
+		Devices:                           "💽 Devices",
+		AllAvailableDevices:               "Organized into storage, console control, and connectivity.",
+		DevicesSectionStorage:             "Storage",
+		DevicesSectionStorageEyebrow:      "VIRTUAL DISK",
+		DevicesSectionStorageHint:         "ISO and IMG media for upload, swapping, and on-demand mounting.",
+		DevicesSectionControl:             "Control Console",
+		DevicesSectionControlEyebrow:      "VIDEO + INPUT",
+		DevicesSectionControlHint:         "Capture, keyboard, and pointer devices that operate together as the KVM console.",
+		DevicesSectionConnectivity:        "Connectivity",
+		DevicesSectionConnectivityEyebrow: "NETWORK",
+		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
+		LocalDrives:                       "Local Drives",
+		NetworkDrives:                     "Network Drives",
+		MountButton:                       "🔌 Mount",
+		MountButtonCompact:                "🔌 Mount",
+		UnmountButton:                     "🔴 Unmount",
+		UnmountButtonCompact:              "❌",
+		AddImageButton:                    "➕",
+		RefreshButton:                     "🔄",
+		LoadingFromCloud:                  "Loading from cloud",
+		CloudFilesDetected:                "Google Drive files detected among selected files.",
+		AndroidBuffering:                  "Android is buffering cloud files to the device.",
+		PreparingToMount:                  "Preparing to mount",
+		MayTake30Seconds:                  "This may take up to 30 seconds per file.",
+		PleaseWait:                        "Please wait...",
+		MaxDevicesReached:                 "Maximum 5 devices can be selected",
+		UnmountAllConfirm:                 "Unmount all connected devices?",
+		UnmountSelectedConfirm:            "Unmount selected devices?",
+		NoMountedDevices:                  "No connected devices to unmount",
+		SelectDevicesToMount:              "Select devices to connect",
+		StoppingAllDevices:                "Stopping all devices...",
+		StoppingNBDServers:                "Stopping NBD servers...",
+		AllDevicesUnmounted:               "All devices unmounted",
 
 		// Status Messages
 		StatusConnected:    "Connected",

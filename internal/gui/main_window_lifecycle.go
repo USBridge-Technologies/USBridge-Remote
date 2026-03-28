@@ -76,14 +76,17 @@ func (mw *MainWindow) showMainContent() {
 
 // handleClose handles app shutdown.
 func (mw *MainWindow) handleClose() {
+	logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
 	if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
 		logrus.Info("handleClose: fullscreen active, exit it first")
 		return
 	}
 
 	if mw.isConnected {
+		logrus.Info("[shutdown] handleClose: calling handleDisconnect")
 		mw.handleDisconnect()
 	}
+	logrus.Info("[shutdown] handleClose: closing window")
 	mw.window.Close()
 }
 
