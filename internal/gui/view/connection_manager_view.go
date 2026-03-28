@@ -1190,6 +1190,23 @@ func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
 
 func (b *iconChromeButton) TappedSecondary(*fyne.PointEvent) {}
 
+func (b *iconChromeButton) SetDisabled(disabled bool) {
+	b.spec.Disabled = disabled
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *iconChromeButton) SetOnTapped(onTapped func()) {
+	b.spec.OnTapped = onTapped
+}
+
+func (b *iconChromeButton) SetIcons(normalIcon fyne.Resource, hoverIcon fyne.Resource, disabledIcon fyne.Resource) {
+	b.spec.NormalIcon = normalIcon
+	b.spec.HoverIcon = hoverIcon
+	b.spec.DisabledIcon = disabledIcon
+	b.refreshVisuals()
+}
+
 func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
 	if b.spec.Disabled {
 		return

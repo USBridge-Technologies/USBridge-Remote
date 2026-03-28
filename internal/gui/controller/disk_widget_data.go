@@ -30,7 +30,12 @@ type uploadState struct {
 
 // loadLocalDrives загружает локальные устройства через API
 func (dw *DiskWidget) loadLocalDrives() {
+	if !dw.loadingLocalDrives.CompareAndSwap(false, true) {
+		logrus.Debug("loadLocalDrives already in flight, skipping overlapping refresh")
+		return
+	}
 	go func() {
+		defer dw.loadingLocalDrives.Store(false)
 		if dw.usbClient == nil {
 			logrus.Debug("USB клиент не инициализирован, пропускаем загрузку локальных устройств")
 			return
@@ -51,7 +56,7 @@ func (dw *DiskWidget) loadLocalDrives() {
 		logrus.Debugf("Загружено %d устройств из API", len(dw.localDrives))
 		dw.updateUIAsync(func() {
 			dw.combineDrives()
-			dw.devicesList.Refresh()
+			dw.requestDevicesRefresh()
 		})
 
 		// Загружаем информацию о месте на SD-карте (раздел iso/data/backup)
@@ -136,14 +141,19 @@ func (dw *DiskWidget) loadLocalFiles() {
 }
 
 func (dw *DiskWidget) loadVideoDevices() {
+	if !dw.loadingVideoDevices.CompareAndSwap(false, true) {
+		logrus.Debug("loadVideoDevices already in flight, skipping overlapping refresh")
+		return
+	}
 	go func() {
+		defer dw.loadingVideoDevices.Store(false)
 		devices, err := getAvailableVideoDevices(dw.usbClient)
 		if err != nil {
 			logrus.Debugf("video devices unavailable: %v", err)
 			dw.updateUIAsync(func() {
 				dw.videoDevices = nil
 				dw.combineDrives()
-				dw.devicesList.Refresh()
+				dw.requestDevicesRefresh()
 			})
 			return
 		}
@@ -151,7 +161,7 @@ func (dw *DiskWidget) loadVideoDevices() {
 		dw.updateUIAsync(func() {
 			dw.videoDevices = devices
 			dw.combineDrives()
-			dw.devicesList.Refresh()
+			dw.requestDevicesRefresh()
 		})
 	}()
 }
@@ -348,13 +358,20 @@ func (dw *DiskWidget) combineDrives() {
 	}
 
 	dw.updateDevicesStatus()
+	dw.rebuildListItems()
+	dw.traceCombinedDrives()
 
 	logrus.Debugf("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices))
 }
 
 // loadMountedDevices загружает смонтированные устройства через API
 func (dw *DiskWidget) loadMountedDevices() {
+	if !dw.loadingMountedInfo.CompareAndSwap(false, true) {
+		logrus.Debug("loadMountedDevices already in flight, skipping overlapping refresh")
+		return
+	}
 	go func() {
+		defer dw.loadingMountedInfo.Store(false)
 		if dw.usbClient == nil {
 			logrus.Debug("USB клиент не инициализирован, пропускаем загрузку устройств")
 			return
@@ -374,9 +391,32 @@ func (dw *DiskWidget) loadMountedDevices() {
 		logrus.Debugf("Загружено %d смонтированных устройств", len(dw.mountedDevices))
 		dw.updateUIAsync(func() {
 			dw.updateDevicesStatus()
-			dw.devicesList.Refresh()
+			dw.requestDevicesRefresh()
 		})
 	}()
+}
+
+func (dw *DiskWidget) traceCombinedDrives() {
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("total=%d|api=%d|local=%d|user=%d|video=%d|mounted=%d",
+		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), len(dw.mountedDevices)))
+	for i := 0; i < len(dw.allDrives) && i < 6; i++ {
+		drive := dw.allDrives[i]
+		builder.WriteString(fmt.Sprintf("|%d:%s:%t:%t:%s", i, drive.Source, drive.IsMounted, drive.IsMounting, drive.Name))
+	}
+
+	signature := builder.String()
+	if signature == dw.lastDrivesTraceSig {
+		return
+	}
+	dw.lastDrivesTraceSig = signature
+
+	logrus.Infof("[devices-ui] combineDrives: total=%d api=%d local=%d user=%d video=%d mounted=%d",
+		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), len(dw.mountedDevices))
+	for i := 0; i < len(dw.allDrives) && i < 6; i++ {
+		logrus.Infof("[devices-ui] item[%d]: source=%s mounted=%v mounting=%v name=%q",
+			i, dw.allDrives[i].Source, dw.allDrives[i].IsMounted, dw.allDrives[i].IsMounting, dw.allDrives[i].Name)
+	}
 }
 
 // updateDevicesStatus обновляет статус всех устройств в списке

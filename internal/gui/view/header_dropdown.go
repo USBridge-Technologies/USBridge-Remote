@@ -20,6 +20,7 @@ type HeaderDropdown struct {
 	Options    []string
 	Selected   string
 	OnSelected func(string)
+	MinWidth   float32
 
 	disabled bool
 	hovered  bool
@@ -71,11 +72,15 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (d *HeaderDropdown) MinSize() fyne.Size {
+	if d.MinWidth > 0 {
+		return fyne.NewSize(d.MinWidth, 40)
+	}
 	label := canvas.NewText(d.Selected, design.ColorTextLight)
 	label.TextSize = 14
 	width := label.MinSize().Width + 52
-	if width < 88 {
-		width = 88
+	minWidth := float32(88)
+	if width < minWidth {
+		width = minWidth
 	}
 	if width > 132 {
 		width = 132
@@ -190,15 +195,62 @@ func (d *HeaderDropdown) openPopup() {
 		menuWidth = d.Size().Width
 	}
 
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(d)
+	gap := float32(6)
+	canvasSize := canvasForObj.Size()
+	menuHeight := menu.MinSize().Height
+	belowSpace := canvasSize.Height - (pos.Y + d.Size().Height + gap)
+	aboveSpace := pos.Y - gap
+	openAbove := menuHeight > belowSpace && aboveSpace > belowSpace
+
+	popupContent := fyne.CanvasObject(menu)
+	popupHeight := menuHeight
+	chosenSpace := belowSpace
+	if openAbove {
+		chosenSpace = aboveSpace
+	}
+
+	maxPopupHeight := chosenSpace
+	if maxPopupHeight > canvasSize.Height-12 {
+		maxPopupHeight = canvasSize.Height - 12
+	}
+	if maxPopupHeight < 80 {
+		maxPopupHeight = 80
+	}
+	if popupHeight > maxPopupHeight {
+		scroll := container.NewVScroll(menu)
+		scroll.SetMinSize(fyne.NewSize(menuWidth, maxPopupHeight))
+		popupContent = scroll
+		popupHeight = maxPopupHeight
+	}
+
+	popupX := pos.X
+	if popupX+menuWidth > canvasSize.Width {
+		popupX = canvasSize.Width - menuWidth - 4
+	}
+	if popupX < 4 {
+		popupX = 4
+	}
+
+	popupY := pos.Y + d.Size().Height + gap
+	if openAbove {
+		popupY = pos.Y - popupHeight - gap
+	}
+	if popupY < 4 {
+		popupY = 4
+	}
+	if popupY+popupHeight > canvasSize.Height-4 {
+		popupY = canvasSize.Height - popupHeight - 4
+	}
+
 	d.popup = newDropdownPopup(
-		menu,
+		popupContent,
 		canvasForObj,
-		fyne.NewSize(menuWidth, menu.MinSize().Height),
+		fyne.NewSize(menuWidth, popupHeight),
 		d.popupDismissed,
 	)
 
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(d)
-	d.popup.ShowAtPosition(pos.Add(fyne.NewPos(0, d.Size().Height+6)))
+	d.popup.ShowAtPosition(fyne.NewPos(popupX, popupY))
 	d.opened = true
 	d.animateArrow(theme.Icon(theme.IconNameArrowDropDown), theme.Icon(theme.IconNameArrowDropUp))
 	d.Refresh()

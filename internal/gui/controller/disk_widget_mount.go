@@ -428,7 +428,7 @@ func (dw *DiskWidget) handleMount() {
 		mountingExportNames := nbdExportNamesForUI
 		dw.updateUIAsync(func() {
 			dw.setMountingStateByExportNames(mountingExportNames, true)
-			dw.devicesList.Refresh()
+			dw.requestDevicesRefresh()
 		})
 
 		dw.updateUIAsync(func() {
@@ -441,7 +441,7 @@ func (dw *DiskWidget) handleMount() {
 				time.Sleep(1500 * time.Millisecond)
 				dw.updateUIAsync(func() {
 					dw.loadMountedDevices()
-					dw.devicesList.Refresh()
+					dw.requestDevicesRefresh()
 					dw.setButtonsEnabled(true)
 				})
 			}()
@@ -606,8 +606,17 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 
 	time.Sleep(2 * time.Second)
 	dw.updateUIAsync(func() {
+		if unmountAll {
+			dw.selectedItems = make(map[int]bool)
+		} else {
+			for idx := range selectedIndices {
+				delete(dw.selectedItems, idx)
+			}
+		}
+		dw.updateButtons()
 		dw.loadMountedDevices()
 		dw.loadLocalDrives()
+		dw.requestDevicesRefresh()
 	})
 	if dw.updateStatus != nil {
 		dw.updateStatus()
@@ -792,7 +801,17 @@ func (dw *DiskWidget) updateButtons() {
 	canAdd := selectedNotMountedCount > 0 && (mountedCount+selectedGadgetNotMountedCount) <= MaxDevicesToMount
 
 	fyne.Do(func() {
-		if selectedCount == 0 {
+		disconnectLabel := i18n.Current.DisconnectButton
+		if selectedCount == 0 && hasMountedDevices {
+			disconnectLabel = i18n.Current.DisconnectAllButton
+		}
+		dw.unmountBtn.Text = disconnectLabel
+		dw.unmountBtn.Refresh()
+		if dw.compactUnmountBtn != nil {
+			dw.compactUnmountBtn.SetLabel(disconnectLabel)
+		}
+
+		if selectedNotMountedCount == 0 {
 			dw.mountBtn.Hide()
 			if dw.compactMountBtn != nil {
 				dw.compactMountBtn.Hide()
@@ -812,15 +831,16 @@ func (dw *DiskWidget) updateButtons() {
 				dw.compactUnmountBtn.Enable()
 			}
 		} else {
-			dw.unmountBtn.Show()
-			dw.unmountBtn.Disable()
+			dw.unmountBtn.Hide()
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Show()
-				dw.compactUnmountBtn.Disable()
+				dw.compactUnmountBtn.Hide()
 			}
 		}
 
 		if selectedCount == 0 {
+			if dw.onButtonsChanged != nil {
+				dw.onButtonsChanged()
+			}
 			return
 		}
 
@@ -834,6 +854,9 @@ func (dw *DiskWidget) updateButtons() {
 			if dw.compactMountBtn != nil {
 				dw.compactMountBtn.Disable()
 			}
+		}
+		if dw.onButtonsChanged != nil {
+			dw.onButtonsChanged()
 		}
 	})
 }

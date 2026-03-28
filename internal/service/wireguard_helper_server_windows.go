@@ -88,9 +88,11 @@ func (s *userspaceWireGuardService) disconnectWithElevatedWireGuardHelper() erro
 	client := windowsWireGuardHelperState
 	windowsWireGuardHelperStateMu.Unlock()
 	if client == nil {
+		logrus.Info("[shutdown] WireGuard helper disconnect: no helper client state")
 		return nil
 	}
 
+	logrus.Info("[shutdown] WireGuard helper disconnect: sending down request")
 	return client.down()
 }
 
@@ -131,10 +133,17 @@ func (c *windowsWireGuardHelperClient) up(payload *windowsWireGuardHelperUpPaylo
 }
 
 func (c *windowsWireGuardHelperClient) down() error {
+	logrus.Infof("[shutdown] WireGuard helper client down: ensureRunning addr=%s parent_pid=%d", c.addr, c.parentPID)
 	if err := c.ensureRunning(); err != nil {
+		logrus.Errorf("[shutdown] WireGuard helper client down: ensureRunning failed: %v", err)
 		return err
 	}
 	_, err := c.call(windowsWireGuardHelperRequest{Command: "down"})
+	if err != nil {
+		logrus.Errorf("[shutdown] WireGuard helper client down: request failed: %v", err)
+	} else {
+		logrus.Info("[shutdown] WireGuard helper client down: request completed")
+	}
 	return err
 }
 
@@ -298,11 +307,14 @@ func RunWindowsWireGuardHelper(args []string) error {
 func (s *windowsWireGuardHelperServer) watchParent(parentPID int) {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(parentPID))
 	if err != nil {
+		logrus.Errorf("[shutdown] WireGuard helper watchParent: OpenProcess failed for pid=%d: %v", parentPID, err)
 		return
 	}
 	defer windows.CloseHandle(handle)
 
+	logrus.Infof("[shutdown] WireGuard helper watchParent: waiting for parent pid=%d", parentPID)
 	_, _ = windows.WaitForSingleObject(handle, windows.INFINITE)
+	logrus.Infof("[shutdown] WireGuard helper watchParent: parent exited pid=%d", parentPID)
 	_ = s.shutdown()
 	if s.listener != nil {
 		_ = s.listener.Close()
@@ -342,9 +354,11 @@ func (s *windowsWireGuardHelperServer) handleRequest(request *windowsWireGuardHe
 	case "up":
 		return s.handleUp(request.Payload)
 	case "down":
+		logrus.Info("[shutdown] WireGuard helper server: received down request")
 		if err := s.shutdown(); err != nil {
 			return nil, err
 		}
+		logrus.Info("[shutdown] WireGuard helper server: down request handled")
 		return &windowsWireGuardHelperResponse{OK: true}, nil
 	default:
 		return nil, fmt.Errorf("unsupported helper command %q", request.Command)
@@ -444,10 +458,12 @@ func (s *windowsWireGuardHelperServer) handleUp(payload *windowsWireGuardHelperU
 func (s *windowsWireGuardHelperServer) shutdown() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	logrus.Info("[shutdown] WireGuard helper server: shutdown requested")
 	return s.shutdownLocked()
 }
 
 func (s *windowsWireGuardHelperServer) shutdownLocked() error {
+	logrus.Infof("[shutdown] WireGuard helper server: shutdownLocked iface=%s client=%s server=%s", s.ifaceName, s.clientHost, s.serverHost)
 	var errs []string
 
 	if strings.TrimSpace(s.ifaceName) != "" {
@@ -477,8 +493,10 @@ func (s *windowsWireGuardHelperServer) shutdownLocked() error {
 	s.serverHost = ""
 
 	if len(errs) > 0 {
+		logrus.Errorf("[shutdown] WireGuard helper server: shutdown errors: %s", strings.Join(errs, "; "))
 		return fmt.Errorf(strings.Join(errs, "; "))
 	}
+	logrus.Info("[shutdown] WireGuard helper server: shutdown complete")
 	return nil
 }
 

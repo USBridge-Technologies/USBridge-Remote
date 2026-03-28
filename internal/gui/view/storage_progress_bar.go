@@ -1,7 +1,6 @@
 package view
 
 import (
-	"fmt"
 	"image/color"
 
 	"usbridge-client/internal/gui/design"
@@ -12,11 +11,10 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// StorageProgressBar — компактный chip: иконка + процент, под ним занятость мелким шрифтом
+// StorageProgressBar — компактный chip: тонкая шкала и строка занятости.
 type StorageProgressBar struct {
 	widget.BaseWidget
 	usedPercent float64 // 0-100
-	percentText string  // "43%"
 	sizeText    string  // "66/119 GB"
 }
 
@@ -27,7 +25,7 @@ func NewStorageProgressBar() *StorageProgressBar {
 	return s
 }
 
-// SetValue устанавливает процент занятости (0-1) и обновляет текст процента
+// SetValue устанавливает процент занятости (0-1).
 func (s *StorageProgressBar) SetValue(v float64) {
 	if v < 0 {
 		v = 0
@@ -36,7 +34,6 @@ func (s *StorageProgressBar) SetValue(v float64) {
 		v = 1
 	}
 	s.usedPercent = v * 100
-	s.percentText = fmt.Sprintf("%.0f%%", s.usedPercent)
 	s.Refresh()
 }
 
@@ -49,12 +46,6 @@ func (s *StorageProgressBar) SetText(text string) {
 // SetSizeText устанавливает текст занятости: "66/119 GB"
 func (s *StorageProgressBar) SetSizeText(text string) {
 	s.sizeText = text
-	s.Refresh()
-}
-
-// SetPercentText устанавливает текст процента: "43%"
-func (s *StorageProgressBar) SetPercentText(text string) {
-	s.percentText = text
 	s.Refresh()
 }
 
@@ -78,104 +69,100 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 
 	bg := canvas.NewRectangle(bgColor)
 	bg.CornerRadius = design.RadiusMD
+	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
+	track.CornerRadius = design.RadiusMD
 	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
 	fill.CornerRadius = design.RadiusMD
 
-	icon := widget.NewIcon(theme.StorageIcon())
-	percentText := canvas.NewText(s.percentText, fgColor)
-	percentText.TextSize = theme.TextSize()
-	percentText.TextStyle.Bold = true
-
 	sizeText := canvas.NewText(s.sizeText, fgColor)
-	sizeText.TextSize = theme.TextSize() * 11 / 14 // ~79% от обычного
+	sizeText.TextSize = theme.TextSize() * 11 / 14
 	sizeText.TextStyle.Bold = false
 
 	return &storageProgressBarRenderer{
-		s:           s,
-		bg:          bg,
-		fill:        fill,
-		icon:        icon,
-		percentText: percentText,
-		sizeText:    sizeText,
-		objs:        []fyne.CanvasObject{bg, fill, icon, percentText, sizeText},
+		s:        s,
+		bg:       bg,
+		track:    track,
+		fill:     fill,
+		sizeText: sizeText,
+		objs:     []fyne.CanvasObject{bg, track, fill, sizeText},
 	}
 }
 
 type storageProgressBarRenderer struct {
-	s           *StorageProgressBar
-	bg          *canvas.Rectangle
-	fill        *canvas.Rectangle
-	icon        *widget.Icon
-	percentText *canvas.Text
-	sizeText    *canvas.Text
-	objs        []fyne.CanvasObject
+	s        *StorageProgressBar
+	bg       *canvas.Rectangle
+	track    *canvas.Rectangle
+	fill     *canvas.Rectangle
+	sizeText *canvas.Text
+	objs     []fyne.CanvasObject
 }
 
 const (
-	iconSize = float32(14)
-	padH     = float32(4)
-	padV     = float32(2)
-	rowGap   = float32(1)
+	padH       = float32(8)
+	padV       = float32(5)
+	barHeight  = float32(4)
+	textTopGap = float32(6)
 )
 
 func (r *storageProgressBarRenderer) Layout(size fyne.Size) {
 	r.bg.Resize(size)
 	r.bg.Move(fyne.NewPos(0, 0))
 
-	fillWidth := size.Width * float32(r.s.usedPercent/100)
+	barY := padV
+	barWidth := size.Width - padH*2
+	if barWidth < 0 {
+		barWidth = 0
+	}
+	r.track.Move(fyne.NewPos(padH, barY))
+	r.track.Resize(fyne.NewSize(barWidth, barHeight))
+
+	fillWidth := barWidth * float32(r.s.usedPercent/100)
 	if fillWidth < 2 {
 		fillWidth = 0
 	}
-	r.fill.Resize(fyne.NewSize(fillWidth, size.Height))
-	r.fill.Move(fyne.NewPos(0, 0))
+	r.fill.Resize(fyne.NewSize(fillWidth, barHeight))
+	r.fill.Move(fyne.NewPos(padH, barY))
 
-	// Верхняя строка: иконка + процент
-	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
-	r.icon.Move(fyne.NewPos(padH, padV))
-
-	percentW := float32(32)
-	r.percentText.Resize(fyne.NewSize(percentW, iconSize))
-	r.percentText.Move(fyne.NewPos(padH+iconSize+2, padV))
-
-	// Нижняя строка: занятость мелким шрифтом
-	topRowBottom := padV + iconSize + rowGap
-	lineH := size.Height - topRowBottom - padV
+	lineY := barY + barHeight + textTopGap
+	lineH := size.Height - lineY - padV
 	if lineH < 4 {
 		lineH = 4
 	}
 	r.sizeText.Resize(fyne.NewSize(size.Width-padH*2, lineH))
-	r.sizeText.Move(fyne.NewPos(padH, topRowBottom))
+	r.sizeText.Move(fyne.NewPos(padH, lineY))
 }
 
 func (r *storageProgressBarRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(70, 36)
+	return fyne.NewSize(104, 30)
 }
 
 func (r *storageProgressBarRenderer) Refresh() {
 	t := r.s.Theme()
 	variant := fyne.CurrentApp().Settings().ThemeVariant()
 	r.bg.FillColor = t.Color(theme.ColorNameButton, variant)
+	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
 	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
 
 	fg := t.Color(theme.ColorNameForeground, variant)
-	r.percentText.Color = fg
-	r.percentText.Text = r.s.percentText
 	r.sizeText.Color = fg
 	r.sizeText.Text = r.s.sizeText
 
 	if sz := r.s.Size(); sz.Width > 0 {
-		fillWidth := sz.Width * float32(r.s.usedPercent/100)
+		barWidth := sz.Width - padH*2
+		if barWidth < 0 {
+			barWidth = 0
+		}
+		fillWidth := barWidth * float32(r.s.usedPercent/100)
 		if fillWidth < 2 {
 			fillWidth = 0
 		}
-		r.fill.Resize(fyne.NewSize(fillWidth, sz.Height))
+		r.fill.Resize(fyne.NewSize(fillWidth, barHeight))
 	}
 
 	canvas.Refresh(r.bg)
+	canvas.Refresh(r.track)
 	canvas.Refresh(r.fill)
-	canvas.Refresh(r.percentText)
 	canvas.Refresh(r.sizeText)
-	r.icon.Refresh()
 }
 
 func (r *storageProgressBarRenderer) Objects() []fyne.CanvasObject {

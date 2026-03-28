@@ -551,7 +551,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
-	logrus.Info("Disconnecting...")
+	logrus.Infof("[shutdown] handleDisconnect: start connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
 	mw.connectionLossInProgress.Store(false)
 
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
@@ -572,16 +572,20 @@ func (mw *MainWindow) handleDisconnect() {
 	}
 
 	if mw.frpService != nil && mw.frpService.IsRunning() {
+		logrus.Info("[shutdown] handleDisconnect: stopping FRP service")
 		if err := mw.frpService.Disconnect(); err != nil {
 			logrus.Errorf("Failed to stop FRP tunnel: %v", err)
 		}
 		mw.frpService = nil
+		logrus.Info("[shutdown] handleDisconnect: FRP service stopped")
 	}
 	if mw.wgService != nil && mw.wgService.IsRunning() {
+		logrus.Info("[shutdown] handleDisconnect: stopping WireGuard service")
 		if err := mw.wgService.Disconnect(); err != nil {
 			logrus.Errorf("Failed to stop WireGuard tunnel: %v", err)
 		}
 		mw.wgService = nil
+		logrus.Info("[shutdown] handleDisconnect: WireGuard service stopped")
 	}
 
 	mw.isConnected = false
@@ -617,7 +621,7 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.config.VideoBindHost = "127.0.0.1"
 	mw.showConnectionManager()
 
-	logrus.Info("🛑 Disconnected from USBridge")
+	logrus.Info("[shutdown] handleDisconnect: completed")
 }
 
 // handleRefresh обрабатывает обновление

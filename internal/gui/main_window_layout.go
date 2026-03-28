@@ -16,16 +16,43 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
+	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	addressBarGap       float32 = 4
-	addressBarControlH  float32 = 36
-	addressBarActionBtn float32 = 36
+	addressBarGap        float32 = 4
+	addressBarControlH   float32 = 36
+	addressBarActionBtn  float32 = 36
+	addressBarHostHideAt float32 = 180
+	statusIconSize       float32 = 18
 )
+
+type tabsTheme struct {
+	base fyne.Theme
+}
+
+func (t *tabsTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case fynetheme.ColorNameHover, fynetheme.ColorNamePressed, fynetheme.ColorNameFocus:
+		return color.Transparent
+	default:
+		return t.base.Color(name, variant)
+	}
+}
+
+func (t *tabsTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return t.base.Font(style)
+}
+
+func (t *tabsTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return t.base.Icon(name)
+}
+
+func (t *tabsTheme) Size(name fyne.ThemeSizeName) float32 {
+	return t.base.Size(name)
+}
 
 // createInterface инициализирует поля адресной строки.
 func (mw *MainWindow) createInterface() {
@@ -147,6 +174,7 @@ func (mw *MainWindow) recreateContainers() {
 	}
 	if mw.diskWidget != nil {
 		mw.diskWidget.SetOnStorageInfoUpdate(storageUpdate)
+		mw.diskWidget.SetOnButtonsChanged(mw.refreshDeviceFooterButtons)
 		if mw.videoWidget != nil {
 			mw.diskWidget.SetOnMouseTypeChanged(mw.videoWidget.SetMouseInputMode)
 			mw.diskWidget.SetOnVideoConfigRequested(func(devicePath string) {
@@ -169,18 +197,24 @@ func (mw *MainWindow) recreateContainers() {
 	}
 
 	mw.createStatusBar()
-	addressBar := mw.createAddressBar()
+	mainAddressBar := mw.createMainAddressBar()
+	connectionAddressBar := mw.createConnectionAddressBar()
 	mainFooter := mw.createDeviceFooterBar()
 	connectionFooter := mw.createConnectionFooterBar()
+	devicesTabTitle := "Devices"
+	controlTabTitle := "Control"
+	snapshotsTabTitle := "Snapshots"
 
 	mw.tabs = container.NewAppTabs(
-		container.NewTabItem(i18n.Current.TabDevices, mw.diskWidget.GetContainer()),
-		container.NewTabItem(i18n.Current.TabControl, mw.videoWidget.GetContainer()),
-		container.NewTabItem(i18n.Current.TabSnapshots, mw.createBackupFlashTab()),
+		container.NewTabItemWithIcon(devicesTabTitle, assets.USBTabIcon, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItemWithIcon(controlTabTitle, assets.MonitorTabIcon, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItemWithIcon(snapshotsTabTitle, assets.SnapshotsTabIcon, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
 	)
+	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
+		mw.applyTabVisualState(mw.tabs.SelectedIndex())
 		mw.updateDeviceButtonsVisibility()
-		if tab != nil && tab.Text == i18n.Current.TabControl {
+		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil && !mw.videoWidget.IsStreaming() {
 				mw.videoWidget.StartConfiguredVideoAsync()
 			}
@@ -191,9 +225,17 @@ func (mw *MainWindow) recreateContainers() {
 		}
 	}
 
-	mw.mainContent = container.NewBorder(addressBar, mainFooter, nil, nil, mw.tabs)
+	deviceFooterOverlay := container.NewBorder(nil, mainFooter, nil, nil, nil)
+	tabsWithTheme := container.NewThemeOverride(mw.tabs, &tabsTheme{base: design.NewBrandTheme()})
+	mw.mainContent = container.NewBorder(
+		mainAddressBar,
+		nil,
+		nil,
+		nil,
+		container.NewStack(tabsWithTheme, deviceFooterOverlay),
+	)
 	mw.connectionContent = container.NewBorder(
-		addressBar,
+		connectionAddressBar,
 		connectionFooter,
 		nil,
 		nil,
@@ -203,28 +245,65 @@ func (mw *MainWindow) recreateContainers() {
 	mw.window.SetContent(mw.connectionContent)
 }
 
+func (mw *MainWindow) applyTabVisualState(activeIndex int) {
+	if mw == nil || mw.tabs == nil || len(mw.tabs.Items) < 3 {
+		return
+	}
+
+	mw.tabs.Items[0].Icon = assets.USBTabIcon
+	mw.tabs.Items[1].Icon = assets.MonitorTabIcon
+	mw.tabs.Items[2].Icon = assets.SnapshotsTabIcon
+
+	switch activeIndex {
+	case 0:
+		mw.tabs.Items[0].Icon = assets.USBTabIconActive
+	case 1:
+		mw.tabs.Items[1].Icon = assets.MonitorTabIconActive
+	case 2:
+		mw.tabs.Items[2].Icon = assets.SnapshotsTabIconActive
+	}
+	mw.tabs.Refresh()
+}
+
 // createAddressBar создает адресную строку.
-func (mw *MainWindow) createAddressBar() *fyne.Container {
-	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
+func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	hostField := view.NewFixedHeight(mw.hostEntry, addressBarControlH)
 	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, 0, addressBarControlH)
 	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
-	utilityPart := newCollapsingBox(
-		mw.pcpanelWidget.GetContainer(),
-		mw.sdStorageProgress,
-		mw.statusPanel,
-	)
 	rightPart := container.NewHBox(
-		newOptionalLeadingGap(addressBarGap, utilityPart),
-		headerGapSpacer(addressBarGap),
 		protocolPanel,
 		headerGapSpacer(addressBarGap),
 		connectPanel,
 	)
+	row := container.New(&addressBarResponsiveLayout{
+		hideHostAt: addressBarHostHideAt,
+		keepHostShown: func() bool {
+			return true
+		},
+	}, hostField, rightPart)
+	return view.NewHeaderBand("", row)
+}
+
+func (mw *MainWindow) createMainAddressBar() *fyne.Container {
+	if mw.pcpanelWidget == nil {
+		mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
+	}
+	if mw.mainExitBtn == nil {
+		mw.mainExitBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
+		mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
+			Fill:       design.ColorSurfaceLight,
+			Foreground: design.ColorTextLight,
+			Stroke:     color.Transparent,
+			Icon:       assets.ExitIcon,
+		})
+	}
+	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	row := container.New(
-		layout.NewBorderLayout(nil, nil, nil, rightPart),
-		hostField,
-		rightPart,
+		&distributedVisibleLayout{minGap: 12},
+		mw.pcpanelWidget.GetContainer(),
+		mw.sdStorageProgress,
+		mw.statusPanel,
+		exitPanel,
 	)
 	return view.NewHeaderBand("", row)
 }
@@ -269,11 +348,7 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
-	bg := canvas.NewRectangle(design.ColorGray950)
-	bar := container.NewStack(
-		bg,
-		view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, 2),
-	)
+	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, 2)
 	mw.deviceFooterBar = bar
 	mw.deviceFooterBar.Hide()
 	return bar
@@ -299,6 +374,13 @@ type collapsingBoxLayout struct{}
 type optionalLeadingGapLayout struct {
 	gap float32
 }
+type addressBarResponsiveLayout struct {
+	hideHostAt    float32
+	keepHostShown func() bool
+}
+type distributedVisibleLayout struct {
+	minGap float32
+}
 
 func newCollapsingBox(objects ...fyne.CanvasObject) *fyne.Container {
 	return container.New(&collapsingBoxLayout{}, objects...)
@@ -306,6 +388,153 @@ func newCollapsingBox(objects ...fyne.CanvasObject) *fyne.Container {
 
 func newOptionalLeadingGap(width float32, content fyne.CanvasObject) *fyne.Container {
 	return container.New(&optionalLeadingGapLayout{gap: width}, headerGapSpacer(width), content)
+}
+
+func newHeaderStatusIcon(resource fyne.Resource) fyne.CanvasObject {
+	icon := canvas.NewImageFromResource(resource)
+	icon.FillMode = canvas.ImageFillContain
+	return container.NewGridWrap(fyne.NewSize(statusIconSize, statusIconSize), icon)
+}
+
+func newProtocolIndicator(protocol string) fyne.CanvasObject {
+	iconRes := assets.ConnectionStatusIcon
+	textColor := design.ColorTextMuted
+	if strings.TrimSpace(protocol) != "" {
+		iconRes = assets.ConnectionStatusIconActive
+		textColor = design.ColorAccent
+	}
+
+	label := canvas.NewText(strings.TrimSpace(protocol), textColor)
+	label.TextSize = 14
+	label.TextStyle.Bold = true
+
+	return container.NewHBox(
+		newHeaderStatusIcon(iconRes),
+		headerGapSpacer(4),
+		container.NewCenter(label),
+	)
+}
+
+func minFloat32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxFloat32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (l *distributedVisibleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	visible := make([]fyne.CanvasObject, 0, len(objects))
+	totalWidth := float32(0)
+	maxHeight := float32(0)
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			obj.Move(fyne.NewPos(0, 0))
+			obj.Resize(fyne.NewSize(0, 0))
+			continue
+		}
+		min := obj.MinSize()
+		totalWidth += min.Width
+		if min.Height > maxHeight {
+			maxHeight = min.Height
+		}
+		visible = append(visible, obj)
+	}
+	if len(visible) == 0 {
+		return
+	}
+	if len(visible) == 1 {
+		min := visible[0].MinSize()
+		visible[0].Move(fyne.NewPos(0, maxFloat32(0, (size.Height-min.Height)/2)))
+		visible[0].Resize(min)
+		return
+	}
+
+	gap := l.minGap
+	if extra := size.Width - totalWidth; extra > 0 {
+		distributed := extra / float32(len(visible)-1)
+		if distributed > gap {
+			gap = distributed
+		}
+	}
+
+	x := float32(0)
+	for _, obj := range visible {
+		min := obj.MinSize()
+		obj.Move(fyne.NewPos(x, maxFloat32(0, (size.Height-min.Height)/2)))
+		obj.Resize(min)
+		x += min.Width + gap
+	}
+}
+
+func (l *distributedVisibleLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(0)
+	height := float32(0)
+	count := 0
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			continue
+		}
+		min := obj.MinSize()
+		width += min.Width
+		if min.Height > height {
+			height = min.Height
+		}
+		count++
+	}
+	if count > 1 {
+		width += float32(count-1) * l.minGap
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (l *addressBarResponsiveLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	host := objects[0]
+	right := objects[1]
+	rightMin := right.MinSize()
+	rightWidth := minFloat32(size.Width, rightMin.Width)
+	rightX := size.Width - rightWidth
+	if rightX < 0 {
+		rightX = 0
+	}
+
+	right.Move(fyne.NewPos(rightX, maxFloat32(0, (size.Height-rightMin.Height)/2)))
+	right.Resize(fyne.NewSize(rightWidth, minFloat32(size.Height, rightMin.Height)))
+
+	hostWidth := size.Width - rightWidth
+	keepShown := l.keepHostShown != nil && l.keepHostShown()
+	if !keepShown && hostWidth < l.hideHostAt {
+		host.Hide()
+		host.Move(fyne.NewPos(0, 0))
+		host.Resize(fyne.NewSize(0, 0))
+		return
+	}
+
+	host.Show()
+	hostMin := host.MinSize()
+	host.Move(fyne.NewPos(0, maxFloat32(0, (size.Height-hostMin.Height)/2)))
+	host.Resize(fyne.NewSize(hostWidth, minFloat32(size.Height, hostMin.Height)))
+}
+
+func (l *addressBarResponsiveLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	hostMin := objects[0].MinSize()
+	rightMin := objects[1].MinSize()
+	height := maxFloat32(hostMin.Height, rightMin.Height)
+	return fyne.NewSize(rightMin.Width, height)
 }
 
 func (l *collapsingBoxLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -412,12 +641,84 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 
 	mw.statusPanel = container.NewHBox()
 
-	mountBtn, unmountBtn, addImageBtn := mw.diskWidget.GetButtons()
-	mw.deviceButtonsPanel = container.NewHBox(addImageBtn, mountBtn, unmountBtn)
+	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
+	mw.deviceMountBtn = mountBtn
+	mw.deviceUnmountBtn = unmountBtn
+	mw.deviceVideoBtn = view.NewDeviceActionButton(i18n.Current.VideoStreamActiveButton, nil, func() {
+		if mw.tabs != nil && len(mw.tabs.Items) > 1 {
+			mw.tabs.Select(mw.tabs.Items[1])
+		}
+	})
+	mw.deviceVideoBtn.SetColors(design.ColorAccent, design.ColorAccentHover, design.ColorBackground, design.ColorBackground)
+	mw.deviceVideoBtn.Hide()
+	mw.deviceButtonsPanel = container.NewHBox()
+	mw.refreshDeviceFooterButtons()
 	mw.deviceButtonsPanel.Hide()
 	mw.updateVideoIconLabel()
 
 	return container.NewBorder(nil, nil, mw.deviceButtonsPanel, nil, nil)
+}
+
+func (mw *MainWindow) refreshDeviceFooterButtons() {
+	if mw.deviceButtonsPanel == nil {
+		return
+	}
+
+	buildGap := func() fyne.CanvasObject {
+		gap := canvas.NewRectangle(color.Transparent)
+		gap.SetMinSize(fyne.NewSize(16, 1))
+		return gap
+	}
+
+	objects := make([]fyne.CanvasObject, 0, 5)
+	appendVisible := func(obj fyne.CanvasObject) {
+		if obj == nil || !obj.Visible() {
+			return
+		}
+		if len(objects) > 0 {
+			objects = append(objects, buildGap())
+		}
+		objects = append(objects, obj)
+	}
+
+	appendVisible(mw.deviceMountBtn)
+	appendVisible(mw.deviceUnmountBtn)
+	appendVisible(mw.deviceVideoBtn)
+
+	mw.deviceButtonsPanel.Objects = objects
+	mw.deviceButtonsPanel.Refresh()
+	if mw.deviceFooterBar != nil {
+		mw.deviceFooterBar.Refresh()
+	}
+}
+
+func buildHeaderStatusIndicators(protocol string, keyboardConnected, mouseConnected bool) []fyne.CanvasObject {
+	indicatorGap := func() fyne.CanvasObject {
+		gap := canvas.NewRectangle(color.Transparent)
+		gap.SetMinSize(fyne.NewSize(10, 1))
+		return gap
+	}
+
+	protocolText, _, _ := protocolButtonState(protocol)
+	items := []fyne.CanvasObject{
+		newHeaderStatusIcon(func() fyne.Resource {
+			if keyboardConnected {
+				return assets.KeyboardIconActive
+			}
+			return assets.KeyboardIcon
+		}()),
+		indicatorGap(),
+		newHeaderStatusIcon(func() fyne.Resource {
+			if mouseConnected {
+				return assets.MouseIconActive
+			}
+			return assets.MouseIcon
+		}()),
+		indicatorGap(),
+		newProtocolIndicator(protocolText),
+	}
+
+	return items
 }
 
 // updateDeviceButtonsVisibility обновляет видимость кнопок устройств.
@@ -427,6 +728,7 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 	}
 
 	fyne.Do(func() {
+		mw.refreshDeviceFooterButtons()
 		if mw.tabs.SelectedIndex() == 0 {
 			mw.deviceButtonsPanel.Show()
 			mw.deviceFooterBar.Show()
@@ -447,12 +749,6 @@ func (mw *MainWindow) updateStatusBar() {
 	cdromConnected := false
 	backupConnected := false
 	snapshotConnected := false
-
-	nbdConnected := false
-	if mw.nbdServer.IsRunning() {
-		clients := mw.nbdServer.GetClients()
-		nbdConnected = len(clients) > 0
-	}
 
 	videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
 
@@ -505,46 +801,21 @@ func (mw *MainWindow) updateStatusBar() {
 		keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected)
 
 	fyne.Do(func() {
-		var allIcons []fyne.CanvasObject
-
-		if nbdConnected {
-			mw.nbdIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.nbdIcon)
-		}
-		if videoStreaming {
-			mw.videoIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.videoIcon)
-		}
-		if keyboardConnected {
-			mw.keyboardIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.keyboardIcon)
-		}
-		if mouseConnected {
-			mw.mouseIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.mouseIcon)
-		}
-		if rndisConnected {
-			mw.rndisIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.rndisIcon)
-		}
-		if cdromConnected {
-			mw.cdromIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.cdromIcon)
-		}
-		if backupConnected {
-			mw.backupIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.backupIcon)
-		}
-		if snapshotConnected {
-			mw.snapshotIcon.Importance = widget.HighImportance
-			allIcons = append(allIcons, mw.snapshotIcon)
+		if mw.deviceVideoBtn != nil {
+			if videoStreaming {
+				mw.deviceVideoBtn.Show()
+				mw.deviceVideoBtn.Enable()
+			} else {
+				mw.deviceVideoBtn.Hide()
+			}
+			mw.refreshDeviceFooterButtons()
 		}
 
-		if len(allIcons) > 0 {
-			mw.statusPanel.Objects = allIcons
-		} else {
-			mw.statusPanel.Objects = []fyne.CanvasObject{}
-		}
+		mw.statusPanel.Objects = buildHeaderStatusIndicators(
+			mw.connectedProtocol,
+			keyboardConnected,
+			mouseConnected,
+		)
 		mw.statusPanel.Refresh()
 	})
 }
