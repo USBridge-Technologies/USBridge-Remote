@@ -872,3 +872,96 @@ func (dw *DiskWidget) updateButtons() {
 		}
 	})
 }
+
+func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
+	if dw.usbClient == nil {
+		dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.ErrorNotConnected))
+		return
+	}
+
+	dw.setUserOperationInFlight(true)
+	dw.setButtonsEnabled(false)
+
+	go func() {
+		reEnableButtons := true
+		defer func() {
+			if reEnableButtons {
+				dw.updateUIAsync(func() {
+					dw.setUserOperationInFlight(false)
+					dw.setButtonsEnabled(true)
+				})
+			}
+		}()
+
+		var deviceRequests []models.DeviceStartRequest
+		mountingExportNames := make(map[string]bool)
+		hasStorageRequests := false
+
+		for _, drive := range dw.allDrives {
+			if !drive.IsMounted || drive.IsVideo {
+				continue
+			}
+
+			current := drive
+			if current.IsMouse {
+				current.MouseType = newMode
+			}
+
+			req, err := dw.buildDeviceRequestForDrive(current, true)
+			if err != nil {
+				dw.showErrorAsync(fmt.Errorf("failed to rebuild mounted gadget config for %s: %w", current.Name, err))
+				return
+			}
+			deviceRequests = append(deviceRequests, *req)
+
+			if current.IsKeyboard || current.IsMouse || current.IsRNDIS {
+				continue
+			}
+			hasStorageRequests = true
+			switch {
+			case current.DiskInfo != nil:
+				mountingExportNames[current.DiskInfo.Name] = true
+			case current.LocalDrive != nil:
+				mountingExportNames[current.LocalDrive.Name] = true
+			default:
+				mountingExportNames[current.Name] = true
+			}
+		}
+
+		if len(deviceRequests) == 0 {
+			dw.showErrorAsync(fmt.Errorf("no mounted devices available for gadget reconfiguration"))
+			return
+		}
+
+		dw.updateStatusAsync("Reconfiguring USB gadget...")
+		if _, err := dw.startDevicesWithRetry(models.DeviceStartBatchRequest(deviceRequests)); err != nil {
+			dw.showErrorAsync(fmt.Errorf("failed to reconfigure mouse mode: %w", err))
+			return
+		}
+
+		if dw.onMouseTypeChanged != nil {
+			dw.onMouseTypeChanged(newMode)
+		}
+
+		if hasStorageRequests {
+			dw.updateUIAsync(func() {
+				dw.setMountingStateByExportNames(mountingExportNames, true)
+				dw.setAPIMountInProgress(true)
+				dw.requestDevicesRefresh()
+			})
+			reEnableButtons = false
+			go dw.pollMountStatus(mountingExportNames)
+			return
+		}
+
+		time.Sleep(1200 * time.Millisecond)
+		dw.updateUIAsync(func() {
+			dw.setAPIMountInProgress(false)
+			dw.loadMountedDevices()
+			dw.loadLocalDrives()
+			dw.requestDevicesRefresh()
+			dw.setUserOperationInFlight(false)
+			dw.setButtonsEnabled(true)
+		})
+	}()
+}

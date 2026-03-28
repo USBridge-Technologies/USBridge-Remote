@@ -349,17 +349,16 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				if rowID >= len(dw.allDrives) {
 					return
 				}
+				newMode := "mouse"
 				switch s {
 				case i18n.Current.DeviceMouse:
-					dw.allDrives[rowID].MouseType = "double"
+					newMode = "double"
 				case i18n.Current.DeviceTouch:
-					dw.allDrives[rowID].MouseType = "touchscreen"
+					newMode = "touchscreen"
 				case i18n.Current.DeviceAbsolute:
-					dw.allDrives[rowID].MouseType = "absolute"
-				default:
-					dw.allDrives[rowID].MouseType = "mouse"
+					newMode = "absolute"
 				}
-				dw.requestDevicesRefresh()
+				dw.applyMouseModeSelection(rowID, newMode)
 			}
 		}
 		modeSelect.Show()
@@ -738,6 +737,51 @@ func (dw *DiskWidget) isPreferredVideoDrive(drive DriveItem) bool {
 		if candidate.IsVideo && candidate.VideoDevice != nil {
 			return candidate.VideoDevice.Path == drive.VideoDevice.Path
 		}
+	}
+	return false
+}
+
+func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
+	if rowID < 0 || rowID >= len(dw.allDrives) {
+		return
+	}
+	newMode = normalizeMouseMode(newMode)
+	drive := &dw.allDrives[rowID]
+	if !drive.IsMouse || drive.MouseType == newMode {
+		return
+	}
+
+	previousMode := drive.MouseType
+	drive.MouseType = newMode
+	if !drive.IsMounted {
+		dw.requestDevicesRefresh()
+		return
+	}
+
+	if dw.hasMountedStorageDevices() {
+		message := "Changing mouse mode will rebuild the USB gadget and reconnect mounted disks. Continue?"
+		view.ShowConfirmYesLeftDanger(i18n.Current.Confirmation, message, func(ok bool) {
+			if !ok {
+				if rowID < len(dw.allDrives) && dw.allDrives[rowID].IsMouse {
+					dw.allDrives[rowID].MouseType = previousMode
+					dw.requestDevicesRefresh()
+				}
+				return
+			}
+			dw.reconfigureMountedDevicesForMouseMode(newMode)
+		}, dw.window)
+		return
+	}
+
+	dw.reconfigureMountedDevicesForMouseMode(newMode)
+}
+
+func (dw *DiskWidget) hasMountedStorageDevices() bool {
+	for _, drive := range dw.allDrives {
+		if !drive.IsMounted || drive.IsVideo || drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS {
+			continue
+		}
+		return true
 	}
 	return false
 }
