@@ -95,19 +95,19 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 
 	topAddBtn := newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd))
 
-	centerQRBtn := newCompactActionWrap(connectionCompactActionSize, newIconChromeButton(iconChromeButtonSpec{
+	centerQRBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
-		HoverFill:   design.ColorSurfaceLight,
-		Stroke:      color.Transparent,
-		StrokeWidth: 0,
-		NormalIcon:  assets.QRCodeLight,
-		HoverIcon:   assets.QRCodeLight,
-		IconSize:    fyne.NewSize(15, 15),
-		ButtonSize:  fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
+		HoverFill:   design.ColorAccent,
+		Stroke:      design.ColorAccent,
+		StrokeWidth: 1.5,
+		NormalIcon:  assets.QRCodeAccent,
+		HoverIcon:   assets.QRCodeBoldBlack,
+		IconSize:    fyne.NewSize(18, 18),
+		ButtonSize:  fyne.NewSize(42, 42),
 		OnTapped:    onQR,
-	}))
+	})
 
-	centerAddBtn := newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd))
+	centerAddBtn := newOnboardingPrimaryButton(onboardingAddActionLabel(i18n.Current.AddConnectionTitle), onAdd)
 
 	connectionsBox := container.NewVBox()
 	connectionsScroll := container.NewScroll(connectionsBox)
@@ -700,6 +700,10 @@ func newConnectionInlineIconButton(icon fyne.Resource, onTapped func(), disabled
 
 func compactAddActionLabel(label string) string {
 	return "+"
+}
+
+func onboardingAddActionLabel(label string) string {
+	return "+ " + label
 }
 
 type outlinedActionButton struct {

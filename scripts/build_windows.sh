@@ -26,8 +26,12 @@ fi
 OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
 EXE_NAME="USBridge_Client.exe"
+BUILD_CACHE_ROOT="$REPO_ROOT/.cache/build/windows-amd64"
 WINTUN_VERSION="0.14.1"
 WINTUN_URL="https://www.wintun.net/builds/wintun-${WINTUN_VERSION}.zip"
+GST_RUNTIME_STAMP_NAME=".gstreamer-runtime.stamp"
+GST_RUNTIME_MANIFEST_NAME=".gstreamer-runtime.manifest"
+MINIMAL_GST="${MINIMAL_GST:-1}"
 
 # Цвета
 RED='\033[0;31m'
@@ -95,6 +99,52 @@ resolve_wintun_arch() {
             return 1
             ;;
     esac
+}
+
+latest_source_newer_than() {
+    local target="$1"
+    shift
+
+    [ -f "$target" ] || return 0
+
+    find "$@" -type f -newer "$target" -print -quit 2>/dev/null | grep -q .
+}
+
+dist_keep_entry() {
+    local name="$1"
+    local kept=""
+    for kept in "${DIST_KEEP_ENTRIES[@]}"; do
+        if [ "$kept" = "$name" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+dist_manifest_entries_valid() {
+    local manifest="$1"
+    local entry=""
+
+    [ -f "$manifest" ] || return 1
+
+    while IFS= read -r entry; do
+        [ -z "$entry" ] && continue
+        [ -e "$DIST_WIN/$entry" ] || return 1
+    done < "$manifest"
+
+    return 0
+}
+
+write_gst_runtime_manifest() {
+    local manifest="$1"
+
+    {
+        [ -e "$DIST_WIN/bin" ] && printf "%s\n" "bin"
+        [ -e "$DIST_WIN/lib" ] && printf "%s\n" "lib"
+        [ -e "$DIST_WIN/libexec" ] && printf "%s\n" "libexec"
+        [ -e "$DIST_WIN/gstreamer-plugins.txt" ] && printf "%s\n" "gstreamer-plugins.txt"
+        find "$DIST_WIN" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null
+    } | sort -u > "$manifest"
 }
 
 echo -e "${GREEN}🪟 Building USBridge Client for Windows${NC}"
@@ -227,14 +277,42 @@ cd "$REPO_ROOT/cmd"
 export GOOS=windows
 export GOARCH=amd64
 export GOMAXPROCS=12
+export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
+export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
+mkdir -p "$GOCACHE" "$GOMODCACHE"
 # Disable VCS stamping (common failure inside containers)
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
+BUILD_LDFLAGS="-H=windowsgui"
+BUILD_VARIANT="release"
 if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
-    export GOFLAGS="${GOFLAGS} -ldflags=-H=console"
+    BUILD_LDFLAGS="-H=console"
+    BUILD_VARIANT="console"
     echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: собираем консольную версию"
 fi
+BUILD_CACHE_DIR="$BUILD_CACHE_ROOT/$BUILD_VARIANT"
+BUILD_CACHE_EXE="$BUILD_CACHE_DIR/$EXE_NAME"
+mkdir -p "$BUILD_CACHE_DIR"
 # Добавляем GOPATH/bin в PATH для корректного запуска fyne (MSYS2/Windows)
 export PATH="$GOPATH_BIN:$PATH"
+
+REBUILD_WINDOWS_EXE=0
+if [ "${FORCE_REBUILD:-0}" = "1" ]; then
+    REBUILD_WINDOWS_EXE=1
+elif latest_source_newer_than "$BUILD_CACHE_EXE" \
+    "$REPO_ROOT/cmd" \
+    "$REPO_ROOT/internal" \
+    "$REPO_ROOT/go.mod" \
+    "$REPO_ROOT/go.sum" \
+    "$REPO_ROOT/FyneApp.toml"; then
+    REBUILD_WINDOWS_EXE=1
+fi
+
+if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
+    echo -e "${YELLOW}🧱 Сборка Windows exe (Go cache: $GOCACHE)...${NC}"
+    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_EXE" .
+else
+    echo -e "${GREEN}✓${NC} Используем готовый Windows exe из кэша: $BUILD_CACHE_EXE"
+fi
 
 echo "--- Вывод fyne package ---"
 FYNE_CC="x86_64-w64-mingw32-gcc"
@@ -247,6 +325,7 @@ if ! env \
     CGO_ENABLED=1 \
     "$FYNE_BIN" package \
     --target windows \
+    --executable "$BUILD_CACHE_EXE" \
     --app-id "com.usbridge.client" \
     --name "USBridge Client" \
     --app-version "1.0.0" \
@@ -279,8 +358,81 @@ fi
 echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
 cd "$REPO_ROOT"
 mkdir -p "$DIST_WIN"
+
+# Определяем GStreamer runtime заранее, чтобы при повторной сборке можно было
+# переиспользовать уже подготовленный portable bundle в dist/windows.
+if [ -z "$GSTREAMER_ROOT" ]; then
+    GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
+fi
+
+GST_CANDIDATES=(
+    "$GSTREAMER_ROOT"
+    "${GSTREAMER_ROOT//\\/\/}"
+    "/c/gstreamer/1.0/mingw_x86_64"
+    "C:/gstreamer/1.0/mingw_x86_64"
+)
+
+if pkg-config --exists gstreamer-1.0 2>/dev/null; then
+    GST_PKG_PREFIX=$(pkg-config --variable=prefix gstreamer-1.0 2>/dev/null)
+    [ -n "$GST_PKG_PREFIX" ] && GST_CANDIDATES+=("$GST_PKG_PREFIX")
+fi
+
+GST_ROOT=""
+for cand in "${GST_CANDIDATES[@]}"; do
+    [ -z "$cand" ] && continue
+    if [ -d "$cand/bin" ] && [ -d "$cand/lib/gstreamer-1.0" ]; then
+        GST_ROOT="$cand"
+        break
+    fi
+    if [ -d "$cand/bin" ]; then
+        dll_count=$(find "$cand/bin" -maxdepth 1 -name "*.dll" 2>/dev/null | wc -l)
+        [ "$dll_count" -gt 0 ] && GST_ROOT="$cand" && break
+    fi
+done
+
+GST_RUNTIME_STAMP_PATH="$DIST_WIN/$GST_RUNTIME_STAMP_NAME"
+GST_RUNTIME_MANIFEST_PATH="$DIST_WIN/$GST_RUNTIME_MANIFEST_NAME"
+SKIP_GST_COPY=0
+DIST_KEEP_ENTRIES=()
+CURRENT_GST_RUNTIME_STAMP=""
+
+if [ -n "$GST_ROOT" ]; then
+    GST_VERSION="$("$PKG_CONFIG" --modversion gstreamer-1.0 2>/dev/null || echo unknown)"
+    CURRENT_GST_RUNTIME_STAMP="$(cat <<EOF
+bundle_version=1
+gst_root=$GST_ROOT
+gstreamer_version=$GST_VERSION
+minimal_gst=$MINIMAL_GST
+gst_plugin_allowlist=${GST_PLUGIN_ALLOWLIST:-}
+goarch=$GOARCH
+EOF
+)"
+
+    if [ "${FORCE_GST_REFRESH:-0}" != "1" ] && [ -f "$GST_RUNTIME_STAMP_PATH" ] && [ -f "$GST_RUNTIME_MANIFEST_PATH" ]; then
+        EXISTING_GST_RUNTIME_STAMP="$(cat "$GST_RUNTIME_STAMP_PATH" 2>/dev/null || true)"
+        if [ "$EXISTING_GST_RUNTIME_STAMP" = "$CURRENT_GST_RUNTIME_STAMP" ] && dist_manifest_entries_valid "$GST_RUNTIME_MANIFEST_PATH"; then
+            SKIP_GST_COPY=1
+            while IFS= read -r entry; do
+                [ -n "$entry" ] && DIST_KEEP_ENTRIES+=("$entry")
+            done < "$GST_RUNTIME_MANIFEST_PATH"
+            DIST_KEEP_ENTRIES+=("$GST_RUNTIME_STAMP_NAME" "$GST_RUNTIME_MANIFEST_NAME")
+        fi
+    fi
+fi
+
 cleanup_err="${TMPDIR:-/tmp}/usbridge_dist_cleanup.err"
-if ! find "$DIST_WIN" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>"$cleanup_err"; then
+cleanup_failed=0
+while IFS= read -r existing; do
+    base_name="$(basename "$existing")"
+    if [ "$SKIP_GST_COPY" = "1" ] && dist_keep_entry "$base_name"; then
+        continue
+    fi
+    if ! rm -rf -- "$existing" 2>>"$cleanup_err"; then
+        cleanup_failed=1
+    fi
+done < <(find "$DIST_WIN" -mindepth 1 -maxdepth 1 -print 2>>"$cleanup_err")
+
+if [ "$cleanup_failed" != "0" ]; then
     echo -e "${RED}❌ Failed to clean $DIST_WIN${NC}"
     if [ -s "$cleanup_err" ]; then
         sed 's/^/   /' "$cleanup_err"
@@ -378,98 +530,68 @@ else
 fi
 
 # 7. Копирование GStreamer
-# По умолчанию — стандартный путь установки; можно переопределить: export GSTREAMER_ROOT="..."
-if [ -z "$GSTREAMER_ROOT" ]; then
-    GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
-fi
-
-# Список путей для поиска (GSTREAMER_ROOT и типичные форматы)
-GST_CANDIDATES=(
-    "$GSTREAMER_ROOT"
-    "${GSTREAMER_ROOT//\\/\/}"
-    "/c/gstreamer/1.0/mingw_x86_64"
-    "C:/gstreamer/1.0/mingw_x86_64"
-)
-
-# Если pkg-config знает GStreamer (MSYS2 pacman)
-if pkg-config --exists gstreamer-1.0 2>/dev/null; then
-    GST_PKG_PREFIX=$(pkg-config --variable=prefix gstreamer-1.0 2>/dev/null)
-    [ -n "$GST_PKG_PREFIX" ] && GST_CANDIDATES+=("$GST_PKG_PREFIX")
-fi
-
-GST_ROOT=""
-for cand in "${GST_CANDIDATES[@]}"; do
-    [ -z "$cand" ] && continue
-    # GStreamer: bin/ с DLL и lib/gstreamer-1.0/ с плагинами
-    if [ -d "$cand/bin" ] && [ -d "$cand/lib/gstreamer-1.0" ]; then
-        GST_ROOT="$cand"
-        break
-    fi
-    # Только bin с DLL (standalone installer)
-    if [ -d "$cand/bin" ]; then
-        dll_count=$(find "$cand/bin" -maxdepth 1 -name "*.dll" 2>/dev/null | wc -l)
-        [ "$dll_count" -gt 0 ] && GST_ROOT="$cand" && break
-    fi
-done
-
 echo -e "\n${YELLOW}📚 Копирование GStreamer...${NC}"
 
 if [ -n "$GST_ROOT" ]; then
     echo -e "   Найден: $GST_ROOT"
 
-    mkdir -p "$DIST_WIN/bin"
+    if [ "$SKIP_GST_COPY" = "1" ]; then
+        echo -e "${GREEN}✓${NC} GStreamer runtime уже подготовлен, переиспользую без перекопирования"
+    else
 
-    OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
-    if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
-        OBJDUMP_BIN="objdump"
-    fi
+        mkdir -p "$DIST_WIN/bin"
 
-    is_core_dll() {
-        local name="$1"
-        for core in "${CORE_DLLS[@]}"; do
-            case "${name,,}" in
-                ${core,,})
+        OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
+        if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
+            OBJDUMP_BIN="objdump"
+        fi
+
+        is_core_dll() {
+            local name="$1"
+            for core in "${CORE_DLLS[@]}"; do
+                case "${name,,}" in
+                    ${core,,})
+                        return 0
+                        ;;
+                esac
+                if [ "${core,,}" = "${name,,}" ]; then
                     return 0
-                    ;;
-            esac
-            if [ "${core,,}" = "${name,,}" ]; then
-                return 0
-            fi
-        done
-        return 1
-    }
+                fi
+            done
+            return 1
+        }
 
-    copy_dll_by_name() {
-        local name="$1"
-        if [ -z "$name" ]; then
-            return
-        fi
-        if [ -f "$GST_ROOT/bin/$name" ]; then
-            if is_core_dll "$name"; then
-                cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/" 2>/dev/null || true
-            else
-                cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+        copy_dll_by_name() {
+            local name="$1"
+            if [ -z "$name" ]; then
+                return
             fi
-            return
-        fi
-        if [ -f "$GST_ROOT/lib/$name" ]; then
-            if is_core_dll "$name"; then
-                cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/" 2>/dev/null || true
-            else
-                cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+            if [ -f "$GST_ROOT/bin/$name" ]; then
+                if is_core_dll "$name"; then
+                    cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/" 2>/dev/null || true
+                else
+                    cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+                fi
+                return
             fi
-            return
-        fi
-        local found
-        found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-        if [ -n "$found" ]; then
-            if is_core_dll "$name"; then
-                cp -L "$found" "$DIST_WIN/" 2>/dev/null || true
-            else
-                cp -L "$found" "$DIST_WIN/bin/" 2>/dev/null || true
+            if [ -f "$GST_ROOT/lib/$name" ]; then
+                if is_core_dll "$name"; then
+                    cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/" 2>/dev/null || true
+                else
+                    cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/bin/" 2>/dev/null || true
+                fi
+                return
             fi
-        fi
-    }
+            local found
+            found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
+            if [ -n "$found" ]; then
+                if is_core_dll "$name"; then
+                    cp -L "$found" "$DIST_WIN/" 2>/dev/null || true
+                else
+                    cp -L "$found" "$DIST_WIN/bin/" 2>/dev/null || true
+                fi
+            fi
+        }
 
     collect_deps() {
         local file="$1"
@@ -573,9 +695,8 @@ if [ -n "$GST_ROOT" ]; then
         done
     }
 
-    MINIMAL_GST="${MINIMAL_GST:-1}"
-    if [ "$MINIMAL_GST" = "1" ]; then
-        mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
+        if [ "$MINIMAL_GST" = "1" ]; then
+            mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
         PLUGINS_DEFAULT=(
             "libgstcoreelements.dll"
             "libgstapp.dll"
@@ -724,39 +845,43 @@ if [ -n "$GST_ROOT" ]; then
 
         find "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
         echo -e "${GREEN}✓${NC} gstreamer-plugins.txt"
-        echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
-    else
-        if [ -d "$GST_ROOT/bin" ]; then
-            cp -L "$GST_ROOT"/bin/*.dll "$DIST_WIN/bin/" 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} bin/*.dll"
+            echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
+        else
+            if [ -d "$GST_ROOT/bin" ]; then
+                cp -L "$GST_ROOT"/bin/*.dll "$DIST_WIN/bin/" 2>/dev/null || true
+                echo -e "${GREEN}✓${NC} bin/*.dll"
+            fi
+
+            if [ -d "$GST_ROOT/lib/gstreamer-1.0" ]; then
+                mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
+                cp -L "$GST_ROOT/lib/gstreamer-1.0"/*.dll "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
+                echo -e "${GREEN}✓${NC} lib/gstreamer-1.0/*.dll"
+            fi
+
+            if [ -d "$GST_ROOT/libexec/gstreamer-1.0" ]; then
+                mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
+                cp -L "$GST_ROOT/libexec/gstreamer-1.0"/gst-plugin-scanner* "$DIST_WIN/libexec/gstreamer-1.0/" 2>/dev/null || true
+                echo -e "${GREEN}✓${NC} libexec/gstreamer-1.0/gst-plugin-scanner*"
+            fi
+            if [ -d "$GST_ROOT/bin" ]; then
+                cp -L "$GST_ROOT/bin"/gst-launch-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
+                cp -L "$GST_ROOT/bin"/gst-inspect-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
+                echo -e "${GREEN}✓${NC} gst-launch-1.0* / gst-inspect-1.0*"
+            fi
         fi
 
-        if [ -d "$GST_ROOT/lib/gstreamer-1.0" ]; then
-            mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
-            cp -L "$GST_ROOT/lib/gstreamer-1.0"/*.dll "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} lib/gstreamer-1.0/*.dll"
-        fi
+        # libintl_setlocale — явная проверка (gettext), критично для glib/GStreamer
+        for libintl in "$GST_ROOT/bin/libintl"*.dll "$GST_ROOT/lib/libintl"*.dll /ucrt64/bin/libintl*.dll /mingw64/bin/libintl*.dll; do
+            if [ -f "$libintl" ]; then
+                cp -L "$libintl" "$DIST_WIN/bin/" 2>/dev/null && cp -L "$libintl" "$DIST_WIN/" 2>/dev/null
+                echo -e "${GREEN}✓${NC} $(basename "$libintl") (libintl_setlocale)"
+                break
+            fi
+        done
 
-        if [ -d "$GST_ROOT/libexec/gstreamer-1.0" ]; then
-            mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
-            cp -L "$GST_ROOT/libexec/gstreamer-1.0"/gst-plugin-scanner* "$DIST_WIN/libexec/gstreamer-1.0/" 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} libexec/gstreamer-1.0/gst-plugin-scanner*"
-        fi
-        if [ -d "$GST_ROOT/bin" ]; then
-            cp -L "$GST_ROOT/bin"/gst-launch-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
-            cp -L "$GST_ROOT/bin"/gst-inspect-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} gst-launch-1.0* / gst-inspect-1.0*"
-        fi
+        printf "%s\n" "$CURRENT_GST_RUNTIME_STAMP" > "$GST_RUNTIME_STAMP_PATH"
+        write_gst_runtime_manifest "$GST_RUNTIME_MANIFEST_PATH"
     fi
-
-    # libintl_setlocale — явная проверка (gettext), критично для glib/GStreamer
-    for libintl in "$GST_ROOT/bin/libintl"*.dll "$GST_ROOT/lib/libintl"*.dll /ucrt64/bin/libintl*.dll /mingw64/bin/libintl*.dll; do
-        if [ -f "$libintl" ]; then
-            cp -L "$libintl" "$DIST_WIN/bin/" 2>/dev/null && cp -L "$libintl" "$DIST_WIN/" 2>/dev/null
-            echo -e "${GREEN}✓${NC} $(basename "$libintl") (libintl_setlocale)"
-            break
-        fi
-    done
 else
     echo -e "${YELLOW}⚠ GStreamer не найден. Проверка путей:${NC}"
     for cand in "${GST_CANDIDATES[@]}"; do

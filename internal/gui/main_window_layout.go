@@ -255,7 +255,7 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 		}
 	})
 
-	row := container.NewCenter(container.NewHBox(helpBtn, discordBtn, langBtn))
+	row := container.NewHBox(helpBtn, discordBtn, langBtn)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 
