@@ -306,6 +306,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				Protocol:        conn.Protocol,
 				WireGuardInvite: conn.WireGuardInvite,
 			}
+			cm.selectedIndex = idx
 			cm.saveConnections()
 			fyne.Do(func() {
 				cm.hostEntry.SetText(host)

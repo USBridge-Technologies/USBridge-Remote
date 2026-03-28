@@ -467,7 +467,7 @@ func (mw *MainWindow) updateStatusBar() {
 					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
 						keyboardConnected = true
 					}
-					if device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:") {
+					if device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:") {
 						mouseConnected = true
 					}
 					if device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:") {

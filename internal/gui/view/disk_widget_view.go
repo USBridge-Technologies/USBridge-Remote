@@ -58,7 +58,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	modeRowIconText.Hide()
 	modeTitleLabel := widget.NewLabel(i18n.Current.DeviceMouse)
 	modeTitleLabel.Hide()
-	modeSelect := widget.NewSelect([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, nil)
+	modeSelect := widget.NewSelect([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, nil)
 	modeSelect.Hide()
 
 	checkboxContainer := container.NewPadded(checkbox)

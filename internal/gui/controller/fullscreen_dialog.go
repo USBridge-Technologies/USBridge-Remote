@@ -121,7 +121,7 @@ func (fd *FullscreenDialog) Show() {
 func (fd *FullscreenDialog) enterFullscreen() {
 	logrus.Info("🔍 Вход в полноэкранный режим с GStreamer")
 
-	if fd.gstreamerService != nil && fd.gstreamerService.SupportsNativeFullscreen() {
+	if fd.gstreamerService != nil && fd.gstreamerService.SupportsNativeFullscreen() && fd.videoWidget != nil && fd.videoWidget.IsTouchPadInputMode() {
 		if err := fd.gstreamerService.StartNativeFullscreen(); err == nil {
 			fd.nativeCapture = newNativeFullscreenCapture(fd.usbClient, fd.exitFullscreen)
 			if fd.nativeCapture != nil {

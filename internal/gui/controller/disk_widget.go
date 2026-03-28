@@ -98,7 +98,7 @@ type DriveItem struct {
 	DiskInfo       *models.DiskInfo   // Для локальных файлов
 	IsKeyboard     bool               // Для клавиатуры
 	IsMouse        bool               // Для мыши
-	MouseType      string             // "mouse" (мышь/тачпад), "touchscreen" (тачскрин) или "absolute" (абсолютный), только для мыши
+	MouseType      string             // "mouse" (touchpad), "double", "touchscreen" или "absolute", только для мыши
 	IsRNDIS        bool               // Для сетевой карты
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
@@ -114,7 +114,26 @@ func defaultMouseMode() string {
 	if fyne.CurrentDevice().IsMobile() {
 		return "mouse"
 	}
-	return "absolute"
+	return "double"
+}
+
+func normalizeMouseMode(mode string) string {
+	switch mode {
+	case "mouse", "double", "touchscreen", "absolute":
+		return mode
+	default:
+		return "mouse"
+	}
+}
+
+// Double currently reuses the same absolute transport as Absolute because that
+// path is the stable one for host-side pointer positioning.
+func mouseTransportType(mode string) string {
+	mode = normalizeMouseMode(mode)
+	if mode == "double" {
+		return "absolute"
+	}
+	return mode
 }
 
 // NewDiskWidget создает новый виджет устройств
@@ -205,6 +224,8 @@ func (dw *DiskWidget) createInterface() {
 								modeRowIconText.Text = "🌐"
 							} else {
 								switch drive.MouseType {
+								case "double":
+									modeRowIconText.Text = "🖱️"
 								case "touchscreen":
 									modeRowIconText.Text = "🖥️" // Экран/доска — тачскрин
 								case "absolute":
@@ -229,14 +250,16 @@ func (dw *DiskWidget) createInterface() {
 							modeSelect.SetOptions(rndisModeOptions)
 							modeSelect.SetSelected(normalizeRNDISMode(drive.RNDISMode))
 						} else {
-							modeSelect.SetOptions([]string{i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
+							modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
 							switch drive.MouseType {
+							case "double":
+								modeSelect.SetSelected(i18n.Current.DeviceMouse)
 							case "touchscreen":
 								modeSelect.SetSelected(i18n.Current.DeviceTouch)
 							case "absolute":
 								modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
 							default:
-								modeSelect.SetSelected(i18n.Current.DeviceMouse)
+								modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
 							}
 						}
 						rowID := id
@@ -245,7 +268,19 @@ func (dw *DiskWidget) createInterface() {
 								if dw.allDrives[rowID].Source == "rndis" {
 									dw.allDrives[rowID].RNDISMode = normalizeRNDISMode(s)
 								} else {
-									if s == i18n.Current.DeviceTouch {
+									if s == i18n.Current.DeviceTouchPad {
+										dw.allDrives[rowID].MouseType = "mouse"
+										if modeRowIconText != nil {
+											modeRowIconText.Text = "🖱️"
+											obj.Refresh()
+										}
+									} else if s == i18n.Current.DeviceMouse {
+										dw.allDrives[rowID].MouseType = "double"
+										if modeRowIconText != nil {
+											modeRowIconText.Text = "🖱️"
+											obj.Refresh()
+										}
+									} else if s == i18n.Current.DeviceTouch {
 										dw.allDrives[rowID].MouseType = "touchscreen"
 										if modeRowIconText != nil {
 											modeRowIconText.Text = "🖥️"

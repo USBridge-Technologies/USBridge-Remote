@@ -182,7 +182,7 @@ type MouseRequest struct {
 // DeviceStartRequest запрос на запуск устройства (старый формат - deprecated)
 type DeviceStartRequest struct {
 	Device                  string `json:"device"`                               // keyboard, drive, mouse и т.д.
-	Type                    string `json:"type,omitempty"`                       // Для мыши: "mouse" (по умолчанию) или "touchscreen"
+	Type                    string `json:"type,omitempty"`                       // Для мыши: "mouse" (touchpad), "double", "touchscreen" или "absolute"
 	RNDISMode               string `json:"rndis_mode,omitempty"`                 // Для RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
 	Server                  string `json:"server,omitempty"`                     // IP сервера для NBD
 	Port                    int    `json:"port,omitempty"`                       // Порт сервера для NBD

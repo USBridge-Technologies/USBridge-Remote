@@ -263,7 +263,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		switch {
 		case device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:"):
 			keyboardConnected = true
-		case device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:"):
+		case device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:"):
 			mouseConnected = true
 		}
 
@@ -291,19 +291,19 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		})
 	}
 	if !mouseConnected {
-		preferredMouseType := "absolute"
+		preferredMouseType := "double"
 		if fyne.CurrentDevice().IsMobile() {
 			preferredMouseType = "mouse"
 		}
 		requests = append(requests, models.DeviceStartRequest{
 			Device:       "mouse",
-			Type:         preferredMouseType,
+			Type:         mouseTransportType(preferredMouseType),
 			VendorID:     "0x1d6b",
 			ProductID:    "0x0104",
 			ProductName:  "USBridge Mouse",
 			Manufacturer: "USBridge",
 		})
-		logrus.Infof("⌨️🖱️ Control HID auto-connect: preferring mouse type %q on this platform", preferredMouseType)
+		logrus.Infof("⌨️🖱️ Control HID auto-connect: ui_mode=%q transport=%q", preferredMouseType, mouseTransportType(preferredMouseType))
 	}
 
 	if len(requests) == 0 {
@@ -333,7 +333,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			if !keyboardReady && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
 				keyboardReady = true
 			}
-			if !mouseReady && (device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+			if !mouseReady && (device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
 				mouseReady = true
 			}
 		}
@@ -411,12 +411,16 @@ func (vw *VideoWidget) checkMouseConnected() {
 	for _, device := range deviceInfo.Devices {
 		logrus.Debugf("🖱️ Inspecting device: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
 		if device.Status == "connected" &&
-			(device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+			(device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
 			mouseConnected = true
-			if device.Type == "touchscreen" {
+			if device.Type == "double" {
+				vw.SetMouseInputMode("double")
+			} else if device.Type == "touchscreen" {
 				vw.SetMouseInputMode("touchscreen")
 			} else if device.Type == "absolute" {
 				vw.SetMouseInputMode("absolute")
+			} else {
+				vw.SetMouseInputMode("mouse")
 			}
 			logrus.Infof("🖱️ ✅ Pointer device connected: %s (type: %s)", device.Name, device.Type)
 			break

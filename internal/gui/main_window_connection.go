@@ -64,6 +64,33 @@ func (mw *MainWindow) clearConnectionPending() {
 	mw.isConnectionLoading = false
 }
 
+func (mw *MainWindow) resolveConnectionToken(host, token string) string {
+	resolved := strings.TrimSpace(token)
+	if resolved != "" {
+		return resolved
+	}
+
+	if mw.connectionManager != nil {
+		resolved = mw.connectionManager.ResolveToken(host, token)
+		if resolved != "" {
+			logrus.Infof("🔍 [DEBUG] Resolved token from saved connection for host='%s'", host)
+			return resolved
+		}
+	}
+
+	resolved = strings.TrimSpace(mw.activeConnectionToken)
+	if resolved != "" {
+		logrus.Infof("🔍 [DEBUG] Reusing active session token for host='%s'", host)
+		return resolved
+	}
+
+	resolved = strings.TrimSpace(mw.config.FRPAuthToken)
+	if resolved != "" {
+		logrus.Warnf("🔍 [DEBUG] Token is empty, falling back to config token for host='%s'", host)
+	}
+	return resolved
+}
+
 func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
 	if client == nil {
 		return nil
@@ -146,10 +173,7 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause
 		return false
 	}
 
-	token := strings.TrimSpace(mw.tokenEntry.Text)
-	if token == "" {
-		token = mw.config.FRPAuthToken
-	}
+	token := mw.resolveConnectionToken(host, mw.tokenEntry.Text)
 
 	protocol := mw.connectedProtocol
 	if protocol == "" || protocol == "direct" {
@@ -260,11 +284,10 @@ func (mw *MainWindow) handleConnect() {
 		return
 	}
 
-	if token == "" {
-		logrus.Warnf("🔍 [DEBUG] Token is empty, using token from config: '%s'", mw.config.FRPAuthToken)
-		token = mw.config.FRPAuthToken
-	} else {
+	if token != "" {
 		logrus.Infof("🔍 [DEBUG] Token is not empty, using the value from the input: '%s'", token)
+	} else {
+		logrus.Warn("🔍 [DEBUG] Token is empty after resolving input, saved connections and config fallback")
 	}
 
 	logrus.Infof("🔍 [DEBUG] Final connection parameters: host='%s', token='%s'", host, token)
@@ -288,6 +311,7 @@ func (mw *MainWindow) doConnect(host, token string) error {
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
+	mw.activeConnectionToken = strings.TrimSpace(token)
 	return mw.doConnectWithProtocol(host, token, protocol)
 }
 
@@ -516,6 +540,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
+		mw.activeConnectionToken = ""
 		mw.refreshConnectionControls()
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
@@ -562,6 +587,7 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectedProtocol = ""
+	mw.activeConnectionToken = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false

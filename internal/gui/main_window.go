@@ -50,6 +50,7 @@ type MainWindow struct {
 	isConnectionPending    bool
 	isConnectionLoading    bool
 	connectedProtocol      string
+	activeConnectionToken  string
 	pendingWireGuardInvite string
 	currentVideoFPS        float64
 

@@ -59,6 +59,33 @@ type ConnectionManager struct {
 	onConnectionsStateChange func(bool)
 }
 
+func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
+	token := strings.TrimSpace(currentToken)
+	if token != "" {
+		return token
+	}
+
+	normalizedHost := strings.TrimSpace(host)
+	if normalizedHost == "" {
+		return ""
+	}
+
+	if cm.selectedIndex >= 0 && cm.selectedIndex < len(cm.connections) {
+		conn := cm.connections[cm.selectedIndex]
+		if strings.TrimSpace(conn.Host) == normalizedHost {
+			return strings.TrimSpace(conn.Token)
+		}
+	}
+
+	for _, conn := range cm.connections {
+		if strings.TrimSpace(conn.Host) == normalizedHost && strings.TrimSpace(conn.Token) != "" {
+			return strings.TrimSpace(conn.Token)
+		}
+	}
+
+	return ""
+}
+
 func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,

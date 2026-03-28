@@ -156,6 +156,7 @@ func (dw *DiskWidget) handleMount() {
 		}()
 
 		var deviceRequests []models.DeviceStartRequest
+		startedMouseMode := ""
 
 		for _, mountedDrive := range mountedDrives {
 			req, err := dw.buildDeviceRequestForDrive(mountedDrive, true)
@@ -180,19 +181,17 @@ func (dw *DiskWidget) handleMount() {
 				}
 				logrus.Infof("⌨️ Подготовка клавиатуры для монтирования")
 			} else if selectedDrive.Source == "mouse" {
-				mouseType := selectedDrive.MouseType
-				if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
-					mouseType = "mouse"
-				}
+				mouseType := normalizeMouseMode(selectedDrive.MouseType)
+				startedMouseMode = mouseType
 				deviceRequest = &models.DeviceStartRequest{
 					Device:       "mouse",
-					Type:         mouseType,
+					Type:         mouseTransportType(mouseType),
 					VendorID:     "0x1d6b",
 					ProductID:    "0x0104",
 					ProductName:  "USBridge Mouse",
 					Manufacturer: "USBridge",
 				}
-				logrus.Infof("🖱️ Подготовка манипулятора для монтирования: %s", mouseType)
+				logrus.Infof("🖱️ Подготовка манипулятора для монтирования: ui_mode=%s transport=%s", mouseType, mouseTransportType(mouseType))
 			} else if selectedDrive.Source == "rndis" {
 				rndisMode := normalizeRNDISMode(selectedDrive.RNDISMode)
 				deviceRequest = &models.DeviceStartRequest{
@@ -413,14 +412,16 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
-		for _, req := range deviceRequests {
-			if req.Device == "mouse" && dw.onMouseTypeChanged != nil {
-				t := req.Type
-				if t != "mouse" && t != "touchscreen" && t != "absolute" {
-					t = "mouse"
+		if dw.onMouseTypeChanged != nil {
+			if startedMouseMode != "" {
+				dw.onMouseTypeChanged(startedMouseMode)
+			} else {
+				for _, req := range deviceRequests {
+					if req.Device == "mouse" {
+						dw.onMouseTypeChanged(normalizeMouseMode(req.Type))
+						break
+					}
 				}
-				dw.onMouseTypeChanged(t)
-				break
 			}
 		}
 
@@ -664,12 +665,9 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		}, nil
 	}
 	if drive.Source == "mouse" {
-		mouseType := drive.MouseType
-		if mouseType != "mouse" && mouseType != "touchscreen" && mouseType != "absolute" {
-			mouseType = "mouse"
-		}
+		mouseType := normalizeMouseMode(drive.MouseType)
 		return &models.DeviceStartRequest{
-			Device: "mouse", Type: mouseType,
+			Device: "mouse", Type: mouseTransportType(mouseType),
 			VendorID: "0x1d6b", ProductID: "0x0104",
 			ProductName: "USBridge Mouse", Manufacturer: "USBridge",
 		}, nil

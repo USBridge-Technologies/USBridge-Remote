@@ -36,6 +36,7 @@ func (cm *ConnectionManager) SaveConnection(name, host, token, protocol, wireGua
 
 	conn := SavedConnection{Name: name, Host: host, Token: token, Protocol: protocol, WireGuardInvite: wireGuardInvite}
 	cm.connections = append(cm.connections, conn)
+	cm.selectedIndex = len(cm.connections) - 1
 	cm.saveConnections()
 	fyne.Do(func() {
 		cm.refreshConnectionsList()

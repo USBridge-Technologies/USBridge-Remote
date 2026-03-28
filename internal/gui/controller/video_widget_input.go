@@ -138,7 +138,7 @@ func (vw *VideoWidget) processMouseMovement() {
 		return
 	}
 
-	if vw.GetMouseInputMode() == "touchscreen" || vw.GetMouseInputMode() == "absolute" {
+	if !vw.IsTouchPadInputMode() {
 		return
 	}
 
@@ -181,13 +181,30 @@ func (vw *VideoWidget) resetRelativeMoveAccumulator() {
 	vw.relativeRemainderY = 0
 }
 
+func (vw *VideoWidget) IsTouchPadInputMode() bool {
+	return vw.GetMouseInputMode() == "mouse"
+}
+
+func (vw *VideoWidget) IsDoubleInputMode() bool {
+	return vw.GetMouseInputMode() == "double"
+}
+
+func (vw *VideoWidget) IsAbsoluteLikeInputMode() bool {
+	mode := vw.GetMouseInputMode()
+	return mode == "absolute" || mode == "double"
+}
+
+func (vw *VideoWidget) UsesRelativeMouseInput() bool {
+	return vw.GetMouseInputMode() == "mouse"
+}
+
 // GetMouseInputMode возвращает тип манипулятора.
 func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
 		if fyne.CurrentDevice().IsMobile() {
 			vw.mouseInputMode = "mouse"
 		} else {
-			vw.mouseInputMode = "absolute"
+			vw.mouseInputMode = "double"
 		}
 	}
 	return vw.mouseInputMode
@@ -195,7 +212,7 @@ func (vw *VideoWidget) GetMouseInputMode() string {
 
 // SetMouseInputMode задаёт тип манипулятора.
 func (vw *VideoWidget) SetMouseInputMode(mode string) {
-	if mode != "mouse" && mode != "touchscreen" && mode != "absolute" {
+	if mode != "mouse" && mode != "double" && mode != "touchscreen" && mode != "absolute" {
 		mode = "mouse"
 	}
 	vw.mouseInputMode = mode
@@ -208,6 +225,8 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	if vw.usbClient == nil {
 		return
 	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
 	const deadzone = 2
 	const minInterval = 8 * time.Millisecond
 
@@ -260,6 +279,8 @@ func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 	if vw.usbClient == nil {
 		return
 	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
 	vw.lastAbsX = x
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
@@ -358,10 +379,30 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
 		return 0, 0
 	}
+
+	rectX := vw.contentRectX
+	rectY := vw.contentRectY
+	rectW := vw.contentRectW
+	rectH := vw.contentRectH
+
+	// Для абсолютного указателя важнее брать фактическую геометрию
+	// отрисованного кадра, а не только расчётный viewport: так мы
+	// учитываем реальные рамки/letterbox после layout Fyne.
+	if wrapper := vw.activeViewportWrapper(); wrapper != nil && wrapper.image != nil {
+		imgPos := wrapper.image.Position()
+		imgSize := wrapper.image.Size()
+		if imgSize.Width > 0 && imgSize.Height > 0 {
+			rectX = imgPos.X
+			rectY = imgPos.Y
+			rectW = imgSize.Width
+			rectH = imgSize.Height
+		}
+	}
+
 	var u, v float32
-	if vw.contentRectW > 0 && vw.contentRectH > 0 {
-		u = (px - vw.contentRectX) / vw.contentRectW
-		v = (py - vw.contentRectY) / vw.contentRectH
+	if rectW > 0 && rectH > 0 {
+		u = (px - rectX) / rectW
+		v = (py - rectY) / rectH
 	} else {
 		u = px / vw.touchpadSizeW
 		v = py / vw.touchpadSizeH

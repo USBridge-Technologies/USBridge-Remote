@@ -168,7 +168,7 @@ func (dw *DiskWidget) combineDrives() {
 	uploadingByPath := make(map[string]uploadState)
 	mountingByExportName := make(map[string]bool)
 	oldReadOnly := make(map[string]bool)
-	oldMouseType := defaultMouseMode() // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
+	oldMouseType := defaultMouseMode() // сохраняем выбор пользователя (touchpad/mouse/touchscreen/absolute)
 	oldRNDISMode := "auto"
 	for _, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
@@ -305,7 +305,7 @@ func (dw *DiskWidget) combineDrives() {
 	dw.allDrives = append(dw.allDrives, keyboardItem)
 
 	// Добавляем мышь
-	if oldMouseType != "mouse" && oldMouseType != "touchscreen" && oldMouseType != "absolute" {
+	if oldMouseType != "mouse" && oldMouseType != "double" && oldMouseType != "touchscreen" && oldMouseType != "absolute" {
 		oldMouseType = defaultMouseMode()
 	}
 	oldRNDISMode = normalizeRNDISMode(oldRNDISMode)
@@ -430,9 +430,11 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				break
 			}
 
-			if drive.IsMouse && (device.Type == "mouse" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+			if drive.IsMouse && (device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
 				isMounted = true
-				if device.Type == "touchscreen" {
+				if device.Type == "double" {
+					drive.MouseType = "double"
+				} else if device.Type == "touchscreen" {
 					drive.MouseType = "touchscreen"
 				} else if device.Type == "absolute" {
 					drive.MouseType = "absolute"
