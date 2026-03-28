@@ -16,6 +16,7 @@ NC='\033[0m'
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
+source "$SCRIPTS_DIR/android_env.sh"
 
 if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
     export USBRIDGE_LOGGING_ACTIVE=1
@@ -42,18 +43,9 @@ ensure_dist_copy() {
     fi
 }
 
-# Поиск NDK: ANDROID_NDK_HOME -> ANDROID_HOME/ndk -> ~/Library/Android/sdk/ndk -> /usr/lib/android-ndk
-if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
-    NDK_PATH="$ANDROID_NDK_HOME"
-elif [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-    NDK_PATH="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | head -1)"
-    NDK_PATH="${NDK_PATH%/}"
-elif [ -d "$HOME/Library/Android/sdk/ndk" ]; then
-    NDK_PATH="$(ls -d "$HOME/Library/Android/sdk/ndk"/*/ 2>/dev/null | head -1)"
-    NDK_PATH="${NDK_PATH%/}"
-elif [ -d "/usr/lib/android-ndk" ]; then
-    NDK_PATH="/usr/lib/android-ndk"
-else
+export_android_env
+NDK_PATH="$(resolve_android_ndk 2>/dev/null || true)"
+if [ -z "$NDK_PATH" ]; then
     echo -e "${RED}❌ Android NDK не найден${NC}"
     exit 1
 fi
@@ -63,6 +55,11 @@ if [ ! -d "$NDK_PATH" ]; then
     exit 1
 fi
 echo -e "${GREEN}✓${NC} Android NDK: $NDK_PATH"
+
+if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
+    echo -e "${RED}❌ Не удалось подготовить toolchain из NDK: $NDK_PATH${NC}"
+    exit 1
+fi
 
 # Требуется flex для сборки парсеров GStreamer
 if ! command -v flex >/dev/null 2>&1; then
@@ -79,6 +76,11 @@ if [ ! -d "$GSTREAMER_DIR" ]; then
 fi
 
 cd "$GSTREAMER_DIR"
+
+if meson_builddir_needs_reset "$BUILD_DIR"; then
+    echo -e "${YELLOW}⚠${NC} Найден старый Meson cache от другой платформы. Пересоздаю $BUILD_DIR"
+    rm -rf "$BUILD_DIR"
+fi
 
 # Cross-file (перезаписываем, чтобы не тащить darwin/чужие пути)
 CROSS_FILE="$REPO_ROOT/android-arm64.txt"

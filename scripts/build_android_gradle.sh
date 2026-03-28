@@ -11,6 +11,7 @@ NC='\033[0m'
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
+source "$SCRIPTS_DIR/android_env.sh"
 cd "$REPO_ROOT"
 
 if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
@@ -107,24 +108,7 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 
 # Убедимся, что ANDROID_HOME/ANDROID_NDK_HOME заданы до gomobile init
-if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
-    if [ -d "$HOME/Android/Sdk" ]; then
-        export ANDROID_HOME="$HOME/Android/Sdk"
-    elif [ -d "$HOME/Android/sdk" ]; then
-        export ANDROID_HOME="$HOME/Android/sdk"
-    elif [ -d "/usr/lib/android-sdk" ]; then
-        export ANDROID_HOME="/usr/lib/android-sdk"
-    fi
-fi
-if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
-    if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-        ANDROID_NDK_HOME="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | head -1)"
-        ANDROID_NDK_HOME="${ANDROID_NDK_HOME%/}"
-    elif [ -d "/usr/lib/android-ndk" ]; then
-        ANDROID_NDK_HOME="/usr/lib/android-ndk"
-    fi
-    [ -n "$ANDROID_NDK_HOME" ] && export ANDROID_NDK_HOME
-fi
+export_android_env
 
 "$GOMOBILE_CMD" init || {
     echo -e "${RED}❌ gomobile init не удался${NC}"
@@ -144,10 +128,8 @@ if [ -z "$GOBIND_CMD" ]; then
 fi
 
 mkdir -p android/app/libs
-# gomobile требует NDK с API 19-33; предпочитаем Android SDK NDK
-if [ -d "$HOME/Library/Android/sdk/ndk" ]; then
-    export ANDROID_NDK_HOME=$(ls -d "$HOME/Library/Android/sdk/ndk"/*/ 2>/dev/null | head -1)
-fi
+# gomobile требует NDK; подхватываем системный Android SDK/NDK автоматически
+export_android_env
 NEED_GOMOBILE=0
 [ ! -f android/app/libs/nbdbridge.aar ] && NEED_GOMOBILE=1
 if [ "$NEED_GOMOBILE" -eq 0 ]; then
@@ -177,18 +159,10 @@ ANDROID_SRC="$REPO_ROOT/cmd/android"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
 cp android/jniLibs/arm64-v8a/*.so "$ANDROID_SRC/libs/arm64-v8a/" 2>/dev/null || true
 
-if [ -z "$ANDROID_NDK_HOME" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
-    if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-        ANDROID_NDK_HOME="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | head -1)"
-        ANDROID_NDK_HOME="${ANDROID_NDK_HOME%/}"
-    elif [ -d "$HOME/Library/Android/sdk/ndk" ]; then
-        ANDROID_NDK_HOME="$(ls -d "$HOME/Library/Android/sdk/ndk"/*/ 2>/dev/null | head -1)"
-        ANDROID_NDK_HOME="${ANDROID_NDK_HOME%/}"
-    elif [ -d "/usr/lib/android-ndk" ]; then
-        ANDROID_NDK_HOME="/usr/lib/android-ndk"
-    fi
+if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
+    export_android_env
 fi
-if [ -z "$ANDROID_NDK_HOME" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
+if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     echo -e "${RED}❌ Android NDK не найден (fyne)${NC}"
     echo "   Установите NDK и задайте ANDROID_NDK_HOME"
     exit 1

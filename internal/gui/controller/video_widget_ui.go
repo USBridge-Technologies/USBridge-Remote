@@ -468,6 +468,10 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	vw.lastFrameTime = time.Now()
 	vw.frameMutex.Unlock()
 
+	if frameNum <= 10 || frameNum%120 == 0 {
+		vw.updateFrameContentRect(frame)
+	}
+
 	vw.frameDecoder.IncrementFrameCount()
 
 	if frameNum == 1 {
@@ -677,6 +681,10 @@ func (vw *VideoWidget) clearVideo() {
 	vw.currentFrame = nil
 	vw.frameCount = 0
 	vw.lastFrameTime = time.Time{}
+	vw.frameContentX = 0
+	vw.frameContentY = 0
+	vw.frameContentW = 0
+	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
 	vw.frameDecoder.Reset()
 

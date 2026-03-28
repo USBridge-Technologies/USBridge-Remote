@@ -17,6 +17,7 @@ echo "🔧 Подготовка GStreamer для Android..."
 # Пути
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
+source "$SCRIPTS_DIR/android_env.sh"
 GSTREAMER_DIR="$REPO_ROOT/gstreamer"
 BUILD_DIR="$GSTREAMER_DIR/build-android-arm64"
 INSTALL_DIR="$REPO_ROOT/gstreamer-android"
@@ -41,18 +42,9 @@ ensure_dist_copy() {
     fi
 }
 
-# Поиск NDK: ANDROID_NDK_HOME -> ANDROID_HOME/ndk -> ~/Library/Android/sdk/ndk -> /usr/lib/android-ndk
-if [ -n "$ANDROID_NDK_HOME" ] && [ -d "$ANDROID_NDK_HOME" ]; then
-    NDK_PATH="$ANDROID_NDK_HOME"
-elif [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
-    NDK_PATH="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | head -1)"
-    NDK_PATH="${NDK_PATH%/}"
-elif [ -d "$HOME/Library/Android/sdk/ndk" ]; then
-    NDK_PATH="$(ls -d "$HOME/Library/Android/sdk/ndk"/*/ 2>/dev/null | head -1)"
-    NDK_PATH="${NDK_PATH%/}"
-elif [ -d "/usr/lib/android-ndk" ]; then
-    NDK_PATH="/usr/lib/android-ndk"
-else
+export_android_env
+NDK_PATH="$(resolve_android_ndk 2>/dev/null || true)"
+if [ -z "$NDK_PATH" ]; then
     echo -e "${RED}❌ Android NDK не найден. Установите через Android Studio: SDK Manager → SDK Tools → NDK${NC}"
     exit 1
 fi
@@ -63,6 +55,11 @@ if [ ! -d "$NDK_PATH" ]; then
 fi
 
 echo -e "${GREEN}✓${NC} Android NDK найден: $NDK_PATH"
+
+if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
+    echo -e "${RED}❌ Не удалось подготовить toolchain из NDK: $NDK_PATH${NC}"
+    exit 1
+fi
 
 # Требуется flex для сборки парсеров GStreamer
 if ! command -v flex >/dev/null 2>&1; then
@@ -100,8 +97,13 @@ ensure_jnilibs_ready() {
 # Режим 1: Сборка из исходников (если есть gstreamer/ и не запрошен prebuilt)
 # USE_PREBUILT_GSTREAMER=1 — пропустить сборку из исходников, скачать prebuilt
 if [ -d "$GSTREAMER_DIR" ] && [ "${USE_PREBUILT_GSTREAMER:-0}" != "1" ]; then
-    echo "📦 Сборка GStreamer из исходников..."
+echo "📦 Сборка GStreamer из исходников..."
     cd "$GSTREAMER_DIR"
+
+if meson_builddir_needs_reset "$BUILD_DIR"; then
+    echo -e "${YELLOW}⚠${NC} Найден старый Meson cache от другой платформы. Пересоздаю $BUILD_DIR"
+    rm -rf "$BUILD_DIR"
+fi
 
 # Генерация cross-file на основе NDK (перезаписываем, чтобы не тащить darwin-пути)
 NDK_PREBUILT=$(find "$NDK_PATH/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)

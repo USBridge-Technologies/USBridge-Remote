@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"image"
+	"image/color"
 	"math"
 	"time"
 
@@ -407,6 +409,13 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 		u = px / vw.touchpadSizeW
 		v = py / vw.touchpadSizeH
 	}
+
+	contentX, contentY, contentW, contentH := vw.getFrameContentRect()
+	if contentW > 0 && contentH > 0 {
+		u = (u - contentX) / contentW
+		v = (v - contentY) / contentH
+	}
+
 	if u < 0 {
 		u = 0
 	} else if u > 1 {
@@ -426,6 +435,122 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 		y = 4095
 	}
 	return x, y
+}
+
+func (vw *VideoWidget) getFrameContentRect() (float32, float32, float32, float32) {
+	vw.frameMutex.RLock()
+	defer vw.frameMutex.RUnlock()
+
+	if vw.frameContentW <= 0 || vw.frameContentH <= 0 {
+		return 0, 0, 1, 1
+	}
+	return vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH
+}
+
+func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
+	bounds := frame.Bounds()
+	frameW := bounds.Dx()
+	frameH := bounds.Dy()
+	if frameW <= 0 || frameH <= 0 {
+		return
+	}
+
+	left := detectDarkInset(frame, bounds, true, true)
+	right := detectDarkInset(frame, bounds, true, false)
+	top := detectDarkInset(frame, bounds, false, true)
+	bottom := detectDarkInset(frame, bounds, false, false)
+
+	if left+right >= frameW-4 {
+		left, right = 0, 0
+	}
+	if top+bottom >= frameH-4 {
+		top, bottom = 0, 0
+	}
+
+	contentX := float32(left) / float32(frameW)
+	contentY := float32(top) / float32(frameH)
+	contentW := float32(frameW-left-right) / float32(frameW)
+	contentH := float32(frameH-top-bottom) / float32(frameH)
+
+	if contentW <= 0 || contentH <= 0 {
+		contentX, contentY, contentW, contentH = 0, 0, 1, 1
+	}
+
+	vw.frameMutex.Lock()
+	vw.frameContentX = contentX
+	vw.frameContentY = contentY
+	vw.frameContentW = contentW
+	vw.frameContentH = contentH
+	vw.frameMutex.Unlock()
+}
+
+func detectDarkInset(img image.Image, bounds image.Rectangle, vertical bool, fromStart bool) int {
+	limit := bounds.Dx() / 3
+	if !vertical {
+		limit = bounds.Dy() / 3
+	}
+	if limit < 0 {
+		limit = 0
+	}
+
+	maxSamples := 96
+	for offset := 0; offset < limit; offset++ {
+		darkSamples := 0
+		totalSamples := 0
+
+		if vertical {
+			step := maxInt(1, bounds.Dy()/maxSamples)
+			x := bounds.Min.X + offset
+			if !fromStart {
+				x = bounds.Max.X - 1 - offset
+			}
+			for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
+				totalSamples++
+				if isNearBlack(img.At(x, y)) {
+					darkSamples++
+				}
+			}
+		} else {
+			step := maxInt(1, bounds.Dx()/maxSamples)
+			y := bounds.Min.Y + offset
+			if !fromStart {
+				y = bounds.Max.Y - 1 - offset
+			}
+			for x := bounds.Min.X; x < bounds.Max.X; x += step {
+				totalSamples++
+				if isNearBlack(img.At(x, y)) {
+					darkSamples++
+				}
+			}
+		}
+
+		if totalSamples == 0 {
+			break
+		}
+
+		darkRatio := float32(darkSamples) / float32(totalSamples)
+		if darkRatio < 0.98 {
+			return offset
+		}
+	}
+
+	return limit
+}
+
+func isNearBlack(c color.Color) bool {
+	r, g, b, a := c.RGBA()
+	if a < 0x2000 {
+		return true
+	}
+	const maxDark = 24 << 8
+	return r <= maxDark && g <= maxDark && b <= maxDark
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (vw *VideoWidget) recalculateViewport() {

@@ -49,6 +49,10 @@ type VideoWidget struct {
 	lastFrameTime time.Time
 	frameCount    int64
 	frameDecoder  *media.FrameDecoder
+	frameContentX float32 // нормализованная активная область кадра по X без black bars
+	frameContentY float32 // нормализованная активная область кадра по Y без black bars
+	frameContentW float32 // нормализованная ширина активной области кадра
+	frameContentH float32 // нормализованная высота активной области кадра
 
 	// Диалоги
 	fullscreenDialog *FullscreenDialog

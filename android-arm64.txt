@@ -5,13 +5,13 @@ cpu = 'aarch64'
 endian = 'little'
 
 [properties]
-sys_root = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+sys_root = '/home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
 pkg_config_libdir = ''
 needs_exe_wrapper = true
 
 [binaries]
-c = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang'
-cpp = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang++'
-ar = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-strip = '/usr/lib/android-ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+c = '/home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang'
+cpp = '/home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang++'
+ar = '/home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '/home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
 pkg-config = 'false'
