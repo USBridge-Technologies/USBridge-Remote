@@ -30,18 +30,19 @@ type DevicesListView struct {
 }
 
 type DiskRowWidgets struct {
-	Checkbox       *widget.Check
-	PrefixIcon     *canvas.Image
-	NameLabel      *adaptiveNameText
-	ModeIcon       *canvas.Text
-	ModeTitleLabel *canvas.Text
-	StatusLabel    *widget.Label
-	StatusDot      *canvas.Circle
-	RORWButton     *widget.Button
-	ModeSelect     *HeaderDropdown
-	UploadButton   *iconChromeButton
-	DeleteButton   *iconChromeButton
-	SettingsButton *DeviceActionButton
+	Checkbox        *widget.Check
+	CaptureSelector *CaptureSelector
+	PrefixIcon      *canvas.Image
+	NameLabel       *adaptiveNameText
+	ModeIcon        *canvas.Text
+	ModeTitleLabel  *canvas.Text
+	StatusLabel     *widget.Label
+	StatusDot       *canvas.Circle
+	RORWButton      *widget.Button
+	ModeSelect      *HeaderDropdown
+	UploadButton    *iconChromeButton
+	DeleteButton    *iconChromeButton
+	SettingsButton  *DeviceActionButton
 }
 
 var diskRowRegistry sync.Map
@@ -80,6 +81,17 @@ type DeviceActionButton struct {
 	label             *canvas.Text
 }
 
+type CaptureSelector struct {
+	widget.BaseWidget
+
+	selected bool
+	disabled bool
+	onTapped func()
+
+	outer *canvas.Circle
+	inner *canvas.Circle
+}
+
 type diskCheckboxTheme struct {
 	base fyne.Theme
 }
@@ -105,6 +117,12 @@ func NewDeviceActionButton(label string, icon fyne.Resource, onTapped func()) *D
 	}
 	b.ExtendBaseWidget(b)
 	return b
+}
+
+func NewCaptureSelector(onTapped func()) *CaptureSelector {
+	s := &CaptureSelector{onTapped: onTapped}
+	s.ExtendBaseWidget(s)
+	return s
 }
 
 func (t *adaptiveNameText) SetText(text string) {
@@ -208,6 +226,79 @@ func (b *DeviceActionButton) CreateRenderer() fyne.WidgetRenderer {
 	b.refreshVisuals()
 	return renderer
 }
+
+func (s *CaptureSelector) CreateRenderer() fyne.WidgetRenderer {
+	s.outer = canvas.NewCircle(color.Transparent)
+	s.outer.StrokeWidth = 2
+	s.inner = canvas.NewCircle(design.ColorAccent)
+	return &captureSelectorRenderer{selector: s}
+}
+
+func (s *CaptureSelector) MinSize() fyne.Size {
+	return fyne.NewSize(18, 18)
+}
+
+func (s *CaptureSelector) Tapped(*fyne.PointEvent) {
+	if s.disabled || s.onTapped == nil {
+		return
+	}
+	s.onTapped()
+}
+
+func (s *CaptureSelector) SetSelected(selected bool) {
+	s.selected = selected
+	s.Refresh()
+}
+
+func (s *CaptureSelector) SetDisabled(disabled bool) {
+	s.disabled = disabled
+	s.Refresh()
+}
+
+func (s *CaptureSelector) SetOnTapped(onTapped func()) {
+	s.onTapped = onTapped
+}
+
+type captureSelectorRenderer struct {
+	selector *CaptureSelector
+}
+
+func (r *captureSelectorRenderer) Layout(size fyne.Size) {
+	outerSize := fyne.NewSize(18, 18)
+	innerSize := fyne.NewSize(8, 8)
+	r.selector.outer.Move(fyne.NewPos((size.Width-outerSize.Width)/2, (size.Height-outerSize.Height)/2))
+	r.selector.outer.Resize(outerSize)
+	r.selector.inner.Move(fyne.NewPos((size.Width-innerSize.Width)/2, (size.Height-innerSize.Height)/2))
+	r.selector.inner.Resize(innerSize)
+}
+
+func (r *captureSelectorRenderer) MinSize() fyne.Size {
+	return r.selector.MinSize()
+}
+
+func (r *captureSelectorRenderer) Refresh() {
+	stroke := design.ColorTextMuted
+	dot := design.ColorAccent
+	if r.selector.disabled {
+		stroke = design.ColorBorder
+		dot = design.ColorBorder
+	}
+	r.selector.outer.StrokeColor = stroke
+	r.selector.inner.FillColor = dot
+	if r.selector.selected {
+		r.selector.inner.Show()
+	} else {
+		r.selector.inner.Hide()
+	}
+	r.selector.outer.Refresh()
+	r.selector.inner.Refresh()
+}
+
+func (r *captureSelectorRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.selector.outer, r.selector.inner}
+}
+
+func (r *captureSelectorRenderer) Destroy() {}
 
 func (b *DeviceActionButton) MinSize() fyne.Size {
 	textWidth := fyne.MeasureText(b.labelText, 13, fyne.TextStyle{Bold: true}).Width
@@ -669,6 +760,8 @@ func NewDeviceSectionAddButton(onTapped func()) fyne.CanvasObject {
 func NewDiskRowTemplate() fyne.CanvasObject {
 	checkbox := widget.NewCheck("", nil)
 	checkboxWrap := container.NewThemeOverride(checkbox, &diskCheckboxTheme{base: design.NewBrandTheme()})
+	captureSelector := NewCaptureSelector(nil)
+	captureSelector.Hide()
 
 	prefixIcon := canvas.NewImageFromResource(assets.DiscIcon)
 	prefixIcon.FillMode = canvas.ImageFillContain
@@ -729,22 +822,23 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	settingsBtn.Hide()
 
 	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusWrap)
-	left := container.NewCenter(checkboxWrap)
+	left := container.NewMax(container.NewCenter(checkboxWrap), container.NewCenter(captureSelector))
 
 	root := container.New(&deviceRowLayout{gap: 6}, left, center, right)
 	diskRowRegistry.Store(root, &DiskRowWidgets{
-		Checkbox:       checkbox,
-		PrefixIcon:     prefixIcon,
-		NameLabel:      nameLabel,
-		ModeIcon:       modeIcon,
-		ModeTitleLabel: modeTitleLabel,
-		StatusLabel:    statusLabel,
-		StatusDot:      statusDot,
-		RORWButton:     roRwBtn,
-		ModeSelect:     modeSelect,
-		UploadButton:   uploadBtn,
-		DeleteButton:   deleteBtn,
-		SettingsButton: settingsBtn,
+		Checkbox:        checkbox,
+		CaptureSelector: captureSelector,
+		PrefixIcon:      prefixIcon,
+		NameLabel:       nameLabel,
+		ModeIcon:        modeIcon,
+		ModeTitleLabel:  modeTitleLabel,
+		StatusLabel:     statusLabel,
+		StatusDot:       statusDot,
+		RORWButton:      roRwBtn,
+		ModeSelect:      modeSelect,
+		UploadButton:    uploadBtn,
+		DeleteButton:    deleteBtn,
+		SettingsButton:  settingsBtn,
 	})
 	return root
 }

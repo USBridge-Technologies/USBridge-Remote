@@ -72,6 +72,7 @@ type USBClient struct {
 	httpClient            *http.Client
 	apiKey                string
 	transportErrorHandler func(error)
+	keyboardQueue         chan keyboardRequestTask
 
 	// WebSocket для управления мышью
 	mouseWS       *websocket.Conn
@@ -79,14 +80,22 @@ type USBClient struct {
 	mouseWSActive bool
 }
 
+type keyboardRequestTask struct {
+	request models.KeyboardRequest
+	result  chan error
+}
+
 // NewUSBClient создает новый USB клиент
 func NewUSBClient(host string, port int, timeout int) *USBClient {
-	return &USBClient{
+	client := &USBClient{
 		baseURL: fmt.Sprintf("http://%s:%d", host, port),
 		httpClient: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 		},
+		keyboardQueue: make(chan keyboardRequestTask, 512),
 	}
+	go client.runKeyboardWorker()
+	return client
 }
 
 func (c *USBClient) SetTransportErrorHandler(handler func(error)) {
@@ -557,6 +566,25 @@ func (c *USBClient) SendText(text string) error {
 
 // sendKeyboardRequest отправляет запрос клавиатуры
 func (c *USBClient) sendKeyboardRequest(request models.KeyboardRequest) error {
+	if c.keyboardQueue == nil {
+		return c.doSendKeyboardRequest(request)
+	}
+
+	result := make(chan error, 1)
+	c.keyboardQueue <- keyboardRequestTask{
+		request: request,
+		result:  result,
+	}
+	return <-result
+}
+
+func (c *USBClient) runKeyboardWorker() {
+	for task := range c.keyboardQueue {
+		task.result <- c.doSendKeyboardRequest(task.request)
+	}
+}
+
+func (c *USBClient) doSendKeyboardRequest(request models.KeyboardRequest) error {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("ошибка сериализации запроса: %v", err)

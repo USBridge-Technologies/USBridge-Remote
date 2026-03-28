@@ -49,6 +49,7 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 
 // handleMount обрабатывает монтирование.
 func (dw *DiskWidget) handleMount() {
+	dw.setUserOperationInFlight(true)
 	dw.setButtonsEnabled(false)
 	logrus.Infof("📍 [MOUNT-1] handleMount вызван, GOOS: %s", runtime.GOOS)
 
@@ -57,6 +58,7 @@ func (dw *DiskWidget) handleMount() {
 		if dw.window != nil {
 			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
+		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
 		return
 	}
@@ -74,25 +76,21 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	var selectedDrives []DriveItem
-	var selectedVideos []DriveItem
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) {
 			drive := dw.allDrives[id]
-			if !drive.IsMounted {
-				if drive.IsVideo {
-					selectedVideos = append(selectedVideos, drive)
-				} else {
-					selectedDrives = append(selectedDrives, drive)
-				}
+			if !drive.IsMounted && !drive.IsVideo {
+				selectedDrives = append(selectedDrives, drive)
 			}
 		}
 	}
 
-	if len(selectedDrives) == 0 && len(selectedVideos) == 0 {
+	if len(selectedDrives) == 0 {
 		logrus.Warnf("⚠️ Нет выбранных устройств для подключения")
 		if dw.window != nil {
 			dialog.ShowError(fmt.Errorf("%s", i18n.Current.SelectDevicesToMount), dw.window)
 		}
+		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
 		return
 	}
@@ -103,11 +101,12 @@ func (dw *DiskWidget) handleMount() {
 		if dw.window != nil {
 			dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
 		}
+		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
 		return
 	}
 
-	logrus.Infof("📁 Подключено: gadget=%d, video=%d, добавляем gadget=%d, video=%d", len(mountedDrives), mountedVideoCount, len(selectedDrives), len(selectedVideos))
+	logrus.Infof("📁 Подключено: gadget=%d, video=%d, добавляем gadget=%d", len(mountedDrives), mountedVideoCount, len(selectedDrives))
 
 	hasGoogleDriveFiles := false
 	for _, drive := range selectedDrives {
@@ -151,6 +150,7 @@ func (dw *DiskWidget) handleMount() {
 				})
 			}
 			if reEnableButtons {
+				dw.setUserOperationInFlight(false)
 				dw.setButtonsEnabled(true)
 			}
 		}()
@@ -281,7 +281,7 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
-		if len(deviceRequests) == 0 && len(selectedVideos) == 0 {
+		if len(deviceRequests) == 0 {
 			dw.showErrorAsync(fmt.Errorf("не удалось подготовить устройства для монтирования"))
 			return
 		}
@@ -403,15 +403,6 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
-		if len(selectedVideos) > 0 && dw.onVideoConnect != nil {
-			for _, videoDrive := range selectedVideos {
-				if videoDrive.VideoDevice == nil {
-					continue
-				}
-				dw.onVideoConnect(videoDrive.VideoDevice.Path)
-			}
-		}
-
 		if dw.onMouseTypeChanged != nil {
 			if startedMouseMode != "" {
 				dw.onMouseTypeChanged(startedMouseMode)
@@ -428,6 +419,7 @@ func (dw *DiskWidget) handleMount() {
 		mountingExportNames := nbdExportNamesForUI
 		dw.updateUIAsync(func() {
 			dw.setMountingStateByExportNames(mountingExportNames, true)
+			dw.setAPIMountInProgress(true)
 			dw.requestDevicesRefresh()
 		})
 
@@ -440,6 +432,8 @@ func (dw *DiskWidget) handleMount() {
 			go func() {
 				time.Sleep(1500 * time.Millisecond)
 				dw.updateUIAsync(func() {
+					dw.setAPIMountInProgress(false)
+					dw.setUserOperationInFlight(false)
 					dw.loadMountedDevices()
 					dw.requestDevicesRefresh()
 					dw.setButtonsEnabled(true)
@@ -449,18 +443,20 @@ func (dw *DiskWidget) handleMount() {
 			go dw.pollMountStatus(mountingExportNames)
 		}
 
-		logrus.Infof("✅ Запрос на монтирование gadget=%d video=%d отправлен", len(deviceRequests), len(selectedVideos))
+		logrus.Infof("✅ Запрос на монтирование gadget=%d отправлен", len(deviceRequests))
 	}()
 }
 
 // handleUnmount обрабатывает размонтирование.
 func (dw *DiskWidget) handleUnmount() {
+	dw.setUserOperationInFlight(true)
 	dw.setButtonsEnabled(false)
 	if dw.usbClient == nil {
 		logrus.Warn("⚠️ USB клиент не инициализирован")
 		if dw.window != nil {
 			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
+		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
 		return
 	}
@@ -489,6 +485,7 @@ func (dw *DiskWidget) handleUnmount() {
 		if dw.window != nil {
 			dialog.ShowInformation(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
 		}
+		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
 		return
 	}
@@ -522,6 +519,7 @@ func (dw *DiskWidget) handleUnmount() {
 
 	view.ShowConfirmYesLeft(i18n.Current.Confirmation, confirmMsg, func(ok bool) {
 		if !ok {
+			dw.setUserOperationInFlight(false)
 			dw.setButtonsEnabled(true)
 			return
 		}
@@ -533,6 +531,7 @@ func (dw *DiskWidget) handleUnmount() {
 func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, mountedDrives []DriveItem, mountedIndices []int) {
 	defer func() {
 		dw.updateUIAsync(func() {
+			dw.setUserOperationInFlight(false)
 			dw.setButtonsEnabled(true)
 		})
 	}()
@@ -772,7 +771,7 @@ func (dw *DiskWidget) updateButtons() {
 	mountedCount := 0
 
 	for id, selected := range dw.selectedItems {
-		if selected && id < len(dw.allDrives) {
+		if selected && id < len(dw.allDrives) && !dw.allDrives[id].IsVideo {
 			selectedCount++
 			if !dw.allDrives[id].IsMounted {
 				selectedNotMountedCount++
@@ -799,6 +798,7 @@ func (dw *DiskWidget) updateButtons() {
 	hasMountedDevices = hasMountedDevices || videoMounted
 
 	canAdd := selectedNotMountedCount > 0 && (mountedCount+selectedGadgetNotMountedCount) <= MaxDevicesToMount
+	controlsLocked := dw.controlsLocked()
 
 	fyne.Do(func() {
 		disconnectLabel := i18n.Current.DisconnectButton
@@ -825,10 +825,18 @@ func (dw *DiskWidget) updateButtons() {
 
 		if hasMountedDevices {
 			dw.unmountBtn.Show()
-			dw.unmountBtn.Enable()
+			if controlsLocked {
+				dw.unmountBtn.Disable()
+			} else {
+				dw.unmountBtn.Enable()
+			}
 			if dw.compactUnmountBtn != nil {
 				dw.compactUnmountBtn.Show()
-				dw.compactUnmountBtn.Enable()
+				if controlsLocked {
+					dw.compactUnmountBtn.Disable()
+				} else {
+					dw.compactUnmountBtn.Enable()
+				}
 			}
 		} else {
 			dw.unmountBtn.Hide()
@@ -838,13 +846,17 @@ func (dw *DiskWidget) updateButtons() {
 		}
 
 		if selectedCount == 0 {
+			dw.mountBtn.Disable()
+			if dw.compactMountBtn != nil {
+				dw.compactMountBtn.Disable()
+			}
 			if dw.onButtonsChanged != nil {
 				dw.onButtonsChanged()
 			}
 			return
 		}
 
-		if canAdd {
+		if canAdd && !controlsLocked {
 			dw.mountBtn.Enable()
 			if dw.compactMountBtn != nil {
 				dw.compactMountBtn.Enable()

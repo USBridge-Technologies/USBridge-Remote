@@ -571,21 +571,25 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 	}
 
-	if mw.frpService != nil && mw.frpService.IsRunning() {
-		logrus.Info("[shutdown] handleDisconnect: stopping FRP service")
-		if err := mw.frpService.Disconnect(); err != nil {
-			logrus.Errorf("Failed to stop FRP tunnel: %v", err)
+	if mw.frpService != nil {
+		if mw.frpService.IsRunning() {
+			logrus.Info("[shutdown] handleDisconnect: stopping FRP service")
+			if err := mw.frpService.Disconnect(); err != nil {
+				logrus.Errorf("Failed to stop FRP tunnel: %v", err)
+			}
+			logrus.Info("[shutdown] handleDisconnect: FRP service stopped")
 		}
 		mw.frpService = nil
-		logrus.Info("[shutdown] handleDisconnect: FRP service stopped")
 	}
-	if mw.wgService != nil && mw.wgService.IsRunning() {
-		logrus.Info("[shutdown] handleDisconnect: stopping WireGuard service")
-		if err := mw.wgService.Disconnect(); err != nil {
-			logrus.Errorf("Failed to stop WireGuard tunnel: %v", err)
+	if mw.wgService != nil {
+		if mw.wgService.IsRunning() {
+			logrus.Info("[shutdown] handleDisconnect: stopping WireGuard service")
+			if err := mw.wgService.Disconnect(); err != nil {
+				logrus.Errorf("Failed to stop WireGuard tunnel: %v", err)
+			}
+			logrus.Info("[shutdown] handleDisconnect: WireGuard service stopped")
 		}
 		mw.wgService = nil
-		logrus.Info("[shutdown] handleDisconnect: WireGuard service stopped")
 	}
 
 	mw.isConnected = false

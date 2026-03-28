@@ -82,7 +82,7 @@ func (mw *MainWindow) handleClose() {
 		return
 	}
 
-	if mw.isConnected {
+	if mw.isConnected || (mw.wgService != nil && mw.wgService.IsRunning()) || (mw.frpService != nil && mw.frpService.IsRunning()) {
 		logrus.Info("[shutdown] handleClose: calling handleDisconnect")
 		mw.handleDisconnect()
 	}

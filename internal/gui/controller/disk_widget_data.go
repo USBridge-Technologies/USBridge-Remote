@@ -356,6 +356,11 @@ func (dw *DiskWidget) combineDrives() {
 			dw.allDrives[i].IsMounting = true
 		}
 	}
+	for id := range dw.selectedItems {
+		if id < 0 || id >= len(dw.allDrives) || dw.allDrives[id].IsVideo {
+			delete(dw.selectedItems, id)
+		}
+	}
 
 	dw.updateDevicesStatus()
 	dw.rebuildListItems()
@@ -390,6 +395,7 @@ func (dw *DiskWidget) loadMountedDevices() {
 
 		logrus.Debugf("Загружено %d смонтированных устройств", len(dw.mountedDevices))
 		dw.updateUIAsync(func() {
+			dw.setAPIMountInProgress(deviceInfo.MountInProgress)
 			dw.updateDevicesStatus()
 			dw.requestDevicesRefresh()
 		})
