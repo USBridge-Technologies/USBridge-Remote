@@ -622,13 +622,24 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.showVideoMenu()
 	}
 	mw.videoIcon.Importance = widget.LowImportance
-	mw.keyboardIcon = widget.NewButton("⌨️", func() {
+	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(false)
+		}
+	})
+	mw.captureIcon.Importance = widget.LowImportance
+	mw.keyboardIcon = widget.NewButtonWithIcon("", assets.KeyboardIcon, func() {
+		if mw.tabs != nil && len(mw.tabs.Items) > 1 {
+			mw.tabs.Select(mw.tabs.Items[1])
+		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.HandleVirtualKeyboard()
 		}
 	})
 	mw.keyboardIcon.Importance = widget.LowImportance
-	mw.mouseIcon = widget.NewButton("🖱️", func() {})
+	mw.mouseIcon = widget.NewButtonWithIcon("", assets.MouseIcon, func() {
+		mw.showMouseModeMenu()
+	})
 	mw.mouseIcon.Importance = widget.LowImportance
 	mw.rndisIcon = widget.NewButton("🌐", func() {})
 	mw.rndisIcon.Importance = widget.LowImportance
@@ -692,7 +703,7 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(protocol string, keyboardConnected, mouseConnected bool) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(protocol string, captureButton, keyboardButton, mouseButton fyne.CanvasObject) []fyne.CanvasObject {
 	indicatorGap := func() fyne.CanvasObject {
 		gap := canvas.NewRectangle(color.Transparent)
 		gap.SetMinSize(fyne.NewSize(10, 1))
@@ -701,19 +712,11 @@ func buildHeaderStatusIndicators(protocol string, keyboardConnected, mouseConnec
 
 	protocolText, _, _ := protocolButtonState(protocol)
 	items := []fyne.CanvasObject{
-		newHeaderStatusIcon(func() fyne.Resource {
-			if keyboardConnected {
-				return assets.KeyboardIconActive
-			}
-			return assets.KeyboardIcon
-		}()),
+		captureButton,
 		indicatorGap(),
-		newHeaderStatusIcon(func() fyne.Resource {
-			if mouseConnected {
-				return assets.MouseIconActive
-			}
-			return assets.MouseIcon
-		}()),
+		keyboardButton,
+		indicatorGap(),
+		mouseButton,
 		indicatorGap(),
 		newProtocolIndicator(protocolText),
 	}
@@ -811,10 +814,36 @@ func (mw *MainWindow) updateStatusBar() {
 			mw.refreshDeviceFooterButtons()
 		}
 
+		if mw.keyboardIcon != nil {
+			if keyboardConnected {
+				mw.keyboardIcon.SetIcon(assets.KeyboardIconActive)
+			} else {
+				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
+			}
+			mw.keyboardIcon.Refresh()
+		}
+		if mw.mouseIcon != nil {
+			if mouseConnected {
+				mw.mouseIcon.SetIcon(assets.MouseIconActive)
+			} else {
+				mw.mouseIcon.SetIcon(assets.MouseIcon)
+			}
+			mw.mouseIcon.Refresh()
+		}
+		if mw.captureIcon != nil {
+			if videoStreaming {
+				mw.captureIcon.SetIcon(assets.CameraIconActive)
+			} else {
+				mw.captureIcon.SetIcon(assets.CameraIcon)
+			}
+			mw.captureIcon.Refresh()
+		}
+
 		mw.statusPanel.Objects = buildHeaderStatusIndicators(
 			mw.connectedProtocol,
-			keyboardConnected,
-			mouseConnected,
+			mw.captureIcon,
+			mw.keyboardIcon,
+			mw.mouseIcon,
 		)
 		mw.statusPanel.Refresh()
 	})
@@ -865,4 +894,44 @@ func (mw *MainWindow) showVideoMenu() {
 	}
 
 	view.ShowStyledMenu(mw.videoIcon, items)
+}
+
+func (mw *MainWindow) showMouseModeMenu() {
+	if mw.mouseIcon == nil || mw.diskWidget == nil {
+		return
+	}
+
+	currentMode := mw.diskWidget.GetMouseMode()
+	items := []view.StyledMenuItem{
+		{
+			Label:    i18n.Current.DeviceTouchPad,
+			Selected: currentMode == "mouse",
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode("mouse")
+			},
+		},
+		{
+			Label:    i18n.Current.DeviceMouse,
+			Selected: currentMode == "double",
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode("double")
+			},
+		},
+		{
+			Label:    i18n.Current.DeviceTouch,
+			Selected: currentMode == "touchscreen",
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode("touchscreen")
+			},
+		},
+		{
+			Label:    i18n.Current.DeviceAbsolute,
+			Selected: currentMode == "absolute",
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode("absolute")
+			},
+		},
+	}
+
+	view.ShowStyledMenu(mw.mouseIcon, items)
 }

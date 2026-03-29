@@ -34,6 +34,8 @@ type GStreamerService struct {
 	nativeFullscreenActive bool
 	jpegCandidateIndex     int
 	lastJPEGPipeline       string
+	expectedWidth          int
+	expectedHeight         int
 
 	// Состояние
 	isConnected    bool
@@ -180,9 +182,7 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	return fmt.Errorf("UDP relay (pipe) пока не реализован на Windows, используйте прямое подключение")
 }
 
-// createPipeline создает GStreamer pipeline для RTP H.264 с аппаратным декодированием через d3d11h264dec.
-// d3d11h264dec выдает video/x-raw(memory:D3D11Memory); для appsink нужна системная память — после декодера ставим d3d11download.
-// При недоступности аппаратного пути используется fallback на avdec_h264.
+// createPipeline создает GStreamer pipeline для текущего RTP video mode на Windows.
 func (gs *GStreamerService) createPipeline() error {
 	udpPort := gs.config.VideoUDPPort
 	if udpPort <= 0 {
@@ -196,6 +196,9 @@ func (gs *GStreamerService) createPipeline() error {
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.createPipelineJPEG(udpPort)
+	}
+	if gs.videoMode == models.VideoModeRawYUYV {
+		return gs.createPipelineRawYUYV(udpPort)
 	}
 
 	// Вариант 1: d3d11h264dec ! d3d11download — перевод D3D11-памяти в системную, иначе переход в PLAYING часто падает
@@ -238,6 +241,71 @@ func (gs *GStreamerService) createPipeline() error {
 	}
 
 	logrus.Info("✅ [Windows] GStreamer pipeline создан (d3d11h264dec - аппаратное декодирование)")
+	gs.pipeline = pipeline
+	return gs.attachAppsink()
+}
+
+func (gs *GStreamerService) createPipelineRawYUYV(udpPort int) error {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	width := gs.expectedWidth
+	height := gs.expectedHeight
+	if width <= 0 {
+		width = gs.config.VideoWidth
+	}
+	if height <= 0 {
+		height = gs.config.VideoHeight
+	}
+	if width <= 0 {
+		width = 1280
+	}
+	if height <= 0 {
+		height = 720
+	}
+
+	logrus.Infof("🔧 [Windows/RAW] Building RAW YUYV pipeline: %dx%d", width, height)
+
+	hwPipeline := fmt.Sprintf(
+		"udpsrc address=%s port=%d buffer-size=4194304 caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)RAW,sampling=(string)YCbCr-4:2:2,depth=(string)8,width=(string)%d,height=(string)%d,colorimetry=(string)BT601-5,payload=(int)96\" ! "+
+			"rtpjitterbuffer latency=5 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! "+
+			"d3d11upload ! d3d11convert ! d3d11download ! "+
+			"video/x-raw,format=RGBA ! "+
+			"appsink name=sink sync=false max-buffers=2 drop=true",
+		bindHost, udpPort, width, height, width, height,
+	)
+
+	swPipeline := fmt.Sprintf(
+		"udpsrc address=%s port=%d buffer-size=4194304 caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)RAW,sampling=(string)YCbCr-4:2:2,depth=(string)8,width=(string)%d,height=(string)%d,colorimetry=(string)BT601-5,payload=(int)96\" ! "+
+			"rtpjitterbuffer latency=5 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! "+
+			"videoconvert ! video/x-raw,format=RGBA ! "+
+			"appsink name=sink sync=false max-buffers=2 drop=true",
+		bindHost, udpPort, width, height, width, height,
+	)
+
+	var pipeline *gst.Pipeline
+	var err error
+	if gst.Find("d3d11upload") != nil && gst.Find("d3d11convert") != nil && gst.Find("d3d11download") != nil {
+		pipeline, err = gst.NewPipelineFromString(hwPipeline)
+		if err == nil {
+			logrus.Info("✅ [Windows/RAW] GStreamer pipeline created: d3d11upload -> d3d11convert -> d3d11download")
+			gs.pipeline = pipeline
+			return gs.attachAppsink()
+		}
+		logrus.Warnf("⚠️ [Windows/RAW] D3D11 RAW pipeline unavailable (%v), falling back to software conversion", err)
+	} else {
+		logrus.Info("ℹ️ [Windows/RAW] D3D11 upload/convert/download elements not fully available, using software conversion")
+	}
+
+	pipeline, err = gst.NewPipelineFromString(swPipeline)
+	if err != nil {
+		return fmt.Errorf("ошибка создания RAW YUYV pipeline: %v", err)
+	}
+
+	logrus.Info("✅ [Windows/RAW] GStreamer pipeline created: videoconvert fallback")
 	gs.pipeline = pipeline
 	return gs.attachAppsink()
 }
@@ -1011,8 +1079,14 @@ func (gs *GStreamerService) SetVideoMode(mode string) {
 }
 
 func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
-	_ = width
-	_ = height
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+	if width > 0 {
+		gs.expectedWidth = width
+	}
+	if height > 0 {
+		gs.expectedHeight = height
+	}
 }
 
 // GetConfig возвращает конфигурацию
@@ -1108,6 +1182,35 @@ func (gs *GStreamerService) nativeFullscreenCandidates(bindHost string, udpPort 
 			"jpegparse",
 			"!",
 			"decodebin",
+			"!",
+			"queue", "max-size-buffers=2", "leaky=downstream",
+			"!",
+		)
+	} else if gs.videoMode == models.VideoModeRawYUYV {
+		width := gs.expectedWidth
+		height := gs.expectedHeight
+		if width <= 0 {
+			width = gs.config.VideoWidth
+		}
+		if height <= 0 {
+			height = gs.config.VideoHeight
+		}
+		if width <= 0 {
+			width = 1280
+		}
+		if height <= 0 {
+			height = 720
+		}
+		base = append(base,
+			fmt.Sprintf(`caps=application/x-rtp,media=video,clock-rate=90000,encoding-name=RAW,sampling=YCbCr-4:2:2,depth=8,width=%d,height=%d,colorimetry=BT601-5,payload=96`, width, height),
+			"!",
+			"rtpjitterbuffer", "latency=10", "faststart-min-packets=1", "drop-on-latency=true",
+			"!",
+			"rtpvrawdepay",
+			"!",
+			"d3d11upload",
+			"!",
+			"d3d11convert",
 			"!",
 			"queue", "max-size-buffers=2", "leaky=downstream",
 			"!",

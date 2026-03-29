@@ -683,6 +683,39 @@ func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 	dw.onMouseTypeChanged = fn
 }
 
+// GetMouseMode возвращает текущий выбранный режим указателя.
+func (dw *DiskWidget) GetMouseMode() string {
+	for _, drive := range dw.allDrives {
+		if drive.IsMouse {
+			return normalizeMouseMode(drive.MouseType)
+		}
+	}
+	return defaultMouseMode()
+}
+
+// SetMouseMode применяет режим указателя через ту же логику, что и экран устройств.
+func (dw *DiskWidget) SetMouseMode(mode string) {
+	if dw == nil || dw.controlsLocked() {
+		return
+	}
+
+	mode = normalizeMouseMode(mode)
+	for i := range dw.allDrives {
+		if dw.allDrives[i].IsMouse {
+			dw.applyMouseModeSelection(i, mode)
+			return
+		}
+	}
+
+	dw.combineDrives()
+	for i := range dw.allDrives {
+		if dw.allDrives[i].IsMouse {
+			dw.applyMouseModeSelection(i, mode)
+			return
+		}
+	}
+}
+
 func (dw *DiskWidget) SetOnVideoConfigRequested(fn func(devicePath string)) {
 	dw.onVideoConfigRequested = fn
 }

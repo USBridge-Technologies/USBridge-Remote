@@ -234,10 +234,20 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 		if keyboardLayout.Visible() {
 			logrus.Info("⌨️ Клавиатура видима - скрываем")
-			keyboardLayout.Hide()
+			fd.virtualKeyboard.Hide()
 		} else {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
-			keyboardLayout.Show()
+			fd.virtualKeyboard.SetVisibleState(true)
+			if fyne.CurrentDevice().IsMobile() {
+				go func() {
+					time.Sleep(50 * time.Millisecond)
+					fyne.Do(func() {
+						if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
+							fd.virtualKeyboard.FocusInput()
+						}
+					})
+				}()
+			}
 		}
 
 		fd.ui.VideoWithKeyboard.Refresh()

@@ -76,6 +76,7 @@ type MainWindow struct {
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
 	videoIcon      *widget.Button
+	captureIcon    *widget.Button
 	keyboardIcon   *widget.Button
 	mouseIcon      *widget.Button
 	rndisIcon      *widget.Button

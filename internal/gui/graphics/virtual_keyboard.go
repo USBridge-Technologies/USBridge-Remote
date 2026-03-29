@@ -90,6 +90,7 @@ type VirtualKeyboard struct {
 	shiftBtn    *widget.Button
 	capsLockBtn *widget.Button
 	winBtn      *widget.Button
+	mobileInput *backspaceEntry
 }
 
 // NewVirtualKeyboard создает новую виртуальную клавиатуру.
@@ -166,6 +167,7 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	// Введённый текст отображается в строке (как бегущая строка), каждый символ сразу отправляется на хост.
 	textHint := &backspaceEntry{}
 	textHint.ExtendBaseWidget(textHint)
+	vk.mobileInput = textHint
 	textHint.onBackspaceAlways = func() {
 		if vk.onKeyPress != nil {
 			vk.onKeyPress(42, 0) // HID Backspace — всегда отправляем, даже при пустом поле
@@ -643,11 +645,10 @@ func (vk *VirtualKeyboard) Hide() {
 		vk.keyboardWindow = nil
 	}
 
-	// Скрываем только если клавиатура была в отдельном окне
-	// Если клавиатура встроена в контейнер, её скрытие управляется извне
-	if vk.keyboardWindow != nil {
+	if vk.keyboard != nil {
 		vk.keyboard.Hide()
 	}
+	vk.BlurInput()
 
 	logrus.Info("⌨️ Virtual keyboard hidden")
 }
@@ -683,4 +684,30 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 // SetVisibleState устанавливает состояние видимости без показа отдельного окна
 func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	vk.isVisible = visible
+	if vk.keyboard == nil {
+		return
+	}
+	if visible {
+		vk.keyboard.Show()
+		return
+	}
+	vk.keyboard.Hide()
+	vk.BlurInput()
+}
+
+// FocusInput запрашивает фокус у строки ввода Android-клавиатуры, чтобы показать системную IME.
+func (vk *VirtualKeyboard) FocusInput() {
+	if vk.parentWindow == nil || vk.mobileInput == nil {
+		return
+	}
+	vk.parentWindow.RequestFocus()
+	vk.parentWindow.Canvas().Focus(vk.mobileInput)
+}
+
+// BlurInput снимает фокус со строки ввода Android-клавиатуры.
+func (vk *VirtualKeyboard) BlurInput() {
+	if vk.parentWindow == nil {
+		return
+	}
+	vk.parentWindow.Canvas().Focus(nil)
 }

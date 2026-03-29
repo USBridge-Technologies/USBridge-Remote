@@ -544,7 +544,6 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 		if isAndroid {
 			keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
 			logrus.Infof("⌨️ [DEBUG] keyboardLayout MinSize: %v", keyboardLayout.MinSize())
-			keyboardLayout.Show()
 			vw.virtualKeyboard.SetVisibleState(true)
 
 			canvasSize := vw.parentWindow.Canvas().Size()
@@ -559,8 +558,16 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			vw.contentContainer.Resize(keyboardSize)
 			vw.contentContainer.Show()
 			vw.container.Refresh()
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				fyne.Do(func() {
+					if vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible() {
+						vw.virtualKeyboard.FocusInput()
+					}
+				})
+			}()
 			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
-			logrus.Info("⌨️ Virtual keyboard shown below video (Android mode)")
+			logrus.Info("⌨️ Virtual keyboard shown with Android IME")
 		} else {
 			vw.virtualKeyboard.ShowInSeparateWindow()
 			logrus.Info("⌨️ Virtual keyboard shown in a separate window (desktop mode)")
