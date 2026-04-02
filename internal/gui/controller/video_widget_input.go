@@ -513,8 +513,20 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	// кадр вообще. Иначе именно такой ложный crop может создать второе
 	// "мини-поле" в абсолютном режиме.
 	const maxAutoCropInsetPx = 20
+	const minMeaningfulCropInsetPx = 2
+	const maxCropAsymmetryPx = 2
 	if left > maxAutoCropInsetPx || right > maxAutoCropInsetPx || top > maxAutoCropInsetPx || bottom > maxAutoCropInsetPx {
 		left, right, top, bottom = 0, 0, 0, 0
+	}
+
+	// Разрешаем crop только если он выглядит как небольшая симметричная
+	// рамка. Односторонний или сильно асимметричный inset чаще всего ложный
+	// и даёт "дублирующее мини-поле" в углу.
+	if left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {
+		left, right = 0, 0
+	}
+	if top < minMeaningfulCropInsetPx || bottom < minMeaningfulCropInsetPx || absInt(top-bottom) > maxCropAsymmetryPx {
+		top, bottom = 0, 0
 	}
 
 	if left+right >= frameW-4 {
@@ -608,6 +620,13 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (vw *VideoWidget) recalculateViewport() {

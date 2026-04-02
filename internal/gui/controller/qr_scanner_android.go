@@ -93,7 +93,6 @@ import (
 	"usbridge-client/nbdbridge"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver"
 	"github.com/sirupsen/logrus"
 )
