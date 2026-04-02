@@ -10,7 +10,6 @@ import (
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 	"github.com/sirupsen/logrus"
 )
 

@@ -11,7 +11,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 	"github.com/sirupsen/logrus"
 )
 
