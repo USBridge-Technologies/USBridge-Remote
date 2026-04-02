@@ -1030,15 +1030,15 @@ func (gs *GStreamerService) buildJPEGPipelineCandidates(udpPort int) []jpegPipel
 		bindHost = "127.0.0.1"
 	}
 	base := fmt.Sprintf(
-		"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
-			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
-			"rtpjpegdepay ! ",
+		"udpsrc address=%s port=%d buffer-size=32768 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+			"rtpjitterbuffer latency=0 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpjpegdepay ! queue max-size-buffers=1 leaky=downstream ! ",
 		bindHost, udpPort,
 	)
 
-	softwareDecoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
-	vaapiDecoderPath := "vapostproc ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
-	vaapiDirectPath := "vapostproc ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	softwareDecoderPath := "queue max-size-buffers=1 leaky=downstream ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true"
+	vaapiDecoderPath := "queue max-size-buffers=1 leaky=downstream ! vapostproc ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true"
+	vaapiDirectPath := "queue max-size-buffers=1 leaky=downstream ! vapostproc ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true"
 
 	all := map[string]jpegPipelineCandidate{
 		"vajpegdec":        {name: "vajpegdec + vapostproc (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDecoderPath},
