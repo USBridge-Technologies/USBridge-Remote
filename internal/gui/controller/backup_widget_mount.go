@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
@@ -114,7 +115,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	if bw.usbClient == nil {
 		logrus.Warn("⚠️ USB client not initialized")
 		if bw.window != nil {
-			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
 		}
 		return
 	}
@@ -122,7 +123,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	if bw.currentFlash == nil {
 		logrus.Warn("⚠️ Current flash not found")
 		if bw.window != nil {
-			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorFlashNotFound), bw.window)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorFlashNotFound), bw.window)
 		}
 		return
 	}
@@ -166,7 +167,7 @@ func (bw *BackupWidget) handleMountSnapshot(id widget.ListItemID, snapshot *mode
 	if bw.usbClient == nil {
 		logrus.Warn("⚠️ USB client not initialized")
 		if bw.window != nil {
-			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
 		}
 		return
 	}
@@ -250,7 +251,7 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 func (bw *BackupWidget) showErrorAsync(err error) {
 	bw.updateUIAsync(func() {
 		if bw.window != nil {
-			dialog.ShowError(err, bw.window)
+			view.ShowErrorDialog(err, bw.window)
 		}
 		bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorStatusFormat, err))
 	})

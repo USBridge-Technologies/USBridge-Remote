@@ -44,6 +44,14 @@ var (
 	mouseIcon []byte
 	//go:embed network-backup-svgrepo-com.svg
 	networkIcon []byte
+	//go:embed sd-card-svgrepo-com.svg
+	sdCardIcon []byte
+	//go:embed memory-chip-svgrepo-com.svg
+	memoryChipIcon []byte
+	//go:embed warning-triangle-svgrepo-com.svg
+	warningTriangleIcon []byte
+	//go:embed warning-svgrepo-com.svg
+	warningInfoIcon []byte
 	//go:embed configuration-vertical-options-svgrepo-com.svg
 	configVerticalIcon []byte
 	//go:embed connection-internet-network-web-data-storage-svgrepo-com.svg
@@ -104,6 +112,11 @@ var (
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
 	NetworkIcon                = fyne.NewStaticResource("network-backup-svgrepo-com.svg", recolorFillIcon(networkIcon, "#C9C9C9"))
 	NetworkIconActive          = fyne.NewStaticResource("network-backup-svgrepo-com-active.svg", recolorFillIcon(networkIcon, "#93C572"))
+	SDCardIcon                 = fyne.NewStaticResource("sd-card-svgrepo-com.svg", recolorFillIcon(sdCardIcon, "#C9C9C9"))
+	SDCardIconActive           = fyne.NewStaticResource("sd-card-svgrepo-com-active.svg", recolorFillIcon(sdCardIcon, "#93C572"))
+	MemoryChipIcon             = fyne.NewStaticResource("memory-chip-svgrepo-com.svg", recolorMemoryChipIcon(memoryChipIcon, "#F5F5F5"))
+	WarningTriangleIcon        = fyne.NewStaticResource("warning-triangle-svgrepo-com.svg", recolorFillIcon(warningTriangleIcon, "#F2C14E"))
+	WarningInfoIcon            = fyne.NewStaticResource("warning-svgrepo-com.svg", recolorFillIcon(warningInfoIcon, "#4DA3FF"))
 	ConfigVerticalIcon         = fyne.NewStaticResource("configuration-vertical-options-svgrepo-com.svg", recolorFillIcon(configVerticalIcon, "#F5F5F5"))
 	ConnectionStatusIcon       = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com.svg", recolorFillIcon(connectionStatusIcon, "#C9C9C9"))
 	ConnectionStatusIconActive = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-active.svg", recolorFillIcon(connectionStatusIcon, "#93C572"))
@@ -134,6 +147,13 @@ func recolorFillIcon(source []byte, fill string) []byte {
 	svg = strings.ReplaceAll(svg, `"black"`, fmt.Sprintf(`"%s"`, fill))
 	svg = strings.ReplaceAll(svg, "fill:black", "fill:"+fill)
 	return []byte(svg)
+}
+
+func recolorMemoryChipIcon(source []byte, fill string) []byte {
+	svg := recolorFillIcon(source, fill)
+	out := string(svg)
+	out = strings.ReplaceAll(out, "<path ", fmt.Sprintf(`<path fill="%s" `, fill))
+	return []byte(out)
 }
 
 func recolorStrokeIcon(source []byte, stroke string, width string) []byte {

@@ -97,52 +97,52 @@ func (vqd *VideoQualityDialog) Show(currentWidth, currentHeight, currentFPS, cur
 func (vqd *VideoQualityDialog) handleApply() {
 	width, err := strconv.Atoi(vqd.widthEntry.Text)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.InvalidWidth, err), vqd.parent)
+		ShowErrorDialog(fmt.Errorf(i18n.Current.InvalidWidth, err), vqd.parent)
 		return
 	}
 
 	height, err := strconv.Atoi(vqd.heightEntry.Text)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.InvalidHeight, err), vqd.parent)
+		ShowErrorDialog(fmt.Errorf(i18n.Current.InvalidHeight, err), vqd.parent)
 		return
 	}
 
 	fps, err := strconv.Atoi(vqd.fpsEntry.Text)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.InvalidFPS, err), vqd.parent)
+		ShowErrorDialog(fmt.Errorf(i18n.Current.InvalidFPS, err), vqd.parent)
 		return
 	}
 
 	quality, err := strconv.Atoi(vqd.qualityEntry.Text)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.InvalidQuality, err), vqd.parent)
+		ShowErrorDialog(fmt.Errorf(i18n.Current.InvalidQuality, err), vqd.parent)
 		return
 	}
 
 	bitrate, err := strconv.Atoi(vqd.bitrateEntry.Text)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.InvalidBitrate, err), vqd.parent)
+		ShowErrorDialog(fmt.Errorf(i18n.Current.InvalidBitrate, err), vqd.parent)
 		return
 	}
 
 	if width < 320 || width > 1920 {
-		dialog.ShowError(fmt.Errorf("%s", i18n.Current.WidthRange), vqd.parent)
+		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.WidthRange), vqd.parent)
 		return
 	}
 	if height < 240 || height > 1080 {
-		dialog.ShowError(fmt.Errorf("%s", i18n.Current.HeightRange), vqd.parent)
+		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.HeightRange), vqd.parent)
 		return
 	}
 	if fps < 1 || fps > 60 {
-		dialog.ShowError(fmt.Errorf("%s", i18n.Current.FPSRange), vqd.parent)
+		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.FPSRange), vqd.parent)
 		return
 	}
 	if quality < 1 || quality > 100 {
-		dialog.ShowError(fmt.Errorf("%s", i18n.Current.QualityRange), vqd.parent)
+		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.QualityRange), vqd.parent)
 		return
 	}
 	if bitrate < 100 || bitrate > 10000 {
-		dialog.ShowError(fmt.Errorf("%s", i18n.Current.BitrateRange), vqd.parent)
+		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.BitrateRange), vqd.parent)
 		return
 	}
 

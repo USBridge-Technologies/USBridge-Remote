@@ -180,6 +180,7 @@ func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex
 
 	if cm.ui != nil {
 		fyne.Do(func() {
+			cm.ui.SetActionButtonsDisabled(pending)
 			cm.refreshConnectionsList()
 		})
 	}

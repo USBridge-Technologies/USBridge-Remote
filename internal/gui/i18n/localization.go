@@ -81,6 +81,7 @@ type LocalizedStrings struct {
 	SnapshotChangelogEmpty string // "Changelog отсутствует"
 	SnapshotTempFile       string // "временный файл"
 	OK                     string // "OK"
+	Copy                   string // "Copy"
 
 	// Changelog operations (btrfs)
 	ChangelogOpSnapshot string
@@ -98,6 +99,9 @@ type LocalizedStrings struct {
 	DevicesSectionStorage             string
 	DevicesSectionStorageEyebrow      string
 	DevicesSectionStorageHint         string
+	DevicesSectionBackup              string
+	DevicesSectionBackupEyebrow       string
+	DevicesSectionBackupHint          string
 	DevicesSectionControl             string
 	DevicesSectionControlEyebrow      string
 	DevicesSectionControlHint         string
@@ -325,11 +329,14 @@ type LocalizedStrings struct {
 	// PC Panel (Power/Reset buttons, LED indicators)
 	PCPanelPowerTitle            string // "Power"
 	PCPanelPowerConfirm          string // "Press Power button?"
+	PCPanelActionConfirm         string // "Confirm action?"
+	PCPanelPowerExecuteConfirm   string // "Execute Power Off?"
 	PCPanelPowerHoldTime         string // "Hold time (seconds):"
 	PCPanelPowerShortPress       string // "Short press"
 	PCPanelPowerLongPress        string // "Long press (%d s)"
 	PCPanelResetTitle            string // "Reset"
 	PCPanelResetConfirm          string // "Press Reset button?"
+	PCPanelResetExecuteConfirm   string // "Execute Reset?"
 	PCPanelPowerLED              string // "Power LED"
 	PCPanelHDDLED                string // "HDD LED"
 	PCPanelLongPressNotSupported string // "Long press: will be supported in future"
@@ -416,6 +423,7 @@ func EN() *LocalizedStrings {
 		SnapshotChangelogEmpty: "Changelog unavailable",
 		SnapshotTempFile:       "temporary file",
 		OK:                     "OK",
+		Copy:                   "Copy",
 
 		ChangelogOpSnapshot: "snapshot creation",
 		ChangelogOpUtimes:   "time update",
@@ -432,6 +440,9 @@ func EN() *LocalizedStrings {
 		DevicesSectionStorage:             "Storage",
 		DevicesSectionStorageEyebrow:      "VIRTUAL DISK",
 		DevicesSectionStorageHint:         "ISO and IMG media for upload, swapping, and on-demand mounting.",
+		DevicesSectionBackup:              "Backup Device",
+		DevicesSectionBackupEyebrow:       "BACKUP + MTP",
+		DevicesSectionBackupHint:          "MTP-connected backup storage exposed by the device service.",
 		DevicesSectionControl:             "Control Console",
 		DevicesSectionControlEyebrow:      "VIDEO + INPUT",
 		DevicesSectionControlHint:         "Capture, keyboard, and pointer devices that operate together as the KVM console.",
@@ -659,11 +670,14 @@ func EN() *LocalizedStrings {
 		// PC Panel
 		PCPanelPowerTitle:            "Power",
 		PCPanelPowerConfirm:          "Press Power button?",
+		PCPanelActionConfirm:         "Confirm action?",
+		PCPanelPowerExecuteConfirm:   "Execute Power Off?",
 		PCPanelPowerHoldTime:         "Hold time (seconds):",
 		PCPanelPowerShortPress:       "Short press",
 		PCPanelPowerLongPress:        "Long press (%d s)",
 		PCPanelResetTitle:            "Reset",
 		PCPanelResetConfirm:          "Press Reset button?",
+		PCPanelResetExecuteConfirm:   "Execute Reset?",
 		PCPanelPowerLED:              "Power LED",
 		PCPanelHDDLED:                "HDD LED",
 		PCPanelLongPressNotSupported: "Long press: will be supported in future",

@@ -56,7 +56,7 @@ func (dw *DiskWidget) handleMount() {
 	if dw.usbClient == nil {
 		logrus.Warn("⚠️ USB клиент не инициализирован")
 		if dw.window != nil {
-			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
 		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
@@ -88,7 +88,7 @@ func (dw *DiskWidget) handleMount() {
 	if len(selectedDrives) == 0 {
 		logrus.Warnf("⚠️ Нет выбранных устройств для подключения")
 		if dw.window != nil {
-			dialog.ShowError(fmt.Errorf("%s", i18n.Current.SelectDevicesToMount), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.SelectDevicesToMount), dw.window)
 		}
 		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)
@@ -438,7 +438,7 @@ func (dw *DiskWidget) handleUnmount() {
 	if dw.usbClient == nil {
 		logrus.Warn("⚠️ USB клиент не инициализирован")
 		if dw.window != nil {
-			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
 		dw.setUserOperationInFlight(false)
 		dw.setButtonsEnabled(true)

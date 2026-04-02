@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
 
@@ -62,6 +63,9 @@ func (mw *MainWindow) setConnectionLoading(loading bool) {
 func (mw *MainWindow) clearConnectionPending() {
 	mw.isConnectionPending = false
 	mw.isConnectionLoading = false
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetConnectionPending(false)
+	}
 }
 
 func (mw *MainWindow) resolveConnectionToken(host, token string) string {
@@ -236,7 +240,7 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 		mw.protocolSelect.Enable()
 		mw.updateStatus()
 		mw.showConnectionManager()
-		dialog.ShowError(fmt.Errorf("connection lost: %w", err), mw.window)
+		view.ShowErrorDialog(fmt.Errorf("connection lost: %w", err), mw.window)
 	})
 
 	mw.connectionLossInProgress.Store(false)
@@ -615,7 +619,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
-		dialog.ShowError(fmt.Errorf("%s: %w", message, err), mw.window)
+		view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
 	})
 }
 

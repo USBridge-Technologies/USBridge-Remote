@@ -84,7 +84,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameSeparator:
 		return ColorBorder
 	case fynetheme.ColorNameShadow:
-		return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x66}
+		return color.Transparent
 	case fynetheme.ColorNameSuccess:
 		return ColorAccent
 	case fynetheme.ColorNameWarning:

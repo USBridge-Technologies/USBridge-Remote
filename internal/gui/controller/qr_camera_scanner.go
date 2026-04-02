@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/color"
 	"runtime"
-	"time"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -98,7 +97,6 @@ func (q *QRCameraScanner) Run() {
 			q.popup = nil
 		}
 		popup.Show()
-		q.watchPopupSize(popup)
 	} else {
 		content := container.NewBorder(
 			nil, nil, nil, nil,
@@ -187,7 +185,7 @@ func (q *QRCameraScanner) Run() {
 				if closeUI != nil {
 					closeUI()
 				}
-				dialog.ShowError(fmt.Errorf(i18n.Current.ErrorStartingCamera, err), q.parent)
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorStartingCamera, err), q.parent)
 			})
 		}
 	}()
@@ -234,33 +232,13 @@ func (q *QRCameraScanner) showEmbeddedScanner(videoImg *canvas.Image, onClose fu
 		container.New(&qrScannerCardLayout{}, header, videoCard),
 	)
 
-	dim := canvas.NewRectangle(color.NRGBA{R: 0x06, G: 0x08, B: 0x0b, A: 0xbb})
-	content := container.New(&embeddedScannerOverlayLayout{}, dim, card)
-
-	popup := widget.NewModalPopUp(content, q.parent.Canvas())
-	popup.Resize(q.parent.Canvas().Size())
-	return popup
-}
-
-type embeddedScannerOverlayLayout struct{}
-
-func (l *embeddedScannerOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-
-	dim := objects[0]
-	panel := objects[1]
-	dim.Move(fyne.NewPos(0, 0))
-	dim.Resize(size)
-
-	panelSize := qrScannerPanelSize(size)
-	panel.Move(fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2))
-	panel.Resize(panelSize)
-}
-
-func (l *embeddedScannerOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
+	return view.NewOverlayPopup(q.parent, view.OverlayPopupSpec{
+		Panel:    card,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			return qrScannerPanelSize(canvasSize)
+		},
+	})
 }
 
 type qrScannerCardLayout struct{}
@@ -385,33 +363,6 @@ func qrScannerPanelSize(canvasSize fyne.Size) fyne.Size {
 	panelWidth := clampFloat32(videoWidth+padding*2, panelMinWidth, maxWidth)
 	panelHeight := clampFloat32(padding*2+headerHeight+gap+videoHeight, panelMinHeight, maxHeight)
 	return fyne.NewSize(panelWidth, panelHeight)
-}
-
-func (q *QRCameraScanner) watchPopupSize(popup *widget.PopUp) {
-	go func() {
-		lastSize := q.parent.Canvas().Size()
-		for {
-			select {
-			case <-q.stopChan:
-				return
-			default:
-			}
-
-			currentSize := q.parent.Canvas().Size()
-			if currentSize != lastSize {
-				lastSize = currentSize
-				fyne.Do(func() {
-					if q.popup != popup || popup == nil {
-						return
-					}
-
-					popup.Resize(currentSize)
-				})
-			}
-
-			time.Sleep(120 * time.Millisecond)
-		}
-	}()
 }
 
 func (q *QRCameraScanner) Stop() {

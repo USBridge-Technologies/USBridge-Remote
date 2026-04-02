@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"image/color"
-	"time"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -19,10 +18,11 @@ import (
 )
 
 const (
-	connectionDialogNameLabel  = "name"
-	connectionDialogHostLabel  = "ip address"
-	connectionDialogTokenLabel = "auth token"
-	qrScanSuccessText          = "\u2713 qr code successfully scanned"
+	connectionDialogNameLabel          = "name"
+	connectionDialogHostLabel          = "ip address"
+	connectionDialogTokenLabel         = "auth token"
+	qrScanSuccessText                  = "\u2713 qr code successfully scanned"
+	connectionDialogButtonsGap float32 = 12
 )
 
 type connectionDialogSpec struct {
@@ -41,6 +41,24 @@ type connectionDialogSpec struct {
 	onDelete      func(close func())
 }
 
+type connectionDialogSecondaryButton struct {
+	widget.BaseWidget
+
+	labelText      string
+	onTapped       func()
+	hovered        bool
+	borderColor    color.Color
+	textColor      color.Color
+	hoverFillColor color.Color
+	hoverTextColor color.Color
+	iconRes        fyne.Resource
+	hoverIconRes   fyne.Resource
+	bg             *canvas.Rectangle
+	border         *canvas.Rectangle
+	label          *canvas.Text
+	icon           *canvas.Image
+}
+
 func (cm *ConnectionManager) setLanguage(langCode string) {
 	cm.app.Preferences().SetString("language", langCode)
 	i18n.SetLanguage(langCode)
@@ -54,6 +72,114 @@ func newConnectionDialogLabel(text string) fyne.CanvasObject {
 	label := canvas.NewText(text, design.ColorTextMuted)
 	label.TextSize = 12
 	return label
+}
+
+func newConnectionDialogSecondaryButton(label string, onTapped func()) *connectionDialogSecondaryButton {
+	btn := &connectionDialogSecondaryButton{
+		labelText:      label,
+		onTapped:       onTapped,
+		borderColor:    design.ColorAccent,
+		textColor:      design.ColorAccent,
+		hoverFillColor: design.ColorAccent,
+		hoverTextColor: design.ColorBackground,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func newConnectionDialogDangerSecondaryButton(label string, icon fyne.Resource, onTapped func()) *connectionDialogSecondaryButton {
+	btn := &connectionDialogSecondaryButton{
+		labelText:      label,
+		onTapped:       onTapped,
+		borderColor:    color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
+		textColor:      color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
+		hoverFillColor: color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
+		hoverTextColor: design.ColorBackground,
+		iconRes:        theme.NewErrorThemedResource(icon),
+		hoverIconRes:   theme.NewThemedResource(icon),
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *connectionDialogSecondaryButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.border = canvas.NewRectangle(color.Transparent)
+	b.border.CornerRadius = design.RadiusMD
+	b.border.StrokeColor = b.borderColor
+	b.border.StrokeWidth = 1
+
+	b.label = canvas.NewText(b.labelText, b.textColor)
+	b.label.TextSize = 16
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	b.icon = canvas.NewImageFromResource(b.iconRes)
+	b.icon.FillMode = canvas.ImageFillContain
+	if b.iconRes == nil {
+		b.icon.Hide()
+	} else {
+		b.icon.SetMinSize(fyne.NewSize(18, 18))
+	}
+
+	b.refreshVisuals()
+	content := container.NewCenter(container.NewHBox(
+		b.icon,
+		view.NewInset(b.label, 10, 0, 0, 0),
+	))
+	if b.iconRes == nil {
+		content = container.NewCenter(b.label)
+	}
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, content, b.border))
+}
+
+func (b *connectionDialogSecondaryButton) MinSize() fyne.Size {
+	return fyne.NewSize(0, 36)
+}
+
+func (b *connectionDialogSecondaryButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *connectionDialogSecondaryButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *connectionDialogSecondaryButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogSecondaryButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *connectionDialogSecondaryButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogSecondaryButton) refreshVisuals() {
+	if b.bg == nil || b.border == nil || b.label == nil || b.icon == nil {
+		return
+	}
+
+	b.bg.FillColor = color.Transparent
+	b.border.StrokeColor = b.borderColor
+	b.label.Color = b.textColor
+	b.icon.Resource = b.iconRes
+	if b.hovered {
+		b.bg.FillColor = b.hoverFillColor
+		b.label.Color = b.hoverTextColor
+		if b.hoverIconRes != nil {
+			b.icon.Resource = b.hoverIconRes
+		}
+	}
+
+	b.bg.Refresh()
+	b.border.Refresh()
+	b.label.Refresh()
+	b.icon.Refresh()
 }
 
 func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.CanvasObject {
@@ -119,7 +245,7 @@ func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObjec
 	return label
 }
 
-func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn *widget.Button) *widget.PopUp {
+func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
 
@@ -132,14 +258,20 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 	}
 
 	buttonItems := make([]fyne.CanvasObject, 0, 4)
-	if connectBtn != nil {
-		buttonItems = append(buttonItems, connectBtn)
-	}
-	if saveBtn != nil {
-		buttonItems = append(buttonItems, saveBtn)
-	}
-	if deleteBtn != nil {
-		buttonItems = append(buttonItems, deleteBtn)
+	if deleteBtn != nil && saveBtn != nil && connectBtn == nil {
+		buttonItems = append(buttonItems, deleteBtn, saveBtn)
+	} else if connectBtn != nil && saveBtn != nil && deleteBtn == nil {
+		buttonItems = append(buttonItems, saveBtn, connectBtn)
+	} else {
+		if connectBtn != nil {
+			buttonItems = append(buttonItems, connectBtn)
+		}
+		if saveBtn != nil {
+			buttonItems = append(buttonItems, saveBtn)
+		}
+		if deleteBtn != nil {
+			buttonItems = append(buttonItems, deleteBtn)
+		}
 	}
 
 	columns := len(buttonItems)
@@ -149,7 +281,12 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 	if columns == 0 {
 		columns = 1
 	}
-	buttons := container.NewGridWithColumns(columns, buttonItems...)
+	var buttons fyne.CanvasObject
+	if columns == 2 && len(buttonItems) == 2 {
+		buttons = container.New(&connectionDialogButtonsLayout{gap: connectionDialogButtonsGap}, buttonItems...)
+	} else {
+		buttons = container.NewGridWithColumns(columns, buttonItems...)
+	}
 	bodyObjects = append(
 		bodyObjects,
 		view.NewInset(form, 0, 0, 16, 14),
@@ -171,16 +308,16 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 		border,
 	)
 
-	dim := canvas.NewRectangle(color.NRGBA{R: 0x06, G: 0x08, B: 0x0b, A: 0xb2})
-	content := container.New(&connectionDialogOverlayLayout{}, dim, panel)
-	popup := widget.NewModalPopUp(content, parent.Canvas())
-	popup.Move(fyne.NewPos(0, 0))
-	popup.Resize(parent.Canvas().Size())
-	popup.Show()
+	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			return connectionDialogPanelSize(panel, canvasSize)
+		},
+	})
 	closeBtn.onTapped = func() {
 		popup.Hide()
 	}
-	watchConnectionDialogPopup(parent, popup)
 	return popup
 }
 
@@ -210,14 +347,15 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	var d *widget.PopUp
-	var connectBtn *widget.Button
-	var deleteBtn *widget.Button
+	var connectBtn fyne.CanvasObject
+	var deleteBtn fyne.CanvasObject
+	var saveBtn fyne.CanvasObject
 	if spec.onConnect != nil {
 		connectLabel := spec.connectLabel
 		if connectLabel == "" {
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
-		connectBtn = widget.NewButton(connectLabel, func() {
+		btn := widget.NewButton(connectLabel, func() {
 			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
 				return
 			}
@@ -225,13 +363,14 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 				d.Hide()
 			}
 		})
-		connectBtn.Importance = widget.HighImportance
+		btn.Importance = widget.HighImportance
 		if spec.connectIcon != nil {
-			connectBtn.SetIcon(spec.connectIcon)
+			btn.SetIcon(spec.connectIcon)
 		}
+		connectBtn = btn
 	}
 
-	saveBtn := widget.NewButton(saveLabel, func() {
+	saveBtn = widget.NewButton(saveLabel, func() {
 		if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
 			return
 		}
@@ -239,19 +378,29 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			d.Hide()
 		}
 	})
-	saveBtn.Importance = widget.HighImportance
-	saveBtn.SetIcon(theme.ConfirmIcon())
+	savePrimaryBtn := saveBtn.(*widget.Button)
+	savePrimaryBtn.Importance = widget.HighImportance
+
+	if spec.onConnect != nil && spec.onDelete == nil {
+		saveBtn = newConnectionDialogSecondaryButton(saveLabel, func() {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+				return
+			}
+			if d != nil {
+				d.Hide()
+			}
+		})
+	}
 
 	if spec.onDelete != nil {
-		deleteBtn = widget.NewButton(deleteLabel, func() {
+		btn := newConnectionDialogDangerSecondaryButton(deleteLabel, theme.DeleteIcon(), func() {
 			spec.onDelete(func() {
 				if d != nil {
 					d.Hide()
 				}
 			})
 		})
-		deleteBtn.Importance = widget.DangerImportance
-		deleteBtn.SetIcon(theme.DeleteIcon())
+		deleteBtn = btn
 	}
 
 	d = showConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn)
@@ -575,62 +724,6 @@ func (l *connectionDialogTitleLayout) MinSize(objects []fyne.CanvasObject) fyne.
 	width := maxFloat32(titleMin.Width, closeMin.Width*2) + closeMin.Width
 	height := maxFloat32(titleMin.Height, closeMin.Height)
 	return fyne.NewSize(width, height)
-}
-
-type connectionDialogOverlayLayout struct{}
-
-func (l *connectionDialogOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-
-	dim := objects[0]
-	panel := objects[1]
-	dim.Move(fyne.NewPos(0, 0))
-	dim.Resize(size)
-
-	panelSize := connectionDialogPanelSize(panel, size)
-	panel.Move(fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2))
-	panel.Resize(panelSize)
-}
-
-func (l *connectionDialogOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
-}
-
-func watchConnectionDialogPopup(parent fyne.Window, popup *widget.PopUp) {
-	if parent == nil || popup == nil {
-		return
-	}
-
-	go func() {
-		lastSize := parent.Canvas().Size()
-		wasShown := false
-
-		for {
-			currentVisible := popup.Visible()
-			if currentVisible {
-				wasShown = true
-			} else if wasShown {
-				return
-			}
-
-			currentSize := parent.Canvas().Size()
-			if currentSize != lastSize {
-				lastSize = currentSize
-				fyne.Do(func() {
-					if popup == nil || !popup.Visible() {
-						return
-					}
-
-					popup.Move(fyne.NewPos(0, 0))
-					popup.Resize(currentSize)
-				})
-			}
-
-			time.Sleep(120 * time.Millisecond)
-		}
-	}()
 }
 
 func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fyne.Size {

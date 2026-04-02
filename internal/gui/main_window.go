@@ -84,8 +84,10 @@ type MainWindow struct {
 	backupIcon     *widget.Button
 	snapshotIcon   *widget.Button
 	statusPanel    *fyne.Container
+	protocolPanel  *fyne.Container
 
 	connectionLossInProgress atomic.Bool
+	shutdownInProgress       atomic.Bool
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
@@ -101,6 +103,11 @@ func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	default:
 		return "ON", design.ColorSurfaceLight, design.ColorTextLight
 	}
+}
+
+func protocolStatusText(protocol string) string {
+	text, _, _ := protocolButtonState(protocol)
+	return text
 }
 
 // NewMainWindow создает новое главное окно.

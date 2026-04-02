@@ -417,7 +417,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 			}
 
 			vw.startDialog.Configure(info, cfg.VideoWidth, cfg.VideoHeight, cfg.VideoFPS, cfg.VideoBitrate)
-			vw.startDialog.SetDeviceLabel(fmt.Sprintf("%s\n%s", device.Name, device.Path))
+			vw.startDialog.SetDeviceLabel(device.Path)
 			vw.startDialog.SetPrimaryAction(i18n.Current.Apply)
 			_ = showFullscreen
 			vw.startDialog.SetExtraAction("", nil)

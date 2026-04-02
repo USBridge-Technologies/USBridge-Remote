@@ -399,6 +399,11 @@ func (c *USBClient) startServiceWithRetry(retryCount int) error {
 func (c *USBClient) StopService() error {
 	resp, err := c.makeRequest("POST", "/api/service/stop", nil)
 	if err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "http ошибка 404") || strings.Contains(errText, "404 page not found") {
+			logrus.Warn("⚠️ StopService endpoint is not available on the server (HTTP 404), skipping")
+			return nil
+		}
 		return err
 	}
 

@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/nbdbridge"
 
 	"fyne.io/fyne/v2"
@@ -89,7 +90,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			func(error string) {
 				logrus.Errorf("❌ File selection failed: %s", error)
 				fyne.Do(func() {
-					dialog.ShowError(fmt.Errorf(i18n.Current.ErrorSelectingFile, error), dw.window)
+					view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, error), dw.window)
 				})
 			},
 		)
@@ -113,7 +114,7 @@ func (dw *DiskWidget) showNbdDialog() {
 	startBtn := widget.NewButton(i18n.Current.NBDStartServer, func() {
 		if nbdSelectedFd <= 0 {
 			fyne.Do(func() {
-				dialog.ShowError(fmt.Errorf("%s", i18n.Current.NBDImageNotSelected), dw.window)
+				view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.NBDImageNotSelected), dw.window)
 			})
 			return
 		}
@@ -187,7 +188,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 	if err != nil {
 		logrus.Errorf("❌ Failed to start NBD backend: %v", err)
 		fyne.Do(func() {
-			dialog.ShowError(fmt.Errorf(i18n.Current.NBDStartFailed, err), dw.window)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.NBDStartFailed, err), dw.window)
 		})
 		return
 	}
@@ -212,7 +213,7 @@ func (dw *DiskWidget) stopNbdService() {
 	if err != nil {
 		logrus.Errorf("❌ Failed to stop NBD: %v", err)
 		fyne.Do(func() {
-			dialog.ShowError(fmt.Errorf(i18n.Current.NBDStopError, err), dw.window)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.NBDStopError, err), dw.window)
 		})
 		return
 	}

@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	addressBarGap        float32 = 4
+	addressBarGap        float32 = 10
 	addressBarControlH   float32 = 36
 	addressBarActionBtn  float32 = 36
 	addressBarHostHideAt float32 = 180
@@ -36,6 +36,8 @@ type tabsTheme struct {
 func (t *tabsTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case fynetheme.ColorNameHover, fynetheme.ColorNamePressed, fynetheme.ColorNameFocus:
+		return color.Transparent
+	case fynetheme.ColorNameShadow, fynetheme.ColorNameSeparator:
 		return color.Transparent
 	default:
 		return t.base.Color(name, variant)
@@ -51,6 +53,10 @@ func (t *tabsTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 }
 
 func (t *tabsTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case fynetheme.SizeNamePadding:
+		return 2
+	}
 	return t.base.Size(name)
 }
 
@@ -141,8 +147,8 @@ func (mw *MainWindow) refreshConnectionControls() {
 	}
 
 	mw.protocolDropdown.Refresh()
-	if mw.connectionManager != nil {
-		mw.connectionManager.SetConnectionPending(mw.isConnectionPending && !mw.isConnected)
+	if mw.connectionManager != nil && mw.isConnectionPending && !mw.isConnected {
+		mw.connectionManager.SetConnectionPending(true)
 	}
 }
 
@@ -249,38 +255,24 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 	if mw == nil || mw.tabs == nil || len(mw.tabs.Items) < 3 {
 		return
 	}
-
-	mw.tabs.Items[0].Icon = assets.USBTabIcon
-	mw.tabs.Items[1].Icon = assets.MonitorTabIcon
-	mw.tabs.Items[2].Icon = assets.SnapshotsTabIcon
-
-	switch activeIndex {
-	case 0:
-		mw.tabs.Items[0].Icon = assets.USBTabIconActive
-	case 1:
-		mw.tabs.Items[1].Icon = assets.MonitorTabIconActive
-	case 2:
-		mw.tabs.Items[2].Icon = assets.SnapshotsTabIconActive
-	}
-	mw.tabs.Refresh()
+	_ = activeIndex
 }
 
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	hostField := view.NewFixedHeight(mw.hostEntry, addressBarControlH)
-	protocolPanel := view.NewOutlinedControl(mw.protocolDropdown, 0, addressBarControlH)
-	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
-	rightPart := container.NewHBox(
-		protocolPanel,
-		headerGapSpacer(addressBarGap),
-		connectPanel,
+	protocolPanel := container.NewGridWrap(
+		fyne.NewSize(mw.protocolDropdown.MinSize().Width, addressBarControlH),
+		mw.protocolDropdown,
 	)
-	row := container.New(&addressBarResponsiveLayout{
+	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
+	row := container.New(&connectionAddressBarLayout{
+		gap:        addressBarGap,
 		hideHostAt: addressBarHostHideAt,
 		keepHostShown: func() bool {
 			return true
 		},
-	}, hostField, rightPart)
+	}, hostField, protocolPanel, connectPanel)
 	return view.NewHeaderBand("", row)
 }
 
@@ -291,19 +283,22 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	if mw.mainExitBtn == nil {
 		mw.mainExitBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
 		mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
-			Fill:       design.ColorSurfaceLight,
-			Foreground: design.ColorTextLight,
-			Stroke:     color.Transparent,
-			Icon:       assets.ExitIcon,
+			Fill:        design.ColorSurfaceLight,
+			Foreground:  design.ColorTextLight,
+			Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
+			StrokeWidth: 1.2,
+			Icon:        assets.ExitIcon,
+			IconSize:    fyne.NewSize(24, 24),
 		})
 	}
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
+	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
+	middleGroup := container.New(&centeredInlineLayout{gap: 12, minGap: 6}, mw.sdStorageProgress, mw.statusPanel)
 	row := container.New(
-		&distributedVisibleLayout{minGap: 12},
+		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		mw.pcpanelWidget.GetContainer(),
-		mw.sdStorageProgress,
-		mw.statusPanel,
-		exitPanel,
+		middleGroup,
+		rightGroup,
 	)
 	return view.NewHeaderBand("", row)
 }
@@ -374,9 +369,26 @@ type collapsingBoxLayout struct{}
 type optionalLeadingGapLayout struct {
 	gap float32
 }
+type connectionAddressBarLayout struct {
+	gap           float32
+	hideHostAt    float32
+	keepHostShown func() bool
+}
 type addressBarResponsiveLayout struct {
 	hideHostAt    float32
 	keepHostShown func() bool
+}
+type mainHeaderBarLayout struct {
+	edgeInset float32
+	sideGap   float32
+}
+type exitStatusOverlayLayout struct {
+	badgeInsetX float32
+	badgeInsetY float32
+}
+type centeredInlineLayout struct {
+	gap    float32
+	minGap float32
 }
 type distributedVisibleLayout struct {
 	minGap float32
@@ -397,10 +409,8 @@ func newHeaderStatusIcon(resource fyne.Resource) fyne.CanvasObject {
 }
 
 func newProtocolIndicator(protocol string) fyne.CanvasObject {
-	iconRes := assets.ConnectionStatusIcon
 	textColor := design.ColorTextMuted
 	if strings.TrimSpace(protocol) != "" {
-		iconRes = assets.ConnectionStatusIconActive
 		textColor = design.ColorAccent
 	}
 
@@ -408,10 +418,34 @@ func newProtocolIndicator(protocol string) fyne.CanvasObject {
 	label.TextSize = 14
 	label.TextStyle.Bold = true
 
-	return container.NewHBox(
-		newHeaderStatusIcon(iconRes),
-		headerGapSpacer(4),
-		container.NewCenter(label),
+	return container.NewCenter(label)
+}
+
+func newProtocolBadge(protocol string) fyne.CanvasObject {
+	text, fill, foreground := protocolButtonState(protocol)
+	if strings.TrimSpace(protocol) == "" {
+		fill = design.ColorBorder
+		foreground = design.ColorTextLight
+		text = ""
+	}
+
+	bg := canvas.NewRectangle(fill)
+	bg.CornerRadius = 7
+	bg.StrokeColor = design.ColorBackground
+	bg.StrokeWidth = 1.2
+
+	label := canvas.NewText(strings.TrimSpace(text), foreground)
+	label.TextSize = 8
+	label.TextStyle.Bold = true
+
+	badgeWidth := float32(18)
+	if text == "WG" || text == "QC" || text == "ON" {
+		badgeWidth = 20
+	}
+
+	return container.NewGridWrap(
+		fyne.NewSize(badgeWidth, 14),
+		container.NewMax(bg, container.NewCenter(label)),
 	)
 }
 
@@ -492,6 +526,211 @@ func (l *distributedVisibleLayout) MinSize(objects []fyne.CanvasObject) fyne.Siz
 		width += float32(count-1) * l.minGap
 	}
 	return fyne.NewSize(width, height)
+}
+
+func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	left := objects[0]
+	center := objects[1]
+	right := objects[2]
+
+	leftMin := left.MinSize()
+	rightMin := right.MinSize()
+	centerMin := center.MinSize()
+
+	leftY := maxFloat32(0, (size.Height-leftMin.Height)/2)
+	left.Move(fyne.NewPos(l.edgeInset, leftY))
+	left.Resize(leftMin)
+
+	rightX := maxFloat32(0, size.Width-l.edgeInset-rightMin.Width)
+	rightY := maxFloat32(0, (size.Height-rightMin.Height)/2)
+	right.Move(fyne.NewPos(rightX, rightY))
+	right.Resize(rightMin)
+
+	centerMaxWidth := rightX - (leftMin.Width + l.edgeInset*2 + l.sideGap*2)
+	if centerMaxWidth < 0 {
+		centerMaxWidth = 0
+	}
+	centerWidth := minFloat32(centerMin.Width, centerMaxWidth)
+	centerMinX := leftMin.Width + l.edgeInset + l.sideGap
+	centerMaxX := rightX - l.sideGap - centerWidth
+	centerX := maxFloat32(centerMinX, (size.Width-centerWidth)/2)
+	if centerX > centerMaxX {
+		centerX = maxFloat32(centerMinX, centerMaxX)
+	}
+	centerY := maxFloat32(0, (size.Height-centerMin.Height)/2)
+	center.Move(fyne.NewPos(centerX, centerY))
+	center.Resize(fyne.NewSize(centerWidth, centerMin.Height))
+}
+
+func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	leftMin := objects[0].MinSize()
+	centerMin := objects[1].MinSize()
+	rightMin := objects[2].MinSize()
+	height := maxFloat32(leftMin.Height, maxFloat32(centerMin.Height, rightMin.Height))
+	return fyne.NewSize(leftMin.Width+centerMin.Width+rightMin.Width+l.edgeInset*2+l.sideGap*2, height)
+}
+
+func (l *exitStatusOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+
+	base := objects[0]
+	base.Resize(size)
+	base.Move(fyne.NewPos(0, 0))
+
+	if len(objects) < 2 || !hasVisibleContent(objects[1]) {
+		return
+	}
+
+	badge := objects[1]
+	badgeMin := badge.MinSize()
+	badge.Move(fyne.NewPos(l.badgeInsetX, l.badgeInsetY))
+	badge.Resize(badgeMin)
+}
+
+func (l *exitStatusOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	return objects[0].MinSize()
+}
+
+func (l *centeredInlineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	visible := make([]fyne.CanvasObject, 0, len(objects))
+	totalChildWidth := float32(0)
+	maxHeight := float32(0)
+
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			obj.Move(fyne.NewPos(0, 0))
+			obj.Resize(fyne.NewSize(0, 0))
+			continue
+		}
+		min := obj.MinSize()
+		totalChildWidth += min.Width
+		if min.Height > maxHeight {
+			maxHeight = min.Height
+		}
+		visible = append(visible, obj)
+	}
+
+	if len(visible) == 0 {
+		return
+	}
+	gap := l.gap
+	if len(visible) > 1 {
+		minGap := l.minGap
+		if minGap < 0 {
+			minGap = 0
+		}
+		maxGap := (size.Width - totalChildWidth) / float32(len(visible)-1)
+		if maxGap < minGap {
+			gap = minGap
+		} else if maxGap < gap {
+			gap = maxGap
+		}
+	}
+	totalWidth := totalChildWidth
+	if len(visible) > 1 {
+		totalWidth += float32(len(visible)-1) * gap
+	}
+
+	x := maxFloat32(0, (size.Width-totalWidth)/2)
+	for _, obj := range visible {
+		min := obj.MinSize()
+		obj.Move(fyne.NewPos(x, maxFloat32(0, (size.Height-min.Height)/2)))
+		obj.Resize(min)
+		x += min.Width + gap
+	}
+}
+
+func (l *centeredInlineLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(0)
+	height := float32(0)
+	count := 0
+	for _, obj := range objects {
+		if !hasVisibleContent(obj) {
+			continue
+		}
+		min := obj.MinSize()
+		width += min.Width
+		if min.Height > height {
+			height = min.Height
+		}
+		count++
+	}
+	if count > 1 {
+		gap := l.gap
+		if gap < l.minGap {
+			gap = l.minGap
+		}
+		width += float32(count-1) * gap
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (l *connectionAddressBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	host := objects[0]
+	protocol := objects[1]
+	connect := objects[2]
+
+	connectMin := connect.MinSize()
+	connectWidth := minFloat32(connectMin.Width, size.Width)
+	connectX := maxFloat32(0, size.Width-connectWidth)
+	connect.Move(fyne.NewPos(connectX, maxFloat32(0, (size.Height-connectMin.Height)/2)))
+	connect.Resize(fyne.NewSize(connectWidth, minFloat32(size.Height, connectMin.Height)))
+
+	availableForProtocol := connectX - l.gap
+	if availableForProtocol < 0 {
+		availableForProtocol = 0
+	}
+	protocolMin := protocol.MinSize()
+	protocolWidth := minFloat32(protocolMin.Width, availableForProtocol)
+	protocolX := maxFloat32(0, availableForProtocol-protocolWidth)
+	protocol.Move(fyne.NewPos(protocolX, maxFloat32(0, (size.Height-protocolMin.Height)/2)))
+	protocol.Resize(fyne.NewSize(protocolWidth, minFloat32(size.Height, protocolMin.Height)))
+
+	hostWidth := protocolX - l.gap
+	keepShown := l.keepHostShown != nil && l.keepHostShown()
+	if !keepShown && hostWidth < l.hideHostAt {
+		host.Hide()
+		host.Move(fyne.NewPos(0, 0))
+		host.Resize(fyne.NewSize(0, 0))
+		return
+	}
+
+	if hostWidth < 0 {
+		hostWidth = 0
+	}
+	host.Show()
+	hostMin := host.MinSize()
+	host.Move(fyne.NewPos(0, maxFloat32(0, (size.Height-hostMin.Height)/2)))
+	host.Resize(fyne.NewSize(hostWidth, minFloat32(size.Height, hostMin.Height)))
+}
+
+func (l *connectionAddressBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	hostMin := objects[0].MinSize()
+	protocolMin := objects[1].MinSize()
+	connectMin := objects[2].MinSize()
+	height := maxFloat32(hostMin.Height, maxFloat32(protocolMin.Height, connectMin.Height))
+	return fyne.NewSize(protocolMin.Width+connectMin.Width+2*l.gap, height)
 }
 
 func (l *addressBarResponsiveLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -641,7 +880,9 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.showMouseModeMenu()
 	})
 	mw.mouseIcon.Importance = widget.LowImportance
-	mw.rndisIcon = widget.NewButton("🌐", func() {})
+	mw.rndisIcon = widget.NewButtonWithIcon("", assets.NetworkIcon, func() {
+		mw.showRNDISModeMenu()
+	})
 	mw.rndisIcon.Importance = widget.LowImportance
 	mw.cdromIcon = widget.NewButton("💿", func() {})
 	mw.cdromIcon.Importance = widget.LowImportance
@@ -650,7 +891,8 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.snapshotIcon = widget.NewButton("📸", func() {})
 	mw.snapshotIcon.Importance = widget.LowImportance
 
-	mw.statusPanel = container.NewHBox()
+	mw.statusPanel = container.New(&centeredInlineLayout{gap: 6, minGap: 2})
+	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
@@ -703,25 +945,13 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(protocol string, captureButton, keyboardButton, mouseButton fyne.CanvasObject) []fyne.CanvasObject {
-	indicatorGap := func() fyne.CanvasObject {
-		gap := canvas.NewRectangle(color.Transparent)
-		gap.SetMinSize(fyne.NewSize(10, 1))
-		return gap
-	}
-
-	protocolText, _, _ := protocolButtonState(protocol)
-	items := []fyne.CanvasObject{
+func buildHeaderStatusIndicators(captureButton, keyboardButton, mouseButton, rndisButton fyne.CanvasObject) []fyne.CanvasObject {
+	return []fyne.CanvasObject{
 		captureButton,
-		indicatorGap(),
 		keyboardButton,
-		indicatorGap(),
 		mouseButton,
-		indicatorGap(),
-		newProtocolIndicator(protocolText),
+		rndisButton,
 	}
-
-	return items
 }
 
 // updateDeviceButtonsVisibility обновляет видимость кнопок устройств.
@@ -838,14 +1068,28 @@ func (mw *MainWindow) updateStatusBar() {
 			}
 			mw.captureIcon.Refresh()
 		}
+		if mw.rndisIcon != nil {
+			if rndisConnected {
+				mw.rndisIcon.SetIcon(assets.NetworkIconActive)
+			} else {
+				mw.rndisIcon.SetIcon(assets.NetworkIcon)
+			}
+			mw.rndisIcon.Refresh()
+		}
 
 		mw.statusPanel.Objects = buildHeaderStatusIndicators(
-			mw.connectedProtocol,
 			mw.captureIcon,
 			mw.keyboardIcon,
 			mw.mouseIcon,
+			mw.rndisIcon,
 		)
 		mw.statusPanel.Refresh()
+		if mw.protocolPanel != nil {
+			mw.protocolPanel.Objects = []fyne.CanvasObject{
+				newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)),
+			}
+			mw.protocolPanel.Refresh()
+		}
 	})
 }
 
@@ -927,4 +1171,44 @@ func (mw *MainWindow) showMouseModeMenu() {
 	}
 
 	view.ShowStyledMenu(mw.mouseIcon, items)
+}
+
+func (mw *MainWindow) showRNDISModeMenu() {
+	if mw.rndisIcon == nil || mw.diskWidget == nil {
+		return
+	}
+
+	currentMode := mw.diskWidget.GetRNDISMode()
+	items := []view.StyledMenuItem{
+		{
+			Label:    "auto",
+			Selected: currentMode == "auto",
+			OnTap: func() {
+				mw.diskWidget.SetRNDISMode("auto")
+			},
+		},
+		{
+			Label:    "wifirouter",
+			Selected: currentMode == "wifirouter",
+			OnTap: func() {
+				mw.diskWidget.SetRNDISMode("wifirouter")
+			},
+		},
+		{
+			Label:    "etherouter",
+			Selected: currentMode == "etherouter",
+			OnTap: func() {
+				mw.diskWidget.SetRNDISMode("etherouter")
+			},
+		},
+		{
+			Label:    "etherbridge",
+			Selected: currentMode == "etherbridge",
+			OnTap: func() {
+				mw.diskWidget.SetRNDISMode("etherbridge")
+			},
+		},
+	}
+
+	view.ShowStyledMenu(mw.rndisIcon, items)
 }

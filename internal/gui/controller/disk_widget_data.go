@@ -225,6 +225,25 @@ func (dw *DiskWidget) combineDrives() {
 
 	dw.allDrives = make([]DriveItem, 0)
 
+	if dw.devicesTraceBudget > 0 {
+		logrus.Infof("[devices-ui] combineDrives: api localDrives=%d", len(dw.localDrives))
+		for idx, drive := range dw.localDrives {
+			if dw.devicesTraceBudget <= 0 {
+				break
+			}
+			logrus.Infof(
+				"[devices-ui] api drive[%d]: name=%q source_type=%q file_type=%q mounted=%v source_path=%q",
+				idx,
+				drive.Name,
+				drive.SourceType,
+				drive.FileType,
+				drive.IsMounted,
+				drive.SourcePath,
+			)
+			dw.devicesTraceBudget--
+		}
+	}
+
 	// Добавляем устройства из API
 	for _, drive := range dw.localDrives {
 		displayName := drive.Name
@@ -243,8 +262,9 @@ func (dw *DiskWidget) combineDrives() {
 				readOnly = ro
 			}
 		}
+		_ = displayName
 		item := DriveItem{
-			Name:       displayName,
+			Name:       drive.Name,
 			Size:       drive.FormatSize(),
 			Source:     "api",
 			IsMounted:  drive.IsMounted,

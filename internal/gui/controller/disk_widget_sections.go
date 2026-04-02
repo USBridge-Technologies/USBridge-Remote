@@ -24,11 +24,14 @@ func (dw *DiskWidget) rebuildListItems() {
 
 func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 	storage := make([]int, 0)
+	backup := make([]int, 0)
 	control := make([]int, 0)
 	connectivity := make([]int, 0)
 
 	for idx, drive := range dw.allDrives {
 		switch {
+		case drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp":
+			backup = append(backup, idx)
 		case drive.IsRNDIS:
 			connectivity = append(connectivity, idx)
 		case drive.IsVideo || drive.IsKeyboard || drive.IsMouse:
@@ -46,6 +49,14 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 			description: i18n.Current.DevicesSectionStorageHint,
 			count:       len(storage),
 			indexes:     storage,
+		},
+		{
+			key:         "backup",
+			eyebrow:     i18n.Current.DevicesSectionBackupEyebrow,
+			title:       i18n.Current.DevicesSectionBackup,
+			description: i18n.Current.DevicesSectionBackupHint,
+			count:       len(backup),
+			indexes:     backup,
 		},
 		{
 			key:         "control",

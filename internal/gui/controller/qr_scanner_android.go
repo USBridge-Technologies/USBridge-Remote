@@ -89,6 +89,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/nbdbridge"
 
 	"fyne.io/fyne/v2"
@@ -152,7 +153,7 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	if err != nil {
 		logrus.Errorf("Error launching QR scanner: %v", err)
 		fyne.Do(func() {
-			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorLaunchingQRScanner, err), parent)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorLaunchingQRScanner, err), parent)
 		})
 		return
 	}
@@ -229,7 +230,7 @@ func (qs *QRScanner) scanImageData(data []byte, parent fyne.Window) {
 	if err != nil {
 		logrus.Errorf("Failed to decode image: %v", err)
 		fyne.Do(func() {
-			dialog.ShowError(fmt.Errorf(i18n.Current.ErrorDecodingImage, err), parent)
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorDecodingImage, err), parent)
 		})
 		return
 	}

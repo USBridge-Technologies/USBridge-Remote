@@ -2,15 +2,20 @@ package view
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strconv"
 	"strings"
 
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -26,17 +31,22 @@ type VideoStartDialog struct {
 
 	streamModes      []models.VideoTransportMode
 	captureModes     []models.VideoCaptureMode
-	modeLabels       map[string]string
 	resolutionLabels map[string]models.VideoCaptureMode
+	resolutionHints  map[string]string
 
-	modeSelect        *widget.RadioGroup
-	modeDescription   *widget.Label
-	resolutionSelect  *widget.Select
-	fpsSelect         *widget.Select
+	currentModeID     string
+	modeButtons       map[string]*videoCodecButton
+	modeButtonsRow    *fyne.Container
+	modeDescription   *canvas.Text
+	resolutionSelect  *videoDialogSelect
+	resolutionMeta    *canvas.Text
+	fpsSelect         *videoDialogSelect
+	fpsMeta           *canvas.Text
 	bitrateSlider     *widget.Slider
-	fpsValueLabel     *widget.Label
 	bitrateValueLabel *widget.Label
 	bitrateBlock      *fyne.Container
+	bitrateHintsRow   *fyne.Container
+	modeDetailsSlot   *fyne.Container
 	jpegHint          *widget.Label
 	deviceLabel       *widget.Label
 
@@ -47,31 +57,437 @@ type VideoStartDialog struct {
 	onApply func(request *models.VideoStartRequest)
 }
 
+type videoDialogButtonsLayout struct {
+	gap float32
+}
+
+type videoCodecButtonsLayout struct {
+	gap float32
+}
+
+type bitrateBlockLayout struct {
+	headerHeight float32
+	sliderTop    float32
+	sliderHeight float32
+	hintsTop     float32
+}
+
+type videoCodecButton struct {
+	widget.BaseWidget
+
+	text    string
+	active  bool
+	hovered bool
+	onTap   func()
+
+	bg    *canvas.Rectangle
+	label *canvas.Text
+}
+
+type videoDialogSelect struct {
+	widget.BaseWidget
+
+	options     []string
+	selected    string
+	placeHolder string
+	onSelected  func(string)
+	details     map[string]string
+	hovered     bool
+
+	bg     *canvas.Rectangle
+	border *canvas.Rectangle
+	label  *canvas.Text
+	icon   *canvas.Image
+}
+
+func (l *videoDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	left := objects[0]
+	right := objects[1]
+	width := (size.Width - l.gap) / 2
+	if width < 0 {
+		width = 0
+	}
+	left.Move(fyne.NewPos(0, 0))
+	left.Resize(fyne.NewSize(width, size.Height))
+	right.Move(fyne.NewPos(width+l.gap, 0))
+	right.Resize(fyne.NewSize(width, size.Height))
+}
+
+func (l *videoDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+	left := objects[0].MinSize()
+	right := objects[1].MinSize()
+	height := left.Height
+	if right.Height > height {
+		height = right.Height
+	}
+	return fyne.NewSize(left.Width+right.Width+l.gap, height)
+}
+
+func (l *videoCodecButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+
+	totalGap := l.gap * float32(len(objects)-1)
+	itemWidth := (size.Width - totalGap) / float32(len(objects))
+	if itemWidth < 0 {
+		itemWidth = 0
+	}
+
+	x := float32(0)
+	for _, object := range objects {
+		object.Move(fyne.NewPos(x, 0))
+		object.Resize(fyne.NewSize(itemWidth, size.Height))
+		x += itemWidth + l.gap
+	}
+}
+
+func (l *videoCodecButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+
+	width := float32(0)
+	height := float32(0)
+	for i, object := range objects {
+		min := object.MinSize()
+		width += min.Width
+		if i > 0 {
+			width += l.gap
+		}
+		if min.Height > height {
+			height = min.Height
+		}
+	}
+
+	return fyne.NewSize(width, height)
+}
+
+func (l *bitrateBlockLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	header := objects[0]
+	slider := objects[1]
+	hints := objects[2]
+
+	header.Move(fyne.NewPos(0, 0))
+	header.Resize(fyne.NewSize(size.Width, l.headerHeight))
+
+	slider.Move(fyne.NewPos(0, l.sliderTop))
+	slider.Resize(fyne.NewSize(size.Width, l.sliderHeight))
+
+	hintsHeight := size.Height - l.hintsTop
+	if hintsHeight < 0 {
+		hintsHeight = 0
+	}
+	hints.Move(fyne.NewPos(0, l.hintsTop))
+	hints.Resize(fyne.NewSize(size.Width, hintsHeight))
+}
+
+func (l *bitrateBlockLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	headerMin := objects[0].MinSize()
+	sliderMin := objects[1].MinSize()
+	hintsMin := objects[2].MinSize()
+
+	width := headerMin.Width
+	if sliderMin.Width > width {
+		width = sliderMin.Width
+	}
+	if hintsMin.Width > width {
+		width = hintsMin.Width
+	}
+
+	height := l.hintsTop + hintsMin.Height
+	minHeight := l.sliderTop + sliderMin.Height
+	if minHeight > height {
+		height = minHeight
+	}
+
+	return fyne.NewSize(width, height)
+}
+
+func newVideoCodecButton(text string, onTap func()) *videoCodecButton {
+	button := &videoCodecButton{text: text, onTap: onTap}
+	button.ExtendBaseWidget(button)
+	return button
+}
+
+func (b *videoCodecButton) SetActive(active bool) {
+	if b.active == active {
+		return
+	}
+	b.active = active
+	b.refreshVisuals()
+}
+
+func (b *videoCodecButton) Tapped(*fyne.PointEvent) {
+	if b.onTap != nil {
+		b.onTap()
+	}
+}
+
+func (b *videoCodecButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *videoCodecButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *videoCodecButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *videoCodecButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *videoCodecButton) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (b *videoCodecButton) MinSize() fyne.Size {
+	return fyne.NewSize(90, 36)
+}
+
+func (b *videoCodecButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(design.ColorSurfaceLight)
+	b.bg.CornerRadius = design.RadiusMD
+	b.bg.StrokeWidth = 1
+
+	b.label = canvas.NewText(b.text, design.ColorTextLight)
+	b.label.TextSize = 13
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.label)))
+}
+
+func (b *videoCodecButton) refreshVisuals() {
+	if b.bg == nil || b.label == nil {
+		return
+	}
+
+	if b.active {
+		b.bg.FillColor = design.ColorAccent
+		b.bg.StrokeColor = design.ColorAccent
+		b.label.Color = design.ColorBackground
+	} else {
+		b.bg.FillColor = design.ColorSurfaceLight
+		b.bg.StrokeColor = design.ColorBorder
+		b.label.Color = design.ColorTextLight
+		if b.hovered {
+			b.bg.FillColor = design.ColorGray900
+		}
+	}
+
+	b.bg.Refresh()
+	b.label.Refresh()
+}
+
+func newVideoDialogSelect(placeHolder string, onSelected func(string)) *videoDialogSelect {
+	selectWidget := &videoDialogSelect{
+		placeHolder: placeHolder,
+		onSelected:  onSelected,
+	}
+	selectWidget.ExtendBaseWidget(selectWidget)
+	return selectWidget
+}
+
+func (s *videoDialogSelect) SetOptions(options []string) {
+	s.options = append([]string(nil), options...)
+	s.Refresh()
+}
+
+func (s *videoDialogSelect) SetDetails(details map[string]string) {
+	s.details = make(map[string]string, len(details))
+	for key, value := range details {
+		s.details[key] = value
+	}
+}
+
+func (s *videoDialogSelect) SetSelected(value string) {
+	s.selected = value
+	s.Refresh()
+}
+
+func (s *videoDialogSelect) Selected() string {
+	return s.selected
+}
+
+func (s *videoDialogSelect) Tapped(*fyne.PointEvent) {
+	if len(s.options) == 0 {
+		return
+	}
+
+	items := make([]StyledMenuItem, 0, len(s.options))
+	for _, option := range s.options {
+		value := option
+		items = append(items, StyledMenuItem{
+			Label:          value,
+			SecondaryLabel: s.details[value],
+			Selected:       value == s.selected,
+			OnTap: func() {
+				s.SetSelected(value)
+				if s.onSelected != nil {
+					s.onSelected(value)
+				}
+			},
+		})
+	}
+
+	ShowStyledMenuCentered(s, items, maxFloat32(360, s.Size().Width), 280)
+}
+
+func (s *videoDialogSelect) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *videoDialogSelect) MouseIn(*desktop.MouseEvent) {
+	s.hovered = true
+	s.Refresh()
+}
+
+func (s *videoDialogSelect) MouseMoved(*desktop.MouseEvent) {}
+
+func (s *videoDialogSelect) MouseOut() {
+	s.hovered = false
+	s.Refresh()
+}
+
+func (s *videoDialogSelect) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (s *videoDialogSelect) MinSize() fyne.Size {
+	return fyne.NewSize(220, 42)
+}
+
+func (s *videoDialogSelect) CreateRenderer() fyne.WidgetRenderer {
+	s.bg = canvas.NewRectangle(color.Transparent)
+	s.bg.CornerRadius = design.RadiusMD
+
+	s.border = canvas.NewRectangle(color.Transparent)
+	s.border.CornerRadius = design.RadiusMD
+	s.border.StrokeColor = design.ColorBorder
+	s.border.StrokeWidth = 1
+
+	s.label = canvas.NewText("", design.ColorTextLight)
+	s.label.TextSize = 14
+
+	s.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
+	s.icon.FillMode = canvas.ImageFillContain
+	s.icon.SetMinSize(fyne.NewSize(16, 16))
+
+	s.refreshVisuals()
+	return &videoDialogSelectRenderer{selectWidget: s}
+}
+
+func (s *videoDialogSelect) refreshVisuals() {
+	if s.bg == nil || s.border == nil || s.label == nil || s.icon == nil {
+		return
+	}
+
+	text := s.selected
+	textColor := design.ColorTextLight
+	if text == "" {
+		text = s.placeHolder
+		textColor = design.ColorTextMuted
+	}
+
+	var fill color.Color = color.Transparent
+	if s.hovered {
+		fill = design.ColorSurfaceLight
+	}
+
+	s.label.Text = text
+	s.label.Color = textColor
+	s.bg.FillColor = fill
+	s.bg.Refresh()
+	s.border.Refresh()
+	s.label.Refresh()
+	s.icon.Refresh()
+}
+
+type videoDialogSelectRenderer struct {
+	selectWidget *videoDialogSelect
+}
+
+func (r *videoDialogSelectRenderer) Layout(size fyne.Size) {
+	s := r.selectWidget
+	s.bg.Resize(size)
+	s.border.Resize(size)
+
+	labelMin := s.label.MinSize()
+	labelWidth := size.Width - 52
+	if labelWidth < 20 {
+		labelWidth = 20
+	}
+	s.label.Move(fyne.NewPos(14, (size.Height-labelMin.Height)/2))
+	s.label.Resize(fyne.NewSize(labelWidth, labelMin.Height))
+
+	iconSize := fyne.NewSize(16, 16)
+	s.icon.Resize(iconSize)
+	s.icon.Move(fyne.NewPos(size.Width-28, (size.Height-iconSize.Height)/2))
+}
+
+func (r *videoDialogSelectRenderer) MinSize() fyne.Size {
+	return r.selectWidget.MinSize()
+}
+
+func (r *videoDialogSelectRenderer) Refresh() {
+	r.selectWidget.refreshVisuals()
+	r.Layout(r.selectWidget.Size())
+	canvas.Refresh(r.selectWidget)
+}
+
+func (r *videoDialogSelectRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogSelectRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.selectWidget.bg, r.selectWidget.border, r.selectWidget.label, r.selectWidget.icon}
+}
+
+func (r *videoDialogSelectRenderer) Destroy() {}
+
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
 		parent:           parent,
-		modeLabels:       make(map[string]string),
 		resolutionLabels: make(map[string]models.VideoCaptureMode),
+		modeButtons:      make(map[string]*videoCodecButton),
 	}
 	vsd.createInterface()
 	return vsd
 }
 
 func (vsd *VideoStartDialog) createInterface() {
-	vsd.modeDescription = widget.NewLabel("")
-	vsd.modeDescription.Wrapping = fyne.TextWrapWord
+	vsd.modeDescription = canvas.NewText("", design.ColorTextMuted)
+	vsd.modeDescription.TextSize = 12
+	vsd.modeDescription.Alignment = fyne.TextAlignCenter
+	vsd.modeButtonsRow = container.New(&videoCodecButtonsLayout{gap: 10})
 
-	vsd.modeSelect = widget.NewRadioGroup(nil, func(string) {
-		vsd.refreshModeUI()
-	})
-
-	vsd.resolutionSelect = widget.NewSelect(nil, func(string) {
+	vsd.resolutionSelect = newVideoDialogSelect("Select resolution", func(string) {
 		vsd.refreshAvailableModes()
 		vsd.refreshFPSOptions()
 	})
+	vsd.resolutionMeta = canvas.NewText("", design.ColorTextMuted)
+	vsd.resolutionMeta.TextSize = 11
+	vsd.resolutionMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.fpsSelect = widget.NewSelect(nil, nil)
-	vsd.fpsValueLabel = widget.NewLabel("")
+	vsd.fpsSelect = newVideoDialogSelect("Select fps", nil)
+	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, design.ColorTextMuted)
+	vsd.fpsMeta.TextSize = 11
+	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
 
 	vsd.bitrateSlider = widget.NewSlider(1000, 12000)
 	vsd.bitrateSlider.Step = 500
@@ -81,59 +497,105 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
 	}
 
+	lowQualityLabel := canvas.NewText("Low Quality", design.ColorTextMuted)
+	lowQualityLabel.TextSize = 11
+	highBandwidthLabel := canvas.NewText("High Bandwidth", design.ColorTextMuted)
+	highBandwidthLabel.TextSize = 11
+	bitrateHintSpacer := canvas.NewRectangle(color.Transparent)
+	vsd.bitrateHintsRow = NewInset(
+		container.NewBorder(nil, nil, lowQualityLabel, highBandwidthLabel, bitrateHintSpacer),
+		12, 12, 0, 0,
+	)
+
 	vsd.jpegHint = widget.NewLabel(i18n.Current.VideoJPEGRTPHint)
 	vsd.jpegHint.Wrapping = fyne.TextWrapWord
+	vsd.jpegHint.Alignment = fyne.TextAlignCenter
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
 
-	vsd.startBtn = widget.NewButton("▶️ "+i18n.Current.StartVideo, vsd.handleStart)
+	vsd.startBtn = widget.NewButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.startBtn.Importance = widget.HighImportance
 	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
 	vsd.extraBtn = widget.NewButton("", nil)
 	vsd.extraBtn.Hide()
 
-	vsd.bitrateBlock = container.NewVBox(
-		container.NewBorder(nil, nil,
-			widget.NewLabel("💾 "+i18n.Current.Bitrate),
-			vsd.bitrateValueLabel,
-			nil,
-		),
-		vsd.bitrateSlider,
+	bitrateHeader := container.NewBorder(nil, nil,
+		widget.NewLabel(i18n.Current.Bitrate),
+		vsd.bitrateValueLabel,
+		nil,
 	)
+	vsd.bitrateBlock = container.New(&bitrateBlockLayout{
+		headerHeight: 28,
+		sliderTop:    20,
+		sliderHeight: 44,
+		hintsTop:     54,
+	}, bitrateHeader, vsd.bitrateSlider, vsd.bitrateHintsRow)
+	modeDetailsMinHeight := maxFloat32(vsd.bitrateBlock.MinSize().Height, vsd.jpegHint.MinSize().Height)
+	modeDetailsReserve := canvas.NewRectangle(color.Transparent)
+	modeDetailsReserve.SetMinSize(fyne.NewSize(0, modeDetailsMinHeight))
+	vsd.modeDetailsSlot = container.NewStack(modeDetailsReserve, vsd.bitrateBlock)
 
-	form := container.NewVBox(
-		widget.NewLabelWithStyle("🎥 "+i18n.Current.VideoParameters, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		vsd.deviceLabel,
-		widget.NewSeparator(),
-		widget.NewLabelWithStyle(i18n.Current.StreamMode, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		vsd.modeSelect,
-		vsd.modeDescription,
-		widget.NewSeparator(),
+	title := NewBrandText(i18n.Current.VideoParameters, 19, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+	closeBtn := newIconChromeButton(iconChromeButtonSpec{
+		NormalFill: color.Transparent,
+		HoverFill:  design.ColorSurfaceLight,
+		NormalIcon: theme.CancelIcon(),
+		HoverIcon:  theme.CancelIcon(),
+		IconSize:   fyne.NewSize(14, 14),
+		ButtonSize: fyne.NewSize(28, 28),
+		OnTapped:   vsd.handleCancel,
+	})
+	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(title))
+
+	bodyContent := container.NewVBox(
+		titleBar,
+		widget.NewLabel("Codec"),
+		vsd.modeButtonsRow,
+		container.NewCenter(vsd.modeDescription),
 		container.NewVBox(
-			widget.NewLabelWithStyle("📐 "+i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{}),
+			widget.NewLabelWithStyle(i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{}),
 			vsd.resolutionSelect,
+			container.NewCenter(vsd.resolutionMeta),
 		),
 		container.NewVBox(
-			container.NewBorder(nil, nil, widget.NewLabel("🎬 "+i18n.Current.FrameRate), vsd.fpsValueLabel, nil),
+			widget.NewLabel(i18n.Current.FrameRate),
 			vsd.fpsSelect,
+			container.NewCenter(vsd.fpsMeta),
 		),
-		vsd.bitrateBlock,
-		vsd.jpegHint,
-		vsd.extraBtn,
-		widget.NewSeparator(),
-		container.NewGridWithColumns(2, vsd.startBtn, vsd.cancelBtn),
+		vsd.modeDetailsSlot,
 	)
+	footer := container.NewVBox(
+		vsd.extraBtn,
+		NewInset(container.New(&videoDialogButtonsLayout{gap: 12}, vsd.cancelBtn, vsd.startBtn), 0, 0, 8, 0),
+	)
+	form := container.NewBorder(nil, footer, nil, nil, bodyContent)
 
-	vsd.dialog = widget.NewModalPopUp(form, vsd.parent.Canvas())
-	vsd.dialog.Resize(fyne.NewSize(460, 430))
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		NewInset(form, 18, 18, 16, 16),
+		border,
+	)
+	vsd.dialog = NewOverlayPopup(vsd.parent, OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(_ fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			return fyne.NewSize(460, 520)
+		},
+	})
 	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
 }
-
 func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth, defaultHeight, defaultFPS int, defaultBitrate string) {
 	vsd.streamModes = nil
 	vsd.captureModes = nil
-	vsd.modeLabels = make(map[string]string)
 	vsd.resolutionLabels = make(map[string]models.VideoCaptureMode)
+	vsd.resolutionHints = make(map[string]string)
 
 	if info != nil && len(info.SupportedModes) > 0 {
 		vsd.streamModes = append(vsd.streamModes, info.SupportedModes...)
@@ -185,18 +647,6 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		return vsd.captureModes[i].Width < vsd.captureModes[j].Width
 	})
 
-	modeOptions := make([]string, 0, len(vsd.streamModes))
-	for _, mode := range vsd.streamModes {
-		label := mode.Name
-		if label == "" {
-			label = mode.ID
-		}
-		vsd.modeLabels[label] = mode.ID
-		modeOptions = append(modeOptions, label)
-	}
-	vsd.modeSelect.Options = modeOptions
-	vsd.modeSelect.Refresh()
-
 	resolutionOptions := make([]string, 0, len(vsd.captureModes))
 	defaultResolutionLabel := ""
 	hasMultipleFormats := false
@@ -207,21 +657,16 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	hasMultipleFormats = len(formatsSeen) > 1
 
 	for _, captureMode := range vsd.captureModes {
-		label := fmt.Sprintf("%dx%d", captureMode.Width, captureMode.Height)
-		if captureMode.PixelFormat != "" && (hasMultipleFormats || true) {
-			label = fmt.Sprintf("%s [%s]", label, captureMode.PixelFormat)
-		}
-		if len(captureMode.FPS) > 0 {
-			label = fmt.Sprintf("%s (%s)", label, formatFPSRange(captureMode.FPS))
-		}
+		label := formatResolutionBaseLabel(captureMode)
 		vsd.resolutionLabels[label] = captureMode
+		vsd.resolutionHints[label] = resolutionDescriptor(captureMode.Width, captureMode.Height)
 		resolutionOptions = append(resolutionOptions, label)
 		if captureMode.Width == defaultWidth && captureMode.Height == defaultHeight {
 			defaultResolutionLabel = label
 		}
 	}
-	vsd.resolutionSelect.Options = resolutionOptions
-	vsd.resolutionSelect.Refresh()
+	vsd.resolutionSelect.SetOptions(resolutionOptions)
+	vsd.resolutionSelect.SetDetails(vsd.resolutionHints)
 
 	if defaultResolutionLabel == "" && len(resolutionOptions) > 0 {
 		defaultResolutionLabel = resolutionOptions[0]
@@ -229,6 +674,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	if defaultResolutionLabel != "" {
 		vsd.resolutionSelect.SetSelected(defaultResolutionLabel)
 	}
+	vsd.updateResolutionMeta(hasMultipleFormats)
 
 	selectedMode := models.VideoModeH264
 	if info != nil && info.Mode != "" {
@@ -238,7 +684,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		selectedMode = models.VideoModeH264
 	}
 	vsd.refreshAvailableModes()
-	vsd.setSelectedMode(selectedMode)
+	vsd.setSelectedModeID(selectedMode)
 
 	if bitrate, ok := parseBitrate(defaultBitrate); ok {
 		vsd.bitrateSlider.SetValue(float64(bitrate))
@@ -255,23 +701,25 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.onApply = onApply
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
+	if vsd.dialog != nil && vsd.parent != nil {
+		vsd.dialog.Move(fyne.NewPos(0, 0))
+		vsd.dialog.Resize(vsd.parent.Canvas().Size())
+		vsd.dialog.Refresh()
+	}
 	vsd.dialog.Show()
 }
 
 func (vsd *VideoStartDialog) SetDeviceLabel(text string) {
 	vsd.deviceLabel.SetText(text)
-	if text == "" {
-		vsd.deviceLabel.Hide()
-		return
-	}
 	vsd.deviceLabel.Show()
+	vsd.deviceLabel.Hide()
 }
 
 func (vsd *VideoStartDialog) SetPrimaryAction(label string) {
 	if label == "" {
 		label = i18n.Current.StartVideo
 	}
-	vsd.startBtn.SetText("▶️ " + label)
+	vsd.startBtn.SetText(label)
 }
 
 func (vsd *VideoStartDialog) SetExtraAction(label string, onTap func()) {
@@ -289,11 +737,11 @@ func (vsd *VideoStartDialog) Hide() {
 	vsd.dialog.Hide()
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
-	vsd.startBtn.SetText("▶️ " + i18n.Current.StartVideo)
+	vsd.startBtn.SetText(i18n.Current.StartVideo)
 }
 
 func (vsd *VideoStartDialog) refreshFPSOptions() {
-	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
 	if !ok {
 		return
 	}
@@ -305,14 +753,9 @@ func (vsd *VideoStartDialog) refreshFPSOptions() {
 	if len(options) == 0 {
 		options = []string{"30"}
 	}
-	vsd.fpsSelect.Options = options
-	vsd.fpsSelect.Refresh()
-	if vsd.fpsSelect.Selected == "" {
+	vsd.fpsSelect.SetOptions(options)
+	if vsd.fpsSelect.Selected() == "" {
 		vsd.fpsSelect.SetSelected(options[0])
-	}
-	vsd.fpsValueLabel.SetText(vsd.fpsSelect.Selected + " " + i18n.Current.FramesPerSecond)
-	vsd.fpsSelect.OnChanged = func(value string) {
-		vsd.fpsValueLabel.SetText(value + " " + i18n.Current.FramesPerSecond)
 	}
 }
 
@@ -320,7 +763,7 @@ func (vsd *VideoStartDialog) setDefaultFPS(defaultFPS int) {
 	if defaultFPS <= 0 {
 		return
 	}
-	for _, option := range vsd.fpsSelect.Options {
+	for _, option := range vsd.fpsSelect.options {
 		if option == strconv.Itoa(defaultFPS) {
 			vsd.fpsSelect.SetSelected(option)
 			return
@@ -337,28 +780,167 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 			break
 		}
 	}
-	vsd.modeDescription.SetText(description)
+	vsd.modeDescription.Text = description
+	vsd.modeDescription.Refresh()
 
 	switch modeID {
 	case models.VideoModeJPEGRTP:
-		vsd.bitrateBlock.Hide()
 		vsd.jpegHint.SetText(i18n.Current.VideoJPEGRTPHint)
-		vsd.jpegHint.Show()
+		vsd.modeDetailsSlot.Objects = []fyne.CanvasObject{vsd.modeDetailsSlot.Objects[0], NewInset(vsd.jpegHint, 0, 0, 10, 0)}
 	case models.VideoModeRawYUYV:
-		vsd.bitrateBlock.Hide()
 		vsd.jpegHint.SetText(i18n.Current.VideoRawYUYVHint)
-		vsd.jpegHint.Show()
+		vsd.modeDetailsSlot.Objects = []fyne.CanvasObject{vsd.modeDetailsSlot.Objects[0], NewInset(vsd.jpegHint, 0, 0, 10, 0)}
 	default:
-		vsd.bitrateBlock.Show()
-		vsd.jpegHint.Hide()
+		vsd.modeDetailsSlot.Objects = []fyne.CanvasObject{vsd.modeDetailsSlot.Objects[0], vsd.bitrateBlock}
 	}
+	vsd.modeDetailsSlot.Refresh()
 }
 
 func (vsd *VideoStartDialog) selectedModeID() string {
-	if id, ok := vsd.modeLabels[vsd.modeSelect.Selected]; ok {
-		return id
+	if vsd.currentModeID != "" {
+		return vsd.currentModeID
 	}
 	return models.VideoModeH264
+}
+
+func (vsd *VideoStartDialog) setSelectedModeID(modeID string) {
+	if modeID == "" {
+		modeID = models.VideoModeH264
+	}
+	if len(vsd.modeButtons) > 0 {
+		if _, ok := vsd.modeButtons[modeID]; !ok {
+			for _, mode := range vsd.streamModes {
+				if _, exists := vsd.modeButtons[mode.ID]; exists {
+					modeID = mode.ID
+					break
+				}
+			}
+		}
+	}
+	vsd.currentModeID = modeID
+	for id, button := range vsd.modeButtons {
+		button.SetActive(id == modeID)
+	}
+	vsd.refreshModeUI()
+}
+
+func (vsd *VideoStartDialog) rebuildModeButtons() {
+	vsd.modeButtons = make(map[string]*videoCodecButton)
+	buttons := make([]fyne.CanvasObject, 0, len(vsd.streamModes))
+	for _, mode := range vsd.streamModes {
+		modeID := mode.ID
+		button := newVideoCodecButton(videoCodecButtonLabel(modeID), func() {
+			vsd.setSelectedModeID(modeID)
+		})
+		vsd.modeButtons[modeID] = button
+		buttons = append(buttons, button)
+	}
+	vsd.modeButtonsRow.Objects = buttons
+	vsd.modeButtonsRow.Refresh()
+}
+
+func videoCodecButtonLabel(modeID string) string {
+	switch modeID {
+	case models.VideoModeRawYUYV:
+		return "RAW"
+	case models.VideoModeJPEGRTP:
+		return "JPEG"
+	default:
+		return "H.264"
+	}
+}
+
+func (vsd *VideoStartDialog) updateResolutionMeta(hasMultipleFormats bool) {
+	if vsd.resolutionMeta == nil {
+		return
+	}
+
+	commonFormat := ""
+	commonFPS := ""
+	if len(vsd.captureModes) > 0 {
+		first := vsd.captureModes[0]
+		commonFormat = first.PixelFormat
+		commonFPS = formatFPSRange(first.FPS)
+		for _, mode := range vsd.captureModes[1:] {
+			if mode.PixelFormat != commonFormat {
+				commonFormat = ""
+			}
+			if formatFPSRange(mode.FPS) != commonFPS {
+				commonFPS = ""
+			}
+		}
+	}
+
+	parts := make([]string, 0, 2)
+	if !hasMultipleFormats && commonFormat != "" {
+		parts = append(parts, commonFormat)
+	}
+	if commonFPS != "" {
+		parts = append(parts, commonFPS)
+	}
+
+	vsd.resolutionMeta.Text = strings.Join(parts, " · ")
+	vsd.resolutionMeta.Refresh()
+}
+
+func formatResolutionBaseLabel(mode models.VideoCaptureMode) string {
+	return fmt.Sprintf("%d x %d", mode.Width, mode.Height)
+}
+
+func resolutionDescriptor(width, height int) string {
+	switch {
+	case width == 1920 && height == 1080:
+		return "Full HD (16:9)"
+	case width == 1600 && height == 1200:
+		return "UXGA (4:3)"
+	case width == 1360 && height == 768:
+		return "HD+ (16:9)"
+	case width == 1280 && height == 1024:
+		return "SXGA (5:4)"
+	case width == 1280 && height == 960:
+		return "SXGA- (4:3)"
+	case width == 1280 && height == 720:
+		return "HD (16:9)"
+	case width == 1024 && height == 768:
+		return "XGA (4:3)"
+	case width == 800 && height == 600:
+		return "SVGA (4:3)"
+	case width == 720 && height == 576:
+		return "PAL (5:4)"
+	case width == 720 && height == 480:
+		return "NTSC (3:2)"
+	case width == 640 && height == 480:
+		return "VGA (4:3)"
+	default:
+		ratio := aspectRatioLabel(width, height)
+		if ratio == "" {
+			return ""
+		}
+		return ratio
+	}
+}
+
+func aspectRatioLabel(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+
+	gcd := greatestCommonDivisor(width, height)
+	if gcd <= 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("(%d:%d)", width/gcd, height/gcd)
+}
+
+func greatestCommonDivisor(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a < 0 {
+		return -a
+	}
+	return a
 }
 
 func (vsd *VideoStartDialog) handleStart() {
@@ -366,12 +948,12 @@ func (vsd *VideoStartDialog) handleStart() {
 	vsd.cancelBtn.Disable()
 	vsd.startBtn.SetText("⏳ " + i18n.Current.Starting)
 
-	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
 	if !ok {
 		selectedMode = models.VideoCaptureMode{Width: 800, Height: 600, FPS: []int{30}}
 	}
 
-	fps, err := strconv.Atoi(vsd.fpsSelect.Selected)
+	fps, err := strconv.Atoi(vsd.fpsSelect.Selected())
 	if err != nil || fps <= 0 {
 		fps = 30
 	}
@@ -411,45 +993,47 @@ func formatFPSRange(values []int) string {
 }
 
 func (vsd *VideoStartDialog) refreshAvailableModes() {
-	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
 	selectedFormat := ""
 	if ok {
 		selectedFormat = normalizePixelFormat(selectedCaptureMode.PixelFormat)
 	}
 
 	allowed := allowedModesForPixelFormat(selectedFormat)
-	modeOptions := make([]string, 0, len(vsd.streamModes))
+	previous := vsd.selectedModeID()
+	vsd.modeButtons = make(map[string]*videoCodecButton)
+	buttons := make([]fyne.CanvasObject, 0, len(vsd.streamModes))
+	selectedAllowed := false
 	for _, mode := range vsd.streamModes {
 		if len(allowed) > 0 && !allowed[mode.ID] {
 			continue
 		}
-		label := mode.Name
-		if label == "" {
-			label = mode.ID
-		}
-		modeOptions = append(modeOptions, label)
-	}
-
-	previous := vsd.selectedModeID()
-	vsd.modeSelect.Options = modeOptions
-	vsd.modeSelect.Refresh()
-	vsd.setSelectedMode(previous)
-}
-
-func (vsd *VideoStartDialog) setSelectedMode(modeID string) {
-	for label, id := range vsd.modeLabels {
-		if id == modeID {
-			for _, option := range vsd.modeSelect.Options {
-				if option == label {
-					vsd.modeSelect.SetSelected(label)
-					return
-				}
-			}
+		modeID := mode.ID
+		button := newVideoCodecButton(videoCodecButtonLabel(modeID), func() {
+			vsd.setSelectedModeID(modeID)
+		})
+		vsd.modeButtons[modeID] = button
+		buttons = append(buttons, button)
+		if modeID == previous {
+			selectedAllowed = true
 		}
 	}
-	if len(vsd.modeSelect.Options) > 0 {
-		vsd.modeSelect.SetSelected(vsd.modeSelect.Options[0])
+	vsd.modeButtonsRow.Objects = buttons
+	vsd.modeButtonsRow.Refresh()
+
+	if selectedAllowed {
+		vsd.setSelectedModeID(previous)
+		return
 	}
+
+	for _, mode := range vsd.streamModes {
+		if len(allowed) == 0 || allowed[mode.ID] {
+			vsd.setSelectedModeID(mode.ID)
+			return
+		}
+	}
+
+	vsd.setSelectedModeID(models.VideoModeH264)
 }
 
 func allowedModesForPixelFormat(format string) map[string]bool {

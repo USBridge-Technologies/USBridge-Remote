@@ -27,6 +27,11 @@ type ConnectionManagerUI struct {
 	contentArea *fyne.Container
 	headerArea  *fyne.Container
 	topActions  *fyne.Container
+
+	topQRBtn     *iconChromeButton
+	topAddBtn    *outlinedActionButton
+	centerQRBtn  *iconChromeButton
+	centerAddBtn *onboardingPrimaryButton
 }
 
 type ConnectionRowData struct {
@@ -77,11 +82,11 @@ const (
 var (
 	onboardingIndicatorInactive = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff}
 	onboardingIndicatorActive   = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff}
-	connectionActionBlockedFill = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff}
+	connectionActionBlockedFill = design.ColorGray900
 )
 
 func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
-	topQRBtn := newCompactActionWrap(connectionCompactActionSize, newIconChromeButton(iconChromeButtonSpec{
+	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
 		Stroke:      color.Transparent,
@@ -91,11 +96,13 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 		IconSize:    fyne.NewSize(15, 15),
 		ButtonSize:  fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
 		OnTapped:    onQR,
-	}))
+	})
+	topQRBtn := newCompactActionWrap(connectionCompactActionSize, topQRButton)
 
-	topAddBtn := newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd))
+	topAddButton := newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd)
+	topAddBtn := newCompactActionWrap(connectionCompactActionSize, topAddButton)
 
-	centerQRBtn := newIconChromeButton(iconChromeButtonSpec{
+	centerQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorAccent,
 		Stroke:      design.ColorAccent,
@@ -106,8 +113,10 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 		ButtonSize:  fyne.NewSize(42, 42),
 		OnTapped:    onQR,
 	})
+	centerQRBtn := centerQRButton
 
-	centerAddBtn := newOnboardingPrimaryButton(onboardingAddActionLabel(i18n.Current.AddConnectionTitle), onAdd)
+	centerAddButton := newOnboardingPrimaryButton(onboardingAddActionLabel(i18n.Current.AddConnectionTitle), onAdd)
+	centerAddBtn := centerAddButton
 
 	connectionsBox := container.NewVBox()
 	connectionsScroll := container.NewScroll(connectionsBox)
@@ -137,6 +146,10 @@ func NewConnectionManagerUI(onQR func(), onAdd func()) *ConnectionManagerUI {
 		contentArea:       contentArea,
 		headerArea:        headerArea,
 		topActions:        topActions,
+		topQRBtn:          topQRButton,
+		topAddBtn:         topAddButton,
+		centerQRBtn:       centerQRButton,
+		centerAddBtn:      centerAddButton,
 	}
 
 	ui.setHeader("", nil)
@@ -182,6 +195,21 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	ui.contentArea.Objects = []fyne.CanvasObject{ui.ConnectionsScroll}
 	ui.ConnectionsBox.Refresh()
 	ui.contentArea.Refresh()
+}
+
+func (ui *ConnectionManagerUI) SetActionButtonsDisabled(disabled bool) {
+	if ui.topQRBtn != nil {
+		ui.topQRBtn.SetDisabled(disabled)
+	}
+	if ui.topAddBtn != nil {
+		ui.topAddBtn.SetDisabled(disabled)
+	}
+	if ui.centerQRBtn != nil {
+		ui.centerQRBtn.SetDisabled(disabled)
+	}
+	if ui.centerAddBtn != nil {
+		ui.centerAddBtn.SetDisabled(disabled)
+	}
 }
 
 func (ui *ConnectionManagerUI) setHeader(title string, right fyne.CanvasObject) {
@@ -712,6 +740,7 @@ type outlinedActionButton struct {
 	labelText string
 	onTapped  func()
 	hovered   bool
+	disabled  bool
 	bg        *canvas.Rectangle
 	border    *canvas.Rectangle
 	label     *canvas.Text
@@ -757,6 +786,9 @@ func (b *outlinedActionButton) MinSize() fyne.Size {
 }
 
 func (b *outlinedActionButton) Tapped(*fyne.PointEvent) {
+	if b.disabled {
+		return
+	}
 	if b.onTapped != nil {
 		b.onTapped()
 	}
@@ -765,6 +797,9 @@ func (b *outlinedActionButton) Tapped(*fyne.PointEvent) {
 func (b *outlinedActionButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *outlinedActionButton) MouseIn(*desktop.MouseEvent) {
+	if b.disabled {
+		return
+	}
 	b.hovered = true
 	b.refreshVisuals()
 }
@@ -776,6 +811,12 @@ func (b *outlinedActionButton) MouseOut() {
 	b.refreshVisuals()
 }
 
+func (b *outlinedActionButton) SetDisabled(disabled bool) {
+	b.disabled = disabled
+	b.hovered = false
+	b.refreshVisuals()
+}
+
 func (b *outlinedActionButton) refreshVisuals() {
 	if b.bg == nil || b.border == nil || b.label == nil {
 		return
@@ -783,7 +824,10 @@ func (b *outlinedActionButton) refreshVisuals() {
 
 	b.bg.FillColor = color.Transparent
 	b.label.Color = design.ColorTextMuted
-	if b.hovered {
+	if b.disabled {
+		b.bg.FillColor = connectionActionBlockedFill
+		b.label.Color = design.ColorBorder
+	} else if b.hovered {
 		b.bg.FillColor = design.ColorSurfaceLight
 		b.label.Color = design.ColorTextMuted
 	}
@@ -961,7 +1005,7 @@ func (b *connectionPrimaryButton) refreshVisuals() {
 		labelColor = design.ColorBackground
 	} else if b.disabled {
 		fill = connectionActionBlockedFill
-		labelColor = design.ColorTextMuted
+		labelColor = design.ColorBorder
 	} else if b.hovered {
 		fill = design.ColorAccentHover
 	}
@@ -1056,6 +1100,7 @@ type onboardingPrimaryButton struct {
 	labelText string
 	onTapped  func()
 	hovered   bool
+	disabled  bool
 	bg        *canvas.Rectangle
 	label     *canvas.Text
 }
@@ -1090,6 +1135,9 @@ func (b *onboardingPrimaryButton) MinSize() fyne.Size {
 }
 
 func (b *onboardingPrimaryButton) Tapped(*fyne.PointEvent) {
+	if b.disabled {
+		return
+	}
 	if b.onTapped != nil {
 		b.onTapped()
 	}
@@ -1098,6 +1146,9 @@ func (b *onboardingPrimaryButton) Tapped(*fyne.PointEvent) {
 func (b *onboardingPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
 
 func (b *onboardingPrimaryButton) MouseIn(*desktop.MouseEvent) {
+	if b.disabled {
+		return
+	}
 	b.hovered = true
 	b.refreshVisuals()
 }
@@ -1109,15 +1160,26 @@ func (b *onboardingPrimaryButton) MouseOut() {
 	b.refreshVisuals()
 }
 
+func (b *onboardingPrimaryButton) SetDisabled(disabled bool) {
+	b.disabled = disabled
+	b.hovered = false
+	b.refreshVisuals()
+}
+
 func (b *onboardingPrimaryButton) refreshVisuals() {
 	if b.bg == nil || b.label == nil {
 		return
 	}
 
-	if b.hovered {
+	if b.disabled {
+		b.bg.FillColor = connectionActionBlockedFill
+		b.label.Color = design.ColorBorder
+	} else if b.hovered {
 		b.bg.FillColor = design.ColorAccentHover
+		b.label.Color = design.ColorBackground
 	} else {
 		b.bg.FillColor = design.ColorAccent
+		b.label.Color = design.ColorBackground
 	}
 	b.bg.Refresh()
 	b.label.Refresh()

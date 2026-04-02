@@ -63,7 +63,7 @@ func (dw *DiskWidget) handleAddImage() {
 		if err != nil {
 			logrus.Errorf("❌ [ADD-IMAGE-ERROR] Ошибка при выборе файла: %v", err)
 			fyne.Do(func() {
-				dialog.ShowError(fmt.Errorf(i18n.Current.ErrorSelectingFile, err), dw.window)
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, err), dw.window)
 			})
 			return
 		}
@@ -142,7 +142,7 @@ func (dw *DiskWidget) handleAddImage() {
 		if !supported {
 			logrus.Warnf("⚠️ Неподдерживаемый формат файла: %s", fileName)
 			fyne.Do(func() {
-				dialog.ShowError(fmt.Errorf(i18n.Current.UnsupportedFileFormat, strings.Join(dw.supportedTypes, ", ")), dw.window)
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.UnsupportedFileFormat, strings.Join(dw.supportedTypes, ", ")), dw.window)
 			})
 			return
 		}
@@ -429,9 +429,8 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 
 	if dw.window != nil {
 		fyne.Do(func() {
-			view.ShowConfirmYesLeft(
-				i18n.Current.DeleteImageTitle,
-				fmt.Sprintf(i18n.Current.DeleteImageConfirm, drive.Name),
+			view.ShowDeleteImageConfirm(
+				drive.Name,
 				func(confirmed bool) {
 					if confirmed {
 						dw.userImages = append(dw.userImages[:userImageIndex], dw.userImages[userImageIndex+1:]...)
@@ -521,16 +520,15 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 	if dw.usbClient == nil {
 		logrus.Warn("⚠️ USB клиент не инициализирован")
 		if dw.window != nil {
-			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
 		return
 	}
 
 	if dw.window != nil {
 		fyne.Do(func() {
-			view.ShowConfirmYesLeft(
-				i18n.Current.UploadImageTitle,
-				fmt.Sprintf(i18n.Current.UploadImageConfirm, drive.Name),
+			view.ShowUploadImageConfirm(
+				drive.Name,
 				func(confirmed bool) {
 					if confirmed {
 						go dw.uploadImageToDevice(drive)
@@ -617,7 +615,7 @@ func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int) {
 	if dw.usbClient == nil {
 		logrus.Warn("⚠️ USB клиент не инициализирован")
 		if dw.window != nil {
-			dialog.ShowError(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
 		}
 		return
 	}
@@ -633,9 +631,8 @@ func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int) {
 
 	if dw.window != nil {
 		fyne.Do(func() {
-			view.ShowConfirmYesLeft(
-				i18n.Current.DeleteImageTitle,
-				fmt.Sprintf(i18n.Current.DeleteImageFromDeviceConfirm, drive.Name),
+			view.ShowDeleteImageConfirm(
+				drive.Name,
 				func(confirmed bool) {
 					if confirmed {
 						go dw.deleteImageFromDevice(filename, drive.Name)

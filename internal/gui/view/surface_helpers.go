@@ -67,7 +67,7 @@ func NewCompactSurfacePanel(content fyne.CanvasObject, fill color.Color, radius 
 	bg := canvas.NewRectangle(fill)
 	bg.CornerRadius = radius
 
-	panelContent := container.NewPadded(content)
+	panelContent := NewInset(content, 4, 4, 2, 2)
 
 	return container.New(
 		&compactSurfacePanelLayout{},

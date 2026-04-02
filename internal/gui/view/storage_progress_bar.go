@@ -3,6 +3,7 @@ package view
 import (
 	"image/color"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 
 	"fyne.io/fyne/v2"
@@ -69,6 +70,9 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 
 	bg := canvas.NewRectangle(bgColor)
 	bg.CornerRadius = design.RadiusMD
+	icon := canvas.NewImageFromResource(assets.MemoryChipIcon)
+	icon.FillMode = canvas.ImageFillContain
+	icon.SetMinSize(fyne.NewSize(iconSize, iconSize))
 	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
 	track.CornerRadius = design.RadiusMD
 	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
@@ -81,16 +85,18 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	return &storageProgressBarRenderer{
 		s:        s,
 		bg:       bg,
+		icon:     icon,
 		track:    track,
 		fill:     fill,
 		sizeText: sizeText,
-		objs:     []fyne.CanvasObject{bg, track, fill, sizeText},
+		objs:     []fyne.CanvasObject{bg, icon, track, fill, sizeText},
 	}
 }
 
 type storageProgressBarRenderer struct {
 	s        *StorageProgressBar
 	bg       *canvas.Rectangle
+	icon     *canvas.Image
 	track    *canvas.Rectangle
 	fill     *canvas.Rectangle
 	sizeText *canvas.Text
@@ -98,22 +104,42 @@ type storageProgressBarRenderer struct {
 }
 
 const (
-	padH       = float32(8)
-	padV       = float32(5)
-	barHeight  = float32(4)
-	textTopGap = float32(6)
+	padH         = float32(8)
+	padV         = float32(5)
+	iconSize     = float32(20)
+	iconGap      = float32(6)
+	barHeight    = float32(4)
+	barTopOffset = float32(2)
+	textTopGap   = float32(6)
 )
 
 func (r *storageProgressBarRenderer) Layout(size fyne.Size) {
 	r.bg.Resize(size)
 	r.bg.Move(fyne.NewPos(0, 0))
 
-	barY := padV
-	barWidth := size.Width - padH*2
-	if barWidth < 0 {
-		barWidth = 0
+	iconX := padH
+	iconY := maxFloat32(0, (size.Height-iconSize)/2)
+	r.icon.Move(fyne.NewPos(iconX, iconY))
+	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
+
+	contentX := padH + iconSize + iconGap
+	contentWidth := size.Width - contentX - padH
+	if contentWidth < 0 {
+		contentWidth = 0
 	}
-	r.track.Move(fyne.NewPos(padH, barY))
+	textWidth := r.sizeText.MinSize().Width
+	groupWidth := textWidth
+	if groupWidth < 1 {
+		groupWidth = 1
+	}
+	if groupWidth > contentWidth && contentWidth > 0 {
+		groupWidth = contentWidth
+	}
+	barWidth := groupWidth
+
+	barY := padV + barTopOffset
+	barX := contentX
+	r.track.Move(fyne.NewPos(barX, barY))
 	r.track.Resize(fyne.NewSize(barWidth, barHeight))
 
 	fillWidth := barWidth * float32(r.s.usedPercent/100)
@@ -121,19 +147,30 @@ func (r *storageProgressBarRenderer) Layout(size fyne.Size) {
 		fillWidth = 0
 	}
 	r.fill.Resize(fyne.NewSize(fillWidth, barHeight))
-	r.fill.Move(fyne.NewPos(padH, barY))
+	r.fill.Move(fyne.NewPos(barX, barY))
 
 	lineY := barY + barHeight + textTopGap
 	lineH := size.Height - lineY - padV
 	if lineH < 4 {
 		lineH = 4
 	}
-	r.sizeText.Resize(fyne.NewSize(size.Width-padH*2, lineH))
-	r.sizeText.Move(fyne.NewPos(padH, lineY))
+	r.sizeText.Resize(fyne.NewSize(groupWidth, lineH))
+	r.sizeText.Move(fyne.NewPos(contentX, lineY))
 }
 
 func (r *storageProgressBarRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(104, 30)
+	measure := canvas.NewText(r.s.sizeText, r.sizeText.Color)
+	measure.TextSize = r.sizeText.TextSize
+	measure.TextStyle = r.sizeText.TextStyle
+
+	textWidth := measure.MinSize().Width
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	width := iconSize + iconGap + textWidth + padH*2
+	height := padV + barHeight + textTopGap + measure.MinSize().Height + padV
+	return fyne.NewSize(width, height)
 }
 
 func (r *storageProgressBarRenderer) Refresh() {
@@ -142,15 +179,16 @@ func (r *storageProgressBarRenderer) Refresh() {
 	r.bg.FillColor = t.Color(theme.ColorNameButton, variant)
 	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
 	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
+	r.icon.Resource = assets.MemoryChipIcon
 
 	fg := t.Color(theme.ColorNameForeground, variant)
 	r.sizeText.Color = fg
 	r.sizeText.Text = r.s.sizeText
 
 	if sz := r.s.Size(); sz.Width > 0 {
-		barWidth := sz.Width - padH*2
-		if barWidth < 0 {
-			barWidth = 0
+		barWidth := r.sizeText.MinSize().Width
+		if barWidth < 1 {
+			barWidth = 1
 		}
 		fillWidth := barWidth * float32(r.s.usedPercent/100)
 		if fillWidth < 2 {
@@ -160,6 +198,7 @@ func (r *storageProgressBarRenderer) Refresh() {
 	}
 
 	canvas.Refresh(r.bg)
+	canvas.Refresh(r.icon)
 	canvas.Refresh(r.track)
 	canvas.Refresh(r.fill)
 	canvas.Refresh(r.sizeText)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -25,7 +26,7 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 		fyne.Do(func() {
 			if err != nil {
 				logrus.Warnf("Камера недоступна: %v", err)
-				dialog.ShowError(fmt.Errorf(i18n.Current.ErrorStartingCamera, err), parent)
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorStartingCamera, err), parent)
 				return
 			}
 			scanner.Run()

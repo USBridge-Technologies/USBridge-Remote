@@ -76,16 +76,36 @@ func (mw *MainWindow) showMainContent() {
 
 // handleClose handles app shutdown.
 func (mw *MainWindow) handleClose() {
-	logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
-	if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
-		logrus.Info("handleClose: fullscreen active, exit it first")
+	if !mw.shutdownInProgress.CompareAndSwap(false, true) {
+		logrus.Info("[shutdown] handleClose: shutdown already in progress")
 		return
 	}
 
-	if mw.isConnected || (mw.wgService != nil && mw.wgService.IsRunning()) || (mw.frpService != nil && mw.frpService.IsRunning()) {
+	logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
+	if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
+		logrus.Info("handleClose: fullscreen active, exit it first")
+		mw.shutdownInProgress.Store(false)
+		return
+	}
+
+	needsDisconnect := mw.isConnected ||
+		mw.usbClient != nil ||
+		(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
+		(mw.nbdServer != nil && mw.nbdServer.IsRunning()) ||
+		(mw.wgService != nil && mw.wgService.IsRunning()) ||
+		(mw.frpService != nil && mw.frpService.IsRunning())
+
+	if needsDisconnect {
 		logrus.Info("[shutdown] handleClose: calling handleDisconnect")
 		mw.handleDisconnect()
 	}
+
+	if mw.app != nil {
+		logrus.Info("[shutdown] handleClose: quitting app")
+		mw.app.Quit()
+		return
+	}
+
 	logrus.Info("[shutdown] handleClose: closing window")
 	mw.window.Close()
 }

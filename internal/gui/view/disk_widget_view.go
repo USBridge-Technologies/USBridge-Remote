@@ -48,8 +48,8 @@ type DiskRowWidgets struct {
 var diskRowRegistry sync.Map
 
 const (
-	deviceControlHeight    = 40
-	deviceControlUnitWidth = 44
+	deviceControlHeight    = 36
+	deviceControlUnitWidth = 40
 	deviceControlGap       = 8
 	deviceWideControlWidth = (deviceControlUnitWidth * 2) + deviceControlGap
 )
@@ -206,11 +206,11 @@ func (b *DeviceActionButton) CreateRenderer() fyne.WidgetRenderer {
 	if b.iconRes != nil {
 		b.icon = canvas.NewImageFromResource(b.iconRes)
 		b.icon.FillMode = canvas.ImageFillContain
-		b.icon.SetMinSize(fyne.NewSize(15, 15))
+		b.icon.SetMinSize(fyne.NewSize(14, 14))
 	}
 
 	b.label = canvas.NewText(b.labelText, b.textColor)
-	b.label.TextSize = 13
+	b.label.TextSize = 12
 	b.label.TextStyle.Bold = true
 
 	var content fyne.CanvasObject
@@ -221,7 +221,7 @@ func (b *DeviceActionButton) CreateRenderer() fyne.WidgetRenderer {
 	}
 	renderer := widget.NewSimpleRenderer(container.NewMax(
 		b.bg,
-		NewInset(container.NewCenter(content), 10, 10, 0, 0),
+		NewInset(container.NewCenter(content), 8, 8, 0, 0),
 	))
 	b.refreshVisuals()
 	return renderer
@@ -581,6 +581,10 @@ type deviceRowControlsLayout struct {
 	gap float32
 }
 
+type sectionHeaderInlineLayout struct {
+	gap float32
+}
+
 type sectionCardWithAttachmentLayout struct {
 	bottomInset float32
 	rightInset  float32
@@ -647,6 +651,44 @@ func (l *deviceRowControlsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 	return fyne.NewSize(width, height)
 }
 
+func (l *sectionHeaderInlineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	x := float32(0)
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		childSize := obj.MinSize()
+		y := (size.Height - childSize.Height) / 2
+		if y < 0 {
+			y = 0
+		}
+		obj.Move(fyne.NewPos(x, y))
+		obj.Resize(childSize)
+		x += childSize.Width + l.gap
+	}
+}
+
+func (l *sectionHeaderInlineLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(0)
+	height := float32(0)
+	visibleCount := 0
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		childSize := obj.MinSize()
+		width += childSize.Width
+		if childSize.Height > height {
+			height = childSize.Height
+		}
+		visibleCount++
+	}
+	if visibleCount > 1 {
+		width += l.gap * float32(visibleCount-1)
+	}
+	return fyne.NewSize(width, height)
+}
+
 func (l *sectionCardWithAttachmentLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	if len(objects) == 0 {
 		return
@@ -691,7 +733,7 @@ func (l *sectionCardWithAttachmentLayout) MinSize(objects []fyne.CanvasObject) f
 
 func NewDevicesListView(buildIntro func() fyne.CanvasObject, buildRows func() []fyne.CanvasObject) *DevicesListView {
 	content := container.NewVBox()
-	scroll := container.NewVScroll(content)
+	scroll := container.NewVScroll(NewInset(content, 0, 6, 0, 0))
 	return &DevicesListView{
 		Scroll:     scroll,
 		content:    content,
@@ -726,7 +768,7 @@ func (v *DevicesListView) RefreshItem(_ int) {
 
 func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyne.CanvasObject, topRightOverlay fyne.CanvasObject) *DiskWidgetUI {
 	devicesList := NewDevicesListView(buildIntro, buildRows)
-	root := NewInset(devicesList.Scroll, 8, 8, 18, 0)
+	root := NewInset(devicesList.Scroll, 8, 0, 6, 0)
 	if topRightOverlay != nil {
 		fixedOverlay := container.NewGridWrap(topRightOverlay.MinSize(), topRightOverlay)
 		overlay := container.NewBorder(
@@ -880,6 +922,7 @@ func NewDeviceSectionCard(
 	badge color.Color,
 	rows []fyne.CanvasObject,
 	action fyne.CanvasObject,
+	trailingAction fyne.CanvasObject,
 ) fyne.CanvasObject {
 	_ = title
 	_ = description
@@ -887,33 +930,39 @@ func NewDeviceSectionCard(
 	_ = badge
 
 	eyebrowText := NewBrandText(eyebrow, 11, design.ColorTextMuted, true)
-	header := NewInset(eyebrowText, 6, 6, 0, 0)
+	var headerLeft fyne.CanvasObject = eyebrowText
+	if action != nil {
+		headerLeft = container.New(&sectionHeaderInlineLayout{gap: 4},
+			eyebrowText,
+			action,
+		)
+	}
+
+	var header fyne.CanvasObject
+	if trailingAction != nil {
+		header = NewInset(
+			container.NewHBox(
+				headerLeft,
+				layout.NewSpacer(),
+				trailingAction,
+			),
+			4, 4, 0, 0,
+		)
+	} else {
+		header = NewInset(headerLeft, 6, 6, 0, 0)
+	}
 
 	var bodyContent fyne.CanvasObject
 	if len(rows) == 0 {
 		spacer := canvas.NewRectangle(color.Transparent)
 		spacer.SetMinSize(fyne.NewSize(1, 12))
-		bodyContent = NewInset(spacer, 6, 6, 2, 3)
+		bodyContent = NewInset(spacer, 6, 6, 1, 1)
 	} else {
-		bodyContent = NewInset(container.NewVBox(rows...), 4, 4, 2, 3)
+		bodyContent = NewInset(container.NewVBox(rows...), 4, 4, 1, 1)
 	}
 
 	cardContent := NewInset(bodyContent, 0, 0, 1, 1)
 
 	card := NewInset(NewCompactSurfacePanel(cardContent, fill, design.RadiusMD+2), 0, 0, 0, 3)
-	if action == nil {
-		return container.NewVBox(header, card)
-	}
-
-	actionBG := canvas.NewRectangle(fill)
-	actionBG.CornerRadius = design.RadiusMD
-	actionPanel := container.NewStack(
-		actionBG,
-		NewInset(container.NewCenter(action), 1, 1, 1, 1),
-	)
-
-	return container.NewVBox(
-		header,
-		container.New(&sectionCardWithAttachmentLayout{bottomInset: -4, rightInset: 26}, card, actionPanel),
-	)
+	return container.NewVBox(header, card)
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -51,7 +52,7 @@ func (qs *QRScanner) ShowCameraScanner(parent fyne.Window) {
 func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.ErrorProcessingImage, err), parent)
+		view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorProcessingImage, err), parent)
 		logrus.Errorf("Error creating bitmap: %v", err)
 		return
 	}
@@ -59,7 +60,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 	qrReader := qrcode.NewQRCodeReader()
 	result, err := qrReader.Decode(bmp, nil)
 	if err != nil {
-		dialog.ShowError(fmt.Errorf(i18n.Current.QRCodeNotFound), parent)
+		view.ShowErrorDialog(fmt.Errorf(i18n.Current.QRCodeNotFound), parent)
 		logrus.Errorf("Error decoding QR: %v", err)
 		return
 	}
@@ -72,12 +73,12 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 	host, token, protocol, wireGuardInvite, err := parseQRContents(qrText)
 	if err != nil {
-		dialog.ShowError(errors.New(fmt.Sprintf(i18n.Current.InvalidQRFormat, qrText)), parent)
+		view.ShowErrorDialog(errors.New(fmt.Sprintf(i18n.Current.InvalidQRFormat, qrText)), parent)
 		return
 	}
 
 	if host == "" {
-		dialog.ShowError(errors.New(i18n.Current.HostCannotBeEmpty), parent)
+		view.ShowErrorDialog(errors.New(i18n.Current.HostCannotBeEmpty), parent)
 		return
 	}
 

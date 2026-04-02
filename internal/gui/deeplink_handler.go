@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/platform"
 
 	"fyne.io/fyne/v2"
@@ -59,7 +60,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	host, token, protocol, wireGuardInvite, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
-		dialog.ShowError(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
+		view.ShowErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
 		return
 	}
 

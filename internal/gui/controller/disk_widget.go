@@ -179,11 +179,7 @@ func (dw *DiskWidget) SetWindow(window fyne.Window) {
 
 // createInterface создает интерфейс виджета
 func (dw *DiskWidget) createInterface() {
-	helpBtn := view.NewFooterIconButton(assets.QuestionIconDim, assets.QuestionIcon, fyne.NewSize(13, 13), func() {
-		dw.openQuickStartDocs()
-	})
-
-	dw.ui = view.NewDiskWidgetUI(nil, dw.buildDeviceCards, helpBtn)
+	dw.ui = view.NewDiskWidgetUI(nil, dw.buildDeviceCards, nil)
 	dw.devicesList = dw.ui.DevicesList
 
 	dw.mountBtn = widget.NewButton(i18n.Current.MountButton, dw.handleMount)
@@ -221,6 +217,10 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 	cards := make([]fyne.CanvasObject, 0, len(sections))
 
 	for _, section := range sections {
+		if len(section.indexes) == 0 {
+			continue
+		}
+
 		rows := make([]fyne.CanvasObject, 0, len(section.indexes))
 		for _, driveIndex := range section.indexes {
 			rowObj := view.NewDiskRowTemplate()
@@ -230,8 +230,12 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 
 		fill, border, badge := sectionPalette(section.key)
 		var sectionAction fyne.CanvasObject
+		var sectionTrailingAction fyne.CanvasObject
 		if section.key == "storage" {
 			sectionAction = view.NewDeviceSectionAddButton(dw.handleAddImage)
+			sectionTrailingAction = view.NewFooterIconButton(assets.QuestionIconDim, assets.QuestionIcon, fyne.NewSize(13, 13), func() {
+				dw.openQuickStartDocs()
+			})
 		}
 		cards = append(cards, view.NewDeviceSectionCard(
 			section.eyebrow,
@@ -243,6 +247,7 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 			badge,
 			rows,
 			sectionAction,
+			sectionTrailingAction,
 		))
 	}
 
@@ -286,6 +291,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		logrus.Warnf("disk row widgets missing essentials for row %d", id)
 		return
 	}
+	prefixIcon.SetMinSize(fyne.NewSize(18, 18))
 
 	videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted
 	controlsLocked := dw.controlsLocked()
@@ -514,10 +520,9 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	case "api":
 		useStorageIcon = true
 		if drive.LocalDrive != nil {
-			if drive.LocalDrive.Name == "data" && drive.LocalDrive.SourceType == "mtp" {
-				prefixIcon.Resource = assets.FolderIcon
-			} else if drive.LocalDrive.SourceType == "mtp" {
-				prefixIcon.Resource = assets.FolderIcon
+			if drive.LocalDrive.SourceType == "mtp" {
+				prefixIcon.SetMinSize(fyne.NewSize(16, 16))
+				prefixIcon.Resource = assets.SDCardIcon
 			} else {
 				prefixIcon.Resource = assets.DiscIcon
 			}
@@ -562,6 +567,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	if useStorageIcon && drive.IsMounted {
 		if prefixIcon.Resource == assets.FolderIcon {
 			prefixIcon.Resource = assets.FolderIconActive
+		} else if prefixIcon.Resource == assets.SDCardIcon {
+			prefixIcon.Resource = assets.SDCardIconActive
 		} else {
 			prefixIcon.Resource = assets.DiscIconActive
 		}
@@ -667,6 +674,16 @@ func (dw *DiskWidget) GetMouseMode() string {
 	return defaultMouseMode()
 }
 
+// GetRNDISMode возвращает текущий выбранный режим RNDIS.
+func (dw *DiskWidget) GetRNDISMode() string {
+	for _, drive := range dw.allDrives {
+		if drive.IsRNDIS {
+			return normalizeRNDISMode(drive.RNDISMode)
+		}
+	}
+	return normalizeRNDISMode("auto")
+}
+
 // SetMouseMode применяет режим указателя через ту же логику, что и экран устройств.
 func (dw *DiskWidget) SetMouseMode(mode string) {
 	if dw == nil || dw.controlsLocked() {
@@ -687,6 +704,26 @@ func (dw *DiskWidget) SetMouseMode(mode string) {
 			dw.applyMouseModeSelection(i, mode)
 			return
 		}
+	}
+}
+
+// SetRNDISMode применяет режим сетевой карты так же, как в карточке устройства.
+func (dw *DiskWidget) SetRNDISMode(mode string) {
+	if dw == nil || dw.controlsLocked() {
+		return
+	}
+
+	mode = normalizeRNDISMode(mode)
+	updated := false
+	for i := range dw.allDrives {
+		if dw.allDrives[i].IsRNDIS {
+			dw.allDrives[i].RNDISMode = mode
+			updated = true
+		}
+	}
+
+	if updated {
+		dw.requestDevicesRefresh()
 	}
 }
 
@@ -969,7 +1006,7 @@ func (dw *DiskWidget) showErrorAsync(err error) {
 	logrus.Errorf("Ошибка: %v", err)
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
-			dialog.ShowError(err, dw.window)
+			view.ShowErrorDialog(err, dw.window)
 		}
 	})
 }

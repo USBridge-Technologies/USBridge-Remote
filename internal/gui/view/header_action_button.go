@@ -20,6 +20,7 @@ type HeaderActionButtonSpec struct {
 	Stroke        color.Color
 	StrokeWidth   float32
 	Icon          fyne.Resource
+	IconSize      fyne.Size
 	SpinnerFrames []fyne.Resource
 	Text          string
 }
@@ -95,7 +96,11 @@ func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.icon = canvas.NewImageFromResource(nil)
 	b.icon.FillMode = canvas.ImageFillContain
-	b.icon.SetMinSize(fyne.NewSize(22, 22))
+	iconSize := b.spec.IconSize
+	if iconSize.Width <= 0 || iconSize.Height <= 0 {
+		iconSize = fyne.NewSize(22, 22)
+	}
+	b.icon.SetMinSize(iconSize)
 
 	b.label = canvas.NewText("", b.spec.Foreground)
 	b.label.TextSize = 18
@@ -142,6 +147,11 @@ func (b *HeaderActionButton) syncVisuals() {
 		}
 	}
 	b.icon.Refresh()
+	if b.spec.IconSize.Width > 0 && b.spec.IconSize.Height > 0 {
+		b.icon.SetMinSize(b.spec.IconSize)
+	} else {
+		b.icon.SetMinSize(fyne.NewSize(22, 22))
+	}
 
 	if b.spec.Text != "" {
 		b.icon.Hide()
