@@ -442,18 +442,16 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	rectW := vw.contentRectW
 	rectH := vw.contentRectH
 
-	// Для абсолютного указателя важнее брать фактическую геометрию
-	// отрисованного кадра, а не только расчётный viewport: так мы
-	// учитываем реальные рамки/letterbox после layout Fyne.
-	if wrapper := vw.activeViewportWrapper(); wrapper != nil && wrapper.image != nil {
-		imgPos := wrapper.image.Position()
-		imgSize := wrapper.image.Size()
-		if imgSize.Width > 0 && imgSize.Height > 0 {
-			rectX = imgPos.X
-			rectY = imgPos.Y
-			rectW = imgSize.Width
-			rectH = imgSize.Height
-		}
+	// Для абсолютного указателя используем только один источник истины:
+	// расчётный viewport виджета плюс активную область внутри самого кадра.
+	// Это избегает "второго мини-поля", когда Fyne image/layout отдаёт
+	// внутреннюю геометрию, отличающуюся от области ввода.
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
+		rectX += rectW * frameX
+		rectY += rectH * frameY
+		rectW *= frameW
+		rectH *= frameH
 	}
 
 	var u, v float32
@@ -509,6 +507,15 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	right := detectDarkInset(frame, bounds, true, false)
 	top := detectDarkInset(frame, bounds, false, true)
 	bottom := detectDarkInset(frame, bounds, false, false)
+
+	// Защита от ложного детекта: если "чёрная рамка" слишком большая хотя бы
+	// с одной стороны, считаем что это уже не служебный inset, и не кропаем
+	// кадр вообще. Иначе именно такой ложный crop может создать второе
+	// "мини-поле" в абсолютном режиме.
+	const maxAutoCropInsetPx = 20
+	if left > maxAutoCropInsetPx || right > maxAutoCropInsetPx || top > maxAutoCropInsetPx || bottom > maxAutoCropInsetPx {
+		left, right, top, bottom = 0, 0, 0, 0
+	}
 
 	if left+right >= frameW-4 {
 		left, right = 0, 0
