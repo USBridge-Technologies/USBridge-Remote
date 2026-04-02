@@ -430,7 +430,8 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
 	vw.recalculateViewport()
 }
 
-// PositionToAbsolute переводит координаты из области ввода в абсолютные 0..65535.
+// PositionToAbsolute переводит координаты из области ввода в абсолютные координаты
+// Windows-friendly absolute pointer descriptor (0..32767).
 func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
 		return 0, 0
@@ -474,13 +475,14 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	} else if v > 1 {
 		v = 1
 	}
-	x = int(math.Round(float64(u * 65535)))
-	y = int(math.Round(float64(v * 65535)))
-	if x > 65535 {
-		x = 65535
+	const absolutePointerMax = 32767
+	x = int(math.Round(float64(u * absolutePointerMax)))
+	y = int(math.Round(float64(v * absolutePointerMax)))
+	if x > absolutePointerMax {
+		x = absolutePointerMax
 	}
-	if y > 65535 {
-		y = 65535
+	if y > absolutePointerMax {
+		y = absolutePointerMax
 	}
 	return x, y
 }
