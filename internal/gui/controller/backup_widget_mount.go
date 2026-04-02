@@ -66,14 +66,7 @@ func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string
 				addedKeyboard = true
 			case isMouseDeviceType(device.Type) && !addedMouse:
 				mouseType := mouseModeFromDeviceType(device.Type)
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "mouse",
-					Type:         mouseTransportType(mouseType),
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Mouse",
-					Manufacturer: "USBridge",
-				})
+				requests = append(requests, newMouseStartRequest(mouseType))
 				addedMouse = true
 			case (device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:")) && !addedRndis:
 				rndisMode := "auto"

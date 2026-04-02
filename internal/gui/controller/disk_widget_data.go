@@ -179,7 +179,7 @@ func (dw *DiskWidget) combineDrives() {
 	mountingByExportName := make(map[string]bool)
 	oldReadOnly := make(map[string]bool)
 	selectedKeys := make(map[string]bool)
-	oldMouseType := defaultMouseMode() // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
+	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
@@ -485,9 +485,10 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 			if drive.IsMouse && isMouseDeviceType(device.Type) {
 				isMounted = true
-				drive.MouseType = mouseModeFromDeviceType(device.Type)
-				if dw.onMouseTypeChanged != nil {
-					dw.onMouseTypeChanged(drive.MouseType)
+				dw.observedMouseMode = mouseModeFromDeviceType(device.Type)
+				drive.MouseType = normalizeMouseMode(dw.preferredMouseMode)
+				if drive.MouseType == "" {
+					drive.MouseType = dw.observedMouseMode
 				}
 				logrus.Debugf("🖱️ Найдена подключенная мышь: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break

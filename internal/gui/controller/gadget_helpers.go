@@ -25,12 +25,24 @@ func newKeyboardStartRequest() models.DeviceStartRequest {
 
 func newMouseStartRequest(mode string) models.DeviceStartRequest {
 	mouseType := normalizeMouseMode(mode)
+	productID := "0x0106"
+	productName := "USBridge Relative Mouse"
+
+	switch mouseType {
+	case MouseModeAbsolute:
+		productID = "0x0107"
+		productName = "USBridge Absolute Pointer"
+	case MouseModeTouchScreen:
+		productID = "0x0108"
+		productName = "USBridge Touch Pointer"
+	}
+
 	return models.DeviceStartRequest{
 		Device:       "mouse",
 		Type:         mouseTransportType(mouseType),
 		VendorID:     "0x1d6b",
-		ProductID:    "0x0104",
-		ProductName:  "USBridge Mouse",
+		ProductID:    productID,
+		ProductName:  productName,
 		Manufacturer: "USBridge",
 	}
 }

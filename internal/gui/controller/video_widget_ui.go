@@ -250,10 +250,16 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	if err != nil {
 		return fmt.Errorf("failed to get device info before HID auto-connect: %w", err)
 	}
+	if deviceInfo.MountInProgress {
+		logrus.Infof("⌨️🖱️ Control HID auto-connect skipped: gadget reconfiguration already in progress (desired=%s)", vw.GetMouseInputMode())
+		return nil
+	}
 
 	keyboardConnected := false
 	mouseConnected := false
+	mouseModeMatches := false
 	storageConnected := false
+	desiredMouseType := vw.GetMouseInputMode()
 
 	for _, device := range deviceInfo.Devices {
 		if device.Status != "connected" {
@@ -265,6 +271,9 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			keyboardConnected = true
 		case isMouseDeviceType(device.Type):
 			mouseConnected = true
+			observedMode := mouseModeFromDeviceType(device.Type)
+			vw.setObservedMouseMode(observedMode)
+			mouseModeMatches = observedMode == desiredMouseType
 		}
 
 		if isConnectedStorageDevice(device) {
@@ -279,14 +288,13 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 	var requests models.DeviceStartBatchRequest
 	needKeyboard := !keyboardConnected
-	needMouse := !mouseConnected
+	needMouse := !mouseConnected || !mouseModeMatches
 	if !keyboardConnected {
 		requests = append(requests, newKeyboardStartRequest())
 	}
-	if !mouseConnected {
-		preferredMouseType := vw.GetMouseInputMode()
-		requests = append(requests, newMouseStartRequest(preferredMouseType))
-		logrus.Infof("⌨️🖱️ Control HID auto-connect: ui_mode=%q transport=%q", preferredMouseType, mouseTransportType(preferredMouseType))
+	if needMouse {
+		requests = append(requests, newMouseStartRequest(desiredMouseType))
+		logrus.Infof("⌨️🖱️ Control HID auto-connect: desired=%q connected=%v mode_matches=%v", desiredMouseType, mouseConnected, mouseModeMatches)
 	}
 
 	if len(requests) == 0 {
@@ -317,7 +325,9 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 				keyboardReady = true
 			}
 			if !mouseReady && isMouseDeviceType(device.Type) {
-				mouseReady = true
+				observedMode := mouseModeFromDeviceType(device.Type)
+				vw.setObservedMouseMode(observedMode)
+				mouseReady = observedMode == desiredMouseType
 			}
 		}
 
@@ -395,10 +405,13 @@ func (vw *VideoWidget) checkMouseConnected() {
 		logrus.Debugf("🖱️ Inspecting device: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
 		if device.Status == "connected" && isMouseDeviceType(device.Type) {
 			mouseConnected = true
-			vw.SetMouseInputMode(mouseModeFromDeviceType(device.Type))
+			vw.setObservedMouseMode(mouseModeFromDeviceType(device.Type))
 			logrus.Infof("🖱️ ✅ Pointer device connected: %s (type: %s)", device.Name, device.Type)
 			break
 		}
+	}
+	if !mouseConnected {
+		vw.setObservedMouseMode("")
 	}
 
 	logrus.Debugf("🖱️ checkMouseConnected: mouseConnected=%v (previously %v)", mouseConnected, vw.isMouseConnected)

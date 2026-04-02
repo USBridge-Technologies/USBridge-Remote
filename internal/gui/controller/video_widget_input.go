@@ -200,7 +200,7 @@ func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
 		vw.mouseInputMode = defaultMouseMode()
 	}
-	return vw.mouseInputMode
+	return normalizeMouseMode(vw.mouseInputMode)
 }
 
 // SetMouseInputMode задаёт тип манипулятора.
@@ -208,7 +208,27 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
 	vw.resetRelativeMoveAccumulator()
-	logrus.Debugf("🖱️ Pointer mode: %s", mode)
+	vw.logMouseModeState("desired-updated")
+}
+
+func (vw *VideoWidget) setObservedMouseMode(mode string) {
+	vw.observedMouseMode = normalizeMouseMode(mode)
+	vw.logMouseModeState("observed-updated")
+}
+
+func (vw *VideoWidget) logMouseModeState(reason string) {
+	desired := normalizeMouseMode(vw.mouseInputMode)
+	observed := normalizeMouseMode(vw.observedMouseMode)
+	diag := reason + "|desired=" + desired + "|observed=" + observed
+	if diag == vw.lastMouseModeDiag {
+		return
+	}
+	vw.lastMouseModeDiag = diag
+	if observed != "" && observed != desired {
+		logrus.Warnf("🖱️ Pointer mode mismatch (%s): desired=%s observed=%s", reason, desired, observed)
+		return
+	}
+	logrus.Infof("🖱️ Pointer mode state (%s): desired=%s observed=%s", reason, desired, observed)
 }
 
 // SendAbsolutePosition отправляет абсолютную позицию с небольшим дебаунсом.

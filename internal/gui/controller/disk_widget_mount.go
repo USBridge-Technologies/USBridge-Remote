@@ -387,11 +387,13 @@ func (dw *DiskWidget) handleMount() {
 
 		if dw.onMouseTypeChanged != nil {
 			if startedMouseMode != "" {
+				dw.preferredMouseMode = startedMouseMode
 				dw.onMouseTypeChanged(startedMouseMode)
 			} else {
 				for _, req := range deviceRequests {
 					if req.Device == "mouse" {
-						dw.onMouseTypeChanged(normalizeMouseMode(req.Type))
+						dw.preferredMouseMode = normalizeMouseMode(req.Type)
+						dw.onMouseTypeChanged(dw.preferredMouseMode)
 						break
 					}
 				}
@@ -923,6 +925,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 
 		if dw.onMouseTypeChanged != nil {
+			dw.preferredMouseMode = newMode
 			dw.onMouseTypeChanged(newMode)
 		}
 

@@ -55,6 +55,8 @@ type DiskWidget struct {
 	selectedItems         map[int]bool // Множественный выбор элементов
 	devicesTraceBudget    int
 	lastDrivesTraceSig    string
+	preferredMouseMode    string
+	observedMouseMode     string
 	loadingLocalDrives    atomic.Bool
 	loadingVideoDevices   atomic.Bool
 	loadingMountedInfo    atomic.Bool
@@ -150,6 +152,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		mountedDevices:     make([]*models.DeviceInfo, 0),
 		selectedItems:      make(map[int]bool),
 		devicesTraceBudget: 20,
+		preferredMouseMode: defaultMouseMode(),
 		scanPaths:          scanPaths,
 		supportedTypes:     supportedTypes,
 		safHelper:          platform.GetSAFHelper(app),
@@ -653,6 +656,9 @@ func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 
 // GetMouseMode возвращает текущий выбранный режим указателя.
 func (dw *DiskWidget) GetMouseMode() string {
+	if mode := normalizeMouseMode(dw.preferredMouseMode); mode != "" {
+		return mode
+	}
 	for _, drive := range dw.allDrives {
 		if drive.IsMouse {
 			return normalizeMouseMode(drive.MouseType)
@@ -753,7 +759,12 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 	}
 
 	previousMode := drive.MouseType
+	previousPreferredMode := dw.preferredMouseMode
+	dw.preferredMouseMode = newMode
 	drive.MouseType = newMode
+	if dw.onMouseTypeChanged != nil {
+		dw.onMouseTypeChanged(newMode)
+	}
 	if !dw.isMouseMountedActual() {
 		dw.requestDevicesRefresh()
 		return
@@ -763,9 +774,13 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 		message := "Changing mouse mode will rebuild the USB gadget and reconnect mounted disks. Continue?"
 		view.ShowConfirmYesLeftDanger(i18n.Current.Confirmation, message, func(ok bool) {
 			if !ok {
+				dw.preferredMouseMode = previousPreferredMode
 				if rowID < len(dw.allDrives) && dw.allDrives[rowID].IsMouse {
 					dw.allDrives[rowID].MouseType = previousMode
 					dw.requestDevicesRefresh()
+				}
+				if dw.onMouseTypeChanged != nil {
+					dw.onMouseTypeChanged(previousPreferredMode)
 				}
 				return
 			}
