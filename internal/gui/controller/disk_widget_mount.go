@@ -171,37 +171,19 @@ func (dw *DiskWidget) handleMount() {
 			var deviceRequest *models.DeviceStartRequest
 
 			if selectedDrive.Source == "keyboard" {
-				deviceRequest = &models.DeviceStartRequest{
-					Device:       "keyboard",
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Keyboard",
-					Manufacturer: "USBridge",
-					KeyboardMode: true,
-				}
+				req := newKeyboardStartRequest()
+				deviceRequest = &req
 				logrus.Infof("⌨️ Подготовка клавиатуры для монтирования")
 			} else if selectedDrive.Source == "mouse" {
 				mouseType := normalizeMouseMode(selectedDrive.MouseType)
 				startedMouseMode = mouseType
-				deviceRequest = &models.DeviceStartRequest{
-					Device:       "mouse",
-					Type:         mouseTransportType(mouseType),
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Mouse",
-					Manufacturer: "USBridge",
-				}
+				req := newMouseStartRequest(mouseType)
+				deviceRequest = &req
 				logrus.Infof("🖱️ Подготовка манипулятора для монтирования: ui_mode=%s transport=%s", mouseType, mouseTransportType(mouseType))
 			} else if selectedDrive.Source == "rndis" {
 				rndisMode := normalizeRNDISMode(selectedDrive.RNDISMode)
-				deviceRequest = &models.DeviceStartRequest{
-					Device:       "rndis",
-					RNDISMode:    rndisMode,
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge RNDIS",
-					Manufacturer: "USBridge",
-				}
+				req := newRNDISStartRequest(rndisMode)
+				deviceRequest = &req
 				logrus.Infof("🌐 Подготовка сетевой карты RNDIS для монтирования (mode=%s)", rndisMode)
 			} else if selectedDrive.Source == "api" && selectedDrive.LocalDrive != nil {
 				if selectedDrive.LocalDrive.SourceType == "mtp" {
@@ -388,7 +370,7 @@ func (dw *DiskWidget) handleMount() {
 				logrus.Infof("   📤 [MOUNT-API-1] Устройство %d: device=%s, server=%s, port=%d, export_name=%s, read_only=%v", i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
 			}
 
-			deviceResp, err := dw.startDevicesWithRetry(batchRequest)
+			deviceResp, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest)
 			if err != nil {
 				logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
 				dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
@@ -541,7 +523,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			dw.onVideoDisconnect()
 		}
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-		if err := dw.usbClient.StopAllDevices(); err != nil {
+		if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, nil); err != nil {
 			logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
 		} else {
 			logrus.Infof("✅ Все устройства остановлены")
@@ -575,7 +557,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 
 		if len(keepIndices) == 0 {
 			dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-			if err := dw.usbClient.StopAllDevices(); err != nil {
+			if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, nil); err != nil {
 				logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
 			}
 			dw.stopNBDAndCleanup(drivesToUnmount, true)
@@ -595,7 +577,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			if len(deviceRequests) > 0 {
 				batchRequest := models.DeviceStartBatchRequest(deviceRequests)
 				dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-				if _, err := dw.startDevicesWithRetry(batchRequest); err != nil {
+				if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest); err != nil {
 					logrus.Warnf("⚠️ Ошибка переподключения устройств: %v", err)
 				}
 			}
@@ -667,25 +649,16 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 // buildDeviceRequestForDrive строит DeviceStartRequest для drive.
 func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD bool) (*models.DeviceStartRequest, error) {
 	if drive.Source == "keyboard" {
-		return &models.DeviceStartRequest{
-			Device: "keyboard", VendorID: "0x1d6b", ProductID: "0x0104",
-			ProductName: "USBridge Keyboard", Manufacturer: "USBridge", KeyboardMode: true,
-		}, nil
+		req := newKeyboardStartRequest()
+		return &req, nil
 	}
 	if drive.Source == "mouse" {
-		mouseType := normalizeMouseMode(drive.MouseType)
-		return &models.DeviceStartRequest{
-			Device: "mouse", Type: mouseTransportType(mouseType),
-			VendorID: "0x1d6b", ProductID: "0x0104",
-			ProductName: "USBridge Mouse", Manufacturer: "USBridge",
-		}, nil
+		req := newMouseStartRequest(drive.MouseType)
+		return &req, nil
 	}
 	if drive.Source == "rndis" {
-		rndisMode := normalizeRNDISMode(drive.RNDISMode)
-		return &models.DeviceStartRequest{
-			Device: "rndis", VendorID: "0x1d6b", ProductID: "0x0104",
-			ProductName: "USBridge RNDIS", Manufacturer: "USBridge", RNDISMode: rndisMode,
-		}, nil
+		req := newRNDISStartRequest(drive.RNDISMode)
+		return &req, nil
 	}
 	if drive.Source == "api" && drive.LocalDrive != nil {
 		if drive.LocalDrive.SourceType == "mtp" {
@@ -896,6 +869,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		var deviceRequests []models.DeviceStartRequest
 		mountingExportNames := make(map[string]bool)
 		hasStorageRequests := false
+		mouseIncluded := false
 
 		for _, drive := range dw.allDrives {
 			if !drive.IsMounted || drive.IsVideo {
@@ -913,6 +887,9 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 				return
 			}
 			deviceRequests = append(deviceRequests, *req)
+			if current.IsMouse {
+				mouseIncluded = true
+			}
 
 			if current.IsKeyboard || current.IsMouse || current.IsRNDIS {
 				continue
@@ -928,13 +905,19 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			}
 		}
 
+		if !mouseIncluded && dw.isMouseMountedActual() {
+			mouseReq := newMouseStartRequest(newMode)
+			deviceRequests = append(deviceRequests, mouseReq)
+			mouseIncluded = true
+		}
+
 		if len(deviceRequests) == 0 {
 			dw.showErrorAsync(fmt.Errorf("no mounted devices available for gadget reconfiguration"))
 			return
 		}
 
 		dw.updateStatusAsync("Reconfiguring USB gadget...")
-		if _, err := dw.startDevicesWithRetry(models.DeviceStartBatchRequest(deviceRequests)); err != nil {
+		if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests)); err != nil {
 			dw.showErrorAsync(fmt.Errorf("failed to reconfigure mouse mode: %w", err))
 			return
 		}

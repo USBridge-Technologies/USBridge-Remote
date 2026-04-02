@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type GStreamerService struct {
 	missingJPEGElements    map[string]bool
 	expectedWidth          int
 	expectedHeight         int
+	detectedGPUVendor      string
 
 	// Состояние
 	isConnected    bool
@@ -88,6 +90,10 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		frameProcessorRunning: false,
 		monitorRunning:        false,
 	}
+	gs.detectedGPUVendor = detectLinuxGPUVendor()
+	if gs.detectedGPUVendor != "" {
+		logrus.Infof("🎮 [Linux] Detected GPU vendor: %s", gs.detectedGPUVendor)
+	}
 
 	return gs
 }
@@ -135,20 +141,45 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
 	gst.Init(nil)
 
-	// Создаем pipeline
-	if err := gs.createPipeline(); err != nil {
-		gs.mutex.Lock()
-		gs.isConnecting = false
-		gs.mutex.Unlock()
-		return fmt.Errorf("ошибка создания pipeline: %v", err)
+	maxPipelineAttempts := 1
+	if gs.videoMode == models.VideoModeJPEGRTP {
+		maxPipelineAttempts = len(gs.buildJPEGPipelineCandidates(udpPortFromConfig(gs.config)))
+		if maxPipelineAttempts < 1 {
+			maxPipelineAttempts = 1
+		}
 	}
 
-	// Запускаем pipeline
-	if err := gs.pipeline.SetState(gst.StatePlaying); err != nil {
+	var connectErr error
+	for attempt := 0; attempt < maxPipelineAttempts; attempt++ {
+		// Создаем pipeline
+		if err := gs.createPipeline(); err != nil {
+			connectErr = fmt.Errorf("ошибка создания pipeline: %v", err)
+			break
+		}
+
+		// Запускаем pipeline
+		if err := gs.pipeline.SetState(gst.StatePlaying); err != nil {
+			connectErr = fmt.Errorf("ошибка запуска pipeline: %v", err)
+			if gs.pipeline != nil {
+				gs.pipeline.SetState(gst.StateNull)
+			}
+			gs.pipeline = nil
+			gs.appsink = nil
+			if gs.videoMode == models.VideoModeJPEGRTP {
+				gs.handleFailedJPEGPipeline(connectErr)
+				continue
+			}
+			break
+		}
+
+		connectErr = nil
+		break
+	}
+	if connectErr != nil {
 		gs.mutex.Lock()
 		gs.isConnecting = false
 		gs.mutex.Unlock()
-		return fmt.Errorf("ошибка запуска pipeline: %v", err)
+		return connectErr
 	}
 
 	// Запускаем мониторинг состояния ОДИН РАЗ
@@ -174,10 +205,7 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 
 // createPipeline создает GStreamer pipeline для RTP video (через FRP туннель)
 func (gs *GStreamerService) createPipeline() error {
-	udpPort := gs.config.VideoUDPPort
-	if udpPort <= 0 {
-		udpPort = models.DefaultVideoUDPPort
-	}
+	udpPort := udpPortFromConfig(gs.config)
 	bindHost := gs.config.VideoBindHost
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
@@ -331,33 +359,7 @@ func (gs *GStreamerService) createRawYUYVPipeline(udpPort int) error {
 }
 
 func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
-	base := fmt.Sprintf(
-		"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
-			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
-			"rtpjpegdepay ! ",
-		bindHost, udpPort,
-	)
-
-	softwareDecoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
-	vaapiDecoderPath := "vapostproc ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
-	vaapiDirectPath := "vapostproc ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
-	pipelines := []struct {
-		name            string
-		requiredElement string
-		str             string
-	}{
-		{name: "vajpegdec + vapostproc (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDecoderPath},
-		{name: "vajpegdec + vapostproc direct (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDirectPath},
-		{name: "qsvjpegdec (HW)", requiredElement: "qsvjpegdec", str: base + "jpegparse ! qsvjpegdec ! " + softwareDecoderPath},
-		{name: "nvjpegdec (HW)", requiredElement: "nvjpegdec", str: base + "jpegparse ! nvjpegdec ! " + softwareDecoderPath},
-		{name: "jpegdec (SW preferred)", requiredElement: "jpegdec", str: base + "jpegdec ! " + softwareDecoderPath},
-		{name: "avdec_mjpeg (SW fallback)", requiredElement: "avdec_mjpeg", str: base + "jpegparse ! avdec_mjpeg ! " + softwareDecoderPath},
-		{name: "decodebin (generic fallback)", requiredElement: "decodebin", str: base + "jpegparse ! decodebin ! " + softwareDecoderPath},
-	}
+	pipelines := gs.buildJPEGPipelineCandidates(udpPort)
 
 	var lastErr error
 	for idx := range pipelines {
@@ -682,13 +684,9 @@ func (gs *GStreamerService) monitorPipeline() {
 		case gst.MessageError:
 			err := msg.ParseError()
 			logrus.Errorf("❌ GStreamer ошибка: %v", err)
-			gs.mutex.Lock()
 			if gs.videoMode == models.VideoModeJPEGRTP && strings.Contains(fmt.Sprint(err), "Internal data stream error") {
-				gs.failedJPEGPipelines[gs.lastJPEGPipeline] = true
-				gs.jpegCandidateIndex++
-				logrus.Warnf("⚠️ [Linux/JPEG] Decoder %s failed at runtime, switching to next JPEG candidate (index=%d)", gs.lastJPEGPipeline, gs.jpegCandidateIndex)
+				gs.handleFailedJPEGPipeline(err)
 			}
-			gs.mutex.Unlock()
 			gs.mutex.RLock()
 			errCallback := gs.onError
 			gs.mutex.RUnlock()
@@ -1012,7 +1010,135 @@ func (gs *GStreamerService) SetVideoMode(mode string) {
 	if mode == "" {
 		mode = models.VideoModeH264
 	}
+	if gs.videoMode != mode {
+		gs.jpegCandidateIndex = 0
+		gs.lastJPEGPipeline = ""
+		gs.failedJPEGPipelines = make(map[string]bool)
+	}
 	gs.videoMode = mode
+}
+
+type jpegPipelineCandidate struct {
+	name            string
+	requiredElement string
+	str             string
+}
+
+func (gs *GStreamerService) buildJPEGPipelineCandidates(udpPort int) []jpegPipelineCandidate {
+	bindHost := gs.config.VideoBindHost
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	base := fmt.Sprintf(
+		"udpsrc address=%s port=%d buffer-size=65536 caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "+
+			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+			"rtpjpegdepay ! ",
+		bindHost, udpPort,
+	)
+
+	softwareDecoderPath := "videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	vaapiDecoderPath := "vapostproc ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+	vaapiDirectPath := "vapostproc ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=2 drop=true"
+
+	all := map[string]jpegPipelineCandidate{
+		"vajpegdec":        {name: "vajpegdec + vapostproc (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDecoderPath},
+		"vajpegdec_direct": {name: "vajpegdec + vapostproc direct (HW)", requiredElement: "vajpegdec", str: base + "jpegparse ! vajpegdec ! " + vaapiDirectPath},
+		"qsvjpegdec":       {name: "qsvjpegdec (HW)", requiredElement: "qsvjpegdec", str: base + "jpegparse ! qsvjpegdec ! " + softwareDecoderPath},
+		"nvjpegdec":        {name: "nvjpegdec (HW)", requiredElement: "nvjpegdec", str: base + "jpegparse ! nvjpegdec ! " + softwareDecoderPath},
+		"jpegdec":          {name: "jpegdec (SW preferred)", requiredElement: "jpegdec", str: base + "jpegdec ! " + softwareDecoderPath},
+		"avdec_mjpeg":      {name: "avdec_mjpeg (SW fallback)", requiredElement: "avdec_mjpeg", str: base + "jpegparse ! avdec_mjpeg ! " + softwareDecoderPath},
+		"decodebin":        {name: "decodebin (generic fallback)", requiredElement: "decodebin", str: base + "jpegparse ! decodebin ! " + softwareDecoderPath},
+	}
+
+	order := []string{"jpegdec", "avdec_mjpeg", "decodebin"}
+	switch gs.detectedGPUVendor {
+	case "intel":
+		order = []string{"vajpegdec", "vajpegdec_direct", "qsvjpegdec", "jpegdec", "avdec_mjpeg", "decodebin"}
+	case "nvidia":
+		order = []string{"nvjpegdec", "jpegdec", "avdec_mjpeg", "decodebin", "vajpegdec", "vajpegdec_direct", "qsvjpegdec"}
+	case "amd":
+		order = []string{"jpegdec", "avdec_mjpeg", "decodebin", "vajpegdec", "vajpegdec_direct", "qsvjpegdec", "nvjpegdec"}
+	case "virt", "software", "unknown", "":
+		order = []string{"jpegdec", "avdec_mjpeg", "decodebin", "vajpegdec", "vajpegdec_direct", "qsvjpegdec", "nvjpegdec"}
+	default:
+		order = []string{"jpegdec", "avdec_mjpeg", "decodebin", "vajpegdec", "vajpegdec_direct", "qsvjpegdec", "nvjpegdec"}
+	}
+
+	result := make([]jpegPipelineCandidate, 0, len(order))
+	seen := make(map[string]bool, len(order))
+	for _, key := range order {
+		candidate, ok := all[key]
+		if !ok || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, candidate)
+	}
+	for key, candidate := range all {
+		if seen[key] {
+			continue
+		}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func (gs *GStreamerService) handleFailedJPEGPipeline(err error) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+
+	if gs.lastJPEGPipeline == "" {
+		return
+	}
+	gs.failedJPEGPipelines[gs.lastJPEGPipeline] = true
+	gs.jpegCandidateIndex++
+	logrus.Warnf("⚠️ [Linux/JPEG] Decoder %s failed, switching to next JPEG candidate (index=%d): %v", gs.lastJPEGPipeline, gs.jpegCandidateIndex, err)
+}
+
+func udpPortFromConfig(cfg *models.AppConfig) int {
+	if cfg != nil && cfg.VideoUDPPort > 0 {
+		return cfg.VideoUDPPort
+	}
+	return models.DefaultVideoUDPPort
+}
+
+func detectLinuxGPUVendor() string {
+	vendors := make(map[string]bool)
+	entries, err := filepath.Glob("/sys/class/drm/card*/device/vendor")
+	if err != nil {
+		return "unknown"
+	}
+	sort.Strings(entries)
+	for _, vendorPath := range entries {
+		data, readErr := os.ReadFile(vendorPath)
+		if readErr != nil {
+			continue
+		}
+		switch strings.TrimSpace(strings.ToLower(string(data))) {
+		case "0x8086":
+			vendors["intel"] = true
+		case "0x10de":
+			vendors["nvidia"] = true
+		case "0x1002", "0x1022":
+			vendors["amd"] = true
+		case "0x1af4", "0x1234":
+			vendors["virt"] = true
+		}
+	}
+	switch {
+	case vendors["intel"]:
+		return "intel"
+	case vendors["nvidia"]:
+		return "nvidia"
+	case vendors["amd"]:
+		return "amd"
+	case vendors["virt"]:
+		return "virt"
+	case len(vendors) == 0:
+		return "unknown"
+	default:
+		return "unknown"
+	}
 }
 
 func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {

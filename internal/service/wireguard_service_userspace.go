@@ -49,6 +49,18 @@ func (s *userspaceWireGuardService) GetPrivateKey() string {
 	return s.privateKey
 }
 
+func (s *userspaceWireGuardService) SetPrivateKey(privateKey string) error {
+	privateKey = strings.TrimSpace(privateKey)
+	if privateKey == "" {
+		return fmt.Errorf("WireGuard private key is empty")
+	}
+	if _, err := WireGuardPublicKeyFromPrivate(privateKey); err != nil {
+		return err
+	}
+	s.privateKey = privateKey
+	return nil
+}
+
 func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapResponse) error {
 	if resp == nil {
 		return fmt.Errorf("WireGuard bootstrap response is nil")

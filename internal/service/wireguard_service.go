@@ -18,6 +18,7 @@ type WireGuardService interface {
 	GetClientHost() string
 	GeneratePublicKey() (string, error)
 	GetPrivateKey() string
+	SetPrivateKey(string) error
 }
 
 func NewWireGuardService(config *models.AppConfig) WireGuardService {

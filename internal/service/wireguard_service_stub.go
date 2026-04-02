@@ -39,3 +39,9 @@ func (s *unsupportedWireGuardService) GeneratePublicKey() (string, error) {
 	return "", fmt.Errorf("WireGuard runtime is not implemented on this platform yet")
 }
 func (s *unsupportedWireGuardService) GetPrivateKey() string { return "" }
+func (s *unsupportedWireGuardService) SetPrivateKey(string) error {
+	if runtime.GOOS == "ios" {
+		return fmt.Errorf("WireGuard on iOS requires a dedicated Network Extension / Packet Tunnel integration, which is not present in this project yet")
+	}
+	return fmt.Errorf("WireGuard runtime is not implemented on this platform yet")
+}

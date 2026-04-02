@@ -263,7 +263,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		switch {
 		case device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:"):
 			keyboardConnected = true
-		case device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:"):
+		case isMouseDeviceType(device.Type):
 			mouseConnected = true
 		}
 
@@ -281,28 +281,11 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	needKeyboard := !keyboardConnected
 	needMouse := !mouseConnected
 	if !keyboardConnected {
-		requests = append(requests, models.DeviceStartRequest{
-			Device:       "keyboard",
-			VendorID:     "0x1d6b",
-			ProductID:    "0x0104",
-			ProductName:  "USBridge Keyboard",
-			Manufacturer: "USBridge",
-			KeyboardMode: true,
-		})
+		requests = append(requests, newKeyboardStartRequest())
 	}
 	if !mouseConnected {
-		preferredMouseType := "double"
-		if fyne.CurrentDevice().IsMobile() {
-			preferredMouseType = "mouse"
-		}
-		requests = append(requests, models.DeviceStartRequest{
-			Device:       "mouse",
-			Type:         mouseTransportType(preferredMouseType),
-			VendorID:     "0x1d6b",
-			ProductID:    "0x0104",
-			ProductName:  "USBridge Mouse",
-			Manufacturer: "USBridge",
-		})
+		preferredMouseType := vw.GetMouseInputMode()
+		requests = append(requests, newMouseStartRequest(preferredMouseType))
 		logrus.Infof("⌨️🖱️ Control HID auto-connect: ui_mode=%q transport=%q", preferredMouseType, mouseTransportType(preferredMouseType))
 	}
 
@@ -312,7 +295,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	}
 
 	logrus.Infof("⌨️🖱️ Control HID auto-connect: starting %d missing HID device(s)", len(requests))
-	if _, err := vw.usbClient.StartDevicesBatch(requests); err != nil {
+	if _, err := rebuildUSBGadgetDevices(vw.usbClient, vw.usbClient.StartDevicesBatch, requests); err != nil {
 		return fmt.Errorf("failed to auto-connect HID devices: %w", err)
 	}
 
@@ -333,7 +316,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			if !keyboardReady && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
 				keyboardReady = true
 			}
-			if !mouseReady && (device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+			if !mouseReady && isMouseDeviceType(device.Type) {
 				mouseReady = true
 			}
 		}
@@ -410,18 +393,9 @@ func (vw *VideoWidget) checkMouseConnected() {
 	mouseConnected := false
 	for _, device := range deviceInfo.Devices {
 		logrus.Debugf("🖱️ Inspecting device: type=%s, status=%s, name=%s", device.Type, device.Status, device.Name)
-		if device.Status == "connected" &&
-			(device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) {
+		if device.Status == "connected" && isMouseDeviceType(device.Type) {
 			mouseConnected = true
-			if device.Type == "double" {
-				vw.SetMouseInputMode("double")
-			} else if device.Type == "touchscreen" {
-				vw.SetMouseInputMode("touchscreen")
-			} else if device.Type == "absolute" {
-				vw.SetMouseInputMode("absolute")
-			} else {
-				vw.SetMouseInputMode("mouse")
-			}
+			vw.SetMouseInputMode(mouseModeFromDeviceType(device.Type))
 			logrus.Infof("🖱️ ✅ Pointer device connected: %s (type: %s)", device.Name, device.Type)
 			break
 		}

@@ -766,7 +766,7 @@ func (mw *MainWindow) updateStatusBar() {
 					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
 						keyboardConnected = true
 					}
-					if device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:") {
+					if controller.IsMouseDeviceType(device.Type) {
 						mouseConnected = true
 					}
 					if device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:") {
@@ -905,30 +905,23 @@ func (mw *MainWindow) showMouseModeMenu() {
 	items := []view.StyledMenuItem{
 		{
 			Label:    i18n.Current.DeviceTouchPad,
-			Selected: currentMode == "mouse",
+			Selected: currentMode == controller.MouseModeTouchPad,
 			OnTap: func() {
-				mw.diskWidget.SetMouseMode("mouse")
-			},
-		},
-		{
-			Label:    i18n.Current.DeviceMouse,
-			Selected: currentMode == "double",
-			OnTap: func() {
-				mw.diskWidget.SetMouseMode("double")
+				mw.diskWidget.SetMouseMode(controller.MouseModeTouchPad)
 			},
 		},
 		{
 			Label:    i18n.Current.DeviceTouch,
-			Selected: currentMode == "touchscreen",
+			Selected: currentMode == controller.MouseModeTouchScreen,
 			OnTap: func() {
-				mw.diskWidget.SetMouseMode("touchscreen")
+				mw.diskWidget.SetMouseMode(controller.MouseModeTouchScreen)
 			},
 		},
 		{
 			Label:    i18n.Current.DeviceAbsolute,
-			Selected: currentMode == "absolute",
+			Selected: currentMode == controller.MouseModeAbsolute,
 			OnTap: func() {
-				mw.diskWidget.SetMouseMode("absolute")
+				mw.diskWidget.SetMouseMode(controller.MouseModeAbsolute)
 			},
 		},
 	}

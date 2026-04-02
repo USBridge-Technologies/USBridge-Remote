@@ -64,15 +64,8 @@ func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string
 					KeyboardMode: true,
 				})
 				addedKeyboard = true
-			case (device.Type == "mouse" || device.Type == "double" || device.Type == "touchscreen" || device.Type == "absolute" || strings.HasPrefix(device.Type, "mouse:")) && !addedMouse:
-				mouseType := "mouse"
-				if device.Type == "double" {
-					mouseType = "double"
-				} else if device.Type == "touchscreen" {
-					mouseType = "touchscreen"
-				} else if device.Type == "absolute" {
-					mouseType = "absolute"
-				}
+			case isMouseDeviceType(device.Type) && !addedMouse:
+				mouseType := mouseModeFromDeviceType(device.Type)
 				requests = append(requests, models.DeviceStartRequest{
 					Device:       "mouse",
 					Type:         mouseTransportType(mouseType),

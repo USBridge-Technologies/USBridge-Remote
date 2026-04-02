@@ -112,7 +112,7 @@ type DriveItem struct {
 	DiskInfo       *models.DiskInfo   // Для локальных файлов
 	IsKeyboard     bool               // Для клавиатуры
 	IsMouse        bool               // Для мыши
-	MouseType      string             // "mouse" (touchpad), "double", "touchscreen" или "absolute", только для мыши
+	MouseType      string             // "mouse" (touchpad), "touchscreen" или "absolute", только для мыши
 	IsRNDIS        bool               // Для сетевой карты
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
@@ -122,32 +122,6 @@ type DriveItem struct {
 	UploadSpeed    float64 // Скорость загрузки МБ/с
 	IsUploading    bool    // Идет ли загрузка
 	IsMounting     bool    // Идёт монтирование (202 Accepted)
-}
-
-func defaultMouseMode() string {
-	if fyne.CurrentDevice().IsMobile() {
-		return "mouse"
-	}
-	return "double"
-}
-
-func normalizeMouseMode(mode string) string {
-	switch mode {
-	case "mouse", "double", "touchscreen", "absolute":
-		return mode
-	default:
-		return "mouse"
-	}
-}
-
-// Double currently reuses the same absolute transport as Absolute because that
-// path is the stable one for host-side pointer positioning.
-func mouseTransportType(mode string) string {
-	mode = normalizeMouseMode(mode)
-	if mode == "double" {
-		return "absolute"
-	}
-	return mode
 }
 
 // NewDiskWidget создает новый виджет устройств
@@ -330,17 +304,15 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				}
 			}
 		} else {
-			switch drive.MouseType {
-			case "double":
-				modeSelect.SetSelected(i18n.Current.DeviceMouse)
-			case "touchscreen":
+			switch normalizeMouseMode(drive.MouseType) {
+			case mouseModeTouchScreen:
 				modeSelect.SetSelected(i18n.Current.DeviceTouch)
-			case "absolute":
+			case mouseModeAbsolute:
 				modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
 			default:
 				modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
 			}
-			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
+			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
 			rowID := id
 			modeSelect.OnSelected = func(s string) {
 				if dw.controlsLocked() {
@@ -349,14 +321,12 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				if rowID >= len(dw.allDrives) {
 					return
 				}
-				newMode := "mouse"
+				newMode := mouseModeTouchPad
 				switch s {
-				case i18n.Current.DeviceMouse:
-					newMode = "double"
 				case i18n.Current.DeviceTouch:
-					newMode = "touchscreen"
+					newMode = mouseModeTouchScreen
 				case i18n.Current.DeviceAbsolute:
-					newMode = "absolute"
+					newMode = mouseModeAbsolute
 				}
 				dw.applyMouseModeSelection(rowID, newMode)
 			}
@@ -617,12 +587,10 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	nameText := dw.deviceRowText(drive)
 
 	if drive.Source == "mouse" {
-		switch drive.MouseType {
-		case "double":
-			nameText = fmt.Sprintf("DBL %s", nameText)
-		case "touchscreen":
+		switch normalizeMouseMode(drive.MouseType) {
+		case mouseModeTouchScreen:
 			nameText = fmt.Sprintf("TCH %s", nameText)
-		case "absolute":
+		case mouseModeAbsolute:
 			nameText = fmt.Sprintf("ABS %s", nameText)
 		default:
 			nameText = fmt.Sprintf("PTR %s", nameText)
@@ -786,12 +754,12 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 
 	previousMode := drive.MouseType
 	drive.MouseType = newMode
-	if !drive.IsMounted {
+	if !dw.isMouseMountedActual() {
 		dw.requestDevicesRefresh()
 		return
 	}
 
-	if dw.hasMountedStorageDevices() {
+	if dw.hasMountedStorageDevicesActual() {
 		message := "Changing mouse mode will rebuild the USB gadget and reconnect mounted disks. Continue?"
 		view.ShowConfirmYesLeftDanger(i18n.Current.Confirmation, message, func(ok bool) {
 			if !ok {
@@ -807,6 +775,31 @@ func (dw *DiskWidget) applyMouseModeSelection(rowID int, newMode string) {
 	}
 
 	dw.reconfigureMountedDevicesForMouseMode(newMode)
+}
+
+func (dw *DiskWidget) isMouseMountedActual() bool {
+	for _, device := range dw.mountedDevices {
+		if device.Status != "connected" {
+			continue
+		}
+		if isMouseDeviceType(device.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func (dw *DiskWidget) hasMountedStorageDevicesActual() bool {
+	for _, device := range dw.mountedDevices {
+		if device.Status != "connected" {
+			continue
+		}
+		switch device.Type {
+		case "local", "nbd", "mtp":
+			return true
+		}
+	}
+	return false
 }
 
 func (dw *DiskWidget) hasMountedStorageDevices() bool {

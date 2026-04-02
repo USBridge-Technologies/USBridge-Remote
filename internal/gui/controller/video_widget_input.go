@@ -184,39 +184,28 @@ func (vw *VideoWidget) resetRelativeMoveAccumulator() {
 }
 
 func (vw *VideoWidget) IsTouchPadInputMode() bool {
-	return vw.GetMouseInputMode() == "mouse"
-}
-
-func (vw *VideoWidget) IsDoubleInputMode() bool {
-	return vw.GetMouseInputMode() == "double"
+	return vw.GetMouseInputMode() == mouseModeTouchPad
 }
 
 func (vw *VideoWidget) IsAbsoluteLikeInputMode() bool {
-	mode := vw.GetMouseInputMode()
-	return mode == "absolute" || mode == "double"
+	return vw.GetMouseInputMode() == mouseModeAbsolute
 }
 
 func (vw *VideoWidget) UsesRelativeMouseInput() bool {
-	return vw.GetMouseInputMode() == "mouse"
+	return vw.GetMouseInputMode() == mouseModeTouchPad
 }
 
 // GetMouseInputMode возвращает тип манипулятора.
 func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
-		if fyne.CurrentDevice().IsMobile() {
-			vw.mouseInputMode = "mouse"
-		} else {
-			vw.mouseInputMode = "double"
-		}
+		vw.mouseInputMode = defaultMouseMode()
 	}
 	return vw.mouseInputMode
 }
 
 // SetMouseInputMode задаёт тип манипулятора.
 func (vw *VideoWidget) SetMouseInputMode(mode string) {
-	if mode != "mouse" && mode != "double" && mode != "touchscreen" && mode != "absolute" {
-		mode = "mouse"
-	}
+	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
 	vw.resetRelativeMoveAccumulator()
 	logrus.Debugf("🖱️ Pointer mode: %s", mode)
@@ -253,11 +242,10 @@ func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	vw.lastAbsX = x
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
-	_ = vw.usbClient.SendTouchPositionOnly(x, y, false)
+	vw.sendAbsoluteEventLocked(x, y, 0)
 }
 
-// SetAbsoluteButton обновляет битмаску кнопок для absolute режима.
-func (vw *VideoWidget) SetAbsoluteButton(button int, pressed bool) {
+func (vw *VideoWidget) updateAbsoluteButtonLocked(button int, pressed bool) {
 	var bit uint8
 	switch button {
 	case 1:
@@ -276,6 +264,13 @@ func (vw *VideoWidget) SetAbsoluteButton(button int, pressed bool) {
 	}
 }
 
+func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
+	vw.lastAbsX = x
+	vw.lastAbsY = y
+	vw.lastAbsSentTime = time.Now()
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, scroll)
+}
+
 // SendAbsoluteEvent отправляет атомарное абсолютное событие.
 func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 	if vw.usbClient == nil {
@@ -283,10 +278,49 @@ func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 	}
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
-	vw.lastAbsX = x
-	vw.lastAbsY = y
-	vw.lastAbsSentTime = time.Now()
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, scroll)
+	vw.sendAbsoluteEventLocked(x, y, scroll)
+}
+
+func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
+	if vw.usbClient == nil {
+		return
+	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	vw.updateAbsoluteButtonLocked(button, true)
+	vw.sendAbsoluteEventLocked(x, y, 0)
+}
+
+func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
+	if vw.usbClient == nil {
+		return
+	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	vw.updateAbsoluteButtonLocked(button, false)
+	vw.sendAbsoluteEventLocked(x, y, 0)
+}
+
+func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
+	if vw.usbClient == nil {
+		return
+	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	vw.absButtons = 0
+	vw.sendAbsoluteEventLocked(x, y, 0)
+}
+
+func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
+	if vw.usbClient == nil {
+		return
+	}
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	vw.updateAbsoluteButtonLocked(button, true)
+	vw.sendAbsoluteEventLocked(x, y, 0)
+	vw.updateAbsoluteButtonLocked(button, false)
+	vw.sendAbsoluteEventLocked(x, y, 0)
 }
 
 // CancelTouchDownDelay отменяет отложенную отправку touch(down).
@@ -376,7 +410,7 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32) {
 	vw.recalculateViewport()
 }
 
-// PositionToAbsolute переводит координаты из области ввода в абсолютные 0..32767.
+// PositionToAbsolute переводит координаты из области ввода в абсолютные 0..65535.
 func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
 		return 0, 0
@@ -420,13 +454,13 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	} else if v > 1 {
 		v = 1
 	}
-	x = int(math.Round(float64(u * 32767)))
-	y = int(math.Round(float64(v * 32767)))
-	if x > 32767 {
-		x = 32767
+	x = int(math.Round(float64(u * 65535)))
+	y = int(math.Round(float64(v * 65535)))
+	if x > 65535 {
+		x = 65535
 	}
-	if y > 32767 {
-		y = 32767
+	if y > 65535 {
+		y = 65535
 	}
 	return x, y
 }

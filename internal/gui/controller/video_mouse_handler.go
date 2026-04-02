@@ -330,7 +330,7 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 		}()
 		return
 	}
-	// Absolute/Double: сам клик уже приходит через MouseDown/MouseUp или TouchDown/TouchUp.
+	// Absolute: сам клик уже приходит через MouseDown/MouseUp или TouchDown/TouchUp.
 	// Здесь только синхронизируем позицию, чтобы не удваивать нажатие.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
@@ -411,11 +411,10 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.StartTouchDownDelay(x, y, btn)
 	}
-	// Absolute/Double: синхронизируем позицию сразу при нажатии (минимизировать рассинхрон с последующим кликом).
+	// Absolute: синхронизируем позицию сразу при нажатии и атомарно обновляем кнопку.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		t.videoWidget.SetAbsoluteButton(btn, true)
-		t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+		t.videoWidget.PressAbsoluteButton(btn, x, y)
 	}
 }
 
@@ -463,8 +462,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 		t.videoWidget.dragButton = 0
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
-		t.videoWidget.SetAbsoluteButton(button, false)
-		t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+		t.videoWidget.ReleaseAbsoluteButton(button, x, y)
 		return
 	}
 
@@ -528,14 +526,10 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 		}
 	}
 
-	// Absolute/Double: позиционирование курсора через absolute tablet.
+	// Absolute: позиционирование курсора через absolute tablet.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-		if t.videoWidget.dragButton != 0 || t.videoWidget.isDragging {
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, false)
-		} else {
-			t.videoWidget.SendAbsolutePosition(x, y, false)
-		}
+		t.videoWidget.SendAbsolutePosition(x, y, false)
 	}
 
 	t.videoWidget.currentMouseX = ev.Position.X
@@ -584,16 +578,10 @@ func (t *TouchpadWrapper) MouseOut() {
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		if t.videoWidget.dragButton != 0 || t.videoWidget.absButtons != 0 {
 			x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
-			button := t.videoWidget.dragButton
 			t.videoWidget.dragButton = 0
 			t.videoWidget.isDragging = false
 			t.videoWidget.resetRelativeMoveAccumulator()
-			if button != 0 {
-				t.videoWidget.SetAbsoluteButton(button, false)
-			} else {
-				t.videoWidget.absButtons = 0
-			}
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+			t.videoWidget.ReleaseAllAbsoluteButtons(x, y)
 		}
 		return
 	}
@@ -620,7 +608,7 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 	if scroll == 0 {
 		return
 	}
-	// Absolute/Double: перед скроллом синхронизируем абсолютную позицию.
+	// Absolute: перед скроллом синхронизируем абсолютную позицию.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		// Берем текущую позицию курсора внутри виджета (последнее известное).
 		// MouseMoved/TouchMove обновляют lastAbsX/Y, но на некоторых платформах скролл может прийти без движения.
@@ -707,10 +695,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if dx < 10 && dy < 10 && duration < 300*time.Millisecond {
 		if t.videoWidget.IsAbsoluteLikeInputMode() {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			t.videoWidget.SetAbsoluteButton(1, true)
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
-			t.videoWidget.SetAbsoluteButton(1, false)
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+			t.videoWidget.ClickAbsoluteButton(1, x, y)
 		} else {
 			go func() {
 				_ = t.videoWidget.usbClient.SendMouseClick(1)
@@ -719,10 +704,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	} else if duration >= 1*time.Second && dx < 20 && dy < 20 {
 		if t.videoWidget.IsAbsoluteLikeInputMode() {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			t.videoWidget.SetAbsoluteButton(2, true)
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
-			t.videoWidget.SetAbsoluteButton(2, false)
-			t.videoWidget.SendAbsoluteEvent(x, y, 0, true)
+			t.videoWidget.ClickAbsoluteButton(2, x, y)
 		} else {
 			go func() {
 				_ = t.videoWidget.usbClient.SendMouseClick(2)

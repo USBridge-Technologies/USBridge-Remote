@@ -286,7 +286,7 @@ type LocalizedStrings struct {
 	// Device names
 	DeviceKeyboard    string // "Keyboard"
 	DeviceTouchPad    string // "TouchPad" (relative touchpad mode)
-	DeviceMouse       string // "Double" (dual absolute+relative mode)
+	DeviceMouse       string // "Mouse" (USB pointer device name)
 	DeviceTouch       string // "Touch" (touchscreen mode)
 	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
@@ -620,7 +620,7 @@ func EN() *LocalizedStrings {
 		// Device names
 		DeviceKeyboard:    "Keyboard",
 		DeviceTouchPad:    "TouchPad",
-		DeviceMouse:       "Double",
+		DeviceMouse:       "Mouse",
 		DeviceTouch:       "TouchScreen",
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",

@@ -793,7 +793,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	roRwBtn := widget.NewButton("RO", nil)
 	roRwBtn.Hide()
 
-	modeSelect := NewHeaderDropdown([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceMouse, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, i18n.Current.DeviceTouchPad, nil)
+	modeSelect := NewHeaderDropdown([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute}, i18n.Current.DeviceTouchPad, nil)
 	modeSelect.Hide()
 
 	uploadBtn := newIconChromeButton(iconChromeButtonSpec{

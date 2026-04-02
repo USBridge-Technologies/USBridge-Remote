@@ -359,9 +359,89 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		if !mw.config.WireGuardEnabled {
 			return fmt.Errorf("WireGuard disabled in config")
 		}
-		if !mw.config.FRPEnabled {
-			return fmt.Errorf("FRP bootstrap is required for WireGuard mode but FRP is disabled")
+
+		resetWireGuardAttempt := func() {
+			if mw.wgService != nil && mw.wgService.IsRunning() {
+				_ = mw.wgService.Disconnect()
+			}
+			mw.wgService = nil
+			mw.usbClient = nil
+			mw.connectedProtocol = ""
+			mw.config.NBDBindHost = "127.0.0.1"
+			mw.config.VideoBindHost = "127.0.0.1"
+			mw.videoWidget.SetFRPService(nil)
+			mw.diskWidget.SetFRPService(nil)
 		}
+
+		activateWireGuard := func(bootstrap *models.WireGuardBootstrapResponse, privateKey, source string) error {
+			if bootstrap == nil {
+				return fmt.Errorf("WireGuard bootstrap is nil")
+			}
+
+			wg := service.NewWireGuardService(mw.config)
+			privateKey = strings.TrimSpace(privateKey)
+			if privateKey != "" {
+				if err := wg.SetPrivateKey(privateKey); err != nil {
+					return fmt.Errorf("invalid saved WireGuard private key: %w", err)
+				}
+			}
+
+			logrus.Infof("🔐 [WireGuard] bringing up local interface from %s registration", source)
+			if err := wg.Connect(bootstrap); err != nil {
+				return err
+			}
+
+			mw.wgService = wg
+			mw.config.NBDBindHost = wg.GetClientHost()
+			mw.usbClient = mw.attachUSBClient(api.NewUSBClient(wg.GetServerHost(), mw.config.USBPort, mw.config.APITimeout))
+			mw.gstreamerService.UpdateHost(wg.GetServerHost())
+			mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
+			mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
+			mw.config.VideoBindHost = wg.GetClientHost()
+			mw.videoWidget.SetFRPService(nil)
+			mw.diskWidget.SetFRPService(nil)
+			mw.connectedProtocol = models.ConnectionProtocolWireGuard
+			logrus.Infof("✅ [WireGuard] interface up client=%s server=%s source=%s", wg.GetClientHost(), wg.GetServerHost(), source)
+			return nil
+		}
+
+		if invite := strings.TrimSpace(mw.pendingWireGuardInvite); invite != "" {
+			logrus.Info("🔐 [WireGuard] found pending invite, trying direct invite registration first")
+			bootstrap, err := models.DecodeWireGuardInvite(invite)
+			if err != nil {
+				logrus.Warnf("⚠️ failed to decode pending WireGuard invite: %v", err)
+			} else if err := activateWireGuard(bootstrap, bootstrap.ClientPrivateKey, "invite"); err != nil {
+				logrus.Warnf("⚠️ WireGuard invite activation failed: %v", err)
+				resetWireGuardAttempt()
+			} else if err := mw.verifyActiveConnection(); err != nil {
+				logrus.Warnf("⚠️ WireGuard invite registration is no longer valid, falling back to bootstrap: %v", err)
+				resetWireGuardAttempt()
+			} else {
+				mw.storeWireGuardRegistration(host, mw.wgService.GetPrivateKey(), bootstrap)
+				mw.pendingWireGuardInvite = ""
+				return nil
+			}
+		}
+
+		if registration, ok := mw.getWireGuardRegistration(host); ok {
+			logrus.Infof("🔐 [WireGuard] trying saved registration for host=%s", host)
+			if err := activateWireGuard(&registration.Bootstrap, registration.PrivateKey, "saved"); err != nil {
+				logrus.Warnf("⚠️ saved WireGuard activation failed: %v", err)
+				resetWireGuardAttempt()
+				mw.deleteWireGuardRegistration(host)
+			} else if err := mw.verifyActiveConnection(); err != nil {
+				logrus.Warnf("⚠️ saved WireGuard registration is stale, re-registering: %v", err)
+				resetWireGuardAttempt()
+				mw.deleteWireGuardRegistration(host)
+			} else {
+				return nil
+			}
+		}
+
+		if !mw.config.FRPEnabled {
+			return fmt.Errorf("FRP bootstrap is required when no valid WireGuard registration exists")
+		}
+
 		logrus.Info("🔐 [WireGuard] STEP 1: starting FRP bootstrap transport")
 		if err := connectQUIC(); err != nil {
 			return fmt.Errorf("wireguard bootstrap over FRP failed at transport stage: %w", err)
@@ -370,7 +450,7 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 			return fmt.Errorf("FRP bootstrap transport is not running")
 		}
 
-		logrus.Info("🔐 [WireGuard] STEP 2: creating WireGuard client keypair")
+		logrus.Info("🔐 [WireGuard] STEP 2: creating or reusing WireGuard client identity")
 		wg := service.NewWireGuardService(mw.config)
 		pub, err := wg.GeneratePublicKey()
 		if err != nil {
@@ -390,24 +470,14 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 			return fmt.Errorf("wireguard bootstrap API failed: %w", err)
 		}
 		logrus.Infof("🔐 [WireGuard] STEP 4: bootstrap received server=%s client=%s endpoint=%s:%d", bootstrap.ServerAddress, bootstrap.ClientAddress, bootstrap.ServerEndpointHost, bootstrap.ServerEndpointPort)
-		logrus.Info("🔐 [WireGuard] STEP 5: bringing up local WireGuard interface")
-		if err := wg.Connect(bootstrap); err != nil {
+		if err := activateWireGuard(bootstrap, wg.GetPrivateKey(), "bootstrap"); err != nil {
 			return err
 		}
-		mw.wgService = wg
-		logrus.Infof("✅ [WireGuard] STEP 6: interface up client=%s server=%s", wg.GetClientHost(), wg.GetServerHost())
-		mw.config.NBDBindHost = wg.GetClientHost()
-		mw.usbClient = mw.attachUSBClient(api.NewUSBClient(wg.GetServerHost(), mw.config.USBPort, mw.config.APITimeout))
-		mw.gstreamerService.UpdateHost(wg.GetServerHost())
-		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
-		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
-		mw.config.VideoBindHost = wg.GetClientHost()
-		mw.videoWidget.SetFRPService(nil)
-		mw.diskWidget.SetFRPService(nil)
-		mw.connectedProtocol = models.ConnectionProtocolWireGuard
-		logrus.Info("🔐 [WireGuard] STEP 7: switching application traffic to WireGuard")
-		logrus.Infof("   📥 HTTP API switched to WireGuard: %s:%d", wg.GetServerHost(), mw.config.USBPort)
-		logrus.Infof("   📤 Local WireGuard client address: %s", wg.GetClientHost())
+		mw.storeWireGuardRegistration(host, mw.wgService.GetPrivateKey(), bootstrap)
+		mw.pendingWireGuardInvite = ""
+		logrus.Info("🔐 [WireGuard] STEP 5: switching application traffic to WireGuard")
+		logrus.Infof("   📥 HTTP API switched to WireGuard: %s:%d", mw.wgService.GetServerHost(), mw.config.USBPort)
+		logrus.Infof("   📤 Local WireGuard client address: %s", mw.wgService.GetClientHost())
 		return nil
 	}
 

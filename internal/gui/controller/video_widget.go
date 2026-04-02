@@ -73,7 +73,7 @@ type VideoWidget struct {
 	touchStartY        float32
 	touchStartTime     time.Time
 	mousePollingQuit   chan bool // Канал для остановки polling горутины
-	mouseInputMode     string    // "mouse" (touchpad), "double", "touchscreen" или "absolute"
+	mouseInputMode     string    // "mouse" (touchpad), "touchscreen" или "absolute"
 	touchpadSizeW      float32   // Ширина области ввода (для перевода в абсолютные координаты)
 	touchpadSizeH      float32   // Высота области ввода
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095

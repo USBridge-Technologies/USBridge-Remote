@@ -47,6 +47,18 @@ func (s *darwinWireGuardService) GetPrivateKey() string {
 	return s.privateKey
 }
 
+func (s *darwinWireGuardService) SetPrivateKey(privateKey string) error {
+	privateKey = strings.TrimSpace(privateKey)
+	if privateKey == "" {
+		return fmt.Errorf("WireGuard private key is empty")
+	}
+	if _, err := WireGuardPublicKeyFromPrivate(privateKey); err != nil {
+		return err
+	}
+	s.privateKey = privateKey
+	return nil
+}
+
 func (s *darwinWireGuardService) Connect(resp *models.WireGuardBootstrapResponse) error {
 	if resp == nil {
 		return fmt.Errorf("WireGuard bootstrap response is nil")
@@ -193,4 +205,3 @@ func (c *darwinWireGuardHelperClient) resolveHelperPath() (string, error) {
 
 	return "", fmt.Errorf("WireGuard helper binary was not found next to the macOS app bundle; rebuild with scripts/build_macos.sh")
 }
-
