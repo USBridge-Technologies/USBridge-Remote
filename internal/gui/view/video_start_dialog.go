@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
@@ -65,6 +66,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	})
 
 	vsd.resolutionSelect = widget.NewSelect(nil, func(string) {
+		vsd.refreshAvailableModes()
 		vsd.refreshFPSOptions()
 	})
 
@@ -235,15 +237,8 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	if selectedMode == "" {
 		selectedMode = models.VideoModeH264
 	}
-	for label, id := range vsd.modeLabels {
-		if id == selectedMode {
-			vsd.modeSelect.SetSelected(label)
-			break
-		}
-	}
-	if vsd.modeSelect.Selected == "" && len(modeOptions) > 0 {
-		vsd.modeSelect.SetSelected(modeOptions[0])
-	}
+	vsd.refreshAvailableModes()
+	vsd.setSelectedMode(selectedMode)
 
 	if bitrate, ok := parseBitrate(defaultBitrate); ok {
 		vsd.bitrateSlider.SetValue(float64(bitrate))
@@ -382,12 +377,13 @@ func (vsd *VideoStartDialog) handleStart() {
 	}
 
 	request := &models.VideoStartRequest{
-		VideoWidth:   selectedMode.Width,
-		VideoHeight:  selectedMode.Height,
-		VideoFPS:     fps,
-		VideoQuality: 80,
-		VideoBitrate: fmt.Sprintf("%.0fK", vsd.bitrateSlider.Value),
-		VideoMode:    vsd.selectedModeID(),
+		VideoWidth:         selectedMode.Width,
+		VideoHeight:        selectedMode.Height,
+		VideoFPS:           fps,
+		VideoQuality:       80,
+		VideoBitrate:       fmt.Sprintf("%.0fK", vsd.bitrateSlider.Value),
+		VideoMode:          vsd.selectedModeID(),
+		CapturePixelFormat: selectedMode.PixelFormat,
 	}
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",
@@ -412,6 +408,72 @@ func formatFPSRange(values []int) string {
 		return fmt.Sprintf("%d fps", values[0])
 	}
 	return fmt.Sprintf("%d-%d fps", values[0], values[len(values)-1])
+}
+
+func (vsd *VideoStartDialog) refreshAvailableModes() {
+	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
+	selectedFormat := ""
+	if ok {
+		selectedFormat = normalizePixelFormat(selectedCaptureMode.PixelFormat)
+	}
+
+	allowed := allowedModesForPixelFormat(selectedFormat)
+	modeOptions := make([]string, 0, len(vsd.streamModes))
+	for _, mode := range vsd.streamModes {
+		if len(allowed) > 0 && !allowed[mode.ID] {
+			continue
+		}
+		label := mode.Name
+		if label == "" {
+			label = mode.ID
+		}
+		modeOptions = append(modeOptions, label)
+	}
+
+	previous := vsd.selectedModeID()
+	vsd.modeSelect.Options = modeOptions
+	vsd.modeSelect.Refresh()
+	vsd.setSelectedMode(previous)
+}
+
+func (vsd *VideoStartDialog) setSelectedMode(modeID string) {
+	for label, id := range vsd.modeLabels {
+		if id == modeID {
+			for _, option := range vsd.modeSelect.Options {
+				if option == label {
+					vsd.modeSelect.SetSelected(label)
+					return
+				}
+			}
+		}
+	}
+	if len(vsd.modeSelect.Options) > 0 {
+		vsd.modeSelect.SetSelected(vsd.modeSelect.Options[0])
+	}
+}
+
+func allowedModesForPixelFormat(format string) map[string]bool {
+	switch normalizePixelFormat(format) {
+	case "MJPG", "MJPEG", "JPEG":
+		return map[string]bool{
+			models.VideoModeH264:    true,
+			models.VideoModeJPEGRTP: true,
+		}
+	case "YUYV", "YUYV422", "YUY2":
+		return map[string]bool{
+			models.VideoModeH264:    true,
+			models.VideoModeJPEGRTP: true,
+			models.VideoModeRawYUYV: true,
+		}
+	default:
+		return map[string]bool{
+			models.VideoModeH264: true,
+		}
+	}
+}
+
+func normalizePixelFormat(format string) string {
+	return strings.TrimSpace(strings.ToUpper(format))
 }
 
 func parseBitrate(value string) (int, bool) {

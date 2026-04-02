@@ -341,7 +341,7 @@ func (gs *GStreamerService) createRawYUYVPipeline(udpPort int) error {
 		"udpsrc address=%s port=%d buffer-size=4194304 caps=\"application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)RAW,sampling=(string)YCbCr-4:2:2,depth=(string)8,width=(string)%d,height=(string)%d,colorimetry=(string)BT601-5,payload=(int)96\" ! "+
 			"rtpjitterbuffer latency=5 faststart-min-packets=1 drop-on-latency=true ! "+
 			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! videoconvert ! video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=2 drop=true",
+			"appsink name=sink sync=false max-buffers=1 drop=true",
 		bindHost, udpPort, width, height, width, height,
 	)
 	pipeline, err := gst.NewPipelineFromString(pipelineStr)

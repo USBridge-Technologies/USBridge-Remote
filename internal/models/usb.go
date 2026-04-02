@@ -244,13 +244,14 @@ type DeviceStatusResponse struct {
 
 // VideoStartRequest запрос на запуск видео стриминга
 type VideoStartRequest struct {
-	VideoDevice  string `json:"video_device,omitempty"`
-	VideoWidth   int    `json:"video_width"`
-	VideoHeight  int    `json:"video_height"`
-	VideoFPS     int    `json:"video_fps"`
-	VideoQuality int    `json:"video_quality"`
-	VideoBitrate string `json:"video_bitrate"`
-	VideoMode    string `json:"video_mode,omitempty"`
+	VideoDevice        string `json:"video_device,omitempty"`
+	VideoWidth         int    `json:"video_width"`
+	VideoHeight        int    `json:"video_height"`
+	VideoFPS           int    `json:"video_fps"`
+	VideoQuality       int    `json:"video_quality"`
+	VideoBitrate       string `json:"video_bitrate"`
+	VideoMode          string `json:"video_mode,omitempty"`
+	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientPort int `json:"client_port,omitempty"`
 }

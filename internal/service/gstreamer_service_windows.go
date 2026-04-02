@@ -273,7 +273,7 @@ func (gs *GStreamerService) createPipelineRawYUYV(udpPort int) error {
 			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! "+
 			"d3d11upload ! d3d11convert ! d3d11download ! "+
 			"video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=2 drop=true",
+			"appsink name=sink sync=false max-buffers=1 drop=true",
 		bindHost, udpPort, width, height, width, height,
 	)
 
@@ -282,7 +282,7 @@ func (gs *GStreamerService) createPipelineRawYUYV(udpPort int) error {
 			"rtpjitterbuffer latency=5 faststart-min-packets=1 drop-on-latency=true ! "+
 			"rtpvrawdepay ! video/x-raw,format=UYVY,width=%d,height=%d ! "+
 			"videoconvert ! video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=2 drop=true",
+			"appsink name=sink sync=false max-buffers=1 drop=true",
 		bindHost, udpPort, width, height, width, height,
 	)
 
