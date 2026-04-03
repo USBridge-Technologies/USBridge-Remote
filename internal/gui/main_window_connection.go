@@ -629,7 +629,9 @@ func (mw *MainWindow) handleDisconnect() {
 
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
 		logrus.Info("🛑 Stopping video before disconnect...")
-		mw.videoWidget.StopVideo()
+		if err := mw.videoWidget.StopVideoSync(); err != nil {
+			logrus.Errorf("Failed to stop video before disconnect: %v", err)
+		}
 	}
 
 	if mw.usbClient != nil {

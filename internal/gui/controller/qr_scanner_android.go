@@ -121,6 +121,7 @@ func deliverQRCancelFromJNI() {
 // ShowCameraScannerNative показывает окно камеры для сканирования QR (как в Telegram)
 func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	qs.window = parent
+	session := qs.beginScanSession()
 
 	logrus.Info("📷 Android: starting QR scanner (camera window)")
 
@@ -160,16 +161,20 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	// Запускаем polling ВНЕ RunNative callback
 	if launchSuccess {
 		logrus.Info("📷 Starting polling goroutine...")
-		go qs.pollQRResult(parent)
+		go qs.pollQRResult(parent, session)
 	}
 }
 
 // pollQRResult опрашивает nbdbridge (результат приходит через JNI → QRResultBridge → main app)
-func (qs *QRScanner) pollQRResult(parent fyne.Window) {
+func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 	logrus.Info("📷 [POLL] Starting QR result polling...")
 
 	for i := 0; i < 600; i++ { // максимум 60 секунд
 		time.Sleep(100 * time.Millisecond)
+		if !qs.isScanSessionActive(session) {
+			logrus.Debug("📷 [POLL] Scan session changed, stopping stale polling")
+			return
+		}
 
 		ready := nbdbridge.IsQRResultReady()
 		if i%50 == 0 {
@@ -184,15 +189,21 @@ func (qs *QRScanner) pollQRResult(parent fyne.Window) {
 		if result == nil {
 			continue
 		}
+		nbdbridge.ClearQRResult()
 
-		qs.applyQRResult(result, parent)
+		qs.applyQRResult(result, parent, session)
 		return
 	}
 
 	logrus.Warn("📷 [POLL] ⚠️ Timed out waiting for QR result (60 sec)")
 }
 
-func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.Window) {
+func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.Window, session uint64) {
+	if !qs.tryHandleScanResult(session) {
+		logrus.Debug("📷 [POLL] Ignoring stale or duplicate QR result")
+		return
+	}
+
 	logrus.Infof("📷 [POLL] QR result received: contents=%q, imageLen=%d, cancelled=%v",
 		result.Contents, len(result.ImageData), result.Cancelled)
 

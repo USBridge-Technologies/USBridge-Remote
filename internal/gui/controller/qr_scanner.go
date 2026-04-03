@@ -8,6 +8,7 @@ import (
 	_ "image/png"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -28,6 +29,9 @@ type QRScanner struct {
 	onConnect func(host, token, protocol, wireGuardInvite string)
 	onSave    func(name, host, token, protocol, wireGuardInvite string)
 	onPrefill func(host, token, protocol, wireGuardInvite string)
+
+	scanSession       atomic.Uint64
+	scanResultHandled atomic.Bool
 }
 
 func NewQRScanner(
@@ -47,6 +51,23 @@ func NewQRScanner(
 func (qs *QRScanner) ShowCameraScanner(parent fyne.Window) {
 	qs.window = parent
 	qs.ShowCameraScannerNative(parent)
+}
+
+func (qs *QRScanner) beginScanSession() uint64 {
+	session := qs.scanSession.Add(1)
+	qs.scanResultHandled.Store(false)
+	return session
+}
+
+func (qs *QRScanner) isScanSessionActive(session uint64) bool {
+	return qs.scanSession.Load() == session
+}
+
+func (qs *QRScanner) tryHandleScanResult(session uint64) bool {
+	if !qs.isScanSessionActive(session) {
+		return false
+	}
+	return qs.scanResultHandled.CompareAndSwap(false, true)
 }
 
 func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {

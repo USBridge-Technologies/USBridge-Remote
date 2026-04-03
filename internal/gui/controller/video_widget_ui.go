@@ -204,6 +204,41 @@ func (vw *VideoWidget) handleStopVideo() {
 	}()
 }
 
+func (vw *VideoWidget) StopVideoSync() error {
+	for attempt := 0; attempt < 2; attempt++ {
+		if vw.beginVideoOperation() {
+			defer vw.endVideoOperation()
+			if vw.usbClient == nil {
+				return nil
+			}
+			vw.stopVideoInternal()
+			return nil
+		}
+		if err := vw.waitForVideoOperation(5 * time.Second); err != nil {
+			return err
+		}
+	}
+
+	if vw.IsStreaming() {
+		return fmt.Errorf("video stop operation is busy")
+	}
+	return nil
+}
+
+func (vw *VideoWidget) waitForVideoOperation(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		vw.videoOpMu.Lock()
+		running := vw.videoOpRunning
+		vw.videoOpMu.Unlock()
+		if !running {
+			return nil
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for video operation")
+}
+
 func (vw *VideoWidget) stopVideoInternal() {
 
 	fyne.Do(func() {
