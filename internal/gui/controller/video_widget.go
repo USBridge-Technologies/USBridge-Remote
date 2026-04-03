@@ -36,13 +36,18 @@ type VideoWidget struct {
 	isMouseConnected     bool // Флаг подключенной мыши
 
 	// Сервисы
-	usbClient        *api.USBClient
-	gstreamerService *service.GStreamerService
-	frpService       *service.FRPService // для проверки режима FRP
-	updateStatus     func()
-	onFPSChanged     func(float64)
-	videoOpMu        sync.Mutex
-	videoOpRunning   bool
+	usbClient         *api.USBClient
+	gstreamerService  *service.GStreamerService
+	frpService        *service.FRPService // для проверки режима FRP
+	updateStatus      func()
+	onFPSChanged      func(float64)
+	videoOpMu         sync.Mutex
+	videoOpRunning    bool
+	inputQueue        chan inputCommand
+	moveQueueMu       sync.Mutex
+	pendingMoveX      int
+	pendingMoveY      int
+	moveWorkerStarted bool
 
 	// Видео поток
 	currentFrame         image.Image
@@ -110,4 +115,10 @@ type VideoWidget struct {
 	touchDownDelayTimer *time.Timer
 	touchDownDelayMu    sync.Mutex
 	touchActive         bool // touch(true) уже отправлен и ещё не отправлен touch(false); MouseMoved шлёт только при true
+}
+
+type inputCommand struct {
+	dropIfBusy bool
+	name       string
+	run        func(*api.USBClient) error
 }

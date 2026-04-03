@@ -160,9 +160,7 @@ func (vw *VideoWidget) processMouseMovement() {
 	if dx == 0 && dy == 0 {
 		return
 	}
-	if err := vw.usbClient.SendMouseMove(dx, dy); err != nil {
-		logrus.Errorf("❌ Error sending mouse move: %v", err)
-	}
+	vw.enqueueMouseMove(dx, dy)
 }
 
 func (vw *VideoWidget) accumulateRelativeMove(rawDx, rawDy, sensitivity float32) (int, int) {
@@ -369,9 +367,9 @@ func (vw *VideoWidget) StartTouchDownDelay(x, y int, button int) {
 		vw.lastTouchY = y
 		vw.lastTouchDownTime = time.Now()
 		if button == 2 {
-			_ = vw.usbClient.SendTouchPositionOnly(x, y, true)
+			vw.enqueueTouchPositionOnly(x, y, true)
 		} else {
-			_ = vw.usbClient.SendTouch(x, y, true)
+			vw.enqueueTouch(x, y, true)
 		}
 	})
 	vw.touchDownDelayMu.Unlock()

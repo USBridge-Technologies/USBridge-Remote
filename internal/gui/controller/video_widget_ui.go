@@ -21,6 +21,7 @@ import (
 
 // createInterface создает интерфейс виджета.
 func (vw *VideoWidget) createInterface() {
+	vw.startInputWorker()
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
 	vw.registerMobileGestureTarget()
 	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
