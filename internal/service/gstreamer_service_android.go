@@ -1622,6 +1622,7 @@ import (
 	"image"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -1661,6 +1662,7 @@ type GStreamerService struct {
 	latestFrame     image.Image
 	latestFrameMeta videoLatencyFrameMeta
 	latestFrameMu   sync.RWMutex
+	lastQueuedFrame atomic.Int64
 
 	// Статистика
 	frameDropCount int64
@@ -1730,6 +1732,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.manualDisconnect = false
 	gs.frameDropCount = 0
 	gs.lastFrameTime = time.Time{}
+	gs.lastQueuedFrame.Store(0)
 
 	// Пересоздаем stopChan для нового подключения (старый может быть закрыт)
 	gs.stopChan = make(chan struct{})
@@ -1812,14 +1815,16 @@ func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
 // uiRefreshLoop обновляет UI с последним кадром с фиксированной частотой (30fps)
 // Не блокирует main thread — только один fyne.Do в 33ms
 func (gs *GStreamerService) uiRefreshLoop() {
-	ticker := time.NewTicker(33 * time.Millisecond) // ~30 fps
-	defer ticker.Stop()
+	timer := time.NewTimer(gs.targetFrameInterval())
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-gs.stopChan:
 			return
-		case <-ticker.C:
+		case <-timer.C:
+			nextInterval := gs.targetFrameInterval()
+
 			gs.latestFrameMu.Lock()
 			img := gs.latestFrame
 			meta := gs.latestFrameMeta
@@ -1828,6 +1833,7 @@ func (gs *GStreamerService) uiRefreshLoop() {
 			gs.latestFrameMu.Unlock()
 
 			if img == nil {
+				timer.Reset(nextInterval)
 				continue
 			}
 
@@ -1839,6 +1845,8 @@ func (gs *GStreamerService) uiRefreshLoop() {
 				gs.recordUIDelay(time.Since(meta.producedAt), meta, "Android")
 				callback(img)
 			}
+
+			timer.Reset(nextInterval)
 		}
 	}
 }
@@ -1937,20 +1945,37 @@ func (gs *GStreamerService) processFrames() {
 		// Кадр получен
 		noFrameCount = 0
 		frameNum++
+		now := time.Now()
 
-		copyStarted := time.Now()
 		w := int(width)
 		h := int(height)
-		frameData := C.GoBytes(unsafe.Pointer(data), C.int(frameSize))
+
+		// Не тратим CPU на копирование каждого входящего кадра, если свежий кадр
+		// уже ожидает отрисовки и целевая частота UI его все равно не покажет.
+		queueInterval := gs.targetFrameInterval()
+		lastQueued := gs.lastQueuedFrame.Load()
+		if lastQueued != 0 && now.Sub(time.Unix(0, lastQueued)) < queueInterval {
+			C.g_free(C.gpointer(data))
+			gs.mutex.Lock()
+			gs.frameDropCount++
+			gs.mutex.Unlock()
+			continue
+		}
+
+		copyStarted := time.Now()
+		src := unsafe.Slice((*byte)(unsafe.Pointer(data)), int(frameSize))
+
+		// Создаем RGBA image — данные уже в формате RGBA из GStreamer.
+		// Копируем напрямую из C-буфера в Pix без промежуточного C.GoBytes,
+		// чтобы убрать лишнюю полную аллокацию и копию на каждый кадр.
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		copy(img.Pix, src)
 		C.g_free(C.gpointer(data))
 
 		if frameNum <= 3 {
-			logrus.Infof("🖼️ Android: Кадр #%d: %dx%d, %d bytes (callback mode)", frameNum, w, h, len(frameData))
+			logrus.Infof("🖼️ Android: Кадр #%d: %dx%d, %d bytes (callback mode)", frameNum, w, h, len(src))
 		}
 
-		// Создаем RGBA image — данные уже в формате RGBA из GStreamer
-		img := image.NewRGBA(image.Rect(0, 0, w, h))
-		copy(img.Pix, frameData)
 		producedAt := time.Now()
 		meta := videoLatencyFrameMeta{
 			producedAt:  producedAt,
@@ -1977,6 +2002,7 @@ func (gs *GStreamerService) processFrames() {
 		gs.latestFrame = img
 		gs.latestFrameMeta = meta
 		gs.latestFrameMu.Unlock()
+		gs.lastQueuedFrame.Store(producedAt.UnixNano())
 		gs.recordIngressLatency(meta)
 	}
 }
@@ -2049,6 +2075,7 @@ func (gs *GStreamerService) Disconnect() error {
 	gs.manualDisconnect = true
 	gs.isConnected = false
 	gs.isConnecting = false
+	gs.lastQueuedFrame.Store(0)
 	logrus.Info("🔌 Android: Отключение от GStreamer...")
 
 	// Сохраняем stopChan перед unlock
@@ -2201,6 +2228,22 @@ func (gs *GStreamerService) SetVideoMode(mode string) {
 func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
 	_ = width
 	_ = height
+}
+
+func (gs *GStreamerService) targetFrameInterval() time.Duration {
+	targetFPS := 30
+	if gs.config != nil && gs.config.VideoFPS > 0 {
+		targetFPS = gs.config.VideoFPS
+	}
+
+	switch {
+	case targetFPS < 15:
+		targetFPS = 15
+	case targetFPS > 60:
+		targetFPS = 60
+	}
+
+	return time.Second / time.Duration(targetFPS)
 }
 
 // GetConfig возвращает конфигурацию

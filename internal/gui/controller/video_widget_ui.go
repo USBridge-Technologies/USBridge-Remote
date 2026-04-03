@@ -759,8 +759,13 @@ func (vw *VideoWidget) startStatsLoop() {
 		for {
 			select {
 			case <-ticker.C:
+				if !vw.IsStreaming() {
+					continue
+				}
 				fyne.Do(func() {
-					vw.updateStats()
+					if vw.IsStreaming() {
+						vw.updateStats()
+					}
 				})
 			case <-stop:
 				return
@@ -810,10 +815,7 @@ func (vw *VideoWidget) scheduleFrameRenderAfter(delay time.Duration) {
 }
 
 func (vw *VideoWidget) nextFrameRenderDelay() time.Duration {
-	interval := 22 * time.Millisecond
-	if fyne.CurrentDevice().IsMobile() {
-		interval = 33 * time.Millisecond
-	}
+	interval := vw.targetUIFrameInterval()
 
 	last := vw.lastUIFrameRenderAt.Load()
 	if last == 0 {
@@ -825,6 +827,28 @@ func (vw *VideoWidget) nextFrameRenderDelay() time.Duration {
 		return 0
 	}
 	return interval - elapsed
+}
+
+func (vw *VideoWidget) targetUIFrameInterval() time.Duration {
+	targetFPS := 45
+	if fyne.CurrentDevice().IsMobile() {
+		targetFPS = 30
+	}
+
+	if vw.gstreamerService != nil {
+		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoFPS > 0 {
+			targetFPS = cfg.VideoFPS
+		}
+	}
+
+	switch {
+	case targetFPS < 15:
+		targetFPS = 15
+	case targetFPS > 60:
+		targetFPS = 60
+	}
+
+	return time.Second / time.Duration(targetFPS)
 }
 
 func (vw *VideoWidget) renderLatestFrame() {

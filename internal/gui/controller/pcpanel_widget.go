@@ -110,6 +110,13 @@ type pcpanelHoldButton struct {
 	track        *canvas.Rectangle
 }
 
+var (
+	_ fyne.Tappable     = (*pcpanelHoldButton)(nil)
+	_ desktop.Mouseable = (*pcpanelHoldButton)(nil)
+	_ mobile.Touchable  = (*pcpanelHoldButton)(nil)
+	_ fyne.Draggable    = (*pcpanelHoldButton)(nil)
+)
+
 type pcpanelIconButton struct {
 	widget.BaseWidget
 
@@ -437,6 +444,18 @@ func (b *pcpanelHoldButton) TouchDown(*mobile.TouchEvent) {
 }
 
 func (b *pcpanelHoldButton) TouchUp(*mobile.TouchEvent) {
+	b.cancelHold()
+}
+
+func (b *pcpanelHoldButton) TouchCancel(*mobile.TouchEvent) {
+	b.cancelHold()
+}
+
+func (b *pcpanelHoldButton) Dragged(*fyne.DragEvent) {
+	b.startHold()
+}
+
+func (b *pcpanelHoldButton) DragEnd() {
 	b.cancelHold()
 }
 
