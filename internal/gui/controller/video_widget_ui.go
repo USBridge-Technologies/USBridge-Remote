@@ -402,6 +402,74 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	return fmt.Errorf("timed out waiting for HID devices after auto-connect")
 }
 
+func (vw *VideoWidget) controlHIDReady() (bool, error) {
+	if vw.usbClient == nil {
+		return false, nil
+	}
+
+	deviceInfo, err := vw.usbClient.GetDeviceInfo()
+	if err != nil {
+		return false, err
+	}
+	if deviceInfo.MountInProgress {
+		return false, nil
+	}
+
+	keyboardConnected := false
+	mouseConnected := false
+	mouseModeMatches := false
+	desiredMouseType := vw.GetMouseInputMode()
+
+	for _, device := range deviceInfo.Devices {
+		if device.Status != "connected" {
+			continue
+		}
+		switch {
+		case device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:"):
+			keyboardConnected = true
+		case isMouseDeviceType(device.Type):
+			mouseConnected = true
+			observedMode := mouseModeFromDeviceType(device.Type)
+			vw.setObservedMouseMode(observedMode)
+			mouseModeMatches = observedMode == desiredMouseType
+		}
+	}
+
+	return keyboardConnected && mouseConnected && mouseModeMatches, nil
+}
+
+func (vw *VideoWidget) BootstrapControlSessionAsync() {
+	vw.setDesiredStreaming(true)
+
+	go func() {
+		const maxAttempts = 8
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if vw.usbClient == nil || !vw.desiredStreamingState() {
+				return
+			}
+
+			vw.ReconcileDesiredStreaming()
+
+			ready, err := vw.controlHIDReady()
+			if err != nil {
+				logrus.Warnf("⚠️ control bootstrap: failed to inspect HID state on attempt %d/%d: %v", attempt, maxAttempts, err)
+			} else if !ready {
+				if hidErr := vw.ensureControlHIDDevices(); hidErr != nil {
+					logrus.Warnf("⚠️ control bootstrap: HID auto-connect attempt %d/%d failed: %v", attempt, maxAttempts, hidErr)
+				}
+			}
+
+			ready, err = vw.controlHIDReady()
+			if err == nil && vw.IsStreaming() && ready {
+				logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
+				return
+			}
+
+			time.Sleep(700 * time.Millisecond)
+		}
+	}()
+}
+
 // updateButtons обновляет состояние кнопок.
 func (vw *VideoWidget) updateButtons() {
 	if vw.onFPSChanged != nil && !vw.isStreaming {
@@ -706,6 +774,31 @@ func (vw *VideoWidget) HandleConnectionLost() {
 	})
 
 	vw.updateStatus()
+}
+
+func (vw *VideoWidget) handleDeviceRebuildLocally() {
+	resetVideoInfoCache()
+
+	if vw.usbClient != nil {
+		vw.usbClient.DisconnectMouseWebSocket()
+	}
+	if vw.gstreamerService != nil {
+		if err := vw.gstreamerService.Disconnect(); err != nil {
+			logrus.Warnf("⚠️ Failed to disconnect GStreamer after device rebuild: %v", err)
+		}
+	}
+
+	vw.isStreaming = false
+	vw.isGStreamerConnected = false
+	vw.isMouseConnected = false
+	vw.clearVideo()
+
+	fyne.Do(func() {
+		vw.updateButtons()
+		if vw.statusLabel != nil {
+			vw.statusLabel.SetText(i18n.Current.VideoWaitingConnection)
+		}
+	})
 }
 
 // ExitFullscreenIfNeeded закрывает fullscreen-режим, если он активен.

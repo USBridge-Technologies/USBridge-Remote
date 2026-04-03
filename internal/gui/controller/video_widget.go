@@ -148,3 +148,17 @@ func (vw *VideoWidget) ReconcileDesiredStreaming() {
 		vw.StopVideoAsync()
 	}
 }
+
+func (vw *VideoWidget) desiredStreamingState() bool {
+	vw.videoOpMu.Lock()
+	defer vw.videoOpMu.Unlock()
+	return vw.desiredStreaming
+}
+
+func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
+	go func() {
+		vw.handleDeviceRebuildLocally()
+		time.Sleep(250 * time.Millisecond)
+		vw.BootstrapControlSessionAsync()
+	}()
+}

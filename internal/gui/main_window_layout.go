@@ -184,7 +184,7 @@ func (mw *MainWindow) recreateContainers() {
 		if mw.videoWidget != nil {
 			mw.diskWidget.SetOnMouseTypeChanged(mw.videoWidget.SetMouseInputMode)
 			mw.diskWidget.SetOnMouseModeReconfigured(func() {
-				mw.videoWidget.ReconcileDesiredStreaming()
+				mw.videoWidget.RecoverAfterControlDeviceRebuildAsync()
 			})
 			mw.diskWidget.SetOnVideoConfigRequested(func(devicePath string) {
 				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex(), false)
