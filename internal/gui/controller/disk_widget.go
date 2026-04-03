@@ -80,7 +80,7 @@ type DiskWidget struct {
 	scanPaths      []string
 	supportedTypes []string
 
-	// Callback: тип манипулятора при запуске мыши (mouse/touchscreen) — для синхронизации с VideoWidget
+	// Callback: тип манипулятора при запуске мыши (touchpad/absolute) — для синхронизации с VideoWidget
 	onMouseTypeChanged      func(mouseType string)
 	onMouseModeReconfigured func()
 	onVideoConfigRequested  func(devicePath string)
@@ -120,7 +120,7 @@ type DriveItem struct {
 	DiskInfo       *models.DiskInfo   // Для локальных файлов
 	IsKeyboard     bool               // Для клавиатуры
 	IsMouse        bool               // Для мыши
-	MouseType      string             // "mouse" (touchpad), "touchscreen" или "absolute", только для мыши
+	MouseType      string             // "mouse" (touchpad) или "absolute", только для мыши
 	IsRNDIS        bool               // Для сетевой карты
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
@@ -320,14 +320,12 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			}
 		} else {
 			switch normalizeMouseMode(drive.MouseType) {
-			case mouseModeTouchScreen:
-				modeSelect.SetSelected(i18n.Current.DeviceTouch)
 			case mouseModeAbsolute:
 				modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
 			default:
 				modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
 			}
-			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceTouch, i18n.Current.DeviceAbsolute})
+			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceAbsolute})
 			rowID := id
 			modeSelect.OnSelected = func(s string) {
 				if dw.controlsLocked() {
@@ -338,8 +336,6 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				}
 				newMode := mouseModeTouchPad
 				switch s {
-				case i18n.Current.DeviceTouch:
-					newMode = mouseModeTouchScreen
 				case i18n.Current.DeviceAbsolute:
 					newMode = mouseModeAbsolute
 				}

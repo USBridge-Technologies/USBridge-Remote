@@ -1,6 +1,10 @@
 package controller
 
-import "strings"
+import (
+	"strings"
+
+	"fyne.io/fyne/v2"
+)
 
 const (
 	mouseModeTouchPad    = "mouse"
@@ -13,7 +17,10 @@ const (
 )
 
 func defaultMouseMode() string {
-	return mouseModeTouchPad
+	if fyne.CurrentDevice().IsMobile() {
+		return mouseModeTouchPad
+	}
+	return mouseModeAbsolute
 }
 
 func parseMouseMode(mode string) (string, bool) {
@@ -39,6 +46,9 @@ func parseMouseMode(mode string) (string, bool) {
 
 func normalizeMouseMode(mode string) string {
 	if normalized, ok := parseMouseMode(mode); ok {
+		if normalized == mouseModeTouchScreen {
+			return mouseModeTouchPad
+		}
 		return normalized
 	}
 	return defaultMouseMode()

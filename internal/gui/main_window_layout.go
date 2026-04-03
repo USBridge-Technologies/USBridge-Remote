@@ -1161,13 +1161,6 @@ func (mw *MainWindow) showMouseModeMenu() {
 			},
 		},
 		{
-			Label:    i18n.Current.DeviceTouch,
-			Selected: currentMode == controller.MouseModeTouchScreen,
-			OnTap: func() {
-				mw.diskWidget.SetMouseMode(controller.MouseModeTouchScreen)
-			},
-		},
-		{
 			Label:    i18n.Current.DeviceAbsolute,
 			Selected: currentMode == controller.MouseModeAbsolute,
 			OnTap: func() {
