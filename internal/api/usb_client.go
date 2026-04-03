@@ -623,7 +623,7 @@ func (c *USBClient) SendMouseMove(dx, dy int) error {
 }
 
 // SendTouch отправляет касание тачскрина (action: "touch").
-// x, y — абсолютные координаты 0..4095; tip: true = касание, false = отпускание.
+// x, y — абсолютные координаты 0..32767; tip: true = касание, false = отпускание.
 func (c *USBClient) SendTouch(x, y int, tip bool) error {
 	action := "отпущено"
 	if tip {
