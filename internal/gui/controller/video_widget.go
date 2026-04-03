@@ -43,6 +43,7 @@ type VideoWidget struct {
 	onFPSChanged      func(float64)
 	videoOpMu         sync.Mutex
 	videoOpRunning    bool
+	desiredStreaming  bool
 	inputQueue        chan inputCommand
 	moveQueueMu       sync.Mutex
 	pendingMoveX      int
@@ -121,4 +122,10 @@ type inputCommand struct {
 	dropIfBusy bool
 	name       string
 	run        func(*api.USBClient) error
+}
+
+func (vw *VideoWidget) setDesiredStreaming(streaming bool) {
+	vw.videoOpMu.Lock()
+	vw.desiredStreaming = streaming
+	vw.videoOpMu.Unlock()
 }

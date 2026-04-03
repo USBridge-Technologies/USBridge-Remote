@@ -184,7 +184,7 @@ func (mw *MainWindow) recreateContainers() {
 		if mw.videoWidget != nil {
 			mw.diskWidget.SetOnMouseTypeChanged(mw.videoWidget.SetMouseInputMode)
 			mw.diskWidget.SetOnVideoConfigRequested(func(devicePath string) {
-				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == 1, false)
+				mw.videoWidget.ShowVideoDeviceSettings(devicePath, mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex(), false)
 			})
 			mw.diskWidget.SetOnVideoConnect(func(devicePath string) {
 				mw.videoWidget.StartVideoDeviceAsync(devicePath)
@@ -212,8 +212,8 @@ func (mw *MainWindow) recreateContainers() {
 	snapshotsTabTitle := "Snapshots"
 
 	mw.tabs = container.NewAppTabs(
-		container.NewTabItemWithIcon(devicesTabTitle, assets.USBTabIcon, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
 		container.NewTabItemWithIcon(controlTabTitle, assets.MonitorTabIcon, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItemWithIcon(devicesTabTitle, assets.USBTabIcon, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
 		container.NewTabItemWithIcon(snapshotsTabTitle, assets.SnapshotsTabIcon, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
@@ -221,13 +221,13 @@ func (mw *MainWindow) recreateContainers() {
 		mw.applyTabVisualState(mw.tabs.SelectedIndex())
 		mw.updateDeviceButtonsVisibility()
 		if tab != nil && tab.Text == controlTabTitle {
-			if mw.videoWidget != nil && !mw.videoWidget.IsStreaming() {
-				mw.videoWidget.StartConfiguredVideoAsync()
+			if mw.videoWidget != nil {
+				mw.videoWidget.RequestStreaming(true)
 			}
 			return
 		}
-		if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
-			mw.videoWidget.StopVideoAsync()
+		if mw.videoWidget != nil {
+			mw.videoWidget.RequestStreaming(false)
 		}
 	}
 
@@ -856,7 +856,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.connectionIcon.Importance = widget.LowImportance
 	mw.nbdIcon = widget.NewButton("💿", func() {})
 	mw.nbdIcon.Importance = widget.LowImportance
-	mw.videoIcon = widget.NewButton("📺", func() {})
+	mw.videoIcon = widget.NewButton("0", func() {})
 	mw.videoIcon.OnTapped = func() {
 		mw.showVideoMenu()
 	}
@@ -868,8 +868,8 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.captureIcon.Importance = widget.LowImportance
 	mw.keyboardIcon = widget.NewButtonWithIcon("", assets.KeyboardIcon, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > 1 {
-			mw.tabs.Select(mw.tabs.Items[1])
+		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
+			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
 		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.HandleVirtualKeyboard()
@@ -898,8 +898,8 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.deviceMountBtn = mountBtn
 	mw.deviceUnmountBtn = unmountBtn
 	mw.deviceVideoBtn = view.NewDeviceActionButton(i18n.Current.VideoStreamActiveButton, nil, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > 1 {
-			mw.tabs.Select(mw.tabs.Items[1])
+		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
+			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
 		}
 	})
 	mw.deviceVideoBtn.SetColors(design.ColorAccent, design.ColorAccentHover, design.ColorBackground, design.ColorBackground)
@@ -962,7 +962,7 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 
 	fyne.Do(func() {
 		mw.refreshDeviceFooterButtons()
-		if mw.tabs.SelectedIndex() == 0 {
+		if mw.tabs.SelectedIndex() == mw.devicesTabIndex() {
 			mw.deviceButtonsPanel.Show()
 			mw.deviceFooterBar.Show()
 		} else {
@@ -1078,7 +1078,7 @@ func (mw *MainWindow) updateStatusBar() {
 		}
 
 		mw.statusPanel.Objects = buildHeaderStatusIndicators(
-			mw.captureIcon,
+			mw.videoIcon,
 			mw.keyboardIcon,
 			mw.mouseIcon,
 			mw.rndisIcon,
@@ -1098,14 +1098,9 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		return
 	}
 
-	label := "0 FPS"
+	label := "0"
 	if mw.currentVideoFPS > 0 {
-		rounded := math.Round(mw.currentVideoFPS*10) / 10
-		if rounded == math.Trunc(rounded) {
-			label = fmt.Sprintf("%.0f FPS", rounded)
-		} else {
-			label = fmt.Sprintf("%.1f FPS", rounded)
-		}
+		label = fmt.Sprintf("%.0f", math.Round(mw.currentVideoFPS))
 	}
 
 	fyne.Do(func() {
@@ -1138,6 +1133,14 @@ func (mw *MainWindow) showVideoMenu() {
 	}
 
 	view.ShowStyledMenu(mw.videoIcon, items)
+}
+
+func (mw *MainWindow) controlTabIndex() int {
+	return 0
+}
+
+func (mw *MainWindow) devicesTabIndex() int {
+	return 1
 }
 
 func (mw *MainWindow) showMouseModeMenu() {

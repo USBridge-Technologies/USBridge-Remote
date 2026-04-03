@@ -306,6 +306,8 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 		return nil
 	}
 
+	vw.setDesiredStreaming(true)
+
 	if vw.isStreaming {
 		vw.stopVideoInternal()
 		time.Sleep(500 * time.Millisecond)
@@ -316,6 +318,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 }
 
 func (vw *VideoWidget) StartConfiguredVideoAsync() {
+	vw.setDesiredStreaming(true)
 	go func() {
 		cfg, err := vw.resolvePreferredVideoConfig()
 		if err != nil {
@@ -335,7 +338,29 @@ func (vw *VideoWidget) StartConfiguredVideoAsync() {
 	}()
 }
 
+func (vw *VideoWidget) RequestStreaming(shouldStream bool) {
+	vw.videoOpMu.Lock()
+	vw.desiredStreaming = shouldStream
+	running := vw.videoOpRunning
+	streaming := vw.isStreaming
+	vw.videoOpMu.Unlock()
+
+	if running {
+		return
+	}
+	if shouldStream {
+		if !streaming {
+			vw.StartConfiguredVideoAsync()
+		}
+		return
+	}
+	if streaming {
+		vw.StopVideoAsync()
+	}
+}
+
 func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
+	vw.setDesiredStreaming(true)
 	go func() {
 		devices, err := vw.GetAvailableVideoDevices()
 		if err != nil {
@@ -366,6 +391,7 @@ func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
 }
 
 func (vw *VideoWidget) StopVideoAsync() {
+	vw.setDesiredStreaming(false)
 	go vw.handleStopVideo()
 }
 

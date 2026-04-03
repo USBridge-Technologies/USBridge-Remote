@@ -440,16 +440,17 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	rectW := vw.contentRectW
 	rectH := vw.contentRectH
 
-	// Для абсолютного указателя используем только один источник истины:
-	// расчётный viewport виджета плюс активную область внутри самого кадра.
-	// Это избегает "второго мини-поля", когда Fyne image/layout отдаёт
-	// внутреннюю геометрию, отличающуюся от области ввода.
-	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
-	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
-		rectX += rectW * frameX
-		rectY += rectH * frameY
-		rectW *= frameW
-		rectH *= frameH
+	// Для absolute/tablet режима не применяем дополнительный auto-crop по самому
+	// кадру. Иначе даже небольшой ложный inset создаёт вторую "мини-область"
+	// в левом верхнем углу, где координаты повторно растягиваются на весь экран.
+	if !vw.IsAbsoluteLikeInputMode() {
+		frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+		if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
+			rectX += rectW * frameX
+			rectY += rectH * frameY
+			rectW *= frameW
+			rectH *= frameH
+		}
 	}
 
 	var u, v float32

@@ -40,6 +40,7 @@ func (vw *VideoWidget) createInterface() {
 
 // handleStartVideo обрабатывает запуск видео.
 func (vw *VideoWidget) handleStartVideo() {
+	vw.setDesiredStreaming(true)
 	if !vw.beginVideoOperation() {
 		logrus.Warn("⚠️ video operation already in progress, skipping start")
 		return
@@ -163,6 +164,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
+	vw.setDesiredStreaming(true)
 	if !vw.beginVideoOperation() {
 		logrus.Warn("⚠️ video operation already in progress, skipping start")
 		return
@@ -187,6 +189,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 // handleStopVideo обрабатывает остановку видео.
 func (vw *VideoWidget) handleStopVideo() {
+	vw.setDesiredStreaming(false)
 	if !vw.beginVideoOperation() {
 		logrus.Warn("⚠️ video operation already in progress, skipping stop")
 		return
@@ -205,6 +208,7 @@ func (vw *VideoWidget) handleStopVideo() {
 }
 
 func (vw *VideoWidget) StopVideoSync() error {
+	vw.setDesiredStreaming(false)
 	for attempt := 0; attempt < 2; attempt++ {
 		if vw.beginVideoOperation() {
 			defer vw.endVideoOperation()
@@ -787,7 +791,17 @@ func (vw *VideoWidget) beginVideoOperation() bool {
 func (vw *VideoWidget) endVideoOperation() {
 	vw.videoOpMu.Lock()
 	vw.videoOpRunning = false
+	desiredStreaming := vw.desiredStreaming
+	streaming := vw.isStreaming
 	vw.videoOpMu.Unlock()
+
+	if desiredStreaming && !streaming {
+		vw.StartConfiguredVideoAsync()
+		return
+	}
+	if !desiredStreaming && streaming {
+		vw.StopVideoAsync()
+	}
 }
 
 func (vw *VideoWidget) scheduleFrameRender(frameNum int64) {

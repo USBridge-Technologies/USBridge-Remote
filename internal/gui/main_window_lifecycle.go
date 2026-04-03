@@ -72,6 +72,9 @@ func (mw *MainWindow) showMainContent() {
 		}
 	})
 	mw.updateDeviceButtonsVisibility()
+	if mw.videoWidget != nil && mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex() {
+		mw.videoWidget.RequestStreaming(true)
+	}
 }
 
 // handleClose handles app shutdown.

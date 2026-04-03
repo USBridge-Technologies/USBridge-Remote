@@ -3,7 +3,6 @@ package view
 import (
 	"image/color"
 
-	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 
 	"fyne.io/fyne/v2"
@@ -70,9 +69,6 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 
 	bg := canvas.NewRectangle(bgColor)
 	bg.CornerRadius = design.RadiusMD
-	icon := canvas.NewImageFromResource(assets.MemoryChipIcon)
-	icon.FillMode = canvas.ImageFillContain
-	icon.SetMinSize(fyne.NewSize(iconSize, iconSize))
 	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
 	track.CornerRadius = design.RadiusMD
 	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
@@ -85,18 +81,16 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	return &storageProgressBarRenderer{
 		s:        s,
 		bg:       bg,
-		icon:     icon,
 		track:    track,
 		fill:     fill,
 		sizeText: sizeText,
-		objs:     []fyne.CanvasObject{bg, icon, track, fill, sizeText},
+		objs:     []fyne.CanvasObject{bg, track, fill, sizeText},
 	}
 }
 
 type storageProgressBarRenderer struct {
 	s        *StorageProgressBar
 	bg       *canvas.Rectangle
-	icon     *canvas.Image
 	track    *canvas.Rectangle
 	fill     *canvas.Rectangle
 	sizeText *canvas.Text
@@ -106,8 +100,6 @@ type storageProgressBarRenderer struct {
 const (
 	padH         = float32(8)
 	padV         = float32(5)
-	iconSize     = float32(20)
-	iconGap      = float32(6)
 	barHeight    = float32(4)
 	barTopOffset = float32(2)
 	textTopGap   = float32(6)
@@ -117,12 +109,7 @@ func (r *storageProgressBarRenderer) Layout(size fyne.Size) {
 	r.bg.Resize(size)
 	r.bg.Move(fyne.NewPos(0, 0))
 
-	iconX := padH
-	iconY := maxFloat32(0, (size.Height-iconSize)/2)
-	r.icon.Move(fyne.NewPos(iconX, iconY))
-	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
-
-	contentX := padH + iconSize + iconGap
+	contentX := padH
 	contentWidth := size.Width - contentX - padH
 	if contentWidth < 0 {
 		contentWidth = 0
@@ -168,7 +155,7 @@ func (r *storageProgressBarRenderer) MinSize() fyne.Size {
 		textWidth = 1
 	}
 
-	width := iconSize + iconGap + textWidth + padH*2
+	width := textWidth + padH*2
 	height := padV + barHeight + textTopGap + measure.MinSize().Height + padV
 	return fyne.NewSize(width, height)
 }
@@ -179,7 +166,6 @@ func (r *storageProgressBarRenderer) Refresh() {
 	r.bg.FillColor = t.Color(theme.ColorNameButton, variant)
 	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
 	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
-	r.icon.Resource = assets.MemoryChipIcon
 
 	fg := t.Color(theme.ColorNameForeground, variant)
 	r.sizeText.Color = fg
@@ -198,7 +184,6 @@ func (r *storageProgressBarRenderer) Refresh() {
 	}
 
 	canvas.Refresh(r.bg)
-	canvas.Refresh(r.icon)
 	canvas.Refresh(r.track)
 	canvas.Refresh(r.fill)
 	canvas.Refresh(r.sizeText)
