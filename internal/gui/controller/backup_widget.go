@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sync/atomic"
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -20,6 +21,8 @@ type BackupWidget struct {
 	sdSpaceInfo           *models.ISOSpaceInfo // Информация о месте на SD-карте (iso/data/backup)
 	currentFlash          *models.LocalDrive   // Актуальная бэкап флешка
 	currentFlashConnected bool                 // Подключена ли бэкап-флешка (mtp:data)
+	loadingCurrentFlash   atomic.Bool
+	loadingSnapshots      atomic.Bool
 	usbClient             *api.USBClient
 	hostEntry             *widget.Entry
 	updateStatus          func() // Callback для обновления статуса

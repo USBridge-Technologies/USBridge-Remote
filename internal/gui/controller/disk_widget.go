@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -58,11 +59,15 @@ type DiskWidget struct {
 	preferredMouseMode    string
 	observedMouseMode     string
 	loadingLocalDrives    atomic.Bool
+	loadingLocalFiles     atomic.Bool
 	loadingVideoDevices   atomic.Bool
 	loadingMountedInfo    atomic.Bool
 	devicesRefreshPending atomic.Bool
+	devicesRefreshQueued  atomic.Bool
 	userOperationInFlight atomic.Bool
 	apiMountInProgress    atomic.Bool
+	refreshMu             sync.Mutex
+	lastDevicesRefresh    time.Time
 
 	// Сервисы
 	nbdServers   map[string]service.NBDRunner // Карта NBD (go-nbd или qemu-nbd) по именам экспортов
@@ -871,9 +876,7 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadLocalDrives()
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
-	dw.combineDrives()
 	dw.loadMountedDevices()
-	dw.requestDevicesRefresh()
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {
@@ -883,12 +886,50 @@ func (dw *DiskWidget) requestDevicesRefresh() {
 	if !dw.devicesRefreshPending.CompareAndSwap(false, true) {
 		return
 	}
-	fyne.Do(func() {
-		defer dw.devicesRefreshPending.Store(false)
-		if dw.devicesList != nil {
-			dw.devicesList.Refresh()
-		}
-	})
+
+	delay := dw.nextDevicesRefreshDelay()
+	runRefresh := func() {
+		fyne.Do(func() {
+			defer dw.devicesRefreshPending.Store(false)
+			if dw.devicesList != nil {
+				dw.markDevicesRefresh()
+				dw.devicesList.Refresh()
+			}
+		})
+	}
+	if delay <= 0 {
+		runRefresh()
+		return
+	}
+
+	time.AfterFunc(delay, runRefresh)
+}
+
+func (dw *DiskWidget) nextDevicesRefreshDelay() time.Duration {
+	const mobileRefreshInterval = 120 * time.Millisecond
+
+	if !fyne.CurrentDevice().IsMobile() {
+		return 0
+	}
+
+	dw.refreshMu.Lock()
+	defer dw.refreshMu.Unlock()
+
+	if dw.lastDevicesRefresh.IsZero() {
+		return 0
+	}
+
+	elapsed := time.Since(dw.lastDevicesRefresh)
+	if elapsed >= mobileRefreshInterval {
+		return 0
+	}
+	return mobileRefreshInterval - elapsed
+}
+
+func (dw *DiskWidget) markDevicesRefresh() {
+	dw.refreshMu.Lock()
+	dw.lastDevicesRefresh = time.Now()
+	dw.refreshMu.Unlock()
 }
 
 // GetContainer возвращает контейнер виджета
@@ -1027,15 +1068,13 @@ func (dw *DiskWidget) startPeriodicRefresh() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			// Обновляем данные через API и локальные файлы
-			dw.updateUIAsync(func() {
-				dw.loadLocalDrives()
-				dw.loadLocalFiles()
-				dw.loadVideoDevices()
-				dw.combineDrives()
-				dw.loadMountedDevices()
-				dw.requestDevicesRefresh()
-			})
+			if !dw.devicesRefreshQueued.CompareAndSwap(false, true) {
+				continue
+			}
+			go func() {
+				defer dw.devicesRefreshQueued.Store(false)
+				dw.Refresh()
+			}()
 		}
 	}()
 }

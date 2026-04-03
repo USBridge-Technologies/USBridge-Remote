@@ -102,42 +102,55 @@ func (dw *DiskWidget) updateSDStorageInfo() {
 
 // loadLocalFiles загружает локальные файлы из папки isos
 func (dw *DiskWidget) loadLocalFiles() {
-	var foundFiles []*models.DiskInfo
+	if !dw.loadingLocalFiles.CompareAndSwap(false, true) {
+		logrus.Debug("loadLocalFiles already in flight, skipping overlapping refresh")
+		return
+	}
 
-	for _, scanPath := range dw.scanPaths {
-		if _, err := os.Stat(scanPath); os.IsNotExist(err) {
-			continue
-		}
+	go func() {
+		defer dw.loadingLocalFiles.Store(false)
 
-		err := filepath.Walk(scanPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
+		var foundFiles []*models.DiskInfo
+
+		for _, scanPath := range dw.scanPaths {
+			if _, err := os.Stat(scanPath); os.IsNotExist(err) {
+				continue
 			}
 
-			if info.IsDir() {
-				return nil
-			}
-
-			if dw.isSupportedFile(path) {
-				diskInfo, err := models.NewDiskInfo(path)
+			err := filepath.Walk(scanPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
-					logrus.Errorf("Ошибка создания DiskInfo для %s: %v", path, err)
 					return nil
 				}
 
-				foundFiles = append(foundFiles, diskInfo)
+				if info.IsDir() {
+					return nil
+				}
+
+				if dw.isSupportedFile(path) {
+					diskInfo, err := models.NewDiskInfo(path)
+					if err != nil {
+						logrus.Errorf("Ошибка создания DiskInfo для %s: %v", path, err)
+						return nil
+					}
+
+					foundFiles = append(foundFiles, diskInfo)
+				}
+
+				return nil
+			})
+
+			if err != nil {
+				logrus.Errorf("Ошибка сканирования %s: %v", scanPath, err)
 			}
-
-			return nil
-		})
-
-		if err != nil {
-			logrus.Errorf("Ошибка сканирования %s: %v", scanPath, err)
 		}
-	}
 
-	dw.localFiles = foundFiles
-	logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
+		logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
+		dw.updateUIAsync(func() {
+			dw.localFiles = foundFiles
+			dw.combineDrives()
+			dw.requestDevicesRefresh()
+		})
+	}()
 }
 
 func (dw *DiskWidget) loadVideoDevices() {

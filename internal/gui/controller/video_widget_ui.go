@@ -39,76 +39,95 @@ func (vw *VideoWidget) createInterface() {
 
 // handleStartVideo обрабатывает запуск видео.
 func (vw *VideoWidget) handleStartVideo() {
-	if vw.usbClient == nil {
-		logrus.Warn("⚠️ USB client is not initialized")
-		fyne.Do(func() {
-			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
-		})
+	if !vw.beginVideoOperation() {
+		logrus.Warn("⚠️ video operation already in progress, skipping start")
 		return
 	}
+	go func() {
+		defer vw.endVideoOperation()
 
-	if vw.startDialog == nil {
-		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Parent window not set")
+		if vw.usbClient == nil {
+			logrus.Warn("⚠️ USB client is not initialized")
 			fyne.Do(func() {
-				vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
+				vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
 			})
 			return
 		}
-		vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
-	}
 
-	preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
-	preferredDevicePath := ""
-	if preferredErr == nil {
-		preferredDevicePath = preferredConfig.DevicePath
-	}
+		fyne.Do(func() {
+			if vw.statusLabel != nil {
+				vw.statusLabel.SetText(i18n.Current.VideoWaitingConnection)
+			}
+		})
 
-	videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
+		if vw.startDialog == nil {
+			if vw.parentWindow == nil {
+				logrus.Warn("⚠️ Parent window not set")
+				fyne.Do(func() {
+					vw.statusLabel.SetText(i18n.Current.ErrorWindowNotInit)
+				})
+				return
+			}
+			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
+		}
 
-	defaultWidth := 800
-	defaultHeight := 600
-	defaultFPS := 30
-	defaultBitrate := "2M"
-	if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
-		if cfg.VideoWidth > 0 {
-			defaultWidth = cfg.VideoWidth
+		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()
+		preferredDevicePath := ""
+		if preferredErr == nil {
+			preferredDevicePath = preferredConfig.DevicePath
 		}
-		if cfg.VideoHeight > 0 {
-			defaultHeight = cfg.VideoHeight
-		}
-		if cfg.VideoFPS > 0 {
-			defaultFPS = cfg.VideoFPS
-		}
-		if cfg.VideoBitrate > 0 {
-			defaultBitrate = fmt.Sprintf("%dK", cfg.VideoBitrate)
-		}
-	}
-	if videoInfo != nil {
-		if videoInfo.Width > 0 {
-			defaultWidth = videoInfo.Width
-		}
-		if videoInfo.Height > 0 {
-			defaultHeight = videoInfo.Height
-		}
-		if videoInfo.FPS > 0 {
-			defaultFPS = videoInfo.FPS
-		}
-		if videoInfo.Bitrate != "" {
-			defaultBitrate = videoInfo.Bitrate
-		}
-	}
 
-	vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
-	vw.startDialog.SetDeviceLabel("")
-	vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
-	vw.startDialog.SetExtraAction("", nil)
-	vw.startDialog.Show(func(request *models.VideoStartRequest) {
-		if preferredDevicePath != "" {
-			request.VideoDevice = preferredDevicePath
+		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
+
+		defaultWidth := 800
+		defaultHeight := 600
+		defaultFPS := 30
+		defaultBitrate := "2M"
+		if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+			if cfg.VideoWidth > 0 {
+				defaultWidth = cfg.VideoWidth
+			}
+			if cfg.VideoHeight > 0 {
+				defaultHeight = cfg.VideoHeight
+			}
+			if cfg.VideoFPS > 0 {
+				defaultFPS = cfg.VideoFPS
+			}
+			if cfg.VideoBitrate > 0 {
+				defaultBitrate = fmt.Sprintf("%dK", cfg.VideoBitrate)
+			}
 		}
-		vw.handleVideoStartWithParams(request)
-	})
+		if videoInfo != nil {
+			if videoInfo.Width > 0 {
+				defaultWidth = videoInfo.Width
+			}
+			if videoInfo.Height > 0 {
+				defaultHeight = videoInfo.Height
+			}
+			if videoInfo.FPS > 0 {
+				defaultFPS = videoInfo.FPS
+			}
+			if videoInfo.Bitrate != "" {
+				defaultBitrate = videoInfo.Bitrate
+			}
+		}
+
+		fyne.Do(func() {
+			vw.startDialog.Configure(videoInfo, defaultWidth, defaultHeight, defaultFPS, defaultBitrate)
+			vw.startDialog.SetDeviceLabel("")
+			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
+			vw.startDialog.SetExtraAction("", nil)
+			vw.startDialog.Show(func(request *models.VideoStartRequest) {
+				if preferredDevicePath != "" {
+					request.VideoDevice = preferredDevicePath
+				}
+				vw.handleVideoStartWithParams(request)
+			})
+			if vw.statusLabel != nil && !vw.isStreaming {
+				vw.statusLabel.SetText("")
+			}
+		})
+	}()
 }
 
 func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.VideoInfoData {
@@ -147,9 +166,10 @@ func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequ
 		logrus.Warn("⚠️ video operation already in progress, skipping start")
 		return
 	}
-	defer vw.endVideoOperation()
-
-	vw.startVideoWithParamsInternal(request)
+	go func() {
+		defer vw.endVideoOperation()
+		vw.startVideoWithParamsInternal(request)
+	}()
 }
 
 func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRequest) {
@@ -166,21 +186,21 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 // handleStopVideo обрабатывает остановку видео.
 func (vw *VideoWidget) handleStopVideo() {
-	if vw.usbClient == nil {
-		logrus.Warn("⚠️ USB client not initialized")
-		fyne.Do(func() {
-			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
-		})
-		return
-	}
-
 	if !vw.beginVideoOperation() {
 		logrus.Warn("⚠️ video operation already in progress, skipping stop")
 		return
 	}
-	defer vw.endVideoOperation()
-
-	vw.stopVideoInternal()
+	go func() {
+		defer vw.endVideoOperation()
+		if vw.usbClient == nil {
+			logrus.Warn("⚠️ USB client not initialized")
+			fyne.Do(func() {
+				vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
+			})
+			return
+		}
+		vw.stopVideoInternal()
+	}()
 }
 
 func (vw *VideoWidget) stopVideoInternal() {
@@ -468,19 +488,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		logrus.Debugf("🖼️ [VIDEO] UI: processed %d frames", frameNum)
 	}
 
-	fyne.Do(func() {
-		mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
-		if mainWindowVisible && vw.videoCanvas != nil {
-			vw.videoCanvas.Image = frame
-			vw.videoCanvas.Refresh()
-		}
-		if mainWindowVisible && vw.touchpadWrapper != nil {
-			vw.touchpadWrapper.Refresh()
-		}
-		if mainWindowVisible && frameNum == 1 && vw.container != nil {
-			vw.container.Refresh()
-		}
-	})
+	vw.scheduleFrameRender(frameNum)
 }
 
 // handleFullscreen обрабатывает переключение в полноэкранный режим.
@@ -687,6 +695,7 @@ func (vw *VideoWidget) clearVideo() {
 		vw.videoCanvas.Image = nil
 		vw.videoCanvas.Refresh()
 	})
+	vw.lastUIFrameRenderAt.Store(0)
 }
 
 // GetCurrentFrame возвращает текущий кадр для полноэкранного режима.
@@ -738,4 +747,71 @@ func (vw *VideoWidget) endVideoOperation() {
 	vw.videoOpMu.Lock()
 	vw.videoOpRunning = false
 	vw.videoOpMu.Unlock()
+}
+
+func (vw *VideoWidget) scheduleFrameRender(frameNum int64) {
+	if !vw.frameRenderScheduled.CompareAndSwap(false, true) {
+		return
+	}
+	vw.scheduleFrameRenderAfter(vw.nextFrameRenderDelay())
+}
+
+func (vw *VideoWidget) scheduleFrameRenderAfter(delay time.Duration) {
+	run := func() {
+		fyne.Do(func() {
+			if nextDelay := vw.nextFrameRenderDelay(); nextDelay > 0 {
+				vw.scheduleFrameRenderAfter(nextDelay)
+				return
+			}
+			vw.renderLatestFrame()
+		})
+	}
+	if delay <= 0 {
+		run()
+		return
+	}
+	time.AfterFunc(delay, run)
+}
+
+func (vw *VideoWidget) nextFrameRenderDelay() time.Duration {
+	interval := 22 * time.Millisecond
+	if fyne.CurrentDevice().IsMobile() {
+		interval = 33 * time.Millisecond
+	}
+
+	last := vw.lastUIFrameRenderAt.Load()
+	if last == 0 {
+		return 0
+	}
+
+	elapsed := time.Since(time.Unix(0, last))
+	if elapsed >= interval {
+		return 0
+	}
+	return interval - elapsed
+}
+
+func (vw *VideoWidget) renderLatestFrame() {
+	defer vw.frameRenderScheduled.Store(false)
+
+	vw.frameMutex.RLock()
+	frame := vw.currentFrame
+	frameNum := vw.frameCount
+	vw.frameMutex.RUnlock()
+	if frame == nil {
+		return
+	}
+
+	mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
+	if mainWindowVisible && vw.videoCanvas != nil {
+		vw.videoCanvas.Image = frame
+		vw.videoCanvas.Refresh()
+	}
+	if mainWindowVisible && vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.Refresh()
+	}
+	if mainWindowVisible && frameNum == 1 && vw.container != nil {
+		vw.container.Refresh()
+	}
+	vw.lastUIFrameRenderAt.Store(time.Now().UnixNano())
 }

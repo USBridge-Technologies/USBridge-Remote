@@ -3,6 +3,7 @@ package controller
 import (
 	"image"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -44,15 +45,17 @@ type VideoWidget struct {
 	videoOpRunning   bool
 
 	// Видео поток
-	currentFrame  image.Image
-	frameMutex    sync.RWMutex
-	lastFrameTime time.Time
-	frameCount    int64
-	frameDecoder  *media.FrameDecoder
-	frameContentX float32 // нормализованная активная область кадра по X без black bars
-	frameContentY float32 // нормализованная активная область кадра по Y без black bars
-	frameContentW float32 // нормализованная ширина активной области кадра
-	frameContentH float32 // нормализованная высота активной области кадра
+	currentFrame         image.Image
+	frameMutex           sync.RWMutex
+	lastFrameTime        time.Time
+	frameCount           int64
+	frameDecoder         *media.FrameDecoder
+	frameRenderScheduled atomic.Bool
+	lastUIFrameRenderAt  atomic.Int64
+	frameContentX        float32 // нормализованная активная область кадра по X без black bars
+	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
+	frameContentW        float32 // нормализованная ширина активной области кадра
+	frameContentH        float32 // нормализованная высота активной области кадра
 
 	// Диалоги
 	fullscreenDialog *FullscreenDialog
