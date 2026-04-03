@@ -58,6 +58,7 @@ type VideoWidget struct {
 	frameDecoder         *media.FrameDecoder
 	frameRenderScheduled atomic.Bool
 	lastUIFrameRenderAt  atomic.Int64
+	forceCanvasRefresh   atomic.Bool
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра

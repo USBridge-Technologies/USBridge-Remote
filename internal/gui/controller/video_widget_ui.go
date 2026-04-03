@@ -448,8 +448,6 @@ func (vw *VideoWidget) BootstrapControlSessionAsync() {
 				return
 			}
 
-			vw.ReconcileDesiredStreaming()
-
 			ready, err := vw.controlHIDReady()
 			if err != nil {
 				logrus.Warnf("⚠️ control bootstrap: failed to inspect HID state on attempt %d/%d: %v", attempt, maxAttempts, err)
@@ -460,9 +458,12 @@ func (vw *VideoWidget) BootstrapControlSessionAsync() {
 			}
 
 			ready, err = vw.controlHIDReady()
-			if err == nil && vw.IsStreaming() && ready {
-				logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
-				return
+			if err == nil && ready {
+				vw.ReconcileDesiredStreaming()
+				if vw.IsStreaming() {
+					logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
+					return
+				}
 			}
 
 			time.Sleep(700 * time.Millisecond)
@@ -782,6 +783,7 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	if vw.usbClient != nil {
 		vw.usbClient.DisconnectMouseWebSocket()
 	}
+	vw.stopDesktopMousePolling()
 	if vw.gstreamerService != nil {
 		if err := vw.gstreamerService.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect GStreamer after device rebuild: %v", err)
@@ -791,7 +793,6 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	vw.isStreaming = false
 	vw.isGStreamerConnected = false
 	vw.isMouseConnected = false
-	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -829,6 +830,7 @@ func (vw *VideoWidget) clearVideo() {
 		vw.videoCanvas.Refresh()
 	})
 	vw.lastUIFrameRenderAt.Store(0)
+	vw.forceCanvasRefresh.Store(true)
 }
 
 // GetCurrentFrame возвращает текущий кадр для полноэкранного режима.
@@ -970,6 +972,7 @@ func (vw *VideoWidget) renderLatestFrame() {
 	}
 
 	mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
+	needsFullRefresh := vw.forceCanvasRefresh.Swap(false)
 	if mainWindowVisible && vw.videoCanvas != nil {
 		vw.videoCanvas.Image = frame
 		vw.videoCanvas.Refresh()
@@ -977,7 +980,7 @@ func (vw *VideoWidget) renderLatestFrame() {
 	if mainWindowVisible && vw.touchpadWrapper != nil {
 		vw.touchpadWrapper.Refresh()
 	}
-	if mainWindowVisible && frameNum == 1 && vw.container != nil {
+	if mainWindowVisible && (frameNum == 1 || needsFullRefresh) && vw.container != nil {
 		vw.container.Refresh()
 	}
 	vw.lastUIFrameRenderAt.Store(time.Now().UnixNano())
