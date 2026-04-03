@@ -225,7 +225,7 @@ func (mw *MainWindow) recreateContainers() {
 		mw.updateDeviceButtonsVisibility()
 		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil {
-				mw.videoWidget.RequestStreaming(true)
+				mw.videoWidget.BootstrapControlSessionAsync()
 			}
 			return
 		}
