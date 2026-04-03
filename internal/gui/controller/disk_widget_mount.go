@@ -928,6 +928,9 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			dw.preferredMouseMode = newMode
 			dw.onMouseTypeChanged(newMode)
 		}
+		if dw.onMouseModeReconfigured != nil {
+			dw.onMouseModeReconfigured()
+		}
 
 		if hasStorageRequests {
 			dw.updateUIAsync(func() {

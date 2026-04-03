@@ -129,3 +129,22 @@ func (vw *VideoWidget) setDesiredStreaming(streaming bool) {
 	vw.desiredStreaming = streaming
 	vw.videoOpMu.Unlock()
 }
+
+func (vw *VideoWidget) ReconcileDesiredStreaming() {
+	vw.videoOpMu.Lock()
+	desiredStreaming := vw.desiredStreaming
+	running := vw.videoOpRunning
+	streaming := vw.isStreaming
+	vw.videoOpMu.Unlock()
+
+	if running {
+		return
+	}
+	if desiredStreaming && !streaming {
+		vw.StartConfiguredVideoAsync()
+		return
+	}
+	if !desiredStreaming && streaming {
+		vw.StopVideoAsync()
+	}
+}

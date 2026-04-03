@@ -81,11 +81,12 @@ type DiskWidget struct {
 	supportedTypes []string
 
 	// Callback: тип манипулятора при запуске мыши (mouse/touchscreen) — для синхронизации с VideoWidget
-	onMouseTypeChanged     func(mouseType string)
-	onVideoConfigRequested func(devicePath string)
-	onVideoConnect         func(devicePath string)
-	onVideoDisconnect      func()
-	onButtonsChanged       func()
+	onMouseTypeChanged      func(mouseType string)
+	onMouseModeReconfigured func()
+	onVideoConfigRequested  func(devicePath string)
+	onVideoConnect          func(devicePath string)
+	onVideoDisconnect       func()
+	onButtonsChanged        func()
 
 	// SAF helper для Android
 	safHelper *platform.SAFHelper
@@ -664,6 +665,10 @@ func (dw *DiskWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, available,
 // SetOnMouseTypeChanged устанавливает callback при смене типа манипулятора (мышь/тачскрин) после запуска устройства.
 func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 	dw.onMouseTypeChanged = fn
+}
+
+func (dw *DiskWidget) SetOnMouseModeReconfigured(fn func()) {
+	dw.onMouseModeReconfigured = fn
 }
 
 // GetMouseMode возвращает текущий выбранный режим указателя.
