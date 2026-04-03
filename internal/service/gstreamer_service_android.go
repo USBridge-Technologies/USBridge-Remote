@@ -81,6 +81,8 @@ static volatile gboolean g_force_sw_decoder;
 static volatile gboolean g_reconnect_requested;  // TRUE = Go должен сделать Reconnect; сбрасывается в hw_frame_store_init
 static volatile gint64 g_last_rtp_packet_us;
 static volatile gint64 g_last_appsink_frame_us;
+static gchar *g_cached_h264_hw_decoder = NULL;
+static gchar *g_cached_jpeg_hw_decoder = NULL;
 
 #define PIPELINE_MODE_H264 0
 #define PIPELINE_MODE_JPEG_RTP 1
@@ -163,6 +165,315 @@ static void init_gstreamer() {
     gst_plugin_list_free(plugins);
 }
 
+static jmethodID get_optional_method_id(JNIEnv *env, jclass cls, const char *name, const char *sig) {
+    jmethodID mid = (*env)->GetMethodID(env, cls, name, sig);
+    if (!mid && (*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+    return mid;
+}
+
+static gchar* find_android_decoder_by_name_fragments(const char *required1, const char *required2);
+
+static JNIEnv* gst_android_get_attached_env(void) {
+    if (!g_gst_java_vm) return NULL;
+
+    JNIEnv *env = NULL;
+    jint rc = (*g_gst_java_vm)->GetEnv(g_gst_java_vm, (void **)&env, JNI_VERSION_1_6);
+    if (rc == JNI_OK) return env;
+    if (rc != JNI_EDETACHED) return NULL;
+    if ((*g_gst_java_vm)->AttachCurrentThread(g_gst_java_vm, &env, NULL) != JNI_OK) {
+        return NULL;
+    }
+    return env;
+}
+
+static gchar* normalize_codec_token(const gchar *value) {
+    if (!value) return NULL;
+
+    GString *out = g_string_new(NULL);
+    for (const gchar *p = value; *p; p++) {
+        if (g_ascii_isalnum(*p)) {
+            g_string_append_c(out, g_ascii_tolower(*p));
+        }
+    }
+    return g_string_free(out, FALSE);
+}
+
+static gboolean codec_name_looks_software(const gchar *name) {
+    if (!name) return TRUE;
+
+    gchar *lower = g_ascii_strdown(name, -1);
+    gboolean software =
+        strstr(lower, "google") != NULL ||
+        strstr(lower, "android") != NULL ||
+        strstr(lower, "ffmpeg") != NULL ||
+        strstr(lower, ".sw.") != NULL ||
+        strstr(lower, "sw-decoder") != NULL ||
+        strstr(lower, "software") != NULL;
+    g_free(lower);
+    return software;
+}
+
+static gboolean codec_supports_mime(JNIEnv *env, jobject codec_info, jmethodID get_supported_types, const char *mime) {
+    jobjectArray types = (jobjectArray)(*env)->CallObjectMethod(env, codec_info, get_supported_types);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        return FALSE;
+    }
+    if (!types) return FALSE;
+
+    jsize count = (*env)->GetArrayLength(env, types);
+    gboolean supported = FALSE;
+    for (jsize i = 0; i < count; i++) {
+        jstring jtype = (jstring)(*env)->GetObjectArrayElement(env, types, i);
+        if (!jtype) continue;
+        const char *ctype = (*env)->GetStringUTFChars(env, jtype, NULL);
+        if (ctype) {
+            if (g_ascii_strcasecmp(ctype, mime) == 0) {
+                supported = TRUE;
+            }
+            (*env)->ReleaseStringUTFChars(env, jtype, ctype);
+        }
+        (*env)->DeleteLocalRef(env, jtype);
+        if (supported) break;
+    }
+
+    (*env)->DeleteLocalRef(env, types);
+    return supported;
+}
+
+static gchar* choose_preferred_mediacodec_name(const char *mime) {
+    JNIEnv *env = gst_android_get_attached_env();
+    if (!env) {
+        LOGI("⚠️ Android decoder selection: JNIEnv unavailable, using registry fallback");
+        return NULL;
+    }
+
+    jclass codec_list_cls = (*env)->FindClass(env, "android/media/MediaCodecList");
+    jclass codec_info_cls = (*env)->FindClass(env, "android/media/MediaCodecInfo");
+    if (!codec_list_cls || !codec_info_cls) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        LOGI("⚠️ Android decoder selection: MediaCodecList unavailable");
+        return NULL;
+    }
+
+    jmethodID ctor = (*env)->GetMethodID(env, codec_list_cls, "<init>", "(I)V");
+    jmethodID get_codec_infos = (*env)->GetMethodID(env, codec_list_cls, "getCodecInfos", "()[Landroid/media/MediaCodecInfo;");
+    jmethodID is_encoder = (*env)->GetMethodID(env, codec_info_cls, "isEncoder", "()Z");
+    jmethodID get_name = (*env)->GetMethodID(env, codec_info_cls, "getName", "()Ljava/lang/String;");
+    jmethodID get_supported_types = (*env)->GetMethodID(env, codec_info_cls, "getSupportedTypes", "()[Ljava/lang/String;");
+    jmethodID is_hardware = get_optional_method_id(env, codec_info_cls, "isHardwareAccelerated", "()Z");
+    jmethodID is_software = get_optional_method_id(env, codec_info_cls, "isSoftwareOnly", "()Z");
+    jmethodID is_vendor = get_optional_method_id(env, codec_info_cls, "isVendor", "()Z");
+    jmethodID is_alias = get_optional_method_id(env, codec_info_cls, "isAlias", "()Z");
+
+    if (!ctor || !get_codec_infos || !is_encoder || !get_name || !get_supported_types) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        LOGI("⚠️ Android decoder selection: codec reflection incomplete");
+        return NULL;
+    }
+
+    jobject codec_list = (*env)->NewObject(env, codec_list_cls, ctor, 1);
+    if (!codec_list || (*env)->ExceptionCheck(env)) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        LOGI("⚠️ Android decoder selection: failed to instantiate MediaCodecList");
+        return NULL;
+    }
+
+    jobjectArray codec_infos = (jobjectArray)(*env)->CallObjectMethod(env, codec_list, get_codec_infos);
+    if (!codec_infos || (*env)->ExceptionCheck(env)) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, codec_list);
+        LOGI("⚠️ Android decoder selection: getCodecInfos failed");
+        return NULL;
+    }
+
+    gchar *best_hw = NULL;
+    gchar *best_vendor = NULL;
+    gchar *best_non_sw = NULL;
+    gchar *best_any = NULL;
+
+    jsize count = (*env)->GetArrayLength(env, codec_infos);
+    for (jsize i = 0; i < count; i++) {
+        jobject codec_info = (*env)->GetObjectArrayElement(env, codec_infos, i);
+        if (!codec_info) continue;
+
+        jboolean encoder = (*env)->CallBooleanMethod(env, codec_info, is_encoder);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+        if (encoder) {
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+
+        if (!codec_supports_mime(env, codec_info, get_supported_types, mime)) {
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+
+        if (is_alias) {
+            jboolean alias = (*env)->CallBooleanMethod(env, codec_info, is_alias);
+            if (!(*env)->ExceptionCheck(env) && alias) {
+                (*env)->DeleteLocalRef(env, codec_info);
+                continue;
+            }
+            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        }
+
+        jstring jname = (jstring)(*env)->CallObjectMethod(env, codec_info, get_name);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+        if (!jname) {
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+
+        const char *codec_name = (*env)->GetStringUTFChars(env, jname, NULL);
+        if (!codec_name) {
+            (*env)->DeleteLocalRef(env, jname);
+            (*env)->DeleteLocalRef(env, codec_info);
+            continue;
+        }
+
+        gboolean software = codec_name_looks_software(codec_name);
+        gboolean hardware = !software;
+        gboolean vendor = FALSE;
+
+        if (is_software) {
+            software = (*env)->CallBooleanMethod(env, codec_info, is_software);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->ExceptionClear(env);
+                software = codec_name_looks_software(codec_name);
+            }
+        }
+        if (is_hardware) {
+            hardware = (*env)->CallBooleanMethod(env, codec_info, is_hardware);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->ExceptionClear(env);
+                hardware = !software;
+            }
+        }
+        if (is_vendor) {
+            vendor = (*env)->CallBooleanMethod(env, codec_info, is_vendor);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->ExceptionClear(env);
+                vendor = FALSE;
+            }
+        }
+
+        if (strstr(codec_name, ".secure") == NULL) {
+            if (!best_any) best_any = g_strdup(codec_name);
+            if (!software && hardware && !best_hw) best_hw = g_strdup(codec_name);
+            if (!software && vendor && !best_vendor) best_vendor = g_strdup(codec_name);
+            if (!software && !best_non_sw) best_non_sw = g_strdup(codec_name);
+        }
+
+        (*env)->ReleaseStringUTFChars(env, jname, codec_name);
+        (*env)->DeleteLocalRef(env, jname);
+        (*env)->DeleteLocalRef(env, codec_info);
+    }
+
+    (*env)->DeleteLocalRef(env, codec_infos);
+    (*env)->DeleteLocalRef(env, codec_list);
+
+    gchar *selected = NULL;
+    if (best_hw) {
+        selected = g_strdup(best_hw);
+    } else if (best_vendor) {
+        selected = g_strdup(best_vendor);
+    } else if (best_non_sw) {
+        selected = g_strdup(best_non_sw);
+    } else if (best_any) {
+        selected = g_strdup(best_any);
+    }
+
+    if (selected) {
+        LOGI("✅ Android decoder selection for %s: %s", mime, selected);
+    } else {
+        LOGI("⚠️ Android decoder selection for %s: no preferred MediaCodec candidate", mime);
+    }
+
+    g_free(best_hw);
+    g_free(best_vendor);
+    g_free(best_non_sw);
+    g_free(best_any);
+    return selected;
+}
+
+static gchar* find_android_decoder_for_codec_name(const char *factory_prefix, const char *codec_name) {
+    if (!factory_prefix || !codec_name) return NULL;
+
+    gchar *normalized_codec = normalize_codec_token(codec_name);
+    if (!normalized_codec || normalized_codec[0] == '\0') {
+        g_free(normalized_codec);
+        return NULL;
+    }
+
+    GList *factories = gst_element_factory_list_get_elements(
+        GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO,
+        GST_RANK_NONE);
+
+    gchar *decoder_name = NULL;
+    for (GList *l = factories; l; l = l->next) {
+        GstElementFactory *f = (GstElementFactory *)l->data;
+        const gchar *fname = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(f));
+        if (!fname || !strstr(fname, factory_prefix)) continue;
+
+        gchar *normalized_factory = normalize_codec_token(fname);
+        gboolean matches = normalized_factory && strstr(normalized_factory, normalized_codec) != NULL;
+        g_free(normalized_factory);
+        if (!matches) continue;
+
+        decoder_name = g_strdup(fname);
+        LOGI("✅ GStreamer decoder matched: codec=%s -> factory=%s", codec_name, fname);
+        break;
+    }
+
+    gst_plugin_feature_list_free(factories);
+    g_free(normalized_codec);
+    return decoder_name;
+}
+
+static gchar* resolve_preferred_android_decoder(const char *mime, const char *factory_prefix, gchar **cache_slot) {
+    if (cache_slot && *cache_slot) {
+        return g_strdup(*cache_slot);
+    }
+
+    gchar *codec_name = choose_preferred_mediacodec_name(mime);
+    if (codec_name) {
+        gchar *factory_name = find_android_decoder_for_codec_name(factory_prefix, codec_name);
+        if (factory_name) {
+            if (cache_slot) {
+                *cache_slot = g_strdup(factory_name);
+            }
+            g_free(codec_name);
+            return factory_name;
+        }
+        LOGI("⚠️ Preferred MediaCodec %s not found in GStreamer registry, falling back to registry scan", codec_name);
+        g_free(codec_name);
+    }
+
+    gchar *fallback = find_android_decoder_by_name_fragments(factory_prefix, NULL);
+    if (fallback && cache_slot) {
+        *cache_slot = g_strdup(fallback);
+    }
+    return fallback;
+}
+
+void gst_android_reset_runtime_decoder_fallback(void) {
+    g_hw_map_fail_count = 0;
+    g_force_sw_decoder = FALSE;
+    g_reconnect_requested = FALSE;
+    LOGI("✅ Android decoder runtime fallback reset");
+}
+
 // udpsrc_probe_cb — вызывается при получении RTP пакета (диагностика)
 static GstPadProbeReturn udpsrc_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
     (void)pad;
@@ -208,6 +519,7 @@ static gchar* find_android_decoder_by_name_fragments(const char *required1, cons
         if (!fname) continue;
         if (required1 && !strstr(fname, required1)) continue;
         if (required2 && !strstr(fname, required2)) continue;
+        if (strstr(fname, "secure") != NULL) continue;
         decoder_name = g_strdup(fname);
         LOGI("✅ Android decoder found: %s", fname);
         break;
@@ -229,29 +541,34 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
         gst_object_unref(tmp_dec);
     }
 
-    // Варианты GL→CPU цепочки (от лучшего к простому):
-    // ВАЖНО: "video/x-raw" после gldownload ПРИНУДИТЕЛЬНО заставляет его выдавать
-    // системную память (без GLMemory feature). Без этого capsfilter-а gldownload может
-    // пропустить GLMemory дальше, и gst_buffer_map в appsink повиснет (нет GL-контекста).
-    //
-    // 1) glcolorconvert ! gldownload ! video/x-raw — external-oes→2D→CPU
-    // 2) gldownload ! video/x-raw — GL→CPU напрямую
-    // 3) без GL — прямой videoconvert (если decoder может выдавать video/x-raw)
+    // Варианты GL→CPU цепочки (от лучшего к простому).
+    // На ряде Qualcomm/Pixel/Samsung устройств одного "gldownload ! video/x-raw"
+    // недостаточно: appsink всё равно получает GLMemory, а gst_buffer_map падает.
+    // Поэтому сначала жёстко переводим texture-target в 2D, потом явно требуем
+    // SystemMemory после gldownload.
     const char *gl_chains[] = {
-        "glcolorconvert ! gldownload ! video/x-raw",
-        "gldownload ! video/x-raw",
+        "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
+        "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
+        "gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
         NULL  // прямой videoconvert
     };
     const char *gl_chain_names[] = {
-        "glcolorconvert+gldownload+raw",
-        "gldownload+raw",
+        "glcolorconvert+2d+download+sysmem-rgba",
+        "glcolorconvert+2d+download+sysmem",
+        "gldownload+sysmem-rgba",
         "direct"
+    };
+    const gboolean chain_needs_videoconvert[] = {
+        FALSE,
+        FALSE,
+        FALSE,
+        TRUE,
     };
 
     GstElement *pipeline = NULL;
-    for (int i = 0; i < 3; i++) {
+    for (guint i = 0; i < G_N_ELEMENTS(gl_chains); i++) {
         gchar *pipeline_str;
-        if (gl_chains[i]) {
+        if (gl_chains[i] && !chain_needs_videoconvert[i]) {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
@@ -260,8 +577,6 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
                 "h264parse config-interval=-1 ! "
                 "%s ! "
                 "%s ! "
-                "videoconvert ! "
-                "video/x-raw,format=RGBA ! "
                 "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
                 port, decoder_name, gl_chains[i]
             );
@@ -346,20 +661,28 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
     }
 
     const char *gl_chains[] = {
-        "glcolorconvert ! gldownload ! video/x-raw",
-        "gldownload ! video/x-raw",
+        "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
+        "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
+        "gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
         NULL
     };
     const char *gl_chain_names[] = {
-        "glcolorconvert+gldownload+raw",
-        "gldownload+raw",
+        "glcolorconvert+2d+download+sysmem-rgba",
+        "glcolorconvert+2d+download+sysmem",
+        "gldownload+sysmem-rgba",
         "direct"
+    };
+    const gboolean chain_needs_videoconvert[] = {
+        FALSE,
+        FALSE,
+        FALSE,
+        TRUE,
     };
 
     GstElement *pipeline = NULL;
-    for (int i = 0; i < 3; i++) {
+    for (guint i = 0; i < G_N_ELEMENTS(gl_chains); i++) {
         gchar *pipeline_str;
-        if (gl_chains[i]) {
+        if (gl_chains[i] && !chain_needs_videoconvert[i]) {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
@@ -368,8 +691,6 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
                 "jpegparse ! "
                 "%s ! "
                 "%s ! "
-                "videoconvert ! "
-                "video/x-raw,format=RGBA ! "
                 "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
                 port, decoder_name, gl_chains[i]
             );
@@ -447,7 +768,10 @@ static GstElement* create_jpeg_pipeline(int port) {
     if (g_force_sw_decoder) {
         LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем Android JPEG HW decoder");
     } else {
-        jpeg_hw_name = find_android_decoder_by_name_fragments("amc", "jpeg");
+        jpeg_hw_name = resolve_preferred_android_decoder("image/jpeg", "amc", &g_cached_jpeg_hw_decoder);
+        if (!jpeg_hw_name) {
+            jpeg_hw_name = find_android_decoder_by_name_fragments("amc", "jpeg");
+        }
     }
 
     if (jpeg_hw_name) {
@@ -596,14 +920,31 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
         return;
     }
 
-    // 3. Заполняем GL info (нужен активный контекст)
-    eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context);
+    // 3. Заполняем GL info.
+    // Для wrapped GstGLContext недостаточно одного eglMakeCurrent():
+    // нужно также уведомить сам GStreamer, что этот GstGLContext активен на текущем потоке.
+    gboolean egl_current = eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context);
+    gboolean gst_ctx_active = FALSE;
+    if (!egl_current) {
+        LOGE("⚠️ eglMakeCurrent before gst_gl_context_fill_info failed: 0x%x", eglGetError());
+    } else {
+        gst_ctx_active = gst_gl_context_activate(gl_ctx, TRUE);
+        if (!gst_ctx_active) {
+            LOGE("⚠️ gst_gl_context_activate(TRUE) failed for wrapped EGL context");
+        }
+    }
+
     GError *err = NULL;
     if (!gst_gl_context_fill_info(gl_ctx, &err)) {
         LOGI("⚠️ gst_gl_context_fill_info: %s (не критично)", err ? err->message : "?");
         if (err) g_error_free(err);
     }
-    eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (gst_ctx_active) {
+        gst_gl_context_activate(gl_ctx, FALSE);
+    }
+    if (egl_current) {
+        eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    }
 
     // 4. Устанавливаем GL display на pipeline
     GstContext *display_ctx = gst_context_new(GST_GL_DISPLAY_CONTEXT_TYPE, TRUE);
@@ -626,6 +967,40 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
 }
 
 // gst_android_prepare_hw_pipeline — bus sync + GL context перед PLAYING (вызывается из Go)
+static gboolean pipeline_needs_gl_context(GstElement *pipeline) {
+    if (!pipeline || !GST_IS_BIN(pipeline)) return FALSE;
+
+    GstIterator *it = gst_bin_iterate_elements(GST_BIN(pipeline));
+    if (!it) return FALSE;
+
+    gboolean needs_gl = FALSE;
+    GValue item = G_VALUE_INIT;
+
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        GstElement *element = GST_ELEMENT(g_value_get_object(&item));
+        if (element) {
+            GstElementFactory *factory = gst_element_get_factory(element);
+            if (factory) {
+                const gchar *fname = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory));
+                if (fname &&
+                    (strstr(fname, "amcviddec") != NULL ||
+                        strstr(fname, "glcolorconvert") != NULL ||
+                        strstr(fname, "gldownload") != NULL ||
+                        strstr(fname, "glupload") != NULL ||
+                        strstr(fname, "gl") == fname)) {
+                    needs_gl = TRUE;
+                }
+            }
+        }
+        g_value_reset(&item);
+        if (needs_gl) break;
+    }
+
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return needs_gl;
+}
+
 void gst_android_prepare_hw_pipeline(GstElement *pipeline) {
     if (!pipeline) return;
     GstBus *bus = gst_element_get_bus(pipeline);
@@ -633,7 +1008,11 @@ void gst_android_prepare_hw_pipeline(GstElement *pipeline) {
         gst_bus_set_sync_handler(bus, bus_sync_handler, pipeline, NULL);
         gst_object_unref(bus);
     }
-    apply_gl_context_to_pipeline(pipeline);
+    if (pipeline_needs_gl_context(pipeline)) {
+        apply_gl_context_to_pipeline(pipeline);
+    } else {
+        LOGI("ℹ️ Pipeline does not require GL context preconfiguration");
+    }
 }
 
 // create_pipeline создаёт pipeline для Android (HW H264/MJPEG, SW fallback)
@@ -654,7 +1033,10 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     if (g_force_sw_decoder) {
         LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем amcviddec, сразу avdec_h264");
     } else {
-        amc_name = find_android_decoder_by_name_fragments("amcviddec", NULL);
+        amc_name = resolve_preferred_android_decoder("video/avc", "amcviddec", &g_cached_h264_hw_decoder);
+        if (!amc_name) {
+            amc_name = find_android_decoder_by_name_fragments("amcviddec", NULL);
+        }
     }
 
     // 2) Пробуем HW pipeline через gst_parse_launch (amcviddec + GL chain)
@@ -1421,6 +1803,10 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	go gs.processFrames()
 
 	return nil
+}
+
+func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
+	C.gst_android_reset_runtime_decoder_fallback()
 }
 
 // uiRefreshLoop обновляет UI с последним кадром с фиксированной частотой (30fps)

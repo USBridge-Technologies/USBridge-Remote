@@ -155,14 +155,16 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		return
 	}
 
-	// 2.5 Ждём привязки udpsrc к порту (gst-launch запускается асинхронно, POST — только после готовности приёма)
-	time.Sleep(500 * time.Millisecond)
+	// 2.5 Короткая пауза, чтобы локальный RTP listener успел перейти в рабочее состояние
+	time.Sleep(150 * time.Millisecond)
 	logrus.Debugf("🔗 [VIDEO] udpsrc port=%d готов к приёму, запуск сервера...", clientPort)
 
-	// 2.6 Останавливаем предыдущий стрим на сервере (если был) — иначе FFmpeg может не перезапуститься
-	logrus.Debug("🛑 [VIDEO] POST /api/video/stop (сброс предыдущего стрима)")
-	_ = vw.usbClient.StopVideo()
-	time.Sleep(2 * time.Second)
+	// 2.6 Сбрасываем предыдущий стрим на сервере только при реальном переключении уже активного видео.
+	if wasStreaming {
+		logrus.Debug("🛑 [VIDEO] POST /api/video/stop (сброс предыдущего стрима)")
+		_ = vw.usbClient.StopVideo()
+		time.Sleep(300 * time.Millisecond)
+	}
 
 	// 3. ПОТОМ запускаем видео на сервере — Bridge FFmpeg шлёт RTP, visitor пересылает в proxy video_sudp
 	logrus.Infof("🎥 [VIDEO] Запуск video capture (mode=%s, client_port=%d)", mode, request.ClientPort)

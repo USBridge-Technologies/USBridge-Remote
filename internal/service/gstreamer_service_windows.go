@@ -1388,6 +1388,8 @@ func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 	gs.autoReconnect = enabled
 }
 
+func (gs *GStreamerService) ResetRuntimeDecoderFallback() {}
+
 // SetMaxReconnectAttempts устанавливает максимальное количество попыток переподключения
 func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.mutex.Lock()
