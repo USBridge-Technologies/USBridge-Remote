@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
+	"github.com/sirupsen/logrus"
 )
 
 // VideoWidget виджет управления видео захватом
@@ -44,6 +45,9 @@ type VideoWidget struct {
 	videoOpMu         sync.Mutex
 	videoOpRunning    bool
 	desiredStreaming  bool
+	bootstrapRunning  atomic.Bool
+	bootstrapPending  atomic.Bool
+	lastRecoveryAt    atomic.Int64
 	inputQueue        chan inputCommand
 	moveQueueMu       sync.Mutex
 	pendingMoveX      int
@@ -59,6 +63,11 @@ type VideoWidget struct {
 	frameRenderScheduled atomic.Bool
 	lastUIFrameRenderAt  atomic.Int64
 	forceCanvasRefresh   atomic.Bool
+	videoTraceSeq        atomic.Uint64
+	videoTraceID         atomic.Uint64
+	videoTraceStartedAt  atomic.Int64
+	videoTraceFirstFrame atomic.Int64
+	videoTraceFirstPaint atomic.Int64
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра
@@ -159,7 +168,76 @@ func (vw *VideoWidget) desiredStreamingState() bool {
 func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 	go func() {
 		vw.handleDeviceRebuildLocally()
+		if vw.usbClient != nil {
+			if err := vw.usbClient.StopVideo(); err != nil {
+				logrus.Warnf("⚠️ Control rebuild recovery: failed to stop server video before restart: %v", err)
+			} else {
+				logrus.Info("🛑 Control rebuild recovery: server video stopped before restart")
+			}
+		}
 		time.Sleep(250 * time.Millisecond)
 		vw.BootstrapControlSessionAsync()
 	}()
+}
+
+func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
+	traceID := vw.videoTraceSeq.Add(1)
+	startedAt := time.Now()
+	vw.videoTraceID.Store(traceID)
+	vw.videoTraceStartedAt.Store(startedAt.UnixNano())
+	vw.videoTraceFirstFrame.Store(0)
+	vw.videoTraceFirstPaint.Store(0)
+	logrus.Infof("🎯 [VideoTrace #%d] start reason=%s", traceID, reason)
+
+	time.AfterFunc(4*time.Second, func() {
+		if vw.videoTraceID.Load() != traceID {
+			return
+		}
+		startNs := vw.videoTraceStartedAt.Load()
+		if startNs == 0 {
+			return
+		}
+		start := time.Unix(0, startNs)
+		firstFrameNs := vw.videoTraceFirstFrame.Load()
+		firstPaintNs := vw.videoTraceFirstPaint.Load()
+
+		switch {
+		case firstFrameNs == 0:
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s", traceID, time.Since(start).Round(time.Millisecond))
+		case firstPaintNs == 0:
+			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
+		default:
+			logrus.Infof("✅ [VideoTrace #%d] startup path complete frame=%s paint=%s", traceID, time.Unix(0, firstFrameNs).Sub(start).Round(time.Millisecond), time.Unix(0, firstPaintNs).Sub(start).Round(time.Millisecond))
+		}
+	})
+
+	return traceID
+}
+
+func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {
+	now := time.Now().UnixNano()
+	if !vw.videoTraceFirstFrame.CompareAndSwap(0, now) {
+		return
+	}
+	traceID := vw.videoTraceID.Load()
+	startNs := vw.videoTraceStartedAt.Load()
+	if startNs == 0 {
+		logrus.Infof("🧩 [VideoTrace #%d] first client frame received frame=%d", traceID, frameNum)
+		return
+	}
+	logrus.Infof("🧩 [VideoTrace #%d] first client frame received frame=%d after %s", traceID, frameNum, time.Unix(0, now).Sub(time.Unix(0, startNs)).Round(time.Millisecond))
+}
+
+func (vw *VideoWidget) noteVideoTraceFirstPaint(frameNum int64) {
+	now := time.Now().UnixNano()
+	if !vw.videoTraceFirstPaint.CompareAndSwap(0, now) {
+		return
+	}
+	traceID := vw.videoTraceID.Load()
+	startNs := vw.videoTraceStartedAt.Load()
+	if startNs == 0 {
+		logrus.Infof("🖼️ [VideoTrace #%d] first UI paint frame=%d", traceID, frameNum)
+		return
+	}
+	logrus.Infof("🖼️ [VideoTrace #%d] first UI paint frame=%d after %s", traceID, frameNum, time.Unix(0, now).Sub(time.Unix(0, startNs)).Round(time.Millisecond))
 }

@@ -72,9 +72,28 @@ func (mw *MainWindow) showMainContent() {
 		}
 	})
 	mw.updateDeviceButtonsVisibility()
-	if mw.videoWidget != nil && mw.tabs != nil && mw.tabs.SelectedIndex() == mw.controlTabIndex() {
+	mw.scheduleControlBootstrap()
+}
+
+func (mw *MainWindow) scheduleControlBootstrap() {
+	if mw.videoWidget == nil || mw.tabs == nil {
+		return
+	}
+
+	runBootstrap := func(reason string) {
+		if mw.videoWidget == nil || mw.tabs == nil {
+			return
+		}
+		if mw.tabs.SelectedIndex() != mw.controlTabIndex() {
+			return
+		}
+		logrus.Infof("🎬 Control bootstrap trigger: %s", reason)
 		mw.videoWidget.BootstrapControlSessionAsync()
 	}
+
+	runBootstrap("main-content-immediate")
+	time.AfterFunc(350*time.Millisecond, func() { runBootstrap("main-content-delayed-350ms") })
+	time.AfterFunc(1200*time.Millisecond, func() { runBootstrap("main-content-delayed-1200ms") })
 }
 
 // handleClose handles app shutdown.

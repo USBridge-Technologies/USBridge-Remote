@@ -349,12 +349,10 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	var requests models.DeviceStartBatchRequest
 	needKeyboard := !keyboardConnected
 	needMouse := !mouseConnected || !mouseModeMatches
-	if !keyboardConnected {
+	if needKeyboard || needMouse {
 		requests = append(requests, newKeyboardStartRequest())
-	}
-	if needMouse {
 		requests = append(requests, newMouseStartRequest(desiredMouseType))
-		logrus.Infof("⌨️🖱️ Control HID auto-connect: desired=%q connected=%v mode_matches=%v", desiredMouseType, mouseConnected, mouseModeMatches)
+		logrus.Infof("⌨️🖱️ Control HID auto-connect: desired=%q keyboard_connected=%v mouse_connected=%v mode_matches=%v", desiredMouseType, keyboardConnected, mouseConnected, mouseModeMatches)
 	}
 
 	if len(requests) == 0 {
@@ -375,16 +373,16 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			continue
 		}
 
-		keyboardReady := !needKeyboard
-		mouseReady := !needMouse
+		keyboardReady := false
+		mouseReady := false
 		for _, device := range info.Devices {
 			if device.Status != "connected" {
 				continue
 			}
-			if !keyboardReady && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
+			if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
 				keyboardReady = true
 			}
-			if !mouseReady && isMouseDeviceType(device.Type) {
+			if isMouseDeviceType(device.Type) {
 				observedMode := mouseModeFromDeviceType(device.Type)
 				vw.setObservedMouseMode(observedMode)
 				mouseReady = observedMode == desiredMouseType
@@ -438,35 +436,166 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 	return keyboardConnected && mouseConnected && mouseModeMatches, nil
 }
 
+func (vw *VideoWidget) controlVideoHealthy() (bool, string) {
+	vw.videoOpMu.Lock()
+	running := vw.videoOpRunning
+	streaming := vw.isStreaming
+	vw.videoOpMu.Unlock()
+
+	if running {
+		return false, "video-op-running"
+	}
+	if !streaming {
+		return false, "video-not-streaming"
+	}
+
+	vw.frameMutex.RLock()
+	lastFrameTime := vw.lastFrameTime
+	vw.frameMutex.RUnlock()
+
+	if lastFrameTime.IsZero() {
+		return false, "no-frames-yet"
+	}
+	if time.Since(lastFrameTime) > 2500*time.Millisecond {
+		return false, "stale-frames"
+	}
+
+	stats := vw.frameDecoder.GetFrameStats()
+	if fps, ok := stats["fps"].(float64); ok && fps < 1 && time.Since(lastFrameTime) > 1500*time.Millisecond {
+		return false, "fps-zero"
+	}
+
+	return true, ""
+}
+
+func (vw *VideoWidget) noteRecoveryAttempt(reason string) bool {
+	now := time.Now()
+	last := vw.lastRecoveryAt.Load()
+	if last != 0 && now.Sub(time.Unix(0, last)) < 3*time.Second {
+		return false
+	}
+	return vw.lastRecoveryAt.CompareAndSwap(last, now.UnixNano())
+}
+
+func (vw *VideoWidget) ensureControlVideoHealthy() {
+	healthy, reason := vw.controlVideoHealthy()
+	if healthy {
+		return
+	}
+
+	switch reason {
+	case "video-op-running":
+		return
+	case "video-not-streaming":
+		if vw.noteRecoveryAttempt("start-video") {
+			logrus.Info("🎬 Control video recovery: starting configured video")
+			vw.StartConfiguredVideoAsync()
+		}
+		return
+	case "no-frames-yet":
+		// Даём новому pipeline короткое окно на первый кадр.
+		return
+	case "stale-frames", "fps-zero":
+		if !vw.noteRecoveryAttempt(reason) {
+			return
+		}
+		logrus.Warnf("⚠️ Control video recovery: restarting stalled stream (%s)", reason)
+		go func() {
+			if err := vw.StopVideoSync(); err != nil {
+				logrus.Warnf("⚠️ Control video recovery: stop failed: %v", err)
+			}
+			time.Sleep(250 * time.Millisecond)
+			vw.StartConfiguredVideoAsync()
+		}()
+	}
+}
+
+func (vw *VideoWidget) watchControlSessionHealth() {
+	if vw.usbClient == nil || !vw.desiredStreamingState() {
+		return
+	}
+	if vw.bootstrapRunning.Load() {
+		return
+	}
+
+	ready, err := vw.controlHIDReady()
+	if err != nil {
+		logrus.Debugf("control session watchdog: HID inspect failed: %v", err)
+		return
+	}
+	if !ready {
+		if vw.noteRecoveryAttempt("hid-not-ready") {
+			logrus.Warn("⚠️ Control session watchdog: HID not ready, re-running bootstrap")
+			vw.BootstrapControlSessionAsync()
+		}
+		return
+	}
+
+	if healthy, reason := vw.controlVideoHealthy(); !healthy && reason != "video-op-running" && reason != "no-frames-yet" {
+		if vw.noteRecoveryAttempt("video-" + reason) {
+			logrus.Warnf("⚠️ Control session watchdog: video unhealthy (%s), re-running bootstrap", reason)
+			vw.BootstrapControlSessionAsync()
+		}
+	}
+}
+
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
 	vw.setDesiredStreaming(true)
 
+	if !vw.bootstrapRunning.CompareAndSwap(false, true) {
+		vw.bootstrapPending.Store(true)
+		logrus.Debug("⏳ control bootstrap already running, coalescing request")
+		return
+	}
+
 	go func() {
-		const maxAttempts = 8
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			if vw.usbClient == nil || !vw.desiredStreamingState() {
-				return
-			}
+		defer vw.bootstrapRunning.Store(false)
 
-			ready, err := vw.controlHIDReady()
-			if err != nil {
-				logrus.Warnf("⚠️ control bootstrap: failed to inspect HID state on attempt %d/%d: %v", attempt, maxAttempts, err)
-			} else if !ready {
-				if hidErr := vw.ensureControlHIDDevices(); hidErr != nil {
-					logrus.Warnf("⚠️ control bootstrap: HID auto-connect attempt %d/%d failed: %v", attempt, maxAttempts, hidErr)
-				}
-			}
+		for {
+			vw.bootstrapPending.Store(false)
 
-			ready, err = vw.controlHIDReady()
-			if err == nil && ready {
-				vw.ReconcileDesiredStreaming()
-				if vw.IsStreaming() {
-					logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
+			const maxAttempts = 8
+			for attempt := 1; attempt <= maxAttempts; attempt++ {
+				if vw.usbClient == nil || !vw.desiredStreamingState() {
 					return
 				}
+
+				ready, err := vw.controlHIDReady()
+				if err != nil {
+					logrus.Warnf("⚠️ control bootstrap: failed to inspect HID state on attempt %d/%d: %v", attempt, maxAttempts, err)
+				} else if !ready {
+					if hidErr := vw.ensureControlHIDDevices(); hidErr != nil {
+						logrus.Warnf("⚠️ control bootstrap: HID auto-connect attempt %d/%d failed: %v", attempt, maxAttempts, hidErr)
+					}
+				}
+
+				ready, err = vw.controlHIDReady()
+				if err == nil && ready {
+					healthy, reason := vw.controlVideoHealthy()
+					if !healthy && reason == "video-not-streaming" {
+						vw.videoOpMu.Lock()
+						videoBusy := vw.videoOpRunning
+						vw.videoOpMu.Unlock()
+						if !videoBusy {
+							logrus.Infof("🎬 Control bootstrap: HID ready on attempt %d/%d, starting video immediately", attempt, maxAttempts)
+							vw.StartConfiguredVideoAsync()
+						}
+					} else if !healthy {
+						vw.ensureControlVideoHealthy()
+					}
+					if healthy, _ := vw.controlVideoHealthy(); healthy {
+						logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
+						break
+					}
+				}
+
+				time.Sleep(700 * time.Millisecond)
 			}
 
-			time.Sleep(700 * time.Millisecond)
+			if !vw.bootstrapPending.Load() {
+				return
+			}
+			logrus.Debug("🔁 control bootstrap rerunning coalesced request")
 		}
 	}()
 }
@@ -589,6 +718,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	}
 
 	vw.frameDecoder.IncrementFrameCount()
+	vw.noteVideoTraceFirstFrame(frameNum)
 
 	if frameNum == 1 {
 		logrus.Debug("✅ [VIDEO] Step 7: frame rendered in UI")
@@ -779,6 +909,7 @@ func (vw *VideoWidget) HandleConnectionLost() {
 
 func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	resetVideoInfoCache()
+	logrus.Infof("🔄 [VideoTrace #%d] local control rebuild reset", vw.videoTraceID.Load())
 
 	if vw.usbClient != nil {
 		vw.usbClient.DisconnectMouseWebSocket()
@@ -793,6 +924,7 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	vw.isStreaming = false
 	vw.isGStreamerConnected = false
 	vw.isMouseConnected = false
+	vw.clearVideo()
 
 	fyne.Do(func() {
 		vw.updateButtons()
@@ -823,14 +955,22 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
 	vw.frameDecoder.Reset()
+	vw.frameRenderScheduled.Store(false)
 
 	fyne.Do(func() {
 		vw.videoCanvas.Resource = nil
 		vw.videoCanvas.Image = nil
 		vw.videoCanvas.Refresh()
+		if vw.touchpadWrapper != nil {
+			vw.touchpadWrapper.Refresh()
+		}
+		if vw.container != nil {
+			vw.container.Refresh()
+		}
 	})
 	vw.lastUIFrameRenderAt.Store(0)
 	vw.forceCanvasRefresh.Store(true)
+	logrus.Infof("🧹 [VideoTrace #%d] video canvas cleared", vw.videoTraceID.Load())
 }
 
 // GetCurrentFrame возвращает текущий кадр для полноэкранного режима.
@@ -858,9 +998,7 @@ func (vw *VideoWidget) startStatsLoop() {
 		for {
 			select {
 			case <-ticker.C:
-				if !vw.IsStreaming() {
-					continue
-				}
+				vw.watchControlSessionHealth()
 				fyne.Do(func() {
 					if vw.IsStreaming() {
 						vw.updateStats()
@@ -980,8 +1118,20 @@ func (vw *VideoWidget) renderLatestFrame() {
 	if mainWindowVisible && vw.touchpadWrapper != nil {
 		vw.touchpadWrapper.Refresh()
 	}
-	if mainWindowVisible && (frameNum == 1 || needsFullRefresh) && vw.container != nil {
-		vw.container.Refresh()
+	if mainWindowVisible && (frameNum == 1 || needsFullRefresh) {
+		vw.noteVideoTraceFirstPaint(frameNum)
+		if vw.contentContainer != nil {
+			vw.contentContainer.Refresh()
+		}
+		if vw.container != nil {
+			vw.container.Refresh()
+		}
+		if vw.parentWindow != nil {
+			if content := vw.parentWindow.Content(); content != nil {
+				content.Refresh()
+				vw.parentWindow.Canvas().Refresh(content)
+			}
+		}
 	}
 	vw.lastUIFrameRenderAt.Store(time.Now().UnixNano())
 }

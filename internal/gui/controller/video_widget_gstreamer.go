@@ -81,6 +81,10 @@ func (vw *VideoWidget) handleGStreamerStateChange(state string) {
 			vw.infoLabel.SetText("⚠️ " + i18n.Current.GStreamerDisconnected)
 		case "eos":
 			vw.isGStreamerConnected = false
+			traceID := vw.videoTraceID.Load()
+			firstFrameNs := vw.videoTraceFirstFrame.Load()
+			firstPaintNs := vw.videoTraceFirstPaint.Load()
+			logrus.Warnf("⚠️ [VideoTrace #%d] GStreamer EOS first_frame=%v first_paint=%v", traceID, firstFrameNs != 0, firstPaintNs != 0)
 			vw.infoLabel.SetText("❌ " + i18n.Current.GStreamerEndOfStream)
 		}
 	})
@@ -91,6 +95,8 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	fyne.Do(func() {
 		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
 	})
+	traceID := vw.beginVideoTrace(fmt.Sprintf("mode=%s device=%s", request.VideoMode, request.VideoDevice))
+	logrus.Infof("🎯 [VideoTrace #%d] preparing GStreamer/video start", traceID)
 
 	// Если видео уже запущено, значит это переключение устройства - переподключаемся
 	wasStreaming := vw.isStreaming
