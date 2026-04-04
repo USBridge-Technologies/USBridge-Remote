@@ -897,8 +897,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 6, minGap: 2})
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
-	mountBtn, unmountBtn, addImageBtn := mw.diskWidget.GetButtons()
-	mw.deviceAddImageBtn = addImageBtn
+	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
 	mw.deviceUnmountBtn = unmountBtn
 	mw.deviceVideoBtn = view.NewDeviceActionButton(i18n.Current.VideoStreamActiveButton, nil, func() {
@@ -938,7 +937,6 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 		objects = append(objects, obj)
 	}
 
-	appendVisible(mw.deviceAddImageBtn)
 	appendVisible(mw.deviceMountBtn)
 	appendVisible(mw.deviceUnmountBtn)
 	appendVisible(mw.deviceVideoBtn)

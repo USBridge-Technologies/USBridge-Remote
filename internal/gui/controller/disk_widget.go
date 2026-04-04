@@ -223,7 +223,7 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 	cards := make([]fyne.CanvasObject, 0, len(sections))
 
 	for _, section := range sections {
-		if len(section.indexes) == 0 {
+		if len(section.indexes) == 0 && section.key != "storage" {
 			continue
 		}
 

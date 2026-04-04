@@ -33,7 +33,6 @@ type MainWindow struct {
 	tabs                *container.AppTabs
 	deviceButtonsPanel  *fyne.Container
 	deviceFooterBar     *fyne.Container
-	deviceAddImageBtn   fyne.CanvasObject
 	deviceMountBtn      fyne.CanvasObject
 	deviceUnmountBtn    fyne.CanvasObject
 	deviceVideoBtn      *view.DeviceActionButton
