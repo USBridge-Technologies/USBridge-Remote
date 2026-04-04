@@ -784,6 +784,10 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 			t.videoWidget.enqueueMouseMove(dx, dy)
 		}
 	} else {
+		if t.videoWidget.IsAbsoluteLikeInputMode() {
+			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+			t.videoWidget.SendAbsolutePosition(x, y, false)
+		}
 		t.videoWidget.currentMouseX = ev.Position.X
 		t.videoWidget.currentMouseY = ev.Position.Y
 	}
