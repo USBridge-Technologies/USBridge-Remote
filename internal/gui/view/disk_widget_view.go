@@ -831,6 +831,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	statusDot := canvas.NewCircle(design.ColorTextMuted)
 	statusDotWrap := container.NewGridWrap(fyne.NewSize(12, 12), statusDot)
 	statusWrap := container.NewGridWrap(fyne.NewSize(18, 18), container.NewCenter(statusDotWrap))
+	statusInfo := container.New(&sectionHeaderInlineLayout{gap: 6}, statusLabel, statusWrap)
 
 	roRwBtn := widget.NewButton("RO", nil)
 	roRwBtn.Hide()
@@ -863,7 +864,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	settingsBtn := NewDeviceActionButton("Config", assets.ConfigVerticalIcon, nil)
 	settingsBtn.Hide()
 
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusWrap)
+	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusInfo)
 	left := container.NewMax(container.NewCenter(checkboxWrap), container.NewCenter(captureSelector))
 
 	root := container.New(&deviceRowLayout{gap: 6}, left, center, right)

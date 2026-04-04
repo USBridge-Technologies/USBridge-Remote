@@ -1208,6 +1208,8 @@ type iconChromeButton struct {
 	bg      *canvas.Rectangle
 	border  *canvas.Rectangle
 	icon    *canvas.Image
+	label   *canvas.Text
+	text    string
 }
 
 func newIconChromeButton(spec iconChromeButtonSpec) *iconChromeButton {
@@ -1229,8 +1231,13 @@ func (b *iconChromeButton) CreateRenderer() fyne.WidgetRenderer {
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(b.spec.IconSize)
 
+	b.label = canvas.NewText("", design.ColorTextLight)
+	b.label.TextSize = 12
+	b.label.TextStyle = fyne.TextStyle{Bold: true}
+	b.label.Alignment = fyne.TextAlignCenter
+
 	b.refreshVisuals()
-	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.icon), b.border))
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.icon), container.NewCenter(b.label), b.border))
 }
 
 func (b *iconChromeButton) MinSize() fyne.Size {
@@ -1269,6 +1276,11 @@ func (b *iconChromeButton) SetIcons(normalIcon fyne.Resource, hoverIcon fyne.Res
 	b.refreshVisuals()
 }
 
+func (b *iconChromeButton) SetText(text string) {
+	b.text = text
+	b.refreshVisuals()
+}
+
 func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
 	if b.spec.Disabled {
 		return
@@ -1290,13 +1302,15 @@ func (b *iconChromeButton) MouseOut() {
 }
 
 func (b *iconChromeButton) refreshVisuals() {
-	if b.bg == nil || b.border == nil || b.icon == nil {
+	if b.bg == nil || b.border == nil || b.icon == nil || b.label == nil {
 		return
 	}
 
 	b.bg.FillColor = b.spec.NormalFill
 	b.icon.Resource = b.spec.NormalIcon
 	b.icon.Translucency = 0
+	b.label.Text = b.text
+	b.label.Color = design.ColorTextLight
 	if b.spec.Disabled {
 		if b.spec.DisabledFill != nil {
 			b.bg.FillColor = b.spec.DisabledFill
@@ -1305,6 +1319,7 @@ func (b *iconChromeButton) refreshVisuals() {
 			b.icon.Resource = b.spec.DisabledIcon
 		}
 		b.icon.Translucency = 0.18
+		b.label.Color = design.ColorTextMuted
 	} else if b.hovered {
 		b.bg.FillColor = b.spec.HoverFill
 		if b.spec.HoverIcon != nil {
@@ -1312,9 +1327,18 @@ func (b *iconChromeButton) refreshVisuals() {
 		}
 	}
 
+	if b.text != "" {
+		b.icon.Hide()
+		b.label.Show()
+	} else {
+		b.icon.Show()
+		b.label.Hide()
+	}
+
 	b.bg.Refresh()
 	b.border.Refresh()
 	b.icon.Refresh()
+	b.label.Refresh()
 }
 
 func NewFooterIconButton(normalIcon fyne.Resource, hoverIcon fyne.Resource, iconSize fyne.Size, onTapped func()) fyne.CanvasObject {

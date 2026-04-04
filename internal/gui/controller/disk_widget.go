@@ -423,15 +423,22 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		uploadBtn.Show()
 		if drive.IsUploading || controlsLocked {
 			uploadBtn.SetIcons(assets.UploadIconMuted, assets.UploadIconMuted, assets.UploadIconMuted)
+			if drive.IsUploading {
+				uploadBtn.SetText(fmt.Sprintf("%.0f%%", drive.UploadProgress))
+			} else {
+				uploadBtn.SetText("")
+			}
 			uploadBtn.SetDisabled(true)
 		} else {
 			uploadBtn.SetIcons(assets.UploadIcon, assets.UploadIcon, assets.UploadIconMuted)
+			uploadBtn.SetText("")
 			uploadBtn.SetDisabled(false)
 			uploadBtn.SetOnTapped(func() {
 				dw.handleUploadImage(id)
 			})
 		}
 	} else {
+		uploadBtn.SetText("")
 		uploadBtn.Hide()
 	}
 
