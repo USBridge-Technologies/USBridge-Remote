@@ -1800,9 +1800,9 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 
 	logrus.Infof("✅ Android: GStreamer подключен к UDP видеопотоку mode=%s", gs.videoMode)
 
-	// Запускаем UI refresh (30fps, не тормозит main thread)
-	go gs.uiRefreshLoop()
-	// Запускаем обработку кадров (получение из appsink)
+	// Запускаем обработку кадров (получение из appsink).
+	// Доставку в UI делаем напрямую отсюда, чтобы не было второго таймера,
+	// который раньше сдвигался относительно ingress-throttle и резал FPS вдвое.
 	go gs.processFrames()
 
 	return nil
@@ -1810,45 +1810,6 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 
 func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
 	C.gst_android_reset_runtime_decoder_fallback()
-}
-
-// uiRefreshLoop обновляет UI с последним кадром с фиксированной частотой (30fps)
-// Не блокирует main thread — только один fyne.Do в 33ms
-func (gs *GStreamerService) uiRefreshLoop() {
-	timer := time.NewTimer(gs.targetFrameInterval())
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-gs.stopChan:
-			return
-		case <-timer.C:
-			nextInterval := gs.targetFrameInterval()
-
-			gs.latestFrameMu.Lock()
-			img := gs.latestFrame
-			meta := gs.latestFrameMeta
-			gs.latestFrame = nil
-			gs.latestFrameMeta = videoLatencyFrameMeta{}
-			gs.latestFrameMu.Unlock()
-
-			if img == nil {
-				timer.Reset(nextInterval)
-				continue
-			}
-
-			gs.mutex.RLock()
-			callback := gs.onFrameReceived
-			gs.mutex.RUnlock()
-
-			if callback != nil {
-				gs.recordUIDelay(time.Since(meta.producedAt), meta, "Android")
-				callback(img)
-			}
-
-			timer.Reset(nextInterval)
-		}
-	}
 }
 
 // processFrames обрабатывает видео кадры из GStreamer (callback mode).
@@ -1950,11 +1911,12 @@ func (gs *GStreamerService) processFrames() {
 		w := int(width)
 		h := int(height)
 
-		// Не тратим CPU на копирование каждого входящего кадра, если свежий кадр
-		// уже ожидает отрисовки и целевая частота UI его все равно не покажет.
+		// Низкая задержка: держим один limiter на пути Android decode -> UI.
+		// Если с прошлого доставленного кадра прошло меньше целевого интервала,
+		// этот кадр просто пропускаем до дорогостоящего копирования.
 		queueInterval := gs.targetFrameInterval()
-		lastQueued := gs.lastQueuedFrame.Load()
-		if lastQueued != 0 && now.Sub(time.Unix(0, lastQueued)) < queueInterval {
+		lastDelivered := gs.lastQueuedFrame.Load()
+		if lastDelivered != 0 && now.Sub(time.Unix(0, lastDelivered)) < queueInterval {
 			C.g_free(C.gpointer(data))
 			gs.mutex.Lock()
 			gs.frameDropCount++
@@ -1997,13 +1959,17 @@ func (gs *GStreamerService) processFrames() {
 			logrus.Infof("📊 Android: Кадр #%d обработан (callback mode)", currentCount)
 		}
 
-		// Сохраняем последний кадр — uiRefreshLoop заберёт и отправит в UI
-		gs.latestFrameMu.Lock()
-		gs.latestFrame = img
-		gs.latestFrameMeta = meta
-		gs.latestFrameMu.Unlock()
-		gs.lastQueuedFrame.Store(producedAt.UnixNano())
 		gs.recordIngressLatency(meta)
+
+		gs.mutex.RLock()
+		callback := gs.onFrameReceived
+		gs.mutex.RUnlock()
+
+		if callback != nil {
+			gs.recordUIDelay(time.Since(meta.producedAt), meta, "Android")
+			callback(img)
+			gs.lastQueuedFrame.Store(time.Now().UnixNano())
+		}
 	}
 }
 

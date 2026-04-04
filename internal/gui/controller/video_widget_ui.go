@@ -727,7 +727,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		logrus.Debugf("🖼️ [VIDEO] UI: processed %d frames", frameNum)
 	}
 
-	vw.scheduleFrameRender(frameNum)
+	vw.scheduleFrameRender()
 }
 
 // handleFullscreen обрабатывает переключение в полноэкранный режим.
@@ -1037,75 +1037,22 @@ func (vw *VideoWidget) endVideoOperation() {
 	}
 }
 
-func (vw *VideoWidget) scheduleFrameRender(frameNum int64) {
+func (vw *VideoWidget) scheduleFrameRender() {
 	if !vw.frameRenderScheduled.CompareAndSwap(false, true) {
 		return
 	}
-	vw.scheduleFrameRenderAfter(vw.nextFrameRenderDelay())
-}
-
-func (vw *VideoWidget) scheduleFrameRenderAfter(delay time.Duration) {
-	run := func() {
-		fyne.Do(func() {
-			if nextDelay := vw.nextFrameRenderDelay(); nextDelay > 0 {
-				vw.scheduleFrameRenderAfter(nextDelay)
-				return
-			}
-			vw.renderLatestFrame()
-		})
-	}
-	if delay <= 0 {
-		run()
-		return
-	}
-	time.AfterFunc(delay, run)
-}
-
-func (vw *VideoWidget) nextFrameRenderDelay() time.Duration {
-	interval := vw.targetUIFrameInterval()
-
-	last := vw.lastUIFrameRenderAt.Load()
-	if last == 0 {
-		return 0
-	}
-
-	elapsed := time.Since(time.Unix(0, last))
-	if elapsed >= interval {
-		return 0
-	}
-	return interval - elapsed
-}
-
-func (vw *VideoWidget) targetUIFrameInterval() time.Duration {
-	targetFPS := 45
-	if fyne.CurrentDevice().IsMobile() {
-		targetFPS = 30
-	}
-
-	if vw.gstreamerService != nil {
-		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoFPS > 0 {
-			targetFPS = cfg.VideoFPS
-		}
-	}
-
-	switch {
-	case targetFPS < 15:
-		targetFPS = 15
-	case targetFPS > 60:
-		targetFPS = 60
-	}
-
-	return time.Second / time.Duration(targetFPS)
+	fyne.Do(func() {
+		vw.renderLatestFrame()
+	})
 }
 
 func (vw *VideoWidget) renderLatestFrame() {
-	defer vw.frameRenderScheduled.Store(false)
-
 	vw.frameMutex.RLock()
 	frame := vw.currentFrame
 	frameNum := vw.frameCount
 	vw.frameMutex.RUnlock()
 	if frame == nil {
+		vw.frameRenderScheduled.Store(false)
 		return
 	}
 
@@ -1134,4 +1081,12 @@ func (vw *VideoWidget) renderLatestFrame() {
 		}
 	}
 	vw.lastUIFrameRenderAt.Store(time.Now().UnixNano())
+	vw.frameRenderScheduled.Store(false)
+
+	vw.frameMutex.RLock()
+	hasNewerFrame := vw.currentFrame != nil && vw.frameCount != frameNum
+	vw.frameMutex.RUnlock()
+	if hasNewerFrame {
+		vw.scheduleFrameRender()
+	}
 }

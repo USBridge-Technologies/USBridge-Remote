@@ -98,6 +98,20 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	traceID := vw.beginVideoTrace(fmt.Sprintf("mode=%s device=%s", request.VideoMode, request.VideoDevice))
 	logrus.Infof("🎯 [VideoTrace #%d] preparing GStreamer/video start", traceID)
 
+	if vw.gstreamerService != nil {
+		if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+			if request.VideoWidth > 0 {
+				cfg.VideoWidth = request.VideoWidth
+			}
+			if request.VideoHeight > 0 {
+				cfg.VideoHeight = request.VideoHeight
+			}
+			if request.VideoFPS > 0 {
+				cfg.VideoFPS = request.VideoFPS
+			}
+		}
+	}
+
 	// Если видео уже запущено, значит это переключение устройства - переподключаемся
 	wasStreaming := vw.isStreaming
 	if vw.gstreamerService != nil {
