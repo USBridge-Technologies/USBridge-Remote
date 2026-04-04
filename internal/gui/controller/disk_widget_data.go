@@ -259,11 +259,6 @@ func (dw *DiskWidget) combineDrives() {
 
 	// Добавляем устройства из API
 	for _, drive := range dw.localDrives {
-		displayName := drive.Name
-		// Для версионной backup флешки меняем название
-		if drive.Name == "data" && drive.SourceType == "mtp" {
-			displayName = i18n.Current.BackupFlashName
-		}
 		// По умолчанию: overlay-образы (vdi/vmdk/qcow2) — RW, иначе RO
 		readOnly := true
 		if drive.SourceType != "mtp" {
@@ -275,7 +270,6 @@ func (dw *DiskWidget) combineDrives() {
 				readOnly = ro
 			}
 		}
-		_ = displayName
 		item := DriveItem{
 			Name:       drive.Name,
 			Size:       drive.FormatSize(),

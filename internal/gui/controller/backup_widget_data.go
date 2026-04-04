@@ -33,7 +33,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 		}
 
 		for _, drive := range localDrives.Drives {
-			if drive.SourceType == "mtp" {
+			if drive.SourceType == "mtp" && drive.Name == "data" {
 				bw.currentFlash = &drive
 				logrus.Infof("✅ Найдена актуальная бэкап флешка: %s", drive.Name)
 				break

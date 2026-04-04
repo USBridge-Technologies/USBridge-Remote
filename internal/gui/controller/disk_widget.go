@@ -637,13 +637,23 @@ func (dw *DiskWidget) deviceRowText(drive DriveItem) string {
 	}
 
 	if drive.Source == "api" && drive.LocalDrive != nil {
-		name := strings.TrimSpace(drive.LocalDrive.Name)
+		name := strings.TrimSpace(dw.localizedAPIDriveName(drive.LocalDrive))
 		if name == "" {
 			name = drive.Name
 		}
 		return name
 	}
 
+	return drive.Name
+}
+
+func (dw *DiskWidget) localizedAPIDriveName(drive *models.LocalDrive) string {
+	if drive == nil {
+		return ""
+	}
+	if drive.Name == "data" && drive.SourceType == "mtp" {
+		return i18n.Current.BackupFlashName
+	}
 	return drive.Name
 }
 

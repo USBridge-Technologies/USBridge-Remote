@@ -141,7 +141,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingFlash, bw.currentFlash.Name))
 
 	go func() {
-		batchRequest := bw.buildDeviceBatchWithMTP(bw.currentFlash.Name, "BackupDrive")
+		batchRequest := bw.buildDeviceBatchWithMTP("data", "BackupDrive")
 		logrus.Infof("🚀 Запуск монтирования актуальной флешки как MTP: %s (с сохранением остальных устройств)", bw.currentFlash.Name)
 
 		deviceResp, err := bw.usbClient.StartDevicesBatch(batchRequest)
