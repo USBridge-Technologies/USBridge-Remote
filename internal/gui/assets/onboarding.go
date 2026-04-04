@@ -90,6 +90,7 @@ var (
 	QRCodeAccent               = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-accent.svg", recolorStrokeIcon(qrCodeIcon, "#b6ea93", "1.3"))
 	QRCodeBoldBlack            = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-black.svg", recolorStrokeIcon(qrCodeIcon, "#111111", "1.3"))
 	ServerConnectIcon          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas.svg", serverConnectIcon)
+	ServerConnectMuted         = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-muted.svg", boldenServerIcon(serverConnectIcon, "#656565", "1.9"))
 	ServerConnectBold          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-bold.svg", boldenServerIcon(serverConnectIcon, "#111111", "1.9"))
 	ServerConnectGlow          = fyne.NewStaticResource("Server-Connect--Streamline-Atlas-accent-hover.svg", boldenServerIcon(serverConnectIcon, "#b6ea93", "1.9"))
 	USBTabIcon                 = fyne.NewStaticResource("usb-svgrepo-com.svg", recolorFillIcon(usbTabIcon, "#F5F5F5"))

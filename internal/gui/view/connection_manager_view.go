@@ -825,7 +825,6 @@ func (b *outlinedActionButton) refreshVisuals() {
 	b.bg.FillColor = color.Transparent
 	b.label.Color = design.ColorTextMuted
 	if b.disabled {
-		b.bg.FillColor = connectionActionBlockedFill
 		b.label.Color = design.ColorBorder
 	} else if b.hovered {
 		b.bg.FillColor = design.ColorSurfaceLight

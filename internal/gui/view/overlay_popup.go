@@ -14,10 +14,12 @@ type OverlayPopupSpec struct {
 	Panel     fyne.CanvasObject
 	DimColor  color.Color
 	PanelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
+	PanelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
 }
 
 type overlayPopupLayout struct {
 	panelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
+	panelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
 }
 
 func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -49,7 +51,26 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 		panelSize.Height = 0
 	}
 
-	panel.Move(fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2))
+	panelPos := fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2)
+	if l.panelPos != nil {
+		panelPos = l.panelPos(size, panelSize)
+	}
+	if panelPos.X < 0 {
+		panelPos.X = 0
+	}
+	if panelPos.Y < 0 {
+		panelPos.Y = 0
+	}
+	maxX := size.Width - panelSize.Width
+	maxY := size.Height - panelSize.Height
+	if panelPos.X > maxX {
+		panelPos.X = maxX
+	}
+	if panelPos.Y > maxY {
+		panelPos.Y = maxY
+	}
+
+	panel.Move(panelPos)
 	panel.Resize(panelSize)
 }
 
@@ -68,7 +89,7 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	}
 
 	dim := canvas.NewRectangle(dimColor)
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize}, dim, spec.Panel)
+	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, dim, spec.Panel)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())

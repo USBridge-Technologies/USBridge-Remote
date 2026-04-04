@@ -127,9 +127,9 @@ func (mw *MainWindow) refreshConnectionControls() {
 
 		if !hasHost {
 			spec.Fill = color.Transparent
-			spec.Foreground = design.ColorAccentHover
-			spec.Icon = assets.ServerConnectGlow
-			spec.Stroke = design.ColorAccentHover
+			spec.Foreground = design.ColorBorder
+			spec.Icon = assets.ServerConnectMuted
+			spec.Stroke = design.ColorBorder
 			spec.StrokeWidth = 1
 		}
 		if mw.isConnectionLoading {
@@ -215,9 +215,9 @@ func (mw *MainWindow) recreateContainers() {
 	snapshotsTabTitle := "Snapshots"
 
 	mw.tabs = container.NewAppTabs(
-		container.NewTabItemWithIcon(controlTabTitle, assets.MonitorTabIcon, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
-		container.NewTabItemWithIcon(devicesTabTitle, assets.USBTabIcon, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
-		container.NewTabItemWithIcon(snapshotsTabTitle, assets.SnapshotsTabIcon, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
+		container.NewTabItem(controlTabTitle, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
@@ -296,7 +296,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	}
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
-	middleGroup := container.New(&centeredInlineLayout{gap: 12, minGap: 6}, mw.sdStorageProgress, mw.statusPanel)
+	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		mw.pcpanelWidget.GetContainer(),
@@ -859,11 +859,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.connectionIcon.Importance = widget.LowImportance
 	mw.nbdIcon = widget.NewButton("💿", func() {})
 	mw.nbdIcon.Importance = widget.LowImportance
-	mw.videoIcon = widget.NewButton("0", func() {})
-	mw.videoIcon.OnTapped = func() {
+	mw.videoIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
 		mw.showVideoMenu()
-	}
-	mw.videoIcon.Importance = widget.LowImportance
+	})
+	mw.videoIcon.Hide()
 	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowCurrentVideoSettings(false)
@@ -879,14 +878,17 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		}
 	})
 	mw.keyboardIcon.Importance = widget.LowImportance
+	mw.keyboardIcon.Hide()
 	mw.mouseIcon = widget.NewButtonWithIcon("", assets.MouseIcon, func() {
 		mw.showMouseModeMenu()
 	})
 	mw.mouseIcon.Importance = widget.LowImportance
+	mw.mouseIcon.Hide()
 	mw.rndisIcon = widget.NewButtonWithIcon("", assets.NetworkIcon, func() {
 		mw.showRNDISModeMenu()
 	})
 	mw.rndisIcon.Importance = widget.LowImportance
+	mw.rndisIcon.Hide()
 	mw.cdromIcon = widget.NewButton("💿", func() {})
 	mw.cdromIcon.Importance = widget.LowImportance
 	mw.backupIcon = widget.NewButton("🛡️", func() {})
@@ -894,7 +896,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.snapshotIcon = widget.NewButton("📸", func() {})
 	mw.snapshotIcon.Importance = widget.LowImportance
 
-	mw.statusPanel = container.New(&centeredInlineLayout{gap: 6, minGap: 2})
+	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
@@ -1050,32 +1052,40 @@ func (mw *MainWindow) updateStatusBar() {
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIconActive)
+				mw.keyboardIcon.Show()
 			} else {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
+				mw.keyboardIcon.Hide()
 			}
 			mw.keyboardIcon.Refresh()
 		}
 		if mw.mouseIcon != nil {
 			if mouseConnected {
 				mw.mouseIcon.SetIcon(assets.MouseIconActive)
+				mw.mouseIcon.Show()
 			} else {
 				mw.mouseIcon.SetIcon(assets.MouseIcon)
+				mw.mouseIcon.Hide()
 			}
 			mw.mouseIcon.Refresh()
 		}
-		if mw.captureIcon != nil {
+		if mw.videoIcon != nil {
 			if videoStreaming {
-				mw.captureIcon.SetIcon(assets.CameraIconActive)
+				mw.videoIcon.SetIcon(assets.CameraIconActive)
+				mw.videoIcon.Show()
 			} else {
-				mw.captureIcon.SetIcon(assets.CameraIcon)
+				mw.videoIcon.SetIcon(assets.CameraIcon)
+				mw.videoIcon.Hide()
 			}
-			mw.captureIcon.Refresh()
+			mw.videoIcon.Refresh()
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
 				mw.rndisIcon.SetIcon(assets.NetworkIconActive)
+				mw.rndisIcon.Show()
 			} else {
 				mw.rndisIcon.SetIcon(assets.NetworkIcon)
+				mw.rndisIcon.Hide()
 			}
 			mw.rndisIcon.Refresh()
 		}
@@ -1101,14 +1111,13 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		return
 	}
 
-	label := "0"
+	label := ""
 	if mw.currentVideoFPS > 0 {
 		label = fmt.Sprintf("%.0f", math.Round(mw.currentVideoFPS))
 	}
 
 	fyne.Do(func() {
-		mw.videoIcon.SetText(label)
-		mw.videoIcon.Refresh()
+		mw.videoIcon.SetBadgeText(label)
 	})
 }
 

@@ -47,6 +47,7 @@ type connectionDialogSecondaryButton struct {
 	labelText      string
 	onTapped       func()
 	hovered        bool
+	fillColor      color.Color
 	borderColor    color.Color
 	textColor      color.Color
 	hoverFillColor color.Color
@@ -59,12 +60,47 @@ type connectionDialogSecondaryButton struct {
 	icon           *canvas.Image
 }
 
+type connectionDialogPrimaryButton struct {
+	widget.BaseWidget
+
+	labelText      string
+	onTapped       func()
+	hovered        bool
+	fillColor      color.Color
+	hoverFillColor color.Color
+	textColor      color.Color
+	iconRes        fyne.Resource
+	bg             *canvas.Rectangle
+	label          *canvas.Text
+	icon           *canvas.Image
+}
+
+type connectionDialogEntry struct {
+	widget.Entry
+
+	onFocusChanged func(bool)
+}
+
 func (cm *ConnectionManager) setLanguage(langCode string) {
 	cm.app.Preferences().SetString("language", langCode)
 	i18n.SetLanguage(langCode)
 	logrus.Infof("Language changed to: %s", langCode)
 	if cm.onLanguageChange != nil {
 		cm.onLanguageChange()
+	}
+}
+
+func (e *connectionDialogEntry) FocusGained() {
+	e.Entry.FocusGained()
+	if e.onFocusChanged != nil {
+		e.onFocusChanged(true)
+	}
+}
+
+func (e *connectionDialogEntry) FocusLost() {
+	e.Entry.FocusLost()
+	if e.onFocusChanged != nil {
+		e.onFocusChanged(false)
 	}
 }
 
@@ -78,6 +114,7 @@ func newConnectionDialogSecondaryButton(label string, onTapped func()) *connecti
 	btn := &connectionDialogSecondaryButton{
 		labelText:      label,
 		onTapped:       onTapped,
+		fillColor:      color.Transparent,
 		borderColor:    design.ColorAccent,
 		textColor:      design.ColorAccent,
 		hoverFillColor: design.ColorAccent,
@@ -91,12 +128,39 @@ func newConnectionDialogDangerSecondaryButton(label string, icon fyne.Resource, 
 	btn := &connectionDialogSecondaryButton{
 		labelText:      label,
 		onTapped:       onTapped,
-		borderColor:    color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
-		textColor:      color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
-		hoverFillColor: color.NRGBA{R: 0xff, G: 0x43, B: 0x36, A: 0xff},
-		hoverTextColor: design.ColorBackground,
-		iconRes:        theme.NewErrorThemedResource(icon),
+		fillColor:      design.ColorSurfaceLight,
+		borderColor:    color.Transparent,
+		textColor:      design.ColorTextLight,
+		hoverFillColor: design.ColorBorder,
+		hoverTextColor: design.ColorTextLight,
+		iconRes:        theme.NewThemedResource(icon),
 		hoverIconRes:   theme.NewThemedResource(icon),
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func newConnectionDialogPrimaryButton(label string, icon fyne.Resource, onTapped func()) *connectionDialogPrimaryButton {
+	btn := &connectionDialogPrimaryButton{
+		labelText:      label,
+		onTapped:       onTapped,
+		fillColor:      design.ColorSurfaceLight,
+		hoverFillColor: design.ColorBorder,
+		textColor:      design.ColorTextLight,
+		iconRes:        icon,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func newConnectionDialogAccentButton(label string, icon fyne.Resource, onTapped func()) *connectionDialogPrimaryButton {
+	btn := &connectionDialogPrimaryButton{
+		labelText:      label,
+		onTapped:       onTapped,
+		fillColor:      design.ColorAccent,
+		hoverFillColor: design.ColorAccentHover,
+		textColor:      design.ColorBackground,
+		iconRes:        icon,
 	}
 	btn.ExtendBaseWidget(btn)
 	return btn
@@ -127,7 +191,7 @@ func (b *connectionDialogSecondaryButton) CreateRenderer() fyne.WidgetRenderer {
 	b.refreshVisuals()
 	content := container.NewCenter(container.NewHBox(
 		b.icon,
-		view.NewInset(b.label, 10, 0, 0, 0),
+		view.NewInset(b.label, 6, 0, 0, 0),
 	))
 	if b.iconRes == nil {
 		content = container.NewCenter(b.label)
@@ -164,8 +228,9 @@ func (b *connectionDialogSecondaryButton) refreshVisuals() {
 		return
 	}
 
-	b.bg.FillColor = color.Transparent
+	b.bg.FillColor = b.fillColor
 	b.border.StrokeColor = b.borderColor
+	b.border.StrokeWidth = 0
 	b.label.Color = b.textColor
 	b.icon.Resource = b.iconRes
 	if b.hovered {
@@ -175,9 +240,82 @@ func (b *connectionDialogSecondaryButton) refreshVisuals() {
 			b.icon.Resource = b.hoverIconRes
 		}
 	}
+	if b.borderColor != nil && b.borderColor != color.Transparent {
+		b.border.StrokeWidth = 1
+	}
 
 	b.bg.Refresh()
 	b.border.Refresh()
+	b.label.Refresh()
+	b.icon.Refresh()
+}
+
+func (b *connectionDialogPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(b.fillColor)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.label = canvas.NewText(b.labelText, b.textColor)
+	b.label.TextSize = 16
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
+
+	b.icon = canvas.NewImageFromResource(b.iconRes)
+	b.icon.FillMode = canvas.ImageFillContain
+	if b.iconRes == nil {
+		b.icon.Hide()
+	} else {
+		b.icon.SetMinSize(fyne.NewSize(18, 18))
+	}
+
+	content := container.NewCenter(container.NewHBox(
+		b.icon,
+		view.NewInset(b.label, 10, 0, 0, 0),
+	))
+	if b.iconRes == nil {
+		content = container.NewCenter(b.label)
+	}
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewMax(b.bg, content))
+}
+
+func (b *connectionDialogPrimaryButton) MinSize() fyne.Size {
+	return fyne.NewSize(0, 36)
+}
+
+func (b *connectionDialogPrimaryButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *connectionDialogPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *connectionDialogPrimaryButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogPrimaryButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *connectionDialogPrimaryButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+func (b *connectionDialogPrimaryButton) refreshVisuals() {
+	if b.bg == nil || b.label == nil || b.icon == nil {
+		return
+	}
+
+	b.bg.FillColor = b.fillColor
+	b.label.Color = b.textColor
+	b.icon.Resource = b.iconRes
+	if b.hovered {
+		b.bg.FillColor = b.hoverFillColor
+	}
+
+	b.bg.Refresh()
 	b.label.Refresh()
 	b.icon.Refresh()
 }
@@ -189,7 +327,7 @@ func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.Canvas
 	)
 }
 
-func createTokenFieldWithButtons(tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+func createTokenFieldWithButtons(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	reserve := canvas.NewRectangle(color.Transparent)
 	reserve.SetMinSize(fyne.NewSize(70, 1))
 	tokenEntry.ActionItem = reserve
@@ -199,7 +337,7 @@ func createTokenFieldWithButtons(tokenEntry *widget.Entry, window fyne.Window) f
 	return container.New(&tokenFieldOverlayLayout{rightInset: 10}, tokenEntry, actions)
 }
 
-func newTokenActionItem(tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	copyBtn := newConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := tokenEntry.Text
 		if txt != "" && window != nil {
@@ -230,7 +368,7 @@ func newTokenActionItem(tokenEntry *widget.Entry, window fyne.Window) fyne.Canva
 	return container.NewGridWrap(fyne.NewSize(54, 28), container.NewCenter(actions))
 }
 
-func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *widget.Entry, window fyne.Window) fyne.CanvasObject {
+func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	return container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogHostLabel, hostEntry),
@@ -261,7 +399,7 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 	if deleteBtn != nil && saveBtn != nil && connectBtn == nil {
 		buttonItems = append(buttonItems, deleteBtn, saveBtn)
 	} else if connectBtn != nil && saveBtn != nil && deleteBtn == nil {
-		buttonItems = append(buttonItems, saveBtn, connectBtn)
+		buttonItems = append(buttonItems, connectBtn, saveBtn)
 	} else {
 		if connectBtn != nil {
 			buttonItems = append(buttonItems, connectBtn)
@@ -321,10 +459,127 @@ func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.
 	return popup
 }
 
+func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject, keyboardActive func() bool) *widget.PopUp {
+	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+
+	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), nil)
+	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
+
+	bodyObjects := []fyne.CanvasObject{titleBar}
+	if feedback != nil {
+		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
+	}
+
+	buttonItems := make([]fyne.CanvasObject, 0, 4)
+	if deleteBtn != nil && saveBtn != nil && connectBtn == nil {
+		buttonItems = append(buttonItems, deleteBtn, saveBtn)
+	} else if connectBtn != nil && saveBtn != nil && deleteBtn == nil {
+		buttonItems = append(buttonItems, connectBtn, saveBtn)
+	} else {
+		if connectBtn != nil {
+			buttonItems = append(buttonItems, connectBtn)
+		}
+		if saveBtn != nil {
+			buttonItems = append(buttonItems, saveBtn)
+		}
+		if deleteBtn != nil {
+			buttonItems = append(buttonItems, deleteBtn)
+		}
+	}
+
+	columns := len(buttonItems)
+	if columns > 3 {
+		columns = 2
+	}
+	if columns == 0 {
+		columns = 1
+	}
+	var buttons fyne.CanvasObject
+	if columns == 2 && len(buttonItems) == 2 {
+		buttons = container.New(&connectionDialogButtonsLayout{gap: connectionDialogButtonsGap}, buttonItems...)
+	} else {
+		buttons = container.NewGridWithColumns(columns, buttonItems...)
+	}
+
+	bodyObjects = append(
+		bodyObjects,
+		view.NewInset(form, 0, 0, 16, 14),
+		buttons,
+	)
+	body := container.NewVBox(bodyObjects...)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			return connectionDialogPanelSize(panel, canvasSize)
+		},
+		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
+			centerY := (canvasSize.Height - panelSize.Height) / 2
+			if !fyne.CurrentDevice().IsMobile() || keyboardActive == nil || !keyboardActive() {
+				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, centerY)
+			}
+
+			topMargin := clampFloat32(canvasSize.Height*0.03, 16, 28)
+			bottomMargin := clampFloat32(canvasSize.Height*0.02, 12, 24)
+			keyboardHeight := clampFloat32(canvasSize.Height*0.34, 180, 320)
+			maxY := canvasSize.Height - keyboardHeight - panelSize.Height - bottomMargin
+			if maxY < topMargin {
+				maxY = topMargin
+			}
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, minFloat32(centerY, maxY))
+		},
+	})
+	closeBtn.onTapped = func() {
+		popup.Hide()
+	}
+	return popup
+}
+
 func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec connectionDialogSpec) *widget.PopUp {
-	nameEntry := newConnectionNameEntry(spec.nameValue)
-	hostEntry := newConnectionHostEntry(spec.hostValue)
-	tokenEntry := newConnectionTokenEntry(spec.tokenValue)
+	var d *widget.PopUp
+	var focusedInputs int
+	refreshPopupLayout := func() {
+		if d == nil || parent == nil {
+			return
+		}
+		size := parent.Canvas().Size()
+		fyne.Do(func() {
+			if d == nil || !d.Visible() {
+				return
+			}
+			d.Move(fyne.NewPos(0, 0))
+			d.Resize(size)
+			d.Refresh()
+		})
+	}
+	handleFocusChanged := func(focused bool) {
+		if focused {
+			focusedInputs++
+		} else if focusedInputs > 0 {
+			focusedInputs--
+		}
+		refreshPopupLayout()
+	}
+
+	nameEntry := newConnectionNameEntry(spec.nameValue, handleFocusChanged)
+	hostEntry := newConnectionHostEntry(spec.hostValue, handleFocusChanged)
+	tokenEntry := newConnectionTokenEntry(spec.tokenValue, handleFocusChanged)
 	form := buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry, window)
 
 	var feedback fyne.CanvasObject
@@ -346,7 +601,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteLabel = i18n.Current.DeleteButton
 	}
 
-	var d *widget.PopUp
 	var connectBtn fyne.CanvasObject
 	var deleteBtn fyne.CanvasObject
 	var saveBtn fyne.CanvasObject
@@ -355,7 +609,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		if connectLabel == "" {
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
-		btn := widget.NewButton(connectLabel, func() {
+		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
 			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
 				return
 			}
@@ -363,10 +617,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 				d.Hide()
 			}
 		})
-		btn.Importance = widget.HighImportance
-		if spec.connectIcon != nil {
-			btn.SetIcon(spec.connectIcon)
-		}
 		connectBtn = btn
 	}
 
@@ -382,7 +632,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	savePrimaryBtn.Importance = widget.HighImportance
 
 	if spec.onConnect != nil && spec.onDelete == nil {
-		saveBtn = newConnectionDialogSecondaryButton(saveLabel, func() {
+		saveBtn = newConnectionDialogAccentButton(saveLabel, nil, func() {
 			if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
 				return
 			}
@@ -403,26 +653,31 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn)
+	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn, func() bool {
+		return fyne.CurrentDevice().IsMobile() && focusedInputs > 0
+	})
 	return d
 }
 
-func newConnectionNameEntry(value string) *widget.Entry {
-	entry := widget.NewEntry()
+func newConnectionNameEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
+	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
+	entry.ExtendBaseWidget(entry)
 	entry.SetText(value)
 	entry.SetPlaceHolder("Enter device name...")
 	return entry
 }
 
-func newConnectionHostEntry(value string) *widget.Entry {
-	entry := widget.NewEntry()
+func newConnectionHostEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
+	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
+	entry.ExtendBaseWidget(entry)
 	entry.SetText(value)
 	entry.SetPlaceHolder("xxx.xxx.x.x")
 	return entry
 }
 
-func newConnectionTokenEntry(value string) *widget.Entry {
-	entry := widget.NewEntry()
+func newConnectionTokenEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
+	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
+	entry.ExtendBaseWidget(entry)
 	entry.SetText(value)
 	entry.SetPlaceHolder("")
 	entry.Password = true

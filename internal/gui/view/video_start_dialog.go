@@ -347,7 +347,11 @@ func (s *videoDialogSelect) Tapped(*fyne.PointEvent) {
 		})
 	}
 
-	ShowStyledMenuCentered(s, items, maxFloat32(360, s.Size().Width), 280)
+	menuWidth := s.Size().Width
+	if menuWidth < 220 {
+		menuWidth = 220
+	}
+	ShowStyledMenuCentered(s, items, menuWidth, 280)
 }
 
 func (s *videoDialogSelect) TappedSecondary(*fyne.PointEvent) {}
@@ -585,8 +589,21 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.dialog = NewOverlayPopup(vsd.parent, OverlayPopupSpec{
 		Panel:    panel,
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(_ fyne.Size, _ fyne.CanvasObject) fyne.Size {
-			return fyne.NewSize(460, 520)
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 460), maxWidth)
+			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
 	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)

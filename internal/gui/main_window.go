@@ -75,7 +75,7 @@ type MainWindow struct {
 	// Иконки статуса
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
-	videoIcon      *widget.Button
+	videoIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button
 	keyboardIcon   *widget.Button
 	mouseIcon      *widget.Button

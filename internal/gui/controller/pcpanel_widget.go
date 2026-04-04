@@ -458,7 +458,6 @@ func (b *pcpanelHoldButton) Dragged(*fyne.DragEvent) {
 func (b *pcpanelHoldButton) DragEnd() {
 	b.cancelHold()
 }
-
 func (b *pcpanelHoldButton) startHold() {
 	if b.holdDuration <= 0 {
 		b.holdDuration = 2 * time.Second
@@ -549,7 +548,8 @@ func (b *pcpanelHoldButton) refreshVisuals() {
 	b.track.FillColor = design.ColorSurfaceLight
 	b.fill.FillColor = color.Transparent
 	b.bg.FillColor = color.Transparent
-	b.border.StrokeColor = design.ColorBorder
+	b.border.StrokeColor = color.Transparent
+	b.border.StrokeWidth = 0
 	b.label.Color = design.ColorTextLight
 	if b.progress > 0 {
 		b.fill.FillColor = b.activeColor
@@ -577,6 +577,17 @@ func (r *pcpanelHoldButtonRenderer) Layout(size fyne.Size) {
 	}
 	r.button.fill.Move(fyne.NewPos(0, 0))
 	r.button.fill.Resize(fyne.NewSize(progressWidth, size.Height))
+	fillRadius := design.RadiusMD
+	if maxRadius := progressWidth / 2; maxRadius < fillRadius {
+		fillRadius = maxRadius
+	}
+	if maxRadius := size.Height / 2; maxRadius < fillRadius {
+		fillRadius = maxRadius
+	}
+	if fillRadius < 0 {
+		fillRadius = 0
+	}
+	r.button.fill.CornerRadius = fillRadius
 
 	r.button.bg.Resize(size)
 	r.button.border.Resize(size)
@@ -695,14 +706,23 @@ func (l *pcpanelDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fy
 	}
 	left := objects[0]
 	right := objects[1]
-	width := (size.Width - l.gap) / 2
-	if width < 0 {
-		width = 0
+
+	leftWidth := (size.Width - l.gap) / 2
+	if fyne.CurrentDevice().IsMobile() || size.Width < 360 {
+		leftWidth = (size.Width - l.gap) * 0.36
 	}
+	if leftWidth < 0 {
+		leftWidth = 0
+	}
+	rightWidth := size.Width - leftWidth - l.gap
+	if rightWidth < 0 {
+		rightWidth = 0
+	}
+
 	left.Move(fyne.NewPos(0, 0))
-	left.Resize(fyne.NewSize(width, size.Height))
-	right.Move(fyne.NewPos(width+l.gap, 0))
-	right.Resize(fyne.NewSize(width, size.Height))
+	left.Resize(fyne.NewSize(leftWidth, size.Height))
+	right.Move(fyne.NewPos(leftWidth+l.gap, 0))
+	right.Resize(fyne.NewSize(rightWidth, size.Height))
 }
 
 func (l *pcpanelDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
@@ -1015,8 +1035,21 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
 		Panel:    panel,
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(_ fyne.Size, _ fyne.CanvasObject) fyne.Size {
-			return fyne.NewSize(420, 350)
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
+			panelHeight := minFloat32(maxFloat32(panelMin.Height, 350), maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
 }

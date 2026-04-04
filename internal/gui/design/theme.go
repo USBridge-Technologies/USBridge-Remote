@@ -10,6 +10,7 @@ import (
 var (
 	ColorBackground         = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff} // --cs-bg-color
 	ColorSurface            = color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff} // --cs-surface-color
+	ColorInputBackground    = color.NRGBA{R: 0x17, G: 0x17, B: 0x17, A: 0xff} // --cs-input-bg-color
 	ColorAccent             = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0xff} // --cs-accent
 	ColorAccentHover        = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0xff} // --cs-accent-hover
 	ColorProtocolQUIC       = color.NRGBA{R: 0xe9, G: 0x8a, B: 0x2b, A: 0xff}
@@ -62,7 +63,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameHyperlink:
 		return ColorAccent
 	case fynetheme.ColorNameInputBackground:
-		return ColorSurface
+		return ColorInputBackground
 	case fynetheme.ColorNameInputBorder:
 		return ColorBorder
 	case fynetheme.ColorNameMenuBackground:

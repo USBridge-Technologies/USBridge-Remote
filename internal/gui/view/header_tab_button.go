@@ -60,7 +60,7 @@ func (b *HeaderTabButton) CreateRenderer() fyne.WidgetRenderer {
 		b.underline,
 		nil,
 		nil,
-		NewInset(container.NewCenter(content), 10, 10, 6, 6),
+		NewInset(container.NewCenter(content), 10, 10, 6, 2),
 	)
 
 	b.refreshVisuals()

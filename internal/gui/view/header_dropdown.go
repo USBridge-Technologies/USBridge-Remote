@@ -657,7 +657,10 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 	)
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
-	popupPos := pos.Add(fyne.NewPos(0, anchor.Size().Height+6))
+	popupPos := fyne.NewPos(
+		pos.X+(anchor.Size().Width-width)/2,
+		pos.Y+anchor.Size().Height+6,
+	)
 	if options.Centered {
 		canvasSize := canvasForObj.Size()
 		popupPos = fyne.NewPos(
@@ -668,10 +671,26 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 			popupPos.Y = canvasSize.Height - height - 8
 		}
 	} else if options.OpenAbove {
-		popupPos = pos.Add(fyne.NewPos(0, -height-6))
+		popupPos = fyne.NewPos(
+			pos.X+(anchor.Size().Width-width)/2,
+			pos.Y-height-6,
+		)
 		if popupPos.Y < 0 {
 			popupPos.Y = 0
 		}
+	}
+	canvasSize := canvasForObj.Size()
+	if popupPos.X < 8 {
+		popupPos.X = 8
+	}
+	if popupPos.X+width > canvasSize.Width-8 {
+		popupPos.X = canvasSize.Width - width - 8
+	}
+	if popupPos.Y+height > canvasSize.Height-8 && !options.OpenAbove && !options.Centered {
+		popupPos.Y = canvasSize.Height - height - 8
+	}
+	if popupPos.Y < 8 {
+		popupPos.Y = 8
 	}
 	popup.ShowAtPosition(popupPos)
 }

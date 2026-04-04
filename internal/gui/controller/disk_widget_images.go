@@ -527,9 +527,8 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 
 	if dw.window != nil {
 		fyne.Do(func() {
-			view.ShowConfirmYesLeft(
-				i18n.Current.UploadImageTitle,
-				fmt.Sprintf(i18n.Current.UploadImageConfirm, drive.Name),
+			view.ShowUploadImageConfirm(
+				drive.Name,
 				func(confirmed bool) {
 					if confirmed {
 						go dw.uploadImageToDevice(drive)

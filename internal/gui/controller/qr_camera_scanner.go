@@ -196,14 +196,7 @@ func (q *QRCameraScanner) showEmbeddedScanner(videoImg *canvas.Image, onClose fu
 	title.TextStyle.Bold = true
 	title.Alignment = fyne.TextAlignCenter
 
-	closeBtn := view.NewHeaderActionButton(onClose)
-	closeBtn.ApplySpec(view.HeaderActionButtonSpec{
-		Fill:        color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10},
-		Foreground:  design.ColorTextLight,
-		Stroke:      color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x18},
-		StrokeWidth: 1,
-		Icon:        theme.WindowCloseIcon(),
-	})
+	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), onClose)
 
 	header := container.New(&qrScannerHeaderLayout{}, title, closeBtn)
 
