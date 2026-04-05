@@ -1068,7 +1068,7 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %v", err)
+		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -1078,7 +1078,7 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
 			go c.transportErrorHandler(wrappedErr)
 		}
@@ -1088,11 +1088,11 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения ответа: %v", err)
+		return nil, fmt.Errorf("response read failed: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP ошибка %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return respBody, nil
@@ -1109,7 +1109,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
-		return nil, 0, fmt.Errorf("ошибка создания запроса: %v", err)
+		return nil, 0, fmt.Errorf("request creation failed: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -1119,7 +1119,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
+		wrappedErr := fmt.Errorf("request failed: %v", err)
 		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
 			go c.transportErrorHandler(wrappedErr)
 		}
@@ -1129,7 +1129,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("ошибка чтения ответа: %v", err)
+		return nil, 0, fmt.Errorf("response read failed: %v", err)
 	}
 
 	for _, code := range acceptStatuses {
@@ -1137,7 +1137,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 			return respBody, resp.StatusCode, nil
 		}
 	}
-	return nil, resp.StatusCode, fmt.Errorf("HTTP ошибка %d: %s", resp.StatusCode, string(respBody))
+	return nil, resp.StatusCode, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 }
 
 // TestConnection проверяет соединение с USBridge 2
@@ -1149,15 +1149,15 @@ func (c *USBClient) TestConnection() error {
 	}
 
 	// Совместимость со старым сервером без healthz.
-	if strings.Contains(err.Error(), "HTTP ошибка 404") || strings.Contains(err.Error(), "404 page not found") {
+	if strings.Contains(err.Error(), "HTTP error 404") || strings.Contains(err.Error(), "404 page not found") {
 		if _, fallbackErr := c.GetDeviceInfo(); fallbackErr != nil {
-			return fmt.Errorf("не удается подключиться к USBridge 2: %v", fallbackErr)
+			return fmt.Errorf("unable to connect to USBridge 2: %v", fallbackErr)
 		}
 		logrus.Info("✅ Соединение с USBridge 2 установлено")
 		return nil
 	}
 
-	return fmt.Errorf("не удается подключиться к USBridge 2: %v", err)
+	return fmt.Errorf("unable to connect to USBridge 2: %v", err)
 }
 
 // GetSnapshots получает список снапшотов

@@ -122,14 +122,14 @@ func (mw *MainWindow) refreshConnectionControls() {
 			Disabled:   mw.isConnectionPending || !hasHost,
 			Fill:       design.ColorAccent,
 			Foreground: design.ColorBackground,
-			Icon:       assets.ServerConnectBold,
+			Icon:       assets.ConnectIconBoldBlack,
 			Stroke:     color.Transparent,
 		}
 
 		if !hasHost {
 			spec.Fill = color.Transparent
 			spec.Foreground = design.ColorBorder
-			spec.Icon = assets.ServerConnectMuted
+			spec.Icon = assets.ConnectIconMuted
 			spec.Stroke = design.ColorBorder
 			spec.StrokeWidth = 1
 		}
@@ -191,6 +191,7 @@ func (mw *MainWindow) recreateContainers() {
 			}
 			mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, total))
 			mw.sdStorageProgress.Show()
+			mw.refreshMainHeaderLayout()
 		})
 	}
 	if mw.diskWidget != nil {
@@ -345,19 +346,13 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 		}
 	})
 
-	helpBtn := view.NewFooterIconButton(assets.QuestionIconDim, assets.QuestionIcon, fyne.NewSize(13, 13), func() {
-		if mw.connectionManager != nil {
-			mw.connectionManager.OpenQuickStartDocs()
-		}
-	})
-
 	discordBtn := view.NewFooterIconButton(assets.DiscordIconDim, assets.DiscordIcon, fyne.NewSize(14, 14), func() {
 		if mw.connectionManager != nil {
 			mw.connectionManager.OpenDiscordInvite()
 		}
 	})
 
-	row := container.NewHBox(helpBtn, discordBtn, langBtn)
+	row := container.NewHBox(discordBtn, langBtn)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 
@@ -922,6 +917,13 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.snapshotIcon.Importance = widget.LowImportance
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
+	mw.statusPanel.Objects = buildHeaderStatusIndicators(
+		mw.backupIcon,
+		mw.videoIcon,
+		mw.keyboardIcon,
+		mw.mouseIcon,
+		mw.rndisIcon,
+	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
@@ -1124,13 +1126,6 @@ func (mw *MainWindow) updateStatusBar() {
 			mw.backupIcon.Refresh()
 		}
 
-		mw.statusPanel.Objects = buildHeaderStatusIndicators(
-			mw.backupIcon,
-			mw.videoIcon,
-			mw.keyboardIcon,
-			mw.mouseIcon,
-			mw.rndisIcon,
-		)
 		mw.statusPanel.Refresh()
 		if mw.protocolPanel != nil {
 			mw.protocolPanel.Objects = []fyne.CanvasObject{
@@ -1138,7 +1133,29 @@ func (mw *MainWindow) updateStatusBar() {
 			}
 			mw.protocolPanel.Refresh()
 		}
+		mw.refreshMainHeaderLayout()
 	})
+}
+
+func (mw *MainWindow) refreshMainHeaderLayout() {
+	if mw == nil || mw.window == nil {
+		return
+	}
+	if mw.sdStorageProgress != nil {
+		mw.sdStorageProgress.Refresh()
+	}
+	if mw.statusPanel != nil {
+		mw.statusPanel.Refresh()
+	}
+	if mw.protocolPanel != nil {
+		mw.protocolPanel.Refresh()
+	}
+	if mw.mainContent != nil {
+		mw.mainContent.Refresh()
+	}
+	if content := mw.window.Content(); content != nil {
+		mw.window.Canvas().Refresh(content)
+	}
 }
 
 func (mw *MainWindow) updateVideoIconLabel() {

@@ -799,6 +799,23 @@ func NewDeviceSectionAddButton(onTapped func()) fyne.CanvasObject {
 	})
 }
 
+func newSectionCardHeader(titleText fyne.CanvasObject, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, leadingGap float32) fyne.CanvasObject {
+	var headerLeft fyne.CanvasObject = titleText
+	if leadingAction != nil {
+		headerLeft = container.New(&sectionHeaderInlineLayout{gap: leadingGap},
+			titleText,
+			leadingAction,
+		)
+	}
+
+	headerRowItems := []fyne.CanvasObject{headerLeft, layout.NewSpacer()}
+	if trailingAction != nil {
+		headerRowItems = append(headerRowItems, trailingAction)
+	}
+
+	return NewInset(container.NewHBox(headerRowItems...), 4, 4, 0, 0)
+}
+
 func NewDiskRowTemplate() fyne.CanvasObject {
 	checkbox := widget.NewCheck("", nil)
 	checkboxWrap := container.NewThemeOverride(checkbox, &diskCheckboxTheme{base: design.NewBrandTheme()})
@@ -931,27 +948,7 @@ func NewDeviceSectionCard(
 	_ = badge
 
 	eyebrowText := NewBrandText(eyebrow, 11, design.ColorTextMuted, true)
-	var headerLeft fyne.CanvasObject = eyebrowText
-	if action != nil {
-		headerLeft = container.New(&sectionHeaderInlineLayout{gap: 4},
-			eyebrowText,
-			action,
-		)
-	}
-
-	var header fyne.CanvasObject
-	if trailingAction != nil {
-		header = NewInset(
-			container.NewHBox(
-				headerLeft,
-				layout.NewSpacer(),
-				trailingAction,
-			),
-			4, 4, 0, 0,
-		)
-	} else {
-		header = NewInset(headerLeft, 6, 6, 0, 0)
-	}
+	header := newSectionCardHeader(eyebrowText, action, trailingAction, 6)
 
 	var bodyContent fyne.CanvasObject
 	if len(rows) == 0 {

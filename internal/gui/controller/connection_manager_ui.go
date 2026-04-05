@@ -12,7 +12,7 @@ import (
 )
 
 func (cm *ConnectionManager) createInterface() {
-	cm.ui = view.NewConnectionManagerUI(cm.handleQRScan, cm.showAddDialog)
+	cm.ui = view.NewConnectionManagerUI(cm.handleQRScan, cm.showAddDialog, cm.openQuickStartDocs)
 	cm.refreshConnectionsList()
 }
 

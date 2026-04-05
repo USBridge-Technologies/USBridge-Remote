@@ -191,6 +191,7 @@ type LocalizedStrings struct {
 	ErrorDeletingImage           string
 	ConnectViaLink               string
 	DeepLinkError                string
+	ConnectionLost               string
 	SAFFilePicker                string
 	SAFInstructions              string
 	FileSelected                 string
@@ -532,6 +533,7 @@ func EN() *LocalizedStrings {
 		ErrorDeletingImage:           "Error deleting image: %v",
 		ConnectViaLink:               "Connect via link",
 		DeepLinkError:                "Error processing link: %v",
+		ConnectionLost:               "Connection lost: %v",
 		SAFFilePicker:                "SAF File Picker",
 		SAFInstructions:              "To select file:\n\n1. Press OK\n2. In Android file manager select .iso/.img file\n3. The app will receive fd and call callback\n\nAfter selecting the file you will see its info here.",
 		FileSelected:                 "File selected",

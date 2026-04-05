@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -113,6 +114,12 @@ func (l *confirmDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.S
 	return fyne.NewSize(leftMin.Width+rightMin.Width+l.gap, height)
 }
 
+func newConfirmDialogCloseButton(onTapped func()) *widget.Button {
+	btn := widget.NewButtonWithIcon("", theme.CancelIcon(), onTapped)
+	btn.Importance = widget.LowImportance
+	return btn
+}
+
 func showConfirmDialog(title, message string, callback func(bool), parent fyne.Window, danger bool) {
 	label := widget.NewLabel(message)
 	label.Wrapping = fyne.TextWrapWord
@@ -136,11 +143,9 @@ func showConfirmDialog(title, message string, callback func(bool), parent fyne.W
 	titleText := NewBrandText(title, 19, design.ColorTextLight, true)
 	titleText.Alignment = fyne.TextAlignCenter
 
-	closeBtn := widget.NewButton("✕", func() {
+	closeBtn := newConfirmDialogCloseButton(func() {
 		closePopup(false)
 	})
-	closeBtn.Importance = widget.LowImportance
-
 	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
 
 	yesBtn := widget.NewButton(i18n.Current.Yes, func() {
@@ -242,8 +247,7 @@ func ShowErrorDialog(err error, parent fyne.Window) {
 	titleText := NewBrandText(i18n.Current.Error, 19, design.ColorTextLight, true)
 	titleText.Alignment = fyne.TextAlignCenter
 
-	closeBtn := widget.NewButton("✕", closePopup)
-	closeBtn.Importance = widget.LowImportance
+	closeBtn := newConfirmDialogCloseButton(closePopup)
 	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
 
 	label := widget.NewLabel(message)
@@ -330,10 +334,9 @@ func ShowDeleteImageConfirm(fileName string, callback func(bool), parent fyne.Wi
 	}
 
 	titleText := NewBrandText("Delete image?", 19, design.ColorTextLight, true)
-	closeBtn := widget.NewButton("✕", func() {
+	closeBtn := newConfirmDialogCloseButton(func() {
 		closePopup(false)
 	})
-	closeBtn.Importance = widget.LowImportance
 	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
 
 	leadText := widget.NewLabel("Are you sure you want to delete:")
@@ -441,10 +444,9 @@ func ShowUploadImageConfirm(fileName string, callback func(bool), parent fyne.Wi
 	}
 
 	titleText := NewBrandText("Upload image?", 19, design.ColorTextLight, true)
-	closeBtn := widget.NewButton("✕", func() {
+	closeBtn := newConfirmDialogCloseButton(func() {
 		closePopup(false)
 	})
-	closeBtn.Importance = widget.LowImportance
 	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
 
 	leadText := widget.NewLabel("Do you want to upload this file to the device?")

@@ -200,12 +200,12 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoWidget.registerMobileGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
-	fd.touchpadWrapper.SetOnTouchUsed(func() {
+	fd.touchpadWrapper.SetOnFocusUsed(func() {
 		if !fyne.CurrentDevice().IsMobile() || fd.virtualKeyboard == nil || !fd.virtualKeyboard.IsVisible() {
 			return
 		}
 		go func() {
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(30 * time.Millisecond)
 			fyne.Do(func() {
 				if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
 					fd.virtualKeyboard.FocusInput()

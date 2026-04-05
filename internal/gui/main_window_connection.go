@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
@@ -239,7 +240,7 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 		mw.protocolSelect.Enable()
 		mw.updateStatus()
 		mw.showConnectionManager()
-		view.ShowErrorDialog(fmt.Errorf("connection lost: %w", err), mw.window)
+		view.ShowErrorDialog(fmt.Errorf(i18n.Current.ConnectionLost, err), mw.window)
 	})
 
 	mw.connectionLossInProgress.Store(false)

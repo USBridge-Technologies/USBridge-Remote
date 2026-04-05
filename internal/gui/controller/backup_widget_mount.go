@@ -360,7 +360,8 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	}
 
 	logContent := container.NewVBox(logRows...)
-	scroll := container.NewScroll(logContent)
+	scrollContent := view.NewInset(logContent, 0, 14, 0, 12)
+	scroll := container.NewScroll(scrollContent)
 	scroll.SetMinSize(fyne.NewSize(0, 170))
 
 	logTitle := view.NewBrandText("LOG", 11, design.ColorTextMuted, true)
