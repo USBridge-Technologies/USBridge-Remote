@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -199,6 +200,19 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoWidget.registerMobileGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
+	fd.touchpadWrapper.SetOnTouchUsed(func() {
+		if !fyne.CurrentDevice().IsMobile() || fd.virtualKeyboard == nil || !fd.virtualKeyboard.IsVisible() {
+			return
+		}
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			fyne.Do(func() {
+				if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
+					fd.virtualKeyboard.FocusInput()
+				}
+			})
+		}()
+	})
 	logrus.Info("✅ TouchpadWrapper создан для полноэкранного режима")
 
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
@@ -215,9 +229,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		if keyboardLayout.Visible() {
 			logrus.Info("⌨️ Клавиатура видима - скрываем")
 			fd.virtualKeyboard.Hide()
+			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
 		} else {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
 			fd.virtualKeyboard.SetVisibleState(true)
+			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
 			if fyne.CurrentDevice().IsMobile() {
 				go func() {
 					time.Sleep(50 * time.Millisecond)

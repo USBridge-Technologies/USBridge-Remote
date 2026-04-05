@@ -79,6 +79,13 @@ func (bw *BackupWidget) Refresh() {
 	bw.loadSnapshots()
 }
 
+func (bw *BackupWidget) GetISODirectory() string {
+	if bw.sdSpaceInfo == nil {
+		return ""
+	}
+	return bw.sdSpaceInfo.ISODirectory
+}
+
 // updateUIAsync безопасно обновляет UI из горутины
 func (bw *BackupWidget) updateUIAsync(updateFunc func()) {
 	// В Fyne используем fyne.Do для обновления UI из горутин

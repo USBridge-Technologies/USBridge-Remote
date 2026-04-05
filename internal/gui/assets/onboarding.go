@@ -52,10 +52,16 @@ var (
 	warningTriangleIcon []byte
 	//go:embed warning-svgrepo-com.svg
 	warningInfoIcon []byte
+	//go:embed info-svgrepo-com.svg
+	infoIcon []byte
 	//go:embed configuration-vertical-options-svgrepo-com.svg
 	configVerticalIcon []byte
 	//go:embed connection-internet-network-web-data-storage-svgrepo-com.svg
 	connectionStatusIcon []byte
+	//go:embed connect-svgrepo-com.svg
+	connectIcon []byte
+	//go:embed Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols.svg
+	powerOffFillIcon []byte
 	//go:embed exit-svgrepo-com.svg
 	exitIcon []byte
 	//go:embed off.svg
@@ -118,9 +124,15 @@ var (
 	MemoryChipIcon             = fyne.NewStaticResource("memory-chip-svgrepo-com.svg", recolorMemoryChipIcon(memoryChipIcon, "#F5F5F5"))
 	WarningTriangleIcon        = fyne.NewStaticResource("warning-triangle-svgrepo-com.svg", recolorFillIcon(warningTriangleIcon, "#F2C14E"))
 	WarningInfoIcon            = fyne.NewStaticResource("warning-svgrepo-com.svg", recolorFillIcon(warningInfoIcon, "#4DA3FF"))
+	InfoIcon                   = fyne.NewStaticResource("info-svgrepo-com.svg", recolorFillIcon(infoIcon, "#F5F5F5"))
+	InfoIconMuted              = fyne.NewStaticResource("info-svgrepo-com-muted.svg", recolorFillIcon(infoIcon, "#8E8E8E"))
 	ConfigVerticalIcon         = fyne.NewStaticResource("configuration-vertical-options-svgrepo-com.svg", recolorFillIcon(configVerticalIcon, "#F5F5F5"))
 	ConnectionStatusIcon       = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com.svg", recolorFillIcon(connectionStatusIcon, "#C9C9C9"))
 	ConnectionStatusIconActive = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-active.svg", recolorFillIcon(connectionStatusIcon, "#93C572"))
+	ConnectIcon                = fyne.NewStaticResource("connect-svgrepo-com.svg", recolorFillIcon(connectIcon, "#93C572"))
+	ConnectIconMuted           = fyne.NewStaticResource("connect-svgrepo-com-muted.svg", recolorFillIcon(connectIcon, "#8E8E8E"))
+	PowerOffFillRoundIcon      = fyne.NewStaticResource("Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols.svg", recolorFillIcon(powerOffFillIcon, "#F5F5F5"))
+	PowerOffFillRoundIconMuted = fyne.NewStaticResource("Power-Off-Fill--Streamline-Rounded-Fill-Material-Symbols-muted.svg", recolorFillIcon(powerOffFillIcon, "#8E8E8E"))
 	ExitIcon                   = fyne.NewStaticResource("exit-svgrepo-com.svg", recolorStrokeIcon(exitIcon, "#d66d6d", "2"))
 	PowerOffIcon               = fyne.NewStaticResource("off.svg", recolorFillIcon(powerOffIcon, "#F5F5F5"))
 	PowerOffIconActive         = fyne.NewStaticResource("off-active.svg", recolorFillIcon(powerOffIcon, "#111111"))

@@ -40,6 +40,7 @@ type TouchpadWrapper struct {
 	window      fyne.Window
 	onKeyPress  func(*fyne.KeyEvent)
 	onRunePress func(rune)
+	onTouchUsed func()
 }
 
 // NewTouchpadWrapper создает обертку для тачпада
@@ -95,6 +96,10 @@ func (t *TouchpadWrapper) SetKeyHandlers(onKey func(*fyne.KeyEvent), onRune func
 // SetWindowForFocus устанавливает окно для запроса фокуса при клике (desktop)
 func (t *TouchpadWrapper) SetWindowForFocus(w fyne.Window) {
 	t.window = w
+}
+
+func (t *TouchpadWrapper) SetOnTouchUsed(onTouchUsed func()) {
+	t.onTouchUsed = onTouchUsed
 }
 
 // FocusGained реализация fyne.Focusable
@@ -592,6 +597,9 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 
 // TouchDown обрабатывает начало касания (mobile)
 func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
+	if t.onTouchUsed != nil {
+		t.onTouchUsed()
+	}
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -625,6 +633,9 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 
 // TouchUp обрабатывает окончание касания (mobile)
 func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
+	if t.onTouchUsed != nil {
+		t.onTouchUsed()
+	}
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -678,6 +689,9 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 
 // TouchMove обрабатывает перемещение касания (mobile)
 func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
+	if t.onTouchUsed != nil {
+		t.onTouchUsed()
+	}
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -729,6 +743,9 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 
 // TouchCancel обрабатывает отмену касания (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
+	if t.onTouchUsed != nil {
+		t.onTouchUsed()
+	}
 	t.endScrollbarDrag()
 	t.videoWidget.isDragging = false
 	t.videoWidget.resetRelativeMoveAccumulator()
@@ -737,6 +754,9 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 // Dragged обрабатывает драг (реализация fyne.Draggable)
 // На desktop — обновление позиции для polling. На Android — основной способ движения пальца.
 func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
+	if fyne.CurrentDevice().IsMobile() && t.onTouchUsed != nil {
+		t.onTouchUsed()
+	}
 	if !t.videoWidget.isMouseConnected {
 		return
 	}

@@ -1,6 +1,8 @@
 package view
 
 import (
+	"usbridge-client/internal/gui/assets"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -18,8 +20,10 @@ type FullscreenUI struct {
 func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keyboardLayout *fyne.Container, onToggleKeyboard func()) *FullscreenUI {
 	videoContainer := container.NewMax(touchpad)
 	videoWithKeyboard := container.NewBorder(nil, keyboardLayout, nil, nil, videoContainer)
-	keyboardButton := widget.NewButton("⌨️", onToggleKeyboard)
-	keyboardButton.Importance = widget.HighImportance
+
+	keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
+	keyboardButton.Importance = widget.MediumImportance
+
 	mainContainer := container.NewStack(videoWithKeyboard, container.NewWithoutLayout(keyboardButton))
 
 	return &FullscreenUI{

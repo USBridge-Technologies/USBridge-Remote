@@ -108,6 +108,7 @@ func (c *USBClient) GetStatus() (*models.USBStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	logrus.Infof("📦 [API-ISO-SPACE] raw response: %s", string(resp))
 
 	var status models.USBStatus
 	if err := json.Unmarshal(resp, &status); err != nil {
@@ -310,6 +311,13 @@ func (c *USBClient) GetISOSpace() (*models.ISOSpaceInfo, error) {
 		return nil, fmt.Errorf("ошибка парсинга информации о месте: %v", err)
 	}
 
+	logrus.Infof("📦 [API-ISO-SPACE] parsed total=%d available=%d used=%d used_pct=%.2f dir=%s",
+		spaceInfo.TotalSpace,
+		spaceInfo.AvailableSpace,
+		spaceInfo.UsedSpace,
+		spaceInfo.UsedPercent,
+		spaceInfo.ISODirectory,
+	)
 	return &spaceInfo, nil
 }
 

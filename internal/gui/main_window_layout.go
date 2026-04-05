@@ -91,6 +91,7 @@ func (mw *MainWindow) createInterface() {
 	mw.connectionBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
 
 	mw.sdStorageProgress = view.NewStorageProgressBar()
+	mw.sdStorageProgress.SetOnTapped(mw.showStorageInfoDialog)
 	mw.sdStorageProgress.Hide()
 
 	if mw.backupWidget != nil {
@@ -169,6 +170,20 @@ func (mw *MainWindow) recreateContainers() {
 				mw.sdStorageProgress.Hide()
 				return
 			}
+			mw.currentStorageTotal = total
+			mw.currentStorageAvailable = available
+			mw.currentStorageDir = ""
+			if mw.backupWidget != nil && mw.backupWidget.GetISODirectory() != "" {
+				mw.currentStorageDir = mw.backupWidget.GetISODirectory()
+			}
+			if mw.currentStorageDir == "" && mw.diskWidget != nil {
+				mw.currentStorageDir = mw.diskWidget.GetISODirectory()
+			}
+			icon := assets.MemoryChipIcon
+			if mw.currentStorageDir == "/mnt/sdcard/iso" {
+				icon = assets.SDCardIcon
+			}
+			mw.sdStorageProgress.SetIcon(icon)
 			mw.sdStorageProgress.SetValue(usedPct)
 			used := total - available
 			if used < 0 {
@@ -310,6 +325,16 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 	spacer := canvas.NewRectangle(color.Transparent)
 	spacer.SetMinSize(fyne.NewSize(width, 1))
 	return spacer
+}
+
+func newHeaderPassiveIndicator(icon fyne.Resource) fyne.CanvasObject {
+	image := canvas.NewImageFromResource(icon)
+	image.FillMode = canvas.ImageFillContain
+	image.SetMinSize(fyne.NewSize(18, 18))
+	return container.NewGridWrap(
+		fyne.NewSize(28, 28),
+		container.NewCenter(image),
+	)
 }
 
 func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
@@ -891,8 +916,8 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.rndisIcon.Hide()
 	mw.cdromIcon = widget.NewButton("💿", func() {})
 	mw.cdromIcon.Importance = widget.LowImportance
-	mw.backupIcon = widget.NewButton("🛡️", func() {})
-	mw.backupIcon.Importance = widget.LowImportance
+	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconActive)
+	mw.backupIcon.Hide()
 	mw.snapshotIcon = widget.NewButton("📸", func() {})
 	mw.snapshotIcon.Importance = widget.LowImportance
 
@@ -950,8 +975,9 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(captureButton, keyboardButton, mouseButton, rndisButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, keyboardButton, mouseButton, rndisButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
+		backupIndicator,
 		captureButton,
 		keyboardButton,
 		mouseButton,
@@ -1089,8 +1115,17 @@ func (mw *MainWindow) updateStatusBar() {
 			}
 			mw.rndisIcon.Refresh()
 		}
+		if mw.backupIcon != nil {
+			if backupConnected {
+				mw.backupIcon.Show()
+			} else {
+				mw.backupIcon.Hide()
+			}
+			mw.backupIcon.Refresh()
+		}
 
 		mw.statusPanel.Objects = buildHeaderStatusIndicators(
+			mw.backupIcon,
 			mw.videoIcon,
 			mw.keyboardIcon,
 			mw.mouseIcon,

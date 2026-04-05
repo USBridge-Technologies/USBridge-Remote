@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -18,11 +19,14 @@ type StorageProgressBar struct {
 	widget.BaseWidget
 	usedPercent float64 // 0-100
 	sizeText    string  // "66/119 GB"
+	iconRes     fyne.Resource
+	onTapped    func()
+	hovered     bool
 }
 
 // NewStorageProgressBar создаёт новый компактный индикатор места на диске
 func NewStorageProgressBar() *StorageProgressBar {
-	s := &StorageProgressBar{}
+	s := &StorageProgressBar{iconRes: assets.MemoryChipIcon}
 	s.ExtendBaseWidget(s)
 	return s
 }
@@ -51,6 +55,38 @@ func (s *StorageProgressBar) SetSizeText(text string) {
 	s.Refresh()
 }
 
+func (s *StorageProgressBar) SetIcon(icon fyne.Resource) {
+	if icon == nil {
+		icon = assets.MemoryChipIcon
+	}
+	s.iconRes = icon
+	s.Refresh()
+}
+
+func (s *StorageProgressBar) SetOnTapped(onTapped func()) {
+	s.onTapped = onTapped
+}
+
+func (s *StorageProgressBar) Tapped(*fyne.PointEvent) {
+	if s.onTapped != nil {
+		s.onTapped()
+	}
+}
+
+func (s *StorageProgressBar) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *StorageProgressBar) MouseIn(*desktop.MouseEvent) {
+	s.hovered = true
+	s.Refresh()
+}
+
+func (s *StorageProgressBar) MouseMoved(*desktop.MouseEvent) {}
+
+func (s *StorageProgressBar) MouseOut() {
+	s.hovered = false
+	s.Refresh()
+}
+
 // colorByUsedPercent возвращает цвет в зависимости от заполненности
 func colorByUsedPercent(pct float64) color.Color {
 	if pct < 60 {
@@ -70,7 +106,7 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = design.RadiusMD
-	icon := canvas.NewImageFromResource(assets.MemoryChipIcon)
+	icon := canvas.NewImageFromResource(s.iconRes)
 	icon.FillMode = canvas.ImageFillContain
 	icon.SetMinSize(fyne.NewSize(iconSize, iconSize))
 	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
@@ -187,9 +223,15 @@ func (r *storageProgressBarRenderer) Refresh() {
 	t := r.s.Theme()
 	variant := fyne.CurrentApp().Settings().ThemeVariant()
 	r.bg.FillColor = color.Transparent
+	if r.s.hovered && r.s.onTapped != nil {
+		r.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+	}
 	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
 	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
-	r.icon.Resource = assets.MemoryChipIcon
+	if r.s.iconRes == nil {
+		r.s.iconRes = assets.MemoryChipIcon
+	}
+	r.icon.Resource = r.s.iconRes
 
 	fg := t.Color(theme.ColorNameForeground, variant)
 	r.sizeText.Color = fg

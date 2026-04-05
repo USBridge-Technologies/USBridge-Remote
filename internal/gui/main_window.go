@@ -57,6 +57,9 @@ type MainWindow struct {
 	activeConnectionToken  string
 	pendingWireGuardInvite string
 	currentVideoFPS        float64
+	currentStorageDir      string
+	currentStorageTotal    int64
+	currentStorageAvailable int64
 
 	// Кнопка подключения/отключения
 	connectionBtn    *view.HeaderActionButton
@@ -81,7 +84,7 @@ type MainWindow struct {
 	mouseIcon      *widget.Button
 	rndisIcon      *widget.Button
 	cdromIcon      *widget.Button
-	backupIcon     *widget.Button
+	backupIcon     fyne.CanvasObject
 	snapshotIcon   *widget.Button
 	statusPanel    *fyne.Container
 	protocolPanel  *fyne.Container

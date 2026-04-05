@@ -675,6 +675,13 @@ func (dw *DiskWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, available,
 	dw.onStorageInfoUpdate = fn
 }
 
+func (dw *DiskWidget) GetISODirectory() string {
+	if dw.sdSpaceInfo == nil {
+		return ""
+	}
+	return dw.sdSpaceInfo.ISODirectory
+}
+
 // SetOnMouseTypeChanged устанавливает callback при смене типа манипулятора (мышь/тачскрин) после запуска устройства.
 func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 	dw.onMouseTypeChanged = fn
