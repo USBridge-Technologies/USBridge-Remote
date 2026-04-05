@@ -25,6 +25,18 @@ const (
 // Левый отступ: центрируем контент в сетке, чтобы кнопки не прижимались к левому краю
 var keyboardLeftMargin = float32((keyboardW - keyboardContentUnits*keyUnitW) / 2)
 
+func hasRunePrefix(value []rune, prefix []rune) bool {
+	if len(prefix) > len(value) {
+		return false
+	}
+	for i := range prefix {
+		if value[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // centerKeyboardLayout центрирует содержимое клавиатуры при изменении размера области
 type centerKeyboardLayout struct {
 	width  float32
@@ -178,22 +190,28 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 
 	var prevText string
 	textHint.OnChanged = func(newText string) {
-		// Отправляем только новые символы на хост (сразу, без отдельной кнопки «Отправить»)
-		if vk.onRuneTyped != nil {
-			prevRunes := []rune(prevText)
-			newRunes := []rune(newText)
-			// Символы добавлены в конец
-			if len(newRunes) >= len(prevRunes) {
+		prevRunes := []rune(prevText)
+		newRunes := []rune(newText)
+
+		// Android IME может переписывать уже введённый текст целиком
+		// после пробела/автокоррекции. На хост символы уже были отправлены,
+		// поэтому здесь обрабатываем только простой append в конец и простое
+		// удаление с конца, а compose/replace игнорируем.
+		switch {
+		case len(newRunes) >= len(prevRunes) && hasRunePrefix(newRunes, prevRunes):
+			if vk.onRuneTyped != nil {
 				for i := len(prevRunes); i < len(newRunes); i++ {
 					vk.onRuneTyped(newRunes[i])
 				}
-			} else {
-				// Удаление — отправляем Backspace за каждый удалённый символ
+			}
+		case len(newRunes) < len(prevRunes) && hasRunePrefix(prevRunes, newRunes):
+			if vk.onKeyPress != nil {
 				for i := 0; i < len(prevRunes)-len(newRunes); i++ {
 					vk.onKeyPress(42, 0) // HID Backspace
 				}
 			}
 		}
+
 		prevText = newText
 	}
 
