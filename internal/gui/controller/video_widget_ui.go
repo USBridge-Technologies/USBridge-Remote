@@ -792,14 +792,6 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			vw.contentContainer.Resize(keyboardSize)
 			vw.contentContainer.Show()
 			vw.container.Refresh()
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				fyne.Do(func() {
-					if vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible() {
-						vw.virtualKeyboard.FocusInput()
-					}
-				})
-			}()
 			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
 			logrus.Info("⌨️ Virtual keyboard shown with Android IME")
 		} else {

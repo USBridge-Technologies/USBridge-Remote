@@ -211,8 +211,6 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	logrus.Info("⌨️ [DEBUG] Создание overlay layout для размещения клавиатуры поверх видео")
 
 	fd.ui = view.NewFullscreenUI(fd.videoImage, fd.touchpadWrapper, keyboardLayout, func() {
-		fd.handleFullscreenKeyboardButton()
-		return
 		logrus.Info("⌨️ ========== НАЖАТА КНОПКА КЛАВИАТУРЫ В ПОЛНОЭКРАННОМ РЕЖИМЕ ==========")
 
 		if keyboardLayout.Visible() {
@@ -223,16 +221,6 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
 			fd.virtualKeyboard.SetVisibleState(true)
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
-			if fyne.CurrentDevice().IsMobile() {
-				go func() {
-					time.Sleep(50 * time.Millisecond)
-					fyne.Do(func() {
-						if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
-							fd.virtualKeyboard.FocusInput()
-						}
-					})
-				}()
-			}
 		}
 
 		fd.ui.VideoWithKeyboard.Refresh()
@@ -429,33 +417,4 @@ func (fd *FullscreenDialog) exitFullscreen() {
 // IsFullscreen возвращает состояние полноэкранного режима
 func (fd *FullscreenDialog) IsFullscreen() bool {
 	return fd.isFullscreen
-}
-
-func (fd *FullscreenDialog) handleFullscreenKeyboardButton() {
-	if fd.virtualKeyboard == nil {
-		return
-	}
-
-	if !fd.virtualKeyboard.IsVisible() {
-		fd.virtualKeyboard.SetVisibleState(true)
-	}
-
-	if fd.ui != nil && fd.ui.KeyboardButton != nil {
-		fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
-	}
-
-	if fyne.CurrentDevice().IsMobile() {
-		fyne.Do(func() {
-			if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
-				fd.virtualKeyboard.FocusInput()
-			}
-		})
-	}
-
-	if fd.ui != nil && fd.ui.VideoWithKeyboard != nil {
-		fd.ui.VideoWithKeyboard.Refresh()
-	}
-	if fd.fullscreenWindow != nil && fd.fullscreenWindow.Content() != nil {
-		fd.fullscreenWindow.Canvas().Refresh(fd.fullscreenWindow.Content())
-	}
 }
