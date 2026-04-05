@@ -40,7 +40,6 @@ type TouchpadWrapper struct {
 	window      fyne.Window
 	onKeyPress  func(*fyne.KeyEvent)
 	onRunePress func(rune)
-	onFocusUsed func()
 }
 
 // NewTouchpadWrapper создает обертку для тачпада
@@ -98,16 +97,8 @@ func (t *TouchpadWrapper) SetWindowForFocus(w fyne.Window) {
 	t.window = w
 }
 
-func (t *TouchpadWrapper) SetOnFocusUsed(onFocusUsed func()) {
-	t.onFocusUsed = onFocusUsed
-}
-
 // FocusGained реализация fyne.Focusable
-func (t *TouchpadWrapper) FocusGained() {
-	if fyne.CurrentDevice().IsMobile() && t.onFocusUsed != nil {
-		t.onFocusUsed()
-	}
-}
+func (t *TouchpadWrapper) FocusGained() {}
 
 // FocusLost реализация fyne.Focusable
 func (t *TouchpadWrapper) FocusLost() {}
