@@ -66,13 +66,19 @@ func (c *centerKeyboardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 type backspaceEntry struct {
 	widget.Entry
 	onBackspaceAlways func()
+	onBackspaceTyped  func()
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
-	if key.Name == fyne.KeyBackspace && e.onBackspaceAlways != nil {
-		// Отправляем Backspace на хост при пустом поле (OnChanged не сработает)
-		if len([]rune(e.Entry.Text)) == 0 {
-			e.onBackspaceAlways()
+	if key.Name == fyne.KeyBackspace {
+		if e.onBackspaceTyped != nil {
+			e.onBackspaceTyped()
+		}
+		if e.onBackspaceAlways != nil {
+			// Отправляем Backspace на хост при пустом поле (OnChanged не сработает)
+			if len([]rune(e.Entry.Text)) == 0 {
+				e.onBackspaceAlways()
+			}
 		}
 	}
 	e.Entry.TypedKey(key)
@@ -180,16 +186,25 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	textHint := &backspaceEntry{}
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
+	var prevText string
+	var suppressOnChanged bool
+	var pendingBackspaces int
 	textHint.onBackspaceAlways = func() {
 		if vk.onKeyPress != nil {
 			vk.onKeyPress(42, 0) // HID Backspace — всегда отправляем, даже при пустом поле
 		}
 	}
+	textHint.onBackspaceTyped = func() {
+		pendingBackspaces++
+	}
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboard + " — " + i18n.Current.VirtualKeyboardClickToType)
 	// Entry по умолчанию — одна строка, длинный текст прокручивается (бегущая строка)
-
-	var prevText string
 	textHint.OnChanged = func(newText string) {
+		if suppressOnChanged {
+			prevText = newText
+			return
+		}
+
 		prevRunes := []rune(prevText)
 		newRunes := []rune(newText)
 
@@ -205,10 +220,26 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 				}
 			}
 		case len(newRunes) < len(prevRunes) && hasRunePrefix(prevRunes, newRunes):
-			if vk.onKeyPress != nil {
-				for i := 0; i < len(prevRunes)-len(newRunes); i++ {
+			if vk.onKeyPress != nil && pendingBackspaces > 0 {
+				toSend := len(prevRunes) - len(newRunes)
+				if toSend > pendingBackspaces {
+					toSend = pendingBackspaces
+				}
+				for i := 0; i < toSend; i++ {
 					vk.onKeyPress(42, 0) // HID Backspace
 				}
+			}
+		}
+
+		if pendingBackspaces > 0 {
+			delta := len(prevRunes) - len(newRunes)
+			if delta < 0 {
+				delta = 0
+			}
+			if delta >= pendingBackspaces {
+				pendingBackspaces = 0
+			} else {
+				pendingBackspaces -= delta
 			}
 		}
 
@@ -316,7 +347,11 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 
 	// Строка с полем ввода: Entry (подстраивается под экран) + кнопка очистки справа
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
+		suppressOnChanged = true
 		textHint.SetText("")
+		prevText = ""
+		pendingBackspaces = 0
+		suppressOnChanged = false
 	})
 	clearBtn.Importance = widget.MediumImportance
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
