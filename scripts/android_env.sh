@@ -149,6 +149,8 @@ add_android_sdk_tools_to_path() {
     for tool_dir in "$sdk_dir"/cmdline-tools/*/bin; do
         [ -d "$tool_dir" ] && add_to_path_if_exists "$tool_dir"
     done
+
+    return 0
 }
 
 normalize_android_path() {
