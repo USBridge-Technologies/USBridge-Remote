@@ -15,7 +15,6 @@ gstreamer
 gstreamer-android
 gstreamer-android-dynamic
 gstreamer-android-static
-android
 arm64
 armv7
 x86
@@ -26,6 +25,8 @@ x86_64
 *.apk
 *.xz
 *.gz
+*.jar
+*.aar
 *.lz4
 *.tgz
 *.dll
