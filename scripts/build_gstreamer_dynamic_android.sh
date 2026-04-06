@@ -34,6 +34,7 @@ GSTREAMER_DIR="$REPO_ROOT/gstreamer"
 BUILD_DIR="$GSTREAMER_DIR/build-android-arm64-shared"
 INSTALL_DIR="$REPO_ROOT/gstreamer-android-dynamic"
 JNILIBS_DIR="$REPO_ROOT/android/jniLibs/arm64-v8a"
+GST_ANDROIDMEDIA_JAVA_DST="$REPO_ROOT/android/app/src/main/java/org/freedesktop/gstreamer/androidmedia"
 DIST_ANDROID="$REPO_ROOT/dist/android"
 MESON_PREFIX="/usr/local"
 GST_SOURCE_VERSION="${GST_SOURCE_VERSION:-1.19.2}"
@@ -87,6 +88,34 @@ copy_android_runtime_libs() {
     if [ "$copied" -gt 0 ]; then
         echo "   Скопировано $copied .so из $label"
     fi
+}
+
+sync_androidmedia_java_sources() {
+    local source_dir="$INSTALL_DIR/share/gst-android/ndk-build/androidmedia"
+    local copied=0
+    local f=""
+
+    if [ ! -d "$source_dir" ]; then
+        echo -e "${YELLOW}⚠${NC} Не найдены Java sources androidmedia в install tree: $source_dir"
+        return 0
+    fi
+
+    mkdir -p "$GST_ANDROIDMEDIA_JAVA_DST"
+    rm -f "$GST_ANDROIDMEDIA_JAVA_DST"/*.java
+
+    for f in "$source_dir"/*.java; do
+        [ -f "$f" ] || continue
+        cp -f "$f" "$GST_ANDROIDMEDIA_JAVA_DST/"
+        copied=$((copied + 1))
+        echo -e "${GREEN}✓${NC} Java $(basename "$f")"
+    done
+
+    if [ "$copied" -eq 0 ]; then
+        echo -e "${YELLOW}⚠${NC} Androidmedia Java sources не были скопированы"
+        return 1
+    fi
+
+    echo "   Скопировано $copied Java sources для Android GStreamer runtime"
 }
 
 download_wrap_subprojects_serially() {
@@ -291,6 +320,7 @@ echo "📦 Установка..."
 rm -rf "$INSTALL_DIR"
 DESTDIR="$INSTALL_DIR" meson install -C "$BUILD_DIR"
 sync_install_prefix_layout
+sync_androidmedia_java_sources
 
 echo "📚 Копирование .so в android/jniLibs/arm64-v8a..."
 mkdir -p "$JNILIBS_DIR"
