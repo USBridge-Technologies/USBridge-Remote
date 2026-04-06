@@ -47,6 +47,7 @@ build_temp/
 
 android/jniLibs
 android/.gradle
+android/local.properties
 
 *.log
 old

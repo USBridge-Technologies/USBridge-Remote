@@ -233,6 +233,31 @@ if [ -z "$JAVA_HOME" ] || java -version 2>&1 | grep -q "version \"25"; then
     fi
 fi
 cd android
+LOCAL_PROPERTIES="local.properties"
+ANDROID_HOME_LOCAL="${ANDROID_HOME:-}"
+ANDROID_NDK_HOME_LOCAL="${ANDROID_NDK_HOME:-}"
+
+normalize_android_path() {
+    local path_value="$1"
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$path_value"
+    else
+        printf '%s\n' "$path_value"
+    fi
+}
+
+if [ -z "$ANDROID_HOME_LOCAL" ] || [ ! -d "$ANDROID_HOME_LOCAL" ]; then
+    echo -e "${RED}❌ Android SDK не найден для Gradle${NC}"
+    echo "   Ожидался ANDROID_HOME с валидным путем"
+    exit 1
+fi
+
+{
+    echo "sdk.dir=$(normalize_android_path "$ANDROID_HOME_LOCAL")"
+    if [ -n "$ANDROID_NDK_HOME_LOCAL" ] && [ -d "$ANDROID_NDK_HOME_LOCAL" ]; then
+        echo "ndk.dir=$(normalize_android_path "$ANDROID_NDK_HOME_LOCAL")"
+    fi
+} > "$LOCAL_PROPERTIES"
 
 # Синхронизируем launcher icon с той же Icon.png, что используется в Windows build.
 for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do

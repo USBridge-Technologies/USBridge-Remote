@@ -1,11 +1,32 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+val detectedNdkVersion = localProperties.getProperty("ndk.dir")
+    ?.let { file(it.replace('\\', '/')) }
+    ?.resolve("source.properties")
+    ?.takeIf { it.exists() }
+    ?.readLines()
+    ?.firstOrNull { it.startsWith("Pkg.Revision") }
+    ?.substringAfter('=')
+    ?.trim()
+
 android {
     namespace = "com.usbridge.client"
     compileSdk = 34
+    if (!detectedNdkVersion.isNullOrBlank()) {
+        ndkVersion = detectedNdkVersion
+    }
 
     defaultConfig {
         applicationId = "com.usbridge.client"
