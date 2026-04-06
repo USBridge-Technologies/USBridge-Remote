@@ -18,6 +18,7 @@ type headerStatusBadgeButton struct {
 	badgeText string
 	onTapped  func()
 	hovered   bool
+	iconSize  fyne.Size
 
 	bg       *canvas.Rectangle
 	icon     *canvas.Image
@@ -30,6 +31,7 @@ func newHeaderStatusBadgeButton(icon fyne.Resource, onTapped func()) *headerStat
 		iconRes:   icon,
 		badgeText: "0",
 		onTapped:  onTapped,
+		iconSize:  fyne.NewSize(22, 22),
 	}
 	b.ExtendBaseWidget(b)
 	return b
@@ -42,6 +44,14 @@ func (b *headerStatusBadgeButton) SetIcon(icon fyne.Resource) {
 
 func (b *headerStatusBadgeButton) SetBadgeText(text string) {
 	b.badgeText = text
+	b.Refresh()
+}
+
+func (b *headerStatusBadgeButton) SetIconSize(size fyne.Size) {
+	if size.Width <= 0 || size.Height <= 0 {
+		size = fyne.NewSize(22, 22)
+	}
+	b.iconSize = size
 	b.Refresh()
 }
 
@@ -75,7 +85,7 @@ func (b *headerStatusBadgeButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.icon = canvas.NewImageFromResource(b.iconRes)
 	b.icon.FillMode = canvas.ImageFillContain
-	b.icon.SetMinSize(fyne.NewSize(22, 22))
+	b.icon.SetMinSize(b.iconSize)
 
 	b.badgeBg = canvas.NewRectangle(design.ColorAccent)
 	b.badgeBg.CornerRadius = 7
@@ -102,7 +112,10 @@ func (r *headerStatusBadgeButtonRenderer) Layout(size fyne.Size) {
 	r.button.bg.Move(fyne.NewPos(0, 0))
 	r.button.bg.Resize(size)
 
-	iconSize := fyne.NewSize(22, 22)
+	iconSize := r.button.iconSize
+	if iconSize.Width <= 0 || iconSize.Height <= 0 {
+		iconSize = fyne.NewSize(22, 22)
+	}
 	r.button.icon.Resize(iconSize)
 	r.button.icon.Move(fyne.NewPos((size.Width-iconSize.Width)/2, (size.Height-iconSize.Height)/2))
 

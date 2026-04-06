@@ -47,6 +47,7 @@ type HeaderDropdown struct {
 	Selected   string
 	OnSelected func(string)
 	MinWidth   float32
+	Compact    bool
 
 	disabled bool
 	hovered  bool
@@ -99,17 +100,18 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (d *HeaderDropdown) MinSize() fyne.Size {
+	height := d.controlHeight()
 	if d.MinWidth > 0 {
-		return fyne.NewSize(d.MinWidth, 36)
+		return fyne.NewSize(d.MinWidth, height)
 	}
 	label := canvas.NewText(d.Selected, design.ColorTextLight)
 	label.TextSize = 14
-	width := label.MinSize().Width + 52
-	minWidth := float32(88)
+	width := label.MinSize().Width + d.horizontalPadding()
+	minWidth := d.minimumWidth()
 	if width < minWidth {
 		width = minWidth
 	}
-	return fyne.NewSize(width, 36)
+	return fyne.NewSize(width, height)
 }
 
 func (d *HeaderDropdown) Tapped(*fyne.PointEvent) {
@@ -160,9 +162,9 @@ func (d *HeaderDropdown) updateMinWidth() {
 
 	label := canvas.NewText(longest, design.ColorTextLight)
 	label.TextSize = 14
-	width := label.MinSize().Width + 52
-	if width < 88 {
-		width = 88
+	width := label.MinSize().Width + d.horizontalPadding()
+	if width < d.minimumWidth() {
+		width = d.minimumWidth()
 	}
 	d.MinWidth = width
 }
@@ -216,7 +218,8 @@ func (d *HeaderDropdown) openPopup() {
 	menuBorder.StrokeWidth = 1
 
 	menuList := container.NewVBox(rows...)
-	menuContent := fyne.CanvasObject(NewInset(menuList, 6, 6, 6, 6))
+	inset := d.menuInset()
+	menuContent := fyne.CanvasObject(NewInset(menuList, inset, inset, inset, inset))
 	menu := container.NewStack(menuBG, menuContent, menuBorder)
 
 	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(d)
@@ -228,7 +231,7 @@ func (d *HeaderDropdown) openPopup() {
 	for _, option := range d.Options {
 		label := canvas.NewText(option, design.ColorTextLight)
 		label.TextSize = 14
-		optionWidth := label.MinSize().Width + 40
+		optionWidth := label.MinSize().Width + d.menuOptionPadding()
 		if optionWidth > menuWidth {
 			menuWidth = optionWidth
 		}
@@ -262,7 +265,7 @@ func (d *HeaderDropdown) openPopup() {
 	if popupHeight > maxPopupHeight {
 		scroll := container.NewVScroll(menuList)
 		scroll.SetMinSize(fyne.NewSize(menuWidth-18, maxPopupHeight-12))
-		menuContent = NewInset(scroll, 6, 10, 6, 6)
+		menuContent = NewInset(scroll, inset, inset+4, inset, inset)
 		popupContent = container.NewThemeOverride(container.NewStack(menuBG, menuContent, menuBorder), &dropdownMenuTheme{base: design.NewBrandTheme()})
 		popupHeight = maxPopupHeight
 	}
@@ -354,6 +357,41 @@ func (d *HeaderDropdown) refreshVisuals() {
 	d.icon.Refresh()
 }
 
+func (d *HeaderDropdown) controlHeight() float32 {
+	if d.Compact {
+		return 32
+	}
+	return 36
+}
+
+func (d *HeaderDropdown) horizontalPadding() float32 {
+	if d.Compact {
+		return 40
+	}
+	return 52
+}
+
+func (d *HeaderDropdown) minimumWidth() float32 {
+	if d.Compact {
+		return 74
+	}
+	return 88
+}
+
+func (d *HeaderDropdown) menuInset() float32 {
+	if d.Compact {
+		return 4
+	}
+	return 6
+}
+
+func (d *HeaderDropdown) menuOptionPadding() float32 {
+	if d.Compact {
+		return 28
+	}
+	return 40
+}
+
 func (d *HeaderDropdown) animateArrow(from fyne.Resource, to fyne.Resource) {
 	if d.icon == nil || d.iconOpening {
 		return
@@ -441,7 +479,14 @@ func (i *dropdownItem) MinSize() fyne.Size {
 	if width < 72 {
 		width = 72
 	}
-	return fyne.NewSize(width, 36)
+	height := float32(36)
+	if len(i.text) <= 4 && i.secondary == "" {
+		height = 32
+		if width < 64 {
+			width = 64
+		}
+	}
+	return fyne.NewSize(width, height)
 }
 
 func (i *dropdownItem) Tapped(*fyne.PointEvent) {
@@ -494,16 +539,24 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 	d.border.Resize(size)
 
 	labelMin := d.label.MinSize()
-	labelWidth := size.Width - 56
+	labelWidth := size.Width - d.horizontalPadding()
 	if labelWidth < 24 {
 		labelWidth = 24
 	}
-	d.label.Move(fyne.NewPos(16, (size.Height-labelMin.Height)/2))
+	labelX := float32(16)
+	if d.Compact {
+		labelX = 12
+	}
+	d.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
 	d.label.Resize(fyne.NewSize(labelWidth, labelMin.Height))
 
 	iconSize := fyne.NewSize(16, 16)
 	d.icon.Resize(iconSize)
-	d.icon.Move(fyne.NewPos(size.Width-28, (size.Height-iconSize.Height)/2))
+	iconX := size.Width - 28
+	if d.Compact {
+		iconX = size.Width - 24
+	}
+	d.icon.Move(fyne.NewPos(iconX, (size.Height-iconSize.Height)/2))
 }
 
 func (r *headerDropdownRenderer) MinSize() fyne.Size {
@@ -787,14 +840,18 @@ type dropdownItemRenderer struct {
 func (r *dropdownItemRenderer) Layout(size fyne.Size) {
 	r.item.bg.Resize(size)
 	labelMin := r.item.label.MinSize()
-	r.item.label.Move(fyne.NewPos(14, (size.Height-labelMin.Height)/2))
+	labelX := float32(14)
+	if len(r.item.text) <= 4 && r.item.secondary == "" {
+		labelX = 12
+	}
+	r.item.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
 	r.item.label.Resize(labelMin)
 
 	if r.item.secondary != "" {
 		rightMin := r.item.secondaryLabel.MinSize()
 		rightX := size.Width - rightMin.Width - 14
-		if rightX < 14+labelMin.Width+12 {
-			rightX = 14 + labelMin.Width + 12
+		if rightX < labelX+labelMin.Width+12 {
+			rightX = labelX + labelMin.Width + 12
 		}
 		r.item.secondaryLabel.Show()
 		r.item.secondaryLabel.Move(fyne.NewPos(rightX, (size.Height-rightMin.Height)/2))

@@ -29,6 +29,28 @@ const (
 	statusIconSize       float32 = 18
 )
 
+func protocolDropdownLabel(protocol string) string {
+	switch strings.TrimSpace(protocol) {
+	case models.ConnectionProtocolWireGuard:
+		return "wgrd"
+	case models.ConnectionProtocolQUIC:
+		return models.ConnectionProtocolQUIC
+	default:
+		return models.ConnectionProtocolAuto
+	}
+}
+
+func protocolDropdownValue(label string) string {
+	switch strings.TrimSpace(strings.ToLower(label)) {
+	case "wgrd":
+		return models.ConnectionProtocolWireGuard
+	case models.ConnectionProtocolQUIC:
+		return models.ConnectionProtocolQUIC
+	default:
+		return models.ConnectionProtocolAuto
+	}
+}
+
 type tabsTheme struct {
 	base fyne.Theme
 }
@@ -79,13 +101,18 @@ func (mw *MainWindow) createInterface() {
 	}, nil)
 	mw.protocolSelect.OnChanged = func(value string) {
 		if mw.protocolDropdown != nil {
-			mw.protocolDropdown.SetSelected(value)
+			mw.protocolDropdown.SetSelected(protocolDropdownLabel(value))
 		}
 	}
 
-	mw.protocolDropdown = view.NewHeaderDropdown(mw.protocolSelect.Options, mw.config.ConnectionProtocol, func(value string) {
-		mw.protocolSelect.SetSelected(value)
+	mw.protocolDropdown = view.NewHeaderDropdown([]string{
+		models.ConnectionProtocolAuto,
+		models.ConnectionProtocolQUIC,
+		"wgrd",
+	}, protocolDropdownLabel(mw.config.ConnectionProtocol), func(value string) {
+		mw.protocolSelect.SetSelected(protocolDropdownValue(value))
 	})
+	mw.protocolDropdown.Compact = true
 	mw.protocolSelect.SetSelected(mw.config.ConnectionProtocol)
 
 	mw.connectionBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
@@ -279,19 +306,24 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 
 // createAddressBar создает адресную строку.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
-	hostField := view.NewFixedHeight(mw.hostEntry, addressBarControlH)
-	protocolPanel := container.NewGridWrap(
-		fyne.NewSize(mw.protocolDropdown.MinSize().Width, addressBarControlH),
-		mw.protocolDropdown,
-	)
-	connectPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.connectionBtn)
-	row := container.New(&connectionAddressBarLayout{
-		gap:        addressBarGap,
-		hideHostAt: addressBarHostHideAt,
-		keepHostShown: func() bool {
-			return true
-		},
-	}, hostField, protocolPanel, connectPanel)
+	var langBtn *headerStatusBadgeButton
+	langBtn = newHeaderStatusBadgeButton(assets.LanguageIconActive, func() {
+		if mw.connectionManager != nil {
+			mw.connectionManager.ShowLanguageMenu(langBtn)
+		}
+	})
+	langBtn.SetBadgeText("")
+	langBtn.SetIconSize(fyne.NewSize(18, 18))
+
+	discordBtn := newHeaderStatusBadgeButton(assets.DiscordIconActive, func() {
+		if mw.connectionManager != nil {
+			mw.connectionManager.OpenDiscordInvite()
+		}
+	})
+	discordBtn.SetBadgeText("")
+	discordBtn.SetIconSize(fyne.NewSize(18, 18))
+
+	row := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
 	return view.NewHeaderBand("", row)
 }
 
@@ -339,28 +371,8 @@ func newHeaderPassiveIndicator(icon fyne.Resource) fyne.CanvasObject {
 }
 
 func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
-	var langBtn fyne.CanvasObject
-	langBtn = view.NewFooterIconButton(assets.LanguageIconDim, assets.LanguageIcon, fyne.NewSize(14, 14), func() {
-		if mw.connectionManager != nil {
-			mw.connectionManager.ShowLanguageMenu(langBtn)
-		}
-	})
-
-	discordBtn := view.NewFooterIconButton(assets.DiscordIconDim, assets.DiscordIcon, fyne.NewSize(14, 14), func() {
-		if mw.connectionManager != nil {
-			mw.connectionManager.OpenDiscordInvite()
-		}
-	})
-
-	row := container.NewHBox(discordBtn, langBtn)
-
-	bg := canvas.NewRectangle(design.ColorGray950)
-
-	bar := container.NewStack(
-		bg,
-		view.NewInset(row, 6, 8, 2, 2),
-	)
-
+	bar := container.NewWithoutLayout()
+	bar.Hide()
 	mw.connectionFooterBar = bar
 	return bar
 }
@@ -379,7 +391,7 @@ func (mw *MainWindow) updateConnectionFooterVisibility(hasConnections bool) {
 
 	fyne.Do(func() {
 		_ = hasConnections
-		mw.connectionFooterBar.Show()
+		mw.connectionFooterBar.Hide()
 
 		if content := mw.window.Content(); content != nil {
 			content.Refresh()
@@ -461,8 +473,8 @@ func newProtocolBadge(protocol string) fyne.CanvasObject {
 	label.TextSize = 8
 	label.TextStyle.Bold = true
 
-	badgeWidth := float32(18)
-	if text == "WG" || text == "QC" || text == "ON" {
+	badgeWidth := fyne.MeasureText(strings.TrimSpace(text), 8, fyne.TextStyle{Bold: true}).Width + 8
+	if badgeWidth < 20 {
 		badgeWidth = 20
 	}
 

@@ -47,18 +47,18 @@ type MainWindow struct {
 	wgService        service.WireGuardService
 
 	// Состояние
-	config                 *models.AppConfig
-	appState               *models.AppState
-	isConnected            bool
-	isStreaming            bool
-	isConnectionPending    bool
-	isConnectionLoading    bool
-	connectedProtocol      string
-	activeConnectionToken  string
-	pendingWireGuardInvite string
-	currentVideoFPS        float64
-	currentStorageDir      string
-	currentStorageTotal    int64
+	config                  *models.AppConfig
+	appState                *models.AppState
+	isConnected             bool
+	isStreaming             bool
+	isConnectionPending     bool
+	isConnectionLoading     bool
+	connectedProtocol       string
+	activeConnectionToken   string
+	pendingWireGuardInvite  string
+	currentVideoFPS         float64
+	currentStorageDir       string
+	currentStorageTotal     int64
 	currentStorageAvailable int64
 
 	// Кнопка подключения/отключения
@@ -96,15 +96,15 @@ type MainWindow struct {
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
-		return "WG", design.ColorAccent, design.ColorBackground
+		return "wireguard", design.ColorAccent, design.ColorBackground
 	case models.ConnectionProtocolQUIC:
-		return "QC", design.ColorProtocolQUIC, design.ColorBackground
+		return "quic", design.ColorProtocolQUIC, design.ColorBackground
 	case "direct":
-		return "ON", design.ColorSurfaceLight, design.ColorTextLight
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
 	case models.ConnectionProtocolAuto:
-		return "ON", design.ColorSurfaceLight, design.ColorTextLight
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
 	default:
-		return "ON", design.ColorSurfaceLight, design.ColorTextLight
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
 	}
 }
 

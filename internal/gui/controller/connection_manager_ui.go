@@ -18,7 +18,7 @@ func (cm *ConnectionManager) createInterface() {
 
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
-	view.ShowStyledMenuAbove(anchor, []view.StyledMenuItem{
+	view.ShowStyledMenu(anchor, []view.StyledMenuItem{
 		{
 			Label:    i18n.Current.LanguageEnglish,
 			Selected: currentLanguage == "en",
@@ -27,10 +27,17 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 			},
 		},
 		{
-			Label:    i18n.Current.LanguageRussian,
-			Selected: currentLanguage == "ru",
+			Label:    i18n.Current.LanguageSpanish,
+			Selected: currentLanguage == "es",
 			OnTap: func() {
-				cm.setLanguage("ru")
+				cm.setLanguage("es")
+			},
+		},
+		{
+			Label:    i18n.Current.LanguageUkrainian,
+			Selected: currentLanguage == "uk" || currentLanguage == "ua",
+			OnTap: func() {
+				cm.setLanguage("uk")
 			},
 		},
 	})
@@ -111,9 +118,9 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			Host:          conn.Host,
 			ProtocolBadge: connectionProtocolBadge(conn.Protocol),
 			ProtocolOptions: []string{
-				models.ConnectionProtocolAuto,
-				models.ConnectionProtocolQUIC,
-				models.ConnectionProtocolWireGuard,
+				connectionProtocolBadge(models.ConnectionProtocolAuto),
+				connectionProtocolBadge(models.ConnectionProtocolQUIC),
+				connectionProtocolBadge(models.ConnectionProtocolWireGuard),
 			},
 		},
 		rowState,

@@ -505,6 +505,7 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 			actions.OnProtocolChange(value)
 		}
 	})
+	protocolBtn.Compact = true
 	protocolBtn.SetSelected(data.ProtocolBadge)
 	protocolBtn.SetDisabled(state.Disabled)
 

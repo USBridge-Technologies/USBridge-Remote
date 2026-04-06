@@ -266,9 +266,10 @@ type LocalizedStrings struct {
 	LowLatencyMode        string
 
 	// Language
-	Language        string
-	LanguageEnglish string
-	LanguageRussian string
+	Language          string
+	LanguageEnglish   string
+	LanguageSpanish   string
+	LanguageUkrainian string
 
 	// Connection names
 	ConnectionNumber string // "Connection %d"
@@ -608,9 +609,10 @@ func EN() *LocalizedStrings {
 		LowLatencyMode:        "Low latency mode",
 
 		// Language
-		Language:        "Language",
-		LanguageEnglish: "English",
-		LanguageRussian: "Russian",
+		Language:          "Language",
+		LanguageEnglish:   "English",
+		LanguageSpanish:   "Spanish",
+		LanguageUkrainian: "Ukrainian",
 
 		// Connection names
 		ConnectionNumber: "Connection %d",
@@ -686,11 +688,202 @@ func EN() *LocalizedStrings {
 	}
 }
 
-// RU returns the Russian locale.
-// The product requirement is that visible UI text must stay in English,
-// so the Russian locale currently reuses the English strings.
-func RU() *LocalizedStrings {
-	return EN()
+// ES returns the Spanish locale.
+func ES() *LocalizedStrings {
+	locale := EN()
+	locale.AppTitle = "Cliente USBridge"
+	locale.ServerAddress = "Direccion del servidor"
+	locale.Token = "Token"
+	locale.ConnectButton = "Conectar"
+	locale.DisconnectButton = "Desconectar"
+	locale.DisconnectAllButton = "Desconectar todo"
+	locale.VideoStreamActiveButton = "Abrir control"
+	locale.TabDevices = "Dispositivos"
+	locale.TabControl = "Control"
+	locale.TabSnapshots = "Instantaneas"
+	locale.ConnectionManager = "Administrador de conexiones"
+	locale.SavedConnections = "Conexiones"
+	locale.ConnectionManagement = "Gestion de conexiones"
+	locale.ConnectionHeroEyebrow = "ACCESO USBRIDGE"
+	locale.ConnectionPanelHint = "Inicia un perfil guardado o crea uno nuevo."
+	locale.EditConnectionTitle = "Editar conexion"
+	locale.AddConnectionTitle = "Agregar conexion"
+	locale.AddNewDeviceTitle = "Agregar un nuevo dispositivo"
+	locale.NoSavedConnections = "Todavia no hay conexiones guardadas"
+	locale.NoSavedConnectionsHint = "Usa QR o agrega una conexion para comenzar."
+	locale.OnboardingStepConnect = "Conecta USB-C al host de destino para energia y HID. Conecta la salida HDMI al capturador."
+	locale.OnboardingStepIP = "Abre configuracion de red y conecta el dispositivo a tu red."
+	locale.OnboardingStepScan = "Escanea el codigo QR del token o introduce IP y token manualmente."
+	locale.SaveButton = "Guardar"
+	locale.DeleteButton = "Eliminar"
+	locale.DeleteConnectionTitle = "Eliminar conexion"
+	locale.DeleteConnectionConfirm = "Seguro que deseas eliminar la conexion \"%s\"?"
+	locale.Devices = "Dispositivos"
+	locale.DevicesSectionStorage = "Almacenamiento"
+	locale.DevicesSectionBackup = "Dispositivo de respaldo"
+	locale.DevicesSectionControl = "Consola de control"
+	locale.DevicesSectionConnectivity = "Conectividad"
+	locale.LocalDrives = "Unidades locales"
+	locale.NetworkDrives = "Unidades de red"
+	locale.MountButton = "Montar"
+	locale.UnmountButton = "Desmontar"
+	locale.RefreshButton = "Actualizar"
+	locale.LoadingFromCloud = "Cargando desde la nube"
+	locale.StatusConnected = "Conectado"
+	locale.StatusDisconnected = "Desconectado"
+	locale.StatusConnecting = "Conectando..."
+	locale.StatusError = "Error"
+	locale.Apply = "Aplicar"
+	locale.Cancel = "Cancelar"
+	locale.Yes = "Si"
+	locale.No = "No"
+	locale.Error = "Error"
+	locale.Information = "Informacion"
+	locale.Confirmation = "Confirmacion"
+	locale.Success = "Exito"
+	locale.Done = "Hecho"
+	locale.Close = "Cerrar"
+	locale.ConnectionTitle = "Conexion"
+	locale.VideoQualitySettings = "Configuracion de calidad de video"
+	locale.Resolution = "Resolucion"
+	locale.FrameRate = "Frecuencia"
+	locale.StreamMode = "Modo de transmision"
+	locale.StartVideo = "Iniciar"
+	locale.SettingsAction = "Configuracion"
+	locale.FullscreenAction = "Pantalla completa"
+	locale.Language = "Idioma"
+	locale.LanguageEnglish = "English"
+	locale.LanguageSpanish = "Spanish"
+	locale.LanguageUkrainian = "Ukrainian"
+	locale.DeviceKeyboard = "Teclado"
+	locale.DeviceTouchPad = "TouchPad"
+	locale.DeviceMouse = "Raton"
+	locale.DeviceTouch = "Tactil"
+	locale.DeviceAbsolute = "Absoluto"
+	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
+	locale.DeepLinkServerAddress = "Direccion del servidor:"
+	locale.DeepLinkToken = "Token:"
+	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
+	locale.DeepLinkConnect = "Conectar"
+	locale.DeepLinkSave = "Guardar"
+	locale.VirtualKeyboard = "Teclado virtual"
+	locale.FullscreenWindowTitle = "USBridge - Pantalla completa"
+	locale.PCPanelPowerTitle = "Encendido"
+	locale.PCPanelResetTitle = "Reinicio"
+	return locale
+}
+
+// UK returns the Ukrainian locale.
+func UK() *LocalizedStrings {
+	locale := EN()
+	locale.SavedConnections = "З'єднання"
+	locale.EditConnectionTitle = "Редагувати з'єднання"
+	locale.AddConnectionTitle = "Додати з'єднання"
+	locale.AddNewDeviceTitle = "Додати новий пристрій"
+	locale.DeleteButton = "Видалити"
+	locale.DeepLinkConnect = "Підключити"
+	locale.DeepLinkSave = "Зберегти"
+	locale.DeleteConnectionTitle = "Видалити з'єднання"
+	locale.Language = "Мова"
+	locale.LanguageEnglish = "Англійська"
+	locale.LanguageSpanish = "Іспанська"
+	locale.LanguageUkrainian = "Українська"
+	locale.SettingsAction = "Налаштування"
+	locale.FullscreenAction = "На весь екран"
+	locale.DeviceKeyboard = "Клавіатура"
+	locale.DeviceMouse = "Миша"
+	locale.DeviceTouch = "Дотик"
+	locale.DeviceAbsolute = "Абсолютний"
+	locale.Close = "Закрити"
+	locale.Cancel = "Скасувати"
+	locale.Yes = "Так"
+	locale.No = "Ні"
+	return locale
+}
+
+// UKProper returns the Ukrainian locale.
+func UKProper() *LocalizedStrings {
+	locale := EN()
+	locale.AppTitle = "Клієнт USBridge"
+	locale.ServerAddress = "Адреса сервера"
+	locale.Token = "Токен"
+	locale.ConnectButton = "Підключити"
+	locale.DisconnectButton = "Відключити"
+	locale.DisconnectAllButton = "Відключити все"
+	locale.VideoStreamActiveButton = "Відкрити керування"
+	locale.TabDevices = "Пристрої"
+	locale.TabControl = "Керування"
+	locale.TabSnapshots = "Знімки"
+	locale.ConnectionManager = "Менеджер з'єднань"
+	locale.SavedConnections = "З'єднання"
+	locale.ConnectionManagement = "Керування з'єднаннями"
+	locale.ConnectionHeroEyebrow = "ДОСТУП USBRIDGE"
+	locale.ConnectionPanelHint = "Запустіть збережений профіль або створіть новий."
+	locale.EditConnectionTitle = "Редагувати з'єднання"
+	locale.AddConnectionTitle = "Додати з'єднання"
+	locale.AddNewDeviceTitle = "Додати новий пристрій"
+	locale.NoSavedConnections = "Ще немає збережених з'єднань"
+	locale.NoSavedConnectionsHint = "Скористайтеся QR або додайте з'єднання вручну."
+	locale.OnboardingStepConnect = "Підключіть USB-C до цільового хоста для живлення та HID. Підключіть HDMI до пристрою захоплення."
+	locale.OnboardingStepIP = "Відкрийте налаштування мережі та підключіть пристрій до вашої мережі."
+	locale.OnboardingStepScan = "Відскануйте QR-код токена або введіть IP і токен вручну."
+	locale.SaveButton = "Зберегти"
+	locale.DeleteButton = "Видалити"
+	locale.DeleteConnectionTitle = "Видалити з'єднання"
+	locale.DeleteConnectionConfirm = "Ви впевнені, що хочете видалити з'єднання \"%s\"?"
+	locale.Devices = "Пристрої"
+	locale.DevicesSectionStorage = "Сховище"
+	locale.DevicesSectionBackup = "Резервний пристрій"
+	locale.DevicesSectionControl = "Консоль керування"
+	locale.DevicesSectionConnectivity = "Мережа"
+	locale.LocalDrives = "Локальні диски"
+	locale.NetworkDrives = "Мережеві диски"
+	locale.MountButton = "Підключити"
+	locale.UnmountButton = "Відключити"
+	locale.RefreshButton = "Оновити"
+	locale.LoadingFromCloud = "Завантаження з хмари"
+	locale.StatusConnected = "Підключено"
+	locale.StatusDisconnected = "Відключено"
+	locale.StatusConnecting = "Підключення..."
+	locale.StatusError = "Помилка"
+	locale.Apply = "Застосувати"
+	locale.Cancel = "Скасувати"
+	locale.Yes = "Так"
+	locale.No = "Ні"
+	locale.Error = "Помилка"
+	locale.Information = "Інформація"
+	locale.Confirmation = "Підтвердження"
+	locale.Success = "Успіх"
+	locale.Done = "Готово"
+	locale.Close = "Закрити"
+	locale.ConnectionTitle = "З'єднання"
+	locale.VideoQualitySettings = "Налаштування якості відео"
+	locale.Resolution = "Роздільна здатність"
+	locale.FrameRate = "Частота кадрів"
+	locale.StreamMode = "Режим потоку"
+	locale.StartVideo = "Запустити"
+	locale.SettingsAction = "Налаштування"
+	locale.FullscreenAction = "На весь екран"
+	locale.Language = "Мова"
+	locale.LanguageEnglish = "English"
+	locale.LanguageSpanish = "Spanish"
+	locale.LanguageUkrainian = "Ukrainian"
+	locale.DeviceKeyboard = "Клавіатура"
+	locale.DeviceTouchPad = "TouchPad"
+	locale.DeviceMouse = "Миша"
+	locale.DeviceTouch = "Дотик"
+	locale.DeviceAbsolute = "Абсолютний"
+	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
+	locale.DeepLinkServerAddress = "Адреса сервера:"
+	locale.DeepLinkToken = "Токен:"
+	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
+	locale.DeepLinkConnect = "Підключити"
+	locale.DeepLinkSave = "Зберегти"
+	locale.VirtualKeyboard = "Віртуальна клавіатура"
+	locale.FullscreenWindowTitle = "USBridge - Повний екран"
+	locale.PCPanelPowerTitle = "Живлення"
+	locale.PCPanelResetTitle = "Скидання"
+	return locale
 }
 
 // Current holds the current active localization
@@ -699,8 +892,10 @@ var Current *LocalizedStrings
 // Init initializes the localization system
 func Init(language string) {
 	switch language {
-	case "ru", "RU":
-		Current = RU()
+	case "es", "ES":
+		Current = ES()
+	case "uk", "UK", "ua", "UA":
+		Current = UKProper()
 	default:
 		Current = EN()
 	}

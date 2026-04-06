@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -535,9 +536,9 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, centerY)
 			}
 
-			topMargin := clampFloat32(canvasSize.Height*0.03, 16, 28)
-			bottomMargin := clampFloat32(canvasSize.Height*0.02, 12, 24)
-			keyboardHeight := clampFloat32(canvasSize.Height*0.34, 180, 320)
+			topMargin := clampFloat32(canvasSize.Height*0.025, 12, 22)
+			bottomMargin := clampFloat32(canvasSize.Height*0.04, 22, 40)
+			keyboardHeight := clampFloat32(canvasSize.Height*0.40, 220, 380)
 			maxY := canvasSize.Height - keyboardHeight - panelSize.Height - bottomMargin
 			if maxY < topMargin {
 				maxY = topMargin
@@ -656,6 +657,18 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn, func() bool {
 		return fyne.CurrentDevice().IsMobile() && focusedInputs > 0
 	})
+	if fyne.CurrentDevice().IsMobile() && window != nil {
+		go func() {
+			time.Sleep(120 * time.Millisecond)
+			fyne.Do(func() {
+				if d == nil || !d.Visible() {
+					return
+				}
+				window.RequestFocus()
+				window.Canvas().Focus(nameEntry)
+			})
+		}()
+	}
 	return d
 }
 

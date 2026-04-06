@@ -23,11 +23,25 @@ func normalizeConnectionProtocol(protocol string) string {
 }
 
 func connectionProtocolBadge(protocol string) string {
-	return normalizeConnectionProtocol(protocol)
+	switch normalizeConnectionProtocol(protocol) {
+	case models.ConnectionProtocolWireGuard:
+		return "wgrd"
+	case models.ConnectionProtocolQUIC:
+		return "quic"
+	default:
+		return models.ConnectionProtocolAuto
+	}
 }
 
 func connectionProtocolFromBadge(label string) string {
-	return normalizeConnectionProtocol(label)
+	switch strings.TrimSpace(strings.ToLower(label)) {
+	case "wgrd":
+		return models.ConnectionProtocolWireGuard
+	case models.ConnectionProtocolQUIC:
+		return models.ConnectionProtocolQUIC
+	default:
+		return models.ConnectionProtocolAuto
+	}
 }
 
 type SavedConnection struct {
