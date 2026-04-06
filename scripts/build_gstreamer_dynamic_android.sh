@@ -69,6 +69,21 @@ sync_install_prefix_layout() {
     fi
 }
 
+download_wrap_subprojects_serially() {
+    local wrap_dir="$GSTREAMER_DIR/subprojects"
+    local wrap_file=""
+    local wrap_name=""
+
+    [ -d "$wrap_dir" ] || return 0
+
+    shopt -s nullglob
+    for wrap_file in "$wrap_dir"/*.wrap; do
+        wrap_name="$(basename "$wrap_file" .wrap)"
+        meson subprojects download "$wrap_name" >/dev/null
+    done
+    shopt -u nullglob
+}
+
 meson_windows_path() {
     local target_path="$1"
 
@@ -166,7 +181,7 @@ fi
 cd "$GSTREAMER_DIR"
 
 echo "📦 Подготовка wrap-subprojects для свежего checkout..."
-meson subprojects download >/dev/null
+download_wrap_subprojects_serially
 
 patch_gstreamer_checkout
 
