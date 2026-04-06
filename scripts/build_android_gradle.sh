@@ -12,6 +12,7 @@ NC='\033[0m'
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 source "$SCRIPTS_DIR/android_env.sh"
+refresh_bootstrap_paths
 cd "$REPO_ROOT"
 
 if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
@@ -41,6 +42,10 @@ echo ""
 
 # 2. gomobile bind для nbdbridge
 echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
+if ! ensure_command_available go Go; then
+    echo -e "${RED}❌ Go не найден${NC}"
+    exit 1
+fi
 GOBIN="$(go env GOBIN 2>/dev/null)"
 GOPATH_BIN="$(go env GOPATH 2>/dev/null)/bin"
 
@@ -104,9 +109,8 @@ if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
     export PATH="$GOPATH_BIN:$PATH"
 fi
 
-if ! command -v java >/dev/null 2>&1; then
+if ! ensure_command_available java Java; then
     echo -e "${RED}❌ Java не найден${NC}"
-    echo "   Установите JDK, например: sudo apt-get install openjdk-21-jdk"
     exit 1
 fi
 
@@ -194,6 +198,10 @@ echo ""
 
 # 4. Извлечение .so из Fyne APK
 echo "📂 Шаг 4/5: Извлечение нативных библиотек..."
+if ! ensure_command_available unzip unzip; then
+    echo -e "${RED}❌ unzip не найден${NC}"
+    exit 1
+fi
 FYNE_APK="$REPO_ROOT/cmd/android/USBridge_Client.apk"
 if [ ! -f "$FYNE_APK" ]; then
     FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
@@ -240,6 +248,10 @@ echo ""
 APK_OUT="android/app/build/outputs/apk/release/app-release-unsigned.apk"
 if [ -f "$APK_OUT" ]; then
     # Подписываем
+    if ! ensure_command_available keytool keytool; then
+        echo -e "${RED}❌ keytool не найден${NC}"
+        exit 1
+    fi
     KEYSTORE="$HOME/.android/debug.keystore"
     if [ ! -f "$KEYSTORE" ]; then
         mkdir -p "$HOME/.android"

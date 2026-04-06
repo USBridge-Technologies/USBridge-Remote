@@ -17,6 +17,7 @@ NC='\033[0m'
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 source "$SCRIPTS_DIR/android_env.sh"
+refresh_bootstrap_paths
 
 if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
     export USBRIDGE_LOGGING_ACTIVE=1
@@ -34,6 +35,7 @@ BUILD_DIR="$GSTREAMER_DIR/build-android-arm64-shared"
 INSTALL_DIR="$REPO_ROOT/gstreamer-android-dynamic"
 JNILIBS_DIR="$REPO_ROOT/android/jniLibs/arm64-v8a"
 DIST_ANDROID="$REPO_ROOT/dist/android"
+MESON_PREFIX="/usr/local"
 GST_SOURCE_VERSION="${GST_SOURCE_VERSION:-1.19.2}"
 GST_SOURCE_REPO_URL="${GST_SOURCE_REPO_URL:-https://gitlab.freedesktop.org/gstreamer/gst-build.git}"
 GST_SOURCE_REF="${GST_SOURCE_REF:-$GST_SOURCE_VERSION}"
@@ -46,14 +48,25 @@ ensure_dist_copy() {
     fi
 }
 
+meson_windows_path() {
+    local target_path="$1"
+
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$target_path"
+        return 0
+    fi
+
+    printf '%s\n' "$target_path"
+}
+
 bootstrap_gstreamer_source() {
     if [ -d "$GSTREAMER_DIR" ]; then
         return 0
     fi
 
-    if ! command -v git >/dev/null 2>&1; then
+    if ! ensure_command_available git git; then
         echo -e "${RED}❌ Не найден git, а локальный исходный GStreamer отсутствует${NC}"
-        echo "   Установите git или заранее положите исходники в: $GSTREAMER_DIR"
+        echo "   Не удалось установить git автоматически. Положите исходники вручную в: $GSTREAMER_DIR"
         return 1
     fi
 
@@ -71,6 +84,10 @@ bootstrap_gstreamer_source() {
 
     mv "$tmp_dir" "$GSTREAMER_DIR"
     echo -e "${GREEN}✓${NC} Исходники GStreamer подготовлены: $GSTREAMER_DIR"
+}
+
+patch_gstreamer_checkout() {
+    "$PYTHON" "$SCRIPTS_DIR/patch_gstreamer_android_checkout.py" "$GSTREAMER_DIR"
 }
 
 export_android_env
@@ -92,16 +109,40 @@ if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
 fi
 
 # Требуется flex для сборки парсеров GStreamer
-if ! command -v flex >/dev/null 2>&1; then
-    echo -e "${RED}❌ Не найден flex${NC}"
+if ! ensure_command_available flex flex || ! ensure_command_available bison bison; then
+    echo -e "${RED}❌ Не найдены flex/bison${NC}"
     print_flex_install_hint
     echo "   Для Android build используется source build GStreamer, legacy prebuilt fallback отключён"
     exit 1
 fi
 
+if ! ensure_command_available meson meson; then
+    echo -e "${RED}❌ Не найден meson${NC}"
+    exit 1
+fi
+
+if ! ensure_command_available ninja ninja; then
+    echo -e "${RED}❌ Не найден ninja${NC}"
+    exit 1
+fi
+
+if ! ensure_command_available nasm nasm; then
+    echo -e "${RED}❌ Не найден nasm${NC}"
+    exit 1
+fi
+
+if ! ensure_command_available python3 python3; then
+    echo -e "${RED}❌ Не найден python3${NC}"
+    exit 1
+fi
+
+export PYTHON="$(resolve_command_path python3)"
+
 if [ ! -d "$GSTREAMER_DIR" ]; then
     bootstrap_gstreamer_source || exit 1
 fi
+
+patch_gstreamer_checkout
 
 cd "$GSTREAMER_DIR"
 
@@ -119,6 +160,8 @@ if [ -z "$NDK_PREBUILT" ] || [ ! -d "$NDK_PREBUILT" ]; then
 fi
 NDK_BIN="$NDK_PREBUILT/bin"
 NDK_SYSROOT="$NDK_PREBUILT/sysroot"
+NDK_BIN_MESON="$(meson_windows_path "$NDK_BIN")"
+NDK_SYSROOT_MESON="$(meson_windows_path "$NDK_SYSROOT")"
 echo "📝 Обновление cross-file: $CROSS_FILE"
 cat > "$CROSS_FILE" << EOF
 [host_machine]
@@ -128,15 +171,15 @@ cpu = 'aarch64'
 endian = 'little'
 
 [properties]
-sys_root = '$NDK_SYSROOT'
+sys_root = '$NDK_SYSROOT_MESON'
 pkg_config_libdir = ''
 needs_exe_wrapper = true
 
 [binaries]
-c = '$NDK_BIN/aarch64-linux-android28-clang'
-cpp = '$NDK_BIN/aarch64-linux-android28-clang++'
-ar = '$NDK_BIN/llvm-ar'
-strip = '$NDK_BIN/llvm-strip'
+c = '$NDK_BIN_MESON/aarch64-linux-android28-clang.cmd'
+cpp = '$NDK_BIN_MESON/aarch64-linux-android28-clang++.cmd'
+ar = '$NDK_BIN_MESON/llvm-ar.exe'
+strip = '$NDK_BIN_MESON/llvm-strip.exe'
 pkg-config = 'false'
 EOF
 
@@ -145,9 +188,9 @@ export ANDROID_NDK_HOME="$NDK_PATH"
 echo "📦 Настройка динамической сборки (shared .so)..."
 MESON_EXTRA=""
 [ -d "$BUILD_DIR" ] && MESON_EXTRA="--reconfigure"
-meson setup $MESON_EXTRA "$BUILD_DIR" \
+MSYS2_ARG_CONV_EXCL='--prefix=' meson setup $MESON_EXTRA "$BUILD_DIR" \
     --cross-file "$CROSS_FILE" \
-    --prefix="$INSTALL_DIR" \
+    --prefix="$MESON_PREFIX" \
     --buildtype=release \
     --default-library=shared \
     -Dgst-full-plugins='*' \
@@ -183,20 +226,22 @@ echo "🔨 Компиляция (~30-60 минут)..."
 meson compile -C "$BUILD_DIR"
 
 echo "📦 Установка..."
-meson install -C "$BUILD_DIR"
+rm -rf "$INSTALL_DIR"
+DESTDIR="$INSTALL_DIR" meson install -C "$BUILD_DIR"
 
 echo "📚 Копирование .so в android/jniLibs/arm64-v8a..."
 mkdir -p "$JNILIBS_DIR"
 
-if [ -d "$INSTALL_DIR/lib" ]; then
+INSTALL_LIB_DIR="$INSTALL_DIR$MESON_PREFIX/lib"
+if [ -d "$INSTALL_LIB_DIR" ]; then
     # Основная библиотека + зависимости (копируем все .so)
-    for f in "$INSTALL_DIR/lib"/*.so; do
+    for f in "$INSTALL_LIB_DIR"/*.so; do
         [ -f "$f" ] || continue
         cp -f "$f" "$JNILIBS_DIR/"
         echo -e "${GREEN}✓${NC} $(basename "$f")"
     done
 else
-    echo -e "${RED}❌ Не найдена директория lib в install prefix: $INSTALL_DIR${NC}"
+    echo -e "${RED}❌ Не найдена директория lib в staged install: $INSTALL_LIB_DIR${NC}"
     exit 1
 fi
 
