@@ -79,7 +79,10 @@ download_wrap_subprojects_serially() {
     shopt -s nullglob
     for wrap_file in "$wrap_dir"/*.wrap; do
         wrap_name="$(basename "$wrap_file" .wrap)"
-        meson subprojects download "$wrap_name" >/dev/null
+        if ! meson subprojects download "$wrap_name" >/dev/null; then
+            echo -e "${YELLOW}⚠${NC} Не удалось заранее скачать wrap-subproject: $wrap_name"
+            echo "   Продолжаю сборку: необязательные subprojects могут быть отключены или подтянуты позже Meson-ом."
+        fi
     done
     shopt -u nullglob
 }
