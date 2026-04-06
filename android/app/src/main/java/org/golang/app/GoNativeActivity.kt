@@ -37,6 +37,9 @@ open class GoNativeActivity : NativeActivity() {
             if (file.name == APP_LIBRARY) {
                 continue
             }
+            if (libraryLoadRank(file.name) > MAX_PRELOAD_RANK) {
+                continue
+            }
             try {
                 System.load(file.absolutePath)
                 Log.d(TAG, "Preloaded ${file.name}")
@@ -72,5 +75,6 @@ open class GoNativeActivity : NativeActivity() {
     companion object {
         private const val TAG = "GoNativeActivity"
         private const val APP_LIBRARY = "libUSBridge_Client.so"
+        private const val MAX_PRELOAD_RANK = 50
     }
 }

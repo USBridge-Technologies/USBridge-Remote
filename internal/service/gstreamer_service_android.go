@@ -59,7 +59,6 @@ jobject gst_android_get_application_class_loader(void) {
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // Объявление функции регистрации статических плагинов
-extern void gst_init_static_plugins(void);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Полноценный EGL контекст для amcviddec (аппаратный H.264 → SurfaceTexture)
@@ -86,6 +85,19 @@ static gchar *g_cached_h264_hw_decoder = NULL;
 static gchar *g_cached_jpeg_hw_decoder = NULL;
 
 typedef GstGLDisplay *(*gst_gl_display_egl_new_with_egl_display_fn)(gpointer display);
+typedef void (*gst_init_static_plugins_fn)(void);
+
+static void maybe_init_static_plugins(void) {
+    gst_init_static_plugins_fn init_static_plugins =
+        (gst_init_static_plugins_fn)dlsym(RTLD_DEFAULT, "gst_init_static_plugins");
+
+    if (init_static_plugins) {
+        init_static_plugins();
+        LOGI("Static GStreamer plugins initialized");
+    } else {
+        LOGI("Static GStreamer plugin entrypoint not present, using dynamic plugin discovery");
+    }
+}
 
 static GstGLDisplay *create_gst_gl_display(void) {
     static gst_gl_display_egl_new_with_egl_display_fn egl_factory = NULL;
@@ -174,7 +186,7 @@ static void init_gstreamer() {
     LOGI("Initializing GStreamer (dynamic build)...");
 
     gst_init(NULL, NULL);
-    gst_init_static_plugins();  // gst-full: плагины в одной .so
+    maybe_init_static_plugins();
 
     // Выводим список доступных плагинов
     GList *plugins = gst_registry_get_plugin_list(gst_registry_get());
