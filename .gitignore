@@ -25,7 +25,6 @@ x86_64
 *.apk
 *.xz
 *.gz
-*.jar
 *.aar
 *.lz4
 *.tgz
