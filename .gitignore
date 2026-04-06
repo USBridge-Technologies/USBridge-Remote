@@ -36,6 +36,7 @@ x86_64
 *.out
 *.a
 *.java
+!android/app/src/main/java/**/*.java
 android-arm64.txt
 # temp crosscompile Go files
 crosscompile_tmp/
