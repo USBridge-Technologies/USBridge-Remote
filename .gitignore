@@ -35,6 +35,8 @@ x86_64
 *.cgo1.go
 *.test
 *.out
+*.a
+*.java
 # temp crosscompile Go files
 crosscompile_tmp/
 crosscompile_temp/
@@ -42,6 +44,9 @@ crosscompile/
 build/
 build_tmp/
 build_temp/
+
+android/jniLibs
+android/.gradle
 
 *.log
 old
