@@ -235,7 +235,7 @@ run_apksigner() {
 
     case "$apksigner_path" in
         *.bat|*.cmd)
-            cmd.exe //c "\"$(cygpath -w "$apksigner_path")\" $*"
+            "$apksigner_path" "$@"
             ;;
         *)
             "$apksigner_path" "$@"
