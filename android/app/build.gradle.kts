@@ -12,7 +12,10 @@ val localProperties = Properties().apply {
     }
 }
 
-val detectedNdkVersion = localProperties.getProperty("ndk.dir")
+val ndkDirFromEnv = providers.environmentVariable("ANDROID_NDK_HOME").orNull
+    ?: providers.environmentVariable("ANDROID_NDK_ROOT").orNull
+
+val detectedNdkVersion = ndkDirFromEnv
     ?.let { file(it.replace('\\', '/')) }
     ?.resolve("source.properties")
     ?.takeIf { it.exists() }

@@ -105,8 +105,13 @@ open class GoNativeActivity : NativeActivity() {
 
     private fun loadLibraryFromManifest() {
         try {
+            val component = intent?.component
+            if (component == null) {
+                Log.e(TAG, "loadLibrary failed: intent.component is null")
+                return
+            }
             val ai: ActivityInfo = packageManager.getActivityInfo(
-                intent.component,
+                component,
                 PackageManager.GET_META_DATA,
             )
             val libName = ai.metaData?.getString("android.app.lib_name")

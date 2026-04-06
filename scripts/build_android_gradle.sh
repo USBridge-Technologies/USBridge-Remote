@@ -312,9 +312,6 @@ fi
 
 {
     echo "sdk.dir=$(normalize_android_path "$ANDROID_HOME_LOCAL")"
-    if [ -n "$ANDROID_NDK_HOME_LOCAL" ] && [ -d "$ANDROID_NDK_HOME_LOCAL" ]; then
-        echo "ndk.dir=$(normalize_android_path "$ANDROID_NDK_HOME_LOCAL")"
-    fi
 } > "$LOCAL_PROPERTIES"
 
 # Синхронизируем launcher icon с той же Icon.png, что используется в Windows build.
