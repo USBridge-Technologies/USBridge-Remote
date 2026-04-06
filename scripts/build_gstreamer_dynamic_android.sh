@@ -69,6 +69,26 @@ sync_install_prefix_layout() {
     fi
 }
 
+copy_android_runtime_libs() {
+    local source_dir="$1"
+    local label="$2"
+    local copied=0
+    local f=""
+
+    [ -d "$source_dir" ] || return 0
+
+    for f in "$source_dir"/*.so; do
+        [ -f "$f" ] || continue
+        cp -f "$f" "$JNILIBS_DIR/"
+        copied=$((copied + 1))
+        echo -e "${GREEN}✓${NC} $(basename "$f")"
+    done
+
+    if [ "$copied" -gt 0 ]; then
+        echo "   Скопировано $copied .so из $label"
+    fi
+}
+
 download_wrap_subprojects_serially() {
     local wrap_dir="$GSTREAMER_DIR/subprojects"
     local wrap_file=""
@@ -240,7 +260,7 @@ MSYS2_ARG_CONV_EXCL='--prefix=' meson setup $MESON_EXTRA "$BUILD_DIR" \
     -Dgood=enabled \
     -Dbad=enabled \
     -Dlibav=enabled \
-    -Dugly=disabled \
+    -Dugly=enabled \
     -Dorc=disabled \
     -Ddevtools=disabled \
     -Dglib:sysprof=disabled \
@@ -283,6 +303,7 @@ if [ -d "$INSTALL_LIB_DIR" ]; then
         cp -f "$f" "$JNILIBS_DIR/"
         echo -e "${GREEN}✓${NC} $(basename "$f")"
     done
+    copy_android_runtime_libs "$INSTALL_LIB_DIR/gstreamer-1.0" "$INSTALL_LIB_DIR/gstreamer-1.0"
 else
     echo -e "${RED}❌ Не найдена директория lib в staged install: $INSTALL_LIB_DIR${NC}"
     exit 1
