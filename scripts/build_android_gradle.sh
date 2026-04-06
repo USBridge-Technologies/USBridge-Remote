@@ -68,6 +68,19 @@ find_go_tool() {
     return 1
 }
 
+aar_looks_valid() {
+    local aar_path="$1"
+
+    [ -f "$aar_path" ] || return 1
+    [ -s "$aar_path" ] || return 1
+
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -tqq "$aar_path" >/dev/null 2>&1 || return 1
+    fi
+
+    return 0
+}
+
 ensure_go_tool() {
     local tool="$1"
     local pkg="$2"
@@ -142,10 +155,15 @@ fi
 mkdir -p android/app/libs
 # gomobile требует NDK; подхватываем системный Android SDK/NDK автоматически
 export_android_env
+AAR_OUT="android/app/libs/nbdbridge.aar"
 NEED_GOMOBILE=0
-[ ! -f android/app/libs/nbdbridge.aar ] && NEED_GOMOBILE=1
+[ ! -f "$AAR_OUT" ] && NEED_GOMOBILE=1
+if [ "$NEED_GOMOBILE" -eq 0 ] && ! aar_looks_valid "$AAR_OUT"; then
+    echo -e "${YELLOW}⚠${NC} Найден битый или пустой nbdbridge.aar. Пересобираю..."
+    NEED_GOMOBILE=1
+fi
 if [ "$NEED_GOMOBILE" -eq 0 ]; then
-    if find nbdbridge -name "*.go" -newer android/app/libs/nbdbridge.aar | head -1 | grep -q .; then
+    if find nbdbridge -name "*.go" -newer "$AAR_OUT" | head -1 | grep -q .; then
         NEED_GOMOBILE=1
     fi
 fi
@@ -154,13 +172,19 @@ if [ "${FORCE_GOMOBILE:-0}" = "1" ]; then
 fi
 
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
-    $GOMOBILE_CMD bind -target android -androidapi 24 -o android/app/libs/nbdbridge.aar ./nbdbridge || {
+    rm -f "$AAR_OUT"
+    $GOMOBILE_CMD bind -target android -androidapi 24 -o "$AAR_OUT" ./nbdbridge || {
         echo -e "${RED}❌ gomobile bind не удался. Установите вручную:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
-        echo "   $GOMOBILE_CMD bind -target android -o android/app/libs/nbdbridge.aar ./nbdbridge"
+        echo "   $GOMOBILE_CMD bind -target android -o $AAR_OUT ./nbdbridge"
         exit 1
     }
+fi
+if ! aar_looks_valid "$AAR_OUT"; then
+    echo -e "${RED}❌ gomobile bind создал пустой или повреждённый nbdbridge.aar${NC}"
+    echo "   Проверьте Android SDK/NDK и повторите сборку"
+    exit 1
 fi
 echo -e "${GREEN}✓${NC} nbdbridge.aar готов"
 echo ""
