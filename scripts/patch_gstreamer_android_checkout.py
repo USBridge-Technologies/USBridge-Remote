@@ -13,6 +13,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch_file(path: Path, transform) -> None:
+    if not path.exists():
+        return
     original = path.read_text(encoding="utf-8")
     updated = transform(original)
     if updated != original:

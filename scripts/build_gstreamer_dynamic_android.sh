@@ -163,9 +163,12 @@ if [ ! -d "$GSTREAMER_DIR" ]; then
     bootstrap_gstreamer_source || exit 1
 fi
 
-patch_gstreamer_checkout
-
 cd "$GSTREAMER_DIR"
+
+echo "📦 Подготовка wrap-subprojects для свежего checkout..."
+meson subprojects download >/dev/null
+
+patch_gstreamer_checkout
 
 if meson_builddir_needs_reset "$BUILD_DIR"; then
     echo -e "${YELLOW}⚠${NC} Найден старый Meson cache от другой платформы. Пересоздаю $BUILD_DIR"
