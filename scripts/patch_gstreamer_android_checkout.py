@@ -21,6 +21,14 @@ def patch_file(path: Path, transform) -> None:
         path.write_text(updated, encoding="utf-8", newline="\n")
 
 
+def ensure_after(text: str, anchor: str, addition: str, label: str) -> str:
+    if addition in text:
+        return text
+    if anchor not in text:
+        raise RuntimeError(f"patch anchor not found for {label}")
+    return text.replace(anchor, anchor + addition, 1)
+
+
 def patch_gstreamer_root(root: Path) -> None:
     meson_build = root / "meson.build"
     patch_file(
@@ -102,33 +110,12 @@ def patch_gstreamer_root(root: Path) -> None:
     sysprof_util = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-capture-util-private.h"
 
     def transform_sysprof_util(text: str) -> str:
-        text = replace_once(
-            text,
-            "#include <stdlib.h>\n#include <string.h>\n#include <unistd.h>\n",
-            "#include <errno.h>\n#include <stdint.h>\n#include <stdlib.h>\n#include <string.h>\n#include <unistd.h>\n",
-            "sysprof util includes",
-        )
-        return replace_once(
-            text,
-            "static inline void *\n"
-            "sysprof_malloc0 (size_t size)\n"
-            "{\n"
-            "  void *ptr = malloc (size);\n"
-            "  if (ptr == NULL)\n"
-            "    return NULL;\n"
-            "  memset (ptr, 0, size);\n"
-            "  return ptr;\n"
-            "}\n\n"
-            "#ifdef __linux__\n",
-            "static inline void *\n"
-            "sysprof_malloc0 (size_t size)\n"
-            "{\n"
-            "  void *ptr = malloc (size);\n"
-            "  if (ptr == NULL)\n"
-            "    return NULL;\n"
-            "  memset (ptr, 0, size);\n"
-            "  return ptr;\n"
-            "}\n\n"
+        if "#include <errno.h>\n" not in text:
+            text = text.replace("#include <stdlib.h>\n", "#include <errno.h>\n#include <stdlib.h>\n", 1)
+        if "#include <stdint.h>\n" not in text:
+            text = text.replace("#include <stdlib.h>\n", "#include <stdint.h>\n#include <stdlib.h>\n", 1)
+
+        fallback = (
             "#if !defined(HAVE_REALLOCARRAY) && !defined(reallocarray)\n"
             "static inline void *\n"
             "sysprof_reallocarray (void   *ptr,\n"
@@ -144,7 +131,19 @@ def patch_gstreamer_root(root: Path) -> None:
             "}\n"
             "# define reallocarray sysprof_reallocarray\n"
             "#endif\n\n"
-            "#ifdef __linux__\n",
+        )
+        return ensure_after(
+            text,
+            "static inline void *\n"
+            "sysprof_malloc0 (size_t size)\n"
+            "{\n"
+            "  void *ptr = malloc (size);\n"
+            "  if (ptr == NULL)\n"
+            "    return NULL;\n"
+            "  memset (ptr, 0, size);\n"
+            "  return ptr;\n"
+            "}\n\n",
+            fallback,
             "sysprof reallocarray fallback",
         )
 
@@ -153,10 +152,10 @@ def patch_gstreamer_root(root: Path) -> None:
     sysprof_writer_cat = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-capture-writer-cat.c"
     patch_file(
         sysprof_writer_cat,
-        lambda text: replace_once(
+        lambda text: ensure_after(
             text,
-            '#include "sysprof-capture.h"\n#include "sysprof-macros-internal.h"\n',
-            '#include "sysprof-capture.h"\n#include "sysprof-capture-util-private.h"\n#include "sysprof-macros-internal.h"\n',
+            '#include "sysprof-capture.h"\n',
+            '#include "sysprof-capture-util-private.h"\n',
             "sysprof writer-cat include",
         ),
     )
@@ -164,17 +163,13 @@ def patch_gstreamer_root(root: Path) -> None:
     sysprof_collector = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-collector.c"
 
     def transform_sysprof_collector(text: str) -> str:
-        text = replace_once(
-            text,
+        text = text.replace(
             "  fcntl_flags = fcntl (peer_fd, F_GETFL);\n",
             "  fcntl_flags = fcntl (fd, F_GETFL);\n",
-            "sysprof collector getfl",
         )
-        return replace_once(
-            text,
+        return text.replace(
             "  if (fcntl (peer_fd, F_SETFL, fcntl_flags) == -1)\n",
             "  if (fcntl (fd, F_SETFL, fcntl_flags) == -1)\n",
-            "sysprof collector setfl",
         )
 
     patch_file(sysprof_collector, transform_sysprof_collector)
