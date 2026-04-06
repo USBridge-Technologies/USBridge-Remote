@@ -5,7 +5,7 @@ package service
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../gstreamer-android-dynamic/include/gstreamer-1.0 -I${SRCDIR}/../../gstreamer-android-dynamic/include/glib-2.0 -I${SRCDIR}/../../gstreamer-android-dynamic/lib/glib-2.0/include -I${SRCDIR}/../../gstreamer/build-android-arm64-shared/subprojects/gst-plugins-base/gst-libs
-#cgo LDFLAGS: -L${SRCDIR}/../../gstreamer-android-dynamic/lib -L${SRCDIR}/../../android/jniLibs/arm64-v8a -lgstreamer-1.0 -llog -lm -ldl -landroid -lEGL -lGLESv2
+#cgo LDFLAGS: -L${SRCDIR}/../../gstreamer-android-dynamic/lib -L${SRCDIR}/../../android/jniLibs/arm64-v8a -lgstreamer-1.0 -lgstgl-1.0 -llog -lm -ldl -landroid -lEGL -lGLESv2
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <gst/gl/gl.h>
