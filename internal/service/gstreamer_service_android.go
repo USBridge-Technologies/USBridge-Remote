@@ -13,6 +13,7 @@ package service
 #include <EGL/egl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dlfcn.h>
 #include <android/log.h>
 #include <jni.h>
 
@@ -83,6 +84,30 @@ static volatile gint64 g_last_rtp_packet_us;
 static volatile gint64 g_last_appsink_frame_us;
 static gchar *g_cached_h264_hw_decoder = NULL;
 static gchar *g_cached_jpeg_hw_decoder = NULL;
+
+typedef GstGLDisplay *(*gst_gl_display_egl_new_with_egl_display_fn)(gpointer display);
+
+static GstGLDisplay *create_gst_gl_display(void) {
+    static gst_gl_display_egl_new_with_egl_display_fn egl_factory = NULL;
+    static int egl_factory_resolved = 0;
+
+    if (!egl_factory_resolved) {
+        egl_factory = (gst_gl_display_egl_new_with_egl_display_fn)
+            dlsym(RTLD_DEFAULT, "gst_gl_display_egl_new_with_egl_display");
+        egl_factory_resolved = 1;
+        LOGI("GL display factory resolved: egl_factory=%p", (void*) egl_factory);
+    }
+
+    if (egl_factory && g_egl_display != EGL_NO_DISPLAY) {
+        GstGLDisplay *display = GST_GL_DISPLAY(egl_factory((gpointer) g_egl_display));
+        if (display) {
+            return display;
+        }
+        LOGE("⚠️ gst_gl_display_egl_new_with_egl_display returned NULL, fallback to gst_gl_display_new()");
+    }
+
+    return gst_gl_display_new();
+}
 
 #define PIPELINE_MODE_H264 0
 #define PIPELINE_MODE_JPEG_RTP 1
@@ -862,7 +887,7 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
 
     if (strcmp(context_type, GST_GL_DISPLAY_CONTEXT_TYPE) == 0) {
         // Запрос GL display → даём наш инициализированный EGL display
-        GstGLDisplay *display = GST_GL_DISPLAY(gst_gl_display_egl_new_with_egl_display((gpointer)g_egl_display));
+        GstGLDisplay *display = create_gst_gl_display();
         if (display) {
             GstContext *ctx = gst_context_new(context_type, TRUE);
             gst_context_set_gl_display(ctx, display);
@@ -874,7 +899,7 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
         }
     } else if (strcmp(context_type, "gst.gl.app_context") == 0) {
         // Запрос app GL context → даём wrapped EGLContext (amcviddec создаст shared от него)
-        GstGLDisplay *display = GST_GL_DISPLAY(gst_gl_display_egl_new_with_egl_display((gpointer)g_egl_display));
+        GstGLDisplay *display = create_gst_gl_display();
         if (display) {
             GstGLContext *gl_ctx = gst_gl_context_new_wrapped(display,
                 (guintptr)g_egl_context, GST_GL_PLATFORM_EGL, GST_GL_API_GLES2);
@@ -905,9 +930,9 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
     }
 
     // 1. Оборачиваем наш EGLDisplay в GstGLDisplayEGL
-    GstGLDisplay *display = GST_GL_DISPLAY(gst_gl_display_egl_new_with_egl_display((gpointer)g_egl_display));
+    GstGLDisplay *display = create_gst_gl_display();
     if (!display) {
-        LOGE("⚠️ gst_gl_display_egl_new_with_egl_display failed");
+        LOGE("⚠️ create_gst_gl_display failed");
         return;
     }
 
