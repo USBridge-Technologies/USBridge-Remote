@@ -61,6 +61,25 @@ def patch_gstreamer_root(root: Path) -> None:
         ),
     )
 
+    ugly_meson = root / "subprojects" / "gst-plugins-ugly" / "meson.build"
+
+    def transform_ugly_meson(text: str) -> str:
+        if (
+            "if not meson.is_cross_build() and build_machine.system() != 'windows'\n"
+            "  subdir('docs')\n"
+            "endif\n" in text
+        ):
+            return text
+        return text.replace(
+            "subdir('docs')\n",
+            "if not meson.is_cross_build() and build_machine.system() != 'windows'\n"
+            "  subdir('docs')\n"
+            "endif\n",
+            1,
+        )
+
+    patch_file(ugly_meson, transform_ugly_meson)
+
     gdbus_utils = root / "subprojects" / "glib" / "gio" / "gdbus-2.0" / "codegen" / "utils.py"
 
     def transform_gdbus_utils(text: str) -> str:
