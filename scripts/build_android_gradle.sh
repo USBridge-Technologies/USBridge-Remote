@@ -116,6 +116,11 @@ fi
 
 # Убедимся, что ANDROID_HOME/ANDROID_NDK_HOME заданы до gomobile init
 export_android_env
+if ! ensure_android_sdk_package "platforms;android-24" "platforms/android-24"; then
+    echo -e "${RED}❌ Android SDK platform android-24 не найден${NC}"
+    echo "   Установите через sdkmanager: platforms;android-24"
+    exit 1
+fi
 
 "$GOMOBILE_CMD" init || {
     echo -e "${RED}❌ gomobile init не удался${NC}"

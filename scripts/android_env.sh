@@ -135,6 +135,22 @@ refresh_bootstrap_paths() {
     hash -r 2>/dev/null || true
 }
 
+add_android_sdk_tools_to_path() {
+    local sdk_dir="$1"
+
+    [ -n "$sdk_dir" ] || return 0
+
+    add_to_path_if_exists "$sdk_dir/platform-tools"
+    add_to_path_if_exists "$sdk_dir/emulator"
+    add_to_path_if_exists "$sdk_dir/cmdline-tools/latest/bin"
+    add_to_path_if_exists "$sdk_dir/cmdline-tools/bin"
+
+    local tool_dir=""
+    for tool_dir in "$sdk_dir"/cmdline-tools/*/bin; do
+        [ -d "$tool_dir" ] && add_to_path_if_exists "$tool_dir"
+    done
+}
+
 normalize_android_path() {
     local path_value="$1"
 
@@ -573,12 +589,71 @@ export_android_env() {
     if [ -n "$sdk_dir" ]; then
         export ANDROID_HOME="$sdk_dir"
         export ANDROID_SDK_ROOT="$sdk_dir"
+        add_android_sdk_tools_to_path "$sdk_dir"
     fi
 
     if [ -n "$ndk_dir" ]; then
         export ANDROID_NDK_HOME="$ndk_dir"
         export ANDROID_NDK_ROOT="$ndk_dir"
     fi
+}
+
+resolve_android_sdkmanager() {
+    local sdk_dir=""
+    local candidate=""
+
+    sdk_dir="$(resolve_android_sdk 2>/dev/null || true)"
+    for candidate in \
+        "${ANDROID_HOME:-}/cmdline-tools/latest/bin/sdkmanager" \
+        "${ANDROID_HOME:-}/cmdline-tools/bin/sdkmanager" \
+        "${ANDROID_SDK_ROOT:-}/cmdline-tools/latest/bin/sdkmanager" \
+        "${ANDROID_SDK_ROOT:-}/cmdline-tools/bin/sdkmanager"
+    do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    if [ -n "$sdk_dir" ]; then
+        for candidate in "$sdk_dir"/cmdline-tools/*/bin/sdkmanager; do
+            if [ -x "$candidate" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done
+    fi
+
+    command_path sdkmanager
+}
+
+ensure_android_sdk_package() {
+    local package_name="$1"
+    local package_dir="$2"
+    local sdk_dir=""
+    local sdkmanager_cmd=""
+
+    export_android_env
+    sdk_dir="$(resolve_android_sdk 2>/dev/null || true)"
+    if [ -z "$sdk_dir" ] || [ ! -d "$sdk_dir" ]; then
+        return 1
+    fi
+
+    if [ -n "$package_dir" ] && [ -d "$sdk_dir/$package_dir" ]; then
+        return 0
+    fi
+
+    sdkmanager_cmd="$(resolve_android_sdkmanager 2>/dev/null || true)"
+    if [ -z "$sdkmanager_cmd" ] || [ ! -x "$sdkmanager_cmd" ]; then
+        return 1
+    fi
+
+    echo "📥 Не найден Android SDK package $package_name. Устанавливаю автоматически..."
+    if ! yes | "$sdkmanager_cmd" --sdk_root="$sdk_dir" "$package_name" >/dev/null; then
+        return 1
+    fi
+
+    [ -z "$package_dir" ] || [ -d "$sdk_dir/$package_dir" ]
 }
 
 setup_android_ndk_toolchain_env() {
