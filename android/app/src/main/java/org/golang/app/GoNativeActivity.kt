@@ -27,6 +27,7 @@ import java.io.File
 // org.golang.app runtime classes into the consumed AAR.
 open class GoNativeActivity : NativeActivity() {
     private var textEdit: EditText? = null
+    private var defaultKeyListener: android.text.method.KeyListener? = null
     private var ignoreKey = false
     private var keyboardUp = false
 
@@ -76,6 +77,7 @@ open class GoNativeActivity : NativeActivity() {
             val edit = EditText(goNativeActivity)
             edit.visibility = View.GONE
             edit.inputType = DEFAULT_INPUT_TYPE
+            defaultKeyListener = edit.keyListener
 
             val layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -133,19 +135,25 @@ open class GoNativeActivity : NativeActivity() {
                 SINGLELINE_KEYBOARD_CODE -> imeOptions = EditorInfo.IME_ACTION_DONE
                 NUMBER_KEYBOARD_CODE -> {
                     imeOptions = EditorInfo.IME_ACTION_DONE
-                    inputType = inputType or InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_NORMAL
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_NORMAL
                     keys = "0123456789.,-' "
                 }
                 PASSWORD_KEYBOARD_CODE -> {
                     imeOptions = EditorInfo.IME_ACTION_DONE
-                    inputType = inputType or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    inputType = InputType.TYPE_CLASS_TEXT or
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD or
+                        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                 }
                 else -> Log.e(TAG, "unknown keyboard type, use default")
             }
 
             edit.imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_FULLSCREEN
             edit.inputType = inputType
-            edit.keyListener = if (keys != null) DigitsKeyListener.getInstance(keys) else null
+            edit.keyListener = if (keys != null) {
+                DigitsKeyListener.getInstance(keys)
+            } else {
+                defaultKeyListener
+            }
             edit.setOnEditorActionListener(TextView.OnEditorActionListener { _, actionId, _: KeyEvent? ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
                     keyboardTyped("\n")
@@ -244,7 +252,7 @@ open class GoNativeActivity : NativeActivity() {
         private const val TAG = "GoNativeActivity"
         private const val APP_LIBRARY = "libUSBridge_Client.so"
         private const val MAX_PRELOAD_RANK = 50
-        private const val DEFAULT_INPUT_TYPE = InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        private const val DEFAULT_INPUT_TYPE = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         private const val DEFAULT_KEYBOARD_CODE = 0
         private const val SINGLELINE_KEYBOARD_CODE = 1
         private const val NUMBER_KEYBOARD_CODE = 2

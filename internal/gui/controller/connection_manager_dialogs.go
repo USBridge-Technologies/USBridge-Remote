@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	"image/color"
-	"time"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
@@ -657,18 +656,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn, func() bool {
 		return fyne.CurrentDevice().IsMobile() && focusedInputs > 0
 	})
-	if fyne.CurrentDevice().IsMobile() && window != nil {
-		go func() {
-			time.Sleep(120 * time.Millisecond)
-			fyne.Do(func() {
-				if d == nil || !d.Visible() {
-					return
-				}
-				window.RequestFocus()
-				window.Canvas().Focus(nameEntry)
-			})
-		}()
-	}
 	return d
 }
 

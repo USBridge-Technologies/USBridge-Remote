@@ -36,7 +36,7 @@ public class GstAhcCallback implements Camera.PreviewCallback,
     public static native void gst_ah_camera_on_error(int error, Camera camera,
                                                      long callback, long user_data);
     public static native void gst_ah_camera_on_auto_focus(boolean success, Camera camera,
-                                                          long callback, long user_data);
+                                                             long callback, long user_data);
 
     public GstAhcCallback(long callback, long user_data) {
         mCallback = callback;
