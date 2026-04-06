@@ -48,6 +48,27 @@ ensure_dist_copy() {
     fi
 }
 
+sync_install_prefix_layout() {
+    local staged_root="$INSTALL_DIR$MESON_PREFIX"
+
+    if [ ! -d "$staged_root" ]; then
+        echo -e "${RED}❌ Не найден staged root после установки: $staged_root${NC}"
+        exit 1
+    fi
+
+    rm -rf "$INSTALL_DIR/include" "$INSTALL_DIR/lib" "$INSTALL_DIR/share"
+
+    if [ -d "$staged_root/include" ]; then
+        cp -R "$staged_root/include" "$INSTALL_DIR/"
+    fi
+    if [ -d "$staged_root/lib" ]; then
+        cp -R "$staged_root/lib" "$INSTALL_DIR/"
+    fi
+    if [ -d "$staged_root/share" ]; then
+        cp -R "$staged_root/share" "$INSTALL_DIR/"
+    fi
+}
+
 meson_windows_path() {
     local target_path="$1"
 
@@ -228,11 +249,12 @@ meson compile -C "$BUILD_DIR"
 echo "📦 Установка..."
 rm -rf "$INSTALL_DIR"
 DESTDIR="$INSTALL_DIR" meson install -C "$BUILD_DIR"
+sync_install_prefix_layout
 
 echo "📚 Копирование .so в android/jniLibs/arm64-v8a..."
 mkdir -p "$JNILIBS_DIR"
 
-INSTALL_LIB_DIR="$INSTALL_DIR$MESON_PREFIX/lib"
+INSTALL_LIB_DIR="$INSTALL_DIR/lib"
 if [ -d "$INSTALL_LIB_DIR" ]; then
     # Основная библиотека + зависимости (копируем все .so)
     for f in "$INSTALL_LIB_DIR"/*.so; do
