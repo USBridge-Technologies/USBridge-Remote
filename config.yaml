@@ -1,0 +1,21 @@
+app_name: USBridge Agent
+listen_host: 127.0.0.1
+http_port: 8080
+
+frp_bind_host: 0.0.0.0
+frp_bind_port: 443
+frp_token: usbridge-secret-token
+frp_tls_cert_file: ./var/frp.crt
+frp_tls_key_file: ./var/frp.key
+
+video_udp_port: 55000
+ffmpeg_path: ffmpeg
+video_fps: 30
+video_width: 1280
+video_height: 720
+video_bitrate: 4M
+video_codec: auto
+video_capture: dxgi
+
+nbd_mount_command: ""
+state_dir: ./var
