@@ -34,6 +34,9 @@ BUILD_DIR="$GSTREAMER_DIR/build-android-arm64-shared"
 INSTALL_DIR="$REPO_ROOT/gstreamer-android-dynamic"
 JNILIBS_DIR="$REPO_ROOT/android/jniLibs/arm64-v8a"
 DIST_ANDROID="$REPO_ROOT/dist/android"
+GST_SOURCE_VERSION="${GST_SOURCE_VERSION:-1.19.2}"
+GST_SOURCE_REPO_URL="${GST_SOURCE_REPO_URL:-https://gitlab.freedesktop.org/gstreamer/gst-build.git}"
+GST_SOURCE_REF="${GST_SOURCE_REF:-$GST_SOURCE_VERSION}"
 
 ensure_dist_copy() {
     mkdir -p "$DIST_ANDROID" 2>/dev/null || true
@@ -41,6 +44,33 @@ ensure_dist_copy() {
         mkdir -p "$DIST_ANDROID/jniLibs/arm64-v8a" 2>/dev/null || true
         cp -f "$JNILIBS_DIR"/*.so "$DIST_ANDROID/jniLibs/arm64-v8a/" 2>/dev/null || true
     fi
+}
+
+bootstrap_gstreamer_source() {
+    if [ -d "$GSTREAMER_DIR" ]; then
+        return 0
+    fi
+
+    if ! command -v git >/dev/null 2>&1; then
+        echo -e "${RED}❌ Не найден git, а локальный исходный GStreamer отсутствует${NC}"
+        echo "   Установите git или заранее положите исходники в: $GSTREAMER_DIR"
+        return 1
+    fi
+
+    local tmp_dir="$REPO_ROOT/.gstreamer-bootstrap.$$"
+
+    echo "📥 Локальный GStreamer не найден. Клонирую исходники версии $GST_SOURCE_REF..."
+    echo "   Репозиторий: $GST_SOURCE_REPO_URL"
+    echo "   Назначение:  $GSTREAMER_DIR"
+
+    if ! git clone --depth 1 --branch "$GST_SOURCE_REF" "$GST_SOURCE_REPO_URL" "$tmp_dir"; then
+        echo -e "${RED}❌ Не удалось получить исходники GStreamer ($GST_SOURCE_REF)${NC}"
+        echo "   Можно указать другой источник через GST_SOURCE_REPO_URL и GST_SOURCE_REF"
+        return 1
+    fi
+
+    mv "$tmp_dir" "$GSTREAMER_DIR"
+    echo -e "${GREEN}✓${NC} Исходники GStreamer подготовлены: $GSTREAMER_DIR"
 }
 
 export_android_env
@@ -65,14 +95,12 @@ fi
 if ! command -v flex >/dev/null 2>&1; then
     echo -e "${RED}❌ Не найден flex${NC}"
     print_flex_install_hint
-    echo "   Или используйте prebuilt: USE_PREBUILT_GSTREAMER=1 scripts/build_android.sh"
+    echo "   Для Android build используется source build GStreamer, legacy prebuilt fallback отключён"
     exit 1
 fi
 
 if [ ! -d "$GSTREAMER_DIR" ]; then
-    echo -e "${RED}❌ Директория gstreamer не найдена: $GSTREAMER_DIR${NC}"
-    echo "   Ожидается gst-build репозиторий в корне проекта."
-    exit 1
+    bootstrap_gstreamer_source || exit 1
 fi
 
 cd "$GSTREAMER_DIR"
