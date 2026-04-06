@@ -1,21 +1,31 @@
 package org.golang.app
 
 import android.app.NativeActivity
+import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
+import android.view.KeyCharacterMap
 import java.io.File
 
 // Compatibility shim for builds where gomobile bind does not package the
 // org.golang.app runtime classes into the consumed AAR.
 open class GoNativeActivity : NativeActivity() {
+    init {
+        goNativeActivity = this
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        loadLibraryFromManifest()
         configureGStreamerRuntime()
         preloadNativeRuntime()
         super.onCreate(savedInstanceState)
     }
 
     open fun launchQRScanner() = Unit
+
+    fun getTmpdir(): String = cacheDir.absolutePath
 
     private fun configureGStreamerRuntime() {
         val nativeDir = applicationInfo?.nativeLibraryDir ?: return
@@ -76,5 +86,37 @@ open class GoNativeActivity : NativeActivity() {
         private const val TAG = "GoNativeActivity"
         private const val APP_LIBRARY = "libUSBridge_Client.so"
         private const val MAX_PRELOAD_RANK = 50
+        @Volatile
+        private var goNativeActivity: GoNativeActivity? = null
+
+        @JvmStatic
+        fun getRune(deviceId: Int, keyCode: Int, metaState: Int): Int {
+            return try {
+                val rune = KeyCharacterMap.load(deviceId).get(keyCode, metaState)
+                if (rune == 0) -1 else rune
+            } catch (_: KeyCharacterMap.UnavailableException) {
+                -1
+            } catch (t: Throwable) {
+                Log.e(TAG, "exception reading KeyCharacterMap", t)
+                -1
+            }
+        }
+    }
+
+    private fun loadLibraryFromManifest() {
+        try {
+            val ai: ActivityInfo = packageManager.getActivityInfo(
+                intent.component,
+                PackageManager.GET_META_DATA,
+            )
+            val libName = ai.metaData?.getString("android.app.lib_name")
+            if (libName.isNullOrBlank()) {
+                Log.e(TAG, "loadLibrary: no manifest metadata found")
+                return
+            }
+            System.loadLibrary(libName)
+        } catch (t: Throwable) {
+            Log.e(TAG, "loadLibrary failed", t)
+        }
     }
 }
