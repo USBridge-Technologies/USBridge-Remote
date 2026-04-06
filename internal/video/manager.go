@@ -16,11 +16,12 @@ import (
 )
 
 type runningProcess struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-	done   chan error
-	mode   string
-	codec  string
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	done      chan error
+	mode      string
+	codec     string
+	startedAt time.Time
 }
 
 type Manager struct {
@@ -29,6 +30,9 @@ type Manager struct {
 	proc           *runningProcess
 	info           api.VideoStartRequest
 	preferredCodec string
+	codecOrder     []string
+	codecOrderOnce sync.Once
+	stopRequested  bool
 }
 
 func New(cfg config.Config) *Manager { return &Manager{cfg: cfg} }
@@ -42,24 +46,17 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	}
 
 	req = m.normalize(req)
-	proc, err := m.startWithFallback(req)
+	proc, err := m.startWithFallback(req, nil)
 	if err != nil {
 		return err
 	}
 
 	m.proc = proc
 	m.info = req
+	m.stopRequested = false
+	m.preferredCodec = proc.codec
 
-	go func(expected *exec.Cmd, mode string, codec string) {
-		err := <-proc.done
-		log.Printf("[video] process stopped mode=%s codec=%s err=%v", mode, codec, err)
-
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if m.proc != nil && m.proc.cmd == expected {
-			m.proc = nil
-		}
-	}(proc.cmd, proc.mode, proc.codec)
+	go m.watchProcess(proc, req)
 
 	return nil
 }
@@ -70,6 +67,7 @@ func (m *Manager) Stop() error {
 
 	if m.proc != nil && m.proc.cancel != nil {
 		log.Printf("[video] stop requested mode=%s", m.proc.mode)
+		m.stopRequested = true
 		m.proc.cancel()
 	}
 	m.proc = nil
@@ -117,7 +115,7 @@ func (m *Manager) normalize(req api.VideoStartRequest) api.VideoStartRequest {
 	return req
 }
 
-func (m *Manager) startWithFallback(req api.VideoStartRequest) (*runningProcess, error) {
+func (m *Manager) startWithFallback(req api.VideoStartRequest, skipCodecs map[string]struct{}) (*runningProcess, error) {
 	modes := []string{strings.ToLower(m.cfg.VideoCapture)}
 	if len(modes) == 0 || modes[0] == "" {
 		modes[0] = "dxgi"
@@ -128,10 +126,9 @@ func (m *Manager) startWithFallback(req api.VideoStartRequest) (*runningProcess,
 
 	var lastErr error
 	for _, mode := range modes {
-		for _, codec := range m.candidateCodecs() {
+		for _, codec := range m.candidateCodecs(skipCodecs) {
 			proc, err := m.startProcess(req, mode, codec)
 			if err == nil {
-				m.preferredCodec = codec
 				return proc, nil
 			}
 			lastErr = err
@@ -173,9 +170,9 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 	case err := <-done:
 		cancel()
 		return nil, fmt.Errorf("ffmpeg exited early: %w", err)
-	case <-time.After(1500 * time.Millisecond):
+	case <-time.After(3 * time.Second):
 		log.Printf("[video] started mode=%s codec=%s", mode, codec)
-		return &runningProcess{cmd: cmd, cancel: cancel, done: done, mode: mode, codec: codec}, nil
+		return &runningProcess{cmd: cmd, cancel: cancel, done: done, mode: mode, codec: codec, startedAt: time.Now()}, nil
 	}
 }
 
@@ -214,9 +211,23 @@ func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []str
 	return args
 }
 
-func (m *Manager) candidateCodecs() []string {
+func (m *Manager) candidateCodecs(skipCodecs map[string]struct{}) []string {
+	filter := func(values []string) []string {
+		if len(skipCodecs) == 0 {
+			return values
+		}
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if _, skip := skipCodecs[strings.TrimSpace(value)]; skip {
+				continue
+			}
+			out = append(out, value)
+		}
+		return out
+	}
+
 	if preferred := strings.TrimSpace(m.preferredCodec); preferred != "" {
-		return appendUnique(preferred, "h264_amf", "h264_nvenc", "h264_qsv", "libx264")
+		return filter(appendUnique(preferred, "h264_amf", "h264_nvenc", "h264_qsv", "libx264"))
 	}
 
 	primary := strings.TrimSpace(m.cfg.VideoCodec)
@@ -225,12 +236,78 @@ func (m *Manager) candidateCodecs() []string {
 	}
 	switch strings.ToLower(primary) {
 	case "auto":
-		return []string{"h264_nvenc", "h264_qsv", "h264_amf", "libx264"}
+		return filter(m.autoCodecOrder())
 	case "h264_nvenc", "h264_qsv", "h264_amf", "libx264":
-		return appendUnique(primary, "libx264")
+		return filter(appendUnique(primary, "libx264"))
 	default:
-		return appendUnique(primary, "libx264")
+		return filter(appendUnique(primary, "libx264"))
 	}
+}
+
+func (m *Manager) autoCodecOrder() []string {
+	m.codecOrderOnce.Do(func() {
+		available := detectAvailableCodecs(m.cfg.FFmpegPath)
+		adapters := detectVideoAdapters()
+		order := preferredCodecsForAdapters(adapters)
+		if len(order) == 0 {
+			order = []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"}
+		}
+		if len(available) != 0 {
+			filtered := make([]string, 0, len(order))
+			for _, codec := range order {
+				if _, ok := available[codec]; ok || codec == "libx264" {
+					filtered = append(filtered, codec)
+				}
+			}
+			order = filtered
+		}
+		m.codecOrder = appendUnique(append(order, "libx264")...)
+		log.Printf("[video] auto codec order adapters=%v order=%v", adapters, m.codecOrder)
+	})
+	return append([]string(nil), m.codecOrder...)
+}
+
+func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) {
+	err := <-proc.done
+	runtime := time.Since(proc.startedAt).Round(time.Millisecond)
+	log.Printf("[video] process stopped mode=%s codec=%s runtime=%s err=%v", proc.mode, proc.codec, runtime, err)
+
+	m.mu.Lock()
+	current := m.proc != nil && m.proc.cmd == proc.cmd
+	stopping := m.stopRequested
+	if current {
+		m.proc = nil
+	}
+	if m.preferredCodec == proc.codec {
+		m.preferredCodec = ""
+	}
+	m.mu.Unlock()
+
+	if !current || stopping {
+		return
+	}
+
+	log.Printf("[video] attempting automatic fallback after mode=%s codec=%s", proc.mode, proc.codec)
+	skip := map[string]struct{}{proc.codec: {}}
+	recovered, recoverErr := m.startWithFallback(req, skip)
+	if recoverErr != nil {
+		log.Printf("[video] fallback failed after mode=%s codec=%s err=%v", proc.mode, proc.codec, recoverErr)
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.proc != nil || m.stopRequested {
+		if recovered.cancel != nil {
+			recovered.cancel()
+		}
+		return
+	}
+	m.proc = recovered
+	m.info = req
+	m.preferredCodec = recovered.codec
+	log.Printf("[video] recovered with mode=%s codec=%s", recovered.mode, recovered.codec)
+	go m.watchProcess(recovered, req)
 }
 
 func codecArgs(codec string) []string {
@@ -294,6 +371,72 @@ func appendUnique(values ...string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func detectAvailableCodecs(ffmpegPath string) map[string]struct{} {
+	cmd := exec.Command(ffmpegPath, "-hide_banner", "-encoders")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("[video] codec probe skipped: %v", err)
+		return nil
+	}
+	available := make(map[string]struct{}, 4)
+	for _, codec := range []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"} {
+		if strings.Contains(string(output), codec) {
+			available[codec] = struct{}{}
+		}
+	}
+	return available
+}
+
+func detectVideoAdapters() []string {
+	cmd := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-NonInteractive",
+		"-Command",
+		"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("[video] adapter probe skipped: %v", err)
+		return nil
+	}
+	lines := strings.Split(string(output), "\n")
+	adapters := make([]string, 0, len(lines))
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		adapters = append(adapters, name)
+	}
+	return adapters
+}
+
+func preferredCodecsForAdapters(adapters []string) []string {
+	order := make([]string, 0, 4)
+	for _, adapter := range adapters {
+		switch {
+		case containsAny(adapter, "amd", "radeon"):
+			order = append(order, "h264_amf")
+		case containsAny(adapter, "nvidia", "geforce", "quadro", "rtx", "gtx"):
+			order = append(order, "h264_nvenc")
+		case containsAny(adapter, "intel", "iris", "uhd", "arc"):
+			order = append(order, "h264_qsv")
+		}
+	}
+	return appendUnique(append(order, "h264_amf", "h264_nvenc", "h264_qsv", "libx264")...)
+}
+
+func containsAny(value string, needles ...string) bool {
+	lower := strings.ToLower(value)
+	for _, needle := range needles {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func streamLogs(stderr io.Reader, mode string) {

@@ -53,7 +53,7 @@ func Default() Config {
 		VideoWidth:      1280,
 		VideoHeight:     720,
 		VideoBitrate:    "4M",
-		VideoCodec:      "libx264",
+		VideoCodec:      "auto",
 		VideoCapture:    "dxgi",
 		NBDMountCommand: "",
 		StateDir:        stateDir,
