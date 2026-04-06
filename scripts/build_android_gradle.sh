@@ -32,8 +32,11 @@ echo "=============================================="
 echo ""
 
 # 1. GStreamer — динамическая линковка (.so)
+# Для Android используем только dynamic build: CGO в проекте смотрит на
+# gstreamer-android-dynamic/{include,lib}. Старый prebuilt fallback тянет
+# другой набор библиотек и на чистых машинах даёт невоспроизводимую сборку.
 echo "📦 Шаг 1/5: GStreamer (dynamic .so)..."
-"$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh" 2>/dev/null || "$SCRIPTS_DIR/build_gstreamer_android.sh"
+"$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh"
 echo ""
 
 # 2. gomobile bind для nbdbridge
