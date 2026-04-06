@@ -1108,13 +1108,8 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-<<<<<<< HEAD
 		wrappedErr := fmt.Errorf("request failed: %v", err)
-		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
-=======
-		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
 		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
->>>>>>> 807269d (-)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, wrappedErr
@@ -1155,13 +1150,8 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-<<<<<<< HEAD
 		wrappedErr := fmt.Errorf("request failed: %v", err)
-		if c.transportErrorHandler != nil && IsConnectionLostError(wrappedErr) {
-=======
-		wrappedErr := fmt.Errorf("ошибка выполнения запроса: %v", err)
 		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
->>>>>>> 807269d (-)
 			go c.transportErrorHandler(wrappedErr)
 		}
 		return nil, 0, wrappedErr

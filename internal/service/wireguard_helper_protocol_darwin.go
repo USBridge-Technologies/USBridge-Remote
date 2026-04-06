@@ -14,8 +14,8 @@ import (
 )
 
 type darwinWireGuardHelperRequest struct {
-	Command string                      `json:"command"`
-	Payload *darwinWireGuardUpPayload   `json:"payload,omitempty"`
+	Command string                    `json:"command"`
+	Payload *darwinWireGuardUpPayload `json:"payload,omitempty"`
 }
 
 type darwinWireGuardUpPayload struct {
@@ -26,9 +26,14 @@ type darwinWireGuardUpPayload struct {
 }
 
 type darwinWireGuardHelperResponse struct {
-	OK        bool   `json:"ok"`
-	Error     string `json:"error,omitempty"`
-	IfaceName string `json:"iface_name,omitempty"`
+	OK                bool   `json:"ok"`
+	Error             string `json:"error,omitempty"`
+	IfaceName         string `json:"iface_name,omitempty"`
+	LastHandshakeSec  int64  `json:"last_handshake_sec,omitempty"`
+	LastHandshakeNSec int64  `json:"last_handshake_nsec,omitempty"`
+	RxBytes           uint64 `json:"rx_bytes,omitempty"`
+	TxBytes           uint64 `json:"tx_bytes,omitempty"`
+	PeerCount         int    `json:"peer_count,omitempty"`
 }
 
 func (c *darwinWireGuardHelperClient) call(request darwinWireGuardHelperRequest) (*darwinWireGuardHelperResponse, error) {
@@ -48,7 +53,7 @@ func (c *darwinWireGuardHelperClient) call(request darwinWireGuardHelperRequest)
 		return nil, fmt.Errorf("failed to read response from WireGuard helper: %w", err)
 	}
 	if !response.OK {
-		return nil, fmt.Errorf(strings.TrimSpace(response.Error))
+		return nil, fmt.Errorf("%s", strings.TrimSpace(response.Error))
 	}
 	return &response, nil
 }
@@ -62,3 +67,16 @@ func runDarwinHelperCommand(name string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
+func (r *darwinWireGuardHelperResponse) PeerStatus(serverPublicKey string, persistentKeepalive int) *WireGuardPeerStatus {
+	status := &WireGuardPeerStatus{
+		ServerPublicKey:     strings.TrimSpace(serverPublicKey),
+		PersistentKeepalive: persistentKeepalive,
+		RxBytes:             r.RxBytes,
+		TxBytes:             r.TxBytes,
+		PeerCount:           r.PeerCount,
+	}
+	if r.LastHandshakeSec > 0 {
+		status.LastHandshakeAt = time.Unix(r.LastHandshakeSec, r.LastHandshakeNSec)
+	}
+	return status
+}

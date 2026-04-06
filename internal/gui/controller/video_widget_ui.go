@@ -868,7 +868,12 @@ func (vw *VideoWidget) SetStreaming(streaming bool) {
 
 // StopVideo останавливает видеопоток через публичный API виджета.
 func (vw *VideoWidget) StopVideo() {
-	vw.handleStopVideo()
+	if vw.usbClient == nil {
+		return
+	}
+	vw.runVideoOpSync("stop-video-sync", func() {
+		vw.stopVideoInternal()
+	})
 }
 
 // HandleConnectionLost останавливает локальные video/input ресурсы без запроса к серверу.

@@ -26,6 +26,7 @@ func NewVideoWidgetGStreamer(usbClient *api.USBClient, gstreamerService *service
 	}
 
 	vw.createInterface()
+	vw.startVideoOpsLoop()
 	vw.setupGStreamerCallbacks()
 	return vw
 }

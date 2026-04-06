@@ -3,12 +3,14 @@
 package service
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -20,6 +22,8 @@ type linuxWireGuardService struct {
 	ifaceName  string
 	serverHost string
 	clientHost string
+	serverKey  string
+	keepaliveSec int
 	privateKey string
 	running    bool
 }
@@ -112,6 +116,8 @@ func (s *linuxWireGuardService) Connect(resp *models.WireGuardBootstrapResponse)
 
 	s.serverHost = resp.ServerAddress
 	s.clientHost = resp.ClientAddress
+	s.serverKey = strings.TrimSpace(resp.ServerPublicKey)
+	s.keepaliveSec = resp.PersistentKeepalive
 	s.running = true
 	return nil
 }
@@ -127,6 +133,8 @@ func (s *linuxWireGuardService) Disconnect() error {
 	s.running = false
 	s.serverHost = ""
 	s.clientHost = ""
+	s.serverKey = ""
+	s.keepaliveSec = 0
 	return nil
 }
 
@@ -140,6 +148,70 @@ func (s *linuxWireGuardService) GetServerHost() string {
 
 func (s *linuxWireGuardService) GetClientHost() string {
 	return s.clientHost
+}
+
+func (s *linuxWireGuardService) GetPeerStatus() (*WireGuardPeerStatus, error) {
+	if strings.TrimSpace(s.ifaceName) == "" {
+		return nil, fmt.Errorf("wireguard interface name is empty")
+	}
+
+	cmd := exec.Command("wg", "show", s.ifaceName, "dump")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("wg show %s dump: %v: %s", s.ifaceName, err, strings.TrimSpace(string(out)))
+	}
+
+	status := &WireGuardPeerStatus{
+		ServerPublicKey:     s.serverKey,
+		PersistentKeepalive: s.keepaliveSec,
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		if lineNo == 1 {
+			continue
+		}
+
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 8 {
+			continue
+		}
+		status.PeerCount++
+		publicKey := strings.TrimSpace(fields[0])
+		if status.ServerPublicKey != "" && publicKey != status.ServerPublicKey {
+			continue
+		}
+
+		latestHandshake, err := strconv.ParseInt(fields[5], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid wireguard latest handshake %q: %w", fields[5], err)
+		}
+		rxBytes, err := strconv.ParseUint(fields[6], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid wireguard rx bytes %q: %w", fields[6], err)
+		}
+		txBytes, err := strconv.ParseUint(fields[7], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid wireguard tx bytes %q: %w", fields[7], err)
+		}
+
+		status.ServerPublicKey = publicKey
+		status.RxBytes = rxBytes
+		status.TxBytes = txBytes
+		if latestHandshake > 0 {
+			status.LastHandshakeAt = time.Unix(latestHandshake, 0)
+		}
+		break
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan wg dump output: %w", err)
+	}
+	if status.PeerCount == 0 {
+		return nil, fmt.Errorf("wireguard peer status is empty")
+	}
+	return status, nil
 }
 
 func (s *linuxWireGuardService) run(name string, args ...string) error {

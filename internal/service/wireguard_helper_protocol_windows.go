@@ -26,9 +26,14 @@ type windowsWireGuardHelperUpPayload struct {
 }
 
 type windowsWireGuardHelperResponse struct {
-	OK        bool   `json:"ok"`
-	Error     string `json:"error,omitempty"`
-	IfaceName string `json:"iface_name,omitempty"`
+	OK                bool   `json:"ok"`
+	Error             string `json:"error,omitempty"`
+	IfaceName         string `json:"iface_name,omitempty"`
+	LastHandshakeSec  int64  `json:"last_handshake_sec,omitempty"`
+	LastHandshakeNSec int64  `json:"last_handshake_nsec,omitempty"`
+	RxBytes           uint64 `json:"rx_bytes,omitempty"`
+	TxBytes           uint64 `json:"tx_bytes,omitempty"`
+	PeerCount         int    `json:"peer_count,omitempty"`
 }
 
 func (c *windowsWireGuardHelperClient) call(request windowsWireGuardHelperRequest) (*windowsWireGuardHelperResponse, error) {
@@ -57,4 +62,18 @@ func (c *windowsWireGuardHelperClient) call(request windowsWireGuardHelperReques
 		return nil, fmt.Errorf(strings.TrimSpace(response.Error))
 	}
 	return &response, nil
+}
+
+func (r *windowsWireGuardHelperResponse) PeerStatus(serverPublicKey string, persistentKeepalive int) *WireGuardPeerStatus {
+	status := &WireGuardPeerStatus{
+		ServerPublicKey:     strings.TrimSpace(serverPublicKey),
+		PersistentKeepalive: persistentKeepalive,
+		RxBytes:             r.RxBytes,
+		TxBytes:             r.TxBytes,
+		PeerCount:           r.PeerCount,
+	}
+	if r.LastHandshakeSec > 0 {
+		status.LastHandshakeAt = time.Unix(r.LastHandshakeSec, r.LastHandshakeNSec)
+	}
+	return status
 }

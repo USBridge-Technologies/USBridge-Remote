@@ -284,10 +284,6 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 	if cfg.DevicePath == "" {
 		return fmt.Errorf(i18n.Current.VideoDeviceEmpty)
 	}
-	if !vw.beginVideoOperation() {
-		return fmt.Errorf("video operation already in progress")
-	}
-	defer vw.endVideoOperation()
 
 	if cfg.VideoQuality <= 0 {
 		cfg.VideoQuality = 80

@@ -177,10 +177,6 @@ func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 		}
 
 		ready := nbdbridge.IsQRResultReady()
-		if i%50 == 0 {
-			logrus.Infof("📷 [POLL] Iteration %d, ready=%v", i, ready)
-		}
-
 		if !ready {
 			continue
 		}
@@ -194,8 +190,6 @@ func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 		qs.applyQRResult(result, parent, session)
 		return
 	}
-
-	logrus.Warn("📷 [POLL] ⚠️ Timed out waiting for QR result (60 sec)")
 }
 
 func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.Window, session uint64) {

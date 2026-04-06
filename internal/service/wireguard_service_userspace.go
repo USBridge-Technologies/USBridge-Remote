@@ -20,6 +20,8 @@ type userspaceWireGuardService struct {
 	ifaceName    string
 	serverHost   string
 	clientHost   string
+	serverKey    string
+	keepaliveSec int
 	privateKey   string
 	running      bool
 	tunDevice    wgtun.Device
@@ -142,6 +144,8 @@ func (s *userspaceWireGuardService) Connect(resp *models.WireGuardBootstrapRespo
 	s.device = dev
 	s.serverHost = resp.ServerAddress
 	s.clientHost = resp.ClientAddress
+	s.serverKey = strings.TrimSpace(resp.ServerPublicKey)
+	s.keepaliveSec = resp.PersistentKeepalive
 	s.running = true
 
 	logrus.Infof("🔐 [WireGuard %s] userspace backend started iface=%s client=%s server=%s", runtime.GOOS, s.ifaceName, s.clientHost, s.serverHost)
@@ -174,6 +178,8 @@ func (s *userspaceWireGuardService) Disconnect() error {
 	s.running = false
 	s.serverHost = ""
 	s.clientHost = ""
+	s.serverKey = ""
+	s.keepaliveSec = 0
 	s.routeTargets = nil
 
 	if len(errs) > 0 {
@@ -192,4 +198,15 @@ func (s *userspaceWireGuardService) GetServerHost() string {
 
 func (s *userspaceWireGuardService) GetClientHost() string {
 	return s.clientHost
+}
+
+func (s *userspaceWireGuardService) GetPeerStatus() (*WireGuardPeerStatus, error) {
+	if s.device == nil {
+		return nil, fmt.Errorf("wireguard device is not initialized")
+	}
+	uapi, err := s.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read wireguard ipc status: %w", err)
+	}
+	return parseWireGuardIPCStatus(uapi, s.serverKey, s.keepaliveSec)
 }

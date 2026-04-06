@@ -20,6 +20,8 @@ type darwinWireGuardService struct {
 	ifaceName    string
 	serverHost   string
 	clientHost   string
+	serverKey    string
+	keepaliveSec int
 	privateKey   string
 	running      bool
 	routeTargets []string
@@ -104,6 +106,8 @@ func (s *darwinWireGuardService) Connect(resp *models.WireGuardBootstrapResponse
 	}
 	s.serverHost = resp.ServerAddress
 	s.clientHost = resp.ClientAddress
+	s.serverKey = strings.TrimSpace(resp.ServerPublicKey)
+	s.keepaliveSec = resp.PersistentKeepalive
 	s.running = true
 	logrus.Infof("🔐 [WireGuard darwin] helper backend started iface=%s client=%s server=%s", s.ifaceName, s.clientHost, s.serverHost)
 	return nil
@@ -119,6 +123,8 @@ func (s *darwinWireGuardService) Disconnect() error {
 	s.running = false
 	s.serverHost = ""
 	s.clientHost = ""
+	s.serverKey = ""
+	s.keepaliveSec = 0
 	s.routeTargets = nil
 	return nil
 }
@@ -133,6 +139,14 @@ func (s *darwinWireGuardService) GetServerHost() string {
 
 func (s *darwinWireGuardService) GetClientHost() string {
 	return s.clientHost
+}
+
+func (s *darwinWireGuardService) GetPeerStatus() (*WireGuardPeerStatus, error) {
+	response, err := newDarwinWireGuardHelperClient().call(darwinWireGuardHelperRequest{Command: "status"})
+	if err != nil {
+		return nil, err
+	}
+	return response.PeerStatus(s.serverKey, s.keepaliveSec), nil
 }
 
 type darwinWireGuardHelperClient struct {

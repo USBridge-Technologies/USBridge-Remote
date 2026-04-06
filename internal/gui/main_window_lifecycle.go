@@ -102,34 +102,46 @@ func (mw *MainWindow) handleClose() {
 		logrus.Info("[shutdown] handleClose: shutdown already in progress")
 		return
 	}
-
-	logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
-	if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
-		logrus.Info("handleClose: fullscreen active, exit it first")
+	if !mw.isClosing.CompareAndSwap(false, true) {
 		mw.shutdownInProgress.Store(false)
 		return
 	}
 
-	needsDisconnect := mw.isConnected ||
-		mw.usbClient != nil ||
-		(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
-		(mw.nbdServer != nil && mw.nbdServer.IsRunning()) ||
-		(mw.wgService != nil && mw.wgService.IsRunning()) ||
-		(mw.frpService != nil && mw.frpService.IsRunning())
+	mw.stopDeepLinkMonitoring()
+	mw.enqueueLifecycleOp("app-close", func() {
+		logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
 
-	if needsDisconnect {
-		logrus.Info("[shutdown] handleClose: calling handleDisconnect")
-		mw.handleDisconnect()
-	}
+		if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
+			logrus.Info("handleClose: fullscreen active, exit it first")
+			mw.isClosing.Store(false)
+			mw.shutdownInProgress.Store(false)
+			return
+		}
 
-	if mw.app != nil {
-		logrus.Info("[shutdown] handleClose: quitting app")
-		mw.app.Quit()
-		return
-	}
+		needsDisconnect := mw.isConnected ||
+			mw.usbClient != nil ||
+			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
+			(mw.nbdServer != nil && mw.nbdServer.IsRunning()) ||
+			(mw.wgService != nil && mw.wgService.IsRunning()) ||
+			(mw.frpService != nil && mw.frpService.IsRunning())
 
-	logrus.Info("[shutdown] handleClose: closing window")
-	mw.window.Close()
+		if needsDisconnect {
+			logrus.Info("[shutdown] handleClose: calling handleDisconnect")
+			mw.handleDisconnect()
+		}
+
+		fyne.Do(func() {
+			if mw.app != nil {
+				logrus.Info("[shutdown] handleClose: quitting app")
+				mw.app.Quit()
+				return
+			}
+
+			logrus.Info("[shutdown] handleClose: closing window")
+			mw.window.SetCloseIntercept(nil)
+			mw.window.Close()
+		})
+	})
 }
 
 // Show displays the window.
@@ -196,14 +208,32 @@ func (mw *MainWindow) checkDeepLink() {
 
 // startDeepLinkMonitoring starts background deep-link monitoring.
 func (mw *MainWindow) startDeepLinkMonitoring() {
+	mw.stopDeepLinkMonitoring()
+	stopCh := make(chan struct{})
+	mw.deepLinkMonitorStop = stopCh
+
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			if mw.deepLinkHandler != nil {
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+			}
+			if mw.deepLinkHandler != nil && !mw.isClosing.Load() {
 				mw.deepLinkHandler.CheckAndHandleDeepLink(mw.window)
 			}
 		}
 	}()
+}
+
+func (mw *MainWindow) stopDeepLinkMonitoring() {
+	if mw.deepLinkMonitorStop == nil {
+		return
+	}
+
+	close(mw.deepLinkMonitorStop)
+	mw.deepLinkMonitorStop = nil
 }

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"image/color"
+	"sync"
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
@@ -92,6 +93,10 @@ type MainWindow struct {
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
 	wireGuardMonitorStop     chan struct{}
+	deepLinkMonitorStop      chan struct{}
+	lifecycleMu              sync.Mutex
+	lifecycleOps             chan func()
+	isClosing                atomic.Bool
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
@@ -140,9 +145,10 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	window.CenterOnScreen()
 
 	mw := &MainWindow{
-		app:    myApp,
-		window: window,
-		config: config,
+		app:          myApp,
+		window:       window,
+		config:       config,
+		lifecycleOps: make(chan func(), 32),
 		appState: &models.AppState{
 			IsConnected:  false,
 			IsStreaming:  false,
@@ -165,6 +171,8 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	mw.videoWidget.SetParentWindow(window)
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus)
 	mw.backupWidget.SetWindow(window)
+
+	go mw.runLifecycleLoop()
 
 	return mw
 }

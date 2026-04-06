@@ -112,9 +112,41 @@ func (s *darwinWireGuardHelperServer) handleRequest(request darwinWireGuardHelpe
 			return nil, err
 		}
 		return &darwinWireGuardHelperResponse{OK: true}, nil
+	case "status":
+		return s.handleStatus()
 	default:
 		return nil, fmt.Errorf("unsupported helper command %q", request.Command)
 	}
+}
+
+func (s *darwinWireGuardHelperServer) handleStatus() (*darwinWireGuardHelperResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.device == nil {
+		return nil, fmt.Errorf("wireguard device is not running")
+	}
+
+	uapi, err := s.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read wireguard ipc status: %w", err)
+	}
+	status, err := parseWireGuardIPCStatus(uapi, "", 0)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &darwinWireGuardHelperResponse{
+		OK:        true,
+		RxBytes:   status.RxBytes,
+		TxBytes:   status.TxBytes,
+		PeerCount: status.PeerCount,
+	}
+	if !status.LastHandshakeAt.IsZero() {
+		response.LastHandshakeSec = status.LastHandshakeAt.Unix()
+		response.LastHandshakeNSec = int64(status.LastHandshakeAt.Nanosecond())
+	}
+	return response, nil
 }
 
 func (s *darwinWireGuardHelperServer) handleUp(payload *darwinWireGuardUpPayload) (*darwinWireGuardHelperResponse, error) {
@@ -234,7 +266,7 @@ func (s *darwinWireGuardHelperServer) shutdownLocked() error {
 	s.serverHost = ""
 
 	if len(errs) > 0 {
-		return fmt.Errorf(strings.Join(errs, "; "))
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil
 }

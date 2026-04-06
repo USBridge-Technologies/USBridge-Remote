@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -111,7 +110,7 @@ func (mw *MainWindow) handleTransportError(client *api.USBClient, err error) {
 		return
 	}
 	if mw.connectedProtocol == models.ConnectionProtocolWireGuard {
-		// Для WireGuard потерю туннеля определяет отдельный TCP-monitor, а не фоновые HTTP-запросы.
+		// Для WireGuard потерю туннеля определяет отдельный peer-status monitor, а не фоновые HTTP-запросы.
 		return
 	}
 	if mw.usbClient != client || !mw.isConnected {
@@ -225,6 +224,10 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause
 }
 
 func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
+	if mw.isClosing.Load() {
+		mw.connectionLossInProgress.Store(false)
+		return
+	}
 	if client != nil && client != mw.usbClient {
 		mw.connectionLossInProgress.Store(false)
 		return
@@ -289,7 +292,7 @@ func (mw *MainWindow) startWireGuardMonitor(client *api.USBClient) {
 
 			if err := mw.verifyWireGuardTunnel(); err != nil {
 				consecutiveFailures++
-				logrus.Warnf("⚠️ [WireGuard] tunnel probe failed (%d/3): %v", consecutiveFailures, err)
+				logrus.Warnf("⚠️ [WireGuard] peer status degraded (%d/3): %v", consecutiveFailures, err)
 				if consecutiveFailures < 3 {
 					continue
 				}
@@ -310,17 +313,34 @@ func (mw *MainWindow) verifyWireGuardTunnel() error {
 		return fmt.Errorf("wireguard service is not running")
 	}
 
-	serverHost := strings.TrimSpace(mw.wgService.GetServerHost())
-	if serverHost == "" {
-		return fmt.Errorf("wireguard server host is empty")
+	status, err := mw.wgService.GetPeerStatus()
+	if err != nil {
+		return err
+	}
+	if status == nil {
+		return fmt.Errorf("wireguard peer status is nil")
+	}
+	if status.PeerCount == 0 {
+		return fmt.Errorf("wireguard peer is missing")
 	}
 
-	address := net.JoinHostPort(serverHost, fmt.Sprintf("%d", mw.config.USBPort))
-	conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
-	if err != nil {
-		return fmt.Errorf("tcp dial %s failed: %w", address, err)
+	maxHandshakeAge := 90 * time.Second
+	if status.PersistentKeepalive > 0 {
+		candidate := time.Duration(status.PersistentKeepalive*3)*time.Second + 15*time.Second
+		if candidate > maxHandshakeAge {
+			maxHandshakeAge = candidate
+		}
 	}
-	_ = conn.Close()
+
+	if status.LastHandshakeAt.IsZero() {
+		return fmt.Errorf("wireguard peer has no successful handshake yet")
+	}
+
+	handshakeAge := time.Since(status.LastHandshakeAt)
+	if handshakeAge > maxHandshakeAge {
+		return fmt.Errorf("wireguard handshake is stale: age=%v rx=%d tx=%d", handshakeAge.Truncate(time.Second), status.RxBytes, status.TxBytes)
+	}
+
 	return nil
 }
 
@@ -331,22 +351,32 @@ func (mw *MainWindow) handleConnectionToggle() {
 		return
 	}
 
-	mw.isConnectionPending = true
-
 	if mw.isConnected {
+		mw.isConnectionPending = true
 		mw.refreshConnectionControls()
-		mw.handleDisconnect()
+		mw.enqueueLifecycleOp("disconnect", func() {
+			mw.handleDisconnect()
+		})
 		return
 	}
 
 	if !mw.canAttemptConnection() {
-		mw.clearConnectionPending()
-		mw.refreshConnectionControls()
 		return
 	}
 
+	mw.isConnectionPending = true
 	mw.setConnectionLoading(true)
-	mw.handleConnect()
+	host := mw.hostEntry.Text
+	token := mw.tokenEntry.Text
+	mw.hostEntry.Disable()
+	mw.tokenEntry.Disable()
+	mw.protocolSelect.Disable()
+
+	mw.enqueueLifecycleOp("connect", func() {
+		if err := mw.doConnect(host, token); err != nil {
+			mw.handleConnectFailure("Connection failed", err)
+		}
+	})
 }
 
 // handleConnect обрабатывает подключение
@@ -669,7 +699,7 @@ func (mw *MainWindow) verifyActiveConnection() error {
 	}
 
 	var lastErr error
-	for attempt := 1; attempt <= 6; attempt++ {
+	for attempt := 1; attempt <= 12; attempt++ {
 		if attempt > 1 {
 			time.Sleep(1 * time.Second)
 		}
@@ -677,13 +707,13 @@ func (mw *MainWindow) verifyActiveConnection() error {
 		err := mw.verifyWireGuardTunnel()
 		if err == nil {
 			if attempt > 1 {
-				logrus.Infof("✅ [WireGuard] connection verified on retry %d/6", attempt)
+				logrus.Infof("✅ [WireGuard] connection verified on retry %d/12", attempt)
 			}
 			return nil
 		}
 
 		lastErr = err
-		logrus.Warnf("⚠️ [WireGuard] verification attempt %d/6 failed: %v", attempt, err)
+		logrus.Warnf("⚠️ [WireGuard] verification attempt %d/12 failed: %v", attempt, err)
 	}
 
 	return lastErr
@@ -701,6 +731,9 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
 		view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
+		if !mw.isClosing.Load() {
+			view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
+		}
 	})
 }
 
@@ -776,12 +809,14 @@ func (mw *MainWindow) handleDisconnect() {
 	}
 
 	mw.updateStatus()
-	mw.hostEntry.Enable()
-	mw.tokenEntry.Enable()
-	mw.protocolSelect.Enable()
 	mw.config.NBDBindHost = "127.0.0.1"
 	mw.config.VideoBindHost = "127.0.0.1"
-	mw.showConnectionManager()
+	if !mw.isClosing.Load() {
+		mw.hostEntry.Enable()
+		mw.tokenEntry.Enable()
+		mw.protocolSelect.Enable()
+		mw.showConnectionManager()
+	}
 
 	logrus.Info("[shutdown] handleDisconnect: completed")
 }

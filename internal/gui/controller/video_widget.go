@@ -53,6 +53,7 @@ type VideoWidget struct {
 	pendingMoveX      int
 	pendingMoveY      int
 	moveWorkerStarted bool
+	videoOps          chan videoOperation
 
 	// Видео поток
 	currentFrame         image.Image
@@ -240,4 +241,10 @@ func (vw *VideoWidget) noteVideoTraceFirstPaint(frameNum int64) {
 		return
 	}
 	logrus.Infof("🖼️ [VideoTrace #%d] first UI paint frame=%d after %s", traceID, frameNum, time.Unix(0, now).Sub(time.Unix(0, startNs)).Round(time.Millisecond))
+}
+
+type videoOperation struct {
+	name string
+	fn   func()
+	done chan struct{}
 }
