@@ -214,6 +214,35 @@ fi
 FYNE_INSTALL_VERSION="${FYNE_INSTALL_VERSION:-latest}"
 FYNE_BIN="$(ensure_go_tool fyne "fyne.io/tools/cmd/fyne@${FYNE_INSTALL_VERSION}" 1)"
 
+find_apksigner() {
+    local sdk_dir="$1"
+    local candidate=""
+
+    [ -n "$sdk_dir" ] || return 1
+    [ -d "$sdk_dir/build-tools" ] || return 1
+
+    candidate="$(find "$sdk_dir/build-tools" \
+        \( -name apksigner -o -name apksigner.bat -o -name apksigner.cmd -o -name apksigner.exe \) \
+        2>/dev/null | sort -V | tail -1)"
+    [ -n "$candidate" ] || return 1
+
+    printf '%s\n' "$candidate"
+}
+
+run_apksigner() {
+    local apksigner_path="$1"
+    shift
+
+    case "$apksigner_path" in
+        *.bat|*.cmd)
+            cmd.exe //c "\"$(cygpath -w "$apksigner_path")\" $*"
+            ;;
+        *)
+            "$apksigner_path" "$@"
+            ;;
+    esac
+}
+
 cd "$ANDROID_SRC"
 "$FYNE_BIN" package \
     --target android/arm64 \
@@ -317,18 +346,20 @@ if [ -f "$APK_OUT" ]; then
     FINAL_APK="$DIST_DIR/USBridge_Client_gradle.apk"
     # Ищем apksigner: сначала в ANDROID_HOME (Linux), затем в стандартном пути macOS
     APKSIGNER=""
-    if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
-        APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)
+    if [ -n "$ANDROID_HOME" ]; then
+        APKSIGNER="$(find_apksigner "$ANDROID_HOME" 2>/dev/null || true)"
     fi
-    if [ -z "$APKSIGNER" ] && [ -d "$HOME/Library/Android/sdk/build-tools" ]; then
-        APKSIGNER=$(find "$HOME/Library/Android/sdk/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)
+    if [ -z "$APKSIGNER" ] && [ -d "$HOME/Library/Android/sdk" ]; then
+        APKSIGNER="$(find_apksigner "$HOME/Library/Android/sdk" 2>/dev/null || true)"
     fi
-    if [ -n "$APKSIGNER" ]; then
-        "$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android \
-            --key-pass pass:android --out "$FINAL_APK" "$APK_OUT"
-    else
-        cp "$APK_OUT" "$FINAL_APK"
+    if [ -z "$APKSIGNER" ]; then
+        echo -e "${RED}❌ apksigner не найден в Android SDK build-tools${NC}"
+        echo "   Установите Android SDK Build-Tools или проверьте ANDROID_HOME"
+        exit 1
     fi
+    run_apksigner "$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android \
+        --key-pass pass:android --out "$FINAL_APK" "$APK_OUT"
+    run_apksigner "$APKSIGNER" verify "$FINAL_APK" >/dev/null
 
     # apksigner может создать .idsig рядом с исходным/целевым файлом (зависит от версии).
     # Если idsig появился — складываем рядом с APK в dist/android.
