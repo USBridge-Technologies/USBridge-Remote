@@ -42,6 +42,37 @@ ensure_dist_copy() {
     fi
 }
 
+extract_prebuilt_arm64_shared_libs() {
+    local archive_path="$1"
+    local extract_dir="$2"
+    local entry=""
+    local entries=()
+
+    mkdir -p "$extract_dir"
+
+    while IFS= read -r entry; do
+        [ -n "$entry" ] && entries+=("$entry")
+    done < <(tar -tf "$archive_path" | grep -E '^arm64/lib/[^/]+\.so(\..*)?$' || true)
+
+    if [ ${#entries[@]} -eq 0 ]; then
+        while IFS= read -r entry; do
+            [ -n "$entry" ] && entries+=("$entry")
+        done < <(tar -tf "$archive_path" | grep -E '(^|.*/)arm64-v8a/lib/[^/]+\.so(\..*)?$' || true)
+    fi
+
+    if [ ${#entries[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    tar -xf "$archive_path" -C "$extract_dir" "${entries[@]}"
+}
+
+archive_contains_arm64_shared_libs() {
+    local archive_path="$1"
+
+    tar -tf "$archive_path" | grep -Eq '^arm64/lib/[^/]+\.so(\..*)?$|(^|.*/)arm64-v8a/lib/[^/]+\.so(\..*)?$'
+}
+
 export_android_env
 NDK_PATH="$(resolve_android_ndk 2>/dev/null || true)"
 if [ -z "$NDK_PATH" ]; then
@@ -50,21 +81,21 @@ if [ -z "$NDK_PATH" ]; then
 fi
 
 if [ ! -d "$NDK_PATH" ]; then
-    echo -e "${RED}❌ Android NDK не найден: $NDK_PATH${NC}"
+    printf "%b❌ Android NDK не найден: %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
 
-echo -e "${GREEN}✓${NC} Android NDK найден: $NDK_PATH"
+printf "%b✓%b Android NDK найден: %s\n" "$GREEN" "$NC" "$NDK_PATH"
 
 if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
-    echo -e "${RED}❌ Не удалось подготовить toolchain из NDK: $NDK_PATH${NC}"
+    printf "%b❌ Не удалось подготовить toolchain из NDK: %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
 
 # Требуется flex для сборки парсеров GStreamer
 if ! command -v flex >/dev/null 2>&1; then
     echo -e "${RED}❌ Не найден flex${NC}"
-    echo "   Установите flex (например: sudo apt-get install flex)"
+    print_flex_install_hint
     echo "   Или используйте prebuilt: USE_PREBUILT_GSTREAMER=1 scripts/build_android.sh"
     exit 1
 fi
@@ -244,20 +275,44 @@ if [ ! -f "$GST_ARCHIVE" ]; then
         echo -e "${RED}❌ Установите curl или wget для скачивания${NC}"
         exit 1
     fi
+else
+    echo "   Используется уже скачанный архив: $GST_ARCHIVE"
+fi
+
+if ! archive_contains_arm64_shared_libs "$GST_ARCHIVE"; then
+    echo -e "${RED}❌ Prebuilt-архив не содержит arm64 shared-библиотек (.so), которые нужны этому проекту${NC}"
+    echo "   Архив сохранён локально и повторно скачиваться не будет: $GST_ARCHIVE"
+    echo "   Для сборки нужен gst-build репозиторий в: $GSTREAMER_DIR"
+    echo "   Затем запустите: scripts/build_gstreamer_dynamic_android.sh"
+    exit 1
 fi
 
 echo "📦 Распаковка..."
 mkdir -p "$GST_EXTRACT"
-tar -xf "$GST_ARCHIVE" -C "$GST_EXTRACT"
 
-# Prebuilt: ищем arm64-v8a/lib (архив может иметь вложенную структуру)
-ARM64_LIB=$(find "$GST_EXTRACT" -type d -path "*/arm64-v8a/lib" 2>/dev/null | head -1)
+if ! extract_prebuilt_arm64_shared_libs "$GST_ARCHIVE" "$GST_EXTRACT"; then
+    echo -e "${RED}❌ Не удалось извлечь arm64 shared-библиотеки из архива GStreamer${NC}"
+    echo "   Архив сохранён локально и повторно скачиваться не будет: $GST_ARCHIVE"
+    exit 1
+fi
+
+# Prebuilt: архивы GStreamer обычно содержат arm64/lib, но оставляем fallback
+ARM64_LIB=""
+for candidate in \
+    "$GST_EXTRACT/arm64/lib" \
+    "$(find "$GST_EXTRACT" -type d -path "*/arm64-v8a/lib" 2>/dev/null | head -1)"; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+        ARM64_LIB="$candidate"
+        break
+    fi
+done
+
 if [ -n "$ARM64_LIB" ] && [ -d "$ARM64_LIB" ]; then
     mkdir -p "$JNILIBS_DIR"
-    cp -f "$ARM64_LIB"/*.so "$JNILIBS_DIR/" 2>/dev/null || true
-    echo -e "${GREEN}✓${NC} Скопировано $(ls "$JNILIBS_DIR"/*.so 2>/dev/null | wc -l) .so файлов"
+    cp -f "$ARM64_LIB"/*.so* "$JNILIBS_DIR/" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} Скопировано $(find "$JNILIBS_DIR" -maxdepth 1 -type f -name '*.so*' 2>/dev/null | wc -l) .so* файлов"
 else
-    echo -e "${RED}❌ Не найдена директория arm64-v8a/lib в архиве${NC}"
+    echo -e "${RED}❌ Не найдена директория arm64/lib или arm64-v8a/lib в архиве${NC}"
 fi
 
 # Копируем libc++_shared.so из NDK

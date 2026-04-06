@@ -51,20 +51,20 @@ if [ -z "$NDK_PATH" ]; then
 fi
 
 if [ ! -d "$NDK_PATH" ]; then
-    echo -e "${RED}❌ Android NDK не найден: $NDK_PATH${NC}"
+    printf "%b❌ Android NDK не найден: %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
-echo -e "${GREEN}✓${NC} Android NDK: $NDK_PATH"
+printf "%b✓%b Android NDK: %s\n" "$GREEN" "$NC" "$NDK_PATH"
 
 if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
-    echo -e "${RED}❌ Не удалось подготовить toolchain из NDK: $NDK_PATH${NC}"
+    printf "%b❌ Не удалось подготовить toolchain из NDK: %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
 
 # Требуется flex для сборки парсеров GStreamer
 if ! command -v flex >/dev/null 2>&1; then
     echo -e "${RED}❌ Не найден flex${NC}"
-    echo "   Установите flex (например: sudo apt-get install flex)"
+    print_flex_install_hint
     echo "   Или используйте prebuilt: USE_PREBUILT_GSTREAMER=1 scripts/build_android.sh"
     exit 1
 fi

@@ -2,6 +2,44 @@
 
 # Общие функции поиска Android SDK/NDK для build-скриптов.
 
+normalize_android_path() {
+    local path_value="$1"
+
+    if [ -z "$path_value" ]; then
+        return 1
+    fi
+
+    if [ -d "$path_value" ]; then
+        echo "$path_value"
+        return 0
+    fi
+
+    if command -v cygpath >/dev/null 2>&1; then
+        local converted=""
+        converted="$(cygpath -u "$path_value" 2>/dev/null || true)"
+        if [ -n "$converted" ] && [ -d "$converted" ]; then
+            echo "$converted"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+is_msys2_env() {
+    [ -n "${MSYSTEM:-}" ] || [ -n "${MSYS:-}" ] || [ -x "/usr/bin/pacman" ] || [ -x "/mingw64/bin/pacman" ]
+}
+
+print_flex_install_hint() {
+    if is_msys2_env; then
+        echo "   Установите flex в MSYS2: pacman -S --needed flex bison"
+        echo "   Если команда не найдена, запустите её в оболочке MSYS2/UCRT64"
+        return 0
+    fi
+
+    echo "   Установите flex (например: sudo apt-get install flex)"
+}
+
 find_latest_ndk_in_dir() {
     local base_dir="$1"
 
@@ -14,17 +52,21 @@ find_latest_ndk_in_dir() {
 
 resolve_android_sdk() {
     local candidate=""
+    local normalized=""
 
     for candidate in \
         "${ANDROID_HOME:-}" \
         "${ANDROID_SDK_ROOT:-}" \
+        "${LOCALAPPDATA:-}/Android/Sdk" \
+        "${LOCALAPPDATA:-}/Android/sdk" \
         "$HOME/Android/Sdk" \
         "$HOME/Android/sdk" \
         "$HOME/Library/Android/sdk" \
         "/usr/lib/android-sdk"
     do
-        if [ -n "$candidate" ] && [ -d "$candidate" ]; then
-            echo "$candidate"
+        normalized="$(normalize_android_path "$candidate" 2>/dev/null || true)"
+        if [ -n "$normalized" ]; then
+            echo "$normalized"
             return 0
         fi
     done
@@ -34,6 +76,7 @@ resolve_android_sdk() {
 
 resolve_android_ndk() {
     local candidate=""
+    local normalized=""
     local sdk_dir=""
     local ndk_dir=""
 
@@ -41,8 +84,9 @@ resolve_android_ndk() {
         "${ANDROID_NDK_HOME:-}" \
         "${ANDROID_NDK_ROOT:-}"
     do
-        if [ -n "$candidate" ] && [ -d "$candidate" ]; then
-            echo "$candidate"
+        normalized="$(normalize_android_path "$candidate" 2>/dev/null || true)"
+        if [ -n "$normalized" ]; then
+            echo "$normalized"
             return 0
         fi
     done

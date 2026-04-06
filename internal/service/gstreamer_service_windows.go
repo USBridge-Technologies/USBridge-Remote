@@ -201,48 +201,44 @@ func (gs *GStreamerService) createPipeline() error {
 		return gs.createPipelineRawYUYV(udpPort)
 	}
 
-	// Вариант 1: d3d11h264dec ! d3d11download — перевод D3D11-памяти в системную, иначе переход в PLAYING часто падает
-	hwWithDownload := fmt.Sprintf(
-		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
-			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
-			"rtph264depay ! "+
-			"h264parse config-interval=-1 ! "+
-			"d3d11h264dec ! "+
-			"d3d11download ! "+
-			"videoconvert ! "+
-			"video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=1 drop=true",
-		bindHost, udpPort,
-	)
-
-	// Вариант 2: без d3d11download (старый пайплайн, на части систем может сработать)
-	hwWithoutDownload := fmt.Sprintf(
-		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
-			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
-			"rtph264depay ! "+
-			"h264parse config-interval=-1 ! "+
-			"d3d11h264dec ! "+
-			"videoconvert ! "+
-			"video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=1 drop=true",
-		bindHost, udpPort,
-	)
-
 	logrus.Info("🔧 [Windows] GStreamer pipeline (аппаратное декодирование d3d11h264dec + d3d11download)")
 
-	pipeline, err := gst.NewPipelineFromString(hwWithDownload)
-	if err != nil {
-		logrus.Warnf("⚠️ [Windows] pipeline с d3d11download недоступен (%v), пробуем без d3d11download", err)
-		pipeline, err = gst.NewPipelineFromString(hwWithoutDownload)
-	}
-	if err != nil {
-		logrus.Warnf("⚠️ [Windows] d3d11h264dec недоступен (%v), используем avdec_h264 (программный декодер)", err)
-		return gs.createPipelineSoftware()
+	baseCandidates := []string{
+		fmt.Sprintf(
+			"udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+				"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+				"rtph264depay ! "+
+				"h264parse config-interval=-1 ! ",
+			udpPort,
+		),
+		fmt.Sprintf(
+			"udpsrc name=udpsrc0 address=%s port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+				"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+				"rtph264depay ! "+
+				"h264parse config-interval=-1 ! ",
+			bindHost, udpPort,
+		),
 	}
 
-	logrus.Info("✅ [Windows] GStreamer pipeline создан (d3d11h264dec - аппаратное декодирование)")
-	gs.pipeline = pipeline
-	return gs.attachAppsink()
+	var lastErr error
+	for _, base := range baseCandidates {
+		for _, suffix := range []string{
+			"d3d11h264dec ! d3d11download ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true",
+			"d3d11h264dec ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1 drop=true",
+		} {
+			pipeline, err := gst.NewPipelineFromString(base + suffix)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			logrus.Info("✅ [Windows] GStreamer pipeline создан (d3d11h264dec - аппаратное декодирование)")
+			gs.pipeline = pipeline
+			return gs.attachAppsink()
+		}
+	}
+
+	logrus.Warnf("⚠️ [Windows] d3d11h264dec недоступен (%v), используем avdec_h264 (программный декодер)", lastErr)
+	return gs.createPipelineSoftware()
 }
 
 func (gs *GStreamerService) createPipelineRawYUYV(udpPort int) error {
@@ -455,24 +451,44 @@ func (gs *GStreamerService) createPipelineSoftware() error {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
-	swPipeline := fmt.Sprintf(
-		"udpsrc address=%s port=%d buffer-size=131072 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
-			"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
-			"rtph264depay ! "+
-			"h264parse config-interval=-1 ! "+
-			"avdec_h264 max-threads=4 ! "+
-			"videoconvert ! "+
-			"video/x-raw,format=RGBA ! "+
-			"appsink name=sink sync=false max-buffers=1 drop=true",
-		bindHost, udpPort,
-	)
-	pipeline, err := gst.NewPipelineFromString(swPipeline)
-	if err != nil {
-		return fmt.Errorf("ошибка создания pipeline (avdec_h264): %v", err)
+
+	candidates := []string{
+		fmt.Sprintf(
+			"udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+				"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+				"rtph264depay ! "+
+				"h264parse config-interval=-1 ! "+
+				"avdec_h264 max-threads=4 ! "+
+				"videoconvert ! "+
+				"video/x-raw,format=RGBA ! "+
+				"appsink name=sink sync=false max-buffers=1 drop=true",
+			udpPort,
+		),
+		fmt.Sprintf(
+			"udpsrc name=udpsrc0 address=%s port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
+				"rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "+
+				"rtph264depay ! "+
+				"h264parse config-interval=-1 ! "+
+				"avdec_h264 max-threads=4 ! "+
+				"videoconvert ! "+
+				"video/x-raw,format=RGBA ! "+
+				"appsink name=sink sync=false max-buffers=1 drop=true",
+			bindHost, udpPort,
+		),
 	}
-	logrus.Info("✅ [Windows] GStreamer pipeline создан (avdec_h264 - программный декодер)")
-	gs.pipeline = pipeline
-	return gs.attachAppsink()
+
+	var lastErr error
+	for _, candidate := range candidates {
+		pipeline, err := gst.NewPipelineFromString(candidate)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		logrus.Info("✅ [Windows] GStreamer pipeline создан (avdec_h264 - программный декодер)")
+		gs.pipeline = pipeline
+		return gs.attachAppsink()
+	}
+	return fmt.Errorf("ошибка создания pipeline (avdec_h264): %v", lastErr)
 }
 
 // attachAppsink находит appsink в текущем pipeline и подключает callback для кадров.
