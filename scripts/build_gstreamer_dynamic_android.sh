@@ -253,6 +253,14 @@ NDK_BIN="$NDK_PREBUILT/bin"
 NDK_SYSROOT="$NDK_PREBUILT/sysroot"
 NDK_BIN_MESON="$(meson_windows_path "$NDK_BIN")"
 NDK_SYSROOT_MESON="$(meson_windows_path "$NDK_SYSROOT")"
+NDK_EXE_SUFFIX=""
+if is_windows_env; then
+    NDK_EXE_SUFFIX=".exe"
+fi
+NDK_CLANG_SUFFIX=""
+if is_windows_env; then
+    NDK_CLANG_SUFFIX=".cmd"
+fi
 echo "📝 Обновление cross-file: $CROSS_FILE"
 cat > "$CROSS_FILE" << EOF
 [host_machine]
@@ -267,10 +275,10 @@ pkg_config_libdir = ''
 needs_exe_wrapper = true
 
 [binaries]
-c = '$NDK_BIN_MESON/aarch64-linux-android28-clang.cmd'
-cpp = '$NDK_BIN_MESON/aarch64-linux-android28-clang++.cmd'
-ar = '$NDK_BIN_MESON/llvm-ar.exe'
-strip = '$NDK_BIN_MESON/llvm-strip.exe'
+c = '$NDK_BIN_MESON/aarch64-linux-android28-clang$NDK_CLANG_SUFFIX'
+cpp = '$NDK_BIN_MESON/aarch64-linux-android28-clang++$NDK_CLANG_SUFFIX'
+ar = '$NDK_BIN_MESON/llvm-ar$NDK_EXE_SUFFIX'
+strip = '$NDK_BIN_MESON/llvm-strip$NDK_EXE_SUFFIX'
 pkg-config = 'false'
 EOF
 
