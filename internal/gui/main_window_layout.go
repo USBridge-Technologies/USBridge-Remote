@@ -313,7 +313,7 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 		}
 	})
 	langBtn.SetBadgeText("")
-	langBtn.SetIconSize(fyne.NewSize(18, 18))
+	langBtn.SetIconSize(fyne.NewSize(16, 16))
 
 	discordBtn := newHeaderStatusBadgeButton(assets.DiscordIconActive, func() {
 		if mw.connectionManager != nil {

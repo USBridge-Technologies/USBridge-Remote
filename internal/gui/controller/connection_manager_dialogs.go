@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -327,18 +328,28 @@ func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.Canvas
 	)
 }
 
-func createTokenFieldWithButtons(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
-	reserve := canvas.NewRectangle(color.Transparent)
-	reserve.SetMinSize(fyne.NewSize(70, 1))
-	tokenEntry.ActionItem = reserve
+func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, actions fyne.CanvasObject) fyne.CanvasObject {
+	labelRow := container.NewHBox(
+		newConnectionDialogLabel(label),
+		layout.NewSpacer(),
+		actions,
+	)
+	return container.NewVBox(
+		view.NewInset(labelRow, 10, 0, 0, 0),
+		view.NewInset(field, 0, 0, 0, 2),
+	)
+}
+
+func createTokenField(tokenEntry *connectionDialogEntry) fyne.CanvasObject {
+	tokenEntry.ActionItem = nil
 	tokenEntry.Refresh()
 
-	actions := newTokenActionItem(tokenEntry, window)
-	return container.New(&tokenFieldOverlayLayout{rightInset: 10}, tokenEntry, actions)
+	tokenTheme := newConnectionDialogEntrySizeTheme(fyne.CurrentApp().Settings().Theme(), 12)
+	return container.NewThemeOverride(tokenEntry, tokenTheme)
 }
 
 func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
-	copyBtn := newConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
+	copyBtn := newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := tokenEntry.Text
 		if txt != "" && window != nil {
 			window.Clipboard().SetContent(txt)
@@ -350,7 +361,7 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) f
 		visibilityIcon = theme.VisibilityIcon()
 	}
 
-	visibilityBtn := newConnectionDialogIconButton(visibilityIcon, nil)
+	visibilityBtn := newCompactConnectionDialogIconButton(visibilityIcon, nil)
 	visibilityBtn.onTapped = func() {
 		tokenEntry.Password = !tokenEntry.Password
 		if tokenEntry.Password {
@@ -365,14 +376,14 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) f
 		copyBtn,
 		view.NewInset(visibilityBtn, 1, 0, 0, 0),
 	)
-	return container.NewGridWrap(fyne.NewSize(54, 28), container.NewCenter(actions))
+	return actions
 }
 
 func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	return container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogHostLabel, hostEntry),
-		newConnectionDialogField(connectionDialogTokenLabel, createTokenFieldWithButtons(tokenEntry, window)),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, window)),
 	)
 }
 
@@ -802,9 +813,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 type connectionDialogIconButton struct {
 	widget.BaseWidget
 
-	resource fyne.Resource
-	onTapped func()
-	hovered  bool
+	resource   fyne.Resource
+	onTapped   func()
+	hovered    bool
+	buttonSize fyne.Size
+	iconSize   fyne.Size
 
 	bg   *canvas.Rectangle
 	icon *canvas.Image
@@ -812,10 +825,19 @@ type connectionDialogIconButton struct {
 
 func newConnectionDialogIconButton(resource fyne.Resource, onTapped func()) *connectionDialogIconButton {
 	btn := &connectionDialogIconButton{
-		resource: resource,
-		onTapped: onTapped,
+		resource:   resource,
+		onTapped:   onTapped,
+		buttonSize: fyne.NewSize(28, 28),
+		iconSize:   fyne.NewSize(18, 18),
 	}
 	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func newCompactConnectionDialogIconButton(resource fyne.Resource, onTapped func()) *connectionDialogIconButton {
+	btn := newConnectionDialogIconButton(resource, onTapped)
+	btn.buttonSize = fyne.NewSize(24, 24)
+	btn.iconSize = fyne.NewSize(15, 15)
 	return btn
 }
 
@@ -849,7 +871,7 @@ func (b *connectionDialogIconButton) Cursor() desktop.Cursor {
 }
 
 func (b *connectionDialogIconButton) MinSize() fyne.Size {
-	return fyne.NewSize(28, 28)
+	return b.buttonSize
 }
 
 func (b *connectionDialogIconButton) CreateRenderer() fyne.WidgetRenderer {
@@ -859,7 +881,7 @@ func (b *connectionDialogIconButton) CreateRenderer() fyne.WidgetRenderer {
 	b.icon = canvas.NewImageFromResource(b.resource)
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.ScaleMode = canvas.ImageScaleSmooth
-	b.icon.SetMinSize(fyne.NewSize(18, 18))
+	b.icon.SetMinSize(b.iconSize)
 
 	b.refreshVisuals()
 	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(b.icon)))
@@ -882,43 +904,39 @@ func (b *connectionDialogIconButton) refreshVisuals() {
 	b.icon.Refresh()
 }
 
-type tokenFieldOverlayLayout struct {
-	rightInset float32
-}
-
-func (l *tokenFieldOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-
-	entry := objects[0]
-	actions := objects[1]
-
-	entry.Move(fyne.NewPos(0, 0))
-	entry.Resize(size)
-
-	actionsMin := actions.MinSize()
-	x := size.Width - actionsMin.Width - l.rightInset
-	if x < 0 {
-		x = 0
-	}
-	y := (size.Height - actionsMin.Height) / 2
-	if y < 0 {
-		y = 0
-	}
-	actions.Move(fyne.NewPos(x, y))
-	actions.Resize(actionsMin)
-}
-
-func (l *tokenFieldOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) == 0 {
-		return fyne.NewSize(0, 0)
-	}
-	return objects[0].MinSize()
-}
-
 type connectionDialogButtonsLayout struct {
 	gap float32
+}
+
+type connectionDialogEntrySizeTheme struct {
+	base     fyne.Theme
+	textSize float32
+}
+
+func newConnectionDialogEntrySizeTheme(base fyne.Theme, textSize float32) fyne.Theme {
+	return &connectionDialogEntrySizeTheme{
+		base:     base,
+		textSize: textSize,
+	}
+}
+
+func (t *connectionDialogEntrySizeTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return t.base.Color(name, variant)
+}
+
+func (t *connectionDialogEntrySizeTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return t.base.Font(style)
+}
+
+func (t *connectionDialogEntrySizeTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return t.base.Icon(name)
+}
+
+func (t *connectionDialogEntrySizeTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText {
+		return t.textSize
+	}
+	return t.base.Size(name)
 }
 
 func (l *connectionDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
