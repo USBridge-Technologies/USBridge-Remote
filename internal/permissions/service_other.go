@@ -1,0 +1,17 @@
+//go:build !darwin
+
+package permissions
+
+type Service struct{}
+
+func New() *Service                           { return &Service{} }
+func (s *Service) AccessibilityGranted() bool { return true }
+func (s *Service) ScreenRecordingGranted() bool {
+	return true
+}
+func (s *Service) RequestAccessibility() bool { return true }
+func (s *Service) RequestScreenRecording() bool {
+	return true
+}
+func (s *Service) RequestMissing()            {}
+func (s *Service) OpenPrivacySettings() error { return nil }

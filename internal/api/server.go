@@ -232,10 +232,22 @@ func (s *Server) keyboard(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch req.Action {
 	case "key":
+		if req.KeyCode == nil {
+			s.fail(w, http.StatusBadRequest, "missing_key_code", nil)
+			return
+		}
 		err = s.app.Input().Key(*req.KeyCode)
 	case "combo":
+		if req.KeyCode == nil || req.Modifiers == nil {
+			s.fail(w, http.StatusBadRequest, "missing_combo_fields", nil)
+			return
+		}
 		err = s.app.Input().Combo(*req.Modifiers, *req.KeyCode)
 	case "text":
+		if req.Text == nil {
+			s.fail(w, http.StatusBadRequest, "missing_text", nil)
+			return
+		}
 		err = s.app.Input().Text(*req.Text)
 	default:
 		s.fail(w, http.StatusBadRequest, "unsupported_action", nil)

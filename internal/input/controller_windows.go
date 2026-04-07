@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"sync"
 	"unicode/utf16"
 	"unsafe"
 
@@ -18,8 +17,10 @@ const (
 	inputMouse    = 0
 	inputKeyboard = 1
 
-	keyeventfKeyUp   = 0x0002
-	keyeventfUnicode = 0x0004
+	keyeventfExtendedKey = 0x0001
+	keyeventfKeyUp       = 0x0002
+	keyeventfScancode    = 0x0008
+	keyeventfUnicode     = 0x0004
 
 	mouseeventfMove       = 0x0001
 	mouseeventfLeftDown   = 0x0002
@@ -66,43 +67,30 @@ var (
 	procSetCursorPos = user32.NewProc("SetCursorPos")
 )
 
-type Controller struct {
-	mu          sync.Mutex
-	buttonState uint8
-}
-
 func New() *Controller { return &Controller{} }
 
 func (c *Controller) Key(key uint8) error {
-	vk, ok := hidToVK(key)
-	if !ok {
-		return fmt.Errorf("unsupported HID key: %d", key)
-	}
-	if err := c.sendKey(vk, 0); err != nil {
+	if err := c.sendHID(key, false); err != nil {
 		return err
 	}
-	return c.sendKey(vk, keyeventfKeyUp)
+	return c.sendHID(key, true)
 }
 
 func (c *Controller) Combo(modifiers, key uint8) error {
-	modKeys := modifiersToVK(modifiers)
-	for _, vk := range modKeys {
-		if err := c.sendKey(vk, 0); err != nil {
+	modKeys := modifierHIDKeys(modifiers)
+	for _, mod := range modKeys {
+		if err := c.sendHID(mod, false); err != nil {
 			return err
 		}
 	}
-	vk, ok := hidToVK(key)
-	if !ok {
-		return fmt.Errorf("unsupported HID key: %d", key)
-	}
-	if err := c.sendKey(vk, 0); err != nil {
+	if err := c.sendHID(key, false); err != nil {
 		return err
 	}
-	if err := c.sendKey(vk, keyeventfKeyUp); err != nil {
+	if err := c.sendHID(key, true); err != nil {
 		return err
 	}
 	for i := len(modKeys) - 1; i >= 0; i-- {
-		if err := c.sendKey(modKeys[i], keyeventfKeyUp); err != nil {
+		if err := c.sendHID(modKeys[i], true); err != nil {
 			return err
 		}
 	}
@@ -193,13 +181,28 @@ func (c *Controller) AbsoluteEvent(buttonsMask uint8, x, y uint16, wheel int8) e
 	return nil
 }
 
-func (c *Controller) sendKey(vk uint16, flags uint32) error {
-	pkt := keyboardPacket{Type: inputKeyboard, Ki: keyboardInput{WVk: vk, DwFlags: flags}}
+func (c *Controller) sendKey(vk, scan uint16, flags uint32) error {
+	pkt := keyboardPacket{Type: inputKeyboard, Ki: keyboardInput{WVk: vk, WScan: scan, DwFlags: flags}}
 	r1, _, err := procSendInput.Call(uintptr(1), uintptr(unsafe.Pointer(&pkt)), uintptr(unsafe.Sizeof(pkt)))
 	if r1 == 0 {
 		return err
 	}
 	return nil
+}
+
+func (c *Controller) sendHID(key uint8, up bool) error {
+	spec, ok := hidSpec(key)
+	if !ok {
+		return fmt.Errorf("unsupported HID key: %d", key)
+	}
+	flags := uint32(keyeventfScancode)
+	if spec.windowsExtended {
+		flags |= keyeventfExtendedKey
+	}
+	if up {
+		flags |= keyeventfKeyUp
+	}
+	return c.sendKey(0, spec.windowsScan, flags)
 }
 
 func (c *Controller) sendUnicode(scan uint16, flags uint32) error {
@@ -248,67 +251,5 @@ func buttonFlags(button uint8) (uint32, uint32, bool) {
 		return mouseeventfMiddleDown, mouseeventfMiddleUp, true
 	default:
 		return 0, 0, false
-	}
-}
-
-func modifiersToVK(modifiers uint8) []uint16 {
-	out := make([]uint16, 0, 4)
-	if modifiers&0x01 != 0 {
-		out = append(out, 0x11)
-	}
-	if modifiers&0x02 != 0 {
-		out = append(out, 0x10)
-	}
-	if modifiers&0x04 != 0 {
-		out = append(out, 0x12)
-	}
-	if modifiers&0x08 != 0 {
-		out = append(out, 0x5B)
-	}
-	return out
-}
-
-func hidToVK(key uint8) (uint16, bool) {
-	switch {
-	case key >= 4 && key <= 29:
-		return uint16('A' + (key - 4)), true
-	case key >= 30 && key <= 38:
-		return uint16('1' + (key - 30)), true
-	case key == 39:
-		return '0', true
-	}
-	switch key {
-	case 40:
-		return 0x0D, true
-	case 41:
-		return 0x1B, true
-	case 42:
-		return 0x08, true
-	case 43:
-		return 0x09, true
-	case 44:
-		return 0x20, true
-	case 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69:
-		return 0x70 + uint16(key-58), true
-	case 74:
-		return 0x24, true
-	case 75:
-		return 0x21, true
-	case 76:
-		return 0x2E, true
-	case 77:
-		return 0x23, true
-	case 78:
-		return 0x22, true
-	case 79:
-		return 0x27, true
-	case 80:
-		return 0x25, true
-	case 81:
-		return 0x28, true
-	case 82:
-		return 0x26, true
-	default:
-		return 0, false
 	}
 }

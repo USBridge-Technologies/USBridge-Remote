@@ -21,7 +21,9 @@ import (
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/frp"
 	"usbridge_agent/internal/input"
+	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/ui"
+	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/video"
 )
 
@@ -41,13 +43,14 @@ type App struct {
 	input   *input.Controller
 	screen  *capture.Service
 	video   *video.Manager
+	perms   *permissions.Service
 	frp     *frp.Manager
 	server  *http.Server
 	fyneApp fyne.App
 }
 
 func New() (*App, error) {
-	cfgPath := filepath.Join(".", "config.yaml")
+	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return nil, err
@@ -62,8 +65,10 @@ func New() (*App, error) {
 		input:   input.New(),
 		screen:  capture.New(),
 		video:   video.New(cfg),
+		perms:   permissions.New(),
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
+	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.ListenHost, cfg.HTTPPort),
@@ -73,11 +78,34 @@ func New() (*App, error) {
 	return instance, nil
 }
 
+func resolveConfigPath() string {
+	candidates := make([]string, 0, 6)
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "config.yaml"),
+			filepath.Clean(filepath.Join(exeDir, "..", "..", "..", "config.yaml")),
+		)
+	}
+	candidates = append(candidates, filepath.Join(".", "config.yaml"))
+	if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+		candidates = append(candidates, filepath.Join(homeDir, ".config", "usbridge-agent", "config.yaml"))
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
+}
+
 func (a *App) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.ListenHost, a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, a.cfg.VideoCapture)
+	log.Printf("[app] ffmpeg path=%s", a.cfg.FFmpegPath)
 	if err := a.frp.Start(ctx); err != nil {
 		return err
 	}
@@ -91,7 +119,7 @@ func (a *App) Run() error {
 			a.fyneApp.Quit()
 		})
 	}()
-	ui.NewWindow(a.fyneApp, a.cfg).ShowAndRun(cancel)
+	ui.NewWindow(a.fyneApp, a.cfg, a.perms).ShowAndRun(cancel)
 	return nil
 }
 

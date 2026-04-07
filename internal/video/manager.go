@@ -89,7 +89,7 @@ func (m *Manager) Info() map[string]interface{} {
 		"mode":                "h264",
 		"transport":           "rtp",
 		"encoding":            "h264",
-		"source_format":       "BGRA",
+		"source_format":       sourceFormatForPlatform(),
 		"server_decodes_jpeg": true,
 		"streaming":           m.proc != nil,
 		"udp_port":            m.cfg.VideoUDPPort,
@@ -116,13 +116,7 @@ func (m *Manager) normalize(req api.VideoStartRequest) api.VideoStartRequest {
 }
 
 func (m *Manager) startWithFallback(req api.VideoStartRequest, skipCodecs map[string]struct{}) (*runningProcess, error) {
-	modes := []string{strings.ToLower(m.cfg.VideoCapture)}
-	if len(modes) == 0 || modes[0] == "" {
-		modes[0] = "dxgi"
-	}
-	if modes[0] == "dxgi" {
-		modes = append(modes, "gdigrab")
-	}
+	modes := captureModesForPlatform(m.cfg.VideoCapture)
 
 	var lastErr error
 	for _, mode := range modes {
@@ -177,38 +171,7 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 }
 
 func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []string {
-	input := []string{"-f", "gdigrab", "-framerate", fmt.Sprintf("%d", req.VideoFPS), "-draw_mouse", "1", "-i", "desktop"}
-	videoFilter := softwareFilter(req.VideoWidth, req.VideoHeight, codec)
-	if strings.EqualFold(mode, "dxgi") {
-		input = []string{"-f", "lavfi", "-i", fmt.Sprintf("ddagrab=framerate=%d:draw_mouse=1", req.VideoFPS)}
-		videoFilter = dxgiFilter(req.VideoWidth, req.VideoHeight, codec)
-	}
-
-	args := append(input,
-		"-probesize", "32",
-		"-analyzeduration", "0",
-		"-fflags", "nobuffer",
-		"-flags", "low_delay",
-		"-fps_mode", "passthrough",
-		"-an",
-		"-vf", videoFilter,
-		"-c:v", codec,
-	)
-	args = append(args, codecArgs(codec)...)
-	args = append(args,
-		"-sc_threshold", "0",
-		"-g", fmt.Sprintf("%d", req.VideoFPS),
-		"-keyint_min", fmt.Sprintf("%d", req.VideoFPS),
-		"-bf", "0",
-		"-bsf:v", "dump_extra=freq=keyframe",
-		"-b:v", firstNonEmpty(req.VideoBitrate, m.cfg.VideoBitrate),
-		"-maxrate", firstNonEmpty(req.VideoBitrate, m.cfg.VideoBitrate),
-		"-bufsize", firstNonEmpty(req.VideoBitrate, m.cfg.VideoBitrate),
-		"-payload_type", "96",
-		"-f", "rtp",
-		fmt.Sprintf("rtp://127.0.0.1:%d?pkt_size=1200", m.cfg.VideoUDPPort),
-	)
-	return args
+	return buildPlatformArgs(m.cfg, req, mode, codec)
 }
 
 func (m *Manager) candidateCodecs(skipCodecs map[string]struct{}) []string {
@@ -227,7 +190,7 @@ func (m *Manager) candidateCodecs(skipCodecs map[string]struct{}) []string {
 	}
 
 	if preferred := strings.TrimSpace(m.preferredCodec); preferred != "" {
-		return filter(appendUnique(preferred, "h264_amf", "h264_nvenc", "h264_qsv", "libx264"))
+		return filter(appendUnique(append([]string{preferred}, platformCodecFallbacks()...)...))
 	}
 
 	primary := strings.TrimSpace(m.cfg.VideoCodec)
@@ -237,20 +200,18 @@ func (m *Manager) candidateCodecs(skipCodecs map[string]struct{}) []string {
 	switch strings.ToLower(primary) {
 	case "auto":
 		return filter(m.autoCodecOrder())
-	case "h264_nvenc", "h264_qsv", "h264_amf", "libx264":
-		return filter(appendUnique(primary, "libx264"))
 	default:
-		return filter(appendUnique(primary, "libx264"))
+		return filter(appendUnique(append([]string{primary}, platformCodecFallbacks()...)...))
 	}
 }
 
 func (m *Manager) autoCodecOrder() []string {
 	m.codecOrderOnce.Do(func() {
 		available := detectAvailableCodecs(m.cfg.FFmpegPath)
-		adapters := detectVideoAdapters()
+		adapters := detectPlatformVideoAdapters()
 		order := preferredCodecsForAdapters(adapters)
 		if len(order) == 0 {
-			order = []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"}
+			order = platformCodecFallbacks()
 		}
 		if len(available) != 0 {
 			filtered := make([]string, 0, len(order))
@@ -261,7 +222,7 @@ func (m *Manager) autoCodecOrder() []string {
 			}
 			order = filtered
 		}
-		m.codecOrder = appendUnique(append(order, "libx264")...)
+		m.codecOrder = appendUnique(append(order, platformCodecFallbacks()...)...)
 		log.Printf("[video] auto codec order adapters=%v order=%v", adapters, m.codecOrder)
 	})
 	return append([]string(nil), m.codecOrder...)
@@ -312,6 +273,8 @@ func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) 
 
 func codecArgs(codec string) []string {
 	switch strings.ToLower(codec) {
+	case "h264_videotoolbox":
+		return []string{"-realtime", "true", "-profile:v", "baseline", "-pix_fmt", "nv12"}
 	case "h264_nvenc":
 		return []string{"-preset", "p1", "-tune", "ll", "-profile:v", "baseline", "-level", "3.2", "-rc", "cbr_ld_hq", "-pix_fmt", "nv12"}
 	case "h264_qsv":
@@ -350,7 +313,7 @@ func dxgiFilter(width, height int, codec string) string {
 
 func prefersNV12(codec string) bool {
 	switch strings.ToLower(strings.TrimSpace(codec)) {
-	case "h264_nvenc", "h264_qsv", "h264_amf":
+	case "h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox":
 		return true
 	default:
 		return false
@@ -381,52 +344,12 @@ func detectAvailableCodecs(ffmpegPath string) map[string]struct{} {
 		return nil
 	}
 	available := make(map[string]struct{}, 4)
-	for _, codec := range []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"} {
+	for _, codec := range []string{"h264_videotoolbox", "h264_amf", "h264_nvenc", "h264_qsv", "libx264"} {
 		if strings.Contains(string(output), codec) {
 			available[codec] = struct{}{}
 		}
 	}
 	return available
-}
-
-func detectVideoAdapters() []string {
-	cmd := exec.Command(
-		"powershell",
-		"-NoProfile",
-		"-NonInteractive",
-		"-Command",
-		"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-	)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("[video] adapter probe skipped: %v", err)
-		return nil
-	}
-	lines := strings.Split(string(output), "\n")
-	adapters := make([]string, 0, len(lines))
-	for _, line := range lines {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		adapters = append(adapters, name)
-	}
-	return adapters
-}
-
-func preferredCodecsForAdapters(adapters []string) []string {
-	order := make([]string, 0, 4)
-	for _, adapter := range adapters {
-		switch {
-		case containsAny(adapter, "amd", "radeon"):
-			order = append(order, "h264_amf")
-		case containsAny(adapter, "nvidia", "geforce", "quadro", "rtx", "gtx"):
-			order = append(order, "h264_nvenc")
-		case containsAny(adapter, "intel", "iris", "uhd", "arc"):
-			order = append(order, "h264_qsv")
-		}
-	}
-	return appendUnique(append(order, "h264_amf", "h264_nvenc", "h264_qsv", "libx264")...)
 }
 
 func containsAny(value string, needles ...string) bool {

@@ -1,6 +1,6 @@
 # usbridge_agent
 
-Windows-first software KVM backend for `usbridge_client`.
+Software KVM backend for `usbridge_client` on Windows and macOS.
 
 Implemented now:
 
@@ -10,9 +10,10 @@ Implemented now:
 - `video_sudp` SUDP proxy for client RTP video path
 - dynamic NBD visitors for client-hosted `nbd_srv1..N`
 - Windows HID input via `SendInput`
-- screen snapshots via desktop capture
+- macOS HID input via Quartz / `CGEvent`
+- screen snapshots via desktop capture (`screencapture` on macOS)
 - Fyne desktop control window
-- video streaming via `ffmpeg`
+- video streaming via `ffmpeg` (`dxgi`/`gdigrab` on Windows, `avfoundation` on macOS)
 
 Current limitation:
 
@@ -24,3 +25,29 @@ Start:
 ```powershell
 go run ./cmd/usbridge_agent
 ```
+
+Build for macOS from macOS:
+
+```bash
+./scripts/build_macos.sh
+./scripts/install_macos.sh
+open "$HOME/Applications/USBridgeAgent.app"
+```
+
+For stable macOS TCC permissions, always launch the same installed app path.
+Recommended path: `~/Applications/USBridgeAgent.app`.
+Development builds are intentionally not ad-hoc signed by default, because re-signing on each rebuild can cause macOS to treat the app as a different client for Accessibility/Screen Recording.
+
+macOS permissions:
+
+- Screen Recording is required for video/screen capture
+- Accessibility is required for mouse and keyboard injection
+
+Configuration:
+
+`config.yaml` next to the app, or `~/.config/usbridge-agent/`
+
+Application log:
+
+`~/Library/Logs/USBridgeAgent/app.log`
+If `USBRIDGE_LOG_DIR` is set, logs are written there instead.

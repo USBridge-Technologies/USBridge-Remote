@@ -9,7 +9,10 @@ import (
 	"errors"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -37,7 +40,13 @@ type Config struct {
 }
 
 func Default() Config {
-	stateDir := filepath.Join(".", "var")
+	stateDir := defaultStateDir()
+	videoCapture := "dxgi"
+	videoCodec := "auto"
+	if runtime.GOOS == "darwin" {
+		videoCapture = "avfoundation"
+		videoCodec = "h264_videotoolbox"
+	}
 	return Config{
 		AppName:         "USBridge Agent",
 		ListenHost:      "127.0.0.1",
@@ -53,8 +62,8 @@ func Default() Config {
 		VideoWidth:      1280,
 		VideoHeight:     720,
 		VideoBitrate:    "4M",
-		VideoCodec:      "auto",
-		VideoCapture:    "dxgi",
+		VideoCodec:      videoCodec,
+		VideoCapture:    videoCapture,
 		NBDMountCommand: "",
 		StateDir:        stateDir,
 	}
@@ -65,14 +74,14 @@ func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, nil
+			return finalize(cfg, "")
 		}
 		return cfg, err
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
-	return cfg, nil
+	return finalize(cfg, path)
 }
 
 func Save(path string, cfg Config) error {
@@ -94,6 +103,12 @@ func (c Config) EnsureState() error {
 }
 
 func ensureSelfSignedPair(certPath, keyPath string) error {
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
+		return err
+	}
 	if _, err := os.Stat(certPath); err == nil {
 		if _, err := os.Stat(keyPath); err == nil {
 			return nil
@@ -132,4 +147,81 @@ func ensureSelfSignedPair(certPath, keyPath string) error {
 func newSerial() *big.Int {
 	n, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 62))
 	return n
+}
+
+func defaultStateDir() string {
+	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
+		return filepath.Join(base, "usbridge-agent")
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		if runtime.GOOS == "darwin" {
+			return filepath.Join(home, "Library", "Application Support", "usbridge-agent")
+		}
+		return filepath.Join(home, ".config", "usbridge-agent")
+	}
+	return filepath.Join(".", "var")
+}
+
+func resolvePaths(cfg Config, cfgPath string) Config {
+	if strings.TrimSpace(cfgPath) == "" {
+		return cfg
+	}
+	defaults := Default()
+	configDir := filepath.Dir(cfgPath)
+
+	if strings.TrimSpace(cfg.StateDir) == "" || cfg.StateDir == "./var" {
+		cfg.StateDir = defaults.StateDir
+	} else if !filepath.IsAbs(cfg.StateDir) {
+		cfg.StateDir = filepath.Clean(filepath.Join(configDir, cfg.StateDir))
+	}
+
+	if strings.TrimSpace(cfg.FRPTLSCertFile) == "" || cfg.FRPTLSCertFile == "./var/frp.crt" {
+		cfg.FRPTLSCertFile = filepath.Join(cfg.StateDir, "frp.crt")
+	} else if !filepath.IsAbs(cfg.FRPTLSCertFile) {
+		cfg.FRPTLSCertFile = filepath.Clean(filepath.Join(configDir, cfg.FRPTLSCertFile))
+	}
+
+	if strings.TrimSpace(cfg.FRPTLSKeyFile) == "" || cfg.FRPTLSKeyFile == "./var/frp.key" {
+		cfg.FRPTLSKeyFile = filepath.Join(cfg.StateDir, "frp.key")
+	} else if !filepath.IsAbs(cfg.FRPTLSKeyFile) {
+		cfg.FRPTLSKeyFile = filepath.Clean(filepath.Join(configDir, cfg.FRPTLSKeyFile))
+	}
+
+	return cfg
+}
+
+func finalize(cfg Config, cfgPath string) (Config, error) {
+	cfg = resolvePaths(cfg, cfgPath)
+	cfg.FFmpegPath = resolveFFmpegPath(cfg.FFmpegPath)
+	return cfg, nil
+}
+
+func resolveFFmpegPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "ffmpeg"
+	}
+
+	if filepath.IsAbs(value) {
+		return value
+	}
+
+	if strings.ContainsRune(value, filepath.Separator) {
+		return filepath.Clean(value)
+	}
+
+	if path, err := exec.LookPath(value); err == nil {
+		return path
+	}
+
+	if runtime.GOOS == "darwin" {
+		for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+			candidate := filepath.Join(dir, value)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return candidate
+			}
+		}
+	}
+
+	return value
 }

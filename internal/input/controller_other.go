@@ -1,10 +1,8 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package input
 
 import "fmt"
-
-type Controller struct{}
 
 func New() *Controller                                          { return &Controller{} }
 func (c *Controller) Key(uint8) error                           { return fmt.Errorf("windows only") }

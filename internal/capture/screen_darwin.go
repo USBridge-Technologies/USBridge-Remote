@@ -1,12 +1,13 @@
-//go:build !darwin
+//go:build darwin
 
 package capture
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
-	"image/png"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/kbinani/screenshot"
@@ -22,20 +23,30 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	if screenshot.NumActiveDisplays() == 0 {
 		return nil, fmt.Errorf("no active displays")
 	}
-	bounds := screenshot.GetDisplayBounds(0)
-	img, err := screenshot.CaptureRect(bounds)
+
+	tmpDir, err := os.MkdirTemp("", "usbridge-screen-*")
 	if err != nil {
 		return nil, err
 	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	defer os.RemoveAll(tmpDir)
+
+	pngPath := filepath.Join(tmpDir, "screen.png")
+	cmd := exec.Command("screencapture", "-x", "-D", "1", "-t", "png", pngPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("screencapture failed: %v (%s)", err, string(output))
+	}
+
+	data, err := os.ReadFile(pngPath)
+	if err != nil {
 		return nil, err
 	}
+
+	bounds := screenshot.GetDisplayBounds(0)
 	return &api.ScreenSnapshot{
 		Format:      "png-base64",
 		Width:       bounds.Dx(),
 		Height:      bounds.Dy(),
-		ImageBase64: base64.StdEncoding.EncodeToString(buf.Bytes()),
+		ImageBase64: base64.StdEncoding.EncodeToString(data),
 		Timestamp:   time.Now().Format(time.RFC3339Nano),
 	}, nil
 }
@@ -47,7 +58,7 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 		out = append(out, api.VideoDeviceInfo{
 			Path:      fmt.Sprintf("display:%d", i),
 			Name:      fmt.Sprintf("Display %d (%dx%d)", i, bounds.Dx(), bounds.Dy()),
-			Bus:       "dxgi",
+			Bus:       "screen",
 			Index:     i,
 			Connected: true,
 		})
