@@ -38,6 +38,14 @@ For stable macOS TCC permissions, always launch the same installed app path.
 Recommended path: `~/Applications/USBridgeAgent.app`.
 Development builds are intentionally not ad-hoc signed by default, because re-signing on each rebuild can cause macOS to treat the app as a different client for Accessibility/Screen Recording.
 
+Build for Windows from Windows/MSYS2 UCRT64:
+
+```bash
+./scripts/build_windows.sh
+```
+
+The script expects the `UCRT64` shell and builds `dist/windows/USBridgeAgent.exe`.
+
 macOS permissions:
 
 - Screen Recording is required for video/screen capture
