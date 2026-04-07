@@ -80,7 +80,7 @@ func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, pan
 		localFocusX := float32(focusX) - absPos.X
 		localFocusY := float32(focusY) - absPos.Y
 
-		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height)
+		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
 		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx), float32(panDy))
 		vw.refreshViewportViews()
 	})

@@ -18,7 +18,8 @@ def patch_file(path: Path, transform) -> None:
     original = path.read_text(encoding="utf-8")
     updated = transform(original)
     if updated != original:
-        path.write_text(updated, encoding="utf-8", newline="\n")
+        with path.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(updated)
 
 
 def ensure_after(text: str, anchor: str, addition: str, label: str) -> str:
