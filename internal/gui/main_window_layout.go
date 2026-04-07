@@ -87,12 +87,30 @@ func (mw *MainWindow) createInterface() {
 	mw.hostEntry = widget.NewEntry()
 	mw.hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
 	mw.hostEntry.OnChanged = func(string) {
+		mw.persistConnectionDraft()
+		if mw.connectionManager != nil {
+			mw.connectionManager.SyncSelectedConnectionDraft(
+				mw.hostEntry.Text,
+				mw.tokenEntry.Text,
+				mw.protocolSelect.Selected,
+			)
+		}
 		mw.refreshConnectionControls()
 	}
 
 	mw.tokenEntry = widget.NewEntry()
 	mw.tokenEntry.SetPlaceHolder(i18n.Current.Token)
 	mw.tokenEntry.Password = true
+	mw.tokenEntry.OnChanged = func(string) {
+		mw.persistConnectionDraft()
+		if mw.connectionManager != nil {
+			mw.connectionManager.SyncSelectedConnectionDraft(
+				mw.hostEntry.Text,
+				mw.tokenEntry.Text,
+				mw.protocolSelect.Selected,
+			)
+		}
+	}
 
 	mw.protocolSelect = widget.NewSelect([]string{
 		models.ConnectionProtocolAuto,
@@ -100,6 +118,14 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolWireGuard,
 	}, nil)
 	mw.protocolSelect.OnChanged = func(value string) {
+		mw.persistConnectionDraft()
+		if mw.connectionManager != nil {
+			mw.connectionManager.SyncSelectedConnectionDraft(
+				mw.hostEntry.Text,
+				mw.tokenEntry.Text,
+				value,
+			)
+		}
 		if mw.protocolDropdown != nil {
 			mw.protocolDropdown.SetSelected(protocolDropdownLabel(value))
 		}
@@ -182,8 +208,7 @@ func (mw *MainWindow) refreshConnectionControls() {
 
 // setDefaultValues устанавливает начальные значения для полей.
 func (mw *MainWindow) setDefaultValues() {
-	mw.hostEntry.SetText("")
-	mw.tokenEntry.SetText("")
+	mw.restoreConnectionDraft()
 }
 
 // recreateContainers пересоздает контейнеры с менеджером подключений.

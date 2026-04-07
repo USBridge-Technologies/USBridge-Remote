@@ -177,6 +177,32 @@ func (cm *ConnectionManager) SetConnectionPending(pending bool) {
 	cm.setConnectionPendingState(pending, activeIndex)
 }
 
+func (cm *ConnectionManager) SyncSelectedConnectionDraft(host, token, protocol string) {
+	if cm == nil || cm.selectedIndex < 0 || cm.selectedIndex >= len(cm.connections) {
+		return
+	}
+
+	host = strings.TrimSpace(host)
+	token = strings.TrimSpace(token)
+	protocol = normalizeConnectionProtocol(protocol)
+
+	current := cm.connections[cm.selectedIndex]
+	if current.Host == host && strings.TrimSpace(current.Token) == token && normalizeConnectionProtocol(current.Protocol) == protocol {
+		return
+	}
+
+	cm.connections[cm.selectedIndex].Host = host
+	cm.connections[cm.selectedIndex].Token = token
+	cm.connections[cm.selectedIndex].Protocol = protocol
+	cm.saveConnections()
+
+	if cm.ui != nil {
+		fyne.Do(func() {
+			cm.refreshConnectionsList()
+		})
+	}
+}
+
 func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex int) {
 	if pending && (activeIndex < 0 || activeIndex >= len(cm.connections)) {
 		activeIndex = -1

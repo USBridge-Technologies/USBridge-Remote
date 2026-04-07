@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"usbridge-client/internal/gui/i18n"
 
@@ -96,5 +97,12 @@ func (cm *ConnectionManager) loadConnections() {
 	}
 	if err := json.Unmarshal(data, &cm.connections); err != nil {
 		cm.connections = make([]SavedConnection, 0)
+		return
+	}
+
+	for i := range cm.connections {
+		cm.connections[i].Host = strings.TrimSpace(cm.connections[i].Host)
+		cm.connections[i].Token = strings.TrimSpace(cm.connections[i].Token)
+		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
 	}
 }
