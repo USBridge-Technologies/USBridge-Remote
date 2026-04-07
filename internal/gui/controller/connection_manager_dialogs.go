@@ -343,9 +343,7 @@ func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, 
 func createTokenField(tokenEntry *connectionDialogEntry) fyne.CanvasObject {
 	tokenEntry.ActionItem = nil
 	tokenEntry.Refresh()
-
-	tokenTheme := newConnectionDialogEntrySizeTheme(fyne.CurrentApp().Settings().Theme(), 12)
-	return container.NewThemeOverride(tokenEntry, tokenTheme)
+	return tokenEntry
 }
 
 func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
@@ -355,28 +353,7 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) f
 			window.Clipboard().SetContent(txt)
 		}
 	})
-
-	visibilityIcon := theme.VisibilityOffIcon()
-	if !tokenEntry.Password {
-		visibilityIcon = theme.VisibilityIcon()
-	}
-
-	visibilityBtn := newCompactConnectionDialogIconButton(visibilityIcon, nil)
-	visibilityBtn.onTapped = func() {
-		tokenEntry.Password = !tokenEntry.Password
-		if tokenEntry.Password {
-			visibilityBtn.SetResource(theme.VisibilityOffIcon())
-		} else {
-			visibilityBtn.SetResource(theme.VisibilityIcon())
-		}
-		tokenEntry.Refresh()
-	}
-
-	actions := container.NewHBox(
-		copyBtn,
-		view.NewInset(visibilityBtn, 1, 0, 0, 0),
-	)
-	return actions
+	return copyBtn
 }
 
 func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
@@ -691,7 +668,7 @@ func newConnectionTokenEntry(value string, onFocusChanged func(bool)) *connectio
 	entry.ExtendBaseWidget(entry)
 	entry.SetText(value)
 	entry.SetPlaceHolder("")
-	entry.Password = true
+	entry.Password = false
 	return entry
 }
 
@@ -906,37 +883,6 @@ func (b *connectionDialogIconButton) refreshVisuals() {
 
 type connectionDialogButtonsLayout struct {
 	gap float32
-}
-
-type connectionDialogEntrySizeTheme struct {
-	base     fyne.Theme
-	textSize float32
-}
-
-func newConnectionDialogEntrySizeTheme(base fyne.Theme, textSize float32) fyne.Theme {
-	return &connectionDialogEntrySizeTheme{
-		base:     base,
-		textSize: textSize,
-	}
-}
-
-func (t *connectionDialogEntrySizeTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	return t.base.Color(name, variant)
-}
-
-func (t *connectionDialogEntrySizeTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.base.Font(style)
-}
-
-func (t *connectionDialogEntrySizeTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	return t.base.Icon(name)
-}
-
-func (t *connectionDialogEntrySizeTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameText {
-		return t.textSize
-	}
-	return t.base.Size(name)
 }
 
 func (l *connectionDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
