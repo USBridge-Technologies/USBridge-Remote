@@ -701,11 +701,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 			cm.selectedIndex = idx
 			cm.saveConnections()
 			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && conn.Protocol != "" {
-					cm.protocolSelect.SetSelected(conn.Protocol)
-				}
+				cm.SelectConnection(idx)
 				cm.refreshConnectionsList()
 			})
 			logrus.Infof("Updated connection: %s", name)
@@ -751,11 +747,8 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 			}
 
 			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && selectedProtocol != "" {
-					cm.protocolSelect.SetSelected(selectedProtocol)
-				}
+				cm.ClearSelection()
+				cm.applyConnectionToForm(host, token, selectedProtocol)
 			})
 			if cm.onConnect != nil {
 				cm.onConnect(host, token, selectedProtocol, wireGuardInvite)
@@ -775,11 +768,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 
 			cm.SaveConnection(name, host, token, selectedProtocol, wireGuardInvite)
 			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && selectedProtocol != "" {
-					cm.protocolSelect.SetSelected(selectedProtocol)
-				}
+				cm.applyConnectionToForm(host, token, selectedProtocol)
 				cm.refreshConnectionsList()
 			})
 			return true
@@ -990,8 +979,7 @@ func (cm *ConnectionManager) handleDeleteConnection(idx int, afterDelete func())
 			cm.selectedIndex = -1
 			cm.saveConnections()
 			fyne.Do(func() {
-				cm.hostEntry.SetText("")
-				cm.tokenEntry.SetText("")
+				cm.applyConnectionToForm("", "", "")
 				cm.refreshConnectionsList()
 			})
 			if afterDelete != nil {

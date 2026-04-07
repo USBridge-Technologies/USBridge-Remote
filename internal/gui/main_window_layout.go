@@ -89,7 +89,7 @@ func (mw *MainWindow) createInterface() {
 	mw.hostEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.SyncSelectedConnectionDraft(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
@@ -104,7 +104,7 @@ func (mw *MainWindow) createInterface() {
 	mw.tokenEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.SyncSelectedConnectionDraft(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
@@ -120,7 +120,7 @@ func (mw *MainWindow) createInterface() {
 	mw.protocolSelect.OnChanged = func(value string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.SyncSelectedConnectionDraft(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				value,

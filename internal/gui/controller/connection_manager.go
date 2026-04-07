@@ -61,6 +61,7 @@ type ConnectionManager struct {
 	selectedIndex         int
 	connectionPending     bool
 	activeConnectionIndex int
+	syncingForm           bool
 
 	hostEntry      *widget.Entry
 	tokenEntry     *widget.Entry
@@ -91,12 +92,6 @@ func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
 		}
 	}
 
-	for _, conn := range cm.connections {
-		if strings.TrimSpace(conn.Host) == normalizedHost && strings.TrimSpace(conn.Token) != "" {
-			return strings.TrimSpace(conn.Token)
-		}
-	}
-
 	return ""
 }
 
@@ -117,11 +112,8 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 		app,
 		func(host, token, protocol, wireGuardInvite string) {
 			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && protocol != "" {
-					cm.protocolSelect.SetSelected(protocol)
-				}
+				cm.ClearSelection()
+				cm.applyConnectionToForm(host, token, protocol)
 			})
 			if cm.onConnect != nil {
 				cm.onConnect(host, token, protocol, wireGuardInvite)
@@ -131,11 +123,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 		func(name, host, token, protocol, wireGuardInvite string) {
 			cm.SaveConnection(name, host, token, protocol, wireGuardInvite)
 			fyne.Do(func() {
-				cm.hostEntry.SetText(host)
-				cm.tokenEntry.SetText(token)
-				if cm.protocolSelect != nil && protocol != "" {
-					cm.protocolSelect.SetSelected(protocol)
-				}
+				cm.applyConnectionToForm(host, token, protocol)
 			})
 			logrus.Infof("QR saved directly: host=%s", host)
 		},
@@ -177,8 +165,8 @@ func (cm *ConnectionManager) SetConnectionPending(pending bool) {
 	cm.setConnectionPendingState(pending, activeIndex)
 }
 
-func (cm *ConnectionManager) SyncSelectedConnectionDraft(host, token, protocol string) {
-	if cm == nil || cm.selectedIndex < 0 || cm.selectedIndex >= len(cm.connections) {
+func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) {
+	if cm == nil || cm.syncingForm || cm.selectedIndex < 0 || cm.selectedIndex >= len(cm.connections) {
 		return
 	}
 
@@ -187,19 +175,47 @@ func (cm *ConnectionManager) SyncSelectedConnectionDraft(host, token, protocol s
 	protocol = normalizeConnectionProtocol(protocol)
 
 	current := cm.connections[cm.selectedIndex]
-	if current.Host == host && strings.TrimSpace(current.Token) == token && normalizeConnectionProtocol(current.Protocol) == protocol {
+	if strings.TrimSpace(current.Host) == host &&
+		strings.TrimSpace(current.Token) == token &&
+		normalizeConnectionProtocol(current.Protocol) == protocol {
 		return
 	}
 
-	cm.connections[cm.selectedIndex].Host = host
-	cm.connections[cm.selectedIndex].Token = token
-	cm.connections[cm.selectedIndex].Protocol = protocol
-	cm.saveConnections()
+	cm.selectedIndex = -1
+}
 
-	if cm.ui != nil {
-		fyne.Do(func() {
-			cm.refreshConnectionsList()
-		})
+func (cm *ConnectionManager) ClearSelection() {
+	if cm == nil {
+		return
+	}
+
+	cm.selectedIndex = -1
+}
+
+func (cm *ConnectionManager) SelectConnection(idx int) {
+	if cm == nil || idx < 0 || idx >= len(cm.connections) {
+		return
+	}
+
+	cm.selectedIndex = idx
+	conn := cm.connections[idx]
+	cm.applyConnectionToForm(conn.Host, conn.Token, conn.Protocol)
+}
+
+func (cm *ConnectionManager) applyConnectionToForm(host, token, protocol string) {
+	cm.syncingForm = true
+	defer func() {
+		cm.syncingForm = false
+	}()
+
+	if cm.hostEntry != nil {
+		cm.hostEntry.SetText(strings.TrimSpace(host))
+	}
+	if cm.tokenEntry != nil {
+		cm.tokenEntry.SetText(strings.TrimSpace(token))
+	}
+	if cm.protocolSelect != nil {
+		cm.protocolSelect.SetSelected(normalizeConnectionProtocol(protocol))
 	}
 }
 

@@ -106,9 +106,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 		}
 
 		fyne.Do(func() {
-			cm.hostEntry.SetText(conn.Host)
-			cm.tokenEntry.SetText(conn.Token)
-			cm.selectedIndex = idx
+			cm.SelectConnection(idx)
 		})
 	}
 
@@ -132,9 +130,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				}
 
 				fyne.Do(func() {
-					cm.hostEntry.SetText(conn.Host)
-					cm.tokenEntry.SetText(conn.Token)
-					cm.selectedIndex = idx
+					cm.SelectConnection(idx)
 					if cm.onConnect != nil {
 						protocol := normalizeConnectionProtocol(cm.connections[idx].Protocol)
 						cm.onConnect(conn.Host, conn.Token, protocol, conn.WireGuardInvite)
