@@ -303,35 +303,16 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 	}
 
 	vw.setDesiredStreaming(true)
-
-	if vw.isStreaming {
-		vw.stopVideoInternal()
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	vw.startVideoWithParamsInternal(cfg.ToVideoStartRequest())
+	vw.videoOpMu.Lock()
+	vw.videoRestartPending = true
+	vw.videoOpMu.Unlock()
+	vw.scheduleVideoReconcile("apply-video-config")
 	return nil
 }
 
 func (vw *VideoWidget) StartConfiguredVideoAsync() {
 	vw.setDesiredStreaming(true)
-	go func() {
-		cfg, err := vw.resolvePreferredVideoConfig()
-		if err != nil {
-			logrus.Warnf("⚠️ cannot resolve preferred video config: %v", err)
-			fyne.Do(func() {
-				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
-			})
-			return
-		}
-
-		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
-			logrus.Warnf("⚠️ cannot start configured video: %v", err)
-			fyne.Do(func() {
-				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
-			})
-		}
-	}()
+	vw.scheduleVideoReconcile("start-configured-async")
 }
 
 func (vw *VideoWidget) RequestStreaming(shouldStream bool) {
@@ -346,12 +327,12 @@ func (vw *VideoWidget) RequestStreaming(shouldStream bool) {
 	}
 	if shouldStream {
 		if !streaming {
-			vw.StartConfiguredVideoAsync()
+			vw.scheduleVideoReconcile("request-streaming-on")
 		}
 		return
 	}
 	if streaming {
-		vw.StopVideoAsync()
+		vw.scheduleVideoReconcile("request-streaming-off")
 	}
 }
 
@@ -388,7 +369,7 @@ func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
 
 func (vw *VideoWidget) StopVideoAsync() {
 	vw.setDesiredStreaming(false)
-	go vw.handleStopVideo()
+	vw.scheduleVideoReconcile("stop-video-async")
 }
 
 func (vw *VideoWidget) ShowCurrentVideoSettings(showFullscreen bool) {

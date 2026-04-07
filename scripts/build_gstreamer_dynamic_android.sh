@@ -40,6 +40,91 @@ MESON_PREFIX="/usr/local"
 GST_SOURCE_VERSION="${GST_SOURCE_VERSION:-1.19.2}"
 GST_SOURCE_REPO_URL="${GST_SOURCE_REPO_URL:-https://gitlab.freedesktop.org/gstreamer/gst-build.git}"
 GST_SOURCE_REF="${GST_SOURCE_REF:-$GST_SOURCE_VERSION}"
+BUILD_CACHE_DIR="$REPO_ROOT/.build-cache/android"
+GST_BUILD_STAMP="$BUILD_CACHE_DIR/gstreamer-dynamic-arm64.manifest"
+
+mkdir -p "$BUILD_CACHE_DIR"
+
+sha256_file() {
+    local path="$1"
+
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+        return 0
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+        return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$path" | awk '{print $NF}'
+        return 0
+    fi
+
+    echo "no-sha256-tool"
+}
+
+gstreamer_source_revision() {
+    if [ -d "$GSTREAMER_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+        git -C "$GSTREAMER_DIR" rev-parse HEAD 2>/dev/null || echo "git-unknown"
+        return 0
+    fi
+    echo "source-ref:$GST_SOURCE_REF"
+}
+
+current_gstreamer_manifest() {
+    cat <<EOF
+source_repo=$GST_SOURCE_REPO_URL
+source_ref=$GST_SOURCE_REF
+source_rev=$(gstreamer_source_revision)
+ndk_path=$NDK_PATH
+meson_prefix=$MESON_PREFIX
+script_sha=$(sha256_file "$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh")
+patch_sha=$(sha256_file "$SCRIPTS_DIR/patch_gstreamer_android_checkout.py")
+env_sha=$(sha256_file "$SCRIPTS_DIR/android_env.sh")
+EOF
+}
+
+gstreamer_runtime_ready() {
+    [ -d "$INSTALL_DIR/include" ] || return 1
+    [ -d "$INSTALL_DIR/lib" ] || return 1
+    [ -d "$INSTALL_DIR/share/gst-android/ndk-build/androidmedia" ] || return 1
+    [ -f "$INSTALL_DIR/lib/libgstreamer-1.0.so" ] || return 1
+    [ -f "$INSTALL_DIR/share/gst-android/ndk-build/androidmedia/GstAmcOnFrameAvailableListener.java" ] || return 1
+    find "$INSTALL_DIR/lib" -maxdepth 1 -name "*.so" | grep -q . || return 1
+    return 0
+}
+
+sync_gstreamer_runtime_outputs() {
+    sync_androidmedia_java_sources
+
+    echo "📚 Синхронизация готовых .so в android/jniLibs/arm64-v8a..."
+    mkdir -p "$JNILIBS_DIR"
+    find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" -delete 2>/dev/null || true
+
+    local install_lib_dir="$INSTALL_DIR/lib"
+    if [ ! -d "$install_lib_dir" ]; then
+        echo -e "${RED}❌ Не найдена директория lib в install tree: $install_lib_dir${NC}"
+        exit 1
+    fi
+
+    local f=""
+    for f in "$install_lib_dir"/*.so; do
+        [ -f "$f" ] || continue
+        cp -f "$f" "$JNILIBS_DIR/"
+        echo -e "${GREEN}✓${NC} $(basename "$f")"
+    done
+    copy_android_runtime_libs "$install_lib_dir/gstreamer-1.0" "$install_lib_dir/gstreamer-1.0"
+
+    local ndk_cpp=""
+    ndk_cpp=$(find "$NDK_PATH/toolchains/llvm/prebuilt" -path "*/lib/aarch64-linux-android/libc++_shared.so" 2>/dev/null | head -1)
+    if [ -n "$ndk_cpp" ] && [ -f "$ndk_cpp" ]; then
+        cp -f "$ndk_cpp" "$JNILIBS_DIR/"
+        echo -e "${GREEN}✓${NC} libc++_shared.so"
+    fi
+
+    ensure_dist_copy
+}
 
 ensure_dist_copy() {
     mkdir -p "$DIST_ANDROID" 2>/dev/null || true
@@ -284,6 +369,21 @@ EOF
 
 export ANDROID_NDK_HOME="$NDK_PATH"
 
+CURRENT_GST_MANIFEST="$(current_gstreamer_manifest)"
+
+if [ "${FORCE_GSTREAMER:-0}" != "1" ] && [ -f "$GST_BUILD_STAMP" ] && gstreamer_runtime_ready; then
+    if [ "$(cat "$GST_BUILD_STAMP")" = "$CURRENT_GST_MANIFEST" ]; then
+        echo "⚡ GStreamer (dynamic) уже подготовлен для текущего окружения, пересборка не требуется"
+        sync_gstreamer_runtime_outputs
+        SO_COUNT=$(find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" 2>/dev/null | wc -l)
+        echo ""
+        echo -e "${GREEN}🎉 GStreamer (dynamic) готов!${NC}"
+        echo "   Install: $INSTALL_DIR"
+        echo "   jniLibs:  $JNILIBS_DIR ($SO_COUNT .so)"
+        exit 0
+    fi
+fi
+
 echo "📦 Настройка динамической сборки (shared .so)..."
 MESON_EXTRA=""
 [ -d "$BUILD_DIR" ] && MESON_EXTRA="--reconfigure"
@@ -328,33 +428,8 @@ echo "📦 Установка..."
 rm -rf "$INSTALL_DIR"
 DESTDIR="$INSTALL_DIR" meson install -C "$BUILD_DIR"
 sync_install_prefix_layout
-sync_androidmedia_java_sources
-
-echo "📚 Копирование .so в android/jniLibs/arm64-v8a..."
-mkdir -p "$JNILIBS_DIR"
-
-INSTALL_LIB_DIR="$INSTALL_DIR/lib"
-if [ -d "$INSTALL_LIB_DIR" ]; then
-    # Основная библиотека + зависимости (копируем все .so)
-    for f in "$INSTALL_LIB_DIR"/*.so; do
-        [ -f "$f" ] || continue
-        cp -f "$f" "$JNILIBS_DIR/"
-        echo -e "${GREEN}✓${NC} $(basename "$f")"
-    done
-    copy_android_runtime_libs "$INSTALL_LIB_DIR/gstreamer-1.0" "$INSTALL_LIB_DIR/gstreamer-1.0"
-else
-    echo -e "${RED}❌ Не найдена директория lib в staged install: $INSTALL_LIB_DIR${NC}"
-    exit 1
-fi
-
-# libc++_shared.so из NDK (обязательно для Android)
-NDK_CPP=$(find "$NDK_PATH/toolchains/llvm/prebuilt" -path "*/lib/aarch64-linux-android/libc++_shared.so" 2>/dev/null | head -1)
-if [ -n "$NDK_CPP" ] && [ -f "$NDK_CPP" ]; then
-    cp -f "$NDK_CPP" "$JNILIBS_DIR/"
-    echo -e "${GREEN}✓${NC} libc++_shared.so"
-fi
-
-ensure_dist_copy
+sync_gstreamer_runtime_outputs
+printf '%s\n' "$CURRENT_GST_MANIFEST" > "$GST_BUILD_STAMP"
 
 SO_COUNT=$(find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" 2>/dev/null | wc -l)
 echo ""

@@ -37,23 +37,25 @@ type VideoWidget struct {
 	isMouseConnected     bool // Флаг подключенной мыши
 
 	// Сервисы
-	usbClient         *api.USBClient
-	gstreamerService  *service.GStreamerService
-	frpService        *service.FRPService // для проверки режима FRP
-	updateStatus      func()
-	onFPSChanged      func(float64)
-	videoOpMu         sync.Mutex
-	videoOpRunning    bool
-	desiredStreaming  bool
-	bootstrapRunning  atomic.Bool
-	bootstrapPending  atomic.Bool
-	lastRecoveryAt    atomic.Int64
-	inputQueue        chan inputCommand
-	moveQueueMu       sync.Mutex
-	pendingMoveX      int
-	pendingMoveY      int
-	moveWorkerStarted bool
-	videoOps          chan videoOperation
+	usbClient             *api.USBClient
+	gstreamerService      *service.GStreamerService
+	frpService            *service.FRPService // для проверки режима FRP
+	updateStatus          func()
+	onFPSChanged          func(float64)
+	videoOpMu             sync.Mutex
+	videoOpRunning        bool
+	desiredStreaming      bool
+	videoRestartPending   bool
+	bootstrapRunning      atomic.Bool
+	bootstrapPending      atomic.Bool
+	lastRecoveryAt        atomic.Int64
+	inputQueue            chan inputCommand
+	moveQueueMu           sync.Mutex
+	pendingMoveX          int
+	pendingMoveY          int
+	moveWorkerStarted     bool
+	videoOps              chan videoOperation
+	videoReconcilePending atomic.Bool
 
 	// Видео поток
 	currentFrame         image.Image
@@ -138,26 +140,14 @@ type inputCommand struct {
 func (vw *VideoWidget) setDesiredStreaming(streaming bool) {
 	vw.videoOpMu.Lock()
 	vw.desiredStreaming = streaming
+	if !streaming {
+		vw.videoRestartPending = false
+	}
 	vw.videoOpMu.Unlock()
 }
 
 func (vw *VideoWidget) ReconcileDesiredStreaming() {
-	vw.videoOpMu.Lock()
-	desiredStreaming := vw.desiredStreaming
-	running := vw.videoOpRunning
-	streaming := vw.isStreaming
-	vw.videoOpMu.Unlock()
-
-	if running {
-		return
-	}
-	if desiredStreaming && !streaming {
-		vw.StartConfiguredVideoAsync()
-		return
-	}
-	if !desiredStreaming && streaming {
-		vw.StopVideoAsync()
-	}
+	vw.scheduleVideoReconcile("reconcile-desired-streaming")
 }
 
 func (vw *VideoWidget) desiredStreamingState() bool {

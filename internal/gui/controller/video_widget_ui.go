@@ -164,15 +164,21 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 
 // handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
-	vw.setDesiredStreaming(true)
-	if !vw.beginVideoOperation() {
-		logrus.Warn("⚠️ video operation already in progress, skipping start")
-		return
+	cfg := models.VideoDeviceConfig{
+		DevicePath:   request.VideoDevice,
+		VideoWidth:   request.VideoWidth,
+		VideoHeight:  request.VideoHeight,
+		VideoFPS:     request.VideoFPS,
+		VideoQuality: request.VideoQuality,
+		VideoBitrate: request.VideoBitrate,
+		VideoMode:    request.VideoMode,
 	}
-	go func() {
-		defer vw.endVideoOperation()
-		vw.startVideoWithParamsInternal(request)
-	}()
+	if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
+		logrus.Warnf("⚠️ cannot start video from request: %v", err)
+		fyne.Do(func() {
+			vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
+		})
+	}
 }
 
 func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRequest) {
@@ -189,43 +195,22 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 // handleStopVideo обрабатывает остановку видео.
 func (vw *VideoWidget) handleStopVideo() {
-	vw.setDesiredStreaming(false)
-	if !vw.beginVideoOperation() {
-		logrus.Warn("⚠️ video operation already in progress, skipping stop")
+	if vw.usbClient == nil {
+		logrus.Warn("⚠️ USB client not initialized")
+		fyne.Do(func() {
+			vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
+		})
 		return
 	}
-	go func() {
-		defer vw.endVideoOperation()
-		if vw.usbClient == nil {
-			logrus.Warn("⚠️ USB client not initialized")
-			fyne.Do(func() {
-				vw.statusLabel.SetText(i18n.Current.ErrorNoConnection)
-			})
-			return
-		}
-		vw.stopVideoInternal()
-	}()
+	vw.setDesiredStreaming(false)
+	vw.scheduleVideoReconcile("handle-stop-video")
 }
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	for attempt := 0; attempt < 2; attempt++ {
-		if vw.beginVideoOperation() {
-			defer vw.endVideoOperation()
-			if vw.usbClient == nil {
-				return nil
-			}
-			vw.stopVideoInternal()
-			return nil
-		}
-		if err := vw.waitForVideoOperation(5 * time.Second); err != nil {
-			return err
-		}
-	}
-
-	if vw.IsStreaming() {
-		return fmt.Errorf("video stop operation is busy")
-	}
+	vw.runVideoOpSync("stop-video-sync", func() {
+		vw.reconcileVideoState("stop-video-sync")
+	})
 	return nil
 }
 
@@ -1023,15 +1008,18 @@ func (vw *VideoWidget) endVideoOperation() {
 	vw.videoOpRunning = false
 	desiredStreaming := vw.desiredStreaming
 	streaming := vw.isStreaming
+	restartPending := vw.videoRestartPending
 	vw.videoOpMu.Unlock()
 
-	if desiredStreaming && !streaming {
-		vw.StartConfiguredVideoAsync()
-		return
+	if restartPending || desiredStreaming != streaming {
+		vw.scheduleVideoReconcile("end-video-operation")
 	}
-	if !desiredStreaming && streaming {
-		vw.StopVideoAsync()
-	}
+}
+
+func (vw *VideoWidget) finishVideoOperation() {
+	vw.videoOpMu.Lock()
+	vw.videoOpRunning = false
+	vw.videoOpMu.Unlock()
 }
 
 func (vw *VideoWidget) scheduleFrameRender() {

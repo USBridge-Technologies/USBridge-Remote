@@ -68,6 +68,54 @@ find_go_tool() {
     return 1
 }
 
+path_is_newer_than() {
+    local target="$1"
+    shift
+
+    [ -f "$target" ] || return 0
+
+    local candidate=""
+    for candidate in "$@"; do
+        [ -e "$candidate" ] || continue
+        if [ "$candidate" -nt "$target" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+tree_has_newer_files() {
+    local target="$1"
+    shift
+
+    [ -f "$target" ] || return 0
+
+    local tree=""
+    for tree in "$@"; do
+        [ -e "$tree" ] || continue
+        if find "$tree" -type f -newer "$target" | grep -q .; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+sync_file_if_needed() {
+    local src="$1"
+    local dst="$2"
+
+    [ -f "$src" ] || return 0
+    mkdir -p "$(dirname "$dst")"
+
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        return 0
+    fi
+
+    cp -f "$src" "$dst"
+}
+
 aar_looks_valid() {
     local aar_path="$1"
 
@@ -186,14 +234,21 @@ if ! aar_looks_valid "$AAR_OUT"; then
     echo "   Проверьте Android SDK/NDK и повторите сборку"
     exit 1
 fi
-echo -e "${GREEN}✓${NC} nbdbridge.aar готов"
+if [ "$NEED_GOMOBILE" -eq 1 ]; then
+    echo -e "${GREEN}✓${NC} nbdbridge.aar пересобран"
+else
+    echo "⚡ nbdbridge.aar уже актуален"
+fi
 echo ""
 
 # 3. Fyne build для Go библиотеки
 echo "🔨 Шаг 3/5: Сборка Go приложения (fyne)..."
 ANDROID_SRC="$REPO_ROOT/cmd/android"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
-cp android/jniLibs/arm64-v8a/*.so "$ANDROID_SRC/libs/arm64-v8a/" 2>/dev/null || true
+for so_file in android/jniLibs/arm64-v8a/*.so; do
+    [ -f "$so_file" ] || continue
+    sync_file_if_needed "$so_file" "$ANDROID_SRC/libs/arm64-v8a/$(basename "$so_file")"
+done
 
 if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     export_android_env
@@ -213,6 +268,10 @@ fi
 
 FYNE_INSTALL_VERSION="${FYNE_INSTALL_VERSION:-latest}"
 FYNE_BIN="$(ensure_go_tool fyne "fyne.io/tools/cmd/fyne@${FYNE_INSTALL_VERSION}" 1)"
+FYNE_APK="$REPO_ROOT/cmd/android/USBridge_Client.apk"
+if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
+    FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
+fi
 
 find_apksigner() {
     local sdk_dir="$1"
@@ -243,15 +302,44 @@ run_apksigner() {
     esac
 }
 
-cd "$ANDROID_SRC"
-"$FYNE_BIN" package \
-    --target android/arm64 \
-    --app-id com.usbridge.client \
-    --name "USBridge Client" \
-    --app-version "1.0.0" \
-    --icon "$REPO_ROOT/Icon.png" \
-    --release
-cd "$REPO_ROOT"
+NEED_FYNE_BUILD=0
+[ ! -f "$FYNE_APK" ] && NEED_FYNE_BUILD=1
+if [ "${FORCE_FYNE:-0}" = "1" ]; then
+    NEED_FYNE_BUILD=1
+fi
+if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$FYNE_APK" \
+    "$REPO_ROOT/cmd/android" \
+    "$REPO_ROOT/internal" \
+    "$REPO_ROOT/nbdbridge" \
+    "$REPO_ROOT/android/jniLibs/arm64-v8a"; then
+    NEED_FYNE_BUILD=1
+fi
+if [ "$NEED_FYNE_BUILD" -eq 0 ] && path_is_newer_than "$FYNE_APK" \
+    "$REPO_ROOT/go.mod" \
+    "$REPO_ROOT/go.sum" \
+    "$REPO_ROOT/FyneApp.toml" \
+    "$REPO_ROOT/Icon.png" \
+    "$AAR_OUT"; then
+    NEED_FYNE_BUILD=1
+fi
+
+if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
+    cd "$ANDROID_SRC"
+    "$FYNE_BIN" package \
+        --target android/arm64 \
+        --app-id com.usbridge.client \
+        --name "USBridge Client" \
+        --app-version "1.0.0" \
+        --icon "$REPO_ROOT/Icon.png" \
+        --release
+    cd "$REPO_ROOT"
+    if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
+        FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
+    fi
+    echo -e "${GREEN}✓${NC} Fyne APK пересобран"
+else
+    echo "⚡ Fyne APK уже актуален"
+fi
 echo ""
 
 # 4. Извлечение .so из Fyne APK
@@ -260,26 +348,35 @@ if ! ensure_command_available unzip unzip; then
     echo -e "${RED}❌ unzip не найден${NC}"
     exit 1
 fi
-FYNE_APK="$REPO_ROOT/cmd/android/USBridge_Client.apk"
-if [ ! -f "$FYNE_APK" ]; then
-    FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
-fi
 if [ ! -f "$FYNE_APK" ]; then
     echo -e "${RED}❌ Fyne APK не найден${NC}"
     exit 1
 fi
 
-TEMP_APK=$(mktemp -d)
-unzip -q "$FYNE_APK" -d "$TEMP_APK"
-
-# Copy libUSBridge_Client.so into jniLibs
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
-rm -f android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so
-rm -f android/app/src/main/jniLibs/arm64-v8a/libUSB_Bridge_Client.so
-cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
-cp android/jniLibs/arm64-v8a/*.so android/app/src/main/jniLibs/arm64-v8a/ 2>/dev/null || true
-rm -rf "$TEMP_APK"
-echo -e "${GREEN}✓${NC} Нативные библиотеки скопированы"
+EXTRACTED_SO="android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so"
+NEED_EXTRACT_FYNE_SO=0
+[ ! -f "$EXTRACTED_SO" ] && NEED_EXTRACT_FYNE_SO=1
+if [ "$NEED_EXTRACT_FYNE_SO" -eq 0 ] && [ "$FYNE_APK" -nt "$EXTRACTED_SO" ]; then
+    NEED_EXTRACT_FYNE_SO=1
+fi
+
+if [ "$NEED_EXTRACT_FYNE_SO" -eq 1 ]; then
+    TEMP_APK=$(mktemp -d)
+    unzip -q "$FYNE_APK" -d "$TEMP_APK"
+    rm -f android/app/src/main/jniLibs/arm64-v8a/libUSBridge_Client.so
+    rm -f android/app/src/main/jniLibs/arm64-v8a/libUSB_Bridge_Client.so
+    cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
+    rm -rf "$TEMP_APK"
+    echo -e "${GREEN}✓${NC} libUSBridge_Client.so извлечён из Fyne APK"
+else
+    echo "⚡ libUSBridge_Client.so уже актуален"
+fi
+for so_file in android/jniLibs/arm64-v8a/*.so; do
+    [ -f "$so_file" ] || continue
+    sync_file_if_needed "$so_file" "android/app/src/main/jniLibs/arm64-v8a/$(basename "$so_file")"
+done
+echo -e "${GREEN}✓${NC} Нативные библиотеки синхронизированы"
 echo ""
 
 # 5. Gradle сборка
@@ -310,17 +407,49 @@ if [ -z "$ANDROID_HOME_LOCAL" ] || [ ! -d "$ANDROID_HOME_LOCAL" ]; then
     exit 1
 fi
 
-{
-    echo "sdk.dir=$(normalize_android_path "$ANDROID_HOME_LOCAL")"
-} > "$LOCAL_PROPERTIES"
+LOCAL_PROPERTIES_CONTENT="sdk.dir=$(normalize_android_path "$ANDROID_HOME_LOCAL")"
+if [ ! -f "$LOCAL_PROPERTIES" ] || [ "$(cat "$LOCAL_PROPERTIES" 2>/dev/null)" != "$LOCAL_PROPERTIES_CONTENT" ]; then
+    printf '%s\n' "$LOCAL_PROPERTIES_CONTENT" > "$LOCAL_PROPERTIES"
+fi
 
 # Синхронизируем launcher icon с той же Icon.png, что используется в Windows build.
 for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
     mkdir -p "app/src/main/res/$d"
-    cp "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png" 2>/dev/null || true
+    sync_file_if_needed "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png"
 done
 
-./gradlew clean assembleRelease --no-daemon
+APK_OUT="app/build/outputs/apk/release/app-release-unsigned.apk"
+NEED_GRADLE=0
+[ ! -f "$APK_OUT" ] && NEED_GRADLE=1
+if [ "${FORCE_GRADLE:-0}" = "1" ]; then
+    NEED_GRADLE=1
+fi
+if [ "$NEED_GRADLE" -eq 0 ] && tree_has_newer_files "$APK_OUT" \
+    "app/src/main" \
+    "app/libs" \
+    "app/src/main/jniLibs"; then
+    NEED_GRADLE=1
+fi
+if [ "$NEED_GRADLE" -eq 0 ] && path_is_newer_than "$APK_OUT" \
+    "build.gradle.kts" \
+    "settings.gradle.kts" \
+    "gradle.properties" \
+    "app/build.gradle.kts" \
+    "$LOCAL_PROPERTIES"; then
+    NEED_GRADLE=1
+fi
+
+if [ "${FORCE_GRADLE_CLEAN:-0}" = "1" ]; then
+    ./gradlew clean --no-daemon
+    NEED_GRADLE=1
+fi
+
+if [ "$NEED_GRADLE" -eq 1 ]; then
+    ./gradlew assembleRelease --no-daemon
+    echo -e "${GREEN}✓${NC} Gradle APK пересобран"
+else
+    echo "⚡ Gradle APK уже актуален"
+fi
 cd "$REPO_ROOT"
 echo ""
 
