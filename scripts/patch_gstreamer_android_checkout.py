@@ -30,6 +30,14 @@ def ensure_after(text: str, anchor: str, addition: str, label: str) -> str:
     return text.replace(anchor, anchor + addition, 1)
 
 
+def ensure_present(text: str, needle: str, addition: str, label: str) -> str:
+    if addition in text:
+        return text
+    if needle not in text:
+        raise RuntimeError(f"patch anchor not found for {label}")
+    return text.replace(needle, needle + addition, 1)
+
+
 def patch_gstreamer_root(root: Path) -> None:
     meson_build = root / "meson.build"
     patch_file(
@@ -152,45 +160,21 @@ def patch_gstreamer_root(root: Path) -> None:
             "# define reallocarray sysprof_reallocarray\n"
             "#endif\n\n"
         )
-        return ensure_after(
-            text,
-            "static inline void *\n"
-            "sysprof_malloc0 (size_t size)\n"
-            "{\n"
-            "  void *ptr = malloc (size);\n"
-            "  if (ptr == NULL)\n"
-            "    return NULL;\n"
-            "  memset (ptr, 0, size);\n"
-            "  return ptr;\n"
-            "}\n\n",
-            fallback,
-            "sysprof reallocarray fallback",
-        )
+        if "# define reallocarray sysprof_reallocarray\n" not in text:
+            marker = "\n#ifdef __linux__\n"
+            if marker not in text:
+                raise RuntimeError("patch anchor not found for sysprof reallocarray fallback")
+            text = text.replace(marker, "\n" + fallback + "#ifdef __linux__\n", 1)
+        return text
 
     patch_file(sysprof_util, transform_sysprof_util)
-
-    sysprof_writer_cat = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-capture-writer-cat.c"
-    patch_file(
-        sysprof_writer_cat,
-        lambda text: ensure_after(
-            text,
-            '#include "sysprof-capture.h"\n',
-            '#include "sysprof-capture-util-private.h"\n',
-            "sysprof writer-cat include",
-        ),
-    )
 
     sysprof_collector = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-collector.c"
 
     def transform_sysprof_collector(text: str) -> str:
-        text = text.replace(
-            "  fcntl_flags = fcntl (peer_fd, F_GETFL);\n",
-            "  fcntl_flags = fcntl (fd, F_GETFL);\n",
-        )
-        return text.replace(
-            "  if (fcntl (peer_fd, F_SETFL, fcntl_flags) == -1)\n",
-            "  if (fcntl (fd, F_SETFL, fcntl_flags) == -1)\n",
-        )
+        text = text.replace("fcntl (peer_fd, F_GETFL)", "fcntl (fd, F_GETFL)")
+        text = text.replace("fcntl (peer_fd, F_SETFL, fcntl_flags)", "fcntl (fd, F_SETFL, fcntl_flags)")
+        return text
 
     patch_file(sysprof_collector, transform_sysprof_collector)
 
@@ -218,6 +202,17 @@ def patch_gstreamer_root(root: Path) -> None:
             "# define SYSPROF_STATIC_ASSERT(expr, msg) char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
             "#endif\n",
             "sysprof static assert",
+        ),
+    )
+
+    sysprof_writer_cat = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-capture-writer-cat.c"
+    patch_file(
+        sysprof_writer_cat,
+        lambda text: ensure_present(
+            text,
+            '#include "sysprof-capture.h"\n',
+            '#include "sysprof-capture-util-private.h"\n',
+            "sysprof writer-cat include",
         ),
     )
 
