@@ -253,7 +253,8 @@ type VideoStartRequest struct {
 	VideoMode          string `json:"video_mode,omitempty"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
-	ClientPort int `json:"client_port,omitempty"`
+	ClientHost string `json:"client_host,omitempty"`
+	ClientPort int    `json:"client_port,omitempty"`
 }
 
 // SystemDevice устройство, видимое на стороне bridge через /api/devices.
