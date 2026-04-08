@@ -1,0 +1,8 @@
+source_repo=https://gitlab.freedesktop.org/gstreamer/gst-build.git
+source_ref=1.19.2
+source_rev=29352ad0f82c38649424801c97473e33d75caf41
+ndk_path=/opt/homebrew/share/android-commandlinetools/ndk/25.2.9519653
+meson_prefix=/usr/local
+script_sha=f39813ec31f65fb5a057794b8e4e132b63aab8ba605e4b1b7715f94a884cd297
+patch_sha=33263e81968e80c7ed716ce8c629f8f3a0e21b01f5dd800ecbdd9c6e3ad39102
+env_sha=0ad0c4f7b7c8665fca072a09322f82d7b4b590714ddc67fd731349092b9ba68a

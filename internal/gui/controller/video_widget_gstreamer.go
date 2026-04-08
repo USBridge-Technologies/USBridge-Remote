@@ -148,10 +148,27 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		vw.gstreamerService.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
 	}
 
-	// Порт приёма UDP (статический DefaultVideoUDPPort, proxy при FRP, прямой при локальном)
 	clientPort := models.DefaultVideoUDPPort
-	if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
-		clientPort = cfg.VideoUDPPort
+	if vw.frpService != nil && vw.frpService.IsRunning() {
+		_, clientPort, _ = vw.frpService.GetServerPorts()
+	} else {
+		preferredPort := clientPort
+		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
+			preferredPort = cfg.VideoUDPPort
+		}
+		allocatedPort, err := service.FindAvailableUDPPort(preferredPort)
+		if err != nil {
+			logrus.Errorf("❌ Не удалось выбрать свободный UDP порт для видео: %v", err)
+			fyne.Do(func() {
+				vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
+			})
+			return
+		}
+		clientPort = allocatedPort
+		if vw.gstreamerService != nil {
+			vw.gstreamerService.UpdateVideoPort(clientPort)
+			vw.gstreamerService.UpdateVideoUDPPort(clientPort)
+		}
 	}
 	request.ClientPort = clientPort
 

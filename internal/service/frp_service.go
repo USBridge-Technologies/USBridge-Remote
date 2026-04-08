@@ -108,9 +108,9 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 	logrus.Debugf("   📤 NBD proxies: nbd_srv1-16 -> 127.0.0.1:10809-10824 (secretKey=sk-nbd)")
 
 	// Video SUDP: Bridge visitor serverName=video_sudp, secretKey=sk-video
-	vp := videoPort
-	if vp <= 0 {
-		vp = models.DefaultVideoUDPPort
+	vp, err := FindAvailableUDPPort(videoPort)
+	if err != nil {
+		return fmt.Errorf("failed to allocate local video UDP proxy port: %w", err)
 	}
 	videoProxy := &v1.SUDPProxyConfig{
 		ProxyBaseConfig: v1.ProxyBaseConfig{
