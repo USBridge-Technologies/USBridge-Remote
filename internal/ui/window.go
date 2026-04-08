@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
+	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 )
 
@@ -28,10 +31,14 @@ type Window struct {
 		RequestScreenRecording() bool
 		OpenPrivacySettings() error
 	}
+	ts interface {
+		Status(context.Context) (*tailscale.Status, error)
+		StartLogin(context.Context) (string, error)
+	}
 }
 
-func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service) *Window {
-	return &Window{app: app, cfg: cfg, perms: perms}
+func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service) *Window {
+	return &Window{app: app, cfg: cfg, perms: perms, ts: ts}
 }
 
 func (w *Window) ShowAndRun(onClose func()) {
@@ -49,9 +56,40 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	header := container.NewBorder(nil, nil, nil, newBadge("AGENT", fyne.NewSize(78, 30)), container.NewVBox(title, subtitle))
 
-	httpCard := newStatCard("HTTP", fmt.Sprintf("%s:%d", w.cfg.ListenHost, w.cfg.HTTPPort), "API")
+	httpCard := newStatCard("HTTP", fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort), "API")
 	videoCard := newStatCard("VIDEO", fmt.Sprintf("127.0.0.1:%d", w.cfg.VideoUDPPort), "RTP")
 	captureCard := newStatCard("CAPTURE", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS))
+	tsState := widget.NewLabel("Tailscale status: checking...")
+	tsAddress := widget.NewRichTextFromMarkdown("Tailnet address: `unavailable`")
+	tsAddress.Wrapping = fyne.TextWrapWord
+	tsAccount := widget.NewLabel("Google account: not connected")
+
+	tsLoginBtn := widget.NewButton("Sign In With Google", func() {
+		if w.ts == nil {
+			tsState.SetText("Tailscale status: service unavailable")
+			return
+		}
+		authURL, err := w.ts.StartLogin(context.Background())
+		if err != nil {
+			tsState.SetText(fmt.Sprintf("Tailscale status: %v", err))
+			return
+		}
+		if strings.TrimSpace(authURL) != "" && w.app != nil {
+			if parsed, parseErr := url.Parse(authURL); parseErr == nil {
+				_ = w.app.OpenURL(parsed)
+			}
+		}
+		tsState.SetText("Tailscale status: login flow started in browser")
+	})
+	tsRefreshBtn := widget.NewButton("Refresh", func() {
+		w.refreshTailscale(tsState, tsAddress, tsAccount)
+	})
+	tsPanel := newPanel("Tailscale", container.NewVBox(
+		tsState,
+		tsAccount,
+		tsAddress,
+		container.NewHBox(tsLoginBtn, tsRefreshBtn),
+	))
 
 	accessStatus := widget.NewLabel("")
 	screenStatus := widget.NewLabel("")
@@ -102,6 +140,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	content := container.NewVBox(
 		newPanel("", header),
 		container.NewGridWithColumns(3, httpCard, videoCard, captureCard),
+		tsPanel,
 		container.NewGridWithColumns(2, accessPanel, screenPanel),
 		newPanel("Compatibility", infoText),
 		newPanel("Runtime", execText),
@@ -109,6 +148,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	)
 
 	refreshPermissionLabels(accessStatus, screenStatus, w.perms)
+	w.refreshTailscale(tsState, tsAddress, tsAccount)
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -118,6 +158,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 			fyne.Do(func() {
 				refreshPermissionLabels(accessStatus, screenStatus, w.perms)
+				w.refreshTailscale(tsState, tsAddress, tsAccount)
 			})
 		}
 	}()
@@ -132,6 +173,55 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	win.Show()
 	w.app.Run()
+}
+
+func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label) {
+	if state == nil || address == nil || account == nil {
+		return
+	}
+	if w.ts == nil {
+		state.SetText("Tailscale status: unavailable")
+		account.SetText("Google account: unavailable")
+		address.ParseMarkdown("Tailnet address: `unavailable`")
+		return
+	}
+
+	status, err := w.ts.Status(context.Background())
+	if err != nil {
+		state.SetText(fmt.Sprintf("Tailscale status: %v", err))
+		return
+	}
+	if !status.LoggedIn {
+		state.SetText("Tailscale status: signed out")
+		account.SetText("Google account: sign in required")
+		address.ParseMarkdown("Tailnet address: `sign in to publish this agent`")
+		return
+	}
+
+	endpoint := status.Self.DNSName
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = status.Self.IP4
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = status.Self.HostName
+	}
+	state.SetText(fmt.Sprintf("Tailscale status: %s", strings.ToLower(status.Backend)))
+	account.SetText(fmt.Sprintf("Google account: %s", fallbackValue(status.Self.UserLogin, "connected")))
+	address.ParseMarkdown(fmt.Sprintf("Tailnet address: `%s:%d` (%s)", endpoint, w.cfg.HTTPPort, fallbackValue(mapUserspace(status.Userspace), "embedded")))
+}
+
+func fallbackValue(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func mapUserspace(userspace bool) string {
+	if userspace {
+		return "embedded"
+	}
+	return "system"
 }
 
 func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {

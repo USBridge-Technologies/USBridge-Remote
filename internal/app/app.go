@@ -22,6 +22,7 @@ import (
 	"usbridge_agent/internal/frp"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/permissions"
+	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/video"
@@ -44,8 +45,10 @@ type App struct {
 	screen  *capture.Service
 	video   *video.Manager
 	perms   *permissions.Service
+	ts      *tailscale.Service
 	frp     *frp.Manager
 	server  *http.Server
+	tsHTTP  *http.Server
 	fyneApp fyne.App
 }
 
@@ -65,14 +68,19 @@ func New() (*App, error) {
 		input:   input.New(),
 		screen:  capture.New(),
 		perms:   permissions.New(),
+		ts:      tailscale.New(),
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
 	instance.video = video.New(cfg, instance.frp)
 	instance.server = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", cfg.ListenHost, cfg.HTTPPort),
+		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort),
 		Handler:           api.NewServer(instance).Routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	instance.tsHTTP = &http.Server{
+		Handler:           instance.server.Handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return instance, nil
@@ -104,22 +112,34 @@ func (a *App) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.ListenHost, a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, a.cfg.VideoCapture)
+	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, a.cfg.VideoCapture)
 	log.Printf("[app] ffmpeg path=%s", a.cfg.FFmpegPath)
 	if err := a.frp.Start(ctx); err != nil {
 		return err
 	}
 	go func() { _ = a.server.ListenAndServe() }()
+	if a.cfg.TailscaleEnabled && a.ts != nil {
+		if tsServer, err := a.ts.Server(); err != nil {
+			log.Printf("[app] tailscale start failed: %v", err)
+		} else if ln, err := tsServer.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort)); err != nil {
+			log.Printf("[app] tailscale listen failed: %v", err)
+		} else {
+			log.Printf("[app] tailscale http listening on tailnet :%d", a.cfg.HTTPPort)
+			go func() { _ = a.tsHTTP.Serve(ln) }()
+		}
+	}
 	go func() {
 		<-ctx.Done()
 		_ = a.server.Shutdown(context.Background())
+		_ = a.tsHTTP.Shutdown(context.Background())
+		_ = a.ts.Close()
 		_ = a.frp.Stop()
 		_ = a.video.Stop()
 		fyne.Do(func() {
 			a.fyneApp.Quit()
 		})
 	}()
-	ui.NewWindow(a.fyneApp, a.cfg, a.perms).ShowAndRun(cancel)
+	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts).ShowAndRun(cancel)
 	return nil
 }
 
