@@ -46,6 +46,7 @@ type MainWindow struct {
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
 	wgService        service.WireGuardService
+	tailscaleService *service.TailscaleService
 
 	// Состояние
 	config                  *models.AppConfig
@@ -103,6 +104,8 @@ func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
 		return "wireguard", design.ColorAccent, design.ColorBackground
+	case models.ConnectionProtocolTailscale:
+		return "tailscale", design.ColorProtocolQUIC, design.ColorBackground
 	case models.ConnectionProtocolQUIC:
 		return "quic", design.ColorProtocolQUIC, design.ColorBackground
 	case "direct":
@@ -158,6 +161,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 
 	mw.nbdServer = service.NewNBDServer(config)
 	mw.gstreamerService = service.NewGStreamerService(config)
+	mw.tailscaleService = service.NewTailscaleService()
 
 	logrus.Info("GStreamer service initialized")
 

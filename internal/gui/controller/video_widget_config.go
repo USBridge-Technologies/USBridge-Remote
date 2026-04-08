@@ -30,7 +30,7 @@ func getVideoInfoData(usbClient *api.USBClient) (*models.VideoInfoData, error) {
 
 func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*models.VideoInfoData, error) {
 	if usbClient == nil {
-		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
+		return nil, fmt.Errorf("%s", i18n.Current.ErrorNoConnection)
 	}
 
 	videoInfoCacheMu.Lock()
@@ -60,7 +60,7 @@ func getVideoInfoDataForDevice(usbClient *api.USBClient, devicePath string) (*mo
 		return nil, err
 	}
 	if resp == nil || !resp.Success || resp.Data == nil {
-		err := fmt.Errorf(i18n.Current.VideoInfoUnavailable)
+		err := fmt.Errorf("%s", i18n.Current.VideoInfoUnavailable)
 		if strings.TrimSpace(devicePath) == "" {
 			videoInfoCacheMu.Lock()
 			videoInfoCachedAt = time.Now()
@@ -154,7 +154,7 @@ func currentVideoInfoDevice(info *models.VideoInfoData) []models.SystemDevice {
 
 func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, error) {
 	if usbClient == nil {
-		return nil, fmt.Errorf(i18n.Current.ErrorNoConnection)
+		return nil, fmt.Errorf("%s", i18n.Current.ErrorNoConnection)
 	}
 
 	merged := make(map[string]models.SystemDevice)
@@ -185,9 +185,9 @@ func getAvailableVideoDevices(usbClient *api.USBClient) ([]models.SystemDevice, 
 	}())
 	if len(result) == 0 {
 		if len(fetchErrs) > 0 {
-			return nil, fmt.Errorf(strings.Join(fetchErrs, "; "))
+			return nil, fmt.Errorf("%s", strings.Join(fetchErrs, "; "))
 		}
-		return nil, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
+		return nil, fmt.Errorf("%s", i18n.Current.VideoDevicesNotFound)
 	}
 	return result, nil
 }
@@ -213,7 +213,7 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 		return models.VideoDeviceConfig{}, err
 	}
 	if len(devices) == 0 {
-		return models.VideoDeviceConfig{}, fmt.Errorf(i18n.Current.VideoDevicesNotFound)
+		return models.VideoDeviceConfig{}, fmt.Errorf("%s", i18n.Current.VideoDevicesNotFound)
 	}
 
 	deviceByPath := make(map[string]models.SystemDevice, len(devices))
@@ -282,7 +282,7 @@ func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoIn
 
 func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, restart bool) error {
 	if cfg.DevicePath == "" {
-		return fmt.Errorf(i18n.Current.VideoDeviceEmpty)
+		return fmt.Errorf("%s", i18n.Current.VideoDeviceEmpty)
 	}
 
 	if cfg.VideoQuality <= 0 {

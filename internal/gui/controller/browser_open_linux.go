@@ -1,4 +1,4 @@
-//go:build linux || freebsd || openbsd || netbsd
+//go:build (linux && !android) || freebsd || openbsd || netbsd
 
 package controller
 

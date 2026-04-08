@@ -3,6 +3,7 @@ package com.usbridge.client
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -13,6 +14,9 @@ import android.view.MotionEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.golang.app.GoNativeActivity
+import java.net.NetworkInterface
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Main Activity extending GoNativeActivity for Fyne
@@ -132,6 +136,73 @@ class MainActivity : GoNativeActivity() {
                 vpnPermissionState = -1
                 Log.e(TAG, "❌ [VPN] Failed to request VpnService permission", e)
             }
+        }
+    }
+
+    fun openExternalUrl(rawUrl: String): Boolean {
+        val latch = CountDownLatch(1)
+        var opened = false
+
+        runOnUiThread {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)).apply {
+                    addCategory(Intent.CATEGORY_BROWSABLE)
+                }
+                startActivity(intent)
+                opened = true
+                Log.i(TAG, "🌐 [BROWSER] External URL opened: $rawUrl")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ [BROWSER] Failed to open external URL: $rawUrl", e)
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        latch.await(5, TimeUnit.SECONDS)
+        return opened
+    }
+
+    fun getActiveNetworkInterfaceName(): String? {
+        return try {
+            val connectivity = getSystemService(ConnectivityManager::class.java) ?: return null
+            val activeNetwork = connectivity.activeNetwork ?: return null
+            val linkProperties = connectivity.getLinkProperties(activeNetwork) ?: return null
+            val ifName = linkProperties.interfaceName
+            Log.i(TAG, "🌐 [NETWORK] Active interface: ${ifName ?: "null"}")
+            ifName
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [NETWORK] Failed to get active interface name", e)
+            null
+        }
+    }
+
+    fun getInterfacesAsString(): String {
+        return try {
+            val lines = mutableListOf<String>()
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return ""
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement() ?: continue
+                val addrs = iface.interfaceAddresses
+                    ?.mapNotNull { addr -> addr?.address?.hostAddress?.let { "$it/${addr.networkPrefixLength}" } }
+                    ?.joinToString(" ")
+                    ?: ""
+                lines += listOf(
+                    iface.name ?: "",
+                    iface.index.toString(),
+                    iface.mtu.toString(),
+                    iface.isUp.toString(),
+                    iface.supportsMulticast().toString(),
+                    iface.isLoopback.toString(),
+                    iface.isPointToPoint.toString(),
+                    iface.supportsMulticast().toString(),
+                ).joinToString(" ") + "|" + addrs
+            }
+            val result = lines.joinToString("\n")
+            Log.i(TAG, "🌐 [NETWORK] Interfaces snapshot lines=${lines.size}")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [NETWORK] Failed to enumerate interfaces", e)
+            ""
         }
     }
 

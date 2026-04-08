@@ -33,6 +33,8 @@ func protocolDropdownLabel(protocol string) string {
 	switch strings.TrimSpace(protocol) {
 	case models.ConnectionProtocolWireGuard:
 		return "wgrd"
+	case models.ConnectionProtocolTailscale:
+		return "ts"
 	case models.ConnectionProtocolQUIC:
 		return models.ConnectionProtocolQUIC
 	default:
@@ -44,6 +46,8 @@ func protocolDropdownValue(label string) string {
 	switch strings.TrimSpace(strings.ToLower(label)) {
 	case "wgrd":
 		return models.ConnectionProtocolWireGuard
+	case "ts":
+		return models.ConnectionProtocolTailscale
 	case models.ConnectionProtocolQUIC:
 		return models.ConnectionProtocolQUIC
 	default:
@@ -116,6 +120,7 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolAuto,
 		models.ConnectionProtocolQUIC,
 		models.ConnectionProtocolWireGuard,
+		models.ConnectionProtocolTailscale,
 	}, nil)
 	mw.protocolSelect.OnChanged = func(value string) {
 		mw.persistConnectionDraft()
@@ -135,6 +140,7 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolAuto,
 		models.ConnectionProtocolQUIC,
 		"wgrd",
+		"ts",
 	}, protocolDropdownLabel(mw.config.ConnectionProtocol), func(value string) {
 		mw.protocolSelect.SetSelected(protocolDropdownValue(value))
 	})

@@ -593,20 +593,67 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		return nil
 	}
 
+	connectTailscale := func() error {
+		if !mw.config.TailscaleEnabled {
+			return fmt.Errorf("Tailscale disabled in config")
+		}
+		if mw.tailscaleService == nil {
+			mw.tailscaleService = service.NewTailscaleService()
+		}
+
+		status, err := mw.tailscaleService.Status(nil)
+		if err != nil {
+			return fmt.Errorf("tailscale is not ready: %w", err)
+		}
+		if !status.LoggedIn {
+			return fmt.Errorf("tailscale is signed out, use Google login in Connection Manager first")
+		}
+
+		resolvedHost := strings.TrimSpace(host)
+		if resolvedHost == "" {
+			return fmt.Errorf("tailscale host is empty")
+		}
+		if err := mw.tailscaleService.ValidateAddress(resolvedHost); err != nil {
+			return err
+		}
+		httpClient, err := mw.tailscaleService.HTTPClient()
+		if err != nil {
+			return err
+		}
+
+		mw.usbClient = mw.attachUSBClient(api.NewUSBClientWithHTTPClient(resolvedHost, mw.config.USBPort, mw.config.APITimeout, httpClient))
+		mw.gstreamerService.UpdateHost(resolvedHost)
+		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
+		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
+		mw.config.NBDBindHost = resolvedHost
+		mw.config.VideoBindHost = "0.0.0.0"
+		mw.videoWidget.SetFRPService(nil)
+		mw.diskWidget.SetFRPService(nil)
+		mw.connectedProtocol = models.ConnectionProtocolTailscale
+		return nil
+	}
+
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
 		if err := connectWireGuard(); err != nil {
 			return fmt.Errorf("failed to establish WireGuard tunnel: %w", err)
+		}
+	case models.ConnectionProtocolTailscale:
+		if err := connectTailscale(); err != nil {
+			return fmt.Errorf("failed to establish Tailscale connection: %w", err)
 		}
 	case models.ConnectionProtocolQUIC:
 		if err := connectQUIC(); err != nil {
 			return fmt.Errorf("failed to establish QUIC tunnel: %w", err)
 		}
 	case models.ConnectionProtocolAuto:
-		if err := connectWireGuard(); err != nil {
-			logrus.Warnf("⚠️ WireGuard auto-connect failed, falling back to QUIC: %v", err)
-			if err := connectQUIC(); err != nil {
-				return fmt.Errorf("failed to establish connection in auto mode: %w", err)
+		if err := connectTailscale(); err != nil {
+			logrus.Warnf("⚠️ Tailscale auto-connect failed, trying WireGuard: %v", err)
+			if err := connectWireGuard(); err != nil {
+				logrus.Warnf("⚠️ WireGuard auto-connect failed, falling back to QUIC: %v", err)
+				if err := connectQUIC(); err != nil {
+					return fmt.Errorf("failed to establish connection in auto mode: %w", err)
+				}
 			}
 		}
 	default:

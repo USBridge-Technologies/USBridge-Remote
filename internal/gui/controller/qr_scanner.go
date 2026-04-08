@@ -81,7 +81,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 	qrReader := qrcode.NewQRCodeReader()
 	result, err := qrReader.Decode(bmp, nil)
 	if err != nil {
-		view.ShowErrorDialog(fmt.Errorf(i18n.Current.QRCodeNotFound), parent)
+		view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.QRCodeNotFound), parent)
 		logrus.Errorf("Error decoding QR: %v", err)
 		return
 	}

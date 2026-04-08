@@ -216,7 +216,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	if bw.usbClient == nil {
 		logrus.Warn("⚠️ USB client not initialized")
 		if bw.window != nil {
-			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), bw.window)
 		}
 		return
 	}
@@ -224,7 +224,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 	if bw.currentFlash == nil {
 		logrus.Warn("⚠️ Current flash not found")
 		if bw.window != nil {
-			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorFlashNotFound), bw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorFlashNotFound), bw.window)
 		}
 		return
 	}
@@ -268,7 +268,7 @@ func (bw *BackupWidget) handleMountSnapshot(id widget.ListItemID, snapshot *mode
 	if bw.usbClient == nil {
 		logrus.Warn("⚠️ USB client not initialized")
 		if bw.window != nil {
-			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), bw.window)
 		}
 		return
 	}
@@ -483,7 +483,7 @@ func (bw *BackupWidget) finishMountRefresh() {
 func (bw *BackupWidget) handleDisconnectCurrentFlash() {
 	if bw.usbClient == nil {
 		if bw.window != nil {
-			view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorNotConnected), bw.window)
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), bw.window)
 		}
 		return
 	}

@@ -29,6 +29,11 @@ type ConnectionManagerUI struct {
 	contentArea *fyne.Container
 	topActions  *fyne.Container
 	topHelpBtn  fyne.CanvasObject
+	tsStatus    *widget.Label
+	tsAccount   *widget.Label
+	tsAddress   *widget.Label
+	tsCard      fyne.CanvasObject
+	tsUseBtn    *outlinedActionButton
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -87,7 +92,7 @@ var (
 	connectionActionBlockedFill = design.ColorGray900
 )
 
-func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func()) *ConnectionManagerUI {
+func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSLogin func(), onTSRefresh func(), onTSUse func()) *ConnectionManagerUI {
 	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
@@ -135,6 +140,28 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func()) *Connectio
 		)
 	}
 	contentArea := container.NewMax()
+	tsStatus := widget.NewLabel("Tailscale: checking")
+	tsStatus.Wrapping = fyne.TextWrapWord
+	tsAccount := widget.NewLabel("Google: not connected")
+	tsAccount.Wrapping = fyne.TextWrapWord
+	tsAddress := widget.NewLabel("Address: unavailable")
+	tsAddress.Wrapping = fyne.TextWrapWord
+
+	tsLoginBtn := newOutlinedActionButton("Google Login", onTSLogin)
+	tsRefreshBtn := newOutlinedActionButton("Refresh", onTSRefresh)
+	tsUseBtn := newOutlinedActionButton("Use Address", onTSUse)
+	tsButtons := container.NewGridWithColumns(3, tsLoginBtn, tsRefreshBtn, tsUseBtn)
+	tsCard := newConnectionsSectionCard(
+		"tailscale",
+		nil,
+		nil,
+		container.NewVBox(
+			tsStatus,
+			tsAccount,
+			tsAddress,
+			tsButtons,
+		),
+	)
 
 	mainContent := NewInset(contentArea, 16, 16, 10, 16)
 
@@ -150,10 +177,18 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func()) *Connectio
 		contentArea:       contentArea,
 		topActions:        topActions,
 		topHelpBtn:        topHelpBtn,
+		tsStatus:          tsStatus,
+		tsAccount:         tsAccount,
+		tsAddress:         tsAddress,
+		tsCard:            tsCard,
+		tsUseBtn:          tsUseBtn,
 		topQRBtn:          topQRButton,
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
 		centerAddBtn:      centerAddButton,
+	}
+	ui.contentArea.Objects = []fyne.CanvasObject{
+		container.NewVBox(tsCard, layout.NewSpacer()),
 	}
 
 	return ui
@@ -182,6 +217,7 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
+			ui.tsCard,
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, emptyBlock),
 			layout.NewSpacer(),
 		),
@@ -200,12 +236,28 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	ui.ConnectionsScroll.SetMinSize(fyne.NewSize(0, listMin.Height))
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
+			ui.tsCard,
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, ui.ConnectionsScroll),
 			layout.NewSpacer(),
 		),
 	}
 	ui.ConnectionsScroll.Refresh()
 	ui.contentArea.Refresh()
+}
+
+func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address string, useEnabled bool) {
+	if ui.tsStatus != nil {
+		ui.tsStatus.SetText(status)
+	}
+	if ui.tsAccount != nil {
+		ui.tsAccount.SetText(account)
+	}
+	if ui.tsAddress != nil {
+		ui.tsAddress.SetText(address)
+	}
+	if ui.tsUseBtn != nil {
+		ui.tsUseBtn.SetDisabled(!useEnabled)
+	}
 }
 
 func (ui *ConnectionManagerUI) SetActionButtonsDisabled(disabled bool) {

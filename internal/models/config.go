@@ -14,6 +14,7 @@ const (
 	ConnectionProtocolAuto      = "auto"
 	ConnectionProtocolQUIC      = "quic"
 	ConnectionProtocolWireGuard = "wireguard"
+	ConnectionProtocolTailscale = "tailscale"
 )
 
 // AppConfig конфигурация приложения
@@ -36,6 +37,9 @@ type AppConfig struct {
 	WireGuardInterfaceName string `json:"wireguard_interface_name" mapstructure:"wireguard_interface_name"`
 	WireGuardServerPort    int    `json:"wireguard_server_port" mapstructure:"wireguard_server_port"`
 	WireGuardListenPort    int    `json:"wireguard_listen_port" mapstructure:"wireguard_listen_port"`
+
+	// Tailscale настройки
+	TailscaleEnabled bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
 
 	// NBD сервер (как сервер)
 	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"` // Порт NBD сервера (10809)
@@ -93,6 +97,7 @@ func DefaultConfig() *AppConfig {
 		WireGuardInterfaceName: "usbwg0",
 		WireGuardServerPort:    51820,
 		WireGuardListenPort:    51821,
+		TailscaleEnabled:       true,
 
 		// NBD сервер
 		NBDPort:           10809,
@@ -131,7 +136,7 @@ func DefaultConfig() *AppConfig {
 
 func modelsafeProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case ConnectionProtocolQUIC, ConnectionProtocolWireGuard:
+	case ConnectionProtocolQUIC, ConnectionProtocolWireGuard, ConnectionProtocolTailscale:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	default:
 		return ConnectionProtocolAuto

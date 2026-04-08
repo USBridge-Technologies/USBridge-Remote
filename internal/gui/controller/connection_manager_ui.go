@@ -12,7 +12,14 @@ import (
 )
 
 func (cm *ConnectionManager) createInterface() {
-	cm.ui = view.NewConnectionManagerUI(cm.handleQRScan, cm.showAddDialog, cm.openQuickStartDocs)
+	cm.ui = view.NewConnectionManagerUI(
+		cm.handleQRScan,
+		cm.showAddDialog,
+		cm.openQuickStartDocs,
+		cm.startTailscaleLogin,
+		cm.refreshTailscaleStatus,
+		cm.applyPreferredTailscaleAddress,
+	)
 	cm.refreshConnectionsList()
 }
 
@@ -119,6 +126,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolQUIC),
 				connectionProtocolBadge(models.ConnectionProtocolWireGuard),
+				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 			},
 		},
 		rowState,

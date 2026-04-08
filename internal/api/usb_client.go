@@ -90,11 +90,20 @@ type keyboardRequestTask struct {
 
 // NewUSBClient создает новый USB клиент
 func NewUSBClient(host string, port int, timeout int) *USBClient {
-	client := &USBClient{
-		baseURL: fmt.Sprintf("http://%s:%d", host, port),
-		httpClient: &http.Client{
+	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+	})
+}
+
+func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *http.Client) *USBClient {
+	if httpClient == nil {
+		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
-		},
+		}
+	}
+	client := &USBClient{
+		baseURL:       fmt.Sprintf("http://%s:%d", host, port),
+		httpClient:    httpClient,
 		keyboardQueue: make(chan keyboardRequestTask, 512),
 	}
 	go client.runKeyboardWorker()

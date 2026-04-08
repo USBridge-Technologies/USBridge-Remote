@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
@@ -17,6 +20,8 @@ func normalizeConnectionProtocol(protocol string) string {
 		return models.ConnectionProtocolQUIC
 	case models.ConnectionProtocolWireGuard:
 		return models.ConnectionProtocolWireGuard
+	case models.ConnectionProtocolTailscale:
+		return models.ConnectionProtocolTailscale
 	default:
 		return models.ConnectionProtocolAuto
 	}
@@ -26,6 +31,8 @@ func connectionProtocolBadge(protocol string) string {
 	switch normalizeConnectionProtocol(protocol) {
 	case models.ConnectionProtocolWireGuard:
 		return "wgrd"
+	case models.ConnectionProtocolTailscale:
+		return "ts"
 	case models.ConnectionProtocolQUIC:
 		return "quic"
 	default:
@@ -37,6 +44,8 @@ func connectionProtocolFromBadge(label string) string {
 	switch strings.TrimSpace(strings.ToLower(label)) {
 	case "wgrd":
 		return models.ConnectionProtocolWireGuard
+	case "ts":
+		return models.ConnectionProtocolTailscale
 	case models.ConnectionProtocolQUIC:
 		return models.ConnectionProtocolQUIC
 	default:
@@ -68,6 +77,8 @@ type ConnectionManager struct {
 	protocolSelect *widget.Select
 
 	qrScanner *QRScanner
+	ts        *service.TailscaleService
+	tsStatus  *service.TailscaleStatus
 
 	onConnect                func(host, token, protocol, wireGuardInvite string)
 	onLanguageChange         func()
@@ -95,7 +106,7 @@ func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
@@ -106,6 +117,10 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 		selectedIndex:         -1,
 		connections:           make([]SavedConnection, 0),
 		activeConnectionIndex: -1,
+		ts:                    ts,
+	}
+	if cm.ts == nil {
+		cm.ts = service.NewTailscaleService()
 	}
 
 	cm.qrScanner = NewQRScanner(
@@ -134,7 +149,139 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 
 	cm.loadConnections()
 	cm.createInterface()
+	cm.refreshTailscaleStatus()
 	return cm
+}
+
+func (cm *ConnectionManager) preferredTailscaleAddress() string {
+	if cm == nil || cm.tsStatus == nil {
+		return ""
+	}
+	if dns := strings.TrimSpace(cm.tsStatus.Self.DNSName); dns != "" {
+		return dns
+	}
+	return strings.TrimSpace(cm.tsStatus.Self.IP4)
+}
+
+func (cm *ConnectionManager) applyPreferredTailscaleAddress() {
+	address := cm.preferredTailscaleAddress()
+	if address == "" {
+		return
+	}
+	fyne.Do(func() {
+		cm.ClearSelection()
+		cm.applyConnectionToForm(address, cm.tokenEntry.Text, models.ConnectionProtocolTailscale)
+	})
+}
+
+func (cm *ConnectionManager) startTailscaleLogin() {
+	if cm.ts == nil {
+		return
+	}
+	cm.setTailscaleStateAsync(
+		"Tailscale: starting login",
+		"Google: waiting for browser sign-in",
+		"Address: unavailable until login completes",
+		false,
+	)
+	go func() {
+		logrus.Info("tailscale client ui: login button pressed")
+		authURL, err := cm.ts.StartLogin(context.Background())
+		if err != nil {
+			logrus.WithError(err).Error("tailscale client ui: StartLogin failed")
+			cm.setTailscaleStateAsync(
+				"Tailscale: login failed",
+				fmt.Sprintf("Google: %v", err),
+				"Address: unavailable",
+				false,
+			)
+			return
+		}
+		if strings.TrimSpace(authURL) != "" {
+			logrus.Infof("tailscale client ui: auth URL received %s", authURL)
+			cm.setTailscaleStateAsync(
+				"Tailscale: auth URL received",
+				"Google: opening browser",
+				authURL,
+				false,
+			)
+			cm.openExternalLink(authURL, "Tailscale login URL")
+			cm.setTailscaleStateAsync(
+				"Tailscale: browser opened",
+				"Google: complete sign-in in browser",
+				"Address: waiting for tailnet assignment",
+				false,
+			)
+		} else {
+			logrus.Info("tailscale client ui: StartLogin returned without auth URL")
+		}
+		cm.refreshTailscaleStatus()
+	}()
+}
+
+func (cm *ConnectionManager) refreshTailscaleStatus() {
+	if cm.ts == nil || cm.ui == nil {
+		return
+	}
+	go func() {
+		status, err := cm.ts.Status(context.Background())
+		if err != nil {
+			cm.tsStatus = nil
+			cm.setTailscaleStateAsync(
+				fmt.Sprintf("Tailscale: %v", err),
+				"Google: not connected",
+				"Address: unavailable",
+				false,
+			)
+			return
+		}
+		cm.tsStatus = status
+		if !status.LoggedIn {
+			cm.setTailscaleStateAsync("Tailscale: signed out", "Google: sign in required", "Address: sign in to get your tailnet address", false)
+			return
+		}
+
+		address := ""
+		if dns := strings.TrimSpace(status.Self.DNSName); dns != "" {
+			address = dns
+		} else if ip := strings.TrimSpace(status.Self.IP4); ip != "" {
+			address = ip
+		} else {
+			address = status.Self.HostName
+		}
+
+		cm.setTailscaleStateAsync(
+			fmt.Sprintf("Tailscale: %s", strings.ToLower(strings.TrimSpace(status.Backend))),
+			fmt.Sprintf("Google: %s", fallbackText(status.Self.UserLogin, "connected")),
+			fmt.Sprintf("Address: %s (%s)", address, ternary(status.Userspace, "embedded", "system")),
+			address != "",
+		)
+	}()
+}
+
+func (cm *ConnectionManager) setTailscaleStateAsync(status, account, address string, useEnabled bool) {
+	if cm == nil || cm.ui == nil {
+		return
+	}
+	fyne.Do(func() {
+		if cm.ui != nil {
+			cm.ui.SetTailscaleState(status, account, address, useEnabled)
+		}
+	})
+}
+
+func ternary[T any](condition bool, ifTrue, ifFalse T) T {
+	if condition {
+		return ifTrue
+	}
+	return ifFalse
+}
+
+func fallbackText(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func (cm *ConnectionManager) SetConnectionsStateCallback(callback func(bool)) {
