@@ -64,12 +64,12 @@ func New() (*App, error) {
 		state:   &deviceState{startedAt: time.Now()},
 		input:   input.New(),
 		screen:  capture.New(),
-		video:   video.New(cfg),
 		perms:   permissions.New(),
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
+	instance.video = video.New(cfg, instance.frp)
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.ListenHost, cfg.HTTPPort),
 		Handler:           api.NewServer(instance).Routes(),

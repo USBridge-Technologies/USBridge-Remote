@@ -148,6 +148,20 @@ func (m *Manager) UpdateNBDVisitors(ports []int) error {
 	return m.client.UpdateAllConfigurer(m.baseProxies(), m.baseVisitors())
 }
 
+func (m *Manager) UpdateVideoVisitor(port int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if port <= 0 {
+		port = m.cfg.VideoUDPPort
+	}
+	m.videoUDP = port
+	if m.client == nil {
+		return nil
+	}
+	return m.client.UpdateAllConfigurer(m.baseProxies(), m.baseVisitors())
+}
+
 func (m *Manager) baseProxies() []v1.ProxyConfigurer {
 	return []v1.ProxyConfigurer{
 		&v1.STCPProxyConfig{
