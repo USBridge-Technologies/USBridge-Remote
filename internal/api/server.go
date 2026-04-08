@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -330,6 +331,12 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
 		return
 	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = strings.TrimSpace(host)
+		if host != "" && !isLoopbackHost(host) {
+			req.ClientHost = host
+		}
+	}
 	log.Printf("[api] video_start width=%d height=%d fps=%d bitrate=%s mode=%s", req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.VideoMode)
 	if err := s.app.Video().Start(req); err != nil {
 		log.Printf("[api] video_start failed: %v", err)
@@ -337,6 +344,14 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ok(w, "video_started", nil)
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {

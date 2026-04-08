@@ -47,7 +47,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-bufsize", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-payload_type", "96",
 		"-f", "rtp",
-		fmt.Sprintf("rtp://127.0.0.1:%d?pkt_size=1200", req.ClientPort),
+		fmt.Sprintf("rtp://%s:%d?pkt_size=1200", req.ClientHost, req.ClientPort),
 	)
 	return args
 }

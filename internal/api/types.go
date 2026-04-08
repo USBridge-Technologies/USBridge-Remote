@@ -102,6 +102,7 @@ type VideoStartRequest struct {
 	VideoQuality int    `json:"video_quality"`
 	VideoBitrate string `json:"video_bitrate"`
 	VideoMode    string `json:"video_mode,omitempty"`
+	ClientHost   string `json:"client_host,omitempty"`
 	ClientPort   int    `json:"client_port,omitempty"`
 }
 

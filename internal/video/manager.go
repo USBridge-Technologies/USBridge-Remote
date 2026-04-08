@@ -120,6 +120,10 @@ func (m *Manager) normalize(req api.VideoStartRequest) api.VideoStartRequest {
 	if req.ClientPort == 0 {
 		req.ClientPort = m.cfg.VideoUDPPort
 	}
+	req.ClientHost = strings.TrimSpace(req.ClientHost)
+	if req.ClientHost == "" {
+		req.ClientHost = "127.0.0.1"
+	}
 	return req
 }
 
@@ -147,7 +151,7 @@ func (m *Manager) startWithFallback(req api.VideoStartRequest, skipCodecs map[st
 func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*runningProcess, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	args := m.buildArgs(req, mode, codec)
-	log.Printf("[video] starting mode=%s codec=%s target=127.0.0.1:%d fps=%d size=%dx%d bitrate=%s", mode, codec, req.ClientPort, req.VideoFPS, req.VideoWidth, req.VideoHeight, req.VideoBitrate)
+	log.Printf("[video] starting mode=%s codec=%s target=%s:%d fps=%d size=%dx%d bitrate=%s", mode, codec, req.ClientHost, req.ClientPort, req.VideoFPS, req.VideoWidth, req.VideoHeight, req.VideoBitrate)
 	log.Printf("[video] ffmpeg args mode=%s codec=%s :: %s %s", mode, codec, m.cfg.FFmpegPath, strings.Join(args, " "))
 
 	cmd := exec.CommandContext(ctx, m.cfg.FFmpegPath, args...)
