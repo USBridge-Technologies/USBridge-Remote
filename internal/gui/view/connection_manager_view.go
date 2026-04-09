@@ -591,7 +591,7 @@ type connectionNameButton struct {
 
 	bg       *canvas.Rectangle
 	titleTxt *adaptiveNameText
-	subTxt   *canvas.Text
+	subTxt   *widget.Label
 	icon     *canvas.Image
 }
 
@@ -642,16 +642,35 @@ func (b *connectionNameButton) MouseOut() {
 
 func (b *connectionNameButton) MinSize() fyne.Size {
 	title := fyne.MeasureText("Conn...ion", 14, fyne.TextStyle{Bold: true})
-	sub := fyne.MeasureText(b.subtitle, 11, fyne.TextStyle{})
-	width := maxFloat32(title.Width, sub.Width) + 34
-	height := title.Height + sub.Height + 8
+	subWidth := float32(0)
+	subLines := strings.Split(b.subtitle, "\n")
+	for _, line := range subLines {
+		size := fyne.MeasureText(line, 11, fyne.TextStyle{})
+		if size.Width > subWidth {
+			subWidth = size.Width
+		}
+	}
+	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 11, fyne.TextStyle{}).Height
+	subLineCount := len(subLines)
+	if subLineCount < 1 {
+		subLineCount = 1
+	}
+	subHeight := lineHeight * float32(subLineCount)
+	width := maxFloat32(title.Width, subWidth) + 34
+	height := title.Height + subHeight + 10
 	return fyne.NewSize(width, height)
 }
 
 func (b *connectionNameButton) preferredWidth() float32 {
 	title := fyne.MeasureText(b.title, 14, fyne.TextStyle{Bold: true})
-	sub := fyne.MeasureText(b.subtitle, 11, fyne.TextStyle{})
-	return maxFloat32(title.Width, sub.Width) + 34
+	subWidth := float32(0)
+	for _, line := range strings.Split(b.subtitle, "\n") {
+		size := fyne.MeasureText(line, 11, fyne.TextStyle{})
+		if size.Width > subWidth {
+			subWidth = size.Width
+		}
+	}
+	return maxFloat32(title.Width, subWidth) + 34
 }
 
 func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
@@ -663,7 +682,8 @@ func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
 	b.titleTxt.style = fyne.TextStyle{Bold: true}
 	b.titleTxt.SetColor(design.ColorTextLight)
 	b.titleTxt.SetText(b.title)
-	b.subTxt = NewBrandText(b.subtitle, 11, design.ColorTextMuted, false)
+	b.subTxt = widget.NewLabel(b.subtitle)
+	b.subTxt.Wrapping = fyne.TextWrapOff
 	b.icon = canvas.NewImageFromResource(theme.DocumentCreateIcon())
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(13, 13))
@@ -684,12 +704,14 @@ func (b *connectionNameButton) refreshVisuals() {
 	b.bg.FillColor = color.Transparent
 	b.titleTxt.SetText(b.title)
 	b.titleTxt.SetColor(design.ColorTextLight)
-	b.subTxt.Color = design.ColorTextMuted
+	b.subTxt.SetText(b.subtitle)
+	b.subTxt.TextStyle = fyne.TextStyle{}
+	b.subTxt.Importance = widget.MediumImportance
 	b.icon.Translucency = 0
 
 	if b.disabled {
 		b.titleTxt.SetColor(design.ColorBorder)
-		b.subTxt.Color = design.ColorBorder
+		b.subTxt.Importance = widget.LowImportance
 		b.icon.Translucency = 0.35
 	} else if b.hovered {
 		b.bg.FillColor = design.ColorSurfaceLight
@@ -712,8 +734,9 @@ func (r *connectionNameButtonRenderer) Layout(size fyne.Size) {
 	r.button.titleTxt.Move(fyne.NewPos(8, 3))
 	r.button.titleTxt.Resize(fyne.NewSize(titleWidth, r.button.titleTxt.MinSize().Height))
 
-	r.button.subTxt.Move(fyne.NewPos(8, 19))
-	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), r.button.subTxt.MinSize().Height))
+	subY := float32(21)
+	r.button.subTxt.Move(fyne.NewPos(8, subY))
+	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), maxFloat32(0, size.Height-subY-4)))
 
 	iconSize := fyne.NewSize(13, 13)
 	r.button.icon.Resize(iconSize)
@@ -760,7 +783,7 @@ func (l *connectionCompactContentLayout) Layout(objects []fyne.CanvasObject, siz
 		y = 0
 	}
 	child.Move(fyne.NewPos(0, y))
-	child.Resize(fyne.NewSize(width, min.Height))
+	child.Resize(fyne.NewSize(width, minFloat32(size.Height, maxFloat32(min.Height, size.Height))))
 }
 
 func (l *connectionCompactContentLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {

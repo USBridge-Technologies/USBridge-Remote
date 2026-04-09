@@ -175,7 +175,7 @@ func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
 
 	switch {
 	case internalHost != "" && tailscaleHost != "":
-		return "LAN: " + internalHost + " | TS: " + tailscaleHost
+		return "LAN: " + internalHost + "\nTS: " + tailscaleHost
 	case tailscaleHost != "":
 		return "TS: " + tailscaleHost
 	case internalHost != "":
