@@ -5,7 +5,6 @@ package input
 import (
 	"fmt"
 	"image"
-	"math"
 	"unicode/utf16"
 	"unsafe"
 
@@ -225,8 +224,8 @@ func (c *Controller) sendMouse(mi mouseInput) error {
 
 func setCursorAbsolute(x, y uint16) error {
 	bounds := primaryBounds()
-	px := bounds.Min.X + int(math.Round(float64(x)/65535.0*float64(bounds.Dx()-1)))
-	py := bounds.Min.Y + int(math.Round(float64(y)/65535.0*float64(bounds.Dy()-1)))
+	px := bounds.Min.X + scaleAbsoluteCoordinate(x, bounds.Dx())
+	py := bounds.Min.Y + scaleAbsoluteCoordinate(y, bounds.Dy())
 	r1, _, err := procSetCursorPos.Call(uintptr(px), uintptr(py))
 	if r1 == 0 {
 		return err

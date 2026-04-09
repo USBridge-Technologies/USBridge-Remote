@@ -2,6 +2,8 @@ package input
 
 import "sync"
 
+const absoluteCoordinateMax = 32767
+
 type Controller struct {
 	mu          sync.Mutex
 	buttonState uint8
@@ -11,6 +13,16 @@ type hidKeySpec struct {
 	windowsScan     uint16
 	windowsExtended bool
 	macKeyCode      uint16
+}
+
+func scaleAbsoluteCoordinate(value uint16, span int) int {
+	if span <= 1 {
+		return 0
+	}
+	if value > absoluteCoordinateMax {
+		value = absoluteCoordinateMax
+	}
+	return int(value) * (span - 1) / absoluteCoordinateMax
 }
 
 var hidKeyTable = map[uint8]hidKeySpec{

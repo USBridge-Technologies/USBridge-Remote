@@ -27,7 +27,6 @@ import "C"
 import (
 	"fmt"
 	"image"
-	"math"
 	"unicode/utf16"
 )
 
@@ -203,8 +202,8 @@ func currentMouseLocation() image.Point {
 
 func macAbsolutePoint(x, y uint16) image.Point {
 	bounds := macPrimaryBounds()
-	px := bounds.Min.X + int(math.Round(float64(x)/65535.0*float64(maxInt(bounds.Dx()-1, 1))))
-	py := bounds.Min.Y + int(math.Round(float64(y)/65535.0*float64(maxInt(bounds.Dy()-1, 1))))
+	px := bounds.Min.X + scaleAbsoluteCoordinate(x, bounds.Dx())
+	py := bounds.Min.Y + scaleAbsoluteCoordinate(y, bounds.Dy())
 	return image.Pt(px, py)
 }
 
@@ -262,13 +261,6 @@ func postMouseEventAt(eventType C.CGEventType, button C.CGMouseButton, point ima
 	defer C.CFRelease(C.CFTypeRef(event))
 	C.CGEventPost(C.kCGHIDEventTap, event)
 	return nil
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func boolToCInt(v bool) C.int {
