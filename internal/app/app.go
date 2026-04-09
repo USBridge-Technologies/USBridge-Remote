@@ -139,8 +139,28 @@ func (a *App) Run() error {
 			a.fyneApp.Quit()
 		})
 	}()
-	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts).ShowAndRun(cancel)
+	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
+}
+
+func (a *App) RegenerateFRPToken() (config.Config, error) {
+	token, err := config.GenerateSecureToken()
+	if err != nil {
+		return a.cfg, fmt.Errorf("generate secure token: %w", err)
+	}
+
+	next := a.cfg
+	next.FRPToken = token
+	if err := config.Save(a.cfgPath, next); err != nil {
+		return a.cfg, fmt.Errorf("save config: %w", err)
+	}
+	if a.frp != nil {
+		if err := a.frp.UpdateToken(token); err != nil {
+			return a.cfg, fmt.Errorf("reload frp token: %w", err)
+		}
+	}
+	a.cfg = next
+	return a.cfg, nil
 }
 
 func (a *App) Status() api.SystemStatus {

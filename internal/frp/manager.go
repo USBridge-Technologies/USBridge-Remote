@@ -20,6 +20,7 @@ type Manager struct {
 	httpPort int
 	videoUDP int
 
+	rootCtx    context.Context
 	mu         sync.Mutex
 	server     *server.Service
 	client     *client.Service
@@ -39,7 +40,11 @@ func (m *Manager) Start(ctx context.Context) error {
 	if m.server != nil {
 		return nil
 	}
+	m.rootCtx = ctx
+	return m.startLocked(ctx)
+}
 
+func (m *Manager) startLocked(ctx context.Context) error {
 	srvCfg := &v1.ServerConfig{
 		BindAddr:     m.cfg.FRPBindHost,
 		BindPort:     m.cfg.FRPBindPort,
@@ -125,6 +130,11 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stopLocked()
+	return nil
+}
+
+func (m *Manager) stopLocked() {
 	if m.clientStop != nil {
 		m.clientStop()
 	}
@@ -135,7 +145,24 @@ func (m *Manager) Stop() error {
 	m.server = nil
 	m.agg = nil
 	m.clientStop = nil
-	return nil
+	m.clientCtx = nil
+}
+
+func (m *Manager) UpdateToken(token string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cfg.FRPToken = token
+	if m.server == nil && m.client == nil {
+		return nil
+	}
+
+	ctx := m.rootCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.stopLocked()
+	return m.startLocked(ctx)
 }
 
 func (m *Manager) UpdateNBDVisitors(ports []int) error {

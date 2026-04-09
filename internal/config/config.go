@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -104,6 +105,18 @@ func Save(path string, cfg Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func GenerateSecureToken() (string, error) {
+	randomBytes := make([]byte, 24)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(randomBytes)
+	if len(token) != 32 {
+		return "", errors.New("unexpected token length")
+	}
+	return token, nil
 }
 
 func (c Config) EnsureState() error {
