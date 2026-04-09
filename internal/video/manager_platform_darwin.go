@@ -148,7 +148,7 @@ func detectPlatformVideoAdapters() []string {
 }
 
 func preferredCodecsForAdapters(_ []string) []string {
-	return []string{"libx264", "h264_videotoolbox"}
+	return []string{"h264_videotoolbox", "libx264"}
 }
 
 func captureModesForPlatform(configured string) []string {
@@ -160,7 +160,7 @@ func captureModesForPlatform(configured string) []string {
 }
 
 func platformCodecFallbacks() []string {
-	return []string{"libx264", "h264_videotoolbox"}
+	return []string{"h264_videotoolbox", "libx264"}
 }
 
 func platformAutoCodec(_ string) string {

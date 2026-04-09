@@ -47,7 +47,6 @@ func Default() Config {
 	videoCodec := "auto"
 	if runtime.GOOS == "darwin" {
 		videoCapture = "avfoundation"
-		videoCodec = "libx264"
 	}
 	return Config{
 		AppName:          "USBridge Agent",
