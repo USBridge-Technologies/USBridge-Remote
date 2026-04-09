@@ -321,7 +321,7 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 }
 
 func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []string {
-	return buildPlatformArgs(m.cfg, req, mode, codec)
+	return append([]string{"-nostdin"}, buildPlatformArgs(m.cfg, req, mode, codec)...)
 }
 
 func (m *Manager) resolveCodec() string {
@@ -331,6 +331,9 @@ func (m *Manager) resolveCodec() string {
 	}
 	if !strings.EqualFold(configured, "auto") {
 		return configured
+	}
+	if codec := platformAutoCodec(m.cfg.FFmpegPath); codec != "" {
+		return codec
 	}
 
 	available := detectAvailableCodecs(m.cfg.FFmpegPath)

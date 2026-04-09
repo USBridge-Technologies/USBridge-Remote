@@ -163,6 +163,10 @@ func platformCodecFallbacks() []string {
 	return []string{"libx264", "h264_videotoolbox"}
 }
 
+func platformAutoCodec(_ string) string {
+	return ""
+}
+
 func resolveDarwinCaptureDevice(ffmpegPath, requested string) string {
 	devices := detectAVFoundationVideoDevices(ffmpegPath)
 	return resolveDarwinCaptureDeviceFromList(devices, requested)

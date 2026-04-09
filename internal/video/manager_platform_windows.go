@@ -5,11 +5,31 @@ package video
 import (
 	"fmt"
 	"log"
-	"os/exec"
 	"strings"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/config"
+)
+
+const (
+	displayDeviceAttachedToDesktop = 0x00000001
+	displayDeviceMirroringDriver   = 0x00000008
+)
+
+type displayDevice struct {
+	cb           uint32
+	deviceName   [32]uint16
+	deviceString [128]uint16
+	stateFlags   uint32
+	deviceID     [128]uint16
+	deviceKey    [128]uint16
+}
+
+var (
+	user32Windows           = windows.NewLazySystemDLL("user32.dll")
+	procEnumDisplayDevicesW = user32Windows.NewProc("EnumDisplayDevicesW")
 )
 
 func sourceFormatForPlatform() string {
@@ -55,26 +75,28 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec
 }
 
 func detectPlatformVideoAdapters() []string {
-	cmd := exec.Command(
-		"powershell",
-		"-NoProfile",
-		"-NonInteractive",
-		"-Command",
-		"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-	)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("[video] adapter probe skipped: %v", err)
-		return nil
-	}
-
-	lines := strings.Split(string(output), "\n")
-	adapters := make([]string, 0, len(lines))
-	for _, line := range lines {
-		name := strings.TrimSpace(line)
-		if name == "" {
+	adapters := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for idx := uint32(0); ; idx++ {
+		dev := displayDevice{cb: uint32(unsafe.Sizeof(displayDevice{}))}
+		r1, _, err := procEnumDisplayDevicesW.Call(0, uintptr(idx), uintptr(unsafe.Pointer(&dev)), 0)
+		if r1 == 0 {
+			if idx == 0 {
+				log.Printf("[video] adapter probe skipped: %v", err)
+			}
+			break
+		}
+		if dev.stateFlags&displayDeviceMirroringDriver != 0 {
 			continue
 		}
+		name := strings.TrimSpace(windows.UTF16ToString(dev.deviceString[:]))
+		if name == "" || dev.stateFlags&displayDeviceAttachedToDesktop == 0 {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
 		adapters = append(adapters, name)
 	}
 	return adapters
@@ -105,4 +127,18 @@ func captureModesForPlatform(configured string) []string {
 
 func platformCodecFallbacks() []string {
 	return []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"}
+}
+
+func platformAutoCodec(_ string) string {
+	adapters := detectPlatformVideoAdapters()
+	order := preferredCodecsForAdapters(adapters)
+	for _, codec := range order {
+		if strings.TrimSpace(codec) == "" {
+			continue
+		}
+		log.Printf("[video] windows auto codec selected codec=%s adapters=%s", codec, strings.Join(adapters, ", "))
+		return codec
+	}
+	log.Printf("[video] windows auto codec fallback codec=libx264 adapters=%s", strings.Join(adapters, ", "))
+	return "libx264"
 }
