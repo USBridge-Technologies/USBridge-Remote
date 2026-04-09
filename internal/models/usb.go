@@ -255,6 +255,7 @@ type VideoStartRequest struct {
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
+	TraceID    string `json:"-"`
 }
 
 // SystemDevice устройство, видимое на стороне bridge через /api/devices.

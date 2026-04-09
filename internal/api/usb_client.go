@@ -965,10 +965,15 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 	if mode == "" {
 		mode = models.VideoModeH264
 	}
-	logrus.Infof("🎥 Запуск видео стриминга: device=%s mode=%s %dx%d@%dfps, качество: %d, битрейт: %s",
-		request.VideoDevice, mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoQuality, request.VideoBitrate)
+	logrus.Infof("🎥 [VideoHTTP %s] POST %s/api/video/start device=%s mode=%s %dx%d@%dfps bitrate=%s client=%s:%d",
+		request.TraceID, c.baseURL, request.VideoDevice, mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate, request.ClientHost, request.ClientPort)
+	logrus.Infof("🎥 [VideoHTTP %s] body=%s", request.TraceID, string(requestJSON))
 
-	resp, err := c.makeRequest("POST", "/api/video/start", requestJSON)
+	headers := map[string]string{}
+	if strings.TrimSpace(request.TraceID) != "" {
+		headers["X-USBridge-Video-Trace"] = request.TraceID
+	}
+	resp, err := c.makeRequestWithHeaders("POST", "/api/video/start", requestJSON, headers)
 	if err != nil {
 		return err
 	}
@@ -1098,6 +1103,10 @@ func (c *USBClient) StopVideoLegacy() error {
 
 // makeRequest выполняет HTTP запрос
 func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, error) {
+	return c.makeRequestWithHeaders(method, endpoint, body, nil)
+}
+
+func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
 	url := c.baseURL + endpoint
 
 	var bodyReader io.Reader
@@ -1113,6 +1122,12 @@ func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, e
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	for key, value := range headers {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
 	}
 
 	resp, err := c.httpClient.Do(req)

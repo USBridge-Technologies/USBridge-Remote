@@ -421,168 +421,9 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 	return keyboardConnected && mouseConnected && mouseModeMatches, nil
 }
 
-func (vw *VideoWidget) controlVideoHealthy() (bool, string) {
-	vw.videoOpMu.Lock()
-	running := vw.videoOpRunning
-	streaming := vw.isStreaming
-	vw.videoOpMu.Unlock()
-
-	if running {
-		return false, "video-op-running"
-	}
-	if !streaming {
-		return false, "video-not-streaming"
-	}
-
-	vw.frameMutex.RLock()
-	lastFrameTime := vw.lastFrameTime
-	vw.frameMutex.RUnlock()
-
-	if lastFrameTime.IsZero() {
-		return false, "no-frames-yet"
-	}
-	if time.Since(lastFrameTime) > 2500*time.Millisecond {
-		return false, "stale-frames"
-	}
-
-	stats := vw.frameDecoder.GetFrameStats()
-	if fps, ok := stats["fps"].(float64); ok && fps < 1 && time.Since(lastFrameTime) > 1500*time.Millisecond {
-		return false, "fps-zero"
-	}
-
-	return true, ""
-}
-
-func (vw *VideoWidget) noteRecoveryAttempt(reason string) bool {
-	now := time.Now()
-	last := vw.lastRecoveryAt.Load()
-	if last != 0 && now.Sub(time.Unix(0, last)) < 3*time.Second {
-		return false
-	}
-	return vw.lastRecoveryAt.CompareAndSwap(last, now.UnixNano())
-}
-
-func (vw *VideoWidget) ensureControlVideoHealthy() {
-	healthy, reason := vw.controlVideoHealthy()
-	if healthy {
-		return
-	}
-
-	switch reason {
-	case "video-op-running":
-		return
-	case "video-not-streaming":
-		if vw.noteRecoveryAttempt("start-video") {
-			logrus.Info("🎬 Control video recovery: starting configured video")
-			vw.StartConfiguredVideoAsync()
-		}
-		return
-	case "no-frames-yet":
-		// Даём новому pipeline короткое окно на первый кадр.
-		return
-	case "stale-frames", "fps-zero":
-		if !vw.noteRecoveryAttempt(reason) {
-			return
-		}
-		logrus.Warnf("⚠️ Control video recovery: restarting stalled stream (%s)", reason)
-		go func() {
-			if err := vw.StopVideoSync(); err != nil {
-				logrus.Warnf("⚠️ Control video recovery: stop failed: %v", err)
-			}
-			time.Sleep(250 * time.Millisecond)
-			vw.StartConfiguredVideoAsync()
-		}()
-	}
-}
-
-func (vw *VideoWidget) watchControlSessionHealth() {
-	if vw.usbClient == nil || !vw.desiredStreamingState() {
-		return
-	}
-	if vw.bootstrapRunning.Load() {
-		return
-	}
-
-	ready, err := vw.controlHIDReady()
-	if err != nil {
-		logrus.Debugf("control session watchdog: HID inspect failed: %v", err)
-		return
-	}
-	if !ready {
-		if vw.noteRecoveryAttempt("hid-not-ready") {
-			logrus.Warn("⚠️ Control session watchdog: HID not ready, re-running bootstrap")
-			vw.BootstrapControlSessionAsync()
-		}
-		return
-	}
-
-	if healthy, reason := vw.controlVideoHealthy(); !healthy && reason != "video-op-running" && reason != "no-frames-yet" {
-		if vw.noteRecoveryAttempt("video-" + reason) {
-			logrus.Warnf("⚠️ Control session watchdog: video unhealthy (%s), re-running bootstrap", reason)
-			vw.BootstrapControlSessionAsync()
-		}
-	}
-}
-
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
 	vw.setDesiredStreaming(true)
-
-	if !vw.bootstrapRunning.CompareAndSwap(false, true) {
-		vw.bootstrapPending.Store(true)
-		logrus.Debug("⏳ control bootstrap already running, coalescing request")
-		return
-	}
-
-	go func() {
-		defer vw.bootstrapRunning.Store(false)
-
-		for {
-			vw.bootstrapPending.Store(false)
-
-			const maxAttempts = 8
-			for attempt := 1; attempt <= maxAttempts; attempt++ {
-				if vw.usbClient == nil || !vw.desiredStreamingState() {
-					return
-				}
-
-				ready, err := vw.controlHIDReady()
-				if err != nil {
-					logrus.Warnf("⚠️ control bootstrap: failed to inspect HID state on attempt %d/%d: %v", attempt, maxAttempts, err)
-				} else if !ready {
-					if hidErr := vw.ensureControlHIDDevices(); hidErr != nil {
-						logrus.Warnf("⚠️ control bootstrap: HID auto-connect attempt %d/%d failed: %v", attempt, maxAttempts, hidErr)
-					}
-				}
-
-				ready, err = vw.controlHIDReady()
-				if err == nil && ready {
-					healthy, reason := vw.controlVideoHealthy()
-					if !healthy && reason == "video-not-streaming" {
-						vw.videoOpMu.Lock()
-						videoBusy := vw.videoOpRunning
-						vw.videoOpMu.Unlock()
-						if !videoBusy {
-							logrus.Infof("🎬 Control bootstrap: HID ready on attempt %d/%d, starting video immediately", attempt, maxAttempts)
-							vw.StartConfiguredVideoAsync()
-						}
-					} else if !healthy {
-						vw.ensureControlVideoHealthy()
-					}
-					if healthy, _ := vw.controlVideoHealthy(); healthy {
-						logrus.Infof("✅ control bootstrap completed on attempt %d/%d", attempt, maxAttempts)
-						break
-					}
-				}
-
-				time.Sleep(700 * time.Millisecond)
-			}
-
-			if !vw.bootstrapPending.Load() {
-				return
-			}
-			logrus.Debug("🔁 control bootstrap rerunning coalesced request")
-		}
-	}()
+	vw.scheduleVideoReconcile("control-bootstrap")
 }
 
 // updateButtons обновляет состояние кнопок.
@@ -706,10 +547,12 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	vw.noteVideoTraceFirstFrame(frameNum)
 
 	if frameNum == 1 {
-		logrus.Debug("✅ [VIDEO] Step 7: frame rendered in UI")
+		bounds := frame.Bounds()
+		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
 	}
-	if frameNum%300 == 0 {
-		logrus.Debugf("🖼️ [VIDEO] UI: processed %d frames", frameNum)
+	if frameNum <= 5 || frameNum%300 == 0 {
+		bounds := frame.Bounds()
+		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
 	}
 
 	vw.scheduleFrameRender()
@@ -833,6 +676,10 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 // SetFRPService устанавливает FRP сервис.
 func (vw *VideoWidget) SetFRPService(frp *service.FRPService) {
 	vw.frpService = frp
+}
+
+func (vw *VideoWidget) SetTailscaleService(ts *service.TailscaleService) {
+	vw.tailscaleService = ts
 }
 
 // GetContainer возвращает контейнер виджета.
@@ -980,7 +827,6 @@ func (vw *VideoWidget) startStatsLoop() {
 		for {
 			select {
 			case <-ticker.C:
-				vw.watchControlSessionHealth()
 				fyne.Do(func() {
 					if vw.IsStreaming() {
 						vw.updateStats()

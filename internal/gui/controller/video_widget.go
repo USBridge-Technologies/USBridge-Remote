@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"image"
 	"sync"
 	"sync/atomic"
@@ -40,15 +41,13 @@ type VideoWidget struct {
 	usbClient             *api.USBClient
 	gstreamerService      *service.GStreamerService
 	frpService            *service.FRPService // для проверки режима FRP
+	tailscaleService      *service.TailscaleService
 	updateStatus          func()
 	onFPSChanged          func(float64)
 	videoOpMu             sync.Mutex
 	videoOpRunning        bool
 	desiredStreaming      bool
 	videoRestartPending   bool
-	bootstrapRunning      atomic.Bool
-	bootstrapPending      atomic.Bool
-	lastRecoveryAt        atomic.Int64
 	inputQueue            chan inputCommand
 	moveQueueMu           sync.Mutex
 	pendingMoveX          int
@@ -71,6 +70,7 @@ type VideoWidget struct {
 	videoTraceStartedAt  atomic.Int64
 	videoTraceFirstFrame atomic.Int64
 	videoTraceFirstPaint atomic.Int64
+	videoTraceLabel      atomic.Value
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра
@@ -161,13 +161,16 @@ func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 		vw.handleDeviceRebuildLocally()
 		if vw.usbClient != nil {
 			if err := vw.usbClient.StopVideo(); err != nil {
-				logrus.Warnf("⚠️ Control rebuild recovery: failed to stop server video before restart: %v", err)
+				logrus.Warnf("⚠️ Control rebuild restart: failed to stop server video before reconcile: %v", err)
 			} else {
-				logrus.Info("🛑 Control rebuild recovery: server video stopped before restart")
+				logrus.Info("🛑 Control rebuild restart: server video stopped before reconcile")
 			}
 		}
+		vw.videoOpMu.Lock()
+		vw.videoRestartPending = true
+		vw.videoOpMu.Unlock()
 		time.Sleep(250 * time.Millisecond)
-		vw.BootstrapControlSessionAsync()
+		vw.scheduleVideoReconcile("control-device-rebuild")
 	}()
 }
 
@@ -178,7 +181,9 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.videoTraceStartedAt.Store(startedAt.UnixNano())
 	vw.videoTraceFirstFrame.Store(0)
 	vw.videoTraceFirstPaint.Store(0)
-	logrus.Infof("🎯 [VideoTrace #%d] start reason=%s", traceID, reason)
+	label := fmt.Sprintf("vt-%d", traceID)
+	vw.videoTraceLabel.Store(label)
+	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s", traceID, label, reason)
 
 	time.AfterFunc(4*time.Second, func() {
 		if vw.videoTraceID.Load() != traceID {
@@ -194,7 +199,7 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s", traceID, time.Since(start).Round(time.Millisecond))
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s gstreamer=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeGStreamerStats(), vw.safeRelayDebugInfo())
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
 		default:
@@ -203,6 +208,27 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	})
 
 	return traceID
+}
+
+func (vw *VideoWidget) currentVideoTraceLabel() string {
+	if value, ok := vw.videoTraceLabel.Load().(string); ok {
+		return value
+	}
+	return ""
+}
+
+func (vw *VideoWidget) safeGStreamerStats() map[string]interface{} {
+	if vw.gstreamerService == nil {
+		return nil
+	}
+	return vw.gstreamerService.GetStats()
+}
+
+func (vw *VideoWidget) safeRelayDebugInfo() string {
+	if vw.tailscaleService == nil {
+		return "tailscale=disabled"
+	}
+	return vw.tailscaleService.VideoRelayDebugInfo()
 }
 
 func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {

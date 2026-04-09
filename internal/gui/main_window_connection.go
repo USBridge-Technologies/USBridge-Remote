@@ -162,6 +162,7 @@ func (mw *MainWindow) cleanupDeadConnectionState() {
 	mw.diskWidget.SetFRPService(nil)
 	mw.videoWidget.UpdateClient(nil)
 	mw.videoWidget.SetFRPService(nil)
+	mw.videoWidget.SetTailscaleService(nil)
 	if mw.backupWidget != nil {
 		mw.backupWidget.UpdateClient(nil)
 	}
@@ -625,9 +626,10 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		mw.gstreamerService.UpdateHost(resolvedHost)
 		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
 		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
-		mw.config.NBDBindHost = resolvedHost
-		mw.config.VideoBindHost = "0.0.0.0"
+		mw.config.NBDBindHost = "127.0.0.1"
+		mw.config.VideoBindHost = "127.0.0.1"
 		mw.videoWidget.SetFRPService(nil)
+		mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 		mw.diskWidget.SetFRPService(nil)
 		mw.connectedProtocol = models.ConnectionProtocolTailscale
 		return nil
@@ -667,6 +669,7 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		mw.gstreamerService.UpdateHost(host)
 		mw.config.VideoBindHost = "127.0.0.1"
 		mw.diskWidget.SetFRPService(nil)
+		mw.videoWidget.SetTailscaleService(nil)
 		mw.connectedProtocol = "direct"
 
 		if err := tempClient.TestConnection(); err != nil {
