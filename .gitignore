@@ -2,3 +2,5 @@
 var/
 .cache/
 .gocache/
+config.yaml
+dist/
