@@ -46,7 +46,7 @@ func Default() Config {
 	videoCodec := "auto"
 	if runtime.GOOS == "darwin" {
 		videoCapture = "avfoundation"
-		videoCodec = "h264_videotoolbox"
+		videoCodec = "libx264"
 	}
 	return Config{
 		AppName:          "USBridge Agent",
@@ -73,10 +73,8 @@ func Default() Config {
 
 func (c Config) EffectiveListenHost() string {
 	host := strings.TrimSpace(c.ListenHost)
-	if c.TailscaleEnabled && (host == "" || host == "127.0.0.1" || host == "localhost") {
-		return "0.0.0.0"
-	}
-	if host == "" {
+	switch host {
+	case "", "localhost", "0.0.0.0", "::":
 		return "127.0.0.1"
 	}
 	return host

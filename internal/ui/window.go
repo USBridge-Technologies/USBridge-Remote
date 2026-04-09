@@ -56,7 +56,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	header := container.NewBorder(nil, nil, nil, newBadge("AGENT", fyne.NewSize(78, 30)), container.NewVBox(title, subtitle))
 
-	httpCard := newStatCard("HTTP", fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort), "API")
+	httpCard := newStatCard("HTTP", fmt.Sprintf("127.0.0.1:%d", w.cfg.HTTPPort), "API")
 	videoCard := newStatCard("VIDEO", fmt.Sprintf("127.0.0.1:%d", w.cfg.VideoUDPPort), "RTP")
 	captureCard := newStatCard("CAPTURE", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS))
 	tsState := widget.NewLabel("Tailscale status: checking...")

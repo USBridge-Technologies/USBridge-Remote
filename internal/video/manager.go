@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/config"
+
+	"tailscale.com/tsnet"
 )
 
 type runningProcess struct {
@@ -25,44 +30,116 @@ type runningProcess struct {
 }
 
 type Manager struct {
-	cfg            config.Config
-	frp            interface{ UpdateVideoVisitor(int) error }
-	mu             sync.Mutex
-	proc           *runningProcess
-	info           api.VideoStartRequest
-	preferredCodec string
-	codecOrder     []string
-	codecOrderOnce sync.Once
-	stopRequested  bool
+	cfg config.Config
+	frp interface{ UpdateVideoVisitor(int) error }
+	ts  interface {
+		Server() (*tsnet.Server, error)
+		TailnetIPv4(context.Context) (string, error)
+	}
+	mu            sync.Mutex
+	proc          *runningProcess
+	relay         *videoRelay
+	info          api.VideoStartRequest
+	sessionCodec  string
+	stopRequested bool
+	startTraceSeq atomic.Uint64
 }
 
-func New(cfg config.Config, frp interface{ UpdateVideoVisitor(int) error }) *Manager {
-	return &Manager{cfg: cfg, frp: frp}
+type videoRelay struct {
+	cancel         context.CancelFunc
+	localConn      net.PacketConn
+	tailConn       net.Conn
+	targetAddr     string
+	localPort      int
+	firstPktCh     chan struct{}
+	firstOnce      sync.Once
+	localProbeCh   chan struct{}
+	localProbeOnce sync.Once
+	packetCount    atomic.Uint64
+	lastSource     atomic.Value
+	lastPacketAt   atomic.Int64
+}
+
+const (
+	videoRelayProbePayload      = "USBRIDGE_VIDEO_RELAY_PROBE_V1"
+	videoRelayAckPayload        = "USBRIDGE_VIDEO_RELAY_ACK_V1"
+	videoRelayLocalProbePayload = "USBRIDGE_VIDEO_LOCAL_RELAY_PROBE_V1"
+)
+
+func New(cfg config.Config, frp interface{ UpdateVideoVisitor(int) error }, ts interface {
+	Server() (*tsnet.Server, error)
+	TailnetIPv4(context.Context) (string, error)
+}) *Manager {
+	return &Manager{cfg: cfg, frp: frp, ts: ts}
 }
 
 func (m *Manager) Start(req api.VideoStartRequest) error {
+	traceID, startedAt := m.beginStartTrace(req)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.proc != nil {
+		m.traceStep(traceID, startedAt, "reject-already-running", "existing process mode=%s codec=%s", m.proc.mode, m.proc.codec)
 		return fmt.Errorf("video already running")
 	}
 
 	req = m.normalize(req)
+	if err := m.validateStartRequest(req); err != nil {
+		m.traceStep(traceID, startedAt, "invalid-request", "err=%v", err)
+		return err
+	}
+	m.traceStep(traceID, startedAt, "normalized-request", "device=%s size=%dx%d fps=%d bitrate=%s host=%s port=%d", req.VideoDevice, req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.ClientHost, req.ClientPort)
 	if m.frp != nil {
+		m.traceStep(traceID, startedAt, "update-frp-visitor-begin", "client_port=%d", req.ClientPort)
 		if err := m.frp.UpdateVideoVisitor(req.ClientPort); err != nil {
+			m.traceStep(traceID, startedAt, "update-frp-visitor-failed", "err=%v", err)
 			return fmt.Errorf("update video visitor port: %w", err)
 		}
+		m.traceStep(traceID, startedAt, "update-frp-visitor-ok", "client_port=%d", req.ClientPort)
 	}
-	proc, err := m.startWithFallback(req, nil)
+	relay, processReq, err := m.startRelayLocked(req)
 	if err != nil {
+		m.traceStep(traceID, startedAt, "relay-setup-failed", "err=%v", err)
 		return err
+	}
+	if relay != nil {
+		m.traceStep(traceID, startedAt, "relay-setup-ok", "local=127.0.0.1:%d target=%s", relay.localPort, relay.targetAddr)
+		if err := probeLocalRelay(relay, 1500*time.Millisecond); err != nil {
+			stopVideoRelay(relay)
+			m.traceStep(traceID, startedAt, "relay-local-probe-failed", "err=%v", err)
+			return err
+		}
+	}
+
+	mode := captureModeForPlatform(m.cfg.VideoCapture)
+	codec := m.resolveCodec()
+	m.traceStep(traceID, startedAt, "session-plan", "capture=%s codec=%s source_format=%s", mode, codec, sourceFormatForPlatform())
+	m.traceStep(traceID, startedAt, "ffmpeg-start-begin", "mode=%s codec=%s target=%s:%d", mode, codec, processReq.ClientHost, processReq.ClientPort)
+	proc, err := m.startProcess(processReq, mode, codec)
+	if err != nil {
+		stopVideoRelay(relay)
+		m.traceStep(traceID, startedAt, "ffmpeg-start-failed", "err=%v", err)
+		return err
+	}
+	if err := waitForFirstRelayPacket(relay, 12*time.Second); err != nil {
+		if proc.cancel != nil {
+			proc.cancel()
+		}
+		select {
+		case <-proc.done:
+		case <-time.After(1500 * time.Millisecond):
+		}
+		stopVideoRelay(relay)
+		m.traceStep(traceID, startedAt, "first-rtp-timeout", "mode=%s codec=%s err=%v", proc.mode, proc.codec, err)
+		return fmt.Errorf("video session produced no RTP packets: %w", err)
 	}
 
 	m.proc = proc
+	m.relay = relay
 	m.info = req
 	m.stopRequested = false
-	m.preferredCodec = proc.codec
+	m.sessionCodec = proc.codec
+	m.traceStep(traceID, startedAt, "running-committed", "mode=%s codec=%s", proc.mode, proc.codec)
 
 	go m.watchProcess(proc, req)
 
@@ -78,8 +155,30 @@ func (m *Manager) Stop() error {
 		m.stopRequested = true
 		m.proc.cancel()
 	}
+	stopVideoRelay(m.relay)
+	m.relay = nil
 	m.proc = nil
+	m.sessionCodec = ""
 	return nil
+}
+
+func (m *Manager) beginStartTrace(req api.VideoStartRequest) (uint64, time.Time) {
+	traceID := m.startTraceSeq.Add(1)
+	startedAt := time.Now()
+	log.Printf("[video/start #%d] begin client_trace=%s raw device=%s size=%dx%d fps=%d bitrate=%s mode=%s host=%s port=%d", traceID, req.TraceID, req.VideoDevice, req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.VideoMode, req.ClientHost, req.ClientPort)
+	return traceID, startedAt
+}
+
+func (m *Manager) traceStep(traceID uint64, startedAt time.Time, step, format string, args ...any) {
+	msg := ""
+	if strings.TrimSpace(format) != "" {
+		msg = fmt.Sprintf(format, args...)
+	}
+	if msg == "" {
+		log.Printf("[video/start #%d] step=%s elapsed=%s", traceID, step, time.Since(startedAt).Round(time.Millisecond))
+		return
+	}
+	log.Printf("[video/start #%d] step=%s elapsed=%s %s", traceID, step, time.Since(startedAt).Round(time.Millisecond), msg)
 }
 
 func (m *Manager) Info() map[string]interface{} {
@@ -124,28 +223,69 @@ func (m *Manager) normalize(req api.VideoStartRequest) api.VideoStartRequest {
 	if req.ClientHost == "" {
 		req.ClientHost = "127.0.0.1"
 	}
+	req.VideoMode = strings.TrimSpace(req.VideoMode)
+	if req.VideoMode == "" {
+		req.VideoMode = "h264"
+	}
 	return req
 }
 
-func (m *Manager) startWithFallback(req api.VideoStartRequest, skipCodecs map[string]struct{}) (*runningProcess, error) {
-	modes := captureModesForPlatform(m.cfg.VideoCapture)
+func (m *Manager) validateStartRequest(req api.VideoStartRequest) error {
+	if req.ClientPort <= 0 {
+		return fmt.Errorf("client UDP port is required")
+	}
+	if req.VideoMode != "" && !strings.EqualFold(req.VideoMode, "h264") {
+		return fmt.Errorf("unsupported video mode %q: only h264 is supported", req.VideoMode)
+	}
+	return nil
+}
 
-	var lastErr error
-	for _, mode := range modes {
-		for _, codec := range m.candidateCodecs(skipCodecs) {
-			proc, err := m.startProcess(req, mode, codec)
-			if err == nil {
-				return proc, nil
-			}
-			lastErr = err
-			log.Printf("[video] start failed mode=%s codec=%s err=%v", mode, codec, err)
-		}
+func (m *Manager) startRelayLocked(req api.VideoStartRequest) (*videoRelay, api.VideoStartRequest, error) {
+	if !shouldUseTailscaleVideoRelay(req.ClientHost) || m.ts == nil {
+		return nil, req, nil
 	}
 
-	if lastErr == nil {
-		lastErr = fmt.Errorf("unable to start video capture")
+	server, err := m.ts.Server()
+	if err != nil {
+		return nil, req, fmt.Errorf("tailscale server unavailable for video relay: %w", err)
 	}
-	return nil, lastErr
+	localConn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, req, fmt.Errorf("video relay local listen failed: %w", err)
+	}
+	localUDPAddr, ok := localConn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		_ = localConn.Close()
+		return nil, req, fmt.Errorf("video relay local addr type: %T", localConn.LocalAddr())
+	}
+	targetAddr := net.JoinHostPort(req.ClientHost, fmt.Sprintf("%d", req.ClientPort))
+	tailConn, err := server.Dial(context.Background(), "udp4", targetAddr)
+	if err != nil {
+		_ = localConn.Close()
+		return nil, req, fmt.Errorf("video relay tailscale dial failed: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	relay := &videoRelay{
+		cancel:       cancel,
+		localConn:    localConn,
+		tailConn:     tailConn,
+		targetAddr:   targetAddr,
+		localPort:    localUDPAddr.Port,
+		firstPktCh:   make(chan struct{}),
+		localProbeCh: make(chan struct{}),
+	}
+	if err := probeVideoRelay(tailConn, targetAddr, 3, 1200*time.Millisecond); err != nil {
+		cancel()
+		_ = localConn.Close()
+		_ = tailConn.Close()
+		return nil, req, err
+	}
+	req.ClientHost = "127.0.0.1"
+	req.ClientPort = localUDPAddr.Port
+	log.Printf("[video] tailscale relay enabled local=127.0.0.1:%d target=%s", relay.localPort, targetAddr)
+	go runVideoRelay(ctx, relay)
+	return relay, req, nil
 }
 
 func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*runningProcess, error) {
@@ -186,58 +326,29 @@ func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []str
 	return buildPlatformArgs(m.cfg, req, mode, codec)
 }
 
-func (m *Manager) candidateCodecs(skipCodecs map[string]struct{}) []string {
-	filter := func(values []string) []string {
-		if len(skipCodecs) == 0 {
-			return values
-		}
-		out := make([]string, 0, len(values))
-		for _, value := range values {
-			if _, skip := skipCodecs[strings.TrimSpace(value)]; skip {
-				continue
-			}
-			out = append(out, value)
-		}
-		return out
+func (m *Manager) resolveCodec() string {
+	configured := strings.TrimSpace(m.cfg.VideoCodec)
+	if configured == "" {
+		configured = "auto"
+	}
+	if !strings.EqualFold(configured, "auto") {
+		return configured
 	}
 
-	if preferred := strings.TrimSpace(m.preferredCodec); preferred != "" {
-		return filter(appendUnique(append([]string{preferred}, platformCodecFallbacks()...)...))
+	available := detectAvailableCodecs(m.cfg.FFmpegPath)
+	order := preferredCodecsForAdapters(detectPlatformVideoAdapters())
+	if len(order) == 0 {
+		order = platformCodecFallbacks()
 	}
-
-	primary := strings.TrimSpace(m.cfg.VideoCodec)
-	if primary == "" {
-		primary = "auto"
-	}
-	switch strings.ToLower(primary) {
-	case "auto":
-		return filter(m.autoCodecOrder())
-	default:
-		return filter(appendUnique(append([]string{primary}, platformCodecFallbacks()...)...))
-	}
-}
-
-func (m *Manager) autoCodecOrder() []string {
-	m.codecOrderOnce.Do(func() {
-		available := detectAvailableCodecs(m.cfg.FFmpegPath)
-		adapters := detectPlatformVideoAdapters()
-		order := preferredCodecsForAdapters(adapters)
-		if len(order) == 0 {
-			order = platformCodecFallbacks()
+	for _, codec := range appendUnique(append(order, "libx264")...) {
+		if len(available) == 0 || codec == "libx264" {
+			return codec
 		}
-		if len(available) != 0 {
-			filtered := make([]string, 0, len(order))
-			for _, codec := range order {
-				if _, ok := available[codec]; ok || codec == "libx264" {
-					filtered = append(filtered, codec)
-				}
-			}
-			order = filtered
+		if _, ok := available[codec]; ok {
+			return codec
 		}
-		m.codecOrder = appendUnique(append(order, platformCodecFallbacks()...)...)
-		log.Printf("[video] auto codec order adapters=%v order=%v", adapters, m.codecOrder)
-	})
-	return append([]string(nil), m.codecOrder...)
+	}
+	return "libx264"
 }
 
 func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) {
@@ -250,37 +361,192 @@ func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) 
 	stopping := m.stopRequested
 	if current {
 		m.proc = nil
-	}
-	if m.preferredCodec == proc.codec {
-		m.preferredCodec = ""
+		stopVideoRelay(m.relay)
+		m.relay = nil
+		m.sessionCodec = ""
 	}
 	m.mu.Unlock()
-
 	if !current || stopping {
 		return
 	}
+	log.Printf("[video] session ended and is left stopped; automatic fallback/restart is disabled")
+}
 
-	log.Printf("[video] attempting automatic fallback after mode=%s codec=%s", proc.mode, proc.codec)
-	skip := map[string]struct{}{proc.codec: {}}
-	recovered, recoverErr := m.startWithFallback(req, skip)
-	if recoverErr != nil {
-		log.Printf("[video] fallback failed after mode=%s codec=%s err=%v", proc.mode, proc.codec, recoverErr)
-		return
+func shouldUseTailscaleVideoRelay(host string) bool {
+	addr, err := netip.ParseAddr(strings.TrimSpace(host))
+	if err != nil {
+		return false
 	}
+	if addr.Is4() {
+		// Tailscale IPv4 range.
+		return netip.MustParsePrefix("100.64.0.0/10").Contains(addr)
+	}
+	return addr.Is6()
+}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.proc != nil || m.stopRequested {
-		if recovered.cancel != nil {
-			recovered.cancel()
+func captureModeForPlatform(configured string) string {
+	modes := captureModesForPlatform(configured)
+	if len(modes) == 0 {
+		return ""
+	}
+	return modes[0]
+}
+
+func runVideoRelay(ctx context.Context, relay *videoRelay) {
+	defer stopVideoRelay(relay)
+
+	log.Printf("[video] tailscale relay goroutine started local=127.0.0.1:%d target=%s", relay.localPort, relay.targetAddr)
+	buf := make([]byte, 64*1024)
+	firstPacket := true
+	packetCount := 0
+	time.AfterFunc(3*time.Second, func() {
+		if packetCount == 0 {
+			log.Printf("[video] tailscale relay has not received local RTP packets yet on 127.0.0.1:%d", relay.localPort)
 		}
+	})
+	for {
+		_ = relay.localConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, src, err := relay.localConn.ReadFrom(buf)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			log.Printf("[video] tailscale relay read failed: %v", err)
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		payload := string(buf[:n])
+		if payload == videoRelayLocalProbePayload {
+			relay.localProbeOnce.Do(func() {
+				close(relay.localProbeCh)
+			})
+			continue
+		}
+		packetCount++
+		relay.packetCount.Add(1)
+		relay.lastSource.Store(fmt.Sprintf("%v bytes=%d", src, n))
+		relay.lastPacketAt.Store(time.Now().UnixNano())
+		if firstPacket {
+			firstPacket = false
+			relay.firstOnce.Do(func() {
+				close(relay.firstPktCh)
+			})
+			log.Printf("[video] tailscale relay forwarding first RTP packet from %v to %s", src, relay.targetAddr)
+		}
+		if _, err := relay.tailConn.Write(buf[:n]); err != nil {
+			log.Printf("[video] tailscale relay write failed: %v", err)
+			return
+		}
+		if packetCount == 1 || packetCount%300 == 0 {
+			log.Printf("[video] tailscale relay forwarded packets=%d local=127.0.0.1:%d target=%s last_source=%s", packetCount, relay.localPort, relay.targetAddr, relayLastSource(relay))
+		}
+	}
+}
+
+func stopVideoRelay(relay *videoRelay) {
+	if relay == nil {
 		return
 	}
-	m.proc = recovered
-	m.info = req
-	m.preferredCodec = recovered.codec
-	log.Printf("[video] recovered with mode=%s codec=%s", recovered.mode, recovered.codec)
-	go m.watchProcess(recovered, req)
+	if relay.cancel != nil {
+		relay.cancel()
+	}
+	if relay.localConn != nil {
+		_ = relay.localConn.Close()
+	}
+	if relay.tailConn != nil {
+		_ = relay.tailConn.Close()
+	}
+}
+
+func waitForFirstRelayPacket(relay *videoRelay, timeout time.Duration) error {
+	if relay == nil {
+		return nil
+	}
+	select {
+	case <-relay.firstPktCh:
+		log.Printf("[video] tailscale relay confirmed first RTP packet on 127.0.0.1:%d", relay.localPort)
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:%d within %s (packets=%d last_source=%s)", relay.localPort, timeout, relay.packetCount.Load(), relayLastSource(relay))
+	}
+}
+
+func probeLocalRelay(relay *videoRelay, timeout time.Duration) error {
+	if relay == nil || relay.localConn == nil {
+		return nil
+	}
+	target, err := net.ResolveUDPAddr("udp4", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", relay.localPort)))
+	if err != nil {
+		return fmt.Errorf("local relay probe resolve: %w", err)
+	}
+	conn, err := net.DialUDP("udp4", nil, target)
+	if err != nil {
+		return fmt.Errorf("local relay probe dial: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte(videoRelayLocalProbePayload)); err != nil {
+		return fmt.Errorf("local relay probe write: %w", err)
+	}
+	select {
+	case <-relay.localProbeCh:
+		log.Printf("[video] local relay probe confirmed on 127.0.0.1:%d", relay.localPort)
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("local relay did not receive localhost UDP probe on 127.0.0.1:%d within %s", relay.localPort, timeout)
+	}
+}
+
+func relayLastSource(relay *videoRelay) string {
+	if relay == nil {
+		return ""
+	}
+	value, _ := relay.lastSource.Load().(string)
+	if value == "" {
+		return "none"
+	}
+	return value
+}
+
+func probeVideoRelay(conn net.Conn, targetAddr string, attempts int, timeout time.Duration) error {
+	if conn == nil {
+		return fmt.Errorf("video relay probe failed: nil tailscale conn")
+	}
+	if attempts <= 0 {
+		attempts = 1
+	}
+	buf := make([]byte, 256)
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		deadline := time.Now().Add(timeout)
+		if err := conn.SetDeadline(deadline); err != nil {
+			return fmt.Errorf("video relay probe set deadline: %w", err)
+		}
+		if _, err := conn.Write([]byte(videoRelayProbePayload)); err != nil {
+			lastErr = fmt.Errorf("video relay probe write to %s: %w", targetAddr, err)
+			continue
+		}
+		n, err := conn.Read(buf)
+		if err == nil && string(buf[:n]) == videoRelayAckPayload {
+			_ = conn.SetDeadline(time.Time{})
+			log.Printf("[video] tailscale relay probe acknowledged by %s on attempt %d", targetAddr, attempt)
+			return nil
+		}
+		if err == nil {
+			lastErr = fmt.Errorf("video relay probe unexpected reply from %s: %q", targetAddr, string(buf[:n]))
+		} else {
+			lastErr = fmt.Errorf("video relay probe timeout from %s: %w", targetAddr, err)
+		}
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return lastErr
 }
 
 func codecArgs(codec string) []string {

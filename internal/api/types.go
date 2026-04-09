@@ -104,6 +104,7 @@ type VideoStartRequest struct {
 	VideoMode    string `json:"video_mode,omitempty"`
 	ClientHost   string `json:"client_host,omitempty"`
 	ClientPort   int    `json:"client_port,omitempty"`
+	TraceID      string `json:"-"`
 }
 
 type VideoCaptureMode struct {

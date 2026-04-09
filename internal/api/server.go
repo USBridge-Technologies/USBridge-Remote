@@ -90,10 +90,19 @@ func (w *loggingResponseWriter) WriteHeader(status int) {
 func (s *Server) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		log.Printf("[http] -> %s %s from=%s", r.Method, r.URL.RequestURI(), r.RemoteAddr)
+		traceID := strings.TrimSpace(r.Header.Get("X-USBridge-Video-Trace"))
+		if traceID != "" {
+			log.Printf("[http] -> %s %s from=%s trace=%s", r.Method, r.URL.RequestURI(), r.RemoteAddr, traceID)
+		} else {
+			log.Printf("[http] -> %s %s from=%s", r.Method, r.URL.RequestURI(), r.RemoteAddr)
+		}
 		lrw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(lrw, r)
-		log.Printf("[http] <- %s %s status=%d dur=%s", r.Method, r.URL.RequestURI(), lrw.status, time.Since(start).Round(time.Millisecond))
+		if traceID != "" {
+			log.Printf("[http] <- %s %s status=%d dur=%s trace=%s", r.Method, r.URL.RequestURI(), lrw.status, time.Since(start).Round(time.Millisecond), traceID)
+		} else {
+			log.Printf("[http] <- %s %s status=%d dur=%s", r.Method, r.URL.RequestURI(), lrw.status, time.Since(start).Round(time.Millisecond))
+		}
 	})
 }
 
@@ -331,11 +340,19 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
 		return
 	}
+	req.TraceID = strings.TrimSpace(r.Header.Get("X-USBridge-Video-Trace"))
+	req.ClientHost = strings.TrimSpace(req.ClientHost)
+	if req.ClientHost == "" {
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			host = strings.TrimSpace(host)
+			if host != "" && !isLoopbackHost(host) {
+				req.ClientHost = host
+			}
+		}
+	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		host = strings.TrimSpace(host)
-		if host != "" && !isLoopbackHost(host) {
-			req.ClientHost = host
-		}
+		log.Printf("[api] video_start trace=%s peer=%s requested_client=%s:%d", req.TraceID, host, req.ClientHost, req.ClientPort)
 	}
 	log.Printf("[api] video_start width=%d height=%d fps=%d bitrate=%s mode=%s", req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.VideoMode)
 	if err := s.app.Video().Start(req); err != nil {

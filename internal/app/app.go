@@ -73,7 +73,7 @@ func New() (*App, error) {
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
-	instance.video = video.New(cfg, instance.frp)
+	instance.video = video.New(cfg, instance.frp, instance.ts)
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort),
 		Handler:           api.NewServer(instance).Routes(),

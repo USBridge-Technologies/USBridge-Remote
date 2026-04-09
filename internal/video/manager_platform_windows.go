@@ -41,6 +41,9 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec
 		"-keyint_min", fmt.Sprintf("%d", req.VideoFPS),
 		"-bf", "0",
 		"-bsf:v", "dump_extra=freq=keyframe",
+		"-flush_packets", "1",
+		"-muxdelay", "0",
+		"-muxpreload", "0",
 		"-b:v", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-maxrate", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-bufsize", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
@@ -97,11 +100,7 @@ func captureModesForPlatform(configured string) []string {
 	if mode == "" {
 		mode = "dxgi"
 	}
-	modes := []string{mode}
-	if mode == "dxgi" {
-		modes = append(modes, "gdigrab")
-	}
-	return modes
+	return []string{mode}
 }
 
 func platformCodecFallbacks() []string {

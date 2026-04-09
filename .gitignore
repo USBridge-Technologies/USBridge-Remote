@@ -1,2 +1,4 @@
 *.exe
 var/
+.cache/
+.gocache/

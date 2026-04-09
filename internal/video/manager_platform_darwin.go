@@ -18,13 +18,13 @@ func sourceFormatForPlatform() string {
 }
 
 func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, codec string) []string {
-	device := resolveDarwinCaptureDevice(cfg.FFmpegPath, req.VideoDevice)
+	devices := detectAVFoundationVideoDevices(cfg.FFmpegPath)
+	device := resolveDarwinCaptureDeviceFromList(devices, req.VideoDevice)
+	log.Printf("[video/darwin] capture selection requested=%q resolved=%q devices=%s", req.VideoDevice, device, describeAVFoundationDevices(devices))
 	args := []string{
 		"-f", "avfoundation",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
 		"-capture_cursor", "1",
-		"-pixel_format", "bgr0",
-		"-video_size", fmt.Sprintf("%dx%d", req.VideoWidth, req.VideoHeight),
 		"-i", fmt.Sprintf("%s:none", device),
 		"-probesize", "32",
 		"-analyzeduration", "0",
@@ -42,6 +42,9 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-keyint_min", fmt.Sprintf("%d", req.VideoFPS),
 		"-bf", "0",
 		"-bsf:v", "dump_extra=freq=keyframe",
+		"-flush_packets", "1",
+		"-muxdelay", "0",
+		"-muxpreload", "0",
 		"-b:v", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-maxrate", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-bufsize", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
@@ -57,7 +60,7 @@ func detectPlatformVideoAdapters() []string {
 }
 
 func preferredCodecsForAdapters(_ []string) []string {
-	return []string{"h264_videotoolbox", "libx264"}
+	return []string{"libx264", "h264_videotoolbox"}
 }
 
 func captureModesForPlatform(configured string) []string {
@@ -69,11 +72,15 @@ func captureModesForPlatform(configured string) []string {
 }
 
 func platformCodecFallbacks() []string {
-	return []string{"h264_videotoolbox", "libx264"}
+	return []string{"libx264", "h264_videotoolbox"}
 }
 
 func resolveDarwinCaptureDevice(ffmpegPath, requested string) string {
 	devices := detectAVFoundationVideoDevices(ffmpegPath)
+	return resolveDarwinCaptureDeviceFromList(devices, requested)
+}
+
+func resolveDarwinCaptureDeviceFromList(devices []avfoundationDevice, requested string) string {
 	if len(devices) == 0 {
 		return "Capture screen 0"
 	}
@@ -119,6 +126,21 @@ func resolveDarwinCaptureDevice(ffmpegPath, requested string) string {
 		}
 	}
 	return strconv.Itoa(devices[0].index)
+}
+
+func describeAVFoundationDevices(devices []avfoundationDevice) string {
+	if len(devices) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(devices))
+	for _, device := range devices {
+		kind := "camera"
+		if device.screen {
+			kind = "screen"
+		}
+		parts = append(parts, fmt.Sprintf("%d:%s:%q", device.index, kind, device.name))
+	}
+	return strings.Join(parts, ", ")
 }
 
 type avfoundationDevice struct {

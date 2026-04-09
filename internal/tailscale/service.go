@@ -79,6 +79,17 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	return out, nil
 }
 
+func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
+	status, err := s.Status(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(status.Self.IP4) == "" {
+		return "", fmt.Errorf("tailscale IPv4 address unavailable")
+	}
+	return status.Self.IP4, nil
+}
+
 func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	logrus.Info("tailscale agent: StartLogin begin")
 	lc, err := s.localClient()
