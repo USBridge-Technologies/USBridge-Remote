@@ -9,6 +9,7 @@ require (
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/samber/lo v1.47.0
 	github.com/sirupsen/logrus v1.9.3
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/sys v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.96.5

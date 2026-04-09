@@ -12,8 +12,10 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
@@ -55,7 +57,10 @@ func (w *Window) ShowAndRun(onClose func()) {
 	subtitle := canvas.NewText("Compact desktop backend for usbridge_client", design.ColorTextMuted)
 	subtitle.TextSize = 12
 
-	header := container.NewBorder(nil, nil, nil, newBadge("AGENT", fyne.NewSize(78, 30)), container.NewVBox(title, subtitle))
+	tokenBtn := widget.NewButton("TOKEN", func() {
+		w.showTokenDialog(win)
+	})
+	header := container.NewBorder(nil, nil, nil, container.NewGridWrap(fyne.NewSize(86, 32), tokenBtn), container.NewVBox(title, subtitle))
 
 	httpCard := newStatCard("HTTP", fmt.Sprintf("127.0.0.1:%d", w.cfg.HTTPPort), "API")
 	videoCard := newStatCard("VIDEO", fmt.Sprintf("127.0.0.1:%d", w.cfg.VideoUDPPort), "RTP")
@@ -243,6 +248,99 @@ func mapUserspace(userspace bool) string {
 		return "embedded"
 	}
 	return "system"
+}
+
+func (w *Window) showTokenDialog(parent fyne.Window) {
+	if parent == nil {
+		return
+	}
+
+	token := strings.TrimSpace(w.cfg.FRPToken)
+	if token == "" {
+		token = "unavailable"
+	}
+
+	host, protocol := w.quickConnectTarget()
+	link := ""
+	if host != "" && token != "unavailable" {
+		values := url.Values{}
+		values.Set("host", host)
+		values.Set("token", token)
+		if protocol != "" {
+			values.Set("protocol", protocol)
+		}
+		link = fmt.Sprintf("usbridge://connect?%s", values.Encode())
+	}
+
+	tokenEntry := widget.NewEntry()
+	tokenEntry.SetText(token)
+	tokenEntry.Disable()
+
+	linkEntry := widget.NewEntry()
+	linkEntry.SetText(link)
+	linkEntry.Disable()
+
+	var qrBlock fyne.CanvasObject
+	if link != "" {
+		pngBytes, err := qrcode.Encode(link, qrcode.Medium, 280)
+		if err == nil {
+			image := canvas.NewImageFromResource(fyne.NewStaticResource("agent-token-qr.png", pngBytes))
+			image.FillMode = canvas.ImageFillContain
+			image.SetMinSize(fyne.NewSize(240, 240))
+			qrBlock = container.NewCenter(image)
+		} else {
+			qrBlock = widget.NewLabel(fmt.Sprintf("QR unavailable: %v", err))
+		}
+	} else {
+		qrBlock = widget.NewLabel("QR link unavailable until the agent has a reachable address.")
+	}
+
+	copyTokenBtn := widget.NewButton("Copy Token", func() {
+		parent.Clipboard().SetContent(token)
+	})
+	copyLinkBtn := widget.NewButton("Copy Link", func() {
+		if link != "" {
+			parent.Clipboard().SetContent(link)
+		}
+	})
+	if link == "" {
+		copyLinkBtn.Disable()
+	}
+
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("Quick Connect", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Token"),
+		tokenEntry,
+		widget.NewLabel("Link"),
+		linkEntry,
+		qrBlock,
+		container.NewHBox(copyTokenBtn, copyLinkBtn),
+	)
+
+	d := dialog.NewCustom("Token / QR", "Close", content, parent)
+	d.Resize(fyne.NewSize(380, 560))
+	d.Show()
+}
+
+func (w *Window) quickConnectTarget() (host string, protocol string) {
+	if w.ts != nil {
+		if status, err := w.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
+			switch {
+			case strings.TrimSpace(status.Self.DNSName) != "":
+				return strings.TrimSpace(status.Self.DNSName), "tailscale"
+			case strings.TrimSpace(status.Self.IP4) != "":
+				return strings.TrimSpace(status.Self.IP4), "tailscale"
+			}
+		}
+	}
+
+	host = strings.TrimSpace(w.cfg.EffectiveListenHost())
+	switch host {
+	case "", "127.0.0.1", "localhost", "::1":
+		return "", ""
+	default:
+		return host, "quic"
+	}
 }
 
 func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
