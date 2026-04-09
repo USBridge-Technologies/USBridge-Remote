@@ -647,9 +647,6 @@ func streamLogs(stderr io.Reader, mode string) {
 		if line == "" {
 			continue
 		}
-		if strings.Contains(line, "frame=") || strings.Contains(line, "fps=") {
-			continue
-		}
 		log.Printf("[video/%s] %s", mode, line)
 	}
 	if err := scanner.Err(); err != nil {
