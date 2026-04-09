@@ -511,6 +511,13 @@ void gst_android_reset_runtime_decoder_fallback(void) {
     LOGI("✅ Android decoder runtime fallback reset");
 }
 
+void gst_android_force_software_decoder(int enabled) {
+    g_hw_map_fail_count = 0;
+    g_reconnect_requested = FALSE;
+    g_force_sw_decoder = enabled ? TRUE : FALSE;
+    LOGI("🔧 Android decoder mode forced: software=%d", enabled ? 1 : 0);
+}
+
 // udpsrc_probe_cb — вызывается при получении RTP пакета (диагностика)
 static GstPadProbeReturn udpsrc_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
     (void)pad;
@@ -1657,7 +1664,9 @@ import "C"
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1783,6 +1792,15 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 
 	// Инициализируем хранилище кадров для callback-режима
 	C.hw_frame_store_init()
+
+	// Qualcomm/GL path на ряде Android устройств отдаёт формально валидные кадры,
+	// но визуально пустую/серую картинку. Для H.264 здесь принудительно выбираем
+	// software decode path до отдельной нормальной HW валидации.
+	forceSoftware := gs.videoMode == models.VideoModeH264
+	C.gst_android_force_software_decoder(C.int(boolToInt(forceSoftware)))
+	if forceSoftware {
+		logrus.Info("🔧 Android: forcing software H.264 decoder path")
+	}
 
 	pipelineMode := C.int(C.PIPELINE_MODE_H264)
 	if gs.videoMode == models.VideoModeJPEGRTP {
@@ -1969,10 +1987,11 @@ func (gs *GStreamerService) processFrames() {
 		// чтобы убрать лишнюю полную аллокацию и копию на каждый кадр.
 		img := image.NewRGBA(image.Rect(0, 0, w, h))
 		copy(img.Pix, src)
+		forceOpaqueAlpha(img)
 		C.g_free(C.gpointer(data))
 
-		if frameNum <= 3 {
-			logrus.Infof("🖼️ Android: Кадр #%d: %dx%d, %d bytes (callback mode)", frameNum, w, h, len(src))
+		if frameNum <= 5 {
+			logrus.Infof("🖼️ Android: Кадр #%d: %dx%d, %d bytes (callback mode) stats=%s", frameNum, w, h, len(src), summarizeRGBA(img))
 		}
 
 		producedAt := time.Now()
@@ -2008,6 +2027,99 @@ func (gs *GStreamerService) processFrames() {
 			gs.lastQueuedFrame.Store(time.Now().UnixNano())
 		}
 	}
+}
+
+func forceOpaqueAlpha(img *image.RGBA) {
+	if img == nil {
+		return
+	}
+	pix := img.Pix
+	for i := 3; i < len(pix); i += 4 {
+		pix[i] = 0xff
+	}
+}
+
+func summarizeRGBA(img *image.RGBA) string {
+	if img == nil || img.Rect.Dx() == 0 || img.Rect.Dy() == 0 {
+		return "none"
+	}
+	points := []image.Point{
+		{X: 0, Y: 0},
+		{X: img.Rect.Dx() / 2, Y: img.Rect.Dy() / 2},
+		{X: maxInt(img.Rect.Dx()-1, 0), Y: 0},
+		{X: 0, Y: maxInt(img.Rect.Dy()-1, 0)},
+		{X: maxInt(img.Rect.Dx()-1, 0), Y: maxInt(img.Rect.Dy()-1, 0)},
+	}
+	samples := make([]string, 0, len(points))
+	minR, minG, minB, minA := 255, 255, 255, 255
+	maxR, maxG, maxB, maxA := 0, 0, 0, 0
+	nonGrayCount := 0
+	opaqueCount := 0
+	pixelCount := 0
+
+	for y := img.Rect.Min.Y; y < img.Rect.Max.Y; y += maxInt(img.Rect.Dy()/6, 1) {
+		for x := img.Rect.Min.X; x < img.Rect.Max.X; x += maxInt(img.Rect.Dx()/6, 1) {
+			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+			if int(c.R) < minR {
+				minR = int(c.R)
+			}
+			if int(c.G) < minG {
+				minG = int(c.G)
+			}
+			if int(c.B) < minB {
+				minB = int(c.B)
+			}
+			if int(c.A) < minA {
+				minA = int(c.A)
+			}
+			if int(c.R) > maxR {
+				maxR = int(c.R)
+			}
+			if int(c.G) > maxG {
+				maxG = int(c.G)
+			}
+			if int(c.B) > maxB {
+				maxB = int(c.B)
+			}
+			if int(c.A) > maxA {
+				maxA = int(c.A)
+			}
+			if c.R != c.G || c.G != c.B {
+				nonGrayCount++
+			}
+			if c.A == 0xff {
+				opaqueCount++
+			}
+			pixelCount++
+		}
+	}
+	for _, pt := range points {
+		c := color.RGBAModel.Convert(img.At(pt.X, pt.Y)).(color.RGBA)
+		samples = append(samples, fmt.Sprintf("(%d,%d)=%d,%d,%d,%d", pt.X, pt.Y, c.R, c.G, c.B, c.A))
+	}
+	return fmt.Sprintf(
+		"samples=[%s] min=%d,%d,%d,%d max=%d,%d,%d,%d non_gray=%d/%d opaque=%d/%d stride=%d",
+		strings.Join(samples, " "),
+		minR, minG, minB, minA,
+		maxR, maxG, maxB, maxA,
+		nonGrayCount, pixelCount,
+		opaqueCount, pixelCount,
+		img.Stride,
+	)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 // attemptReconnect пытается переподключиться к UDP потоку

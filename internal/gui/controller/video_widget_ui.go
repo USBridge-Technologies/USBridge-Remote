@@ -3,7 +3,11 @@ package controller
 import (
 	"fmt"
 	"image"
+	"image/color"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -549,10 +553,11 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	if frameNum == 1 {
 		bounds := frame.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
+		vw.dumpFrameSnapshot(frame, frameNum)
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
 		bounds := frame.Bounds()
-		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
+		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d stats=%s", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy(), summarizeImage(frame))
 	}
 
 	vw.scheduleFrameRender()
@@ -890,6 +895,9 @@ func (vw *VideoWidget) renderLatestFrame() {
 	mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
 	needsFullRefresh := vw.forceCanvasRefresh.Swap(false)
 	if mainWindowVisible && vw.videoCanvas != nil {
+		if frameNum <= 5 || frameNum%300 == 0 {
+			logrus.Infof("🪟 [VIDEO] canvas render trace=%s frame=%d stats=%s", vw.currentVideoTraceLabel(), frameNum, summarizeImage(frame))
+		}
 		vw.videoCanvas.Image = frame
 		vw.videoCanvas.Refresh()
 	}
@@ -920,4 +928,108 @@ func (vw *VideoWidget) renderLatestFrame() {
 	if hasNewerFrame {
 		vw.scheduleFrameRender()
 	}
+}
+
+func summarizeImage(img image.Image) string {
+	if img == nil {
+		return "none"
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() == 0 || bounds.Dy() == 0 {
+		return "empty"
+	}
+
+	points := []image.Point{
+		{X: bounds.Min.X, Y: bounds.Min.Y},
+		{X: bounds.Min.X + bounds.Dx()/2, Y: bounds.Min.Y + bounds.Dy()/2},
+		{X: bounds.Max.X - 1, Y: bounds.Min.Y},
+		{X: bounds.Min.X, Y: bounds.Max.Y - 1},
+		{X: bounds.Max.X - 1, Y: bounds.Max.Y - 1},
+	}
+
+	samples := make([]string, 0, len(points))
+	minR, minG, minB, minA := 255, 255, 255, 255
+	maxR, maxG, maxB, maxA := 0, 0, 0, 0
+	nonGrayCount := 0
+	opaqueCount := 0
+	pixelCount := 0
+	stepX := maxInt(bounds.Dx()/6, 1)
+	stepY := maxInt(bounds.Dy()/6, 1)
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += stepY {
+		for x := bounds.Min.X; x < bounds.Max.X; x += stepX {
+			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+			if int(c.R) < minR {
+				minR = int(c.R)
+			}
+			if int(c.G) < minG {
+				minG = int(c.G)
+			}
+			if int(c.B) < minB {
+				minB = int(c.B)
+			}
+			if int(c.A) < minA {
+				minA = int(c.A)
+			}
+			if int(c.R) > maxR {
+				maxR = int(c.R)
+			}
+			if int(c.G) > maxG {
+				maxG = int(c.G)
+			}
+			if int(c.B) > maxB {
+				maxB = int(c.B)
+			}
+			if int(c.A) > maxA {
+				maxA = int(c.A)
+			}
+			if c.R != c.G || c.G != c.B {
+				nonGrayCount++
+			}
+			if c.A == 0xff {
+				opaqueCount++
+			}
+			pixelCount++
+		}
+	}
+
+	for _, pt := range points {
+		c := color.RGBAModel.Convert(img.At(pt.X, pt.Y)).(color.RGBA)
+		samples = append(samples, fmt.Sprintf("(%d,%d)=%d,%d,%d,%d", pt.X, pt.Y, c.R, c.G, c.B, c.A))
+	}
+
+	return fmt.Sprintf(
+		"samples=[%s] min=%d,%d,%d,%d max=%d,%d,%d,%d non_gray=%d/%d opaque=%d/%d type=%T",
+		strings.Join(samples, " "),
+		minR, minG, minB, minA,
+		maxR, maxG, maxB, maxA,
+		nonGrayCount, pixelCount,
+		opaqueCount, pixelCount,
+		img,
+	)
+}
+
+func (vw *VideoWidget) dumpFrameSnapshot(img image.Image, frameNum int64) {
+	if img == nil {
+		return
+	}
+
+	trace := vw.currentVideoTraceLabel()
+	if trace == "" {
+		trace = "unknown"
+	}
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("usbridge-%s-frame-%d.png", trace, frameNum))
+	file, err := os.Create(path)
+	if err != nil {
+		logrus.Warnf("⚠️ [VIDEO] cannot create frame snapshot %s: %v", path, err)
+		return
+	}
+	defer file.Close()
+
+	if err := png.Encode(file, img); err != nil {
+		logrus.Warnf("⚠️ [VIDEO] cannot encode frame snapshot %s: %v", path, err)
+		return
+	}
+
+	logrus.Infof("📸 [VIDEO] frame snapshot saved trace=%s frame=%d path=%s stats=%s", trace, frameNum, path, summarizeImage(img))
 }
