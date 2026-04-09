@@ -210,6 +210,22 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("tailscale auth URL was not produced")
 }
 
+func (s *Service) Logout(ctx context.Context) error {
+	lc, err := s.localClient()
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+	}
+	if err := lc.Logout(ctx); err != nil {
+		return fmt.Errorf("tailscale logout: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) Server() (*tsnet.Server, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

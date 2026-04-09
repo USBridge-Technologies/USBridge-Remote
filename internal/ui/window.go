@@ -34,6 +34,7 @@ type Window struct {
 	ts interface {
 		Status(context.Context) (*tailscale.Status, error)
 		StartLogin(context.Context) (string, error)
+		Logout(context.Context) error
 	}
 }
 
@@ -64,11 +65,21 @@ func (w *Window) ShowAndRun(onClose func()) {
 	tsAddress.Wrapping = fyne.TextWrapWord
 	tsAccount := widget.NewLabel("Google account: not connected")
 
-	tsLoginBtn := widget.NewButton("Sign In With Google", func() {
+	var tsAuthBtn *widget.Button
+	tsAuthBtn = widget.NewButton("Sign In With Google", func() {
 		if w.ts == nil {
 			tsState.SetText("Tailscale status: service unavailable")
 			return
 		}
+		status, statusErr := w.ts.Status(context.Background())
+		if statusErr == nil && status != nil && status.LoggedIn {
+			if err := w.ts.Logout(context.Background()); err != nil {
+				tsState.SetText(fmt.Sprintf("Tailscale status: %v", err))
+			}
+			w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
+			return
+		}
+
 		authURL, err := w.ts.StartLogin(context.Background())
 		if err != nil {
 			tsState.SetText(fmt.Sprintf("Tailscale status: %v", err))
@@ -80,15 +91,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 		}
 		tsState.SetText("Tailscale status: login flow started in browser")
-	})
-	tsRefreshBtn := widget.NewButton("Refresh", func() {
-		w.refreshTailscale(tsState, tsAddress, tsAccount)
+		tsAuthBtn.SetText("Sign In With Google")
 	})
 	tsPanel := newPanel("Tailscale", container.NewVBox(
 		tsState,
 		tsAccount,
 		tsAddress,
-		container.NewHBox(tsLoginBtn, tsRefreshBtn),
+		container.NewHBox(tsAuthBtn),
 	))
 
 	accessStatus := widget.NewLabel("")
@@ -148,7 +157,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	)
 
 	refreshPermissionLabels(accessStatus, screenStatus, w.perms)
-	w.refreshTailscale(tsState, tsAddress, tsAccount)
+	w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -158,7 +167,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 			fyne.Do(func() {
 				refreshPermissionLabels(accessStatus, screenStatus, w.perms)
-				w.refreshTailscale(tsState, tsAddress, tsAccount)
+				w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
 			})
 		}
 	}()
@@ -175,7 +184,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.app.Run()
 }
 
-func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label) {
+func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
 	if state == nil || address == nil || account == nil {
 		return
 	}
@@ -183,18 +192,27 @@ func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText,
 		state.SetText("Tailscale status: unavailable")
 		account.SetText("Google account: unavailable")
 		address.ParseMarkdown("Tailnet address: `unavailable`")
+		if action != nil {
+			action.SetText("Sign In With Google")
+		}
 		return
 	}
 
 	status, err := w.ts.Status(context.Background())
 	if err != nil {
 		state.SetText(fmt.Sprintf("Tailscale status: %v", err))
+		if action != nil {
+			action.SetText("Sign In With Google")
+		}
 		return
 	}
 	if !status.LoggedIn {
 		state.SetText("Tailscale status: signed out")
 		account.SetText("Google account: sign in required")
 		address.ParseMarkdown("Tailnet address: `sign in to publish this agent`")
+		if action != nil {
+			action.SetText("Sign In With Google")
+		}
 		return
 	}
 
@@ -208,6 +226,9 @@ func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText,
 	state.SetText(fmt.Sprintf("Tailscale status: %s", strings.ToLower(status.Backend)))
 	account.SetText(fmt.Sprintf("Google account: %s", fallbackValue(status.Self.UserLogin, "connected")))
 	address.ParseMarkdown(fmt.Sprintf("Tailnet address: `%s:%d` (%s)", endpoint, w.cfg.HTTPPort, fallbackValue(mapUserspace(status.Userspace), "embedded")))
+	if action != nil {
+		action.SetText("Sign Out")
+	}
 }
 
 func fallbackValue(value, fallback string) string {
