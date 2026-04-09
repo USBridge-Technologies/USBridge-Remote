@@ -22,7 +22,6 @@ import (
 
 type runningProcess struct {
 	cmd       *exec.Cmd
-	cancel    context.CancelFunc
 	done      chan error
 	mode      string
 	codec     string
@@ -122,13 +121,7 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 		return err
 	}
 	if err := waitForFirstRelayPacket(relay, 12*time.Second); err != nil {
-		if proc.cancel != nil {
-			proc.cancel()
-		}
-		select {
-		case <-proc.done:
-		case <-time.After(1500 * time.Millisecond):
-		}
+		stopRunningProcess(proc, 1500*time.Millisecond)
 		stopVideoRelay(relay)
 		m.traceStep(traceID, startedAt, "first-rtp-timeout", "mode=%s codec=%s err=%v", proc.mode, proc.codec, err)
 		return fmt.Errorf("video session produced no RTP packets: %w", err)
@@ -148,17 +141,19 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 
 func (m *Manager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.proc != nil && m.proc.cancel != nil {
-		log.Printf("[video] stop requested mode=%s", m.proc.mode)
-		m.stopRequested = true
-		m.proc.cancel()
-	}
-	stopVideoRelay(m.relay)
-	m.relay = nil
+	proc := m.proc
+	relay := m.relay
+	m.stopRequested = true
 	m.proc = nil
+	m.relay = nil
 	m.sessionCodec = ""
+	m.mu.Unlock()
+
+	if proc != nil {
+		log.Printf("[video] stop requested mode=%s codec=%s", proc.mode, proc.codec)
+	}
+	stopRunningProcess(proc, 3*time.Second)
+	stopVideoRelay(relay)
 	return nil
 }
 
@@ -289,23 +284,27 @@ func (m *Manager) startRelayLocked(req api.VideoStartRequest) (*videoRelay, api.
 }
 
 func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*runningProcess, error) {
-	ctx, cancel := context.WithCancel(context.Background())
 	args := m.buildArgs(req, mode, codec)
-	log.Printf("[video] starting mode=%s codec=%s target=%s:%d fps=%d size=%dx%d bitrate=%s", mode, codec, req.ClientHost, req.ClientPort, req.VideoFPS, req.VideoWidth, req.VideoHeight, req.VideoBitrate)
+	hardware := !strings.EqualFold(codec, "libx264")
+	log.Printf("[video] starting mode=%s codec=%s hardware=%t target=%s:%d fps=%d size=%dx%d bitrate=%s", mode, codec, hardware, req.ClientHost, req.ClientPort, req.VideoFPS, req.VideoWidth, req.VideoHeight, req.VideoBitrate)
 	log.Printf("[video] ffmpeg args mode=%s codec=%s :: %s %s", mode, codec, m.cfg.FFmpegPath, strings.Join(args, " "))
 
-	cmd := exec.CommandContext(ctx, m.cfg.FFmpegPath, args...)
+	cmd := exec.Command(m.cfg.FFmpegPath, args...)
+	configureFFmpegCommand(cmd)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		cancel()
 		return nil, err
 	}
 
-	go streamLogs(stderr, mode)
+	go streamLogs(stdout, mode, "stdout")
+	go streamLogs(stderr, mode, "stderr")
 
 	done := make(chan error, 1)
 	go func() {
@@ -314,11 +313,10 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 
 	select {
 	case err := <-done:
-		cancel()
 		return nil, fmt.Errorf("ffmpeg exited early: %w", err)
 	case <-time.After(3 * time.Second):
-		log.Printf("[video] started mode=%s codec=%s", mode, codec)
-		return &runningProcess{cmd: cmd, cancel: cancel, done: done, mode: mode, codec: codec, startedAt: time.Now()}, nil
+		log.Printf("[video] started mode=%s codec=%s hardware=%t pid=%d", mode, codec, hardware, cmd.Process.Pid)
+		return &runningProcess{cmd: cmd, done: done, mode: mode, codec: codec, startedAt: time.Now()}, nil
 	}
 }
 
@@ -370,6 +368,28 @@ func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) 
 		return
 	}
 	log.Printf("[video] session ended and is left stopped; automatic fallback/restart is disabled")
+}
+
+func stopRunningProcess(proc *runningProcess, timeout time.Duration) {
+	if proc == nil || proc.cmd == nil || proc.cmd.Process == nil {
+		return
+	}
+	if err := terminateFFmpegProcess(proc.cmd); err != nil {
+		log.Printf("[video] terminate failed mode=%s codec=%s pid=%d err=%v", proc.mode, proc.codec, proc.cmd.Process.Pid, err)
+	}
+	select {
+	case <-proc.done:
+	case <-time.After(timeout):
+		log.Printf("[video] process wait timeout mode=%s codec=%s pid=%d timeout=%s", proc.mode, proc.codec, proc.cmd.Process.Pid, timeout)
+		if err := proc.cmd.Process.Kill(); err != nil {
+			log.Printf("[video] force kill failed mode=%s codec=%s pid=%d err=%v", proc.mode, proc.codec, proc.cmd.Process.Pid, err)
+		}
+		select {
+		case <-proc.done:
+		case <-time.After(1500 * time.Millisecond):
+			log.Printf("[video] process still running after force kill mode=%s codec=%s pid=%d", proc.mode, proc.codec, proc.cmd.Process.Pid)
+		}
+	}
 }
 
 func shouldUseTailscaleVideoRelay(host string) bool {
@@ -640,17 +660,17 @@ func containsAny(value string, needles ...string) bool {
 	return false
 }
 
-func streamLogs(stderr io.Reader, mode string) {
-	scanner := bufio.NewScanner(stderr)
+func streamLogs(r io.Reader, mode, stream string) {
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		log.Printf("[video/%s] %s", mode, line)
+		log.Printf("[video/%s/%s] %s", mode, stream, line)
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("[video/%s] stderr error: %v", mode, err)
+		log.Printf("[video/%s/%s] pipe error: %v", mode, stream, err)
 	}
 }
 
