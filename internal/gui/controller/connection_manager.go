@@ -139,16 +139,14 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 			}
 			logrus.Infof("QR connect: host=%s", host)
 		},
-		func(name, host, token, protocol, wireGuardInvite string) {
-			internalHost, tailscaleHost := splitHostByType(host)
+		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
 			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
 			fyne.Do(func() {
-				cm.applyConnectionToForm(host, token, protocol)
+				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), token, protocol)
 			})
-			logrus.Infof("QR saved directly: host=%s", host)
+			logrus.Infof("QR saved directly: internal=%s tailscale=%s", internalHost, tailscaleHost)
 		},
-		func(host, token, protocol, wireGuardInvite string) {
-			internalHost, tailscaleHost := splitHostByType(host)
+		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
 			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, true)
 		},
 	)

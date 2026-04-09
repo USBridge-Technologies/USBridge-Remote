@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"net/netip"
 	"strings"
 	"time"
 
@@ -29,8 +28,12 @@ func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGua
 }
 
 // handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
-func (mw *MainWindow) handleSaveFromDeepLink(name, host, token, protocol, wireGuardInvite string) {
-	logrus.Infof("💾 handleSaveFromDeepLink вызван с: name='%s', host='%s', token='%s', protocol='%s'", name, host, token, protocol)
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
+	host := strings.TrimSpace(tailscaleHost)
+	if host == "" {
+		host = strings.TrimSpace(internalHost)
+	}
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' token='%s' protocol='%s'", name, internalHost, tailscaleHost, token, protocol)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
@@ -42,13 +45,6 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, host, token, protocol, wireGu
 
 	if mw.connectionManager != nil {
 		mw.pendingWireGuardInvite = wireGuardInvite
-		internalHost, tailscaleHost := host, ""
-		trimmedHost := strings.TrimSpace(host)
-		if strings.HasSuffix(strings.ToLower(trimmedHost), ".ts.net") {
-			internalHost, tailscaleHost = "", trimmedHost
-		} else if addr, err := netip.ParseAddr(trimmedHost); err == nil && netip.MustParsePrefix("100.64.0.0/10").Contains(addr) {
-			internalHost, tailscaleHost = "", strings.TrimSpace(host)
-		}
 		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {

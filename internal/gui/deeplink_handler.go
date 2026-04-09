@@ -2,7 +2,9 @@ package gui
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
+	"strings"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -17,13 +19,13 @@ import (
 
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
-	onConnect func(host, token, protocol, wireGuardInvite string)       // Подключиться
-	onSave    func(name, host, token, protocol, wireGuardInvite string) // Только сохранить без подключения
-	lastURI   string                                                    // Последний обработанный URI (чтобы не обрабатывать дважды)
+	onConnect func(host, token, protocol, wireGuardInvite string)                              // Подключиться
+	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) // Только сохранить без подключения
+	lastURI   string                                                                           // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 
 // NewDeepLinkHandler создает новый обработчик
-func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, host, token, protocol, wireGuardInvite string)) *DeepLinkHandler {
+func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string)) *DeepLinkHandler {
 	return &DeepLinkHandler{
 		onConnect: onConnect,
 		onSave:    onSave,
@@ -57,7 +59,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Парсим URI
-	host, token, protocol, wireGuardInvite, err := h.parseDeepLink(uri)
+	internalHost, tailscaleHost, token, protocol, wireGuardInvite, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		view.ShowErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
@@ -65,60 +67,66 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	}
 
 	// Показываем диалог подтверждения
-	h.showConfirmDialog(host, token, protocol, wireGuardInvite, parent)
+	h.showConfirmDialog(internalHost, tailscaleHost, token, protocol, wireGuardInvite, parent)
 }
 
 // parseDeepLink парсит deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (host, token, protocol, wireGuardInvite string, err error) {
+func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, token, protocol, wireGuardInvite string, err error) {
 	// Парсим URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", "", fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Проверяем схему (только usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", "", "", fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", "", fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Формат: usbridge://connect?host=192.168.1.1&token=secret
 	if u.Host != "connect" {
-		return "", "", "", "", fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", "", fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Получаем параметры
 	query := u.Query()
-	host = query.Get("host")
+	internalHost = query.Get("internal_host")
+	tailscaleHost = query.Get("tailscale_host")
+	host := query.Get("host")
+	if internalHost == "" && tailscaleHost == "" {
+		if isLikelyTailnetHost(host) {
+			tailscaleHost = host
+		} else {
+			internalHost = host
+		}
+	}
 	token = query.Get("token")
 	protocol = query.Get("protocol")
 	wireGuardInvite = query.Get("wireguard_invite")
 
 	// Проверяем обязательные параметры
-	if host == "" {
-		return "", "", "", "", fmt.Errorf("missing host parameter")
+	if internalHost == "" && tailscaleHost == "" {
+		return "", "", "", "", "", fmt.Errorf("missing host parameter")
 	}
 
 	if token == "" && wireGuardInvite == "" {
-		return "", "", "", "", fmt.Errorf("missing token or wireguard_invite parameter")
+		return "", "", "", "", "", fmt.Errorf("missing token or wireguard_invite parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: host=%s, token=%s, protocol=%s", host, token, protocol)
-	return host, token, protocol, wireGuardInvite, nil
+	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s token=%s protocol=%s", internalHost, tailscaleHost, token, protocol)
+	return internalHost, tailscaleHost, token, protocol, wireGuardInvite, nil
 }
 
 // showConfirmDialog показывает диалог подтверждения подключения с возможностью сохранения
 // ВАЖНО: должна вызываться из UI потока (внутри fyne.Do)
-func (h *DeepLinkHandler) showConfirmDialog(host, token, protocol, wireGuardInvite string, parent fyne.Window) {
+func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, parent fyne.Window) {
+	host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
 	// Создаем превью с данными
 	titleLabel := widget.NewLabelWithStyle(
 		"🔗 "+i18n.Current.ConnectViaLink,
 		fyne.TextAlignCenter,
 		fyne.TextStyle{Bold: true},
 	)
-
-	hostLabel := widget.NewLabel(i18n.Current.DeepLinkServerAddress)
-	hostValue := widget.NewLabel(host)
-	hostValue.TextStyle = fyne.TextStyle{Bold: true}
 
 	tokenLabel := widget.NewLabel(i18n.Current.DeepLinkToken)
 	tokenEntry := widget.NewEntry()
@@ -149,7 +157,7 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token, protocol, wireGuardInvi
 		}
 		// Вызываем callback для сохранения с пустым именем - будет сгенерировано автоматически
 		if h.onSave != nil {
-			h.onSave("", host, token, protocol, wireGuardInvite)
+			h.onSave("", internalHost, tailscaleHost, token, protocol, wireGuardInvite)
 		}
 	})
 	saveBtn.Importance = widget.MediumImportance
@@ -176,8 +184,10 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token, protocol, wireGuardInvi
 			widget.NewSeparator(),
 			infoLabel,
 			widget.NewSeparator(),
-			hostLabel,
-			hostValue,
+			widget.NewLabel("Internal Address"),
+			disabledDeepLinkEntry(internalHost),
+			widget.NewLabel("Tailscale Address"),
+			disabledDeepLinkEntry(tailscaleHost),
 			tokenLabel,
 			tokenEntry,
 		), // Верх
@@ -193,11 +203,16 @@ func (h *DeepLinkHandler) showConfirmDialog(host, token, protocol, wireGuardInvi
 }
 
 // GenerateDeepLink генерирует deep link для подключения.
-// Формат: usbridge://connect?host=<HOST>&token=<TOKEN>&protocol=<PROTOCOL>
-func GenerateDeepLink(host, token, protocol, wireGuardInvite string) string {
+// Формат: usbridge://connect?internal_host=<HOST>&tailscale_host=<HOST>&token=<TOKEN>&protocol=<PROTOCOL>
+func GenerateDeepLink(internalHost, tailscaleHost, token, protocol, wireGuardInvite string) string {
 	// Кодируем параметры
 	params := url.Values{}
-	params.Set("host", host)
+	if internalHost != "" {
+		params.Set("internal_host", internalHost)
+	}
+	if tailscaleHost != "" {
+		params.Set("tailscale_host", tailscaleHost)
+	}
 	if token != "" {
 		params.Set("token", token)
 	}
@@ -209,4 +224,39 @@ func GenerateDeepLink(host, token, protocol, wireGuardInvite string) string {
 	}
 
 	return fmt.Sprintf("usbridge://connect?%s", params.Encode())
+}
+
+func disabledDeepLinkEntry(value string) *widget.Entry {
+	entry := widget.NewEntry()
+	entry.SetText(value)
+	entry.Disable()
+	return entry
+}
+
+func resolveDeepLinkHost(protocol, internalHost, tailscaleHost string) string {
+	if protocol == "tailscale" && tailscaleHost != "" {
+		return tailscaleHost
+	}
+	if protocol == "quic" && internalHost != "" {
+		return internalHost
+	}
+	if tailscaleHost != "" {
+		return tailscaleHost
+	}
+	return internalHost
+}
+
+func isLikelyTailnetHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.HasSuffix(strings.ToLower(host), ".ts.net") {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return netip.MustParsePrefix("100.64.0.0/10").Contains(addr)
 }

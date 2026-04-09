@@ -373,15 +373,13 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, ta
 			token = generated
 			tokenEntry.SetText(token)
 		}
-		host := strings.TrimSpace(internalHostEntry.Text)
-		if host == "" {
-			host = strings.TrimSpace(tailscaleHostEntry.Text)
-		}
-		if host == "" {
+		internalHost := strings.TrimSpace(internalHostEntry.Text)
+		tailscaleHost := strings.TrimSpace(tailscaleHostEntry.Text)
+		if internalHost == "" && tailscaleHost == "" {
 			logrus.Warn("cannot show quick QR: both internal and tailscale addresses are empty")
 			return
 		}
-		showQuickConnectQRCode(window, host, token)
+		showQuickConnectQRCode(window, internalHost, tailscaleHost, token)
 	})
 	return container.NewHBox(copyBtn, qrBtn)
 }
@@ -724,11 +722,11 @@ func generateQuickToken() (string, error) {
 	return token, nil
 }
 
-func showQuickConnectQRCode(window fyne.Window, host, token string) {
+func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, token string) {
 	if window == nil {
 		return
 	}
-	qrURL := buildServiceQRFormat(host, token)
+	qrURL := buildServiceQRFormat(internalHost, tailscaleHost, token)
 	pngBytes, err := qrcode.Encode(qrURL, qrcode.Medium, 280)
 	if err != nil {
 		logrus.Errorf("failed to render quick QR: %v", err)
@@ -758,10 +756,20 @@ func showQuickConnectQRCode(window fyne.Window, host, token string) {
 	d.Show()
 }
 
-func buildServiceQRFormat(host, token string) string {
+func buildServiceQRFormat(internalHost, tailscaleHost, token string) string {
 	values := url.Values{}
-	values.Set("host", strings.TrimSpace(host))
+	if strings.TrimSpace(internalHost) != "" {
+		values.Set("internal_host", strings.TrimSpace(internalHost))
+	}
+	if strings.TrimSpace(tailscaleHost) != "" {
+		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
+	}
 	values.Set("token", strings.TrimSpace(token))
+	if strings.TrimSpace(tailscaleHost) != "" {
+		values.Set("protocol", models.ConnectionProtocolTailscale)
+	} else if strings.TrimSpace(internalHost) != "" {
+		values.Set("protocol", models.ConnectionProtocolQUIC)
+	}
 	return fmt.Sprintf("usbridge://connect?%s", values.Encode())
 }
 
