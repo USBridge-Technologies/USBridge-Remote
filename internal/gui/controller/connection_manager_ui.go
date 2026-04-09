@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/url"
+	"strings"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -16,9 +17,7 @@ func (cm *ConnectionManager) createInterface() {
 		cm.handleQRScan,
 		cm.showAddDialog,
 		cm.openQuickStartDocs,
-		cm.startTailscaleLogin,
-		cm.refreshTailscaleStatus,
-		cm.applyPreferredTailscaleAddress,
+		cm.startTailscaleAuthAction,
 	)
 	cm.refreshConnectionsList()
 }
@@ -102,6 +101,7 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 
 func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) *fyne.Container {
 	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
+	internalHost, tailscaleHost := classifyConnectionHosts(conn)
 	rowState := view.ConnectionRowState{
 		Disabled: cm.connectionPending,
 		Loading:  cm.connectionPending && cm.activeConnectionIndex == idx,
@@ -119,13 +119,12 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 
 	return view.NewConnectionRow(
 		view.ConnectionRowData{
-			Name:          conn.Name,
-			Host:          conn.Host,
-			ProtocolBadge: connectionProtocolBadge(conn.Protocol),
+			Name:           conn.Name,
+			AddressSummary: formatConnectionAddressSummary(internalHost, tailscaleHost),
+			ProtocolBadge:  connectionProtocolBadge(conn.Protocol),
 			ProtocolOptions: []string{
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolQUIC),
-				connectionProtocolBadge(models.ConnectionProtocolWireGuard),
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 			},
 		},
@@ -141,7 +140,8 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 					cm.SelectConnection(idx)
 					if cm.onConnect != nil {
 						protocol := normalizeConnectionProtocol(cm.connections[idx].Protocol)
-						cm.onConnect(conn.Host, conn.Token, protocol, conn.WireGuardInvite)
+						host := cm.resolveHostForProtocol(cm.connections[idx], protocol)
+						cm.onConnect(host, conn.Token, protocol, conn.WireGuardInvite)
 						return
 					}
 					cm.SetConnectionPending(false)
@@ -167,6 +167,22 @@ func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) 
 	cm.connections[idx].Protocol = protocol
 	cm.saveConnections()
 	cm.refreshConnectionsList()
+}
+
+func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
+	internalHost = strings.TrimSpace(internalHost)
+	tailscaleHost = strings.TrimSpace(tailscaleHost)
+
+	switch {
+	case internalHost != "" && tailscaleHost != "":
+		return "LAN: " + internalHost + " | TS: " + tailscaleHost
+	case tailscaleHost != "":
+		return "TS: " + tailscaleHost
+	case internalHost != "":
+		return "LAN: " + internalHost
+	default:
+		return "Address: unavailable"
+	}
 }
 
 func (cm *ConnectionManager) GetContainer() *fyne.Container {

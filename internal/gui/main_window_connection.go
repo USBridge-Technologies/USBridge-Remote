@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -41,7 +42,14 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, host, token, protocol, wireGu
 
 	if mw.connectionManager != nil {
 		mw.pendingWireGuardInvite = wireGuardInvite
-		generatedName := mw.connectionManager.SaveConnection(name, host, token, protocol, wireGuardInvite)
+		internalHost, tailscaleHost := host, ""
+		trimmedHost := strings.TrimSpace(host)
+		if strings.HasSuffix(strings.ToLower(trimmedHost), ".ts.net") {
+			internalHost, tailscaleHost = "", trimmedHost
+		} else if addr, err := netip.ParseAddr(trimmedHost); err == nil && netip.MustParsePrefix("100.64.0.0/10").Contains(addr) {
+			internalHost, tailscaleHost = "", strings.TrimSpace(host)
+		}
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -634,12 +642,11 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		mw.connectedProtocol = models.ConnectionProtocolTailscale
 		return nil
 	}
+	_ = connectWireGuard
 
 	switch protocol {
 	case models.ConnectionProtocolWireGuard:
-		if err := connectWireGuard(); err != nil {
-			return fmt.Errorf("failed to establish WireGuard tunnel: %w", err)
-		}
+		return fmt.Errorf("wireguard transport is no longer supported in client; use tailscale or quic")
 	case models.ConnectionProtocolTailscale:
 		if err := connectTailscale(); err != nil {
 			return fmt.Errorf("failed to establish Tailscale connection: %w", err)
@@ -650,12 +657,9 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		}
 	case models.ConnectionProtocolAuto:
 		if err := connectTailscale(); err != nil {
-			logrus.Warnf("⚠️ Tailscale auto-connect failed, trying WireGuard: %v", err)
-			if err := connectWireGuard(); err != nil {
-				logrus.Warnf("⚠️ WireGuard auto-connect failed, falling back to QUIC: %v", err)
-				if err := connectQUIC(); err != nil {
-					return fmt.Errorf("failed to establish connection in auto mode: %w", err)
-				}
+			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to QUIC: %v", err)
+			if err := connectQUIC(); err != nil {
+				return fmt.Errorf("failed to establish connection in auto mode: %w", err)
 			}
 		}
 	default:

@@ -235,6 +235,23 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("tailscale auth URL was not produced")
 }
 
+func (s *TailscaleService) Logout(ctx context.Context) error {
+	refreshAndroidDefaultRouteInterface()
+	lc, err := s.localClient()
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+	}
+	if err := lc.Logout(ctx); err != nil {
+		return fmt.Errorf("tailscale logout: %w", err)
+	}
+	return nil
+}
+
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 	srv, err := s.serverInstance()
 	if err != nil {

@@ -33,7 +33,7 @@ type ConnectionManagerUI struct {
 	tsAccount   *widget.Label
 	tsAddress   *widget.Label
 	tsCard      fyne.CanvasObject
-	tsUseBtn    *outlinedActionButton
+	tsAuthBtn   *outlinedActionButton
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -43,7 +43,7 @@ type ConnectionManagerUI struct {
 
 type ConnectionRowData struct {
 	Name            string
-	Host            string
+	AddressSummary  string
 	ProtocolBadge   string
 	ProtocolOptions []string
 }
@@ -92,7 +92,7 @@ var (
 	connectionActionBlockedFill = design.ColorGray900
 )
 
-func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSLogin func(), onTSRefresh func(), onTSUse func()) *ConnectionManagerUI {
+func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth func()) *ConnectionManagerUI {
 	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
@@ -147,10 +147,8 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSLogin 
 	tsAddress := widget.NewLabel("Address: unavailable")
 	tsAddress.Wrapping = fyne.TextWrapWord
 
-	tsLoginBtn := newOutlinedActionButton("Google Login", onTSLogin)
-	tsRefreshBtn := newOutlinedActionButton("Refresh", onTSRefresh)
-	tsUseBtn := newOutlinedActionButton("Use Address", onTSUse)
-	tsButtons := container.NewGridWithColumns(3, tsLoginBtn, tsRefreshBtn, tsUseBtn)
+	tsAuthBtn := newOutlinedActionButton("Sign In With Google", onTSAuth)
+	tsButtons := container.NewGridWithColumns(1, tsAuthBtn)
 	tsCard := newConnectionsSectionCard(
 		"tailscale",
 		nil,
@@ -181,7 +179,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSLogin 
 		tsAccount:         tsAccount,
 		tsAddress:         tsAddress,
 		tsCard:            tsCard,
-		tsUseBtn:          tsUseBtn,
+		tsAuthBtn:         tsAuthBtn,
 		topQRBtn:          topQRButton,
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
@@ -245,7 +243,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	ui.contentArea.Refresh()
 }
 
-func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address string, useEnabled bool) {
+func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address, authLabel string) {
 	if ui.tsStatus != nil {
 		ui.tsStatus.SetText(status)
 	}
@@ -255,8 +253,11 @@ func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address string
 	if ui.tsAddress != nil {
 		ui.tsAddress.SetText(address)
 	}
-	if ui.tsUseBtn != nil {
-		ui.tsUseBtn.SetDisabled(!useEnabled)
+	if ui.tsAuthBtn != nil {
+		if strings.TrimSpace(authLabel) != "" {
+			ui.tsAuthBtn.SetLabel(authLabel)
+		}
+		ui.tsAuthBtn.SetDisabled(false)
 	}
 }
 
@@ -549,7 +550,7 @@ var (
 )
 
 func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions ConnectionRowActions) *fyne.Container {
-	nameBlock := newConnectionNameButton(data.Name, data.Host, actions.OnEdit)
+	nameBlock := newConnectionNameButton(data.Name, data.AddressSummary, actions.OnEdit)
 	nameBlock.SetDisabled(state.Disabled)
 
 	protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
@@ -1103,6 +1104,15 @@ func (b *outlinedActionButton) SetDisabled(disabled bool) {
 	b.disabled = disabled
 	b.hovered = false
 	b.refreshVisuals()
+}
+
+func (b *outlinedActionButton) SetLabel(label string) {
+	b.labelText = label
+	if b.label != nil {
+		b.label.Text = label
+		b.label.Refresh()
+	}
+	b.Refresh()
 }
 
 func (b *outlinedActionButton) refreshVisuals() {

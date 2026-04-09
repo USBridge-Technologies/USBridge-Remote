@@ -36,6 +36,7 @@ x86_64
 *.out
 *.a
 *.java
+*.log
 !android/app/src/main/java/**/*.java
 android-arm64.txt
 # temp crosscompile Go files
@@ -51,6 +52,7 @@ android/.gradle
 android/local.properties
 
 *.log
+cmd/android/FyneApp.toml
 old
 USBridge Client.exe
 USBridgeClient.bin

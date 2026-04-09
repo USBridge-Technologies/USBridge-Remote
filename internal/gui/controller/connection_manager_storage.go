@@ -14,9 +14,11 @@ import (
 )
 
 // SaveConnection сохраняет подключение напрямую
-func (cm *ConnectionManager) SaveConnection(name, host, token, protocol, wireGuardInvite string) string {
-	if host == "" {
-		logrus.Warn("Не указан IP адрес")
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) string {
+	internalHost = strings.TrimSpace(internalHost)
+	tailscaleHost = strings.TrimSpace(tailscaleHost)
+	if internalHost == "" && tailscaleHost == "" {
+		logrus.Warn("Не указан адрес устройства")
 		return ""
 	}
 	if name == "" {
@@ -35,7 +37,15 @@ func (cm *ConnectionManager) SaveConnection(name, host, token, protocol, wireGua
 		}
 	}
 
-	conn := SavedConnection{Name: name, Host: host, Token: token, Protocol: protocol, WireGuardInvite: wireGuardInvite}
+	conn := SavedConnection{
+		Name:            name,
+		InternalHost:    internalHost,
+		TailscaleHost:   tailscaleHost,
+		Token:           strings.TrimSpace(token),
+		Protocol:        normalizeConnectionProtocol(protocol),
+		WireGuardInvite: wireGuardInvite,
+	}
+	conn.Host = fallbackText(conn.InternalHost, conn.TailscaleHost)
 	cm.connections = append(cm.connections, conn)
 	cm.selectedIndex = len(cm.connections) - 1
 	cm.saveConnections()
@@ -101,7 +111,10 @@ func (cm *ConnectionManager) loadConnections() {
 	}
 
 	for i := range cm.connections {
-		cm.connections[i].Host = strings.TrimSpace(cm.connections[i].Host)
+		internalHost, tailscaleHost := classifyConnectionHosts(cm.connections[i])
+		cm.connections[i].InternalHost = internalHost
+		cm.connections[i].TailscaleHost = tailscaleHost
+		cm.connections[i].Host = fallbackText(internalHost, tailscaleHost)
 		cm.connections[i].Token = strings.TrimSpace(cm.connections[i].Token)
 		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
 	}

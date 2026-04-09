@@ -1,1236 +1,470 @@
-2026/04/08 18:29:54.441300 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:29:54.441383 [http] <- GET /api/video/info?device=display%3A0 status=200 dur=0s
-2026/04/08 18:29:54.618219 [http] -> GET /api/device/info from=100.105.245.94:55541
-2026/04/08 18:29:54.618328 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:54.618430 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:54.831508 [http] -> POST /api/video/start from=100.105.245.94:55541 trace=vt-1
-2026/04/08 18:29:54.831803 [api] video_start trace=vt-1 peer=100.105.245.94 requested_client=100.105.245.94:55000
-2026/04/08 18:29:54.831830 [api] video_start width=1280 height=720 fps=30 bitrate=2000K mode=h264
-2026/04/08 18:29:54.831846 [video/start #1] begin client_trace=vt-1 raw device=display:0 size=1280x720 fps=30 bitrate=2000K mode=h264 host=100.105.245.94 port=55000
-2026/04/08 18:29:54.831866 [video/start #1] step=normalized-request elapsed=0s device=display:0 size=1280x720 fps=30 bitrate=2000K host=100.105.245.94 port=55000
-2026/04/08 18:29:54.831884 [video/start #1] step=update-frp-visitor-begin elapsed=0s client_port=55000
-2026/04/08 18:29:54.831918 [video/start #1] step=update-frp-visitor-ok elapsed=0s client_port=55000
-2026/04/08 18:29:54.832196 [video/start #1] step=relay-setup-begin elapsed=0s attempt=1 tailscale_target=100.105.245.94:55000
-2026/04/08 18:29:54.840571 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:29:54.840654 [video] tailscale relay enabled local=127.0.0.1:56609 target=100.105.245.94:55000
-2026/04/08 18:29:54.840730 [video/start #1] step=relay-setup-ok elapsed=9ms attempt=1 local=127.0.0.1:56609 target=100.105.245.94:55000
-2026/04/08 18:29:54.840761 [video/start #1] step=ffmpeg-start-begin elapsed=9ms attempt=1 mode_request=h264 local_target=127.0.0.1:56609
-2026/04/08 18:29:54.840756 [video] tailscale relay goroutine started local=127.0.0.1:56609 target=100.105.245.94:55000
-2026/04/08 18:29:55.139754 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:55.141042 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:55.141351 [http] <- GET /api/device/info status=200 dur=2ms
-2026/04/08 18:29:55.154859 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:55.154998 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:55.155480 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:29:55.885960 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:55.886093 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:55.886159 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:55.898432 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:55.898642 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:55.898745 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:56.622348 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:56.622584 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:56.622650 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:56.630907 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:56.631013 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:56.631288 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:57.341592 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:57.341681 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:57.341753 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:57.349241 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:57.349323 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:57.349387 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:57.842267 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:56609
-2026/04/08 18:29:58.062499 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:58.062591 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:58.062650 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:58.071286 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:58.071434 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:58.071565 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:58.143080 [http] -> GET /api/pcpanel/leds from=100.105.245.94:29675
-2026/04/08 18:29:58.143181 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:29:58.796231 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:58.796346 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:58.796437 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:58.808142 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:58.808212 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:58.808259 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:59.054766 [video] starting mode=avfoundation codec=h264_videotoolbox target=127.0.0.1:56609 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:29:59.054830 [video] ffmpeg args mode=avfoundation codec=h264_videotoolbox :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=nv12 -c:v h264_videotoolbox -realtime true -profile:v baseline -pix_fmt nv12 -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:56609?pkt_size=1200
-2026/04/08 18:29:59.151298 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:29:59.151769 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:29:59.151871 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:29:59.152849 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:29:59.152877 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:29:59.152889 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:29:59.152901 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:29:59.152912 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:29:59.152921 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:29:59.152930 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:29:59.455588 [http] -> GET /api/device/info from=100.105.245.94:29675
-2026/04/08 18:29:59.455713 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:59.455876 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:59.469060 [http] -> GET /api/video/devices from=100.105.245.94:29675
-2026/04/08 18:29:59.469224 [http] -> GET /api/video/info from=100.105.245.94:36147
-2026/04/08 18:29:59.469319 [http] -> GET /api/device/local_drives from=100.105.245.94:37514
-2026/04/08 18:29:59.469387 [api] video_devices count=1
-2026/04/08 18:29:59.469463 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:29:59.469492 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:29:59.477494 [http] -> GET /api/video/info from=100.105.245.94:29675
-2026/04/08 18:29:59.477530 [http] -> GET /api/iso/space from=100.105.245.94:26759
-2026/04/08 18:29:59.477772 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:29:59.517239 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:29:59.517441 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:59.517596 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:59.524744 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:29:59.524866 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:29:59.524931 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:29:59.989173 [video/avfoundation] objc[99668]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:29:59.989264 [video/avfoundation] objc[99668]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:29:59.989672 [video/avfoundation] objc[99668]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:29:59.991081 [video/avfoundation] [AVFoundation indev @ 0x988c20140] Configuration of video device failed, falling back to default.
-2026/04/08 18:30:00.249167 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:00.249385 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:00.249468 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:00.260018 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:00.260241 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:00.260286 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:00.988045 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:00.988134 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:00.988184 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:00.999313 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:00.999374 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:00.999416 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:01.723559 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:01.723646 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:01.723707 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:01.733915 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:01.733986 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:01.734027 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:02.071792 [video] started mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:30:02.072294 [video/start #1] step=ffmpeg-start-ok elapsed=7.24s attempt=1 mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:30:02.459121 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:02.459199 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:02.459251 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:02.469574 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:02.469663 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:02.469757 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:03.169013 [http] -> GET /api/pcpanel/leds from=100.105.245.94:26759
-2026/04/08 18:30:03.169901 [http] <- GET /api/pcpanel/leds status=200 dur=1ms
-2026/04/08 18:30:03.183009 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:03.183528 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:03.183636 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:30:03.192904 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:03.193707 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:03.193806 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:30:03.917726 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:03.917937 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:03.918012 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:03.929441 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:03.929790 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:03.930083 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:30:04.656736 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:04.656853 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:04.656940 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:04.667576 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:04.667676 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:04.667765 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:05.390326 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:05.390474 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:05.390539 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:05.403491 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:05.403640 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:05.403739 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:06.452915 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:06.453007 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:06.453055 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:06.504859 [http] -> GET /.well-known/oauth-authorization-server from=127.0.0.1:63991
-2026/04/08 18:30:06.505851 [http] <- GET /.well-known/oauth-authorization-server status=404 dur=1ms
-2026/04/08 18:30:06.523645 [http] -> POST /api/mcp from=127.0.0.1:63992
-2026/04/08 18:30:06.523924 [http] <- POST /api/mcp status=404 dur=0s
-2026/04/08 18:30:06.534214 [http] -> GET /api/mcp from=127.0.0.1:63993
-2026/04/08 18:30:06.534559 [http] <- GET /api/mcp status=404 dur=0s
-2026/04/08 18:30:07.483051 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:07.483108 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:07.483229 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:08.143546 [http] -> GET /api/pcpanel/leds from=100.105.245.94:26759
-2026/04/08 18:30:08.143661 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:30:08.451346 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:08.451435 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:08.451506 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:09.500992 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:09.501174 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:09.501247 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:09.558938 [http] -> GET /api/device/local_drives from=100.105.245.94:26759
-2026/04/08 18:30:09.559375 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:30:09.560530 [http] -> GET /api/device/info from=100.105.245.94:16038
-2026/04/08 18:30:09.560569 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:09.560604 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:09.586272 [http] -> GET /api/iso/space from=100.105.245.94:26759
-2026/04/08 18:30:09.586397 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:30:10.464967 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:10.465099 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:10.465269 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:30:11.450050 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:11.450601 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:11.451003 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:30:12.464363 [http] -> GET /api/device/info from=100.105.245.94:26759
-2026/04/08 18:30:12.464547 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:30:12.464763 [http] <- GET /api/device/info status=200 dur=0s
-^C
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos %
-amir@amirs-MacBook-Air macos % tail -f ~/Library/Logs/USBridgeAgent/app.log
-2026/04/08 18:34:24.882321 [api] service_stop
-2026/04/08 18:34:24.882838 [http] <- POST /api/service/stop status=200 dur=5ms
-2026/04/08 18:40:10.996506 logging initialized: /Users/amir/Library/Logs/USBridgeAgent/app.log
-2026/04/08 18:40:11.004045 [app] starting http=127.0.0.1:8080 frp_bind=443 video_udp=55000 capture=avfoundation
-2026/04/08 18:40:11.004103 [app] ffmpeg path=/opt/homebrew/bin/ffmpeg
-2026/04/08 18:40:12.567015 [app] tailscale http listening on tailnet :8080
-2026/04/08 18:40:32.677455 logging initialized: /Users/amir/Library/Logs/USBridgeAgent/app.log
-2026/04/08 18:40:32.685887 [app] starting http=127.0.0.1:8080 frp_bind=443 video_udp=55000 capture=avfoundation
-2026/04/08 18:40:32.685940 [app] ffmpeg path=/opt/homebrew/bin/ffmpeg
-2026/04/08 18:40:34.266409 [app] tailscale http listening on tailnet :8080
-2026/04/08 18:40:53.024951 [http] -> GET /api/healthz from=100.105.245.94:24145
-2026/04/08 18:40:53.025772 [http] <- GET /api/healthz status=200 dur=1ms
-2026/04/08 18:40:53.087507 [http] -> GET /api/video/info from=100.105.245.94:24145
-2026/04/08 18:40:53.087954 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:40:53.089993 [http] <- GET /api/video/info status=200 dur=2ms
-2026/04/08 18:40:53.123274 [http] -> GET /api/device/local_drives from=100.105.245.94:49141
-2026/04/08 18:40:53.123417 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:40:53.124092 [http] -> GET /api/device/info from=100.105.245.94:21520
-2026/04/08 18:40:53.124173 [api] device_info count=0 devices=
-2026/04/08 18:40:53.126033 [http] <- GET /api/device/info status=200 dur=2ms
-2026/04/08 18:40:53.136059 [http] -> POST /api/backup/get_snapshots from=100.105.245.94:24145
-2026/04/08 18:40:53.136132 [api] backup_get_snapshots
-2026/04/08 18:40:53.136171 [http] <- POST /api/backup/get_snapshots status=200 dur=0s
-2026/04/08 18:40:53.156770 [http] -> GET /api/device/local_drives from=100.105.245.94:49141
-2026/04/08 18:40:53.156879 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:40:53.157865 [http] -> GET /api/video/devices from=100.105.245.94:21520
-2026/04/08 18:40:53.158004 [api] video_devices count=1
-2026/04/08 18:40:53.158065 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:40:53.171510 [http] -> GET /api/iso/space from=100.105.245.94:22860
-2026/04/08 18:40:53.171652 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:40:53.181816 [http] -> GET /api/pcpanel/leds from=100.105.245.94:24145
-2026/04/08 18:40:53.181815 [http] -> GET /api/device/info from=100.105.245.94:46574
-2026/04/08 18:40:53.182075 [api] device_info count=0 devices=
-2026/04/08 18:40:53.182102 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:53.181942 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:40:53.191860 [http] -> GET /api/device/info from=100.105.245.94:49141
-2026/04/08 18:40:53.191942 [api] device_info count=0 devices=
-2026/04/08 18:40:53.191980 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:53.218050 [http] -> POST /api/backup/get_snapshots from=100.105.245.94:21520
-2026/04/08 18:40:53.218129 [api] backup_get_snapshots
-2026/04/08 18:40:53.218164 [http] <- POST /api/backup/get_snapshots status=200 dur=0s
-2026/04/08 18:40:53.225180 [http] -> GET /api/iso/space from=100.105.245.94:24145
-2026/04/08 18:40:53.225359 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:40:53.260580 [http] -> GET /api/device/info from=100.105.245.94:21520
-2026/04/08 18:40:53.260661 [api] device_info count=0 devices=
-2026/04/08 18:40:53.260728 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:53.294084 [http] -> GET /api/device/info from=100.105.245.94:24145
-2026/04/08 18:40:53.294177 [api] device_info count=0 devices=
-2026/04/08 18:40:53.294215 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:53.328128 [http] -> POST /api/device/stop from=100.105.245.94:24145
-2026/04/08 18:40:53.328220 [api] device_stop
-2026/04/08 18:40:53.332774 [http] <- POST /api/device/stop status=200 dur=5ms
-2026/04/08 18:40:54.580173 [http] -> POST /api/device/start from=100.105.245.94:24145
-2026/04/08 18:40:54.580881 [api] device_start count=2
-2026/04/08 18:40:54.580947 [app] devices active=2 nbd_visitors=0
-2026/04/08 18:40:54.581223 [http] <- POST /api/device/start status=200 dur=1ms
-2026/04/08 18:40:54.615148 [http] -> GET /api/device/info from=100.105.245.94:24145
-2026/04/08 18:40:54.615227 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:54.615275 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:54.649263 [http] -> GET /api/device/info from=100.105.245.94:24145
-2026/04/08 18:40:54.649359 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:54.649424 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:54.682128 [http] -> GET /api/video/devices from=100.105.245.94:24145
-2026/04/08 18:40:54.682213 [api] video_devices count=1
-2026/04/08 18:40:54.682253 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:40:54.714299 [http] -> GET /api/video/info from=100.105.245.94:24145
-2026/04/08 18:40:54.714400 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:40:54.714463 [http] <- GET /api/video/info status=200 dur=0s
-2026/04/08 18:40:54.747312 [http] -> GET /api/video/info?device=display%3A0 from=100.105.245.94:24145
-2026/04/08 18:40:54.747418 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:40:54.747484 [http] <- GET /api/video/info?device=display%3A0 status=200 dur=0s
-2026/04/08 18:40:54.948960 [http] -> GET /api/device/info from=100.105.245.94:24145
-2026/04/08 18:40:54.949113 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:54.949655 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:40:55.189759 [http] -> POST /api/video/start from=100.105.245.94:24145 trace=vt-1
-2026/04/08 18:40:55.190019 [api] video_start trace=vt-1 peer=100.105.245.94 requested_client=100.105.245.94:55000
-2026/04/08 18:40:55.190328 [api] video_start width=1280 height=720 fps=30 bitrate=2000K mode=h264
-2026/04/08 18:40:55.190346 [video/start #1] begin client_trace=vt-1 raw device=display:0 size=1280x720 fps=30 bitrate=2000K mode=h264 host=100.105.245.94 port=55000
-2026/04/08 18:40:55.190364 [video/start #1] step=normalized-request elapsed=0s device=display:0 size=1280x720 fps=30 bitrate=2000K host=100.105.245.94 port=55000
-2026/04/08 18:40:55.190383 [video/start #1] step=update-frp-visitor-begin elapsed=0s client_port=55000
-2026/04/08 18:40:55.190428 [video/start #1] step=update-frp-visitor-ok elapsed=0s client_port=55000
-2026/04/08 18:40:55.190656 [video/start #1] step=relay-setup-begin elapsed=0s attempt=1 tailscale_target=100.105.245.94:55000
-2026/04/08 18:40:55.191011 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:40:55.223087 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:40:55.223169 [video] tailscale relay enabled local=127.0.0.1:62464 target=100.105.245.94:55000
-2026/04/08 18:40:55.223202 [video/start #1] step=relay-setup-ok elapsed=33ms attempt=1 local=127.0.0.1:62464 target=100.105.245.94:55000
-2026/04/08 18:40:55.223218 [video] tailscale relay goroutine started local=127.0.0.1:62464 target=100.105.245.94:55000
-2026/04/08 18:40:55.223464 [video] local relay probe confirmed on 127.0.0.1:62464
-2026/04/08 18:40:55.223512 [video/start #1] step=relay-local-probe-ok elapsed=33ms attempt=1 local=127.0.0.1:62464
-2026/04/08 18:40:55.223534 [video/start #1] step=ffmpeg-start-begin elapsed=33ms attempt=1 mode_request=h264 local_target=127.0.0.1:62464
-2026/04/08 18:40:55.387797 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:55.387902 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:55.387978 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:55.422305 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:55.422370 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:55.422407 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:56.006033 [video] starting mode=avfoundation codec=h264_videotoolbox target=127.0.0.1:62464 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:40:56.006129 [video] ffmpeg args mode=avfoundation codec=h264_videotoolbox :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=nv12 -c:v h264_videotoolbox -realtime true -profile:v baseline -pix_fmt nv12 -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:62464?pkt_size=1200
-2026/04/08 18:40:56.069509 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:40:56.069662 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:40:56.069727 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:40:56.070609 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:40:56.070633 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:40:56.070671 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:40:56.070684 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:40:56.070693 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:40:56.070702 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:40:56.070711 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:40:56.161468 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:56.161541 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:56.161603 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:56.197984 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:56.198058 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:56.198101 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:56.944953 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:56.945028 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:56.945093 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:56.979450 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:56.979502 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:56.979538 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:56.990852 [video/avfoundation] objc[4369]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:40:56.990899 [video/avfoundation] objc[4369]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:40:56.991376 [video/avfoundation] objc[4369]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:40:56.993626 [video/avfoundation] [AVFoundation indev @ 0xc9cc18140] Configuration of video device failed, falling back to default.
-2026/04/08 18:40:57.409336 [http] -> GET /api/device/info from=100.105.245.94:59308
-2026/04/08 18:40:57.409510 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:57.409756 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:57.465578 [http] -> GET /api/video/devices from=100.105.245.94:18922
-2026/04/08 18:40:57.465644 [api] video_devices count=1
-2026/04/08 18:40:57.465682 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:40:57.466156 [http] -> GET /api/device/local_drives from=100.105.245.94:59017
-2026/04/08 18:40:57.466201 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:40:57.466959 [http] -> GET /api/video/info from=100.105.245.94:59308
-2026/04/08 18:40:57.499791 [http] -> GET /api/video/info from=100.105.245.94:18922
-2026/04/08 18:40:57.501222 [http] -> GET /api/iso/space from=100.105.245.94:59017
-2026/04/08 18:40:57.501333 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:40:57.716064 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:57.716603 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:57.716720 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:40:57.751187 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:57.751284 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:57.751322 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:58.197159 [http] -> GET /api/pcpanel/leds from=100.105.245.94:59017
-2026/04/08 18:40:58.197324 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:40:58.223532 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:62464
-2026/04/08 18:40:58.488266 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:58.488365 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:58.488442 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:58.499228 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:58.499312 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:58.499370 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:59.014714 [video] started mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:40:59.014847 [video/start #1] step=ffmpeg-start-ok elapsed=3.824s attempt=1 mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:40:59.222449 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:59.222539 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:59.222588 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:59.230487 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:59.230555 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:59.230592 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:59.959248 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:59.959488 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:59.959561 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:40:59.968736 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:40:59.968915 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:40:59.968978 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:00.697266 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:00.697394 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:00.699787 [http] <- GET /api/device/info status=200 dur=3ms
-2026/04/08 18:41:00.710008 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:00.710492 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:00.710555 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:41:01.431130 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:01.431272 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:01.431330 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:01.443840 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:01.448174 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:01.448218 [http] <- GET /api/device/info status=200 dur=4ms
-2026/04/08 18:41:02.174637 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:02.174802 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:02.174887 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:02.184952 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:02.185020 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:02.185078 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:02.910294 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:02.910531 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:02.910591 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:02.921340 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:02.921428 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:02.921516 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:03.180638 [http] -> GET /api/pcpanel/leds from=100.105.245.94:59017
-2026/04/08 18:41:03.180716 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:03.645243 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:03.645311 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:03.645356 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:03.657422 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:03.657501 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:03.657544 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:04.381872 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:04.381945 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:04.381986 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:04.389073 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:04.389159 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:04.389207 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:05.098425 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:05.098773 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:05.098839 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:05.107804 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:05.107870 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:05.107905 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:05.827806 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:05.827892 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:05.827936 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:05.839117 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:05.839200 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:05.839244 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:07.408793 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:07.409025 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:07.409087 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:07.408869 [http] -> GET /api/device/local_drives from=100.105.245.94:28323
-2026/04/08 18:41:07.409590 [http] <- GET /api/device/local_drives status=200 dur=1ms
-2026/04/08 18:41:07.421270 [http] -> GET /api/iso/space from=100.105.245.94:28323
-2026/04/08 18:41:07.421348 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:07.421303 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:07.421394 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:07.421430 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:08.178013 [http] -> GET /api/pcpanel/leds from=100.105.245.94:59017
-2026/04/08 18:41:08.178152 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:08.404287 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:08.404352 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:08.404400 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:09.408332 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:09.408532 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:09.408592 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:10.409273 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:10.409426 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:10.409526 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:11.017052 [video/start #1] step=first-rtp-timeout elapsed=15.826s attempt=1 mode=avfoundation codec=h264_videotoolbox err=no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=h264_videotoolbox local=127.0.0.1:62464 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:62464 within 12s
-2026/04/08 18:41:11.020966 [video] no RTP packets for codec=h264_videotoolbox on attempt=1, retrying with fallback
-2026/04/08 18:41:11.021199 [video/start #1] step=relay-setup-begin elapsed=15.831s attempt=2 tailscale_target=100.105.245.94:55000
-2026/04/08 18:41:11.021476 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:41:11.030235 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:41:11.030531 [video] tailscale relay enabled local=127.0.0.1:58846 target=100.105.245.94:55000
-2026/04/08 18:41:11.030575 [video/start #1] step=relay-setup-ok elapsed=15.84s attempt=2 local=127.0.0.1:58846 target=100.105.245.94:55000
-2026/04/08 18:41:11.030615 [video] tailscale relay goroutine started local=127.0.0.1:58846 target=100.105.245.94:55000
-2026/04/08 18:41:11.030842 [video] local relay probe confirmed on 127.0.0.1:58846
-2026/04/08 18:41:11.031012 [video/start #1] step=relay-local-probe-ok elapsed=15.84s attempt=2 local=127.0.0.1:58846
-2026/04/08 18:41:11.031179 [video/start #1] step=ffmpeg-start-begin elapsed=15.841s attempt=2 mode_request=h264 local_target=127.0.0.1:58846
-2026/04/08 18:41:11.412013 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:11.412117 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:11.412178 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:11.654932 [video] starting mode=avfoundation codec=libx264 target=127.0.0.1:58846 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:41:11.655150 [video] ffmpeg args mode=avfoundation codec=libx264 :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=yuv420p -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -level 3.2 -pix_fmt yuv420p -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:58846?pkt_size=1200
-2026/04/08 18:41:11.730887 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:41:11.731309 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:41:11.731381 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:41:11.731727 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:41:11.731752 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:41:11.731763 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:41:11.731772 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:41:11.731782 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:41:11.731793 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:41:11.731802 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:41:12.410843 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:12.410954 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:12.411028 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:12.647878 [video/avfoundation] objc[4395]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:12.647958 [video/avfoundation] objc[4395]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:12.648082 [video/avfoundation] objc[4395]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:12.650181 [video/avfoundation] [AVFoundation indev @ 0x7a4c18140] Configuration of video device failed, falling back to default.
-2026/04/08 18:41:13.189021 [http] -> GET /api/pcpanel/leds from=100.105.245.94:59017
-2026/04/08 18:41:13.189102 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:13.395443 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:13.395540 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:13.395591 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:14.031336 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:58846
-2026/04/08 18:41:14.407917 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:14.408020 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:14.408113 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:14.664939 [video] started mode=avfoundation codec=libx264
-2026/04/08 18:41:14.665006 [video/start #1] step=ffmpeg-start-ok elapsed=19.474s attempt=2 mode=avfoundation codec=libx264
-2026/04/08 18:41:15.395869 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:15.396071 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:15.396142 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:16.438991 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:16.439179 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:16.439244 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:17.400912 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:17.401001 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:17.400974 [http] -> GET /api/device/local_drives from=100.105.245.94:35087
-2026/04/08 18:41:17.401328 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:17.401057 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:17.414485 [http] -> GET /api/device/local_drives from=100.105.245.94:49929
-2026/04/08 18:41:17.414550 [http] -> GET /api/device/info from=100.105.245.94:59017
-2026/04/08 18:41:17.414595 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:17.414501 [http] -> GET /api/iso/space from=100.105.245.94:35087
-2026/04/08 18:41:17.414669 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:17.414612 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:17.414788 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:17.414818 [http] -> POST /api/backup/get_snapshots from=100.105.245.94:28208
-2026/04/08 18:41:17.414846 [api] backup_get_snapshots
-2026/04/08 18:41:17.414962 [http] <- POST /api/backup/get_snapshots status=200 dur=0s
-2026/04/08 18:41:17.426245 [http] -> GET /api/device/info from=100.105.245.94:49929
-2026/04/08 18:41:17.426347 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:17.426416 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:17.435321 [http] -> GET /api/iso/space from=100.105.245.94:35087
-2026/04/08 18:41:17.435422 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:18.187845 [http] -> GET /api/pcpanel/leds from=100.105.245.94:35087
-2026/04/08 18:41:18.188117 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:18.410412 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:18.410508 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:18.410551 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:19.410380 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:19.410556 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:19.410602 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:20.411373 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:20.411478 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:20.411533 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:21.410302 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:21.410497 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:21.410578 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:22.416242 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:22.417037 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:22.417157 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:41:23.183854 [http] -> GET /api/pcpanel/leds from=100.105.245.94:35087
-2026/04/08 18:41:23.183939 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:23.433497 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:23.433700 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:23.433761 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:24.408660 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:24.408854 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:24.408918 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:25.397490 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:25.397624 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:25.397711 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:26.407700 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:26.407848 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:26.407888 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:26.666042 [video/start #1] step=first-rtp-timeout elapsed=31.475s attempt=2 mode=avfoundation codec=libx264 err=no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:58846 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:58846 within 12s
-2026/04/08 18:41:26.669377 [video] no RTP packets for codec=libx264 on attempt=2, retrying with fallback
-2026/04/08 18:41:26.669449 [api] video_start failed: no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:58846 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:58846 within 12s
-2026/04/08 18:41:26.669529 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:26.669541 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:26.669498 [http] <- POST /api/video/start status=500 dur=31.479s trace=vt-1
-2026/04/08 18:41:26.670176 [http] <- GET /api/video/info status=200 dur=29.203s
-2026/04/08 18:41:26.670174 [http] <- GET /api/video/info status=200 dur=29.17s
-2026/04/08 18:41:27.439749 [http] -> GET /api/device/info from=100.105.245.94:35087
-2026/04/08 18:41:27.439847 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:27.439978 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:27.448941 [http] -> GET /api/video/devices from=100.105.245.94:55099
-2026/04/08 18:41:27.448988 [http] -> GET /api/device/local_drives from=100.105.245.94:35087
-2026/04/08 18:41:27.449046 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:27.449007 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:27.449100 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:27.449135 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:27.449010 [api] video_devices count=1
-2026/04/08 18:41:27.449222 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:41:27.459617 [http] -> GET /api/video/info from=100.105.245.94:55099
-2026/04/08 18:41:27.459646 [http] -> GET /api/device/info from=100.105.245.94:48088
-2026/04/08 18:41:27.459753 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:27.459810 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:27.459671 [http] -> GET /api/iso/space from=100.105.245.94:44104
-2026/04/08 18:41:27.459944 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:27.459734 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:27.460044 [http] <- GET /api/video/info status=200 dur=0s
-2026/04/08 18:41:27.468863 [http] -> GET /api/device/info from=100.105.245.94:55099
-2026/04/08 18:41:27.468940 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:27.468996 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:27.476548 [http] -> GET /api/video/devices from=100.105.245.94:55099
-2026/04/08 18:41:27.476644 [api] video_devices count=1
-2026/04/08 18:41:27.476693 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:41:27.486522 [http] -> GET /api/video/info?device=display%3A0 from=100.105.245.94:55099
-2026/04/08 18:41:27.486629 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:27.486690 [http] <- GET /api/video/info?device=display%3A0 status=200 dur=0s
-2026/04/08 18:41:27.652931 [http] -> GET /api/device/info from=100.105.245.94:55099
-2026/04/08 18:41:27.653011 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:27.653078 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:27.841395 [http] -> POST /api/video/start from=100.105.245.94:55099 trace=vt-2
-2026/04/08 18:41:27.842445 [api] video_start trace=vt-2 peer=100.105.245.94 requested_client=100.105.245.94:55000
-2026/04/08 18:41:27.842715 [api] video_start width=1280 height=720 fps=30 bitrate=2000K mode=h264
-2026/04/08 18:41:27.842757 [video/start #2] begin client_trace=vt-2 raw device=display:0 size=1280x720 fps=30 bitrate=2000K mode=h264 host=100.105.245.94 port=55000
-2026/04/08 18:41:27.842813 [video/start #2] step=normalized-request elapsed=0s device=display:0 size=1280x720 fps=30 bitrate=2000K host=100.105.245.94 port=55000
-2026/04/08 18:41:27.842838 [video/start #2] step=update-frp-visitor-begin elapsed=0s client_port=55000
-2026/04/08 18:41:27.844037 [video/start #2] step=update-frp-visitor-ok elapsed=1ms client_port=55000
-2026/04/08 18:41:27.844124 [video/start #2] step=relay-setup-begin elapsed=1ms attempt=1 tailscale_target=100.105.245.94:55000
-2026/04/08 18:41:27.844293 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:41:27.853797 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:41:27.853876 [video] tailscale relay enabled local=127.0.0.1:61832 target=100.105.245.94:55000
-2026/04/08 18:41:27.853903 [video/start #2] step=relay-setup-ok elapsed=11ms attempt=1 local=127.0.0.1:61832 target=100.105.245.94:55000
-2026/04/08 18:41:27.853917 [video] tailscale relay goroutine started local=127.0.0.1:61832 target=100.105.245.94:55000
-2026/04/08 18:41:27.854201 [video] local relay probe confirmed on 127.0.0.1:61832
-2026/04/08 18:41:27.854250 [video/start #2] step=relay-local-probe-ok elapsed=11ms attempt=1 local=127.0.0.1:61832
-2026/04/08 18:41:27.854272 [video/start #2] step=ffmpeg-start-begin elapsed=12ms attempt=1 mode_request=h264 local_target=127.0.0.1:61832
-2026/04/08 18:41:28.123093 [video] starting mode=avfoundation codec=h264_videotoolbox target=127.0.0.1:61832 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:41:28.123372 [video] ffmpeg args mode=avfoundation codec=h264_videotoolbox :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=nv12 -c:v h264_videotoolbox -realtime true -profile:v baseline -pix_fmt nv12 -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:61832?pkt_size=1200
-2026/04/08 18:41:28.183946 [http] -> GET /api/pcpanel/leds from=100.105.245.94:49214
-2026/04/08 18:41:28.184069 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:28.191763 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:41:28.191851 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:41:28.191872 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:41:28.191901 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:41:28.191910 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:41:28.191919 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:41:28.191928 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:41:28.191937 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:41:28.191944 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:41:28.191952 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:41:28.192317 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:28.192383 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:28.192475 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:28.227860 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:28.227943 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:28.227989 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:28.937629 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:28.937713 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:28.937774 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:28.945797 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:28.945890 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:28.945945 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:29.132773 [video/avfoundation] objc[4429]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:29.132837 [video/avfoundation] objc[4429]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:29.132914 [video/avfoundation] objc[4429]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:29.133167 [video/avfoundation] [AVFoundation indev @ 0x75ac18140] Configuration of video device failed, falling back to default.
-2026/04/08 18:41:29.655034 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:29.655093 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:29.655136 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:29.662909 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:29.662954 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:29.662987 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:30.383759 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:30.383840 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:30.383897 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:30.397241 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:30.397311 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:30.397351 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:30.855128 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:61832
-2026/04/08 18:41:31.121567 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:31.121659 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:31.121705 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:31.129718 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:31.129785 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:31.129828 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:31.131311 [video] started mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:41:31.131349 [video/start #2] step=ffmpeg-start-ok elapsed=3.289s attempt=1 mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:41:31.839528 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:31.839615 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:31.839668 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:31.849050 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:31.849172 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:31.849261 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:32.586772 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:32.586867 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:32.586959 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:32.598212 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:32.598285 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:32.598326 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:33.184182 [http] -> GET /api/pcpanel/leds from=100.105.245.94:49214
-2026/04/08 18:41:33.184312 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:33.397361 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:33.397446 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:33.397512 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:34.407092 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:34.407181 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:34.407223 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:35.395548 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:35.395654 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:35.395703 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:36.414464 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:36.414554 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:36.414618 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:37.438156 [http] -> GET /api/device/info from=100.105.245.94:49214
-2026/04/08 18:41:37.438278 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:37.438322 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:37.438177 [http] -> GET /api/device/info from=100.105.245.94:52666
-2026/04/08 18:41:37.438448 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:37.438491 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:37.451206 [http] -> GET /api/video/info from=100.105.245.94:52666
-2026/04/08 18:41:37.451223 [http] -> GET /api/device/local_drives from=100.105.245.94:49214
-2026/04/08 18:41:37.451309 [http] -> GET /api/video/devices from=100.105.245.94:47439
-2026/04/08 18:41:37.451314 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:37.451344 [api] video_devices count=1
-2026/04/08 18:41:37.451501 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:41:37.465178 [http] -> GET /api/iso/space from=100.105.245.94:30488
-2026/04/08 18:41:37.465181 [http] -> GET /api/video/info from=100.105.245.94:40345
-2026/04/08 18:41:37.465269 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:38.182037 [http] -> GET /api/pcpanel/leds from=100.105.245.94:30488
-2026/04/08 18:41:38.182140 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:38.396807 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:38.396891 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:38.396943 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:39.413664 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:39.413749 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:39.413793 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:40.410262 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:40.410391 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:40.410494 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:41.416268 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:41.416538 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:41.416626 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:42.439073 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:42.439390 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:42.439474 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:43.132262 [video/start #2] step=first-rtp-timeout elapsed=15.289s attempt=1 mode=avfoundation codec=h264_videotoolbox err=no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=h264_videotoolbox local=127.0.0.1:61832 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:61832 within 12s
-2026/04/08 18:41:43.135184 [video] no RTP packets for codec=h264_videotoolbox on attempt=1, retrying with fallback
-2026/04/08 18:41:43.135245 [video/start #2] step=relay-setup-begin elapsed=15.292s attempt=2 tailscale_target=100.105.245.94:55000
-2026/04/08 18:41:43.135320 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:41:43.186872 [http] -> GET /api/pcpanel/leds from=100.105.245.94:30488
-2026/04/08 18:41:43.186956 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:43.189702 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:41:43.189758 [video] tailscale relay enabled local=127.0.0.1:55334 target=100.105.245.94:55000
-2026/04/08 18:41:43.189787 [video/start #2] step=relay-setup-ok elapsed=15.347s attempt=2 local=127.0.0.1:55334 target=100.105.245.94:55000
-2026/04/08 18:41:43.189800 [video] tailscale relay goroutine started local=127.0.0.1:55334 target=100.105.245.94:55000
-2026/04/08 18:41:43.190032 [video] local relay probe confirmed on 127.0.0.1:55334
-2026/04/08 18:41:43.190110 [video/start #2] step=relay-local-probe-ok elapsed=15.347s attempt=2 local=127.0.0.1:55334
-2026/04/08 18:41:43.190141 [video/start #2] step=ffmpeg-start-begin elapsed=15.347s attempt=2 mode_request=h264 local_target=127.0.0.1:55334
-2026/04/08 18:41:43.395075 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:43.395166 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:43.395229 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:43.494023 [video] starting mode=avfoundation codec=libx264 target=127.0.0.1:55334 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:41:43.494202 [video] ffmpeg args mode=avfoundation codec=libx264 :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=yuv420p -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -level 3.2 -pix_fmt yuv420p -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:55334?pkt_size=1200
-2026/04/08 18:41:43.600232 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:41:43.600511 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:41:43.600620 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:41:43.600649 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:41:43.600664 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:41:43.600677 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:41:43.600698 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:41:43.600713 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:41:43.600726 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:41:43.600738 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:41:44.406559 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:44.406705 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:44.406822 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:44.494516 [video/avfoundation] objc[4460]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:44.494689 [video/avfoundation] objc[4460]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:44.494722 [video/avfoundation] objc[4460]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:41:44.494914 [video/avfoundation] [AVFoundation indev @ 0x84ac1c140] Configuration of video device failed, falling back to default.
-2026/04/08 18:41:45.397625 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:45.397709 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:45.397754 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:46.191071 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:55334
-2026/04/08 18:41:46.408926 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:46.408996 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:46.409048 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:46.504504 [video] started mode=avfoundation codec=libx264
-2026/04/08 18:41:46.504572 [video/start #2] step=ffmpeg-start-ok elapsed=18.661s attempt=2 mode=avfoundation codec=libx264
-2026/04/08 18:41:47.410814 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:47.411053 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:47.411106 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:47.422495 [http] -> GET /api/device/local_drives from=100.105.245.94:47069
-2026/04/08 18:41:47.422542 [http] -> GET /api/device/local_drives from=100.105.245.94:56413
-2026/04/08 18:41:47.422574 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:47.422585 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:47.422755 [http] -> GET /api/device/info from=100.105.245.94:43256
-2026/04/08 18:41:47.422776 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:47.422801 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:47.422888 [http] -> POST /api/backup/get_snapshots from=100.105.245.94:55030
-2026/04/08 18:41:47.422914 [api] backup_get_snapshots
-2026/04/08 18:41:47.422932 [http] <- POST /api/backup/get_snapshots status=200 dur=0s
-2026/04/08 18:41:47.430572 [http] -> GET /api/device/info from=100.105.245.94:47069
-2026/04/08 18:41:47.430637 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:47.430685 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:47.434436 [http] -> GET /api/iso/space from=100.105.245.94:56413
-2026/04/08 18:41:47.434511 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:47.439087 [http] -> GET /api/iso/space from=100.105.245.94:43256
-2026/04/08 18:41:47.439220 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:48.216826 [http] -> GET /api/pcpanel/leds from=100.105.245.94:56413
-2026/04/08 18:41:48.216952 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:48.395310 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:48.395435 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:48.395504 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:49.409795 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:49.410009 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:49.410081 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:50.409880 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:50.410086 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:50.410160 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:51.439898 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:51.440189 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:51.440300 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:52.408966 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:52.409035 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:52.409081 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:53.184011 [http] -> GET /api/pcpanel/leds from=100.105.245.94:56413
-2026/04/08 18:41:53.184311 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:53.395291 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:53.395382 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:53.395434 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:54.411104 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:54.411181 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:54.411235 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:55.395190 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:55.395535 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:55.395619 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:56.408056 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:56.408163 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:56.408484 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:57.439525 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:41:57.439632 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:57.439651 [http] -> GET /api/device/local_drives from=100.105.245.94:30488
-2026/04/08 18:41:57.439687 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:57.439749 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:41:57.449063 [http] -> GET /api/iso/space from=100.105.245.94:30488
-2026/04/08 18:41:57.449164 [http] -> GET /api/device/info from=100.105.245.94:22708
-2026/04/08 18:41:57.449214 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:57.449249 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:57.449178 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:41:58.214889 [http] -> GET /api/pcpanel/leds from=100.105.245.94:30488
-2026/04/08 18:41:58.214980 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:41:58.402358 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:58.403039 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:58.403100 [http] <- GET /api/device/info status=200 dur=1ms
-2026/04/08 18:41:58.509674 [video/start #2] step=first-rtp-timeout elapsed=30.666s attempt=2 mode=avfoundation codec=libx264 err=no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:55334 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:55334 within 12s
-2026/04/08 18:41:58.513278 [video] no RTP packets for codec=libx264 on attempt=2, retrying with fallback
-2026/04/08 18:41:58.514080 [api] video_start failed: no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:55334 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:55334 within 12s
-2026/04/08 18:41:58.514201 [http] <- POST /api/video/start status=500 dur=30.672s trace=vt-2
-2026/04/08 18:41:58.514176 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:58.514382 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:58.515117 [http] <- GET /api/video/info status=200 dur=21.05s
-2026/04/08 18:41:58.515121 [http] <- GET /api/video/info status=200 dur=21.063s
-2026/04/08 18:41:59.395267 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:59.395434 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:59.395516 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:59.403185 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:59.403276 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:59.403396 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:59.410497 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:59.410646 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:59.410708 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:59.417065 [http] -> GET /api/video/devices from=100.105.245.94:30488
-2026/04/08 18:41:59.417172 [api] video_devices count=1
-2026/04/08 18:41:59.417220 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:41:59.424838 [http] -> GET /api/video/info from=100.105.245.94:30488
-2026/04/08 18:41:59.425063 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:59.425177 [http] <- GET /api/video/info status=200 dur=0s
-2026/04/08 18:41:59.433731 [http] -> GET /api/video/info?device=display%3A0 from=100.105.245.94:30488
-2026/04/08 18:41:59.433853 [api] video_info device=display:0 modes=3 transports=1 streaming=false
-2026/04/08 18:41:59.433926 [http] <- GET /api/video/info?device=display%3A0 status=200 dur=0s
-2026/04/08 18:41:59.595765 [http] -> GET /api/device/info from=100.105.245.94:30488
-2026/04/08 18:41:59.595922 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:41:59.595995 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:41:59.790903 [http] -> POST /api/video/start from=100.105.245.94:30488 trace=vt-3
-2026/04/08 18:41:59.791503 [api] video_start trace=vt-3 peer=100.105.245.94 requested_client=100.105.245.94:55000
-2026/04/08 18:41:59.791761 [api] video_start width=1280 height=720 fps=30 bitrate=2000K mode=h264
-2026/04/08 18:41:59.791779 [video/start #3] begin client_trace=vt-3 raw device=display:0 size=1280x720 fps=30 bitrate=2000K mode=h264 host=100.105.245.94 port=55000
-2026/04/08 18:41:59.791821 [video/start #3] step=normalized-request elapsed=0s device=display:0 size=1280x720 fps=30 bitrate=2000K host=100.105.245.94 port=55000
-2026/04/08 18:41:59.791842 [video/start #3] step=update-frp-visitor-begin elapsed=0s client_port=55000
-2026/04/08 18:41:59.792838 [video/start #3] step=update-frp-visitor-ok elapsed=1ms client_port=55000
-2026/04/08 18:41:59.793101 [video/start #3] step=relay-setup-begin elapsed=1ms attempt=1 tailscale_target=100.105.245.94:55000
-2026/04/08 18:41:59.793496 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:41:59.801219 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:41:59.801300 [video] tailscale relay enabled local=127.0.0.1:53578 target=100.105.245.94:55000
-2026/04/08 18:41:59.801353 [video/start #3] step=relay-setup-ok elapsed=10ms attempt=1 local=127.0.0.1:53578 target=100.105.245.94:55000
-2026/04/08 18:41:59.801479 [video] tailscale relay goroutine started local=127.0.0.1:53578 target=100.105.245.94:55000
-2026/04/08 18:41:59.801881 [video] local relay probe confirmed on 127.0.0.1:53578
-2026/04/08 18:41:59.802182 [video/start #3] step=relay-local-probe-ok elapsed=10ms attempt=1 local=127.0.0.1:53578
-2026/04/08 18:41:59.802402 [video/start #3] step=ffmpeg-start-begin elapsed=11ms attempt=1 mode_request=h264 local_target=127.0.0.1:53578
-2026/04/08 18:42:00.119340 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:00.119451 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:00.119509 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:00.128556 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:00.128652 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:00.128710 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:00.322757 [video] starting mode=avfoundation codec=h264_videotoolbox target=127.0.0.1:53578 fps=30 size=1280x720 bitrate=2000K
-2026/04/08 18:42:00.322840 [video] ffmpeg args mode=avfoundation codec=h264_videotoolbox :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -pixel_format bgr0 -video_size 1280x720 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=nv12 -c:v h264_videotoolbox -realtime true -profile:v baseline -pix_fmt nv12 -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:53578?pkt_size=1200
-2026/04/08 18:42:00.391481 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
-2026/04/08 18:42:00.391666 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
-2026/04/08 18:42:00.391693 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
-2026/04/08 18:42:00.392328 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
-2026/04/08 18:42:00.392362 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
-2026/04/08 18:42:00.392418 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
-2026/04/08 18:42:00.392504 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
-2026/04/08 18:42:00.392528 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
-2026/04/08 18:42:00.392541 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
-2026/04/08 18:42:00.392553 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
-2026/04/08 18:42:00.851670 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:00.851826 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:00.851908 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:00.860223 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:00.860362 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:00.860457 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:01.309744 [video/avfoundation] objc[4492]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:42:01.309904 [video/avfoundation] objc[4492]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:42:01.309931 [video/avfoundation] objc[4492]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
-2026/04/08 18:42:01.311915 [video/avfoundation] [AVFoundation indev @ 0x80101c140] Configuration of video device failed, falling back to default.
-2026/04/08 18:42:01.583657 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:01.583730 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:01.583769 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:01.594605 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:01.594714 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:01.594787 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:02.314971 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:02.315052 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:02.315110 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:02.323937 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:02.324004 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:02.324053 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:02.802945 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:53578
-2026/04/08 18:42:03.044381 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:03.044476 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:03.044531 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:03.055708 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:03.055777 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:03.055838 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:03.170400 [http] -> GET /api/pcpanel/leds from=100.105.245.94:56413
-2026/04/08 18:42:03.170491 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:42:03.328986 [video] started mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:42:03.329056 [video/start #3] step=ffmpeg-start-ok elapsed=3.537s attempt=1 mode=avfoundation codec=h264_videotoolbox
-2026/04/08 18:42:03.811645 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:03.811734 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:03.811784 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:03.819707 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:03.819747 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:03.819820 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:04.542865 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:04.542941 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:04.542985 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:04.551634 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:04.551737 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:04.551796 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:05.407405 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:05.407743 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:05.407806 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:06.439511 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:06.439708 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:06.439866 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:07.398212 [http] -> GET /api/device/info from=100.105.245.94:56413
-2026/04/08 18:42:07.398321 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:07.398447 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:07.405760 [http] -> GET /api/device/local_drives from=100.105.245.94:56413
-2026/04/08 18:42:07.406052 [http] <- GET /api/device/local_drives status=200 dur=0s
-2026/04/08 18:42:07.414959 [http] -> GET /api/video/devices from=100.105.245.94:50093
-2026/04/08 18:42:07.415093 [api] video_devices count=1
-2026/04/08 18:42:07.415324 [http] <- GET /api/video/devices status=200 dur=0s
-2026/04/08 18:42:07.415558 [http] -> GET /api/device/info from=100.105.245.94:24450
-2026/04/08 18:42:07.415582 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:07.415594 [http] -> GET /api/video/info from=100.105.245.94:49231
-2026/04/08 18:42:07.415611 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:07.415677 [http] -> GET /api/iso/space from=100.105.245.94:56413
-2026/04/08 18:42:07.415761 [http] <- GET /api/iso/space status=200 dur=0s
-2026/04/08 18:42:07.424321 [http] -> GET /api/video/info from=100.105.245.94:24450
-2026/04/08 18:42:08.175777 [http] -> GET /api/pcpanel/leds from=100.105.245.94:18003
-2026/04/08 18:42:08.175885 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:42:08.404053 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:08.404126 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:08.404204 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:09.416986 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:09.417104 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:09.417177 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:10.407112 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:10.407382 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:10.407474 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:11.407951 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:11.408032 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:11.408081 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:12.408384 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:12.408675 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:12.408746 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:13.189491 [http] -> GET /api/pcpanel/leds from=100.105.245.94:18003
-2026/04/08 18:42:13.189585 [http] <- GET /api/pcpanel/leds status=200 dur=0s
-2026/04/08 18:42:13.409835 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:13.409912 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:13.409957 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:14.406187 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:14.406266 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:14.406306 [http] <- GET /api/device/info status=200 dur=0s
-2026/04/08 18:42:15.329887 [video/start #3] step=first-rtp-timeout elapsed=15.538s attempt=1 mode=avfoundation codec=h264_videotoolbox err=no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=h264_videotoolbox local=127.0.0.1:53578 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:53578 within 12s
-2026/04/08 18:42:15.333014 [video] no RTP packets for codec=h264_videotoolbox on attempt=1, retrying with fallback
-2026/04/08 18:42:15.333213 [video/start #3] step=relay-setup-begin elapsed=15.541s attempt=2 tailscale_target=100.105.245.94:55000
-2026/04/08 18:42:15.333515 [video] local relay preferred bind failed port=55000 err=listen udp4 127.0.0.1:55000: bind: address already in use; trying fallback even UDP port
-2026/04/08 18:42:15.346528 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
-2026/04/08 18:42:15.346822 [video] tailscale relay enabled local=127.0.0.1:53302 target=100.105.245.94:55000
-2026/04/08 18:42:15.347918 [video/start #3] step=relay-setup-ok elapsed=15.556s attempt=2 local=127.0.0.1:53302 target=100.105.245.94:55000
-2026/04/08 18:42:15.348006 [video] tailscale relay goroutine started local=127.0.0.1:53302 target=100.105.245.94:55000
-2026/04/08 18:42:15.348328 [video] local relay probe confirmed on 127.0.0.1:53302
-2026/04/08 18:42:15.348481 [video/start #3] step=relay-local-probe-ok elapsed=15.556s attempt=2 local=127.0.0.1:53302
-2026/04/08 18:42:15.348590 [video/start #3] step=ffmpeg-start-begin elapsed=15.557s attempt=2 mode_request=h264 local_target=127.0.0.1:53302
-2026/04/08 18:42:15.395493 [http] -> GET /api/device/info from=100.105.245.94:18003
-2026/04/08 18:42:15.395595 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
-2026/04/08 18:42:15.395664 [http] <- GET /api/device/info status=200 dur=0s
+
+04-09 08:03:42.301 I/MainActivity(29099): 🌐 [NETWORK] Active interface: wlan0
+04-09 08:03:42.301 W/USBridge(29099): time="08:03:42" level=info msg="tailscale android: active network interface=\"wlan0\""
+04-09 08:03:42.323 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:42.435 W/USBridge(29099): time="08:03:42" level=info msg="[devices-ui] combineDrives: total=3 api=0 local=0 user=0 video=0 mounted=0"
+04-09 08:03:42.435 W/USBridge(29099): time="08:03:42" level=info msg="✅ Connected to USBridge via tailscale"
+04-09 08:03:42.505 W/USBridge(29099): time="08:03:42" level=info msg="🎬 video reconcile: reason=control-bootstrap desired=true streaming=false restart=false"
+04-09 08:03:42.521 W/USBridge(29099): time="08:03:42" level=info msg="🎯 [VideoTrace #1] start label=vt-1 reason=mode=h264 device=display:0"
+04-09 08:03:42.521 W/USBridge(29099): time="08:03:42" level=info msg="🎯 [VideoTrace #1] preparing GStreamer/video start"
+04-09 08:03:42.522 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:42.527 W/USBridge(29099): time="08:03:42" level=info msg="[devices-ui] combineDrives: total=4 api=0 local=0 user=0 video=1 mounted=0"
+04-09 08:03:42.527 W/USBridge(29099): time="08:03:42" level=info msg="[devices-ui] item[0]: source=video mounted=false mounting=false name=\"Capture device [display:0]\""
+04-09 08:03:42.530 E/TaskPersister( 2957): File error accessing recents directory (directory doesn't exist?).
+04-09 08:03:42.723 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:42.778 W/USBridge(29099): time="08:03:42" level=info msg="[devices-ui] render id=0 source=video mounted=false mounting=false name=\"Capture device [display:0]\""
+04-09 08:03:42.890 I/MainActivity(29099): 🌐 [NETWORK] Active interface: wlan0
+04-09 08:03:42.891 W/USBridge(29099): time="08:03:42" level=info msg="tailscale android: active network interface=\"wlan0\""
+04-09 08:03:42.893 W/USBridge(29099): time="08:03:42" level=info msg="tailscale client: video relay listening trace=vt-1 on tailnet udp 100.105.245.94:55000 -> 127.0.0.1:55000"
+04-09 08:03:42.895 I/MainActivity(29099): 🌐 [NETWORK] Active interface: wlan0
+04-09 08:03:42.895 W/USBridge(29099): time="08:03:42" level=info msg="tailscale android: active network interface=\"wlan0\""
+04-09 08:03:42.896 W/USBridge(29099): time="08:03:42" level=info msg="🎬 [VIDEO vt-1] tailscale transport target=100.105.245.94:55000 relay=trace=vt-1 tail=100.105.245.94:55000 port=55000 packets=0 last_from= last_at=never"
+04-09 08:03:43.119 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:44.079 W/USBridge(29099): time="08:03:44" level=info msg="tailscale client tsnet: AuthLoop: state is Running; done"
+04-09 08:03:44.205 W/USBridge(29099): time="08:03:44" level=info msg="🎬 [VIDEO vt-1] preparing pipeline mode=h264 port=55000"
+04-09 08:03:44.206 W/USBridge(29099): time="08:03:44" level=info msg="🎬 Android: ConnectToRTP port=55000 mode=h264 (VideoUDPPort, FRP proxy шлёт сюда)"
+04-09 08:03:44.206 W/USBridge(29099): time="08:03:44" level=info msg="🔗 Android: Подключение к UDP видеопотоку mode=h264..."
+04-09 08:03:44.206 I/GStreamer(29099): ✅ hw_frame_store инициализирован (force_sw=0)
+04-09 08:03:44.206 I/GStreamer(29099): 📝 Creating RTP H.264 pipeline for port: 55000
+04-09 08:03:44.206 I/GStreamer(29099): ✅ Android decoder selection for video/avc: c2.qti.avc.decoder
+04-09 08:03:44.209 I/GStreamer(29099): ✅ GStreamer decoder matched: codec=c2.qti.avc.decoder -> factory=amcviddec-c2qtiavcdecoder
+04-09 08:03:44.209 I/GStreamer(29099): 🔧 Сборка HW pipeline (gst_parse_launch): декодер=amcviddec-c2qtiavcdecoder
+04-09 08:03:44.210 I/GStreamer(29099): 📋 amcviddec-c2qtiavcdecoder src template caps: video/x-raw(memory:GLMemory), format=(string)RGBA, texture-target=(string)external-oes
+04-09 08:03:44.211 I/GStreamer(29099): 📝 HW pipeline вариант 1 (glcolorconvert+2d+download+sysmem-rgba): udpsrc name=udpsrc0 port=55000 buffer-size=131072 timeout=0 caps="application/x-rtp,media=video,encoding-name=H264,payload=96" ! rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! rtph264depay ! h264parse config-interval=-1 ! amcviddec-c2qtiavcdecoder ! glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA ! appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false
+04-09 08:03:44.217 I/GStreamer(29099): ✅ EGL 1.5 initialized
+04-09 08:03:44.219 I/GStreamer(29099): ✅ EGL context created & tested: display=0xb400007accd99270 ctx=0xb400007abcc0ae90 surface=0xb400007abcc0a980
+04-09 08:03:44.220 I/GStreamer(29099): GL display factory resolved: egl_factory=0x792de902e0
+04-09 08:03:44.224 I/GStreamer(29099): ✅ GL context предустановлен на pipeline: EGL display=0xb400007accd99270, ctx=0xb400007abcc0ae90, surface=0xb400007abcc0a980
+04-09 08:03:44.233 D/CCodecConfig(29099): read media type: video/avc
+04-09 08:03:44.238 D/CCodecConfig(29099):   c2::float coded.frame-rate.value = 1
+04-09 08:03:44.238 D/CCodecConfig(29099):   string input.media-type.value = "video/avc"
+04-09 08:03:44.238 D/CCodecConfig(29099):   string output.media-type.value = "video/raw"
+04-09 08:03:44.241 I/GStreamer(29099): ✅ HW pipeline с amcviddec-c2qtiavcdecoder (glcolorconvert+2d+download+sysmem-rgba) готов!
+04-09 08:03:44.241 I/GStreamer(29099): ✅ Pipeline с HW декодером amcviddec-c2qtiavcdecoder готов
+04-09 08:03:44.243 I/GStreamer(29099): ✅ GL context предустановлен на pipeline: EGL display=0xb400007accd99270, ctx=0xb400007abcc0ae90, surface=0xb400007abcc0a980
+04-09 08:03:44.243 I/GStreamer(29099): ✅ Appsink callbacks установлены (gst_buffer_map на streaming thread)
+04-09 08:03:44.247 D/CCodecConfig(29099): read media type: video/avc
+04-09 08:03:44.250 D/CCodecConfig(29099):   c2::float coded.frame-rate.value = 1
+04-09 08:03:44.250 D/CCodecConfig(29099):   string input.media-type.value = "video/avc"
+04-09 08:03:44.250 D/CCodecConfig(29099):   string output.media-type.value = "video/raw"
+04-09 08:03:44.251 W/USBridge(29099): time="08:03:44" level=info msg="✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo"
+04-09 08:03:44.251 W/USBridge(29099): time="08:03:44" level=info msg="🎬 [VideoTrace #1] GStreamer state=connected"
+04-09 08:03:44.251 W/USBridge(29099): time="08:03:44" level=info msg="✅ Android: GStreamer подключен к UDP видеопотоку mode=h264"
+04-09 08:03:44.251 I/GStreamer(29099): 🔄 BUS STATE_CHANGED: NULL -> READY (pending: PLAYING)
+04-09 08:03:44.251 I/GStreamer(29099): 📨 BUS: stream-status from src
+04-09 08:03:44.251 W/USBridge(29099): time="08:03:44" level=info msg="✅ Video pipeline ready"
+04-09 08:03:44.251 W/USBridge(29099): time="08:03:44" level=info msg="🧹 [VideoTrace #1] video canvas cleared"
+04-09 08:03:44.251 I/GStreamer(29099): 📨 BUS: stream-status from src
+04-09 08:03:44.251 I/GStreamer(29099): 📨 BUS: stream-status from src
+04-09 08:03:44.251 I/GStreamer(29099): 🔄 BUS STATE_CHANGED: READY -> PAUSED (pending: PLAYING)
+04-09 08:03:44.251 I/GStreamer(29099): 📨 BUS: stream-status from src
+04-09 08:03:44.251 I/GStreamer(29099): 📨 BUS: new-clock from pipeline0
+04-09 08:03:44.252 W/USBridge(29099): time="08:03:44" level=info msg="🎬 Android: Запуск обработки GStreamer кадров (callback mode)..."
+04-09 08:03:44.252 I/GStreamer(29099): 📨 BUS: stream-start from pipeline0
+04-09 08:03:44.306 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:44.402 W/USBridge(29099): time="08:03:44" level=info msg="🎥 [VIDEO vt-1] start capture mode=h264 client=100.105.245.94:55000"
+04-09 08:03:44.403 W/USBridge(29099): time="08:03:44" level=info msg="🎥 [VideoHTTP vt-1] POST http://usbridge-agent.tail8380e7.ts.net:8080/api/video/start device=display:0 mode=h264 1280x720@30fps bitrate=2000K client=100.105.245.94:55000"
+04-09 08:03:44.403 W/USBridge(29099): time="08:03:44" level=info msg="🎥 [VideoHTTP vt-1] body={\"video_device\":\"display:0\",\"video_width\":1280,\"video_height\":720,\"video_fps\":30,\"video_quality\":80,\"video_bitrate\":\"2000K\",\"video_mode\":\"h264\",\"client_host\":\"100.105.245.94\",\"client_port\":55000}"
+04-09 08:03:44.424 W/USBridge(29099): time="08:03:44" level=info msg="tailscale client: video relay probe acknowledged trace=vt-1 from 100.104.80.51:59060 via 100.105.245.94:55000"
+04-09 08:03:44.467 D/SLocation( 2957): CommonCoreManager - handleCommandCallback - FUNC_TYPE : SET_LOCATION  ERROR_CODE : ERROR_NONE
+04-09 08:03:45.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:46.522 W/USBridge(29099): time="08:03:46" level=warning msg="⚠️ [VideoTrace #1] no frames reached client after 4.001s gstreamer=map[connected:true frame_count:0 frames_dropped:0 last_frame:0001-01-01 00:00:00 +0000 UTC low_latency_mode:true] relay=trace=vt-1 tail=100.105.245.94:55000 port=55000 packets=0 last_from= last_at=never"
+04-09 08:03:47.119 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:47.538 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:49.026 W/USBridge(29099): time="08:03:49" level=info msg="tailscale client: first RTP packet relayed trace=vt-1 from 100.104.80.51:59060 via 100.105.245.94:55000 bytes=1123"
+04-09 08:03:49.026 W/USBridge(29099): time="08:03:49" level=info msg="tailscale client: relay stats trace=vt-1 packets=1 last_from=100.104.80.51:59060 bytes=1123 via=100.105.245.94:55000 local=127.0.0.1:55000"
+04-09 08:03:49.027 I/GStreamer(29099): 📨 RTP: первый пакет получен! size=1123
+04-09 08:03:49.040 D/CCodec  (29099):   int32_t frame-rate = 1
+04-09 08:03:49.040 D/CCodec  (29099):   string mime = "video/avc"
+04-09 08:03:49.040 D/CCodec  (29099):   int32_t android._video-scaling = 1
+04-09 08:03:49.040 D/CCodec  (29099):   int32_t frame-rate = 1
+04-09 08:03:49.040 D/CCodec  (29099):   string mime = "video/raw"
+04-09 08:03:49.043 D/CodecSolution_MediaStatisticsData( 2957): label: SEC_HW_H264
+04-09 08:03:49.043 D/CodecSolution_Logging( 2957): dma : true, feature: VDEC, extra: SEC_HW_H264, value: -1
+04-09 08:03:49.043 W/ContextImpl( 2957): Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1335 vendor.samsung.frameworks.codecsolution.Logging.insertDiagmonLog:14 vendor.samsung.frameworks.codecsolution.Logging.insertLog:6 vendor.samsung.frameworks.codecsolution.Logging.insertLog:1 vendor.samsung.frameworks.codecsolution.SehCodecSolutionService$1.handleMessage:24
+04-09 08:03:49.052 I/ResourceManagerService( 2416): getMediaResourceInfo (PID : 29099, clientID : -5476376619729764928, non-secure-codec/hw-video-codec:[]:1, 1280x720 (fps:1) - sw codec : no, encoder : no componentName = c2.qti.avc.decoder bitrate = 17000000)
+04-09 08:03:49.057 D/CCodecBufferChannel(29099): [c2.qti.avc.decoder#937] Ignoring stale input buffer done callback: last flush index = 0, frameIndex = 0
+04-09 08:03:49.058 D/CCodecBuffers(29099):   int32_t android._video-scaling = 1
+04-09 08:03:49.058 D/CCodecBuffers(29099):   int32_t frame-rate = 1
+04-09 08:03:49.058 D/CCodecBuffers(29099):   string mime = "video/raw"
+04-09 08:03:49.066 I/GStreamer(29099): 📐 [CB] Frame #1: 1280x720, caps: video/x-raw, format=(string)RGBA, width=(int)1280, height=(int)720, interlace-mode=(string)progressive, multiview-mode=(string)mono, multiview-flags=(GstVideoMultiviewFlagsSet)0:ffffffff:/right-view-first/left-flipped/left-flopped/right-flipped/right-flopped/half-aspect/mixed-mono, pixel-aspect-ratio=(fraction)1/1, framerate=(fraction)1000000/1
+04-09 08:03:49.066 I/GStreamer(29099): 📊 [CB] Buffer: 1 memory blocks, size=3686400
+04-09 08:03:49.066 I/GStreamer(29099): 📊 [CB] Allocator: glmemorypboallocator0
+04-09 08:03:49.066 I/GStreamer(29099): 📊 [CB] gst_buffer_map #1 (streaming thread)...
+04-09 08:03:49.066 I/GStreamer(29099): 📊 [CB] eglMakeCurrent(ours): OK
+04-09 08:03:49.070 I/GStreamer(29099): ✅ [CB] gst_buffer_map OK #1, size=3686400
+04-09 08:03:49.072 I/GStreamer(29099): 📊 [CB] Frame #1 OK: 1280x720, 3686400 bytes
+04-09 08:03:49.075 W/USBridge(29099): time="08:03:49" level=info msg="🧩 [VideoTrace #1] first client frame received frame=1 after 6.554s"
+04-09 08:03:49.075 W/USBridge(29099): time="08:03:49" level=info msg="✅ [VIDEO] first frame reached client trace=vt-1 frame=1 size=1280x720"
+04-09 08:03:49.075 W/USBridge(29099): time="08:03:49" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=1 size=1280x720"
+04-09 08:03:49.076 I/GStreamer(29099): 📊 [CB] gst_buffer_map #2 (streaming thread)...
+04-09 08:03:49.076 I/GStreamer(29099): 📊 [CB] eglMakeCurrent(ours): OK
+04-09 08:03:49.077 I/GStreamer(29099): ✅ [CB] gst_buffer_map OK #2, size=3686400
+04-09 08:03:49.079 I/GStreamer(29099): 📊 [CB] Frame #2 OK: 1280x720, 3686400 bytes
+04-09 08:03:49.081 I/GStreamer(29099): 📊 [CB] gst_buffer_map #3 (streaming thread)...
+04-09 08:03:49.081 I/GStreamer(29099): 📊 [CB] eglMakeCurrent(ours): OK
+04-09 08:03:49.082 I/GStreamer(29099): ✅ [CB] gst_buffer_map OK #3, size=3686400
+04-09 08:03:49.083 I/GStreamer(29099): 📊 [CB] Frame #3 OK: 1280x720, 3686400 bytes
+04-09 08:03:49.113 I/GStreamer(29099): 📊 [CB] gst_buffer_map #4 (streaming thread)...
+04-09 08:03:49.113 I/GStreamer(29099): ✅ [CB] gst_buffer_map OK #4, size=3686400
+04-09 08:03:49.115 W/USBridge(29099): time="08:03:49" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=2 size=1280x720"
+04-09 08:03:49.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:49.138 I/GStreamer(29099): 📊 [CB] gst_buffer_map #5 (streaming thread)...
+04-09 08:03:49.139 I/GStreamer(29099): ✅ [CB] gst_buffer_map OK #5, size=3686400
+04-09 08:03:49.187 W/USBridge(29099): time="08:03:49" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=3 size=1280x720"
+04-09 08:03:49.225 W/USBridge(29099): time="08:03:49" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=4 size=1280x720"
+04-09 08:03:49.288 W/USBridge(29099): time="08:03:49" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=5 size=1280x720"
+04-09 08:03:49.322 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1785 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:49.322 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1774 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:49.323 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1774 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:49.323 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1785 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:50.251 W/USBridge(29099): time="08:03:50" level=info msg="✅ Видео захват запущен (mode=h264, UDP порт 55000)"
+04-09 08:03:50.252 W/USBridge(29099): time="08:03:50" level=info msg="[devices-ui] combineDrives: total=4 api=0 local=0 user=0 video=1 mounted=2"
+04-09 08:03:50.252 W/USBridge(29099): time="08:03:50" level=info msg="[devices-ui] item[0]: source=video mounted=true mounting=false name=\"Capture device [display:0]\""
+04-09 08:03:50.252 W/USBridge(29099): time="08:03:50" level=info msg="🖼️ [VideoTrace #1] first UI paint frame=18 after 7.731s"
+04-09 08:03:50.345 W/USBridge(29099): time="08:03:50" level=info msg="[devices-ui] render id=0 source=video mounted=true mounting=false name=\"Capture device [display:0]\""
+04-09 08:03:50.346 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:50.478 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:50.578 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:50.695 W/View    ( 3959): requestLayout() improperly called by android.widget.FrameLayout{c65cf96 V.E...... ......ID 0,163-1080,2196 #7f0a0a14 app:id/qs_frame} during layout: running second layout pass
+04-09 08:03:50.886 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:51.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:51.369 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:51.502 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:51.694 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.044 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.119 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.186 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.336 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.570 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:52.785 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:53.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:53.119 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:53.294 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:53.677 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:53.919 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.092 W/USBridge(29099): time="08:03:54" level=info msg="📊 [VideoLatency][Android] samples=82 frame=1280x720 rtp->client_avg=9.44028ms rtp->client_max=35.501ms appsink->client_avg=4.421158ms appsink->client_max=30.478ms copy_avg=1.903584ms copy_max=27.989167ms client->ui_avg=6.187µs client->ui_max=126.771µs"
+04-09 08:03:54.101 I/SecImsNotifier( 4306): slot[1]: updateCapabilities: capabilities=MmTel Capabilities - [Voice: false Video: false UT: false SMS: false CALL_COMPOSER: false BUSINESS_COMPOSER_ONLY: false]
+04-09 08:03:54.111 W/View    ( 3959): requestLayout() improperly called by android.widget.FrameLayout{c65cf96 V.E...... ......ID 0,163-1080,2196 #7f0a0a14 app:id/qs_frame} during layout: running second layout pass
+04-09 08:03:54.160 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.202 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.352 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.485 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.568 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.702 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:54.818 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:55.010 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:55.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:55.244 I/VRI[MainActivity]@782dc5d(29099): ViewPostIme pointer 0
+04-09 08:03:55.853 I/VRI[MainActivity]@782dc5d(29099): ViewPostIme pointer 1
+04-09 08:03:55.878 V/NativeCrypto( 9486): Read error: ssl=0xb4000079fcb6d518: I/O error during system call, Software caused connection abort
+04-09 08:03:55.878 V/NativeCrypto( 9486): Write error: ssl=0xb4000079fcb6d518: I/O error during system call, Broken pipe
+04-09 08:03:55.878 V/NativeCrypto( 9486): Write error: ssl=0xb4000079fcb6d518: I/O error during system call, Broken pipe
+04-09 08:03:55.878 V/NativeCrypto( 9486): Write error: ssl=0xb4000079fcb6d518: I/O error during system call, Broken pipe
+04-09 08:03:55.878 V/NativeCrypto( 9486): SSL shutdown failed: ssl=0xb4000079fcb6d518: I/O error during system call, Success
+04-09 08:03:55.960 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:56.143 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:56.310 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:56.385 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:56.610 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:56.910 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.043 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.119 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:57.193 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.310 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.426 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.498 I/vendor.rmt_storage( 1853): wakelock acquired: 1, error no: 11
+04-09 08:03:57.523 I/vendor.rmt_storage( 1853): rmt_storage_client_thread: /boot/modem_fs1: About to block rmt_storage client thread (th_id: 486414003264) wakelock released: 1, error no: 0
+04-09 08:03:57.524 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1774 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:57.524 E/minksocket( 1692): MinkIPC ERROR: ( 1692:1785 ) MinkIPC_preProcess:272 Client down, but cannot find corresponding minksession
+04-09 08:03:57.543 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.744 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:57.859 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.168 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.243 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.436 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.501 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.578 W/USBridge(29099): time="08:03:58" level=info msg="tailscale client: relay stats trace=vt-1 packets=300 last_from=100.104.80.51:59060 bytes=104 via=100.105.245.94:55000 local=127.0.0.1:55000"
+04-09 08:03:58.642 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.743 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:58.809 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.002 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.076 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:03:59.196 W/USBridge(29099): time="08:03:59" level=info msg="📊 [VideoLatency][Android] samples=87 frame=1280x720 rtp->client_avg=8.776034ms rtp->client_max=39.217ms appsink->client_avg=4.52516ms appsink->client_max=21.932ms copy_avg=1.822635ms copy_max=19.764948ms client->ui_avg=4.847µs client->ui_max=92.761µs"
+04-09 08:03:59.289 I/GStreamer(29099): 📊 [CB] Frame #300 OK: 1280x720, 3686400 bytes
+04-09 08:03:59.451 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.592 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.668 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.784 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:03:59.959 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.192 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.350 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.492 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.659 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.742 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.859 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:00.978 I/MainActivity(29099): 🌐 [NETWORK] Interfaces snapshot lines=3
+04-09 08:04:00.992 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:01.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:01.151 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:01.234 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:01.376 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:01.593 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:01.817 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.017 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.242 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.335 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.625 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.726 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.850 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:02.958 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:03.183 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.385 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.542 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.667 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.792 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:03.975 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:04.159 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:04.259 W/USBridge(29099): time="08:04:04" level=info msg="📊 [VideoLatency][Android] samples=87 frame=1280x720 rtp->client_avg=8.760793ms rtp->client_max=36.301ms appsink->client_avg=4.468137ms appsink->client_max=36.935ms copy_avg=1.825632ms copy_max=33.89125ms client->ui_avg=8.441µs client->ui_max=357.135µs"
+04-09 08:04:04.333 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:04.500 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:04.633 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:04.808 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:05.119 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:05.216 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:05.733 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:05.853 I/SurfaceFlinger( 1850): Capture layer list: 	 com.usbridge.client/com.usbridge.client.MainActivity$_29099#40978(seamlessTransition:0)
+04-09 08:04:05.854 D/RenderEngine( 1850): [SEC_SF_EFFECTS] drawLayersInternal,1483, Rendering layer com.usbridge.client/com.usbridge.client.MainActivity$_29099#40978 at index 2
+04-09 08:04:05.900 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:06.083 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:06.383 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:06.649 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:06.767 W/USBridge(29099): time="08:04:06" level=info msg="🖼️ [VIDEO] client frame trace=vt-1 frame=300 size=1280x720"
+04-09 08:04:06.833 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:06.966 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:07.099 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:07.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:07.499 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:07.799 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:08.008 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:08.135 W/USBridge(29099): time="08:04:08" level=info msg="tailscale client: relay stats trace=vt-1 packets=600 last_from=100.104.80.51:59060 bytes=104 via=100.105.245.94:55000 local=127.0.0.1:55000"
+04-09 08:04:08.383 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:08.733 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:08.866 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:09.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:09.125 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:09.365 W/USBridge(29099): time="08:04:09" level=info msg="📊 [VideoLatency][Android] samples=89 frame=1280x720 rtp->client_avg=7.19082ms rtp->client_max=16.526ms appsink->client_avg=3.224539ms appsink->client_max=8.35ms copy_avg=947.076µs copy_max=6.387969ms client->ui_avg=5.725µs client->ui_max=235.312µs"
+04-09 08:04:09.424 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:09.479 I/GStreamer(29099): 📊 [CB] Frame #600 OK: 1280x720, 3686400 bytes
+04-09 08:04:09.666 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:09.684 I/SecImsNotifier( 4306): slot[1]: updateCapabilities: capabilities=MmTel Capabilities - [Voice: false Video: false UT: false SMS: false CALL_COMPOSER: false BUSINESS_COMPOSER_ONLY: false]
+04-09 08:04:09.691 W/View    ( 3959): requestLayout() improperly called by android.widget.FrameLayout{c65cf96 V.E...... ......ID 0,163-1080,2196 #7f0a0a14 app:id/qs_frame} during layout: running second layout pass
+04-09 08:04:09.932 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:10.041 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:10.116 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:10.299 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:10.433 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:10.599 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:11.124 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.233 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.399 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.632 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.850 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:11.932 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:12.332 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:12.499 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.016 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.118 I/DeepLink(29099): ℹ️ [DEEPLINK] No data URI in intent
+04-09 08:04:13.124 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.249 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.499 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.632 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:13.990 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:14.132 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:14.350 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:14.454 W/USBridge(29099): time="08:04:14" level=info msg="📊 [VideoLatency][Android] samples=89 frame=1280x720 rtp->client_avg=6.778247ms rtp->client_max=18.132ms appsink->client_avg=2.85273ms appsink->client_max=8.789ms copy_avg=768.41µs copy_max=2.609635ms client->ui_avg=3.921µs client->ui_max=87.031µs"
+04-09 08:04:14.732 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
+04-09 08:04:15.016 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
 
 
-ntNoTrace:59
-04-08 18:40:47.572 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.574 I/WindowManager( 2957): Cancelling animation restarting=false, leash=Surface(name=Surface(name=dd506cf com.usbridge.client/com.usbridge.client.MainActivity)/@0x3f6e263 - animation-leash of starting_reveal)/@0xf47f19
-04-08 18:40:47.574 I/WindowManager( 2957): Reparenting to original parent: Surface(name=ActivityRecord{236616539 u0 com.usbridge.client/.MainActivity t5452})/@0x4aabe60, destroy=false, surface=Surface(name=dd506cf com.usbridge.client/com.usbridge.client.MainActivity)/@0x3f6e263
-04-08 18:40:47.574 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.574 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.575 V/VRI[MainActivity]@782dc5d(31292): updateAppliedLetterboxDirection, direction=4, Caller=android.view.ViewRootImpl.handleDispatchLetterboxDirectionChanged:15753
-04-08 18:40:47.575 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.577 I/SurfaceFlinger( 1850): [Letterbox - top#37725] attach to parent LayerHierarchy{RequestedLayerState{ActivityRecord{236616539 u0 com.usbridge.client/.MainActivity t5452}#37709 parentId=37708} 5 children}
-04-08 18:40:47.579 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.586 I/SurfaceFlinger( 1850): [LayerHierarchy{RequestedLayerState{dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 parentId=37709} 1 children}] reparent to LayerHierarchy{RequestedLayerState{ActivityRecord{236616539 u0 com.usbridge.client/.MainActivity t5452}#37709 parentId=37708} 6 children}
-04-08 18:40:47.586 I/SurfaceFlinger( 1850): [LayerHierarchy{RequestedLayerState{Surface(name=dd506cf com.usbridge.client/com.usbridge.client.MainActivity)/@0x3f6e263 - animation-leash of starting_reveal#37723} no children}] reparent to OffscreenRoot
-04-08 18:40:47.586 I/SurfaceFlinger( 1850): [LayerHierarchy{RequestedLayerState{Surface(name=dd506cf com.usbridge.client/com.usbridge.client.MainActivity)/@0x3f6e263 - animation-leash of starting_reveal#37723} no children}] RelativeParent to null
-04-08 18:40:47.587 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.589 D/SurfaceFlinger( 1850):        CLIENT |          134398116626432 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2248.0 |    1   94 1073 2326 | com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 (7)
-04-08 18:40:47.713 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:47.713 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:47.720 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:40:47.722 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:40:47.724 W/USBridge(31292): time="18:40:47" level=info msg="tailscale client tsnet: tsnet running state path /data/user/0/com.usbridge.client/cache/usbridge-client/tailscale/tailscaled.state"
-04-08 18:40:47.725 W/USBridge(31292): time="18:40:47" level=info msg="tailscale client tsnet: tsnet starting with hostname \"usbridge-client\", varRoot \"/data/user/0/com.usbridge.client/cache/usbridge-client/tailscale\""
-04-08 18:40:47.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:47.829 D/SurfaceFlinger( 1850):        CLIENT |          134398116626434 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2249.0 |    0   91 1080 2340 | com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 (9)
-04-08 18:40:47.830 V/WindowManager( 2957):    ChangeInfo{c81730e container=ActivityRecord{236616539 u0 com.usbridge.client/.MainActivity t5452} flags=0x0}
-04-08 18:40:47.831 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.831 D/WindowManager( 2957): updateSystemBarAttributes: displayId=0, focusedCanBeNavColorWin=false, win=Window{dd506cf u0 com.usbridge.client/com.usbridge.client.MainActivity}, navColorWin=Window{dd506cf u0 com.usbridge.client/com.usbridge.client.MainActivity}, caller=com.android.server.wm.DisplayPolicy.finishPostLayoutPolicyLw:17 com.android.server.wm.RootWindowContainer.applySurfaceChangesTransaction$1:195 com.android.server.wm.RootWindowContainer.performSurfacePlacementNoTrace:59
-04-08 18:40:47.831 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.832 D/ChangeTransitionController( 2957):    ChangeInfo{c81730e container=ActivityRecord{236616539 u0 com.usbridge.client/.MainActivity t5452} flags=0x0}
-04-08 18:40:47.838 D/SurfaceFlinger( 1850):        DEVICE |          134398116626432 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2249.0 |    0   91 1080 2340 | com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 (10)
-04-08 18:40:47.839 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.839 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.839 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.841 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.841 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:40:47.844 I/SurfaceFlinger( 1850): [LayerHierarchy{RequestedLayerState{ImeContainer#15 parentId=37709 relativeParentId=37717 z=1} 1 children}] RelativeParent to LayerHierarchy{RequestedLayerState{dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 parentId=37709} 2 children}
-04-08 18:40:47.850 I/SAMSUNGWALLET(11439): [Hint_SimpleHintProcessMonitor] isHomePackageRunning topPkgName = com.usbridge.client, topClsName = com.usbridge.client.MainActivity, return false , se : false
-04-08 18:40:47.861 I/InsetsController(31292): cancelAnimation: types=statusBars, animType=1, host=com.usbridge.client/com.usbridge.client.MainActivity, from=android.view.InsetsController.notifyFinished:2006 android.view.InsetsAnimationThreadControlRunner$1.lambda$notifyFinished$0:82 android.view.InsetsAnimationThreadControlRunner$1.$r8$lambda$cDFF0h4Ncq-8EXdGszv69jrUu7c:0
-04-08 18:40:47.977 D/MdnieScenarioControlService( 2957):  packageName : com.usbridge.client    className : com.usbridge.client.MainActivity
-04-08 18:40:48.621 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 0
-04-08 18:40:48.704 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 1
-04-08 18:40:48.705 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:48.728 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:49.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:50.171 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 0
-04-08 18:40:50.262 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 1
-04-08 18:40:50.263 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:50.278 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:50.656 E/TaskPersister( 2957): File error accessing recents directory (directory doesn't exist?).
-04-08 18:40:51.104 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 0
-04-08 18:40:51.136 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:40:51.180 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:40:51.195 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 1
-04-08 18:40:51.197 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:51.252 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:51.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:51.995 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 0
-04-08 18:40:52.069 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:52.095 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 1
-04-08 18:40:52.722 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 0
-04-08 18:40:52.729 W/USBridge(31292): time="18:40:52" level=info msg="tailscale client tsnet: AuthLoop: state is Running; done"
-04-08 18:40:52.812 I/VRI[MainActivity]@782dc5d(31292): ViewPostIme pointer 1
-04-08 18:40:52.854 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:52.884 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.128 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.166 W/USBridge(31292): time="18:40:53" level=info msg="[devices-ui] combineDrives: total=3 api=0 local=0 user=0 video=0 mounted=0"
-04-08 18:40:53.226 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.319 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.351 W/USBridge(31292): time="18:40:53" level=info msg="[devices-ui] combineDrives: total=4 api=0 local=0 user=0 video=1 mounted=0"
-04-08 18:40:53.351 W/USBridge(31292): time="18:40:53" level=info msg="[devices-ui] item[0]: source=video mounted=false mounting=false name=\"Capture device [display:0]\""
-04-08 18:40:53.496 W/USBridge(31292): time="18:40:53" level=info msg="[devices-ui] render id=0 source=video mounted=false mounting=false name=\"Capture device [display:0]\""
-04-08 18:40:53.501 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.627 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:53.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:54.724 W/USBridge(31292): time="18:40:54" level=info msg="🎬 Control bootstrap: HID ready on attempt 1/8, starting video immediately"
-04-08 18:40:54.724 W/USBridge(31292): time="18:40:54" level=info msg="🎬 video reconcile: reason=start-configured-async desired=true streaming=false restart=false"
-04-08 18:40:54.823 W/USBridge(31292): time="18:40:54" level=info msg="🎯 [VideoTrace #1] start label=vt-1 reason=mode=h264 device=display:0"
-04-08 18:40:54.823 W/USBridge(31292): time="18:40:54" level=info msg="🎯 [VideoTrace #1] preparing GStreamer/video start"
-04-08 18:40:54.976 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:54.979 W/USBridge(31292): time="18:40:54" level=info msg="tailscale client: video relay listening trace=vt-1 on tailnet udp 100.105.245.94:55000 -> 127.0.0.1:55000"
-04-08 18:40:54.979 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:40:55.024 W/USBridge(31292): time="18:40:55" level=info msg="🎬 [VIDEO vt-1] preparing pipeline mode=h264 port=55000"
-04-08 18:40:55.025 W/USBridge(31292): time="18:40:55" level=info msg="🎬 Android: ConnectToRTP port=55000 mode=h264 (VideoUDPPort, FRP proxy шлёт сюда)"
-04-08 18:40:55.025 W/USBridge(31292): time="18:40:55" level=info msg="🔗 Android: Подключение к UDP видеопотоку mode=h264..."
-04-08 18:40:55.025 I/GStreamer(31292): 📝 Creating RTP H.264 pipeline for port: 55000
-04-08 18:40:55.026 I/GStreamer(31292): ✅ Android decoder selection for video/avc: c2.qti.avc.decoder
-04-08 18:40:55.029 I/GStreamer(31292): 📋 amcviddec-c2qtiavcdecoder src template caps: video/x-raw(memory:GLMemory), format=(string)RGBA, texture-target=(string)external-oes
-04-08 18:40:55.030 I/GStreamer(31292): 📝 HW pipeline вариант 1 (glcolorconvert+2d+download+sysmem-rgba): udpsrc name=udpsrc0 port=55000 buffer-size=131072 timeout=0 caps="application/x-rtp,media=video,encoding-name=H264,payload=96" ! rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! rtph264depay ! h264parse config-interval=-1 ! amcviddec-c2qtiavcdecoder ! glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA ! appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false
-04-08 18:40:55.053 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:40:55.059 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:40:55.059 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:40:55.068 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:40:55.072 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:40:55.072 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:40:55.073 W/USBridge(31292): time="18:40:55" level=info msg="✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo"
-04-08 18:40:55.073 W/USBridge(31292): time="18:40:55" level=info msg="✅ Android: GStreamer подключен к UDP видеопотоку mode=h264"
-04-08 18:40:55.073 W/USBridge(31292): time="18:40:55" level=info msg="✅ Video pipeline ready"
-04-08 18:40:55.074 W/USBridge(31292): time="18:40:55" level=info msg="🧹 [VideoTrace #1] video canvas cleared"
-04-08 18:40:55.152 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:40:55.224 W/USBridge(31292): time="18:40:55" level=info msg="🎥 [VIDEO vt-1] start capture mode=h264 client=100.105.245.94:55000"
-04-08 18:40:55.225 W/USBridge(31292): time="18:40:55" level=info msg="🎥 [VideoHTTP vt-1] POST http://usbridge-agent.tail8380e7.ts.net:8080/api/video/start device=display:0 mode=h264 1280x720@30fps bitrate=2000K client=100.105.245.94:55000"
-04-08 18:40:55.225 W/USBridge(31292): time="18:40:55" level=info msg="🎥 [VideoHTTP vt-1] body={\"video_device\":\"display:0\",\"video_width\":1280,\"video_height\":720,\"video_fps\":30,\"video_quality\":80,\"video_bitrate\":\"2000K\",\"video_mode\":\"h264\",\"client_host\":\"100.105.245.94\",\"client_port\":55000}"
-04-08 18:40:55.266 W/USBridge(31292): time="18:40:55" level=info msg="tailscale client: video relay probe acknowledged trace=vt-1 from 100.104.80.51:29338 via 100.105.245.94:55000"
-04-08 18:40:55.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:57.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:40:58.247 I/SurfaceFlinger( 1850): Capture layer list: 	 com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718(seamlessTransition:0)
-04-08 18:40:58.248 D/RenderEngine( 1850): [SEC_SF_EFFECTS] drawLayersInternal,1483, Rendering layer com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 at index 2
-04-08 18:40:58.825 W/USBridge(31292): time="18:40:58" level=warning msg="⚠️ [VideoTrace #1] no frames reached client after 4.001s gstreamer=map[connected:true frame_count:0 frames_dropped:0 last_frame:0001-01-01 00:00:00 +0000 UTC low_latency_mode:true] relay=trace=vt-1 tail=100.105.245.94:55000 port=55000 packets=0 last_from= last_at=never"
-04-08 18:40:59.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:00.016 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:01.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:03.790 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:05.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:07.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:09.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:11.084 W/USBridge(31292): time="18:41:11" level=info msg="tailscale client: video relay probe acknowledged trace=vt-1 from 100.104.80.51:52587 via 100.105.245.94:55000"
-04-08 18:41:11.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:13.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:14.621 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:41:15.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:17.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:19.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:21.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:23.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:25.790 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:26.734 W/USBridge(31292): time="18:41:26" level=info msg="[devices-ui] combineDrives: total=4 api=0 local=0 user=0 video=1 mounted=2"
-04-08 18:41:26.734 W/USBridge(31292): time="18:41:26" level=info msg="[devices-ui] item[0]: source=video mounted=false mounting=false name=\"Capture device [display:0]\""
-04-08 18:41:26.751 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:26.767 W/USBridge(31292): time="18:41:26" level=info msg="[devices-ui] render id=0 source=video mounted=false mounting=false name=\"Capture device [display:0]\""
-04-08 18:41:26.839 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:27.044 W/USBridge(31292): time="18:41:27" level=error msg="Ошибка запуска видео: HTTP error 500: {\"success\":false,\"error\":\"video_start_failed\",\"details\":\"no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:58846 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:58846 within 12s\"}\n"
-04-08 18:41:27.501 W/USBridge(31292): time="18:41:27" level=warning msg="⚠️ Control session watchdog: video unhealthy (video-not-streaming), re-running bootstrap"
-04-08 18:41:27.530 W/USBridge(31292): time="18:41:27" level=info msg="🎬 Control bootstrap: HID ready on attempt 1/8, starting video immediately"
-04-08 18:41:27.530 W/USBridge(31292): time="18:41:27" level=info msg="🎬 video reconcile: reason=start-configured-async desired=true streaming=false restart=false"
-04-08 18:41:27.546 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:27.549 W/USBridge(31292): time="18:41:27" level=info msg="🎯 [VideoTrace #2] start label=vt-2 reason=mode=h264 device=display:0"
-04-08 18:41:27.549 W/USBridge(31292): time="18:41:27" level=info msg="🎯 [VideoTrace #2] preparing GStreamer/video start"
-04-08 18:41:27.647 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:27.701 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:41:27.703 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:41:27.714 W/USBridge(31292): time="18:41:27" level=info msg="🎬 [VIDEO vt-2] preparing pipeline mode=h264 port=55000"
-04-08 18:41:27.714 W/USBridge(31292): time="18:41:27" level=info msg="🎬 Android: ConnectToRTP port=55000 mode=h264 (VideoUDPPort, FRP proxy шлёт сюда)"
-04-08 18:41:27.714 W/USBridge(31292): time="18:41:27" level=info msg="🔗 Android: Подключение к UDP видеопотоку mode=h264..."
-04-08 18:41:27.714 I/GStreamer(31292): 📝 Creating RTP H.264 pipeline for port: 55000
-04-08 18:41:27.714 I/GStreamer(31292): 📋 amcviddec-c2qtiavcdecoder src template caps: video/x-raw(memory:GLMemory), format=(string)RGBA, texture-target=(string)external-oes
-04-08 18:41:27.714 I/GStreamer(31292): 📝 HW pipeline вариант 1 (glcolorconvert+2d+download+sysmem-rgba): udpsrc name=udpsrc0 port=55000 buffer-size=131072 timeout=0 caps="application/x-rtp,media=video,encoding-name=H264,payload=96" ! rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! rtph264depay ! h264parse config-interval=-1 ! amcviddec-c2qtiavcdecoder ! glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA ! appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false
-04-08 18:41:27.723 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:41:27.728 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:41:27.728 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:41:27.736 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:41:27.739 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:41:27.739 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:41:27.740 W/USBridge(31292): time="18:41:27" level=info msg="✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo"
-04-08 18:41:27.740 W/USBridge(31292): time="18:41:27" level=info msg="✅ Android: GStreamer подключен к UDP видеопотоку mode=h264"
-04-08 18:41:27.740 W/USBridge(31292): time="18:41:27" level=info msg="✅ Video pipeline ready"
-04-08 18:41:27.741 W/USBridge(31292): time="18:41:27" level=info msg="🧹 [VideoTrace #2] video canvas cleared"
-04-08 18:41:27.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:27.805 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:27.892 W/USBridge(31292): time="18:41:27" level=info msg="🎥 [VIDEO vt-2] start capture mode=h264 client=100.105.245.94:55000"
-04-08 18:41:27.892 W/USBridge(31292): time="18:41:27" level=info msg="🎥 [VideoHTTP vt-2] POST http://usbridge-agent.tail8380e7.ts.net:8080/api/video/start device=display:0 mode=h264 1280x720@30fps bitrate=2000K client=100.105.245.94:55000"
-04-08 18:41:27.892 W/USBridge(31292): time="18:41:27" level=info msg="🎥 [VideoHTTP vt-2] body={\"video_device\":\"display:0\",\"video_width\":1280,\"video_height\":720,\"video_fps\":30,\"video_quality\":80,\"video_bitrate\":\"2000K\",\"video_mode\":\"h264\",\"client_host\":\"100.105.245.94\",\"client_port\":55000}"
-04-08 18:41:27.905 W/USBridge(31292): time="18:41:27" level=info msg="tailscale client: video relay probe acknowledged trace=vt-2 from 100.104.80.51:24135 via 100.105.245.94:55000"
-04-08 18:41:28.255 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:28.285 I/SurfaceFlinger( 1850): Capture layer list: 	 com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718(seamlessTransition:0)
-04-08 18:41:28.286 D/RenderEngine( 1850): [SEC_SF_EFFECTS] drawLayersInternal,1483, Rendering layer com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 at index 2
-04-08 18:41:29.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:31.550 W/USBridge(31292): time="18:41:31" level=warning msg="⚠️ [VideoTrace #2] no frames reached client after 4.001s gstreamer=map[connected:true frame_count:0 frames_dropped:0 last_frame:0001-01-01 00:00:00 +0000 UTC low_latency_mode:true] relay=trace=vt-2 tail=100.105.245.94:55000 port=55000 packets=0 last_from= last_at=never"
-04-08 18:41:31.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:33.264 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:33.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:35.312 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:41:35.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:37.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:39.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:41.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:42.372 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:43.244 W/USBridge(31292): time="18:41:43" level=info msg="tailscale client: video relay probe acknowledged trace=vt-2 from 100.104.80.51:42609 via 100.105.245.94:55000"
-04-08 18:41:43.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:45.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:47.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:49.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:50.047 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:51.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:53.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:55.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:57.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:58.324 I/SurfaceFlinger( 1850): Capture layer list: 	 com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718(seamlessTransition:0)
-04-08 18:41:58.326 D/RenderEngine( 1850): [SEC_SF_EFFECTS] drawLayersInternal,1483, Rendering layer com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 at index 2
-04-08 18:41:58.586 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:58.792 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:58.880 W/USBridge(31292): time="18:41:58" level=error msg="Ошибка запуска видео: HTTP error 500: {\"success\":false,\"error\":\"video_start_failed\",\"details\":\"no RTP from ffmpeg to local relay after startup: mode=avfoundation codec=libx264 local=127.0.0.1:55334 target=100.105.245.94:55000 packets=0 last_source=none wait=12s err=ffmpeg produced no RTP packets for tailscale relay on 127.0.0.1:55334 within 12s\"}\n"
-04-08 18:41:59.443 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:59.456 W/USBridge(31292): time="18:41:59" level=warning msg="⚠️ Control session watchdog: video unhealthy (video-not-streaming), re-running bootstrap"
-04-08 18:41:59.466 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.466 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.471 W/USBridge(31292): time="18:41:59" level=info msg="🎬 Control bootstrap: HID ready on attempt 1/8, starting video immediately"
-04-08 18:41:59.471 W/USBridge(31292): time="18:41:59" level=info msg="🎬 video reconcile: reason=start-configured-async desired=true streaming=false restart=false"
-04-08 18:41:59.472 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.472 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.481 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.482 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:41:59.494 W/USBridge(31292): time="18:41:59" level=info msg="🎯 [VideoTrace #3] start label=vt-3 reason=mode=h264 device=display:0"
-04-08 18:41:59.494 W/USBridge(31292): time="18:41:59" level=info msg="🎯 [VideoTrace #3] preparing GStreamer/video start"
-04-08 18:41:59.495 D/SurfaceFlinger( 1850):        CLIENT |          134398116626432 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2249.0 |    0   91 1080 2340 | com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 (89)
-04-08 18:41:59.643 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:41:59.646 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:41:59.647 I/MainActivity(31292): 🌐 [NETWORK] Active interface: wlan0
-04-08 18:41:59.669 W/USBridge(31292): time="18:41:59" level=info msg="🎬 [VIDEO vt-3] preparing pipeline mode=h264 port=55000"
-04-08 18:41:59.669 W/USBridge(31292): time="18:41:59" level=info msg="🎬 Android: ConnectToRTP port=55000 mode=h264 (VideoUDPPort, FRP proxy шлёт сюда)"
-04-08 18:41:59.669 W/USBridge(31292): time="18:41:59" level=info msg="🔗 Android: Подключение к UDP видеопотоку mode=h264..."
-04-08 18:41:59.669 I/GStreamer(31292): 📝 Creating RTP H.264 pipeline for port: 55000
-04-08 18:41:59.669 I/GStreamer(31292): 📋 amcviddec-c2qtiavcdecoder src template caps: video/x-raw(memory:GLMemory), format=(string)RGBA, texture-target=(string)external-oes
-04-08 18:41:59.669 I/GStreamer(31292): 📝 HW pipeline вариант 1 (glcolorconvert+2d+download+sysmem-rgba): udpsrc name=udpsrc0 port=55000 buffer-size=131072 timeout=0 caps="application/x-rtp,media=video,encoding-name=H264,payload=96" ! rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! rtph264depay ! h264parse config-interval=-1 ! amcviddec-c2qtiavcdecoder ! glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA ! appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false
-04-08 18:41:59.677 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:41:59.681 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:41:59.681 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:41:59.688 D/CCodecConfig(31292): read media type: video/avc
-04-08 18:41:59.692 D/CCodecConfig(31292):   string input.media-type.value = "video/avc"
-04-08 18:41:59.692 D/CCodecConfig(31292):   string output.media-type.value = "video/raw"
-04-08 18:41:59.693 W/USBridge(31292): time="18:41:59" level=info msg="✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo"
-04-08 18:41:59.693 W/USBridge(31292): time="18:41:59" level=info msg="✅ Android: GStreamer подключен к UDP видеопотоку mode=h264"
-04-08 18:41:59.693 W/USBridge(31292): time="18:41:59" level=info msg="✅ Video pipeline ready"
-04-08 18:41:59.693 W/USBridge(31292): time="18:41:59" level=info msg="🧹 [VideoTrace #3] video canvas cleared"
-04-08 18:41:59.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:41:59.813 I/MediaProvider( 6863): Observed non-standard /storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video/Private/.nomedia
-04-08 18:41:59.844 W/USBridge(31292): time="18:41:59" level=info msg="🎥 [VIDEO vt-3] start capture mode=h264 client=100.105.245.94:55000"
-04-08 18:41:59.844 W/USBridge(31292): time="18:41:59" level=info msg="🎥 [VideoHTTP vt-3] POST http://usbridge-agent.tail8380e7.ts.net:8080/api/video/start device=display:0 mode=h264 1280x720@30fps bitrate=2000K client=100.105.245.94:55000"
-04-08 18:41:59.844 W/USBridge(31292): time="18:41:59" level=info msg="🎥 [VideoHTTP vt-3] body={\"video_device\":\"display:0\",\"video_width\":1280,\"video_height\":720,\"video_fps\":30,\"video_quality\":80,\"video_bitrate\":\"2000K\",\"video_mode\":\"h264\",\"client_host\":\"100.105.245.94\",\"client_port\":55000}"
-04-08 18:41:59.855 W/USBridge(31292): time="18:41:59" level=info msg="tailscale client: video relay probe acknowledged trace=vt-3 from 100.104.80.51:61563 via 100.105.245.94:55000"
-04-08 18:42:00.019 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:00.082 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:42:00.209 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:01.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:02.160 D/ForegroundServiceMgr( 2957): op [android:write_media_video] access time
-04-08 18:42:02.160 D/ForegroundServiceMgr( 2957): op [android:read_media_video] access time
-04-08 18:42:03.260 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:03.441 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:03.474 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:03.475 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:03.495 W/USBridge(31292): time="18:42:03" level=warning msg="⚠️ [VideoTrace #3] no frames reached client after 4s gstreamer=map[connected:true frame_count:0 frames_dropped:0 last_frame:0001-01-01 00:00:00 +0000 UTC low_latency_mode:true] relay=trace=vt-3 tail=100.105.245.94:55000 port=55000 packets=0 last_from= last_at=never"
-04-08 18:42:03.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:03.966 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:03.967 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:03.975 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:04.467 W/SDM     ( 1747): ScalarConfig::ApplyDestScaleConfig: GetAIScaleSettingsInfo returned error=1
-04-08 18:42:04.480 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:04.481 D/SurfaceComposerClient( 2957): setCornerRadius ## dd506cf com.usbridge.client/com.usbridge.client.MainActivity#37717 cornerRadius=0.000000
-04-08 18:42:04.492 D/SurfaceFlinger( 1850):        DEVICE |          134398116626432 | 00002102 | RGBx_8888    |    0.0    0.0 1080.0 2249.0 |    0   91 1080 2340 | com.usbridge.client/com.usbridge.client.MainActivity$_31292#37718 (93)
-04-08 18:42:05.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:07.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:09.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:11.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:13.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:15.397 W/USBridge(31292): time="18:42:15" level=info msg="tailscale client: video relay probe acknowledged trace=vt-3 from 100.104.80.51:51863 via 100.105.245.94:55000"
-04-08 18:42:15.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:17.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:19.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:21.789 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
-04-08 18:42:22.412 I/MainActivity(31292): 🌐 [NETWORK] Interfaces snapshot lines=7
-04-08 18:42:22.482 I/eris    ( 5419): 08[DMN] update {event 3, error 0, ike_error 0} for conn[9]
-04-08 18:42:22.482 I/ErisClient -- ErisClient( 4737): parseDaemonResponse() {"msgType":4,"msgData":{"stateCode":3,"errorCode":0,"ikeErrorCode":0,"backoffTimer":-1,"cid":9,"mIkeSrcPort":49891}}
-04-08 18:42:22.482 I/ErisClient -- ErisClient( 4737): sendConnectionReport() conn = [9:ims] event = EVENT_CONNECTION_ACTIVE error = ERIS_OK
-04-08 18:42:23.788 I/DeepLink(31292): ℹ️ [DEEPLINK] No data URI in intent
+2026/04/09 08:03:42.825558 [api] device_stop
+2026/04/09 08:03:42.828100 [http] <- POST /api/device/stop status=200 dur=3ms
+2026/04/09 08:03:44.090527 [http] -> POST /api/device/start from=100.105.245.94:58332
+2026/04/09 08:03:44.091180 [api] device_start count=2
+2026/04/09 08:03:44.091204 [app] devices active=2 nbd_visitors=0
+2026/04/09 08:03:44.091523 [http] <- POST /api/device/start status=200 dur=1ms
+2026/04/09 08:03:44.099786 [http] -> GET /api/device/info from=100.105.245.94:58332
+2026/04/09 08:03:44.099873 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:03:44.099934 [http] <- GET /api/device/info status=200 dur=0s
+2026/04/09 08:03:44.317150 [http] -> POST /api/video/start from=100.105.245.94:58332 trace=vt-1
+2026/04/09 08:03:44.317381 [api] video_start trace=vt-1 peer=100.105.245.94 requested_client=100.105.245.94:55000
+2026/04/09 08:03:44.317416 [api] video_start width=1280 height=720 fps=30 bitrate=2000K mode=h264
+2026/04/09 08:03:44.317443 [video/start #1] begin client_trace=vt-1 raw device=display:0 size=1280x720 fps=30 bitrate=2000K mode=h264 host=100.105.245.94 port=55000
+2026/04/09 08:03:44.317464 [video/start #1] step=normalized-request elapsed=0s device=display:0 size=1280x720 fps=30 bitrate=2000K host=100.105.245.94 port=55000
+2026/04/09 08:03:44.317485 [video/start #1] step=update-frp-visitor-begin elapsed=0s client_port=55000
+2026/04/09 08:03:44.317526 [video/start #1] step=update-frp-visitor-ok elapsed=0s client_port=55000
+2026/04/09 08:03:44.327734 [video] tailscale relay probe acknowledged by 100.105.245.94:55000 on attempt 1
+2026/04/09 08:03:44.327834 [video] tailscale relay enabled local=127.0.0.1:55350 target=100.105.245.94:55000
+2026/04/09 08:03:44.327866 [video/start #1] step=relay-setup-ok elapsed=10ms local=127.0.0.1:55350 target=100.105.245.94:55000
+2026/04/09 08:03:44.327901 [video] tailscale relay goroutine started local=127.0.0.1:55350 target=100.105.245.94:55000
+2026/04/09 08:03:44.328152 [video] local relay probe confirmed on 127.0.0.1:55350
+2026/04/09 08:03:44.328206 [video/start #1] step=session-plan elapsed=11ms capture=avfoundation codec=libx264 source_format=BGR0
+2026/04/09 08:03:44.328225 [video/start #1] step=ffmpeg-start-begin elapsed=11ms mode=avfoundation codec=libx264 target=127.0.0.1:55350
+2026/04/09 08:03:47.126926 [video/darwin] capture selection requested="display:0" resolved="1" devices=0:camera:"FaceTime HD Camera", 1:screen:"Capture screen 0"
+2026/04/09 08:03:47.127068 [video] starting mode=avfoundation codec=libx264 target=127.0.0.1:55350 fps=30 size=1280x720 bitrate=2000K
+2026/04/09 08:03:47.127081 [video] ffmpeg args mode=avfoundation codec=libx264 :: /opt/homebrew/bin/ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -i 1:none -probesize 32 -analyzeduration 0 -fflags nobuffer -flags low_delay -fps_mode passthrough -an -vf scale=1280:720,format=yuv420p -c:v libx264 -preset ultrafast -tune zerolatency -profile:v baseline -level 3.2 -pix_fmt yuv420p -sc_threshold 0 -g 30 -keyint_min 30 -bf 0 -bsf:v dump_extra=freq=keyframe -flush_packets 1 -muxdelay 0 -muxpreload 0 -b:v 2000K -maxrate 2000K -bufsize 2000K -payload_type 96 -f rtp rtp://127.0.0.1:55350?pkt_size=1200
+2026/04/09 08:03:47.176058 [video/avfoundation] ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers
+2026/04/09 08:03:47.176132 [video/avfoundation] built with Apple clang version 17.0.0 (clang-1700.6.4.2)
+2026/04/09 08:03:47.176143 [video/avfoundation] configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+2026/04/09 08:03:47.177747 [video/avfoundation] libavutil      60. 26.100 / 60. 26.100
+2026/04/09 08:03:47.177818 [video/avfoundation] libavcodec     62. 28.100 / 62. 28.100
+2026/04/09 08:03:47.177856 [video/avfoundation] libavformat    62. 12.100 / 62. 12.100
+2026/04/09 08:03:47.177874 [video/avfoundation] libavdevice    62.  3.100 / 62.  3.100
+2026/04/09 08:03:47.177907 [video/avfoundation] libavfilter    11. 14.100 / 11. 14.100
+2026/04/09 08:03:47.177917 [video/avfoundation] libswscale      9.  5.100 /  9.  5.100
+2026/04/09 08:03:47.177923 [video/avfoundation] libswresample   6.  3.100 /  6.  3.100
+2026/04/09 08:03:47.328787 [video] tailscale relay has not received local RTP packets yet on 127.0.0.1:55350
+2026/04/09 08:03:47.408404 [http] -> GET /api/pcpanel/leds from=100.105.245.94:60403
+2026/04/09 08:03:47.408470 [http] <- GET /api/pcpanel/leds status=200 dur=0s
+2026/04/09 08:03:48.190916 [video/avfoundation] objc[44625]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+2026/04/09 08:03:48.191131 [video/avfoundation] objc[44625]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+2026/04/09 08:03:48.191139 [video/avfoundation] objc[44625]: class `NSKVONotifying_AVCaptureScreenInput' not linked into application
+2026/04/09 08:03:48.196442 [video/avfoundation] [AVFoundation indev @ 0x702c1c140] Configuration of video device failed, falling back to default.
+2026/04/09 08:03:48.196475 [video/avfoundation] [in#0 @ 0x70301c000] Selected pixel format (yuv420p) is not supported by the input device.
+2026/04/09 08:03:48.196483 [video/avfoundation] [in#0 @ 0x70301c000] Supported pixel formats:
+2026/04/09 08:03:48.196701 [video/avfoundation] [in#0 @ 0x70301c000]   uyvy422
+2026/04/09 08:03:48.196707 [video/avfoundation] [in#0 @ 0x70301c000]   yuyv422
+2026/04/09 08:03:48.196712 [video/avfoundation] [in#0 @ 0x70301c000]   nv12
+2026/04/09 08:03:48.196717 [video/avfoundation] [in#0 @ 0x70301c000]   0rgb
+2026/04/09 08:03:48.196721 [video/avfoundation] [in#0 @ 0x70301c000]   bgr0
+2026/04/09 08:03:48.196727 [video/avfoundation] [in#0 @ 0x70301c000] Overriding selected pixel format to use uyvy422 instead.
+2026/04/09 08:03:48.767255 [http] -> GET /api/device/info from=100.105.245.94:60403
+2026/04/09 08:03:48.767508 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:03:48.767931 [http] <- GET /api/device/info status=200 dur=1ms
+2026/04/09 08:03:48.780033 [http] -> GET /api/device/local_drives from=100.105.245.94:60403
+2026/04/09 08:03:48.780110 [http] -> GET /api/video/devices from=100.105.245.94:39484
+2026/04/09 08:03:48.780154 [api] video_devices count=1
+2026/04/09 08:03:48.780221 [http] <- GET /api/video/devices status=200 dur=0s
+2026/04/09 08:03:48.780260 [http] -> GET /api/video/info from=100.105.245.94:54345
+2026/04/09 08:03:48.780299 [http] <- GET /api/device/local_drives status=200 dur=0s
+2026/04/09 08:03:48.787309 [http] -> GET /api/iso/space from=100.105.245.94:60403
+2026/04/09 08:03:48.787533 [http] <- GET /api/iso/space status=200 dur=0s
+2026/04/09 08:03:48.789854 [http] -> GET /api/video/info from=100.105.245.94:39484
+2026/04/09 08:03:48.896926 [video/avfoundation] [in#0/avfoundation @ 0x70301c000] Stream #0: not enough frames to estimate rate; consider increasing probesize
+2026/04/09 08:03:48.897645 [video/avfoundation] Input #0, avfoundation, from '1:none':
+2026/04/09 08:03:48.897656 [video/avfoundation] Duration: N/A, start: 461231.094833, bitrate: N/A
+2026/04/09 08:03:48.897662 [video/avfoundation] Stream #0:0: Video: rawvideo (UYVY / 0x59565955), uyvy422, 2880x1800, 1000k tbr, 1000k tbn, start 461231.094833
+2026/04/09 08:03:48.904042 [video/avfoundation] Stream mapping:
+2026/04/09 08:03:48.904062 [video/avfoundation] Stream #0:0 -> #0:0 (rawvideo (native) -> h264 (libx264))
+2026/04/09 08:03:48.904090 [video/avfoundation] Press [q] to stop, [?] for help
+2026/04/09 08:03:48.915031 [video/avfoundation] [libx264 @ 0x702e50a80] MB rate (3600000000) > level limit (216000)
+2026/04/09 08:03:48.917150 [video/avfoundation] [libx264 @ 0x702e50a80] using cpu capabilities: ARMv8 NEON DotProd
+2026/04/09 08:03:48.917911 [video/avfoundation] [libx264 @ 0x702e50a80] profile Constrained Baseline, level 3.2, 4:2:0, 8-bit
+2026/04/09 08:03:48.918197 [video/avfoundation] Output #0, rtp, to 'rtp://127.0.0.1:55350?pkt_size=1200':
+2026/04/09 08:03:48.918206 [video/avfoundation] Metadata:
+2026/04/09 08:03:48.918212 [video/avfoundation] encoder         : Lavf62.12.100
+2026/04/09 08:03:48.918221 [video/avfoundation] Stream #0:0: Video: h264, yuv420p(tv, progressive), 1280x720, q=2-31, 2000 kb/s, 1000k fps, 90k tbn
+2026/04/09 08:03:48.918225 [video/avfoundation] Metadata:
+2026/04/09 08:03:48.918229 [video/avfoundation] encoder         : Lavc62.28.100 libx264
+2026/04/09 08:03:48.918235 [video/avfoundation] Side data:
+2026/04/09 08:03:48.918246 [video/avfoundation] CPB properties: bitrate max/min/avg: 2000000/0/2000000 buffer size: 2000000 vbv_delay: N/A
+2026/04/09 08:03:48.920933 [video] tailscale relay forwarding first RTP packet from 127.0.0.1:54626 to 100.105.245.94:55000
+2026/04/09 08:03:48.921345 [video] tailscale relay forwarded packets=1 local=127.0.0.1:55350 target=100.105.245.94:55000 last_source=127.0.0.1:54626 bytes=1123
+2026/04/09 08:03:50.145849 [video] started mode=avfoundation codec=libx264
+2026/04/09 08:03:50.146064 [video] tailscale relay confirmed first RTP packet on 127.0.0.1:55350
+2026/04/09 08:03:50.146086 [video/start #1] step=running-committed elapsed=5.829s mode=avfoundation codec=libx264
+2026/04/09 08:03:50.146119 [http] <- POST /api/video/start status=200 dur=5.829s trace=vt-1
+2026/04/09 08:03:50.146257 [api] video_info device=display:0 modes=3 transports=1 streaming=true
+2026/04/09 08:03:50.146355 [api] video_info device=display:0 modes=3 transports=1 streaming=true
+2026/04/09 08:03:50.146392 [http] <- GET /api/video/info status=200 dur=1.357s
+2026/04/09 08:03:50.146444 [http] <- GET /api/video/info status=200 dur=1.366s
+2026/04/09 08:03:50.155313 [http] -> GET /api/device/info from=100.105.245.94:60403
+2026/04/09 08:03:50.155351 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:03:50.155382 [http] <- GET /api/device/info status=200 dur=0s
+2026/04/09 08:03:50.163999 [http] -> POST /api/backup/get_snapshots from=100.105.245.94:54345
+2026/04/09 08:03:50.164077 [api] backup_get_snapshots
+2026/04/09 08:03:50.164110 [http] <- POST /api/backup/get_snapshots status=200 dur=0s
+2026/04/09 08:03:50.173919 [http] -> GET /api/device/info from=100.105.245.94:54345
+2026/04/09 08:03:50.174047 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:03:50.174120 [http] <- GET /api/device/info status=200 dur=0s
+2026/04/09 08:03:52.398914 [http] -> GET /api/pcpanel/leds from=100.105.245.94:54345
+2026/04/09 08:03:52.399006 [http] <- GET /api/pcpanel/leds status=200 dur=0s
+2026/04/09 08:03:55.284483 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.284870 [api] mouse action=move
+2026/04/09 08:03:55.316762 [http] <- POST /api/mouse status=200 dur=32ms
+2026/04/09 08:03:55.338110 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.338204 [api] mouse action=move
+2026/04/09 08:03:55.338279 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.368191 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.368241 [api] mouse action=move
+2026/04/09 08:03:55.368292 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.434273 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.434379 [api] mouse action=move
+2026/04/09 08:03:55.434560 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.474628 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.474759 [api] mouse action=move
+2026/04/09 08:03:55.474875 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.516219 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.516270 [api] mouse action=move
+2026/04/09 08:03:55.516317 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.523574 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.523624 [api] mouse action=move
+2026/04/09 08:03:55.523658 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.535031 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.535492 [api] mouse action=move
+2026/04/09 08:03:55.536254 [http] <- POST /api/mouse status=200 dur=1ms
+2026/04/09 08:03:55.543525 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.543568 [api] mouse action=move
+2026/04/09 08:03:55.543606 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.599870 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.599987 [api] mouse action=move
+2026/04/09 08:03:55.600087 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.611832 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.611893 [api] mouse action=move
+2026/04/09 08:03:55.611939 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.657382 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.657528 [api] mouse action=move
+2026/04/09 08:03:55.657676 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.687564 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.687688 [api] mouse action=move
+2026/04/09 08:03:55.687799 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.694658 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.694763 [api] mouse action=move
+2026/04/09 08:03:55.694851 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:55.752432 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.752901 [api] mouse action=move
+2026/04/09 08:03:55.753149 [http] <- POST /api/mouse status=200 dur=1ms
+2026/04/09 08:03:55.781471 [http] -> POST /api/mouse from=100.105.245.94:54345
+2026/04/09 08:03:55.781516 [api] mouse action=move
+2026/04/09 08:03:55.781580 [http] <- POST /api/mouse status=200 dur=0s
+2026/04/09 08:03:57.397872 [http] -> GET /api/pcpanel/leds from=100.105.245.94:54345
+2026/04/09 08:03:57.398056 [http] <- GET /api/pcpanel/leds status=200 dur=0s
+2026/04/09 08:03:58.474026 [video] tailscale relay forwarded packets=300 local=127.0.0.1:55350 target=100.105.245.94:55000 last_source=127.0.0.1:54626 bytes=104
+2026/04/09 08:03:58.749949 [http] -> GET /api/device/info from=100.105.245.94:54345
+2026/04/09 08:03:58.750260 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:03:58.750418 [http] <- GET /api/device/info status=200 dur=0s
+2026/04/09 08:03:58.749993 [http] -> GET /api/video/devices from=100.105.245.94:55361
+2026/04/09 08:03:58.750649 [api] video_devices count=1
+2026/04/09 08:03:58.750701 [http] <- GET /api/video/devices status=200 dur=1ms
+2026/04/09 08:03:58.759316 [http] -> GET /api/video/info from=100.105.245.94:45835
+2026/04/09 08:03:58.759436 [api] video_info device=display:0 modes=3 transports=1 streaming=true
+2026/04/09 08:03:58.759539 [http] <- GET /api/video/info status=200 dur=0s
+2026/04/09 08:03:58.760762 [http] -> GET /api/device/local_drives from=100.105.245.94:55361
+2026/04/09 08:03:58.760801 [http] -> GET /api/video/info from=100.105.245.94:54345
+2026/04/09 08:03:58.760916 [http] <- GET /api/device/local_drives status=200 dur=0s
+2026/04/09 08:03:58.760955 [api] video_info device=display:0 modes=3 transports=1 streaming=true
+2026/04/09 08:03:58.761030 [http] <- GET /api/video/info status=200 dur=0s
+2026/04/09 08:03:58.767485 [http] -> GET /api/iso/space from=100.105.245.94:45835
+2026/04/09 08:03:58.767646 [http] <- GET /api/iso/space status=200 dur=0s
+2026/04/09 08:04:02.400495 [http] -> GET /api/pcpanel/leds from=100.105.245.94:45835
+2026/04/09 08:04:02.400627 [http] <- GET /api/pcpanel/leds status=200 dur=0s
+2026/04/09 08:04:07.391838 [http] -> GET /api/pcpanel/leds from=100.105.245.94:45835
+2026/04/09 08:04:07.392219 [http] <- GET /api/pcpanel/leds status=200 dur=0s
+2026/04/09 08:04:08.031258 [video] tailscale relay forwarded packets=600 local=127.0.0.1:55350 target=100.105.245.94:55000 last_source=127.0.0.1:54626 bytes=104
+2026/04/09 08:04:08.749487 [http] -> GET /api/device/info from=100.105.245.94:52237
+2026/04/09 08:04:08.749554 [api] device_info count=2 devices=keyboard:keyboard,mouse:mouse
+2026/04/09 08:04:08.749595 [http] <- GET /api/device/info status=200 dur=0s
+2026/04/09 08:04:08.749820 [http] -> GET /api/device/local_drives from=100.105.245.94:45835

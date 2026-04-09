@@ -136,7 +136,9 @@ func DefaultConfig() *AppConfig {
 
 func modelsafeProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case ConnectionProtocolQUIC, ConnectionProtocolWireGuard, ConnectionProtocolTailscale:
+	case ConnectionProtocolWireGuard:
+		return ConnectionProtocolTailscale
+	case ConnectionProtocolQUIC, ConnectionProtocolTailscale:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	default:
 		return ConnectionProtocolAuto

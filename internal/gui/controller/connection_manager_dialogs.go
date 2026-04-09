@@ -1,45 +1,54 @@
 package controller
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"image/color"
+	"net/url"
+	"strings"
 
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 const (
-	connectionDialogNameLabel          = "name"
-	connectionDialogHostLabel          = "ip address"
-	connectionDialogTokenLabel         = "auth token"
-	qrScanSuccessText                  = "\u2713 qr code successfully scanned"
-	connectionDialogButtonsGap float32 = 12
+	connectionDialogNameLabel                  = "name"
+	connectionDialogInternalHostLabel          = "internal ip address"
+	connectionDialogTailscaleHostLabel         = "tailscale address"
+	connectionDialogTokenLabel                 = "auth token"
+	qrScanSuccessText                          = "\u2713 qr code successfully scanned"
+	connectionDialogButtonsGap         float32 = 12
 )
 
 type connectionDialogSpec struct {
-	title         string
-	connectLabel  string
-	connectIcon   fyne.Resource
-	saveLabel     string
-	deleteLabel   string
-	nameValue     string
-	hostValue     string
-	tokenValue    string
-	feedbackText  string
-	feedbackColor color.Color
-	onConnect     func(name, host, token string) bool
-	onSave        func(name, host, token string) bool
-	onDelete      func(close func())
+	title              string
+	connectLabel       string
+	connectIcon        fyne.Resource
+	saveLabel          string
+	deleteLabel        string
+	nameValue          string
+	internalHostValue  string
+	tailscaleHostValue string
+	tokenValue         string
+	feedbackText       string
+	feedbackColor      color.Color
+	onConnect          func(name, internalHost, tailscaleHost, token string) bool
+	onSave             func(name, internalHost, tailscaleHost, token string) bool
+	onDelete           func(close func())
 }
 
 type connectionDialogSecondaryButton struct {
@@ -346,21 +355,43 @@ func createTokenField(tokenEntry *connectionDialogEntry) fyne.CanvasObject {
 	return tokenEntry
 }
 
-func newTokenActionItem(tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	copyBtn := newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := tokenEntry.Text
 		if txt != "" && window != nil {
 			window.Clipboard().SetContent(txt)
 		}
 	})
-	return copyBtn
+	qrBtn := newCompactConnectionDialogIconButton(theme.VisibilityIcon(), func() {
+		token := strings.TrimSpace(tokenEntry.Text)
+		if token == "" {
+			generated, err := generateQuickToken()
+			if err != nil {
+				logrus.Errorf("failed to generate quick token: %v", err)
+				return
+			}
+			token = generated
+			tokenEntry.SetText(token)
+		}
+		host := strings.TrimSpace(internalHostEntry.Text)
+		if host == "" {
+			host = strings.TrimSpace(tailscaleHostEntry.Text)
+		}
+		if host == "" {
+			logrus.Warn("cannot show quick QR: both internal and tailscale addresses are empty")
+			return
+		}
+		showQuickConnectQRCode(window, host, token)
+	})
+	return container.NewHBox(copyBtn, qrBtn)
 }
 
-func buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	return container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
-		newConnectionDialogField(connectionDialogHostLabel, hostEntry),
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, window)),
+		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
+		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, internalHostEntry, tailscaleHostEntry, window)),
 	)
 }
 
@@ -566,9 +597,10 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	nameEntry := newConnectionNameEntry(spec.nameValue, handleFocusChanged)
-	hostEntry := newConnectionHostEntry(spec.hostValue, handleFocusChanged)
+	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, handleFocusChanged)
+	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, handleFocusChanged)
 	tokenEntry := newConnectionTokenEntry(spec.tokenValue, handleFocusChanged)
-	form := buildConnectionDialogForm(nameEntry, hostEntry, tokenEntry, window)
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -598,7 +630,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
 				return
 			}
 			if d != nil {
@@ -609,7 +641,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	saveBtn = widget.NewButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
 			return
 		}
 		if d != nil {
@@ -621,7 +653,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		saveBtn = newConnectionDialogAccentButton(saveLabel, nil, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, hostEntry.Text, tokenEntry.Text) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
 				return
 			}
 			if d != nil {
@@ -663,6 +695,14 @@ func newConnectionHostEntry(value string, onFocusChanged func(bool)) *connection
 	return entry
 }
 
+func newConnectionTailscaleEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
+	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
+	entry.ExtendBaseWidget(entry)
+	entry.SetText(value)
+	entry.SetPlaceHolder("device.tailnet.ts.net")
+	return entry
+}
+
 func newConnectionTokenEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
@@ -672,6 +712,68 @@ func newConnectionTokenEntry(value string, onFocusChanged func(bool)) *connectio
 	return entry
 }
 
+func generateQuickToken() (string, error) {
+	randomBytes := make([]byte, 24)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(randomBytes)
+	if len(token) != 32 {
+		return "", fmt.Errorf("unexpected token length: %d", len(token))
+	}
+	return token, nil
+}
+
+func showQuickConnectQRCode(window fyne.Window, host, token string) {
+	if window == nil {
+		return
+	}
+	qrURL := buildServiceQRFormat(host, token)
+	pngBytes, err := qrcode.Encode(qrURL, qrcode.Medium, 280)
+	if err != nil {
+		logrus.Errorf("failed to render quick QR: %v", err)
+		return
+	}
+
+	resource := fyne.NewStaticResource("quick-connect-qr.png", pngBytes)
+	image := canvas.NewImageFromResource(resource)
+	image.FillMode = canvas.ImageFillContain
+	image.SetMinSize(fyne.NewSize(280, 280))
+
+	linkEntry := widget.NewEntry()
+	linkEntry.SetText(qrURL)
+	linkEntry.Disable()
+
+	copyBtn := widget.NewButton("Copy Link", func() {
+		window.Clipboard().SetContent(qrURL)
+	})
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("Quick Connect QR", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		container.NewCenter(image),
+		linkEntry,
+		copyBtn,
+	)
+	d := dialog.NewCustom("Quick Connect", "Close", content, window)
+	d.Resize(fyne.NewSize(360, 460))
+	d.Show()
+}
+
+func buildServiceQRFormat(host, token string) string {
+	values := url.Values{}
+	values.Set("host", strings.TrimSpace(host))
+	values.Set("token", strings.TrimSpace(token))
+	return fmt.Sprintf("usbridge://connect?%s", values.Encode())
+}
+
+func resolveHostForDialog(protocol, internalHost, tailscaleHost string) string {
+	switch normalizeConnectionProtocol(protocol) {
+	case models.ConnectionProtocolTailscale:
+		return fallbackText(tailscaleHost, internalHost)
+	default:
+		return fallbackText(internalHost, tailscaleHost)
+	}
+}
+
 func (cm *ConnectionManager) showEditDialog(idx int) {
 	if idx < 0 || idx >= len(cm.connections) {
 		return
@@ -679,22 +781,27 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 	conn := cm.connections[idx]
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
-		title:       i18n.Current.EditConnectionTitle,
-		saveLabel:   i18n.Current.DeepLinkSave,
-		deleteLabel: i18n.Current.DeleteButton,
-		nameValue:   conn.Name,
-		hostValue:   conn.Host,
-		tokenValue:  conn.Token,
-		onSave: func(name, host, token string) bool {
-			if name == "" || host == "" {
-				logrus.Warn("name and address are required")
+		title:              i18n.Current.EditConnectionTitle,
+		saveLabel:          i18n.Current.DeepLinkSave,
+		deleteLabel:        i18n.Current.DeleteButton,
+		nameValue:          conn.Name,
+		internalHostValue:  conn.InternalHost,
+		tailscaleHostValue: conn.TailscaleHost,
+		tokenValue:         conn.Token,
+		onSave: func(name, internalHost, tailscaleHost, token string) bool {
+			internalHost = strings.TrimSpace(internalHost)
+			tailscaleHost = strings.TrimSpace(tailscaleHost)
+			if name == "" || (internalHost == "" && tailscaleHost == "") {
+				logrus.Warn("name and at least one address are required")
 				return false
 			}
 
 			cm.connections[idx] = SavedConnection{
 				Name:            name,
-				Host:            host,
-				Token:           token,
+				InternalHost:    internalHost,
+				TailscaleHost:   tailscaleHost,
+				Host:            fallbackText(internalHost, tailscaleHost),
+				Token:           strings.TrimSpace(token),
 				Protocol:        conn.Protocol,
 				WireGuardInvite: conn.WireGuardInvite,
 			}
@@ -714,30 +821,46 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 }
 
 func (cm *ConnectionManager) showAddDialog() {
-	cm.showPrefilledAddDialog("", cm.hostEntry.Text, cm.tokenEntry.Text, "", "", false)
+	internalHost, tailscaleHost := splitHostByType(cm.hostEntry.Text)
+	if selected := normalizeConnectionProtocol(cm.protocolSelect.Selected); selected == models.ConnectionProtocolTailscale {
+		internalHost, tailscaleHost = "", strings.TrimSpace(cm.hostEntry.Text)
+	}
+	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.tokenEntry.Text, "", "", false)
 }
 
-func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol, wireGuardInvite string, scanned bool) {
+func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool) {
 	feedbackText := ""
 	if scanned {
 		feedbackText = qrScanSuccessText
 	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		generated, err := generateQuickToken()
+		if err == nil {
+			token = generated
+		} else {
+			logrus.WithError(err).Warn("failed to generate quick token")
+		}
+	}
 
-	logrus.Infof("Opening add connection dialog: host=%s scanned=%v", host, scanned)
+	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s scanned=%v", internalHost, tailscaleHost, scanned)
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
-		title:         i18n.Current.AddConnectionTitle,
-		connectLabel:  i18n.Current.DeepLinkConnect,
-		connectIcon:   nil,
-		saveLabel:     i18n.Current.DeepLinkSave,
-		nameValue:     name,
-		hostValue:     host,
-		tokenValue:    token,
-		feedbackText:  feedbackText,
-		feedbackColor: design.ColorAccent,
-		onConnect: func(name, host, token string) bool {
-			if host == "" {
-				logrus.Warn("host is required")
+		title:              i18n.Current.AddConnectionTitle,
+		connectLabel:       i18n.Current.DeepLinkConnect,
+		connectIcon:        nil,
+		saveLabel:          i18n.Current.DeepLinkSave,
+		nameValue:          name,
+		internalHostValue:  internalHost,
+		tailscaleHostValue: tailscaleHost,
+		tokenValue:         token,
+		feedbackText:       feedbackText,
+		feedbackColor:      design.ColorAccent,
+		onConnect: func(name, internalHost, tailscaleHost, token string) bool {
+			internalHost = strings.TrimSpace(internalHost)
+			tailscaleHost = strings.TrimSpace(tailscaleHost)
+			if internalHost == "" && tailscaleHost == "" {
+				logrus.Warn("at least one address is required")
 				return false
 			}
 
@@ -745,6 +868,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 			if selectedProtocol == "" && cm.protocolSelect != nil {
 				selectedProtocol = cm.protocolSelect.Selected
 			}
+			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
 			fyne.Do(func() {
 				cm.ClearSelection()
@@ -755,9 +879,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 			}
 			return true
 		},
-		onSave: func(name, host, token string) bool {
-			if host == "" {
-				logrus.Warn("host is required")
+		onSave: func(name, internalHost, tailscaleHost, token string) bool {
+			internalHost = strings.TrimSpace(internalHost)
+			tailscaleHost = strings.TrimSpace(tailscaleHost)
+			if internalHost == "" && tailscaleHost == "" {
+				logrus.Warn("at least one address is required")
 				return false
 			}
 
@@ -765,8 +891,9 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, host, token, protocol,
 			if selectedProtocol == "" && cm.protocolSelect != nil {
 				selectedProtocol = cm.protocolSelect.Selected
 			}
+			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, host, token, selectedProtocol, wireGuardInvite)
+			cm.SaveConnection(name, internalHost, tailscaleHost, token, selectedProtocol, wireGuardInvite)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(host, token, selectedProtocol)
 				cm.refreshConnectionsList()

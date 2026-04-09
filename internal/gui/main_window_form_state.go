@@ -40,6 +40,9 @@ func (mw *MainWindow) persistConnectionDraft() {
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
+	if protocol == models.ConnectionProtocolWireGuard {
+		protocol = models.ConnectionProtocolTailscale
+	}
 
 	prefs.SetString(connectionDraftHostPrefKey, host)
 	prefs.SetString(connectionDraftTokenPrefKey, token)
@@ -65,6 +68,9 @@ func (mw *MainWindow) restoreConnectionDraft() {
 	}
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
+	}
+	if protocol == models.ConnectionProtocolWireGuard {
+		protocol = models.ConnectionProtocolTailscale
 	}
 
 	if mw.hostEntry != nil {
