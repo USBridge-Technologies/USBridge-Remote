@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -97,6 +98,88 @@ func (mw *MainWindow) resolveConnectionToken(host, token string) string {
 		logrus.Warnf("🔍 [DEBUG] Token is empty, falling back to config token for host='%s'", host)
 	}
 	return resolved
+}
+
+func (mw *MainWindow) resolveBootstrapHost(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if mw.connectionManager != nil {
+		if resolved := strings.TrimSpace(mw.connectionManager.ResolveInternalHost(host)); resolved != "" {
+			return resolved
+		}
+	}
+	if !strings.HasSuffix(strings.ToLower(host), ".ts.net") {
+		return host
+	}
+	return ""
+}
+
+func isLikelyTailscaleAuthKey(token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	return strings.HasPrefix(token, "tskey-")
+}
+
+func isLikelyTailscaleHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	return host != "" && (strings.HasSuffix(host, ".ts.net") || strings.HasPrefix(host, "100."))
+}
+
+func splitBridgeAuthInputs(raw string) (deviceToken, tailscaleAuthKey string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '|' || r == ',' || r == ';' || r == '\n'
+	})
+	if len(parts) == 0 {
+		return "", ""
+	}
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if isLikelyTailscaleAuthKey(part) {
+			tailscaleAuthKey = part
+			continue
+		}
+		if deviceToken == "" {
+			deviceToken = part
+		}
+	}
+
+	if tailscaleAuthKey == "" && isLikelyTailscaleAuthKey(raw) {
+		tailscaleAuthKey = raw
+		deviceToken = ""
+	}
+	if deviceToken == "" && tailscaleAuthKey == "" {
+		deviceToken = raw
+	}
+	return strings.TrimSpace(deviceToken), strings.TrimSpace(tailscaleAuthKey)
+}
+
+func maskSensitiveToken(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "<empty>"
+	}
+	if len(token) <= 8 {
+		return token[:2] + "..." + token[len(token)-2:]
+	}
+	return token[:4] + "..." + token[len(token)-4:]
+}
+
+func (mw *MainWindow) resolveBridgeAuthInputs(host, rawToken string) (deviceToken, tailscaleAuthKey string) {
+	deviceToken, tailscaleAuthKey = splitBridgeAuthInputs(rawToken)
+	if strings.TrimSpace(deviceToken) == "" {
+		deviceToken = mw.resolveConnectionToken(host, "")
+	}
+	return strings.TrimSpace(deviceToken), strings.TrimSpace(tailscaleAuthKey)
 }
 
 func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
@@ -429,34 +512,36 @@ func (mw *MainWindow) doConnect(host, token string) error {
 		protocol = models.ConnectionProtocolAuto
 	}
 	mw.activeConnectionToken = strings.TrimSpace(token)
+	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s raw_token=%s", strings.TrimSpace(host), protocol, maskSensitiveToken(token))
 	return mw.doConnectWithProtocol(host, token, protocol)
 }
 
 func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error {
-	connectQUIC := func() error {
+	connectQUICTo := func(quicHost, quicToken string) error {
 		if !mw.config.FRPEnabled {
 			return fmt.Errorf("FRP disabled in config")
 		}
-		logrus.Infof("🔍 [DEBUG] Creating FRP service: host='%s', port=%d, token='%s'", host, mw.config.FRPServerPort, token)
+		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, mw.config.FRPServerPort, maskSensitiveToken(quicToken))
 		mw.frpService = service.NewFRPService(
-			host,
+			quicHost,
 			mw.config.FRPServerPort,
-			token,
+			quicToken,
 		)
-		logrus.Infof("🔍 [DEBUG] FRP service created")
+		logrus.Infof("🚇 [QUIC] FRP service object created")
 
 		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
 			return err
 		}
 
-		logrus.Info("✅ QUIC tunnel established via FRP")
-		logrus.Debug("Waiting for tunnel stabilization...")
+		logrus.Info("✅ [QUIC] tunnel established via FRP")
+		logrus.Debug("⏳ [QUIC] waiting for tunnel stabilization")
 		time.Sleep(2 * time.Second)
 
 		mw.hostEntry.Disable()
 		mw.tokenEntry.Disable()
 
 		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
+		logrus.Infof("🚇 [QUIC] local visitor ports http=%d video=%d nbd=%d", httpPort, videoPort, mw.config.NBDPort)
 		mw.usbClient = mw.attachUSBClient(api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout))
 
 		mw.gstreamerService.UpdateHost("127.0.0.1")
@@ -468,8 +553,12 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		mw.connectedProtocol = models.ConnectionProtocolQUIC
 		mw.config.NBDBindHost = "127.0.0.1"
 
-		logrus.Debug("🔌 Ready to connect through FRP tunnel")
+		logrus.Debug("🔌 [QUIC] ready to use FRP tunnel")
 		return nil
+	}
+
+	connectQUIC := func() error {
+		return connectQUICTo(host, token)
 	}
 
 	connectWireGuard := func() error {
@@ -613,29 +702,180 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		if !status.LoggedIn {
 			return fmt.Errorf("tailscale is signed out, use Google login in Connection Manager first")
 		}
+		logrus.Infof("🛰️ [TS] STEP 1 local client ready backend=%s userspace=%v self_dns=%s self_ip=%s", status.Backend, status.Userspace, status.Self.DNSName, status.Self.IP4)
 
 		resolvedHost := strings.TrimSpace(host)
-		if resolvedHost == "" {
-			return fmt.Errorf("tailscale host is empty")
-		}
-		if err := mw.tailscaleService.ValidateAddress(resolvedHost); err != nil {
-			return err
-		}
-		httpClient, err := mw.tailscaleService.HTTPClient()
-		if err != nil {
-			return err
+		bootstrapHost := mw.resolveBootstrapHost(host)
+		quicToken, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, token)
+		logrus.Infof("🛰️ [TS] STEP 2 connect request target=%s bootstrap_host=%s device_token=%s auth_key=%s auth_key_present=%v", resolvedHost, bootstrapHost, maskSensitiveToken(quicToken), maskSensitiveToken(tailscaleAuthKey), strings.TrimSpace(tailscaleAuthKey) != "")
+
+		tryDirect := func(target string) error {
+			logrus.Infof("🛰️ [TS] STEP 3 trying direct tailnet control-plane target=%s", target)
+			if err := mw.tailscaleService.ValidateAddress(target); err != nil {
+				return err
+			}
+			httpClient, err := mw.tailscaleService.HTTPClient()
+			if err != nil {
+				return err
+			}
+
+			mw.usbClient = mw.attachUSBClient(api.NewUSBClientWithHTTPClient(target, mw.config.USBPort, mw.config.APITimeout, httpClient))
+			mw.gstreamerService.UpdateHost(target)
+			mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
+			mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
+			mw.config.NBDBindHost = "127.0.0.1"
+			mw.config.VideoBindHost = "127.0.0.1"
+			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+			mw.connectedProtocol = models.ConnectionProtocolTailscale
+			logrus.Infof("✅ [TS] STEP 3 direct control-plane connected target=%s", target)
+			return nil
 		}
 
-		mw.usbClient = mw.attachUSBClient(api.NewUSBClientWithHTTPClient(resolvedHost, mw.config.USBPort, mw.config.APITimeout, httpClient))
-		mw.gstreamerService.UpdateHost(resolvedHost)
-		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
-		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
-		mw.config.NBDBindHost = "127.0.0.1"
-		mw.config.VideoBindHost = "127.0.0.1"
-		mw.videoWidget.SetFRPService(nil)
-		mw.videoWidget.SetTailscaleService(mw.tailscaleService)
-		mw.diskWidget.SetFRPService(nil)
-		mw.connectedProtocol = models.ConnectionProtocolTailscale
+		tryBootstrapDataplane := func(tsStatus *models.TailscaleStatus) error {
+			if tsStatus == nil || !tsStatus.Userspace {
+				if tsStatus != nil {
+					logrus.Infof("🛰️ [TS] STEP 7 bridge reports kernel mode; QUIC data-plane is not required")
+				} else {
+					logrus.Infof("🛰️ [TS] STEP 7 bridge status unavailable; not forcing QUIC data-plane")
+				}
+				mw.videoWidget.SetFRPService(nil)
+				mw.diskWidget.SetFRPService(nil)
+				return nil
+			}
+			logrus.Infof("🛰️ [TS] STEP 7 bridge reports userspace mode; keeping QUIC as data-plane via bootstrap host=%s", bootstrapHost)
+			if bootstrapHost == "" {
+				return fmt.Errorf("bridge is in tailscale userspace mode, but no QUIC bootstrap host is configured")
+			}
+			if err := connectQUICTo(bootstrapHost, quicToken); err != nil {
+				return fmt.Errorf("failed to establish QUIC data-plane for tailscale userspace mode: %w", err)
+			}
+			mw.videoWidget.SetFRPService(mw.frpService)
+			mw.diskWidget.SetFRPService(mw.frpService)
+			logrus.Infof("✅ [TS] STEP 7 QUIC data-plane attached for userspace bridge mode")
+			return nil
+		}
+
+		waitForBridgeInteractiveLogin := func(bootstrapClient *api.USBClient, initialStatus *models.TailscaleStatus) (*models.TailscaleStatus, error) {
+			if initialStatus == nil || strings.TrimSpace(initialStatus.AuthURL) == "" {
+				return initialStatus, fmt.Errorf("bridge did not return an auth URL for interactive Tailscale login")
+			}
+
+			authURL := strings.TrimSpace(initialStatus.AuthURL)
+			logrus.Infof("🛰️ [TS] STEP 5 bridge requires interactive Tailscale login auth_url=%s", authURL)
+
+			if parsedURL, parseErr := url.Parse(authURL); parseErr != nil {
+				logrus.Warnf("⚠️ [TS] STEP 5 failed to parse auth URL: %v", parseErr)
+			} else if openErr := mw.app.OpenURL(parsedURL); openErr != nil {
+				logrus.Warnf("⚠️ [TS] STEP 5 failed to open auth URL automatically: %v", openErr)
+			} else {
+				logrus.Infof("✅ [TS] STEP 5 auth URL opened in browser")
+			}
+
+			deadline := time.Now().Add(2 * time.Minute)
+			attempt := 0
+			lastStatus := initialStatus
+			for time.Now().Before(deadline) {
+				attempt++
+				time.Sleep(2 * time.Second)
+				logrus.Infof("🛰️ [TS] STEP 6 polling bridge login completion attempt=%d", attempt)
+				status, statusErr := bootstrapClient.GetTailscaleStatus()
+				if statusErr != nil {
+					logrus.Warnf("⚠️ [TS] STEP 6 status poll failed attempt=%d err=%v", attempt, statusErr)
+					continue
+				}
+				lastStatus = status
+				logrus.Infof("🛰️ [TS] STEP 6 poll result attempt=%d backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", attempt, status.Backend, status.LoggedIn, status.DNSName, status.IP4, strings.TrimSpace(status.AuthURL) != "")
+				if status.LoggedIn {
+					logrus.Infof("✅ [TS] STEP 6 bridge interactive login completed")
+					return status, nil
+				}
+			}
+
+			return lastStatus, fmt.Errorf("bridge Tailscale login did not complete within timeout")
+		}
+
+		if resolvedHost != "" && isLikelyTailscaleHost(resolvedHost) {
+			if err := tryDirect(resolvedHost); err == nil {
+				tsClient := mw.usbClient
+				logrus.Infof("🛰️ [TS] STEP 4 querying bridge tailscale status over direct tailnet target=%s", resolvedHost)
+				tsStatus, statusErr := tsClient.GetTailscaleStatus()
+				if statusErr != nil {
+					return fmt.Errorf("direct tailscale connect succeeded but bridge status check failed: %w", statusErr)
+				}
+				logrus.Infof("🛰️ [TS] STEP 4 bridge direct status logged_in=%v backend=%s userspace=%v dns=%s ip=%s auth_url=%t", tsStatus.LoggedIn, tsStatus.Backend, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
+				if err := tryBootstrapDataplane(tsStatus); err != nil {
+					return err
+				}
+				mw.usbClient = tsClient
+				return nil
+			} else {
+				logrus.Warnf("⚠️ direct tailscale connect failed, trying bootstrap over QUIC: %v", err)
+			}
+		}
+
+		if bootstrapHost == "" {
+			return fmt.Errorf("tailscale host is empty and no QUIC bootstrap host is available")
+		}
+		if strings.TrimSpace(quicToken) == "" {
+			return fmt.Errorf("device token for QUIC bootstrap is empty; save the bridge connection or provide the bridge device token")
+		}
+		if strings.TrimSpace(tailscaleAuthKey) != "" && !isLikelyTailscaleAuthKey(tailscaleAuthKey) {
+			return fmt.Errorf("tailscale auth key has invalid format; expected token starting with tskey-")
+		}
+
+		logrus.Infof("🛰️ [TS] STEP 3 fallback to QUIC bootstrap host=%s", bootstrapHost)
+		if err := connectQUICTo(bootstrapHost, quicToken); err != nil {
+			return fmt.Errorf("tailscale bootstrap over QUIC failed at transport stage: %w", err)
+		}
+		if mw.frpService == nil || !mw.frpService.IsRunning() {
+			return fmt.Errorf("FRP bootstrap transport is not running")
+		}
+
+		httpPort, _, _ := mw.frpService.GetServerPorts()
+		logrus.Infof("🛰️ [TS] STEP 3 bootstrap API port over QUIC=%d", httpPort)
+		bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
+		tsStatus, err := bootstrapClient.GetTailscaleStatus()
+		if err == nil && tsStatus != nil && tsStatus.LoggedIn && strings.TrimSpace(tsStatus.DNSName) != "" {
+			logrus.Infof("🛰️ [TS] STEP 4 bridge already registered backend=%s userspace=%v dns=%s ip=%s", tsStatus.Backend, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4)
+			resolvedHost = strings.TrimSpace(tsStatus.DNSName)
+		} else {
+			userspaceMode := true
+			if strings.TrimSpace(tailscaleAuthKey) != "" {
+				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with auth key device_token=%s auth_key=%s forced_userspace=%v", maskSensitiveToken(quicToken), maskSensitiveToken(tailscaleAuthKey), userspaceMode)
+			} else {
+				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with interactive login device_token=%s forced_userspace=%v", maskSensitiveToken(quicToken), userspaceMode)
+			}
+			tsStatus, err = bootstrapClient.RegisterTailscale(&models.TailscaleRegistrationRequest{
+				DeviceToken:   quicToken,
+				AuthKey:       tailscaleAuthKey,
+				Hostname:      "usbridge",
+				UserspaceMode: &userspaceMode,
+			})
+			if err != nil {
+				return fmt.Errorf("tailscale registration API failed: %w", err)
+			}
+			logrus.Infof("✅ [TS] STEP 4 bridge registration response backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", tsStatus.Backend, tsStatus.LoggedIn, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
+			if !tsStatus.LoggedIn {
+				tsStatus, err = waitForBridgeInteractiveLogin(bootstrapClient, tsStatus)
+				if err != nil {
+					return fmt.Errorf("tailscale interactive registration pending: %w", err)
+				}
+			}
+			resolvedHost = strings.TrimSpace(tsStatus.DNSName)
+			if resolvedHost == "" {
+				resolvedHost = strings.TrimSpace(tsStatus.IP4)
+			}
+		}
+		if resolvedHost == "" {
+			return fmt.Errorf("bridge registered in tailscale but did not report a reachable tailnet address")
+		}
+		logrus.Infof("🛰️ [TS] STEP 7 reconnecting control-plane over tailnet target=%s", resolvedHost)
+		if err := tryDirect(resolvedHost); err != nil {
+			return fmt.Errorf("tailscale connect after registration failed: %w", err)
+		}
+		if err := tryBootstrapDataplane(tsStatus); err != nil {
+			return err
+		}
 		return nil
 	}
 	_ = connectWireGuard

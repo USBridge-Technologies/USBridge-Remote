@@ -158,6 +158,24 @@ type APIResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+type TailscaleRegistrationRequest struct {
+	DeviceToken   string `json:"device_token"`
+	AuthKey       string `json:"auth_key"`
+	Hostname      string `json:"hostname,omitempty"`
+	UserspaceMode *bool  `json:"userspace_mode,omitempty"`
+}
+
+type TailscaleStatus struct {
+	Running   bool   `json:"running"`
+	LoggedIn  bool   `json:"logged_in"`
+	Backend   string `json:"backend"`
+	DNSName   string `json:"dns_name,omitempty"`
+	HostName  string `json:"host_name,omitempty"`
+	IP4       string `json:"ip4,omitempty"`
+	Userspace bool   `json:"userspace"`
+	AuthURL   string `json:"auth_url,omitempty"`
+}
+
 // KeyboardRequest запрос на отправку клавиши
 type KeyboardRequest struct {
 	Action    string `json:"action"` // key, combo, text

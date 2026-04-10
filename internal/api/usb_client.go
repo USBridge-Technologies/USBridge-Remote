@@ -1030,6 +1030,65 @@ func (c *USBClient) BootstrapWireGuard(request *models.WireGuardBootstrapRequest
 	return &parsed, nil
 }
 
+func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
+	logrus.Infof("🛰️ [API-TS] GET %s/api/auth/tailscale/status", c.baseURL)
+	resp, err := c.makeRequest("GET", "/api/auth/tailscale/status", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("tailscale status failed: %s", apiResp.Message)
+	}
+
+	raw, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-marshal tailscale status: %v", err)
+	}
+	var parsed models.TailscaleStatus
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse tailscale status payload: %v", err)
+	}
+	logrus.Infof("🛰️ [API-TS] status backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.Userspace, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
+	return &parsed, nil
+}
+
+func (c *USBClient) RegisterTailscale(request *models.TailscaleRegistrationRequest) (*models.TailscaleStatus, error) {
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tailscale registration request: %v", err)
+	}
+	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s userspace=%v device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, request.UserspaceMode != nil && *request.UserspaceMode, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
+
+	resp, err := c.makeRequest("POST", "/api/auth/tailscale/register", requestJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("tailscale registration failed: %s", apiResp.Message)
+	}
+
+	raw, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-marshal tailscale registration data: %v", err)
+	}
+	var parsed models.TailscaleStatus
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse tailscale registration payload: %v", err)
+	}
+	logrus.Infof("🛰️ [API-TS] register backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.Userspace, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
+	return &parsed, nil
+}
+
 // StartVideoLegacy запускает видео стриминг (старый API для совместимости)
 func (c *USBClient) StartVideoLegacy() error {
 	resp, err := c.makeRequest("POST", "/api/video/start", nil)
