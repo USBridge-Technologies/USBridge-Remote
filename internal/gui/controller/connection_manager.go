@@ -110,6 +110,24 @@ func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
 	return ""
 }
 
+func (cm *ConnectionManager) ResolveInternalHost(host string) string {
+	normalizedHost := strings.TrimSpace(host)
+	if normalizedHost == "" {
+		return ""
+	}
+
+	for _, conn := range cm.connections {
+		internalHost, tailscaleHost := classifyConnectionHosts(conn)
+		if internalHost == "" {
+			continue
+		}
+		if strings.TrimSpace(conn.Host) == normalizedHost || tailscaleHost == normalizedHost || internalHost == normalizedHost {
+			return internalHost
+		}
+	}
+	return ""
+}
+
 func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,

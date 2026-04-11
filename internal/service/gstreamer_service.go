@@ -75,6 +75,13 @@ type GStreamerService struct {
 	onError         func(error)
 }
 
+func (gs *GStreamerService) GetBindHost() string {
+	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
+		return "127.0.0.1"
+	}
+	return strings.TrimSpace(gs.config.VideoBindHost)
+}
+
 // NewGStreamerService создает новый GStreamer сервис
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 	gs := &GStreamerService{
@@ -137,6 +144,14 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.mutex.Unlock()
 
 	logrus.Debugf("🔗 Подключение к RTP потоку mode=%s...", gs.videoMode)
+	logrus.Infof("🧭 [VideoRoute] client-connect mode=%s bind=%s:%d expected_size=%dx%d transport=udp-rtp codec=%s",
+		gs.videoMode,
+		gs.GetBindHost(),
+		udpPortFromConfig(gs.config),
+		gs.expectedWidth,
+		gs.expectedHeight,
+		gs.expectedCodecLabel(),
+	)
 
 	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
 	gst.Init(nil)
@@ -206,10 +221,7 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 // createPipeline создает GStreamer pipeline для RTP video (через FRP туннель)
 func (gs *GStreamerService) createPipeline() error {
 	udpPort := udpPortFromConfig(gs.config)
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
+	bindHost := gs.GetBindHost()
 	logrus.Debugf("📹 UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
@@ -309,6 +321,7 @@ func (gs *GStreamerService) createPipeline() error {
 		}
 
 		logrus.Infof("✅ [Linux] GStreamer pipeline создан: %s", candidate.name)
+		logrus.Infof("🧭 [VideoRoute] client-pipeline-ready mode=h264 bind=%s:%d caps=application/x-rtp,encoding-name=H264,payload=96 decoder=%s", bindHost, udpPort, candidate.name)
 		return nil
 	}
 
@@ -355,6 +368,7 @@ func (gs *GStreamerService) createRawYUYVPipeline(udpPort int) error {
 		return fmt.Errorf("ошибка подключения appsink для RAW YUYV: %v", err)
 	}
 	logrus.Infof("✅ [Linux/RAW] GStreamer pipeline создан: %s", pipelineStr)
+	logrus.Infof("🧭 [VideoRoute] client-pipeline-ready mode=raw_yuyv bind=%s:%d caps=application/x-rtp,encoding-name=RAW,payload=96 decoder=rtpvrawdepay", bindHost, udpPort)
 	return nil
 }
 
@@ -401,6 +415,7 @@ func (gs *GStreamerService) createJPEGPipeline(udpPort int) error {
 
 		gs.lastJPEGPipeline = candidate.name
 		logrus.Infof("✅ [Linux/JPEG] GStreamer pipeline создан: %s", candidate.name)
+		logrus.Infof("🧭 [VideoRoute] client-pipeline-ready mode=jpeg_rtp bind=%s:%d caps=application/x-rtp,encoding-name=JPEG,payload=26 decoder=%s", gs.GetBindHost(), udpPort, candidate.name)
 		return nil
 	}
 
@@ -489,6 +504,9 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 		gs.frameCount++
 		frameNum := gs.frameCount
 		gs.mutex.Unlock()
+		if frameNum == 1 {
+			logrus.Infof("✅ [VideoRoute] first-frame-received mode=%s size=%dx%d decoder_output=RGBA bind=%s:%d", gs.videoMode, w, h, gs.GetBindHost(), udpPortFromConfig(gs.config))
+		}
 
 		// Логируем каждый 300-й кадр (~10 сек при 30fps)
 		if frameNum%300 == 0 {
@@ -517,6 +535,17 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 				logrus.Debugf("⏭️ GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 			}
 		}
+	}
+}
+
+func (gs *GStreamerService) expectedCodecLabel() string {
+	switch gs.videoMode {
+	case models.VideoModeJPEGRTP:
+		return "jpeg"
+	case models.VideoModeRawYUYV:
+		return "raw-yuyv"
+	default:
+		return "h264"
 	}
 }
 

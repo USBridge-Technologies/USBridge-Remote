@@ -134,8 +134,10 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	}
 
 	clientPort := models.DefaultVideoUDPPort
+	transportKind := "tailscale-direct-udp"
 	if vw.frpService != nil && vw.frpService.IsRunning() {
 		_, clientPort, _ = vw.frpService.GetServerPorts()
+		transportKind = "frp-video_sudp"
 	} else {
 		preferredPort := clientPort
 		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
@@ -182,6 +184,21 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		request.ClientHost = tailIP
 		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo())
 	}
+	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
+		request.TraceID,
+		mode,
+		request.VideoDevice,
+		request.CapturePixelFormat,
+		request.VideoWidth,
+		request.VideoHeight,
+		request.VideoFPS,
+		request.VideoBitrate,
+		transportKind,
+		vw.gstreamerService.GetBindHost(),
+		clientPort,
+		request.ClientHost,
+		request.ClientPort,
+	)
 
 	// 1. Сначала поднимаем HID и ждём завершения переконфигурации gadget.
 	logrus.Debug("⌨️🖱️ [VIDEO] Проверка и автоподключение HID перед стартом видео...")
@@ -205,7 +222,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	// 2.5 Короткая пауза, чтобы локальный RTP listener успел перейти в рабочее состояние
 	time.Sleep(150 * time.Millisecond)
-	logrus.Debugf("🔗 [VIDEO %s] local udpsrc port=%d готов к приёму, запуск сервера...", request.TraceID, clientPort)
+	logrus.Infof("🔗 [VideoRoute %s] client-listener-ready transport=%s bind=%s:%d mode=%s", request.TraceID, transportKind, vw.gstreamerService.GetBindHost(), clientPort, mode)
 
 	// 3. ПОТОМ запускаем видео на сервере — Bridge FFmpeg шлёт RTP, visitor пересылает в proxy video_sudp
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)

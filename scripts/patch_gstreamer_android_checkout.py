@@ -38,6 +38,32 @@ def ensure_present(text: str, needle: str, addition: str, label: str) -> str:
     return text.replace(needle, needle + addition, 1)
 
 
+def replace_first_match(text: str, replacements: list[tuple[str, str]], label: str) -> str:
+    for old, new in replacements:
+        if new in text:
+            return text
+        if old in text:
+            return text.replace(old, new, 1)
+    raise RuntimeError(f"patch target not found for {label}")
+
+
+def remove_between(text: str, start: str, end: str, label: str) -> str:
+    start_index = text.find(start)
+    if start_index == -1:
+        return text
+
+    end_index = text.find(end, start_index)
+    if end_index == -1:
+        raise RuntimeError(f"patch end marker not found for {label}")
+
+    end_index += len(end)
+    if end_index < len(text) and text[end_index:end_index + 1] == "\n":
+        end_index += 1
+    if end_index < len(text) and text[end_index:end_index + 1] == "\n":
+        end_index += 1
+    return text[:start_index] + text[end_index:]
+
+
 def patch_gstreamer_root(root: Path) -> None:
     meson_build = root / "meson.build"
     patch_file(
@@ -143,28 +169,12 @@ def patch_gstreamer_root(root: Path) -> None:
         if "#include <stdint.h>\n" not in text:
             text = text.replace("#include <stdlib.h>\n", "#include <stdint.h>\n#include <stdlib.h>\n", 1)
 
-        fallback = (
-            "#if !defined(HAVE_REALLOCARRAY) && !defined(reallocarray)\n"
-            "static inline void *\n"
-            "sysprof_reallocarray (void   *ptr,\n"
-            "                      size_t  nmemb,\n"
-            "                      size_t  size)\n"
-            "{\n"
-            "  if (size != 0 && nmemb > SIZE_MAX / size)\n"
-            "    {\n"
-            "      errno = ENOMEM;\n"
-            "      return NULL;\n"
-            "    }\n\n"
-            "  return realloc (ptr, nmemb * size);\n"
-            "}\n"
-            "# define reallocarray sysprof_reallocarray\n"
-            "#endif\n\n"
+        text = remove_between(
+            text,
+            "#if !defined(HAVE_REALLOCARRAY) && !defined(reallocarray)\n",
+            "#endif\n",
+            "sysprof reallocarray fallback",
         )
-        if "# define reallocarray sysprof_reallocarray\n" not in text:
-            marker = "\n#ifdef __linux__\n"
-            if marker not in text:
-                raise RuntimeError("patch anchor not found for sysprof reallocarray fallback")
-            text = text.replace(marker, "\n" + fallback + "#ifdef __linux__\n", 1)
         return text
 
     patch_file(sysprof_util, transform_sysprof_util)
@@ -181,26 +191,50 @@ def patch_gstreamer_root(root: Path) -> None:
     sysprof_macros = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-macros.h"
     patch_file(
         sysprof_macros,
-        lambda text: replace_once(
+        lambda text: replace_first_match(
             text,
-            "#ifdef __cpp_static_assert\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
-            "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
-            "#else\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
-            "#endif\n",
-            "#ifdef __cpp_static_assert\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
-            "#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
-            "#elif defined(__clang__)\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
-            "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
-            "#else\n"
-            "# define SYSPROF_STATIC_ASSERT(expr, msg) char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
-            "#endif\n",
+            [
+                (
+                    "#ifdef __cpp_static_assert\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
+                    "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#else\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
+                    "#endif\n",
+                    "#ifdef __cpp_static_assert\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
+                    "#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#elif defined(__clang__)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#else\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
+                    "#endif\n",
+                ),
+                (
+                    "#ifdef __cpp_static_assert\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
+                    "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#else\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
+                    "#endif\n",
+                    "#ifdef __cpp_static_assert\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static_assert(expr, msg)\n"
+                    "#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#elif defined(__clang__)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#elif SYSPROF_GNUC_CHECK_VERSION(4, 6)\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)\n"
+                    "#else\n"
+                    "# define SYSPROF_STATIC_ASSERT(expr, msg) static char __static_assert_##__COUNTER__ [(expr) ? 0 : -1];\n"
+                    "#endif\n",
+                ),
+            ],
             "sysprof static assert",
         ),
     )

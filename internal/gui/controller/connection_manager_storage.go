@@ -55,6 +55,45 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, t
 	return name
 }
 
+// RememberResolvedTailscaleHost updates an existing saved connection with the tailnet address
+// discovered during bootstrap, or creates a new one when none matches.
+func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internalHost, tailscaleHost, token string) {
+	if cm == nil {
+		return
+	}
+
+	currentHost = strings.TrimSpace(currentHost)
+	internalHost = strings.TrimSpace(internalHost)
+	tailscaleHost = strings.TrimSpace(tailscaleHost)
+	token = strings.TrimSpace(token)
+	if tailscaleHost == "" {
+		return
+	}
+
+	for i := range cm.connections {
+		conn := cm.connections[i]
+		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
+			cm.connections[i].InternalHost = fallbackText(internalHost, savedInternal)
+			cm.connections[i].TailscaleHost = tailscaleHost
+			if token != "" {
+				cm.connections[i].Token = token
+			}
+			cm.connections[i].Protocol = normalizeConnectionProtocol("tailscale")
+			cm.connections[i].Host = fallbackText(cm.connections[i].TailscaleHost, cm.connections[i].InternalHost)
+			cm.saveConnections()
+			fyne.Do(func() {
+				cm.refreshConnectionsList()
+			})
+			logrus.Infof("Updated saved connection with resolved tailscale host=%s", tailscaleHost)
+			return
+		}
+	}
+
+	name := cm.SaveConnection("", internalHost, tailscaleHost, token, "tailscale", "")
+	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
+}
+
 // getStorageURI возвращает URI для хранения
 func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	uri, err := storage.Child(cm.app.Storage().RootURI(), "connections.json")

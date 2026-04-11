@@ -402,8 +402,17 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 	return bar
 }
 
+func mobileFooterBottomInset(base float32) float32 {
+	if !fyne.CurrentDevice().IsMobile() {
+		return base
+	}
+
+	// Keep footer actions above the Android system navigation bar.
+	return base + 40
+}
+
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
-	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, 2)
+	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, mobileFooterBottomInset(2))
 	mw.deviceFooterBar = bar
 	mw.deviceFooterBar.Hide()
 	return bar

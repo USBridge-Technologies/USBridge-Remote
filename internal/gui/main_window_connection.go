@@ -732,26 +732,23 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		}
 
 		tryBootstrapDataplane := func(tsStatus *models.TailscaleStatus) error {
-			if tsStatus == nil || !tsStatus.Userspace {
-				if tsStatus != nil {
-					logrus.Infof("🛰️ [TS] STEP 7 bridge reports kernel mode; QUIC data-plane is not required")
-				} else {
-					logrus.Infof("🛰️ [TS] STEP 7 bridge status unavailable; not forcing QUIC data-plane")
+			if tsStatus != nil {
+				logrus.Infof("🛰️ [TS] STEP 7 bridge tailscale mode userspace=%v backend=%s dns=%s ip=%s", tsStatus.Userspace, tsStatus.Backend, tsStatus.DNSName, tsStatus.IP4)
+			} else {
+				logrus.Infof("🛰️ [TS] STEP 7 bridge tailscale mode active; no extra bootstrap dataplane required")
+			}
+			if mw.frpService != nil && mw.frpService.IsRunning() {
+				logrus.Infof("🛰️ [TS] STEP 7 stopping bootstrap QUIC after successful tailscale handoff")
+				if err := mw.frpService.Disconnect(); err != nil {
+					logrus.Warnf("⚠️ [TS] STEP 7 failed to stop bootstrap QUIC cleanly: %v", err)
 				}
-				mw.videoWidget.SetFRPService(nil)
-				mw.diskWidget.SetFRPService(nil)
-				return nil
 			}
-			logrus.Infof("🛰️ [TS] STEP 7 bridge reports userspace mode; keeping QUIC as data-plane via bootstrap host=%s", bootstrapHost)
-			if bootstrapHost == "" {
-				return fmt.Errorf("bridge is in tailscale userspace mode, but no QUIC bootstrap host is configured")
-			}
-			if err := connectQUICTo(bootstrapHost, quicToken); err != nil {
-				return fmt.Errorf("failed to establish QUIC data-plane for tailscale userspace mode: %w", err)
-			}
-			mw.videoWidget.SetFRPService(mw.frpService)
-			mw.diskWidget.SetFRPService(mw.frpService)
-			logrus.Infof("✅ [TS] STEP 7 QUIC data-plane attached for userspace bridge mode")
+			mw.frpService = nil
+			mw.videoWidget.SetFRPService(nil)
+			mw.diskWidget.SetFRPService(nil)
+			mw.connectedProtocol = models.ConnectionProtocolTailscale
+			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+			logrus.Infof("✅ [TS] STEP 7 tailscale handoff complete; bootstrap QUIC detached")
 			return nil
 		}
 
@@ -800,6 +797,11 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 				logrus.Infof("🛰️ [TS] STEP 4 querying bridge tailscale status over direct tailnet target=%s", resolvedHost)
 				tsStatus, statusErr := tsClient.GetTailscaleStatus()
 				if statusErr != nil {
+					if api.IsHTTPNotFound(statusErr) {
+						logrus.Infof("🛰️ [TS] STEP 4 tailscale status endpoint is unavailable on target=%s; treating it as direct tailscale peer/agent and continuing without bridge registration flow", resolvedHost)
+						mw.usbClient = tsClient
+						return nil
+					}
 					return fmt.Errorf("direct tailscale connect succeeded but bridge status check failed: %w", statusErr)
 				}
 				logrus.Infof("🛰️ [TS] STEP 4 bridge direct status logged_in=%v backend=%s userspace=%v dns=%s ip=%s auth_url=%t", tsStatus.LoggedIn, tsStatus.Backend, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
@@ -868,6 +870,9 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		}
 		if resolvedHost == "" {
 			return fmt.Errorf("bridge registered in tailscale but did not report a reachable tailnet address")
+		}
+		if mw.connectionManager != nil {
+			mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), bootstrapHost, resolvedHost, quicToken)
 		}
 		logrus.Infof("🛰️ [TS] STEP 7 reconnecting control-plane over tailnet target=%s", resolvedHost)
 		if err := tryDirect(resolvedHost); err != nil {

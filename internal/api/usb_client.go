@@ -1255,6 +1255,16 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 	return nil, resp.StatusCode, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 }
 
+func IsHTTPNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "http error 404") ||
+		strings.Contains(errText, "http ошибка 404") ||
+		strings.Contains(errText, "404 page not found")
+}
+
 // TestConnection проверяет соединение с USBridge 2
 func (c *USBClient) TestConnection() error {
 	_, err := c.makeRequest("GET", "/api/healthz", nil)
@@ -1264,7 +1274,7 @@ func (c *USBClient) TestConnection() error {
 	}
 
 	// Совместимость со старым сервером без healthz.
-	if strings.Contains(err.Error(), "HTTP error 404") || strings.Contains(err.Error(), "404 page not found") {
+	if IsHTTPNotFound(err) {
 		if _, fallbackErr := c.GetDeviceInfo(); fallbackErr != nil {
 			return fmt.Errorf("unable to connect to USBridge 2: %v", fallbackErr)
 		}
