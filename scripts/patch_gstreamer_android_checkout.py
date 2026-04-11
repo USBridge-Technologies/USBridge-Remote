@@ -223,6 +223,21 @@ def patch_gstreamer_root(root: Path) -> None:
 
     patch_file(sysprof_util, transform_sysprof_util)
 
+    sysprof_internal_macros = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-macros-internal.h"
+
+    def transform_sysprof_internal_macros(text: str) -> str:
+        start = "/* reallocarray compat for Android (bionic lacks it in some API levels) */\n"
+        end = "#endif\n"
+        text = remove_between(
+            text,
+            start,
+            end,
+            "sysprof internal reallocarray compat",
+        )
+        return text
+
+    patch_file(sysprof_internal_macros, transform_sysprof_internal_macros)
+
     sysprof_collector = root / "subprojects" / "sysprof" / "src" / "libsysprof-capture" / "sysprof-collector.c"
 
     def transform_sysprof_collector(text: str) -> str:

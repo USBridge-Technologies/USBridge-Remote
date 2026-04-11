@@ -1,8 +1,8 @@
 source_repo=https://gitlab.freedesktop.org/gstreamer/gst-build.git
 source_ref=1.19.2
-source_rev=29352ad0f82c38649424801c97473e33d75caf41
-ndk_path=C:\Users\bogom\AppData\Local/Android/Sdk/ndk/30.0.14904198
+source_rev=source-ref:1.19.2
+ndk_path=/home/amir/Android/Sdk/ndk/30.0.14904198
 meson_prefix=/usr/local
-script_sha=6da32bee1e3ee82a01fd2bb41ecc2f286852d648aa83ced2106a20f94b954dbe
-patch_sha=701a0bf56a2f8cffa3d8c10e4ad9f3958bfb9b8b58c460eee884e3dc22f97aca
+script_sha=f39813ec31f65fb5a057794b8e4e132b63aab8ba605e4b1b7715f94a884cd297
+patch_sha=94f90ca3af996d0e68109379c3d67f832854ce32578408322c260f6b687797ef
 env_sha=0ad0c4f7b7c8665fca072a09322f82d7b4b590714ddc67fd731349092b9ba68a
