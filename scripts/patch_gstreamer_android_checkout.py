@@ -166,8 +166,29 @@ def patch_gstreamer_root(root: Path) -> None:
     def transform_sysprof_util(text: str) -> str:
         if "#include <errno.h>\n" not in text:
             text = text.replace("#include <stdlib.h>\n", "#include <errno.h>\n#include <stdlib.h>\n", 1)
+        if "#include <limits.h>\n" not in text:
+            text = text.replace("#include <errno.h>\n", "#include <errno.h>\n#include <limits.h>\n", 1)
         if "#include <stdint.h>\n" not in text:
             text = text.replace("#include <stdlib.h>\n", "#include <stdint.h>\n#include <stdlib.h>\n", 1)
+
+        fallback = (
+            "#if !defined(HAVE_REALLOCARRAY) && !defined(reallocarray)\n"
+            "static inline void *\n"
+            "sysprof_reallocarray (void  *ptr,\n"
+            "                      size_t nmemb,\n"
+            "                      size_t size)\n"
+            "{\n"
+            "  if (size != 0 && nmemb > (SIZE_MAX / size))\n"
+            "    {\n"
+            "      errno = ENOMEM;\n"
+            "      return NULL;\n"
+            "    }\n"
+            "\n"
+            "  return realloc (ptr, nmemb * size);\n"
+            "}\n"
+            "# define reallocarray(ptr, nmemb, size) sysprof_reallocarray ((ptr), (nmemb), (size))\n"
+            "#endif\n"
+        )
 
         text = remove_between(
             text,
@@ -175,6 +196,29 @@ def patch_gstreamer_root(root: Path) -> None:
             "#endif\n",
             "sysprof reallocarray fallback",
         )
+        if fallback not in text:
+            text = text.replace(
+                "static inline void *\n"
+                "sysprof_malloc0 (size_t size)\n"
+                "{\n"
+                "  void *ptr = malloc (size);\n"
+                "  if (ptr == NULL)\n"
+                "    return NULL;\n"
+                "  memset (ptr, 0, size);\n"
+                "  return ptr;\n"
+                "}\n",
+                "static inline void *\n"
+                "sysprof_malloc0 (size_t size)\n"
+                "{\n"
+                "  void *ptr = malloc (size);\n"
+                "  if (ptr == NULL)\n"
+                "    return NULL;\n"
+                "  memset (ptr, 0, size);\n"
+                "  return ptr;\n"
+                "}\n\n"
+                f"{fallback}",
+                1,
+            )
         return text
 
     patch_file(sysprof_util, transform_sysprof_util)

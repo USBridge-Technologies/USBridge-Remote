@@ -2298,6 +2298,13 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 	}
 }
 
+func (gs *GStreamerService) GetBindHost() string {
+	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
+		return "127.0.0.1"
+	}
+	return strings.TrimSpace(gs.config.VideoBindHost)
+}
+
 // UpdateHost обновляет хост
 func (gs *GStreamerService) UpdateHost(host string) {
 	gs.config.VideoHost = host

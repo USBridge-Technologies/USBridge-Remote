@@ -109,11 +109,55 @@ sync_file_if_needed() {
     [ -f "$src" ] || return 0
     mkdir -p "$(dirname "$dst")"
 
-    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    if [ -f "$dst" ] && files_are_identical "$src" "$dst"; then
         return 0
     fi
 
     cp -f "$src" "$dst"
+}
+
+file_sha256() {
+    local path="$1"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+        return 0
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+        return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$path" | awk '{print $NF}'
+        return 0
+    fi
+    if command -v powershell >/dev/null 2>&1; then
+        powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '$path').Hash.ToLowerInvariant()"
+        return 0
+    fi
+
+    return 1
+}
+
+files_are_identical() {
+    local src="$1"
+    local dst="$2"
+    local src_hash=""
+    local dst_hash=""
+
+    if command -v cmp >/dev/null 2>&1; then
+        cmp -s "$src" "$dst"
+        return $?
+    fi
+
+    src_hash="$(file_sha256 "$src" 2>/dev/null || true)"
+    dst_hash="$(file_sha256 "$dst" 2>/dev/null || true)"
+    if [ -n "$src_hash" ] && [ -n "$dst_hash" ]; then
+        [ "$src_hash" = "$dst_hash" ]
+        return $?
+    fi
+
+    return 1
 }
 
 aar_looks_valid() {
