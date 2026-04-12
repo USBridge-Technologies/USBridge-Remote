@@ -90,6 +90,14 @@ func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
 	return status.Self.IP4, nil
 }
 
+func (s *Service) IsUserspace(ctx context.Context) (bool, error) {
+	status, err := s.Status(ctx)
+	if err != nil {
+		return false, err
+	}
+	return status.Userspace, nil
+}
+
 func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	logrus.Info("tailscale agent: StartLogin begin")
 	lc, err := s.localClient()

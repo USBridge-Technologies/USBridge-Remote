@@ -34,6 +34,7 @@ type Manager struct {
 	ts  interface {
 		Server() (*tsnet.Server, error)
 		TailnetIPv4(context.Context) (string, error)
+		IsUserspace(context.Context) (bool, error)
 	}
 	mu            sync.Mutex
 	proc          *runningProcess
@@ -68,6 +69,7 @@ const (
 func New(cfg config.Config, frp interface{ UpdateVideoVisitor(int) error }, ts interface {
 	Server() (*tsnet.Server, error)
 	TailnetIPv4(context.Context) (string, error)
+	IsUserspace(context.Context) (bool, error)
 }) *Manager {
 	return &Manager{cfg: cfg, frp: frp, ts: ts}
 }
@@ -237,6 +239,15 @@ func (m *Manager) validateStartRequest(req api.VideoStartRequest) error {
 
 func (m *Manager) startRelayLocked(req api.VideoStartRequest) (*videoRelay, api.VideoStartRequest, error) {
 	if !shouldUseTailscaleVideoRelay(req.ClientHost) || m.ts == nil {
+		return nil, req, nil
+	}
+
+	// Check if Tailscale is in userspace mode.
+	// If it's NOT in userspace (i.e. kernel/TUN mode), we can send directly to req.ClientHost
+	// and we don't need a relay via tsnet.
+	isUserspace, err := m.ts.IsUserspace(context.Background())
+	if err == nil && !isUserspace {
+		log.Printf("[video] tailscale direct streaming enabled for %s (non-userspace mode)", req.ClientHost)
 		return nil, req, nil
 	}
 
