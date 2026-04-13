@@ -111,7 +111,6 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-thread_queue_size", "64",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
 		"-capture_cursor", "1",
-		"-pixel_format", darwinInputPixelFormat(),
 		"-i", fmt.Sprintf("%s:none", device),
 		"-probesize", "32",
 		"-analyzeduration", "0",
@@ -138,7 +137,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-bufsize", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-payload_type", "96",
 		"-f", "rtp",
-		fmt.Sprintf("rtp://%s:%d?pkt_size=1200", req.ClientHost, req.ClientPort),
+		fmt.Sprintf("rtp://%s:%d?pkt_size=1300", req.ClientHost, req.ClientPort),
 	)
 	return args
 }
