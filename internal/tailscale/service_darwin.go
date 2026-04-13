@@ -39,28 +39,28 @@ func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 }
 
 func (s *Service) handleUpStartError(tsPath string, args []string, err error) (string, error) {
-	// On macOS, if it's not running, we might need to start the app or use osascript
-	// but usually if tailscale is installed, 'tailscale up' works if the daemon is running.
-	// If it fails due to permissions, we could try osascript.
-	script := fmt.Sprintf("do shell script \"%s %s\" with administrator privileges", tsPath, strings.Join(args, " "))
+	// On macOS, if it's not running or needs sudo, we use osascript.
+	// We use '2>&1' to make sure all output is captured.
+	script := fmt.Sprintf("do shell script \"%s %s 2>&1\" with administrator privileges", tsPath, strings.Join(args, " "))
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("osascript tailscale up: %w (output: %s)", err, string(out))
 	}
-	
-	// Try to find URL in osascript output
+
+	// Try to find URL in output
 	output := string(out)
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "https://login.tailscale.com") {
-			for _, w := range strings.Fields(line) {
+	for _, line := range strings.Split(output, "\r") { // osascript output can use \r
+		cleanLine := strings.TrimSpace(line)
+		if strings.Contains(cleanLine, "https://login.tailscale.com") {
+			for _, w := range strings.Fields(cleanLine) {
 				if strings.HasPrefix(w, "https://") {
 					return w, nil
 				}
 			}
 		}
 	}
-	return "", nil // URL might not be in output if already logged in
+	return "", nil
 }
 
 func (s *Service) runLogoutCommand(tsPath string) error {

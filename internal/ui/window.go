@@ -84,27 +84,41 @@ func (w *Window) ShowAndRun(onClose func()) {
 			tsState.SetText("Tailscale status: service unavailable")
 			return
 		}
-		status, statusErr := w.ts.Status(context.Background())
-		if statusErr == nil && status != nil && status.LoggedIn {
-			if err := w.ts.Logout(context.Background()); err != nil {
-				tsState.SetText(fmt.Sprintf("Tailscale status: %v", err))
-			}
-			w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
-			return
-		}
 
-		authURL, err := w.ts.StartLogin(context.Background())
-		if err != nil {
-			tsState.SetText(fmt.Sprintf("Tailscale status: %v", err))
-			return
-		}
-		if strings.TrimSpace(authURL) != "" && w.app != nil {
-			if parsed, parseErr := url.Parse(authURL); parseErr == nil {
-				_ = w.app.OpenURL(parsed)
+		tsAuthBtn.Disable()
+		go func() {
+			defer tsAuthBtn.Enable()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			status, statusErr := w.ts.Status(ctx)
+			if statusErr == nil && status != nil && status.LoggedIn {
+				if err := w.ts.Logout(ctx); err != nil {
+					fyne.Do(func() { tsState.SetText(fmt.Sprintf("Tailscale status: logout error: %v", err)) })
+				}
+				fyne.Do(func() { w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn) })
+				return
 			}
-		}
-		tsState.SetText("Tailscale status: login flow started in browser")
-		tsAuthBtn.SetText("Sign In With Google")
+
+			fyne.Do(func() { tsState.SetText("Tailscale status: starting login flow...") })
+			authURL, err := w.ts.StartLogin(ctx)
+			if err != nil {
+				fyne.Do(func() { tsState.SetText(fmt.Sprintf("Tailscale status: error: %v", err)) })
+				return
+			}
+
+			if strings.TrimSpace(authURL) != "" {
+				if parsed, parseErr := url.Parse(authURL); parseErr == nil {
+					if w.app != nil {
+						_ = w.app.OpenURL(parsed)
+					}
+					fyne.Do(func() { tsState.SetText("Tailscale status: login link opened in browser") })
+				}
+			} else {
+				fyne.Do(func() { tsState.SetText("Tailscale status: waiting for system login...") })
+			}
+		}()
 	})
 	tsPanel := newPanel("Tailscale", container.NewVBox(
 		tsState,
