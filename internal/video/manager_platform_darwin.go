@@ -108,9 +108,10 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 	)
 	args := []string{
 		"-f", "avfoundation",
-		"-thread_queue_size", "64",
+		"-thread_queue_size", "128",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
 		"-capture_cursor", "1",
+		"-pixel_format", "uyvy422",
 		"-i", fmt.Sprintf("%s:none", device),
 		"-probesize", "32",
 		"-analyzeduration", "0",

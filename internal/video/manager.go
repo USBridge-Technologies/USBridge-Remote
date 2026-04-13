@@ -75,6 +75,10 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	codec := m.resolveCodec()
 	m.traceStep(traceID, startedAt, "session-plan", "capture=%s codec=%s source_format=%s", mode, codec, sourceFormatForPlatform())
 	m.traceStep(traceID, startedAt, "ffmpeg-start-begin", "mode=%s codec=%s target=%s:%d", mode, codec, req.ClientHost, req.ClientPort)
+
+	// Start a background probe listener to see if client's PUNCH reaches us
+	go m.listenForClientPunch(req.ClientPort)
+
 	proc, err := m.startProcess(req, mode, codec)
 	if err != nil {
 		m.traceStep(traceID, startedAt, "ffmpeg-start-failed", "err=%v", err)
@@ -124,6 +128,52 @@ func (m *Manager) traceStep(traceID uint64, startedAt time.Time, step, format st
 		return
 	}
 	log.Printf("[video/start #%d] step=%s elapsed=%s %s", traceID, step, time.Since(startedAt).Round(time.Millisecond), msg)
+}
+
+func (m *Manager) listenForClientPunch(port int) {
+	addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		return
+	}
+	conn, err := net.ListenUDP("udp4", addr)
+	if err != nil {
+		log.Printf("[video/probe] cannot listen for punch on :%d: %v", port, err)
+		return
+	}
+	defer conn.Close()
+
+	log.Printf("[video/probe] listening for client PUNCH on :%d...", port)
+	buf := make([]byte, 1024)
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, remoteAddr, err := conn.ReadFrom(buf)
+	if err == nil {
+		log.Printf("🎯 [video/probe] GOT PUNCH from %v: %q", remoteAddr, string(buf[:n]))
+	} else {
+		log.Printf("[video/probe] no punch received: %v", err)
+	}
+}
+
+func (m *Manager) streamFFmpegStats(r io.Reader, mode string) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "bitrate=") || strings.Contains(line, "fps=") {
+			parts := strings.Fields(line)
+			var out []string
+			for _, p := range parts {
+				if strings.HasPrefix(p, "frame=") || strings.HasPrefix(p, "fps=") || strings.HasPrefix(p, "bitrate=") || strings.HasPrefix(p, "speed=") {
+					out = append(out, p)
+				}
+			}
+			if len(out) > 0 {
+				log.Printf("📊 [video/%s/stats] %s", mode, strings.Join(out, " "))
+				continue
+			}
+		}
+		if line != "" {
+			log.Printf("[video/%s/stderr] %s", mode, line)
+		}
+	}
 }
 
 func (m *Manager) Info() map[string]interface{} {
@@ -206,7 +256,7 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 	}
 
 	go streamLogs(stdout, mode, "stdout")
-	go streamLogs(stderr, mode, "stderr")
+	go m.streamFFmpegStats(stderr, mode)
 
 	done := make(chan error, 1)
 	go func() {
