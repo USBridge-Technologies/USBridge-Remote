@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"usbridge_agent/internal/app"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -37,5 +38,13 @@ func setupLogging() {
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.SetOutput(output)
+	
+	// Configure logrus to use the same output
+	logrus.SetOutput(output)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		TimestampFormat: "2006/01/02 15:04:05.000000",
+	})
+
 	log.Printf("logging initialized: %s", logFilePath)
 }
