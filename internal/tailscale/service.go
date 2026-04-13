@@ -1,11 +1,16 @@
 package tailscale
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +50,64 @@ func New() *Service {
 	return &Service{}
 }
 
+func getTailscaleBinaryPath() string {
+	name := "tailscale"
+	if runtime.GOOS == "windows" {
+		name = "tailscale.exe"
+	}
+
+	// 1. Check near the executable
+	if exePath, err := os.Executable(); err == nil {
+		localPath := filepath.Join(filepath.Dir(exePath), name)
+		if _, err := os.Stat(localPath); err == nil {
+			return localPath
+		}
+	}
+
+	// 2. Check in PATH
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+
+	// 3. Platform specific defaults
+	if runtime.GOOS == "darwin" {
+		macosPath := "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+		if _, err := os.Stat(macosPath); err == nil {
+			return macosPath
+		}
+	}
+
+	return ""
+}
+
 func (s *Service) Status(ctx context.Context) (*Status, error) {
+	tsPath := getTailscaleBinaryPath()
+	if tsPath != "" {
+		cmd := exec.Command(tsPath, "status", "--json")
+		if out, err := cmd.Output(); err == nil {
+			ip := s.GetSystemTailscaleIP()
+			if ip != "" {
+				return &Status{
+					Running:   true,
+					LoggedIn:  true,
+					Backend:   "Running (System)",
+					Userspace: false,
+					Self: Peer{
+						IP4: ip,
+					},
+				}, nil
+			}
+			statusStr := string(out)
+			if strings.Contains(statusStr, "LoggedOut") || strings.Contains(statusStr, "NeedsLogin") {
+				return &Status{
+					Running:  true,
+					LoggedIn: false,
+					Backend:  "NeedsLogin (System)",
+				}, nil
+			}
+		}
+	}
+
 	lc, err := s.localClient()
 	if err != nil {
 		return nil, err
@@ -80,6 +142,11 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 }
 
 func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
+	if runtime.GOOS == "linux" {
+		if ip := s.GetSystemTailscaleIP(); ip != "" {
+			return ip, nil
+		}
+	}
 	status, err := s.Status(ctx)
 	if err != nil {
 		return "", err
@@ -99,10 +166,45 @@ func (s *Service) IsUserspace(ctx context.Context) (bool, error) {
 }
 
 func (s *Service) StartLogin(ctx context.Context) (string, error) {
-	logrus.Info("tailscale agent: StartLogin begin")
+	tsPath := getTailscaleBinaryPath()
+	if tsPath != "" {
+		logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
+		var cmd *exec.Cmd
+		if runtime.GOOS == "linux" {
+			cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
+		} else {
+			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
+		}
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+		if err := cmd.Start(); err == nil {
+			urlChan := make(chan string, 1)
+			go func() {
+				scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+				for scanner.Scan() {
+					line := scanner.Text()
+					if strings.Contains(line, "https://login.tailscale.com") {
+						for _, w := range strings.Fields(line) {
+							if strings.HasPrefix(w, "https://") {
+								urlChan <- w
+								return
+							}
+						}
+					}
+				}
+			}()
+			select {
+			case foundURL := <-urlChan:
+				return foundURL, nil
+			case <-time.After(15 * time.Second):
+				logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
+			}
+		}
+	}
+
+	logrus.Info("tailscale agent: StartLogin begin (tsnet)")
 	lc, err := s.localClient()
 	if err != nil {
-		logrus.WithError(err).Error("tailscale agent: localClient failed")
 		return "", err
 	}
 	if ctx == nil {
@@ -111,127 +213,49 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 		defer cancel()
 	}
 
+	if err := lc.StartLoginInteractive(ctx); err != nil {
+		logrus.WithError(err).Error("tailscale agent: StartLoginInteractive failed")
+	}
+
 	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
 	if err != nil {
-		logrus.WithError(err).Error("tailscale agent: WatchIPNBus failed")
-		return "", fmt.Errorf("tailscale watch bus: %w", err)
+		return "", err
 	}
 	defer watcher.Close()
 
-	status, err := lc.Status(ctx)
-	if err == nil && status != nil {
-		logrus.Infof("tailscale agent: initial status backend=%s authURL=%t tun=%v", strings.TrimSpace(status.BackendState), strings.TrimSpace(status.AuthURL) != "", status.TUN)
-		if url := strings.TrimSpace(status.AuthURL); url != "" {
-			s.setLatestAuthURL(url)
-			logrus.Infof("tailscale agent: returning initial AuthURL %s", url)
-			return url, nil
-		}
-		state := strings.TrimSpace(status.BackendState)
-		if state == "" || state == "NoState" {
-			logrus.Infof("tailscale agent: starting backend from state=%q", state)
-			if err := lc.Start(ctx, ipn.Options{}); err != nil {
-				logrus.WithError(err).Error("tailscale agent: lc.Start failed")
-				return "", fmt.Errorf("tailscale start: %w", err)
-			}
-		}
-	} else if err != nil {
-		logrus.WithError(err).Warn("tailscale agent: initial Status failed")
-	}
-
-	if err := lc.StartLoginInteractive(ctx); err != nil {
-		logrus.WithError(err).Error("tailscale agent: StartLoginInteractive failed")
-		return "", fmt.Errorf("tailscale interactive login: %w", err)
-	}
-	logrus.Info("tailscale agent: StartLoginInteractive requested")
-
-	deadline := time.Now().Add(45 * time.Second)
-	type watchResult struct {
-		url string
-		err error
-	}
-	watchCh := make(chan watchResult, 1)
-	go func() {
-		for {
-			n, err := watcher.Next()
-			if err != nil {
-				logrus.WithError(err).Warn("tailscale agent: watcher.Next ended")
-				watchCh <- watchResult{err: err}
-				return
-			}
-			if n.BrowseToURL != nil && strings.TrimSpace(*n.BrowseToURL) != "" {
-				logrus.Infof("tailscale agent: BrowseToURL received %s", strings.TrimSpace(*n.BrowseToURL))
-				watchCh <- watchResult{url: strings.TrimSpace(*n.BrowseToURL)}
-				return
-			}
-			if n.ErrMessage != nil && strings.TrimSpace(*n.ErrMessage) != "" {
-				logrus.Warnf("tailscale agent: watcher ErrMessage=%s", strings.TrimSpace(*n.ErrMessage))
-				watchCh <- watchResult{err: fmt.Errorf("%s", strings.TrimSpace(*n.ErrMessage))}
-				return
-			}
-			if n.LoginFinished != nil {
-				logrus.Info("tailscale agent: LoginFinished notification received")
-				watchCh <- watchResult{}
-				return
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(400 * time.Millisecond)
-	defer ticker.Stop()
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case result := <-watchCh:
-			if strings.TrimSpace(result.url) != "" {
-				s.setLatestAuthURL(result.url)
-				return result.url, nil
-			}
-			if result.err != nil {
-				if url := strings.TrimSpace(s.getLatestAuthURL()); url != "" {
-					return url, nil
-				}
-			}
-		case <-ticker.C:
-		}
-
 		status, err := lc.Status(ctx)
 		if err == nil && status != nil {
 			if url := strings.TrimSpace(status.AuthURL); url != "" {
-				s.setLatestAuthURL(url)
-				logrus.Infof("tailscale agent: polled AuthURL %s", url)
 				return url, nil
 			}
 			if strings.TrimSpace(status.BackendState) == "Running" {
-				logrus.Info("tailscale agent: backend reached Running without auth URL")
 				return "", nil
 			}
-		} else if err != nil {
-			logrus.WithError(err).Debug("tailscale agent: poll Status failed")
 		}
-		if url := strings.TrimSpace(s.getLatestAuthURL()); url != "" {
-			logrus.Infof("tailscale agent: using cached AuthURL %s", url)
-			return url, nil
-		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	logrus.Warn("tailscale agent: auth URL was not produced before timeout")
-	return "", fmt.Errorf("tailscale auth URL was not produced")
+	return "", fmt.Errorf("auth URL timeout")
 }
 
 func (s *Service) Logout(ctx context.Context) error {
+	tsPath := getTailscaleBinaryPath()
+	if tsPath != "" {
+		logrus.Infof("🛑 [Tailscale] System CLI logout via %s", tsPath)
+		if runtime.GOOS == "linux" {
+			_ = exec.Command("pkexec", tsPath, "logout").Run()
+		} else {
+			_ = exec.Command(tsPath, "logout").Run()
+		}
+		return nil
+	}
+
 	lc, err := s.localClient()
 	if err != nil {
 		return err
 	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-	}
-	if err := lc.Logout(ctx); err != nil {
-		return fmt.Errorf("tailscale logout: %w", err)
-	}
-	return nil
+	return lc.Logout(ctx)
 }
 
 func (s *Service) Server() (*tsnet.Server, error) {
@@ -242,37 +266,13 @@ func (s *Service) Server() (*tsnet.Server, error) {
 		return s.server, nil
 	}
 
-	// On Linux, try to use Kernel mode (TUN) for better video performance
-	// This requires CAP_NET_ADMIN permissions.
-	userspace := true
-	if os.Getenv("TS_USERSPACE") == "false" || (os.Getenv("TS_USERSPACE") == "" && os.Getuid() == 0) {
-		userspace = false
-		logrus.Info("🚀 [Tailscale] Attempting to enable Kernel Mode (TUN) for Agent")
-	}
-
 	s.server = &tsnet.Server{
-		Dir:       tailscaleStateDir("usbridge-agent"),
-		Hostname:  "usbridge-agent",
-		UserLogf:  s.handleUserLogf,
-		Userspace: userspace,
+		Dir:      tailscaleStateDir("usbridge-agent"),
+		Hostname: "usbridge-agent",
+		UserLogf: s.handleUserLogf,
 	}
 
 	if err := s.server.Start(); err != nil {
-		// Fallback to userspace if TUN fails
-		if !userspace {
-			logrus.Warnf("⚠️ [Tailscale] Kernel Mode failed (%v), falling back to Userspace", err)
-			s.server = &tsnet.Server{
-				Dir:       tailscaleStateDir("usbridge-agent"),
-				Hostname:  "usbridge-agent",
-				UserLogf:  s.handleUserLogf,
-				Userspace: true,
-			}
-			if err := s.server.Start(); err != nil {
-				s.server = nil
-				return nil, fmt.Errorf("tailscale fallback start: %w", err)
-			}
-			return s.server, nil
-		}
 		s.server = nil
 		return nil, fmt.Errorf("tailscale start: %w", err)
 	}
@@ -343,14 +343,10 @@ func trimDotSuffix(value string) string {
 }
 
 func firstAddr(values []netip.Addr) string {
-	for _, value := range values {
-		text := value.String()
-		if strings.Count(text, ".") == 3 {
-			return text
+	for _, v := range values {
+		if v.Is4() {
+			return v.String()
 		}
-	}
-	if len(values) > 0 {
-		return values[0].String()
 	}
 	return ""
 }
@@ -364,4 +360,24 @@ func userLogin(state *ipnstate.Status, userID tailcfg.UserID) string {
 		return ""
 	}
 	return strings.TrimSpace(user.LoginName)
+}
+
+func (s *Service) GetSystemTailscaleIP() string {
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		name := strings.ToLower(iface.Name)
+		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "wg") && !strings.Contains(name, "tun") {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				ip := ipnet.IP.To4()
+				if ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return ""
 }
