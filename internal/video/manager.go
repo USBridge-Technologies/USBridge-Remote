@@ -132,13 +132,15 @@ func (m *Manager) traceStep(traceID uint64, startedAt time.Time, step, format st
 }
 
 func (m *Manager) listenForClientPunch(port int) {
+	// Try to listen on the client's port, but don't fail if we can't
 	addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {
 		return
 	}
 	conn, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		log.Printf("[video/probe] cannot listen for punch on :%d: %v", port, err)
+		// This is expected if FFmpeg or another process already took the port
+		log.Printf("[video/probe] info: local port :%d busy, punch packet will be handled by system stack", port)
 		return
 	}
 	defer conn.Close()
@@ -149,8 +151,6 @@ func (m *Manager) listenForClientPunch(port int) {
 	n, remoteAddr, err := conn.ReadFrom(buf)
 	if err == nil {
 		log.Printf("🎯 [video/probe] GOT PUNCH from %v: %q", remoteAddr, string(buf[:n]))
-	} else {
-		log.Printf("[video/probe] no punch received: %v", err)
 	}
 }
 
@@ -158,6 +158,9 @@ func (m *Manager) streamFFmpegStats(r io.Reader, mode string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" {
+			continue
+		}
 		if strings.Contains(line, "bitrate=") || strings.Contains(line, "fps=") {
 			parts := strings.Fields(line)
 			var out []string
@@ -171,9 +174,8 @@ func (m *Manager) streamFFmpegStats(r io.Reader, mode string) {
 				continue
 			}
 		}
-		if line != "" {
-			log.Printf("[video/%s/stderr] %s", mode, line)
-		}
+		// Log EVERYTHING else from stderr to catch errors like "Configuration failed"
+		log.Printf("[video/%s/stderr] %s", mode, line)
 	}
 }
 

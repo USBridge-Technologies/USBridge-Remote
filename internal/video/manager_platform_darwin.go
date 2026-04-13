@@ -111,8 +111,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-thread_queue_size", "128",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
 		"-capture_cursor", "1",
-		"-pixel_format", "uyvy422",
-		"-i", fmt.Sprintf("%s:none", device),
+		"-i", device, // Убираем :none, оставляем только индекс
 		"-probesize", "32",
 		"-analyzeduration", "0",
 		"-use_wallclock_as_timestamps", "1",
