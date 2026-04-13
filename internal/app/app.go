@@ -120,8 +120,8 @@ func (a *App) Run() error {
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.cfg.TailscaleEnabled && a.ts != nil {
 		go func() {
-			// Wait a bit for tailscale to stabilize if just started
-			time.Sleep(2 * time.Second)
+			// Wait for tailscale to stabilize
+			time.Sleep(5 * time.Second)
 			if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
 				tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
 				a.tsHTTP.Addr = tsAddr
@@ -130,7 +130,7 @@ func (a *App) Run() error {
 					log.Printf("[app] tailscale http server error: %v", err)
 				}
 			} else {
-				log.Printf("[app] tailscale enabled but tailnet IP not available: %v", err)
+				log.Printf("[app] tailscale enabled but tailnet IP is not yet available (will retry via UI refresh)")
 			}
 		}()
 	}
