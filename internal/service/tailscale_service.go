@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"tailscale.com/client/local"
@@ -431,6 +433,11 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		return s.server, nil
 	}
 	initAndroidTailscaleUserspace()
+	
+	if runtime.GOOS == "linux" {
+		logrus.Info("🚀 [Tailscale] Starting tsnet server on Linux")
+	}
+
 	s.server = &tsnet.Server{
 		Dir:      tailscaleStateDir("usbridge-client"),
 		Hostname: "usbridge-client",
@@ -526,6 +533,13 @@ func (s *TailscaleService) Close() error {
 }
 
 func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketConn, localConn *net.UDPConn, port int, tailAddr string) {
+	// Increase socket buffers to handle I-frame bursts (critical for 720p/1080p)
+	const bufferSize = 2 * 1024 * 1024 // 2MB
+	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok {
+		_ = s_pc.SetReadBuffer(bufferSize)
+	}
+	_ = localConn.SetWriteBuffer(bufferSize)
+
 	defer func() {
 		_ = localConn.Close()
 		_ = pc.Close()
@@ -539,49 +553,89 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 		s.mu.Unlock()
 	}()
 
-	buf := make([]byte, 64*1024)
-	firstPacket := true
-	for {
-		_ = pc.SetReadDeadline(time.Now().Add(2 * time.Second))
-		n, src, err := pc.ReadFrom(buf)
-		if err != nil {
+	// Use a channel as a buffer to decouple reading from writing.
+	packetCh := make(chan []byte, 4096)
+	var droppedPackets atomic.Uint64
+	var lastSeq uint16
+	var firstSeq bool = true
+
+	// Producer: read from Tailscale as fast as possible
+	go func() {
+		buf := make([]byte, 2048)
+		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
+				_ = pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+				n, src, err := pc.ReadFrom(buf)
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					continue
+				}
+				if n == 0 {
+					continue
+				}
+
+				// Handle probe packets immediately
+				if n < 100 && strings.Contains(string(buf[:n]), "RELAY_PROBE") {
+					payload := string(buf[:n])
+					if payload == videoRelayProbePayload {
+						_, _ = pc.WriteTo([]byte(videoRelayAckPayload), src)
+						continue
+					}
+				}
+
+				// RTP Loss Detection
+				if n >= 12 {
+					seq := (uint16(buf[2]) << 8) | uint16(buf[3])
+					if firstSeq {
+						lastSeq = seq
+						firstSeq = false
+					} else {
+						expected := lastSeq + 1
+						if seq != expected {
+							diff := seq - expected
+							if seq < lastSeq { // Wrap around
+								diff = (65535 - lastSeq) + seq + 1
+							}
+							if diff < 1000 { // Ignore major jumps/restarts
+								logrus.Errorf("📡 [RelayLoss] LOSS DETECTED: expected seq %d, got %d (lost %d packets)", expected, seq, diff)
+							}
+						}
+						lastSeq = seq
+					}
+				}
+
+				s.noteVideoRelayPacket(src, n)
+				packetCopy := make([]byte, n)
+				copy(packetCopy, buf[:n])
+
+				select {
+				case packetCh <- packetCopy:
+				default:
+					droppedPackets.Add(1)
+				}
 			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
-			logrus.WithError(err).Warnf("tailscale client: video relay read failed on %s", tailAddr)
+		}
+	}()
+	// Consumer: write to local GStreamer
+	firstPacket := true
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		if n == 0 {
-			continue
-		}
-		payload := string(buf[:n])
-		if payload == videoRelayProbePayload {
-			if _, err := pc.WriteTo([]byte(videoRelayAckPayload), src); err != nil {
-				logrus.WithError(err).Warnf("tailscale client: video relay probe ack failed for %v", src)
+		case b := <-packetCh:
+			if firstPacket {
+				firstPacket = false
+				logrus.Infof("tailscale client: first RTP packet relayed trace=%s via %s bytes=%d", s.videoRelayDebugTraceID(), tailAddr, len(b))
+			}
+
+			if _, err := localConn.Write(b); err != nil {
 				return
 			}
-			logrus.Infof("tailscale client: video relay probe acknowledged trace=%s from %v via %s", s.videoRelayDebugTraceID(), src, tailAddr)
-			continue
-		}
-		if payload == videoRelayAckPayload {
-			continue
-		}
-		if firstPacket {
-			firstPacket = false
-			logrus.Infof("tailscale client: first RTP packet relayed trace=%s from %v via %s bytes=%d", s.videoRelayDebugTraceID(), src, tailAddr, n)
-		}
-		s.noteVideoRelayPacket(src, n)
-		if packets := s.videoRelayPacketCount(); packets == 1 || packets%300 == 0 {
-			logrus.Infof("tailscale client: relay stats trace=%s packets=%d last_from=%v bytes=%d via=%s local=127.0.0.1:%d", s.videoRelayDebugTraceID(), packets, src, n, tailAddr, port)
-		}
-		if _, err := localConn.Write(buf[:n]); err != nil {
-			logrus.WithError(err).Warnf("tailscale client: video relay write failed to 127.0.0.1:%d", port)
-			return
 		}
 	}
 }
@@ -604,6 +658,42 @@ func (s *TailscaleService) videoRelayPacketCount() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.videoRelayPackets
+}
+
+func (s *TailscaleService) GetSystemTailscaleIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	// Priority 1: interfaces named tailscale, wg, or utun
+	for _, iface := range ifaces {
+		name := strings.ToLower(iface.Name)
+		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "wg") && !strings.Contains(name, "tun") {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				ip := ipnet.IP.To4()
+				if ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
+			}
+		}
+	}
+	// Priority 2: any interface with 100.x.y.z
+	for _, iface := range ifaces {
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				ip := ipnet.IP.To4()
+				if ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return ""
 }
 
 const (

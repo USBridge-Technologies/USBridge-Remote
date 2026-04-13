@@ -965,7 +965,7 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 	if mode == "" {
 		mode = models.VideoModeH264
 	}
-	logrus.Infof("🎥 [VideoHTTP %s] POST %s/api/video/start device=%s mode=%s %dx%d@%dfps bitrate=%s client=%s:%d",
+	logrus.Infof("🎥 [VideoHTTP %s] POST %s/api/video/start device=%s mode=%s size=%dx%d fps=%d bitrate=%s client=%s:%d",
 		request.TraceID, c.baseURL, request.VideoDevice, mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate, request.ClientHost, request.ClientPort)
 	logrus.Infof("🎥 [VideoHTTP %s] body=%s", request.TraceID, string(requestJSON))
 
@@ -1053,7 +1053,7 @@ func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("failed to parse tailscale status payload: %v", err)
 	}
-	logrus.Infof("🛰️ [API-TS] status backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.Userspace, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
+	logrus.Infof("🛰️ [API-TS] status backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
 	return &parsed, nil
 }
 
@@ -1062,7 +1062,7 @@ func (c *USBClient) RegisterTailscale(request *models.TailscaleRegistrationReque
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal tailscale registration request: %v", err)
 	}
-	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s userspace=%v device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, request.UserspaceMode != nil && *request.UserspaceMode, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
+	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
 
 	resp, err := c.makeRequest("POST", "/api/auth/tailscale/register", requestJSON)
 	if err != nil {
@@ -1085,7 +1085,7 @@ func (c *USBClient) RegisterTailscale(request *models.TailscaleRegistrationReque
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("failed to parse tailscale registration payload: %v", err)
 	}
-	logrus.Infof("🛰️ [API-TS] register backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.Userspace, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
+	logrus.Infof("🛰️ [API-TS] register backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
 	return &parsed, nil
 }
 

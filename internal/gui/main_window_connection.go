@@ -733,7 +733,7 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 
 		tryBootstrapDataplane := func(tsStatus *models.TailscaleStatus) error {
 			if tsStatus != nil {
-				logrus.Infof("🛰️ [TS] STEP 7 bridge tailscale mode userspace=%v backend=%s dns=%s ip=%s", tsStatus.Userspace, tsStatus.Backend, tsStatus.DNSName, tsStatus.IP4)
+				logrus.Infof("🛰️ [TS] STEP 7 bridge tailscale mode active; backend=%s dns=%s ip=%s", tsStatus.Backend, tsStatus.DNSName, tsStatus.IP4)
 			} else {
 				logrus.Infof("🛰️ [TS] STEP 7 bridge tailscale mode active; no extra bootstrap dataplane required")
 			}
@@ -804,7 +804,7 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 					}
 					return fmt.Errorf("direct tailscale connect succeeded but bridge status check failed: %w", statusErr)
 				}
-				logrus.Infof("🛰️ [TS] STEP 4 bridge direct status logged_in=%v backend=%s userspace=%v dns=%s ip=%s auth_url=%t", tsStatus.LoggedIn, tsStatus.Backend, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
+				logrus.Infof("🛰️ [TS] STEP 4 bridge direct status logged_in=%v backend=%s dns=%s ip=%s auth_url=%t", tsStatus.LoggedIn, tsStatus.Backend, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
 				if err := tryBootstrapDataplane(tsStatus); err != nil {
 					return err
 				}
@@ -838,25 +838,23 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 		bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
 		tsStatus, err := bootstrapClient.GetTailscaleStatus()
 		if err == nil && tsStatus != nil && tsStatus.LoggedIn && strings.TrimSpace(tsStatus.DNSName) != "" {
-			logrus.Infof("🛰️ [TS] STEP 4 bridge already registered backend=%s userspace=%v dns=%s ip=%s", tsStatus.Backend, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4)
+			logrus.Infof("🛰️ [TS] STEP 4 bridge already registered backend=%s dns=%s ip=%s", tsStatus.Backend, tsStatus.DNSName, tsStatus.IP4)
 			resolvedHost = strings.TrimSpace(tsStatus.DNSName)
 		} else {
-			userspaceMode := true
 			if strings.TrimSpace(tailscaleAuthKey) != "" {
-				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with auth key device_token=%s auth_key=%s forced_userspace=%v", maskSensitiveToken(quicToken), maskSensitiveToken(tailscaleAuthKey), userspaceMode)
+				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with auth key device_token=%s auth_key=%s", maskSensitiveToken(quicToken), maskSensitiveToken(tailscaleAuthKey))
 			} else {
-				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with interactive login device_token=%s forced_userspace=%v", maskSensitiveToken(quicToken), userspaceMode)
+				logrus.Infof("🛰️ [TS] STEP 4 registering bridge in tailnet via QUIC with interactive login device_token=%s", maskSensitiveToken(quicToken))
 			}
 			tsStatus, err = bootstrapClient.RegisterTailscale(&models.TailscaleRegistrationRequest{
-				DeviceToken:   quicToken,
-				AuthKey:       tailscaleAuthKey,
-				Hostname:      "usbridge",
-				UserspaceMode: &userspaceMode,
+				DeviceToken: quicToken,
+				AuthKey:     tailscaleAuthKey,
+				Hostname:    "usbridge",
 			})
 			if err != nil {
 				return fmt.Errorf("tailscale registration API failed: %w", err)
 			}
-			logrus.Infof("✅ [TS] STEP 4 bridge registration response backend=%s logged_in=%v userspace=%v dns=%s ip=%s auth_url=%t", tsStatus.Backend, tsStatus.LoggedIn, tsStatus.Userspace, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
+			logrus.Infof("✅ [TS] STEP 4 bridge registration response backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", tsStatus.Backend, tsStatus.LoggedIn, tsStatus.DNSName, tsStatus.IP4, strings.TrimSpace(tsStatus.AuthURL) != "")
 			if !tsStatus.LoggedIn {
 				tsStatus, err = waitForBridgeInteractiveLogin(bootstrapClient, tsStatus)
 				if err != nil {

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"image"
+	"runtime"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -166,22 +167,34 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	if vw.frpService == nil && vw.tailscaleService != nil {
 		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
-		if err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort); err != nil {
-			logrus.Errorf("❌ Не удалось запустить Tailscale video relay: %v", err)
-			fyne.Do(func() {
-				vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-			})
-			return
+		
+		// Nuclear Mode for Linux: try system Tailscale IP first
+		systemIP := vw.tailscaleService.GetSystemTailscaleIP()
+		if systemIP != "" && runtime.GOOS == "linux" {
+			request.ClientHost = systemIP
+			logrus.Infof("🚀 [Tailscale/NuclearMode] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
+		} else {
+			if runtime.GOOS == "linux" {
+				logrus.Warn("⚠️ [Tailscale/NuclearMode] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
+			}
+			// Fallback to userspace relay
+			if err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort); err != nil {
+				logrus.Errorf("❌ Не удалось запустить Tailscale video relay: %v", err)
+				fyne.Do(func() {
+					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
+				})
+				return
+			}
+			tailIP, err := vw.tailscaleService.TailnetIPv4(nil)
+			if err != nil {
+				logrus.Errorf("❌ Не удалось определить Tailscale IP клиента для видео: %v", err)
+				fyne.Do(func() {
+					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
+				})
+				return
+			}
+			request.ClientHost = tailIP
 		}
-		tailIP, err := vw.tailscaleService.TailnetIPv4(nil)
-		if err != nil {
-			logrus.Errorf("❌ Не удалось определить Tailscale IP клиента для видео: %v", err)
-			fyne.Do(func() {
-				vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-			})
-			return
-		}
-		request.ClientHost = tailIP
 		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo())
 	}
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
