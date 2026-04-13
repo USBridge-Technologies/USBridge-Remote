@@ -241,12 +241,38 @@ func (s *Service) Server() (*tsnet.Server, error) {
 	if s.server != nil {
 		return s.server, nil
 	}
-	s.server = &tsnet.Server{
-		Dir:      tailscaleStateDir("usbridge-agent"),
-		Hostname: "usbridge-agent",
-		UserLogf: s.handleUserLogf,
+
+	// On Linux, try to use Kernel mode (TUN) for better video performance
+	// This requires CAP_NET_ADMIN permissions.
+	userspace := true
+	if os.Getenv("TS_USERSPACE") == "false" || (os.Getenv("TS_USERSPACE") == "" && os.Getuid() == 0) {
+		userspace = false
+		logrus.Info("🚀 [Tailscale] Attempting to enable Kernel Mode (TUN) for Agent")
 	}
+
+	s.server = &tsnet.Server{
+		Dir:       tailscaleStateDir("usbridge-agent"),
+		Hostname:  "usbridge-agent",
+		UserLogf:  s.handleUserLogf,
+		Userspace: userspace,
+	}
+
 	if err := s.server.Start(); err != nil {
+		// Fallback to userspace if TUN fails
+		if !userspace {
+			logrus.Warnf("⚠️ [Tailscale] Kernel Mode failed (%v), falling back to Userspace", err)
+			s.server = &tsnet.Server{
+				Dir:       tailscaleStateDir("usbridge-agent"),
+				Hostname:  "usbridge-agent",
+				UserLogf:  s.handleUserLogf,
+				Userspace: true,
+			}
+			if err := s.server.Start(); err != nil {
+				s.server = nil
+				return nil, fmt.Errorf("tailscale fallback start: %w", err)
+			}
+			return s.server, nil
+		}
 		s.server = nil
 		return nil, fmt.Errorf("tailscale start: %w", err)
 	}
