@@ -3,8 +3,6 @@
 package controller
 
 import (
-	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,32 +17,15 @@ type browserCommand struct {
 }
 
 func openExternalURL(app fyne.App, uri *url.URL) error {
-	var errs []string
-
-	for _, candidate := range browserOpenCandidates(uri.String()) {
-		if !browserCommandAvailable(candidate.name) {
-			continue
-		}
-
-		cmd := exec.Command(candidate.name, candidate.args...)
-		if err := cmd.Run(); err == nil {
-			return nil
-		} else {
-			errs = append(errs, fmt.Sprintf("%s: %v", browserCommandLabel(candidate), err))
-		}
-	}
-
-	if err := app.OpenURL(uri); err == nil {
-		return nil
-	} else {
-		errs = append(errs, fmt.Sprintf("fyne.OpenURL: %v", err))
-	}
-
-	if len(errs) == 0 {
-		return errors.New("no browser launcher command is available")
-	}
-
-	return fmt.Errorf("browser launch failed (%s)", strings.Join(errs, "; "))
+	// Standard Linux way to open a URL in background
+	go func() {
+		cmd := exec.Command("xdg-open", uri.String())
+		_ = cmd.Start()
+	}()
+	
+	// Also trigger Fyne's built-in opener as it might have better integration 
+	// with some desktop environments.
+	return app.OpenURL(uri)
 }
 
 func browserOpenCandidates(rawURL string) []browserCommand {

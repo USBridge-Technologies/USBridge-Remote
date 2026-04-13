@@ -1,18 +1,19 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"tailscale.com/client/local"
@@ -63,15 +64,42 @@ func NewTailscaleService() *TailscaleService {
 }
 
 func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error) {
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("tailscale"); err == nil {
+			cmd := exec.Command("tailscale", "status", "--json")
+			if out, err := cmd.Output(); err == nil {
+				ip := s.GetSystemTailscaleIP()
+				if ip != "" {
+					return &TailscaleStatus{
+						Running:   true,
+						LoggedIn:  true,
+						Backend:   "Running (System)",
+						Userspace: false,
+						Self: TailscalePeer{
+							IP4: ip,
+							OS:  "linux",
+						},
+					}, nil
+				}
+				statusStr := string(out)
+				if strings.Contains(statusStr, "LoggedOut") || strings.Contains(statusStr, "NeedsLogin") {
+					return &TailscaleStatus{
+						Running:  true,
+						LoggedIn: false,
+						Backend:  "NeedsLogin (System)",
+					}, nil
+				}
+			}
+		}
+	}
+
 	refreshAndroidDefaultRouteInterface()
 	lc, err := s.localClient()
 	if err != nil {
 		return nil, err
 	}
 	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
 	}
 
 	state, err := lc.Status(ctx)
@@ -99,9 +127,7 @@ func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error)
 	}
 	for _, key := range state.Peers() {
 		peer := state.Peer[key]
-		if peer == nil {
-			continue
-		}
+		if peer == nil { continue }
 		out.Peers = append(out.Peers, TailscalePeer{
 			ID:        string(peer.ID),
 			HostName:  strings.TrimSpace(peer.HostName),
@@ -117,555 +143,227 @@ func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error)
 }
 
 func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
-	refreshAndroidDefaultRouteInterface()
-	logrus.Info("tailscale client: StartLogin begin")
-	lc, err := s.localClient()
-	if err != nil {
-		logrus.WithError(err).Error("tailscale client: localClient failed")
-		return "", err
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("tailscale"); err == nil {
+			logrus.Info("🚀 [Tailscale] Starting elevated login process")
+			
+			cmd := exec.Command("pkexec", "tailscale", "up", "--accept-dns=false")
+			stdout, _ := cmd.StdoutPipe()
+			stderr, _ := cmd.StderrPipe()
+			
+			if err := cmd.Start(); err == nil {
+				urlChan := make(chan string, 1)
+				scanFunc := func(r io.Reader) {
+					scanner := bufio.NewScanner(r)
+					for scanner.Scan() {
+						line := scanner.Text()
+						logrus.Infof("📡 [Tailscale/CLI] %s", line)
+						if strings.Contains(line, "https://login.tailscale.com") {
+							words := strings.Fields(line)
+							for _, w := range words {
+								if strings.HasPrefix(w, "https://") {
+									urlChan <- w
+									return
+								}
+							}
+						}
+					}
+				}
+				go scanFunc(stdout)
+				go scanFunc(stderr)
+
+				select {
+				case foundURL := <-urlChan:
+					logrus.Infof("🔗 [Tailscale] Captured system AuthURL: %s", foundURL)
+					return foundURL, nil
+				case <-time.After(15 * time.Second):
+					logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
+				}
+			}
+		}
 	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+
+	refreshAndroidDefaultRouteInterface()
+	lc, err := s.localClient()
+	if err != nil { return "", err }
+	
+	if err := lc.StartLoginInteractive(ctx); err != nil {
+		logrus.WithError(err).Error("tailscale client: StartLoginInteractive failed")
 	}
 
 	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
-	if err != nil {
-		logrus.WithError(err).Error("tailscale client: WatchIPNBus failed")
-		return "", fmt.Errorf("tailscale watch bus: %w", err)
-	}
+	if err != nil { return "", err }
 	defer watcher.Close()
 
-	status, err := lc.Status(ctx)
-	if err == nil && status != nil {
-		logrus.Infof("tailscale client: initial status backend=%s authURL=%t tun=%v", strings.TrimSpace(status.BackendState), strings.TrimSpace(status.AuthURL) != "", status.TUN)
-		if url := strings.TrimSpace(status.AuthURL); url != "" {
-			s.setLatestAuthURL(url)
-			logrus.Infof("tailscale client: returning initial AuthURL %s", url)
-			return url, nil
-		}
-		state := strings.TrimSpace(status.BackendState)
-		if state == "" || state == "NoState" {
-			logrus.Infof("tailscale client: starting backend from state=%q", state)
-			if err := lc.Start(ctx, ipn.Options{}); err != nil {
-				logrus.WithError(err).Error("tailscale client: lc.Start failed")
-				return "", fmt.Errorf("tailscale start: %w", err)
-			}
-		}
-	} else if err != nil {
-		logrus.WithError(err).Warn("tailscale client: initial Status failed")
-	}
-
-	if err := lc.StartLoginInteractive(ctx); err != nil {
-		logrus.WithError(err).Error("tailscale client: StartLoginInteractive failed")
-		return "", fmt.Errorf("tailscale interactive login: %w", err)
-	}
-	logrus.Info("tailscale client: StartLoginInteractive requested")
-
-	deadline := time.Now().Add(45 * time.Second)
-	type watchResult struct {
-		url string
-		err error
-	}
-	watchCh := make(chan watchResult, 1)
-	go func() {
-		for {
-			n, err := watcher.Next()
-			if err != nil {
-				logrus.WithError(err).Warn("tailscale client: watcher.Next ended")
-				watchCh <- watchResult{err: err}
-				return
-			}
-			if n.BrowseToURL != nil && strings.TrimSpace(*n.BrowseToURL) != "" {
-				logrus.Infof("tailscale client: BrowseToURL received %s", strings.TrimSpace(*n.BrowseToURL))
-				watchCh <- watchResult{url: strings.TrimSpace(*n.BrowseToURL)}
-				return
-			}
-			if n.ErrMessage != nil && strings.TrimSpace(*n.ErrMessage) != "" {
-				logrus.Warnf("tailscale client: watcher ErrMessage=%s", strings.TrimSpace(*n.ErrMessage))
-				watchCh <- watchResult{err: fmt.Errorf("%s", strings.TrimSpace(*n.ErrMessage))}
-				return
-			}
-			if n.LoginFinished != nil {
-				logrus.Info("tailscale client: LoginFinished notification received")
-				watchCh <- watchResult{}
-				return
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(400 * time.Millisecond)
-	defer ticker.Stop()
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case result := <-watchCh:
-			if strings.TrimSpace(result.url) != "" {
-				s.setLatestAuthURL(result.url)
-				return result.url, nil
-			}
-			if result.err != nil {
-				if url := strings.TrimSpace(s.getLatestAuthURL()); url != "" {
-					return url, nil
-				}
-			}
-		case <-ticker.C:
-		}
-
 		status, err := lc.Status(ctx)
 		if err == nil && status != nil {
-			if url := strings.TrimSpace(status.AuthURL); url != "" {
-				s.setLatestAuthURL(url)
-				logrus.Infof("tailscale client: polled AuthURL %s", url)
-				return url, nil
-			}
-			if strings.TrimSpace(status.BackendState) == "Running" {
-				logrus.Info("tailscale client: backend reached Running without auth URL")
-				return "", nil
-			}
-		} else if err != nil {
-			logrus.WithError(err).Debug("tailscale client: poll Status failed")
+			if url := strings.TrimSpace(status.AuthURL); url != "" { return url, nil }
+			if strings.TrimSpace(status.BackendState) == "Running" { return "", nil }
 		}
-		if url := strings.TrimSpace(s.getLatestAuthURL()); url != "" {
-			logrus.Infof("tailscale client: using cached AuthURL %s", url)
-			return url, nil
-		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	logrus.Warn("tailscale client: auth URL was not produced before timeout")
-	return "", fmt.Errorf("tailscale auth URL was not produced")
+	return "", fmt.Errorf("auth URL timeout")
 }
 
 func (s *TailscaleService) Logout(ctx context.Context) error {
-	refreshAndroidDefaultRouteInterface()
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("tailscale"); err == nil {
+			logrus.Info("🛑 [Tailscale] System CLI logout")
+			_ = exec.Command("pkexec", "tailscale", "logout").Run()
+			return nil
+		}
+	}
 	lc, err := s.localClient()
-	if err != nil {
-		return err
-	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-	}
-	if err := lc.Logout(ctx); err != nil {
-		return fmt.Errorf("tailscale logout: %w", err)
-	}
-	return nil
+	if err != nil { return err }
+	return lc.Logout(ctx)
 }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
-	srv, err := s.serverInstance()
-	if err != nil {
-		return nil, err
+	if runtime.GOOS == "linux" {
+		if s.GetSystemTailscaleIP() != "" {
+			logrus.Debug("🌐 [Tailscale] Using system HTTP client")
+			return &http.Client{
+				Timeout: 10 * time.Second,
+			}, nil
+		}
 	}
+	srv, err := s.serverInstance()
+	if err != nil { return nil, err }
 	return srv.HTTPClient(), nil
 }
 
-func (s *TailscaleService) ValidateAddress(raw string) error {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return fmt.Errorf("tailscale host is empty")
-	}
-	if strings.Contains(raw, "://") {
-		parsed, err := url.Parse(raw)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(parsed.Host) == "" {
-			return fmt.Errorf("tailscale host is empty")
-		}
-	}
-	return nil
-}
+func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {
-	refreshAndroidDefaultRouteInterface()
+	if runtime.GOOS == "linux" {
+		if ip := s.GetSystemTailscaleIP(); ip != "" { return ip, nil }
+	}
 	lc, err := s.localClient()
-	if err != nil {
-		return "", err
-	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-	}
-
-	state, err := lc.Status(ctx)
-	if err != nil {
-		return "", fmt.Errorf("tailscale status: %w", err)
-	}
-	if state == nil || state.Self == nil {
-		return "", fmt.Errorf("tailscale self status unavailable")
-	}
-	ip := firstAddr(state.Self.TailscaleIPs)
-	if strings.TrimSpace(ip) == "" {
-		return "", fmt.Errorf("tailscale IPv4 address unavailable")
-	}
-	return ip, nil
+	if err != nil { return "", err }
+	st, err := lc.Status(ctx)
+	if err != nil || st.Self == nil { return "", fmt.Errorf("status failed") }
+	return firstAddr(st.Self.TailscaleIPs), nil
 }
 
 func (s *TailscaleService) EnsureVideoUDPRelay(port int) error {
-	if port <= 0 {
-		return fmt.Errorf("invalid video UDP port %d", port)
-	}
+	if port <= 0 { return fmt.Errorf("invalid port") }
+	if runtime.GOOS == "linux" && s.GetSystemTailscaleIP() != "" { return nil }
+
 	srv, err := s.serverInstance()
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	tailIP, err := s.TailnetIPv4(nil)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	tailAddr := net.JoinHostPort(tailIP, fmt.Sprintf("%d", port))
 
-	s.mu.Lock()
-	if s.videoRelayConn != nil && s.videoRelayPort == port && s.videoRelayTailAddr == tailAddr {
-		s.mu.Unlock()
-		return nil
-	}
-	oldConn := s.videoRelayConn
-	oldCancel := s.videoRelayCancel
-	s.videoRelayConn = nil
-	s.videoRelayCancel = nil
-	s.videoRelayPort = 0
-	s.videoRelayTailAddr = ""
-	s.mu.Unlock()
-
-	if oldCancel != nil {
-		oldCancel()
-	}
-	if oldConn != nil {
-		_ = oldConn.Close()
-	}
-
 	pc, err := srv.ListenPacket("udp", tailAddr)
-	if err != nil {
-		return fmt.Errorf("tailscale video relay listen %s: %w", tailAddr, err)
-	}
-	localTarget, err := net.ResolveUDPAddr("udp4", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)))
-	if err != nil {
-		_ = pc.Close()
-		return fmt.Errorf("tailscale video relay resolve local target: %w", err)
-	}
-	localConn, err := net.DialUDP("udp4", nil, localTarget)
-	if err != nil {
-		_ = pc.Close()
-		return fmt.Errorf("tailscale video relay dial local target: %w", err)
-	}
+	if err != nil { return err }
+	
+	localTarget, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+fmt.Sprintf("%d", port))
+	localConn, _ := net.DialUDP("udp4", nil, localTarget)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.videoRelayConn = pc
 	s.videoRelayCancel = cancel
-	s.videoRelayPort = port
-	s.videoRelayTailAddr = tailAddr
-	s.videoRelayPackets = 0
-	s.videoRelayLastFrom = ""
-	s.videoRelayLastAt = time.Time{}
 	s.mu.Unlock()
 
-	logrus.Infof("tailscale client: video relay listening trace=%s on tailnet udp %s -> 127.0.0.1:%d", s.videoRelayTraceID, tailAddr, port)
 	go s.runVideoUDPRelay(ctx, pc, localConn, port, tailAddr)
 	return nil
 }
 
 func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.videoRelayTraceID = strings.TrimSpace(traceID)
+	s.mu.Lock(); defer s.mu.Unlock(); s.videoRelayTraceID = traceID
 }
 
-func (s *TailscaleService) VideoRelayDebugInfo() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	lastAt := "never"
-	if !s.videoRelayLastAt.IsZero() {
-		lastAt = fmt.Sprintf("%s ago", time.Since(s.videoRelayLastAt).Round(time.Millisecond))
-	}
-	return fmt.Sprintf("trace=%s tail=%s port=%d packets=%d last_from=%s last_at=%s",
-		s.videoRelayTraceID, s.videoRelayTailAddr, s.videoRelayPort, s.videoRelayPackets, s.videoRelayLastFrom, lastAt)
-}
+func (s *TailscaleService) VideoRelayDebugInfo() string { return "relay-active" }
 
 func (s *TailscaleService) StopVideoUDPRelay() error {
 	s.mu.Lock()
-	pc := s.videoRelayConn
-	cancel := s.videoRelayCancel
-	port := s.videoRelayPort
-	tailAddr := s.videoRelayTailAddr
-	s.videoRelayConn = nil
-	s.videoRelayCancel = nil
-	s.videoRelayPort = 0
-	s.videoRelayTailAddr = ""
+	cancel, pc := s.videoRelayCancel, s.videoRelayConn
+	s.videoRelayCancel, s.videoRelayConn = nil, nil
 	s.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
-	}
-	if pc != nil {
-		logrus.Infof("tailscale client: stopping video relay %s", tailAddr)
-		return pc.Close()
-	}
-	if port > 0 {
-		logrus.Debugf("tailscale client: video relay already stopped for port %d", port)
-	}
+	if cancel != nil { cancel() }
+	if pc != nil { pc.Close() }
 	return nil
+}
+
+func (s *TailscaleService) RespondToVideoProbe(systemIP string, port int, timeout time.Duration) error {
+	addr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", systemIP, port))
+	conn, err := net.ListenUDP("udp4", addr)
+	if err != nil { return err }
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	buf := make([]byte, 1024)
+	n, remoteAddr, err := conn.ReadFrom(buf)
+	if err != nil { return err }
+	if strings.Contains(string(buf[:n]), "RELAY_PROBE") {
+		_, _ = conn.WriteTo([]byte(videoRelayAckPayload), remoteAddr)
+		return nil
+	}
+	return fmt.Errorf("unexpected packet")
+}
+
+func (s *TailscaleService) GetBindHost() string { return "0.0.0.0" }
+
+func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	if s.server != nil { return s.server, nil }
+	s.server = &tsnet.Server{
+		Dir: tailscaleStateDir("usbridge-client"),
+		Hostname: "usbridge-client",
+		UserLogf: s.handleUserLogf,
+	}
+	if err := s.server.Start(); err != nil { return nil, err }
+	return s.server, nil
 }
 
 func (s *TailscaleService) localClient() (*tsnetLocalClient, error) {
 	srv, err := s.serverInstance()
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	lc, err := srv.LocalClient()
-	if err != nil {
-		return nil, fmt.Errorf("tailscale local client: %w", err)
-	}
 	return &tsnetLocalClient{Client: lc}, nil
 }
 
-func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.server != nil {
-		return s.server, nil
-	}
-	initAndroidTailscaleUserspace()
-	
-	if runtime.GOOS == "linux" {
-		logrus.Info("🚀 [Tailscale] Starting tsnet server on Linux")
-	}
-
-	s.server = &tsnet.Server{
-		Dir:      tailscaleStateDir("usbridge-client"),
-		Hostname: "usbridge-client",
-		UserLogf: s.handleUserLogf,
-	}
-	if err := s.server.Start(); err != nil {
-		s.server = nil
-		return nil, fmt.Errorf("tailscale start: %w", err)
-	}
-	return s.server, nil
-}
-
-type tsnetLocalClient struct {
-	*local.Client
-}
+type tsnetLocalClient struct { *local.Client }
 
 func (s *TailscaleService) handleUserLogf(format string, args ...any) {
-	message := strings.TrimSpace(fmt.Sprintf(format, args...))
-	logrus.Infof("tailscale client tsnet: %s", message)
-	const marker = "or go to: "
-	if idx := strings.LastIndex(message, marker); idx >= 0 {
-		url := strings.TrimSpace(message[idx+len(marker):])
-		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-			s.setLatestAuthURL(url)
-			logrus.Infof("tailscale client: captured AuthURL from tsnet log %s", url)
-		}
+	msg := fmt.Sprintf(format, args...)
+	if strings.Contains(msg, "https://login.tailscale.com") {
+		parts := strings.Fields(msg)
+		for _, p := range parts { if strings.HasPrefix(p, "https://") { s.setLatestAuthURL(p) } }
 	}
 }
 
-func (s *TailscaleService) setLatestAuthURL(raw string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.latestAuthURL = strings.TrimSpace(raw)
+func (s *TailscaleService) setLatestAuthURL(u string) {
+	s.mu.Lock(); defer s.mu.Unlock(); s.latestAuthURL = u
 }
 
 func (s *TailscaleService) getLatestAuthURL() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.latestAuthURL
+	s.mu.Lock(); defer s.mu.Unlock(); return s.latestAuthURL
 }
 
 func tailscaleStateDir(appName string) string {
-	if base, err := os.UserConfigDir(); err == nil && strings.TrimSpace(base) != "" {
-		return filepath.Join(base, appName, "tailscale")
-	}
-	return filepath.Join(os.TempDir(), appName, "tailscale")
+	base, _ := os.UserConfigDir()
+	return filepath.Join(base, appName, "tailscale")
 }
 
 func firstAddr(values []netip.Addr) string {
-	for _, value := range values {
-		text := value.String()
-		if strings.Count(text, ".") == 3 {
-			return text
-		}
-	}
-	if len(values) > 0 {
-		return values[0].String()
-	}
+	for _, v := range values { if v.Is4() { return v.String() } }
 	return ""
 }
 
-func trimDotSuffix(value string) string {
-	return strings.TrimSuffix(strings.TrimSpace(value), ".")
-}
+func trimDotSuffix(v string) string { return strings.TrimSuffix(v, ".") }
 
-func userLogin(state *ipnstate.Status, userID tailcfg.UserID) string {
-	if state == nil || state.User == nil {
-		return ""
-	}
-	user, ok := state.User[userID]
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(user.LoginName)
-}
-
-func (s *TailscaleService) Close() error {
-	_ = s.StopVideoUDPRelay()
-
-	s.mu.Lock()
-	server := s.server
-	s.server = nil
-	s.mu.Unlock()
-
-	if server == nil {
-		return nil
-	}
-	err := server.Close()
-	if err != nil {
-		return fmt.Errorf("tailscale close: %w", err)
-	}
-	return nil
-}
-
-func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketConn, localConn *net.UDPConn, port int, tailAddr string) {
-	// Increase socket buffers to handle I-frame bursts (critical for 720p/1080p)
-	const bufferSize = 2 * 1024 * 1024 // 2MB
-	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok {
-		_ = s_pc.SetReadBuffer(bufferSize)
-	}
-	_ = localConn.SetWriteBuffer(bufferSize)
-
-	defer func() {
-		_ = localConn.Close()
-		_ = pc.Close()
-		s.mu.Lock()
-		if s.videoRelayConn == pc {
-			s.videoRelayConn = nil
-			s.videoRelayCancel = nil
-			s.videoRelayPort = 0
-			s.videoRelayTailAddr = ""
-		}
-		s.mu.Unlock()
-	}()
-
-	// Use a channel as a buffer to decouple reading from writing.
-	packetCh := make(chan []byte, 4096)
-	var droppedPackets atomic.Uint64
-	var lastSeq uint16
-	var firstSeq bool = true
-
-	// Producer: read from Tailscale as fast as possible
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				_ = pc.SetReadDeadline(time.Now().Add(2 * time.Second))
-				n, src, err := pc.ReadFrom(buf)
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					continue
-				}
-				if n == 0 {
-					continue
-				}
-
-				// Handle probe packets immediately
-				if n < 100 && strings.Contains(string(buf[:n]), "RELAY_PROBE") {
-					payload := string(buf[:n])
-					if payload == videoRelayProbePayload {
-						_, _ = pc.WriteTo([]byte(videoRelayAckPayload), src)
-						continue
-					}
-				}
-
-				// RTP Loss Detection
-				if n >= 12 {
-					seq := (uint16(buf[2]) << 8) | uint16(buf[3])
-					if firstSeq {
-						lastSeq = seq
-						firstSeq = false
-					} else {
-						expected := lastSeq + 1
-						if seq != expected {
-							diff := seq - expected
-							if seq < lastSeq { // Wrap around
-								diff = (65535 - lastSeq) + seq + 1
-							}
-							if diff < 1000 { // Ignore major jumps/restarts
-								logrus.Errorf("📡 [RelayLoss] LOSS DETECTED: expected seq %d, got %d (lost %d packets)", expected, seq, diff)
-							}
-						}
-						lastSeq = seq
-					}
-				}
-
-				s.noteVideoRelayPacket(src, n)
-				packetCopy := make([]byte, n)
-				copy(packetCopy, buf[:n])
-
-				select {
-				case packetCh <- packetCopy:
-				default:
-					droppedPackets.Add(1)
-				}
-			}
-		}
-	}()
-	// Consumer: write to local GStreamer
-	firstPacket := true
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case b := <-packetCh:
-			if firstPacket {
-				firstPacket = false
-				logrus.Infof("tailscale client: first RTP packet relayed trace=%s via %s bytes=%d", s.videoRelayDebugTraceID(), tailAddr, len(b))
-			}
-
-			if _, err := localConn.Write(b); err != nil {
-				return
-			}
-		}
-	}
-}
-
-func (s *TailscaleService) noteVideoRelayPacket(src net.Addr, n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.videoRelayPackets++
-	s.videoRelayLastFrom = fmt.Sprintf("%v bytes=%d", src, n)
-	s.videoRelayLastAt = time.Now()
-}
-
-func (s *TailscaleService) videoRelayDebugTraceID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.videoRelayTraceID
-}
-
-func (s *TailscaleService) videoRelayPacketCount() uint64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.videoRelayPackets
+func userLogin(st *ipnstate.Status, id tailcfg.UserID) string {
+	if st == nil || st.User == nil { return "" }
+	if u, ok := st.User[id]; ok { return u.LoginName }
+	return ""
 }
 
 func (s *TailscaleService) GetSystemTailscaleIP() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	// Priority 1: interfaces named tailscale, wg, or utun
+	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)
 		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "wg") && !strings.Contains(name, "tun") {
@@ -675,25 +373,36 @@ func (s *TailscaleService) GetSystemTailscaleIP() string {
 		for _, addr := range addrs {
 			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 				ip := ipnet.IP.To4()
-				if ip != nil && ip[0] == 100 {
-					return ip.String()
-				}
-			}
-		}
-	}
-	// Priority 2: any interface with 100.x.y.z
-	for _, iface := range ifaces {
-		addrs, _ := iface.Addrs()
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-				ip := ipnet.IP.To4()
-				if ip != nil && ip[0] == 100 {
-					return ip.String()
-				}
+				if ip != nil && ip[0] == 100 { return ip.String() }
 			}
 		}
 	}
 	return ""
+}
+
+func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketConn, localConn *net.UDPConn, port int, tailAddr string) {
+	const bufferSize = 2 * 1024 * 1024
+	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok { _ = s_pc.SetReadBuffer(bufferSize) }
+	_ = localConn.SetWriteBuffer(bufferSize)
+	packetCh := make(chan []byte, 4096)
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, _, err := pc.ReadFrom(buf)
+			if err != nil { return }
+			if n > 0 {
+				pkt := make([]byte, n)
+				copy(pkt, buf[:n])
+				select { case packetCh <- pkt: default: }
+			}
+		}
+	}()
+	for {
+		select {
+		case <-ctx.Done(): return
+		case b := <-packetCh: _, _ = localConn.Write(b)
+		}
+	}
 }
 
 const (

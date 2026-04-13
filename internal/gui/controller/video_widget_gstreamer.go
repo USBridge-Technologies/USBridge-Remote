@@ -165,11 +165,12 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		mode = models.VideoModeH264
 	}
 
+	var systemIP string
 	if vw.frpService == nil && vw.tailscaleService != nil {
 		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
 		
 		// Nuclear Mode for Linux: try system Tailscale IP first
-		systemIP := vw.tailscaleService.GetSystemTailscaleIP()
+		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
 		if systemIP != "" && runtime.GOOS == "linux" {
 			request.ClientHost = systemIP
 			logrus.Infof("🚀 [Tailscale/NuclearMode] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
@@ -223,32 +224,42 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		return
 	}
 
-	// 2. Запускаем GStreamer: udpsrc RTP на clientPort.
-	logrus.Infof("🎬 [VIDEO %s] preparing pipeline mode=%s port=%d", request.TraceID, mode, clientPort)
-	if !vw.connectToGStreamerWithRetries() {
-		logrus.Error("❌ Не удалось запустить GStreamer")
-		fyne.Do(func() {
-			vw.statusLabel.SetText("❌ " + i18n.Current.VideoLaunchFailed)
-		})
-		return
-	}
-
-	// 2.5 Короткая пауза, чтобы локальный RTP listener успел перейти в рабочее состояние
-	time.Sleep(150 * time.Millisecond)
-	logrus.Infof("🔗 [VideoRoute %s] client-listener-ready transport=%s bind=%s:%d mode=%s", request.TraceID, transportKind, vw.gstreamerService.GetBindHost(), clientPort, mode)
-
-	// 3. ПОТОМ запускаем видео на сервере — Bridge FFmpeg шлёт RTP, visitor пересылает в proxy video_sudp
+	// 3. ПОТОМ запускаем видео на сервере
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
-	if err := vw.usbClient.StartVideo(request); err != nil {
-		vw.gstreamerService.Disconnect()
-		logrus.Errorf("Ошибка запуска видео: %v", err)
-		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-		})
-		return
+	
+	// Если мы в Nuclear Mode, нам нужно ответить на пробу Агента ПЕРЕД тем, как GStreamer займет порт.
+	// Или СРАЗУ после HTTP запроса.
+	isNuclear := systemIP != "" && runtime.GOOS == "linux" && vw.frpService == nil
+	
+	if isNuclear {
+		// В Nuclear Mode запускаем GStreamer ПЕРЕД запросом, но на 0.0.0.0, 
+		// однако Агент может захотеть пробу.
+		// Лучшая стратегия: отправить запрос, подождать пробу, запустить GS.
+		go func() {
+			if err := vw.usbClient.StartVideo(request); err != nil {
+				logrus.Errorf("Ошибка запуска видео (Nuclear): %v", err)
+				return
+			}
+			// Ждем пробу 2 секунды
+			_ = vw.tailscaleService.RespondToVideoProbe(systemIP, clientPort, 2*time.Second)
+			
+			// Теперь запускаем GStreamer
+			vw.connectToGStreamerWithRetries()
+		}()
+	} else {
+		// Обычный режим (Relay или FRP)
+		if !vw.connectToGStreamerWithRetries() {
+			logrus.Error("❌ Не удалось запустить GStreamer")
+			return
+		}
+		if err := vw.usbClient.StartVideo(request); err != nil {
+			vw.gstreamerService.Disconnect()
+			logrus.Errorf("Ошибка запуска видео: %v", err)
+			return
+		}
 	}
 
-	logrus.Infof("✅ Видео захват запущен (mode=%s, UDP порт %d)", mode, clientPort)
+	logrus.Infof("✅ Видео захват инициирован (mode=%s, UDP порт %d, nuclear=%v)", mode, clientPort, isNuclear)
 	if vw.tailscaleService != nil {
 		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, vw.tailscaleService.VideoRelayDebugInfo())
 	}
