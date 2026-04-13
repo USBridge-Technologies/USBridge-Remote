@@ -50,14 +50,9 @@ func (s *Service) handleUpStartError(tsPath string, args []string, err error) (s
 
 	// Try to find URL in output
 	output := string(out)
-	for _, line := range strings.Split(output, "\r") { // osascript output can use \r
-		cleanLine := strings.TrimSpace(line)
-		if strings.Contains(cleanLine, "https://login.tailscale.com") {
-			for _, w := range strings.Fields(cleanLine) {
-				if strings.HasPrefix(w, "https://") {
-					return w, nil
-				}
-			}
+	for _, line := range strings.Split(output, "\r") { // osascript output often uses \r
+		if url := s.extractURL(line); url != "" {
+			return url, nil
 		}
 	}
 	return "", nil

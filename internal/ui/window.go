@@ -19,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	qrcode "github.com/skip2/go-qrcode"
+	"github.com/sirupsen/logrus"
 
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
@@ -44,6 +45,12 @@ type Window struct {
 		StartLogin(context.Context) (string, error)
 		Logout(context.Context) error
 	}
+}
+
+type uiStatus struct {
+	tsStatus      *tailscale.Status
+	accessGranted bool
+	screenGranted bool
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
@@ -73,6 +80,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	httpCard := newStatCard("HTTP", fmt.Sprintf("127.0.0.1:%d", w.cfg.HTTPPort), "API")
 	videoCard := newStatCard("VIDEO", fmt.Sprintf("127.0.0.1:%d", w.cfg.VideoUDPPort), "RTP")
 	captureCard := newStatCard("CAPTURE", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS))
+	
 	tsState := widget.NewLabel("Tailscale status: checking...")
 	tsAddress := widget.NewRichTextFromMarkdown("Tailnet address: `unavailable`")
 	tsAddress.Wrapping = fyne.TextWrapWord
@@ -97,7 +105,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 				if err := w.ts.Logout(ctx); err != nil {
 					fyne.Do(func() { tsState.SetText(fmt.Sprintf("Tailscale status: logout error: %v", err)) })
 				}
-				fyne.Do(func() { w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn) })
+				w.performRefresh(nil, nil, tsState, tsAddress, tsAccount, tsAuthBtn)
 				return
 			}
 
@@ -109,11 +117,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 			}
 
 			if strings.TrimSpace(authURL) != "" {
-				if parsed, parseErr := url.Parse(authURL); parseErr == nil {
+				if parsed, parseErr := url.Parse(strings.TrimSpace(authURL)); parseErr == nil {
+					logrus.Infof("tailscale ui: opening auth URL: %s", parsed.String())
 					if w.app != nil {
 						_ = w.app.OpenURL(parsed)
 					}
 					fyne.Do(func() { tsState.SetText("Tailscale status: login link opened in browser") })
+				} else {
+					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
+					fyne.Do(func() { tsState.SetText("Tailscale status: invalid login URL received") })
 				}
 			} else {
 				fyne.Do(func() { tsState.SetText("Tailscale status: waiting for system login...") })
@@ -137,7 +149,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		func() {
 			if w.perms != nil {
 				_ = w.perms.RequestAccessibility()
-				refreshPermissionLabels(accessStatus, screenStatus, w.perms)
+				w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
 			}
 		},
 	)
@@ -148,7 +160,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		func() {
 			if w.perms != nil {
 				_ = w.perms.RequestScreenRecording()
-				refreshPermissionLabels(accessStatus, screenStatus, w.perms)
+				w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
 			}
 		},
 	)
@@ -156,7 +168,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	openSettingsBtn := widget.NewButton("Open Privacy Settings", func() {
 		if w.perms != nil {
 			_ = w.perms.OpenPrivacySettings()
-			refreshPermissionLabels(accessStatus, screenStatus, w.perms)
+			w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
 		}
 	})
 	closeBtn := widget.NewButton("Close", func() { win.Close() })
@@ -183,8 +195,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(openSettingsBtn, layout.NewSpacer(), closeBtn),
 	)
 
-	refreshPermissionLabels(accessStatus, screenStatus, w.perms)
-	w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
+	// Initial refresh
+	w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
+
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -192,10 +205,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			if win.Canvas() == nil {
 				return
 			}
-			fyne.Do(func() {
-				refreshPermissionLabels(accessStatus, screenStatus, w.perms)
-				w.refreshTailscale(tsState, tsAddress, tsAccount, tsAuthBtn)
-			})
+			w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
 		}
 	}()
 
@@ -211,11 +221,42 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.app.Run()
 }
 
-func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
+func (w *Window) performRefresh(accessLabel, screenLabel *widget.Label, tsState *widget.Label, tsAddress *widget.RichText, tsAccount *widget.Label, tsAuthBtn *widget.Button) {
+	go func() {
+		status := uiStatus{}
+		if w.ts != nil {
+			status.tsStatus, _ = w.ts.Status(context.Background())
+		}
+		if w.perms != nil {
+			status.accessGranted = w.perms.AccessibilityGranted()
+			status.screenGranted = w.perms.ScreenRecordingGranted()
+		}
+
+		fyne.Do(func() {
+			if accessLabel != nil {
+				if status.accessGranted {
+					accessLabel.SetText("Status: granted")
+				} else {
+					accessLabel.SetText("Status: required")
+				}
+			}
+			if screenLabel != nil {
+				if status.screenGranted {
+					screenLabel.SetText("Status: granted")
+				} else {
+					screenLabel.SetText("Status: required")
+				}
+			}
+			w.refreshTailscaleWithStatus(status.tsStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
+		})
+	}()
+}
+
+func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status, state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
 	if state == nil || address == nil || account == nil {
 		return
 	}
-	if w.ts == nil {
+	if w.ts == nil || status == nil {
 		state.SetText("Tailscale status: unavailable")
 		account.SetText("Google account: unavailable")
 		address.ParseMarkdown("Tailnet address: `unavailable`")
@@ -225,14 +266,6 @@ func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText,
 		return
 	}
 
-	status, err := w.ts.Status(context.Background())
-	if err != nil {
-		state.SetText(fmt.Sprintf("Tailscale status: %v", err))
-		if action != nil {
-			action.SetText("Sign In With Google")
-		}
-		return
-	}
 	if !status.LoggedIn {
 		state.SetText("Tailscale status: signed out")
 		account.SetText("Google account: sign in required")
@@ -256,6 +289,15 @@ func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText,
 	if action != nil {
 		action.SetText("Sign Out")
 	}
+}
+
+func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
+	if w.ts == nil {
+		w.refreshTailscaleWithStatus(nil, state, address, account, action)
+		return
+	}
+	status, _ := w.ts.Status(context.Background())
+	w.refreshTailscaleWithStatus(status, state, address, account, action)
 }
 
 func fallbackValue(value, fallback string) string {

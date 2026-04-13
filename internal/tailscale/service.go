@@ -161,8 +161,6 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
 	
 	args := s.upArgs()
-	
-	// Prepare command
 	cmd := s.prepareUpCommand(tsPath, args)
 	
 	stdout, _ := cmd.StdoutPipe()
@@ -173,34 +171,55 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	}
 
 	urlChan := make(chan string, 1)
+	doneChan := make(chan error, 1)
+
 	go func() {
 		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
 		for scanner.Scan() {
 			line := scanner.Text()
-			if strings.Contains(line, "https://login.tailscale.com") {
-				for _, w := range strings.Fields(line) {
-					if strings.HasPrefix(w, "https://") {
-						urlChan <- w
-						return
-					}
-				}
+			logrus.Infof("📡 [Tailscale/CLI] %s", line)
+			if url := s.extractURL(line); url != "" {
+				urlChan <- url
+				return
 			}
 		}
+	}()
+
+	go func() {
+		doneChan <- cmd.Wait()
 	}()
 
 	select {
 	case foundURL := <-urlChan:
 		return foundURL, nil
+	case err := <-doneChan:
+		logrus.Warnf("⚠️ [Tailscale] Command exited early: %v", err)
+		// If it failed, maybe we should try the platform-specific fallback
+		if err != nil {
+			return s.handleUpStartError(tsPath, args, err)
+		}
 	case <-time.After(15 * time.Second):
 		logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
-		// Check status again, maybe it's already logged in
-		status, _ := s.Status(ctx)
-		if status != nil && status.LoggedIn {
-			return "", nil
-		}
+	}
+	
+	// Final check of status
+	status, _ := s.Status(ctx)
+	if status != nil && status.LoggedIn {
+		return "", nil
 	}
 	
 	return "", fmt.Errorf("login URL not found in tailscale output")
+}
+
+func (s *Service) extractURL(text string) string {
+	if strings.Contains(text, "https://login.tailscale.com") {
+		for _, w := range strings.Fields(text) {
+			if strings.HasPrefix(w, "https://") {
+				return w
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Service) Logout(ctx context.Context) error {
