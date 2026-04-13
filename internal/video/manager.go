@@ -77,9 +77,6 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	m.traceStep(traceID, startedAt, "session-plan", "capture=%s codec=%s source_format=%s", mode, codec, sourceFormatForPlatform())
 	m.traceStep(traceID, startedAt, "ffmpeg-start-begin", "mode=%s codec=%s target=%s:%d", mode, codec, req.ClientHost, req.ClientPort)
 
-	// Start a background probe listener to see if client's PUNCH reaches us
-	go m.listenForClientPunch(req.ClientPort)
-
 	proc, err := m.startProcess(req, mode, codec)
 	if err != nil {
 		m.traceStep(traceID, startedAt, "ffmpeg-start-failed", "err=%v", err)

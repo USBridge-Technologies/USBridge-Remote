@@ -105,13 +105,10 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		device,
 		darwinInputPixelFormat(),
 		describeAVFoundationDevices(devices),
-	)
 	args := []string{
 		"-f", "avfoundation",
-		"-thread_queue_size", "128",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
-		"-capture_cursor", "1",
-		"-i", device, // Убираем :none, оставляем только индекс
+		"-i", device,
 		"-probesize", "32",
 		"-analyzeduration", "0",
 		"-use_wallclock_as_timestamps", "1",
@@ -122,6 +119,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		"-r", fmt.Sprintf("%d", req.VideoFPS),
 		"-c:v", codec,
 	}
+
 	args = append(args, codecArgs(codec)...)
 	args = append(args,
 		"-sc_threshold", "0",
