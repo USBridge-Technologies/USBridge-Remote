@@ -95,7 +95,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 		tsAuthBtn.Disable()
 		go func() {
-			defer tsAuthBtn.Enable()
+			defer fyne.Do(tsAuthBtn.Enable)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
@@ -118,11 +118,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 			if strings.TrimSpace(authURL) != "" {
 				if parsed, parseErr := url.Parse(strings.TrimSpace(authURL)); parseErr == nil {
-					logrus.Infof("tailscale ui: opening auth URL: %s", parsed.String())
-					if w.app != nil {
-						_ = w.app.OpenURL(parsed)
-					}
-					fyne.Do(func() { tsState.SetText("Tailscale status: login link opened in browser") })
+					logrus.Infof("tailscale ui: captured auth URL: %s", parsed.String())
+					fyne.Do(func() {
+						if w.app != nil {
+							_ = w.app.OpenURL(parsed)
+						}
+						tsState.SetText("Tailscale status: login link opened in browser")
+					})
 				} else {
 					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
 					fyne.Do(func() { tsState.SetText("Tailscale status: invalid login URL received") })

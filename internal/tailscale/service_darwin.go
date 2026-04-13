@@ -39,22 +39,31 @@ func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 }
 
 func (s *Service) handleUpStartError(tsPath string, args []string, err error) (string, error) {
-	// On macOS, if it's not running or needs sudo, we use osascript.
-	// We use '2>&1' to make sure all output is captured.
+	// On macOS, if direct start fails, it might be due to lack of daemon permissions.
+	// Use osascript to run with admin privileges. 
+	// We append '2>&1' to catch all output from tailscale into the osascript result.
 	script := fmt.Sprintf("do shell script \"%s %s 2>&1\" with administrator privileges", tsPath, strings.Join(args, " "))
+	logrus.Infof("🚀 [Tailscale/macOS] Requesting admin privileges via osascript...")
+	
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.CombinedOutput()
+	output := string(out)
+	
 	if err != nil {
-		return "", fmt.Errorf("osascript tailscale up: %w (output: %s)", err, string(out))
+		logrus.Errorf("❌ [Tailscale/macOS] osascript failed: %v, output: %s", err, output)
+		return "", fmt.Errorf("osascript tailscale up: %w", err)
 	}
 
-	// Try to find URL in output
-	output := string(out)
-	for _, line := range strings.Split(output, "\r") { // osascript output often uses \r
-		if url := s.extractURL(line); url != "" {
+	// osascript output can be messy (different line endings \r, \n)
+	// We scan it for the login URL
+	for _, line := range strings.FieldsFunc(output, func(r rune) bool { return r == '\r' || r == '\n' }) {
+		if url := s.extractURL(strings.TrimSpace(line)); url != "" {
+			logrus.Infof("🔗 [Tailscale/macOS] Captured URL from osascript: %s", url)
 			return url, nil
 		}
 	}
+	
+	logrus.Warnf("⚠️ [Tailscale/macOS] osascript finished but no URL found. Output: %s", output)
 	return "", nil
 }
 
