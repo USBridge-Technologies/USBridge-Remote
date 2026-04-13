@@ -105,6 +105,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		device,
 		darwinInputPixelFormat(),
 		describeAVFoundationDevices(devices),
+	)
 	args := []string{
 		"-f", "avfoundation",
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
