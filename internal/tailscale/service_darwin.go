@@ -66,6 +66,8 @@ func (s *Service) upArgs() []string {
 	return args
 }
 
+func (s *Service) configureCommand(cmd *exec.Cmd) {}
+
 func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 	return exec.Command(tsPath, args...)
 }

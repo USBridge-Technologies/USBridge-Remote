@@ -420,6 +420,7 @@ func appendUnique(values ...string) []string {
 
 func detectAvailableCodecs(ffmpegPath string) map[string]struct{} {
 	cmd := exec.Command(ffmpegPath, "-hide_banner", "-encoders")
+	configureFFmpegCommand(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("[video] codec probe skipped: %v", err)

@@ -18,6 +18,8 @@ func (s *Service) upArgs() []string {
 	return []string{"up", "--accept-dns=false", "--reset"}
 }
 
+func (s *Service) configureCommand(cmd *exec.Cmd) {}
+
 func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 	// Linux usually needs pkexec for up
 	if _, err := exec.LookPath("pkexec"); err == nil {

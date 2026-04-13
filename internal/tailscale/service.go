@@ -73,6 +73,7 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, tsPath, "status", "--json")
+	s.configureCommand(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return &Status{Running: false, LoggedIn: false, Backend: "Not Running"}, nil

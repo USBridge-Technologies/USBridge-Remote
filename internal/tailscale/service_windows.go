@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 func (s *Service) getTailscalePath() string {
@@ -45,8 +46,21 @@ func (s *Service) upArgs() []string {
 	return []string{"up", "--accept-dns=false", "--reset"}
 }
 
+func (s *Service) configureCommand(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	// 0x08000000 is CREATE_NO_WINDOW
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: 0x08000000,
+		HideWindow:    true,
+	}
+}
+
 func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
-	return exec.Command(tsPath, args...)
+	cmd := exec.Command(tsPath, args...)
+	s.configureCommand(cmd)
+	return cmd
 }
 
 func (s *Service) handleUpStartError(tsPath string, args []string, err error) (string, error) {
@@ -54,5 +68,7 @@ func (s *Service) handleUpStartError(tsPath string, args []string, err error) (s
 }
 
 func (s *Service) runLogoutCommand(tsPath string) error {
-	return exec.Command(tsPath, "logout").Run()
+	cmd := exec.Command(tsPath, "logout")
+	s.configureCommand(cmd)
+	return cmd.Run()
 }
