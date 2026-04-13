@@ -172,12 +172,37 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 		var cmd *exec.Cmd
 		if runtime.GOOS == "linux" {
 			cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
+		} else if runtime.GOOS == "darwin" {
+			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 		} else {
 			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 		}
+		
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
-		if err := cmd.Start(); err == nil {
+		
+		if err := cmd.Start(); err != nil {
+			if runtime.GOOS == "darwin" {
+				// Try with osascript if direct start failed
+				script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
+				cmd = exec.Command("osascript", "-e", script)
+				out, err2 := cmd.CombinedOutput()
+				if err2 == nil {
+					output := string(out)
+					lines := strings.Split(output, "\n")
+					for _, line := range lines {
+						if strings.Contains(line, "https://login.tailscale.com") {
+							for _, p := range strings.Fields(line) {
+								if strings.HasPrefix(p, "https://") {
+									return p, nil
+								}
+							}
+						}
+					}
+				}
+			}
+			logrus.Warnf("⚠️ [Tailscale] System login failed: %v", err)
+		} else {
 			urlChan := make(chan string, 1)
 			go func() {
 				scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
