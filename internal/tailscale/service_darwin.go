@@ -20,34 +20,28 @@ func (s *Service) getTailscalePath() string {
 		"/usr/local/bin/tailscale",
 	}
 
-	// Also check PATH
 	if path, err := exec.LookPath("tailscale"); err == nil {
 		candidates = append(candidates, path)
 	}
 
-	// 1. Try to find a binary that is actually connected to a daemon
+	// Try to find a binary that is actually connected to a daemon
 	for _, path := range candidates {
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		cmd := exec.CommandContext(ctx, path, "status", "--json")
-		err := cmd.Run()
-		cancel()
-		
-		if err == nil {
-			return path // This one works!
+		if _, err := os.Stat(path); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			err := exec.CommandContext(ctx, path, "status", "--json").Run()
+			cancel()
+			if err == nil {
+				return path
+			}
 		}
 	}
 
-	// 2. Fallback: return the first one that exists
+	// Fallback: return the first one that exists
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
 	}
-
 	return ""
 }
 
@@ -60,10 +54,30 @@ func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 }
 
 func (s *Service) handleUpStartError(tsPath string, args []string, err error) (string, error) {
-	// On macOS, if direct start fails, it might be due to lack of daemon permissions.
-	// Use osascript to run with admin privileges. 
+	logrus.Infof("🚀 [Tailscale/macOS] Direct start failed or daemon not responding. Attempting to start daemon...")
+
+	// 1. Try to start the daemon depending on installation type
+	if strings.Contains(tsPath, "Tailscale.app") {
+		logrus.Info("📦 [Tailscale/macOS] Starting Tailscale.app...")
+		_ = exec.Command("open", "-a", "Tailscale").Run()
+	} else {
+		logrus.Info("🍺 [Tailscale/macOS] Attempting to start Homebrew tailscale service...")
+		// Use osascript to start brew service or tailscaled
+		brewPath := "/opt/homebrew/bin/brew"
+		if _, err := os.Stat("/usr/local/bin/brew"); err == nil {
+			brewPath = "/usr/local/bin/brew"
+		}
+		
+		script := fmt.Sprintf("do shell script \"%s services start tailscale || %s 2>&1 &\" with administrator privileges", brewPath, tsPath)
+		_ = exec.Command("osascript", "-e", script).Run()
+	}
+
+	// Give it some time to wake up
+	time.Sleep(3 * time.Second)
+
+	// 2. Now try 'tailscale up' via osascript
 	script := fmt.Sprintf("do shell script \"%s %s 2>&1 || true\" with administrator privileges", tsPath, strings.Join(args, " "))
-	logrus.Infof("🚀 [Tailscale/macOS] Requesting admin privileges via osascript...")
+	logrus.Infof("🔐 [Tailscale/macOS] Requesting privileges for login flow...")
 	
 	cmd := exec.Command("osascript", "-e", script)
 	out, _ := cmd.CombinedOutput()
@@ -71,15 +85,15 @@ func (s *Service) handleUpStartError(tsPath string, args []string, err error) (s
 	
 	for _, line := range strings.FieldsFunc(output, func(r rune) bool { return r == '\r' || r == '\n' }) {
 		if url := s.extractURL(strings.TrimSpace(line)); url != "" {
-			logrus.Infof("🔗 [Tailscale/macOS] Captured URL from osascript: %s", url)
+			logrus.Infof("🔗 [Tailscale/macOS] Captured URL: %s", url)
 			return url, nil
 		}
 	}
 	
 	if strings.Contains(output, "failed to connect") {
-		logrus.Errorf("❌ [Tailscale/macOS] Tailscale daemon is not running. Please start Tailscale.app or 'sudo brew services start tailscale'")
+		logrus.Errorf("❌ [Tailscale/macOS] Still cannot connect to Tailscale daemon after start attempt.")
 	} else {
-		logrus.Warnf("⚠️ [Tailscale/macOS] osascript finished. Output: %s", output)
+		logrus.Warnf("⚠️ [Tailscale/macOS] Login flow finished. Output: %s", output)
 	}
 	
 	return "", nil
