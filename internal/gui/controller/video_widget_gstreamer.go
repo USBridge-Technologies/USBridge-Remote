@@ -232,18 +232,29 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	isNuclear := systemIP != "" && runtime.GOOS == "linux" && vw.frpService == nil
 	
 	if isNuclear {
-		// В Nuclear Mode запускаем GStreamer ПЕРЕД запросом, но на 0.0.0.0, 
-		// однако Агент может захотеть пробу.
-		// Лучшая стратегия: отправить запрос, подождать пробу, запустить GS.
+		// В Nuclear Mode Агент пришлет пробу ВО ВРЕМЯ выполнения HTTP-запроса StartVideo.
+		// Поэтому мы должны запустить слушатель пробы ДО запроса.
 		go func() {
+			// 1. Запускаем слушатель пробы в фоне
+			probeDone := make(chan struct{})
+			go func() {
+				logrus.Infof("⏳ [Tailscale/NuclearMode] Waiting for probe on %s:%d...", systemIP, clientPort)
+				_ = vw.tailscaleService.RespondToVideoProbe(systemIP, clientPort, 5*time.Second)
+				close(probeDone)
+			}()
+
+			// 2. Даем небольшую паузу, чтобы сокет открылся, и шлем запрос
+			time.Sleep(100 * time.Millisecond)
 			if err := vw.usbClient.StartVideo(request); err != nil {
-				logrus.Errorf("Ошибка запуска видео (Nuclear): %v", err)
-				return
+				logrus.Errorf("❌ Ошибка запуска видео (Nuclear HTTP): %v", err)
+				// В случае ошибки GStreamer лучше не запускать, но мы подождем закрытия пробы
 			}
-			// Ждем пробу 2 секунды
-			_ = vw.tailscaleService.RespondToVideoProbe(systemIP, clientPort, 2*time.Second)
+
+			// 3. Ждем, пока проба завершится (успех или таймаут)
+			<-probeDone
 			
-			// Теперь запускаем GStreamer
+			// 4. Теперь, когда порт свободен от пробы, запускаем GStreamer
+			logrus.Infof("🎬 [VIDEO %s] launching GStreamer after probe", request.TraceID)
 			vw.connectToGStreamerWithRetries()
 		}()
 	} else {
