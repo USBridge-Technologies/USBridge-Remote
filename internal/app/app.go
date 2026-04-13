@@ -119,19 +119,27 @@ func (a *App) Run() error {
 	}
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.cfg.TailscaleEnabled && a.ts != nil {
-		if tsServer, err := a.ts.Server(); err != nil {
-			log.Printf("[app] tailscale start failed: %v", err)
-		} else if ln, err := tsServer.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort)); err != nil {
-			log.Printf("[app] tailscale listen failed: %v", err)
-		} else {
-			log.Printf("[app] tailscale http listening on tailnet :%d", a.cfg.HTTPPort)
-			go func() { _ = a.tsHTTP.Serve(ln) }()
-		}
+		go func() {
+			// Wait a bit for tailscale to stabilize if just started
+			time.Sleep(2 * time.Second)
+			if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
+				tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
+				a.tsHTTP.Addr = tsAddr
+				log.Printf("[app] tailscale http listening on %s", tsAddr)
+				if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Printf("[app] tailscale http server error: %v", err)
+				}
+			} else {
+				log.Printf("[app] tailscale enabled but tailnet IP not available: %v", err)
+			}
+		}()
 	}
 	go func() {
 		<-ctx.Done()
 		_ = a.server.Shutdown(context.Background())
-		_ = a.tsHTTP.Shutdown(context.Background())
+		if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
+			_ = a.tsHTTP.Shutdown(context.Background())
+		}
 		_ = a.ts.Close()
 		_ = a.frp.Stop()
 		_ = a.video.Stop()
