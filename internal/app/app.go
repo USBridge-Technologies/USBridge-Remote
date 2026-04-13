@@ -120,18 +120,23 @@ func (a *App) Run() error {
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.cfg.TailscaleEnabled && a.ts != nil {
 		go func() {
-			// Wait for tailscale to stabilize
-			time.Sleep(5 * time.Second)
-			if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
-				tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
-				a.tsHTTP.Addr = tsAddr
-				log.Printf("[app] tailscale http listening on %s", tsAddr)
-				if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					log.Printf("[app] tailscale http server error: %v", err)
+			// Poll for tailscale IP more aggressively at start
+			for i := 0; i < 30; i++ {
+				if ctx.Err() != nil {
+					return
 				}
-			} else {
-				log.Printf("[app] tailscale enabled but tailnet IP is not yet available (will retry via UI refresh)")
+				if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
+					tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
+					a.tsHTTP.Addr = tsAddr
+					log.Printf("[app] tailscale http listening on %s", tsAddr)
+					if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+						log.Printf("[app] tailscale http server error: %v", err)
+					}
+					return
+				}
+				time.Sleep(1 * time.Second)
 			}
+			log.Printf("[app] tailscale enabled but tailnet IP could not be found after 30s")
 		}()
 	}
 	go func() {

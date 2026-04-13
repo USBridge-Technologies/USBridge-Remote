@@ -141,13 +141,19 @@ func (s *Service) IsUserspace(ctx context.Context) (bool, error) {
 
 func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
 	status, err := s.Status(ctx)
+	if err == nil && status.Self.IP4 != "" {
+		return status.Self.IP4, nil
+	}
+	
+	// Fallback to direct interface check if status is not ready
+	if ip := s.GetSystemTailscaleIP(); ip != "" {
+		return ip, nil
+	}
+	
 	if err != nil {
 		return "", err
 	}
-	if status.Self.IP4 == "" {
-		return "", fmt.Errorf("tailscale IPv4 address unavailable")
-	}
-	return status.Self.IP4, nil
+	return "", fmt.Errorf("tailscale IPv4 address unavailable")
 }
 
 func (s *Service) StartLogin(ctx context.Context) (string, error) {

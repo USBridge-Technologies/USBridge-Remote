@@ -73,8 +73,7 @@ func Default() Config {
 
 func (c Config) EffectiveListenHost() string {
 	host := strings.TrimSpace(c.ListenHost)
-	switch host {
-	case "", "localhost", "0.0.0.0", "::":
+	if host == "" {
 		return "127.0.0.1"
 	}
 	return host
