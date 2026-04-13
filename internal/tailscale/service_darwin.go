@@ -33,7 +33,6 @@ func (s *Service) getTailscalePath() string {
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
-			// Check standard status AND with explicit homebrew socket
 			err := exec.CommandContext(ctx, path, "status", "--json").Run()
 			if err != nil {
 				err = exec.CommandContext(ctx, path, "--socket", homebrewSocket, "status", "--json").Run()
@@ -55,11 +54,11 @@ func (s *Service) getTailscalePath() string {
 }
 
 func (s *Service) upArgs() []string {
-	// If it's homebrew, we might need to point to the socket
-	args := []string{"up", "--accept-dns=false"}
+	// Use --reset to force URL generation if flags changed
+	args := []string{"up", "--accept-dns=false", "--reset"}
+	
 	tsPath := s.getTailscalePath()
 	if strings.Contains(tsPath, "homebrew") || strings.Contains(tsPath, "/usr/local/bin") {
-		// Only add socket if it exists
 		if _, err := os.Stat(homebrewSocket); err == nil {
 			args = append([]string{"--socket", homebrewSocket}, args...)
 		}
@@ -72,59 +71,43 @@ func (s *Service) prepareUpCommand(tsPath string, args []string) *exec.Cmd {
 }
 
 func (s *Service) handleUpStartError(tsPath string, args []string, err error) (string, error) {
-	logrus.Infof("🚀 [Tailscale/macOS] Connection error: %v. Attempting to force-start daemon as root...", err)
+	logrus.Infof("🚀 [Tailscale/macOS] Attempting recovery for: %v", err)
 
-	// 1. Try to start/restart the daemon correctly
-	if strings.Contains(tsPath, "Tailscale.app") {
-		logrus.Info("📦 [Tailscale/macOS] Opening Tailscale.app...")
-		_ = exec.Command("open", "-a", "Tailscale").Run()
-	} else {
-		// Homebrew version: must be started with SUDO to work in kernel mode
+	if !strings.Contains(tsPath, "Tailscale.app") {
 		brewPath := "/opt/homebrew/bin/brew"
 		if _, err := os.Stat("/usr/local/bin/brew"); err == nil {
 			brewPath = "/usr/local/bin/brew"
 		}
 		
 		logrus.Info("🍺 [Tailscale/macOS] Running 'sudo brew services restart tailscale'...")
-		// Restart is safer to ensure it picks up root permissions
 		script := fmt.Sprintf("do shell script \"sudo %s services restart tailscale 2>&1\" with administrator privileges", brewPath)
-		out, err := exec.Command("osascript", "-e", script).CombinedOutput()
-		logrus.Infof("📡 [Tailscale/macOS] Brew restart result: %s (err: %v)", string(out), err)
+		_ = exec.Command("osascript", "-e", script).Run()
+		time.Sleep(3 * time.Second)
+	} else {
+		_ = exec.Command("open", "-a", "Tailscale").Run()
+		time.Sleep(2 * time.Second)
 	}
 
-	// Wait longer for the service to actually create the socket and initialize
-	logrus.Info("⏳ [Tailscale/macOS] Waiting for daemon to initialize (5s)...")
-	time.Sleep(5 * time.Second)
-
-	// 2. Now try 'tailscale up' via osascript
-	// We use the same args which might include the --socket flag
+	// Final try via osascript
 	script := fmt.Sprintf("do shell script \"sudo %s %s 2>&1 || true\" with administrator privileges", tsPath, strings.Join(args, " "))
-	logrus.Infof("🔐 [Tailscale/macOS] Running 'tailscale up' as root...")
+	logrus.Infof("🔐 [Tailscale/macOS] Running 'tailscale up' via osascript...")
 	
 	cmd := exec.Command("osascript", "-e", script)
 	out, _ := cmd.CombinedOutput()
 	output := string(out)
 	
-	logrus.Infof("📝 [Tailscale/macOS] Full output from 'up':\n%s", output)
-
 	for _, line := range strings.FieldsFunc(output, func(r rune) bool { return r == '\r' || r == '\n' }) {
-		if url := s.extractURL(strings.TrimSpace(line)); url != "" {
-			logrus.Infof("🔗 [Tailscale/macOS] SUCCESS! Captured URL: %s", url)
+		if url := s.extractURL(line); url != "" {
 			return url, nil
 		}
-	}
-	
-	if strings.Contains(output, "failed to connect") {
-		logrus.Errorf("❌ [Tailscale/macOS] Still NO CONNECTION to daemon. Check if 'tailscaled' is running manually.")
 	}
 	
 	return "", nil
 }
 
 func (s *Service) runLogoutCommand(tsPath string) error {
-	// Add socket if it's homebrew
 	args := []string{"logout"}
-	if strings.Contains(tsPath, "homebrew") {
+	if strings.Contains(tsPath, "homebrew") || strings.Contains(tsPath, "/usr/local/bin") {
 		if _, err := os.Stat(homebrewSocket); err == nil {
 			args = append([]string{"--socket", homebrewSocket}, args...)
 		}

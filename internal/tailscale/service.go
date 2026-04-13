@@ -75,7 +75,6 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	cmd := exec.CommandContext(ctx, tsPath, "status", "--json")
 	out, err := cmd.Output()
 	if err != nil {
-		// If tailscale is not running, status might return error
 		return &Status{Running: false, LoggedIn: false, Backend: "Not Running"}, nil
 	}
 
@@ -125,7 +124,6 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 		}
 	}
 
-	// Double check IP if not found in JSON (sometimes it happens in some states)
 	if res.Self.IP4 == "" && res.Running {
 		res.Self.IP4 = s.GetSystemTailscaleIP()
 	}
@@ -171,20 +169,27 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	}
 
 	urlChan := make(chan string, 1)
-	doneChan := make(chan error, 1)
-
-	go func() {
-		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+	
+	// Scan stdout and stderr CONCURRENTLY
+	scanFunc := func(r io.Reader, name string) {
+		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
 			line := scanner.Text()
-			logrus.Infof("📡 [Tailscale/CLI] %s", line)
+			logrus.Infof("📡 [Tailscale/%s] %s", name, line)
 			if url := s.extractURL(line); url != "" {
-				urlChan <- url
+				select {
+				case urlChan <- url:
+				default:
+				}
 				return
 			}
 		}
-	}()
+	}
+	
+	go scanFunc(stdout, "stdout")
+	go scanFunc(stderr, "stderr")
 
+	doneChan := make(chan error, 1)
 	go func() {
 		doneChan <- cmd.Wait()
 	}()
@@ -193,16 +198,15 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	case foundURL := <-urlChan:
 		return foundURL, nil
 	case err := <-doneChan:
-		logrus.Warnf("⚠️ [Tailscale] Command exited early: %v", err)
-		// If it failed, maybe we should try the platform-specific fallback
+		logrus.Warnf("⚠️ [Tailscale] Command finished (err=%v), checking result...", err)
+		// If it finished without URL, maybe it's already logged in or needs fallback
 		if err != nil {
 			return s.handleUpStartError(tsPath, args, err)
 		}
-	case <-time.After(15 * time.Second):
-		logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
+	case <-time.After(20 * time.Second):
+		logrus.Warn("⚠️ [Tailscale] No link captured in 20s")
 	}
 	
-	// Final check of status
 	status, _ := s.Status(ctx)
 	if status != nil && status.LoggedIn {
 		return "", nil
@@ -212,6 +216,7 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 }
 
 func (s *Service) extractURL(text string) string {
+	text = strings.TrimSpace(text)
 	if strings.Contains(text, "https://login.tailscale.com") {
 		for _, w := range strings.Fields(text) {
 			if strings.HasPrefix(w, "https://") {
@@ -232,12 +237,10 @@ func (s *Service) Logout(ctx context.Context) error {
 	return s.runLogoutCommand(tsPath)
 }
 
-// Close is a no-op for system tailscale
 func (s *Service) Close() error {
 	return nil
 }
 
-// Server is a no-op for system tailscale (returns nil, nil)
 func (s *Service) Server() (any, error) {
 	return nil, nil
 }
@@ -246,7 +249,6 @@ func (s *Service) GetSystemTailscaleIP() string {
 	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)
-		// Check for common tailscale interface names
 		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "utun") && !strings.Contains(name, "wg") {
 			continue
 		}
