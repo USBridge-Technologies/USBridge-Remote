@@ -90,6 +90,7 @@ func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error)
 	tsPath := getTailscaleBinaryPath()
 	if tsPath != "" {
 		cmd := exec.Command(tsPath, "status", "--json")
+		maybeHideWindow(cmd)
 		if out, err := cmd.Output(); err == nil {
 			ip := s.GetSystemTailscaleIP()
 			if ip != "" {
@@ -153,6 +154,7 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 		} else {
 			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 		}
+		maybeHideWindow(cmd)
 		
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
@@ -161,6 +163,7 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 				// Try with osascript if direct start failed
 				script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
 				cmd = exec.Command("osascript", "-e", script)
+				maybeHideWindow(cmd)
 				out, err2 := cmd.CombinedOutput()
 				if err2 == nil {
 					return s.extractURL(string(out)), nil
@@ -216,9 +219,13 @@ func (s *TailscaleService) Logout(ctx context.Context) error {
 	if tsPath != "" {
 		logrus.Infof("🛑 [Tailscale] System CLI logout via %s", tsPath)
 		if runtime.GOOS == "linux" {
-			_ = exec.Command("pkexec", tsPath, "logout").Run()
+			cmd := exec.Command("pkexec", tsPath, "logout")
+			maybeHideWindow(cmd)
+			_ = cmd.Run()
 		} else {
-			_ = exec.Command(tsPath, "logout").Run()
+			cmd := exec.Command(tsPath, "logout")
+			maybeHideWindow(cmd)
+			_ = cmd.Run()
 		}
 		return nil
 	}
@@ -228,7 +235,7 @@ func (s *TailscaleService) Logout(ctx context.Context) error {
 }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
-	if runtime.GOOS == "linux" && s.GetSystemTailscaleIP() != "" {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" {
 		return &http.Client{Timeout: 10 * time.Second}, nil
 	}
 	srv, err := s.serverInstance()
@@ -239,7 +246,7 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
 		if ip := s.GetSystemTailscaleIP(); ip != "" { return ip, nil }
 	}
 	lc, err := s.localClient()
@@ -251,7 +258,7 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {
 
 func (s *TailscaleService) EnsureVideoUDPRelay(port int) error {
 	if port <= 0 { return fmt.Errorf("invalid port") }
-	if runtime.GOOS == "linux" && s.GetSystemTailscaleIP() != "" { return nil }
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" { return nil }
 	srv, err := s.serverInstance()
 	if err != nil { return err }
 	tailIP, err := s.TailnetIPv4(nil)
@@ -280,7 +287,7 @@ func (s *TailscaleService) VideoRelayDebugInfo() string {
 	if s.videoRelayConn != nil {
 		return "relay-active"
 	}
-	if runtime.GOOS == "linux" && s.GetSystemTailscaleIP() != "" {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" {
 		return "direct-nuclear"
 	}
 	return "inactive"

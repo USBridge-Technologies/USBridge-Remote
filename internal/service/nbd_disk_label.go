@@ -46,6 +46,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 
 	cmd := exec.Command(qemuImg, "dd", "-f", format, "-O", "raw", "if="+imagePath, "of="+tmpPath,
 		"bs=512", fmt.Sprintf("count=%d", readSectors))
+	maybeHideWindow(cmd)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		logrus.Debugf("[NBD-LABEL] qemu-img dd: %s: %v", string(out), err)

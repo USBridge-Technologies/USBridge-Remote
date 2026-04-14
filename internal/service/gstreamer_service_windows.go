@@ -72,6 +72,13 @@ type GStreamerService struct {
 }
 
 // NewGStreamerService создает новый GStreamer сервис для Windows
+func (gs *GStreamerService) GetBindHost() string {
+	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
+		return "127.0.0.1"
+	}
+	return strings.TrimSpace(gs.config.VideoBindHost)
+}
+
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 	gs := &GStreamerService{
 		config:                config,
@@ -1263,6 +1270,7 @@ func (gs *GStreamerService) startNativeFullscreenProcess(candidate nativeFullscr
 	}
 
 	cmd := exec.Command(path, candidate.args...)
+	maybeHideWindow(cmd)
 	cmd.Env = getWindowsNativeFullscreenEnv(path)
 	var stderr bytes.Buffer
 	cmd.Stdout = os.Stdout

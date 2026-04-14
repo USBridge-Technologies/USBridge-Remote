@@ -129,6 +129,7 @@ func (q *QemuNBDRunner) Start(port int) error {
 	args = append(args, path)
 
 	q.cmd = exec.Command(qemuNbd, args...)
+	maybeHideWindow(q.cmd)
 	q.cmd.Stdout = nil
 	q.cmd.Stderr = nil
 	if err := q.cmd.Start(); err != nil {

@@ -29,11 +29,10 @@ type ConnectionManagerUI struct {
 	contentArea *fyne.Container
 	topActions  *fyne.Container
 	topHelpBtn  fyne.CanvasObject
+	tsStatusDot *canvas.Circle
 	tsStatus    *widget.Label
-	tsAccount   *widget.Label
-	tsAddress   *widget.Label
 	tsCard      fyne.CanvasObject
-	tsAuthBtn   *outlinedActionButton
+	tsAuthBtn   *connectionPrimaryButton
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -140,23 +139,19 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth f
 		)
 	}
 	contentArea := container.NewMax()
-	tsStatus := widget.NewLabel("Tailscale: checking")
+	tsStatusDot := canvas.NewCircle(color.NRGBA{R: 0x66, G: 0x6f, B: 0x7a, A: 0xff})
+	tsStatusDotWrap := container.NewGridWrap(fyne.NewSize(10, 10), tsStatusDot)
+	tsStatus := widget.NewLabel("Status: Disconnected")
 	tsStatus.Wrapping = fyne.TextWrapWord
-	tsAccount := widget.NewLabel("Google: not connected")
-	tsAccount.Wrapping = fyne.TextWrapWord
-	tsAddress := widget.NewLabel("Address: unavailable")
-	tsAddress.Wrapping = fyne.TextWrapWord
-
-	tsAuthBtn := newOutlinedActionButton("Sign In With Google", onTSAuth)
+	tsAuthBtn := newConnectionPrimaryButton("Connect to Tailscale", onTSAuth)
 	tsButtons := container.NewGridWithColumns(1, tsAuthBtn)
 	tsCard := newConnectionsSectionCard(
 		"tailscale",
 		nil,
 		nil,
 		container.NewVBox(
-			tsStatus,
-			tsAccount,
-			tsAddress,
+			container.NewBorder(nil, nil, container.NewHBox(tsStatusDotWrap, inlineSpacer(10)), nil, tsStatus),
+			inlineSpacer(2),
 			tsButtons,
 		),
 	)
@@ -175,9 +170,8 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth f
 		contentArea:       contentArea,
 		topActions:        topActions,
 		topHelpBtn:        topHelpBtn,
+		tsStatusDot:       tsStatusDot,
 		tsStatus:          tsStatus,
-		tsAccount:         tsAccount,
-		tsAddress:         tsAddress,
 		tsCard:            tsCard,
 		tsAuthBtn:         tsAuthBtn,
 		topQRBtn:          topQRButton,
@@ -244,20 +238,48 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 }
 
 func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address, authLabel string) {
+	statusText, statusColor, buttonLabel, buttonLoading := summarizeTailscaleState(status, authLabel)
+
+	if ui.tsStatusDot != nil {
+		ui.tsStatusDot.FillColor = statusColor
+		ui.tsStatusDot.Refresh()
+	}
 	if ui.tsStatus != nil {
-		ui.tsStatus.SetText(status)
-	}
-	if ui.tsAccount != nil {
-		ui.tsAccount.SetText(account)
-	}
-	if ui.tsAddress != nil {
-		ui.tsAddress.SetText(address)
+		ui.tsStatus.SetText(statusText)
 	}
 	if ui.tsAuthBtn != nil {
-		if strings.TrimSpace(authLabel) != "" {
-			ui.tsAuthBtn.SetLabel(authLabel)
-		}
+		ui.tsAuthBtn.SetLabel(buttonLabel)
 		ui.tsAuthBtn.SetDisabled(false)
+		ui.tsAuthBtn.SetLoading(buttonLoading)
+	}
+}
+
+func summarizeTailscaleState(status, authLabel string) (string, color.Color, string, bool) {
+	raw := strings.ToLower(strings.TrimSpace(status))
+	buttonLabel := strings.TrimSpace(authLabel)
+	if buttonLabel == "" {
+		buttonLabel = "Connect to Tailscale"
+	}
+
+	switch {
+	case strings.Contains(raw, "signed out"), strings.Contains(raw, "not connected"):
+		return "Status: Disconnected", color.NRGBA{R: 0x7f, G: 0x88, B: 0x93, A: 0xff}, "Connect to Tailscale", false
+	case strings.Contains(raw, "starting login"), strings.Contains(raw, "signing out"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"):
+		if strings.Contains(raw, "signing out") {
+			return "Status: Disconnecting", color.NRGBA{R: 0xc6, G: 0x93, B: 0x3a, A: 0xff}, "Disconnecting...", true
+		}
+		return "Status: Connecting", design.ColorAccent, "Connect to Tailscale", true
+	case strings.Contains(raw, "needslogin"), strings.Contains(raw, "stopped"), strings.Contains(raw, "no state"), strings.Contains(raw, "login failed"):
+		return "Status: Disconnected", color.NRGBA{R: 0xc7, G: 0x6f, B: 0x6f, A: 0xff}, "Connect to Tailscale", false
+	case strings.Contains(raw, "running"), strings.Contains(raw, "connected"):
+		if strings.EqualFold(buttonLabel, "sign out") {
+			return "Status: Connected", color.NRGBA{R: 0x6e, G: 0xc6, B: 0x7b, A: 0xff}, "Sign Out", false
+		}
+		return "Status: Connected", color.NRGBA{R: 0x6e, G: 0xc6, B: 0x7b, A: 0xff}, buttonLabel, false
+	case strings.Contains(raw, "tailscale:"), strings.Contains(raw, "error"), raw != "":
+		return "Status: Disconnected", color.NRGBA{R: 0xc7, G: 0x6f, B: 0x6f, A: 0xff}, "Connect to Tailscale", false
+	default:
+		return "Status: Disconnected", color.NRGBA{R: 0x7f, G: 0x88, B: 0x93, A: 0xff}, "Connect to Tailscale", false
 	}
 }
 
@@ -1252,6 +1274,15 @@ func (b *connectionPrimaryButton) SetLoading(loading bool) {
 		b.hovered = false
 	}
 	b.refreshVisuals()
+}
+
+func (b *connectionPrimaryButton) SetLabel(label string) {
+	b.labelText = label
+	if b.label != nil {
+		b.label.Text = label
+		b.label.Refresh()
+	}
+	b.Refresh()
 }
 
 func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {

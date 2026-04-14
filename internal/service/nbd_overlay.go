@@ -56,6 +56,7 @@ func qemuImgVirtualSize(imagePath string) (int64, error) {
 		return 0, fmt.Errorf("qemu-img не найден в PATH")
 	}
 	cmd := exec.Command(qemuImg, "info", "--output=json", imagePath)
+	maybeHideWindow(cmd)
 	cmd.Env = os.Environ()
 	out, err := cmd.Output()
 	if err != nil {
@@ -106,6 +107,7 @@ func createOverlay(basePath string) (overlayPath string, virtualSize int64, err 
 	format := backingFormat(ext)
 	// qemu-img create -f qcow2 -b <base> -F <format> <overlay>
 	cmd := exec.Command(qemuImg, "create", "-f", "qcow2", "-b", baseAbs, "-F", format, overlayPath)
+	maybeHideWindow(cmd)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Overlay не удаляем даже при ошибке — не трогаем существующие файлы

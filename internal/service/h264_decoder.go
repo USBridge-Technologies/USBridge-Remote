@@ -510,6 +510,7 @@ func (decoder *H264Decoder) startFFmpeg() error {
 
 	// Создаем команду
 	cmd := exec.Command(ffmpegPath, args...)
+	maybeHideWindow(cmd)
 
 	// Создаем pipe'ы ПЕРЕД запуском процесса
 	stdin, err := cmd.StdinPipe()
@@ -541,6 +542,7 @@ func (decoder *H264Decoder) startFFmpeg() error {
 		}
 
 		cmd = exec.Command(ffmpegPath, args...)
+		maybeHideWindow(cmd)
 		stdin, err = cmd.StdinPipe()
 		if err != nil {
 			return fmt.Errorf("ошибка создания stdin pipe для CPU: %v", err)
