@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"net"
 	"strings"
 	"time"
 
@@ -166,7 +165,9 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		}
 	}
 	request.ClientPort = clientPort
-
+	// Уменьшаем размер RTP пакетов для повышения стабильности в Tailscale/FRP
+	request.CapturePixelFormat = "pkt_size=1200"
+	
 	mode := request.VideoMode
 	if mode == "" {
 		mode = models.VideoModeH264
@@ -209,6 +210,21 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				return
 			}
 			request.ClientHost = tailIP
+
+			// Выполняем UDP Hole Punching через сокет Tailscale
+			agentHost := vw.usbClient.GetBaseURL()
+			if strings.Contains(agentHost, "://") {
+				parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
+				agentIP := parts[0]
+				
+				// Прогреваем Tailscale: отправляем PUNCH пакет несколько раз
+				for i := 0; i < 3; i++ {
+					vw.tailscaleService.PunchVideoHole(agentIP, clientPort)
+					if i < 2 {
+						time.Sleep(50 * time.Millisecond)
+					}
+				}
+			}
 		}
 		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost))
 	}
@@ -240,33 +256,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	// 3. Запускаем GStreamer и видео на сервере
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
-	
-	// Hole Punching: посылаем UDP пакет агенту ПЕРЕД запуском GStreamer
-	if request.ClientHost != "127.0.0.1" && request.ClientHost != "localhost" {
-		agentHost := vw.usbClient.GetBaseURL()
-		if strings.Contains(agentHost, "://") {
-			parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
-			agentIP := parts[0]
-			
-			// Пытаемся отправить пакет именно с того порта, на который ждем видео
-			laddr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf(":%d", clientPort))
-			raddr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", agentIP, clientPort))
-			
-			// Используем ListenUDP + WriteTo, чтобы контролировать локальный порт
-			conn, err := net.ListenUDP("udp4", laddr)
-			if err == nil {
-				logrus.Infof("🎯 [Tailscale/NuclearMode] Punching hole from %s to agent %s:%d", conn.LocalAddr().String(), agentIP, clientPort)
-				_, _ = conn.WriteTo([]byte("PUNCH"), raddr)
-				// Даем системе время зафиксировать соединение
-				time.Sleep(50 * time.Millisecond)
-				conn.Close()
-				// Небольшая пауза, чтобы ОС освободила порт для GStreamer
-				time.Sleep(50 * time.Millisecond)
-			} else {
-				logrus.Warnf("⚠️ [Tailscale/NuclearMode] Could not bind to %d for punching: %v", clientPort, err)
-			}
-		}
-	}
 
 	if !vw.connectToGStreamerWithRetries() {
 		logrus.Error("❌ Не удалось запустить GStreamer")

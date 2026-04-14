@@ -146,6 +146,10 @@ func getAndroidInterfaces() ([]netmon.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
+	logrus.Infof("📡 [Tailscale/JNI] Raw interfaces from Android: %q", raw)
+	if raw == "" {
+		logrus.Warn("⚠️ [Tailscale/JNI] Received EMPTY interface list from Android! Local discovery will be broken.")
+	}
 	return parseAndroidInterfaces(raw), nil
 }
 

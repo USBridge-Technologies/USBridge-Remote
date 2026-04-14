@@ -795,7 +795,32 @@ func (mw *MainWindow) doConnectWithProtocol(host, token, protocol string) error 
 			if err := tryDirect(resolvedHost); err == nil {
 				tsClient := mw.usbClient
 				logrus.Infof("🛰️ [TS] STEP 4 querying bridge tailscale status over direct tailnet target=%s", resolvedHost)
-				tsStatus, statusErr := tsClient.GetTailscaleStatus()
+
+				// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
+				// пока tsnet не установил маршрут до пира (DERP или p2p NAT traversal).
+				// Делаем до 6 попыток с нарастающими паузами (~30 с суммарно).
+				var tsStatus *models.TailscaleStatus
+				var statusErr error
+				const maxStatusAttempts = 6
+				for attempt := 1; attempt <= maxStatusAttempts; attempt++ {
+					tsStatus, statusErr = tsClient.GetTailscaleStatus()
+					if statusErr == nil {
+						break
+					}
+					if api.IsHTTPNotFound(statusErr) {
+						break // 404 = агент без bridge-регистрации, не retry-able
+					}
+					logrus.Warnf("⚠️ [TS] STEP 4 bridge status attempt %d/%d failed: %v", attempt, maxStatusAttempts, statusErr)
+					if attempt < maxStatusAttempts {
+						pause := time.Duration(attempt*attempt) * time.Second // 1,4,9,16,25 сек
+						if pause > 20*time.Second {
+							pause = 20 * time.Second
+						}
+						logrus.Infof("🛰️ [TS] STEP 4 waiting %v before retry (tsnet NAT traversal in progress)...", pause)
+						time.Sleep(pause)
+					}
+				}
+
 				if statusErr != nil {
 					if api.IsHTTPNotFound(statusErr) {
 						logrus.Infof("🛰️ [TS] STEP 4 tailscale status endpoint is unavailable on target=%s; treating it as direct tailscale peer/agent and continuing without bridge registration flow", resolvedHost)

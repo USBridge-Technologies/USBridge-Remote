@@ -147,6 +147,7 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 			DNSName: trimDotSuffix(state.Self.DNSName), OS: strings.TrimSpace(state.Self.OS),
 			Online: state.Self.Online, Active: state.Self.Active,
 			IP4: firstAddr(state.Self.TailscaleIPs), UserLogin: userLogin(state, state.Self.UserID),
+			Relay: state.Self.Relay, CurAddr: state.Self.CurAddr,
 		}
 	}
 	for _, key := range state.Peers() {
@@ -347,11 +348,13 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 
 	routingInfo := ""
 	if targetHost != "" {
+		// Убираем порт и нормализуем хост для поиска
+		cleanTarget := strings.Split(targetHost, ":")[0]
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if st, err := s.Status(ctx); err == nil && st != nil {
 			for _, peer := range st.Peers {
-				if peer.IP4 == targetHost || strings.HasPrefix(peer.DNSName, targetHost) {
+				if peer.IP4 == cleanTarget || strings.Contains(peer.DNSName, cleanTarget) || peer.HostName == cleanTarget {
 					if peer.CurAddr != "" {
 						routingInfo = fmt.Sprintf(" (peer via %s)", peer.CurAddr)
 					} else if peer.Relay != "" {
@@ -366,6 +369,43 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	}
 
 	return state + routingInfo
+}
+
+func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
+	s.mu.Lock()
+	pc := s.videoRelayConn
+	traceID := s.videoRelayTraceID
+	s.mu.Unlock()
+	if pc == nil || targetHost == "" {
+		return
+	}
+
+	// 1. Сначала пробиваем на основной Target (может быть 100.x.x.x или DNS)
+	host := strings.Split(targetHost, ":")[0]
+	addr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err == nil {
+		logrus.Infof("🎯 [%s] Sending PUNCH to target %v...", traceID, addr)
+		_, _ = pc.WriteTo([]byte("PUNCH"), addr)
+	}
+
+	// 2. ДОПОЛНИТЕЛЬНО: Пробиваем на все известные эндпоинты этого пира через статус
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if st, err := s.Status(ctx); err == nil && st != nil {
+		for _, peer := range st.Peers {
+			if peer.IP4 == host || strings.Contains(peer.DNSName, host) || peer.HostName == host {
+				if peer.CurAddr != "" {
+					if ra, err := net.ResolveUDPAddr("udp4", peer.CurAddr); err == nil {
+						// Меняем порт на видео-порт, но оставляем IP
+						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
+						logrus.Infof("🎯 [%s] Sending PUNCH to detected peer address %v...", traceID, videoAddr)
+						_, _ = pc.WriteTo([]byte("PUNCH"), videoAddr)
+					}
+				}
+				break
+			}
+		}
+	}
 }
 
 // PeerConnectionMode returns whether the connection to targetHost is direct P2P or via DERP relay.
@@ -460,6 +500,7 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
+		Ephemeral: true, // Не захламляем список устройств в консоли Tailscale
 	}
 
 	if runtime.GOOS == "android" {
@@ -581,48 +622,30 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 	}()
 
 	const bufferSize = 8 * 1024 * 1024
-	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok { _ = s_pc.SetReadBuffer(bufferSize) }
+	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok {
+		_ = s_pc.SetReadBuffer(bufferSize)
+	}
 	_ = localConn.SetWriteBuffer(bufferSize)
 
-	packetCh := make(chan []byte, 16384)
+	// Используем один буфер для чтения и немедленной записи.
+	// В UDP это максимально быстро (минимум контекст-свитчей).
+	buf := make([]byte, 65536)
+	packetCount := 0
 
-	// Горутина чтения из Tailscale
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logrus.Errorf("🔥 [%s] PANIC in runVideoUDPRelay reader: %v", traceID, r)
-			}
-		}()
-		buf := make([]byte, 65536)
-		packetCount := 0
-		for {
-			n, remoteAddr, err := pc.ReadFrom(buf)
-			if err != nil {
-				return
-			}
-			if n > 0 {
-				packetCount++
-				if packetCount == 1 || packetCount%500 == 0 {
-					logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
-				}
-				pkt := make([]byte, n)
-				copy(pkt, buf[:n])
-				select {
-				case packetCh <- pkt:
-				default:
-					// Дропаем пакет если очередь полна
-				}
-			}
-		}
-	}()
-
-	// Основной цикл пересылки
 	for {
-		select {
-		case <-ctx.Done():
+		n, remoteAddr, err := pc.ReadFrom(buf)
+		if err != nil {
 			return
-		case b := <-packetCh:
-			_, err := localConn.Write(b)
+		}
+
+		if n > 0 {
+			packetCount++
+			if packetCount <= 10 || packetCount%1000 == 0 {
+				logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
+			}
+
+			// Прямая пересылка на 127.0.0.1 (GStreamer)
+			_, err = localConn.Write(buf[:n])
 			if err != nil {
 				logrus.Warnf("⚠️ [%s] Relay local write error: %v", traceID, err)
 			}

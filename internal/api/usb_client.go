@@ -100,6 +100,10 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 		}
+	} else if timeout > 0 && httpClient.Timeout == 0 {
+		// Tsnet и другие кастомные клиенты передаются без таймаута — применяем его.
+		// Без этого первый запрос через tsnet на Android может висеть бесконечно.
+		httpClient.Timeout = time.Duration(timeout) * time.Second
 	}
 	client := &USBClient{
 		baseURL:       fmt.Sprintf("http://%s:%d", host, port),

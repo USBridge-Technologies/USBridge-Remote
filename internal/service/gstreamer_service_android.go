@@ -620,11 +620,11 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
         gchar *pipeline_str;
         if (gl_chains[i] && !chain_needs_videoconvert[i]) {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=2097152 timeout=0 "
+                "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=100 max-misorder-time=500 max-dropout-time=1500 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
-                "rtph264depay ! "
-                "h264parse config-interval=-1 ! "
+                "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+                "rtph264depay wait-for-keyframe=true ! "
+                "h264parse config-interval=1 ! "
                 "%s ! "
                 "%s ! "
                 "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
@@ -632,11 +632,11 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             );
         } else {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=2097152 timeout=0 "
+                "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=100 max-misorder-time=500 max-dropout-time=1500 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
-                "rtph264depay ! "
-                "h264parse config-interval=-1 ! "
+                "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+                "rtph264depay wait-for-keyframe=true ! "
+                "h264parse config-interval=1 ! "
                 "%s ! "
                 "videoconvert ! "
                 "video/x-raw,format=RGBA ! "
@@ -1120,10 +1120,10 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
 
     // avdec_h264 max-threads=0 — авто-выбор числа потоков (NEON на ARM64)
     pipeline_str = g_strdup_printf(
-        "udpsrc name=udpsrc0 port=%d buffer-size=2097152 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-        "rtpjitterbuffer latency=100 max-misorder-time=500 max-dropout-time=1500 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
-        "rtph264depay ! "
-        "h264parse config-interval=-1 ! "
+        "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
+        "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+        "rtph264depay wait-for-keyframe=true ! "
+        "h264parse config-interval=1 ! "
         "avdec_h264 max-threads=0 ! "
         "videoconvert ! "
         "video/x-raw,format=RGBA ! "
@@ -1792,6 +1792,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 
 	gs.manualDisconnect = false
 	gs.frameDropCount = 0
+	gs.frameCount = 0
 	gs.lastFrameTime = time.Time{}
 	gs.lastQueuedFrame.Store(0)
 
