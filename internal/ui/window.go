@@ -238,18 +238,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.app.Run()
 }
 
-	bg := canvas.NewRectangle(design.ColorPanel)
-	win.SetContent(container.NewStack(bg, container.NewPadded(content)))
-	win.SetCloseIntercept(func() {
-		if onClose != nil {
-			onClose()
-		}
-		win.Close()
-	})
-	win.Show()
-	w.app.Run()
-}
-
 func (w *Window) performRefresh() {
 	go func() {
 		status := uiStatus{}
@@ -597,3 +585,12 @@ func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
 }
 
 func newBadge(text string, size fyne.Size) fyne.CanvasObject {
+	bg := canvas.NewRectangle(design.ColorAccent)
+	bg.CornerRadius = design.RadiusMD
+
+	label := canvas.NewText(text, design.ColorBackground)
+	label.TextStyle.Bold = true
+	label.TextSize = 14
+
+	return container.NewGridWrap(size, container.NewStack(bg, container.NewCenter(label)))
+}
