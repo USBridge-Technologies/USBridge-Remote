@@ -274,7 +274,17 @@ func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
 	s.mu.Lock(); defer s.mu.Unlock(); s.videoRelayTraceID = traceID
 }
 
-func (s *TailscaleService) VideoRelayDebugInfo() string { return "relay-active" }
+func (s *TailscaleService) VideoRelayDebugInfo() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.videoRelayConn != nil {
+		return "relay-active"
+	}
+	if runtime.GOOS == "linux" && s.GetSystemTailscaleIP() != "" {
+		return "direct-nuclear"
+	}
+	return "inactive"
+}
 
 func (s *TailscaleService) StopVideoUDPRelay() error {
 	s.mu.Lock()

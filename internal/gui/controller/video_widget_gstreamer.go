@@ -3,7 +3,9 @@ package controller
 import (
 	"fmt"
 	"image"
+	"net"
 	"runtime"
+	"strings"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -224,53 +226,54 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		return
 	}
 
-	// 3. ПОТОМ запускаем видео на сервере
+	// 3. Запускаем GStreamer и видео на сервере
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
 	
-	// Если мы в Nuclear Mode, нам нужно ответить на пробу Агента ПЕРЕД тем, как GStreamer займет порт.
-	// Или СРАЗУ после HTTP запроса.
-	isNuclear := systemIP != "" && runtime.GOOS == "linux" && vw.frpService == nil
-	
-	if isNuclear {
-		// В Nuclear Mode Агент пришлет пробу ВО ВРЕМЯ выполнения HTTP-запроса StartVideo.
-		// Поэтому мы должны запустить слушатель пробы ДО запроса.
-		go func() {
-			// 1. Запускаем слушатель пробы в фоне
-			probeDone := make(chan struct{})
-			go func() {
-				logrus.Infof("⏳ [Tailscale/NuclearMode] Waiting for probe on %s:%d...", systemIP, clientPort)
-				_ = vw.tailscaleService.RespondToVideoProbe(systemIP, clientPort, 5*time.Second)
-				close(probeDone)
-			}()
-
-			// 2. Даем небольшую паузу, чтобы сокет открылся, и шлем запрос
-			time.Sleep(100 * time.Millisecond)
-			if err := vw.usbClient.StartVideo(request); err != nil {
-				logrus.Errorf("❌ Ошибка запуска видео (Nuclear HTTP): %v", err)
-				// В случае ошибки GStreamer лучше не запускать, но мы подождем закрытия пробы
-			}
-
-			// 3. Ждем, пока проба завершится (успех или таймаут)
-			<-probeDone
+	// Hole Punching: посылаем UDP пакет агенту ПЕРЕД запуском GStreamer
+	if request.ClientHost != "127.0.0.1" && request.ClientHost != "localhost" {
+		agentHost := vw.usbClient.GetBaseURL()
+		if strings.Contains(agentHost, "://") {
+			parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
+			agentIP := parts[0]
 			
-			// 4. Теперь, когда порт свободен от пробы, запускаем GStreamer
-			logrus.Infof("🎬 [VIDEO %s] launching GStreamer after probe", request.TraceID)
-			vw.connectToGStreamerWithRetries()
-		}()
-	} else {
-		// Обычный режим (Relay или FRP)
-		if !vw.connectToGStreamerWithRetries() {
-			logrus.Error("❌ Не удалось запустить GStreamer")
-			return
-		}
-		if err := vw.usbClient.StartVideo(request); err != nil {
-			vw.gstreamerService.Disconnect()
-			logrus.Errorf("Ошибка запуска видео: %v", err)
-			return
+			// Пытаемся отправить пакет именно с того порта, на который ждем видео
+			laddr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf(":%d", clientPort))
+			raddr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", agentIP, clientPort))
+			
+			// Используем ListenUDP + WriteTo, чтобы контролировать локальный порт
+			conn, err := net.ListenUDP("udp4", laddr)
+			if err == nil {
+				logrus.Infof("🎯 [Tailscale/NuclearMode] Punching hole from %s to agent %s:%d", conn.LocalAddr().String(), agentIP, clientPort)
+				_, _ = conn.WriteTo([]byte("PUNCH"), raddr)
+				// Даем системе время зафиксировать соединение
+				time.Sleep(50 * time.Millisecond)
+				conn.Close()
+				// Небольшая пауза, чтобы ОС освободила порт для GStreamer
+				time.Sleep(50 * time.Millisecond)
+			} else {
+				logrus.Warnf("⚠️ [Tailscale/NuclearMode] Could not bind to %d for punching: %v", clientPort, err)
+			}
 		}
 	}
 
-	logrus.Infof("✅ Видео захват инициирован (mode=%s, UDP порт %d, nuclear=%v)", mode, clientPort, isNuclear)
+	if !vw.connectToGStreamerWithRetries() {
+		logrus.Error("❌ Не удалось запустить GStreamer")
+		fyne.Do(func() {
+			vw.statusLabel.SetText(i18n.Current.ErrorVideoStart)
+		})
+		return
+	}
+
+	if err := vw.usbClient.StartVideo(request); err != nil {
+		vw.gstreamerService.Disconnect()
+		logrus.Errorf("❌ Ошибка запуска видео на сервере: %v", err)
+		fyne.Do(func() {
+			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
+		})
+		return
+	}
+
+	logrus.Infof("✅ Видео захват инициирован (mode=%s, UDP порт %d)", mode, clientPort)
 	if vw.tailscaleService != nil {
 		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, vw.tailscaleService.VideoRelayDebugInfo())
 	}
