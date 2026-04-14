@@ -190,10 +190,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	tsPanel := newPanel("Tailscale", container.NewVBox(
-		w.tsState,
+		container.NewHBox(w.tsState, layout.NewSpacer(), w.tsAuthBtn),
 		w.tsAccount,
 		w.tsAddress,
-		container.NewHBox(layout.NewSpacer(), w.tsAuthBtn),
 	))
 
 	closeBtn := widget.NewButton("CLOSE", func() { win.Close() })
