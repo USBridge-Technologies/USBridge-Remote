@@ -200,14 +200,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 	closeBtn.Importance = widget.DangerImportance
 
 	// Layout construction
-	col1 := container.NewVBox(permBlock, layout.NewSpacer())
-	col2 := container.NewVBox(statsBlock, tsPanel, layout.NewSpacer())
+	col1 := container.NewVBox(permBlock)
+	col2 := container.NewVBox(statsBlock)
 
 	mainGrid := container.NewGridWithColumns(2, col1, col2)
 
 	content := container.NewVBox(
 		newPanel("", header),
+		tsPanel,
 		mainGrid,
+		layout.NewSpacer(),
 		container.NewHBox(layout.NewSpacer(), closeBtn),
 	)
 
