@@ -97,7 +97,13 @@ func getTailscaleBinaryPath() string {
 	return ""
 }
 
-func (s *TailscaleService) Status(ctx context.Context) (*TailscaleStatus, error) {
+func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in TailscaleService.Status: %v", r)
+			err = fmt.Errorf("panic in tailscale status: %v", r)
+		}
+	}()
 	tsPath := getTailscaleBinaryPath()
 	if tsPath != "" {
 		cmd := exec.Command(tsPath, "status", "--json")
@@ -256,12 +262,19 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
-func (s *TailscaleService) TailnetIPv4(ctx context.Context) (string, error) {
+func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in TailscaleService.TailnetIPv4: %v", r)
+			err = fmt.Errorf("panic in tailnet ipv4: %v", r)
+		}
+	}()
 	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
 		if ip := s.GetSystemTailscaleIP(); ip != "" { return ip, nil }
 	}
 	lc, err := s.localClient()
 	if err != nil { return "", err }
+	if ctx == nil { ctx = context.Background() }
 	st, err := lc.Status(ctx)
 	if err != nil || st.Self == nil { return "", fmt.Errorf("status failed") }
 	return firstAddr(st.Self.TailscaleIPs), nil
@@ -272,13 +285,17 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) error {
 	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" { return nil }
 	srv, err := s.serverInstance()
 	if err != nil { return err }
-	tailIP, err := s.TailnetIPv4(nil)
+	tailIP, err := s.TailnetIPv4(context.Background())
 	if err != nil { return err }
 	tailAddr := net.JoinHostPort(tailIP, fmt.Sprintf("%d", port))
 	pc, err := srv.ListenPacket("udp", tailAddr)
 	if err != nil { return err }
 	localTarget, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+fmt.Sprintf("%d", port))
-	localConn, _ := net.DialUDP("udp4", nil, localTarget)
+	localConn, err := net.DialUDP("udp4", nil, localTarget)
+	if err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to dial local UDP: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.videoRelayConn = pc
@@ -477,11 +494,21 @@ func (s *TailscaleService) GetSystemTailscaleIP() string {
 }
 
 func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketConn, localConn *net.UDPConn, port int, tailAddr string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in runVideoUDPRelay: %v", r)
+		}
+	}()
 	const bufferSize = 2 * 1024 * 1024
 	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok { _ = s_pc.SetReadBuffer(bufferSize) }
 	_ = localConn.SetWriteBuffer(bufferSize)
 	packetCh := make(chan []byte, 4096)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in runVideoUDPRelay reader: %v", r)
+			}
+		}()
 		buf := make([]byte, 2048)
 		for {
 			n, _, err := pc.ReadFrom(buf)

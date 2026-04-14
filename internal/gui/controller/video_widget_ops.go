@@ -20,9 +20,16 @@ func (vw *VideoWidget) startVideoOpsLoop() {
 				continue
 			}
 
-			logrus.Debugf("🎬 video op start: %s", op.name)
-			op.fn()
-			logrus.Debugf("✅ video op done: %s", op.name)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logrus.Errorf("🔥 PANIC in video op %s: %v", op.name, r)
+					}
+				}()
+				logrus.Debugf("🎬 video op start: %s", op.name)
+				op.fn()
+				logrus.Debugf("✅ video op done: %s", op.name)
+			}()
 
 			if op.done != nil {
 				close(op.done)

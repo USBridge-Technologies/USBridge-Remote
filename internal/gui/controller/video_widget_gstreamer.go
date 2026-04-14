@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"net"
@@ -188,7 +189,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				})
 				return
 			}
-			tailIP, err := vw.tailscaleService.TailnetIPv4(nil)
+			tailIP, err := vw.tailscaleService.TailnetIPv4(context.Background())
 			if err != nil {
 				logrus.Errorf("❌ Не удалось определить Tailscale IP клиента для видео: %v", err)
 				fyne.Do(func() {

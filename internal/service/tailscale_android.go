@@ -137,6 +137,11 @@ func refreshAndroidDefaultRouteInterface() {
 }
 
 func getAndroidInterfaces() ([]netmon.Interface, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in getAndroidInterfaces: %v", r)
+		}
+	}()
 	raw, err := getAndroidString("getInterfacesAsString")
 	if err != nil {
 		return nil, err
@@ -159,6 +164,11 @@ func getAndroidCacheDir() (string, error) {
 func openAndroidExternalUrl(url string) (bool, error) {
 	var opened bool
 	err := driver.RunNative(func(context any) error {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in openAndroidExternalUrl callback: %v", r)
+			}
+		}()
 		androidCtx, ok := context.(*driver.AndroidContext)
 		if !ok || androidCtx == nil {
 			return fmt.Errorf("android context unavailable")
@@ -175,6 +185,11 @@ func openAndroidExternalUrl(url string) (bool, error) {
 
 func requestAndroidVpnPermission() error {
 	return driver.RunNative(func(context any) error {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in requestAndroidVpnPermission callback: %v", r)
+			}
+		}()
 		androidCtx, ok := context.(*driver.AndroidContext)
 		if !ok || androidCtx == nil {
 			return fmt.Errorf("android context unavailable")
@@ -185,9 +200,19 @@ func requestAndroidVpnPermission() error {
 }
 
 func getAndroidString(methodName string) (string, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in getAndroidString(%s): %v", methodName, r)
+		}
+	}()
 	var out string
 	logrus.Debugf("tailscale android: calling JNI method %s", methodName)
 	err := driver.RunNative(func(context any) error {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in getAndroidString(%s) callback: %v", methodName, r)
+			}
+		}()
 		androidCtx, ok := context.(*driver.AndroidContext)
 		if !ok || androidCtx == nil {
 			return fmt.Errorf("android context unavailable")

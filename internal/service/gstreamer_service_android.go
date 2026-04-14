@@ -19,42 +19,12 @@ package service
 
 #define LOG_TAG "GStreamer"
 
-// Мост JNI для androidmedia (amcvideodec) — плагин ищет эти символы при инициализации
-static JavaVM *g_gst_java_vm = NULL;
-static jobject g_gst_class_loader = NULL;  // Global ref
+// Мост JNI для androidmedia (amcvideodec) — плагин ищет эти символы при инициализации.
+// Объявления функций, реализованных в gstreamer_jni_android.c
+void gst_android_set_java_vm_and_context(JavaVM *vm, JNIEnv *env, jobject context);
+JavaVM* gst_android_get_java_vm(void);
+jobject gst_android_get_application_class_loader(void);
 
-// Вызывается из Go через driver.RunNative ДО создания pipeline
-void gst_android_set_java_vm_and_context(JavaVM *vm, JNIEnv *env, jobject context) {
-    if (!vm || !env || !context) return;
-    g_gst_java_vm = vm;
-    if (g_gst_class_loader) {
-        (*env)->DeleteGlobalRef(env, g_gst_class_loader);
-        g_gst_class_loader = NULL;
-    }
-    jclass ctx_class = (*env)->GetObjectClass(env, context);
-    if (!ctx_class) return;
-    jmethodID get_class = (*env)->GetMethodID(env, ctx_class, "getClass", "()Ljava/lang/Class;");
-    if (!get_class) return;
-    jobject cls = (*env)->CallObjectMethod(env, context, get_class);
-    if (!cls) return;
-    jclass class_class = (*env)->GetObjectClass(env, cls);
-    if (!class_class) return;
-    jmethodID get_class_loader = (*env)->GetMethodID(env, class_class, "getClassLoader", "()Ljava/lang/ClassLoader;");
-    if (!get_class_loader) return;
-    jobject loader = (*env)->CallObjectMethod(env, cls, get_class_loader);
-    if (loader) {
-        g_gst_class_loader = (*env)->NewGlobalRef(env, loader);
-    }
-    __android_log_print(ANDROID_LOG_INFO, "GStreamer", "gst_android: VM=%p, class_loader=%p", (void*)vm, (void*)g_gst_class_loader);
-}
-
-JavaVM* gst_android_get_java_vm(void) {
-    return g_gst_java_vm;
-}
-
-jobject gst_android_get_application_class_loader(void) {
-    return g_gst_class_loader;
-}
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -210,23 +180,39 @@ static jmethodID get_optional_method_id(JNIEnv *env, jclass cls, const char *nam
     return mid;
 }
 
-static gchar* find_android_decoder_by_name_fragments(const char *required1, const char *required2);
-
-static JNIEnv* gst_android_get_attached_env(void) {
-    if (!g_gst_java_vm) return NULL;
-
-    JNIEnv *env = NULL;
-    jint rc = (*g_gst_java_vm)->GetEnv(g_gst_java_vm, (void **)&env, JNI_VERSION_1_6);
-    if (rc == JNI_OK) return env;
-    if (rc != JNI_EDETACHED) return NULL;
-    if ((*g_gst_java_vm)->AttachCurrentThread(g_gst_java_vm, &env, NULL) != JNI_OK) {
-        return NULL;
-    }
-    return env;
+// Fallback для g_memdup2 (доступен только с GLib 2.68+)
+static gpointer my_g_memdup2(gconstpointer mem, gsize byte_size) {
+    if (!mem || byte_size == 0) return NULL;
+    gpointer new_mem = g_malloc(byte_size);
+    if (new_mem) memcpy(new_mem, mem, byte_size);
+    return new_mem;
 }
 
-static gchar* normalize_codec_token(const gchar *value) {
-    if (!value) return NULL;
+static gchar* find_android_decoder_by_name_fragments(const char *required1, const char *required2);
+
+static gboolean gst_android_attach_env(JNIEnv **env_out) {
+    JavaVM *vm = gst_android_get_java_vm();
+    if (!vm) return FALSE;
+
+    jint rc = (*vm)->GetEnv(vm, (void **)env_out, JNI_VERSION_1_6);
+    if (rc == JNI_OK) return FALSE; // Уже присоединён, отсоединять не нужно
+    if (rc != JNI_EDETACHED) return FALSE;
+
+    if ((*vm)->AttachCurrentThread(vm, env_out, NULL) != JNI_OK) {
+        *env_out = NULL;
+        return FALSE;
+    }
+    return TRUE; // Мы присоединили, нужно будет отсоединить
+}
+
+static void gst_android_detach_env(void) {
+    JavaVM *vm = gst_android_get_java_vm();
+    if (vm) {
+        (*vm)->DetachCurrentThread(vm);
+    }
+}
+
+static gchar* normalize_codec_token(const gchar *value) {    if (!value) return NULL;
 
     GString *out = g_string_new(NULL);
     for (const gchar *p = value; *p; p++) {
@@ -281,9 +267,12 @@ static gboolean codec_supports_mime(JNIEnv *env, jobject codec_info, jmethodID g
 }
 
 static gchar* choose_preferred_mediacodec_name(const char *mime) {
-    JNIEnv *env = gst_android_get_attached_env();
+    JNIEnv *env = NULL;
+    gboolean needs_detach = gst_android_attach_env(&env);
+
     if (!env) {
         LOGI("⚠️ Android decoder selection: JNIEnv unavailable, using registry fallback");
+        if (needs_detach) gst_android_detach_env();
         return NULL;
     }
 
@@ -291,7 +280,10 @@ static gchar* choose_preferred_mediacodec_name(const char *mime) {
     jclass codec_info_cls = (*env)->FindClass(env, "android/media/MediaCodecInfo");
     if (!codec_list_cls || !codec_info_cls) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        if (codec_list_cls) (*env)->DeleteLocalRef(env, codec_list_cls);
+        if (codec_info_cls) (*env)->DeleteLocalRef(env, codec_info_cls);
         LOGI("⚠️ Android decoder selection: MediaCodecList unavailable");
+        if (needs_detach) gst_android_detach_env();
         return NULL;
     }
 
@@ -307,22 +299,32 @@ static gchar* choose_preferred_mediacodec_name(const char *mime) {
 
     if (!ctor || !get_codec_infos || !is_encoder || !get_name || !get_supported_types) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, codec_list_cls);
+        (*env)->DeleteLocalRef(env, codec_info_cls);
         LOGI("⚠️ Android decoder selection: codec reflection incomplete");
+        if (needs_detach) gst_android_detach_env();
         return NULL;
     }
 
     jobject codec_list = (*env)->NewObject(env, codec_list_cls, ctor, 1);
+    (*env)->DeleteLocalRef(env, codec_list_cls);
+
     if (!codec_list || (*env)->ExceptionCheck(env)) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, codec_info_cls);
         LOGI("⚠️ Android decoder selection: failed to instantiate MediaCodecList");
+        if (needs_detach) gst_android_detach_env();
         return NULL;
     }
 
     jobjectArray codec_infos = (jobjectArray)(*env)->CallObjectMethod(env, codec_list, get_codec_infos);
+    (*env)->DeleteLocalRef(env, codec_list);
+
     if (!codec_infos || (*env)->ExceptionCheck(env)) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-        (*env)->DeleteLocalRef(env, codec_list);
+        (*env)->DeleteLocalRef(env, codec_info_cls);
         LOGI("⚠️ Android decoder selection: getCodecInfos failed");
+        if (needs_detach) gst_android_detach_env();
         return NULL;
     }
 
@@ -418,7 +420,7 @@ static gchar* choose_preferred_mediacodec_name(const char *mime) {
     }
 
     (*env)->DeleteLocalRef(env, codec_infos);
-    (*env)->DeleteLocalRef(env, codec_list);
+    (*env)->DeleteLocalRef(env, codec_info_cls);
 
     gchar *selected = NULL;
     if (best_hw) {
@@ -441,6 +443,10 @@ static gchar* choose_preferred_mediacodec_name(const char *mime) {
     g_free(best_vendor);
     g_free(best_non_sw);
     g_free(best_any);
+
+    if (needs_detach) {
+        gst_android_detach_env();
+    }
     return selected;
 }
 
@@ -646,13 +652,14 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
         g_free(pipeline_str);
 
         if (error) {
-            LOGI("⚠️ HW вариант %d (%s): %s", i+1, gl_chain_names[i], error->message);
+            LOGI("⚠️ HW вариант %d (%s): gst_parse_launch ERROR: %s", i+1, gl_chain_names[i], error->message);
             g_error_free(error);
             if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
             continue;
         }
 
         if (pipeline) {
+            LOGI("✅ HW вариант %d (%s): pipeline created, preparing context...", i+1, gl_chain_names[i]);
             // Устанавливаем GL context и bus sync ДО set_state
             apply_gl_context_to_pipeline(pipeline);
             GstBus *bus = gst_element_get_bus(pipeline);
@@ -661,6 +668,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
                 gst_object_unref(bus);
             }
 
+            LOGI("✅ HW вариант %d (%s): context prepared, testing set_state(READY)...", i+1, gl_chain_names[i]);
             // Пробуем перевести в PAUSED — проверяет реальную negotiation
             GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_READY);
             if (ret == GST_STATE_CHANGE_FAILURE) {
@@ -671,6 +679,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
                 pipeline = NULL;
                 continue;
             }
+            LOGI("✅ HW вариант %d (%s): set_state(READY) SUCCESS", i+1, gl_chain_names[i]);
 
             // Pad probe для диагностики RTP
             GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
@@ -1077,28 +1086,34 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     if (g_force_sw_decoder) {
         LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем amcviddec, сразу avdec_h264");
     } else {
+        LOGI("🔍 Android: Поиск аппаратного H.264 декодера...");
         amc_name = resolve_preferred_android_decoder("video/avc", "amcviddec", &g_cached_h264_hw_decoder);
         if (!amc_name) {
+            LOGI("🔍 Android: amcviddec не найден через preferred, ищем в реестре...");
             amc_name = find_android_decoder_by_name_fragments("amcviddec", NULL);
         }
     }
 
     // 2) Пробуем HW pipeline через gst_parse_launch (amcviddec + GL chain)
     if (amc_name) {
+        LOGI("🚀 Android: Пробуем аппаратный декодер: %s", amc_name);
         pipeline = create_hw_pipeline(port, amc_name);
         if (pipeline) {
-            LOGI("✅ Pipeline с HW декодером %s готов", amc_name);
+            LOGI("✅ Android: Pipeline с аппаратным декодером %s готов", amc_name);
             g_free(amc_name);
             return pipeline;
         }
-        LOGI("⚠️ HW декодер %s не удалось использовать — пробуем avdec_h264", amc_name);
+        LOGI("⚠️ Android: HW декодер %s не удалось запустить, пробуем software fallback", amc_name);
         g_free(amc_name);
+    } else {
+        LOGI("ℹ️ Android: Аппаратный декодер не найден или отключен");
     }
 
     // 3) Fallback: avdec_h264 (software, multi-threaded)
+    LOGI("🔍 Android: Поиск программного декодера avdec_h264...");
     GstElementFactory *avdec_factory = gst_element_factory_find("avdec_h264");
     if (!avdec_factory) {
-        LOGE("❌ Нет ни amcviddec ни avdec_h264!");
+        LOGE("❌ Android: Критическая ошибка — нет ни amcviddec ни avdec_h264!");
         return NULL;
     }
     gst_object_unref(avdec_factory);
@@ -1115,20 +1130,20 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
         "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
         port
     );
-    LOGI("📝 Pipeline (avdec_h264 multi-threaded): %s", pipeline_str);
+    LOGI("📝 Android: Сборка программного pipeline: %s", pipeline_str);
 
     GError *error = NULL;
     pipeline = gst_parse_launch(pipeline_str, &error);
     g_free(pipeline_str);
 
     if (error) {
-        LOGE("❌ gst_parse_launch error: %s", error->message);
+        LOGE("❌ Android: gst_parse_launch error: %s", error->message);
         g_error_free(error);
         if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
     }
 
     if (pipeline) {
-        LOGI("✅ Fallback: pipeline с avdec_h264 (multi-threaded)");
+        LOGI("✅ Android: Программный pipeline с avdec_h264 готов");
         // Pad probe
         GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
         if (udpsrc) {
@@ -1140,7 +1155,7 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
             gst_object_unref(udpsrc);
         }
     } else {
-        LOGE("❌ Failed to create any pipeline!");
+        LOGE("❌ Android: Не удалось создать ни один pipeline!");
     }
 
     return pipeline;
@@ -1407,7 +1422,7 @@ static void extract_frame_data(GstSample* sample, guint8** data, gint* width, gi
         if (extract_count == 1) {
             LOGI("📊 Buffer size: %zu bytes (RGBA format)", *size);
         }
-        *data = (guint8*)g_memdup2(map.data, map.size);
+        *data = (guint8*)my_g_memdup2(map.data, map.size);
         gst_buffer_unmap(buffer, &map);
     } else {
         *data = NULL;
@@ -1470,11 +1485,11 @@ void hw_frame_store_destroy() {
         g_free(hw_frame_store.data);
         hw_frame_store.data = NULL;
     }
+    hw_frame_store.size = 0;
     hw_frame_store.has_frame = FALSE;
+    hw_frame_store.active = FALSE;
     g_mutex_unlock(&hw_frame_store.mutex);
-    g_mutex_clear(&hw_frame_store.mutex);
-    g_cond_clear(&hw_frame_store.cond);
-    LOGI("🗑️ hw_frame_store уничтожен");
+    LOGI("🗑️ hw_frame_store очищен (mutex сохранен)");
 }
 
 // appsink_new_sample_cb — вызывается на streaming thread GStreamer.
@@ -1574,7 +1589,7 @@ map_success:
     g_mutex_lock(&hw_frame_store.mutex);
     if (hw_frame_store.active) {
         if (hw_frame_store.data) g_free(hw_frame_store.data);
-        hw_frame_store.data = (guint8 *)g_memdup2(map.data, frame_size);
+        hw_frame_store.data = (guint8 *)my_g_memdup2(map.data, frame_size);
         hw_frame_store.width = w;
         hw_frame_store.height = h;
         hw_frame_store.size = frame_size;
@@ -1808,18 +1823,23 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	}
 
 	// Создаем pipeline под выбранный видеорежим
+	logrus.Infof("🔧 Android: Создание pipeline для порта %d (режим %d)...", udpPort, pipelineMode)
 	pipeline := C.create_pipeline(C.int(udpPort), C.int(gs.width), C.int(gs.height), pipelineMode)
 	if pipeline == nil {
 		gs.isConnecting = false
+		logrus.Error("❌ Android: Ошибка создания GStreamer pipeline (create_pipeline вернул NULL)")
 		return fmt.Errorf("ошибка создания GStreamer pipeline")
 	}
 
 	gs.pipeline = unsafe.Pointer(pipeline)
+	logrus.Infof("✅ Android: Pipeline создан: %p", gs.pipeline)
 
 	// GL-контекст и bus sync для аппаратного декодера (amcviddec→gldownload)
+	logrus.Debug("🔧 Android: Подготовка HW pipeline (GL context)...")
 	C.gst_android_prepare_hw_pipeline((*C.GstElement)(gs.pipeline))
 
 	// Настраиваем appsink callbacks — gst_buffer_map вызывается на streaming thread (с GL контекстом)
+	logrus.Debug("🔧 Android: Настройка appsink callbacks...")
 	C.setup_appsink_callbacks((*C.GstElement)(gs.pipeline))
 
 	// Запускаем pipeline
@@ -1838,13 +1858,20 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	}
 	logrus.Infof("▶️ Android: gst_element_set_state вернул: %s", retStr)
 	if ret == C.GST_STATE_CHANGE_FAILURE {
+		logrus.Error("❌ Android: Критическая ошибка при запуске pipeline")
 		C.drain_bus_messages((*C.GstElement)(gs.pipeline))
+		
+		// Очистка при провале
+		C.gst_element_set_state((*C.GstElement)(gs.pipeline), C.GST_STATE_NULL)
+		C.gst_object_unref(C.gpointer(gs.pipeline))
+		gs.pipeline = nil
+		
 		gs.isConnecting = false
 		return fmt.Errorf("ошибка запуска GStreamer pipeline")
 	}
 
 	logrus.Info("✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo")
-	go func() { C.drain_bus_messages((*C.GstElement)(gs.pipeline)) }()
+	go func(p *C.GstElement) { C.drain_bus_messages(p) }((*C.GstElement)(gs.pipeline))
 
 	gs.isConnected = true
 	gs.isConnecting = false
@@ -1871,6 +1898,11 @@ func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
 // Кадры маппятся на streaming thread (appsink callback), а здесь забираются через hw_frame_poll.
 // Это решает проблему зависания gst_buffer_map на GL-памяти из Go-горутины.
 func (gs *GStreamerService) processFrames() {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in processFrames: %v", r)
+		}
+	}()
 	logrus.Info("🎬 Android: Запуск обработки GStreamer кадров (callback mode)...")
 
 	gs.mutex.RLock()
@@ -2181,9 +2213,10 @@ func (gs *GStreamerService) attemptReconnect() {
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
-	if !gs.isConnected && !gs.isConnecting {
+	if !gs.isConnected && !gs.isConnecting && gs.pipeline == nil {
 		gs.mutex.Unlock()
-		logrus.Info("🔌 Android: Disconnect: уже отключен")
+		logrus.Info("🔌 Android: Disconnect: уже полностью отключен")
+		C.hw_frame_store_destroy() // На всякий случай
 		return nil
 	}
 
@@ -2196,6 +2229,7 @@ func (gs *GStreamerService) Disconnect() error {
 	// Сохраняем stopChan перед unlock
 	stopChan := gs.stopChan
 	pipeline := gs.pipeline
+	gs.pipeline = nil // Обнуляем сразу
 	gs.mutex.Unlock()
 
 	// Останавливаем frame store (пробуждает заблокированный hw_frame_poll)
@@ -2206,7 +2240,6 @@ func (gs *GStreamerService) Disconnect() error {
 		select {
 		case <-stopChan:
 			// Канал уже закрыт
-			logrus.Info("🔌 Android: stopChan уже закрыт")
 		default:
 			close(stopChan)
 			logrus.Info("🔌 Android: stopChan закрыт")
@@ -2214,26 +2247,29 @@ func (gs *GStreamerService) Disconnect() error {
 	}
 
 	// Небольшая задержка для завершения горутины processFrames
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 
 	// Останавливаем pipeline
 	if pipeline != nil {
 		logrus.Info("🛑 Android: Остановка GStreamer pipeline...")
+		
+		// Сначала сбрасываем bus handler
+		bus := C.gst_element_get_bus((*C.GstElement)(pipeline))
+		if bus != nil {
+			C.gst_bus_set_sync_handler(bus, nil, nil, nil)
+			C.gst_object_unref(C.gpointer(bus))
+		}
+
 		C.gst_element_set_state((*C.GstElement)(pipeline), C.GST_STATE_NULL)
 
 		// Небольшая задержка для корректного перехода в StateNull
 		time.Sleep(100 * time.Millisecond)
 
 		C.gst_object_unref(C.gpointer(pipeline))
-
-		gs.mutex.Lock()
-		gs.pipeline = nil
-		gs.mutex.Unlock()
-
-		logrus.Info("✅ Android: GStreamer pipeline остановлен")
+		logrus.Info("✅ Android: GStreamer pipeline остановлен и unref")
 	}
 
-	// Уничтожаем frame store после остановки pipeline
+	// Уничтожаем frame store
 	C.hw_frame_store_destroy()
 
 	// Очищаем канал кадров от оставшихся данных
