@@ -45,6 +45,21 @@ type Window struct {
 		StartLogin(context.Context) (string, error)
 		Logout(context.Context) error
 	}
+
+	// UI components
+	accessLabel *widget.Label
+	accessBtn   *widget.Button
+	screenLabel *widget.Label
+	screenBtn   *widget.Button
+
+	tsState   *widget.Label
+	tsAddress *widget.RichText
+	tsAccount *widget.Label
+	tsAuthBtn *widget.Button
+
+	httpStat    *widget.Label
+	videoStat   *widget.Label
+	captureStat *widget.Label
 }
 
 type uiStatus struct {
@@ -62,40 +77,81 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 func (w *Window) ShowAndRun(onClose func()) {
 	win := w.app.NewWindow("USBridge Agent")
 	win.SetPadded(false)
-	win.Resize(fyne.NewSize(620, 420))
+	win.Resize(fyne.NewSize(640, 400))
 	win.CenterOnScreen()
 
+	// Header
 	title := canvas.NewText("USBridge Agent", design.ColorTextLight)
-	title.TextSize = 22
+	title.TextSize = 20
 	title.TextStyle.Bold = true
-
-	subtitle := canvas.NewText("Compact desktop backend for usbridge_client", design.ColorTextMuted)
-	subtitle.TextSize = 12
-
-	tokenBtn := widget.NewButton("TOKEN", func() {
+	subtitle := canvas.NewText("Compact desktop backend", design.ColorTextMuted)
+	subtitle.TextSize = 11
+	
+	tokenBtn := widget.NewButtonWithIcon("TOKEN", theme.SettingsIcon(), func() {
 		w.showTokenDialog(win)
 	})
-	header := container.NewBorder(nil, nil, nil, container.NewGridWrap(fyne.NewSize(86, 32), tokenBtn), container.NewVBox(title, subtitle))
+	tokenBtn.Importance = widget.LowImportance
+	header := container.NewBorder(nil, nil, nil, container.NewGridWrap(fyne.NewSize(100, 32), tokenBtn), container.NewVBox(title, subtitle))
 
-	httpCard := newStatCard("HTTP", fmt.Sprintf("127.0.0.1:%d", w.cfg.HTTPPort), "API")
-	videoCard := newStatCard("VIDEO", fmt.Sprintf("127.0.0.1:%d", w.cfg.VideoUDPPort), "RTP")
-	captureCard := newStatCard("CAPTURE", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS))
-	
-	tsState := widget.NewLabel("Tailscale status: checking...")
-	tsAddress := widget.NewRichTextFromMarkdown("Tailnet address: `unavailable`")
-	tsAddress.Wrapping = fyne.TextWrapWord
-	tsAccount := widget.NewLabel("Google account: not connected")
+	// Column 1: Permissions
+	w.accessLabel = widget.NewLabel("Accessibility")
+	w.accessBtn = widget.NewButton("Request", func() {
+		if w.perms != nil {
+			_ = w.perms.RequestAccessibility()
+			w.performRefresh()
+		}
+	})
+	w.accessBtn.Importance = widget.HighImportance
 
-	var tsAuthBtn *widget.Button
-	tsAuthBtn = widget.NewButton("Sign In With Google", func() {
+	w.screenLabel = widget.NewLabel("Screen Recording")
+	w.screenBtn = widget.NewButton("Request", func() {
+		if w.perms != nil {
+			_ = w.perms.RequestScreenRecording()
+			w.performRefresh()
+		}
+	})
+	w.screenBtn.Importance = widget.HighImportance
+
+	// Adjust for OS
+	if runtime.GOOS != "darwin" {
+		w.accessBtn.Hide()
+		w.screenBtn.Hide()
+	} else {
+		w.accessBtn.Resize(fyne.NewSize(80, 24))
+		w.screenBtn.Resize(fyne.NewSize(80, 24))
+	}
+
+	permBlock := newPanel("Permissions", container.NewVBox(
+		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
+		widget.NewSeparator(),
+		container.NewHBox(w.screenLabel, layout.NewSpacer(), w.screenBtn),
+	))
+
+	// Column 2: Stats & Tailscale
+	w.httpStat = widget.NewLabel(fmt.Sprintf("HTTP: 127.0.0.1:%d", w.cfg.HTTPPort))
+	w.videoStat = widget.NewLabel(fmt.Sprintf("VIDEO: 127.0.0.1:%d", w.cfg.VideoUDPPort))
+	w.captureStat = widget.NewLabel(fmt.Sprintf("CAPTURE: %s (%s)", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS)))
+
+	statsBlock := newPanel("Status", container.NewVBox(
+		w.httpStat,
+		w.videoStat,
+		w.captureStat,
+	))
+
+	w.tsState = widget.NewLabel("Status: checking...")
+	w.tsAddress = widget.NewRichTextFromMarkdown("Address: `unavailable`")
+	w.tsAddress.Wrapping = fyne.TextWrapWord
+	w.tsAccount = widget.NewLabel("Account: not connected")
+
+	w.tsAuthBtn = widget.NewButton("Sign In With Google", func() {
 		if w.ts == nil {
-			tsState.SetText("Tailscale status: service unavailable")
+			w.tsState.SetText("Status: service unavailable")
 			return
 		}
 
-		tsAuthBtn.Disable()
+		w.tsAuthBtn.Disable()
 		go func() {
-			defer fyne.Do(tsAuthBtn.Enable)
+			defer fyne.Do(w.tsAuthBtn.Enable)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
@@ -103,16 +159,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 			status, statusErr := w.ts.Status(ctx)
 			if statusErr == nil && status != nil && status.LoggedIn {
 				if err := w.ts.Logout(ctx); err != nil {
-					fyne.Do(func() { tsState.SetText(fmt.Sprintf("Tailscale status: logout error: %v", err)) })
+					fyne.Do(func() { w.tsState.SetText(fmt.Sprintf("Status: logout error: %v", err)) })
 				}
-				w.performRefresh(nil, nil, tsState, tsAddress, tsAccount, tsAuthBtn)
+				w.performRefresh()
 				return
 			}
 
-			fyne.Do(func() { tsState.SetText("Tailscale status: starting login flow...") })
+			fyne.Do(func() { w.tsState.SetText("Status: starting login flow...") })
 			authURL, err := w.ts.StartLogin(ctx)
 			if err != nil {
-				fyne.Do(func() { tsState.SetText(fmt.Sprintf("Tailscale status: error: %v", err)) })
+				fyne.Do(func() { w.tsState.SetText(fmt.Sprintf("Status: error: %v", err)) })
 				return
 			}
 
@@ -123,82 +179,41 @@ func (w *Window) ShowAndRun(onClose func()) {
 						if w.app != nil {
 							_ = w.app.OpenURL(parsed)
 						}
-						tsState.SetText("Tailscale status: login link opened in browser")
+						w.tsState.SetText("Status: login link opened in browser")
 					})
 				} else {
 					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
-					fyne.Do(func() { tsState.SetText("Tailscale status: invalid login URL received") })
+					fyne.Do(func() { w.tsState.SetText("Status: invalid login URL received") })
 				}
 			} else {
-				fyne.Do(func() { tsState.SetText("Tailscale status: waiting for system login...") })
+				fyne.Do(func() { w.tsState.SetText("Status: waiting for system login...") })
 			}
 		}()
 	})
 	tsPanel := newPanel("Tailscale", container.NewVBox(
-		tsState,
-		tsAccount,
-		tsAddress,
-		container.NewHBox(tsAuthBtn),
+		w.tsState,
+		w.tsAccount,
+		w.tsAddress,
+		container.NewHBox(layout.NewSpacer(), w.tsAuthBtn),
 	))
 
-	accessStatus := widget.NewLabel("")
-	screenStatus := widget.NewLabel("")
+	closeBtn := widget.NewButton("CLOSE", func() { win.Close() })
+	closeBtn.Importance = widget.DangerImportance
 
-	accessPanel := newPermissionPanel(
-		"Accessibility",
-		"Needed for keyboard and mouse injection.",
-		accessStatus,
-		func() {
-			if w.perms != nil {
-				_ = w.perms.RequestAccessibility()
-				w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
-			}
-		},
-	)
-	screenPanel := newPermissionPanel(
-		"Screen Recording",
-		"Needed for screen capture and video streaming.",
-		screenStatus,
-		func() {
-			if w.perms != nil {
-				_ = w.perms.RequestScreenRecording()
-				w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
-			}
-		},
-	)
+	// Layout construction
+	col1 := container.NewVBox(permBlock, layout.NewSpacer())
+	col2 := container.NewVBox(statsBlock, tsPanel, layout.NewSpacer())
 
-	openSettingsBtn := widget.NewButton("Open Privacy Settings", func() {
-		if w.perms != nil {
-			_ = w.perms.OpenPrivacySettings()
-			w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
-		}
-	})
-	closeBtn := widget.NewButton("Close", func() { win.Close() })
-	closeBtn.Importance = widget.HighImportance
-
-	infoText := widget.NewRichTextFromMarkdown(strings.TrimSpace(
-		"`usbridge_agent` stays compatible with `usbridge_client` and exposes the same control API surface.",
-	))
-	infoText.Wrapping = fyne.TextWrapWord
-	executablePath := "unknown"
-	if path, err := os.Executable(); err == nil && strings.TrimSpace(path) != "" {
-		executablePath = path
-	}
-	execText := widget.NewRichTextFromMarkdown(fmt.Sprintf("Executable: `%s`", executablePath))
-	execText.Wrapping = fyne.TextWrapWord
+	mainGrid := container.NewGridWithColumns(2, col1, col2)
 
 	content := container.NewVBox(
 		newPanel("", header),
-		container.NewGridWithColumns(3, httpCard, videoCard, captureCard),
-		tsPanel,
-		container.NewGridWithColumns(2, accessPanel, screenPanel),
-		newPanel("Compatibility", infoText),
-		newPanel("Runtime", execText),
-		container.NewHBox(openSettingsBtn, layout.NewSpacer(), closeBtn),
+		mainGrid,
+		container.NewHBox(layout.NewSpacer(), closeBtn),
 	)
 
 	// Initial refresh
-	w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
+	w.performRefresh()
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -207,7 +222,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 			if win.Canvas() == nil {
 				return
 			}
-			w.performRefresh(accessStatus, screenStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
+			w.performRefresh()
 		}
 	}()
 
@@ -223,7 +238,19 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.app.Run()
 }
 
-func (w *Window) performRefresh(accessLabel, screenLabel *widget.Label, tsState *widget.Label, tsAddress *widget.RichText, tsAccount *widget.Label, tsAuthBtn *widget.Button) {
+	bg := canvas.NewRectangle(design.ColorPanel)
+	win.SetContent(container.NewStack(bg, container.NewPadded(content)))
+	win.SetCloseIntercept(func() {
+		if onClose != nil {
+			onClose()
+		}
+		win.Close()
+	})
+	win.Show()
+	w.app.Run()
+}
+
+func (w *Window) performRefresh() {
 	go func() {
 		status := uiStatus{}
 		if w.ts != nil {
@@ -235,45 +262,57 @@ func (w *Window) performRefresh(accessLabel, screenLabel *widget.Label, tsState 
 		}
 
 		fyne.Do(func() {
-			if accessLabel != nil {
+			if w.accessLabel != nil {
 				if status.accessGranted {
-					accessLabel.SetText("Status: granted")
+					w.accessLabel.SetText("Accessibility: ✅")
+					if w.accessBtn != nil {
+						w.accessBtn.Hide()
+					}
 				} else {
-					accessLabel.SetText("Status: required")
+					w.accessLabel.SetText("Accessibility: ❌")
+					if runtime.GOOS == "darwin" && w.accessBtn != nil {
+						w.accessBtn.Show()
+					}
 				}
 			}
-			if screenLabel != nil {
+			if w.screenLabel != nil {
 				if status.screenGranted {
-					screenLabel.SetText("Status: granted")
+					w.screenLabel.SetText("Screen Recording: ✅")
+					if w.screenBtn != nil {
+						w.screenBtn.Hide()
+					}
 				} else {
-					screenLabel.SetText("Status: required")
+					w.screenLabel.SetText("Screen Recording: ❌")
+					if runtime.GOOS == "darwin" && w.screenBtn != nil {
+						w.screenBtn.Show()
+					}
 				}
 			}
-			w.refreshTailscaleWithStatus(status.tsStatus, tsState, tsAddress, tsAccount, tsAuthBtn)
+			w.refreshTailscaleWithStatus(status.tsStatus)
 		})
 	}()
 }
 
-func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status, state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
-	if state == nil || address == nil || account == nil {
+func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
+	if w.tsState == nil || w.tsAddress == nil || w.tsAccount == nil {
 		return
 	}
 	if w.ts == nil || status == nil {
-		state.SetText("Tailscale status: unavailable")
-		account.SetText("Google account: unavailable")
-		address.ParseMarkdown("Tailnet address: `unavailable`")
-		if action != nil {
-			action.SetText("Sign In With Google")
+		w.tsState.SetText("Status: unavailable")
+		w.tsAccount.SetText("Account: unavailable")
+		w.tsAddress.ParseMarkdown("Address: `unavailable`")
+		if w.tsAuthBtn != nil {
+			w.tsAuthBtn.SetText("Sign In With Google")
 		}
 		return
 	}
 
 	if !status.LoggedIn {
-		state.SetText("Tailscale status: signed out")
-		account.SetText("Google account: sign in required")
-		address.ParseMarkdown("Tailnet address: `sign in to publish this agent`")
-		if action != nil {
-			action.SetText("Sign In With Google")
+		w.tsState.SetText("Status: signed out")
+		w.tsAccount.SetText("Account: sign in required")
+		w.tsAddress.ParseMarkdown("Address: `sign in to publish this agent`")
+		if w.tsAuthBtn != nil {
+			w.tsAuthBtn.SetText("Sign In With Google")
 		}
 		return
 	}
@@ -285,21 +324,12 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status, state *wid
 	if strings.TrimSpace(endpoint) == "" {
 		endpoint = status.Self.HostName
 	}
-	state.SetText(fmt.Sprintf("Tailscale status: %s", strings.ToLower(status.Backend)))
-	account.SetText(fmt.Sprintf("Google account: %s", fallbackValue(status.Self.UserLogin, "connected")))
-	address.ParseMarkdown(fmt.Sprintf("Tailnet address: `%s:%d` (%s)", endpoint, w.cfg.HTTPPort, fallbackValue(mapUserspace(status.Userspace), "embedded")))
-	if action != nil {
-		action.SetText("Sign Out")
+	w.tsState.SetText(fmt.Sprintf("Status: %s", strings.ToLower(status.Backend)))
+	w.tsAccount.SetText(fmt.Sprintf("Account: %s", fallbackValue(status.Self.UserLogin, "connected")))
+	w.tsAddress.ParseMarkdown(fmt.Sprintf("Address: `%s:%d` (%s)", endpoint, w.cfg.HTTPPort, fallbackValue(mapUserspace(status.Userspace), "embedded")))
+	if w.tsAuthBtn != nil {
+		w.tsAuthBtn.SetText("Sign Out")
 	}
-}
-
-func (w *Window) refreshTailscale(state *widget.Label, address *widget.RichText, account *widget.Label, action *widget.Button) {
-	if w.ts == nil {
-		w.refreshTailscaleWithStatus(nil, state, address, account, action)
-		return
-	}
-	status, _ := w.ts.Status(context.Background())
-	w.refreshTailscaleWithStatus(status, state, address, account, action)
 }
 
 func fallbackValue(value, fallback string) string {
@@ -566,68 +596,4 @@ func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
 	return container.NewStack(bg, container.NewPadded(body))
 }
 
-func newStatCard(label, value, hint string) fyne.CanvasObject {
-	bg := canvas.NewRectangle(design.ColorSurface)
-	bg.CornerRadius = 12
-	bg.StrokeColor = design.ColorBorder
-	bg.StrokeWidth = 1
-
-	labelText := canvas.NewText(strings.ToUpper(label), design.ColorTextMuted)
-	labelText.TextSize = 10
-	labelText.TextStyle.Bold = true
-
-	valueText := canvas.NewText(value, design.ColorTextLight)
-	valueText.TextSize = 15
-	valueText.TextStyle.Bold = true
-
-	hintText := canvas.NewText(hint, design.ColorTextMuted)
-	hintText.TextSize = 10
-
-	body := container.NewVBox(labelText, valueText, hintText)
-	return container.NewStack(bg, container.NewPadded(body))
-}
-
 func newBadge(text string, size fyne.Size) fyne.CanvasObject {
-	bg := canvas.NewRectangle(design.ColorAccent)
-	bg.CornerRadius = design.RadiusMD
-
-	label := canvas.NewText(text, design.ColorBackground)
-	label.TextStyle.Bold = true
-	label.TextSize = 14
-
-	return container.NewGridWrap(size, container.NewStack(bg, container.NewCenter(label)))
-}
-
-func newPermissionPanel(title, description string, status *widget.Label, onRequest func()) fyne.CanvasObject {
-	desc := widget.NewLabel(description)
-	desc.Wrapping = fyne.TextWrapWord
-
-	requestBtn := widget.NewButton("Request", onRequest)
-	requestBtn.Importance = widget.HighImportance
-
-	return newPanel(title, container.NewVBox(
-		status,
-		desc,
-		requestBtn,
-	))
-}
-
-func refreshPermissionLabels(accessLabel, screenLabel *widget.Label, perms interface {
-	AccessibilityGranted() bool
-	ScreenRecordingGranted() bool
-}) {
-	if accessLabel != nil {
-		if perms != nil && perms.AccessibilityGranted() {
-			accessLabel.SetText("Status: granted")
-		} else {
-			accessLabel.SetText("Status: required")
-		}
-	}
-	if screenLabel != nil {
-		if perms != nil && perms.ScreenRecordingGranted() {
-			screenLabel.SetText("Status: granted")
-		} else {
-			screenLabel.SetText("Status: required")
-		}
-	}
-}
