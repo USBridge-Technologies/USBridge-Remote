@@ -7,6 +7,7 @@ package service
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <jni.h>
 #include <android/log.h>
 
@@ -59,6 +60,46 @@ static char *jni_getStringMethod(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const
 	(*env)->DeleteLocalRef(env, result);
 	return dup;
 }
+
+static int jni_openExternalUrl(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *url) {
+	JNIEnv *env = (JNIEnv *)jni_env_ptr;
+	jobject activity = (jobject)ctx_ptr;
+	if (activity == NULL) return 0;
+
+	jclass activityClass = (*env)->GetObjectClass(env, activity);
+	jmethodID method = (*env)->GetMethodID(env, activityClass, "openExternalUrl", "(Ljava/lang/String;)Z");
+	if (method == NULL) {
+		if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+		(*env)->DeleteLocalRef(env, activityClass);
+		return 0;
+	}
+
+	jstring jUrl = (*env)->NewStringUTF(env, url);
+	jboolean result = (*env)->CallBooleanMethod(env, activity, method, jUrl);
+	
+	if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+	(*env)->DeleteLocalRef(env, jUrl);
+	(*env)->DeleteLocalRef(env, activityClass);
+	return result == JNI_TRUE ? 1 : 0;
+}
+
+static void jni_tsRequestVpnPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
+	JNIEnv *env = (JNIEnv *)jni_env_ptr;
+	jobject activity = (jobject)ctx_ptr;
+	if (activity == NULL) return;
+
+	jclass activityClass = (*env)->GetObjectClass(env, activity);
+	jmethodID method = (*env)->GetMethodID(env, activityClass, "requestVpnPermission", "()V");
+	if (method == NULL) {
+		if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+		(*env)->DeleteLocalRef(env, activityClass);
+		return;
+	}
+
+	(*env)->CallVoidMethod(env, activity, method);
+	if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+	(*env)->DeleteLocalRef(env, activityClass);
+}
 */
 import "C"
 
@@ -103,8 +144,49 @@ func getAndroidInterfaces() ([]netmon.Interface, error) {
 	return parseAndroidInterfaces(raw), nil
 }
 
+func getAndroidNativeLibraryDir() (string, error) {
+	return getAndroidString("getNativeLibraryDir")
+}
+
+func getAndroidFilesDir() (string, error) {
+	return getAndroidString("getFilesDirAbsolutePath")
+}
+
+func getAndroidCacheDir() (string, error) {
+	return getAndroidString("getCacheDirAbsolutePath")
+}
+
+func openAndroidExternalUrl(url string) (bool, error) {
+	var opened bool
+	err := driver.RunNative(func(context any) error {
+		androidCtx, ok := context.(*driver.AndroidContext)
+		if !ok || androidCtx == nil {
+			return fmt.Errorf("android context unavailable")
+		}
+		cUrl := C.CString(url)
+		defer C.free(unsafe.Pointer(cUrl))
+
+		res := C.jni_openExternalUrl(C.uintptr_t(androidCtx.Env), C.uintptr_t(androidCtx.Ctx), cUrl)
+		opened = (res != 0)
+		return nil
+	})
+	return opened, err
+}
+
+func requestAndroidVpnPermission() error {
+	return driver.RunNative(func(context any) error {
+		androidCtx, ok := context.(*driver.AndroidContext)
+		if !ok || androidCtx == nil {
+			return fmt.Errorf("android context unavailable")
+		}
+		C.jni_tsRequestVpnPermission(C.uintptr_t(androidCtx.Env), C.uintptr_t(androidCtx.Ctx))
+		return nil
+	})
+}
+
 func getAndroidString(methodName string) (string, error) {
 	var out string
+	logrus.Debugf("tailscale android: calling JNI method %s", methodName)
 	err := driver.RunNative(func(context any) error {
 		androidCtx, ok := context.(*driver.AndroidContext)
 		if !ok || androidCtx == nil {
@@ -114,6 +196,7 @@ func getAndroidString(methodName string) (string, error) {
 		defer C.free(unsafe.Pointer(cMethod))
 		cstr := C.jni_getStringMethod(C.uintptr_t(androidCtx.Env), C.uintptr_t(androidCtx.Ctx), cMethod)
 		if cstr == nil {
+			logrus.Warnf("tailscale android: JNI method %s returned NULL", methodName)
 			return nil
 		}
 		defer C.free(unsafe.Pointer(cstr))
@@ -121,6 +204,7 @@ func getAndroidString(methodName string) (string, error) {
 		return nil
 	})
 	if err != nil {
+		logrus.WithError(err).Errorf("tailscale android: JNI method %s failed", methodName)
 		return "", err
 	}
 	return out, nil

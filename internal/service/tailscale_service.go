@@ -68,6 +68,17 @@ func getTailscaleBinaryPath() string {
 	if runtime.GOOS == "windows" {
 		name = "tailscale.exe"
 	}
+	if runtime.GOOS == "android" {
+		// On Android, we look in the app's native library directory
+		// The binary is bundled as libtailscale.so to be extracted by Android
+		libDir, err := getAndroidNativeLibraryDir()
+		if err == nil && libDir != "" {
+			localPath := filepath.Join(libDir, "libtailscale.so")
+			if _, err := os.Stat(localPath); err == nil {
+				return localPath
+			}
+		}
+	}
 	if exePath, err := os.Executable(); err == nil {
 		localPath := filepath.Join(filepath.Dir(exePath), name)
 		if _, err := os.Stat(localPath); err == nil {
@@ -341,12 +352,44 @@ func (s *TailscaleService) GetBindHost() string { return "0.0.0.0" }
 func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 	s.mu.Lock(); defer s.mu.Unlock()
 	if s.server != nil { return s.server, nil }
+
+	initAndroidTailscaleUserspace()
+
+	if runtime.GOOS == "android" {
+		logrus.Info("🛰️ [Tailscale] Requesting Android VPN permissions (just in case)")
+		_ = requestAndroidVpnPermission()
+	}
+
+	stateDir := tailscaleStateDir("usbridge-client")
+	logrus.Infof("🛰️ [Tailscale] State directory: %s", stateDir)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		logrus.WithError(err).Errorf("🛰️ [Tailscale] Failed to create state directory: %s", stateDir)
+	}
+
 	s.server = &tsnet.Server{
-		Dir: tailscaleStateDir("usbridge-client"),
+		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
 	}
-	if err := s.server.Start(); err != nil { return nil, err }
+
+	if runtime.GOOS == "android" {
+		// Use unix socket for local API on Android
+		// NOTE: LocalListenAddr is only available in newer Tailscale versions (v1.76+)
+		// sockPath := filepath.Join(stateDir, "tailscaled.sock")
+		// s.server.LocalListenAddr = "unix:" + sockPath
+		// logrus.Infof("🛰️ [Tailscale] Local API socket: %s", sockPath)
+		logrus.Infof("🛰️ [Tailscale] Android initialization (userspace)")
+	} else if runtime.GOOS == "linux" {
+		// On Linux we can also use a socket in the state dir if running as userspace
+		// s.server.LocalListenAddr = "unix:" + filepath.Join(stateDir, "tailscaled.sock")
+	}
+
+	logrus.Info("🛰️ [Tailscale] Starting tsnet server...")
+	if err := s.server.Start(); err != nil {
+		logrus.WithError(err).Error("🛰️ [Tailscale] Failed to start tsnet server")
+		return nil, err
+	}
+	logrus.Info("🛰️ [Tailscale] tsnet server started successfully")
 	return s.server, nil
 }
 
@@ -364,10 +407,27 @@ func (s *TailscaleService) handleUserLogf(format string, args ...any) {
 	if strings.Contains(msg, "https://login.tailscale.com") {
 		for _, p := range strings.Fields(msg) { if strings.HasPrefix(p, "https://") { s.setLatestAuthURL(p) } }
 	}
+	logrus.Infof("📡 [Tailscale/User] %s", msg)
 }
 
 func (s *TailscaleService) setLatestAuthURL(u string) {
-	s.mu.Lock(); defer s.mu.Unlock(); s.latestAuthURL = u
+	s.mu.Lock()
+	alreadyHave := s.latestAuthURL == u
+	s.latestAuthURL = u
+	s.mu.Unlock()
+
+	if !alreadyHave && u != "" {
+		logrus.Infof("🔗 [Tailscale] New AuthURL: %s", u)
+		if runtime.GOOS == "android" {
+			logrus.Info("🌐 [Tailscale/Android] Attempting to open AuthURL automatically")
+			opened, err := openAndroidExternalUrl(u)
+			if err != nil {
+				logrus.WithError(err).Error("❌ [Tailscale/Android] Failed to open AuthURL via JNI")
+			} else if opened {
+				logrus.Info("✅ [Tailscale/Android] AuthURL opened successfully")
+			}
+		}
+	}
 }
 
 func (s *TailscaleService) getLatestAuthURL() string {
@@ -375,10 +435,16 @@ func (s *TailscaleService) getLatestAuthURL() string {
 }
 
 func tailscaleStateDir(appName string) string {
+	if runtime.GOOS == "android" {
+		dir, err := getAndroidFilesDir()
+		if err == nil && dir != "" {
+			return filepath.Join(dir, appName, "tailscale")
+		}
+		logrus.Warnf("tailscale android: getAndroidFilesDir() failed or empty, using fallback: %v", err)
+	}
 	base, _ := os.UserConfigDir()
 	return filepath.Join(base, appName, "tailscale")
 }
-
 func firstAddr(values []netip.Addr) string {
 	for _, v := range values { if v.Is4() { return v.String() } }
 	return ""

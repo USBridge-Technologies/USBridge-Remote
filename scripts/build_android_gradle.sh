@@ -42,6 +42,35 @@ echo ""
 
 # 2. gomobile bind для nbdbridge
 echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
+
+# 2.5 Tailscale CLI & Daemon for Android
+echo "📦 Шаг 2.5/5: Building Tailscale binaries..."
+mkdir -p android/app/src/main/jniLibs/arm64-v8a
+
+# Configure NDK toolchain for CGO cross-compilation
+# We use API level 24 (matching gomobile bind)
+(
+    export_android_env
+    if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+        setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 24
+        echo "   Using NDK toolchain: $CC"
+    else
+        echo -e "${RED}❌ ANDROID_NDK_HOME not set, CGO build may fail${NC}"
+    fi
+
+    export GOOS=android
+    export GOARCH=arm64
+    export CGO_ENABLED=1
+    
+    # We use multiple tags to ensure GUI and desktop dependencies are skipped.
+    # nosystray: skip fyne.io/systray which is not supported on Android.
+    # omitgui, ts_omit_gui: Tailscale-specific tags to skip GUI/systray.
+    BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
+    
+    go build -v -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so tailscale.com/cmd/tailscale
+    go build -v -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled
+)
+echo -e "${GREEN}✓${NC} Tailscale binaries (libtailscale.so, libtailscaled.so) built"
 if ! ensure_command_available go Go; then
     echo -e "${RED}❌ Go не найден${NC}"
     exit 1
@@ -371,6 +400,7 @@ if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
     cd "$ANDROID_SRC"
     "$FYNE_BIN" package \
         --target android/arm64 \
+        --tags nosystray \
         --app-id com.usbridge.client \
         --name "USBridge Client" \
         --app-version "1.0.0" \

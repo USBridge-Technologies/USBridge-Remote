@@ -208,6 +208,18 @@ class MainActivity : GoNativeActivity() {
 
     fun getVpnPermissionState(): Int = vpnPermissionState
 
+    fun getNativeLibraryDir(): String {
+        return applicationInfo.nativeLibraryDir
+    }
+
+    fun getFilesDirAbsolutePath(): String {
+        return filesDir.absolutePath
+    }
+
+    fun getCacheDirAbsolutePath(): String {
+        return cacheDir.absolutePath
+    }
+
     private fun handleViewportGesture(ev: MotionEvent) {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
