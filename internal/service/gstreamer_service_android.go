@@ -620,7 +620,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
         gchar *pipeline_str;
         if (gl_chains[i] && !chain_needs_videoconvert[i]) {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 "
+                "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=131072 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
                 "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtph264depay ! "
@@ -632,7 +632,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             );
         } else {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 "
+                "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=131072 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
                 "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtph264depay ! "
@@ -737,7 +737,7 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
         gchar *pipeline_str;
         if (gl_chains[i] && !chain_needs_videoconvert[i]) {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+                "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=65536 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
                 "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtpjpegdepay ! "
@@ -749,7 +749,7 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
             );
         } else {
             pipeline_str = g_strdup_printf(
-                "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+                "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=65536 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
                 "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
                 "rtpjpegdepay ! "
@@ -839,19 +839,19 @@ static GstElement* create_jpeg_pipeline(int port) {
     }
 
     const char *candidates[] = {
-        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=65536 timeout=0 "
         "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
         "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
         "rtpjpegdepay ! jpegdec ! videoconvert ! video/x-raw,format=RGBA ! "
         "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
 
-        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=65536 timeout=0 "
         "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
         "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
         "rtpjpegdepay ! jpegparse ! avdec_mjpeg max-threads=0 ! videoconvert ! video/x-raw,format=RGBA ! "
         "appsink name=sink emit-signals=false max-buffers=2 drop=true sync=false",
 
-        "udpsrc name=udpsrc0 port=%d buffer-size=65536 timeout=0 "
+        "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=65536 timeout=0 "
         "caps=\"application/x-rtp,media=video,encoding-name=JPEG,clock-rate=90000,payload=26\" ! "
         "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
         "rtpjpegdepay ! jpegparse ! decodebin ! videoconvert ! video/x-raw,format=RGBA ! "
@@ -1120,7 +1120,7 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
 
     // avdec_h264 max-threads=0 — авто-выбор числа потоков (NEON на ARM64)
     pipeline_str = g_strdup_printf(
-        "udpsrc name=udpsrc0 port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
+        "udpsrc name=udpsrc0 address=127.0.0.1 port=%d buffer-size=131072 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
         "rtpjitterbuffer latency=15 faststart-min-packets=1 drop-on-latency=true ! "
         "rtph264depay ! "
         "h264parse config-interval=-1 ! "

@@ -247,6 +247,12 @@ func (vw *VideoWidget) stopVideoInternal() {
 		}
 	}
 
+	if vw.tailscaleService != nil {
+		if err := vw.tailscaleService.StopVideoUDPRelay(); err != nil {
+			logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
+		}
+	}
+
 	if err := vw.usbClient.StopVideo(); err != nil {
 		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
 	}

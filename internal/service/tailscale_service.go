@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -280,29 +281,53 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 	return firstAddr(st.Self.TailscaleIPs), nil
 }
 
-func (s *TailscaleService) EnsureVideoUDPRelay(port int) error {
-	if port <= 0 { return fmt.Errorf("invalid port") }
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" { return nil }
+func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
+	if port <= 0 { port = 55000 }
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" { return port, nil }
+
+	// Обязательно останавливаем старый релей перед запуском нового на том же или другом порту
+	_ = s.StopVideoUDPRelay()
+
 	srv, err := s.serverInstance()
-	if err != nil { return err }
+	if err != nil { return 0, err }
 	tailIP, err := s.TailnetIPv4(context.Background())
-	if err != nil { return err }
+	if err != nil { return 0, err }
+
+	// Пробуем занять основной порт, если не выходит — любой свободный
+	var pc net.PacketConn
 	tailAddr := net.JoinHostPort(tailIP, fmt.Sprintf("%d", port))
-	pc, err := srv.ListenPacket("udp", tailAddr)
-	if err != nil { return err }
-	localTarget, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+fmt.Sprintf("%d", port))
+	pc, err = srv.ListenPacket("udp", tailAddr)
+	if err != nil {
+		logrus.Warnf("⚠️ [Tailscale] Port %d is busy in netstack, trying dynamic port...", port)
+		tailAddr = net.JoinHostPort(tailIP, "0")
+		pc, err = srv.ListenPacket("udp", tailAddr)
+		if err != nil {
+			return 0, fmt.Errorf("failed to listen on tailnet: %w", err)
+		}
+	}
+
+	actualAddr := pc.LocalAddr().String()
+	_, portStr, _ := net.SplitHostPort(actualAddr)
+	actualPort, _ := strconv.Atoi(portStr)
+
+	logrus.Infof("📡 [Tailscale] Relay listening on %s (requested %d)", actualAddr, port)
+
+	// Локальная цель (GStreamer). Используем ТОТ ЖЕ порт на 127.0.0.1.
+	// GStreamer должен слушать на 127.0.0.1:actualPort
+	localTarget, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+fmt.Sprintf("%d", actualPort))
 	localConn, err := net.DialUDP("udp4", nil, localTarget)
 	if err != nil {
 		pc.Close()
-		return fmt.Errorf("failed to dial local UDP: %w", err)
+		return 0, fmt.Errorf("failed to dial local UDP: %w", err)
 	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.videoRelayConn = pc
 	s.videoRelayCancel = cancel
 	s.mu.Unlock()
-	go s.runVideoUDPRelay(ctx, pc, localConn, port, tailAddr)
-	return nil
+	go s.runVideoUDPRelay(ctx, pc, localConn, actualPort, actualAddr)
+	return actualPort, nil
 }
 
 func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
@@ -494,36 +519,65 @@ func (s *TailscaleService) GetSystemTailscaleIP() string {
 }
 
 func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketConn, localConn *net.UDPConn, port int, tailAddr string) {
+	s.mu.Lock()
+	traceID := s.videoRelayTraceID
+	s.mu.Unlock()
+
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("🔥 PANIC in runVideoUDPRelay: %v", r)
+			logrus.Errorf("🔥 [%s] PANIC in runVideoUDPRelay: %v", traceID, r)
 		}
+		pc.Close()
+		localConn.Close()
+		logrus.Infof("📡 [%s] Relay stopped for %s", traceID, tailAddr)
 	}()
+
 	const bufferSize = 2 * 1024 * 1024
 	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok { _ = s_pc.SetReadBuffer(bufferSize) }
 	_ = localConn.SetWriteBuffer(bufferSize)
+
 	packetCh := make(chan []byte, 4096)
+
+	// Горутина чтения из Tailscale
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logrus.Errorf("🔥 PANIC in runVideoUDPRelay reader: %v", r)
+				logrus.Errorf("🔥 [%s] PANIC in runVideoUDPRelay reader: %v", traceID, r)
 			}
 		}()
 		buf := make([]byte, 2048)
+		packetCount := 0
 		for {
-			n, _, err := pc.ReadFrom(buf)
-			if err != nil { return }
+			n, remoteAddr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
 			if n > 0 {
+				packetCount++
+				if packetCount == 1 || packetCount%500 == 0 {
+					logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
+				}
 				pkt := make([]byte, n)
 				copy(pkt, buf[:n])
-				select { case packetCh <- pkt: default: }
+				select {
+				case packetCh <- pkt:
+				default:
+					// Дропаем пакет если очередь полна
+				}
 			}
 		}
 	}()
+
+	// Основной цикл пересылки
 	for {
 		select {
-		case <-ctx.Done(): return
-		case b := <-packetCh: _, _ = localConn.Write(b)
+		case <-ctx.Done():
+			return
+		case b := <-packetCh:
+			_, err := localConn.Write(b)
+			if err != nil {
+				logrus.Warnf("⚠️ [%s] Relay local write error: %v", traceID, err)
+			}
 		}
 	}
 }

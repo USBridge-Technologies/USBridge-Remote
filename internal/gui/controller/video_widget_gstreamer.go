@@ -182,13 +182,21 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				logrus.Warn("⚠️ [Tailscale/NuclearMode] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
 			}
 			// Fallback to userspace relay
-			if err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort); err != nil {
+			actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
+			if err != nil {
 				logrus.Errorf("❌ Не удалось запустить Tailscale video relay: %v", err)
 				fyne.Do(func() {
 					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
 				})
 				return
 			}
+			clientPort = actualPort
+			// Обновляем порт в GStreamer, так как релей теперь пересылает на этот локальный порт
+			if vw.gstreamerService != nil {
+				vw.gstreamerService.UpdateVideoPort(clientPort)
+				vw.gstreamerService.UpdateVideoUDPPort(clientPort)
+			}
+
 			tailIP, err := vw.tailscaleService.TailnetIPv4(context.Background())
 			if err != nil {
 				logrus.Errorf("❌ Не удалось определить Tailscale IP клиента для видео: %v", err)
