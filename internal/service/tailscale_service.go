@@ -44,6 +44,8 @@ type TailscalePeer struct {
 	Active    bool
 	IP4       string
 	UserLogin string
+	Relay     string
+	CurAddr   string
 }
 
 type TailscaleService struct {
@@ -155,6 +157,7 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 			DNSName: trimDotSuffix(peer.DNSName), OS: strings.TrimSpace(peer.OS),
 			Online: peer.Online, Active: peer.Active,
 			IP4: firstAddr(peer.TailscaleIPs), UserLogin: userLogin(state, peer.UserID),
+			Relay: peer.Relay, CurAddr: peer.CurAddr,
 		})
 	}
 	return out, nil
@@ -253,7 +256,7 @@ func (s *TailscaleService) Logout(ctx context.Context) error {
 }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" {
+	if s.GetSystemTailscaleIP() != "" {
 		return &http.Client{Timeout: 10 * time.Second}, nil
 	}
 	srv, err := s.serverInstance()
@@ -270,9 +273,7 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 			err = fmt.Errorf("panic in tailnet ipv4: %v", r)
 		}
 	}()
-	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
-		if ip := s.GetSystemTailscaleIP(); ip != "" { return ip, nil }
-	}
+	if sysIP := s.GetSystemTailscaleIP(); sysIP != "" { return sysIP, nil }
 	lc, err := s.localClient()
 	if err != nil { return "", err }
 	if ctx == nil { ctx = context.Background() }
@@ -283,7 +284,7 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 
 func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 	if port <= 0 { port = 55000 }
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" { return port, nil }
+	if s.GetSystemTailscaleIP() != "" { return port, nil }
 
 	// Обязательно останавливаем старый релей перед запуском нового на том же или другом порту
 	_ = s.StopVideoUDPRelay()
@@ -334,16 +335,63 @@ func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
 	s.mu.Lock(); defer s.mu.Unlock(); s.videoRelayTraceID = traceID
 }
 
-func (s *TailscaleService) VideoRelayDebugInfo() string {
+func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	state := "inactive"
 	if s.videoRelayConn != nil {
-		return "relay-active"
+		state = "relay-active"
+	} else if s.GetSystemTailscaleIP() != "" {
+		state = "direct-nuclear"
 	}
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && s.GetSystemTailscaleIP() != "" {
-		return "direct-nuclear"
+	s.mu.Unlock()
+
+	routingInfo := ""
+	if targetHost != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if st, err := s.Status(ctx); err == nil && st != nil {
+			for _, peer := range st.Peers {
+				if peer.IP4 == targetHost || strings.HasPrefix(peer.DNSName, targetHost) {
+					if peer.CurAddr != "" {
+						routingInfo = fmt.Sprintf(" (peer via %s)", peer.CurAddr)
+					} else if peer.Relay != "" {
+						routingInfo = fmt.Sprintf(" (peer via DERP relay %s)", peer.Relay)
+					} else {
+						routingInfo = " (peer routing unknown)"
+					}
+					break
+				}
+			}
+		}
 	}
-	return "inactive"
+
+	return state + routingInfo
+}
+
+// PeerConnectionMode returns whether the connection to targetHost is direct P2P or via DERP relay.
+// Returns "direct:<addr>", "derp:<relay>", or "unknown".
+func (s *TailscaleService) PeerConnectionMode(targetHost string) string {
+	if targetHost == "" {
+		return "unknown"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	st, err := s.Status(ctx)
+	if err != nil || st == nil {
+		return "unknown"
+	}
+	for _, peer := range st.Peers {
+		if peer.IP4 == targetHost || strings.HasPrefix(peer.DNSName, targetHost) {
+			if peer.CurAddr != "" {
+				return "direct:" + peer.CurAddr
+			}
+			if peer.Relay != "" {
+				return "derp:" + peer.Relay
+			}
+			return "unknown"
+		}
+	}
+	return "unknown"
 }
 
 func (s *TailscaleService) StopVideoUDPRelay() error {
@@ -532,11 +580,11 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 		logrus.Infof("📡 [%s] Relay stopped for %s", traceID, tailAddr)
 	}()
 
-	const bufferSize = 2 * 1024 * 1024
+	const bufferSize = 8 * 1024 * 1024
 	if s_pc, ok := pc.(interface{ SetReadBuffer(int) error }); ok { _ = s_pc.SetReadBuffer(bufferSize) }
 	_ = localConn.SetWriteBuffer(bufferSize)
 
-	packetCh := make(chan []byte, 4096)
+	packetCh := make(chan []byte, 16384)
 
 	// Горутина чтения из Tailscale
 	go func() {
@@ -545,7 +593,7 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 				logrus.Errorf("🔥 [%s] PANIC in runVideoUDPRelay reader: %v", traceID, r)
 			}
 		}()
-		buf := make([]byte, 2048)
+		buf := make([]byte, 65536)
 		packetCount := 0
 		for {
 			n, remoteAddr, err := pc.ReadFrom(buf)

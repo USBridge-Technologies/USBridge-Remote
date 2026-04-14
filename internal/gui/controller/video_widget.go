@@ -228,7 +228,7 @@ func (vw *VideoWidget) safeRelayDebugInfo() string {
 	if vw.tailscaleService == nil {
 		return "tailscale=disabled"
 	}
-	return vw.tailscaleService.VideoRelayDebugInfo()
+	return vw.tailscaleService.VideoRelayDebugInfo("")
 }
 
 func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {

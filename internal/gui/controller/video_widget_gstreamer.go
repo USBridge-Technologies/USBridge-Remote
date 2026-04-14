@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"net"
-	"runtime"
 	"strings"
 	"time"
 
@@ -133,7 +132,12 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		if err := vw.usbClient.StopVideo(); err != nil {
 			logrus.Debugf("stop stale remote video before restart: %v", err)
 		} else {
-			time.Sleep(200 * time.Millisecond)
+			// Ждём достаточно времени, чтобы сервер успел убить ffmpeg/gst-launch
+			// (StopStreaming делает: SIGINT → sleep 500ms → SIGKILL → Wait).
+			// 200ms было недостаточно: новый StartStreaming мог прийти раньше,
+			// чем сервер сбросил isStreaming, и получал "already running" без
+			// фактического старта нового ffmpeg.
+			time.Sleep(700 * time.Millisecond)
 		}
 	}
 
@@ -172,15 +176,14 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if vw.frpService == nil && vw.tailscaleService != nil {
 		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
 		
-		// Nuclear Mode for Linux: try system Tailscale IP first
+		// Nuclear Mode for all OS: try system Tailscale IP first
 		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
-		if systemIP != "" && runtime.GOOS == "linux" {
+		if systemIP != "" {
 			request.ClientHost = systemIP
 			logrus.Infof("🚀 [Tailscale/NuclearMode] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
 		} else {
-			if runtime.GOOS == "linux" {
-				logrus.Warn("⚠️ [Tailscale/NuclearMode] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
-			}
+			logrus.Warn("⚠️ [Tailscale/NuclearMode] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
+			
 			// Fallback to userspace relay
 			actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
 			if err != nil {
@@ -207,7 +210,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 			}
 			request.ClientHost = tailIP
 		}
-		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo())
+		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost))
 	}
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
 		request.TraceID,
@@ -284,7 +287,18 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	logrus.Infof("✅ Видео захват инициирован (mode=%s, UDP порт %d)", mode, clientPort)
 	if vw.tailscaleService != nil {
-		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, vw.tailscaleService.VideoRelayDebugInfo())
+		relayInfo := vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost)
+		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, relayInfo)
+
+		// Проверяем P2P vs DERP — важно для диагностики видео через Android/userspace Tailscale
+		connMode := vw.tailscaleService.PeerConnectionMode(request.ClientHost)
+		if strings.HasPrefix(connMode, "derp:") {
+			logrus.Warnf("⚠️ [Tailscale] Видео идёт через DERP-релей (%s) — это OK, но latency выше. Для P2P нужен открытый UDP между устройствами.", connMode)
+		} else if strings.HasPrefix(connMode, "direct:") {
+			logrus.Infof("✅ [Tailscale] Видео идёт P2P direct (%s) — оптимально.", connMode)
+		} else {
+			logrus.Infof("ℹ️ [Tailscale] Режим соединения: %s (возможно, сервер не в списке peers этого клиента)", connMode)
+		}
 	}
 
 	vw.isStreaming = true
