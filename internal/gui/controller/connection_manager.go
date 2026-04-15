@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
@@ -235,6 +236,24 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 		}
 		cm.refreshTailscaleStatus()
 	}()
+}
+
+func (cm *ConnectionManager) handleTailscaleToggleAction() {
+	if cm.tsStatus != nil && cm.tsStatus.LoggedIn {
+		view.ShowConfirmYesLeft(
+			i18n.Current.Confirmation,
+			i18n.Current.TailscaleLogoutConfirm,
+			func(confirmed bool) {
+				if confirmed {
+					cm.startTailscaleAuthAction()
+				}
+			},
+			cm.window,
+		)
+		return
+	}
+
+	cm.startTailscaleAuthAction()
 }
 
 func (cm *ConnectionManager) refreshTailscaleStatus() {

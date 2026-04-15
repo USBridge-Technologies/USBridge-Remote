@@ -18,6 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type selectedImage struct {
+	FileName string
+	URI      string
+}
+
 // setUploadStateByPath устанавливает состояние загрузки по пути файла.
 func (dw *DiskWidget) setUploadStateByPath(path string, uploading bool, progress, speed float64) {
 	for i := range dw.allDrives {
@@ -59,6 +64,24 @@ func (dw *DiskWidget) handleAddImage() {
 		return
 	}
 
+	if runtime.GOOS == "windows" {
+		dw.setUserOperationInFlight(true)
+		busyPopup := view.ShowBusyDialog(i18n.Current.SelectDiskImage, "Use the Windows file dialog to choose a disk image.", dw.window)
+		go func() {
+			selected, ok := dw.showPlatformNativeImagePicker()
+			fyne.Do(func() {
+				if busyPopup != nil {
+					busyPopup.Hide()
+				}
+				dw.setUserOperationInFlight(false)
+				if ok {
+					dw.handleSelectedImage(selected)
+				}
+			})
+		}()
+		return
+	}
+
 	fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
 			logrus.Errorf("❌ [ADD-IMAGE-ERROR] Ошибка при выборе файла: %v", err)
@@ -76,112 +99,9 @@ func (dw *DiskWidget) handleAddImage() {
 		uri := reader.URI()
 		reader.Close()
 
-		fileName := uri.Name()
-		uriString := uri.String()
-
-		logrus.Infof("📂 [ADD-IMAGE-1] Выбран файл: %s (URI: %s)", fileName, uriString)
-		logrus.Infof("📂 [ADD-IMAGE-1] Runtime GOOS: %s", runtime.GOOS)
-
-		var filePath string
-		var fileSize int64
-
-		if runtime.GOOS == "android" && strings.HasPrefix(uriString, "content://") {
-			logrus.Infof("📍 [ADD-IMAGE-ANDROID-2] Обнаружен Android content:// URI")
-			logrus.Infof("📍 [ADD-IMAGE-ANDROID-3] Вызов TakePersistableUriPermission для URI: %s", uriString)
-			if err := dw.safHelper.TakePersistableUriPermission(uriString); err != nil {
-				logrus.Errorf("❌ [ADD-IMAGE-ANDROID-3-ERROR] Не удалось сохранить разрешение для URI: %v", err)
-			} else {
-				logrus.Infof("✅ [ADD-IMAGE-ANDROID-3-SUCCESS] Разрешение для URI сохранено")
-			}
-
-			filePath = uriString
-			logrus.Infof("📍 [ADD-IMAGE-ANDROID-4] Используем content:// URI напрямую: %s", filePath)
-
-			isGoogleDrive := strings.Contains(uriString, "com.google.android.apps.docs.storage")
-			if isGoogleDrive {
-				logrus.Warnf("⚠️  [ADD-IMAGE-ANDROID-5-GDRIVE] Файл из Google Drive! Размер будет получен асинхронно при первом монтировании")
-				fileSize = 0
-			} else {
-				logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Попытка получить размер файла через SAF")
-				file, err := dw.safHelper.OpenFileDescriptor(uriString, "rw")
-				if err == nil && file != nil {
-					stat, err := file.Stat()
-					if err == nil {
-						fileSize = stat.Size()
-						logrus.Infof("✅ [ADD-IMAGE-ANDROID-5-SUCCESS] Размер файла через SAF FD: %d байт", fileSize)
-					} else {
-						logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось получить размер: %v", err)
-					}
-					logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Файл остается открытым в кэше SAFHelper")
-				} else {
-					logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось открыть файл через SAF: %v", err)
-				}
-			}
-		} else {
-			logrus.Infof("📍 [ADD-IMAGE-DESKTOP-2] Десктоп режим или file:// URI")
-			filePath = dw.convertAndroidURIToPath(uriString, fileName)
-			logrus.Infof("📁 [ADD-IMAGE-DESKTOP-3] Путь к файлу: %s", filePath)
-
-			if info, err := os.Stat(filePath); err == nil {
-				fileSize = info.Size()
-				logrus.Infof("✅ [ADD-IMAGE-DESKTOP-4] Размер файла: %d байт", fileSize)
-			} else {
-				logrus.Warnf("⚠️ [ADD-IMAGE-DESKTOP-4-ERROR] Не удалось получить размер файла: %v", err)
-			}
-		}
-
-		ext := strings.ToLower(filepath.Ext(fileName))
-		supported := false
-		for _, supportedType := range dw.supportedTypes {
-			if strings.ToLower(supportedType) == ext {
-				supported = true
-				break
-			}
-		}
-
-		if !supported {
-			logrus.Warnf("⚠️ Неподдерживаемый формат файла: %s", fileName)
-			fyne.Do(func() {
-				view.ShowErrorDialog(fmt.Errorf(i18n.Current.UnsupportedFileFormat, strings.Join(dw.supportedTypes, ", ")), dw.window)
-			})
-			return
-		}
-
-		diskInfo := &models.DiskInfo{
-			Name:        fileName,
-			Path:        filePath,
-			URI:         uriString,
-			Size:        fileSize,
-			Type:        strings.TrimPrefix(ext, "."),
-			Description: fmt.Sprintf("Пользовательский образ: %s", fileName),
-			IsActive:    false,
-		}
-
-		logrus.Infof("📍 [ADD-IMAGE-6] Создан DiskInfo: Name=%s, Path=%s, URI=%s, Size=%d",
-			diskInfo.Name, diskInfo.Path, diskInfo.URI, diskInfo.Size)
-
-		for _, existingImage := range dw.userImages {
-			if existingImage.URI == uriString || existingImage.Path == filePath {
-				logrus.Warnf("⚠️ [ADD-IMAGE-6-WARN] Файл уже добавлен: %s (URI: %s)", filePath, uriString)
-				fyne.Do(func() {
-					dialog.ShowInformation(i18n.Current.Information, i18n.Current.FileAlreadyAdded, dw.window)
-				})
-				return
-			}
-		}
-
-		dw.userImages = append(dw.userImages, diskInfo)
-		logrus.Infof("✅ [ADD-IMAGE-7] Образ добавлен в userImages: %s (всего: %d)", diskInfo.Name, len(dw.userImages))
-
-		logrus.Infof("📍 [ADD-IMAGE-8] Сохранение в preferences...")
-		dw.saveUserImagesToPreferences()
-		logrus.Infof("✅ [ADD-IMAGE-8-SUCCESS] Preferences сохранены")
-
-		logrus.Infof("📍 [ADD-IMAGE-9] Обновление UI...")
-		dw.updateUIAsync(func() {
-			dw.combineDrives()
-			dw.requestDevicesRefresh()
-			logrus.Infof("✅ [ADD-IMAGE-9-SUCCESS] UI обновлен, образ отображен в списке")
+		dw.handleSelectedImage(selectedImage{
+			FileName: uri.Name(),
+			URI:      uri.String(),
 		})
 	}, dw.window)
 
@@ -201,6 +121,119 @@ func (dw *DiskWidget) handleAddImage() {
 			})
 		}()
 	}
+}
+
+func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
+	fileName := strings.TrimSpace(selected.FileName)
+	uriString := strings.TrimSpace(selected.URI)
+	if fileName == "" || uriString == "" {
+		return
+	}
+
+	logrus.Infof("📂 [ADD-IMAGE-1] Выбран файл: %s (URI: %s)", fileName, uriString)
+	logrus.Infof("📂 [ADD-IMAGE-1] Runtime GOOS: %s", runtime.GOOS)
+
+	var filePath string
+	var fileSize int64
+
+	if runtime.GOOS == "android" && strings.HasPrefix(uriString, "content://") {
+		logrus.Infof("📍 [ADD-IMAGE-ANDROID-2] Обнаружен Android content:// URI")
+		logrus.Infof("📍 [ADD-IMAGE-ANDROID-3] Вызов TakePersistableUriPermission для URI: %s", uriString)
+		if err := dw.safHelper.TakePersistableUriPermission(uriString); err != nil {
+			logrus.Errorf("❌ [ADD-IMAGE-ANDROID-3-ERROR] Не удалось сохранить разрешение для URI: %v", err)
+		} else {
+			logrus.Infof("✅ [ADD-IMAGE-ANDROID-3-SUCCESS] Разрешение для URI сохранено")
+		}
+
+		filePath = uriString
+		logrus.Infof("📍 [ADD-IMAGE-ANDROID-4] Используем content:// URI напрямую: %s", filePath)
+
+		isGoogleDrive := strings.Contains(uriString, "com.google.android.apps.docs.storage")
+		if isGoogleDrive {
+			logrus.Warnf("⚠️  [ADD-IMAGE-ANDROID-5-GDRIVE] Файл из Google Drive! Размер будет получен асинхронно при первом монтировании")
+			fileSize = 0
+		} else {
+			logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Попытка получить размер файла через SAF")
+			file, err := dw.safHelper.OpenFileDescriptor(uriString, "rw")
+			if err == nil && file != nil {
+				stat, err := file.Stat()
+				if err == nil {
+					fileSize = stat.Size()
+					logrus.Infof("✅ [ADD-IMAGE-ANDROID-5-SUCCESS] Размер файла через SAF FD: %d байт", fileSize)
+				} else {
+					logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось получить размер: %v", err)
+				}
+				logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Файл остается открытым в кэше SAFHelper")
+			} else {
+				logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось открыть файл через SAF: %v", err)
+			}
+		}
+	} else {
+		logrus.Infof("📍 [ADD-IMAGE-DESKTOP-2] Десктоп режим или file:// URI")
+		filePath = dw.convertAndroidURIToPath(uriString, fileName)
+		logrus.Infof("📁 [ADD-IMAGE-DESKTOP-3] Путь к файлу: %s", filePath)
+
+		if info, err := os.Stat(filePath); err == nil {
+			fileSize = info.Size()
+			logrus.Infof("✅ [ADD-IMAGE-DESKTOP-4] Размер файла: %d байт", fileSize)
+		} else {
+			logrus.Warnf("⚠️ [ADD-IMAGE-DESKTOP-4-ERROR] Не удалось получить размер файла: %v", err)
+		}
+	}
+
+	ext := strings.ToLower(filepath.Ext(fileName))
+	supported := false
+	for _, supportedType := range dw.supportedTypes {
+		if strings.ToLower(supportedType) == ext {
+			supported = true
+			break
+		}
+	}
+
+	if !supported {
+		logrus.Warnf("⚠️ Неподдерживаемый формат файла: %s", fileName)
+		fyne.Do(func() {
+			view.ShowErrorDialog(fmt.Errorf(i18n.Current.UnsupportedFileFormat, strings.Join(dw.supportedTypes, ", ")), dw.window)
+		})
+		return
+	}
+
+	diskInfo := &models.DiskInfo{
+		Name:        fileName,
+		Path:        filePath,
+		URI:         uriString,
+		Size:        fileSize,
+		Type:        strings.TrimPrefix(ext, "."),
+		Description: fmt.Sprintf("Пользовательский образ: %s", fileName),
+		IsActive:    false,
+	}
+
+	logrus.Infof("📍 [ADD-IMAGE-6] Создан DiskInfo: Name=%s, Path=%s, URI=%s, Size=%d",
+		diskInfo.Name, diskInfo.Path, diskInfo.URI, diskInfo.Size)
+
+	for _, existingImage := range dw.userImages {
+		if existingImage.URI == uriString || existingImage.Path == filePath {
+			logrus.Warnf("⚠️ [ADD-IMAGE-6-WARN] Файл уже добавлен: %s (URI: %s)", filePath, uriString)
+			fyne.Do(func() {
+				view.ShowInfoDialog(i18n.Current.Information, i18n.Current.FileAlreadyAdded, dw.window)
+			})
+			return
+		}
+	}
+
+	dw.userImages = append(dw.userImages, diskInfo)
+	logrus.Infof("✅ [ADD-IMAGE-7] Образ добавлен в userImages: %s (всего: %d)", diskInfo.Name, len(dw.userImages))
+
+	logrus.Infof("📍 [ADD-IMAGE-8] Сохранение в preferences...")
+	dw.saveUserImagesToPreferences()
+	logrus.Infof("✅ [ADD-IMAGE-8-SUCCESS] Preferences сохранены")
+
+	logrus.Infof("📍 [ADD-IMAGE-9] Обновление UI...")
+	dw.updateUIAsync(func() {
+		dw.combineDrives()
+		dw.requestDevicesRefresh()
+		logrus.Infof("✅ [ADD-IMAGE-9-SUCCESS] UI обновлен, образ отображен в списке")
+	})
 }
 
 // checkStoragePermission проверяет доступ к хранилищу (только для Android).

@@ -3,6 +3,7 @@ package view
 
 import (
 	"image/color"
+	"strings"
 	"sync"
 
 	"usbridge-client/internal/gui/assets"
@@ -260,7 +261,7 @@ func ShowErrorDialog(err error, parent fyne.Window) {
 		}
 	})
 
-	buttons := container.New(&confirmDialogButtonsLayout{gap: 12}, okBtn, copyBtn)
+	buttons := container.New(&confirmDialogButtonsLayout{gap: 12}, copyBtn, okBtn)
 	body := container.NewVBox(
 		titleBar,
 		NewInset(label, 0, 0, 16, 14),
@@ -312,6 +313,140 @@ func ShowErrorDialog(err error, parent fyne.Window) {
 			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
 			panelHeight := minFloat32(panelMin.Height, maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
+		},
+	})
+}
+
+func ShowInfoDialog(title, message string, parent fyne.Window) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+
+	var popup *widget.PopUp
+	closePopup := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	}
+
+	titleText := NewBrandText(title, 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	closeBtn := newConfirmDialogCloseButton(closePopup)
+	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
+
+	label := widget.NewLabel(message)
+	label.Wrapping = fyne.TextWrapWord
+
+	okBtn := widget.NewButton(i18n.Current.OK, closePopup)
+	okBtn.Importance = widget.MediumImportance
+	buttons := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, okBtn.MinSize().Height), okBtn))
+	body := container.NewVBox(
+		titleBar,
+		NewInset(label, 0, 0, 16, 14),
+		buttons,
+	)
+
+	panelContent := fyne.CanvasObject(body)
+	if parent != nil {
+		var minW float32 = 408
+		if fyne.CurrentDevice().IsMobile() {
+			canvasSize := parent.Canvas().Size()
+			minW = canvasSize.Width * 0.85
+			if minW < 280 {
+				minW = 280
+			}
+		}
+		panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
+	}
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		NewInset(panelContent, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = ShowOverlayPopup(parent, OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			if maxWidth <= 0 {
+				maxWidth = canvasSize.Width
+			}
+			if maxHeight <= 0 {
+				maxHeight = canvasSize.Height
+			}
+
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
+			panelHeight := minFloat32(panelMin.Height, maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
+		},
+	})
+}
+
+func ShowBusyDialog(title, message string, parent fyne.Window) *widget.PopUp {
+	if parent == nil {
+		return nil
+	}
+
+	titleText := NewBrandText(title, 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	label := widget.NewLabel(message)
+	label.Alignment = fyne.TextAlignCenter
+	label.Wrapping = fyne.TextWrapWord
+
+	body := container.NewVBox(
+		titleText,
+		NewInset(label, 0, 0, 14, 0),
+	)
+
+	panelContent := fyne.CanvasObject(body)
+	var minW float32 = 408
+	if fyne.CurrentDevice().IsMobile() {
+		canvasSize := parent.Canvas().Size()
+		minW = canvasSize.Width * 0.85
+		if minW < 280 {
+			minW = 280
+		}
+	}
+	panelContent = container.New(&minWidthLayout{minWidth: minW}, body)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		NewInset(panelContent, 18, 18, 16, 16),
+		border,
+	)
+
+	return ShowOverlayPopup(parent, OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
+			maxWidth := canvasSize.Width - margin*2
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
+			return fyne.NewSize(panelWidth, panelMin.Height)
 		},
 	})
 }

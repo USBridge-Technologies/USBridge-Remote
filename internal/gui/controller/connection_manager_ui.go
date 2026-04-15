@@ -17,7 +17,7 @@ func (cm *ConnectionManager) createInterface() {
 		cm.handleQRScan,
 		cm.showAddDialog,
 		cm.openQuickStartDocs,
-		cm.startTailscaleAuthAction,
+		cm.handleTailscaleToggleAction,
 	)
 	cm.refreshConnectionsList()
 }
@@ -203,4 +203,11 @@ func (cm *ConnectionManager) OpenQuickStartDocs() {
 
 func (cm *ConnectionManager) OpenDiscordInvite() {
 	cm.openDiscordInvite()
+}
+
+func (cm *ConnectionManager) HeaderAccessory() fyne.CanvasObject {
+	if cm == nil || cm.ui == nil {
+		return nil
+	}
+	return cm.ui.HeaderAccessory()
 }

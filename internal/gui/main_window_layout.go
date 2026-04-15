@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -348,7 +349,12 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	discordBtn.SetBadgeText("")
 	discordBtn.SetIconSize(fyne.NewSize(18, 18))
 
-	row := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
+	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
+	var rightAccessory fyne.CanvasObject = canvas.NewRectangle(color.Transparent)
+	if mw.connectionManager != nil && mw.connectionManager.HeaderAccessory() != nil {
+		rightAccessory = mw.connectionManager.HeaderAccessory()
+	}
+	row := container.NewHBox(leftRow, layout.NewSpacer(), rightAccessory)
 	return view.NewHeaderBand("", row)
 }
 
@@ -653,7 +659,12 @@ func (l *exitStatusOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.
 
 	badge := objects[1]
 	badgeMin := badge.MinSize()
-	badge.Move(fyne.NewPos(l.badgeInsetX, l.badgeInsetY))
+	baseWidth := base.MinSize().Width
+	if baseWidth <= 0 || baseWidth > size.Width {
+		baseWidth = size.Width
+	}
+	badgeX := (baseWidth - badgeMin.Width) / 2
+	badge.Move(fyne.NewPos(badgeX, l.badgeInsetY))
 	badge.Resize(badgeMin)
 }
 

@@ -29,10 +29,7 @@ type ConnectionManagerUI struct {
 	contentArea *fyne.Container
 	topActions  *fyne.Container
 	topHelpBtn  fyne.CanvasObject
-	tsStatusDot *canvas.Circle
-	tsStatus    *widget.Label
-	tsCard      fyne.CanvasObject
-	tsAuthBtn   *connectionPrimaryButton
+	tsToggle    *tailscaleHeaderToggle
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -138,25 +135,10 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth f
 			onHelp,
 		)
 	}
+	tsToggle := newTailscaleHeaderToggle(onTSAuth)
 	contentArea := container.NewMax()
-	tsStatusDot := canvas.NewCircle(color.NRGBA{R: 0x66, G: 0x6f, B: 0x7a, A: 0xff})
-	tsStatusDotWrap := container.NewGridWrap(fyne.NewSize(10, 10), tsStatusDot)
-	tsStatus := widget.NewLabel("Status: Disconnected")
-	tsStatus.Wrapping = fyne.TextWrapWord
-	tsAuthBtn := newConnectionPrimaryButton("Connect to Tailscale", onTSAuth)
-	tsButtons := container.NewGridWithColumns(1, tsAuthBtn)
-	tsCard := newConnectionsSectionCard(
-		"tailscale",
-		nil,
-		nil,
-		container.NewVBox(
-			container.NewBorder(nil, nil, container.NewHBox(tsStatusDotWrap, inlineSpacer(10)), nil, tsStatus),
-			inlineSpacer(2),
-			tsButtons,
-		),
-	)
 
-	mainContent := NewInset(contentArea, 16, 16, 10, 16)
+	mainContent := NewInset(contentArea, 16, 16, 4, 16)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	root := container.NewStack(bg, mainContent)
@@ -170,17 +152,14 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth f
 		contentArea:       contentArea,
 		topActions:        topActions,
 		topHelpBtn:        topHelpBtn,
-		tsStatusDot:       tsStatusDot,
-		tsStatus:          tsStatus,
-		tsCard:            tsCard,
-		tsAuthBtn:         tsAuthBtn,
+		tsToggle:          tsToggle,
 		topQRBtn:          topQRButton,
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
 		centerAddBtn:      centerAddButton,
 	}
 	ui.contentArea.Objects = []fyne.CanvasObject{
-		container.NewVBox(tsCard, layout.NewSpacer()),
+		layout.NewSpacer(),
 	}
 
 	return ui
@@ -209,7 +188,6 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
-			ui.tsCard,
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, emptyBlock),
 			layout.NewSpacer(),
 		),
@@ -228,7 +206,6 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	ui.ConnectionsScroll.SetMinSize(fyne.NewSize(0, listMin.Height))
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
-			ui.tsCard,
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, ui.ConnectionsScroll),
 			layout.NewSpacer(),
 		),
@@ -238,48 +215,30 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 }
 
 func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address, authLabel string) {
-	statusText, statusColor, buttonLabel, buttonLoading := summarizeTailscaleState(status, authLabel)
-
-	if ui.tsStatusDot != nil {
-		ui.tsStatusDot.FillColor = statusColor
-		ui.tsStatusDot.Refresh()
-	}
-	if ui.tsStatus != nil {
-		ui.tsStatus.SetText(statusText)
-	}
-	if ui.tsAuthBtn != nil {
-		ui.tsAuthBtn.SetLabel(buttonLabel)
-		ui.tsAuthBtn.SetDisabled(false)
-		ui.tsAuthBtn.SetLoading(buttonLoading)
+	active, loading := summarizeTailscaleState(status, authLabel)
+	if ui.tsToggle != nil {
+		ui.tsToggle.SetOn(active)
+		ui.tsToggle.SetLoading(loading)
+		ui.tsToggle.SetDisabled(false)
 	}
 }
 
-func summarizeTailscaleState(status, authLabel string) (string, color.Color, string, bool) {
+func summarizeTailscaleState(status, _ string) (bool, bool) {
 	raw := strings.ToLower(strings.TrimSpace(status))
-	buttonLabel := strings.TrimSpace(authLabel)
-	if buttonLabel == "" {
-		buttonLabel = "Connect to Tailscale"
-	}
 
 	switch {
 	case strings.Contains(raw, "signed out"), strings.Contains(raw, "not connected"):
-		return "Status: Disconnected", color.NRGBA{R: 0x7f, G: 0x88, B: 0x93, A: 0xff}, "Connect to Tailscale", false
+		return false, false
 	case strings.Contains(raw, "starting login"), strings.Contains(raw, "signing out"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"):
-		if strings.Contains(raw, "signing out") {
-			return "Status: Disconnecting", color.NRGBA{R: 0xc6, G: 0x93, B: 0x3a, A: 0xff}, "Disconnecting...", true
-		}
-		return "Status: Connecting", design.ColorAccent, "Connect to Tailscale", true
+		return false, true
 	case strings.Contains(raw, "needslogin"), strings.Contains(raw, "stopped"), strings.Contains(raw, "no state"), strings.Contains(raw, "login failed"):
-		return "Status: Disconnected", color.NRGBA{R: 0xc7, G: 0x6f, B: 0x6f, A: 0xff}, "Connect to Tailscale", false
+		return false, false
 	case strings.Contains(raw, "running"), strings.Contains(raw, "connected"):
-		if strings.EqualFold(buttonLabel, "sign out") {
-			return "Status: Connected", color.NRGBA{R: 0x6e, G: 0xc6, B: 0x7b, A: 0xff}, "Sign Out", false
-		}
-		return "Status: Connected", color.NRGBA{R: 0x6e, G: 0xc6, B: 0x7b, A: 0xff}, buttonLabel, false
+		return true, false
 	case strings.Contains(raw, "tailscale:"), strings.Contains(raw, "error"), raw != "":
-		return "Status: Disconnected", color.NRGBA{R: 0xc7, G: 0x6f, B: 0x6f, A: 0xff}, "Connect to Tailscale", false
+		return false, false
 	default:
-		return "Status: Disconnected", color.NRGBA{R: 0x7f, G: 0x88, B: 0x93, A: 0xff}, "Connect to Tailscale", false
+		return false, false
 	}
 }
 
@@ -296,6 +255,13 @@ func (ui *ConnectionManagerUI) SetActionButtonsDisabled(disabled bool) {
 	if ui.centerAddBtn != nil {
 		ui.centerAddBtn.SetDisabled(disabled)
 	}
+}
+
+func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
+	if ui == nil {
+		return nil
+	}
+	return ui.tsToggle
 }
 
 func newConnectionsSectionCard(title string, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, body fyne.CanvasObject) fyne.CanvasObject {
@@ -566,6 +532,9 @@ var (
 	_ fyne.Tappable     = (*iconChromeButton)(nil)
 	_ desktop.Hoverable = (*iconChromeButton)(nil)
 	_ fyne.Widget       = (*iconChromeButton)(nil)
+	_ fyne.Tappable     = (*tailscaleHeaderToggle)(nil)
+	_ desktop.Hoverable = (*tailscaleHeaderToggle)(nil)
+	_ fyne.Widget       = (*tailscaleHeaderToggle)(nil)
 	_ fyne.Tappable     = (*connectionPrimaryButton)(nil)
 	_ desktop.Hoverable = (*connectionPrimaryButton)(nil)
 	_ fyne.Widget       = (*connectionPrimaryButton)(nil)
@@ -613,7 +582,7 @@ type connectionNameButton struct {
 
 	bg       *canvas.Rectangle
 	titleTxt *adaptiveNameText
-	subTxt   *widget.Label
+	subTxt   *canvas.Text
 	icon     *canvas.Image
 }
 
@@ -667,19 +636,19 @@ func (b *connectionNameButton) MinSize() fyne.Size {
 	subWidth := float32(0)
 	subLines := strings.Split(b.subtitle, "\n")
 	for _, line := range subLines {
-		size := fyne.MeasureText(line, 11, fyne.TextStyle{})
+		size := fyne.MeasureText(line, 10, fyne.TextStyle{})
 		if size.Width > subWidth {
 			subWidth = size.Width
 		}
 	}
-	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 11, fyne.TextStyle{}).Height
+	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 10, fyne.TextStyle{}).Height
 	subLineCount := len(subLines)
 	if subLineCount < 1 {
 		subLineCount = 1
 	}
 	subHeight := lineHeight * float32(subLineCount)
 	width := maxFloat32(title.Width, subWidth) + 34
-	height := title.Height + subHeight + 10
+	height := title.Height + subHeight + 7
 	return fyne.NewSize(width, height)
 }
 
@@ -687,7 +656,7 @@ func (b *connectionNameButton) preferredWidth() float32 {
 	title := fyne.MeasureText(b.title, 14, fyne.TextStyle{Bold: true})
 	subWidth := float32(0)
 	for _, line := range strings.Split(b.subtitle, "\n") {
-		size := fyne.MeasureText(line, 11, fyne.TextStyle{})
+		size := fyne.MeasureText(line, 10, fyne.TextStyle{})
 		if size.Width > subWidth {
 			subWidth = size.Width
 		}
@@ -704,8 +673,9 @@ func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
 	b.titleTxt.style = fyne.TextStyle{Bold: true}
 	b.titleTxt.SetColor(design.ColorTextLight)
 	b.titleTxt.SetText(b.title)
-	b.subTxt = widget.NewLabel(b.subtitle)
-	b.subTxt.Wrapping = fyne.TextWrapOff
+	b.subTxt = canvas.NewText(b.subtitle, design.ColorTextMuted)
+	b.subTxt.TextSize = 10
+	b.subTxt.Alignment = fyne.TextAlignLeading
 	b.icon = canvas.NewImageFromResource(theme.DocumentCreateIcon())
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(13, 13))
@@ -726,14 +696,13 @@ func (b *connectionNameButton) refreshVisuals() {
 	b.bg.FillColor = color.Transparent
 	b.titleTxt.SetText(b.title)
 	b.titleTxt.SetColor(design.ColorTextLight)
-	b.subTxt.SetText(b.subtitle)
-	b.subTxt.TextStyle = fyne.TextStyle{}
-	b.subTxt.Importance = widget.MediumImportance
+	b.subTxt.Text = b.subtitle
+	b.subTxt.Color = design.ColorTextMuted
 	b.icon.Translucency = 0
 
 	if b.disabled {
 		b.titleTxt.SetColor(design.ColorBorder)
-		b.subTxt.Importance = widget.LowImportance
+		b.subTxt.Color = design.ColorBorder
 		b.icon.Translucency = 0.35
 	} else if b.hovered {
 		b.bg.FillColor = design.ColorSurfaceLight
@@ -756,9 +725,9 @@ func (r *connectionNameButtonRenderer) Layout(size fyne.Size) {
 	r.button.titleTxt.Move(fyne.NewPos(8, 3))
 	r.button.titleTxt.Resize(fyne.NewSize(titleWidth, r.button.titleTxt.MinSize().Height))
 
-	subY := float32(21)
+	subY := float32(20)
 	r.button.subTxt.Move(fyne.NewPos(8, subY))
-	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), maxFloat32(0, size.Height-subY-4)))
+	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), r.button.subTxt.MinSize().Height))
 
 	iconSize := fyne.NewSize(13, 13)
 	r.button.icon.Resize(iconSize)
@@ -1234,11 +1203,207 @@ func stopCanvasAnimations(obj fyne.CanvasObject) {
 	}
 }
 
+type tailscaleHeaderToggle struct {
+	widget.BaseWidget
+
+	onTapped func()
+	on       bool
+	loading  bool
+	disabled bool
+	hovered  bool
+
+	bg     *canvas.Rectangle
+	border *canvas.Rectangle
+	label  *canvas.Text
+	track  *canvas.Rectangle
+	thumb  *canvas.Circle
+}
+
+func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
+	toggle := &tailscaleHeaderToggle{onTapped: onTapped}
+	toggle.ExtendBaseWidget(toggle)
+	return toggle
+}
+
+func (t *tailscaleHeaderToggle) SetOn(on bool) {
+	t.on = on
+	t.refreshVisuals()
+	t.Refresh()
+}
+
+func (t *tailscaleHeaderToggle) SetLoading(loading bool) {
+	t.loading = loading
+	if loading {
+		t.hovered = false
+	}
+	t.refreshVisuals()
+	t.Refresh()
+}
+
+func (t *tailscaleHeaderToggle) SetDisabled(disabled bool) {
+	t.disabled = disabled
+	if disabled {
+		t.hovered = false
+	}
+	t.refreshVisuals()
+	t.Refresh()
+}
+
+func (t *tailscaleHeaderToggle) Tapped(*fyne.PointEvent) {
+	if t.disabled || t.loading || t.onTapped == nil {
+		return
+	}
+	t.onTapped()
+}
+
+func (t *tailscaleHeaderToggle) TappedSecondary(*fyne.PointEvent) {}
+
+func (t *tailscaleHeaderToggle) MouseIn(*desktop.MouseEvent) {
+	if t.disabled || t.loading {
+		return
+	}
+	t.hovered = true
+	t.refreshVisuals()
+}
+
+func (t *tailscaleHeaderToggle) MouseMoved(*desktop.MouseEvent) {}
+
+func (t *tailscaleHeaderToggle) MouseOut() {
+	if !t.hovered {
+		return
+	}
+	t.hovered = false
+	t.refreshVisuals()
+}
+
+func (t *tailscaleHeaderToggle) MinSize() fyne.Size {
+	return fyne.NewSize(60, 36)
+}
+
+func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
+	t.bg = canvas.NewRectangle(design.ColorSurfaceLight)
+	t.bg.CornerRadius = design.RadiusMD
+
+	t.border = canvas.NewRectangle(color.Transparent)
+	t.border.CornerRadius = design.RadiusMD
+	t.border.StrokeColor = design.ColorAccent
+	t.border.StrokeWidth = 1.2
+
+	t.label = canvas.NewText("Tailscale", design.ColorTextMuted)
+	t.label.TextSize = 8
+	t.label.TextStyle = fyne.TextStyle{Bold: true}
+	t.label.Alignment = fyne.TextAlignCenter
+
+	t.track = canvas.NewRectangle(design.ColorSurfaceLight)
+	t.track.CornerRadius = 999
+
+	t.thumb = canvas.NewCircle(design.ColorGray400)
+
+	t.refreshVisuals()
+	return &tailscaleHeaderToggleRenderer{toggle: t}
+}
+
+func (t *tailscaleHeaderToggle) refreshVisuals() {
+	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil {
+		return
+	}
+
+	bgColor := design.ColorSurfaceLight
+	trackColor := design.ColorSurfaceLight
+	thumbColor := design.ColorGray400
+	labelColor := design.ColorTextMuted
+	if t.on {
+		trackColor = design.ColorAlphaAccent55
+		thumbColor = design.ColorAccent
+	}
+	if t.disabled {
+		bgColor = design.ColorGray900
+		trackColor = design.ColorGray900
+		thumbColor = design.ColorBorder
+		labelColor = design.ColorBorder
+	} else if t.hovered {
+		bgColor = design.ColorGray900
+		if t.on {
+			trackColor = design.ColorAlphaAccentHover55
+		} else {
+			trackColor = design.ColorBorder
+		}
+	}
+
+	t.bg.FillColor = bgColor
+	t.bg.Refresh()
+	t.border.StrokeColor = design.ColorAccent
+	t.border.StrokeWidth = 1.2
+	t.border.Refresh()
+	t.label.Color = labelColor
+	t.label.Refresh()
+	t.track.FillColor = trackColor
+	t.track.Refresh()
+	t.thumb.FillColor = thumbColor
+	t.thumb.Refresh()
+}
+
+type tailscaleHeaderToggleRenderer struct {
+	toggle *tailscaleHeaderToggle
+}
+
+func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
+	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil {
+		return
+	}
+
+	r.toggle.bg.Move(fyne.NewPos(0, 0))
+	r.toggle.bg.Resize(size)
+	r.toggle.border.Move(fyne.NewPos(0, 0))
+	r.toggle.border.Resize(size)
+
+	r.toggle.label.Move(fyne.NewPos(0, 4))
+	r.toggle.label.Resize(fyne.NewSize(size.Width, 10))
+
+	trackSize := fyne.NewSize(26, 14)
+	trackX := (size.Width - trackSize.Width) / 2
+	if trackX < 0 {
+		trackX = 0
+	}
+	trackY := float32(18)
+	r.toggle.track.Move(fyne.NewPos(trackX, trackY))
+	r.toggle.track.Resize(trackSize)
+
+	thumbSize := float32(10)
+	thumbY := trackY + 2
+	thumbX := trackX + 2
+	if r.toggle.on {
+		thumbX = trackX + trackSize.Width - thumbSize - 2
+	}
+	r.toggle.thumb.Move(fyne.NewPos(thumbX, thumbY))
+	r.toggle.thumb.Resize(fyne.NewSize(thumbSize, thumbSize))
+}
+
+func (r *tailscaleHeaderToggleRenderer) MinSize() fyne.Size {
+	return r.toggle.MinSize()
+}
+
+func (r *tailscaleHeaderToggleRenderer) Refresh() {
+	r.toggle.refreshVisuals()
+	r.Layout(r.toggle.Size())
+}
+
+func (r *tailscaleHeaderToggleRenderer) Destroy() {}
+
+func (r *tailscaleHeaderToggleRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.border}
+}
+
+func (r *tailscaleHeaderToggleRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
 type connectionPrimaryButton struct {
 	widget.BaseWidget
 
 	labelText string
 	onTapped  func()
+	accent    bool
 	disabled  bool
 	loading   bool
 	hovered   bool
@@ -1255,6 +1420,7 @@ func newConnectionPrimaryButton(label string, onTapped func()) *connectionPrimar
 	btn := &connectionPrimaryButton{
 		labelText: label,
 		onTapped:  onTapped,
+		accent:    true,
 	}
 	btn.ExtendBaseWidget(btn)
 	return btn
@@ -1283,6 +1449,11 @@ func (b *connectionPrimaryButton) SetLabel(label string) {
 		b.label.Refresh()
 	}
 	b.Refresh()
+}
+
+func (b *connectionPrimaryButton) SetAccent(accent bool) {
+	b.accent = accent
+	b.refreshVisuals()
 }
 
 func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {
@@ -1350,15 +1521,20 @@ func (b *connectionPrimaryButton) refreshVisuals() {
 	}
 
 	fill := design.ColorAccent
+	fillHover := design.ColorAccentHover
 	labelColor := design.ColorBackground
+	if !b.accent {
+		fill = design.ColorSurfaceLight
+		fillHover = design.ColorBorder
+		labelColor = design.ColorTextLight
+	}
 	if b.loading {
-		fill = design.ColorAccent
 		labelColor = design.ColorBackground
 	} else if b.disabled {
 		fill = connectionActionBlockedFill
 		labelColor = design.ColorBorder
 	} else if b.hovered {
-		fill = design.ColorAccentHover
+		fill = fillHover
 	}
 
 	b.bg.FillColor = fill

@@ -266,9 +266,10 @@ type captureSelectorRenderer struct {
 func (r *captureSelectorRenderer) Layout(size fyne.Size) {
 	outerSize := fyne.NewSize(18, 18)
 	innerSize := fyne.NewSize(8, 8)
-	r.selector.outer.Move(fyne.NewPos((size.Width-outerSize.Width)/2, (size.Height-outerSize.Height)/2))
+	offsetX := float32(-3)
+	r.selector.outer.Move(fyne.NewPos((size.Width-outerSize.Width)/2+offsetX, (size.Height-outerSize.Height)/2))
 	r.selector.outer.Resize(outerSize)
-	r.selector.inner.Move(fyne.NewPos((size.Width-innerSize.Width)/2, (size.Height-innerSize.Height)/2))
+	r.selector.inner.Move(fyne.NewPos((size.Width-innerSize.Width)/2+offsetX, (size.Height-innerSize.Height)/2))
 	r.selector.inner.Resize(innerSize)
 }
 
@@ -788,15 +789,7 @@ func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyn
 }
 
 func NewDeviceSectionAddButton(onTapped func()) fyne.CanvasObject {
-	return newIconChromeButton(iconChromeButtonSpec{
-		NormalFill: color.Transparent,
-		HoverFill:  color.Transparent,
-		NormalIcon: theme.NewThemedResource(theme.ContentAddIcon()),
-		HoverIcon:  theme.NewThemedResource(theme.ContentAddIcon()),
-		IconSize:   fyne.NewSize(15, 15),
-		ButtonSize: fyne.NewSize(18, 18),
-		OnTapped:   onTapped,
-	})
+	return newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton("+", onTapped))
 }
 
 func newSectionCardHeader(titleText fyne.CanvasObject, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, leadingGap float32) fyne.CanvasObject {

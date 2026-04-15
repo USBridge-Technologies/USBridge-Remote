@@ -168,6 +168,7 @@ type LocalizedStrings struct {
 	Error                        string
 	Information                  string
 	Confirmation                 string
+	TailscaleLogoutConfirm       string
 	Done                         string
 	Success                      string
 	Close                        string
@@ -511,6 +512,7 @@ func EN() *LocalizedStrings {
 		Error:                        "Error",
 		Information:                  "Information",
 		Confirmation:                 "Confirmation",
+		TailscaleLogoutConfirm:       "Do you want to sign out of Tailscale?",
 		Done:                         "Done",
 		Success:                      "Success",
 		Close:                        "Close",
@@ -740,6 +742,7 @@ func ES() *LocalizedStrings {
 	locale.Error = "Error"
 	locale.Information = "Informacion"
 	locale.Confirmation = "Confirmacion"
+	locale.TailscaleLogoutConfirm = "Deseas cerrar sesion en Tailscale?"
 	locale.Success = "Exito"
 	locale.Done = "Hecho"
 	locale.Close = "Cerrar"
@@ -798,6 +801,7 @@ func UK() *LocalizedStrings {
 	locale.Cancel = "Скасувати"
 	locale.Yes = "Так"
 	locale.No = "Ні"
+	locale.TailscaleLogoutConfirm = "Вийти з Tailscale?"
 	return locale
 }
 
@@ -853,6 +857,7 @@ func UKProper() *LocalizedStrings {
 	locale.Error = "Помилка"
 	locale.Information = "Інформація"
 	locale.Confirmation = "Підтвердження"
+	locale.TailscaleLogoutConfirm = "Вийти з Tailscale?"
 	locale.Success = "Успіх"
 	locale.Done = "Готово"
 	locale.Close = "Закрити"
