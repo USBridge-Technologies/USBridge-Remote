@@ -1035,8 +1035,12 @@ func (c *USBClient) BootstrapWireGuard(request *models.WireGuardBootstrapRequest
 }
 
 func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
+	return c.GetTailscaleStatusWithContext(context.Background())
+}
+
+func (c *USBClient) GetTailscaleStatusWithContext(ctx context.Context) (*models.TailscaleStatus, error) {
 	logrus.Infof("🛰️ [API-TS] GET %s/api/auth/tailscale/status", c.baseURL)
-	resp, err := c.makeRequest("GET", "/api/auth/tailscale/status", nil)
+	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/auth/tailscale/status", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1062,13 +1066,17 @@ func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
 }
 
 func (c *USBClient) RegisterTailscale(request *models.TailscaleRegistrationRequest) (*models.TailscaleStatus, error) {
+	return c.RegisterTailscaleWithContext(context.Background(), request)
+}
+
+func (c *USBClient) RegisterTailscaleWithContext(ctx context.Context, request *models.TailscaleRegistrationRequest) (*models.TailscaleStatus, error) {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal tailscale registration request: %v", err)
 	}
 	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
 
-	resp, err := c.makeRequest("POST", "/api/auth/tailscale/register", requestJSON)
+	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/auth/tailscale/register", requestJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,10 +1174,10 @@ func (c *USBClient) StopVideoLegacy() error {
 
 // makeRequest выполняет HTTP запрос
 func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, error) {
-	return c.makeRequestWithHeaders(method, endpoint, body, nil)
+	return c.makeRequestWithContext(context.Background(), method, endpoint, body, nil)
 }
 
-func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
+func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
 	url := c.baseURL + endpoint
 
 	var bodyReader io.Reader
@@ -1177,7 +1185,7 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 		bodyReader = bytes.NewReader(body)
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
@@ -1214,6 +1222,10 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 
 	c.noteSuccessfulTransportRequest()
 	return respBody, nil
+}
+
+func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte, headers map[string]string) ([]byte, error) {
+	return c.makeRequestWithContext(context.Background(), method, endpoint, body, headers)
 }
 
 // makeRequestWithAcceptStatuses выполняет HTTP запрос, принимая указанные статус-коды как успешные
@@ -1271,7 +1283,11 @@ func IsHTTPNotFound(err error) bool {
 
 // TestConnection проверяет соединение с USBridge 2
 func (c *USBClient) TestConnection() error {
-	_, err := c.makeRequest("GET", "/api/healthz", nil)
+	return c.TestConnectionWithContext(context.Background())
+}
+
+func (c *USBClient) TestConnectionWithContext(ctx context.Context) error {
+	_, err := c.makeRequestWithContext(ctx, "GET", "/api/healthz", nil)
 	if err == nil {
 		logrus.Info("✅ Соединение с USBridge 2 установлено")
 		return nil
@@ -1279,11 +1295,15 @@ func (c *USBClient) TestConnection() error {
 
 	// Совместимость со старым сервером без healthz.
 	if IsHTTPNotFound(err) {
-		if _, fallbackErr := c.GetDeviceInfo(); fallbackErr != nil {
-			return fmt.Errorf("unable to connect to USBridge 2: %v", fallbackErr)
+		// GetDeviceInfo uses makeRequest, which uses makeRequestWithContext(Background)
+		// For consistency, we should probably add context to GetDeviceInfo too, 
+		// but let's just use makeRequestWithContext directly here for the fallback check.
+		_, err := c.makeRequestWithContext(ctx, "GET", "/api/device/info", nil)
+		if err == nil {
+			logrus.Info("✅ Соединение с USBridge 2 установлено (fallback)")
+			return nil
 		}
-		logrus.Info("✅ Соединение с USBridge 2 установлено")
-		return nil
+		return fmt.Errorf("unable to connect to USBridge 2: %v", err)
 	}
 
 	return fmt.Errorf("unable to connect to USBridge 2: %v", err)
