@@ -341,6 +341,12 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 				currentSize := fd.fullscreenWindow.Canvas().Size()
 				if currentSize != lastSize {
 					logrus.Infof("🔄 Обнаружено изменение размера экрана: %v -> %v", lastSize, currentSize)
+					// Если canvas вырос по высоте — экранная клавиатура закрылась.
+					// Сбрасываем IME-spacer на случай если onUnfocused не сработал
+					// (например, при закрытии keyboard кнопкой «назад»).
+					if currentSize.Height > lastSize.Height && lastSize.Height > 0 && fd.virtualKeyboard != nil {
+						fd.virtualKeyboard.ResetIMEState()
+					}
 					updatePositions()
 					lastSize = currentSize
 				}

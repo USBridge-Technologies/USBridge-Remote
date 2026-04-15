@@ -838,8 +838,25 @@ func (vk *VirtualKeyboard) adjustForIME(open bool) {
 	}
 	// Обновляем внутренний layout — imeSpacerCont получит новый MinSize
 	vk.imeSpacerCont.Refresh()
+	// Принудительно обновляем весь контейнер клавиатуры, чтобы MinSize
+	// пересчитался в родительских Border-контейнерах.
+	if vk.keyboard != nil {
+		vk.keyboard.Refresh()
+	}
 	// Уведомляем родителя чтобы он перечитал MinSize нашей клавиатуры и переложил контейнеры
 	if vk.onIMEChanged != nil {
 		vk.onIMEChanged(open)
 	}
+}
+
+// ResetIMEState сбрасывает отступ IME до нуля.
+// Вызывается извне (например, из тикера изменения размера canvas) когда
+// системная клавиатура была закрыта без потери фокуса полем ввода,
+// и поэтому onUnfocused не сработал автоматически.
+func (vk *VirtualKeyboard) ResetIMEState() {
+	if vk.imeSpacer == nil || vk.imeSpacer.height == 0 {
+		return
+	}
+	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
+	vk.adjustForIME(false)
 }
