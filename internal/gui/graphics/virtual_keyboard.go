@@ -1,8 +1,9 @@
 package graphics
 
 import (
-	"image/color"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/input"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -63,26 +64,21 @@ func (c *centerKeyboardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(c.width, c.height)
 }
 
-// backspaceEntry — Entry, который при Backspace всегда отправляет его на хост (даже при пустом поле)
+// backspaceEntry — поле ввода для Android, которое позволяет ловить системные клавиши
 type backspaceEntry struct {
 	widget.Entry
-	onBackspaceAlways func()
-	onBackspaceTyped  func()
+	onKey func(fyne.KeyName)
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
-	if key.Name == fyne.KeyBackspace {
-		if e.onBackspaceTyped != nil {
-			e.onBackspaceTyped()
-		}
-		if e.onBackspaceAlways != nil {
-			// Отправляем Backspace на хост при пустом поле (OnChanged не сработает)
-			if len([]rune(e.Entry.Text)) == 0 {
-				e.onBackspaceAlways()
-			}
-		}
+	if e.onKey != nil {
+		e.onKey(key.Name)
 	}
 	e.Entry.TypedKey(key)
+}
+
+func (e *backspaceEntry) TypedRune(r rune) {
+	e.Entry.TypedRune(r)
 }
 
 // VirtualKeyboard виртуальная клавиатура для полноэкранного режима
@@ -179,88 +175,93 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	return vk.createKeyboardLayoutDesktop()
 }
 
-// createKeyboardLayoutAndroid — компактная панель для Android: 2 строки — слева кнопки и поле ввода, справа D-pad; F — popup с двумя столбцами F1–F12 и F13–F24.
-// Текст показывается как бегущая строка (одна строка с прокруткой), каждый символ сразу отправляется на хост.
 func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	// Поле ввода: при нажатии открывается системная клавиатура Android.
-	// Введённый текст отображается в строке (как бегущая строка), каждый символ сразу отправляется на хост.
 	textHint := &backspaceEntry{}
+	textHint.Password = true // Отключает Т9 и автозамену
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
+
 	var prevText string
-	var suppressOnChanged bool
-	var pendingBackspaces int
-	textHint.onBackspaceAlways = func() {
-		if vk.onKeyPress != nil {
-			vk.onKeyPress(42, 0) // HID Backspace — всегда отправляем, даже при пустом поле
+	var suppress bool
+
+	textHint.onKey = func(keyName fyne.KeyName) {
+		// Обрабатываем Enter и Tab напрямую, так как они не меняют текст в OnChanged
+		if keyName == fyne.KeyReturn || keyName == fyne.KeyTab {
+			code := input.GetKeyCode(keyName)
+			if code != 0 && vk.onKeyPress != nil {
+				vk.onKeyPress(code, 0)
+			}
+		} else if keyName == fyne.KeyBackspace {
+			// Если поле пустое, OnChanged не сработает (текст не изменится), 
+			// поэтому отправляем Backspace напрямую отсюда.
+			if textHint.Text == "" && vk.onKeyPress != nil {
+				vk.onKeyPress(42, 0) // HID Backspace
+			}
 		}
 	}
-	textHint.onBackspaceTyped = func() {
-		pendingBackspaces++
-	}
-	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboard + " — " + i18n.Current.VirtualKeyboardClickToType)
-	// Entry по умолчанию — одна строка, длинный текст прокручивается (бегущая строка)
+
 	textHint.OnChanged = func(newText string) {
-		if suppressOnChanged {
-			prevText = newText
+		if suppress {
 			return
 		}
 
-		prevRunes := []rune(prevText)
 		newRunes := []rune(newText)
+		prevRunes := []rune(prevText)
 
-		// Android IME может переписывать уже введённый текст целиком
-		// после пробела/автокоррекции. На хост символы уже были отправлены,
-		// поэтому здесь обрабатываем только простой append в конец и простое
-		// удаление с конца, а compose/replace игнорируем.
-		switch {
-		case len(newRunes) >= len(prevRunes) && hasRunePrefix(newRunes, prevRunes):
-			if vk.onRuneTyped != nil {
-				for i := len(prevRunes); i < len(newRunes); i++ {
+		if len(newRunes) > len(prevRunes) {
+			// Добавлены новые символы (в конец или при автозамене)
+			// Отправляем всё, что добавилось в хвост
+			for i := len(prevRunes); i < len(newRunes); i++ {
+				if vk.onRuneTyped != nil {
 					vk.onRuneTyped(newRunes[i])
 				}
 			}
-		case len(newRunes) < len(prevRunes) && hasRunePrefix(prevRunes, newRunes):
-			if vk.onKeyPress != nil && pendingBackspaces > 0 {
-				toSend := len(prevRunes) - len(newRunes)
-				if toSend > pendingBackspaces {
-					toSend = pendingBackspaces
-				}
-				for i := 0; i < toSend; i++ {
+		} else if len(newRunes) < len(prevRunes) {
+			// Текст уменьшился -> нажали Backspace (или IME удалил слово)
+			// Отправляем ровно столько Backspace, сколько символов исчезло
+			backspaces := len(prevRunes) - len(newRunes)
+			if vk.onKeyPress != nil {
+				for i := 0; i < backspaces; i++ {
 					vk.onKeyPress(42, 0) // HID Backspace
 				}
 			}
 		}
 
-		if pendingBackspaces > 0 {
-			delta := len(prevRunes) - len(newRunes)
-			if delta < 0 {
-				delta = 0
-			}
-			if delta >= pendingBackspaces {
-				pendingBackspaces = 0
-			} else {
-				pendingBackspaces -= delta
-			}
-		}
-
 		prevText = newText
+
+		// Сбрасываем поле реже, чтобы не мешать IME при быстром наборе,
+		// но достаточно часто, чтобы не переполнять буфер.
+		if len(newRunes) > 100 {
+			suppress = true
+			textHint.SetText("")
+			prevText = ""
+			suppress = false
+		}
 	}
+
+	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
 	// Кнопка F: popup с двумя столбцами — F1–F12 слева, F13–F24 справа (при выборе — отправить клавишу и закрыть)
 	f1_12_Codes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
 	f1_12_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
 	f13_24_Codes := []int{104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115}
 	f13_24_Labels := []string{"F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"}
-	makeFColumn := func(labels []string) *fyne.Container {
+	makeFColumn := func(labels []string, codes []int) *fyne.Container {
 		col := container.NewVBox()
-		for _, label := range labels {
-			col.Add(widget.NewButton(label, nil))
+		for i, label := range labels {
+			code := codes[i]
+			btn := widget.NewButton(label, func() {
+				if vk.onKeyPress != nil {
+					vk.onKeyPress(code, 0)
+				}
+			})
+			col.Add(btn)
 		}
 		return col
 	}
-	fCol1 := makeFColumn(f1_12_Labels)
-	fCol2 := makeFColumn(f13_24_Labels)
+	fCol1 := makeFColumn(f1_12_Labels, f1_12_Codes)
+	fCol2 := makeFColumn(f13_24_Labels, f13_24_Codes)
 	fPopupContent := container.NewHBox(fCol1, fCol2)
 	fBtn := widget.NewButton("Fx", nil)
 	fBtn.OnTapped = func() {
@@ -272,31 +273,19 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 		// Показываем popup выше кнопки, чтобы не наползал на системный бар (назад/домой/меню)
 		contentH := fPopupContent.MinSize().Height
 		popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y-contentH))
-		// При нажатии на любую F-кнопку — отправить HID и закрыть popup
-		for i, obj := range fCol1.Objects {
-			if btn, ok := obj.(*widget.Button); ok {
-				code := f1_12_Codes[i]
-				btn.OnTapped = func(c int) func() {
-					return func() {
-						if vk.onKeyPress != nil {
-							vk.onKeyPress(c, 0)
+		
+		// Настраиваем закрытие попапа при нажатии
+		for _, colObj := range fPopupContent.Objects {
+			if col, ok := colObj.(*fyne.Container); ok {
+				for _, btnObj := range col.Objects {
+					if btn, ok := btnObj.(*widget.Button); ok {
+						oldOnTapped := btn.OnTapped
+						btn.OnTapped = func() {
+							oldOnTapped()
+							popup.Hide()
 						}
-						popup.Hide()
 					}
-				}(code)
-			}
-		}
-		for i, obj := range fCol2.Objects {
-			if btn, ok := obj.(*widget.Button); ok {
-				code := f13_24_Codes[i]
-				btn.OnTapped = func(c int) func() {
-					return func() {
-						if vk.onKeyPress != nil {
-							vk.onKeyPress(c, 0)
-						}
-						popup.Hide()
-					}
-				}(code)
+				}
 			}
 		}
 	}
@@ -348,32 +337,22 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 
 	// Строка с полем ввода: Entry (подстраивается под экран) + кнопка очистки справа
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
-		suppressOnChanged = true
+		suppress = true
 		textHint.SetText("")
 		prevText = ""
-		pendingBackspaces = 0
-		suppressOnChanged = false
+		suppress = false
 	})
 	clearBtn.Importance = widget.MediumImportance
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
 	
-	// Учитываем системный док на Android
-	bottomInset := float32(0)
-	if fyne.CurrentDevice().IsMobile() {
-		bottomInset = 40
-	}
-
-	mainWithInset := container.NewBorder(nil, canvas.NewRectangle(color.Transparent), nil, nil, main)
-	if bottomInset > 0 {
-		rect := canvas.NewRectangle(color.Transparent)
-		rect.SetMinSize(fyne.NewSize(1, bottomInset))
-		mainWithInset = container.NewBorder(nil, rect, nil, nil, main)
-	}
-
+	// Учитываем системный док на Android.
+	// Используем MobileFooterBottomInset, который добавляет 40px на мобильных устройствах.
 	background := canvas.NewRectangle(theme.BackgroundColor())
 	background.FillColor = theme.BackgroundColor()
-	return container.NewStack(background, mainWithInset)
+
+	paddedMain := view.NewInset(main, 4, 4, 4, view.MobileFooterBottomInset(4))
+	return container.NewStack(background, paddedMain)
 }
 
 // createKeyboardLayoutDesktop — раскладка с фиксированной сеткой как у аппаратной клавиатуры (каждая кнопка на своём месте).

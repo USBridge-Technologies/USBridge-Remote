@@ -622,14 +622,13 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			canvasSize := vw.parentWindow.Canvas().Size()
 			logrus.Infof("⌨️ [DEBUG] Canvas Size: %v", canvasSize)
 
-			keyboardHeight := float32(300)
-			keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
-			keyboardLayout.Resize(keyboardSize)
+			// Вместо фиксированной высоты позволяем контейнеру занимать столько, сколько нужно его содержимому.
+			// Fyne сам поднимет его вверх, так как он находится в нижней части Layout.
+			keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))
 			keyboardLayout.Move(fyne.NewPos(0, 0))
-			logrus.Infof("⌨️ [DEBUG] keyboardLayout after resize: size=%v, position=%v", keyboardLayout.Size(), keyboardLayout.Position())
 
 			vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
-			vw.contentContainer.Resize(keyboardSize)
+			vw.contentContainer.Resize(keyboardLayout.Size())
 			vw.contentContainer.Show()
 			vw.container.Refresh()
 			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
