@@ -331,20 +331,28 @@ func (b *connectionDialogPrimaryButton) refreshVisuals() {
 }
 
 func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.CanvasObject {
+	labelInsetTop := float32(10)
+	if fyne.CurrentDevice().IsMobile() {
+		labelInsetTop = 2 // Very compact on mobile
+	}
 	return container.NewVBox(
-		view.NewInset(newConnectionDialogLabel(label), 10, 0, 0, 0),
+		view.NewInset(newConnectionDialogLabel(label), labelInsetTop, 0, 0, 0),
 		view.NewInset(field, 0, 0, 0, 2),
 	)
 }
 
 func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, actions fyne.CanvasObject) fyne.CanvasObject {
+	labelInsetTop := float32(10)
+	if fyne.CurrentDevice().IsMobile() {
+		labelInsetTop = 2 // Very compact on mobile
+	}
 	labelRow := container.NewHBox(
 		newConnectionDialogLabel(label),
 		layout.NewSpacer(),
 		actions,
 	)
 	return container.NewVBox(
-		view.NewInset(labelRow, 10, 0, 0, 0),
+		view.NewInset(labelRow, labelInsetTop, 0, 0, 0),
 		view.NewInset(field, 0, 0, 0, 2),
 	)
 }
@@ -400,83 +408,7 @@ func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObjec
 	return label
 }
 
-func showConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
-	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
-	title.Alignment = fyne.TextAlignCenter
-
-	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), nil)
-	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
-
-	bodyObjects := []fyne.CanvasObject{titleBar}
-	if feedback != nil {
-		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
-	}
-
-	buttonItems := make([]fyne.CanvasObject, 0, 4)
-	if deleteBtn != nil && saveBtn != nil && connectBtn == nil {
-		buttonItems = append(buttonItems, deleteBtn, saveBtn)
-	} else if connectBtn != nil && saveBtn != nil && deleteBtn == nil {
-		buttonItems = append(buttonItems, connectBtn, saveBtn)
-	} else {
-		if connectBtn != nil {
-			buttonItems = append(buttonItems, connectBtn)
-		}
-		if saveBtn != nil {
-			buttonItems = append(buttonItems, saveBtn)
-		}
-		if deleteBtn != nil {
-			buttonItems = append(buttonItems, deleteBtn)
-		}
-	}
-
-	columns := len(buttonItems)
-	if columns > 3 {
-		columns = 2
-	}
-	if columns == 0 {
-		columns = 1
-	}
-	var buttons fyne.CanvasObject
-	if columns == 2 && len(buttonItems) == 2 {
-		buttons = container.New(&connectionDialogButtonsLayout{gap: connectionDialogButtonsGap}, buttonItems...)
-	} else {
-		buttons = container.NewGridWithColumns(columns, buttonItems...)
-	}
-	bodyObjects = append(
-		bodyObjects,
-		view.NewInset(form, 0, 0, 16, 14),
-		buttons,
-	)
-	body := container.NewVBox(bodyObjects...)
-
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
-
-	panel := container.NewStack(
-		bg,
-		view.NewInset(body, 18, 18, 16, 16),
-		border,
-	)
-
-	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			return connectionDialogPanelSize(panel, canvasSize)
-		},
-	})
-	closeBtn.onTapped = func() {
-		popup.Hide()
-	}
-	return popup
-}
-
-func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject, keyboardActive func() bool) *widget.PopUp {
+func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
 
@@ -542,24 +474,17 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 
 	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
 		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		DimColor: color.Transparent, // No more gray/dim background
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
-			centerY := (canvasSize.Height - panelSize.Height) / 2
-			if !fyne.CurrentDevice().IsMobile() || keyboardActive == nil || !keyboardActive() {
-				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, centerY)
-			}
-
 			topMargin := clampFloat32(canvasSize.Height*0.025, 12, 22)
-			bottomMargin := clampFloat32(canvasSize.Height*0.04, 22, 40)
-			keyboardHeight := clampFloat32(canvasSize.Height*0.40, 220, 380)
-			maxY := canvasSize.Height - keyboardHeight - panelSize.Height - bottomMargin
-			if maxY < topMargin {
-				maxY = topMargin
+			if fyne.CurrentDevice().IsMobile() {
+				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, topMargin)
 			}
-			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, minFloat32(centerY, maxY))
+			centerY := (canvasSize.Height - panelSize.Height) / 2
+			return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, centerY)
 		},
 	})
 	closeBtn.onTapped = func() {
@@ -569,35 +494,10 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 }
 
 func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec connectionDialogSpec) *widget.PopUp {
-	var d *widget.PopUp
-	var focusedInputs int
-	refreshPopupLayout := func() {
-		if d == nil || parent == nil {
-			return
-		}
-		size := parent.Canvas().Size()
-		fyne.Do(func() {
-			if d == nil || !d.Visible() {
-				return
-			}
-			d.Move(fyne.NewPos(0, 0))
-			d.Resize(size)
-			d.Refresh()
-		})
-	}
-	handleFocusChanged := func(focused bool) {
-		if focused {
-			focusedInputs++
-		} else if focusedInputs > 0 {
-			focusedInputs--
-		}
-		refreshPopupLayout()
-	}
-
-	nameEntry := newConnectionNameEntry(spec.nameValue, handleFocusChanged)
-	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, handleFocusChanged)
-	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, handleFocusChanged)
-	tokenEntry := newConnectionTokenEntry(spec.tokenValue, handleFocusChanged)
+	nameEntry := newConnectionNameEntry(spec.nameValue, nil)
+	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
+	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
+	tokenEntry := newConnectionTokenEntry(spec.tokenValue, nil)
 	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry, window)
 
 	var feedback fyne.CanvasObject
@@ -619,6 +519,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteLabel = i18n.Current.DeleteButton
 	}
 
+	var d *widget.PopUp
 	var connectBtn fyne.CanvasObject
 	var deleteBtn fyne.CanvasObject
 	var saveBtn fyne.CanvasObject
@@ -671,9 +572,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn, func() bool {
-		return fyne.CurrentDevice().IsMobile() && focusedInputs > 0
-	})
+	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn)
 	return d
 }
 
@@ -1073,6 +972,10 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 	margin := clampFloat32(minFloat32(canvasSize.Width, canvasSize.Height)*0.04, 20, 28)
 	maxWidth := canvasSize.Width - margin*2
 	maxHeight := canvasSize.Height - margin*2
+
+	// We don't dynamically change maxHeight on mobile anymore to avoid resizing jumps.
+	// The compact fields and top positioning handle the layout.
+
 	if maxWidth <= 0 {
 		maxWidth = canvasSize.Width
 	}
