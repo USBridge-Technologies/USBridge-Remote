@@ -1,6 +1,7 @@
 package graphics
 
 import (
+	"image/color"
 	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
@@ -356,9 +357,23 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	clearBtn.Importance = widget.MediumImportance
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
+	
+	// Учитываем системный док на Android
+	bottomInset := float32(0)
+	if fyne.CurrentDevice().IsMobile() {
+		bottomInset = 40
+	}
+
+	mainWithInset := container.NewBorder(nil, canvas.NewRectangle(color.Transparent), nil, nil, main)
+	if bottomInset > 0 {
+		rect := canvas.NewRectangle(color.Transparent)
+		rect.SetMinSize(fyne.NewSize(1, bottomInset))
+		mainWithInset = container.NewBorder(nil, rect, nil, nil, main)
+	}
+
 	background := canvas.NewRectangle(theme.BackgroundColor())
 	background.FillColor = theme.BackgroundColor()
-	return container.NewStack(background, main)
+	return container.NewStack(background, mainWithInset)
 }
 
 // createKeyboardLayoutDesktop — раскладка с фиксированной сеткой как у аппаратной клавиатуры (каждая кнопка на своём месте).

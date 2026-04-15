@@ -269,12 +269,14 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fd.ui.KeyboardButton.Move(fyne.NewPos(10, 10))
 
 		keyboardHeight := float32(300)
-		keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardHeight))
+		keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
+		keyboardLayout.Resize(keyboardSize)
 
 		logrus.Infof("⌨️ [DEBUG] Позиции установлены:")
 		logrus.Infof("⌨️ [DEBUG]   Canvas Size: %v", canvasSize)
 		logrus.Infof("⌨️ [DEBUG]   Button Position: %v, Size: %v", fd.ui.KeyboardButton.Position(), fd.ui.KeyboardButton.Size())
 		logrus.Infof("⌨️ [DEBUG]   Keyboard Height: %v", keyboardHeight)
+		logrus.Infof("⌨️ [DEBUG]   Full Keyboard Height (with insets): %v", keyboardSize.Height)
 		logrus.Infof("⌨️ [DEBUG]   Keyboard Size: %v", keyboardLayout.Size())
 	}
 

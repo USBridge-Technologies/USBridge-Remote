@@ -622,7 +622,8 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			canvasSize := vw.parentWindow.Canvas().Size()
 			logrus.Infof("⌨️ [DEBUG] Canvas Size: %v", canvasSize)
 
-			keyboardSize := fyne.NewSize(canvasSize.Width, 300)
+			keyboardHeight := float32(300)
+			keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
 			keyboardLayout.Resize(keyboardSize)
 			keyboardLayout.Move(fyne.NewPos(0, 0))
 			logrus.Infof("⌨️ [DEBUG] keyboardLayout after resize: size=%v, position=%v", keyboardLayout.Size(), keyboardLayout.Position())
