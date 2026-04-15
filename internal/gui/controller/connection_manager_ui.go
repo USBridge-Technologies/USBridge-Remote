@@ -172,17 +172,13 @@ func (cm *ConnectionManager) updateConnectionProtocol(idx int, protocol string) 
 func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
-
-	switch {
-	case internalHost != "" && tailscaleHost != "":
-		return "LAN: " + internalHost + "\nTS: " + tailscaleHost
-	case tailscaleHost != "":
-		return "TS: " + tailscaleHost
-	case internalHost != "":
-		return "LAN: " + internalHost
-	default:
-		return "Address: unavailable"
+	if internalHost == "" {
+		internalHost = "none"
 	}
+	if tailscaleHost == "" {
+		tailscaleHost = "none"
+	}
+	return "LAN: " + internalHost + "\nTS: " + tailscaleHost
 }
 
 func (cm *ConnectionManager) GetContainer() *fyne.Container {

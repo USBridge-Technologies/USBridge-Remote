@@ -595,11 +595,11 @@ func EN() *LocalizedStrings {
 		VideoJPEGRTPHint:            "JPEG RTP: for MJPEG sources the server forwards JPEG directly; for YUYV sources it encodes JPEG before sending.",
 		VideoRawYUYVHint:            "RAW YUYV: uncompressed video over RTP. Very high bandwidth, use only on fast local links.",
 		VideoModeH264Name:           "H.264",
-		VideoModeH264Description:    "Capture -> H.264 encode -> RTP/UDP. Best compatibility and bandwidth.",
+		VideoModeH264Description:    "UVC capture → H.264 encode → RTP/UDP",
 		VideoModeJPEGName:           "JPEG RTP",
-		VideoModeJPEGDescription:    "JPEG over RTP. Direct passthrough for MJPEG sources, server-side JPEG encode for YUYV sources.",
+		VideoModeJPEGDescription:    "MJPEG direct / YUYV encode → RTP",
 		VideoModeRawYUYVName:        "RAW YUYV",
-		VideoModeRawYUYVDescription: "Uncompressed YUYV over RTP with direct client rendering. Highest bandwidth, lowest processing.",
+		VideoModeRawYUYVDescription: "YUYV (Uncompressed) → RTP → Direct Render",
 
 		// GStreamer Status
 		GStreamerConnected:    "GStreamer RTP/UDP connection established",

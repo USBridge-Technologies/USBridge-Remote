@@ -790,11 +790,13 @@ func (vsd *VideoStartDialog) setDefaultFPS(defaultFPS int) {
 
 func (vsd *VideoStartDialog) refreshModeUI() {
 	modeID := vsd.selectedModeID()
-	description := ""
-	for _, mode := range vsd.streamModes {
-		if mode.ID == modeID {
-			description = mode.Description
-			break
+	description := localizedVideoModeDescription(modeID)
+	if description == "" {
+		for _, mode := range vsd.streamModes {
+			if mode.ID == modeID {
+				description = mode.Description
+				break
+			}
 		}
 	}
 	vsd.modeDescription.Text = description
@@ -811,6 +813,19 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 		vsd.modeDetailsSlot.Objects = []fyne.CanvasObject{vsd.modeDetailsSlot.Objects[0], vsd.bitrateBlock}
 	}
 	vsd.modeDetailsSlot.Refresh()
+}
+
+func localizedVideoModeDescription(modeID string) string {
+	switch modeID {
+	case models.VideoModeH264:
+		return i18n.Current.VideoModeH264Description
+	case models.VideoModeJPEGRTP:
+		return i18n.Current.VideoModeJPEGDescription
+	case models.VideoModeRawYUYV:
+		return i18n.Current.VideoModeRawYUYVDescription
+	default:
+		return ""
+	}
 }
 
 func (vsd *VideoStartDialog) selectedModeID() string {

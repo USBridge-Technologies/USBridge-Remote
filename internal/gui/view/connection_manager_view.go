@@ -582,7 +582,8 @@ type connectionNameButton struct {
 
 	bg       *canvas.Rectangle
 	titleTxt *adaptiveNameText
-	subTxt   *canvas.Text
+	subTxt   *fyne.Container
+	subLines []*canvas.Text
 	icon     *canvas.Image
 }
 
@@ -636,19 +637,19 @@ func (b *connectionNameButton) MinSize() fyne.Size {
 	subWidth := float32(0)
 	subLines := strings.Split(b.subtitle, "\n")
 	for _, line := range subLines {
-		size := fyne.MeasureText(line, 10, fyne.TextStyle{})
+		size := fyne.MeasureText(line, 9, fyne.TextStyle{})
 		if size.Width > subWidth {
 			subWidth = size.Width
 		}
 	}
-	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 10, fyne.TextStyle{}).Height
+	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 9, fyne.TextStyle{}).Height
 	subLineCount := len(subLines)
 	if subLineCount < 1 {
 		subLineCount = 1
 	}
 	subHeight := lineHeight * float32(subLineCount)
 	width := maxFloat32(title.Width, subWidth) + 34
-	height := title.Height + subHeight + 7
+	height := title.Height + subHeight + 12
 	return fyne.NewSize(width, height)
 }
 
@@ -656,12 +657,50 @@ func (b *connectionNameButton) preferredWidth() float32 {
 	title := fyne.MeasureText(b.title, 14, fyne.TextStyle{Bold: true})
 	subWidth := float32(0)
 	for _, line := range strings.Split(b.subtitle, "\n") {
-		size := fyne.MeasureText(line, 10, fyne.TextStyle{})
+		size := fyne.MeasureText(line, 9, fyne.TextStyle{})
 		if size.Width > subWidth {
 			subWidth = size.Width
 		}
 	}
 	return maxFloat32(title.Width, subWidth) + 34
+}
+
+func (b *connectionNameButton) subtitleHeight() float32 {
+	subLineCount := len(strings.Split(b.subtitle, "\n"))
+	if subLineCount < 1 {
+		subLineCount = 1
+	}
+	lineHeight := fyne.MeasureText("TS: 100.100.100.100", 9, fyne.TextStyle{}).Height
+	gap := float32(2)
+	extraGaps := 0
+	if subLineCount > 1 {
+		extraGaps = subLineCount - 1
+	}
+	return lineHeight*float32(subLineCount) + gap*float32(extraGaps)
+}
+
+func (b *connectionNameButton) rebuildSubtitle() {
+	lines := strings.Split(b.subtitle, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+
+	objects := make([]fyne.CanvasObject, 0, len(lines))
+	b.subLines = make([]*canvas.Text, 0, len(lines))
+	for _, line := range lines {
+		txt := canvas.NewText(line, design.ColorTextMuted)
+		txt.TextSize = 9
+		txt.Alignment = fyne.TextAlignLeading
+		b.subLines = append(b.subLines, txt)
+		objects = append(objects, txt)
+	}
+
+	if b.subTxt == nil {
+		b.subTxt = container.New(&connectionSubtitleLayout{gap: 2}, objects...)
+		return
+	}
+	b.subTxt.Objects = objects
+	b.subTxt.Refresh()
 }
 
 func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
@@ -673,9 +712,7 @@ func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
 	b.titleTxt.style = fyne.TextStyle{Bold: true}
 	b.titleTxt.SetColor(design.ColorTextLight)
 	b.titleTxt.SetText(b.title)
-	b.subTxt = canvas.NewText(b.subtitle, design.ColorTextMuted)
-	b.subTxt.TextSize = 10
-	b.subTxt.Alignment = fyne.TextAlignLeading
+	b.rebuildSubtitle()
 	b.icon = canvas.NewImageFromResource(theme.DocumentCreateIcon())
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(13, 13))
@@ -696,15 +733,22 @@ func (b *connectionNameButton) refreshVisuals() {
 	b.bg.FillColor = color.Transparent
 	b.titleTxt.SetText(b.title)
 	b.titleTxt.SetColor(design.ColorTextLight)
-	b.subTxt.Text = b.subtitle
-	b.subTxt.Color = design.ColorTextMuted
+	b.rebuildSubtitle()
 	b.icon.Translucency = 0
 
 	if b.disabled {
 		b.titleTxt.SetColor(design.ColorBorder)
-		b.subTxt.Color = design.ColorBorder
 		b.icon.Translucency = 0.35
-	} else if b.hovered {
+	}
+	subColor := design.ColorTextMuted
+	if b.disabled {
+		subColor = design.ColorBorder
+	}
+	for _, line := range b.subLines {
+		line.Color = subColor
+		line.Refresh()
+	}
+	if !b.disabled && b.hovered {
 		b.bg.FillColor = design.ColorSurfaceLight
 	}
 
@@ -725,9 +769,9 @@ func (r *connectionNameButtonRenderer) Layout(size fyne.Size) {
 	r.button.titleTxt.Move(fyne.NewPos(8, 3))
 	r.button.titleTxt.Resize(fyne.NewSize(titleWidth, r.button.titleTxt.MinSize().Height))
 
-	subY := float32(20)
+	subY := float32(24)
 	r.button.subTxt.Move(fyne.NewPos(8, subY))
-	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), r.button.subTxt.MinSize().Height))
+	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), r.button.subtitleHeight()))
 
 	iconSize := fyne.NewSize(13, 13)
 	r.button.icon.Resize(iconSize)
@@ -752,6 +796,39 @@ func (r *connectionNameButtonRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *connectionNameButtonRenderer) Destroy() {}
+
+type connectionSubtitleLayout struct {
+	gap float32
+}
+
+func (l *connectionSubtitleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	y := float32(0)
+	for _, obj := range objects {
+		min := obj.MinSize()
+		obj.Move(fyne.NewPos(0, y))
+		obj.Resize(fyne.NewSize(size.Width, min.Height))
+		y += min.Height + l.gap
+	}
+}
+
+func (l *connectionSubtitleLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(0, 0)
+	}
+	width := float32(0)
+	height := float32(0)
+	for i, obj := range objects {
+		min := obj.MinSize()
+		if min.Width > width {
+			width = min.Width
+		}
+		height += min.Height
+		if i < len(objects)-1 {
+			height += l.gap
+		}
+	}
+	return fyne.NewSize(width, height)
+}
 
 type connectionCompactContentLayout struct{}
 
