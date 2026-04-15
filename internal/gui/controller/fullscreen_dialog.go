@@ -232,6 +232,16 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
+	if fyne.CurrentDevice().IsMobile() {
+		// Когда Android IME открывается, обновляем layout fullscreen окна
+		fd.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
+			fyne.Do(func() {
+				if fd.ui != nil {
+					fd.ui.VideoWithKeyboard.Refresh()
+				}
+			})
+		})
+	}
 	keyboardLayout := fd.virtualKeyboard.GetKeyboardLayout()
 	logrus.Infof("⌨️ [DEBUG] keyboardLayout получен: %v, MinSize: %v", keyboardLayout != nil, keyboardLayout.MinSize())
 	keyboardLayout.Hide()

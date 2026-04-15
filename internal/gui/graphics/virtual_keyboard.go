@@ -67,7 +67,9 @@ func (c *centerKeyboardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 // backspaceEntry — поле ввода для Android, которое позволяет ловить системные клавиши
 type backspaceEntry struct {
 	widget.Entry
-	onKey func(fyne.KeyName)
+	onKey       func(fyne.KeyName)
+	onFocused   func() // вызывается когда поле получает фокус (IME откроется)
+	onUnfocused func() // вызывается когда поле теряет фокус (IME закроется)
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
@@ -79,6 +81,36 @@ func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
 
 func (e *backspaceEntry) TypedRune(r rune) {
 	e.Entry.TypedRune(r)
+}
+
+func (e *backspaceEntry) FocusGained() {
+	e.Entry.FocusGained()
+	if e.onFocused != nil {
+		e.onFocused()
+	}
+}
+
+func (e *backspaceEntry) FocusLost() {
+	e.Entry.FocusLost()
+	if e.onUnfocused != nil {
+		e.onUnfocused()
+	}
+}
+
+// imeSpacerLayout — layout с динамической высотой для отступа под Android IME
+type imeSpacerLayout struct {
+	height float32
+}
+
+func (l *imeSpacerLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	for _, o := range objs {
+		o.Move(fyne.NewPos(0, 0))
+		o.Resize(size)
+	}
+}
+
+func (l *imeSpacerLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, l.height)
 }
 
 // VirtualKeyboard виртуальная клавиатура для полноэкранного режима
@@ -106,6 +138,11 @@ type VirtualKeyboard struct {
 	capsLockBtn *widget.Button
 	winBtn      *widget.Button
 	mobileInput *backspaceEntry
+
+	// Android IME — динамический отступ снизу, чтобы наша клавиатура оставалась над системной
+	imeSpacer     *imeSpacerLayout
+	imeSpacerCont *fyne.Container
+	onIMEChanged  func(open bool) // callback: родитель должен обновить layout
 }
 
 // NewVirtualKeyboard создает новую виртуальную клавиатуру.
@@ -345,14 +382,32 @@ func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	clearBtn.Importance = widget.MediumImportance
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
-	
-	// Учитываем системный док на Android.
-	// Используем MobileFooterBottomInset, который добавляет 40px на мобильных устройствах.
+
 	background := canvas.NewRectangle(theme.BackgroundColor())
 	background.FillColor = theme.BackgroundColor()
 
+	// IME spacer: динамический отступ снизу.
+	// Когда поле ввода получает фокус (Android IME открывается), spacer вырастает
+	// до ~42% высоты экрана, сдвигая нашу клавиатуру выше и освобождая видео.
+	vk.imeSpacer = &imeSpacerLayout{}
+	vk.imeSpacerCont = container.New(vk.imeSpacer)
+
+	textHint.onFocused = func() {
+		if fyne.CurrentDevice().IsMobile() {
+			vk.adjustForIME(true)
+		}
+	}
+	textHint.onUnfocused = func() {
+		if fyne.CurrentDevice().IsMobile() {
+			vk.adjustForIME(false)
+		}
+	}
+
+	// Нижний отступ для навбара Android (40px) вшит в paddedMain.
+	// IME spacer добавляется отдельно ниже, чтобы можно было его динамически менять.
 	paddedMain := view.NewInset(main, 4, 4, 4, view.MobileFooterBottomInset(4))
-	return container.NewStack(background, paddedMain)
+	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
+	return container.NewStack(background, innerLayout)
 }
 
 // createKeyboardLayoutDesktop — раскладка с фиксированной сеткой как у аппаратной клавиатуры (каждая кнопка на своём месте).
@@ -757,4 +812,34 @@ func (vk *VirtualKeyboard) BlurInput() {
 		return
 	}
 	vk.parentWindow.Canvas().Focus(nil)
+}
+
+// SetOnIMEChanged устанавливает callback, вызываемый при открытии/закрытии Android IME.
+// Родительский контейнер должен обновить layout в этом callback.
+func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(open bool)) {
+	vk.onIMEChanged = fn
+}
+
+// adjustForIME реагирует на открытие/закрытие системной клавиатуры Android.
+// При открытии IME добавляет нижний отступ (~42% экрана), чтобы наша клавиатура
+// оставалась видимой над системной клавиатурой, и видео сдвигалось вверх.
+func (vk *VirtualKeyboard) adjustForIME(open bool) {
+	if vk.imeSpacer == nil || vk.imeSpacerCont == nil {
+		return
+	}
+	if open && vk.parentWindow != nil {
+		// Типичная Android клавиатура занимает ~40-45% высоты экрана
+		h := vk.parentWindow.Canvas().Size().Height * 0.42
+		logrus.Infof("⌨️ [IME] открыта, добавляем отступ %.0fpx (canvasH=%.0f)", h, vk.parentWindow.Canvas().Size().Height)
+		vk.imeSpacer.height = h
+	} else {
+		logrus.Info("⌨️ [IME] закрыта, убираем отступ")
+		vk.imeSpacer.height = 0
+	}
+	// Обновляем внутренний layout — imeSpacerCont получит новый MinSize
+	vk.imeSpacerCont.Refresh()
+	// Уведомляем родителя чтобы он перечитал MinSize нашей клавиатуры и переложил контейнеры
+	if vk.onIMEChanged != nil {
+		vk.onIMEChanged(open)
+	}
 }

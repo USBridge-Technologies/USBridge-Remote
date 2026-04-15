@@ -599,6 +599,21 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 			return
 		}
 		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
+		if fyne.CurrentDevice().IsMobile() {
+			// Когда Android IME открывается/закрывается, обновляем layout:
+			// keyboardLayout.MinSize() вырастает (spacer) → contentContainer и container перекладываются.
+			vw.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
+				fyne.Do(func() {
+					kl := vw.virtualKeyboard.GetKeyboardLayout()
+					newH := kl.MinSize().Height
+					canvasW := vw.parentWindow.Canvas().Size().Width
+					kl.Resize(fyne.NewSize(canvasW, newH))
+					vw.contentContainer.Objects = []fyne.CanvasObject{kl}
+					vw.contentContainer.Resize(kl.Size())
+					vw.container.Refresh()
+				})
+			})
+		}
 	}
 
 	isAndroid := fyne.CurrentDevice().IsMobile()
