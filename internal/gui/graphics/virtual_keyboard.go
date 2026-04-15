@@ -1,6 +1,8 @@
 package graphics
 
 import (
+	"sync"
+
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/input"
@@ -12,6 +14,27 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
+
+// activeIMEKeyboardMu защищает activeIMEKeyboardTarget от гонок.
+// Используется Android JNI-мостом (keyboard_ime_android.go) для доставки IME-событий.
+var (
+	activeIMEKeyboardMu     sync.RWMutex
+	activeIMEKeyboardTarget *VirtualKeyboard
+)
+
+// RegisterAsIMETarget регистрирует этот VirtualKeyboard как получателя нативных IME-событий.
+// На Android вызывается сразу после создания клавиатуры в полноэкранном режиме.
+func (vk *VirtualKeyboard) RegisterAsIMETarget() {
+	activeIMEKeyboardMu.Lock()
+	activeIMEKeyboardTarget = vk
+	activeIMEKeyboardMu.Unlock()
+}
+
+func activeIMEKeyboard() *VirtualKeyboard {
+	activeIMEKeyboardMu.RLock()
+	defer activeIMEKeyboardMu.RUnlock()
+	return activeIMEKeyboardTarget
+}
 
 // Константы сетки клавиатуры (как у аппаратной): ширина/высота одной «единицы» клавиши
 const (
@@ -747,6 +770,9 @@ func (vk *VirtualKeyboard) Hide() {
 		vk.keyboardWindow = nil
 	}
 
+	// Сбрасываем IME-отступ немедленно (нативный колбэк придёт позже через BlurInput → FocusLost)
+	vk.setIMEOffset(0)
+
 	if vk.keyboard != nil {
 		vk.keyboard.Hide()
 	}
@@ -793,6 +819,7 @@ func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 		vk.keyboard.Show()
 		return
 	}
+	vk.setIMEOffset(0)
 	vk.keyboard.Hide()
 	vk.BlurInput()
 }
@@ -814,49 +841,58 @@ func (vk *VirtualKeyboard) BlurInput() {
 	vk.parentWindow.Canvas().Focus(nil)
 }
 
-// SetOnIMEChanged устанавливает callback, вызываемый при открытии/закрытии Android IME.
+// SetOnIMEChanged устанавливает callback, вызываемый при изменении отступа Android IME.
 // Родительский контейнер должен обновить layout в этом callback.
 func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(open bool)) {
 	vk.onIMEChanged = fn
 }
 
-// adjustForIME реагирует на открытие/закрытие системной клавиатуры Android.
-// При открытии IME добавляет нижний отступ (~42% экрана), чтобы наша клавиатура
-// оставалась видимой над системной клавиатурой, и видео сдвигалось вверх.
-func (vk *VirtualKeyboard) adjustForIME(open bool) {
+// setIMEOffset выставляет точный нижний отступ под нашей клавиатурой равный высоте IME.
+// imeH — высота системной клавиатуры в Fyne-единицах (0 = клавиатура скрыта).
+// Вызывается из keyboard_ime_android.go (нативный JNI-колбэк) с точным значением.
+func (vk *VirtualKeyboard) setIMEOffset(imeH float32) {
 	if vk.imeSpacer == nil || vk.imeSpacerCont == nil {
 		return
 	}
-	if open && vk.parentWindow != nil {
-		// Типичная Android клавиатура занимает ~40-45% высоты экрана
-		h := vk.parentWindow.Canvas().Size().Height * 0.42
-		logrus.Infof("⌨️ [IME] открыта, добавляем отступ %.0fpx (canvasH=%.0f)", h, vk.parentWindow.Canvas().Size().Height)
-		vk.imeSpacer.height = h
-	} else {
-		logrus.Info("⌨️ [IME] закрыта, убираем отступ")
-		vk.imeSpacer.height = 0
+	if imeH < 0 {
+		imeH = 0
 	}
-	// Обновляем внутренний layout — imeSpacerCont получит новый MinSize
+	logrus.Infof("⌨️ [IME] setIMEOffset: %.0f Fyne-единиц", imeH)
+	vk.imeSpacer.height = imeH
 	vk.imeSpacerCont.Refresh()
-	// Принудительно обновляем весь контейнер клавиатуры, чтобы MinSize
-	// пересчитался в родительских Border-контейнерах.
 	if vk.keyboard != nil {
 		vk.keyboard.Refresh()
 	}
-	// Уведомляем родителя чтобы он перечитал MinSize нашей клавиатуры и переложил контейнеры
 	if vk.onIMEChanged != nil {
-		vk.onIMEChanged(open)
+		vk.onIMEChanged(imeH > 0)
+	}
+}
+
+// adjustForIME — устаревший путь через FocusGained/FocusLost.
+// Оставлен как запасной на случай если нативный JNI-колбэк не сработал
+// (например, при закрытии клавиатуры нашей кнопкой до регистрации target).
+func (vk *VirtualKeyboard) adjustForIME(open bool) {
+	if open {
+		// Если уже есть точный отступ от нативного колбэка — не перезаписываем
+		if vk.imeSpacer != nil && vk.imeSpacer.height > 0 {
+			return
+		}
+		// Запасной вариант: 42% — грубая оценка, нативный колбэк должен исправить потом
+		if vk.parentWindow != nil {
+			vk.setIMEOffset(vk.parentWindow.Canvas().Size().Height * 0.42)
+		}
+	} else {
+		vk.setIMEOffset(0)
 	}
 }
 
 // ResetIMEState сбрасывает отступ IME до нуля.
-// Вызывается извне (например, из тикера изменения размера canvas) когда
-// системная клавиатура была закрыта без потери фокуса полем ввода,
-// и поэтому onUnfocused не сработал автоматически.
+// Вызывается из тикера когда canvas вырос (IME закрылась) и нативный колбэк
+// мог не сработать (например, при закрытии клавиатуры кнопкой «назад»).
 func (vk *VirtualKeyboard) ResetIMEState() {
 	if vk.imeSpacer == nil || vk.imeSpacer.height == 0 {
 		return
 	}
 	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
-	vk.adjustForIME(false)
+	vk.setIMEOffset(0)
 }

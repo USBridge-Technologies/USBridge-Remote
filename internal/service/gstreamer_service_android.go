@@ -1809,10 +1809,9 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	// Инициализируем хранилище кадров для callback-режима
 	C.hw_frame_store_init()
 
-	// Qualcomm/GL path на ряде Android устройств отдаёт формально валидные кадры,
-	// но визуально пустую/серую картинку. Для H.264 здесь принудительно выбираем
-	// software decode path до отдельной нормальной HW валидации.
-	forceSoftware := gs.videoMode == models.VideoModeH264
+	// По умолчанию пробуем аппаратное декодирование (MediaCodec).
+	// Если оно провалится, C-код сам переключится на avdec_h264 (SW) через Reconnect().
+	forceSoftware := false
 	C.gst_android_force_software_decoder(C.int(boolToInt(forceSoftware)))
 	if forceSoftware {
 		logrus.Info("🔧 Android: forcing software H.264 decoder path")

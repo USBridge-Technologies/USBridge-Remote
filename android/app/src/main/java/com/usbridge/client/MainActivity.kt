@@ -3,6 +3,7 @@ package com.usbridge.client
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.net.VpnService
@@ -58,6 +59,63 @@ class MainActivity : GoNativeActivity() {
         super.onCreate(savedInstanceState)
         instance = this
         Log.i(TAG, "MainActivity created")
+        setupIMEListener()
+    }
+
+    /**
+     * Отслеживает высоту системной клавиатуры Android (IME) через ViewTreeObserver.
+     *
+     * С темой Fullscreen `windowSoftInputMode=adjustResize` не работает (ограничение Android),
+     * поэтому мы вручную измеряем высоту IME в пикселях и передаём точное значение в Go
+     * через KeyboardBridge.onIMEHeightChanged(). Go конвертирует пиксели в Fyne-единицы
+     * пропорционально высоте экрана и выставляет нижний отступ под нашей клавиатурой.
+     *
+     * Дополнительно, когда IME скрывается (imeHeight становится 0):
+     *  - вызываем GoNativeActivity.hideKeyboard() чтобы сбросить keyboardUp=false
+     *    → иначе кнопка "Назад" не выходит из fullscreen (видит keyboardUp=true и снова прячет клавиатуру)
+     *  - это также устанавливает textEdit.visibility=GONE, что триггерит Fyne перерисовать layout
+     *    → иначе в обычном режиме layout не возвращается на место пока поле ввода в фокусе
+     */
+    private fun setupIMEListener() {
+        val decorView = window.decorView
+        var lastImeHeightPx = -1
+
+        decorView.viewTreeObserver.addOnGlobalLayoutListener {
+            val rect = Rect()
+            decorView.getWindowVisibleDisplayFrame(rect)
+            val screenHeight = decorView.height
+            if (screenHeight == 0) return@addOnGlobalLayoutListener
+
+            val imeHeight = (screenHeight - rect.bottom).coerceAtLeast(0)
+
+            if (imeHeight != lastImeHeightPx) {
+                val wasVisible = lastImeHeightPx > 0
+                lastImeHeightPx = imeHeight
+                Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight screenHeight=$screenHeight")
+
+                if (imeHeight == 0 && wasVisible) {
+                    // IME только что скрылась (пользователь нажал ↓ или кнопку сворачивания).
+                    // Синхронизируем состояние GoNativeActivity: keyboardUp=false и textEdit=GONE.
+                    // Без этого: кнопка "Назад" видит keyboardUp=true и не выходит из fullscreen;
+                    // а в обычном режиме Fyne не знает что клавиатура ушла и не перерисовывает layout.
+                    Log.d(TAG, "⌨️ [IME] скрылась — сбрасываем keyboardUp через hideKeyboard()")
+                    org.golang.app.GoNativeActivity.hideKeyboard()
+                    
+                    // Снимаем фокус с поля ввода, чтобы Fyne перерисовал layout.
+                    // Без этого в обычном режиме layout не возвращается на место, пока не кликнешь по окну.
+                    currentFocus?.let {
+                        Log.d(TAG, "⌨️ [IME] сбрасываем фокус с ${it.javaClass.simpleName}")
+                        it.clearFocus()
+                    }
+                }
+
+                try {
+                    KeyboardBridge.onIMEHeightChanged(imeHeight, screenHeight)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [IME] Error calling KeyboardBridge", e)
+                }
+            }
+        }
     }
 
     override fun onDestroy() {

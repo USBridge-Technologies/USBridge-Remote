@@ -233,10 +233,17 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
 	if fyne.CurrentDevice().IsMobile() {
-		// Когда Android IME открывается, обновляем layout fullscreen окна
+		// Регистрируем как получателя нативных Android IME-событий (KeyboardBridge → JNI → Go)
+		fd.virtualKeyboard.RegisterAsIMETarget()
+
+		// Когда Android IME открывается/закрывается, обновляем layout fullscreen окна.
+		// Это срабатывает как от нативного события (keyboard_ime_android.go),
+		// так и от потери фокуса полем ввода (onUnfocused).
 		fd.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
 			fyne.Do(func() {
 				if fd.ui != nil {
+					// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает)
+					fd.ui.VideoWithKeyboard.Resize(fd.ui.VideoWithKeyboard.Size())
 					fd.ui.VideoWithKeyboard.Refresh()
 				}
 			})
@@ -261,6 +268,8 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
 		}
 
+		// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает без layout-прохода)
+		fd.ui.VideoWithKeyboard.Resize(fd.ui.VideoWithKeyboard.Size())
 		fd.ui.VideoWithKeyboard.Refresh()
 		fd.fullscreenWindow.Canvas().Refresh(fd.fullscreenWindow.Content())
 		logrus.Infof("⌨️ После переключения - Visible: %v, Size: %v, Position: %v",
