@@ -83,7 +83,7 @@ func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		// USBridge 2
 		USBPort:    8080,
-		APITimeout: 30,
+		APITimeout: 15,
 
 		// FRP
 		FRPServerPort:          443,

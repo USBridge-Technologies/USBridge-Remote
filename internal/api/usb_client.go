@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1040,7 +1041,7 @@ func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
 
 func (c *USBClient) GetTailscaleStatusWithContext(ctx context.Context) (*models.TailscaleStatus, error) {
 	logrus.Infof("🛰️ [API-TS] GET %s/api/auth/tailscale/status", c.baseURL)
-	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/auth/tailscale/status", nil)
+	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/auth/tailscale/status", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1076,7 +1077,7 @@ func (c *USBClient) RegisterTailscaleWithContext(ctx context.Context, request *m
 	}
 	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
 
-	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/auth/tailscale/register", requestJSON)
+	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/auth/tailscale/register", requestJSON, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1287,7 +1288,7 @@ func (c *USBClient) TestConnection() error {
 }
 
 func (c *USBClient) TestConnectionWithContext(ctx context.Context) error {
-	_, err := c.makeRequestWithContext(ctx, "GET", "/api/healthz", nil)
+	_, err := c.makeRequestWithContext(ctx, "GET", "/api/healthz", nil, nil)
 	if err == nil {
 		logrus.Info("✅ Соединение с USBridge 2 установлено")
 		return nil
@@ -1296,9 +1297,9 @@ func (c *USBClient) TestConnectionWithContext(ctx context.Context) error {
 	// Совместимость со старым сервером без healthz.
 	if IsHTTPNotFound(err) {
 		// GetDeviceInfo uses makeRequest, which uses makeRequestWithContext(Background)
-		// For consistency, we should probably add context to GetDeviceInfo too, 
+		// For consistency, we should probably add context to GetDeviceInfo too,
 		// but let's just use makeRequestWithContext directly here for the fallback check.
-		_, err := c.makeRequestWithContext(ctx, "GET", "/api/device/info", nil)
+		_, err := c.makeRequestWithContext(ctx, "GET", "/api/device/info", nil, nil)
 		if err == nil {
 			logrus.Info("✅ Соединение с USBridge 2 установлено (fallback)")
 			return nil

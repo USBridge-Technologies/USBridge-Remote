@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -301,11 +302,13 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause
 			mw.protocolSelect.Disable()
 		})
 
-		if err := mw.doConnectWithProtocol(host, token, protocol); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
+		err := mw.doConnectWithProtocol(ctx, host, token, protocol)
+		cancel()
+		if err == nil {
 			return true
-		} else {
-			logrus.Warnf("⚠️ Recovery attempt %d/%d failed: %v", attempt+1, len(retryDelays), err)
 		}
+		logrus.Warnf("⚠️ Recovery attempt %d/%d failed: %v", attempt+1, len(retryDelays), err)
 	}
 
 	return false
@@ -590,7 +593,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			
 			// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
 			// пока tsnet не установил маршрут до пира.
-			var tsStatus *models.TailscaleStatus
 			var statusErr error
 			const maxStatusAttempts = 6
 			for attempt := 1; attempt <= maxStatusAttempts; attempt++ {
@@ -599,7 +601,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 					return err
 				}
 
-				tsStatus, statusErr = tsClient.GetTailscaleStatusWithContext(ctx)
+				_, statusErr = tsClient.GetTailscaleStatusWithContext(ctx)
 				if statusErr == nil {
 					break
 				}
@@ -745,15 +747,13 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	}
 
 	if err := mw.verifyActiveConnectionWithContext(ctx); err != nil {
-		return err
-	}
 		logrus.Errorf("❌ Connection verification failed: %v", err)
 		if mw.frpService != nil && mw.frpService.IsRunning() {
-			mw.frpService.Disconnect()
+			_ = mw.frpService.Disconnect()
 			mw.frpService = nil
 		}
 		if mw.wgService != nil && mw.wgService.IsRunning() {
-			mw.wgService.Disconnect()
+			_ = mw.wgService.Disconnect()
 			mw.wgService = nil
 			mw.config.NBDBindHost = "127.0.0.1"
 		}
@@ -807,19 +807,27 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	return nil
 }
 
-func (mw *MainWindow) verifyActiveConnection() error {
+func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) error {
 	if mw.usbClient == nil {
 		return fmt.Errorf("usb client is not initialized")
 	}
 
 	if mw.connectedProtocol != models.ConnectionProtocolWireGuard {
-		return mw.usbClient.TestConnection()
+		return mw.usbClient.TestConnectionWithContext(ctx)
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= 12; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if attempt > 1 {
-			time.Sleep(1 * time.Second)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1 * time.Second):
+			}
 		}
 
 		err := mw.verifyWireGuardTunnel()
@@ -835,6 +843,10 @@ func (mw *MainWindow) verifyActiveConnection() error {
 	}
 
 	return lastErr
+}
+
+func (mw *MainWindow) verifyActiveConnection() error {
+	return mw.verifyActiveConnectionWithContext(context.Background())
 }
 
 func (mw *MainWindow) handleConnectFailure(message string, err error) {
