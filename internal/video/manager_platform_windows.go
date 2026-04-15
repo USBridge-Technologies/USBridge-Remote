@@ -69,7 +69,7 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec
 		"-bufsize", firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate),
 		"-payload_type", "96",
 		"-f", "rtp",
-		fmt.Sprintf("rtp://%s:%d?pkt_size=1300", req.ClientHost, req.ClientPort),
+		fmt.Sprintf("rtp://%s:%d?config-interval=1&pkt_size=1200", req.ClientHost, req.ClientPort),
 	)
 	return args
 }
