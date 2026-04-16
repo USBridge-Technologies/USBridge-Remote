@@ -101,7 +101,7 @@ func DefaultConfig() *AppConfig {
 
 		// NBD сервер
 		NBDPort:           10809,
-		NBDBindHost:       "127.0.0.1",
+		NBDBindHost:       "0.0.0.0",
 		MaxClients:        5,
 		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},

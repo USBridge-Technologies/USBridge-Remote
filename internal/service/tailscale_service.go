@@ -1,11 +1,8 @@
 package service
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -112,7 +109,14 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 
 	var state *ipnstate.Status
 
-	// 1. Пытаемся получить статус от системного Tailscale (System Stack)
+	// ПРИНУДИТЕЛЬНЫЙ ЮЗЕРСПЕЙС (Force Userspace Mode):
+	// Мы отключаем использование системного стека (kernel mode), чтобы весь трафик
+	// шел строго через внутренний стек приложения (tsnet). Это обеспечивает:
+	// 1. Изоляцию трафика (не выходит в общую сеть ОС).
+	// 2. Стабильную работу P2P (Direct) за счет прямого контроля сокетов.
+	// 3. Консистентность между macOS, Windows, Linux и Android.
+	/* 
+	// (Закомментировано) Пытаемся получить статус от системного Tailscale (System Stack)
 	tsPath := getTailscaleBinaryPath()
 	if tsPath != "" {
 		cmd := exec.Command(tsPath, "status", "--json")
@@ -121,15 +125,15 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 			var st ipnstate.Status
 			if err := json.Unmarshal(out, &st); err == nil {
 				state = &st
-				// Если системный Tailscale не залогинен, сбрасываем state и идем дальше
 				if state.BackendState == "NeedsLogin" || state.BackendState == "LoggedOut" {
 					state = nil
 				}
 			}
 		}
 	}
+	*/
 
-	// 2. Если системного нет или он не залогинен, пробуем userspace (tsnet)
+	// Всегда используем userspace (tsnet)
 	if state == nil {
 		refreshAndroidDefaultRouteInterface()
 		lc, err := s.localClient()
@@ -189,57 +193,60 @@ func (s *TailscaleService) convertPeer(st *ipnstate.Status, p *ipnstate.PeerStat
 }
 
 func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
-	tsPath := getTailscaleBinaryPath()
-	if tsPath != "" {
-		logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
-		var cmd *exec.Cmd
-		if runtime.GOOS == "linux" {
-			cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
-		} else if runtime.GOOS == "darwin" {
-			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
-		} else {
-			cmd = exec.Command(tsPath, "up", "--accept-dns=false")
-		}
-		maybeHideWindow(cmd)
-		
-		stdout, _ := cmd.StdoutPipe()
-		stderr, _ := cmd.StderrPipe()
-		if err := cmd.Start(); err != nil {
-			if runtime.GOOS == "darwin" {
-				// Try with osascript if direct start failed
-				script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
-				cmd = exec.Command("osascript", "-e", script)
-				maybeHideWindow(cmd)
-				out, err2 := cmd.CombinedOutput()
-				if err2 == nil {
-					return s.extractURL(string(out)), nil
-				}
+	/*
+		// (Закомментировано) Системный логин отключен в пользу принудительного Userspace (tsnet)
+		tsPath := getTailscaleBinaryPath()
+		if tsPath != "" {
+			logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
+			var cmd *exec.Cmd
+			if runtime.GOOS == "linux" {
+				cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
+			} else if runtime.GOOS == "darwin" {
+				cmd = exec.Command(tsPath, "up", "--accept-dns=false")
+			} else {
+				cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 			}
-			logrus.Warnf("⚠️ [Tailscale] System login failed: %v", err)
-		} else {
-			urlChan := make(chan string, 1)
-			scanFunc := func(r io.Reader) {
-				scanner := bufio.NewScanner(r)
-				for scanner.Scan() {
-					line := scanner.Text()
-					logrus.Infof("📡 [Tailscale/CLI] %s", line)
-					if url := s.extractURL(line); url != "" {
-						urlChan <- url
-						return
+			maybeHideWindow(cmd)
+
+			stdout, _ := cmd.StdoutPipe()
+			stderr, _ := cmd.StderrPipe()
+			if err := cmd.Start(); err != nil {
+				if runtime.GOOS == "darwin" {
+					// Try with osascript if direct start failed
+					script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
+					cmd = exec.Command("osascript", "-e", script)
+					maybeHideWindow(cmd)
+					out, err2 := cmd.CombinedOutput()
+					if err2 == nil {
+						return s.extractURL(string(out)), nil
 					}
 				}
-			}
-			go scanFunc(stdout)
-			go scanFunc(stderr)
-			select {
-			case foundURL := <-urlChan:
-				logrus.Infof("🔗 [Tailscale] Captured system AuthURL: %s", foundURL)
-				return foundURL, nil
-			case <-time.After(15 * time.Second):
-				logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
+				logrus.Warnf("⚠️ [Tailscale] System login failed: %v", err)
+			} else {
+				urlChan := make(chan string, 1)
+				scanFunc := func(r io.Reader) {
+					scanner := bufio.NewScanner(r)
+					for scanner.Scan() {
+						line := scanner.Text()
+						logrus.Infof("📡 [Tailscale/CLI] %s", line)
+						if url := s.extractURL(line); url != "" {
+							urlChan <- url
+							return
+						}
+					}
+				}
+				go scanFunc(stdout)
+				go scanFunc(stderr)
+				select {
+				case foundURL := <-urlChan:
+					logrus.Infof("🔗 [Tailscale] Captured system AuthURL: %s", foundURL)
+					return foundURL, nil
+				case <-time.After(15 * time.Second):
+					logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
+				}
 			}
 		}
-	}
+	*/
 
 	refreshAndroidDefaultRouteInterface()
 	lc, err := s.localClient()
@@ -261,20 +268,23 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 }
 
 func (s *TailscaleService) Logout(ctx context.Context) error {
-	tsPath := getTailscaleBinaryPath()
-	if tsPath != "" {
-		logrus.Infof("🛑 [Tailscale] System CLI logout via %s", tsPath)
-		if runtime.GOOS == "linux" {
-			cmd := exec.Command("pkexec", tsPath, "logout")
-			maybeHideWindow(cmd)
-			_ = cmd.Run()
-		} else {
-			cmd := exec.Command(tsPath, "logout")
-			maybeHideWindow(cmd)
-			_ = cmd.Run()
+	/*
+		// (Закомментировано) Системный логаут отключен
+		tsPath := getTailscaleBinaryPath()
+		if tsPath != "" {
+			logrus.Infof("🛑 [Tailscale] System CLI logout via %s", tsPath)
+			if runtime.GOOS == "linux" {
+				cmd := exec.Command("pkexec", tsPath, "logout")
+				maybeHideWindow(cmd)
+				_ = cmd.Run()
+			} else {
+				cmd := exec.Command(tsPath, "logout")
+				maybeHideWindow(cmd)
+				_ = cmd.Run()
+			}
+			return nil
 		}
-		return nil
-	}
+	*/
 	lc, err := s.localClient()
 	if err != nil { return err }
 	return lc.Logout(ctx)
@@ -298,7 +308,11 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 			err = fmt.Errorf("panic in tailnet ipv4: %v", r)
 		}
 	}()
-	if sysIP := s.GetSystemTailscaleIP(); sysIP != "" { return sysIP, nil }
+	/*
+		if sysIP := s.GetSystemTailscaleIP(); sysIP != "" {
+			return sysIP, nil
+		}
+	*/
 	lc, err := s.localClient()
 	if err != nil { return "", err }
 	if ctx == nil { ctx = context.Background() }
@@ -308,8 +322,17 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 }
 
 func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
-	if port <= 0 { port = 55000 }
-	if s.GetSystemTailscaleIP() != "" { return port, nil }
+	if port <= 0 {
+		port = 55000
+	}
+
+	// ПРИНУДИТЕЛЬНЫЙ ЮЗЕРСПЕЙС:
+	// Мы всегда используем внутренний UDP-релей, чтобы видео-трафик шел через tsnet.
+	/*
+		if s.GetSystemTailscaleIP() != "" {
+			return port, nil
+		}
+	*/
 
 	// Обязательно останавливаем старый релей перед запуском нового на том же или другом порту
 	_ = s.StopVideoUDPRelay()
@@ -365,9 +388,9 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	state := "inactive"
 	if s.videoRelayConn != nil {
 		state = "userspace-relay"
-	} else if s.GetSystemTailscaleIP() != "" {
+	} /* else if s.GetSystemTailscaleIP() != "" {
 		state = "system-stack"
-	}
+	} */
 	s.mu.Unlock()
 
 	routingInfo := ""
