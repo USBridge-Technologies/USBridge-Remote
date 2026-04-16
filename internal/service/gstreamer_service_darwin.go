@@ -177,10 +177,7 @@ func findDarwinGStreamerTool(name string) (string, error) {
 
 // buildPipelineArgs формирует аргументы pipeline для RTP video (через QUIC/SUDP туннель)
 func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
-	bindHost := gs.config.VideoBindHost
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
+	bindHost := gs.darwinBindHost()
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.buildPipelineArgsJPEG(udpPort)
 	}
@@ -240,10 +237,14 @@ func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]str
 }
 
 func (gs *GStreamerService) darwinBindHost() string {
-	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
-		return "127.0.0.1"
+	if gs == nil || gs.config == nil {
+		return "0.0.0.0"
 	}
-	return strings.TrimSpace(gs.config.VideoBindHost)
+	host := strings.TrimSpace(gs.config.VideoBindHost)
+	if host == "" || host == "127.0.0.1" {
+		return "0.0.0.0"
+	}
+	return host
 }
 
 // GetBindHost возвращает адрес, на котором GStreamer слушает входящие UDP пакеты

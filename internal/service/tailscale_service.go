@@ -478,7 +478,8 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 	go func() {
 		logrus.Infof("🎯 [Tailscale] Running system ping to %s to force P2P...", host)
 		// Используем --timeout и --c для быстрого завершения
-		cmd := exec.Command(tsPath, "ping", "--timeout=3s", "--c=3", host)
+		// Добавляем --verbose для более агрессивного пробива
+		cmd := exec.Command(tsPath, "ping", "--timeout=5s", "--c=5", "--verbose", host)
 		maybeHideWindow(cmd)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -486,6 +487,9 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 		} else {
 			logrus.Infof("✅ [Tailscale] System ping to %s completed: %s", host, string(out))
 		}
+
+		// Дополнительно дергаем статус, чтобы обновить кэш маршрутов
+		_ = exec.Command(tsPath, "status").Run()
 	}()
 }
 

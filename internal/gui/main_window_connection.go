@@ -258,8 +258,8 @@ func (mw *MainWindow) cleanupDeadConnectionState() {
 		mw.pcpanelWidget.SetClient(nil)
 	}
 
-	mw.config.NBDBindHost = "127.0.0.1"
-	mw.config.VideoBindHost = "127.0.0.1"
+	mw.config.NBDBindHost = "0.0.0.0"
+	mw.config.VideoBindHost = "0.0.0.0"
 }
 
 func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause error) bool {
@@ -547,11 +547,11 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		mw.gstreamerService.UpdateHost("127.0.0.1")
 		mw.gstreamerService.UpdateVideoPort(videoPort)
 		mw.gstreamerService.UpdateVideoUDPPort(videoPort)
-		mw.config.VideoBindHost = "127.0.0.1"
+		mw.config.VideoBindHost = "0.0.0.0"
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
 		mw.connectedProtocol = models.ConnectionProtocolQUIC
-		mw.config.NBDBindHost = "127.0.0.1"
+		mw.config.NBDBindHost = "0.0.0.0"
 
 		return nil
 	}
@@ -755,7 +755,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if mw.wgService != nil && mw.wgService.IsRunning() {
 			_ = mw.wgService.Disconnect()
 			mw.wgService = nil
-			mw.config.NBDBindHost = "127.0.0.1"
+			mw.config.NBDBindHost = "0.0.0.0"
 		}
 		mw.usbClient = nil
 		fyne.Do(func() {
@@ -939,8 +939,8 @@ func (mw *MainWindow) handleDisconnect() {
 	}
 
 	mw.updateStatus()
-	mw.config.NBDBindHost = "127.0.0.1"
-	mw.config.VideoBindHost = "127.0.0.1"
+	mw.config.NBDBindHost = "0.0.0.0"
+	mw.config.VideoBindHost = "0.0.0.0"
 	if !mw.isClosing.Load() {
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()

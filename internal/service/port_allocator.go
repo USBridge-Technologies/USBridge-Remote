@@ -11,7 +11,7 @@ import (
 // Сначала пробует preferred, затем запрашивает системный ephemeral-порт.
 func FindAvailableUDPPort(preferred int) (int, error) {
 	if preferred > 0 {
-		conn, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", preferred))
+		conn, err := net.ListenPacket("udp4", fmt.Sprintf("0.0.0.0:%d", preferred))
 		if err == nil {
 			_ = conn.Close()
 			return preferred, nil
@@ -19,7 +19,7 @@ func FindAvailableUDPPort(preferred int) (int, error) {
 		logrus.Warnf("⚠️ Локальный UDP порт %d занят, выбираем свободный порт для видео", preferred)
 	}
 
-	conn, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
 	if err != nil {
 		return 0, err
 	}

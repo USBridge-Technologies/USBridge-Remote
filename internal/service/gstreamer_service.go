@@ -166,11 +166,11 @@ func (gs *GStreamerService) getUDPPort() int {
 	return 55000
 }
 func (gs *GStreamerService) getBindHost() string {
-	if runtime.GOOS == "linux" {
+	host := strings.TrimSpace(gs.config.VideoBindHost)
+	if host == "" || host == "127.0.0.1" {
 		return "0.0.0.0"
 	}
-	if gs.config.VideoBindHost != "" { return gs.config.VideoBindHost }
-	return "127.0.0.1"
+	return host
 }
 
 func (gs *GStreamerService) SetOnFrameReceived(cb func(image.Image)) { gs.onFrameReceived = cb }

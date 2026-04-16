@@ -109,7 +109,8 @@ func DefaultConfig() *AppConfig {
 
 		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
 		VideoUDPPort:  DefaultVideoUDPPort,
-		VideoBindHost: "127.0.0.1",
+		VideoBindHost: "0.0.0.0",
+
 
 		// Видео
 		VideoBitrate:   2000,
