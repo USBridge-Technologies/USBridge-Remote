@@ -273,8 +273,13 @@ type LocalizedStrings struct {
 	LanguageUkrainian string
 
 	// Connection names
-	ConnectionNumber string // "Connection %d"
-	BackupFlashName  string // "Backup Flash"
+	ConnectionNumber         string // "Connection %d"
+	BackupFlashName          string // "Backup Flash"
+	PromoBenefitsTitle       string
+	PromoFeatureBIOS         string
+	PromoFeatureSnapshots    string
+	PromoFeaturePowerControl string
+	PromoFeatureL0Control    string
 
 	// NBD Server (Android)
 	NBDServerManagement string // "NBD Server - Management"
@@ -617,8 +622,13 @@ func EN() *LocalizedStrings {
 		LanguageUkrainian: "Ukrainian",
 
 		// Connection names
-		ConnectionNumber: "Connection %d",
-		BackupFlashName:  "Backup Flash",
+		ConnectionNumber:         "Connection %d",
+		BackupFlashName:          "Backup Flash",
+		PromoBenefitsTitle:       "Benefits you'll get",
+		PromoFeatureBIOS:         "BIOS-in-Terminal",
+		PromoFeatureSnapshots:    "Snapshots",
+		PromoFeaturePowerControl: "Power Control",
+		PromoFeatureL0Control:    "L0 Control",
 
 		// NBD Server (Android)
 		NBDServerManagement: "NBD Server - Management",
@@ -713,6 +723,11 @@ func ES() *LocalizedStrings {
 	locale.AddNewDeviceTitle = "Agregar un nuevo dispositivo"
 	locale.NoSavedConnections = "Todavia no hay conexiones guardadas"
 	locale.NoSavedConnectionsHint = "Usa QR o agrega una conexion para comenzar."
+	locale.PromoBenefitsTitle = "Beneficios que recibiras"
+	locale.PromoFeatureBIOS = "BIOS-in-Terminal"
+	locale.PromoFeatureSnapshots = "Snapshots"
+	locale.PromoFeaturePowerControl = "Power Control"
+	locale.PromoFeatureL0Control = "L0 Control"
 	locale.OnboardingStepConnect = "Conecta USB-C al host de destino para energia y HID. Conecta la salida HDMI al capturador."
 	locale.OnboardingStepIP = "Abre configuracion de red y conecta el dispositivo a tu red."
 	locale.OnboardingStepScan = "Escanea el codigo QR del token o introduce IP y token manualmente."
@@ -783,6 +798,11 @@ func UK() *LocalizedStrings {
 	locale.EditConnectionTitle = "Редагувати з'єднання"
 	locale.AddConnectionTitle = "Додати з'єднання"
 	locale.AddNewDeviceTitle = "Додати новий пристрій"
+	locale.PromoBenefitsTitle = "Переваги, які ви отримаєте"
+	locale.PromoFeatureBIOS = "BIOS-in-Terminal"
+	locale.PromoFeatureSnapshots = "Snapshots"
+	locale.PromoFeaturePowerControl = "Power Control"
+	locale.PromoFeatureL0Control = "L0 Control"
 	locale.DeleteButton = "Видалити"
 	locale.DeepLinkConnect = "Підключити"
 	locale.DeepLinkSave = "Зберегти"
@@ -828,6 +848,11 @@ func UKProper() *LocalizedStrings {
 	locale.AddNewDeviceTitle = "Додати новий пристрій"
 	locale.NoSavedConnections = "Ще немає збережених з'єднань"
 	locale.NoSavedConnectionsHint = "Скористайтеся QR або додайте з'єднання вручну."
+	locale.PromoBenefitsTitle = "Переваги, які ви отримаєте"
+	locale.PromoFeatureBIOS = "BIOS-in-Terminal"
+	locale.PromoFeatureSnapshots = "Snapshots"
+	locale.PromoFeaturePowerControl = "Power Control"
+	locale.PromoFeatureL0Control = "L0 Control"
 	locale.OnboardingStepConnect = "Підключіть USB-C до цільового хоста для живлення та HID. Підключіть HDMI до пристрою захоплення."
 	locale.OnboardingStepIP = "Відкрийте налаштування мережі та підключіть пристрій до вашої мережі."
 	locale.OnboardingStepScan = "Відскануйте QR-код токена або введіть IP і токен вручну."

@@ -35,6 +35,8 @@ type ConnectionManagerUI struct {
 	topAddBtn    *outlinedActionButton
 	centerQRBtn  *iconChromeButton
 	centerAddBtn *onboardingPrimaryButton
+	onHelp       func()
+	onPromo      func()
 }
 
 type ConnectionRowData struct {
@@ -58,6 +60,7 @@ type ConnectionRowActions struct {
 
 const (
 	onboardingImageAspectRatio    float32 = 2000.0 / 1072.0
+	promoImageAspectRatio         float32 = 1744.0 / 1317.0
 	onboardingImageMaxWidth       float32 = 500
 	onboardingImageMaxHeight      float32 = 268
 	emptyStateMaxWidth            float32 = 1440
@@ -88,7 +91,7 @@ var (
 	connectionActionBlockedFill = design.ColorGray900
 )
 
-func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth func()) *ConnectionManagerUI {
+func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onTSAuth func()) *ConnectionManagerUI {
 	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
@@ -157,6 +160,8 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onTSAuth f
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
 		centerAddBtn:      centerAddButton,
+		onHelp:            onHelp,
+		onPromo:           onPromo,
 	}
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		layout.NewSpacer(),
@@ -169,30 +174,328 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
 
-	slides := []onboardingSlide{
-		{Image: assets.OnboardingStep01, Text: i18n.Current.OnboardingStepConnect},
-		{Image: assets.OnboardingStep02, Text: i18n.Current.OnboardingStepIP},
-		{Image: assets.OnboardingStep03, Text: i18n.Current.OnboardingStepScan},
-	}
-
-	title := NewBrandText(i18n.Current.AddNewDeviceTitle, 26, design.ColorTextLight, true)
-	title.Alignment = fyne.TextAlignCenter
-
 	actions := container.New(newOnboardingActionsLayout(onboardingActionGap), ui.AddBtn, ui.QRBtn)
-	emptyBlock := container.New(
-		newEmptyStateLayout(),
-		title,
-		newOnboardingCarousel(slides),
-		actions,
-	)
+	emptyBlock := newEmptyStatePromoCard(ui.onPromo)
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, emptyBlock),
+			NewInset(container.NewCenter(actions), 0, 0, 18, 0),
 			layout.NewSpacer(),
 		),
 	}
 	ui.contentArea.Refresh()
+}
+
+func newEmptyStatePromoCard(onLearnMore func()) fyne.CanvasObject {
+	bgImage := canvas.NewImageFromResource(assets.OnboardingStep01)
+	bgImage.FillMode = canvas.ImageFillContain
+
+	bgFrame := canvas.NewRectangle(color.Transparent)
+	bgFrame.SetMinSize(fyne.NewSize(1, 340))
+
+	title := container.New(&emptyStatePromoTitleLayout{},
+		NewBrandText("USBridge-KVM 2.0", 22, design.ColorTextLight, true),
+		NewBrandText("", 22, design.ColorTextLight, true),
+	)
+
+	subtitle := widget.NewLabel("Hardware-grade security and remote management.")
+	subtitle.Alignment = fyne.TextAlignCenter
+	subtitle.Wrapping = fyne.TextWrapWord
+	subtitleTheme := container.NewThemeOverride(subtitle, newForegroundOverrideTheme(design.NewBrandTheme(), design.ColorTextMuted))
+	subtitle.TextStyle = fyne.TextStyle{}
+
+	cta := newConnectionPrimaryButton("Upgrade to Hardware", onLearnMore)
+	cta.SetAccent(false)
+	cta.SetPromoStyle(true)
+	ctaWrap := container.NewCenter(cta)
+
+	overlay := container.New(
+		&emptyStatePromoOverlayLayout{},
+		title,
+		subtitleTheme,
+		ctaWrap,
+	)
+
+	card := container.NewStack(
+		container.New(&emptyStatePromoBackgroundLayout{maxWidth: 500, minHeight: 340, maxImageWidth: 470, maxImageHeight: 300}, bgFrame, bgImage),
+		overlay,
+	)
+
+	return container.New(&emptyStatePromoCardLayout{maxWidth: 500, minHeight: 340}, card)
+}
+
+func newEmptyStateHero(resource fyne.Resource) fyne.CanvasObject {
+	image := canvas.NewImageFromResource(resource)
+	image.FillMode = canvas.ImageFillStretch
+
+	frame := canvas.NewRectangle(color.Transparent)
+	frame.SetMinSize(fyne.NewSize(1, 410))
+
+	return container.NewStack(frame, image)
+}
+
+type emptyStatePromoCardLayout struct {
+	maxWidth  float32
+	minHeight float32
+}
+
+func (l *emptyStatePromoCardLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	child := objects[0]
+	width := minFloat32(size.Width, l.maxWidth)
+	if width < 0 {
+		width = 0
+	}
+	height := maxFloat32(l.minHeight, child.MinSize().Height)
+	if size.Height > height {
+		if size.Width >= 720 {
+			height = size.Height
+		} else {
+			extraHeight := float32(24)
+			if size.Width > 420 {
+				extraHeight += (size.Width - 420) * 0.28
+			}
+			maxHeight := height + extraHeight
+			if maxHeight > size.Height {
+				maxHeight = size.Height
+			}
+			height = maxHeight
+		}
+	}
+	x := (size.Width - width) / 2
+	if x < 0 {
+		x = 0
+	}
+	child.Move(fyne.NewPos(x, 0))
+	child.Resize(fyne.NewSize(width, height))
+}
+
+func (l *emptyStatePromoCardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(160, l.minHeight)
+}
+
+type emptyStatePromoBackgroundLayout struct {
+	maxWidth       float32
+	minHeight      float32
+	maxImageWidth  float32
+	maxImageHeight float32
+}
+
+func (l *emptyStatePromoBackgroundLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	frame := objects[0]
+	image := objects[1]
+	width := minFloat32(size.Width, l.maxWidth)
+	if width < 0 {
+		width = 0
+	}
+	height := maxFloat32(l.minHeight, size.Height)
+	x := (size.Width - width) / 2
+	if x < 0 {
+		x = 0
+	}
+	frame.Move(fyne.NewPos(x, 0))
+	frame.Resize(fyne.NewSize(width, height))
+
+	imageWidth := width
+	if l.maxImageWidth > 0 && imageWidth > l.maxImageWidth {
+		imageWidth = l.maxImageWidth
+	}
+	imageHeight := imageWidth / promoImageAspectRatio
+	if l.maxImageHeight > 0 && imageHeight > l.maxImageHeight {
+		imageHeight = l.maxImageHeight
+		imageWidth = imageHeight * promoImageAspectRatio
+	}
+	imageX := x + (width-imageWidth)/2
+	imageY := (height - imageHeight) / 2
+	if imageY < 0 {
+		imageY = 0
+	}
+	image.Move(fyne.NewPos(imageX, imageY))
+	image.Resize(fyne.NewSize(imageWidth, imageHeight))
+}
+
+func (l *emptyStatePromoBackgroundLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(1, l.minHeight)
+}
+
+type emptyStatePromoOverlayLayout struct{}
+
+func (l *emptyStatePromoOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+	title := objects[0]
+	subtitle := objects[1]
+	cta := objects[2]
+
+	if titleBox, ok := title.(*fyne.Container); ok && len(titleBox.Objects) >= 2 {
+		line1, _ := titleBox.Objects[0].(*canvas.Text)
+		line2, _ := titleBox.Objects[1].(*canvas.Text)
+		if line1 != nil && line2 != nil {
+			line1.Text = "USBridge-KVM 2.0"
+			line2.Text = ""
+			line1.Alignment = fyne.TextAlignCenter
+			line2.Alignment = fyne.TextAlignCenter
+			line1.Refresh()
+			line2.Refresh()
+			titleBox.Refresh()
+		}
+	}
+
+	titleMin := title.MinSize()
+	subtitleMin := subtitle.MinSize()
+	ctaMin := cta.MinSize()
+
+	topInset := float32(26)
+	sideInset := float32(20)
+	titleWidth := maxFloat32(0, size.Width-sideInset*2)
+	titleHeight := titleMin.Height
+	subtitleWidth := minFloat32(size.Width-sideInset*2, 420)
+	if subtitleWidth < 120 {
+		subtitleWidth = maxFloat32(0, size.Width-sideInset*2)
+	}
+	subtitleHeight := subtitleMin.Height
+	titleY := topInset
+	subtitleY := titleY + titleHeight - 6
+	ctaY := size.Height - ctaMin.Height - 18
+
+	title.Move(fyne.NewPos(sideInset, titleY))
+	title.Resize(fyne.NewSize(titleWidth, titleHeight))
+
+	subtitleX := (size.Width - subtitleWidth) / 2
+	if subtitleX < sideInset {
+		subtitleX = sideInset
+	}
+	maxSubtitleHeight := ctaY - 20 - subtitleY
+	if subtitleHeight > maxSubtitleHeight {
+		subtitleHeight = maxFloat32(0, maxSubtitleHeight)
+	}
+	subtitle.Move(fyne.NewPos(subtitleX, subtitleY))
+	subtitle.Resize(fyne.NewSize(subtitleWidth, subtitleHeight))
+	cta.Move(fyne.NewPos(0, ctaY))
+	cta.Resize(fyne.NewSize(size.Width, ctaMin.Height))
+}
+
+func (l *emptyStatePromoOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	height := float32(340)
+	return fyne.NewSize(1, height)
+}
+
+type emptyStatePromoTitleLayout struct{}
+
+func (l *emptyStatePromoTitleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	y := float32(0)
+	for _, obj := range objects {
+		min := obj.MinSize()
+		if txt, ok := obj.(*canvas.Text); ok && txt.Text == "" {
+			obj.Move(fyne.NewPos(0, y))
+			obj.Resize(fyne.NewSize(size.Width, 0))
+			continue
+		}
+		obj.Move(fyne.NewPos(0, y))
+		obj.Resize(fyne.NewSize(size.Width, min.Height))
+		y += min.Height
+	}
+}
+
+func (l *emptyStatePromoTitleLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(1)
+	height := float32(0)
+	for _, obj := range objects {
+		if txt, ok := obj.(*canvas.Text); ok && txt.Text == "" {
+			continue
+		}
+		min := obj.MinSize()
+		if min.Width > width {
+			width = min.Width
+		}
+		height += min.Height
+	}
+	return fyne.NewSize(width, height)
+}
+
+func newPromoFeatureBadge(text string) fyne.CanvasObject {
+	bg := canvas.NewRectangle(color.NRGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf2})
+	bg.CornerRadius = 16
+
+	label := canvas.NewText(text, design.ColorTextLight)
+	label.TextSize = 11
+	label.TextStyle = fyne.TextStyle{Bold: true}
+
+	content := NewInset(container.NewCenter(label), 10, 10, 6, 6)
+	return container.NewStack(bg, content)
+}
+
+type emptyStatePromoBadgesLayout struct {
+	gapX    float32
+	gapY    float32
+	columns int
+}
+
+func (l *emptyStatePromoBadgesLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
+	}
+	columns := l.columns
+	if columns < 1 {
+		columns = 1
+	}
+	rows := (len(objects) + columns - 1) / columns
+	itemWidth := (size.Width - l.gapX*float32(columns-1)) / float32(columns)
+	itemHeight := (size.Height - l.gapY*float32(rows-1)) / float32(rows)
+	if itemWidth < 0 {
+		itemWidth = 0
+	}
+	if itemHeight < 0 {
+		itemHeight = 0
+	}
+	for idx, obj := range objects {
+		col := idx % columns
+		row := idx / columns
+		x := float32(col) * (itemWidth + l.gapX)
+		y := float32(row) * (itemHeight + l.gapY)
+		obj.Move(fyne.NewPos(x, y))
+		obj.Resize(fyne.NewSize(itemWidth, itemHeight))
+	}
+}
+
+func (l *emptyStatePromoBadgesLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	columns := l.columns
+	if columns < 1 {
+		columns = 1
+	}
+	rows := (len(objects) + columns - 1) / columns
+	maxWidth := float32(1)
+	maxHeight := float32(0)
+	for _, obj := range objects {
+		min := obj.MinSize()
+		if min.Width > maxWidth {
+			maxWidth = min.Width
+		}
+		if min.Height > maxHeight {
+			maxHeight = min.Height
+		}
+	}
+	extraCols := 0
+	if columns > 1 {
+		extraCols = columns - 1
+	}
+	extraRows := 0
+	if rows > 1 {
+		extraRows = rows - 1
+	}
+	width := maxWidth*float32(columns) + l.gapX*float32(extraCols)
+	height := maxHeight*float32(rows) + l.gapY*float32(extraRows)
+	return fyne.NewSize(width, height)
 }
 
 func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
@@ -1481,6 +1784,7 @@ type connectionPrimaryButton struct {
 	labelText string
 	onTapped  func()
 	accent    bool
+	promo     bool
 	disabled  bool
 	loading   bool
 	hovered   bool
@@ -1533,6 +1837,11 @@ func (b *connectionPrimaryButton) SetAccent(accent bool) {
 	b.refreshVisuals()
 }
 
+func (b *connectionPrimaryButton) SetPromoStyle(promo bool) {
+	b.promo = promo
+	b.refreshVisuals()
+}
+
 func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {
 	if b.disabled || b.loading || b.onTapped == nil {
 		return
@@ -1578,6 +1887,8 @@ func (b *connectionPrimaryButton) MinSize() fyne.Size {
 func (b *connectionPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(design.ColorAccent)
 	b.bg.CornerRadius = design.RadiusMD
+	b.bg.StrokeColor = color.Transparent
+	b.bg.StrokeWidth = 0
 
 	b.label = canvas.NewText(b.labelText, design.ColorBackground)
 	b.label.TextSize = 14
@@ -1605,6 +1916,11 @@ func (b *connectionPrimaryButton) refreshVisuals() {
 		fillHover = design.ColorBorder
 		labelColor = design.ColorTextLight
 	}
+	if b.promo {
+		fill = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x12}
+		fillHover = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1f}
+		labelColor = design.ColorTextLight
+	}
 	if b.loading {
 		labelColor = design.ColorBackground
 	} else if b.disabled {
@@ -1615,6 +1931,13 @@ func (b *connectionPrimaryButton) refreshVisuals() {
 	}
 
 	b.bg.FillColor = fill
+	if b.promo {
+		b.bg.StrokeColor = color.Transparent
+		b.bg.StrokeWidth = 0
+	} else {
+		b.bg.StrokeColor = color.Transparent
+		b.bg.StrokeWidth = 0
+	}
 	b.bg.Refresh()
 
 	b.label.Color = labelColor
