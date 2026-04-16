@@ -240,10 +240,15 @@ func (gs *GStreamerService) buildPipelineArgsJPEGCandidates(udpPort int) [][]str
 }
 
 func (gs *GStreamerService) darwinBindHost() string {
-	if gs.config != nil && gs.config.VideoBindHost != "" {
-		return gs.config.VideoBindHost
+	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
+		return "127.0.0.1"
 	}
-	return "127.0.0.1"
+	return strings.TrimSpace(gs.config.VideoBindHost)
+}
+
+// GetBindHost возвращает адрес, на котором GStreamer слушает входящие UDP пакеты
+func (gs *GStreamerService) GetBindHost() string {
+	return gs.darwinBindHost()
 }
 
 func (gs *GStreamerService) buildDarwinRTPBaseArgs(udpPort int, latency int) []string {

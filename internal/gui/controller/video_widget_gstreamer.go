@@ -177,13 +177,13 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if vw.frpService == nil && vw.tailscaleService != nil {
 		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
 		
-		// Nuclear Mode for all OS: try system Tailscale IP first
+		// System Stack for all OS: try system Tailscale IP first
 		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
 		if systemIP != "" {
 			request.ClientHost = systemIP
-			logrus.Infof("🚀 [Tailscale/NuclearMode] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
+			logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
 		} else {
-			logrus.Warn("⚠️ [Tailscale/NuclearMode] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
+			logrus.Warn("⚠️ [Tailscale/SystemStack] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
 			
 			// Fallback to userspace relay
 			actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
@@ -210,19 +210,20 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				return
 			}
 			request.ClientHost = tailIP
+		}
 
-			// Выполняем UDP Hole Punching через сокет Tailscale
-			agentHost := vw.usbClient.GetBaseURL()
-			if strings.Contains(agentHost, "://") {
-				parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
-				agentIP := parts[0]
-				
-				// Прогреваем Tailscale: отправляем PUNCH пакет несколько раз
-				for i := 0; i < 3; i++ {
-					vw.tailscaleService.PunchVideoHole(agentIP, clientPort)
-					if i < 2 {
-						time.Sleep(50 * time.Millisecond)
-					}
+		// Выполняем UDP Hole Punching через сокет Tailscale (всегда, даже в System Mode)
+		// Это "прогревает" соединение и заставляет Tailscale искать P2P путь.
+		agentHost := vw.usbClient.GetBaseURL()
+		if strings.Contains(agentHost, "://") {
+			parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
+			agentIP := parts[0]
+
+			// Прогреваем Tailscale: отправляем PUNCH пакет несколько раз
+			for i := 0; i < 3; i++ {
+				vw.tailscaleService.PunchVideoHole(agentIP, clientPort)
+				if i < 2 {
+					time.Sleep(50 * time.Millisecond)
 				}
 			}
 		}

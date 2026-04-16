@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -46,6 +47,7 @@ type TailscalePeer struct {
 	UserLogin string
 	Relay     string
 	CurAddr   string
+	Addrs     []string
 }
 
 type TailscaleService struct {
@@ -107,61 +109,83 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 			err = fmt.Errorf("panic in tailscale status: %v", r)
 		}
 	}()
+
+	var state *ipnstate.Status
+
+	// 1. Пытаемся получить статус от системного Tailscale (System Stack)
 	tsPath := getTailscaleBinaryPath()
 	if tsPath != "" {
 		cmd := exec.Command(tsPath, "status", "--json")
 		maybeHideWindow(cmd)
 		if out, err := cmd.Output(); err == nil {
-			ip := s.GetSystemTailscaleIP()
-			if ip != "" {
-				return &TailscaleStatus{
-					Running:   true,
-					LoggedIn:  true,
-					Backend:   "Running (System)",
-					Userspace: false,
-					Self: TailscalePeer{IP4: ip, OS: runtime.GOOS},
-				}, nil
-			}
-			if strings.Contains(string(out), "LoggedOut") || strings.Contains(string(out), "NeedsLogin") {
-				return &TailscaleStatus{Running: true, LoggedIn: false, Backend: "NeedsLogin (System)"}, nil
+			var st ipnstate.Status
+			if err := json.Unmarshal(out, &st); err == nil {
+				state = &st
+				// Если системный Tailscale не залогинен, сбрасываем state и идем дальше
+				if state.BackendState == "NeedsLogin" || state.BackendState == "LoggedOut" {
+					state = nil
+				}
 			}
 		}
 	}
 
-	refreshAndroidDefaultRouteInterface()
-	lc, err := s.localClient()
-	if err != nil { return nil, err }
-	if ctx == nil { ctx, _ = context.WithTimeout(context.Background(), 5*time.Second) }
-	state, err := lc.Status(ctx)
-	if err != nil { return nil, fmt.Errorf("tailscale status: %w", err) }
+	// 2. Если системного нет или он не залогинен, пробуем userspace (tsnet)
+	if state == nil {
+		refreshAndroidDefaultRouteInterface()
+		lc, err := s.localClient()
+		if err != nil {
+			return nil, err
+		}
+		if ctx == nil {
+			ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+		}
+		state, err = lc.Status(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("tailscale status: %w", err)
+		}
+	}
 
+	if state == nil {
+		return &TailscaleStatus{Running: false}, nil
+	}
+
+	// 3. Конвертируем ipnstate.Status в наш внутренний формат
 	out := &TailscaleStatus{
 		Running:   strings.TrimSpace(state.BackendState) == "Running",
 		LoggedIn:  state.BackendState != "" && state.BackendState != "NeedsLogin" && state.BackendState != "NoState",
 		Backend:   strings.TrimSpace(state.BackendState),
 		Userspace: !state.TUN,
 	}
+
 	if state.Self != nil {
-		out.Self = TailscalePeer{
-			ID: string(state.Self.ID), HostName: strings.TrimSpace(state.Self.HostName),
-			DNSName: trimDotSuffix(state.Self.DNSName), OS: strings.TrimSpace(state.Self.OS),
-			Online: state.Self.Online, Active: state.Self.Active,
-			IP4: firstAddr(state.Self.TailscaleIPs), UserLogin: userLogin(state, state.Self.UserID),
-			Relay: state.Self.Relay, CurAddr: state.Self.CurAddr,
-		}
+		out.Self = s.convertPeer(state, state.Self)
 	}
+
 	for _, key := range state.Peers() {
 		peer := state.Peer[key]
-		if peer == nil { continue }
-		out.Peers = append(out.Peers, TailscalePeer{
-			ID: string(peer.ID), HostName: strings.TrimSpace(peer.HostName),
-			DNSName: trimDotSuffix(peer.DNSName), OS: strings.TrimSpace(peer.OS),
-			Online: peer.Online, Active: peer.Active,
-			IP4: firstAddr(peer.TailscaleIPs), UserLogin: userLogin(state, peer.UserID),
-			Relay: peer.Relay, CurAddr: peer.CurAddr,
-		})
+		if peer == nil {
+			continue
+		}
+		out.Peers = append(out.Peers, s.convertPeer(state, peer))
 	}
+
 	return out, nil
+}
+
+func (s *TailscaleService) convertPeer(st *ipnstate.Status, p *ipnstate.PeerStatus) TailscalePeer {
+	return TailscalePeer{
+		ID:        string(p.ID),
+		HostName:  strings.TrimSpace(p.HostName),
+		DNSName:   trimDotSuffix(p.DNSName),
+		OS:        strings.TrimSpace(p.OS),
+		Online:    p.Online,
+		Active:    p.Active,
+		IP4:       firstAddr(p.TailscaleIPs),
+		UserLogin: userLogin(st, p.UserID),
+		Relay:     p.Relay,
+		CurAddr:   p.CurAddr,
+		Addrs:     p.Addrs,
+	}
 }
 
 func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
@@ -340,9 +364,9 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	s.mu.Lock()
 	state := "inactive"
 	if s.videoRelayConn != nil {
-		state = "relay-active"
+		state = "userspace-relay"
 	} else if s.GetSystemTailscaleIP() != "" {
-		state = "direct-nuclear"
+		state = "system-stack"
 	}
 	s.mu.Unlock()
 
@@ -356,11 +380,11 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 			for _, peer := range st.Peers {
 				if peer.IP4 == cleanTarget || strings.Contains(peer.DNSName, cleanTarget) || peer.HostName == cleanTarget {
 					if peer.CurAddr != "" {
-						routingInfo = fmt.Sprintf(" (peer via %s)", peer.CurAddr)
+						routingInfo = fmt.Sprintf(" (Direct via %s)", peer.CurAddr)
 					} else if peer.Relay != "" {
-						routingInfo = fmt.Sprintf(" (peer via DERP relay %s)", peer.Relay)
+						routingInfo = fmt.Sprintf(" (DERP via %s)", peer.Relay)
 					} else {
-						routingInfo = " (peer routing unknown)"
+						routingInfo = " (routing unknown)"
 					}
 					break
 				}
@@ -376,16 +400,39 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 	pc := s.videoRelayConn
 	traceID := s.videoRelayTraceID
 	s.mu.Unlock()
-	if pc == nil || targetHost == "" {
+
+	host := strings.Split(targetHost, ":")[0]
+
+	// Определяем функцию для отправки PUNCH-пакета
+	var puncher func(addr *net.UDPAddr)
+	if pc != nil {
+		// Режим userspace (tsnet relay)
+		puncher = func(addr *net.UDPAddr) {
+			_, _ = pc.WriteTo([]byte("PUNCH"), addr)
+		}
+	} else if s.GetSystemTailscaleIP() != "" {
+		// Режим системного стека (system tailscaled)
+		s.pingSystemTailscale(host)
+
+		// Создаем временный UDP сокет для "пробивки"
+		conn, err := net.ListenUDP("udp4", nil)
+		if err == nil {
+			defer conn.Close()
+			puncher = func(addr *net.UDPAddr) {
+				_, _ = conn.WriteTo([]byte("PUNCH"), addr)
+			}
+		}
+	}
+
+	if puncher == nil || targetHost == "" {
 		return
 	}
 
-	// 1. Сначала пробиваем на основной Target (может быть 100.x.x.x или DNS)
-	host := strings.Split(targetHost, ":")[0]
+	// 1. Сначала пробиваем на основной Target (Tailscale IP или DNS)
 	addr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
 		logrus.Infof("🎯 [%s] Sending PUNCH to target %v...", traceID, addr)
-		_, _ = pc.WriteTo([]byte("PUNCH"), addr)
+		puncher(addr)
 	}
 
 	// 2. ДОПОЛНИТЕЛЬНО: Пробиваем на все известные эндпоинты этого пира через статус
@@ -394,18 +441,52 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 	if st, err := s.Status(ctx); err == nil && st != nil {
 		for _, peer := range st.Peers {
 			if peer.IP4 == host || strings.Contains(peer.DNSName, host) || peer.HostName == host {
+				// Пробиваем текущий адрес
 				if peer.CurAddr != "" {
 					if ra, err := net.ResolveUDPAddr("udp4", peer.CurAddr); err == nil {
-						// Меняем порт на видео-порт, но оставляем IP
 						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
-						logrus.Infof("🎯 [%s] Sending PUNCH to detected peer address %v...", traceID, videoAddr)
-						_, _ = pc.WriteTo([]byte("PUNCH"), videoAddr)
+						logrus.Infof("🎯 [%s] Sending PUNCH to current peer address %v...", traceID, videoAddr)
+						puncher(videoAddr)
+					}
+				}
+				// ПРОБИВАЕМ ВСЕ ИЗВЕСТНЫЕ ЭНДПОИНТЫ (критично для P2P в локальной сети при наличии нескольких NAT)
+				for _, addrStr := range peer.Addrs {
+					if addrStr == peer.CurAddr {
+						continue
+					}
+					if ra, err := net.ResolveUDPAddr("udp4", addrStr); err == nil {
+						// Мы пробуем достучаться до видео-порта на всех IP пира
+						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
+						logrus.Infof("🎯 [%s] Sending PUNCH to potential peer endpoint %v...", traceID, videoAddr)
+						puncher(videoAddr)
 					}
 				}
 				break
 			}
 		}
 	}
+}
+
+func (s *TailscaleService) pingSystemTailscale(host string) {
+	tsPath := getTailscaleBinaryPath()
+	if tsPath == "" {
+		return
+	}
+
+	// Запускаем пинг в фоне, чтобы не блокировать UI.
+	// Пинг заставляет системный tailscaled искать прямой путь (P2P).
+	go func() {
+		logrus.Infof("🎯 [Tailscale] Running system ping to %s to force P2P...", host)
+		// Используем --timeout и --c для быстрого завершения
+		cmd := exec.Command(tsPath, "ping", "--timeout=3s", "--c=3", host)
+		maybeHideWindow(cmd)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			logrus.Warnf("⚠️ [Tailscale] System ping to %s failed: %v (out: %s)", host, err, string(out))
+		} else {
+			logrus.Infof("✅ [Tailscale] System ping to %s completed: %s", host, string(out))
+		}
+	}()
 }
 
 // PeerConnectionMode returns whether the connection to targetHost is direct P2P or via DERP relay.
@@ -460,7 +541,7 @@ func (s *TailscaleService) RespondToVideoProbe(systemIP string, port int, timeou
 	}
 	if strings.Contains(string(buf[:n]), "RELAY_PROBE") {
 		_, _ = conn.WriteTo([]byte(videoRelayAckPayload), remoteAddr)
-		logrus.Infof("✅ [Tailscale/NuclearMode] Responded to probe from %v", remoteAddr)
+		logrus.Infof("✅ [Tailscale/SystemStack] Responded to probe from %v", remoteAddr)
 		return nil
 	}
 	return fmt.Errorf("unexpected packet")
