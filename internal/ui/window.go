@@ -383,14 +383,17 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	}
 
 	linkLabel := widget.NewLabel("")
+	linkLabel.Alignment = fyne.TextAlignCenter
 	linkLabel.Wrapping = fyne.TextWrapBreak
 
 	qrImage := canvas.NewImageFromResource(nil)
 	qrImage.FillMode = canvas.ImageFillContain
-	qrImage.SetMinSize(fyne.NewSize(140, 140))
+	qrImage.SetMinSize(fyne.NewSize(200, 200))
 	qrMessage := widget.NewLabel("")
+	qrMessage.Alignment = fyne.TextAlignCenter
 	qrMessage.Wrapping = fyne.TextWrapWord
 	qrContent := container.NewCenter(qrImage)
+	qrMessage.Hide()
 	qrPanelBody := container.NewVBox(qrContent, qrMessage)
 
 	copyLinkBtn := newIconActionButton("Copy Link", theme.ContentCopyIcon(), func() {
@@ -403,16 +406,18 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	})
 	regenerateBtn := newIconActionButton("Regenerate Token", theme.ViewRefreshIcon(), nil)
 
-	topGap := spacerSize(1, 20)
-	buttonGap := spacerSize(1, 10)
-	closeGap := spacerSize(1, 14)
+	topGap := spacerSize(1, 8)
+	linkGap := spacerSize(1, 2)
+	buttonGap := spacerSize(1, 6)
+	closeTopGap := spacerSize(1, 8)
+	closeBottomGap := spacerSize(1, 0)
 
 	copyLinkSlot := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, copyLinkBtn.MinSize().Height), copyLinkBtn))
 	regenerateSlot := container.NewCenter(container.NewGridWrap(fyne.NewSize(260, regenerateBtn.MinSize().Height), regenerateBtn))
-	linkActions := container.NewGridWithColumns(2,
+	linkActions := container.NewCenter(container.NewGridWithColumns(2,
 		copyLinkSlot,
 		regenerateSlot,
-	)
+	))
 
 	var tokenDialog *widget.PopUp
 	closeDialogBtn := widget.NewButton("Close", func() {
@@ -421,14 +426,19 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		}
 	})
 
-	body := container.NewVBox(
+	contentWidth := canvas.NewRectangle(color.Transparent)
+	contentWidth.SetMinSize(fyne.NewSize(620, 1))
+	contentBody := container.NewVBox(
+		contentWidth,
 		topGap,
 		qrPanelBody,
-		linkLabel,
+		linkGap,
+		container.NewPadded(linkLabel),
 		buttonGap,
 		linkActions,
-		closeGap,
+		closeTopGap,
 		container.NewCenter(closeDialogBtn),
+		closeBottomGap,
 	)
 	// Убираем верхний отступ полностью, чтобы поднять QR-код
 	pL := canvas.NewRectangle(color.Transparent)
@@ -436,12 +446,12 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	pR := canvas.NewRectangle(color.Transparent)
 	pR.SetMinSize(fyne.NewSize(8, 1))
 	pB := canvas.NewRectangle(color.Transparent)
-	pB.SetMinSize(fyne.NewSize(1, 1))
-	dialogContent := container.NewBorder(nil, pB, pL, pR, body)
+	pB.SetMinSize(fyne.NewSize(1, 0))
+	dialogContent := container.NewBorder(nil, pB, pL, pR, contentBody)
 
-	scroll := container.NewVScroll(dialogContent)
-	dialogBG := canvas.NewRectangle(design.ColorPanel)
-	dialogBody := container.NewStack(dialogBG, scroll)
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	dialogCard := container.NewStack(cardBG, dialogContent)
+	dialogBody := container.NewCenter(dialogCard)
 
 	// Создаем локальную тему с нулевыми отступами только для этого диалога
 	compactTheme := &compactTheme{Theme: design.NewBrandTheme()}
@@ -467,14 +477,16 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		if link == "" {
 			qrImage.Resource = nil
 			qrImage.Hide()
+			qrMessage.Show()
 			qrMessage.SetText("QR link unavailable until the agent has a reachable address.")
 			return
 		}
 
-		pngBytes, err := qrcode.Encode(link, qrcode.Medium, 256)
+		pngBytes, err := qrcode.Encode(link, qrcode.Medium, 320)
 		if err != nil {
 			qrImage.Resource = nil
 			qrImage.Hide()
+			qrMessage.Show()
 			qrMessage.SetText(fmt.Sprintf("QR unavailable: %v", err))
 			return
 		}
@@ -482,6 +494,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		qrImage.Resource = fyne.NewStaticResource("agent-token-qr.png", pngBytes)
 		qrImage.Show()
 		qrImage.Refresh()
+		qrMessage.Hide()
 		qrMessage.SetText("")
 	}
 
