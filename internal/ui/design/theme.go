@@ -18,6 +18,8 @@ var (
 	ColorTextMuted       = color.NRGBA{R: 0xC9, G: 0xC9, B: 0xC9, A: 0xFF}
 	ColorBorder          = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xFF}
 	ColorPanel           = color.NRGBA{R: 0x1D, G: 0x1D, B: 0x1D, A: 0xFF}
+	ColorHeader          = color.NRGBA{R: 0x2C, G: 0x2C, B: 0x2C, A: 0xFF}
+	ColorShadow          = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x38}
 )
 
 const RadiusMD float32 = 10

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"net"
 	"net/url"
 	"runtime"
@@ -17,8 +18,8 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	qrcode "github.com/skip2/go-qrcode"
 	"github.com/sirupsen/logrus"
+	qrcode "github.com/skip2/go-qrcode"
 
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
@@ -80,18 +81,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 	win.Resize(fyne.NewSize(640, 400))
 	win.CenterOnScreen()
 
-	// Header
-	title := canvas.NewText("USBridge Agent", design.ColorTextLight)
-	title.TextSize = 20
-	title.TextStyle.Bold = true
-	subtitle := canvas.NewText("Compact desktop backend", design.ColorTextMuted)
-	subtitle.TextSize = 11
-	
 	tokenBtn := widget.NewButtonWithIcon("TOKEN", theme.SettingsIcon(), func() {
 		w.showTokenDialog(win)
 	})
 	tokenBtn.Importance = widget.LowImportance
-	header := container.NewBorder(nil, nil, nil, container.NewGridWrap(fyne.NewSize(100, 32), tokenBtn), container.NewVBox(title, subtitle))
+	closeBtn := widget.NewButton("CLOSE", func() { win.Close() })
+	closeBtn.Importance = widget.DangerImportance
+	header := newHeaderBar(tokenBtn, closeBtn)
 
 	// Column 1: Permissions
 	w.accessLabel = widget.NewLabel("Accessibility")
@@ -123,7 +119,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	permBlock := newPanel("Permissions", container.NewVBox(
 		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
-		widget.NewSeparator(),
 		container.NewHBox(w.screenLabel, layout.NewSpacer(), w.screenBtn),
 	))
 
@@ -199,9 +194,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.tsPeers,
 	))
 
-	closeBtn := widget.NewButton("CLOSE", func() { win.Close() })
-	closeBtn.Importance = widget.DangerImportance
-
 	// Layout construction
 	col1 := container.NewVBox(permBlock)
 	col2 := container.NewVBox(statsBlock)
@@ -209,11 +201,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	mainGrid := container.NewGridWithColumns(2, col1, col2)
 
 	content := container.NewVBox(
-		newPanel("", header),
 		tsPanel,
 		mainGrid,
 		layout.NewSpacer(),
-		container.NewHBox(layout.NewSpacer(), closeBtn),
 	)
 
 	// Initial refresh
@@ -231,7 +221,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}()
 
 	bg := canvas.NewRectangle(design.ColorPanel)
-	win.SetContent(container.NewStack(bg, container.NewPadded(content)))
+	bodyContent := container.NewBorder(nil, nil, layout.NewSpacer(), layout.NewSpacer(), content)
+	body := container.NewBorder(header, nil, nil, nil, container.NewPadded(bodyContent))
+	win.SetContent(container.NewStack(bg, body))
 	win.SetCloseIntercept(func() {
 		if onClose != nil {
 			onClose()
@@ -600,19 +592,53 @@ func localQuickConnectIPv4() string {
 }
 
 func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(design.ColorSurface)
+	bg := canvas.NewRectangle(design.ColorHeader)
 	bg.CornerRadius = 12
-	bg.StrokeColor = design.ColorBorder
-	bg.StrokeWidth = 1
+	bg.SetMinSize(fyne.NewSize(0, 1))
 
-	body := container.NewVBox(content)
-	if strings.TrimSpace(title) != "" {
-		titleText := canvas.NewText(strings.ToUpper(title), design.ColorTextMuted)
-		titleText.TextSize = 11
-		titleText.TextStyle.Bold = true
-		body = container.NewVBox(titleText, widget.NewSeparator(), content)
+	shadow := canvas.NewRectangle(design.ColorShadow)
+	shadow.CornerRadius = 12
+	shadowTopGap := canvas.NewRectangle(color.Transparent)
+	shadowTopGap.SetMinSize(fyne.NewSize(0, 4))
+	shadowLeftGap := canvas.NewRectangle(color.Transparent)
+	shadowLeftGap.SetMinSize(fyne.NewSize(1, 0))
+
+	card := container.NewStack(
+		container.NewBorder(shadowTopGap, nil, shadowLeftGap, nil, shadow),
+		container.NewStack(bg, container.NewPadded(content)),
+	)
+
+	if strings.TrimSpace(title) == "" {
+		return card
 	}
-	return container.NewStack(bg, container.NewPadded(body))
+
+	titleText := canvas.NewText(strings.ToUpper(title), design.ColorTextMuted)
+	titleText.TextSize = 11
+	titleText.TextStyle.Bold = true
+
+	titleIndent := canvas.NewRectangle(color.Transparent)
+	titleIndent.SetMinSize(fyne.NewSize(8, 0))
+	titleRow := container.NewBorder(nil, nil, titleIndent, nil, titleText)
+
+	return container.NewVBox(titleRow, card)
+}
+
+func newHeaderBar(left fyne.CanvasObject, right fyne.CanvasObject) fyne.CanvasObject {
+	bg := canvas.NewRectangle(design.ColorHeader)
+	bg.SetMinSize(fyne.NewSize(0, 48))
+
+	leftBox := container.NewHBox()
+	if left != nil {
+		leftBox.Add(left)
+	}
+
+	rightBox := container.NewHBox()
+	if right != nil {
+		rightBox.Add(right)
+	}
+
+	bar := container.NewPadded(container.NewBorder(nil, nil, leftBox, rightBox, nil))
+	return container.NewStack(bg, bar)
 }
 
 func newBadge(text string, size fyne.Size) fyne.CanvasObject {
