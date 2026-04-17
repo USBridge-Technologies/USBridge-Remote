@@ -54,6 +54,7 @@ type Window struct {
 	tsState   *widget.Label
 	tsAddress *widget.RichText
 	tsAccount *widget.Label
+	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
 
 	httpStat    *widget.Label
@@ -127,9 +128,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	))
 
 	// Column 2: Stats & Tailscale
-	w.httpStat = widget.NewLabel(fmt.Sprintf("HTTP: 127.0.0.1:%d", w.cfg.HTTPPort))
-	w.videoStat = widget.NewLabel(fmt.Sprintf("VIDEO: 127.0.0.1:%d", w.cfg.VideoUDPPort))
-	w.captureStat = widget.NewLabel(fmt.Sprintf("CAPTURE: %s (%s)", w.cfg.VideoCapture, strings.ToUpper(runtime.GOOS)))
+	w.httpStat = widget.NewLabel(fmt.Sprintf("HTTP Port: %d", w.cfg.HTTPPort))
+	w.videoStat = widget.NewLabel(fmt.Sprintf("Video UDP Port: %d", w.cfg.VideoUDPPort))
+	w.captureStat = widget.NewLabel(fmt.Sprintf("Capture: %s", w.cfg.VideoCapture))
 
 	statsBlock := newPanel("Status", container.NewVBox(
 		w.httpStat,
@@ -141,6 +142,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.tsAddress = widget.NewRichTextFromMarkdown("Address: `unavailable`")
 	w.tsAddress.Wrapping = fyne.TextWrapWord
 	w.tsAccount = widget.NewLabel("Account: not connected")
+	w.tsPeers = widget.NewRichTextFromMarkdown("")
+	w.tsPeers.Wrapping = fyne.TextWrapWord
 
 	w.tsAuthBtn = widget.NewButton("Sign In With Google", func() {
 		if w.ts == nil {
@@ -193,6 +196,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(w.tsState, layout.NewSpacer(), w.tsAuthBtn),
 		w.tsAccount,
 		w.tsAddress,
+		w.tsPeers,
 	))
 
 	closeBtn := widget.NewButton("CLOSE", func() { win.Close() })
@@ -282,13 +286,14 @@ func (w *Window) performRefresh() {
 }
 
 func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
-	if w.tsState == nil || w.tsAddress == nil || w.tsAccount == nil {
+	if w.tsState == nil || w.tsAddress == nil || w.tsAccount == nil || w.tsPeers == nil {
 		return
 	}
 	if w.ts == nil || status == nil {
 		w.tsState.SetText("Status: unavailable")
 		w.tsAccount.SetText("Account: unavailable")
 		w.tsAddress.ParseMarkdown("Address: `unavailable`")
+		w.tsPeers.ParseMarkdown("")
 		if w.tsAuthBtn != nil {
 			w.tsAuthBtn.SetText("Sign In With Google")
 		}
@@ -299,6 +304,7 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 		w.tsState.SetText("Status: signed out")
 		w.tsAccount.SetText("Account: sign in required")
 		w.tsAddress.ParseMarkdown("Address: `sign in to publish this agent`")
+		w.tsPeers.ParseMarkdown("")
 		if w.tsAuthBtn != nil {
 			w.tsAuthBtn.SetText("Sign In With Google")
 		}
@@ -306,17 +312,42 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 	}
 
 	endpoint := status.Self.IP4
-	if strings.TrimSpace(endpoint) == "" {
+	if endpoint == "127.0.0.1" || strings.TrimSpace(endpoint) == "" {
 		endpoint = status.Self.DNSName
 	}
 	if strings.TrimSpace(endpoint) == "" {
 		endpoint = status.Self.HostName
 	}
+
 	w.tsState.SetText(fmt.Sprintf("Status: %s", strings.ToLower(status.Backend)))
 	w.tsAccount.SetText(fmt.Sprintf("Account: %s", fallbackValue(status.Self.UserLogin, "connected")))
-	w.tsAddress.ParseMarkdown(fmt.Sprintf("Address: `%s:%d` (%s)", endpoint, w.cfg.HTTPPort, fallbackValue(mapUserspace(status.Userspace), "embedded")))
+	w.tsAddress.ParseMarkdown(fmt.Sprintf("Address: `%s` (%s)", endpoint, fallbackValue(mapUserspace(status.Userspace), "embedded")))
 	if w.tsAuthBtn != nil {
 		w.tsAuthBtn.SetText("Sign Out")
+	}
+
+	// Update active sessions
+	var activePeers []string
+	for _, p := range status.Peers {
+		if !p.Active {
+			continue
+		}
+		connType := "Relay (DERP)"
+		if p.CurAddr != "" {
+			connType = fmt.Sprintf("P2P DIRECT (%s)", p.CurAddr)
+		} else if p.Relay != "" {
+			connType = fmt.Sprintf("Relay (DERP %s)", p.Relay)
+		}
+		activePeers = append(activePeers, fmt.Sprintf("* **%s** (%s) - %s", fallbackValue(p.UserLogin, p.HostName), p.IP4, connType))
+	}
+
+	if len(activePeers) > 0 {
+		w.tsPeers.ParseMarkdown(fmt.Sprintf("### Active Sessions:\n%s", strings.Join(activePeers, "\n")))
+		w.tsPeers.Show()
+	} else {
+		w.tsPeers.ParseMarkdown("*No active remote controllers*")
+		// Keep it visible but simple
+		w.tsPeers.Show()
 	}
 }
 

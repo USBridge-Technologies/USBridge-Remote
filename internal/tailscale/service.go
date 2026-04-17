@@ -21,6 +21,7 @@ type Status struct {
 	Backend   string
 	Userspace bool
 	Self      Peer
+	Peers     []Peer
 }
 
 type Peer struct {
@@ -29,6 +30,9 @@ type Peer struct {
 	IP4       string
 	UserLogin string
 	Online    bool
+	Active    bool
+	Relay     string
+	CurAddr   string
 }
 
 type Service struct {
@@ -45,6 +49,7 @@ type tsStatus struct {
 	AuthURL      string                `json:"AuthURL"`
 	TUN          bool                  `json:"TUN"`
 	Self         *tsPeerStatus         `json:"Self"`
+	Peer         map[string]*tsPeerStatus `json:"Peer"`
 	User         map[string]tsUserInfo `json:"User"` // JSON map keys are always strings
 }
 
@@ -54,6 +59,9 @@ type tsPeerStatus struct {
 	TailscaleIPs []string    `json:"TailscaleIPs"`
 	UserID       interface{} `json:"UserID"` // Can be int or string depending on version
 	Online       bool        `json:"Online"`
+	Active       bool        `json:"Active"`
+	Relay        string      `json:"Relay"`
+	CurAddr      string      `json:"CurAddr"`
 }
 
 type tsUserInfo struct {
@@ -94,35 +102,11 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	}
 
 	if raw.Self != nil {
-		var ip4 string
-		for _, ip := range raw.Self.TailscaleIPs {
-			if strings.Contains(ip, ".") {
-				ip4 = ip
-				break
-			}
-		}
+		res.Self = s.mapPeer(raw.Self, raw.User)
+	}
 
-		login := ""
-		if raw.User != nil {
-			var userIDStr string
-			switch v := raw.Self.UserID.(type) {
-			case float64:
-				userIDStr = fmt.Sprintf("%.0f", v)
-			case string:
-				userIDStr = v
-			}
-			if u, ok := raw.User[userIDStr]; ok {
-				login = u.LoginName
-			}
-		}
-
-		res.Self = Peer{
-			HostName:  raw.Self.HostName,
-			DNSName:   strings.TrimSuffix(raw.Self.DNSName, "."),
-			IP4:       ip4,
-			UserLogin: login,
-			Online:    raw.Self.Online,
-		}
+	for _, p := range raw.Peer {
+		res.Peers = append(res.Peers, s.mapPeer(p, raw.User))
 	}
 
 	if res.Self.IP4 == "" && res.Running {
@@ -130,6 +114,41 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	}
 
 	return res, nil
+}
+
+func (s *Service) mapPeer(p *tsPeerStatus, users map[string]tsUserInfo) Peer {
+	var ip4 string
+	for _, ip := range p.TailscaleIPs {
+		if strings.Contains(ip, ".") {
+			ip4 = ip
+			break
+		}
+	}
+
+	login := ""
+	if users != nil {
+		var userIDStr string
+		switch v := p.UserID.(type) {
+		case float64:
+			userIDStr = fmt.Sprintf("%.0f", v)
+		case string:
+			userIDStr = v
+		}
+		if u, ok := users[userIDStr]; ok {
+			login = u.LoginName
+		}
+	}
+
+	return Peer{
+		HostName:  p.HostName,
+		DNSName:   strings.TrimSuffix(p.DNSName, "."),
+		IP4:       ip4,
+		UserLogin: login,
+		Online:    p.Online,
+		Active:    p.Active,
+		Relay:     p.Relay,
+		CurAddr:   p.CurAddr,
+	}
 }
 
 func (s *Service) IsUserspace(ctx context.Context) (bool, error) {
