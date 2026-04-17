@@ -48,16 +48,14 @@ type mouseInput struct {
 	DwExtraInfo uintptr
 }
 
-type keyboardPacket struct {
+// inputPacket matches the Windows INPUT structure.
+// On x64, it's 40 bytes. On x86, it's 28 bytes.
+type inputPacket struct {
 	Type uint32
-	_    uint32
-	Ki   keyboardInput
-}
-
-type mousePacket struct {
-	Type uint32
-	_    uint32
-	Mi   mouseInput
+	_    uint32 // Padding for 8-byte alignment of the union on x64
+	// Union of MOUSEINPUT (32 bytes on x64) and KEYBDINPUT (24 bytes on x64)
+	// We use the mouseInput as it is the largest.
+	Data mouseInput
 }
 
 var (
@@ -180,13 +178,25 @@ func (c *Controller) AbsoluteEvent(buttonsMask uint8, x, y uint16, wheel int8) e
 	return nil
 }
 
-func (c *Controller) sendKey(vk, scan uint16, flags uint32) error {
-	pkt := keyboardPacket{Type: inputKeyboard, Ki: keyboardInput{WVk: vk, WScan: scan, DwFlags: flags}}
-	r1, _, err := procSendInput.Call(uintptr(1), uintptr(unsafe.Pointer(&pkt)), uintptr(unsafe.Sizeof(pkt)))
+func (c *Controller) sendInput(pkt *inputPacket) error {
+	r1, _, err := procSendInput.Call(uintptr(1), uintptr(unsafe.Pointer(pkt)), unsafe.Sizeof(*pkt))
 	if r1 == 0 {
-		return err
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("SendInput failed")
 	}
 	return nil
+}
+
+func (c *Controller) sendKey(vk, scan uint16, flags uint32) error {
+	var pkt inputPacket
+	pkt.Type = inputKeyboard
+	ki := (*keyboardInput)(unsafe.Pointer(&pkt.Data))
+	ki.WVk = vk
+	ki.WScan = scan
+	ki.DwFlags = flags
+	return c.sendInput(&pkt)
 }
 
 func (c *Controller) sendHID(key uint8, up bool) error {
@@ -205,21 +215,19 @@ func (c *Controller) sendHID(key uint8, up bool) error {
 }
 
 func (c *Controller) sendUnicode(scan uint16, flags uint32) error {
-	pkt := keyboardPacket{Type: inputKeyboard, Ki: keyboardInput{WScan: scan, DwFlags: keyeventfUnicode | flags}}
-	r1, _, err := procSendInput.Call(uintptr(1), uintptr(unsafe.Pointer(&pkt)), uintptr(unsafe.Sizeof(pkt)))
-	if r1 == 0 {
-		return err
-	}
-	return nil
+	var pkt inputPacket
+	pkt.Type = inputKeyboard
+	ki := (*keyboardInput)(unsafe.Pointer(&pkt.Data))
+	ki.WScan = scan
+	ki.DwFlags = keyeventfUnicode | flags
+	return c.sendInput(&pkt)
 }
 
 func (c *Controller) sendMouse(mi mouseInput) error {
-	pkt := mousePacket{Type: inputMouse, Mi: mi}
-	r1, _, err := procSendInput.Call(uintptr(1), uintptr(unsafe.Pointer(&pkt)), uintptr(unsafe.Sizeof(pkt)))
-	if r1 == 0 {
-		return err
-	}
-	return nil
+	var pkt inputPacket
+	pkt.Type = inputMouse
+	pkt.Data = mi
+	return c.sendInput(&pkt)
 }
 
 func setCursorAbsolute(x, y uint16) error {
@@ -228,7 +236,10 @@ func setCursorAbsolute(x, y uint16) error {
 	py := bounds.Min.Y + scaleAbsoluteCoordinate(y, bounds.Dy())
 	r1, _, err := procSetCursorPos.Call(uintptr(px), uintptr(py))
 	if r1 == 0 {
-		return err
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("SetCursorPos failed")
 	}
 	return nil
 }
