@@ -20,9 +20,11 @@ var (
 	ColorPanel           = color.NRGBA{R: 0x1D, G: 0x1D, B: 0x1D, A: 0xFF}
 	ColorHeader          = color.NRGBA{R: 0x2C, G: 0x2C, B: 0x2C, A: 0xFF}
 	ColorShadow          = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x38}
+	ColorHover           = color.NRGBA{R: 0x53, G: 0x53, B: 0x53, A: 0xFF}
+	ColorError           = color.NRGBA{R: 0xFF, G: 0x4B, B: 0x4B, A: 0xFF}
 )
 
-const RadiusMD float32 = 10
+const RadiusMD float32 = 6
 
 type BrandTheme struct {
 	fallback fyne.Theme
@@ -34,7 +36,7 @@ func NewBrandTheme() fyne.Theme {
 
 func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
 	switch name {
-	case fynetheme.ColorNameBackground:
+	case fynetheme.ColorNameBackground, fynetheme.ColorNameOverlayBackground, fynetheme.ColorNameMenuBackground:
 		return ColorPanel
 	case fynetheme.ColorNameButton:
 		return ColorSurfaceLight
@@ -49,7 +51,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameHeaderBackground:
 		return ColorPanel
 	case fynetheme.ColorNameHover:
-		return ColorAccentSoft
+		return ColorHover
 	case fynetheme.ColorNameInputBackground:
 		return ColorInputBackground
 	case fynetheme.ColorNameInputBorder:
@@ -59,7 +61,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNamePrimary:
 		return ColorAccent
 	case fynetheme.ColorNameSelection:
-		return ColorAccentSoft
+		return ColorHover
 	case fynetheme.ColorNameSeparator:
 		return ColorBorder
 	}
@@ -76,6 +78,8 @@ func (t *BrandTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 
 func (t *BrandTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
+	case fynetheme.SizeNamePadding:
+		return 8
 	case fynetheme.SizeNameInputRadius, fynetheme.SizeNameSelectionRadius, fynetheme.SizeNameWindowButtonRadius:
 		return RadiusMD
 	}
