@@ -17,6 +17,7 @@ import (
 	fyneapp "fyne.io/fyne/v2/app"
 
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/assets"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/frp"
@@ -72,6 +73,7 @@ func New() (*App, error) {
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
+	instance.fyneApp.SetIcon(assets.AppIcon)
 	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
 	instance.video = video.New(cfg, instance.frp, instance.ts)
 	instance.server = &http.Server{

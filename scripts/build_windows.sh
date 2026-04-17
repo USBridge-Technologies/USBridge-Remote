@@ -9,6 +9,11 @@ DIST_DIR="$REPO_ROOT/dist/windows"
 EXE_NAME="USBridgeAgent.exe"
 OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
 BUILD_PKG="./cmd/usbridge_agent"
+ICON_PNG="$REPO_ROOT/Icon.png"
+ICON_ICO="$REPO_ROOT/cmd/usbridge_agent/appicon.ico"
+ICON_RC="$REPO_ROOT/cmd/usbridge_agent/appicon.rc"
+ICON_SYSO="$REPO_ROOT/cmd/usbridge_agent/appicon_windows_amd64.syso"
+WINDRES_BIN="/c/msys64/ucrt64/bin/windres.exe"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -83,6 +88,26 @@ echo -e "${GREEN}✓${NC} CXX: $(command -v "$CXX_BIN")"
 
 mkdir -p "$DIST_DIR"
 rm -f "$OUTPUT_PATH"
+
+if [[ -f "$ICON_PNG" ]]; then
+    echo -e "${YELLOW}Preparing Windows icon resources...${NC}"
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        echo -e "${RED}ffmpeg not found in PATH, cannot generate .ico from Icon.png${NC}"
+        exit 1
+    fi
+    if [[ ! -x "$WINDRES_BIN" ]]; then
+        echo -e "${RED}windres not found at $WINDRES_BIN${NC}"
+        exit 1
+    fi
+    ffmpeg -loglevel error -y -i "$ICON_PNG" -vf "scale=256:256:force_original_aspect_ratio=decrease,pad=256:256:(ow-iw)/2:(oh-ih)/2:color=0x00000000" "$ICON_ICO"
+    cat > "$ICON_RC" <<'RC'
+1 ICON "appicon.ico"
+RC
+    (
+        cd "$REPO_ROOT/cmd/usbridge_agent"
+        "$WINDRES_BIN" appicon.rc -O coff -o appicon_windows_amd64.syso
+    )
+fi
 
 export GOOS=windows
 export GOARCH=amd64
