@@ -9,7 +9,9 @@ DIST_DIR="$REPO_ROOT/dist/windows"
 EXE_NAME="USBridgeAgent.exe"
 OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
 BUILD_PKG="./cmd/usbridge_agent"
-ICON_PNG="$REPO_ROOT/Icon.png"
+ICON_PNG_16="$REPO_ROOT/appicon-16.png"
+ICON_PNG_32="$REPO_ROOT/appicon-32.png"
+ICON_PNG_256="$REPO_ROOT/appicon-256.png"
 ICON_ICO="$REPO_ROOT/cmd/usbridge_agent/appicon.ico"
 ICON_RC="$REPO_ROOT/cmd/usbridge_agent/appicon.rc"
 ICON_SYSO="$REPO_ROOT/cmd/usbridge_agent/appicon_windows_amd64.syso"
@@ -89,17 +91,17 @@ echo -e "${GREEN}✓${NC} CXX: $(command -v "$CXX_BIN")"
 mkdir -p "$DIST_DIR"
 rm -f "$OUTPUT_PATH"
 
-if [[ -f "$ICON_PNG" ]]; then
+if [[ -f "$ICON_PNG_16" && -f "$ICON_PNG_32" && -f "$ICON_PNG_256" ]]; then
     echo -e "${YELLOW}Preparing Windows icon resources...${NC}"
-    if ! command -v ffmpeg >/dev/null 2>&1; then
-        echo -e "${RED}ffmpeg not found in PATH, cannot generate .ico from Icon.png${NC}"
+    if ! command -v python >/dev/null 2>&1; then
+        echo -e "${RED}python not found in PATH, cannot generate .ico from appicon PNG files${NC}"
         exit 1
     fi
     if [[ ! -x "$WINDRES_BIN" ]]; then
         echo -e "${RED}windres not found at $WINDRES_BIN${NC}"
         exit 1
     fi
-    ffmpeg -loglevel error -y -i "$ICON_PNG" -vf "scale=256:256:force_original_aspect_ratio=decrease,pad=256:256:(ow-iw)/2:(oh-ih)/2:color=0x00000000" "$ICON_ICO"
+    python "$REPO_ROOT/scripts/generate_windows_ico.py" "$ICON_ICO" "$ICON_PNG_16" "$ICON_PNG_32" "$ICON_PNG_256"
     cat > "$ICON_RC" <<'RC'
 1 ICON "appicon.ico"
 RC
@@ -107,6 +109,9 @@ RC
         cd "$REPO_ROOT/cmd/usbridge_agent"
         "$WINDRES_BIN" appicon.rc -O coff -o appicon_windows_amd64.syso
     )
+elif [[ -f "$REPO_ROOT/Icon.png" ]]; then
+    echo -e "${RED}Windows icon set is incomplete. Expected: appicon-16.png, appicon-32.png, appicon-256.png${NC}"
+    exit 1
 fi
 
 export GOOS=windows
