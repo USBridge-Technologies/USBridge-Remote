@@ -305,9 +305,9 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 		return
 	}
 
-	endpoint := status.Self.DNSName
+	endpoint := status.Self.IP4
 	if strings.TrimSpace(endpoint) == "" {
-		endpoint = status.Self.IP4
+		endpoint = status.Self.DNSName
 	}
 	if strings.TrimSpace(endpoint) == "" {
 		endpoint = status.Self.HostName
@@ -503,10 +503,10 @@ func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost strin
 	if w.ts != nil {
 		if status, err := w.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
 			switch {
-			case strings.TrimSpace(status.Self.DNSName) != "":
-				tailscaleHost = strings.TrimSpace(status.Self.DNSName)
 			case strings.TrimSpace(status.Self.IP4) != "":
 				tailscaleHost = strings.TrimSpace(status.Self.IP4)
+			case strings.TrimSpace(status.Self.DNSName) != "":
+				tailscaleHost = strings.TrimSpace(status.Self.DNSName)
 			}
 		}
 	}
