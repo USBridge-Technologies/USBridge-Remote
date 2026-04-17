@@ -16,8 +16,8 @@ import (
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
 
+	"usbridge_agent/assets"
 	"usbridge_agent/internal/api"
-	"usbridge_agent/internal/assets"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/frp"

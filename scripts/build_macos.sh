@@ -36,6 +36,27 @@ echo -e "${YELLOW}Compiling app bundle...${NC}"
 go build -o "$BIN_PATH" ./cmd/usbridge_agent
 chmod +x "$BIN_PATH"
 
+# Icon generation
+if [ -f "$REPO_ROOT/assets/icons/appicon-256.png" ]; then
+    echo -e "${YELLOW}Generating app icon...${NC}"
+    ICONSET_DIR="$DIST_DIR/icon.iconset"
+    mkdir -p "$ICONSET_DIR"
+    
+    # Generate standard sizes
+    # sips -z height width source --out destination
+    sips -z 16 16   "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_16x16.png" > /dev/null 2>&1
+    sips -z 32 32   "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_16x16@2x.png" > /dev/null 2>&1
+    sips -z 32 32   "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_32x32.png" > /dev/null 2>&1
+    sips -z 64 64   "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_32x32@2x.png" > /dev/null 2>&1
+    sips -z 128 128 "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_128x128.png" > /dev/null 2>&1
+    sips -z 256 256 "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_128x128@2x.png" > /dev/null 2>&1
+    sips -z 256 256 "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_256x256.png" > /dev/null 2>&1
+    sips -z 512 512 "$REPO_ROOT/assets/icons/appicon-256.png" --out "$ICONSET_DIR/icon_256x256@2x.png" > /dev/null 2>&1
+    
+    iconutil -c icns "$ICONSET_DIR" -o "$APP_RESOURCES/AppIcon.icns"
+    rm -rf "$ICONSET_DIR"
+fi
+
 cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,6 +68,8 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
     <string>USBridgeAgent</string>
     <key>CFBundleExecutable</key>
     <string>USBridgeAgent</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.usbridge.agent</string>
     <key>CFBundleInfoDictionaryVersion</key>

@@ -9,9 +9,9 @@ DIST_DIR="$REPO_ROOT/dist/windows"
 EXE_NAME="USBridgeAgent.exe"
 OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
 BUILD_PKG="./cmd/usbridge_agent"
-ICON_PNG_16="$REPO_ROOT/appicon-16.png"
-ICON_PNG_32="$REPO_ROOT/appicon-32.png"
-ICON_PNG_256="$REPO_ROOT/appicon-256.png"
+ICON_PNG_16="$REPO_ROOT/assets/icons/appicon-16.png"
+ICON_PNG_32="$REPO_ROOT/assets/icons/appicon-32.png"
+ICON_PNG_256="$REPO_ROOT/assets/icons/appicon-256.png"
 ICON_ICO="$REPO_ROOT/cmd/usbridge_agent/appicon.ico"
 ICON_RC="$REPO_ROOT/cmd/usbridge_agent/appicon.rc"
 ICON_SYSO="$REPO_ROOT/cmd/usbridge_agent/appicon_windows_amd64.syso"
@@ -109,7 +109,7 @@ RC
         cd "$REPO_ROOT/cmd/usbridge_agent"
         "$WINDRES_BIN" appicon.rc -O coff -o appicon_windows_amd64.syso
     )
-elif [[ -f "$REPO_ROOT/Icon.png" ]]; then
+elif [[ -f "$REPO_ROOT/assets/icons/Icon.png" ]]; then
     echo -e "${RED}Windows icon set is incomplete. Expected: appicon-16.png, appicon-32.png, appicon-256.png${NC}"
     exit 1
 fi
