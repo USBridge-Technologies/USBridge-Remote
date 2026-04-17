@@ -17,6 +17,7 @@ func (cm *ConnectionManager) createInterface() {
 		cm.handleQRScan,
 		cm.showAddDialog,
 		cm.openQuickStartDocs,
+		cm.openHardwarePromo,
 		cm.handleTailscaleToggleAction,
 	)
 	cm.refreshConnectionsList()
@@ -59,6 +60,12 @@ func (cm *ConnectionManager) openDiscordInvite() {
 	const discordURL = "https://discord.gg/XwNpCrGfsB"
 
 	cm.openExternalLink(discordURL, "Discord invite URL")
+}
+
+func (cm *ConnectionManager) openHardwarePromo() {
+	const promoURL = "https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"
+
+	cm.openExternalLink(promoURL, "hardware promo URL")
 }
 
 func (cm *ConnectionManager) openExternalLink(rawURL string, label string) {
