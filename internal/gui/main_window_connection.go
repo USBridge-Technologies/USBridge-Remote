@@ -542,7 +542,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		mw.tokenEntry.Disable()
 
 		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
-		mw.usbClient = mw.attachUSBClient(api.NewUSBClient(quicHost, httpPort, mw.config.APITimeout))
+		mw.usbClient = mw.attachUSBClient(api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout))
 
 		mw.gstreamerService.UpdateHost("127.0.0.1")
 		mw.gstreamerService.UpdateVideoPort(videoPort)

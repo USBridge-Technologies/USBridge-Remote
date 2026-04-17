@@ -145,6 +145,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if vw.frpService != nil && vw.frpService.IsRunning() {
 		_, clientPort, _ = vw.frpService.GetServerPorts()
 		transportKind = "frp-video_sudp"
+		request.ClientHost = "127.0.0.1"
 	} else {
 		preferredPort := clientPort
 		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
