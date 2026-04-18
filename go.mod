@@ -6,6 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.7.3
 	github.com/fatedier/frp v0.67.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/josephspurrier/goversioninfo v1.4.0
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/pion/rtp v1.10.1
 	github.com/pojntfx/go-nbd v0.3.2

@@ -1644,6 +1644,7 @@ func (t *tailscaleHeaderToggle) MouseIn(*desktop.MouseEvent) {
 	}
 	t.hovered = true
 	t.refreshVisuals()
+	t.Refresh()
 }
 
 func (t *tailscaleHeaderToggle) MouseMoved(*desktop.MouseEvent) {}
@@ -1654,6 +1655,7 @@ func (t *tailscaleHeaderToggle) MouseOut() {
 	}
 	t.hovered = false
 	t.refreshVisuals()
+	t.Refresh()
 }
 
 func (t *tailscaleHeaderToggle) MinSize() fyne.Size {
@@ -1689,7 +1691,7 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	}
 
 	bgColor := design.ColorSurfaceLight
-	trackColor := design.ColorSurfaceLight
+	trackColor := design.ColorBorder
 	thumbColor := design.ColorGray400
 	labelColor := design.ColorTextMuted
 	if t.on {
@@ -1698,7 +1700,7 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	}
 	if t.disabled {
 		bgColor = design.ColorGray900
-		trackColor = design.ColorGray900
+		trackColor = design.ColorBorder
 		thumbColor = design.ColorBorder
 		labelColor = design.ColorBorder
 	} else if t.hovered {

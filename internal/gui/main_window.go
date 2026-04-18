@@ -125,7 +125,9 @@ func protocolStatusText(protocol string) string {
 // NewMainWindow создает новое главное окно.
 func NewMainWindow(config *models.AppConfig) *MainWindow {
 	myApp := newFyneApp()
-	myApp.SetIcon(nil)
+	if icon := loadAppIconResource(); icon != nil {
+		myApp.SetIcon(icon)
+	}
 
 	savedLang := myApp.Preferences().StringWithFallback("language", "en")
 	i18n.Init(savedLang)

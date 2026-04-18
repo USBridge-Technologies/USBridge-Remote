@@ -298,36 +298,11 @@ if ! "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
     exit 1
 fi
 
-# 3. Проверка fyne
-echo -e "\n${YELLOW}📦 Проверка fyne...${NC}"
-FYNE_BIN=""
 GOPATH_BIN="$(go env GOPATH)/bin"
-# На Windows/MSYS2 исполняемый файл — fyne.exe
-for name in fyne fyne.exe; do
-    if command -v "$name" &> /dev/null; then
-        FYNE_BIN="$name"
-        break
-    fi
-    if [ -x "$GOPATH_BIN/$name" ]; then
-        FYNE_BIN="$GOPATH_BIN/$name"
-        break
-    fi
-done
-if [ -z "$FYNE_BIN" ]; then
-    echo -e "${YELLOW}⚠${NC} fyne не найден, устанавливаю..."
-    go install fyne.io/tools/cmd/fyne@latest
-    for name in fyne.exe fyne; do
-        if [ -x "$GOPATH_BIN/$name" ]; then
-            FYNE_BIN="$GOPATH_BIN/$name"
-            break
-        fi
-    done
-    [ -z "$FYNE_BIN" ] && FYNE_BIN="$GOPATH_BIN/fyne"
-fi
-echo -e "${GREEN}✓${NC} fyne: $FYNE_BIN"
 
 # 4. Иконка
-ICON_PATH="$REPO_ROOT/Icon.png"
+ICON_DIR="$REPO_ROOT/assets/icons"
+ICON_PATH="$ICON_DIR/Icon.png"
 if [ ! -f "$ICON_PATH" ]; then
     echo -e "${RED}❌ Иконка не найдена: $ICON_PATH${NC}"
     exit 1
@@ -365,10 +340,11 @@ REBUILD_WINDOWS_REASON=""
 if ! build_cache_fingerprint \
     "$REPO_ROOT/cmd" \
     "$REPO_ROOT/internal" \
+    "$REPO_ROOT/scripts/build_windows_syso.go" \
     "$REPO_ROOT/go.mod" \
     "$REPO_ROOT/go.sum" \
     "$REPO_ROOT/FyneApp.toml" \
-    "$ICON_PATH" > "$BUILD_CACHE_FINGERPRINT_TMP"; then
+    "$ICON_DIR" > "$BUILD_CACHE_FINGERPRINT_TMP"; then
     echo -e "${RED}Fingerprint generation for build cache failed${NC}"
     exit 1
 fi
@@ -395,6 +371,12 @@ fi
 if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
     echo -e "${YELLOW}🧱 Сборка Windows exe (Go cache: $GOCACHE)...${NC}"
     echo "   Reason: $REBUILD_WINDOWS_REASON"
+    go run "$REPO_ROOT/scripts/build_windows_syso.go" \
+        -icon-dir "$ICON_DIR" \
+        -out "$REPO_ROOT/cmd/fyne.syso" \
+        -name "USBridge Client" \
+        -version "1.0.0" \
+        -arch "$GOARCH"
     go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_EXE" .
     mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
 else
@@ -402,54 +384,8 @@ else
     echo -e "${GREEN}✓${NC} Используем готовый Windows exe из кэша: $BUILD_CACHE_EXE"
 fi
 
-echo "--- Вывод fyne package ---"
-FYNE_CC="x86_64-w64-mingw32-gcc"
-FYNE_CXX="x86_64-w64-mingw32-g++"
-FYNE_PKG_CONFIG="${PKG_CONFIG:-x86_64-w64-mingw32-pkg-config}"
-PACKAGE_STAMP="$BUILD_CACHE_DIR/.fyne-package.stamp"
-touch "$PACKAGE_STAMP"
-rm -f "$REPO_ROOT/cmd/USBridge_Client.exe" "$REPO_ROOT/cmd/USBridge Client.exe"
-if ! env \
-    CC="$FYNE_CC" \
-    CXX="$FYNE_CXX" \
-    PKG_CONFIG="$FYNE_PKG_CONFIG" \
-    CGO_ENABLED=1 \
-    "$FYNE_BIN" package \
-    --target windows \
-    --executable "$BUILD_CACHE_EXE" \
-    --app-id "com.usbridge.client" \
-    --name "USBridge Client" \
-    --app-version "1.0.0" \
-    --icon "$ICON_PATH" \
-    --release \
-    -- -j 12 2>&1; then
-    echo -e "\n${RED}❌ fyne package завершился с ошибкой${NC}"
-    echo "Содержимое $(pwd):"
-    ls -la
-    exit 1
-fi
-echo "--- Конец вывода fyne ---"
-
-# Ищем созданный exe
 EXE_SRC="$BUILD_CACHE_EXE"
 EXE_SRC_LABEL="$BUILD_CACHE_EXE"
-for n in "USBridge_Client.exe" "USBridge Client.exe"; do
-    if [ -f "$n" ] && [ "$n" -nt "$PACKAGE_STAMP" ]; then
-        EXE_SRC="$REPO_ROOT/cmd/$n"
-        EXE_SRC_LABEL="$n"
-        break
-    fi
-done
-
-if false && [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
-    echo -e "${RED}❌ exe не создан${NC}"
-    ls -la
-    exit 1
-fi
-
-if [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
-    echo -e "${YELLOW}⚠${NC} fyne package did not produce a fresh Windows exe, using the rebuilt cache binary"
-fi
 
 # 6. Создание dist
 echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
@@ -567,6 +503,11 @@ echo -e "${GREEN}✓${NC} $EXE_NAME ($(basename "$EXE_SRC_LABEL"))"
 
 # Копируем config
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
+
+# Копируем app icons рядом с exe, чтобы рантайм брал набор из assets/icons.
+mkdir -p "$DIST_WIN/assets"
+cp -R "$ICON_DIR" "$DIST_WIN/assets/"
+echo -e "${GREEN}✓${NC} assets/icons"
 
 # Копируем wintun.dll рядом с exe, потому что рантайм WireGuard ищет её
 # только в каталоге приложения или в System32.
