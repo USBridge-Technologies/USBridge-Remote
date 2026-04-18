@@ -108,6 +108,14 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 	if !desiredStreaming {
 		if vw.usbClient != nil {
 			vw.stopVideoInternal()
+		} else if vw.isStreaming {
+			// Клиент уже ушёл (потеря соединения), очищаем только локальное состояние
+			vw.isStreaming = false
+			vw.isGStreamerConnected = false
+			vw.isMouseConnected = false
+			vw.clearVideo()
+			fyne.Do(func() { vw.updateButtons() })
+			vw.updateStatus()
 		}
 		return
 	}

@@ -881,7 +881,6 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
 		mw.protocolSelect.Enable()
-		view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
 		if !mw.isClosing.Load() {
 			view.ShowErrorDialog(fmt.Errorf("%s: %w", message, err), mw.window)
 		}
@@ -898,15 +897,13 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	
 	if mw.videoWidget != nil {
-		mw.videoWidget.Close() // Останавливаем фоновые опросы
 		if mw.videoWidget.IsStreaming() {
 			logrus.Info("🛑 Stopping video before disconnect...")
 			_ = mw.videoWidget.StopVideoSync()
-			// Даем немного времени на освобождение сетевых ресурсов
-			time.Sleep(100 * time.Millisecond)
 		}
+		mw.videoWidget.Close() // Останавливаем фоновые опросы после завершения стопа
 	}
-	
+
 	if mw.backupWidget != nil {
 		mw.backupWidget.Close() // Останавливаем фоновые опросы
 	}
@@ -957,32 +954,40 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.appState.IsNBDRunning = false
 	mw.appState.LastDisconnected = time.Now()
 
-	mw.diskWidget.UpdateClient(nil)
-	mw.diskWidget.SetFRPService(nil)
-	mw.videoWidget.UpdateClient(nil)
-	mw.videoWidget.SetFRPService(nil)
-	if mw.backupWidget != nil {
-		mw.backupWidget.UpdateClient(nil)
-	}
+	// Все операции с UI переносим в поток Fyne
+	fyne.Do(func() {
+		if mw.diskWidget != nil {
+			mw.diskWidget.UpdateClient(nil)
+			mw.diskWidget.SetFRPService(nil)
+		}
+		if mw.videoWidget != nil {
+			mw.videoWidget.UpdateClient(nil)
+			mw.videoWidget.SetFRPService(nil)
+		}
+		if mw.backupWidget != nil {
+			mw.backupWidget.UpdateClient(nil)
+		}
 
-	mw.usbClient = nil
+		mw.usbClient = nil
 
-	mw.clearConnectionPending()
-	mw.refreshConnectionControls()
+		mw.clearConnectionPending()
+		mw.refreshConnectionControls()
 
-	if mw.pcpanelWidget != nil {
-		mw.pcpanelWidget.SetClient(nil)
-	}
+		if mw.pcpanelWidget != nil {
+			mw.pcpanelWidget.SetClient(nil)
+		}
 
-	mw.updateStatus()
-	mw.config.NBDBindHost = "0.0.0.0"
-	mw.config.VideoBindHost = "0.0.0.0"
-	if !mw.isClosing.Load() {
-		mw.hostEntry.Enable()
-		mw.tokenEntry.Enable()
-		mw.protocolSelect.Enable()
-		mw.showConnectionManager()
-	}
+		mw.updateStatus()
+		mw.config.NBDBindHost = "0.0.0.0"
+		mw.config.VideoBindHost = "0.0.0.0"
+
+		if !mw.isClosing.Load() {
+			mw.hostEntry.Enable()
+			mw.tokenEntry.Enable()
+			mw.protocolSelect.Enable()
+			mw.showConnectionManager()
+		}
+	})
 	logrus.Infof("[shutdown] handleDisconnect: completed")
 }
 

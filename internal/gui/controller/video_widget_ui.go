@@ -85,6 +85,11 @@ func (vw *VideoWidget) handleStartVideo() {
 
 		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
 
+		// Проверяем, не закрылся ли виджет пока шли HTTP-запросы
+		if vw.isClosing.Load() {
+			return
+		}
+
 		defaultWidth := 800
 		defaultHeight := 600
 		defaultFPS := 30
@@ -124,6 +129,10 @@ func (vw *VideoWidget) handleStartVideo() {
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
 			vw.startDialog.SetExtraAction("", nil)
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
+				if vw.usbClient == nil {
+					logrus.Warn("⚠️ video start dialog submitted but USB client is gone (disconnected)")
+					return
+				}
 				if preferredDevicePath != "" {
 					request.VideoDevice = preferredDevicePath
 				}
@@ -212,9 +221,23 @@ func (vw *VideoWidget) handleStopVideo() {
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	// Выполняем синхронно в очереди операций видео
+	// Выполняем напрямую в очереди, минуя beginVideoOperation-guard,
+	// чтобы не застрять если handleStartVideo-горутина ещё держит флаг.
 	vw.runVideoOpSync("stop-video-sync", func() {
-		vw.reconcileVideoState("stop-video-sync")
+		if !vw.isStreaming {
+			return
+		}
+		if vw.usbClient != nil {
+			vw.stopVideoInternal()
+		} else {
+			// Клиент уже ушёл — чистим только локальное состояние
+			vw.isStreaming = false
+			vw.isGStreamerConnected = false
+			vw.isMouseConnected = false
+			vw.clearVideo()
+			fyne.Do(func() { vw.updateButtons() })
+			vw.updateStatus()
+		}
 	})
 	return nil
 }
@@ -549,6 +572,12 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		return
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in handleVideoFrame: %v", r)
+		}
+	}()
+
 	vw.frameMutex.Lock()
 	vw.currentFrame = frame
 	vw.frameCount++
@@ -823,9 +852,11 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameRenderScheduled.Store(false)
 
 	fyne.Do(func() {
-		vw.videoCanvas.Resource = nil
-		vw.videoCanvas.Image = nil
-		vw.videoCanvas.Refresh()
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Resource = nil
+			vw.videoCanvas.Image = nil
+			vw.videoCanvas.Refresh()
+		}
 		if vw.touchpadWrapper != nil {
 			vw.touchpadWrapper.Refresh()
 		}
@@ -909,17 +940,27 @@ func (vw *VideoWidget) scheduleFrameRender() {
 		return
 	}
 	fyne.Do(func() {
+		defer func() {
+			vw.frameRenderScheduled.Store(false)
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in scheduleFrameRender/fyne.Do: %v", r)
+			}
+		}()
 		vw.renderLatestFrame()
 	})
 }
 
 func (vw *VideoWidget) renderLatestFrame() {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in renderLatestFrame: %v", r)
+		}
+	}()
 	vw.frameMutex.RLock()
 	frame := vw.currentFrame
 	frameNum := vw.frameCount
 	vw.frameMutex.RUnlock()
 	if frame == nil {
-		vw.frameRenderScheduled.Store(false)
 		return
 	}
 
