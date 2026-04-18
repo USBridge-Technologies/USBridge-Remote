@@ -7,12 +7,19 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"tailscale.com/client/local"
+	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
+	"tailscale.com/tsnet"
 )
 
 type Status struct {
@@ -36,28 +43,54 @@ type Peer struct {
 }
 
 type Service struct {
-	mu sync.Mutex
+	mu            sync.Mutex
+	userspace     bool
+	server        *tsnet.Server
+	stateDir      string
+	latestAuthURL string
 }
 
 func New() *Service {
 	return &Service{}
 }
 
-// JSON structures for tailscale status --json
+func (s *Service) ApplyConfig(userspace bool, stateDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.userspace == userspace && s.stateDir == stateDir {
+		return nil
+	}
+
+	logrus.Infof("🛰️ [Tailscale] Mode changing: userspace=%v -> %v", s.userspace, userspace)
+
+	if s.server != nil {
+		_ = s.server.Close()
+		s.server = nil
+	}
+
+	s.userspace = userspace
+	s.stateDir = stateDir
+	s.latestAuthURL = ""
+
+	return nil
+}
+
+// JSON structures for system tailscale status --json
 type tsStatus struct {
-	BackendState string                `json:"BackendState"`
-	AuthURL      string                `json:"AuthURL"`
-	TUN          bool                  `json:"TUN"`
-	Self         *tsPeerStatus         `json:"Self"`
+	BackendState string                   `json:"BackendState"`
+	AuthURL      string                   `json:"AuthURL"`
+	TUN          bool                     `json:"TUN"`
+	Self         *tsPeerStatus            `json:"Self"`
 	Peer         map[string]*tsPeerStatus `json:"Peer"`
-	User         map[string]tsUserInfo `json:"User"` // JSON map keys are always strings
+	User         map[string]tsUserInfo    `json:"User"`
 }
 
 type tsPeerStatus struct {
 	DNSName      string      `json:"DNSName"`
 	HostName     string      `json:"HostName"`
 	TailscaleIPs []string    `json:"TailscaleIPs"`
-	UserID       interface{} `json:"UserID"` // Can be int or string depending on version
+	UserID       interface{} `json:"UserID"`
 	Online       bool        `json:"Online"`
 	Active       bool        `json:"Active"`
 	Relay        string      `json:"Relay"`
@@ -69,6 +102,50 @@ type tsUserInfo struct {
 }
 
 func (s *Service) Status(ctx context.Context) (*Status, error) {
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if userspace {
+		return s.statusUserspace(ctx)
+	}
+	return s.statusSystem(ctx)
+}
+
+func (s *Service) statusUserspace(ctx context.Context) (*Status, error) {
+	lc, err := s.localClient()
+	if err != nil {
+		return &Status{Running: false, Backend: "Initializing"}, nil
+	}
+
+	state, err := lc.Status(ctx)
+	if err != nil {
+		return &Status{Running: false, Backend: "Not Running"}, nil
+	}
+
+	out := &Status{
+		Running:   strings.TrimSpace(state.BackendState) == "Running",
+		LoggedIn:  state.BackendState != "" && state.BackendState != "NeedsLogin" && state.BackendState != "NoState",
+		Backend:   strings.TrimSpace(state.BackendState),
+		Userspace: true,
+	}
+
+	if state.Self != nil {
+		out.Self = s.mapIpnPeer(state, state.Self)
+	}
+
+	for _, key := range state.Peers() {
+		peer := state.Peer[key]
+		if peer == nil {
+			continue
+		}
+		out.Peers = append(out.Peers, s.mapIpnPeer(state, peer))
+	}
+
+	return out, nil
+}
+
+func (s *Service) statusSystem(ctx context.Context) (*Status, error) {
 	tsPath := s.getTailscalePath()
 	if tsPath == "" {
 		return &Status{Backend: "Tailscale not found"}, nil
@@ -102,11 +179,11 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	}
 
 	if raw.Self != nil {
-		res.Self = s.mapPeer(raw.Self, raw.User)
+		res.Self = s.mapTsPeer(raw.Self, raw.User)
 	}
 
 	for _, p := range raw.Peer {
-		res.Peers = append(res.Peers, s.mapPeer(p, raw.User))
+		res.Peers = append(res.Peers, s.mapTsPeer(p, raw.User))
 	}
 
 	if res.Self.IP4 == "" && res.Running {
@@ -116,7 +193,20 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 	return res, nil
 }
 
-func (s *Service) mapPeer(p *tsPeerStatus, users map[string]tsUserInfo) Peer {
+func (s *Service) mapIpnPeer(st *ipnstate.Status, p *ipnstate.PeerStatus) Peer {
+	return Peer{
+		HostName:  strings.TrimSpace(p.HostName),
+		DNSName:   strings.TrimSuffix(p.DNSName, "."),
+		IP4:       s.firstAddr(p.TailscaleIPs),
+		UserLogin: s.userLogin(st, p.UserID),
+		Online:    p.Online,
+		Active:    p.Active,
+		Relay:     p.Relay,
+		CurAddr:   p.CurAddr,
+	}
+}
+
+func (s *Service) mapTsPeer(p *tsPeerStatus, users map[string]tsUserInfo) Peer {
 	var ip4 string
 	for _, ip := range p.TailscaleIPs {
 		if strings.Contains(ip, ".") {
@@ -152,11 +242,9 @@ func (s *Service) mapPeer(p *tsPeerStatus, users map[string]tsUserInfo) Peer {
 }
 
 func (s *Service) IsUserspace(ctx context.Context) (bool, error) {
-	status, err := s.Status(ctx)
-	if err != nil {
-		return false, err
-	}
-	return status.Userspace, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.userspace, nil
 }
 
 func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
@@ -164,12 +252,11 @@ func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
 	if err == nil && status.Self.IP4 != "" {
 		return status.Self.IP4, nil
 	}
-	
-	// Fallback to direct interface check if status is not ready
+
 	if ip := s.GetSystemTailscaleIP(); ip != "" {
 		return ip, nil
 	}
-	
+
 	if err != nil {
 		return "", err
 	}
@@ -177,26 +264,59 @@ func (s *Service) TailnetIPv4(ctx context.Context) (string, error) {
 }
 
 func (s *Service) StartLogin(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if userspace {
+		return s.startLoginUserspace(ctx)
+	}
+	return s.startLoginSystem(ctx)
+}
+
+func (s *Service) startLoginUserspace(ctx context.Context) (string, error) {
+	lc, err := s.localClient()
+	if err != nil {
+		return "", err
+	}
+
+	_ = lc.StartLoginInteractive(ctx)
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := lc.Status(ctx)
+		if err == nil && status != nil {
+			if url := strings.TrimSpace(status.AuthURL); url != "" {
+				return url, nil
+			}
+			if strings.TrimSpace(status.BackendState) == "Running" {
+				return "", nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "", fmt.Errorf("auth URL timeout")
+}
+
+func (s *Service) startLoginSystem(ctx context.Context) (string, error) {
 	tsPath := s.getTailscalePath()
 	if tsPath == "" {
 		return "", fmt.Errorf("tailscale binary not found")
 	}
 
 	logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
-	
+
 	args := s.upArgs()
 	cmd := s.prepareUpCommand(tsPath, args)
-	
+
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
-	
+
 	if err := cmd.Start(); err != nil {
 		return s.handleUpStartError(tsPath, args, err)
 	}
 
 	urlChan := make(chan string, 1)
-	
-	// Scan stdout and stderr CONCURRENTLY
+
 	scanFunc := func(r io.Reader, name string) {
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
@@ -211,7 +331,7 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 			}
 		}
 	}
-	
+
 	go scanFunc(stdout, "stdout")
 	go scanFunc(stderr, "stderr")
 
@@ -225,19 +345,18 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 		return foundURL, nil
 	case err := <-doneChan:
 		logrus.Warnf("⚠️ [Tailscale] Command finished (err=%v), checking result...", err)
-		// If it finished without URL, maybe it's already logged in or needs fallback
 		if err != nil {
 			return s.handleUpStartError(tsPath, args, err)
 		}
 	case <-time.After(20 * time.Second):
 		logrus.Warn("⚠️ [Tailscale] No link captured in 20s")
 	}
-	
+
 	status, _ := s.Status(ctx)
 	if status != nil && status.LoggedIn {
 		return "", nil
 	}
-	
+
 	return "", fmt.Errorf("login URL not found in tailscale output")
 }
 
@@ -254,6 +373,18 @@ func (s *Service) extractURL(text string) string {
 }
 
 func (s *Service) Logout(ctx context.Context) error {
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if userspace {
+		lc, err := s.localClient()
+		if err != nil {
+			return err
+		}
+		return lc.Logout(ctx)
+	}
+
 	tsPath := s.getTailscalePath()
 	if tsPath == "" {
 		return fmt.Errorf("tailscale binary not found")
@@ -264,11 +395,79 @@ func (s *Service) Logout(ctx context.Context) error {
 }
 
 func (s *Service) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.server != nil {
+		err := s.server.Close()
+		s.server = nil
+		return err
+	}
 	return nil
 }
 
-func (s *Service) Server() (any, error) {
-	return nil, nil
+func (s *Service) Server() (*tsnet.Server, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.server != nil {
+		return s.server, nil
+	}
+
+	stateDir := s.stateDir
+	if stateDir == "" {
+		base, _ := os.UserConfigDir()
+		stateDir = filepath.Join(base, "usbridge-agent", "tailscale")
+	} else {
+		stateDir = filepath.Join(stateDir, "tailscale")
+	}
+
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return nil, err
+	}
+
+	s.server = &tsnet.Server{
+		Dir:       stateDir,
+		Hostname:  "usbridge-agent",
+		UserLogf:  s.handleUserLogf,
+		Ephemeral: true,
+	}
+
+	if err := s.server.Start(); err != nil {
+		return nil, err
+	}
+
+	return s.server, nil
+}
+
+func (s *Service) handleUserLogf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	logrus.Infof("📡 [Tailscale/User] %s", msg)
+}
+
+func (s *Service) localClient() (*local.Client, error) {
+	srv, err := s.Server()
+	if err != nil {
+		return nil, err
+	}
+	return srv.LocalClient()
+}
+
+func (s *Service) firstAddr(values []netip.Addr) string {
+	for _, v := range values {
+		if v.Is4() {
+			return v.String()
+		}
+	}
+	return ""
+}
+
+func (s *Service) userLogin(st *ipnstate.Status, id tailcfg.UserID) string {
+	if st == nil || st.User == nil {
+		return ""
+	}
+	if u, ok := st.User[id]; ok {
+		return u.LoginName
+	}
+	return ""
 }
 
 func (s *Service) GetSystemTailscaleIP() string {

@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"net"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -45,6 +46,7 @@ type Window struct {
 		Status(context.Context) (*tailscale.Status, error)
 		StartLogin(context.Context) (string, error)
 		Logout(context.Context) error
+		ApplyConfig(userspace bool, stateDir string) error
 	}
 
 	// UI components
@@ -57,6 +59,7 @@ type Window struct {
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
+	tsMode    *widget.Select
 
 	statusInfo *widget.Label
 }
@@ -71,6 +74,29 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	RegenerateFRPToken() (config.Config, error)
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
+}
+
+func (w *Window) applyTailscaleMode(mode string) {
+	newMode := config.TailscaleModeUserspace
+	if mode == "System" {
+		newMode = config.TailscaleModeSystem
+	}
+
+	if w.cfg.TailscaleMode == newMode {
+		return
+	}
+
+	w.cfg.TailscaleMode = newMode
+	// Save config
+	configPath := filepath.Join(w.cfg.StateDir, "config.yaml")
+	_ = config.Save(configPath, w.cfg)
+
+	if w.ts != nil {
+		_ = w.ts.ApplyConfig(newMode == config.TailscaleModeUserspace, w.cfg.StateDir)
+	}
+
+	logrus.Infof("🛰️ [UI] Tailscale mode changed to %s", mode)
+	w.performRefresh()
 }
 
 func (w *Window) ShowAndRun(onClose func()) {
@@ -136,6 +162,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	statsBlock := newPanel("Status", w.statusInfo)
 
+	w.tsMode = widget.NewSelect([]string{"Userspace", "System"}, func(mode string) {
+		w.applyTailscaleMode(mode)
+	})
+	if w.cfg.TailscaleMode == config.TailscaleModeUserspace {
+		w.tsMode.SetSelected("Userspace")
+	} else {
+		w.tsMode.SetSelected("System")
+	}
+
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
 	w.tsPeers = widget.NewRichTextFromMarkdown("")
@@ -192,7 +227,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 
 	tsPanel := newPanel("Tailscale", newTightVBox(
-		container.NewBorder(nil, nil, nil, container.NewVBox(w.tsAuthBtn), container.NewVBox(w.tsInfo)),
+		container.NewBorder(nil, nil, nil, container.NewVBox(w.tsAuthBtn), container.NewVBox(w.tsMode, w.tsInfo)),
 		w.tsPeers,
 	))
 

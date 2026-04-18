@@ -19,26 +19,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type TailscaleMode int
+
+const (
+	TailscaleModeUserspace TailscaleMode = iota
+	TailscaleModeSystem
+)
+
 type Config struct {
-	AppName          string `yaml:"app_name"`
-	ListenHost       string `yaml:"listen_host"`
-	HTTPPort         int    `yaml:"http_port"`
-	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
-	FRPBindHost      string `yaml:"frp_bind_host"`
-	FRPBindPort      int    `yaml:"frp_bind_port"`
-	FRPToken         string `yaml:"frp_token"`
-	FRPTLSCertFile   string `yaml:"frp_tls_cert_file"`
-	FRPTLSKeyFile    string `yaml:"frp_tls_key_file"`
-	VideoUDPPort     int    `yaml:"video_udp_port"`
-	FFmpegPath       string `yaml:"ffmpeg_path"`
-	VideoFPS         int    `yaml:"video_fps"`
-	VideoWidth       int    `yaml:"video_width"`
-	VideoHeight      int    `yaml:"video_height"`
-	VideoBitrate     string `yaml:"video_bitrate"`
-	VideoCodec       string `yaml:"video_codec"`
-	VideoCapture     string `yaml:"video_capture"`
-	NBDMountCommand  string `yaml:"nbd_mount_command"`
-	StateDir         string `yaml:"state_dir"`
+	AppName          string        `yaml:"app_name"`
+	ListenHost       string        `yaml:"listen_host"`
+	HTTPPort         int           `yaml:"http_port"`
+	TailscaleEnabled bool          `yaml:"tailscale_enabled"`
+	TailscaleMode    TailscaleMode `yaml:"tailscale_mode"`
+	FRPBindHost      string        `yaml:"frp_bind_host"`
+	FRPBindPort      int           `yaml:"frp_bind_port"`
+	FRPToken         string        `yaml:"frp_token"`
+	FRPTLSCertFile   string        `yaml:"frp_tls_cert_file"`
+	FRPTLSKeyFile    string        `yaml:"frp_tls_key_file"`
+	VideoUDPPort     int           `yaml:"video_udp_port"`
+	FFmpegPath       string        `yaml:"ffmpeg_path"`
+	VideoFPS         int           `yaml:"video_fps"`
+	VideoWidth       int           `yaml:"video_width"`
+	VideoHeight      int           `yaml:"video_height"`
+	VideoBitrate     string        `yaml:"video_bitrate"`
+	VideoCodec       string        `yaml:"video_codec"`
+	VideoCapture     string        `yaml:"video_capture"`
+	NBDMountCommand  string        `yaml:"nbd_mount_command"`
+	StateDir         string        `yaml:"state_dir"`
 }
 
 func Default() Config {
@@ -53,6 +61,7 @@ func Default() Config {
 		ListenHost:       "127.0.0.1",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
+		TailscaleMode:    TailscaleModeUserspace,
 		FRPBindHost:      "0.0.0.0",
 		FRPBindPort:      443,
 		FRPToken:         "usbridge-secret-token",

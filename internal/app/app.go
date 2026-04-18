@@ -120,6 +120,14 @@ func (a *App) Run() error {
 		return err
 	}
 	go func() { _ = a.server.ListenAndServe() }()
+	// Initialize Tailscale
+	if a.ts != nil {
+		err := a.ts.ApplyConfig(a.cfg.TailscaleMode == config.TailscaleModeUserspace, a.cfg.StateDir)
+		if err != nil {
+			log.Printf("[app] failed to apply tailscale config: %v", err)
+		}
+	}
+
 	if a.cfg.TailscaleEnabled && a.ts != nil {
 		go func() {
 			// Poll for tailscale IP more aggressively at start
