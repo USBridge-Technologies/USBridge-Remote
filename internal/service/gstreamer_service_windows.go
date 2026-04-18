@@ -1076,15 +1076,6 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 	}
 }
 
-// UpdateHost обновляет хост видеопотока
-func (gs *GStreamerService) UpdateHost(host string) {
-	gs.mutex.Lock()
-	defer gs.mutex.Unlock()
-
-	gs.config.VideoHost = host
-	logrus.Debugf("🔧 [Windows] GStreamer сервис: хост обновлен на %s", host)
-}
-
 // UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
 func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
