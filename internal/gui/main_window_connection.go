@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -501,6 +502,21 @@ func (mw *MainWindow) handleConnect() {
 	}()
 }
 
+// getFreeVideoUDPPort finds an available UDP port dynamically
+func getFreeVideoUDPPort() int {
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		return models.DefaultVideoUDPPort
+	}
+	l, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		return models.DefaultVideoUDPPort
+	}
+	port := l.LocalAddr().(*net.UDPAddr).Port
+	l.Close()
+	return port
+}
+
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины)
 func (mw *MainWindow) doConnect(ctx context.Context, host, token string) error {
 	// Принудительно останавливаем видео и сбрасываем GStreamer перед новым подключением
@@ -509,6 +525,13 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, token string) error {
 	}
 	if mw.gstreamerService != nil {
 		_ = mw.gstreamerService.Disconnect()
+	}
+
+	// Генерируем новый UDP порт для видео, чтобы избежать коллизий пакетов с предыдущими хостами
+	mw.config.VideoUDPPort = getFreeVideoUDPPort()
+	if mw.gstreamerService != nil {
+		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
+		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
 	}
 
 	protocol := mw.protocolSelect.Selected
@@ -897,10 +920,8 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	
 	if mw.videoWidget != nil {
-		if mw.videoWidget.IsStreaming() {
-			logrus.Info("🛑 Stopping video before disconnect...")
-			_ = mw.videoWidget.StopVideoSync()
-		}
+		logrus.Info("🛑 Stopping video before disconnect...")
+		_ = mw.videoWidget.StopVideoSync()
 		mw.videoWidget.Close() // Останавливаем фоновые опросы после завершения стопа
 	}
 

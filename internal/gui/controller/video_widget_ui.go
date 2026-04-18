@@ -225,9 +225,8 @@ func (vw *VideoWidget) StopVideoSync() error {
 	// Выполняем напрямую в очереди, минуя beginVideoOperation-guard,
 	// чтобы не застрять если handleStartVideo-горутина ещё держит флаг.
 	vw.runVideoOpSync("stop-video-sync", func() {
-		if !vw.isStreaming {
-			return
-		}
+		// Убираем проверку if !vw.isStreaming, чтобы гарантированно очистить все зависшие 
+		// состояния GStreamer и Tailscale, если пользователь отключается до конца инициализации.
 		if vw.usbClient != nil {
 			vw.stopVideoInternal()
 		} else {
