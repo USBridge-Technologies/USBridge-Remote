@@ -860,6 +860,31 @@ func (c *USBClient) IsMouseWebSocketActive() bool {
 	return c.mouseWSActive && c.mouseWS != nil
 }
 
+// Disconnect закрывает все активные соединения и очищает ресурсы клиента
+func (c *USBClient) Disconnect() {
+	c.mouseWSMutex.Lock()
+	c.mouseWSActive = false
+	if c.mouseWS != nil {
+		c.mouseWS.Close()
+		c.mouseWS = nil
+	}
+	c.mouseWSMutex.Unlock()
+
+	// Прерываем очередь клавиатуры
+	if c.keyboardQueue != nil {
+		// Просто закрываем канал, воркер выйдет
+		// Но лучше не закрывать если он shared, 
+		// хотя у нас на каждое подключение новый клиент
+	}
+
+	// Делаем httpClient неактивным для будущих запросов
+	if c.httpClient != nil {
+		c.httpClient.CloseIdleConnections()
+	}
+	
+	logrus.Info("🔌 USBClient: все соединения закрыты")
+}
+
 // readMouseWebSocketResponses читает ответы от WebSocket сервера
 func (c *USBClient) readMouseWebSocketResponses() {
 	for {

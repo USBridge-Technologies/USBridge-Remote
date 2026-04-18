@@ -9,6 +9,7 @@ import (
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -30,6 +31,7 @@ type ConnectionManagerUI struct {
 	topActions  *fyne.Container
 	topHelpBtn  fyne.CanvasObject
 	tsToggle    *tailscaleHeaderToggle
+	tsMode      *TailscaleModeSwitch
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -91,7 +93,14 @@ var (
 	connectionActionBlockedFill = design.ColorGray900
 )
 
-func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onTSAuth func()) *ConnectionManagerUI {
+type TailscaleMode = models.TailscaleMode
+
+const (
+	TailscaleModeUserspace = models.TailscaleModeUserspace
+	TailscaleModeSystem    = models.TailscaleModeSystem
+)
+
+func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onTSAuth func(), onTSMode func(TailscaleMode)) *ConnectionManagerUI {
 	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
@@ -139,6 +148,8 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		)
 	}
 	tsToggle := newTailscaleHeaderToggle(onTSAuth)
+	tsMode := NewTailscaleModeSwitch(TailscaleModeUserspace, onTSMode)
+
 	contentArea := container.NewMax()
 
 	mainContent := NewInset(contentArea, 16, 16, 4, 16)
@@ -156,6 +167,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		topActions:        topActions,
 		topHelpBtn:        topHelpBtn,
 		tsToggle:          tsToggle,
+		tsMode:            tsMode,
 		topQRBtn:          topQRButton,
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
@@ -564,7 +576,19 @@ func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
 	if ui == nil {
 		return nil
 	}
-	return ui.tsToggle
+	return container.NewHBox(ui.tsMode, ui.tsToggle)
+}
+
+func (ui *ConnectionManagerUI) SetTailscaleMode(mode TailscaleMode) {
+	if ui.tsMode != nil {
+		ui.tsMode.SetSelected(mode)
+	}
+}
+
+func (ui *ConnectionManagerUI) SetTailscaleModeDisabled(disabled bool) {
+	if ui.tsMode != nil {
+		ui.tsMode.SetDisabled(disabled)
+	}
 }
 
 func newConnectionsSectionCard(title string, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, body fyne.CanvasObject) fyne.CanvasObject {

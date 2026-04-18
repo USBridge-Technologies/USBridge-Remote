@@ -65,6 +65,7 @@ type SavedConnection struct {
 type ConnectionManager struct {
 	app    fyne.App
 	window fyne.Window
+	config *models.AppConfig
 	ui     *view.ConnectionManagerUI
 
 	connections           []SavedConnection
@@ -129,10 +130,11 @@ func (cm *ConnectionManager) ResolveInternalHost(host string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
+		config:                config,
 		hostEntry:             hostEntry,
 		tokenEntry:            tokenEntry,
 		protocolSelect:        protocolSelect,
@@ -143,8 +145,9 @@ func NewConnectionManager(app fyne.App, window fyne.Window, hostEntry, tokenEntr
 		ts:                    ts,
 	}
 	if cm.ts == nil {
-		cm.ts = service.NewTailscaleService()
+		cm.ts = service.NewTailscaleService(config.TailscaleUserspace)
 	}
+
 
 	cm.qrScanner = NewQRScanner(
 		app,

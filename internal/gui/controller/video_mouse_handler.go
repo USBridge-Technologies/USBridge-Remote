@@ -520,6 +520,9 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 
 // MouseIn обрабатывает вход курсора в область (desktop)
 func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
+	if !t.videoWidget.isMouseConnected {
+		return
+	}
 	t.updateTouchpadSize()
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
@@ -534,6 +537,9 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 
 // MouseOut обрабатывает выход курсора из области (desktop)
 func (t *TouchpadWrapper) MouseOut() {
+	if !t.videoWidget.isMouseConnected {
+		return
+	}
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		t.videoWidget.CancelTouchDownDelay()
 		if t.videoWidget.touchActive {

@@ -161,7 +161,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 
 	mw.nbdServer = service.NewNBDServer(config)
 	mw.gstreamerService = service.NewGStreamerService(config)
-	mw.tailscaleService = service.NewTailscaleService()
+	mw.tailscaleService = service.NewTailscaleService(config.TailscaleUserspace)
 
 	logrus.Info("GStreamer service initialized")
 
@@ -172,7 +172,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, myApp, config)
 	mw.diskWidget.SetWindow(window)
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.usbClient, mw.gstreamerService, mw.updateStatus)
-	mw.videoWidget.SetTailscaleService(nil)
+	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.videoWidget.SetParentWindow(window)
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus)
 	mw.backupWidget.SetWindow(window)

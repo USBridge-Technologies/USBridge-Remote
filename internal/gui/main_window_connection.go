@@ -565,7 +565,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			return fmt.Errorf("Tailscale disabled in config")
 		}
 		if mw.tailscaleService == nil {
-			mw.tailscaleService = service.NewTailscaleService()
+			mw.tailscaleService = service.NewTailscaleService(mw.config.TailscaleUserspace)
 		}
 
 		status, err := mw.tailscaleService.Status(ctx)
@@ -870,23 +870,39 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
+	
+	// Сразу сбрасываем состояние, чтобы прервать фоновые Refresh циклы
+	mw.isConnected = false
+	mw.isStreaming = false
 	mw.connectionLossInProgress.Store(false)
-	mw.stopWireGuardMonitor()
-
-	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
-		logrus.Info("🛑 Stopping video before disconnect...")
-		if err := mw.videoWidget.StopVideoSync(); err != nil {
-			logrus.Errorf("Failed to stop video before disconnect: %v", err)
+	
+	if mw.videoWidget != nil {
+		mw.videoWidget.Close() // Останавливаем фоновые опросы
+		if mw.videoWidget.IsStreaming() {
+			logrus.Info("🛑 Stopping video before disconnect...")
+			_ = mw.videoWidget.StopVideoSync()
 		}
 	}
+	
+	if mw.backupWidget != nil {
+		mw.backupWidget.Close() // Останавливаем фоновые опросы
+	}
 
+	mw.stopWireGuardMonitor()
+
+	// Выполняем сетевое завершение в фоне с таймаутом, чтобы не вешать UI
 	if mw.usbClient != nil {
-		if err := mw.usbClient.StopService(); err != nil {
-			logrus.Errorf("Failed to stop service: %v", err)
-		}
+		client := mw.usbClient
+		go func() {
+			logrus.Info("[shutdown] Remote resource cleanup...")
+			_ = client.StopAllDevices()
+			_ = client.StopService()
+			client.Disconnect()
+		}()
 	}
 
 	if mw.nbdServer.IsRunning() {
+		logrus.Info("[shutdown] stopping NBD server")
 		if err := mw.nbdServer.Stop(); err != nil {
 			logrus.Errorf("Failed to stop NBD server: %v", err)
 		}
@@ -894,27 +910,19 @@ func (mw *MainWindow) handleDisconnect() {
 
 	if mw.frpService != nil {
 		if mw.frpService.IsRunning() {
-			logrus.Info("[shutdown] handleDisconnect: stopping FRP service")
-			if err := mw.frpService.Disconnect(); err != nil {
-				logrus.Errorf("Failed to stop FRP tunnel: %v", err)
-			}
-			logrus.Info("[shutdown] handleDisconnect: FRP service stopped")
+			logrus.Info("[shutdown] stopping FRP service")
+			_ = mw.frpService.Disconnect()
 		}
 		mw.frpService = nil
 	}
 	if mw.wgService != nil {
 		if mw.wgService.IsRunning() {
-			logrus.Info("[shutdown] handleDisconnect: stopping WireGuard service")
-			if err := mw.wgService.Disconnect(); err != nil {
-				logrus.Errorf("Failed to stop WireGuard tunnel: %v", err)
-			}
-			logrus.Info("[shutdown] handleDisconnect: WireGuard service stopped")
+			logrus.Info("[shutdown] stopping WireGuard service")
+			_ = mw.wgService.Disconnect()
 		}
 		mw.wgService = nil
 	}
 
-	mw.isConnected = false
-	mw.isStreaming = false
 	mw.connectedProtocol = ""
 	mw.activeConnectionToken = ""
 	mw.appState.IsConnected = false
@@ -947,8 +955,7 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.protocolSelect.Enable()
 		mw.showConnectionManager()
 	}
-
-	logrus.Info("[shutdown] handleDisconnect: completed")
+	logrus.Infof("[shutdown] handleDisconnect: completed")
 }
 
 // handleRefresh обрабатывает обновление

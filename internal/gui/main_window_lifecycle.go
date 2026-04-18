@@ -151,7 +151,7 @@ func (mw *MainWindow) Show() {
 
 		fyne.Do(func() {
 			mw.createInterface()
-			mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager)
+			mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.config, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager)
 			mw.recreateContainers()
 			mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 			mw.setupEventHandlers()
@@ -180,7 +180,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.hostEntry.SetText(currentHost)
 	mw.tokenEntry.SetText(currentToken)
 
-	mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager)
+	mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.config, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager)
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
 	mw.recreateContainers()
 	mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)

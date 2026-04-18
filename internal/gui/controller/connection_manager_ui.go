@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"net/url"
 	"strings"
 
@@ -19,8 +20,52 @@ func (cm *ConnectionManager) createInterface() {
 		cm.openQuickStartDocs,
 		cm.openHardwarePromo,
 		cm.handleTailscaleToggleAction,
+		cm.handleTailscaleModeAction,
 	)
 	cm.refreshConnectionsList()
+	cm.initTailscaleMode()
+}
+
+func (cm *ConnectionManager) initTailscaleMode() {
+	mode := models.TailscaleModeUserspace
+	userspace := cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace)
+	if !userspace {
+		mode = models.TailscaleModeSystem
+	}
+	cm.ui.SetTailscaleMode(mode)
+
+	// Check if system tailscale is available
+	hasSystemTS := cm.ts.IsSystemTailscaleAvailable()
+	if !hasSystemTS {
+		cm.ui.SetTailscaleMode(models.TailscaleModeUserspace)
+		cm.ui.SetTailscaleModeDisabled(true)
+		if !userspace {
+			cm.app.Preferences().SetBool("tailscale_userspace", true)
+			cm.config.TailscaleUserspace = true
+		}
+	} else {
+		cm.config.TailscaleUserspace = userspace
+	}
+}
+
+func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {
+	userspace := (mode == models.TailscaleModeUserspace)
+	if cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace) == userspace {
+		return
+	}
+
+	cm.app.Preferences().SetBool("tailscale_userspace", userspace)
+	cm.config.TailscaleUserspace = userspace
+
+	// Restart tailscale service if it was running
+	if cm.config.TailscaleEnabled {
+		go func() {
+			cm.ts.Stop()
+			cm.ts.SetUserspace(userspace)
+			cm.ts.Start(context.Background())
+			cm.refreshTailscaleStatus()
+		}()
+	}
 }
 
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {

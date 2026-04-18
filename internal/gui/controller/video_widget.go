@@ -129,6 +129,11 @@ type VideoWidget struct {
 	touchDownDelayTimer *time.Timer
 	touchDownDelayMu    sync.Mutex
 	touchActive         bool // touch(true) уже отправлен и ещё не отправлен touch(false); MouseMoved шлёт только при true
+	isClosing           atomic.Bool
+}
+
+func (vw *VideoWidget) Close() {
+	vw.isClosing.Store(true)
 }
 
 type inputCommand struct {

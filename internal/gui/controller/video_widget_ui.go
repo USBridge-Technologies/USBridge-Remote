@@ -212,9 +212,7 @@ func (vw *VideoWidget) handleStopVideo() {
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	vw.runVideoOpSync("stop-video-sync", func() {
-		vw.reconcileVideoState("stop-video-sync")
-	})
+	vw.scheduleVideoReconcile("stop-video-sync")
 	return nil
 }
 
@@ -445,6 +443,9 @@ func (vw *VideoWidget) updateButtons() {
 
 // Refresh обновляет виджет.
 func (vw *VideoWidget) Refresh() {
+	if vw.isClosing.Load() {
+		return
+	}
 	if vw.usbClient == nil {
 		logrus.Debug("USB client is not initialized, skipping video refresh")
 		fyne.Do(func() {
@@ -479,8 +480,10 @@ func (vw *VideoWidget) Refresh() {
 
 // checkMouseConnected проверяет, подключена ли мышь.
 func (vw *VideoWidget) checkMouseConnected() {
-	if vw.usbClient == nil {
-		logrus.Debug("🖱️ checkMouseConnected: USB client is not initialized")
+	if vw.isClosing.Load() || vw.usbClient == nil {
+		if vw.usbClient == nil {
+			logrus.Debug("🖱️ checkMouseConnected: USB client is not initialized")
+		}
 		vw.isMouseConnected = false
 		return
 	}
@@ -693,6 +696,9 @@ func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 // UpdateClient обновляет USB клиент.
 func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
+	if usbClient != nil {
+		vw.isClosing.Store(false)
+	}
 	if vw.fullscreenDialog != nil {
 		vw.fullscreenDialog.SetUSBClient(usbClient)
 	}

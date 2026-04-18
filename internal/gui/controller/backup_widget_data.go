@@ -13,14 +13,17 @@ import (
 
 // loadCurrentFlash загружает актуальную бэкап флешку
 func (bw *BackupWidget) loadCurrentFlash() {
+	if bw.isClosing.Load() {
+		return
+	}
 	if !bw.loadingCurrentFlash.CompareAndSwap(false, true) {
 		logrus.Debug("loadCurrentFlash already in flight, skipping overlapping refresh")
 		return
 	}
 	go func() {
 		defer bw.loadingCurrentFlash.Store(false)
-		if bw.usbClient == nil {
-			logrus.Debug("USB клиент не инициализирован, пропускаем загрузку актуальной флешки")
+		if bw.isClosing.Load() || bw.usbClient == nil {
+			logrus.Debug("USB клиент не инициализирован или закрытие, пропускаем загрузку актуальной флешки")
 			return
 		}
 
@@ -105,16 +108,21 @@ func (bw *BackupWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, availabl
 
 // loadSnapshots загружает список снапшотов
 func (bw *BackupWidget) loadSnapshots() {
+	if bw.isClosing.Load() {
+		return
+	}
 	if !bw.loadingSnapshots.CompareAndSwap(false, true) {
 		logrus.Debug("loadSnapshots already in flight, skipping overlapping refresh")
 		return
 	}
 	go func() {
 		defer bw.loadingSnapshots.Store(false)
-		if bw.usbClient == nil {
-			logrus.Debug("USB client not initialized, skipping snapshots loading")
+		if bw.isClosing.Load() || bw.usbClient == nil {
+			logrus.Debug("USB client not initialized or closing, skipping snapshots loading")
 			bw.updateUIAsync(func() {
-				bw.ui.StatusLabel.SetText(i18n.Current.WaitingConnection)
+				if !bw.isClosing.Load() {
+					bw.ui.StatusLabel.SetText(i18n.Current.WaitingConnection)
+				}
 			})
 			return
 		}
@@ -155,8 +163,14 @@ func (bw *BackupWidget) startPeriodicRefresh() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			bw.Refresh()
+		for {
+			select {
+			case <-ticker.C:
+				if bw.isClosing.Load() {
+					return
+				}
+				bw.Refresh()
+			}
 		}
 	}()
 }

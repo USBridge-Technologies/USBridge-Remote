@@ -26,6 +26,7 @@ type BackupWidget struct {
 	usbClient             *api.USBClient
 	hostEntry             *widget.Entry
 	updateStatus          func() // Callback для обновления статуса
+	isClosing             atomic.Bool
 }
 
 // NewBackupWidget создает новый виджет backup
@@ -46,6 +47,10 @@ func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateSt
 	return bw
 }
 
+func (bw *BackupWidget) Close() {
+	bw.isClosing.Store(true)
+}
+
 // SetWindow устанавливает окно для диалогов
 func (bw *BackupWidget) SetWindow(window fyne.Window) {
 	bw.window = window
@@ -54,6 +59,9 @@ func (bw *BackupWidget) SetWindow(window fyne.Window) {
 // UpdateClient обновляет USB клиент
 func (bw *BackupWidget) UpdateClient(usbClient *api.USBClient) {
 	bw.usbClient = usbClient
+	if usbClient != nil {
+		bw.isClosing.Store(false)
+	}
 	if usbClient == nil {
 		bw.sdSpaceInfo = nil
 		bw.updateSDStorageInfo()

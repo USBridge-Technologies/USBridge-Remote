@@ -39,7 +39,8 @@ type AppConfig struct {
 	WireGuardListenPort    int    `json:"wireguard_listen_port" mapstructure:"wireguard_listen_port"`
 
 	// Tailscale настройки
-	TailscaleEnabled bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
+	TailscaleEnabled   bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
+	TailscaleUserspace bool `json:"tailscale_userspace" mapstructure:"tailscale_userspace"`
 
 	// NBD сервер (как сервер)
 	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"` // Порт NBD сервера (10809)
@@ -98,6 +99,7 @@ func DefaultConfig() *AppConfig {
 		WireGuardServerPort:    51820,
 		WireGuardListenPort:    51821,
 		TailscaleEnabled:       true,
+		TailscaleUserspace:     true,
 
 		// NBD сервер
 		NBDPort:           10809,
@@ -431,3 +433,10 @@ type ISOSpaceInfo struct {
 	UsedPercent    float64 `json:"used_percent"`
 	ISODirectory   string  `json:"iso_directory"`
 }
+
+type TailscaleMode int
+
+const (
+	TailscaleModeUserspace TailscaleMode = iota
+	TailscaleModeSystem
+)

@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -50,6 +53,7 @@ type TailscalePeer struct {
 type TailscaleService struct {
 	mu                 sync.Mutex
 	server             *tsnet.Server
+	userspace          bool
 	latestAuthURL      string
 	videoRelayConn     net.PacketConn
 	videoRelayCancel   context.CancelFunc
@@ -61,42 +65,57 @@ type TailscaleService struct {
 	videoRelayLastAt   time.Time
 }
 
-func NewTailscaleService() *TailscaleService {
-	return &TailscaleService{}
+func NewTailscaleService(userspace bool) *TailscaleService {
+	return &TailscaleService{
+		userspace: userspace,
+	}
 }
 
-func getTailscaleBinaryPath() string {
-	name := "tailscale"
-	if runtime.GOOS == "windows" {
-		name = "tailscale.exe"
+func (s *TailscaleService) SetUserspace(userspace bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.userspace == userspace {
+		return
 	}
-	if runtime.GOOS == "android" {
-		// On Android, we look in the app's native library directory
-		// The binary is bundled as libtailscale.so to be extracted by Android
-		libDir, err := getAndroidNativeLibraryDir()
-		if err == nil && libDir != "" {
-			localPath := filepath.Join(libDir, "libtailscale.so")
-			if _, err := os.Stat(localPath); err == nil {
-				return localPath
-			}
-		}
+	s.userspace = userspace
+	logrus.Infof("🛰️ [Tailscale] Mode changed to userspace=%v", userspace)
+}
+
+func (s *TailscaleService) IsUserspace() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.userspace
+}
+
+func (s *TailscaleService) IsSystemTailscaleAvailable() bool {
+	return getTailscaleBinaryPath() != ""
+}
+
+func (s *TailscaleService) Start(ctx context.Context) error {
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if userspace {
+		_, err := s.serverInstance()
+		return err
 	}
-	if exePath, err := os.Executable(); err == nil {
-		localPath := filepath.Join(filepath.Dir(exePath), name)
-		if _, err := os.Stat(localPath); err == nil {
-			return localPath
-		}
+	return nil
+}
+
+func (s *TailscaleService) Stop() error {
+	s.mu.Lock()
+	server := s.server
+	s.server = nil
+	s.mu.Unlock()
+
+	_ = s.StopVideoUDPRelay()
+
+	if server != nil {
+		logrus.Info("🛰️ [Tailscale] Stopping tsnet server...")
+		return server.Close()
 	}
-	if path, err := exec.LookPath(name); err == nil {
-		return path
-	}
-	if runtime.GOOS == "darwin" {
-		macosPath := "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-		if _, err := os.Stat(macosPath); err == nil {
-			return macosPath
-		}
-	}
-	return ""
+	return nil
 }
 
 func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus, err error) {
@@ -107,45 +126,43 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 		}
 	}()
 
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
 	var state *ipnstate.Status
 
-	// ПРИНУДИТЕЛЬНЫЙ ЮЗЕРСПЕЙС (Force Userspace Mode):
-	// Мы отключаем использование системного стека (kernel mode), чтобы весь трафик
-	// шел строго через внутренний стек приложения (tsnet). Это обеспечивает:
-	// 1. Изоляцию трафика (не выходит в общую сеть ОС).
-	// 2. Стабильную работу P2P (Direct) за счет прямого контроля сокетов.
-	// 3. Консистентность между macOS, Windows, Linux и Android.
-	/* 
-	// (Закомментировано) Пытаемся получить статус от системного Tailscale (System Stack)
-	tsPath := getTailscaleBinaryPath()
-	if tsPath != "" {
-		cmd := exec.Command(tsPath, "status", "--json")
-		maybeHideWindow(cmd)
-		if out, err := cmd.Output(); err == nil {
-			var st ipnstate.Status
-			if err := json.Unmarshal(out, &st); err == nil {
-				state = &st
-				if state.BackendState == "NeedsLogin" || state.BackendState == "LoggedOut" {
-					state = nil
+	if !userspace {
+		tsPath := getTailscaleBinaryPath()
+		if tsPath != "" {
+			cmd := exec.Command(tsPath, "status", "--json")
+			maybeHideWindow(cmd)
+			if out, err := cmd.Output(); err == nil {
+				var st ipnstate.Status
+				if err := json.Unmarshal(out, &st); err == nil {
+					state = &st
+					if state.BackendState == "NeedsLogin" || state.BackendState == "LoggedOut" || state.BackendState == "NoState" {
+						state = nil
+					}
 				}
 			}
 		}
 	}
-	*/
 
-	// Всегда используем userspace (tsnet)
 	if state == nil {
 		refreshAndroidDefaultRouteInterface()
 		lc, err := s.localClient()
 		if err != nil {
-			return nil, err
+			return &TailscaleStatus{Running: false}, nil
 		}
 		if ctx == nil {
-			ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 		}
 		state, err = lc.Status(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("tailscale status: %w", err)
+			return &TailscaleStatus{Running: false}, nil
 		}
 	}
 
@@ -153,7 +170,6 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 		return &TailscaleStatus{Running: false}, nil
 	}
 
-	// 3. Конвертируем ipnstate.Status в наш внутренний формат
 	out := &TailscaleStatus{
 		Running:   strings.TrimSpace(state.BackendState) == "Running",
 		LoggedIn:  state.BackendState != "" && state.BackendState != "NeedsLogin" && state.BackendState != "NoState",
@@ -193,16 +209,17 @@ func (s *TailscaleService) convertPeer(st *ipnstate.Status, p *ipnstate.PeerStat
 }
 
 func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
-	/*
-		// (Закомментировано) Системный логин отключен в пользу принудительного Userspace (tsnet)
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if !userspace {
 		tsPath := getTailscaleBinaryPath()
 		if tsPath != "" {
 			logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
 			var cmd *exec.Cmd
 			if runtime.GOOS == "linux" {
 				cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
-			} else if runtime.GOOS == "darwin" {
-				cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 			} else {
 				cmd = exec.Command(tsPath, "up", "--accept-dns=false")
 			}
@@ -212,7 +229,6 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 			stderr, _ := cmd.StderrPipe()
 			if err := cmd.Start(); err != nil {
 				if runtime.GOOS == "darwin" {
-					// Try with osascript if direct start failed
 					script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
 					cmd = exec.Command("osascript", "-e", script)
 					maybeHideWindow(cmd)
@@ -228,7 +244,6 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 					scanner := bufio.NewScanner(r)
 					for scanner.Scan() {
 						line := scanner.Text()
-						logrus.Infof("📡 [Tailscale/CLI] %s", line)
 						if url := s.extractURL(line); url != "" {
 							urlChan <- url
 							return
@@ -239,14 +254,13 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 				go scanFunc(stderr)
 				select {
 				case foundURL := <-urlChan:
-					logrus.Infof("🔗 [Tailscale] Captured system AuthURL: %s", foundURL)
 					return foundURL, nil
 				case <-time.After(15 * time.Second):
 					logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
 				}
 			}
 		}
-	*/
+	}
 
 	refreshAndroidDefaultRouteInterface()
 	lc, err := s.localClient()
@@ -268,30 +282,33 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 }
 
 func (s *TailscaleService) Logout(ctx context.Context) error {
-	/*
-		// (Закомментировано) Системный логаут отключен
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if !userspace {
 		tsPath := getTailscaleBinaryPath()
 		if tsPath != "" {
 			logrus.Infof("🛑 [Tailscale] System CLI logout via %s", tsPath)
+			var cmd *exec.Cmd
 			if runtime.GOOS == "linux" {
-				cmd := exec.Command("pkexec", tsPath, "logout")
-				maybeHideWindow(cmd)
-				_ = cmd.Run()
+				cmd = exec.Command("pkexec", tsPath, "logout")
 			} else {
-				cmd := exec.Command(tsPath, "logout")
-				maybeHideWindow(cmd)
-				_ = cmd.Run()
+				cmd = exec.Command(tsPath, "logout")
 			}
+			maybeHideWindow(cmd)
+			_ = cmd.Run()
 			return nil
 		}
-	*/
+	}
+
 	lc, err := s.localClient()
 	if err != nil { return err }
 	return lc.Logout(ctx)
 }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
-	if s.GetSystemTailscaleIP() != "" {
+	if !s.IsUserspace() && s.GetSystemTailscaleIP() != "" {
 		return &http.Client{Timeout: 10 * time.Second}, nil
 	}
 	srv, err := s.serverInstance()
@@ -308,11 +325,13 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 			err = fmt.Errorf("panic in tailnet ipv4: %v", r)
 		}
 	}()
-	/*
+
+	if !s.IsUserspace() {
 		if sysIP := s.GetSystemTailscaleIP(); sysIP != "" {
 			return sysIP, nil
 		}
-	*/
+	}
+
 	lc, err := s.localClient()
 	if err != nil { return "", err }
 	if ctx == nil { ctx = context.Background() }
@@ -326,15 +345,10 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 		port = 55000
 	}
 
-	// ПРИНУДИТЕЛЬНЫЙ ЮЗЕРСПЕЙС:
-	// Мы всегда используем внутренний UDP-релей, чтобы видео-трафик шел через tsnet.
-	/*
-		if s.GetSystemTailscaleIP() != "" {
-			return port, nil
-		}
-	*/
+	if !s.IsUserspace() && s.GetSystemTailscaleIP() != "" {
+		return port, nil
+	}
 
-	// Обязательно останавливаем старый релей перед запуском нового на том же или другом порту
 	_ = s.StopVideoUDPRelay()
 
 	srv, err := s.serverInstance()
@@ -342,7 +356,6 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 	tailIP, err := s.TailnetIPv4(context.Background())
 	if err != nil { return 0, err }
 
-	// Пробуем занять основной порт, если не выходит — любой свободный
 	var pc net.PacketConn
 	tailAddr := net.JoinHostPort(tailIP, fmt.Sprintf("%d", port))
 	pc, err = srv.ListenPacket("udp", tailAddr)
@@ -361,8 +374,6 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 
 	logrus.Infof("📡 [Tailscale] Relay listening on %s (requested %d)", actualAddr, port)
 
-	// Локальная цель (GStreamer). Используем ТОТ ЖЕ порт на 127.0.0.1.
-	// GStreamer должен слушать на 127.0.0.1:actualPort
 	localTarget, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+fmt.Sprintf("%d", actualPort))
 	localConn, err := net.DialUDP("udp4", nil, localTarget)
 	if err != nil {
@@ -388,14 +399,13 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	state := "inactive"
 	if s.videoRelayConn != nil {
 		state = "userspace-relay"
-	} /* else if s.GetSystemTailscaleIP() != "" {
+	} else if !s.userspace && s.GetSystemTailscaleIP() != "" {
 		state = "system-stack"
-	} */
+	}
 	s.mu.Unlock()
 
 	routingInfo := ""
 	if targetHost != "" {
-		// Убираем порт и нормализуем хост для поиска
 		cleanTarget := strings.Split(targetHost, ":")[0]
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -422,22 +432,19 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 	s.mu.Lock()
 	pc := s.videoRelayConn
 	traceID := s.videoRelayTraceID
+	userspace := s.userspace
 	s.mu.Unlock()
 
 	host := strings.Split(targetHost, ":")[0]
 
-	// Определяем функцию для отправки PUNCH-пакета
 	var puncher func(addr *net.UDPAddr)
 	if pc != nil {
-		// Режим userspace (tsnet relay)
 		puncher = func(addr *net.UDPAddr) {
 			_, _ = pc.WriteTo([]byte("PUNCH"), addr)
 		}
-	} else if s.GetSystemTailscaleIP() != "" {
-		// Режим системного стека (system tailscaled)
+	} else if !userspace && s.GetSystemTailscaleIP() != "" {
 		s.pingSystemTailscale(host)
 
-		// Создаем временный UDP сокет для "пробивки"
 		conn, err := net.ListenUDP("udp4", nil)
 		if err == nil {
 			defer conn.Close()
@@ -451,20 +458,17 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 		return
 	}
 
-	// 1. Сначала пробиваем на основной Target (Tailscale IP или DNS)
 	addr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
 		logrus.Infof("🎯 [%s] Sending PUNCH to target %v...", traceID, addr)
 		puncher(addr)
 	}
 
-	// 2. ДОПОЛНИТЕЛЬНО: Пробиваем на все известные эндпоинты этого пира через статус
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	if st, err := s.Status(ctx); err == nil && st != nil {
 		for _, peer := range st.Peers {
 			if peer.IP4 == host || strings.Contains(peer.DNSName, host) || peer.HostName == host {
-				// Пробиваем текущий адрес
 				if peer.CurAddr != "" {
 					if ra, err := net.ResolveUDPAddr("udp4", peer.CurAddr); err == nil {
 						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
@@ -472,13 +476,11 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 						puncher(videoAddr)
 					}
 				}
-				// ПРОБИВАЕМ ВСЕ ИЗВЕСТНЫЕ ЭНДПОИНТЫ (критично для P2P в локальной сети при наличии нескольких NAT)
 				for _, addrStr := range peer.Addrs {
 					if addrStr == peer.CurAddr {
 						continue
 					}
 					if ra, err := net.ResolveUDPAddr("udp4", addrStr); err == nil {
-						// Мы пробуем достучаться до видео-порта на всех IP пира
 						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
 						logrus.Infof("🎯 [%s] Sending PUNCH to potential peer endpoint %v...", traceID, videoAddr)
 						puncher(videoAddr)
@@ -496,12 +498,8 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 		return
 	}
 
-	// Запускаем пинг в фоне, чтобы не блокировать UI.
-	// Пинг заставляет системный tailscaled искать прямой путь (P2P).
 	go func() {
 		logrus.Infof("🎯 [Tailscale] Running system ping to %s to force P2P...", host)
-		// Используем --timeout и --c для быстрого завершения
-		// Добавляем --verbose для более агрессивного пробива
 		cmd := exec.Command(tsPath, "ping", "--timeout=5s", "--c=5", "--verbose", host)
 		maybeHideWindow(cmd)
 		out, err := cmd.CombinedOutput()
@@ -511,13 +509,10 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 			logrus.Infof("✅ [Tailscale] System ping to %s completed: %s", host, string(out))
 		}
 
-		// Дополнительно дергаем статус, чтобы обновить кэш маршрутов
 		_ = exec.Command(tsPath, "status").Run()
 	}()
 }
 
-// PeerConnectionMode returns whether the connection to targetHost is direct P2P or via DERP relay.
-// Returns "direct:<addr>", "derp:<relay>", or "unknown".
 func (s *TailscaleService) PeerConnectionMode(targetHost string) string {
 	if targetHost == "" {
 		return "unknown"
@@ -553,7 +548,6 @@ func (s *TailscaleService) StopVideoUDPRelay() error {
 }
 
 func (s *TailscaleService) RespondToVideoProbe(systemIP string, port int, timeout time.Duration) error {
-	// Listen on all interfaces to be sure
 	addr, _ := net.ResolveUDPAddr("udp4", fmt.Sprintf("0.0.0.0:%d", port))
 	conn, err := net.ListenUDP("udp4", addr)
 	if err != nil {
@@ -588,7 +582,8 @@ func (s *TailscaleService) extractURL(text string) string {
 func (s *TailscaleService) GetBindHost() string { return "0.0.0.0" }
 
 func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.server != nil { return s.server, nil }
 
 	initAndroidTailscaleUserspace()
@@ -608,19 +603,7 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
-		Ephemeral: true, // Не захламляем список устройств в консоли Tailscale
-	}
-
-	if runtime.GOOS == "android" {
-		// Use unix socket for local API on Android
-		// NOTE: LocalListenAddr is only available in newer Tailscale versions (v1.76+)
-		// sockPath := filepath.Join(stateDir, "tailscaled.sock")
-		// s.server.LocalListenAddr = "unix:" + sockPath
-		// logrus.Infof("🛰️ [Tailscale] Local API socket: %s", sockPath)
-		logrus.Infof("🛰️ [Tailscale] Android initialization (userspace)")
-	} else if runtime.GOOS == "linux" {
-		// On Linux we can also use a socket in the state dir if running as userspace
-		// s.server.LocalListenAddr = "unix:" + filepath.Join(stateDir, "tailscaled.sock")
+		Ephemeral: true, 
 	}
 
 	logrus.Info("🛰️ [Tailscale] Starting tsnet server...")
@@ -636,6 +619,7 @@ func (s *TailscaleService) localClient() (*tsnetLocalClient, error) {
 	srv, err := s.serverInstance()
 	if err != nil { return nil, err }
 	lc, err := srv.LocalClient()
+	if err != nil { return nil, err }
 	return &tsnetLocalClient{Client: lc}, nil
 }
 
@@ -735,27 +719,29 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 	}
 	_ = localConn.SetWriteBuffer(bufferSize)
 
-	// Используем один буфер для чтения и немедленной записи.
-	// В UDP это максимально быстро (минимум контекст-свитчей).
 	buf := make([]byte, 65536)
 	packetCount := 0
 
 	for {
-		n, remoteAddr, err := pc.ReadFrom(buf)
-		if err != nil {
+		select {
+		case <-ctx.Done():
 			return
-		}
-
-		if n > 0 {
-			packetCount++
-			if packetCount <= 10 || packetCount%1000 == 0 {
-				logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
+		default:
+			n, remoteAddr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
 			}
 
-			// Прямая пересылка на 127.0.0.1 (GStreamer)
-			_, err = localConn.Write(buf[:n])
-			if err != nil {
-				logrus.Warnf("⚠️ [%s] Relay local write error: %v", traceID, err)
+			if n > 0 {
+				packetCount++
+				if packetCount <= 10 || packetCount%1000 == 0 {
+					logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
+				}
+
+				_, err = localConn.Write(buf[:n])
+				if err != nil {
+					logrus.Warnf("⚠️ [%s] Relay local write error: %v", traceID, err)
+				}
 			}
 		}
 	}
