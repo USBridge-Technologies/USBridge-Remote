@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(ls -la /Users/amir/Projects/usbridge/usbridge_client/log*)",
+      "Bash(ls /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen*.go)"
     ]
   }
 }

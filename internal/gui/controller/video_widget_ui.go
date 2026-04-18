@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"math"
 	"os"
@@ -579,27 +580,46 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	}()
 
 	vw.frameMutex.Lock()
-	vw.currentFrame = frame
+	
+	// Reuse existing frame if bounds match to avoid Fyne interface tear data race
+	if vw.currentFrame == nil || vw.currentFrame.Bounds() != frame.Bounds() {
+		newFrame := image.NewRGBA(frame.Bounds())
+		if rgba, ok := frame.(*image.RGBA); ok {
+			copy(newFrame.Pix, rgba.Pix)
+		} else {
+			draw.Draw(newFrame, newFrame.Bounds(), frame, frame.Bounds().Min, draw.Src)
+		}
+		vw.currentFrame = newFrame
+	} else {
+		if currentRgba, ok := vw.currentFrame.(*image.RGBA); ok {
+			if srcRgba, ok := frame.(*image.RGBA); ok {
+				copy(currentRgba.Pix, srcRgba.Pix)
+			} else {
+				draw.Draw(currentRgba, currentRgba.Bounds(), frame, frame.Bounds().Min, draw.Src)
+			}
+		}
+	}
+	
 	vw.frameCount++
 	frameNum := vw.frameCount
 	vw.lastFrameTime = time.Now()
 	vw.frameMutex.Unlock()
 
 	if frameNum <= 10 || frameNum%120 == 0 {
-		vw.updateFrameContentRect(frame)
+		vw.updateFrameContentRect(vw.currentFrame)
 	}
 
 	vw.frameDecoder.IncrementFrameCount()
 	vw.noteVideoTraceFirstFrame(frameNum)
 
 	if frameNum == 1 {
-		bounds := frame.Bounds()
+		bounds := vw.currentFrame.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
-		vw.dumpFrameSnapshot(frame, frameNum)
+		vw.dumpFrameSnapshot(vw.currentFrame, frameNum)
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
-		bounds := frame.Bounds()
-		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d stats=%s", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy(), summarizeImage(frame))
+		bounds := vw.currentFrame.Bounds()
+		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d stats=%s", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy(), summarizeImage(vw.currentFrame))
 	}
 
 	vw.scheduleFrameRender()
@@ -970,7 +990,9 @@ func (vw *VideoWidget) renderLatestFrame() {
 		if frameNum <= 5 || frameNum%300 == 0 {
 			logrus.Infof("🪟 [VIDEO] canvas render trace=%s frame=%d stats=%s", vw.currentVideoTraceLabel(), frameNum, summarizeImage(frame))
 		}
-		vw.videoCanvas.Image = frame
+		if vw.videoCanvas.Image != frame {
+			vw.videoCanvas.Image = frame
+		}
 		vw.videoCanvas.Refresh()
 	}
 	if mainWindowVisible && vw.touchpadWrapper != nil {

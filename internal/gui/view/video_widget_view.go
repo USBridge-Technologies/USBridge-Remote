@@ -21,6 +21,7 @@ type VideoWidgetUI struct {
 func NewVideoWidgetUI(touchpad fyne.CanvasObject, onStart, onStop, onFullscreen func()) *VideoWidgetUI {
 	videoCanvas := canvas.NewImageFromResource(nil)
 	videoCanvas.FillMode = canvas.ImageFillContain
+	videoCanvas.ScaleMode = canvas.ImageScaleFastest
 
 	statusLabel := widget.NewLabel(i18n.Current.VideoNotStarted)
 	infoLabel := widget.NewLabel("")

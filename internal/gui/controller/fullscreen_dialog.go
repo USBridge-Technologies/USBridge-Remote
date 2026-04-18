@@ -190,7 +190,9 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	}
 
 	fyne.Do(func() {
-		videoImg.Image = frame
+		if videoImg.Image != frame {
+			videoImg.Image = frame
+		}
 		videoImg.Refresh()
 		if touchpad != nil {
 			touchpad.Refresh()
@@ -223,7 +225,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	fd.videoImage = canvas.NewImageFromImage(currentFrame)
 	fd.videoImage.FillMode = canvas.ImageFillContain
-	fd.videoImage.ScaleMode = canvas.ImageScaleSmooth
+	fd.videoImage.ScaleMode = canvas.ImageScaleFastest
 	fd.touchpadWrapper = NewTouchpadWrapperWithImage(fd.videoWidget, fd.videoImage)
 	fd.videoWidget.registerMobileGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
