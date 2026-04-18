@@ -1,6 +1,5 @@
 .git
 .git_old
-.DS_Store
 .idea
 .vscode
 .codex-cache
@@ -32,7 +31,6 @@ x86_64
 *.dll
 *.so
 *.dylib
-*.syso
 *.cgo1.go
 *.test
 *.out
