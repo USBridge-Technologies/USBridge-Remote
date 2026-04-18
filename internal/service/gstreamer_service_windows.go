@@ -79,6 +79,17 @@ func (gs *GStreamerService) GetBindHost() string {
 	return strings.TrimSpace(gs.config.VideoBindHost)
 }
 
+// UpdateHost обновляет хост видеопотока
+func (gs *GStreamerService) UpdateHost(host string) {
+	gs.mutex.Lock()
+	defer gs.mutex.Unlock()
+
+	if gs.config != nil {
+		gs.config.VideoHost = host
+	}
+	logrus.Debugf("🔧 [Windows] GStreamer сервис: хост обновлен на %s", host)
+}
+
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 	gs := &GStreamerService{
 		config:                config,

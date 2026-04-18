@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/models"
@@ -24,6 +25,7 @@ func main() {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			writeStartupPanicTrace(recovered)
+			logrus.Errorf("🔥 FATAL PANIC: %v\n%s", recovered, string(debug.Stack()))
 			panic(recovered)
 		}
 	}()

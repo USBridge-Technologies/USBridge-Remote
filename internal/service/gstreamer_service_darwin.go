@@ -415,6 +415,10 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.mutex.Unlock()
 
 	logrus.Infof("🔗 [VIDEO] Шаг 2: Подключение к RTP video mode=%s (port=%d)", gs.videoMode, udpPort)
+
+	// Убиваем старые процессы на этом порту ПЕРЕД запуском нового
+	gs.killStaleGStreamerProcesses(udpPort)
+
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		var lastErr error
 		candidates := gs.buildPipelineArgsJPEGCandidates(udpPort)
@@ -955,6 +959,12 @@ func (gs *GStreamerService) Disconnect() error {
 		logrus.Info("🛑 macOS: Остановка gst-launch процесса...")
 		cmd.Process.Kill()
 		cmd.Wait()
+		
+		// Явно убиваем любые другие процессы на этом порту
+		if gs.config != nil && gs.config.VideoUDPPort > 0 {
+			gs.killStaleGStreamerProcesses(gs.config.VideoUDPPort)
+		}
+		
 		logrus.Info("✅ macOS: gst-launch процесс остановлен")
 	}
 

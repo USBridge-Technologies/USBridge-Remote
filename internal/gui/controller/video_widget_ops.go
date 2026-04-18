@@ -12,6 +12,12 @@ func (vw *VideoWidget) startVideoOpsLoop() {
 
 	vw.videoOps = make(chan videoOperation, 32)
 	go func(ops <-chan videoOperation) {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in video ops loop: %v", r)
+			}
+		}()
+
 		for op := range ops {
 			if op.fn == nil {
 				if op.done != nil {

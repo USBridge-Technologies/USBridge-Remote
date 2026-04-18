@@ -212,7 +212,10 @@ func (vw *VideoWidget) handleStopVideo() {
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	vw.scheduleVideoReconcile("stop-video-sync")
+	// Выполняем синхронно в очереди операций видео
+	vw.runVideoOpSync("stop-video-sync", func() {
+		vw.reconcileVideoState("stop-video-sync")
+	})
 	return nil
 }
 
@@ -239,6 +242,11 @@ func (vw *VideoWidget) stopVideoInternal() {
 
 	vw.usbClient.DisconnectMouseWebSocket()
 
+	// Сначала говорим серверу СТОП, чтобы он перестал слать пакеты
+	if err := vw.usbClient.StopVideo(); err != nil {
+		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
+	}
+
 	if vw.gstreamerService != nil {
 		if err := vw.gstreamerService.Disconnect(); err != nil {
 			logrus.Errorf("Failed to disconnect GStreamer: %v", err)
@@ -249,10 +257,6 @@ func (vw *VideoWidget) stopVideoInternal() {
 		if err := vw.tailscaleService.StopVideoUDPRelay(); err != nil {
 			logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
 		}
-	}
-
-	if err := vw.usbClient.StopVideo(); err != nil {
-		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
 	}
 
 	vw.isStreaming = false

@@ -503,6 +503,14 @@ func (mw *MainWindow) handleConnect() {
 
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины)
 func (mw *MainWindow) doConnect(ctx context.Context, host, token string) error {
+	// Принудительно останавливаем видео и сбрасываем GStreamer перед новым подключением
+	if mw.videoWidget != nil {
+		_ = mw.videoWidget.StopVideoSync()
+	}
+	if mw.gstreamerService != nil {
+		_ = mw.gstreamerService.Disconnect()
+	}
+
 	protocol := mw.protocolSelect.Selected
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
@@ -894,6 +902,8 @@ func (mw *MainWindow) handleDisconnect() {
 		if mw.videoWidget.IsStreaming() {
 			logrus.Info("🛑 Stopping video before disconnect...")
 			_ = mw.videoWidget.StopVideoSync()
+			// Даем немного времени на освобождение сетевых ресурсов
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	
@@ -907,9 +917,13 @@ func (mw *MainWindow) handleDisconnect() {
 	if mw.usbClient != nil {
 		client := mw.usbClient
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.Errorf("🔥 PANIC in remote resource cleanup: %v", r)
+				}
+			}()
 			logrus.Info("[shutdown] Remote resource cleanup...")
 			_ = client.StopAllDevices()
-			_ = client.StopService()
 			client.Disconnect()
 		}()
 	}
@@ -942,7 +956,6 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false
 	mw.appState.LastDisconnected = time.Now()
-	mw.usbClient = nil
 
 	mw.diskWidget.UpdateClient(nil)
 	mw.diskWidget.SetFRPService(nil)
@@ -951,6 +964,8 @@ func (mw *MainWindow) handleDisconnect() {
 	if mw.backupWidget != nil {
 		mw.backupWidget.UpdateClient(nil)
 	}
+
+	mw.usbClient = nil
 
 	mw.clearConnectionPending()
 	mw.refreshConnectionControls()

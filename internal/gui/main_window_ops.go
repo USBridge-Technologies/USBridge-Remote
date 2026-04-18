@@ -3,11 +3,24 @@ package gui
 import "github.com/sirupsen/logrus"
 
 func (mw *MainWindow) runLifecycleLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🔥 PANIC in lifecycle loop: %v", r)
+		}
+	}()
+
 	for op := range mw.lifecycleOps {
 		if op == nil {
 			continue
 		}
-		op()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logrus.Errorf("🔥 PANIC in lifecycle operation: %v", r)
+				}
+			}()
+			op()
+		}()
 	}
 }
 
