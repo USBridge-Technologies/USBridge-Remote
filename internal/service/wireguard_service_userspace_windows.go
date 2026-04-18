@@ -84,7 +84,7 @@ func runPowerShell(lines ...string) error {
 
 func runPowerShellDirect(script string) error {
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("powershell failed: %v: %s", err, strings.TrimSpace(string(out)))
@@ -114,7 +114,7 @@ func runPowerShellWithUAC(script string) error {
 	}, "\n")
 
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", startCmd)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

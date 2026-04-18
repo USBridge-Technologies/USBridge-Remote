@@ -509,7 +509,9 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 			logrus.Infof("✅ [Tailscale] System ping to %s completed: %s", host, string(out))
 		}
 
-		_ = exec.Command(tsPath, "status").Run()
+		statusCmd := exec.Command(tsPath, "status")
+		maybeHideWindow(statusCmd)
+		_ = statusCmd.Run()
 	}()
 }
 
