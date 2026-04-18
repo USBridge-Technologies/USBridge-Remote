@@ -52,12 +52,24 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.proc != nil {
-		m.traceStep(traceID, startedAt, "reject-already-running", "existing process mode=%s codec=%s", m.proc.mode, m.proc.codec)
-		return fmt.Errorf("video already running")
-	}
-
 	req = m.normalize(req)
+
+	if m.proc != nil {
+		if m.info.VideoWidth == req.VideoWidth &&
+			m.info.VideoHeight == req.VideoHeight &&
+			m.info.VideoFPS == req.VideoFPS &&
+			m.info.ClientHost == req.ClientHost &&
+			m.info.ClientPort == req.ClientPort &&
+			m.info.VideoMode == req.VideoMode {
+			log.Println("ℹ️ Видео стриминг уже запущен с актуальными параметрами")
+			return nil
+		}
+
+		log.Printf("⚠️ Параметры или цель стриминга изменились, перезапуск...")
+		m.mu.Unlock()
+		m.Stop()
+		m.mu.Lock()
+	}
 	if err := m.validateStartRequest(req); err != nil {
 		m.traceStep(traceID, startedAt, "invalid-request", "err=%v", err)
 		return err
@@ -211,12 +223,12 @@ func (m *Manager) normalize(req api.VideoStartRequest) api.VideoStartRequest {
 	if req.VideoBitrate == "" {
 		req.VideoBitrate = m.cfg.VideoBitrate
 	}
-	if req.ClientPort == 0 {
-		req.ClientPort = m.cfg.VideoUDPPort
-	}
 	req.ClientHost = strings.TrimSpace(req.ClientHost)
 	if req.ClientHost == "" {
 		req.ClientHost = "127.0.0.1"
+	}
+	if req.ClientHost == "127.0.0.1" || req.ClientPort <= 0 {
+		req.ClientPort = m.cfg.VideoUDPPort
 	}
 	req.VideoMode = strings.TrimSpace(req.VideoMode)
 	if req.VideoMode == "" {

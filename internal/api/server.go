@@ -341,15 +341,12 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.TraceID = strings.TrimSpace(r.Header.Get("X-USBridge-Video-Trace"))
-	req.ClientHost = strings.TrimSpace(req.ClientHost)
-	if req.ClientHost == "" {
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			host = strings.TrimSpace(host)
-			if host != "" && !isLoopbackHost(host) {
-				req.ClientHost = host
-			}
-		}
+	
+	clientIP := strings.TrimSpace(req.ClientHost)
+	if net.ParseIP(clientIP) == nil {
+		clientIP = getClientIP(r)
 	}
+	req.ClientHost = clientIP
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		host = strings.TrimSpace(host)
 		log.Printf("[api] video_start trace=%s peer=%s requested_client=%s:%d", req.TraceID, host, req.ClientHost, req.ClientPort)
@@ -363,7 +360,30 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 	s.ok(w, "video_started", nil)
 }
 
+func getClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			ip := strings.TrimSpace(ips[0])
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	}
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		if net.ParseIP(xrip) != nil {
+			return xrip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return strings.Trim(r.RemoteAddr, "[]")
+	}
+	return host
+}
+
 func isLoopbackHost(host string) bool {
+
 	if host == "localhost" {
 		return true
 	}
