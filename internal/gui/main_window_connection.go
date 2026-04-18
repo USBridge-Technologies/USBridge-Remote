@@ -674,7 +674,20 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if resolvedHost != "" && isLikelyTailscaleHost(resolvedHost) {
 			if err := tryDirect(ctx, resolvedHost); err == nil {
 				return nil
+			} else if protocol == models.ConnectionProtocolTailscale {
+				// Если пользователь явно выбрал Tailscale, не нужно пробовать квик
+				return err
 			}
+		}
+
+		// Если мы здесь, значит прямое подключение по Tailscale не удалось (или хост не похож на Tailscale),
+		// и нам нужно попробовать "бутстрап" через QUIC, НО только если протокол НЕ Tailscale.
+		if protocol == models.ConnectionProtocolTailscale {
+			if resolvedHost == "" {
+				return fmt.Errorf("tailscale host is empty")
+			}
+			// Мы уже попробовали tryDirect выше и получили ошибку, так что просто возвращаем её (err в tryDirect был локальный, так что вызовем еще раз или сохраним)
+			return tryDirect(ctx, resolvedHost)
 		}
 
 		if bootstrapHost == "" {
