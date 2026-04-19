@@ -46,6 +46,8 @@ type ConnectionRowData struct {
 	AddressSummary  string
 	ProtocolBadge   string
 	ProtocolOptions []string
+	RegisterChecked bool
+	RegisterVisible bool
 }
 
 type ConnectionRowState struct {
@@ -58,6 +60,7 @@ type ConnectionRowActions struct {
 	OnUse            func()
 	OnEdit           func()
 	OnProtocolChange func(string)
+	OnRegisterChange func(bool)
 }
 
 const (
@@ -880,6 +883,21 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	protocolBtn.SetSelected(data.ProtocolBadge)
 	protocolBtn.SetDisabled(state.Disabled)
 
+	registerCheck := widget.NewCheck("", func(checked bool) {
+		if actions.OnRegisterChange != nil {
+			actions.OnRegisterChange(checked)
+		}
+	})
+	registerCheck.Checked = data.RegisterChecked
+	if !data.RegisterVisible {
+		registerCheck.Hide()
+	}
+	if state.Disabled {
+		registerCheck.Disable()
+	} else {
+		registerCheck.Enable()
+	}
+
 	useBtn := newConnectionActionIconButton(actions.OnUse)
 	useBtn.SetDisabled(state.Disabled)
 	useBtn.SetLoading(state.Loading)
@@ -887,7 +905,7 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	left := canvas.NewRectangle(color.Transparent)
 	left.SetMinSize(fyne.NewSize(1, 1))
 	center := container.New(&connectionCompactContentLayout{}, nameBlock)
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, protocolBtn, useBtn)
+	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, registerCheck, protocolBtn, useBtn)
 	row := container.New(&deviceRowLayout{gap: 6}, left, center, right)
 	return NewInset(row, 0, 4, 4, 4)
 }

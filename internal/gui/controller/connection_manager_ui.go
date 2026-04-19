@@ -171,14 +171,16 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 
 	return view.NewConnectionRow(
 		view.ConnectionRowData{
-			Name:           conn.Name,
-			AddressSummary: formatConnectionAddressSummary(internalHost, tailscaleHost),
-			ProtocolBadge:  connectionProtocolBadge(conn.Protocol),
+			Name:            conn.Name,
+			AddressSummary:  formatConnectionAddressSummary(internalHost, tailscaleHost),
+			ProtocolBadge:   connectionProtocolBadge(conn.Protocol),
 			ProtocolOptions: []string{
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolQUIC),
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 			},
+			RegisterChecked: conn.TailscaleRegister,
+			RegisterVisible: internalHost != "" && tailscaleHost == "",
 		},
 		rowState,
 		view.ConnectionRowActions{
@@ -211,6 +213,17 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 					return
 				}
 				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
+			},
+			OnRegisterChange: func(checked bool) {
+				if cm.connectionPending {
+					return
+				}
+				cm.connections[idx].TailscaleRegister = checked
+				cm.saveConnections()
+				// If this is the currently selected connection, update the main check too
+				if cm.selectedIndex == idx && cm.onSelect != nil {
+					cm.onSelect(cm.connections[idx].WireGuardInvite, checked)
+				}
 			},
 		},
 	)

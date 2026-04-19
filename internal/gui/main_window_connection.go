@@ -663,6 +663,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			if target == "" {
 				return fmt.Errorf("target host is empty")
 			}
+			if !isLikelyTailscaleHost(target) {
+				return fmt.Errorf("not a tailscale host")
+			}
 			if err := mw.tailscaleService.ValidateAddress(target); err != nil {
 				return err
 			}
@@ -756,17 +759,26 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if resolvedHost != "" && isLikelyTailscaleHost(resolvedHost) {
 			if err := tryDirect(ctx, resolvedHost); err == nil {
 				return nil
-			} else if protocol == models.ConnectionProtocolTailscale {
-				// Если пользователь явно выбрал Tailscale, не нужно пробовать квик
+			} else if protocol == models.ConnectionProtocolTailscale && !mw.pendingTailscaleRegister {
+				// Если пользователь явно выбрал Tailscale и регистрация не заказана - возвращаем ошибку
 				return err
 			}
 		}
 
-		// Если мы здесь, значит прямое подключение по Tailscale не удалось (или хост не похож на Tailscale),
-		// и нам нужно попробовать "бутстрап" через QUIC, НО только если протокол НЕ Tailscale ИЛИ если хост пустой.
-		if protocol == models.ConnectionProtocolTailscale && resolvedHost != "" {
-			// Мы уже попробовали tryDirect выше и получили ошибку, так что просто возвращаем её
-			return tryDirect(ctx, resolvedHost)
+		// Если мы здесь, значит прямое подключение по Tailscale не удалось (или хост не похож на Tailscale).
+		// Мы пробуем "бутстрап" через QUIC в следующих случаях:
+		// 1. Протокол Auto
+		// 2. Протокол Tailscale И заказана регистрация (mw.pendingTailscaleRegister)
+		// 3. Протокол Tailscale И хост пустой (подразумеваем что надо зарегистрировать)
+		
+		canBootstrap := protocol == models.ConnectionProtocolAuto || 
+			(protocol == models.ConnectionProtocolTailscale && (mw.pendingTailscaleRegister || resolvedHost == ""))
+
+		if !canBootstrap {
+			if protocol == models.ConnectionProtocolTailscale && resolvedHost != "" {
+				return fmt.Errorf("tailscale connection failed and bootstrap not requested")
+			}
+			return fmt.Errorf("tailscale host is empty and bootstrap not allowed for protocol %s", protocol)
 		}
 
 		if bootstrapHost == "" {
