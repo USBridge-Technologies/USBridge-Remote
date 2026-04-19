@@ -357,7 +357,7 @@ func EN() *LocalizedStrings {
 		// Main Window
 		AppTitle:                "USBridge Client",
 		ServerAddress:           "Server Address",
-		Token:                   "Token",
+		Token:                   "device token",
 		ConnectButton:           "Connect",
 		DisconnectButton:        "Disconnect",
 		DisconnectAllButton:     "Disconnect All",
@@ -707,7 +707,7 @@ func ES() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Cliente USBridge"
 	locale.ServerAddress = "Direccion del servidor"
-	locale.Token = "Token"
+	locale.Token = "token del dispositivo"
 	locale.ConnectButton = "Conectar"
 	locale.DisconnectButton = "Desconectar"
 	locale.DisconnectAllButton = "Desconectar todo"
@@ -833,7 +833,7 @@ func UKProper() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Клієнт USBridge"
 	locale.ServerAddress = "Адреса сервера"
-	locale.Token = "Токен"
+	locale.Token = "токен пристрою"
 	locale.ConnectButton = "Підключити"
 	locale.DisconnectButton = "Відключити"
 	locale.DisconnectAllButton = "Відключити все"

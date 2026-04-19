@@ -29,7 +29,7 @@ const (
 	connectionDialogNameLabel                  = "name"
 	connectionDialogInternalHostLabel          = "internal ip address"
 	connectionDialogTailscaleHostLabel         = "tailscale address"
-	connectionDialogTokenLabel                 = "device token (tskey optional)"
+	connectionDialogTokenLabel                 = "device token"
 	qrScanSuccessText                          = "\u2713 qr code successfully scanned"
 	connectionDialogButtonsGap         float32 = 12
 )

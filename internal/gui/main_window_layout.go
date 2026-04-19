@@ -87,7 +87,27 @@ func (t *tabsTheme) Size(name fyne.ThemeSizeName) float32 {
 func (mw *MainWindow) createInterface() {
 	mw.hostEntry = widget.NewEntry()
 	mw.hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
+
+	mw.tailscaleRegisterCheck = widget.NewCheck(i18n.Current.TailscaleRegisterLabel, func(checked bool) {
+		mw.pendingTailscaleRegister = checked
+	})
+	mw.tailscaleRegisterCheck.Hide()
+
+	updateRegisterVisibility := func() {
+		host := strings.TrimSpace(mw.hostEntry.Text)
+		token := strings.TrimSpace(mw.tokenEntry.Text)
+		isTS := isLikelyTailscaleHost(host)
+		// Отображаем если есть адрес (не тайлскейл) и токен
+		if host != "" && !isTS && token != "" {
+			mw.tailscaleRegisterCheck.Show()
+		} else {
+			mw.tailscaleRegisterCheck.Hide()
+		}
+		mw.tailscaleRegisterCheck.Refresh()
+	}
+
 	mw.hostEntry.OnChanged = func(string) {
+		updateRegisterVisibility()
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
 			mw.connectionManager.HandleFormEdited(
@@ -103,6 +123,7 @@ func (mw *MainWindow) createInterface() {
 	mw.tokenEntry.SetPlaceHolder(i18n.Current.Token)
 	mw.tokenEntry.Password = true
 	mw.tokenEntry.OnChanged = func(string) {
+		updateRegisterVisibility()
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
 			mw.connectionManager.HandleFormEdited(
@@ -349,7 +370,7 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	discordBtn.SetBadgeText("")
 	discordBtn.SetIconSize(fyne.NewSize(18, 18))
 
-	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
+	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn, mw.tailscaleRegisterCheck)
 	var rightAccessory fyne.CanvasObject = canvas.NewRectangle(color.Transparent)
 	if mw.connectionManager != nil && mw.connectionManager.HeaderAccessory() != nil {
 		rightAccessory = mw.connectionManager.HeaderAccessory()

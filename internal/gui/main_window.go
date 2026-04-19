@@ -73,10 +73,11 @@ type MainWindow struct {
 	pcpanelWidget *controller.PCPanelWidget
 
 	// Адресная строка
-	hostEntry         *widget.Entry
-	tokenEntry        *widget.Entry
-	sdStorageProgress *view.StorageProgressBar
-	deepLinkHandler   *DeepLinkHandler
+	hostEntry              *widget.Entry
+	tokenEntry             *widget.Entry
+	tailscaleRegisterCheck *widget.Check
+	sdStorageProgress      *view.StorageProgressBar
+	deepLinkHandler        *DeepLinkHandler
 
 	// Иконки статуса
 	connectionIcon *widget.Button
