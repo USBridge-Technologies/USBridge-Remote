@@ -19,13 +19,13 @@ import (
 
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
-	onConnect func(host, token, protocol, wireGuardInvite string)                              // Подключиться
-	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) // Только сохранить без подключения
-	lastURI   string                                                                           // Последний обработанный URI (чтобы не обрабатывать дважды)
+	onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool)                              // Подключиться
+	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) // Только сохранить без подключения
+	lastURI   string                                                                                                   // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 
 // NewDeepLinkHandler создает новый обработчик
-func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string), onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string)) *DeepLinkHandler {
+func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool), onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool)) *DeepLinkHandler {
 	return &DeepLinkHandler{
 		onConnect: onConnect,
 		onSave:    onSave,
@@ -145,7 +145,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 			d.Hide()
 		}
 		if h.onConnect != nil {
-			h.onConnect(host, token, protocol, wireGuardInvite)
+			h.onConnect(host, token, protocol, wireGuardInvite, false)
 		}
 	})
 	connectBtn.Importance = widget.HighImportance
@@ -157,7 +157,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 		}
 		// Вызываем callback для сохранения с пустым именем - будет сгенерировано автоматически
 		if h.onSave != nil {
-			h.onSave("", internalHost, tailscaleHost, token, protocol, wireGuardInvite)
+			h.onSave("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, false)
 		}
 	})
 	saveBtn.Importance = widget.MediumImportance

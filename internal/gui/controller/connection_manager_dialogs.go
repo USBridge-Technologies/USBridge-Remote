@@ -44,10 +44,11 @@ type connectionDialogSpec struct {
 	internalHostValue  string
 	tailscaleHostValue string
 	tokenValue         string
+	tailscaleRegisterValue bool
 	feedbackText       string
 	feedbackColor      color.Color
-	onConnect          func(name, internalHost, tailscaleHost, token string) bool
-	onSave             func(name, internalHost, tailscaleHost, token string) bool
+	onConnect          func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool
+	onSave             func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool
 	onDelete           func(close func())
 }
 
@@ -89,6 +90,7 @@ type connectionDialogEntry struct {
 	widget.Entry
 
 	onFocusChanged func(bool)
+	OnChanged      func(string)
 }
 
 func (cm *ConnectionManager) setLanguage(langCode string) {
@@ -111,6 +113,27 @@ func (e *connectionDialogEntry) FocusLost() {
 	e.Entry.FocusLost()
 	if e.onFocusChanged != nil {
 		e.onFocusChanged(false)
+	}
+}
+
+func (e *connectionDialogEntry) TypedRune(r rune) {
+	e.Entry.TypedRune(r)
+	if e.OnChanged != nil {
+		e.OnChanged(e.Text)
+	}
+}
+
+func (e *connectionDialogEntry) TypedKey(k *fyne.KeyEvent) {
+	e.Entry.TypedKey(k)
+	if e.OnChanged != nil {
+		e.OnChanged(e.Text)
+	}
+}
+
+func (e *connectionDialogEntry) SetText(text string) {
+	e.Entry.SetText(text)
+	if e.OnChanged != nil {
+		e.OnChanged(e.Text)
 	}
 }
 
@@ -392,13 +415,40 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, ta
 	return container.NewHBox(copyBtn, qrBtn)
 }
 
-func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
-	return container.NewVBox(
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
+	var formContainer *fyne.Container
+
+	updateCheckVisibility := func() {
+		internalHost := strings.TrimSpace(internalHostEntry.Text)
+		tailscaleHost := strings.TrimSpace(tailscaleHostEntry.Text)
+		if internalHost != "" && tailscaleHost == "" {
+			tailscaleRegisterCheck.Show()
+		} else {
+			tailscaleRegisterCheck.Hide()
+		}
+		if formContainer != nil {
+			formContainer.Refresh()
+		}
+	}
+
+	internalHostEntry.OnChanged = func(s string) {
+		updateCheckVisibility()
+	}
+	tailscaleHostEntry.OnChanged = func(s string) {
+		updateCheckVisibility()
+	}
+
+	formContainer = container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
 		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+		tailscaleRegisterCheck,
 		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, internalHostEntry, tailscaleHostEntry, window)),
 	)
+
+	updateCheckVisibility()
+
+	return formContainer
 }
 
 func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObject {
@@ -498,7 +548,9 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
 	tokenEntry := newConnectionTokenEntry(spec.tokenValue, nil)
-	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry, window)
+	tailscaleRegisterCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
+	tailscaleRegisterCheck.Checked = spec.tailscaleRegisterValue
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry, tailscaleRegisterCheck, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -529,7 +581,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -540,7 +592,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	saveBtn = widget.NewButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
 			return
 		}
 		if d != nil {
@@ -552,7 +604,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		saveBtn = newConnectionDialogAccentButton(saveLabel, nil, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -579,7 +631,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 func newConnectionNameEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
-	entry.SetText(value)
+	entry.Text = value
 	entry.SetPlaceHolder("Enter device name...")
 	return entry
 }
@@ -587,7 +639,7 @@ func newConnectionNameEntry(value string, onFocusChanged func(bool)) *connection
 func newConnectionHostEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
-	entry.SetText(value)
+	entry.Text = value
 	entry.SetPlaceHolder("xxx.xxx.x.x")
 	return entry
 }
@@ -595,7 +647,7 @@ func newConnectionHostEntry(value string, onFocusChanged func(bool)) *connection
 func newConnectionTailscaleEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
-	entry.SetText(value)
+	entry.Text = value
 	entry.SetPlaceHolder("device.tailnet.ts.net")
 	return entry
 }
@@ -603,7 +655,7 @@ func newConnectionTailscaleEntry(value string, onFocusChanged func(bool)) *conne
 func newConnectionTokenEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
-	entry.SetText(value)
+	entry.Text = value
 	entry.SetPlaceHolder("")
 	entry.Password = false
 	return entry
@@ -688,14 +740,15 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 	conn := cm.connections[idx]
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
-		title:              i18n.Current.EditConnectionTitle,
-		saveLabel:          i18n.Current.DeepLinkSave,
-		deleteLabel:        i18n.Current.DeleteButton,
-		nameValue:          conn.Name,
-		internalHostValue:  conn.InternalHost,
-		tailscaleHostValue: conn.TailscaleHost,
-		tokenValue:         conn.Token,
-		onSave: func(name, internalHost, tailscaleHost, token string) bool {
+		title:                  i18n.Current.EditConnectionTitle,
+		saveLabel:              i18n.Current.DeepLinkSave,
+		deleteLabel:            i18n.Current.DeleteButton,
+		nameValue:              conn.Name,
+		internalHostValue:      conn.InternalHost,
+		tailscaleHostValue:     conn.TailscaleHost,
+		tokenValue:             conn.Token,
+		tailscaleRegisterValue: conn.TailscaleRegister,
+		onSave: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if name == "" || (internalHost == "" && tailscaleHost == "") {
@@ -704,13 +757,14 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 			}
 
 			cm.connections[idx] = SavedConnection{
-				Name:            name,
-				InternalHost:    internalHost,
-				TailscaleHost:   tailscaleHost,
-				Host:            fallbackText(internalHost, tailscaleHost),
-				Token:           strings.TrimSpace(token),
-				Protocol:        conn.Protocol,
-				WireGuardInvite: conn.WireGuardInvite,
+				Name:              name,
+				InternalHost:      internalHost,
+				TailscaleHost:     tailscaleHost,
+				Host:              fallbackText(internalHost, tailscaleHost),
+				Token:             strings.TrimSpace(token),
+				Protocol:          conn.Protocol,
+				WireGuardInvite:   conn.WireGuardInvite,
+				TailscaleRegister: tailscaleRegister,
 			}
 			cm.selectedIndex = idx
 			cm.saveConnections()
@@ -753,17 +807,18 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s scanned=%v", internalHost, tailscaleHost, scanned)
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
-		title:              i18n.Current.AddConnectionTitle,
-		connectLabel:       i18n.Current.DeepLinkConnect,
-		connectIcon:        nil,
-		saveLabel:          i18n.Current.DeepLinkSave,
-		nameValue:          name,
-		internalHostValue:  internalHost,
-		tailscaleHostValue: tailscaleHost,
-		tokenValue:         token,
-		feedbackText:       feedbackText,
-		feedbackColor:      design.ColorAccent,
-		onConnect: func(name, internalHost, tailscaleHost, token string) bool {
+		title:                  i18n.Current.AddConnectionTitle,
+		connectLabel:           i18n.Current.DeepLinkConnect,
+		connectIcon:            nil,
+		saveLabel:              i18n.Current.DeepLinkSave,
+		nameValue:              name,
+		internalHostValue:      internalHost,
+		tailscaleHostValue:     tailscaleHost,
+		tokenValue:             token,
+		tailscaleRegisterValue: false,
+		feedbackText:           feedbackText,
+		feedbackColor:          design.ColorAccent,
+		onConnect: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -782,11 +837,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 				cm.applyConnectionToForm(host, token, selectedProtocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token, selectedProtocol, wireGuardInvite)
+				cm.onConnect(host, token, selectedProtocol, wireGuardInvite, tailscaleRegister)
 			}
 			return true
 		},
-		onSave: func(name, internalHost, tailscaleHost, token string) bool {
+		onSave: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -800,7 +855,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, internalHost, tailscaleHost, token, selectedProtocol, wireGuardInvite)
+			cm.SaveConnection(name, internalHost, tailscaleHost, token, selectedProtocol, wireGuardInvite, tailscaleRegister)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(host, token, selectedProtocol)
 				cm.refreshConnectionsList()

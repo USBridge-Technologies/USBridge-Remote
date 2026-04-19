@@ -26,9 +26,9 @@ type QRScanner struct {
 	app    fyne.App
 	window fyne.Window
 
-	onConnect func(host, token, protocol, wireGuardInvite string)
-	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string)
-	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string)
+	onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool)
+	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool)
+	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool)
 
 	scanSession       atomic.Uint64
 	scanResultHandled atomic.Bool
@@ -36,9 +36,9 @@ type QRScanner struct {
 
 func NewQRScanner(
 	app fyne.App,
-	onConnect func(host, token, protocol, wireGuardInvite string),
-	onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string),
-	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string),
+	onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool),
+	onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool),
+	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool),
 ) *QRScanner {
 	return &QRScanner{
 		app:       app,
@@ -107,7 +107,7 @@ func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 	fyne.Do(func() {
 		if qs.onPrefill != nil {
 			logrus.Infof("Opening prefilled connection dialog from QR: internal=%s tailscale=%s", internalHost, tailscaleHost)
-			qs.onPrefill(internalHost, tailscaleHost, token, protocol, wireGuardInvite)
+			qs.onPrefill(internalHost, tailscaleHost, token, protocol, wireGuardInvite, true)
 			return
 		}
 
@@ -183,7 +183,7 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, w
 			d.Hide()
 		}
 		if qs.onSave != nil {
-			qs.onSave(host, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
+			qs.onSave(host, internalHost, tailscaleHost, token, protocol, wireGuardInvite, false)
 			logrus.Infof("QR saved: internal=%s tailscale=%s", internalHost, tailscaleHost)
 		}
 	})
@@ -194,7 +194,7 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, w
 			d.Hide()
 		}
 		if qs.onConnect != nil {
-			qs.onConnect(host, token, protocol, wireGuardInvite)
+			qs.onConnect(host, token, protocol, wireGuardInvite, false)
 			logrus.Infof("QR connect: host=%s", host)
 		}
 	})

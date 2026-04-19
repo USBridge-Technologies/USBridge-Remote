@@ -37,6 +37,7 @@ type LocalizedStrings struct {
 	OnboardingStepScan        string
 	DeleteConnectionTitle     string
 	DeleteConnectionConfirm   string
+	TailscaleRegisterLabel    string
 
 	// Video Widget
 	VideoNotStarted      string
@@ -388,6 +389,7 @@ func EN() *LocalizedStrings {
 		OnboardingStepScan:        "Navigate to the auth token section and scan the qr code. You can also enter the ip and access token manually.",
 		DeleteConnectionTitle:     "Delete connection",
 		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
+		TailscaleRegisterLabel:    "Register in Tailscale",
 
 		// Video Widget
 		VideoNotStarted:      "Video not started",
@@ -758,6 +760,7 @@ func ES() *LocalizedStrings {
 	locale.Information = "Informacion"
 	locale.Confirmation = "Confirmacion"
 	locale.TailscaleLogoutConfirm = "Deseas cerrar sesion en Tailscale?"
+	locale.TailscaleRegisterLabel = "Registrar en Tailscale"
 	locale.Success = "Exito"
 	locale.Done = "Hecho"
 	locale.Close = "Cerrar"
@@ -883,6 +886,7 @@ func UKProper() *LocalizedStrings {
 	locale.Information = "Інформація"
 	locale.Confirmation = "Підтвердження"
 	locale.TailscaleLogoutConfirm = "Вийти з Tailscale?"
+	locale.TailscaleRegisterLabel = "Зареєструвати в Tailscale"
 	locale.Success = "Успіх"
 	locale.Done = "Готово"
 	locale.Close = "Закрити"

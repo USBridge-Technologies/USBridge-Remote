@@ -14,7 +14,7 @@ import (
 )
 
 // SaveConnection сохраняет подключение напрямую
-func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) string {
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
@@ -38,12 +38,13 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, t
 	}
 
 	conn := SavedConnection{
-		Name:            name,
-		InternalHost:    internalHost,
-		TailscaleHost:   tailscaleHost,
-		Token:           strings.TrimSpace(token),
-		Protocol:        normalizeConnectionProtocol(protocol),
-		WireGuardInvite: wireGuardInvite,
+		Name:              name,
+		InternalHost:      internalHost,
+		TailscaleHost:     tailscaleHost,
+		Token:             strings.TrimSpace(token),
+		Protocol:          normalizeConnectionProtocol(protocol),
+		WireGuardInvite:   wireGuardInvite,
+		TailscaleRegister: tailscaleRegister,
 	}
 	conn.Host = fallbackText(conn.InternalHost, conn.TailscaleHost)
 	cm.connections = append(cm.connections, conn)
@@ -90,7 +91,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		}
 	}
 
-	name := cm.SaveConnection("", internalHost, tailscaleHost, token, "tailscale", "")
+	name := cm.SaveConnection("", internalHost, tailscaleHost, token, "tailscale", "", false)
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 

@@ -18,12 +18,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func (mw *MainWindow) handleSelectionFromManager(wireGuardInvite string, tailscaleRegister bool) {
+	mw.pendingWireGuardInvite = wireGuardInvite
+	mw.pendingTailscaleRegister = tailscaleRegister
+}
+
 // handleConnectionFromManager обрабатывает подключение из менеджера (стрелка на карточке).
 // Заполняет поля и вызывает единый обработчик handleConnectionToggle для защиты от множественных нажатий.
-func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string) {
+func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
 	mw.tokenEntry.SetText(token)
 	mw.pendingWireGuardInvite = wireGuardInvite
+	mw.pendingTailscaleRegister = tailscaleRegister
 	if protocol != "" {
 		mw.protocolSelect.SetSelected(protocol)
 	}
@@ -31,12 +37,12 @@ func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGua
 }
 
 // handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
-func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {
 		host = strings.TrimSpace(internalHost)
 	}
-	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' token='%s' protocol='%s'", name, internalHost, tailscaleHost, token, protocol)
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' token='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, token, protocol, tailscaleRegister)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
@@ -48,7 +54,7 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 
 	if mw.connectionManager != nil {
 		mw.pendingWireGuardInvite = wireGuardInvite
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, tailscaleRegister)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -70,6 +76,7 @@ func (mw *MainWindow) setConnectionLoading(loading bool) {
 func (mw *MainWindow) clearConnectionPending() {
 	mw.isConnectionPending = false
 	mw.isConnectionLoading = false
+	mw.pendingTailscaleRegister = false
 	if mw.connectionManager != nil {
 		mw.connectionManager.SetConnectionPending(false)
 	}
@@ -163,6 +170,13 @@ func splitBridgeAuthInputs(raw string) (deviceToken, tailscaleAuthKey string) {
 		deviceToken = raw
 	}
 	return strings.TrimSpace(deviceToken), strings.TrimSpace(tailscaleAuthKey)
+}
+
+func fallbackText(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func maskSensitiveToken(token string) string {
@@ -588,7 +602,41 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	}
 
 	connectQUIC := func(ctx context.Context) error {
-		return connectQUICTo(ctx, host, token)
+		if err := connectQUICTo(ctx, host, token); err != nil {
+			return err
+		}
+
+		if mw.pendingTailscaleRegister {
+			quicToken, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, token)
+			httpPort, _, _ := mw.frpService.GetServerPorts()
+			bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
+			tsStatus, err := bootstrapClient.GetTailscaleStatusWithContext(ctx)
+			if err != nil || tsStatus == nil || !tsStatus.LoggedIn || strings.TrimSpace(tsStatus.DNSName) == "" {
+				tsStatus, err = bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
+					DeviceToken: quicToken,
+					AuthKey:     tailscaleAuthKey,
+					Hostname:    "usbridge",
+				})
+				if err != nil {
+					logrus.Warnf("⚠️ Tailscale registration requested but API failed: %v", err)
+				} else if !tsStatus.LoggedIn {
+					// We don't block QUIC connection if Tailscale registration fails or is interactive,
+					// but we try to open the auth URL.
+					if strings.TrimSpace(tsStatus.AuthURL) != "" {
+						if parsedURL, parseErr := url.Parse(tsStatus.AuthURL); parseErr == nil {
+							_ = mw.app.OpenURL(parsedURL)
+						}
+					}
+				}
+				if tsStatus != nil && (strings.TrimSpace(tsStatus.DNSName) != "" || strings.TrimSpace(tsStatus.IP4) != "") {
+					resolvedHost := fallbackText(tsStatus.DNSName, tsStatus.IP4)
+					if mw.connectionManager != nil {
+						mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicToken)
+					}
+				}
+			}
+		}
+		return nil
 	}
 
 	connectTailscale := func(ctx context.Context) error {
@@ -612,6 +660,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		quicToken, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, token)
 
 		tryDirect := func(ctx context.Context, target string) error {
+			if target == "" {
+				return fmt.Errorf("target host is empty")
+			}
 			if err := mw.tailscaleService.ValidateAddress(target); err != nil {
 				return err
 			}
@@ -712,12 +763,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 
 		// Если мы здесь, значит прямое подключение по Tailscale не удалось (или хост не похож на Tailscale),
-		// и нам нужно попробовать "бутстрап" через QUIC, НО только если протокол НЕ Tailscale.
-		if protocol == models.ConnectionProtocolTailscale {
-			if resolvedHost == "" {
-				return fmt.Errorf("tailscale host is empty")
-			}
-			// Мы уже попробовали tryDirect выше и получили ошибку, так что просто возвращаем её (err в tryDirect был локальный, так что вызовем еще раз или сохраним)
+		// и нам нужно попробовать "бутстрап" через QUIC, НО только если протокол НЕ Tailscale ИЛИ если хост пустой.
+		if protocol == models.ConnectionProtocolTailscale && resolvedHost != "" {
+			// Мы уже попробовали tryDirect выше и получили ошибку, так что просто возвращаем её
 			return tryDirect(ctx, resolvedHost)
 		}
 

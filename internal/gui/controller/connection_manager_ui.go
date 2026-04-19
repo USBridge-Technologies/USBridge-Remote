@@ -191,9 +191,10 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				fyne.Do(func() {
 					cm.SelectConnection(idx)
 					if cm.onConnect != nil {
-						protocol := normalizeConnectionProtocol(cm.connections[idx].Protocol)
-						host := cm.resolveHostForProtocol(cm.connections[idx], protocol)
-						cm.onConnect(host, conn.Token, protocol, conn.WireGuardInvite)
+						conn := cm.connections[idx]
+						protocol := normalizeConnectionProtocol(conn.Protocol)
+						host := cm.resolveHostForProtocol(conn, protocol)
+						cm.onConnect(host, conn.Token, protocol, conn.WireGuardInvite, conn.TailscaleRegister)
 						return
 					}
 					cm.SetConnectionPending(false)

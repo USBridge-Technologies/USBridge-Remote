@@ -58,6 +58,7 @@ type MainWindow struct {
 	connectedProtocol       string
 	activeConnectionToken   string
 	pendingWireGuardInvite  string
+	pendingTailscaleRegister bool
 	currentVideoFPS         float64
 	currentStorageDir       string
 	currentStorageTotal     int64

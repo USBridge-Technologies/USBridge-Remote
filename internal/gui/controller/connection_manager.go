@@ -53,13 +53,14 @@ func connectionProtocolFromBadge(label string) string {
 }
 
 type SavedConnection struct {
-	Name            string `json:"name"`
-	InternalHost    string `json:"internal_host,omitempty"`
-	TailscaleHost   string `json:"tailscale_host,omitempty"`
-	Host            string `json:"host,omitempty"`
-	Token           string `json:"token"`
-	Protocol        string `json:"protocol,omitempty"`
-	WireGuardInvite string `json:"wireguard_invite,omitempty"`
+	Name              string `json:"name"`
+	InternalHost      string `json:"internal_host,omitempty"`
+	TailscaleHost     string `json:"tailscale_host,omitempty"`
+	Host              string `json:"host,omitempty"`
+	Token             string `json:"token"`
+	Protocol          string `json:"protocol,omitempty"`
+	WireGuardInvite   string `json:"wireguard_invite,omitempty"`
+	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
 }
 
 type ConnectionManager struct {
@@ -82,7 +83,8 @@ type ConnectionManager struct {
 	ts        *service.TailscaleService
 	tsStatus  *service.TailscaleStatus
 
-	onConnect                func(host, token, protocol, wireGuardInvite string)
+	onConnect                func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool)
+	onSelect                 func(wireGuardInvite string, tailscaleRegister bool)
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
 	tsPollStop               chan struct{}
@@ -130,7 +132,7 @@ func (cm *ConnectionManager) ResolveInternalHost(host string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool), onSelect func(wireGuardInvite string, tailscaleRegister bool)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
@@ -139,6 +141,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		tokenEntry:            tokenEntry,
 		protocolSelect:        protocolSelect,
 		onConnect:             onConnect,
+		onSelect:              onSelect,
 		selectedIndex:         -1,
 		connections:           make([]SavedConnection, 0),
 		activeConnectionIndex: -1,
@@ -151,25 +154,25 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 
 	cm.qrScanner = NewQRScanner(
 		app,
-		func(host, token, protocol, wireGuardInvite string) {
+		func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
 			fyne.Do(func() {
 				cm.ClearSelection()
 				cm.applyConnectionToForm(host, token, protocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token, protocol, wireGuardInvite)
+				cm.onConnect(host, token, protocol, wireGuardInvite, tailscaleRegister)
 			}
 			logrus.Infof("QR connect: host=%s", host)
 		},
-		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite)
+		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
+			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, tailscaleRegister)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), token, protocol)
 			})
 			logrus.Infof("QR saved directly: internal=%s tailscale=%s", internalHost, tailscaleHost)
 		},
-		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string) {
-			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, true)
+		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool) {
+			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, scanned)
 		},
 	)
 
@@ -412,6 +415,10 @@ func (cm *ConnectionManager) SelectConnection(idx int) {
 	cm.selectedIndex = idx
 	conn := cm.connections[idx]
 	cm.applyConnectionToForm(cm.resolveHostForProtocol(conn, conn.Protocol), conn.Token, conn.Protocol)
+
+	if cm.onSelect != nil {
+		cm.onSelect(conn.WireGuardInvite, conn.TailscaleRegister)
+	}
 }
 
 func (cm *ConnectionManager) applyConnectionToForm(host, token, protocol string) {
