@@ -27,7 +27,7 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, onStart, onStop, onFullscreen 
 	infoLabel := widget.NewLabel("")
 	statsLabel := widget.NewLabel("")
 
-	contentContainer := container.NewWithoutLayout()
+	contentContainer := container.NewStack()
 	contentContainer.Hide()
 
 	videoContainer := container.NewMax(touchpad)

@@ -657,7 +657,7 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 		if fyne.CurrentDevice().IsMobile() {
 			// Когда Android IME открывается/закрывается, обновляем layout:
 			// keyboardLayout.MinSize() вырастает (spacer) → contentContainer и container перекладываются.
-			vw.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
+			vw.virtualKeyboard.SetOnIMEChanged(func(open bool) {
 				fyne.Do(func() {
 					kl := vw.virtualKeyboard.GetKeyboardLayout()
 					newH := kl.MinSize().Height
@@ -685,6 +685,9 @@ func (vw *VideoWidget) HandleVirtualKeyboard() {
 		}
 	} else {
 		if isAndroid {
+			// Регистрируем как получателя нативных Android IME-событий (доставки изменения высоты системной клавиатуры)
+			vw.virtualKeyboard.RegisterAsIMETarget()
+
 			keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
 			logrus.Infof("⌨️ [DEBUG] keyboardLayout MinSize: %v", keyboardLayout.MinSize())
 			vw.virtualKeyboard.SetVisibleState(true)
