@@ -611,28 +611,46 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			httpPort, _, _ := mw.frpService.GetServerPorts()
 			bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
 			tsStatus, err := bootstrapClient.GetTailscaleStatusWithContext(ctx)
-			if err != nil || tsStatus == nil || !tsStatus.LoggedIn || strings.TrimSpace(tsStatus.DNSName) == "" {
-				tsStatus, err = bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
+			needsRegister := err != nil || tsStatus == nil || !tsStatus.LoggedIn
+			if needsRegister && tsStatus != nil && strings.TrimSpace(tsStatus.AuthURL) != "" {
+				// Status already has auth_url — skip register, go straight to open URL
+				needsRegister = false
+			}
+			if needsRegister {
+				regStatus, regErr := bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
 					DeviceToken: quicToken,
 					AuthKey:     tailscaleAuthKey,
 					Hostname:    "usbridge",
 				})
-				if err != nil {
-					logrus.Warnf("⚠️ Tailscale registration requested but API failed: %v", err)
-				} else if !tsStatus.LoggedIn {
-					// We don't block QUIC connection if Tailscale registration fails or is interactive,
-					// but we try to open the auth URL.
-					if strings.TrimSpace(tsStatus.AuthURL) != "" {
-						if parsedURL, parseErr := url.Parse(tsStatus.AuthURL); parseErr == nil {
-							_ = mw.app.OpenURL(parsedURL)
+				if regErr != nil {
+					if api.IsHTTPNotFound(regErr) {
+						// Register endpoint disabled (TailscaleRegistrationEnabled=false) — re-fetch status
+						logrus.Warnf("⚠️ Tailscale register endpoint disabled (404), checking current status...")
+						if fresh, statusErr := bootstrapClient.GetTailscaleStatusWithContext(ctx); statusErr == nil && fresh != nil {
+							tsStatus = fresh
+						} else {
+							logrus.Warnf("⚠️ Tailscale registration requested but API failed: %v", regErr)
 						}
+					} else {
+						logrus.Warnf("⚠️ Tailscale registration requested but API failed: %v", regErr)
+					}
+				} else {
+					tsStatus = regStatus
+				}
+			}
+			if tsStatus != nil && !tsStatus.LoggedIn {
+				// We don't block QUIC connection if Tailscale registration fails or is interactive,
+				// but we try to open the auth URL.
+				if strings.TrimSpace(tsStatus.AuthURL) != "" {
+					if parsedURL, parseErr := url.Parse(tsStatus.AuthURL); parseErr == nil {
+						_ = mw.app.OpenURL(parsedURL)
 					}
 				}
-				if tsStatus != nil && (strings.TrimSpace(tsStatus.DNSName) != "" || strings.TrimSpace(tsStatus.IP4) != "") {
-					resolvedHost := fallbackText(tsStatus.DNSName, tsStatus.IP4)
-					if mw.connectionManager != nil {
-						mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicToken)
-					}
+			}
+			if tsStatus != nil && (strings.TrimSpace(tsStatus.DNSName) != "" || strings.TrimSpace(tsStatus.IP4) != "") {
+				resolvedHost := fallbackText(tsStatus.DNSName, tsStatus.IP4)
+				if mw.connectionManager != nil {
+					mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicToken)
 				}
 			}
 		}
@@ -792,20 +810,37 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		httpPort, _, _ := mw.frpService.GetServerPorts()
 		bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
 		tsStatus, err := bootstrapClient.GetTailscaleStatusWithContext(ctx)
-		if err != nil || tsStatus == nil || !tsStatus.LoggedIn || strings.TrimSpace(tsStatus.DNSName) == "" {
-			tsStatus, err = bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
+		needsRegister := err != nil || tsStatus == nil || !tsStatus.LoggedIn
+		if needsRegister && tsStatus != nil && strings.TrimSpace(tsStatus.AuthURL) != "" {
+			// Status already has auth_url — skip register, go straight to interactive login
+			needsRegister = false
+		}
+		if needsRegister {
+			regStatus, regErr := bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
 				DeviceToken: quicToken,
 				AuthKey:     tailscaleAuthKey,
 				Hostname:    "usbridge",
 			})
-			if err != nil {
-				return fmt.Errorf("tailscale registration API failed: %w", err)
-			}
-			if !tsStatus.LoggedIn {
-				tsStatus, err = waitForBridgeInteractiveLogin(ctx, bootstrapClient, tsStatus)
-				if err != nil {
-					return fmt.Errorf("tailscale interactive registration failed: %w", err)
+			if regErr != nil {
+				if api.IsHTTPNotFound(regErr) {
+					// Register endpoint disabled (TailscaleRegistrationEnabled=false) — re-fetch status
+					logrus.Warnf("⚠️ Tailscale register endpoint disabled (404), re-checking status...")
+					if fresh, statusErr := bootstrapClient.GetTailscaleStatusWithContext(ctx); statusErr == nil && fresh != nil {
+						tsStatus = fresh
+					} else if tsStatus == nil || (!tsStatus.LoggedIn && strings.TrimSpace(tsStatus.AuthURL) == "") {
+						return fmt.Errorf("tailscale registration is disabled on device and device is not logged in")
+					}
+				} else {
+					return fmt.Errorf("tailscale registration API failed: %w", regErr)
 				}
+			} else {
+				tsStatus = regStatus
+			}
+		}
+		if tsStatus != nil && !tsStatus.LoggedIn {
+			tsStatus, err = waitForBridgeInteractiveLogin(ctx, bootstrapClient, tsStatus)
+			if err != nil {
+				return fmt.Errorf("tailscale interactive registration failed: %w", err)
 			}
 		}
 
