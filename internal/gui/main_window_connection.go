@@ -638,6 +638,21 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 					tsStatus = regStatus
 				}
 			}
+			// If registered (LoggedIn=true) but IP not yet assigned, poll briefly
+			if tsStatus != nil && tsStatus.LoggedIn && strings.TrimSpace(tsStatus.IP4) == "" {
+			pollQUIC:
+				for attempt := 0; attempt < 5; attempt++ {
+					select {
+					case <-time.After(2 * time.Second):
+					case <-ctx.Done():
+						break pollQUIC
+					}
+					if fresh, statusErr := bootstrapClient.GetTailscaleStatusWithContext(ctx); statusErr == nil && fresh != nil && strings.TrimSpace(fresh.IP4) != "" {
+						tsStatus = fresh
+						break pollQUIC
+					}
+				}
+			}
 			if tsStatus != nil && !tsStatus.LoggedIn {
 				// We don't block QUIC connection if Tailscale registration fails or is interactive,
 				// but we try to open the auth URL.
@@ -647,8 +662,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 					}
 				}
 			}
-			if tsStatus != nil && (strings.TrimSpace(tsStatus.DNSName) != "" || strings.TrimSpace(tsStatus.IP4) != "") {
-				resolvedHost := fallbackText(tsStatus.DNSName, tsStatus.IP4)
+			if tsStatus != nil && (strings.TrimSpace(tsStatus.IP4) != "" || strings.TrimSpace(tsStatus.DNSName) != "") {
+				resolvedHost := fallbackText(tsStatus.IP4, tsStatus.DNSName)
 				if mw.connectionManager != nil {
 					mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicToken)
 				}
@@ -843,10 +858,25 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 				return fmt.Errorf("tailscale interactive registration failed: %w", err)
 			}
 		}
+		// If registered (LoggedIn=true) but IP not yet assigned, poll briefly
+		if tsStatus != nil && tsStatus.LoggedIn && strings.TrimSpace(tsStatus.IP4) == "" {
+		pollTS:
+			for attempt := 0; attempt < 5; attempt++ {
+				select {
+				case <-time.After(2 * time.Second):
+				case <-ctx.Done():
+					break pollTS
+				}
+				if fresh, statusErr := bootstrapClient.GetTailscaleStatusWithContext(ctx); statusErr == nil && fresh != nil && strings.TrimSpace(fresh.IP4) != "" {
+					tsStatus = fresh
+					break pollTS
+				}
+			}
+		}
 
-		resolvedHost = strings.TrimSpace(tsStatus.DNSName)
+		resolvedHost = strings.TrimSpace(tsStatus.IP4)
 		if resolvedHost == "" {
-			resolvedHost = strings.TrimSpace(tsStatus.IP4)
+			resolvedHost = strings.TrimSpace(tsStatus.DNSName)
 		}
 		if resolvedHost == "" {
 			return fmt.Errorf("bridge registered in tailscale but no address found")

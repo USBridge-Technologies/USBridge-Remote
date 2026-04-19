@@ -3,7 +3,8 @@
     "allow": [
       "Bash(xargs cat *)",
       "Bash(ls -la /Users/amir/Projects/usbridge/usbridge_client/log*)",
-      "Bash(ls /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen*.go)"
+      "Bash(ls /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen*.go)",
+      "Bash(go build:*)"
     ]
   }
 }
