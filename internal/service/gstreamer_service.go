@@ -70,8 +70,14 @@ func (gs *GStreamerService) ConnectToRTP() error {
 
 	logrus.Infof("🎬 Running manual-tested pipeline: %s", pipeline)
 
+	bindHost := gs.getBindHost()
 	cmd := exec.Command("gst-launch-1.0", "-q")
-	cmd.Args = append(cmd.Args, "udpsrc", fmt.Sprintf("port=%d", udpPort), 
+	udpsrcArgs := []string{"udpsrc", fmt.Sprintf("port=%d", udpPort)}
+	if bindHost != "" && bindHost != "0.0.0.0" {
+		udpsrcArgs = append(udpsrcArgs, fmt.Sprintf("address=%s", bindHost))
+	}
+	cmd.Args = append(cmd.Args, udpsrcArgs...)
+	cmd.Args = append(cmd.Args,
 		"caps=application/x-rtp,media=video,encoding-name=H264,payload=96", "!",
 		"rtpjitterbuffer", "latency=100", "!",
 		"rtph264depay", "!", "h264parse", "!", "avdec_h264", "!",
@@ -179,7 +185,7 @@ func (gs *GStreamerService) SetOnStateChanged(cb func(string))      { gs.onState
 func (gs *GStreamerService) SetOnError(cb func(error))             { gs.onError = cb }
 func (gs *GStreamerService) IsConnected() bool                     { gs.mutex.RLock(); defer gs.mutex.RUnlock(); return gs.running }
 func (gs *GStreamerService) SetVideoMode(m string)                 { gs.videoMode = m }
-func (gs *GStreamerService) UpdateHost(h string)                   {}
+func (gs *GStreamerService) UpdateHost(h string)                   { gs.config.VideoBindHost = h }
 func (gs *GStreamerService) UpdateVideoPort(p int)                 { gs.config.VideoUDPPort = p }
 func (gs *GStreamerService) UpdateVideoUDPPort(p int)              { gs.config.VideoUDPPort = p }
 func (gs *GStreamerService) SetExpectedVideoSize(w, h int)         { gs.width, gs.height = w, h }

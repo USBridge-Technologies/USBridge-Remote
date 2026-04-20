@@ -182,6 +182,11 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
 		if systemIP != "" {
 			request.ClientHost = systemIP
+			// Bind udpsrc to the Tailscale IP specifically — avoids EADDRINUSE conflict
+			// with the frp visitor that already holds 127.0.0.1:<port>.
+			if vw.gstreamerService != nil {
+				vw.gstreamerService.UpdateHost(systemIP)
+			}
 			logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
 		} else {
 			logrus.Warn("⚠️ [Tailscale/SystemStack] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
