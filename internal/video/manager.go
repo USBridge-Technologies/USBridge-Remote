@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 )
 
@@ -250,10 +252,31 @@ func (m *Manager) validateStartRequest(req api.VideoStartRequest) error {
 func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*runningProcess, error) {
 	args := m.buildArgs(req, mode, codec)
 	hardware := !strings.EqualFold(codec, "libx264")
+	
 	log.Printf("[video] starting mode=%s codec=%s hardware=%t target=%s:%d fps=%d size=%dx%d bitrate=%s", mode, codec, hardware, req.ClientHost, req.ClientPort, req.VideoFPS, req.VideoWidth, req.VideoHeight, req.VideoBitrate)
-	log.Printf("[video] ffmpeg args mode=%s codec=%s :: %s %s", mode, codec, m.cfg.FFmpegPath, strings.Join(args, " "))
 
-	cmd := exec.Command(m.cfg.FFmpegPath, args...)
+	var cmd *exec.Cmd
+	if len(args) > 0 && args[0] == "gst-launch-1.0" {
+		log.Printf("[video] gst-launch args mode=%s :: %s", mode, strings.Join(args, " "))
+		cmd = exec.Command(args[0], args[1:]...)
+	} else if len(args) > 0 && args[0] == "bash" {
+		log.Printf("[video] custom shell wrapper mode=%s :: %s", mode, strings.Join(args, " "))
+		cmd = exec.Command(args[0], args[1:]...)
+	} else {
+		log.Printf("[video] ffmpeg args mode=%s codec=%s :: %s %s", mode, codec, m.cfg.FFmpegPath, strings.Join(args, " "))
+		cmd = exec.Command(m.cfg.FFmpegPath, args...)
+	}
+
+	// In Linux Wayland, we might need to pass the PipeWire FD from the portal to the child process
+	if capture.GetLinuxEnv() == "Wayland" {
+		fd := capture.GetPortalPipeWireFD()
+		if fd > 0 {
+			f := os.NewFile(uintptr(fd), "pipewire-fd")
+			cmd.ExtraFiles = append(cmd.ExtraFiles, f)
+			log.Printf("[video] Wayland PipeWire FD attached to child process as ExtraFiles[%d] (Child FD: %d)", len(cmd.ExtraFiles)-1, 2+len(cmd.ExtraFiles))
+		}
+	}
+
 	configureFFmpegCommand(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -285,7 +308,11 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 }
 
 func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []string {
-	return append([]string{"-nostdin"}, buildPlatformArgs(m.cfg, req, mode, codec)...)
+	platformArgs := buildPlatformArgs(m.cfg, req, mode, codec)
+	if len(platformArgs) > 0 && (platformArgs[0] == "bash" || platformArgs[0] == "gst-launch-1.0") {
+		return platformArgs
+	}
+	return append([]string{"-nostdin"}, platformArgs...)
 }
 
 func (m *Manager) resolveCodec() string {

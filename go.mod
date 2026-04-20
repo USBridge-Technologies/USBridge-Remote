@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	fyne.io/fyne/v2 v2.7.3
 	github.com/fatedier/frp v0.68.0
+	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/samber/lo v1.47.0
@@ -60,7 +61,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-text/render v0.2.0 // indirect
 	github.com/go-text/typesetting v0.3.3 // indirect
-	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -102,7 +102,7 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/quic-go/quic-go v0.55.0 // indirect
-	github.com/rymdport/portal v0.4.2 // indirect
+	github.com/rymdport/portal v0.4.3-0.20260324164836-fcbaeb5c4031 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect

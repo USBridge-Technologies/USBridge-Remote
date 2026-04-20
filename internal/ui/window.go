@@ -24,6 +24,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
@@ -134,29 +135,46 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.permInfo.Wrapping = fyne.TextWrapWord
 
 	// Adjust for OS
-	if runtime.GOOS != "darwin" {
+	showButtons := runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")
+
+	if !showButtons {
 		w.accessBtn.Hide()
 		w.screenBtn.Hide()
 	} else {
 		w.accessBtn.Resize(fyne.NewSize(80, 24))
 		w.screenBtn.Resize(fyne.NewSize(80, 24))
+		w.accessBtn.Show()
+		w.screenBtn.Show()
 	}
 
 	permContent := newTightVBox(
 		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 		container.NewHBox(w.screenLabel, layout.NewSpacer(), w.screenBtn),
 	)
-	if runtime.GOOS != "darwin" {
+	if !showButtons {
 		permContent = w.permInfo
 	}
 	permBlock := newPanel("Permissions", permContent)
 
 	// Column 2: Stats & Tailscale
+	displayCapture := w.cfg.VideoCapture
+	if runtime.GOOS == "linux" {
+		mode := strings.ToLower(strings.TrimSpace(displayCapture))
+		if mode == "" || mode == "auto" || mode == "dxgi" || (mode == "x11grab" && capture.GetLinuxEnv() == "Wayland") {
+			if capture.GetLinuxEnv() == "Wayland" {
+				displayCapture = "pipewire (auto)"
+			} else {
+				displayCapture = "x11grab (auto)"
+			}
+		}
+	}
+
 	w.statusInfo = widget.NewLabel(fmt.Sprintf(
-		"HTTP Port: %d\nVideo UDP Port: %d\nCapture: %s",
+		"OS: %s\nHTTP Port: %d\nVideo UDP Port: %d\nCapture: %s",
+		capture.GetOSInfo(),
 		w.cfg.HTTPPort,
 		w.cfg.VideoUDPPort,
-		w.cfg.VideoCapture,
+		displayCapture,
 	))
 	w.statusInfo.Wrapping = fyne.TextWrapWord
 
@@ -291,7 +309,7 @@ func (w *Window) performRefresh() {
 					}
 				} else {
 					w.accessLabel.SetText("Accessibility: ❌")
-					if runtime.GOOS == "darwin" && w.accessBtn != nil {
+					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.accessBtn != nil {
 						w.accessBtn.Show()
 					}
 				}
@@ -304,7 +322,7 @@ func (w *Window) performRefresh() {
 					}
 				} else {
 					w.screenLabel.SetText("Screen Recording: ❌")
-					if runtime.GOOS == "darwin" && w.screenBtn != nil {
+					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.screenBtn != nil {
 						w.screenBtn.Show()
 					}
 				}

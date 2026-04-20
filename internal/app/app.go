@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -69,7 +70,7 @@ func New() (*App, error) {
 		input:   input.New(),
 		screen:  capture.New(),
 		perms:   permissions.New(),
-		ts:      tailscale.New(),
+		ts:      tailscale.New(cfg.TailscaleMode, cfg.StateDir),
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
@@ -114,7 +115,19 @@ func (a *App) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, a.cfg.VideoCapture)
+	captureMode := a.cfg.VideoCapture
+	if runtime.GOOS == "linux" {
+		mode := strings.ToLower(strings.TrimSpace(captureMode))
+		if mode == "" || mode == "auto" || mode == "dxgi" || (mode == "x11grab" && capture.GetLinuxEnv() == "Wayland") {
+			if capture.GetLinuxEnv() == "Wayland" {
+				captureMode = "pipewire (auto)"
+			} else {
+				captureMode = "x11grab (auto)"
+			}
+		}
+	}
+
+	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, captureMode)
 	log.Printf("[app] ffmpeg path=%s", a.cfg.FFmpegPath)
 	if err := a.frp.Start(ctx); err != nil {
 		return err
@@ -130,6 +143,22 @@ func (a *App) Run() error {
 
 	if a.cfg.TailscaleEnabled && a.ts != nil {
 		go func() {
+			if a.cfg.TailscaleMode == config.TailscaleModeUserspace {
+				tsSrv, _ := a.ts.Server()
+				if tsSrv != nil {
+					ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort))
+					if err != nil {
+						log.Printf("[app] tsnet listen error: %v", err)
+						return
+					}
+					log.Printf("[app] tsnet http listening on :%d", a.cfg.HTTPPort)
+					if err := a.tsHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
+						log.Printf("[app] tsnet http server error: %v", err)
+					}
+					return
+				}
+			}
+
 			// Poll for tailscale IP more aggressively at start
 			for i := 0; i < 30; i++ {
 				if ctx.Err() != nil {
@@ -174,7 +203,7 @@ func (a *App) RegenerateFRPToken() (config.Config, error) {
 
 	next := a.cfg
 	next.FRPToken = token
-	if err := config.Save(a.cfgPath, next); err != nil {
+	if err := a.SaveConfig(next); err != nil {
 		return a.cfg, fmt.Errorf("save config: %w", err)
 	}
 	if a.frp != nil {
@@ -182,8 +211,15 @@ func (a *App) RegenerateFRPToken() (config.Config, error) {
 			return a.cfg, fmt.Errorf("reload frp token: %w", err)
 		}
 	}
-	a.cfg = next
 	return a.cfg, nil
+}
+
+func (a *App) SaveConfig(cfg config.Config) error {
+	if err := config.Save(a.cfgPath, cfg); err != nil {
+		return err
+	}
+	a.cfg = cfg
+	return nil
 }
 
 func (a *App) Status() api.SystemStatus {

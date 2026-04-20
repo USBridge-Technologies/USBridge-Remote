@@ -55,15 +55,17 @@ func Default() Config {
 	videoCodec := "auto"
 	if runtime.GOOS == "darwin" {
 		videoCapture = "avfoundation"
+	} else if runtime.GOOS == "linux" {
+		videoCapture = "auto"
 	}
 	return Config{
 		AppName:          "USBridge Agent",
 		ListenHost:       "127.0.0.1",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
-		TailscaleMode:    TailscaleModeUserspace,
+		TailscaleMode:    TailscaleModeSystem,
 		FRPBindHost:      "0.0.0.0",
-		FRPBindPort:      443,
+		FRPBindPort:      8443,
 		FRPToken:         "usbridge-secret-token",
 		FRPTLSCertFile:   filepath.Join(stateDir, "frp.crt"),
 		FRPTLSKeyFile:    filepath.Join(stateDir, "frp.key"),

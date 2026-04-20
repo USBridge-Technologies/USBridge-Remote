@@ -20,6 +20,8 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+
+	"usbridge_agent/internal/config"
 )
 
 type Status struct {
@@ -50,8 +52,11 @@ type Service struct {
 	latestAuthURL string
 }
 
-func New() *Service {
-	return &Service{}
+func New(mode config.TailscaleMode, stateDir string) *Service {
+	return &Service{
+		userspace: mode == config.TailscaleModeUserspace,
+		stateDir:  stateDir,
+	}
 }
 
 func (s *Service) ApplyConfig(userspace bool, stateDir string) error {
@@ -489,3 +494,4 @@ func (s *Service) GetSystemTailscaleIP() string {
 	}
 	return ""
 }
+
