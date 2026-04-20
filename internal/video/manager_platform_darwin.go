@@ -161,6 +161,8 @@ func platformCodecFallbacks() []string {
 	return []string{"h264_videotoolbox", "libx264"}
 }
 
+func attachPipeWireFD(_ *exec.Cmd) {}
+
 func platformAutoCodec(_ string) string {
 	return ""
 }
