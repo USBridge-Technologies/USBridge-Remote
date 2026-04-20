@@ -757,20 +757,18 @@ func (c *USBClient) SendMouseAction(button, dx, dy, scroll int) error {
 // sendMouseRequest отправляет запрос мыши через WebSocket или HTTP
 func (c *USBClient) sendMouseRequest(request models.MouseRequest) error {
 	// Пытаемся отправить через WebSocket
-	if c.mouseWSActive {
-		c.mouseWSMutex.Lock()
-		if c.mouseWS != nil {
-			err := c.mouseWS.WriteJSON(request)
-			c.mouseWSMutex.Unlock()
-			if err == nil {
-				return nil
-			}
-			// Если ошибка WebSocket, закрываем соединение
-			logrus.Warnf("⚠️ WebSocket ошибка, переключаемся на HTTP: %v", err)
-			c.DisconnectMouseWebSocket()
-		} else {
-			c.mouseWSMutex.Unlock()
+	c.mouseWSMutex.Lock()
+	if c.mouseWSActive && c.mouseWS != nil {
+		err := c.mouseWS.WriteJSON(request)
+		c.mouseWSMutex.Unlock()
+		if err == nil {
+			return nil
 		}
+		// Если ошибка WebSocket, закрываем соединение
+		logrus.Warnf("⚠️ WebSocket ошибка, переключаемся на HTTP: %v", err)
+		c.DisconnectMouseWebSocket()
+	} else {
+		c.mouseWSMutex.Unlock()
 	}
 
 	// Fallback на HTTP если WebSocket не активен или произошла ошибка

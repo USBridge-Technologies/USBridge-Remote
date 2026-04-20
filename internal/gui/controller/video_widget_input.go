@@ -283,6 +283,9 @@ func (vw *VideoWidget) updateAbsoluteButtonLocked(button int, pressed bool) {
 }
 
 func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
+	if vw.usbClient == nil {
+		return
+	}
 	vw.lastAbsX = x
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
