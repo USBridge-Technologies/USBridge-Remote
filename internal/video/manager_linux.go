@@ -4,14 +4,34 @@ package video
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 )
+
+func attachPipeWireFD(cmd *exec.Cmd) {
+	if capture.GetLinuxEnv() != "Wayland" {
+		return
+	}
+	fd := capture.GetPortalPipeWireFD()
+	if fd <= 0 {
+		return
+	}
+	dupFD, err := syscall.Dup(fd)
+	if err != nil {
+		log.Printf("[video] failed to dup PipeWire FD: %v", err)
+		return
+	}
+	f := os.NewFile(uintptr(dupFD), "pipewire-fd")
+	cmd.ExtraFiles = append(cmd.ExtraFiles, f)
+	log.Printf("[video] Wayland PipeWire FD attached to child process as ExtraFiles[%d] (Child FD: %d)", len(cmd.ExtraFiles)-1, 2+len(cmd.ExtraFiles))
+}
 
 func sourceFormatForPlatform() string {
 	return "yuv420p"

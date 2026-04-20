@@ -7,16 +7,13 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"usbridge_agent/internal/api"
-	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 )
 
@@ -268,23 +265,7 @@ func (m *Manager) startProcess(req api.VideoStartRequest, mode, codec string) (*
 		cmd = exec.Command(m.cfg.FFmpegPath, args...)
 	}
 
-	// In Linux Wayland, pass the PipeWire FD from the portal to the child process.
-	// We dup the original FD so that when the os.File wrapper is GC'd after the
-	// child exits, only the dup is closed — the original portalPipeWireFD stays
-	// valid for the next video start.
-	if capture.GetLinuxEnv() == "Wayland" {
-		fd := capture.GetPortalPipeWireFD()
-		if fd > 0 {
-			dupFD, err := syscall.Dup(fd)
-			if err != nil {
-				log.Printf("[video] failed to dup PipeWire FD: %v", err)
-			} else {
-				f := os.NewFile(uintptr(dupFD), "pipewire-fd")
-				cmd.ExtraFiles = append(cmd.ExtraFiles, f)
-				log.Printf("[video] Wayland PipeWire FD attached to child process as ExtraFiles[%d] (Child FD: %d)", len(cmd.ExtraFiles)-1, 2+len(cmd.ExtraFiles))
-			}
-		}
-	}
+	attachPipeWireFD(cmd)
 
 	configureFFmpegCommand(cmd)
 	stdout, err := cmd.StdoutPipe()

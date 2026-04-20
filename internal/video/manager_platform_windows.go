@@ -5,6 +5,7 @@ package video
 import (
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
 	"unsafe"
 
@@ -128,6 +129,8 @@ func captureModesForPlatform(configured string) []string {
 func platformCodecFallbacks() []string {
 	return []string{"h264_amf", "h264_nvenc", "h264_qsv", "libx264"}
 }
+
+func attachPipeWireFD(_ *exec.Cmd) {}
 
 func platformAutoCodec(_ string) string {
 	adapters := detectPlatformVideoAdapters()
