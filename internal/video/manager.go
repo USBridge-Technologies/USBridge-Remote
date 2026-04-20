@@ -434,7 +434,7 @@ func dxgiFilter(width, height int, codec string) string {
 
 func prefersNV12(codec string) bool {
 	switch strings.ToLower(strings.TrimSpace(codec)) {
-	case "h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox":
+	case "h264_nvenc", "h264_qsv", "h264_vaapi", "h264_amf", "h264_videotoolbox":
 		return true
 	default:
 		return false
@@ -466,7 +466,7 @@ func detectAvailableCodecs(ffmpegPath string) map[string]struct{} {
 		return nil
 	}
 	available := make(map[string]struct{}, 4)
-	for _, codec := range []string{"h264_videotoolbox", "h264_amf", "h264_nvenc", "h264_qsv", "libx264"} {
+	for _, codec := range []string{"h264_videotoolbox", "h264_amf", "h264_nvenc", "h264_qsv", "h264_vaapi", "libx264"} {
 		if strings.Contains(string(output), codec) {
 			available[codec] = struct{}{}
 		}

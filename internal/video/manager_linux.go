@@ -3,10 +3,14 @@
 package video
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
+
 	"usbridge_agent/internal/api"
-	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/capture"
+	"usbridge_agent/internal/config"
 )
 
 func sourceFormatForPlatform() string {
@@ -22,11 +26,53 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec
 }
 
 func detectPlatformVideoAdapters() []string {
-	return nil
+	entries, err := os.ReadDir("/sys/class/drm")
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	// Order matters: we'll preserve insertion order via a slice
+	var order []string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "card") || strings.Contains(name, "-") {
+			continue
+		}
+		data, err := os.ReadFile(fmt.Sprintf("/sys/class/drm/%s/device/vendor", name))
+		if err != nil {
+			continue
+		}
+		vendor := strings.TrimSpace(string(data))
+		var v string
+		switch vendor {
+		case "0x10de":
+			v = "nvidia"
+		case "0x8086":
+			v = "intel"
+		case "0x1002":
+			v = "amd"
+		}
+		if v != "" && !seen[v] {
+			seen[v] = true
+			order = append(order, v)
+		}
+	}
+	return order
 }
 
-func preferredCodecsForAdapters(_ []string) []string {
-	return nil
+func preferredCodecsForAdapters(adapters []string) []string {
+	var codecs []string
+	for _, a := range adapters {
+		switch strings.ToLower(a) {
+		case "nvidia":
+			codecs = append(codecs, "h264_nvenc")
+		case "intel":
+			codecs = append(codecs, "h264_qsv", "h264_vaapi")
+		case "amd":
+			codecs = append(codecs, "h264_vaapi")
+		}
+	}
+	return codecs
 }
 
 func captureModesForPlatform(configured string) []string {
@@ -42,9 +88,49 @@ func captureModesForPlatform(configured string) []string {
 }
 
 func platformCodecFallbacks() []string {
-	return []string{"libx264", "h264_nvenc", "h264_qsv"}
+	return []string{"h264_nvenc", "h264_qsv", "h264_vaapi", "libx264"}
 }
 
 func platformAutoCodec(_ string) string {
 	return ""
+}
+
+// detectVaapiDevice returns the first available /dev/dri/renderD* device.
+func detectVaapiDevice() string {
+	for i := 128; i < 132; i++ {
+		path := fmt.Sprintf("/dev/dri/renderD%d", i)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return "/dev/dri/renderD128"
+}
+
+// detectGStreamerElement returns true if the named GStreamer element is available.
+func detectGStreamerElement(name string) bool {
+	return exec.Command("gst-inspect-1.0", "--exists", name).Run() == nil
+}
+
+// gstreamerEncoderForCodec maps an FFmpeg codec name to a GStreamer encoder type.
+// Returns "nvenc", "vaapi", or "software".
+func gstreamerEncoderForCodec(codec string) string {
+	switch strings.ToLower(codec) {
+	case "h264_nvenc":
+		if detectGStreamerElement("nvh264enc") {
+			return "nvenc"
+		}
+	case "h264_qsv":
+		if detectGStreamerElement("qsvh264enc") {
+			return "qsv"
+		}
+		// fall through to vaapi check
+		if detectGStreamerElement("vaapih264enc") {
+			return "vaapi"
+		}
+	case "h264_vaapi":
+		if detectGStreamerElement("vaapih264enc") {
+			return "vaapi"
+		}
+	}
+	return "software"
 }
