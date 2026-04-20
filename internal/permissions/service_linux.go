@@ -3,16 +3,30 @@
 package permissions
 
 import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"time"
+
 	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/capture"
 )
+
+const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
+const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\"\n"
 
 type Service struct{}
 
 func New() *Service { return &Service{} }
 
 func (s *Service) AccessibilityGranted() bool {
-	return true 
+	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
 }
 
 func (s *Service) ScreenRecordingGranted() bool {
@@ -23,7 +37,42 @@ func (s *Service) ScreenRecordingGranted() bool {
 }
 
 func (s *Service) RequestAccessibility() bool {
-	return true
+	log.Printf("[permissions] RequestAccessibility called, granted=%v", s.AccessibilityGranted())
+	if s.AccessibilityGranted() {
+		return true
+	}
+
+	tmp, err := os.CreateTemp("", "usbridge-udev-*.rules")
+	if err != nil {
+		log.Printf("[permissions] create temp udev rule: %v", err)
+		return false
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.WriteString(uinputRuleContent); err != nil {
+		tmp.Close()
+		log.Printf("[permissions] write temp udev rule: %v", err)
+		return false
+	}
+	tmp.Close()
+	log.Printf("[permissions] temp rule at %s, running pkexec...", tmp.Name())
+
+	// Install persistent udev rule AND immediately apply chmod for current session
+	script := fmt.Sprintf(
+		"cp %s %s && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
+		tmp.Name(), uinputRulePath,
+	)
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
+	out, err := cmd.CombinedOutput()
+	log.Printf("[permissions] pkexec exit=%v output=%q", err, string(out))
+	if err != nil {
+		return false
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	granted := s.AccessibilityGranted()
+	log.Printf("[permissions] after pkexec granted=%v", granted)
+	return granted
 }
 
 func (s *Service) RequestScreenRecording() bool {

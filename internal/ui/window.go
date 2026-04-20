@@ -114,12 +114,25 @@ func (w *Window) ShowAndRun(onClose func()) {
 	header := newHeaderBar(tokenBtn, closeBtn)
 
 	// Column 1: Permissions
-	w.accessLabel = widget.NewLabel("Accessibility")
+	accessLabelBase := "Accessibility"
+	if runtime.GOOS == "linux" {
+		accessLabelBase = "Input Control"
+	}
+	w.accessLabel = widget.NewLabel(accessLabelBase)
 	w.accessBtn = widget.NewButton("Request", func() {
-		if w.perms != nil {
+		if w.perms == nil {
+			return
+		}
+		w.accessBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.accessBtn != nil {
+					w.accessBtn.Enable()
+				}
+			})
 			_ = w.perms.RequestAccessibility()
 			w.performRefresh()
-		}
+		}()
 	})
 	w.accessBtn.Importance = widget.HighImportance
 
@@ -302,13 +315,17 @@ func (w *Window) performRefresh() {
 
 		fyne.Do(func() {
 			if w.accessLabel != nil {
+				accessName := "Accessibility"
+				if runtime.GOOS == "linux" {
+					accessName = "Input Control"
+				}
 				if status.accessGranted {
-					w.accessLabel.SetText("Accessibility: ✅")
+					w.accessLabel.SetText(accessName + ": ✅")
 					if w.accessBtn != nil {
 						w.accessBtn.Hide()
 					}
 				} else {
-					w.accessLabel.SetText("Accessibility: ❌")
+					w.accessLabel.SetText(accessName + ": ❌")
 					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.accessBtn != nil {
 						w.accessBtn.Show()
 					}

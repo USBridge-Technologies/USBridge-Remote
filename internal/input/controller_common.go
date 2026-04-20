@@ -1,12 +1,17 @@
 package input
 
-import "sync"
+import (
+	"os"
+	"sync"
+)
 
 const absoluteCoordinateMax = 32767
 
 type Controller struct {
 	mu          sync.Mutex
 	buttonState uint8
+	mouseFile   *os.File
+	kbdFile     *os.File
 }
 
 func scaleAbsoluteCoordinate(value uint16, span int) int {
