@@ -4,6 +4,10 @@ package capture
 
 import "runtime"
 
+func GetLinuxEnv() string {
+	return ""
+}
+
 func GetOSInfo() string {
 	if runtime.GOOS == "darwin" {
 		return "macOS"
