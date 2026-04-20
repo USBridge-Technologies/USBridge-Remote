@@ -26,6 +26,40 @@ const (
 	TailscaleModeSystem
 )
 
+func (m TailscaleMode) MarshalYAML() (interface{}, error) {
+	switch m {
+	case TailscaleModeUserspace:
+		return "userspace", nil
+	case TailscaleModeSystem:
+		return "system", nil
+	default:
+		return "system", nil
+	}
+}
+
+func (m *TailscaleMode) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err == nil {
+		switch strings.ToLower(s) {
+		case "userspace":
+			*m = TailscaleModeUserspace
+			return nil
+		case "system":
+			*m = TailscaleModeSystem
+			return nil
+		}
+	}
+
+	var i int
+	if err := value.Decode(&i); err == nil {
+		*m = TailscaleMode(i)
+		return nil
+	}
+
+	*m = TailscaleModeSystem
+	return nil
+}
+
 type Config struct {
 	AppName          string        `yaml:"app_name"`
 	ListenHost       string        `yaml:"listen_host"`
