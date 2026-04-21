@@ -980,6 +980,23 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	})
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)
+
+	if mw.usbClient != nil && mw.connectionManager != nil {
+		client := mw.usbClient
+		connMgr := mw.connectionManager
+		connHost := strings.TrimSpace(host)
+		go func() {
+			status, err := client.GetStatus()
+			if err != nil || status == nil || status.Data == nil {
+				return
+			}
+			osName := strings.TrimSpace(status.Data.OS)
+			if osName != "" {
+				connMgr.UpdateConnectionOS(connHost, osName)
+			}
+		}()
+	}
+
 	return nil
 }
 

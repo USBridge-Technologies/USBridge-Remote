@@ -966,9 +966,33 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	left := canvas.NewRectangle(color.Transparent)
 	left.SetMinSize(fyne.NewSize(1, 1))
 	center := container.New(&connectionCompactContentLayout{}, nameBlock)
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, registerCheck, protocolBtn, useBtn)
+
+	rightItems := []fyne.CanvasObject{registerCheck, protocolBtn}
+	if label := osShortLabel(data.RemoteOS); label != "" {
+		osTxt := canvas.NewText(label, design.ColorTextMuted)
+		osTxt.TextSize = 10
+		rightItems = append(rightItems, osTxt)
+	}
+	rightItems = append(rightItems, useBtn)
+
+	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, rightItems...)
 	row := container.New(&deviceRowLayout{gap: 6}, left, center, right)
 	return NewInset(row, 0, 4, 4, 4)
+}
+
+func osShortLabel(os string) string {
+	switch strings.ToLower(strings.TrimSpace(os)) {
+	case "linux":
+		return "Linux"
+	case "windows":
+		return "Win"
+	case "darwin":
+		return "Mac"
+	case "freebsd":
+		return "BSD"
+	default:
+		return ""
+	}
 }
 
 func inlineSpacer(width float32) fyne.CanvasObject {

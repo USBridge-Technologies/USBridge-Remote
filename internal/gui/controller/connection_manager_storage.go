@@ -95,6 +95,29 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 
+// UpdateConnectionOS обновляет поле RemoteOS для сохранённого подключения по хосту.
+func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os string) {
+	if cm == nil || strings.TrimSpace(os) == "" {
+		return
+	}
+	currentHost = strings.TrimSpace(currentHost)
+	for i := range cm.connections {
+		conn := cm.connections[i]
+		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
+			if cm.connections[i].RemoteOS == os {
+				return
+			}
+			cm.connections[i].RemoteOS = os
+			cm.saveConnections()
+			fyne.Do(func() {
+				cm.refreshConnectionsList()
+			})
+			return
+		}
+	}
+}
+
 // getStorageURI возвращает URI для хранения
 func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	uri, err := storage.Child(cm.app.Storage().RootURI(), "connections.json")

@@ -61,6 +61,7 @@ type SavedConnection struct {
 	Protocol          string `json:"protocol,omitempty"`
 	WireGuardInvite   string `json:"wireguard_invite,omitempty"`
 	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
+	RemoteOS          string `json:"remote_os,omitempty"`
 }
 
 type ConnectionManager struct {

@@ -102,6 +102,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	traceID := vw.beginVideoTrace(fmt.Sprintf("mode=%s device=%s", request.VideoMode, request.VideoDevice))
 	logrus.Infof("🎯 [VideoTrace #%d] preparing GStreamer/video start", traceID)
 	request.TraceID = vw.currentVideoTraceLabel()
+	request.ShowMouse = vw.showMouseCursor
 
 	if vw.gstreamerService != nil {
 		if cfg := vw.gstreamerService.GetConfig(); cfg != nil {

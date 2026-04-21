@@ -97,6 +97,7 @@ type VideoWidget struct {
 	mousePollingQuit   chan bool // Канал для остановки polling горутины
 	mouseInputMode     string    // desired mode: "mouse" (touchpad), "touchscreen" или "absolute"
 	observedMouseMode  string    // фактический transport, который сообщил сервер через /api/device/info
+	showMouseCursor    bool      // показывать курсор мыши в захваченном видео
 	lastMouseModeDiag  string    // последняя диагностическая строка режима мыши, чтобы не спамить лог
 	touchpadSizeW      float32   // Ширина области ввода (для перевода в абсолютные координаты)
 	touchpadSizeH      float32   // Высота области ввода

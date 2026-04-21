@@ -1262,6 +1262,7 @@ func (mw *MainWindow) showMouseModeMenu() {
 	}
 
 	currentMode := mw.diskWidget.GetMouseMode()
+	showMouse := mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false)
 	items := []view.StyledMenuItem{
 		{
 			Label:    i18n.Current.DeviceTouchPad,
@@ -1275,6 +1276,17 @@ func (mw *MainWindow) showMouseModeMenu() {
 			Selected: currentMode == controller.MouseModeAbsolute,
 			OnTap: func() {
 				mw.diskWidget.SetMouseMode(controller.MouseModeAbsolute)
+			},
+		},
+		{
+			Label:    i18n.Current.ShowMouseCursor,
+			Selected: showMouse,
+			OnTap: func() {
+				next := !mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false)
+				mw.app.Preferences().SetBool("show_mouse_cursor", next)
+				if mw.videoWidget != nil {
+					mw.videoWidget.SetShowMouseCursor(next)
+				}
 			},
 		},
 	}

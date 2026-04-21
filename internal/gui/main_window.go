@@ -174,6 +174,7 @@ func NewMainWindow(config *models.AppConfig) *MainWindow {
 	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, myApp, config)
 	mw.diskWidget.SetWindow(window)
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.usbClient, mw.gstreamerService, mw.updateStatus)
+	mw.videoWidget.SetShowMouseCursor(myApp.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.videoWidget.SetParentWindow(window)
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus)

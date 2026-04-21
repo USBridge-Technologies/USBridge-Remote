@@ -214,6 +214,16 @@ func (vw *VideoWidget) setObservedMouseMode(mode string) {
 	vw.logMouseModeState("observed-updated")
 }
 
+// GetShowMouseCursor возвращает флаг отображения курсора в захваченном видео.
+func (vw *VideoWidget) GetShowMouseCursor() bool {
+	return vw.showMouseCursor
+}
+
+// SetShowMouseCursor задаёт флаг отображения курсора в захваченном видео.
+func (vw *VideoWidget) SetShowMouseCursor(show bool) {
+	vw.showMouseCursor = show
+}
+
 func (vw *VideoWidget) logMouseModeState(reason string) {
 	desired := normalizeMouseMode(vw.mouseInputMode)
 	observed := normalizeMouseMode(vw.observedMouseMode)

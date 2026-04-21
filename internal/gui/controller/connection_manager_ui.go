@@ -181,6 +181,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 			},
 			RegisterChecked: conn.TailscaleRegister,
 			RegisterVisible: internalHost != "" && tailscaleHost == "",
+			RemoteOS:        conn.RemoteOS,
 		},
 		rowState,
 		view.ConnectionRowActions{

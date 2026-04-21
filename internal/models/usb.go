@@ -24,6 +24,7 @@ type StatusData struct {
 	USB     *USBDeviceInfo `json:"usb"`
 	Kernel  *KernelInfo    `json:"kernel"`
 	Video   *VideoStatus   `json:"video"`
+	OS      string         `json:"os,omitempty"`
 }
 
 // ServiceStatus статус сервиса
@@ -271,6 +272,7 @@ type VideoStartRequest struct {
 	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
+	ShowMouse  bool   `json:"show_mouse,omitempty"`
 	TraceID    string `json:"-"`
 }
 
@@ -294,6 +296,7 @@ type VideoDeviceConfig struct {
 	VideoQuality  int    `json:"video_quality"`
 	VideoBitrate  string `json:"video_bitrate"`
 	VideoMode     string `json:"video_mode"`
+	ShowMouse     bool   `json:"show_mouse,omitempty"`
 	LastAppliedAt int64  `json:"last_applied_at,omitempty"`
 }
 
@@ -306,6 +309,7 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 		VideoQuality: c.VideoQuality,
 		VideoBitrate: c.VideoBitrate,
 		VideoMode:    c.VideoMode,
+		ShowMouse:    c.ShowMouse,
 	}
 }
 

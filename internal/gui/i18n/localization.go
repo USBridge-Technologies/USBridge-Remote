@@ -303,6 +303,7 @@ type LocalizedStrings struct {
 	DeviceTouch       string // "Touch" (touchscreen mode)
 	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
+	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -653,6 +654,7 @@ func EN() *LocalizedStrings {
 		DeviceTouch:       "TouchScreen",
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",
+		ShowMouseCursor:   "Show Mouse",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",
@@ -782,6 +784,7 @@ func ES() *LocalizedStrings {
 	locale.DeviceTouch = "Tactil"
 	locale.DeviceAbsolute = "Absoluto"
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
+	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Token:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
@@ -908,6 +911,7 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceTouch = "Дотик"
 	locale.DeviceAbsolute = "Абсолютний"
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
+	locale.ShowMouseCursor = "Показувати курсор"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Токен:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
