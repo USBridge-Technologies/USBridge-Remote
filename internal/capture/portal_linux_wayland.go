@@ -11,8 +11,30 @@ import (
 var portalSessionPath dbus.ObjectPath
 var portalPipeWireNodeID uint32
 var portalPipeWireFD int
+var portalCursorShown = true // embedded by default; false = hidden
 
-// ... inside InitPortalSession
+// SetPortalCursorShown changes the cursor visibility preference for PipeWire portal sessions.
+// If the active session was opened with a different cursor mode, the session is closed so
+// the next InitPortalSession call re-opens it with the updated mode.
+func SetPortalCursorShown(show bool) {
+	if portalCursorShown == show {
+		return
+	}
+	portalCursorShown = show
+	// Reset the active session so the next init picks up the new cursor mode.
+	if portalSessionPath != "" {
+		logrus.Infof("Portal session reset to apply cursor_mode change (show=%v)", show)
+		portalSessionPath = ""
+		portalPipeWireNodeID = 0
+		portalPipeWireFD = 0
+		go func() {
+			if err := InitPortalSession(); err != nil {
+				logrus.Warnf("Portal re-init after cursor mode change: %v", err)
+			}
+		}()
+	}
+}
+
 func InitPortalSession() error {
 	if GetLinuxEnv() != "Wayland" {
 		return nil
@@ -83,10 +105,15 @@ func InitPortalSession() error {
 		sessionHandle := dbus.ObjectPath(sessionHandleStr)
 
 		// 2. SelectSources (ScreenCast)
+		cursorMode := uint32(0) // 0 = hidden
+		if portalCursorShown {
+			cursorMode = uint32(1) // 1 = embedded in stream
+		}
 		optSources := map[string]dbus.Variant{
 			"handle_token": dbus.MakeVariant("usbridge_req_sources"),
 			"types":        dbus.MakeVariant(uint32(1)), // 1 = Monitor
 			"multiple":     dbus.MakeVariant(false),
+			"cursor_mode":  dbus.MakeVariant(cursorMode),
 		}
 		var reqSources dbus.ObjectPath
 		obj.Call("org.freedesktop.portal.ScreenCast.SelectSources", 0, sessionHandle, optSources).Store(&reqSources)

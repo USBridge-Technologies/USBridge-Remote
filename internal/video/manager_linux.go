@@ -40,6 +40,7 @@ func sourceFormatForPlatform() string {
 func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec string) []string {
 	env := capture.GetLinuxEnv()
 	if env == "Wayland" {
+		capture.SetPortalCursorShown(req.ShowMouse)
 		return buildPlatformArgsWayland(cfg, req, mode, codec)
 	}
 	return buildPlatformArgsX11(cfg, req, mode, codec)

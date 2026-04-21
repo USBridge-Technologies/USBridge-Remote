@@ -106,8 +106,13 @@ func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, _ string, c
 		darwinInputPixelFormat(),
 		describeAVFoundationDevices(devices),
 	)
+	captureCursor := "0"
+	if req.ShowMouse {
+		captureCursor = "1"
+	}
 	args := []string{
 		"-f", "avfoundation",
+		"-capture_cursor", captureCursor,
 		"-framerate", fmt.Sprintf("%d", req.VideoFPS),
 		"-i", device,
 		"-probesize", "32",
