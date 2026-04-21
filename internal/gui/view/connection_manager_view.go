@@ -579,7 +579,68 @@ func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
 	if ui == nil {
 		return nil
 	}
-	return container.NewHBox(ui.tsMode, ui.tsToggle)
+	return newTailscaleHeaderAccessory(ui.tsMode, ui.tsToggle)
+}
+
+func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
+	title := canvas.NewText("Tailscale", design.ColorTextLight)
+	title.TextSize = 8
+	title.TextStyle = fyne.TextStyle{Bold: true}
+	title.Alignment = fyne.TextAlignCenter
+
+	row := container.NewHBox(mode, centerSpacer(8), toggle)
+	content := container.New(&tailscaleHeaderAccessoryLayout{gap: 2},
+		container.NewCenter(title),
+		container.NewCenter(row),
+	)
+
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = design.RadiusMD + 2
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD + 2
+	border.StrokeColor = design.ColorAccent
+	border.StrokeWidth = 1.2
+
+	return container.NewStack(
+		bg,
+		border,
+		NewInset(content, 10, 10, 4, 3),
+	)
+}
+
+type tailscaleHeaderAccessoryLayout struct {
+	gap float32
+}
+
+func (l *tailscaleHeaderAccessoryLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	title := objects[0]
+	row := objects[1]
+	titleMin := title.MinSize()
+	rowMin := row.MinSize()
+
+	title.Move(fyne.NewPos(0, 0))
+	title.Resize(fyne.NewSize(size.Width, titleMin.Height))
+
+	rowY := titleMin.Height + l.gap
+	row.Move(fyne.NewPos(0, rowY))
+	row.Resize(fyne.NewSize(size.Width, rowMin.Height))
+}
+
+func (l *tailscaleHeaderAccessoryLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	titleMin := objects[0].MinSize()
+	rowMin := objects[1].MinSize()
+	width := maxFloat32(titleMin.Width, rowMin.Width)
+	height := titleMin.Height + l.gap + rowMin.Height
+	return fyne.NewSize(width, height)
 }
 
 func (ui *ConnectionManagerUI) SetTailscaleMode(mode TailscaleMode) {
@@ -1634,11 +1695,9 @@ type tailscaleHeaderToggle struct {
 	disabled bool
 	hovered  bool
 
-	bg     *canvas.Rectangle
-	border *canvas.Rectangle
-	label  *canvas.Text
-	track  *canvas.Rectangle
-	thumb  *canvas.Circle
+	bg    *canvas.Rectangle
+	track *canvas.Rectangle
+	thumb *canvas.Circle
 }
 
 func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
@@ -1699,24 +1758,14 @@ func (t *tailscaleHeaderToggle) MouseOut() {
 }
 
 func (t *tailscaleHeaderToggle) MinSize() fyne.Size {
-	return fyne.NewSize(60, 36)
+	return fyne.NewSize(44, 24)
 }
 
 func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
-	t.bg = canvas.NewRectangle(design.ColorSurfaceLight)
+	t.bg = canvas.NewRectangle(tailscaleControlBg)
 	t.bg.CornerRadius = design.RadiusMD
 
-	t.border = canvas.NewRectangle(color.Transparent)
-	t.border.CornerRadius = design.RadiusMD
-	t.border.StrokeColor = design.ColorAccent
-	t.border.StrokeWidth = 1.2
-
-	t.label = canvas.NewText("Tailscale", design.ColorTextMuted)
-	t.label.TextSize = 8
-	t.label.TextStyle = fyne.TextStyle{Bold: true}
-	t.label.Alignment = fyne.TextAlignCenter
-
-	t.track = canvas.NewRectangle(design.ColorSurfaceLight)
+	t.track = canvas.NewRectangle(tailscaleControlSelectedBg)
 	t.track.CornerRadius = 999
 
 	t.thumb = canvas.NewCircle(design.ColorGray400)
@@ -1726,39 +1775,32 @@ func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (t *tailscaleHeaderToggle) refreshVisuals() {
-	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil {
+	if t.bg == nil || t.track == nil || t.thumb == nil {
 		return
 	}
 
-	bgColor := design.ColorSurfaceLight
-	trackColor := design.ColorSurfaceLight
+	bgColor := tailscaleControlBg
+	trackColor := tailscaleControlSelectedBg
 	thumbColor := design.ColorGray400
-	labelColor := design.ColorTextMuted
 	if t.on {
 		trackColor = design.ColorAlphaAccent55
 		thumbColor = design.ColorAccent
 	}
 	if t.disabled {
-		bgColor = design.ColorGray900
-		trackColor = design.ColorGray900
+		bgColor = tailscaleControlDisabledBg
+		trackColor = tailscaleControlDisabledBg
 		thumbColor = design.ColorBorder
-		labelColor = design.ColorBorder
 	} else if t.hovered {
-		bgColor = design.ColorGray900
+		bgColor = tailscaleControlHoverBg
 		if t.on {
 			trackColor = design.ColorAlphaAccentHover55
 		} else {
-			trackColor = design.ColorBorder
+			trackColor = color.NRGBA{R: 0x58, G: 0x58, B: 0x58, A: 0xff}
 		}
 	}
 
 	t.bg.FillColor = bgColor
 	t.bg.Refresh()
-	t.border.StrokeColor = design.ColorAccent
-	t.border.StrokeWidth = 1.2
-	t.border.Refresh()
-	t.label.Color = labelColor
-	t.label.Refresh()
 	t.track.FillColor = trackColor
 	t.track.Refresh()
 	t.thumb.FillColor = thumbColor
@@ -1770,24 +1812,19 @@ type tailscaleHeaderToggleRenderer struct {
 }
 
 func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
-	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil {
+	if r.toggle.bg == nil || r.toggle.track == nil || r.toggle.thumb == nil {
 		return
 	}
 
 	r.toggle.bg.Move(fyne.NewPos(0, 0))
 	r.toggle.bg.Resize(size)
-	r.toggle.border.Move(fyne.NewPos(0, 0))
-	r.toggle.border.Resize(size)
-
-	r.toggle.label.Move(fyne.NewPos(0, 4))
-	r.toggle.label.Resize(fyne.NewSize(size.Width, 10))
 
 	trackSize := fyne.NewSize(26, 14)
 	trackX := (size.Width - trackSize.Width) / 2
 	if trackX < 0 {
 		trackX = 0
 	}
-	trackY := float32(18)
+	trackY := (size.Height - trackSize.Height) / 2
 	r.toggle.track.Move(fyne.NewPos(trackX, trackY))
 	r.toggle.track.Resize(trackSize)
 
@@ -1813,7 +1850,7 @@ func (r *tailscaleHeaderToggleRenderer) Refresh() {
 func (r *tailscaleHeaderToggleRenderer) Destroy() {}
 
 func (r *tailscaleHeaderToggleRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.border}
+	return []fyne.CanvasObject{r.toggle.bg, r.toggle.track, r.toggle.thumb}
 }
 
 func (r *tailscaleHeaderToggleRenderer) BackgroundColor() color.Color {

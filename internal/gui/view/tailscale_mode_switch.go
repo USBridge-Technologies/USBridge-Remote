@@ -13,6 +13,17 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+var (
+	tailscaleControlBg          = color.NRGBA{R: 0x3a, G: 0x3a, B: 0x3a, A: 0xff}
+	tailscaleControlSelectedBg  = color.NRGBA{R: 0x4b, G: 0x4b, B: 0x4b, A: 0xff}
+	tailscaleControlHoverBg     = color.NRGBA{R: 0x46, G: 0x46, B: 0x46, A: 0xff}
+	tailscaleControlDisabledBg  = color.NRGBA{R: 0x31, G: 0x31, B: 0x31, A: 0xff}
+	tailscaleControlPadding     = float32(2)
+	tailscaleControlSegmentGap  = float32(0)
+	tailscaleControlTextSize    = float32(10)
+	tailscaleControlSegmentPadX = float32(20)
+)
+
 type TailscaleModeSwitch struct {
 	widget.BaseWidget
 
@@ -31,10 +42,10 @@ func NewTailscaleModeSwitch(selected models.TailscaleMode, onChanged func(models
 	}
 	s.ExtendBaseWidget(s)
 
-	s.userspaceBtn = newTailscaleModeButton("Userspace", selected == models.TailscaleModeUserspace, func() {
+	s.userspaceBtn = newTailscaleModeButton("Userspace", "left", selected == models.TailscaleModeUserspace, func() {
 		s.selectMode(models.TailscaleModeUserspace)
 	})
-	s.systemBtn = newTailscaleModeButton("System", selected == models.TailscaleModeSystem, func() {
+	s.systemBtn = newTailscaleModeButton("System", "right", selected == models.TailscaleModeSystem, func() {
 		s.selectMode(models.TailscaleModeSystem)
 	})
 
@@ -74,35 +85,82 @@ func (s *TailscaleModeSwitch) SetDisabled(disabled bool) {
 }
 
 func (s *TailscaleModeSwitch) CreateRenderer() fyne.WidgetRenderer {
-	content := container.NewGridWithColumns(2, s.userspaceBtn, s.systemBtn)
-	
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-	
-	return widget.NewSimpleRenderer(container.NewStack(bg, content))
+	content := container.New(&tailscaleModeSwitchLayout{overlap: 2}, s.userspaceBtn, s.systemBtn)
+	return widget.NewSimpleRenderer(content)
 }
 
 func (s *TailscaleModeSwitch) MinSize() fyne.Size {
-	uMin := s.userspaceBtn.MinSize()
-	sMin := s.systemBtn.MinSize()
-	return fyne.NewSize(uMin.Width+sMin.Width, maxFloat32(uMin.Height, sMin.Height))
+	uText := fyne.MeasureText(s.userspaceBtn.text, tailscaleControlTextSize, fyne.TextStyle{})
+	sText := fyne.MeasureText(s.systemBtn.text, tailscaleControlTextSize, fyne.TextStyle{})
+	segmentWidth := maxFloat32(uText.Width, sText.Width) + tailscaleControlSegmentPadX
+	segmentHeight := maxFloat32(s.userspaceBtn.MinSize().Height, s.systemBtn.MinSize().Height)
+	return fyne.NewSize(segmentWidth*2-2, segmentHeight)
+}
+
+type tailscaleModeSwitchLayout struct {
+	overlap float32
+}
+
+func (l *tailscaleModeSwitchLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+
+	left := objects[0]
+	right := objects[1]
+	overlap := l.overlap
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap > size.Width {
+		overlap = 0
+	}
+
+	width := (size.Width + overlap) / 2
+	left.Move(fyne.NewPos(0, 0))
+	left.Resize(fyne.NewSize(width, size.Height))
+
+	rightX := size.Width - width
+	if rightX < 0 {
+		rightX = 0
+	}
+	right.Move(fyne.NewPos(rightX, 0))
+	right.Resize(fyne.NewSize(width, size.Height))
+}
+
+func (l *tailscaleModeSwitchLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+
+	leftMin := objects[0].MinSize()
+	rightMin := objects[1].MinSize()
+	width := leftMin.Width + rightMin.Width - l.overlap
+	if width < 0 {
+		width = 0
+	}
+	height := maxFloat32(leftMin.Height, rightMin.Height)
+	return fyne.NewSize(width, height)
 }
 
 type tailscaleModeButton struct {
 	widget.BaseWidget
 	text     string
+	side     string
 	selected bool
 	disabled bool
 	hovered  bool
 	onTap    func()
 
-	bg    *canvas.Rectangle
-	label *canvas.Text
+	bg       *canvas.Rectangle
+	seamMask *canvas.Rectangle
+	label    *canvas.Text
 }
 
-func newTailscaleModeButton(text string, selected bool, onTap func()) *tailscaleModeButton {
+func newTailscaleModeButton(text string, side string, selected bool, onTap func()) *tailscaleModeButton {
 	b := &tailscaleModeButton{
 		text:     text,
+		side:     side,
 		selected: selected,
 		onTap:    onTap,
 	}
@@ -145,43 +203,98 @@ func (b *tailscaleModeButton) MouseOut() {
 }
 
 func (b *tailscaleModeButton) CreateRenderer() fyne.WidgetRenderer {
-	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg = canvas.NewRectangle(tailscaleControlBg)
 	b.bg.CornerRadius = design.RadiusMD
-	
+
+	b.seamMask = canvas.NewRectangle(tailscaleControlBg)
+
 	b.label = canvas.NewText(b.text, design.ColorTextMuted)
-	b.label.TextSize = 10
+	b.label.TextSize = tailscaleControlTextSize
 	b.label.Alignment = fyne.TextAlignCenter
-	
+
 	b.refreshVisuals()
-	return widget.NewSimpleRenderer(container.NewStack(b.bg, container.NewCenter(b.label)))
+	return &tailscaleModeButtonRenderer{button: b}
 }
 
 func (b *tailscaleModeButton) MinSize() fyne.Size {
-	textMin := fyne.MeasureText(b.text, 10, fyne.TextStyle{})
-	return fyne.NewSize(textMin.Width+16, 24)
+	textMin := fyne.MeasureText(b.text, tailscaleControlTextSize, fyne.TextStyle{})
+	return fyne.NewSize(textMin.Width+tailscaleControlSegmentPadX, 24)
 }
 
 func (b *tailscaleModeButton) refreshVisuals() {
-	if b.bg == nil || b.label == nil {
+	if b.bg == nil || b.label == nil || b.seamMask == nil {
 		return
 	}
-	
-	bgColor := color.Color(color.Transparent)
+
+	bgColor := color.Color(tailscaleControlBg)
 	labelColor := design.ColorTextMuted
-	
+
 	if b.selected {
-		bgColor = design.ColorSurfaceLight
+		bgColor = tailscaleControlSelectedBg
 		labelColor = design.ColorTextLight
 	} else if b.hovered {
-		bgColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x08}
+		bgColor = tailscaleControlHoverBg
 	}
-	
-	if b.disabled && !b.selected {
+
+	if b.disabled {
+		if b.selected {
+			bgColor = tailscaleControlDisabledBg
+		}
 		labelColor = design.ColorBorder
 	}
-	
+
 	b.bg.FillColor = bgColor
+	b.seamMask.FillColor = bgColor
 	b.label.Color = labelColor
 	b.bg.Refresh()
+	b.seamMask.Refresh()
 	b.label.Refresh()
+}
+
+type tailscaleModeButtonRenderer struct {
+	button *tailscaleModeButton
+}
+
+func (r *tailscaleModeButtonRenderer) Layout(size fyne.Size) {
+	if r.button.bg == nil || r.button.seamMask == nil || r.button.label == nil {
+		return
+	}
+
+	r.button.bg.Move(fyne.NewPos(0, 0))
+	r.button.bg.Resize(size)
+
+	maskWidth := float32(8)
+	if maskWidth > size.Width/2 {
+		maskWidth = size.Width / 2
+	}
+
+	maskX := float32(0)
+	if r.button.side == "left" {
+		maskX = size.Width - maskWidth
+	}
+	r.button.seamMask.Move(fyne.NewPos(maskX, 0))
+	r.button.seamMask.Resize(fyne.NewSize(maskWidth, size.Height))
+
+	labelSize := r.button.label.MinSize()
+	r.button.label.Move(fyne.NewPos((size.Width-labelSize.Width)/2, (size.Height-labelSize.Height)/2))
+	r.button.label.Resize(labelSize)
+}
+
+func (r *tailscaleModeButtonRenderer) MinSize() fyne.Size {
+	return r.button.MinSize()
+}
+
+func (r *tailscaleModeButtonRenderer) Refresh() {
+	r.button.refreshVisuals()
+	r.Layout(r.button.Size())
+}
+
+func (r *tailscaleModeButtonRenderer) Destroy() {}
+
+func (r *tailscaleModeButtonRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.button.bg, r.button.seamMask, r.button.label}
+}
+
+func (r *tailscaleModeButtonRenderer) BackgroundColor() color.Color {
+	return color.Transparent
 }
