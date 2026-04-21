@@ -769,6 +769,7 @@ func (v *DevicesListView) Refresh() {
 
 	forgetDiskRowWidgets(v.content.Objects)
 	v.content.Objects = objects
+
 	v.content.Refresh()
 	v.Scroll.Refresh()
 }

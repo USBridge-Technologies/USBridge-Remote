@@ -247,6 +247,7 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 				dw.openQuickStartDocs()
 			})
 		}
+
 		cards = append(cards, view.NewDeviceSectionCard(
 			section.eyebrow,
 			section.title,
