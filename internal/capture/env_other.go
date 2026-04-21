@@ -17,3 +17,7 @@ func GetOSInfo() string {
 	}
 	return runtime.GOOS
 }
+
+func GetDisplayServer() string {
+	return ""
+}

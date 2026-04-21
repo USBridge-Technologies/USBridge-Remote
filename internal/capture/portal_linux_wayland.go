@@ -4,44 +4,30 @@ package capture
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/godbus/dbus/v5"
 	"github.com/sirupsen/logrus"
 )
 
-var portalSessionPath dbus.ObjectPath
-var portalPipeWireNodeID uint32
-var portalPipeWireFD int
-var portalCursorShown = true // embedded by default; false = hidden
-
-// SetPortalCursorShown changes the cursor visibility preference for PipeWire portal sessions.
-// If the active session was opened with a different cursor mode, the session is closed so
-// the next InitPortalSession call re-opens it with the updated mode.
-func SetPortalCursorShown(show bool) {
-	if portalCursorShown == show {
-		return
-	}
-	portalCursorShown = show
-	// Reset the active session so the next init picks up the new cursor mode.
-	if portalSessionPath != "" {
-		logrus.Infof("Portal session reset to apply cursor_mode change (show=%v)", show)
-		portalSessionPath = ""
-		portalPipeWireNodeID = 0
-		portalPipeWireFD = 0
-		go func() {
-			if err := InitPortalSession(); err != nil {
-				logrus.Warnf("Portal re-init after cursor mode change: %v", err)
-			}
-		}()
-	}
-}
+var (
+	portalSessionPath dbus.ObjectPath
+	portalNodeID      uint32
+	portalDbusObj     dbus.BusObject
+	portalMu          sync.RWMutex
+)
 
 func InitPortalSession() error {
 	if GetLinuxEnv() != "Wayland" {
 		return nil
 	}
+
+	portalMu.RLock()
 	if portalSessionPath != "" {
+		portalMu.RUnlock()
 		return nil
 	}
+	portalMu.RUnlock()
 
 	conn, err := dbus.SessionBus()
 	if err != nil {
@@ -60,7 +46,7 @@ func InitPortalSession() error {
 	}
 
 	obj := conn.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
-	
+
 	waitForResponse := func(reqPath dbus.ObjectPath) (map[string]dbus.Variant, error) {
 		for sig := range signals {
 			if sig.Path == reqPath {
@@ -95,8 +81,7 @@ func InitPortalSession() error {
 			logrus.Errorf("Portal CreateSession failed: %v", err)
 			return
 		}
-		
-		// The portal returns the session handle as a string, not ObjectPath
+
 		sessionHandleStr, ok := res["session_handle"].Value().(string)
 		if !ok {
 			logrus.Errorf("Portal CreateSession returned invalid session_handle type")
@@ -105,15 +90,11 @@ func InitPortalSession() error {
 		sessionHandle := dbus.ObjectPath(sessionHandleStr)
 
 		// 2. SelectSources (ScreenCast)
-		cursorMode := uint32(0) // 0 = hidden
-		if portalCursorShown {
-			cursorMode = uint32(1) // 1 = embedded in stream
-		}
 		optSources := map[string]dbus.Variant{
 			"handle_token": dbus.MakeVariant("usbridge_req_sources"),
 			"types":        dbus.MakeVariant(uint32(1)), // 1 = Monitor
 			"multiple":     dbus.MakeVariant(false),
-			"cursor_mode":  dbus.MakeVariant(cursorMode),
+			"cursor_mode":  dbus.MakeVariant(uint32(4)), // 4 = Metadata
 		}
 		var reqSources dbus.ObjectPath
 		obj.Call("org.freedesktop.portal.ScreenCast.SelectSources", 0, sessionHandle, optSources).Store(&reqSources)
@@ -134,7 +115,7 @@ func InitPortalSession() error {
 			return
 		}
 
-		// 4. Start (RemoteDesktop) - THIS TRIGGERS THE UI
+		// 4. Start (RemoteDesktop)
 		optStart := map[string]dbus.Variant{
 			"handle_token": dbus.MakeVariant("usbridge_req_start"),
 		}
@@ -147,26 +128,17 @@ func InitPortalSession() error {
 			return
 		}
 
-		// Extract PipeWire node ID from streams field: a(ua{sv})
+		portalMu.Lock()
 		if streamsVar, ok := startRes["streams"]; ok {
 			if nodeID := extractFirstNodeID(streamsVar.Value()); nodeID > 0 {
-				portalPipeWireNodeID = nodeID
+				portalNodeID = nodeID
 				logrus.Infof("✅ PipeWire node ID: %d", nodeID)
 			}
 		}
-		
-		// 5. OpenPipeWireRemote to get the file descriptor
-		optOpen := map[string]dbus.Variant{}
-		var pipewireFd dbus.UnixFD
-		err = obj.Call("org.freedesktop.portal.ScreenCast.OpenPipeWireRemote", 0, sessionHandle, optOpen).Store(&pipewireFd)
-		if err != nil {
-			logrus.Errorf("Portal OpenPipeWireRemote failed: %v", err)
-		} else {
-			logrus.Infof("✅ Wayland PipeWire FD obtained: %d", pipewireFd)
-			portalPipeWireFD = int(pipewireFd)
-		}
-
 		portalSessionPath = sessionHandle
+		portalDbusObj = obj
+		portalMu.Unlock()
+
 		logrus.Infof("✅ Wayland RemoteDesktop session fully active: %s", portalSessionPath)
 	}()
 
@@ -174,16 +146,45 @@ func InitPortalSession() error {
 }
 
 func GetPortalSession() string {
+	portalMu.RLock()
+	defer portalMu.RUnlock()
 	return string(portalSessionPath)
 }
 
 func GetPortalPipeWireNodeID() uint32 {
-	return portalPipeWireNodeID
+	portalMu.RLock()
+	defer portalMu.RUnlock()
+	return portalNodeID
+}
+
+func OpenPipeWireRemoteFD() (int, error) {
+	portalMu.RLock()
+	obj := portalDbusObj
+	session := portalSessionPath
+	portalMu.RUnlock()
+
+	if obj == nil || session == "" {
+		return 0, fmt.Errorf("portal session not initialized")
+	}
+
+	var pipewireFd dbus.UnixFD
+	err := obj.Call("org.freedesktop.portal.ScreenCast.OpenPipeWireRemote", 0, session, map[string]dbus.Variant{}).Store(&pipewireFd)
+	if err != nil {
+		return 0, fmt.Errorf("OpenPipeWireRemote failed: %w", err)
+	}
+	return int(pipewireFd), nil
 }
 
 func GetPortalPipeWireFD() int {
-	return portalPipeWireFD
+	fd, err := OpenPipeWireRemoteFD()
+	if err != nil {
+		logrus.Errorf("[portal] failed to get fresh PipeWire FD: %v", err)
+		return 0
+	}
+	logrus.Infof("[portal] fresh PipeWire FD obtained: %d", fd)
+	return fd
 }
+
 
 // extractFirstNodeID pulls the PipeWire node ID from the streams field of the
 // portal Start response. The DBus type is a(ua{sv}) — array of (nodeID, props).

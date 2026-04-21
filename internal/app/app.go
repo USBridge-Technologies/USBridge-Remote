@@ -222,6 +222,10 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return nil
 }
 
+func (a *App) PortalPipeWire() (uint32, int) {
+	return capture.GetPortalPipeWireNodeID(), capture.GetPortalPipeWireFD()
+}
+
 func (a *App) Status() api.SystemStatus {
 	return api.SystemStatus{
 		Service: api.ServiceStatus{
@@ -244,6 +248,8 @@ func (a *App) DeviceInfo() api.DeviceInfoResponse {
 		Count:           len(out),
 		MountInProgress: a.state.mountInProgress,
 		LastMountError:  a.state.lastMountError,
+		AgentOS:         capture.GetOSInfo(),
+		AgentDisplay:    capture.GetDisplayServer(),
 	}
 }
 

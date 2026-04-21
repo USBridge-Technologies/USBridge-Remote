@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -37,11 +39,13 @@ type Application interface {
 		Info() map[string]interface{}
 	}
 	VideoDevices() []VideoDeviceInfo
+	PortalPipeWire() (uint32, int)
 }
 
 type Server struct {
 	app      Application
 	upgrader websocket.Upgrader
+	cursor   cursorTracker
 }
 
 type loggingResponseWriter struct {
@@ -79,12 +83,32 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/devices", s.devicesLegacy)
 	mux.HandleFunc("/api/pcpanel/leds", s.leds)
 	mux.HandleFunc("/api/pcpanel/button", s.button)
-	return s.withLogging(mux)
+	return s.withLogging(s.withRecovery(mux))
+}
+
+func (s *Server) withRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("🔥 [api] PANIC in %s %s: %v", r.Method, r.URL.Path, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (w *loggingResponseWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return h.Hijack()
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
@@ -286,27 +310,124 @@ func (s *Server) mouse(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, "mouse_failed", err)
 		return
 	}
-	s.ok(w, "mouse_ok", nil)
+	s.ok(w, "mouse_ok", MouseResponseData{Cursor: s.cursor.apply(req)})
 }
 
+const (
+	wsReadTimeout = 90 * time.Second
+	wsPingInterval = 25 * time.Second
+)
+
 func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] mouse_ws incoming request from %s", r.RemoteAddr)
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("[api] mouse_ws upgrade failed: %v", err)
 		return
 	}
+	log.Printf("[api] mouse_ws upgraded successfully for %s", r.RemoteAddr)
 	defer conn.Close()
+
+	// Refresh read deadline on every pong so idle connections survive NAT/Tailscale
+	conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		return nil
+	})
+
+	var writeMu sync.Mutex
+	safePing := func() error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteMessage(websocket.PingMessage, []byte("ping"))
+	}
+	safeWriteJSON := func(v interface{}) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteJSON(v)
+	}
+
+	// Proactive cursor updates + keepalive ping pusher
+	stopPush := make(chan struct{})
+	defer close(stopPush)
+
+	go func() {
+		cursorTicker := time.NewTicker(33 * time.Millisecond) // ~30 FPS for cursor
+		pingTicker := time.NewTicker(wsPingInterval)
+		defer cursorTicker.Stop()
+		defer pingTicker.Stop()
+		var lastCursor *CursorState
+		var lastLog time.Time
+		log.Printf("[api] mouse_ws cursor pusher started for %s", conn.RemoteAddr().String())
+
+		for {
+			select {
+			case <-stopPush:
+				return
+			case <-pingTicker.C:
+				if err := safePing(); err != nil {
+					log.Printf("[api] mouse_ws ping failed, closing: %v", err)
+					conn.Close()
+					return
+				}
+			case <-cursorTicker.C:
+				current := s.cursor.snapshot()
+
+				if current == nil {
+					if time.Since(lastLog) > 3*time.Second {
+						log.Printf("[api] mouse_ws cursor_pusher alive, but cursor is nil (watcher enabled: %v)", s.cursor.enabled)
+						lastLog = time.Now()
+					}
+					continue
+				}
+
+				// Only send if it changed (basic check)
+				if lastCursor != nil &&
+					lastCursor.X == current.X &&
+					lastCursor.Y == current.Y &&
+					lastCursor.Visible == current.Visible {
+
+					if time.Since(lastLog) > 3*time.Second {
+						log.Printf("[api] mouse_ws cursor_push (static): x=%.1f y=%.1f vis=%v", current.X, current.Y, current.Visible)
+						lastLog = time.Now()
+					}
+					continue
+				}
+				lastCursor = current
+
+				if time.Since(lastLog) > 500*time.Millisecond {
+					log.Printf("[api] mouse_ws cursor_push (active): x=%.1f y=%.1f vis=%v size=%dx%d",
+						current.X, current.Y, current.Visible, current.Width, current.Height)
+					lastLog = time.Now()
+				}
+
+				err := safeWriteJSON(APIResponse{
+					Success: true,
+					Message: "cursor_update",
+					Data:    MouseResponseData{Cursor: current},
+				})
+				if err != nil {
+					log.Printf("[api] mouse_ws pusher exit due to write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
 
 	for {
 		var req MouseRequest
 		if err := conn.ReadJSON(&req); err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("[api] mouse_ws read error: %v", err)
+			}
 			return
 		}
 		if err := s.applyMouse(req); err != nil {
 			log.Printf("[api] mouse_ws failed action=%s: %v", req.Action, err)
-			_ = conn.WriteJSON(APIResponse{Success: false, Error: "mouse_failed", Details: err.Error()})
+			_ = safeWriteJSON(APIResponse{Success: false, Error: "mouse_failed", Details: err.Error()})
 			continue
 		}
-		_ = conn.WriteJSON(APIResponse{Success: true, Message: "ok"})
+		_ = safeWriteJSON(APIResponse{Success: true, Message: "ok", Data: MouseResponseData{Cursor: s.cursor.apply(req)}})
 	}
 }
 
@@ -341,7 +462,7 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.TraceID = strings.TrimSpace(r.Header.Get("X-USBridge-Video-Trace"))
-	
+
 	clientIP := strings.TrimSpace(req.ClientHost)
 	if net.ParseIP(clientIP) == nil {
 		clientIP = getClientIP(r)
@@ -357,6 +478,8 @@ func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, "video_start_failed", err)
 		return
 	}
+	nodeID, fd := s.app.PortalPipeWire()
+	s.cursor.configure(req.ShowMouse, nodeID, fd, req.VideoWidth, req.VideoHeight)
 	s.ok(w, "video_started", nil)
 }
 
@@ -398,6 +521,7 @@ func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, "video_stop_failed", err)
 		return
 	}
+	s.cursor.clear()
 	s.ok(w, "video_stopped", nil)
 }
 

@@ -21,3 +21,7 @@ func GetLinuxEnv() string {
 func GetOSInfo() string {
 	return "Linux (" + GetLinuxEnv() + ")"
 }
+
+func GetDisplayServer() string {
+	return GetLinuxEnv()
+}

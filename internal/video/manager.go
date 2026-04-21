@@ -86,14 +86,22 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	}
 
 	mode := captureModeForPlatform(m.cfg.VideoCapture)
-	codec := m.resolveCodec()
-	m.traceStep(traceID, startedAt, "session-plan", "capture=%s codec=%s source_format=%s", mode, codec, sourceFormatForPlatform())
-	m.traceStep(traceID, startedAt, "ffmpeg-start-begin", "mode=%s codec=%s target=%s:%d", mode, codec, req.ClientHost, req.ClientPort)
+	codecs := m.resolveCodecList()
+	m.traceStep(traceID, startedAt, "session-plan", "capture=%s codecs=%s source_format=%s", mode, strings.Join(codecs, ","), sourceFormatForPlatform())
 
-	proc, err := m.startProcess(req, mode, codec)
-	if err != nil {
-		m.traceStep(traceID, startedAt, "ffmpeg-start-failed", "err=%v", err)
-		return err
+	var proc *runningProcess
+	var lastErr error
+	for _, codec := range codecs {
+		m.traceStep(traceID, startedAt, "ffmpeg-start-begin", "mode=%s codec=%s target=%s:%d", mode, codec, req.ClientHost, req.ClientPort)
+		proc, lastErr = m.startProcess(req, mode, codec)
+		if lastErr == nil {
+			break
+		}
+		m.traceStep(traceID, startedAt, "ffmpeg-codec-failed", "codec=%s err=%v", codec, lastErr)
+	}
+	if lastErr != nil {
+		m.traceStep(traceID, startedAt, "ffmpeg-start-failed", "err=%v", lastErr)
+		return lastErr
 	}
 
 	m.proc = proc
@@ -306,16 +314,18 @@ func (m *Manager) buildArgs(req api.VideoStartRequest, mode, codec string) []str
 	return append([]string{"-nostdin"}, platformArgs...)
 }
 
-func (m *Manager) resolveCodec() string {
+// resolveCodecList returns an ordered list of codecs to try, starting from the best candidate.
+// The caller should attempt each codec in sequence and stop on first success.
+func (m *Manager) resolveCodecList() []string {
 	configured := strings.TrimSpace(m.cfg.VideoCodec)
 	if configured == "" {
 		configured = "auto"
 	}
 	if !strings.EqualFold(configured, "auto") {
-		return configured
+		return []string{configured}
 	}
 	if codec := platformAutoCodec(m.cfg.FFmpegPath); codec != "" {
-		return codec
+		return []string{codec}
 	}
 
 	available := detectAvailableCodecs(m.cfg.FFmpegPath)
@@ -323,15 +333,19 @@ func (m *Manager) resolveCodec() string {
 	if len(order) == 0 {
 		order = platformCodecFallbacks()
 	}
+
+	var list []string
 	for _, codec := range appendUnique(append(order, "libx264")...) {
 		if len(available) == 0 || codec == "libx264" {
-			return codec
-		}
-		if _, ok := available[codec]; ok {
-			return codec
+			list = append(list, codec)
+		} else if _, ok := available[codec]; ok {
+			list = append(list, codec)
 		}
 	}
-	return "libx264"
+	if len(list) == 0 {
+		return []string{"libx264"}
+	}
+	return list
 }
 
 func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) {

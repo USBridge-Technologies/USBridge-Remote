@@ -10,6 +10,21 @@ type APIResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+type CursorState struct {
+	Visible  bool    `json:"visible"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Width    int     `json:"width,omitempty"`
+	Height   int     `json:"height,omitempty"`
+	HotspotX int     `json:"hotspot_x,omitempty"`
+	HotspotY int     `json:"hotspot_y,omitempty"`
+	Source   string  `json:"source,omitempty"`
+}
+
+type MouseResponseData struct {
+	Cursor *CursorState `json:"cursor,omitempty"`
+}
+
 type DeviceRequest struct {
 	Device                  string `json:"device"`
 	Type                    string `json:"type,omitempty"`
@@ -64,6 +79,8 @@ type DeviceInfoResponse struct {
 	Count           int          `json:"count"`
 	MountInProgress bool         `json:"mount_in_progress,omitempty"`
 	LastMountError  string       `json:"last_mount_error,omitempty"`
+	AgentOS         string       `json:"agent_os,omitempty"`
+	AgentDisplay    string       `json:"agent_display,omitempty"`
 }
 
 type MountDriveStatus struct {

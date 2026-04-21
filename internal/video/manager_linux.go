@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/capture"
@@ -23,14 +22,12 @@ func attachPipeWireFD(cmd *exec.Cmd) {
 	if fd <= 0 {
 		return
 	}
-	dupFD, err := syscall.Dup(fd)
-	if err != nil {
-		log.Printf("[video] failed to dup PipeWire FD: %v", err)
-		return
-	}
-	f := os.NewFile(uintptr(dupFD), "pipewire-fd")
+	// GetPortalPipeWireFD now returns a fresh FD. 
+	// We wrap it in os.NewFile which will close it when f is GC'd, 
+	// but we should be careful. cmd.ExtraFiles takes ownership of the FD.
+	f := os.NewFile(uintptr(fd), "pipewire-fd")
 	cmd.ExtraFiles = append(cmd.ExtraFiles, f)
-	log.Printf("[video] Wayland PipeWire FD attached to child process as ExtraFiles[%d] (Child FD: %d)", len(cmd.ExtraFiles)-1, 2+len(cmd.ExtraFiles))
+	log.Printf("[video] Wayland fresh PipeWire FD %d attached to child process as ExtraFiles[%d]", fd, len(cmd.ExtraFiles)-1)
 }
 
 func sourceFormatForPlatform() string {
@@ -40,7 +37,9 @@ func sourceFormatForPlatform() string {
 func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec string) []string {
 	env := capture.GetLinuxEnv()
 	if env == "Wayland" {
-		capture.SetPortalCursorShown(req.ShowMouse)
+		if req.ShowMouse {
+			log.Println("[video/wayland] show_mouse requested; cursor is rendered via separate client overlay")
+		}
 		return buildPlatformArgsWayland(cfg, req, mode, codec)
 	}
 	return buildPlatformArgsX11(cfg, req, mode, codec)
