@@ -984,6 +984,8 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 func osShortLabel(os string) string {
 	normalized := strings.ToLower(strings.TrimSpace(os))
 	switch {
+	case strings.Contains(normalized, "usbridge"):
+		return "USBridge"
 	case strings.Contains(normalized, "linux"):
 		return "Linux"
 	case strings.Contains(normalized, "windows"):
