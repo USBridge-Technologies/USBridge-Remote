@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kbinani/screenshot"
+	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/api"
 )
 
@@ -20,13 +21,16 @@ func New() *Service { return &Service{} }
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	env := GetLinuxEnv()
 	if env == "Wayland" {
-		// Wayland snapshot could be implemented here via dbus screenshot portal or grim
-		// For now we fall back to screenshot lib which works under XWayland sometimes
+		// Wayland high-quality snapshot placeholder
 	}
 
 	if screenshot.NumActiveDisplays() == 0 {
+		if env == "Wayland" {
+			return nil, fmt.Errorf("Wayland capture requires portal initialization")
+		}
 		return nil, fmt.Errorf("no active displays")
 	}
+
 	bounds := screenshot.GetDisplayBounds(0)
 	img, err := screenshot.CaptureRect(bounds)
 	if err != nil {
@@ -46,27 +50,48 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 }
 
 func (s *Service) Devices() []api.VideoDeviceInfo {
-	num := screenshot.NumActiveDisplays()
-	out := make([]api.VideoDeviceInfo, 0, num)
 	env := GetLinuxEnv()
-	
+	resStr := GetDisplayResString(0)
+
 	if env == "Wayland" {
-		nodeID := GetPortalPipeWireNodeID()
-		out = append(out, api.VideoDeviceInfo{
-			Path:      fmt.Sprintf("pipewire:%d", nodeID),
-			Name:      fmt.Sprintf("Wayland PipeWire Portal Node %d", nodeID),
-			Bus:       "wayland",
-			Index:     0,
-			Connected: true,
-		})
-		return out // In wayland, we usually capture the whole selected stream from portal
+		portal := GetPortal()
+		nodeID := portal.NodeID()
+		
+		if nodeID == 0 {
+			go func() {
+				if err := portal.Init(); err != nil {
+					logrus.Errorf("[capture] failed to auto-init portal: %v", err)
+				}
+			}()
+			
+			return []api.VideoDeviceInfo{
+				{
+					Path:      "pipewire:auto",
+					Name:      "Wayland Screen" + resStr + " (Portal not yet active)",
+					Bus:       "wayland",
+					Index:     0,
+					Connected: false,
+				},
+			}
+		}
+
+		return []api.VideoDeviceInfo{
+			{
+				Path:      fmt.Sprintf("pipewire:%d", nodeID),
+				Name:      fmt.Sprintf("Wayland Shared Screen%s (Node %d)", resStr, nodeID),
+				Bus:       "wayland",
+				Index:     0,
+				Connected: true,
+			},
+		}
 	}
 
+	num := screenshot.NumActiveDisplays()
+	out := make([]api.VideoDeviceInfo, 0, num)
 	for i := 0; i < num; i++ {
-		bounds := screenshot.GetDisplayBounds(i)
 		out = append(out, api.VideoDeviceInfo{
 			Path:      fmt.Sprintf("display:%d", i),
-			Name:      fmt.Sprintf("Display %d (%dx%d) [%s]", i, bounds.Dx(), bounds.Dy(), env),
+			Name:      fmt.Sprintf("Display %d%s", i, GetDisplayResString(i)),
 			Bus:       "x11",
 			Index:     i,
 			Connected: true,

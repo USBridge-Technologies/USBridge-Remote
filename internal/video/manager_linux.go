@@ -18,16 +18,21 @@ func attachPipeWireFD(cmd *exec.Cmd) {
 	if capture.GetLinuxEnv() != "Wayland" {
 		return
 	}
-	fd := capture.GetPortalPipeWireFD()
-	if fd <= 0 {
+	portal := capture.GetPortal()
+	if !portal.IsInitialized() {
 		return
 	}
-	// GetPortalPipeWireFD now returns a fresh FD. 
-	// We wrap it in os.NewFile which will close it when f is GC'd, 
-	// but we should be careful. cmd.ExtraFiles takes ownership of the FD.
+	
+	fd, err := portal.OpenPipeWireFD()
+	if err != nil {
+		log.Printf("[video/wayland] failed to open PipeWire FD for child process: %v", err)
+		return
+	}
+
 	f := os.NewFile(uintptr(fd), "pipewire-fd")
+	// cmd.ExtraFiles takes ownership of the FD and will close it when the command starts/finishes.
 	cmd.ExtraFiles = append(cmd.ExtraFiles, f)
-	log.Printf("[video] Wayland fresh PipeWire FD %d attached to child process as ExtraFiles[%d]", fd, len(cmd.ExtraFiles)-1)
+	log.Printf("[video/wayland] attached PipeWire FD %d as ExtraFiles[%d] (will be FD %d in child)", fd, len(cmd.ExtraFiles)-1, 3+len(cmd.ExtraFiles)-1)
 }
 
 func sourceFormatForPlatform() string {
@@ -51,7 +56,6 @@ func detectPlatformVideoAdapters() []string {
 		return nil
 	}
 	seen := make(map[string]bool)
-	// Order matters: we'll preserve insertion order via a slice
 	var order []string
 	for _, e := range entries {
 		name := e.Name()
@@ -97,7 +101,7 @@ func preferredCodecsForAdapters(adapters []string) []string {
 
 func captureModesForPlatform(configured string) []string {
 	mode := strings.ToLower(strings.TrimSpace(configured))
-	if mode == "" || mode == "auto" || mode == "dxgi" || (mode == "x11grab" && capture.GetLinuxEnv() == "Wayland") {
+	if mode == "" || mode == "auto" || mode == "dxgi" {
 		if capture.GetLinuxEnv() == "Wayland" {
 			mode = "pipewire"
 		} else {
@@ -115,7 +119,6 @@ func platformAutoCodec(_ string) string {
 	return ""
 }
 
-// detectVaapiDevice returns the first available /dev/dri/renderD* device.
 func detectVaapiDevice() string {
 	for i := 128; i < 132; i++ {
 		path := fmt.Sprintf("/dev/dri/renderD%d", i)
@@ -126,13 +129,10 @@ func detectVaapiDevice() string {
 	return "/dev/dri/renderD128"
 }
 
-// detectGStreamerElement returns true if the named GStreamer element is available.
 func detectGStreamerElement(name string) bool {
 	return exec.Command("gst-inspect-1.0", "--exists", name).Run() == nil
 }
 
-// gstreamerEncoderForCodec maps an FFmpeg codec name to a GStreamer encoder type.
-// Returns "nvenc", "vaapi", or "software".
 func gstreamerEncoderForCodec(codec string) string {
 	switch strings.ToLower(codec) {
 	case "h264_nvenc":
@@ -143,7 +143,6 @@ func gstreamerEncoderForCodec(codec string) string {
 		if detectGStreamerElement("qsvh264enc") {
 			return "qsv"
 		}
-		// fall through to vaapi check
 		if detectGStreamerElement("vaapih264enc") {
 			return "vaapi"
 		}

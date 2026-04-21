@@ -4,9 +4,11 @@ package video
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
+
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
@@ -21,14 +23,16 @@ func hasPipewireDemuxer(ffmpegPath string) bool {
 }
 
 func buildPlatformArgsWayland(cfg config.Config, req api.VideoStartRequest, mode, codec string) []string {
-	fd := capture.GetPortalPipeWireFD()
-	nodeID := capture.GetPortalPipeWireNodeID()
+	portal := capture.GetPortal()
+	nodeID := portal.NodeID()
 
-	if fd > 0 {
-		// GStreamer pipewiresrc — child process receives fd=3 via ExtraFiles[0]
+	// 1. Try GStreamer (best for Wayland/PipeWire)
+	if nodeID > 0 {
+		// We assume attachPipeWireFD will attach the FD as ExtraFiles[0] (which is FD 3 in child)
 		return buildGstreamerArgs(cfg, req, 3, nodeID, codec)
 	}
 
+	// 2. Try FFmpeg with PipeWire demuxer
 	if hasPipewireDemuxer(cfg.FFmpegPath) && nodeID > 0 {
 		input := []string{"-f", "pipewire", "-i", fmt.Sprintf("%d", nodeID)}
 		if strings.EqualFold(codec, "h264_vaapi") {
@@ -37,7 +41,8 @@ func buildPlatformArgsWayland(cfg config.Config, req api.VideoStartRequest, mode
 		return appendCommonFFmpegArgs(input, req, cfg, softwareFilter(req.VideoWidth, req.VideoHeight, codec), codec)
 	}
 
-	// Fallback: x11grab via XWayland
+	// 3. Fallback: x11grab via XWayland (often works but might be black)
+	log.Printf("[video/wayland] falling back to x11grab (XWayland)")
 	drawMouse := "0"
 	if req.ShowMouse {
 		drawMouse = "1"
@@ -54,27 +59,31 @@ func buildGstreamerArgs(cfg config.Config, req api.VideoStartRequest, childFD in
 	gstEncoder := gstreamerEncoderForCodec(codec)
 
 	args := []string{"gst-launch-1.0", "-e"}
+	
+	// Input
 	args = append(args, "pipewiresrc", fmt.Sprintf("fd=%d", childFD), "do-timestamp=true")
 	if nodeID > 0 {
 		args = append(args, fmt.Sprintf("path=%d", nodeID))
 	}
 
-	tail := []string{
-		"!", "rtph264pay", "config-interval=1", "pt=96", "mtu=1200",
-		"!", "udpsink",
-		fmt.Sprintf("host=%s", req.ClientHost),
-		fmt.Sprintf("port=%d", req.ClientPort),
-		"sync=false",
+	// Scaling and rate control
+	args = append(args, "!", "videoconvert")
+	
+	format := "I420"
+	if prefersNV12(codec) {
+		format = "NV12"
 	}
 
+	args = append(args, "!", "videoscale")
+	args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d,format=%s", req.VideoWidth, req.VideoHeight, format))
+	
+	args = append(args, "!", "videorate")
+	args = append(args, "!", fmt.Sprintf("video/x-raw,framerate=%d/1", req.VideoFPS))
+
+	// Encoding
 	switch gstEncoder {
 	case "nvenc":
 		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d", req.VideoWidth, req.VideoHeight),
-			"!", "videorate",
-			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", req.VideoFPS),
 			"!", "nvh264enc",
 			fmt.Sprintf("bitrate=%d", bitrateKbps),
 			"preset=low-latency-hq",
@@ -84,11 +93,6 @@ func buildGstreamerArgs(cfg config.Config, req api.VideoStartRequest, childFD in
 		)
 	case "vaapi", "qsv":
 		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,format=NV12", req.VideoWidth, req.VideoHeight),
-			"!", "videorate",
-			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", req.VideoFPS),
 			"!", "vaapih264enc",
 			"rate-control=cbr",
 			fmt.Sprintf("bitrate=%d", bitrateKbps),
@@ -97,11 +101,6 @@ func buildGstreamerArgs(cfg config.Config, req api.VideoStartRequest, childFD in
 		)
 	default: // software x264enc
 		args = append(args,
-			"!", "videoconvert",
-			"!", "videoscale",
-			"!", fmt.Sprintf("video/x-raw,width=%d,height=%d,format=I420", req.VideoWidth, req.VideoHeight),
-			"!", "videorate",
-			"!", fmt.Sprintf("video/x-raw,framerate=%d/1", req.VideoFPS),
 			"!", "x264enc",
 			"tune=zerolatency",
 			fmt.Sprintf("bitrate=%d", bitrateKbps),
@@ -113,11 +112,18 @@ func buildGstreamerArgs(cfg config.Config, req api.VideoStartRequest, childFD in
 		)
 	}
 
-	return append(args, tail...)
+	// Output
+	args = append(args,
+		"!", "rtph264pay", "config-interval=1", "pt=96", "mtu=1200",
+		"!", "udpsink",
+		fmt.Sprintf("host=%s", req.ClientHost),
+		fmt.Sprintf("port=%d", req.ClientPort),
+		"sync=false",
+	)
+
+	return args
 }
 
-// buildVaapiFFmpegArgs builds FFmpeg args for h264_vaapi encoding.
-// VAAPI requires -vaapi_device before the input and a special hwupload filter.
 func buildVaapiFFmpegArgs(input []string, req api.VideoStartRequest, cfg config.Config) []string {
 	bitrateStr := firstNonEmpty(req.VideoBitrate, cfg.VideoBitrate)
 	device := detectVaapiDevice()
@@ -152,7 +158,6 @@ func buildVaapiFFmpegArgs(input []string, req api.VideoStartRequest, cfg config.
 	return args
 }
 
-// parseBitrateKbps converts strings like "4000K", "4M", "4000" to an integer kbps value.
 func parseBitrateKbps(s string) int {
 	s = strings.TrimSpace(s)
 	if strings.HasSuffix(s, "M") {
