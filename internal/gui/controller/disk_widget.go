@@ -91,6 +91,9 @@ type DiskWidget struct {
 
 	// SAF helper для Android
 	safHelper *platform.SAFHelper
+
+	// Состояние устройства (ОС агента)
+	agentOS string
 }
 
 // MaxDevicesToMount максимальное количество устройств для одновременного выбора
@@ -958,6 +961,14 @@ func (dw *DiskWidget) requestDevicesRefresh() {
 	if dw == nil || dw.devicesList == nil {
 		return
 	}
+
+	// Проверяем, изменилось ли что-то в данных, прежде чем планировать обновление UI.
+	// Если данные не изменились, игнорируем запрос на обновление, чтобы избежать моргания.
+	signature := dw.computeDrivesSignature()
+	if signature == dw.lastDrivesTraceSig {
+		return
+	}
+
 	if !dw.devicesRefreshPending.CompareAndSwap(false, true) {
 		return
 	}
@@ -967,6 +978,13 @@ func (dw *DiskWidget) requestDevicesRefresh() {
 		fyne.Do(func() {
 			defer dw.devicesRefreshPending.Store(false)
 			if dw.devicesList != nil {
+				// Еще раз проверяем сигнатуру прямо перед отрисовкой
+				currentSig := dw.computeDrivesSignature()
+				if currentSig == dw.lastDrivesTraceSig && !dw.lastDevicesRefresh.IsZero() {
+					return
+				}
+				dw.lastDrivesTraceSig = currentSig
+
 				dw.markDevicesRefresh()
 				dw.devicesList.Refresh()
 			}
@@ -978,6 +996,32 @@ func (dw *DiskWidget) requestDevicesRefresh() {
 	}
 
 	time.AfterFunc(delay, runRefresh)
+}
+
+func (dw *DiskWidget) computeDrivesSignature() string {
+	if dw == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("total=%d|api=%d|local=%d|user=%d|video=%d|mounted=%d|os=%s|op=%v|mnt=%v",
+		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices),
+		len(dw.mountedDevices), dw.agentOS, dw.userOperationInFlight.Load(), dw.apiMountInProgress.Load()))
+
+	for i := range dw.allDrives {
+		drive := dw.allDrives[i]
+		// Включаем в сигнатуру все поля, влияющие на визуальное состояние строки в списке
+		builder.WriteString(fmt.Sprintf("|%d:%s:%t:%t:%t:%t:%s:%s:%s",
+			i, drive.Source, drive.IsMounted, drive.IsMounting, drive.IsUploading, drive.ReadOnly,
+			drive.Name, drive.RNDISMode, drive.MouseType))
+
+		if drive.IsUploading {
+			builder.WriteString(fmt.Sprintf(":%.1f", drive.UploadProgress))
+		}
+		if drive.IsVideo && drive.VideoDevice != nil {
+			builder.WriteString(fmt.Sprintf(":vc%t", drive.VideoDevice.Connected))
+		}
+	}
+	return builder.String()
 }
 
 func (dw *DiskWidget) nextDevicesRefreshDelay() time.Duration {
@@ -1291,6 +1335,7 @@ func (dw *DiskWidget) SetFRPService(frp *service.FRPService) {
 
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
+	dw.agentOS = "" // Сбрасываем ОС при смене клиента
 	if usbClient == nil {
 		dw.sdSpaceInfo = nil
 		dw.updateSDStorageInfo()

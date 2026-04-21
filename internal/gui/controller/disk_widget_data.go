@@ -361,16 +361,19 @@ func (dw *DiskWidget) combineDrives() {
 	}
 	dw.allDrives = append(dw.allDrives, mouseItem)
 
-	// Добавляем сетевую карту (RNDIS)
-	rndisItem := DriveItem{
-		Name:      i18n.Current.DeviceNetworkCard,
-		Size:      "N/A",
-		Source:    "rndis",
-		IsMounted: false,
-		IsRNDIS:   true,
-		RNDISMode: oldRNDISMode,
+	// Добавляем сетевую карту (RNDIS) - только если ОС хоста "usbridge"
+	osName := strings.ToLower(dw.agentOS)
+	if strings.Contains(osName, "usbridge") {
+		rndisItem := DriveItem{
+			Name:      i18n.Current.DeviceNetworkCard,
+			Size:      "N/A",
+			Source:    "rndis",
+			IsMounted: false,
+			IsRNDIS:   true,
+			RNDISMode: oldRNDISMode,
+		}
+		dw.allDrives = append(dw.allDrives, rndisItem)
 	}
-	dw.allDrives = append(dw.allDrives, rndisItem)
 
 	// Восстанавливаем состояние загрузки и монтирования
 	for i := range dw.allDrives {
@@ -403,9 +406,9 @@ func (dw *DiskWidget) combineDrives() {
 
 	dw.updateDevicesStatus()
 	dw.rebuildListItems()
-	dw.traceCombinedDrives()
 
-	logrus.Debugf("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: 1)", len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices))
+	logrus.Debugf("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: %v), agentOS: %q",
+		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
 }
 
 // loadMountedDevices загружает смонтированные устройства через API
@@ -432,36 +435,14 @@ func (dw *DiskWidget) loadMountedDevices() {
 			dw.mountedDevices[i] = &deviceInfo.Devices[i]
 		}
 
-		logrus.Debugf("Загружено %d смонтированных устройств", len(dw.mountedDevices))
+		dw.agentOS = deviceInfo.AgentOS
+		logrus.Debugf("Загружено %d смонтированных устройств, agentOS='%s'", len(dw.mountedDevices), dw.agentOS)
 		dw.updateUIAsync(func() {
 			dw.setAPIMountInProgress(deviceInfo.MountInProgress)
 			dw.updateDevicesStatus()
 			dw.requestDevicesRefresh()
 		})
 	}()
-}
-
-func (dw *DiskWidget) traceCombinedDrives() {
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("total=%d|api=%d|local=%d|user=%d|video=%d|mounted=%d",
-		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), len(dw.mountedDevices)))
-	for i := 0; i < len(dw.allDrives) && i < 6; i++ {
-		drive := dw.allDrives[i]
-		builder.WriteString(fmt.Sprintf("|%d:%s:%t:%t:%s", i, drive.Source, drive.IsMounted, drive.IsMounting, drive.Name))
-	}
-
-	signature := builder.String()
-	if signature == dw.lastDrivesTraceSig {
-		return
-	}
-	dw.lastDrivesTraceSig = signature
-
-	logrus.Infof("[devices-ui] combineDrives: total=%d api=%d local=%d user=%d video=%d mounted=%d",
-		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), len(dw.mountedDevices))
-	for i := 0; i < len(dw.allDrives) && i < 6; i++ {
-		logrus.Infof("[devices-ui] item[%d]: source=%s mounted=%v mounting=%v name=%q",
-			i, dw.allDrives[i].Source, dw.allDrives[i].IsMounted, dw.allDrives[i].IsMounting, dw.allDrives[i].Name)
-	}
 }
 
 // updateDevicesStatus обновляет статус всех устройств в списке
