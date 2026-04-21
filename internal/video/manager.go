@@ -60,7 +60,8 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 			m.info.VideoFPS == req.VideoFPS &&
 			m.info.ClientHost == req.ClientHost &&
 			m.info.ClientPort == req.ClientPort &&
-			m.info.VideoMode == req.VideoMode {
+			m.info.VideoMode == req.VideoMode &&
+			m.info.ShowMouse == req.ShowMouse {
 			log.Println("ℹ️ Видео стриминг уже запущен с актуальными параметрами")
 			return nil
 		}

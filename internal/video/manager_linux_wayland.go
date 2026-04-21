@@ -38,7 +38,11 @@ func buildPlatformArgsWayland(cfg config.Config, req api.VideoStartRequest, mode
 	}
 
 	// Fallback: x11grab via XWayland
-	input := []string{"-f", "x11grab", "-framerate", fmt.Sprintf("%d", req.VideoFPS), "-i", ":0.0"}
+	drawMouse := "0"
+	if req.ShowMouse {
+		drawMouse = "1"
+	}
+	input := []string{"-f", "x11grab", "-draw_mouse", drawMouse, "-framerate", fmt.Sprintf("%d", req.VideoFPS), "-i", ":0.0"}
 	if strings.EqualFold(codec, "h264_vaapi") {
 		return buildVaapiFFmpegArgs(input, req, cfg)
 	}

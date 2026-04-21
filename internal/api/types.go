@@ -104,6 +104,7 @@ type VideoStartRequest struct {
 	VideoMode    string `json:"video_mode,omitempty"`
 	ClientHost   string `json:"client_host,omitempty"`
 	ClientPort   int    `json:"client_port,omitempty"`
+	ShowMouse    bool   `json:"show_mouse,omitempty"`
 	TraceID      string `json:"-"`
 }
 
@@ -147,6 +148,7 @@ type ServiceStatus struct {
 type SystemStatus struct {
 	Service   ServiceStatus `json:"service"`
 	Timestamp time.Time     `json:"timestamp"`
+	OS        string        `json:"os,omitempty"`
 }
 
 type ScreenSnapshot struct {

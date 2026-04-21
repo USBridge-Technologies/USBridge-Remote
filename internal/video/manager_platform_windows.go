@@ -38,10 +38,14 @@ func sourceFormatForPlatform() string {
 }
 
 func buildPlatformArgs(cfg config.Config, req api.VideoStartRequest, mode, codec string) []string {
-	input := []string{"-f", "gdigrab", "-framerate", fmt.Sprintf("%d", req.VideoFPS), "-draw_mouse", "1", "-i", "desktop"}
+	drawMouseVal := "0"
+	if req.ShowMouse {
+		drawMouseVal = "1"
+	}
+	input := []string{"-f", "gdigrab", "-framerate", fmt.Sprintf("%d", req.VideoFPS), "-draw_mouse", drawMouseVal, "-i", "desktop"}
 	videoFilter := softwareFilter(req.VideoWidth, req.VideoHeight, codec)
 	if strings.EqualFold(mode, "dxgi") {
-		input = []string{"-f", "lavfi", "-i", fmt.Sprintf("ddagrab=framerate=%d:draw_mouse=1", req.VideoFPS)}
+		input = []string{"-f", "lavfi", "-i", fmt.Sprintf("ddagrab=framerate=%d:draw_mouse=%s", req.VideoFPS, drawMouseVal)}
 		videoFilter = dxgiFilter(req.VideoWidth, req.VideoHeight, codec)
 	}
 

@@ -230,6 +230,7 @@ func (a *App) Status() api.SystemStatus {
 			Uptime:    time.Since(a.state.startedAt).String(),
 		},
 		Timestamp: time.Now(),
+		OS:        runtime.GOOS,
 	}
 }
 
