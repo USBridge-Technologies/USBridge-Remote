@@ -4,6 +4,7 @@
 
 #define LOG_TAG "SAF_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // Получает детальное сообщение об ошибке из exception
@@ -339,4 +340,62 @@ int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char 
     LOGI("═══════════════════════════════════════════════════════════════");
 
     return (int)fd;
+}
+
+// Запускает SAF пикер через NbdBridge.startSAFPicker()
+int jni_startSAFPicker(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
+    LOGI("🔧 [JNI-SAF] jni_startSAFPicker called");
+    JNIEnv *env = (JNIEnv *)jni_env_ptr;
+    jobject ctx = (jobject)ctx_ptr;
+
+    // В Android при вызове из сторонних потоков FindClass может не найти классы приложения.
+    // Самый надежный способ - получить класс через объект, который у нас уже есть,
+    // но NbdBridge - это статический объект (Kotlin object).
+    // Попробуем сначала стандартный поиск.
+    jclass nbdBridgeClass = (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+    
+    if (nbdBridgeClass == NULL) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        LOGW("⚠️ [JNI-SAF] Direct FindClass failed, trying via Activity ClassLoader");
+        
+        // Попытка найти класс через ClassLoader активности
+        jclass activityClass = (*env)->GetObjectClass(env, ctx);
+        jclass classClass = (*env)->FindClass(env, "java/lang/Class");
+        jmethodID getClassLoaderMethod = (*env)->GetMethodID(env, activityClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+        jobject classLoader = (*env)->CallObjectMethod(env, ctx, getClassLoaderMethod);
+        jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
+        jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+        
+        jstring className = (*env)->NewStringUTF(env, "com.usbridge.client.NbdBridge");
+        nbdBridgeClass = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
+        
+        (*env)->DeleteLocalRef(env, className);
+        (*env)->DeleteLocalRef(env, classLoader);
+        (*env)->DeleteLocalRef(env, activityClass);
+    }
+
+    if (nbdBridgeClass == NULL) {
+        LOGE("❌ [JNI-SAF] Failed to find NbdBridge class even via ClassLoader");
+        if ((*env)->ExceptionCheck(env)) logExceptionDetails(env, "findNbdBridge");
+        return -1;
+    }
+
+    jmethodID startPickerMethod = (*env)->GetStaticMethodID(env, nbdBridgeClass, "startSAFPicker", "()V");
+    if (startPickerMethod == NULL) {
+        LOGE("❌ [JNI-SAF] Failed to find startSAFPicker method");
+        (*env)->DeleteLocalRef(env, nbdBridgeClass);
+        return -1;
+    }
+
+    (*env)->CallStaticVoidMethod(env, nbdBridgeClass, startPickerMethod);
+    (*env)->DeleteLocalRef(env, nbdBridgeClass);
+
+    if ((*env)->ExceptionCheck(env)) {
+        LOGE("❌ [JNI-SAF] Exception in startSAFPicker");
+        logExceptionDetails(env, "startSAFPicker");
+        return -1;
+    }
+
+    LOGI("✅ [JNI-SAF] startSAFPicker call successful");
+    return 0;
 }

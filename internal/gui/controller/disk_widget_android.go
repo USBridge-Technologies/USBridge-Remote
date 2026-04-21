@@ -26,6 +26,51 @@ var (
 	nbdAddr         = "127.0.0.1:10809" // Default address
 )
 
+// pickImageForDiskList запускает выбор файла через SAF и добавляет его в список образов
+func (dw *DiskWidget) pickImageForDiskList() {
+	if dw.window == nil {
+		return
+	}
+
+	logrus.Info("📁 [SAF] Starting image picker for disk list...")
+
+	// Устанавливаем callbacks для получения результата из SAF
+	nbdbridge.SetSAFCallbacks(
+		// Success callback
+		func(uri string, fileName string, fd int, size int64) {
+			logrus.Infof("✅ [SAF] File selected for list: %s (name: %s), size=%d", uri, fileName, size)
+
+			// Передаем в общий обработчик выбранного образа
+			dw.handleSelectedImage(selectedImage{
+				FileName: fileName,
+				URI:      uri,
+			})
+		},
+		// Error callback
+		func(error string) {
+			logrus.Errorf("❌ [SAF] Selection failed: %s", error)
+			fyne.Do(func() {
+				view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, error), dw.window)
+			})
+		},
+	)
+
+	// Запускаем нативный пикер через JNI
+	if dw.safHelper != nil {
+		go func() {
+			err := dw.safHelper.TriggerSAFPicker()
+			if err != nil {
+				logrus.Errorf("❌ [SAF] Failed to trigger picker: %v", err)
+				fyne.Do(func() {
+					view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, err), dw.window)
+				})
+			}
+		}()
+	} else {
+		logrus.Error("❌ [SAF] SAFHelper is nil")
+	}
+}
+
 // handleAddImageAndroid обрабатывает добавление образа через SAF на Android
 func (dw *DiskWidget) handleAddImageAndroid() {
 	if dw.window == nil {
@@ -71,18 +116,18 @@ func (dw *DiskWidget) showNbdDialog() {
 		// Устанавливаем callbacks
 		nbdbridge.SetSAFCallbacks(
 			// Success callback
-			func(uri string, fd int, size int64) {
+			func(uri string, fileName string, fd int, size int64) {
 				nbdSelectedUri = uri
 				nbdSelectedFd = fd
 				nbdSelectedSize = size
 
-				logrus.Infof("✅ Image selected: %s, fd=%d, size=%d", uri, fd, size)
+				logrus.Infof("✅ Image selected: %s (name: %s), fd=%d, size=%d", uri, fileName, fd, size)
 
 				fyne.Do(func() {
 					fileInfoLabel.SetText(fmt.Sprintf(i18n.Current.NBDImageSelected,
-						uri, size/1024/1024))
+						fileName, size/1024/1024))
 					dialog.ShowInformation(i18n.Current.FileSelected,
-						fmt.Sprintf(i18n.Current.NBDImageSelectedGB, uri, float64(size)/1024/1024/1024),
+						fmt.Sprintf(i18n.Current.NBDImageSelectedGB, fileName, float64(size)/1024/1024/1024),
 						dw.window)
 				})
 			},
@@ -95,19 +140,21 @@ func (dw *DiskWidget) showNbdDialog() {
 			},
 		)
 
-		// Показываем инструкцию как вызвать SAF
-		// TODO: Автоматический вызов через app.RunOnJVM
-		fyne.Do(func() {
-			dialog.ShowInformation(
-				i18n.Current.SAFFilePicker,
-				i18n.Current.SAFInstructions,
-				dw.window,
-			)
-		})
-
-		// Вызов SAF пикера через NbdBridge (gomobile экспортированный метод)
-		// NbdBridge.startSAFPicker() откроет SAF и вызовет Nbdbridge.onSAFSuccess()
-		logrus.Info("📱 Waiting for user to trigger SAF picker...")
+		// Вызов SAF пикера через NbdBridge (через JNI)
+		logrus.Info("📱 Triggering SAF picker via JNI...")
+		if dw.safHelper != nil {
+			go func() {
+				err := dw.safHelper.TriggerSAFPicker()
+				if err != nil {
+					logrus.Errorf("❌ Failed to trigger SAF picker: %v", err)
+					fyne.Do(func() {
+						view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, err), dw.window)
+					})
+				}
+			}()
+		} else {
+			logrus.Error("❌ SAFHelper is nil, cannot trigger picker")
+		}
 	})
 
 	// Start button

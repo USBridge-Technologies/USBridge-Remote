@@ -11,6 +11,7 @@ package platform
 // Объявления C функций из saf_jni.c
 int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString);
 int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString, const char *mode);
+int jni_startSAFPicker(uintptr_t jni_env_ptr, uintptr_t ctx_ptr);
 */
 import "C"
 
@@ -342,4 +343,52 @@ func (sh *SAFHelper) jniOpenFileDescriptor(ctx any, uriString string, mode strin
 
 	logrus.Infof("✅ [SAF-JNI-CALL] C функция выполнена успешно, FD=%d", fd)
 	return int(fd), nil
+}
+
+// TriggerSAFPicker запускает выбор файла через SAF на Android
+func (sh *SAFHelper) TriggerSAFPicker() error {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	logrus.Info("🚀 [SAF] Вызов TriggerSAFPicker")
+
+	if sh.app == nil {
+		return fmt.Errorf("SAFHelper: app не инициализирован")
+	}
+
+	errChan := make(chan error, 1)
+
+	driver.RunNative(func(ctx any) error {
+		androidCtx, ok := ctx.(*driver.AndroidContext)
+		if !ok {
+			errChan <- fmt.Errorf("контекст не является *driver.AndroidContext")
+			return nil
+		}
+
+		// Вызываем статический метод NbdBridge.startSAFPicker()
+		// Пакет: com.usbridge.client
+		// Класс: NbdBridge
+		
+		err := sh.jniTriggerSAFPicker(androidCtx)
+		errChan <- err
+		return nil
+	})
+
+	return <-errChan
+}
+
+func (sh *SAFHelper) jniTriggerSAFPicker(androidCtx *driver.AndroidContext) error {
+	logrus.Infof("📍 [SAF-JNI-CALL] Вызов C функции jni_startSAFPicker")
+
+	result := C.jni_startSAFPicker(
+		C.uintptr_t(androidCtx.Env),
+		C.uintptr_t(androidCtx.Ctx),
+	)
+
+	if result != 0 {
+		return fmt.Errorf("JNI вызов jni_startSAFPicker вернул код ошибки: %d", result)
+	}
+
+	logrus.Infof("✅ [SAF-JNI-CALL] C функция jni_startSAFPicker выполнена успешно")
+	return nil
 }

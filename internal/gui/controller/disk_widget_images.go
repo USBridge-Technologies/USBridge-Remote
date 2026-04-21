@@ -82,6 +82,11 @@ func (dw *DiskWidget) handleAddImage() {
 		return
 	}
 
+	if runtime.GOOS == "android" {
+		dw.pickImageForDiskList()
+		return
+	}
+
 	fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
 			logrus.Errorf("❌ [ADD-IMAGE-ERROR] Ошибка при выборе файла: %v", err)
@@ -238,6 +243,10 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 
 // checkStoragePermission проверяет доступ к хранилищу (только для Android).
 func (dw *DiskWidget) checkStoragePermission() bool {
+	if runtime.GOOS == "android" {
+		return true // SAF doesn't need legacy storage permissions
+	}
+
 	testPaths := []string{
 		"/storage/emulated/0",
 		"/sdcard",

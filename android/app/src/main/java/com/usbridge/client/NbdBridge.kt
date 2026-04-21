@@ -137,12 +137,11 @@ object NbdBridge {
                 val detachElapsed = System.currentTimeMillis() - detachStartTime
                 Log.i(TAG, "✅ [SAF-STEP-3] Detached fd: $fd in ${detachElapsed}ms")
 
-                // Step 4: Get file size
-                Log.i(TAG, "📍 [SAF-STEP-4] Getting file size...")
-                val sizeStartTime = System.currentTimeMillis()
+                // Step 4: Get file size and name
+                Log.i(TAG, "📍 [SAF-STEP-4] Getting file details...")
                 val size = getFileSize(uri, contentResolver)
-                val sizeElapsed = System.currentTimeMillis() - sizeStartTime
-                Log.i(TAG, "📍 [SAF-STEP-4] File size: $size bytes (${size/1024/1024} MB) in ${sizeElapsed}ms")
+                val fileName = getFileName(uri, contentResolver)
+                Log.i(TAG, "📍 [SAF-STEP-4] File: $fileName, size: $size bytes")
 
                 if (size <= 0) {
                     Log.e(TAG, "❌ [SAF-STEP-4] Invalid file size: $size")
@@ -161,26 +160,18 @@ object NbdBridge {
                 val totalElapsed = System.currentTimeMillis() - startTime
                 Log.i(TAG, "═══════════════════════════════════════════════════════════════")
                 Log.i(TAG, "✅ [SAF-SUCCESS] All operations completed successfully!")
-                Log.i(TAG, "📊 [SAF-TIMING] Total time: ${totalElapsed}ms")
-                Log.i(TAG, "📊 [SAF-TIMING]   - Permission: ${permStartTime - startTime}ms")
-                Log.i(TAG, "📊 [SAF-TIMING]   - Open FD: ${fdElapsed}ms")
-                Log.i(TAG, "📊 [SAF-TIMING]   - Detach FD: ${detachElapsed}ms")
-                Log.i(TAG, "📊 [SAF-TIMING]   - Get size: ${sizeElapsed}ms")
                 Log.i(TAG, "📦 [SAF-RESULT] URI: $uri")
+                Log.i(TAG, "📦 [SAF-RESULT] FileName: $fileName")
                 Log.i(TAG, "📦 [SAF-RESULT] FD: $fd")
-                Log.i(TAG, "📦 [SAF-RESULT] Size: $size bytes (${size/1024/1024} MB)")
-                Log.i(TAG, "📂 [SAF-RESULT] Source: $source")
+                Log.i(TAG, "📦 [SAF-RESULT] Size: $size bytes")
                 Log.i(TAG, "═══════════════════════════════════════════════════════════════")
 
                 try {
                     Log.i(TAG, "📞 [SAF-CALLBACK] Calling Go callback: Nbdbridge.onSAFSuccess()...")
-                    val goStartTime = System.currentTimeMillis()
-                    Nbdbridge.onSAFSuccess(uri.toString(), fd.toLong(), size)
-                    val goElapsed = System.currentTimeMillis() - goStartTime
-                    Log.i(TAG, "✅ [SAF-CALLBACK] Go callback completed in ${goElapsed}ms")
+                    Nbdbridge.onSAFSuccess(uri.toString(), fileName, fd.toLong(), size)
+                    Log.i(TAG, "✅ [SAF-CALLBACK] Go callback completed")
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ [SAF-CALLBACK] Error calling Go callback: $e", e)
-                    e.printStackTrace()
                 }
 
             } catch (e: Exception) {
@@ -214,6 +205,25 @@ object NbdBridge {
                 Log.e(TAG, "Error calling Go error callback: $e", e)
             }
         }.start()
+    }
+
+    /**
+     * Get filename from URI
+     */
+    private fun getFileName(uri: Uri, contentResolver: ContentResolver): String {
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        return cursor.getString(nameIndex)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get filename: ${e.message}")
+        }
+        return uri.path?.substringAfterLast('/') ?: "unknown"
     }
 
     /**
