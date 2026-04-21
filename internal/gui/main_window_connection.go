@@ -582,7 +582,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 
 		logrus.Info("✅ [QUIC] tunnel established via FRP")
-		
+
 		// Wait for stabilization or context cancel
 		select {
 		case <-time.After(2 * time.Second):
@@ -715,7 +715,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			}
 
 			tsClient := api.NewUSBClientWithHTTPClient(target, mw.config.USBPort, mw.config.APITimeout, httpClient)
-			
+
 			// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
 			// пока tsnet не установил маршрут до пира.
 			var statusErr error
@@ -733,7 +733,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 				if api.IsHTTPNotFound(statusErr) {
 					break // 404 = агент без bridge-регистрации, не retry-able
 				}
-				
+
 				if attempt < maxStatusAttempts {
 					pause := time.Duration(attempt*attempt) * time.Second
 					if pause > 10*time.Second {
@@ -810,8 +810,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		// 1. Протокол Auto
 		// 2. Протокол Tailscale И заказана регистрация (mw.pendingTailscaleRegister)
 		// 3. Протокол Tailscale И хост пустой (подразумеваем что надо зарегистрировать)
-		
-		canBootstrap := protocol == models.ConnectionProtocolAuto || 
+
+		canBootstrap := protocol == models.ConnectionProtocolAuto ||
 			(protocol == models.ConnectionProtocolTailscale && (mw.pendingTailscaleRegister || resolvedHost == ""))
 
 		if !canBootstrap {
@@ -986,6 +986,14 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		connMgr := mw.connectionManager
 		connHost := strings.TrimSpace(host)
 		go func() {
+			deviceInfo, err := client.GetDeviceInfo()
+			if err == nil && deviceInfo != nil {
+				osName := strings.TrimSpace(deviceInfo.AgentOS)
+				if osName != "" {
+					connMgr.UpdateConnectionOS(connHost, osName)
+					return
+				}
+			}
 			status, err := client.GetStatus()
 			if err != nil || status == nil || status.Data == nil {
 				return
@@ -1062,12 +1070,12 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
-	
+
 	// Сразу сбрасываем состояние, чтобы прервать фоновые Refresh циклы
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectionLossInProgress.Store(false)
-	
+
 	if mw.videoWidget != nil {
 		logrus.Info("🛑 Stopping video before disconnect...")
 		_ = mw.videoWidget.StopVideoSync()

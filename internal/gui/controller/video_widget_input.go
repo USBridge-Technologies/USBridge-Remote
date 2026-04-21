@@ -4,9 +4,11 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"time"
 
 	"usbridge-client/internal/input"
+	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -222,6 +224,88 @@ func (vw *VideoWidget) GetShowMouseCursor() bool {
 // SetShowMouseCursor задаёт флаг отображения курсора в захваченном видео.
 func (vw *VideoWidget) SetShowMouseCursor(show bool) {
 	vw.showMouseCursor = show
+	vw.refreshCursorOverlay()
+}
+
+func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {
+	vw.agentOS = strings.TrimSpace(agentOS)
+	vw.agentDisplay = strings.TrimSpace(agentDisplay)
+	vw.refreshCursorOverlay()
+}
+
+func (vw *VideoWidget) UsesWaylandCursorOverlay() bool {
+	osName := strings.ToLower(strings.TrimSpace(vw.agentOS))
+	display := strings.ToLower(strings.TrimSpace(vw.agentDisplay))
+	return strings.Contains(osName, "linux") && (strings.Contains(osName, "wayland") || display == "wayland")
+}
+
+func (vw *VideoWidget) ShouldRenderCursorOverlay() bool {
+	return vw.showMouseCursor && vw.isMouseConnected && vw.UsesWaylandCursorOverlay()
+}
+
+func (vw *VideoWidget) UpdateCursorOverlayPointer(x, y float32, visible bool) {
+	vw.cursorOverlayX = x
+	vw.cursorOverlayY = y
+	vw.cursorOverlayShown = visible
+	vw.refreshCursorOverlay()
+}
+
+// UpdateCursorOverlayFromLocalInput updates the local preview cursor only when it
+// is not expected to come from the remote side (for example Wayland cursor metadata).
+func (vw *VideoWidget) UpdateCursorOverlayFromLocalInput(x, y float32, visible bool) {
+	if vw.ShouldRenderCursorOverlay() && vw.IsTouchPadInputMode() {
+		return
+	}
+	vw.UpdateCursorOverlayPointer(x, y, visible)
+}
+
+func (vw *VideoWidget) handleRemoteCursorUpdate(state models.CursorState) {
+	should := vw.ShouldRenderCursorOverlay()
+	logrus.Debugf("[cursor-overlay] recv: vis=%v x=%.0f y=%.0f size=%dx%d src=%s shouldRender=%v agentOS=%q agentDisplay=%q",
+		state.Visible, state.X, state.Y, state.Width, state.Height, state.Source,
+		should, vw.agentOS, vw.agentDisplay)
+	if !should {
+		return
+	}
+	fyne.Do(func() {
+		vw.updateRemoteCursorOverlay(state)
+	})
+}
+
+func (vw *VideoWidget) updateRemoteCursorOverlay(state models.CursorState) {
+	if !state.Visible || state.Width <= 0 || state.Height <= 0 {
+		logrus.Debugf("[cursor-overlay] hidden: vis=%v size=%dx%d", state.Visible, state.Width, state.Height)
+		vw.UpdateCursorOverlayPointer(0, 0, false)
+		return
+	}
+
+	x, y, w, h := vw.GetViewportRect()
+	if w <= 0 || h <= 0 {
+		logrus.Warnf("[cursor-overlay] viewport not ready: x=%.0f y=%.0f w=%.0f h=%.0f", x, y, w, h)
+		vw.UpdateCursorOverlayPointer(0, 0, false)
+		return
+	}
+
+	denomW := float64(state.Width - 1)
+	denomH := float64(state.Height - 1)
+	if denomW <= 0 {
+		denomW = 1
+	}
+	if denomH <= 0 {
+		denomH = 1
+	}
+
+	localX := x + float32((state.X/denomW)*float64(w))
+	localY := y + float32((state.Y/denomH)*float64(h))
+	logrus.Debugf("[cursor-overlay] draw: remote=(%.0f,%.0f)/(%dx%d) -> local=(%.1f,%.1f) viewport=(%.0f,%.0f,%.0f,%.0f)",
+		state.X, state.Y, state.Width, state.Height, localX, localY, x, y, w, h)
+	vw.UpdateCursorOverlayPointer(localX, localY, true)
+}
+
+func (vw *VideoWidget) refreshCursorOverlay() {
+	if vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.UpdateCursorOverlay()
+	}
 }
 
 func (vw *VideoWidget) logMouseModeState(reason string) {

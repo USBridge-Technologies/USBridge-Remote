@@ -225,7 +225,7 @@ func (vw *VideoWidget) StopVideoSync() error {
 	// Выполняем напрямую в очереди, минуя beginVideoOperation-guard,
 	// чтобы не застрять если handleStartVideo-горутина ещё держит флаг.
 	vw.runVideoOpSync("stop-video-sync", func() {
-		// Убираем проверку if !vw.isStreaming, чтобы гарантированно очистить все зависшие 
+		// Убираем проверку if !vw.isStreaming, чтобы гарантированно очистить все зависшие
 		// состояния GStreamer и Tailscale, если пользователь отключается до конца инициализации.
 		if vw.usbClient != nil {
 			vw.stopVideoInternal()
@@ -330,6 +330,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	if err != nil {
 		return fmt.Errorf("failed to get device info before HID auto-connect: %w", err)
 	}
+	vw.SetAgentEnvironment(deviceInfo.AgentOS, deviceInfo.AgentDisplay)
 	if deviceInfo.MountInProgress {
 		logrus.Infof("⌨️🖱️ Control HID auto-connect skipped: gadget reconfiguration already in progress (desired=%s)", vw.GetMouseInputMode())
 		return nil
@@ -519,8 +520,10 @@ func (vw *VideoWidget) checkMouseConnected() {
 	if err != nil {
 		logrus.Infof("🖱️ Failed to get device information: %v", err)
 		vw.isMouseConnected = false
+		vw.refreshCursorOverlay()
 		return
 	}
+	vw.SetAgentEnvironment(deviceInfo.AgentOS, deviceInfo.AgentDisplay)
 
 	logrus.Debugf("🖱️ checkMouseConnected: received %d devices", len(deviceInfo.Devices))
 
@@ -579,7 +582,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	}()
 
 	vw.frameMutex.Lock()
-	
+
 	// Reuse existing frame if bounds match to avoid Fyne interface tear data race
 	if vw.currentFrame == nil || vw.currentFrame.Bounds() != frame.Bounds() {
 		newFrame := image.NewRGBA(frame.Bounds())
@@ -598,7 +601,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 			}
 		}
 	}
-	
+
 	vw.frameCount++
 	frameNum := vw.frameCount
 	vw.lastFrameTime = time.Now()
@@ -753,6 +756,7 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
 	if usbClient != nil {
 		vw.isClosing.Store(false)
+		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 	}
 	if vw.fullscreenDialog != nil {
 		vw.fullscreenDialog.SetUSBClient(usbClient)
@@ -872,6 +876,7 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameMutex.Unlock()
 	vw.frameDecoder.Reset()
 	vw.frameRenderScheduled.Store(false)
+	vw.UpdateCursorOverlayPointer(0, 0, false)
 
 	fyne.Do(func() {
 		if vw.videoCanvas != nil {

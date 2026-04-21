@@ -159,6 +159,21 @@ type APIResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+type CursorState struct {
+	Visible  bool    `json:"visible"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Width    int     `json:"width,omitempty"`
+	Height   int     `json:"height,omitempty"`
+	HotspotX int     `json:"hotspot_x,omitempty"`
+	HotspotY int     `json:"hotspot_y,omitempty"`
+	Source   string  `json:"source,omitempty"`
+}
+
+type MouseResponseData struct {
+	Cursor *CursorState `json:"cursor,omitempty"`
+}
+
 type TailscaleRegistrationRequest struct {
 	DeviceToken string `json:"device_token"`
 	AuthKey     string `json:"auth_key"`
@@ -249,6 +264,8 @@ type DeviceInfoResponse struct {
 	Count           int          `json:"count"`
 	MountInProgress bool         `json:"mount_in_progress"` // true — монтирование идёт в фоне
 	LastMountError  string       `json:"last_mount_error"`  // ошибка последнего монтирования
+	AgentOS         string       `json:"agent_os,omitempty"`
+	AgentDisplay    string       `json:"agent_display,omitempty"`
 }
 
 // DeviceStatusResponse ответ со статусом устройств (новый API)

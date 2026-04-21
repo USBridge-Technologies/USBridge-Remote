@@ -34,6 +34,7 @@ type TouchpadWrapper struct {
 	videoWidget *VideoWidget
 	image       *canvas.Image
 	clip        *container.Clip
+	cursor      *canvas.Image
 	hScrollBar  *canvas.Rectangle
 	vScrollBar  *canvas.Rectangle
 
@@ -48,6 +49,7 @@ func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
 		image:       videoWidget.videoCanvas,
+		cursor:      canvas.NewImageFromImage(newOverlayCursorImage()),
 		hScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 		vScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 	}
@@ -56,6 +58,7 @@ func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 	}
 	wrapper.hScrollBar.Hide()
 	wrapper.vScrollBar.Hide()
+	wrapper.cursor.Hide()
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
@@ -65,6 +68,7 @@ func NewTouchpadWrapperWithImage(videoWidget *VideoWidget, image *canvas.Image) 
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
 		image:       image,
+		cursor:      canvas.NewImageFromImage(newOverlayCursorImage()),
 		hScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 		vScrollBar:  canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 120}),
 	}
@@ -73,6 +77,7 @@ func NewTouchpadWrapperWithImage(videoWidget *VideoWidget, image *canvas.Image) 
 	}
 	wrapper.hScrollBar.Hide()
 	wrapper.vScrollBar.Hide()
+	wrapper.cursor.Hide()
 	wrapper.ExtendBaseWidget(wrapper)
 	return wrapper
 }
@@ -85,6 +90,25 @@ func (t *TouchpadWrapper) SetImage(image *canvas.Image) {
 		t.clip = nil
 	}
 	t.Refresh()
+}
+
+func (t *TouchpadWrapper) UpdateCursorOverlay() {
+	if t.cursor == nil {
+		return
+	}
+	if !t.videoWidget.ShouldRenderCursorOverlay() || !t.videoWidget.cursorOverlayShown {
+		t.cursor.Hide()
+		canvas.Refresh(t.cursor)
+		return
+	}
+
+	const hotspotX = float32(1)
+	const hotspotY = float32(1)
+	size := fyne.NewSize(18, 24)
+	t.cursor.Resize(size)
+	t.cursor.Move(fyne.NewPos(t.videoWidget.cursorOverlayX-hotspotX, t.videoWidget.cursorOverlayY-hotspotY))
+	t.cursor.Show()
+	canvas.Refresh(t.cursor)
 }
 
 // SetKeyHandlers устанавливает обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey ненадёжен)
@@ -125,6 +149,7 @@ func (r *touchpadRenderer) Layout(size fyne.Size) {
 	if r.wrapper.image != nil {
 		r.wrapper.wrapperLayoutImage(size)
 	}
+	r.wrapper.UpdateCursorOverlay()
 }
 
 func (r *touchpadRenderer) MinSize() fyne.Size {
@@ -136,6 +161,9 @@ func (r *touchpadRenderer) Refresh() {
 		r.wrapper.wrapperLayoutImage(r.wrapper.Size())
 		canvas.Refresh(r.wrapper.clip)
 	}
+	if r.wrapper.cursor != nil {
+		canvas.Refresh(r.wrapper.cursor)
+	}
 	if r.wrapper.image != nil {
 		canvas.Refresh(r.wrapper.image)
 	}
@@ -143,9 +171,9 @@ func (r *touchpadRenderer) Refresh() {
 
 func (r *touchpadRenderer) Objects() []fyne.CanvasObject {
 	if r.wrapper.clip == nil {
-		return []fyne.CanvasObject{r.wrapper.hScrollBar, r.wrapper.vScrollBar}
+		return []fyne.CanvasObject{r.wrapper.cursor, r.wrapper.hScrollBar, r.wrapper.vScrollBar}
 	}
-	return []fyne.CanvasObject{r.wrapper.clip, r.wrapper.hScrollBar, r.wrapper.vScrollBar}
+	return []fyne.CanvasObject{r.wrapper.clip, r.wrapper.cursor, r.wrapper.hScrollBar, r.wrapper.vScrollBar}
 }
 
 func (r *touchpadRenderer) Destroy() {
@@ -491,6 +519,7 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		// Тачскрин: обновление позиции при драге. Левая — SendTouch, правая — только позиция (SendTouchPositionOnly).
@@ -524,6 +553,7 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.currentMouseX = ev.Position.X
@@ -540,6 +570,7 @@ func (t *TouchpadWrapper) MouseOut() {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(0, 0, false)
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		t.videoWidget.CancelTouchDownDelay()
 		if t.videoWidget.touchActive {
@@ -610,6 +641,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 	if t.beginScrollbarDrag(ev.Position) {
 		return
 	}
@@ -645,6 +677,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, false)
 	if t.endScrollbarDrag() {
 		return
 	}
@@ -696,6 +729,7 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 	if t.updateScrollbarDrag(ev.Position) {
 		return
 	}
@@ -757,6 +791,7 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	t.updateTouchpadSize()
+	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 	if t.updateScrollbarDrag(ev.Position) {
 		return
 	}

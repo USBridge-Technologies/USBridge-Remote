@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,15 +74,18 @@ type USBClient struct {
 	httpClient            *http.Client
 	apiKey                string
 	transportErrorHandler func(error)
+	cursorUpdateHandler   func(models.CursorState)
 	keyboardQueue         chan keyboardRequestTask
 	transportErrorMu      sync.Mutex
 	transportErrorCount   int
 	lastTransportErrorAt  time.Time
 
 	// WebSocket для управления мышью
-	mouseWS       *websocket.Conn
-	mouseWSMutex  sync.Mutex
-	mouseWSActive bool
+	mouseWS             *websocket.Conn
+	mouseWSMutex        sync.Mutex
+	mouseWSActive       bool
+	mouseWSIntended     bool       // true while we WANT a WS connection
+	mouseWSReconnectCh  chan struct{} // closed to stop the reconnect goroutine
 }
 
 type keyboardRequestTask struct {
@@ -117,6 +121,10 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 
 func (c *USBClient) SetTransportErrorHandler(handler func(error)) {
 	c.transportErrorHandler = handler
+}
+
+func (c *USBClient) SetCursorUpdateHandler(handler func(models.CursorState)) {
+	c.cursorUpdateHandler = handler
 }
 
 func (c *USBClient) noteSuccessfulTransportRequest() {
@@ -790,6 +798,7 @@ func (c *USBClient) sendMouseRequest(request models.MouseRequest) error {
 	if !apiResp.Success {
 		return fmt.Errorf("ошибка отправки команды мыши: %s", apiResp.Message)
 	}
+	c.handleMouseResponseData(apiResp.Data)
 
 	return nil
 }
@@ -810,7 +819,19 @@ func (c *USBClient) ConnectMouseWebSocket() error {
 		c.mouseWS = nil
 	}
 
-	// Формируем WebSocket URL
+	// Сигнализируем что хотим поддерживать WS и запускаем фоновый reconnect
+	if !c.mouseWSIntended {
+		c.mouseWSIntended = true
+		ch := make(chan struct{})
+		c.mouseWSReconnectCh = ch
+		go c.runMouseWSReconnectLoop(ch)
+	}
+
+	return c.doConnectMouseWSLocked()
+}
+
+// doConnectMouseWSLocked выполняет одну попытку подключения. Вызывается под mouseWSMutex.
+func (c *USBClient) doConnectMouseWSLocked() error {
 	wsURL, err := c.getWebSocketURL("/api/mouse/ws")
 	if err != nil {
 		return fmt.Errorf("ошибка формирования WebSocket URL: %v", err)
@@ -818,36 +839,107 @@ func (c *USBClient) ConnectMouseWebSocket() error {
 
 	logrus.Debugf("🔌 Подключение к WebSocket: %s", wsURL)
 
-	// Подключаемся к WebSocket
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
+	if transport, ok := c.httpClient.Transport.(*http.Transport); ok && transport != nil {
+		dialer.Proxy = transport.Proxy
+		dialer.NetDialContext = transport.DialContext
+		dialer.TLSClientConfig = transport.TLSClientConfig
+	}
+	if c.httpClient.Transport == nil {
+		if transport, ok := http.DefaultTransport.(*http.Transport); ok && transport != nil {
+			dialer.Proxy = transport.Proxy
+			dialer.NetDialContext = transport.DialContext
+			if transport.TLSClientConfig != nil {
+				dialer.TLSClientConfig = transport.TLSClientConfig.Clone()
+			}
+		}
+	}
+	if dialer.TLSClientConfig == nil && strings.HasPrefix(wsURL, "wss://") {
+		dialer.TLSClientConfig = &tls.Config{}
+	}
 
-	conn, _, err := dialer.Dial(wsURL, nil)
+	conn, resp, err := dialer.Dial(wsURL, nil)
 	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("ошибка подключения к WebSocket: %v (status=%s)", err, resp.Status)
+		}
 		return fmt.Errorf("ошибка подключения к WebSocket: %v", err)
 	}
+
+	// Сервер шлёт PingMessage каждые ~25с; pong отправляется библиотекой автоматически.
+	// Устанавливаем PongHandler чтобы убедиться что горутина чтения не блокируется на ping.
+	conn.SetPongHandler(func(string) error { return nil })
 
 	c.mouseWS = conn
 	c.mouseWSActive = true
 
-	// Запускаем горутину для чтения ответов
 	go c.readMouseWebSocketResponses()
 
 	logrus.Info("✅ WebSocket для мыши подключен")
 	return nil
 }
 
-// DisconnectMouseWebSocket отключается от WebSocket
+// runMouseWSReconnectLoop повторяет попытки подключения при разрыве, пока mouseWSIntended == true.
+func (c *USBClient) runMouseWSReconnectLoop(stopCh chan struct{}) {
+	backoff := 2 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-time.After(backoff):
+		}
+
+		c.mouseWSMutex.Lock()
+		if !c.mouseWSIntended {
+			c.mouseWSMutex.Unlock()
+			return
+		}
+		if c.mouseWSActive && c.mouseWS != nil {
+			// Already reconnected (possibly by sendMouseRequest)
+			c.mouseWSMutex.Unlock()
+			backoff = 2 * time.Second
+			continue
+		}
+		logrus.Infof("🔄 Переподключение WebSocket мыши (backoff=%s)", backoff)
+		err := c.doConnectMouseWSLocked()
+		c.mouseWSMutex.Unlock()
+
+		if err != nil {
+			logrus.Warnf("⚠️ WebSocket мыши: переподключение не удалось: %v", err)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			logrus.Info("✅ WebSocket мыши переподключён")
+			backoff = 2 * time.Second
+		}
+	}
+}
+
+// DisconnectMouseWebSocket отключается от WebSocket и останавливает auto-reconnect.
 func (c *USBClient) DisconnectMouseWebSocket() {
 	c.mouseWSMutex.Lock()
-	defer c.mouseWSMutex.Unlock()
 
 	c.mouseWSActive = false
+	c.mouseWSIntended = false
+	ch := c.mouseWSReconnectCh
+	c.mouseWSReconnectCh = nil
+
 	if c.mouseWS != nil {
 		c.mouseWS.Close()
 		c.mouseWS = nil
 		logrus.Info("🔌 WebSocket для мыши отключен")
+	}
+	c.mouseWSMutex.Unlock()
+
+	// Останавливаем reconnect-горутину вне мьютекса
+	if ch != nil {
+		close(ch)
 	}
 }
 
@@ -862,16 +954,23 @@ func (c *USBClient) IsMouseWebSocketActive() bool {
 func (c *USBClient) Disconnect() {
 	c.mouseWSMutex.Lock()
 	c.mouseWSActive = false
+	c.mouseWSIntended = false
+	ch := c.mouseWSReconnectCh
+	c.mouseWSReconnectCh = nil
 	if c.mouseWS != nil {
 		c.mouseWS.Close()
 		c.mouseWS = nil
 	}
 	c.mouseWSMutex.Unlock()
 
+	if ch != nil {
+		close(ch)
+	}
+
 	// Прерываем очередь клавиатуры
 	if c.keyboardQueue != nil {
 		// Просто закрываем канал, воркер выйдет
-		// Но лучше не закрывать если он shared, 
+		// Но лучше не закрывать если он shared,
 		// хотя у нас на каждое подключение новый клиент
 	}
 
@@ -879,37 +978,72 @@ func (c *USBClient) Disconnect() {
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
 	}
-	
+
 	logrus.Info("🔌 USBClient: все соединения закрыты")
 }
 
-// readMouseWebSocketResponses читает ответы от WebSocket сервера
+// readMouseWebSocketResponses читает ответы от WebSocket сервера.
+// При разрыве помечает соединение как неактивное; reconnect-горутина восстановит его.
 func (c *USBClient) readMouseWebSocketResponses() {
+	c.mouseWSMutex.Lock()
+	conn := c.mouseWS
+	c.mouseWSMutex.Unlock()
+
+	if conn == nil {
+		return
+	}
+
 	for {
-		c.mouseWSMutex.Lock()
-		conn := c.mouseWS
-		active := c.mouseWSActive
-		c.mouseWSMutex.Unlock()
-
-		if !active || conn == nil {
-			break
-		}
-
 		var response models.APIResponse
 		err := conn.ReadJSON(&response)
 		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				logrus.Debugf("WebSocket read error: %v", err)
+			intended := false
+			c.mouseWSMutex.Lock()
+			if c.mouseWS == conn {
+				c.mouseWSActive = false
+				c.mouseWS = nil
+				intended = c.mouseWSIntended
 			}
-			c.DisconnectMouseWebSocket()
-			break
+			c.mouseWSMutex.Unlock()
+			conn.Close()
+
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				logrus.Warnf("⚠️ WebSocket мыши разорван: %v (reconnect=%v)", err, intended)
+			} else {
+				logrus.Infof("🔌 WebSocket для мыши закрыт нормально")
+			}
+			return
 		}
 
-		// Обрабатываем ответ если нужно
 		if !response.Success {
 			logrus.Warnf("⚠️ WebSocket mouse error: %s", response.Error)
+			continue
 		}
+		c.handleMouseResponseData(response.Data)
 	}
+}
+
+func (c *USBClient) handleMouseResponseData(data interface{}) {
+	if data == nil || c.cursorUpdateHandler == nil {
+		return
+	}
+
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	var payload models.MouseResponseData
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return
+	}
+	if payload.Cursor == nil {
+		return
+	}
+	logrus.Debugf("[cursor-ws] recv cursor: vis=%v x=%.0f y=%.0f size=%dx%d src=%s",
+		payload.Cursor.Visible, payload.Cursor.X, payload.Cursor.Y,
+		payload.Cursor.Width, payload.Cursor.Height, payload.Cursor.Source)
+	c.cursorUpdateHandler(*payload.Cursor)
 }
 
 // getWebSocketURL преобразует HTTP URL в WebSocket URL

@@ -26,6 +26,9 @@ func NewVideoWidgetGStreamer(usbClient *api.USBClient, gstreamerService *service
 		isStreaming:      false,
 		frameDecoder:     media.NewFrameDecoder(),
 	}
+	if usbClient != nil {
+		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
+	}
 
 	vw.createInterface()
 	vw.startVideoOpsLoop()
@@ -169,7 +172,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	request.ClientPort = clientPort
 	// Уменьшаем размер RTP пакетов для повышения стабильности в Tailscale/FRP
 	request.CapturePixelFormat = "pkt_size=1200"
-	
+
 	mode := request.VideoMode
 	if mode == "" {
 		mode = models.VideoModeH264
@@ -178,7 +181,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	var systemIP string
 	if vw.frpService == nil && vw.tailscaleService != nil {
 		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
-		
+
 		// System Stack for all OS: try system Tailscale IP first
 		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
 		if systemIP != "" {
@@ -191,7 +194,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 			logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
 		} else {
 			logrus.Warn("⚠️ [Tailscale/SystemStack] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
-			
+
 			// Fallback to userspace relay
 			actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
 			if err != nil {
