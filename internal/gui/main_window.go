@@ -53,7 +53,7 @@ type MainWindow struct {
 	appState                *models.AppState
 	isConnected             bool
 	isStreaming             bool
-	isConnectionPending     bool
+	isConnectionPending     atomic.Bool
 	isConnectionLoading     bool
 	connectedProtocol       string
 	activeConnectionToken   string
@@ -98,6 +98,7 @@ type MainWindow struct {
 	deepLinkMonitorStop      chan struct{}
 	lifecycleMu              sync.Mutex
 	lifecycleOps             chan func()
+	onReadyCallback          func()
 	isClosing                atomic.Bool
 }
 

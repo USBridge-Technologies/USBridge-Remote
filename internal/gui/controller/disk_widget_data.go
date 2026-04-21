@@ -231,7 +231,10 @@ func (dw *DiskWidget) combineDrives() {
 				oldReadOnly[key] = d.ReadOnly
 			}
 		}
-		if dw.selectedItems[i] {
+		dw.selectedItemsMu.RLock()
+		isSelected := dw.selectedItems[i]
+		dw.selectedItemsMu.RUnlock()
+		if isSelected {
 			selectedKeys[driveSelectionKey(d)] = true
 		}
 	}
@@ -394,7 +397,9 @@ func (dw *DiskWidget) combineDrives() {
 			remappedSelection[i] = true
 		}
 	}
+	dw.selectedItemsMu.Lock()
 	dw.selectedItems = remappedSelection
+	dw.selectedItemsMu.Unlock()
 
 	dw.updateDevicesStatus()
 	dw.rebuildListItems()

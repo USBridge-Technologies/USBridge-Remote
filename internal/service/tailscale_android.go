@@ -17,6 +17,10 @@ package service
 static char *jni_getStringMethod(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *method_name) {
 	JNIEnv *env = (JNIEnv *)jni_env_ptr;
 	jobject activity = (jobject)ctx_ptr;
+	if (env == NULL) {
+		LOGE("JNIEnv is null");
+		return NULL;
+	}
 	if (activity == NULL) {
 		LOGE("Activity context is null");
 		return NULL;
@@ -64,7 +68,7 @@ static char *jni_getStringMethod(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const
 static int jni_openExternalUrl(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *url) {
 	JNIEnv *env = (JNIEnv *)jni_env_ptr;
 	jobject activity = (jobject)ctx_ptr;
-	if (activity == NULL) return 0;
+	if (env == NULL || activity == NULL) return 0;
 
 	jclass activityClass = (*env)->GetObjectClass(env, activity);
 	jmethodID method = (*env)->GetMethodID(env, activityClass, "openExternalUrl", "(Ljava/lang/String;)Z");
@@ -86,7 +90,7 @@ static int jni_openExternalUrl(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const c
 static void jni_tsRequestVpnPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
 	JNIEnv *env = (JNIEnv *)jni_env_ptr;
 	jobject activity = (jobject)ctx_ptr;
-	if (activity == NULL) return;
+	if (env == NULL || activity == NULL) return;
 
 	jclass activityClass = (*env)->GetObjectClass(env, activity);
 	jmethodID method = (*env)->GetMethodID(env, activityClass, "requestVpnPermission", "()V");

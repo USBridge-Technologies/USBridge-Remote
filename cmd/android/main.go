@@ -41,15 +41,23 @@ func main() {
 	// Создаем конфигурацию по умолчанию для Android
 	config := models.DefaultConfig()
 
+	// Создаем главное окно
+	mainWindow := gui.NewMainWindow(config)
+
+	// Настраиваем callback переключения сети
+	platform.SetOnNetworkChangedCallback(func() {
+		logrus.Info("🌐 Network change notification received, refreshing services...")
+		mainWindow.RefreshNetworkState()
+	})
+	// Mark app as ready only after GUI has started to prevent early JNI callbacks from crashing
+	mainWindow.SetOnReadyCallback(platform.SetAppReady)
+
 	logrus.Infof("📋 Конфигурация:")
 	logrus.Infof("  NBD порт: %d", config.NBDPort)
 	logrus.Infof("  Видео UDP bind: %s:%d", config.VideoBindHost, config.VideoUDPPort)
 
 	// Проверяем доступ к SD карте
 	checkStorageAccess()
-
-	// Создаем главное окно
-	mainWindow := gui.NewMainWindow(config)
 
 	// Запускаем приложение
 	logrus.Info("🎨 Запуск графического интерфейса")

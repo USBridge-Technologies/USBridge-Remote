@@ -164,7 +164,7 @@ func (mw *MainWindow) refreshConnectionControls() {
 	if mw.isConnected {
 		text, fill, foreground := protocolButtonState(mw.connectedProtocol)
 		mw.connectionBtn.ApplySpec(view.HeaderActionButtonSpec{
-			Disabled:   mw.isConnectionPending,
+			Disabled:   mw.isConnectionPending.Load(),
 			Fill:       fill,
 			Foreground: foreground,
 			Stroke:     color.Transparent,
@@ -174,7 +174,7 @@ func (mw *MainWindow) refreshConnectionControls() {
 	} else {
 		hasHost := strings.TrimSpace(mw.hostEntry.Text) != ""
 		spec := view.HeaderActionButtonSpec{
-			Disabled:   mw.isConnectionPending || !hasHost,
+			Disabled:   mw.isConnectionPending.Load() || !hasHost,
 			Fill:       design.ColorAccent,
 			Foreground: design.ColorBackground,
 			Icon:       assets.ConnectIconBoldBlack,
@@ -198,12 +198,12 @@ func (mw *MainWindow) refreshConnectionControls() {
 		}
 
 		mw.connectionBtn.ApplySpec(spec)
-		mw.protocolDropdown.SetDisabled(mw.isConnectionPending)
+		mw.protocolDropdown.SetDisabled(mw.isConnectionPending.Load())
 		mw.protocolDropdown.Show()
 	}
 
 	mw.protocolDropdown.Refresh()
-	if mw.connectionManager != nil && mw.isConnectionPending && !mw.isConnected {
+	if mw.connectionManager != nil && mw.isConnectionPending.Load() && !mw.isConnected {
 		mw.connectionManager.SetConnectionPending(true)
 	}
 }

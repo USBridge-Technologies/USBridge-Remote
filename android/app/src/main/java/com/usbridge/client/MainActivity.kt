@@ -54,12 +54,35 @@ class MainActivity : GoNativeActivity() {
     private var lastViewportCentroidY = 0f
     private var lastViewportDistance = 0f
 
+    private lateinit var connectivityManager: ConnectivityManager
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            Log.i(TAG, "🌐 [NETWORK] Network available: $network")
+            NetworkBridge.onNetworkChanged()
+        }
+
+        override fun onLost(network: android.net.Network) {
+            Log.i(TAG, "🌐 [NETWORK] Network lost: $network")
+            NetworkBridge.onNetworkChanged()
+        }
+
+        override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) {
+            Log.d(TAG, "🌐 [NETWORK] Network capabilities changed: $network")
+            // This is often triggered when WiFi signal strength changes or switching between 4G/5G
+            // We notify Go to ensure Tailscale/netmon stays up to date
+            NetworkBridge.onNetworkChanged()
+        }
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         instance = this
         Log.i(TAG, "MainActivity created")
         setupIMEListener()
+        
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
     }
 
     /**
@@ -119,6 +142,11 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister network callback", e)
+        }
         endViewportGesture()
         super.onDestroy()
         instance = null

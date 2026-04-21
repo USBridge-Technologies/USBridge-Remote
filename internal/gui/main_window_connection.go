@@ -74,7 +74,7 @@ func (mw *MainWindow) setConnectionLoading(loading bool) {
 }
 
 func (mw *MainWindow) clearConnectionPending() {
-	mw.isConnectionPending = false
+	mw.isConnectionPending.Store(false)
 	mw.isConnectionLoading = false
 	mw.pendingTailscaleRegister = false
 	if mw.connectionManager != nil {
@@ -452,13 +452,13 @@ func (mw *MainWindow) verifyWireGuardTunnel() error {
 
 // handleConnectionToggle переключает состояние подключения
 func (mw *MainWindow) handleConnectionToggle() {
-	if mw.isConnectionPending {
+	if mw.isConnectionPending.Load() {
 		logrus.Warn("⚠️ Операция подключения/отключения уже выполняется, игнорируем повторное нажатие")
 		return
 	}
 
 	if mw.isConnected {
-		mw.isConnectionPending = true
+		mw.isConnectionPending.Store(true)
 		mw.refreshConnectionControls()
 		mw.enqueueLifecycleOp("disconnect", func() {
 			mw.handleDisconnect()
@@ -470,7 +470,7 @@ func (mw *MainWindow) handleConnectionToggle() {
 		return
 	}
 
-	mw.isConnectionPending = true
+	mw.isConnectionPending.Store(true)
 	mw.setConnectionLoading(true)
 	host := mw.hostEntry.Text
 	token := mw.tokenEntry.Text
@@ -492,6 +492,11 @@ func (mw *MainWindow) handleConnectionToggle() {
 func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
+	if mw.isConnectionPending.Load() {
+		logrus.Warn("⚠️ Операция подключения уже выполняется, игнорируем повторный вызов")
+		return
+	}
+
 	host := mw.hostEntry.Text
 	token := mw.tokenEntry.Text
 
@@ -502,6 +507,8 @@ func (mw *MainWindow) handleConnect() {
 		return
 	}
 
+	mw.isConnectionPending.Store(true)
+	mw.setConnectionLoading(true)
 	mw.hostEntry.Disable()
 	mw.tokenEntry.Disable()
 	mw.protocolSelect.Disable()

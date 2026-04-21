@@ -622,7 +622,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+                "rtpjitterbuffer latency=100 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
                 "rtph264depay wait-for-keyframe=true ! "
                 "h264parse config-interval=1 ! "
                 "%s ! "
@@ -634,7 +634,7 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             pipeline_str = g_strdup_printf(
                 "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 "
                 "caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-                "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+                "rtpjitterbuffer latency=100 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
                 "rtph264depay wait-for-keyframe=true ! "
                 "h264parse config-interval=1 ! "
                 "%s ! "
@@ -1121,7 +1121,7 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     // avdec_h264 max-threads=0 — авто-выбор числа потоков (NEON на ARM64)
     pipeline_str = g_strdup_printf(
         "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-        "rtpjitterbuffer latency=200 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
+        "rtpjitterbuffer latency=100 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
         "rtph264depay wait-for-keyframe=true ! "
         "h264parse config-interval=1 ! "
         "avdec_h264 max-threads=0 ! "

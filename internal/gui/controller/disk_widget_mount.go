@@ -76,6 +76,7 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	var selectedDrives []DriveItem
+	dw.selectedItemsMu.RLock()
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) {
 			drive := dw.allDrives[id]
@@ -84,6 +85,7 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 	}
+	dw.selectedItemsMu.RUnlock()
 
 	if len(selectedDrives) == 0 {
 		logrus.Warnf("⚠️ Нет выбранных устройств для подключения")
@@ -474,26 +476,29 @@ func (dw *DiskWidget) handleUnmount() {
 		return
 	}
 
-	selectedAndMountedIndices := make(map[int]bool)
+	selectedIndices := make(map[int]bool)
 	selectedMountedVideo := false
+	dw.selectedItemsMu.RLock()
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) && dw.allDrives[id].IsMounted {
 			if dw.allDrives[id].IsVideo {
 				selectedMountedVideo = true
+			} else {
+				selectedIndices[id] = true
 			}
-			selectedAndMountedIndices[id] = true
 		}
 	}
+	dw.selectedItemsMu.RUnlock()
 
 	confirmMsg := i18n.Current.UnmountAllConfirm
-	unmountAll := len(selectedAndMountedIndices) == 0 && !selectedMountedVideo
+	unmountAll := len(selectedIndices) == 0 && !selectedMountedVideo
 	if !unmountAll {
 		confirmMsg = i18n.Current.UnmountSelectedConfirm
 	}
 
 	finalUnmountAll := unmountAll
 	finalSelectedIndices := make(map[int]bool)
-	for k, v := range selectedAndMountedIndices {
+	for k, v := range selectedIndices {
 		finalSelectedIndices[k] = v
 	}
 	finalMountedDrives := make([]DriveItem, len(mountedDrives))
@@ -589,6 +594,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 
 	time.Sleep(2 * time.Second)
 	dw.updateUIAsync(func() {
+		dw.selectedItemsMu.Lock()
 		if unmountAll {
 			dw.selectedItems = make(map[int]bool)
 		} else {
@@ -596,6 +602,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 				delete(dw.selectedItems, idx)
 			}
 		}
+		dw.selectedItemsMu.Unlock()
 		dw.updateButtons()
 		dw.loadMountedDevices()
 		dw.loadLocalDrives()
@@ -719,6 +726,8 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 
 // countSelectedItems возвращает количество выбранных элементов.
 func (dw *DiskWidget) countSelectedItems() int {
+	dw.selectedItemsMu.RLock()
+	defer dw.selectedItemsMu.RUnlock()
 	count := 0
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) {
@@ -729,6 +738,8 @@ func (dw *DiskWidget) countSelectedItems() int {
 }
 
 func (dw *DiskWidget) countSelectedGadgetItems() int {
+	dw.selectedItemsMu.RLock()
+	defer dw.selectedItemsMu.RUnlock()
 	count := 0
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) && !dw.allDrives[id].IsVideo {
@@ -740,6 +751,7 @@ func (dw *DiskWidget) countSelectedGadgetItems() int {
 
 // updateButtons обновляет состояние кнопок.
 func (dw *DiskWidget) updateButtons() {
+	dw.selectedItemsMu.RLock()
 	selectedCount := 0
 	selectedNotMountedCount := 0
 	selectedGadgetNotMountedCount := 0
@@ -756,6 +768,7 @@ func (dw *DiskWidget) updateButtons() {
 			}
 		}
 	}
+	dw.selectedItemsMu.RUnlock()
 	for _, drive := range dw.allDrives {
 		if drive.IsMounted && !drive.IsVideo {
 			mountedCount++
@@ -776,12 +789,15 @@ func (dw *DiskWidget) updateButtons() {
 	controlsLocked := dw.controlsLocked()
 
 	fyne.Do(func() {
+		if dw.unmountBtn == nil || dw.mountBtn == nil {
+			return
+		}
+
 		disconnectLabel := i18n.Current.DisconnectButton
 		if selectedCount == 0 && hasMountedDevices {
 			disconnectLabel = i18n.Current.DisconnectAllButton
 		}
-		dw.unmountBtn.Text = disconnectLabel
-		dw.unmountBtn.Refresh()
+		dw.unmountBtn.SetText(disconnectLabel)
 		if dw.compactUnmountBtn != nil {
 			dw.compactUnmountBtn.SetLabel(disconnectLabel)
 		}

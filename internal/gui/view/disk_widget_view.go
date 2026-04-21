@@ -147,22 +147,26 @@ func (t *adaptiveNameText) MinSize() fyne.Size {
 }
 
 func (t *adaptiveNameText) Refresh() {
-	if t.label != nil {
-		t.label.Color = t.color
-		t.label.TextStyle = t.style
-		t.label.TextSize = t.textSize
-		t.label.Text = t.truncatedForWidth(t.Size().Width)
-		t.label.Refresh()
-	}
-	t.BaseWidget.Refresh()
+	fyne.Do(func() {
+		if t.label != nil {
+			t.label.Color = t.color
+			t.label.TextStyle = t.style
+			t.label.TextSize = t.textSize
+			t.label.Text = t.truncatedForWidth(t.Size().Width)
+			t.label.Refresh()
+		}
+		t.BaseWidget.Refresh()
+	})
 }
 
 func (t *adaptiveNameText) Resize(size fyne.Size) {
 	t.BaseWidget.Resize(size)
-	if t.label != nil {
-		t.label.Text = t.truncatedForWidth(size.Width)
-		t.label.Refresh()
-	}
+	fyne.Do(func() {
+		if t.label != nil {
+			t.label.Text = t.truncatedForWidth(size.Width)
+			t.label.Refresh()
+		}
+	})
 }
 
 func (t *adaptiveNameText) truncatedForWidth(width float32) string {
@@ -747,17 +751,23 @@ func (v *DevicesListView) Refresh() {
 	if v == nil || v.buildRows == nil {
 		return
 	}
+
 	v.mu.Lock()
-	defer v.mu.Unlock()
-	forgetDiskRowWidgets(v.content.Objects)
 	rows := v.buildRows()
-	objects := make([]fyne.CanvasObject, 0, len(rows)+1)
+
+	var objects []fyne.CanvasObject
 	if v.buildIntro != nil {
 		if intro := v.buildIntro(); intro != nil {
-			objects = append(objects, intro)
+			objects = append([]fyne.CanvasObject{intro}, rows...)
+		} else {
+			objects = rows
 		}
+	} else {
+		objects = rows
 	}
-	objects = append(objects, rows...)
+	v.mu.Unlock()
+
+	forgetDiskRowWidgets(v.content.Objects)
 	v.content.Objects = objects
 	v.content.Refresh()
 	v.Scroll.Refresh()

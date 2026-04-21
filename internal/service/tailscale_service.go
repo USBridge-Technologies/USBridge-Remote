@@ -340,6 +340,19 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 	return firstAddr(st.Self.TailscaleIPs), nil
 }
 
+func (s *TailscaleService) RefreshNetwork() {
+	logrus.Info("🛰️ [Tailscale] Refreshing network state...")
+	refreshAndroidDefaultRouteInterface()
+	
+	s.mu.Lock()
+	srv := s.server
+	s.mu.Unlock()
+
+	if srv != nil {
+		logrus.Debug("🛰️ [Tailscale] tsnet server re-discovery triggered via netmon update")
+	}
+}
+
 func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 	if port <= 0 {
 		port = 55000

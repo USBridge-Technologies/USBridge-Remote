@@ -54,6 +54,7 @@ type DiskWidget struct {
 	mountedDevices        []*models.DeviceInfo
 	selectedDrive         *DriveItem
 	selectedItems         map[int]bool // Множественный выбор элементов
+	selectedItemsMu       sync.RWMutex // Мутекс для защиты selectedItems
 	devicesTraceBudget    int
 	lastDrivesTraceSig    string
 	preferredMouseMode    string
@@ -302,13 +303,18 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted
 	controlsLocked := dw.controlsLocked()
 	if drive.Source == "mouse" || drive.Source == "rndis" {
-		nameLabel.Show()
-		prefixIcon.Show()
-		modeRowIconText.Hide()
-		modeTitleLabel.Hide()
+		fyne.Do(func() {
+			nameLabel.Show()
+			prefixIcon.Show()
+			modeRowIconText.Hide()
+			modeTitleLabel.Hide()
+		})
 		if drive.Source == "rndis" {
-			modeSelect.SetOptions(rndisModeOptions)
-			modeSelect.SetSelected(normalizeRNDISMode(drive.RNDISMode))
+			mode := normalizeRNDISMode(drive.RNDISMode)
+			fyne.Do(func() {
+				modeSelect.SetOptions(rndisModeOptions)
+				modeSelect.SetSelected(mode)
+			})
 			rowID := id
 			modeSelect.OnSelected = func(s string) {
 				if dw.controlsLocked() {
@@ -319,13 +325,16 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				}
 			}
 		} else {
-			switch normalizeMouseMode(drive.MouseType) {
-			case mouseModeAbsolute:
-				modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
-			default:
-				modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
-			}
-			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceAbsolute})
+			mode := normalizeMouseMode(drive.MouseType)
+			fyne.Do(func() {
+				switch mode {
+				case mouseModeAbsolute:
+					modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
+				default:
+					modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
+				}
+				modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceAbsolute})
+			})
 			rowID := id
 			modeSelect.OnSelected = func(s string) {
 				if dw.controlsLocked() {
@@ -342,24 +351,36 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				dw.applyMouseModeSelection(rowID, newMode)
 			}
 		}
-		modeSelect.Show()
-		modeSelect.SetDisabled(controlsLocked)
+		fyne.Do(func() {
+			modeSelect.Show()
+			modeSelect.SetDisabled(controlsLocked)
+		})
 	} else {
-		nameLabel.Show()
-		prefixIcon.Show()
-		modeRowIconText.Hide()
-		modeTitleLabel.Hide()
-		modeSelect.Hide()
+		fyne.Do(func() {
+			nameLabel.Show()
+			prefixIcon.Show()
+			modeRowIconText.Hide()
+			modeTitleLabel.Hide()
+			modeSelect.Hide()
+		})
 	}
 
-	statusLabel.Hide()
+	fyne.Do(func() {
+		statusLabel.Hide()
+	})
 
 	if drive.IsVideo {
-		checkbox.Hide()
+		fyne.Do(func() {
+			checkbox.Hide()
+		})
 		if captureSelector != nil {
-			captureSelector.Show()
-			captureSelector.SetSelected(dw.isPreferredVideoDrive(drive))
-			captureSelector.SetDisabled(controlsLocked || videoUnavailable)
+			selected := dw.isPreferredVideoDrive(drive)
+			disabled := controlsLocked || videoUnavailable
+			fyne.Do(func() {
+				captureSelector.Show()
+				captureSelector.SetSelected(selected)
+				captureSelector.SetDisabled(disabled)
+			})
 			if drive.VideoDevice != nil {
 				deviceCopy := *drive.VideoDevice
 				captureSelector.SetOnTapped(func() {
@@ -375,16 +396,24 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		}
 	} else {
 		if captureSelector != nil {
-			captureSelector.Hide()
+			fyne.Do(func() {
+				captureSelector.Hide()
+			})
 			captureSelector.SetOnTapped(nil)
 		}
-		checkbox.SetChecked(dw.selectedItems[id])
-		checkbox.Show()
-		if controlsLocked || drive.IsMounting || videoUnavailable {
-			checkbox.Disable()
-		} else {
-			checkbox.Enable()
-		}
+		dw.selectedItemsMu.RLock()
+		checked := dw.selectedItems[id]
+		dw.selectedItemsMu.RUnlock()
+
+		fyne.Do(func() {
+			checkbox.SetChecked(checked)
+			checkbox.Show()
+			if controlsLocked || drive.IsMounting || videoUnavailable {
+				checkbox.Disable()
+			} else {
+				checkbox.Enable()
+			}
+		})
 		checkbox.OnChanged = func(checked bool) {
 			if dw.controlsLocked() || drive.IsMounting || videoUnavailable {
 				return
@@ -392,14 +421,16 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			if checked {
 				selectedCount := dw.countSelectedGadgetItems()
 				if selectedCount >= MaxDevicesToMount {
-					checkbox.SetChecked(false)
+					fyne.Do(func() { checkbox.SetChecked(false) })
 					if dw.window != nil {
 						dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
 					}
 					return
 				}
 			}
+			dw.selectedItemsMu.Lock()
 			dw.selectedItems[id] = checked
+			dw.selectedItemsMu.Unlock()
 			dw.updateButtons()
 		}
 	}
@@ -408,45 +439,60 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	if drive.IsMounted {
 		baseTextColor = design.ColorAccent
 	}
-	nameLabel.SetColor(baseTextColor)
+	
+	iconRes := assets.DiscIcon
 	if drive.IsMounted {
-		prefixIcon.Resource = assets.DiscIconActive
-	} else {
-		prefixIcon.Resource = assets.DiscIcon
+		iconRes = assets.DiscIconActive
 	}
-	modeTitleLabel.Color = baseTextColor
-	modeTitleLabel.Refresh()
-	modeRowIconText.Color = baseTextColor
-	modeRowIconText.Refresh()
+
+	fyne.Do(func() {
+		nameLabel.SetColor(baseTextColor)
+		prefixIcon.Resource = iconRes
+		prefixIcon.Refresh()
+		modeTitleLabel.Color = baseTextColor
+		modeTitleLabel.Refresh()
+		modeRowIconText.Color = baseTextColor
+		modeRowIconText.Refresh()
+	})
 
 	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting {
-		uploadBtn.Show()
+		fyne.Do(func() { uploadBtn.Show() })
 		if drive.IsUploading || controlsLocked {
-			uploadBtn.SetIcons(assets.UploadIconMuted, assets.UploadIconMuted, assets.UploadIconMuted)
-			if drive.IsUploading {
-				uploadBtn.SetText(fmt.Sprintf("%.0f%%", drive.UploadProgress))
-			} else {
-				uploadBtn.SetText("")
-			}
-			uploadBtn.SetDisabled(true)
+			progress := drive.UploadProgress
+			isUploading := drive.IsUploading
+			fyne.Do(func() {
+				uploadBtn.SetIcons(assets.UploadIconMuted, assets.UploadIconMuted, assets.UploadIconMuted)
+				if isUploading {
+					uploadBtn.SetText(fmt.Sprintf("%.0f%%", progress))
+				} else {
+					uploadBtn.SetText("")
+				}
+				uploadBtn.SetDisabled(true)
+			})
 		} else {
-			uploadBtn.SetIcons(assets.UploadIcon, assets.UploadIcon, assets.UploadIconMuted)
-			uploadBtn.SetText("")
-			uploadBtn.SetDisabled(false)
+			fyne.Do(func() {
+				uploadBtn.SetIcons(assets.UploadIcon, assets.UploadIcon, assets.UploadIconMuted)
+				uploadBtn.SetText("")
+				uploadBtn.SetDisabled(false)
+			})
 			uploadBtn.SetOnTapped(func() {
 				dw.handleUploadImage(id)
 			})
 		}
 	} else {
-		uploadBtn.SetText("")
-		uploadBtn.Hide()
+		fyne.Do(func() {
+			uploadBtn.SetText("")
+			uploadBtn.Hide()
+		})
 	}
 
 	if drive.IsMounting {
-		deleteBtn.Hide()
+		fyne.Do(func() { deleteBtn.Hide() })
 	} else if drive.Source == "user" {
-		deleteBtn.Show()
-		deleteBtn.SetDisabled(controlsLocked)
+		fyne.Do(func() {
+			deleteBtn.Show()
+			deleteBtn.SetDisabled(controlsLocked)
+		})
 		if controlsLocked {
 			deleteBtn.SetOnTapped(nil)
 		} else {
@@ -459,8 +505,10 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			drive.LocalDrive.Name == "data" &&
 			drive.LocalDrive.SourceType == "mtp"
 		if !isBackupFlash {
-			deleteBtn.Show()
-			deleteBtn.SetDisabled(controlsLocked)
+			fyne.Do(func() {
+				deleteBtn.Show()
+				deleteBtn.SetDisabled(controlsLocked)
+			})
 			if controlsLocked {
 				deleteBtn.SetOnTapped(nil)
 			} else {
@@ -469,19 +517,19 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				})
 			}
 		} else {
-			deleteBtn.Hide()
+			fyne.Do(func() { deleteBtn.Hide() })
 		}
 	} else {
-		deleteBtn.Hide()
+		fyne.Do(func() { deleteBtn.Hide() })
 	}
 
 	if drive.IsVideo && drive.VideoDevice != nil {
-		settingsBtn.Show()
+		fyne.Do(func() { settingsBtn.Show() })
 		devicePath := drive.VideoDevice.Path
 		if controlsLocked || videoUnavailable {
-			settingsBtn.Disable()
+			fyne.Do(func() { settingsBtn.Disable() })
 		} else {
-			settingsBtn.Enable()
+			fyne.Do(func() { settingsBtn.Enable() })
 		}
 		settingsBtn.SetOnTapped(func() {
 			dw.setPreferredVideoDevice(*drive.VideoDevice)
@@ -491,7 +539,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			dw.requestDevicesRefresh()
 		})
 	} else {
-		settingsBtn.Hide()
+		fyne.Do(func() { settingsBtn.Hide() })
 	}
 
 	overlayCapable := false
@@ -902,6 +950,8 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
 	dw.loadMountedDevices()
+	dw.combineDrives()
+	dw.requestDevicesRefresh()
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {

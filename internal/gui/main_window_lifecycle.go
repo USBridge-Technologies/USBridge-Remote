@@ -70,8 +70,8 @@ func (mw *MainWindow) showMainContent() {
 			content.Refresh()
 			mw.window.Canvas().Refresh(content)
 		}
+		mw.updateDeviceButtonsVisibility()
 	})
-	mw.updateDeviceButtonsVisibility()
 	mw.scheduleControlBootstrap()
 }
 
@@ -144,6 +144,11 @@ func (mw *MainWindow) handleClose() {
 	})
 }
 
+// SetOnReadyCallback sets a callback invoked after the UI is fully initialized.
+func (mw *MainWindow) SetOnReadyCallback(cb func()) {
+	mw.onReadyCallback = cb
+}
+
 // Show displays the window.
 func (mw *MainWindow) Show() {
 	go func() {
@@ -162,6 +167,9 @@ func (mw *MainWindow) Show() {
 			mw.checkDeepLink()
 			mw.startDeepLinkMonitoring()
 			mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
+			if mw.onReadyCallback != nil {
+				go mw.onReadyCallback()
+			}
 		})
 	}()
 
