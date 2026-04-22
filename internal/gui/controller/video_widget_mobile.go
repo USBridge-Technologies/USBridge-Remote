@@ -3,22 +3,28 @@
 package controller
 
 import (
+	"sync"
 	"usbridge-client/internal/gui/graphics"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
-func (vw *VideoWidget) platformRegisterGestureTarget() {
-	activeMobileGestureTargetMu.Lock()
-	activeMobileGestureTarget = vw
-	activeMobileGestureTargetMu.Unlock()
-}
+var (
+	activeMobileGestureTargetMu sync.RWMutex
+	activeMobileGestureTarget   *VideoWidget
+)
 
 func activeGestureVideoWidget() *VideoWidget {
 	activeMobileGestureTargetMu.RLock()
 	defer activeMobileGestureTargetMu.RUnlock()
 	return activeMobileGestureTarget
+}
+
+func (vw *VideoWidget) platformRegisterGestureTarget() {
+	activeMobileGestureTargetMu.Lock()
+	activeMobileGestureTarget = vw
+	activeMobileGestureTargetMu.Unlock()
 }
 
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {

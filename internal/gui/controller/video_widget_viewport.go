@@ -1,15 +1,9 @@
 package controller
 
 import (
-	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
-)
-
-var (
-	activeMobileGestureTargetMu sync.RWMutex
-	activeMobileGestureTarget   *VideoWidget
 )
 
 func (vw *VideoWidget) activeViewportWrapper() *TouchpadWrapper {
