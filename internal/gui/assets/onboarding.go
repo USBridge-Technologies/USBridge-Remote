@@ -68,6 +68,14 @@ var (
 	powerOffIcon []byte
 	//go:embed reset.svg
 	resetIcon []byte
+	//go:embed USBridge.svg
+	usbridgeIcon []byte
+	//go:embed linux-svgrepo-com.svg
+	linuxOSIcon []byte
+	//go:embed windows-svgrepo-com.svg
+	windowsOSIcon []byte
+	//go:embed macos-svgrepo-com.svg
+	macosOSIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
 	//go:embed onboarding/Front_panel1.png
@@ -141,6 +149,10 @@ var (
 	PowerOffIconActive         = fyne.NewStaticResource("off-active.svg", recolorFillIcon(powerOffIcon, "#111111"))
 	ResetIcon                  = fyne.NewStaticResource("reset.svg", recolorFillIcon(resetIcon, "#F5F5F5"))
 	ResetIconActive            = fyne.NewStaticResource("reset-active.svg", recolorFillIcon(resetIcon, "#111111"))
+	USBridgeOSIcon             = fyne.NewStaticResource("USBridge-os.svg", recolorMonoIcon(usbridgeIcon, "#C9C9C9", "1.8"))
+	LinuxOSIcon                = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
+	WindowsOSIcon              = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
+	MacOSIcon                  = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
 	OnboardingStep01           = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
 	OnboardingStep02           = fyne.NewStaticResource("Front_panel1.png", onboardingStep02)
 	OnboardingStep03           = fyne.NewStaticResource("Front_panel2.png", onboardingStep03)
@@ -180,6 +192,10 @@ func recolorStrokeIcon(source []byte, stroke string, width string) []byte {
 	svg = strokeWidthPattern.ReplaceAllString(svg, fmt.Sprintf(`stroke-width="%s"`, width))
 	svg = strings.ReplaceAll(svg, "stroke:black", "stroke:"+stroke)
 	return []byte(svg)
+}
+
+func recolorMonoIcon(source []byte, color string, strokeWidth string) []byte {
+	return recolorStrokeIcon(recolorFillIcon(source, color), color, strokeWidth)
 }
 
 func boldenServerIcon(source []byte, stroke string, width string) []byte {

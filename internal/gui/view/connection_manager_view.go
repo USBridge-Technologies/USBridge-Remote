@@ -933,7 +933,7 @@ var (
 )
 
 func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions ConnectionRowActions) *fyne.Container {
-	nameBlock := newConnectionNameButton(data.Name, data.AddressSummary, actions.OnEdit)
+	nameBlock := newConnectionNameButton(data.Name, data.AddressSummary, data.RemoteOS, actions.OnEdit)
 	nameBlock.SetDisabled(state.Disabled)
 
 	protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
@@ -969,11 +969,6 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	center := container.New(&connectionCompactContentLayout{}, nameBlock)
 
 	rightItems := []fyne.CanvasObject{registerCheck, protocolBtn}
-	if label := osShortLabel(data.RemoteOS); label != "" {
-		osTxt := canvas.NewText(label, design.ColorTextMuted)
-		osTxt.TextSize = 10
-		rightItems = append(rightItems, osTxt)
-	}
 	rightItems = append(rightItems, useBtn)
 
 	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, rightItems...)
@@ -981,21 +976,19 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	return NewInset(row, 0, 4, 4, 4)
 }
 
-func osShortLabel(os string) string {
+func osIconResource(os string) fyne.Resource {
 	normalized := strings.ToLower(strings.TrimSpace(os))
 	switch {
 	case strings.Contains(normalized, "usbridge"):
-		return "USBridge"
+		return assets.USBridgeOSIcon
 	case strings.Contains(normalized, "linux"):
-		return "Linux"
+		return assets.LinuxOSIcon
 	case strings.Contains(normalized, "windows"):
-		return "Win"
+		return assets.WindowsOSIcon
 	case strings.Contains(normalized, "darwin"), strings.Contains(normalized, "mac"):
-		return "Mac"
-	case strings.Contains(normalized, "bsd"):
-		return "BSD"
+		return assets.MacOSIcon
 	default:
-		return ""
+		return nil
 	}
 }
 
@@ -1010,6 +1003,7 @@ type connectionNameButton struct {
 
 	title    string
 	subtitle string
+	remoteOS string
 	onTapped func()
 	disabled bool
 	hovered  bool
@@ -1018,13 +1012,15 @@ type connectionNameButton struct {
 	titleTxt *adaptiveNameText
 	subTxt   *fyne.Container
 	subLines []*canvas.Text
+	osIcon   *canvas.Image
 	icon     *canvas.Image
 }
 
-func newConnectionNameButton(title, subtitle string, onTapped func()) *connectionNameButton {
+func newConnectionNameButton(title, subtitle, remoteOS string, onTapped func()) *connectionNameButton {
 	b := &connectionNameButton{
 		title:    title,
 		subtitle: subtitle,
+		remoteOS: remoteOS,
 		onTapped: onTapped,
 	}
 	b.ExtendBaseWidget(b)
@@ -1082,7 +1078,7 @@ func (b *connectionNameButton) MinSize() fyne.Size {
 		subLineCount = 1
 	}
 	subHeight := lineHeight * float32(subLineCount)
-	width := maxFloat32(title.Width, subWidth) + 34
+	width := maxFloat32(title.Width, subWidth+b.subtitleIconOffset()) + 34
 	height := title.Height + subHeight + 12
 	return fyne.NewSize(width, height)
 }
@@ -1096,7 +1092,7 @@ func (b *connectionNameButton) preferredWidth() float32 {
 			subWidth = size.Width
 		}
 	}
-	return maxFloat32(title.Width, subWidth) + 34
+	return maxFloat32(title.Width, subWidth+b.subtitleIconOffset()) + 34
 }
 
 func (b *connectionNameButton) subtitleHeight() float32 {
@@ -1111,6 +1107,13 @@ func (b *connectionNameButton) subtitleHeight() float32 {
 		extraGaps = subLineCount - 1
 	}
 	return lineHeight*float32(subLineCount) + gap*float32(extraGaps)
+}
+
+func (b *connectionNameButton) subtitleIconOffset() float32 {
+	if osIconResource(b.remoteOS) == nil {
+		return 0
+	}
+	return 28
 }
 
 func (b *connectionNameButton) rebuildSubtitle() {
@@ -1147,20 +1150,23 @@ func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
 	b.titleTxt.SetColor(design.ColorTextLight)
 	b.titleTxt.SetText(b.title)
 	b.rebuildSubtitle()
+	b.osIcon = canvas.NewImageFromResource(nil)
+	b.osIcon.FillMode = canvas.ImageFillContain
+	b.osIcon.SetMinSize(fyne.NewSize(18, 18))
 	b.icon = canvas.NewImageFromResource(theme.DocumentCreateIcon())
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(13, 13))
 
 	r := &connectionNameButtonRenderer{
 		button:  b,
-		objects: []fyne.CanvasObject{b.bg, b.titleTxt, b.subTxt, b.icon},
+		objects: []fyne.CanvasObject{b.bg, b.titleTxt, b.subTxt, b.osIcon, b.icon},
 	}
 	r.Refresh()
 	return r
 }
 
 func (b *connectionNameButton) refreshVisuals() {
-	if b.bg == nil || b.titleTxt == nil || b.subTxt == nil || b.icon == nil {
+	if b.bg == nil || b.titleTxt == nil || b.subTxt == nil || b.osIcon == nil || b.icon == nil {
 		return
 	}
 
@@ -1168,10 +1174,20 @@ func (b *connectionNameButton) refreshVisuals() {
 	b.titleTxt.SetText(b.title)
 	b.titleTxt.SetColor(design.ColorTextLight)
 	b.rebuildSubtitle()
+	if res := osIconResource(b.remoteOS); res != nil {
+		b.osIcon.Resource = res
+		b.osIcon.Show()
+		b.osIcon.Translucency = 0
+	} else {
+		b.osIcon.Hide()
+	}
 	b.icon.Translucency = 0
 
 	if b.disabled {
 		b.titleTxt.SetColor(design.ColorBorder)
+		if b.osIcon.Visible() {
+			b.osIcon.Translucency = 0.35
+		}
 		b.icon.Translucency = 0.35
 	}
 	subColor := design.ColorTextMuted
@@ -1188,6 +1204,7 @@ func (b *connectionNameButton) refreshVisuals() {
 
 	b.bg.Refresh()
 	b.subTxt.Refresh()
+	b.osIcon.Refresh()
 	b.icon.Refresh()
 }
 
@@ -1204,8 +1221,16 @@ func (r *connectionNameButtonRenderer) Layout(size fyne.Size) {
 	r.button.titleTxt.Resize(fyne.NewSize(titleWidth, r.button.titleTxt.MinSize().Height))
 
 	subY := float32(24)
-	r.button.subTxt.Move(fyne.NewPos(8, subY))
-	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-16), r.button.subtitleHeight()))
+	subX := float32(8)
+	if r.button.osIcon.Visible() {
+		iconSize := fyne.NewSize(18, 18)
+		iconY := subY + maxFloat32(0, (r.button.subtitleHeight()-iconSize.Height)/2)
+		r.button.osIcon.Resize(iconSize)
+		r.button.osIcon.Move(fyne.NewPos(8, iconY))
+		subX += r.button.subtitleIconOffset()
+	}
+	r.button.subTxt.Move(fyne.NewPos(subX, subY))
+	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-subX-8), r.button.subtitleHeight()))
 
 	iconSize := fyne.NewSize(13, 13)
 	r.button.icon.Resize(iconSize)
