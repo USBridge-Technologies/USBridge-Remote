@@ -168,13 +168,11 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		safHelper:          platform.GetSAFHelper(app),
 	}
 
+	if runtime.GOOS == "android" && dw.safHelper != nil {
+		logrus.Info("📱 [ANDROID-INIT] SAF global context will be initialized on window set")
+	}
+
 	dw.createInterfaceV2()
-	dw.loadUserImagesFromPreferences() // Загружаем сохраненные образы
-	dw.loadLocalDrives()
-	dw.loadLocalFiles()
-	dw.loadVideoDevices()
-	dw.combineDrives()
-	dw.loadMountedDevices()
 
 	// Запускаем периодическое обновление состояния
 	dw.startPeriodicRefresh()
@@ -185,6 +183,21 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 // SetWindow устанавливает окно для диалогов
 func (dw *DiskWidget) SetWindow(window fyne.Window) {
 	dw.window = window
+	if runtime.GOOS == "android" && dw.safHelper != nil {
+		go func() {
+			logrus.Info("📱 [ANDROID-INIT] Initializing SAF global context and loading saved images")
+			dw.safHelper.SetContext()
+			
+			dw.updateUIAsync(func() {
+				dw.loadUserImagesFromPreferences()
+				dw.loadLocalDrives()
+				dw.loadLocalFiles()
+				dw.loadVideoDevices()
+				dw.combineDrives()
+				dw.loadMountedDevices()
+			})
+		}()
+	}
 }
 
 // createInterface создает интерфейс виджета

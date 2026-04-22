@@ -10,9 +10,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Обработчики, которые могут быть установлены из других пакетов для предотвращения циклической зависимости
+var (
+	GlobalSuccessHandler func(uri string, fd int, size int64)
+	GlobalErrorHandler   func(err string)
+)
+
 var (
 	// Callbacks для SAF результата
-	safSuccessCallback func(uri string, fileName string, fd int, size int64)
+	safSuccessCallback func(uri string, fd int, size int64)
 	safErrorCallback   func(error string)
 
 	// Mutex для защиты SAF callbacks
@@ -33,81 +39,86 @@ type QRScanResult struct {
 
 // SetSAFCallbacks устанавливает callbacks для SAF
 // Вызывается из Go UI кода перед открытием SAF пикера
-func SetSAFCallbacks(onSuccess func(uri string, fileName string, fd int, size int64), onError func(error string)) {
+func SetSAFCallbacks(onSuccess func(uri string, fd int, size int64), onError func(error string)) {
 	callbackMu.Lock()
 	defer callbackMu.Unlock()
 	safSuccessCallback = onSuccess
 	safErrorCallback = onError
-	logrus.Info("SAF callbacks установлены")
+	logrus.Infof("📍 [NBDBRIDGE] SAF callbacks установлены (success: %v, error: %v)", onSuccess != nil, onError != nil)
 }
 
 // OnSAFSuccess вызывается из Kotlin когда файл выбран
 // Эта функция экспортируется через gomobile и доступна как Nbdbridge.onSAFSuccess()
-func OnSAFSuccess(uri string, fileName string, fd int64, size int64) {
+func OnSAFSuccess(uri string, fd int64, size int64) {
+	logrus.Infof("🏁 [SAF-CALLBACK-ENTRY] OnSAFSuccess triggered: uri=%s, fd=%d, size=%d", uri, fd, size)
+	
 	// Закрепляем горутину на OS потоке для стабильности JNI вызова
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("Go: panic в OnSAFSuccess: %v", r)
+			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в OnSAFSuccess: %v", r)
 		}
 	}()
 
-	// Делаем копию строк чтобы они не зависели от JNI памяти
+	// Делаем копию строки чтобы она не зависели от JNI памяти
 	uriCopy := strings.Clone(uri)
-	nameCopy := strings.Clone(fileName)
 
 	callbackMu.RLock()
 	callback := safSuccessCallback
+	logrus.Infof("📍 [SAF-CALLBACK-STATE] Current callback: %v", callback != nil)
 	callbackMu.RUnlock()
 
 	if callback != nil {
-		logrus.Infof("Go: SAF success - uri=%s, name=%s, fd=%d, size=%d", uriCopy, nameCopy, fd, size)
+		logrus.Infof("📞 [SAF-CALLBACK-INVOKE] Calling Go success callback...")
 		// Вызываем callback в горутине чтобы не блокировать JNI поток
-		go func(c func(string, string, int, int64), u string, n string, f int, s int64) {
+		go func(c func(string, int, int64), u string, f int, s int64) {
 			defer func() {
 				if r := recover(); r != nil {
-					logrus.Errorf("Go: panic в SAF success callback: %v", r)
+					logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в SAF success callback: %v", r)
 				}
 			}()
-			c(u, n, f, s)
-		}(callback, uriCopy, nameCopy, int(fd), size)
+			c(u, f, s)
+			logrus.Info("✅ [SAF-CALLBACK-INVOKE-DONE] Go success callback completed")
+		}(callback, uriCopy, int(fd), size)
+	} else {
+		logrus.Warn("⚠️ [SAF-CALLBACK-WARN] No success callback registered in nbdbridge!")
+	}
+
+	// Попытка вызвать глобальный обработчик (внедренный)
+	if GlobalSuccessHandler != nil {
+		logrus.Info("📞 [SAF-GLOBAL-INVOKE] Calling injected global success handler...")
+		go GlobalSuccessHandler(uriCopy, int(fd), size)
 	}
 }
-
-
-// OnSAFError вызывается из Kotlin при ошибке
-// Эта функция экспортируется через gomobile и доступна как Nbdbridge.onSAFError()
 func OnSAFError(errorMsg string) {
+	logrus.Errorf("🏁 [SAF-ERROR-ENTRY] OnSAFError triggered: %s", errorMsg)
+
 	// Закрепляем горутину на OS потоке для стабильности JNI вызова
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("Go: panic в OnSAFError: %v", r)
+			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в OnSAFError: %v", r)
 		}
 	}()
 
-	// Делаем копию строки чтобы она не зависела от JNI памяти
-	errorCopy := strings.Clone(errorMsg)
+	// Делаем копию строки чтобы она не зависели от JNI памяти
+	errCopy := strings.Clone(errorMsg)
 
 	callbackMu.RLock()
 	callback := safErrorCallback
 	callbackMu.RUnlock()
 
 	if callback != nil {
-		logrus.Errorf("Go: SAF error - %s", errorCopy)
-		// Вызываем callback в горутине чтобы не блокировать JNI поток
-		go func(c func(string), e string) {
-			defer func() {
-				if r := recover(); r != nil {
-					logrus.Errorf("Go: panic в SAF error callback: %v", r)
-				}
-			}()
-			c(e)
-		}(callback, errorCopy)
+		logrus.Infof("Go: SAF error - %s", errCopy)
+		go callback(errCopy)
+	}
+
+	if GlobalErrorHandler != nil {
+		go GlobalErrorHandler(errCopy)
 	}
 }
 

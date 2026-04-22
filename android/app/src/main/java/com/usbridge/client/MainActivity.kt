@@ -28,6 +28,8 @@ class MainActivity : GoNativeActivity() {
     companion object {
         private const val TAG = "MainActivity"
         const val SAF_PICK_REQUEST_CODE = 1001
+        const val FYNE_FILE_OPEN_REQUEST_CODE = 1002
+        const val FYNE_FILE_SAVE_REQUEST_CODE = 1003
         const val CAMERA_REQUEST_CODE = 3001
         const val QR_SCAN_REQUEST_CODE = 4001
         const val VPN_PREPARE_REQUEST_CODE = 4501
@@ -182,6 +184,15 @@ class MainActivity : GoNativeActivity() {
                 NbdBridge.handleActivityResult(requestCode, resultCode, data, contentResolver)
                 val elapsed = System.currentTimeMillis() - startTime
                 Log.i(TAG, "✅ [ACTIVITY-RESULT] NbdBridge.handleActivityResult() returned after ${elapsed}ms")
+            }
+            FYNE_FILE_OPEN_REQUEST_CODE -> {
+                Log.i(TAG, "📤 [ACTIVITY-RESULT] Fyne showFileOpen result — forwarding to NbdBridge...")
+                NbdBridge.handleActivityResult(SAF_PICK_REQUEST_CODE, resultCode, data, contentResolver)
+                val elapsed = System.currentTimeMillis() - startTime
+                Log.i(TAG, "✅ [ACTIVITY-RESULT] Fyne showFileOpen handled in ${elapsed}ms")
+            }
+            FYNE_FILE_SAVE_REQUEST_CODE -> {
+                Log.i(TAG, "📤 [ACTIVITY-RESULT] Fyne showFileSave result: code=$resultCode, uri=${data?.data}")
             }
             CAMERA_REQUEST_CODE -> {
                 Log.i(TAG, "📤 [ACTIVITY-RESULT] Handling camera result...")
@@ -410,6 +421,53 @@ class MainActivity : GoNativeActivity() {
             return ev.y
         }
         return (ev.getY(0) + ev.getY(1)) / 2f
+    }
+
+    /**
+     * Called by Fyne's Android driver via JNI to open a file picker.
+     * Fyne caches this method ID at startup and aborts if not found.
+     * We launch a real SAF intent; the result is routed through NbdBridge.
+     */
+    fun showFileOpen(mimeType: String) {
+        Log.i(TAG, "showFileOpen: mimeType=$mimeType")
+        runOnUiThread {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mimeType.ifEmpty { "*/*" }
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                    "application/octet-stream",
+                    "application/x-iso9660-image",
+                    "application/x-raw-disk-image",
+                    "application/x-cd-image"
+                ))
+            }
+            try {
+                startActivityForResult(intent, FYNE_FILE_OPEN_REQUEST_CODE)
+            } catch (e: Exception) {
+                Log.e(TAG, "showFileOpen: failed to start picker", e)
+                NbdBridge.onSAFPickerError("File picker unavailable: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Called by Fyne's Android driver via JNI to open a file save dialog.
+     * Fyne caches this method ID at startup and aborts if not found.
+     */
+    fun showFileSave(mimeType: String, filename: String) {
+        Log.i(TAG, "showFileSave: mimeType=$mimeType, filename=$filename")
+        runOnUiThread {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mimeType.ifEmpty { "*/*" }
+                putExtra(Intent.EXTRA_TITLE, filename)
+            }
+            try {
+                startActivityForResult(intent, FYNE_FILE_SAVE_REQUEST_CODE)
+            } catch (e: Exception) {
+                Log.e(TAG, "showFileSave: failed to start saver", e)
+            }
+        }
     }
 
     /**

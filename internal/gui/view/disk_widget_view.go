@@ -800,7 +800,9 @@ func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyn
 }
 
 func NewDeviceSectionAddButton(onTapped func()) fyne.CanvasObject {
-	return newCompactActionWrap(connectionCompactActionSize, newOutlinedActionButton("+", onTapped))
+	btn := widget.NewButton("+", onTapped)
+	btn.Importance = widget.LowImportance
+	return newCompactActionWrap(connectionCompactActionSize, btn)
 }
 
 func newSectionCardHeader(titleText fyne.CanvasObject, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, leadingGap float32) fyne.CanvasObject {

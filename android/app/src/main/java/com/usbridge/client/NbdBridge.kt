@@ -17,6 +17,20 @@ import nbdbridge.Nbdbridge
 object NbdBridge {
     private const val TAG = "NbdBridge"
 
+    // Статические поля для результата (для надежного доступа через JNI)
+    @JvmStatic @Volatile var lastUri: String = ""
+    @JvmStatic @Volatile var lastFd: Int = -1
+    @JvmStatic @Volatile var lastSize: Long = 0
+    @JvmStatic @Volatile var hasNewResult: Boolean = false
+
+    @JvmStatic
+    fun clearSAFResult() {
+        hasNewResult = false
+        lastUri = ""
+        lastFd = -1
+        lastSize = 0
+    }
+
     // Callbacks не нужны - используем прямой вызов Go функций через Nbdbridge пакет
 
     /**
@@ -156,24 +170,23 @@ object NbdBridge {
                     return@Thread
                 }
 
-                // Step 5: Success! Send to Go
-                val totalElapsed = System.currentTimeMillis() - startTime
+                // Step 5: Success! Store for polling and call callback
+                lastUri = uri.toString()
+                lastFd = fd
+                lastSize = size
+                hasNewResult = true
+
                 Log.i(TAG, "═══════════════════════════════════════════════════════════════")
-                Log.i(TAG, "✅ [SAF-SUCCESS] All operations completed successfully!")
-                Log.i(TAG, "📦 [SAF-RESULT] URI: $uri")
-                Log.i(TAG, "📦 [SAF-RESULT] FileName: $fileName")
-                Log.i(TAG, "📦 [SAF-RESULT] FD: $fd")
-                Log.i(TAG, "📦 [SAF-RESULT] Size: $size bytes")
+                Log.i(TAG, "✅ [SAF-SUCCESS] Result stored in Java for polling")
+                Log.i(TAG, "📦 [SAF-RESULT] URI: $lastUri, FD: $lastFd, Size: $lastSize")
                 Log.i(TAG, "═══════════════════════════════════════════════════════════════")
 
                 try {
-                    Log.i(TAG, "📞 [SAF-CALLBACK] Calling Go callback: Nbdbridge.onSAFSuccess()...")
-                    Nbdbridge.onSAFSuccess(uri.toString(), fileName, fd.toLong(), size)
-                    Log.i(TAG, "✅ [SAF-CALLBACK] Go callback completed")
+                    Log.i(TAG, "📞 [SAF-CALLBACK] Calling Go callback as fallback...")
+                    Nbdbridge.onSAFSuccess(lastUri, lastFd.toLong(), lastSize)
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ [SAF-CALLBACK] Error calling Go callback: $e", e)
+                    Log.e(TAG, "❌ [SAF-CALLBACK] Error calling Go callback: $e")
                 }
-
             } catch (e: Exception) {
                 val totalElapsed = System.currentTimeMillis() - startTime
                 Log.e(TAG, "═══════════════════════════════════════════════════════════════")

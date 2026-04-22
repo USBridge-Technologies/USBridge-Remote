@@ -48,8 +48,16 @@ func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 
 // handleAddImage обрабатывает добавление образа диска из файловой системы.
 func (dw *DiskWidget) handleAddImage() {
+	fmt.Printf("🚀 [HANDLE-ADD-IMAGE] ENTER, GOOS=%s\n", runtime.GOOS)
+	logrus.Infof("🚀 [HANDLE-ADD-IMAGE] ENTER, GOOS=%s", runtime.GOOS)
 	if dw.window == nil {
 		logrus.Warn("⚠️ Окно не установлено")
+		return
+	}
+
+	if runtime.GOOS == "android" {
+		fmt.Println("📱 [HANDLE-ADD-IMAGE] Taking Android path...")
+		dw.pickImageForDiskList()
 		return
 	}
 
@@ -79,11 +87,6 @@ func (dw *DiskWidget) handleAddImage() {
 				}
 			})
 		}()
-		return
-	}
-
-	if runtime.GOOS == "android" {
-		dw.pickImageForDiskList()
 		return
 	}
 
@@ -129,6 +132,9 @@ func (dw *DiskWidget) handleAddImage() {
 }
 
 func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
+	fmt.Printf("🚀 [HANDLE-SELECTED-START] FileName: %q, URI: %q\n", selected.FileName, selected.URI)
+	logrus.Infof("🚀 [HANDLE-SELECTED-START] FileName: %q, URI: %q", selected.FileName, selected.URI)
+
 	fileName := strings.TrimSpace(selected.FileName)
 	uriString := strings.TrimSpace(selected.URI)
 	if fileName == "" || uriString == "" {
@@ -159,7 +165,7 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 			fileSize = 0
 		} else {
 			logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Попытка получить размер файла через SAF")
-			file, err := dw.safHelper.OpenFileDescriptor(uriString, "rw")
+			file, err := dw.safHelper.OpenFileDescriptor(uriString, "r")
 			if err == nil && file != nil {
 				stat, err := file.Stat()
 				if err == nil {
@@ -168,9 +174,8 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 				} else {
 					logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось получить размер: %v", err)
 				}
-				logrus.Infof("📍 [ADD-IMAGE-ANDROID-5] Файл остается открытым в кэше SAFHelper")
 			} else {
-				logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось открыть файл через SAF: %v", err)
+				logrus.Warnf("⚠️ [ADD-IMAGE-ANDROID-5-ERROR] Не удалось открыть файл через SAF (возможно временная ошибка): %v", err)
 			}
 		}
 	} else {
@@ -187,11 +192,22 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(fileName))
+	logrus.Infof("📍 [HANDLE-SELECTED-CHECK] Extension: %q, supported: %v", ext, dw.supportedTypes)
 	supported := false
 	for _, supportedType := range dw.supportedTypes {
 		if strings.ToLower(supportedType) == ext {
 			supported = true
 			break
+		}
+	}
+
+	// На Android SAF мы разрешаем добавлять файлы даже без расширения,
+	// так как они могут приходить как content://... без внятного имени.
+	if !supported && runtime.GOOS == "android" && strings.HasPrefix(uriString, "content://") {
+		logrus.Infof("📍 [ADD-IMAGE-ANDROID] Разрешаем файл без расширения или с неизвестным расширением для SAF: %s", fileName)
+		supported = true
+		if ext == "" {
+			ext = ".img" // дефолтное расширение для образов
 		}
 	}
 
@@ -227,6 +243,7 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 	}
 
 	dw.userImages = append(dw.userImages, diskInfo)
+	logrus.Infof("✅ [HANDLE-SELECTED-ADDED] Added to list. Total images: %d", len(dw.userImages))
 	logrus.Infof("✅ [ADD-IMAGE-7] Образ добавлен в userImages: %s (всего: %d)", diskInfo.Name, len(dw.userImages))
 
 	logrus.Infof("📍 [ADD-IMAGE-8] Сохранение в preferences...")

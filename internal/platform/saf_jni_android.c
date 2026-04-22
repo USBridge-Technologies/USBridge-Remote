@@ -1,11 +1,15 @@
 #include <jni.h>
 #include <android/log.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define LOG_TAG "SAF_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+static JavaVM *g_jvm = NULL;
+static jobject g_ctx = NULL;
 
 // Получает детальное сообщение об ошибке из exception
 static void logExceptionDetails(JNIEnv *env, const char *prefix) {
@@ -14,388 +18,268 @@ static void logExceptionDetails(JNIEnv *env, const char *prefix) {
     }
 
     jthrowable exception = (*env)->ExceptionOccurred(env);
-    if (exception == NULL) {
-        return;
-    }
-
-    // Очищаем exception чтобы можно было вызывать JNI методы
     (*env)->ExceptionClear(env);
 
-    // Получаем класс Throwable
-    jclass throwableClass = (*env)->FindClass(env, "java/lang/Throwable");
-    if (throwableClass == NULL) {
-        LOGE("%s: Failed to find Throwable class", prefix);
-        (*env)->DeleteLocalRef(env, exception);
-        return;
-    }
-
-    // Получаем getMessage()
-    jmethodID getMessage = (*env)->GetMethodID(env, throwableClass, "getMessage", "()Ljava/lang/String;");
-    if (getMessage != NULL) {
-        // Вызываем getMessage()
-        jstring messageObj = (jstring)(*env)->CallObjectMethod(env, exception, getMessage);
-        if (messageObj != NULL) {
-            const char *message = (*env)->GetStringUTFChars(env, messageObj, NULL);
-            if (message != NULL) {
-                LOGE("%s: Exception message: %s", prefix, message);
-                (*env)->ReleaseStringUTFChars(env, messageObj, message);
-            }
-            (*env)->DeleteLocalRef(env, messageObj);
-        }
-    }
-
-    // Получаем имя класса exception
     jclass exceptionClass = (*env)->GetObjectClass(env, exception);
-    jclass classClass = (*env)->FindClass(env, "java/lang/Class");
-    if (classClass != NULL && exceptionClass != NULL) {
-        jmethodID getName = (*env)->GetMethodID(env, classClass, "getName", "()Ljava/lang/String;");
-        if (getName != NULL) {
-            jstring nameObj = (jstring)(*env)->CallObjectMethod(env, exceptionClass, getName);
-            if (nameObj != NULL) {
-                const char *name = (*env)->GetStringUTFChars(env, nameObj, NULL);
-                if (name != NULL) {
-                    LOGE("%s: Exception class: %s", prefix, name);
-                    (*env)->ReleaseStringUTFChars(env, nameObj, name);
-                }
-                (*env)->DeleteLocalRef(env, nameObj);
-            }
-        }
+    jmethodID getMessageMethod = (*env)->GetMethodID(env, exceptionClass, "getMessage", "()Ljava/lang/String;");
+    jstring message = (jstring)(*env)->CallObjectMethod(env, exception, getMessageMethod);
+
+    if (message != NULL) {
+        const char *cMessage = (*env)->GetStringUTFChars(env, message, NULL);
+        LOGE("❌ [JNI-EXCEPTION] %s: %s", prefix, cMessage);
+        (*env)->ReleaseStringUTFChars(env, message, cMessage);
+        (*env)->DeleteLocalRef(env, message);
+    } else {
+        LOGE("❌ [JNI-EXCEPTION] %s: (no message)", prefix);
     }
 
-    if (classClass) (*env)->DeleteLocalRef(env, classClass);
-    if (exceptionClass) (*env)->DeleteLocalRef(env, exceptionClass);
-    if (throwableClass) (*env)->DeleteLocalRef(env, throwableClass);
+    (*env)->DeleteLocalRef(env, exceptionClass);
     (*env)->DeleteLocalRef(env, exception);
 }
 
-// Вызов Java метода takePersistableUriPermission через JNI
-int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString) {
-    LOGI("jni_takePersistableUriPermission: %s", uriString);
-
-    JNIEnv *env = (JNIEnv *)jni_env_ptr;
-    jobject ctx = (jobject)ctx_ptr;
-
-    // Получаем ContentResolver
-    jclass contextClass = (*env)->GetObjectClass(env, ctx);
-    if (contextClass == NULL) {
-        LOGE("Failed to get Context class");
-        return -1;
-    }
-
-    jmethodID getContentResolver = (*env)->GetMethodID(env, contextClass,
-        "getContentResolver", "()Landroid/content/ContentResolver;");
-
-    if (getContentResolver == NULL) {
-        LOGE("Failed to find getContentResolver method");
-        (*env)->DeleteLocalRef(env, contextClass);
-        return -1;
-    }
-
-    jobject contentResolver = (*env)->CallObjectMethod(env, ctx, getContentResolver);
-    (*env)->DeleteLocalRef(env, contextClass);
-
-    if (contentResolver == NULL) {
-        LOGE("Failed to get ContentResolver");
-        return -1;
-    }
-
-    // Парсим URI
-    jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
-    if (uriClass == NULL) {
-        LOGE("Failed to find Uri class");
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass,
-        "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-    if (parseMethod == NULL) {
-        LOGE("Failed to find Uri.parse method");
-        (*env)->DeleteLocalRef(env, uriClass);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jstring jUriString = (*env)->NewStringUTF(env, uriString);
-    jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
-    (*env)->DeleteLocalRef(env, uriClass);
-    (*env)->DeleteLocalRef(env, jUriString);
-
-    if (uri == NULL) {
-        LOGE("Failed to parse URI");
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    // Получаем флаги
-    jclass intentClass = (*env)->FindClass(env, "android/content/Intent");
-    if (intentClass == NULL) {
-        LOGE("Failed to find Intent class");
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jfieldID readFlag = (*env)->GetStaticFieldID(env, intentClass,
-        "FLAG_GRANT_READ_URI_PERMISSION", "I");
-    jfieldID writeFlag = (*env)->GetStaticFieldID(env, intentClass,
-        "FLAG_GRANT_WRITE_URI_PERMISSION", "I");
-
-    if (readFlag == NULL || writeFlag == NULL) {
-        LOGE("Failed to get permission flags");
-        (*env)->DeleteLocalRef(env, intentClass);
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jint flags = (*env)->GetStaticIntField(env, intentClass, readFlag)
-               | (*env)->GetStaticIntField(env, intentClass, writeFlag);
-    (*env)->DeleteLocalRef(env, intentClass);
-
-    // Вызываем takePersistableUriPermission
-    jclass resolverClass = (*env)->GetObjectClass(env, contentResolver);
-    jmethodID takePermMethod = (*env)->GetMethodID(env, resolverClass,
-        "takePersistableUriPermission", "(Landroid/net/Uri;I)V");
-
-    if (takePermMethod == NULL) {
-        LOGE("Failed to find takePersistableUriPermission method");
-        (*env)->DeleteLocalRef(env, resolverClass);
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    (*env)->CallVoidMethod(env, contentResolver, takePermMethod, uri, flags);
-    (*env)->DeleteLocalRef(env, resolverClass);
-
-    // Проверяем ошибки
-    if ((*env)->ExceptionCheck(env)) {
-        LOGE("Exception occurred during takePersistableUriPermission");
-        logExceptionDetails(env, "takePersistableUriPermission");
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    LOGI("takePersistableUriPermission SUCCESS");
-    (*env)->DeleteLocalRef(env, uri);
-    (*env)->DeleteLocalRef(env, contentResolver);
-    return 0;
-}
-
-// Открывает файловый дескриптор через SAF
-int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString, const char *mode) {
-    LOGI("═══════════════════════════════════════════════════════════════");
-    LOGI("🔧 [JNI-OPENFD-START] jni_openFileDescriptor called");
-    LOGI("📍 [JNI-OPENFD-START] URI: %s", uriString);
-    LOGI("📍 [JNI-OPENFD-START] Mode: %s", mode);
-    LOGI("═══════════════════════════════════════════════════════════════");
-
-    JNIEnv *env = (JNIEnv *)jni_env_ptr;
-    jobject ctx = (jobject)ctx_ptr;
-
-    // Получаем ContentResolver
-    jclass contextClass = (*env)->GetObjectClass(env, ctx);
-    if (contextClass == NULL) {
-        LOGE("❌ [JNI-OPENFD-1] Failed to get Context class");
-        return -1;
-    }
-
-    jmethodID getContentResolver = (*env)->GetMethodID(env, contextClass,
-        "getContentResolver", "()Landroid/content/ContentResolver;");
-
-    if (getContentResolver == NULL) {
-        LOGE("❌ [JNI-OPENFD-2] Failed to find getContentResolver method");
-        logExceptionDetails(env, "[JNI-OPENFD-2]");
-        (*env)->DeleteLocalRef(env, contextClass);
-        return -1;
-    }
-
-    jobject contentResolver = (*env)->CallObjectMethod(env, ctx, getContentResolver);
-    (*env)->DeleteLocalRef(env, contextClass);
-
-    if (contentResolver == NULL) {
-        LOGE("❌ [JNI-OPENFD-3] Failed to get ContentResolver");
-        logExceptionDetails(env, "[JNI-OPENFD-3]");
-        return -1;
-    }
-
-    // Парсим URI
-    jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
-    if (uriClass == NULL) {
-        LOGE("❌ [JNI-OPENFD-4] Failed to find Uri class");
-        logExceptionDetails(env, "[JNI-OPENFD-4]");
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass,
-        "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-    if (parseMethod == NULL) {
-        LOGE("❌ [JNI-OPENFD-5] Failed to find Uri.parse method");
-        logExceptionDetails(env, "[JNI-OPENFD-5]");
-        (*env)->DeleteLocalRef(env, uriClass);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jstring jUriString = (*env)->NewStringUTF(env, uriString);
-    if (jUriString == NULL) {
-        LOGE("❌ [JNI-OPENFD-6] Failed to create Java string");
-        (*env)->DeleteLocalRef(env, uriClass);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
-    (*env)->DeleteLocalRef(env, uriClass);
-    (*env)->DeleteLocalRef(env, jUriString);
-
-    if (uri == NULL) {
-        LOGE("❌ [JNI-OPENFD-7] Failed to parse URI");
-        logExceptionDetails(env, "[JNI-OPENFD-7]");
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    // Открываем ParcelFileDescriptor
-    jclass resolverClass = (*env)->GetObjectClass(env, contentResolver);
-    if (resolverClass == NULL) {
-        LOGE("❌ [JNI-OPENFD-8] Failed to get ContentResolver class");
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jmethodID openFdMethod = (*env)->GetMethodID(env, resolverClass,
-        "openFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;)Landroid/os/ParcelFileDescriptor;");
-
-    if (openFdMethod == NULL) {
-        LOGE("❌ [JNI-OPENFD-9] Failed to find openFileDescriptor method");
-        logExceptionDetails(env, "[JNI-OPENFD-9]");
-        (*env)->DeleteLocalRef(env, resolverClass);
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    jstring jMode = (*env)->NewStringUTF(env, mode);
-    if (jMode == NULL) {
-        LOGE("❌ [JNI-OPENFD-10] Failed to create mode string");
-        (*env)->DeleteLocalRef(env, resolverClass);
-        (*env)->DeleteLocalRef(env, uri);
-        (*env)->DeleteLocalRef(env, contentResolver);
-        return -1;
-    }
-
-    LOGI("⚠️  [JNI-OPENFD-11] Calling openFileDescriptor(uri, '%s')...", mode);
-    jobject pfd = (*env)->CallObjectMethod(env, contentResolver, openFdMethod, uri, jMode);
-    (*env)->DeleteLocalRef(env, resolverClass);
-    (*env)->DeleteLocalRef(env, jMode);
-    (*env)->DeleteLocalRef(env, uri);
-    (*env)->DeleteLocalRef(env, contentResolver);
-
-    if (pfd == NULL || (*env)->ExceptionCheck(env)) {
-        LOGE("❌ [JNI-OPENFD-11] Failed to open ParcelFileDescriptor");
-        logExceptionDetails(env, "[JNI-OPENFD-11]");
-        return -1;
-    }
-
-    // Получаем detachFd()
-    jclass pfdClass = (*env)->GetObjectClass(env, pfd);
-    if (pfdClass == NULL) {
-        LOGE("❌ [JNI-OPENFD-12] Failed to get ParcelFileDescriptor class");
-        (*env)->DeleteLocalRef(env, pfd);
-        return -1;
-    }
-
-    jmethodID detachFdMethod = (*env)->GetMethodID(env, pfdClass, "detachFd", "()I");
-    if (detachFdMethod == NULL) {
-        LOGE("❌ [JNI-OPENFD-13] Failed to find detachFd method");
-        logExceptionDetails(env, "[JNI-OPENFD-13]");
-        (*env)->DeleteLocalRef(env, pfdClass);
-        (*env)->DeleteLocalRef(env, pfd);
-        return -1;
-    }
-
-    jint fd = (*env)->CallIntMethod(env, pfd, detachFdMethod);
-    (*env)->DeleteLocalRef(env, pfdClass);
-    (*env)->DeleteLocalRef(env, pfd);
-
-    // Проверяем ошибки
-    if ((*env)->ExceptionCheck(env)) {
-        LOGE("❌ [JNI-OPENFD-14] Exception during detachFd");
-        logExceptionDetails(env, "[JNI-OPENFD-14]");
-        return -1;
-    }
-
-    if (fd < 0) {
-        LOGE("❌ [JNI-OPENFD-14] Invalid fd value: %d", fd);
-        return -1;
-    }
-
-    LOGI("═══════════════════════════════════════════════════════════════");
-    LOGI("✅ [JNI-OPENFD-SUCCESS] jni_openFileDescriptor SUCCESS, fd=%d", fd);
-    LOGI("═══════════════════════════════════════════════════════════════");
-
-    return (int)fd;
-}
-
-// Запускает SAF пикер через NbdBridge.startSAFPicker()
-int jni_startSAFPicker(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
-    LOGI("🔧 [JNI-SAF] jni_startSAFPicker called");
-    JNIEnv *env = (JNIEnv *)jni_env_ptr;
-    jobject ctx = (jobject)ctx_ptr;
-
-    // В Android при вызове из сторонних потоков FindClass может не найти классы приложения.
-    // Самый надежный способ - получить класс через объект, который у нас уже есть,
-    // но NbdBridge - это статический объект (Kotlin object).
-    // Попробуем сначала стандартный поиск.
-    jclass nbdBridgeClass = (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+// Помощник для получения Env в текущем потоке
+static JNIEnv* get_env() {
+    JNIEnv *env;
+    if (g_jvm == NULL) return NULL;
     
-    if (nbdBridgeClass == NULL) {
+    jint res = (*g_jvm)->GetEnv(g_jvm, (void**)&env, JNI_VERSION_1_6);
+    if (res == JNI_OK) return env;
+    
+    if (res == JNI_EDETACHED) {
+        if ((*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL) != 0) {
+            return NULL;
+        }
+        return env;
+    }
+    return NULL;
+}
+
+// Сохраняет контекст и VM (вызывается из Go)
+void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
+    g_jvm = (JavaVM *)jni_vm_ptr;
+    JNIEnv *env = (JNIEnv *)jni_env_ptr;
+    if (g_ctx != NULL) {
+        (*env)->DeleteGlobalRef(env, g_ctx);
+    }
+    g_ctx = (*env)->NewGlobalRef(env, (jobject)ctx_ptr);
+    LOGI("✅ [JNI-SAF] Global context and VM stored");
+}
+
+// Находит класс NbdBridge
+static jclass get_nbd_bridge_class(JNIEnv *env) {
+    jclass cls = (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+    if (cls == NULL) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-        LOGW("⚠️ [JNI-SAF] Direct FindClass failed, trying via Activity ClassLoader");
         
-        // Попытка найти класс через ClassLoader активности
-        jclass activityClass = (*env)->GetObjectClass(env, ctx);
-        jclass classClass = (*env)->FindClass(env, "java/lang/Class");
+        if (g_ctx == NULL) {
+            LOGW("⚠️ [JNI-SAF] g_ctx is NULL, fallback FindClass");
+            return (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+        }
+        
+        jclass activityClass = (*env)->GetObjectClass(env, g_ctx);
         jmethodID getClassLoaderMethod = (*env)->GetMethodID(env, activityClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
-        jobject classLoader = (*env)->CallObjectMethod(env, ctx, getClassLoaderMethod);
+        jobject classLoader = (*env)->CallObjectMethod(env, g_ctx, getClassLoaderMethod);
         jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
         jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
         
         jstring className = (*env)->NewStringUTF(env, "com.usbridge.client.NbdBridge");
-        nbdBridgeClass = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
+        cls = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
         
         (*env)->DeleteLocalRef(env, className);
         (*env)->DeleteLocalRef(env, classLoader);
         (*env)->DeleteLocalRef(env, activityClass);
     }
+    return cls;
+}
 
-    if (nbdBridgeClass == NULL) {
-        LOGE("❌ [JNI-SAF] Failed to find NbdBridge class even via ClassLoader");
-        if ((*env)->ExceptionCheck(env)) logExceptionDetails(env, "findNbdBridge");
+// Сохраняет persistable URI permission
+int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString) {
+    LOGI("🔧 [JNI-SAF] jni_takePersistableUriPermission called for: %s", uriString);
+    JNIEnv *env = (JNIEnv *)jni_env_ptr;
+    jobject ctx = (jobject)ctx_ptr;
+
+    jstring jUriString = (*env)->NewStringUTF(env, uriString);
+    jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
+    jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
+    jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
+
+    jclass contextClass = (*env)->FindClass(env, "android/content/Context");
+    jmethodID getContentResolverMethod = (*env)->GetMethodID(env, contextClass, "getContentResolver", "()Landroid/content/ContentResolver;");
+    jobject contentResolver = (*env)->CallObjectMethod(env, ctx, getContentResolverMethod);
+
+    jclass contentResolverClass = (*env)->FindClass(env, "android/content/ContentResolver");
+    jmethodID takePermissionMethod = (*env)->GetMethodID(env, contentResolverClass, "takePersistableUriPermission", "(Landroid/net/Uri;I)V");
+
+    (*env)->CallVoidMethod(env, contentResolver, takePermissionMethod, uri, 3);
+
+    (*env)->DeleteLocalRef(env, jUriString);
+    (*env)->DeleteLocalRef(env, uriClass);
+    (*env)->DeleteLocalRef(env, uri);
+    (*env)->DeleteLocalRef(env, contextClass);
+    (*env)->DeleteLocalRef(env, contentResolver);
+    (*env)->DeleteLocalRef(env, contentResolverClass);
+
+    if ((*env)->ExceptionCheck(env)) {
+        logExceptionDetails(env, "takePersistableUriPermission");
         return -1;
     }
 
-    jmethodID startPickerMethod = (*env)->GetStaticMethodID(env, nbdBridgeClass, "startSAFPicker", "()V");
-    if (startPickerMethod == NULL) {
-        LOGE("❌ [JNI-SAF] Failed to find startSAFPicker method");
+    LOGI("✅ [JNI-SAF] Persistable permission SUCCESS");
+    return 0;
+}
+
+// Открывает ParcelFileDescriptor и возвращает FD
+int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString, const char *mode) {
+    LOGI("🔧 [JNI-SAF] jni_openFileDescriptor called for: %s, mode: %s", uriString, mode);
+    JNIEnv *env = (JNIEnv *)jni_env_ptr;
+    jobject ctx = (jobject)ctx_ptr;
+
+    jstring jUriString = (*env)->NewStringUTF(env, uriString);
+    jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
+    jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
+    jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
+
+    jclass contextClass = (*env)->FindClass(env, "android/content/Context");
+    jmethodID getContentResolverMethod = (*env)->GetMethodID(env, contextClass, "getContentResolver", "()Landroid/content/ContentResolver;");
+    jobject contentResolver = (*env)->CallObjectMethod(env, ctx, getContentResolverMethod);
+
+    jstring jMode = (*env)->NewStringUTF(env, mode);
+    jclass contentResolverClass = (*env)->FindClass(env, "android/content/ContentResolver");
+    jmethodID openPFDMethod = (*env)->GetMethodID(env, contentResolverClass, "openFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;)Landroid/os/ParcelFileDescriptor;");
+    jobject pfd = (*env)->CallObjectMethod(env, contentResolver, openPFDMethod, uri, jMode);
+
+    if (pfd == NULL) {
+        LOGE("❌ [JNI-SAF] openFileDescriptor returned NULL");
+        logExceptionDetails(env, "openFileDescriptor");
+        return -1;
+    }
+
+    jclass pfdClass = (*env)->FindClass(env, "android/os/ParcelFileDescriptor");
+    // detachFd() transfers fd ownership to native code so the Java GC
+    // won't close it and fdsan won't report an ownership conflict.
+    jmethodID detachFdMethod = (*env)->GetMethodID(env, pfdClass, "detachFd", "()I");
+    jint fd = (*env)->CallIntMethod(env, pfd, detachFdMethod);
+
+    (*env)->DeleteLocalRef(env, jUriString);
+    (*env)->DeleteLocalRef(env, uriClass);
+    (*env)->DeleteLocalRef(env, uri);
+    (*env)->DeleteLocalRef(env, contextClass);
+    (*env)->DeleteLocalRef(env, contentResolver);
+    (*env)->DeleteLocalRef(env, jMode);
+    (*env)->DeleteLocalRef(env, contentResolverClass);
+    (*env)->DeleteLocalRef(env, pfd);
+    (*env)->DeleteLocalRef(env, pfdClass);
+
+    LOGI("✅ [JNI-OPENFD-SUCCESS] jni_openFileDescriptor SUCCESS, fd=%d", fd);
+
+    return (int)fd;
+}
+
+// Запускает SAF пикер
+int jni_startSAFPicker() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return -1;
+
+    jclass nbdBridgeClass = get_nbd_bridge_class(env);
+    if (nbdBridgeClass == NULL) return -1;
+
+    jmethodID method = (*env)->GetStaticMethodID(env, nbdBridgeClass, "startSAFPicker", "()V");
+    if (method == NULL) {
         (*env)->DeleteLocalRef(env, nbdBridgeClass);
         return -1;
     }
 
-    (*env)->CallStaticVoidMethod(env, nbdBridgeClass, startPickerMethod);
+    (*env)->CallStaticVoidMethod(env, nbdBridgeClass, method);
     (*env)->DeleteLocalRef(env, nbdBridgeClass);
+    return 0;
+}
 
-    if ((*env)->ExceptionCheck(env)) {
-        LOGE("❌ [JNI-SAF] Exception in startSAFPicker");
-        logExceptionDetails(env, "startSAFPicker");
+int jni_hasSAFResult() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return 0;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return 0;
+
+    jfieldID fid = (*env)->GetStaticFieldID(env, cls, "hasNewResult", "Z");
+    if (fid == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return 0;
+    }
+    jboolean res = (*env)->GetStaticBooleanField(env, cls, fid);
+    (*env)->DeleteLocalRef(env, cls);
+    return res ? 1 : 0;
+}
+
+char* jni_getSAFUri() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return NULL;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return NULL;
+
+    jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastUri", "Ljava/lang/String;");
+    if (fid == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return NULL;
+    }
+    jstring jStr = (jstring)(*env)->GetStaticObjectField(env, cls, fid);
+    if (jStr == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return NULL;
+    }
+    const char *cStr = (*env)->GetStringUTFChars(env, jStr, NULL);
+    char *result = strdup(cStr);
+    (*env)->ReleaseStringUTFChars(env, jStr, cStr);
+    (*env)->DeleteLocalRef(env, jStr);
+    (*env)->DeleteLocalRef(env, cls);
+    return result;
+}
+
+int jni_getSAFFd() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return -1;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return -1;
+
+    jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastFd", "I");
+    if (fid == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
         return -1;
     }
+    jint fd = (*env)->GetStaticIntField(env, cls, fid);
+    (*env)->DeleteLocalRef(env, cls);
+    return (int)fd;
+}
 
-    LOGI("✅ [JNI-SAF] startSAFPicker call successful");
-    return 0;
+long jni_getSAFSize() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return 0;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return 0;
+
+    jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastSize", "J");
+    if (fid == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return 0;
+    }
+    jlong size = (*env)->GetStaticLongField(env, cls, fid);
+    (*env)->DeleteLocalRef(env, cls);
+    return (long)size;
+}
+
+void jni_clearSAFResult() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return;
+
+    jmethodID method = (*env)->GetStaticMethodID(env, cls, "clearSAFResult", "()V");
+    if (method != NULL) {
+        (*env)->CallStaticVoidMethod(env, cls, method);
+    }
+    (*env)->DeleteLocalRef(env, cls);
 }
