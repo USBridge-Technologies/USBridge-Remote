@@ -14,6 +14,7 @@ int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char 
 void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_ptr);
 int jni_startSAFPicker();
 int jni_hasSAFResult();
+char* jni_getSAFFileName();
 char* jni_getSAFUri();
 int jni_getSAFFd();
 long jni_getSAFSize();
@@ -367,14 +368,9 @@ func (sh *SAFHelper) SetContext() {
 }
 
 // PollSAFResult проверяет наличие результата SAF в Java и возвращает его
-func (sh *SAFHelper) PollSAFResult() (string, int, int64, bool) {
+func (sh *SAFHelper) PollSAFResult() (uri string, fileName string, fd int, size int64, hasResult bool) {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-
-	var uri string
-	var fd int
-	var size int64
-	var hasResult bool
 
 	if C.jni_hasSAFResult() != 0 {
 		logrus.Info("🔔 [SAF-JNI-POLL] Java reports new SAF result!")
@@ -382,17 +378,24 @@ func (sh *SAFHelper) PollSAFResult() (string, int, int64, bool) {
 		if cUri != nil {
 			uri = C.GoString(cUri)
 			C.free(unsafe.Pointer(cUri))
+
+			cName := C.jni_getSAFFileName()
+			if cName != nil {
+				fileName = C.GoString(cName)
+				C.free(unsafe.Pointer(cName))
+			}
+
 			fd = int(C.jni_getSAFFd())
 			size = int64(C.jni_getSAFSize())
 			C.jni_clearSAFResult()
 			hasResult = true
-			logrus.Infof("✅ [SAF-JNI-POLL-GOT] uri=%s, fd=%d, size=%d", uri, fd, size)
+			logrus.Infof("✅ [SAF-JNI-POLL-GOT] uri=%s, fileName=%s, fd=%d, size=%d", uri, fileName, fd, size)
 		} else {
 			logrus.Warn("⚠️ [SAF-JNI-POLL-EMPTY] Java said hasResult, but URI is null")
 		}
 	}
 
-	return uri, fd, size, hasResult
+	return
 }
 
 // TriggerSAFPicker запускает выбор файла через SAF на Android

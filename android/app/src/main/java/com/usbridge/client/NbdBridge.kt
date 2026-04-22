@@ -19,6 +19,7 @@ object NbdBridge {
 
     // Статические поля для результата (для надежного доступа через JNI)
     @JvmStatic @Volatile var lastUri: String = ""
+    @JvmStatic @Volatile var lastFileName: String = ""
     @JvmStatic @Volatile var lastFd: Int = -1
     @JvmStatic @Volatile var lastSize: Long = 0
     @JvmStatic @Volatile var hasNewResult: Boolean = false
@@ -27,6 +28,7 @@ object NbdBridge {
     fun clearSAFResult() {
         hasNewResult = false
         lastUri = ""
+        lastFileName = ""
         lastFd = -1
         lastSize = 0
     }
@@ -172,6 +174,7 @@ object NbdBridge {
 
                 // Step 5: Success! Store for polling and call callback
                 lastUri = uri.toString()
+                lastFileName = fileName
                 lastFd = fd
                 lastSize = size
                 hasNewResult = true

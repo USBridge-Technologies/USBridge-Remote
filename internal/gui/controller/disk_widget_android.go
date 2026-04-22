@@ -6,7 +6,6 @@ package controller
 import (
 	"fmt"
 	"runtime"
-	"strings"
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
@@ -64,29 +63,19 @@ func (dw *DiskWidget) pickImageForDiskList() {
 	logrus.Info("📁 [SAF] Starting image picker for disk list...")
 
 	// Устанавливаем локальный обработчик
-	successHandler := func(uri string, fd int, size int64) {
-		logrus.Infof("✅ [SAF-LOCAL-HANDLER] Success for uri=%s, fd=%d, size=%d", uri, fd, size)
-		
-		// Пытаемся извлечь имя файла из URI
-		fileName := "Image"
-		parts := strings.Split(uri, "%2F")
-		if len(parts) > 1 {
-			fileName = parts[len(parts)-1]
-		} else {
-			parts = strings.Split(uri, "/")
-			if len(parts) > 1 {
-				fileName = parts[len(parts)-1]
-			}
+	successHandler := func(uri string, fileName string, fd int, size int64) {
+		logrus.Infof("✅ [SAF-LOCAL-HANDLER] Success for uri=%s, fileName=%s, fd=%d, size=%d", uri, fileName, fd, size)
+
+		if fileName == "" {
+			fileName = "Image"
 		}
 
-		// Передаем в общий обработчик выбранного образа в UI потоке
 		fyne.Do(func() {
 			logrus.Infof("📍 [SAF-UI-UPDATE] Handling selected image: %s", fileName)
 			dw.handleSelectedImage(selectedImage{
 				FileName: fileName,
 				URI:      uri,
 			})
-			// Принудительно обновляем список после добавления
 			dw.combineDrives()
 			dw.requestDevicesRefresh()
 			logrus.Info("✅ [SAF-UI-UPDATE] UI refresh requested")
@@ -101,9 +90,13 @@ func (dw *DiskWidget) pickImageForDiskList() {
 	}
 
 	// Регистрируем обработчики и в nbdbridge, и глобально
-	globalSAFSuccessHandler = successHandler
+	globalSAFSuccessHandler = func(uri string, fd int, size int64) {
+		successHandler(uri, "", fd, size)
+	}
 	globalSAFErrorHandler = errorHandler
-	nbdbridge.SetSAFCallbacks(successHandler, errorHandler)
+	nbdbridge.SetSAFCallbacks(func(uri string, fd int, size int64) {
+		successHandler(uri, "", fd, size)
+	}, errorHandler)
 
 	// Запускаем нативный пикер через JNI
 	if dw.safHelper != nil {
@@ -132,12 +125,10 @@ func (dw *DiskWidget) pickImageForDiskList() {
 					return
 				case <-ticker.C:
 					logrus.Info("🔄 [SAF-POLL] Ticker tick, calling PollSAFResult...")
-					uri, fd, size, hasResult := dw.safHelper.PollSAFResult()
+					uri, fileName, fd, size, hasResult := dw.safHelper.PollSAFResult()
 					if hasResult {
-						logrus.Infof("🎉 [SAF-POLL-SUCCESS] Result fetched from Java! uri=%s, fd=%d, size=%d", uri, fd, size)
-						
-						// Эмулируем вызов successHandler (который мы уже определили выше)
-						successHandler(uri, fd, size)
+						logrus.Infof("🎉 [SAF-POLL-SUCCESS] Result fetched from Java! uri=%s, fileName=%s, fd=%d, size=%d", uri, fileName, fd, size)
+						successHandler(uri, fileName, fd, size)
 						return
 					}
 				}
@@ -195,22 +186,23 @@ func (dw *DiskWidget) showNbdDialog() {
 			nbdSelectedFd = fd
 			nbdSelectedSize = size
 
-			logrus.Infof("✅ Image selected: %s, fd=%d, size=%d", uri, fd, size)
+			displayName := fileName
+			if displayName == "" {
+				displayName = uri
+			}
+			logrus.Infof("✅ Image selected: %s, fd=%d, size=%d", displayName, fd, size)
 
 			fyne.Do(func() {
 				fileInfoLabel.SetText(fmt.Sprintf(i18n.Current.NBDImageSelected,
-					uri, size/1024/1024))
+					displayName, size/1024/1024))
 				dialog.ShowInformation(i18n.Current.FileSelected,
-					fmt.Sprintf(i18n.Current.NBDImageSelectedGB, uri, float64(size)/1024/1024/1024),
+					fmt.Sprintf(i18n.Current.NBDImageSelectedGB, displayName, float64(size)/1024/1024/1024),
 					dw.window)
 			})
 		}
 
-		// Регистрируем через SetSAFCallbacks (nbdbridge)
 		nbdbridge.SetSAFCallbacks(
-			func(uri string, fd int, size int64) {
-				successHandler(uri, uri, fd, size)
-			},
+			func(uri string, fd int, size int64) { successHandler(uri, "", fd, size) },
 			func(error string) {
 				logrus.Errorf("❌ File selection failed: %s", error)
 				fyne.Do(func() {
@@ -219,9 +211,8 @@ func (dw *DiskWidget) showNbdDialog() {
 			},
 		)
 
-		// Также регистрируем в глобальных переменных этого пакета
 		globalSAFSuccessHandler = func(uri string, fd int, size int64) {
-			successHandler(uri, uri, fd, size)
+			successHandler(uri, "", fd, size)
 		}
 		globalSAFErrorHandler = func(error string) {
 			logrus.Errorf("❌ File selection failed: %s", error)
@@ -253,9 +244,9 @@ func (dw *DiskWidget) showNbdDialog() {
 					case <-timeout:
 						return
 					case <-ticker.C:
-						uri, fd, size, hasResult := dw.safHelper.PollSAFResult()
+						uri, fileName, fd, size, hasResult := dw.safHelper.PollSAFResult()
 						if hasResult {
-							successHandler(uri, uri, fd, size)
+							successHandler(uri, fileName, fd, size)
 							return
 						}
 					}

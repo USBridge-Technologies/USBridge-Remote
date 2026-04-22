@@ -211,6 +211,31 @@ int jni_hasSAFResult() {
     return res ? 1 : 0;
 }
 
+char* jni_getSAFFileName() {
+    JNIEnv *env = get_env();
+    if (env == NULL) return NULL;
+
+    jclass cls = get_nbd_bridge_class(env);
+    if (cls == NULL) return NULL;
+
+    jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastFileName", "Ljava/lang/String;");
+    if (fid == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return NULL;
+    }
+    jstring jStr = (jstring)(*env)->GetStaticObjectField(env, cls, fid);
+    if (jStr == NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+        return NULL;
+    }
+    const char *cStr = (*env)->GetStringUTFChars(env, jStr, NULL);
+    char *result = strdup(cStr);
+    (*env)->ReleaseStringUTFChars(env, jStr, cStr);
+    (*env)->DeleteLocalRef(env, jStr);
+    (*env)->DeleteLocalRef(env, cls);
+    return result;
+}
+
 char* jni_getSAFUri() {
     JNIEnv *env = get_env();
     if (env == NULL) return NULL;
