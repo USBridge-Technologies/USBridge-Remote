@@ -239,11 +239,21 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			logrus.Info("⌨️ Клавиатура видима - скрываем")
 			fd.virtualKeyboard.Hide()
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
+			if fd.videoWidget != nil {
+				fd.videoWidget.SetBottomInset(0)
+			}
 		} else {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
 			fd.virtualKeyboard.SetVisibleState(true)
 			fd.virtualKeyboard.FocusInput() // Принудительный фокус для Android
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
+			if fd.videoWidget != nil {
+				h := keyboardLayout.MinSize().Height
+				if h < 50 { // Если размер еще не просчитан, используем разумное значение по умолчанию
+					h = 145 
+				}
+				fd.videoWidget.SetBottomInset(h)
+			}
 		}
 
 		// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает без layout-прохода)

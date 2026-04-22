@@ -509,6 +509,7 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 	if w <= 0 || h <= 0 {
 		return
 	}
+	logrus.Infof("📐 [LAYOUT] UpdateTouchpadAndContentRect: w=%.1f, h=%.1f, bottomInset=%.1f", w, h, vw.bottomInset)
 	vw.touchpadSizeW = w
 	vw.touchpadSizeH = h
 	vw.contentRectX = 0
@@ -740,11 +741,18 @@ func (vw *VideoWidget) recalculateViewport() {
 		return
 	}
 
+	// Вычисляем доступную высоту для видео (за вычетом кнопок снизу)
+	availableH := vw.touchpadSizeH - vw.bottomInset
+	if availableH < 0 {
+		availableH = 0
+	}
+	logrus.Infof("📐 [VIEWPORT] Recalculate: touchpadH=%.1f, bottomInset=%.1f, availableH=%.1f", vw.touchpadSizeH, vw.bottomInset, availableH)
+
 	baseW := vw.baseContentRectW
 	baseH := vw.baseContentRectH
 	if baseW <= 0 || baseH <= 0 {
 		baseW = vw.touchpadSizeW
-		baseH = vw.touchpadSizeH
+		baseH = availableH
 	}
 
 	scale := vw.zoomScale
@@ -754,8 +762,29 @@ func (vw *VideoWidget) recalculateViewport() {
 
 	contentW := baseW * scale
 	contentH := baseH * scale
+	
+	// Центрируем горизонтально относительно всего экрана
 	contentX := (vw.touchpadSizeW - contentW) / 2
-	contentY := (vw.touchpadSizeH - contentH) / 2
+	
+	// Логика вертикального позиционирования:
+	var contentY float32
+	if contentH > availableH {
+		// Видео ТАПИТ (выталкивается) вверх. 
+		// Базовая позиция: низ видео совпадает с низом доступной области.
+		contentY = availableH - contentH
+		
+		// Позволяем panOffsetY только поднимать видео еще выше (в минус) 
+		// или опускать его обратно до базовой позиции (но не ниже).
+		if vw.panOffsetY > 0 {
+			vw.panOffsetY = 0 // Запрещаем опускать видео ниже кнопок
+		}
+		contentY += vw.panOffsetY
+		logrus.Infof("📐 [PUSH-UP] contentH(%.1f) > availableH(%.1f) -> contentY=%.1f", contentH, availableH, contentY)
+	} else {
+		// Видео меньше доступной области - центрируем его в ней
+		contentY = (availableH - contentH) / 2
+		vw.panOffsetY = 0
+	}
 
 	if contentW > vw.touchpadSizeW {
 		maxPanX := (contentW - vw.touchpadSizeW) / 2
@@ -765,15 +794,7 @@ func (vw *VideoWidget) recalculateViewport() {
 		vw.panOffsetX = 0
 	}
 
-	if contentH > vw.touchpadSizeH {
-		maxPanY := (contentH - vw.touchpadSizeH) / 2
-		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
-		contentY += vw.panOffsetY
-	} else {
-		vw.panOffsetY = 0
-	}
-
-	if contentW <= vw.touchpadSizeW && contentH <= vw.touchpadSizeH && scale <= 1.001 {
+	if scale <= 1.001 && vw.bottomInset == 0 {
 		scale = 1
 		vw.zoomScale = 1
 		vw.panOffsetX = 0
@@ -788,6 +809,14 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.contentRectY = contentY
 	vw.contentRectW = contentW
 	vw.contentRectH = contentH
+
+	// ЖЕСТКАЯ ФИКСАЦИЯ: Нижний край видео не должен заходить в зону кнопок (availableH)
+	if vw.contentRectY + vw.contentRectH > availableH {
+		vw.contentRectY = availableH - vw.contentRectH
+		logrus.Infof("🛑 [FORCE-ALIGN] Bottom overflow detected! Corrected contentY to %.1f", vw.contentRectY)
+	}
+
+	logrus.Infof("🖼️ [VIEWPORT] Result: X=%.1f, Y=%.1f, W=%.1f, H=%.1f (scale=%.2f)", vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH, vw.zoomScale)
 }
 
 func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {

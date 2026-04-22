@@ -195,6 +195,11 @@ func (t *TouchpadWrapper) wrapperLayoutImage(size fyne.Size) {
 	if t.image == nil {
 		return
 	}
+	// Явно задаем размер контейнеру обрезки, чтобы видео не вылезало за границы виджета
+	if t.clip != nil {
+		t.clip.Resize(size)
+		t.clip.Move(fyne.NewPos(0, 0))
+	}
 	t.videoWidget.UpdateTouchpadAndContentRect(size.Width, size.Height, t.image.Image)
 	x, y, w, h := t.videoWidget.GetViewportRect()
 	t.image.Move(fyne.NewPos(x, y))
@@ -216,7 +221,8 @@ func (t *TouchpadWrapper) updateScrollIndicators(size fyne.Size, x, y, w, h floa
 		progress := clampFloat(-x/(w-size.Width), 0, 1)
 		trackW := size.Width - (margin * 2) - thumbW
 		t.hScrollBar.Show()
-		t.hScrollBar.Move(fyne.NewPos(margin+(trackW*progress), size.Height-margin-thickness))
+		// Перемещаем наверх: вместо size.Height-margin-thickness используем просто margin
+		t.hScrollBar.Move(fyne.NewPos(margin+(trackW*progress), margin))
 		t.hScrollBar.Resize(fyne.NewSize(thumbW, thickness))
 	} else {
 		t.hScrollBar.Hide()
@@ -323,7 +329,8 @@ func (t *TouchpadWrapper) scrollbarAxisAt(pos fyne.Position) string {
 		progress := clampFloat(-x/(w-size.Width), 0, 1)
 		trackW := size.Width - (margin * 2) - thumbW
 		thumbX := margin + (trackW * progress)
-		if pos.Y >= size.Height-touchBand && pos.X >= thumbX-touchBand/2 && pos.X <= thumbX+thumbW+touchBand/2 {
+		// Проверка для верхней части экрана (pos.Y <= touchBand)
+		if pos.Y <= touchBand && pos.X >= thumbX-touchBand/2 && pos.X <= thumbX+thumbW+touchBand/2 {
 			return "horizontal"
 		}
 	}

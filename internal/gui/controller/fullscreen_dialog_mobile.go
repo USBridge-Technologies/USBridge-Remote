@@ -13,8 +13,9 @@ func (fd *FullscreenDialog) platformInitWindow() {
 	fd.originalContent = fd.parent.Content().(*fyne.Container)
 	fd.originalTitle = fd.parent.Title()
 	
-	// На мобилках убираем заголовок в полноэкранном режиме
+	// На мобилках убираем заголовок и включаем настоящий полноэкранный режим
 	fd.fullscreenWindow.SetTitle("")
+	fd.fullscreenWindow.SetFullScreen(true)
 }
 
 func (fd *FullscreenDialog) platformSetupUI() {
@@ -26,16 +27,27 @@ func (fd *FullscreenDialog) platformSetupUI() {
 	fd.virtualKeyboard.RegisterAsIMETarget()
 
 	// Когда Android IME открывается/закрывается, обновляем layout fullscreen окна.
-	fd.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
+	fd.virtualKeyboard.SetOnIMEChanged(func(open bool) {
 		fyne.Do(func() {
 			if fd.ui != nil {
-				// Используем актуальный размер Canvas для принудительного пересчета всего дерева объектов.
-				// Это заставляет BorderLayout сжать видео-контейнер, освобождая место под кнопки и IME.
+				// Вычисляем суммарный инсет: кнопки + IME
+				var inset float32
+				if fd.ui.KeyboardLayout.Visible() {
+					inset = fd.ui.KeyboardLayout.MinSize().Height
+					if inset < 50 {
+						inset = 145 // Запасной вариант
+					}
+				}
+				
+				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f", inset)
+				if fd.videoWidget != nil {
+					fd.videoWidget.SetBottomInset(inset)
+				}
+
+				// Принудительно обновляем все дерево
 				size := fd.fullscreenWindow.Canvas().Size()
 				fd.ui.VideoWithKeyboard.Resize(size)
 				fd.ui.VideoWithKeyboard.Refresh()
-				
-				// Дополнительно обновляем положение кнопки переключения
 				fd.virtualKeyboard.UpdatePosition(size)
 			}
 		})

@@ -50,6 +50,8 @@ type VideoWidget struct {
 	videoRestartPending   bool
 	inputQueue            chan inputCommand
 	moveQueueMu           sync.Mutex
+	bottomInset           float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
+
 	pendingMoveX          int
 	pendingMoveY          int
 	moveWorkerStarted     bool
@@ -274,4 +276,11 @@ type videoOperation struct {
 	name string
 	fn   func()
 	done chan struct{}
+}
+
+// SetBottomInset устанавливает отступ снизу и пересчитывает вьюпорт.
+func (vw *VideoWidget) SetBottomInset(inset float32) {
+	logrus.Infof("📐 SetBottomInset: %.1f", inset)
+	vw.bottomInset = inset
+	vw.recalculateViewport()
 }
