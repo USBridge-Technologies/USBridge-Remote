@@ -224,13 +224,6 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
-	fd.virtualKeyboard.SetOnTextTyped(func(text string) {
-		if fd.usbClient != nil {
-			if err := fd.usbClient.SendText(text); err != nil {
-				logrus.Errorf("⚠️ Ошибка отправки текста: %v", err)
-			}
-		}
-	})
 	fd.platformSetupUI()
 
 	keyboardLayout := fd.virtualKeyboard.GetKeyboardLayout()

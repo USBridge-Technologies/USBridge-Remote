@@ -10,7 +10,8 @@
       "Bash(xargs ls *)",
       "Bash(git pull *)",
       "Bash(git stash *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git checkout *)"
     ]
   }
 }
