@@ -90,7 +90,8 @@ func (l *imeSpacerLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
 // createKeyboardLayout создает раскладку клавиатуры для мобильных устройств
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint := &backspaceEntry{}
-	textHint.Password = false // Обычный ввод текста
+	textHint.MultiLine = false // Используем стандартную однострочную прокрутку
+	textHint.Password = false
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
 
@@ -105,14 +106,19 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	)
 
 	// sendDiff вычисляет и отправляет разницу между prevText и newText.
-	// Должен вызываться только из главного потока (main thread).
 	sendDiff := func(newText string) {
-		if newText == prevText {
+		mu.Lock()
+		oldText := prevText
+		if newText == oldText {
+			mu.Unlock()
 			return
 		}
+		// Обновляем состояние немедленно для предотвращения гонок при быстрых всплесках IME
+		prevText = newText
+		mu.Unlock()
 
 		newRunes := []rune(newText)
-		prevRunes := []rune(prevText)
+		prevRunes := []rune(oldText)
 
 		// Находим общий префикс
 		commonLen := 0
@@ -141,14 +147,12 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		if vk.onRuneTyped != nil {
 			added := newRunes[commonLen:]
 			if len(added) > 0 {
-				logrus.Infof("⌨️ [BATCH] Sending runes: %q", string(added))
+				// Печатаем символы по одному без пауз
 				for _, r := range added {
 					vk.onRuneTyped(r)
 				}
 			}
 		}
-
-		prevText = newText
 	}
 
 	// commitChanges сбрасывает состояние буфера на хост.
@@ -191,8 +195,12 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		}
 
 		// Оптимизация: если это простое добавление символов в конец (обычный ввод),
-		// отправляем немедленно, не дожидаясь таймера. Это убирает лаги и "путаницу" букв.
-		if strings.HasPrefix(newText, prevText) {
+		// отправляем немедленно.
+		mu.Lock()
+		isPrefix := strings.HasPrefix(newText, prevText)
+		mu.Unlock()
+
+		if isPrefix {
 			mu.Lock()
 			if timer != nil {
 				timer.Stop()
@@ -204,37 +212,24 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			return
 		}
 
-		// Если же текст изменился радикально (автозамена, вставка, удаление из середины),
-		// включаем задержку (debounce), чтобы дождаться стабилизации от IME.
+		// ЗАКОММЕНТИРОВАНО: Защита от дребезга и обработка сложных правок.
+		/*
 		mu.Lock()
 		pendingText = newText
 		if timer != nil {
 			timer.Stop()
 		}
-		timer = time.AfterFunc(20*time.Millisecond, func() {
+		timer = time.AfterFunc(100*time.Millisecond, func() {
 			fyne.Do(commitChanges)
 		})
 		mu.Unlock()
-	}
+		*/
 
-	// Очистка при переполнении буфера
-	checkBufferLimit := func(text string) {
-		if len([]rune(text)) > 100 {
-			suppress = true
-			textHint.SetText("")
-			mu.Lock()
-			pendingText = ""
-			prevText = ""
-			mu.Unlock()
-			suppress = false
-		}
-	}
-
-	// Добавляем проверку лимита
-	actualOnChanged := textHint.OnChanged
-	textHint.OnChanged = func(s string) {
-		actualOnChanged(s)
-		checkBufferLimit(s)
+		// Синхронизируем состояние без отправки
+		mu.Lock()
+		pendingText = newText
+		prevText = newText 
+		mu.Unlock()
 	}
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
@@ -268,7 +263,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(fBtn)
 		contentH := fPopupContent.MinSize().Height
 		popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y-contentH))
-		
+
 		for _, colObj := range fPopupContent.Objects {
 			if col, ok := colObj.(*fyne.Container); ok {
 				for _, btnObj := range col.Objects {

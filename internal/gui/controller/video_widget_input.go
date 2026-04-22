@@ -33,6 +33,11 @@ func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	if vw.usbClient == nil {
 		return
 	}
+	if vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible() {
+		// Если видна виртуальная клавиатура, ввод идет через её поле ввода.
+		// Игнорируем это событие, чтобы не было дублирования (эха).
+		return
+	}
 	go vw.sendRuneToRemote(r)
 }
 

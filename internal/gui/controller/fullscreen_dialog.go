@@ -286,6 +286,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	})
 
 	fd.fullscreenWindow.Canvas().SetOnTypedRune(func(r rune) {
+		if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
+			// На мобилках ввод идет через OnChanged текстового поля, 
+			// игнорируем системное событие окна чтобы не было дублей (эха).
+			return
+		}
 		fd.handleRunePress(r)
 	})
 
