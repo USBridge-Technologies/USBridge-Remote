@@ -4,6 +4,7 @@ package graphics
 
 import (
 	"sync"
+	"time"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -95,28 +96,29 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	var prevText string
 	var suppress bool
 
-	textHint.onKey = func(keyName fyne.KeyName) {
-		logrus.Infof("⌨️ [DEBUG] onKey: %s (current text: %q)", keyName, textHint.Text)
-		if keyName == fyne.KeyReturn || keyName == fyne.KeyTab {
-			code := input.GetKeyCode(keyName)
-			if code != 0 && vk.onKeyPress != nil {
-				vk.onKeyPress(code, 0)
-			}
-		} else if keyName == fyne.KeyBackspace {
-			if textHint.Text == "" && vk.onKeyPress != nil {
-				logrus.Infof("⌨️ [DEBUG] onKey: manual Backspace sent (empty buffer)")
-				vk.onKeyPress(42, 0) // HID Backspace
-			}
-		}
-	}
+	// Буферизация для борьбы с "дрожанием" Android IME.
+	// Когда IME переписывает фразу целиком (удаляет и пишет заново за миллисекунды),
+	// мы ждем небольшую паузу и отправляем только итоговую разницу (diff).
+	var (
+		pendingText string
+		mu          sync.Mutex
+		timer       *time.Timer
+	)
 
-	textHint.OnChanged = func(newText string) {
-		if suppress {
-			logrus.Infof("⌨️ [DEBUG] OnChanged: suppressed (text: %q)", newText)
+	// commitChanges вычисляет разницу между тем, что было отправлено на хост,
+	// и текущим состоянием поля ввода, и отправляет только необходимые нажатия.
+	commitChanges := func() {
+		mu.Lock()
+		newText := pendingText
+		if timer != nil {
+			timer.Stop()
+			timer = nil
+		}
+		mu.Unlock()
+
+		if newText == prevText {
 			return
 		}
-
-		logrus.Infof("⌨️ [DEBUG] OnChanged: prev=%q, new=%q", prevText, newText)
 
 		newRunes := []rune(newText)
 		prevRunes := []rune(prevText)
@@ -136,7 +138,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 		backspaces := len(prevRunes) - commonLen
 		if backspaces > 0 && vk.onKeyPress != nil {
-			logrus.Infof("⌨️ [DEBUG] Sending %d backspaces (erasing %q)", backspaces, string(prevRunes[commonLen:]))
+			logrus.Infof("⌨️ [BATCH] Sending %d backspaces (erasing %q)", backspaces, string(prevRunes[commonLen:]))
 			for i := 0; i < backspaces; i++ {
 				vk.onKeyPress(42, 0) // HID Backspace
 			}
@@ -145,7 +147,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		if vk.onRuneTyped != nil {
 			added := newRunes[commonLen:]
 			if len(added) > 0 {
-				logrus.Infof("⌨️ [DEBUG] Sending runes: %q", string(added))
+				logrus.Infof("⌨️ [BATCH] Sending runes: %q", string(added))
 				for _, r := range added {
 					vk.onRuneTyped(r)
 				}
@@ -153,14 +155,66 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		}
 
 		prevText = newText
+	}
 
-		if len(newRunes) > 100 {
-			logrus.Infof("⌨️ [DEBUG] Buffer full (100+), clearing")
+	textHint.onKey = func(keyName fyne.KeyName) {
+		// Если нажата управляющая клавиша, немедленно сбрасываем буфер текста
+		if keyName == fyne.KeyReturn || keyName == fyne.KeyTab {
+			commitChanges()
+			code := input.GetKeyCode(keyName)
+			if code != 0 && vk.onKeyPress != nil {
+				vk.onKeyPress(code, 0)
+			}
+			return
+		}
+
+		if keyName == fyne.KeyBackspace {
+			if textHint.Text == "" && vk.onKeyPress != nil {
+				vk.onKeyPress(42, 0) // HID Backspace
+			}
+		}
+	}
+
+	textHint.OnChanged = func(newText string) {
+		if suppress {
+			// При ручном сбросе буфера (SetText("")) просто синхронизируем состояние без отправки клавиш
+			mu.Lock()
+			pendingText = newText
+			prevText = newText
+			mu.Unlock()
+			return
+		}
+
+		mu.Lock()
+		pendingText = newText
+		if timer != nil {
+			timer.Stop()
+		}
+		// 40мс достаточно, чтобы поймать всплеск событий от IME (обычно < 10мс),
+		// но при этом задержка почти не заметна для человека.
+		timer = time.AfterFunc(40*time.Millisecond, func() {
+			fyne.Do(commitChanges)
+		})
+		mu.Unlock()
+	}
+
+	// Очистка при переполнении буфера
+	checkBufferLimit := func(text string) {
+		if len([]rune(text)) > 100 {
 			suppress = true
 			textHint.SetText("")
+			mu.Lock()
+			pendingText = ""
 			prevText = ""
+			mu.Unlock()
 			suppress = false
 		}
+	}
+	// Добавляем проверку лимита в OnChanged (но после логики таймера)
+	actualOnChanged := textHint.OnChanged
+	textHint.OnChanged = func(s string) {
+		actualOnChanged(s)
+		checkBufferLimit(s)
 	}
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
@@ -254,7 +308,10 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
 		suppress = true
 		textHint.SetText("")
+		mu.Lock()
+		pendingText = ""
 		prevText = ""
+		mu.Unlock()
 		suppress = false
 	})
 	clearBtn.Importance = widget.MediumImportance
