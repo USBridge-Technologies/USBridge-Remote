@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
-	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/media"
@@ -28,7 +27,7 @@ import (
 func (vw *VideoWidget) createInterface() {
 	vw.startInputWorker()
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
-	vw.registerMobileGestureTarget()
+	vw.platformRegisterGestureTarget()
 	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
 	vw.container = vw.ui.Container
 	vw.videoCanvas = vw.ui.VideoCanvas
@@ -655,69 +654,7 @@ func (vw *VideoWidget) ShowFullscreen() {
 
 // HandleVirtualKeyboard обрабатывает открытие/закрытие виртуальной клавиатуры.
 func (vw *VideoWidget) HandleVirtualKeyboard() {
-	if vw.virtualKeyboard == nil {
-		if vw.parentWindow == nil {
-			logrus.Warn("⚠️ Parent window is not set")
-			return
-		}
-		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
-		if fyne.CurrentDevice().IsMobile() {
-			// Когда Android IME открывается/закрывается, обновляем layout:
-			// keyboardLayout.MinSize() вырастает (spacer) → contentContainer и container перекладываются.
-			vw.virtualKeyboard.SetOnIMEChanged(func(open bool) {
-				fyne.Do(func() {
-					kl := vw.virtualKeyboard.GetKeyboardLayout()
-					newH := kl.MinSize().Height
-					canvasW := vw.parentWindow.Canvas().Size().Width
-					kl.Resize(fyne.NewSize(canvasW, newH))
-					vw.contentContainer.Objects = []fyne.CanvasObject{kl}
-					vw.contentContainer.Resize(kl.Size())
-					vw.container.Refresh()
-				})
-			})
-		}
-	}
-
-	isAndroid := fyne.CurrentDevice().IsMobile()
-
-	if vw.virtualKeyboard.IsVisible() {
-		vw.virtualKeyboard.Hide()
-
-		if isAndroid {
-			vw.contentContainer.Hide()
-			vw.container.Refresh()
-			logrus.Info("⌨️ Virtual keyboard hidden (Android mode)")
-		} else {
-			logrus.Info("⌨️ Virtual keyboard hidden (desktop mode)")
-		}
-	} else {
-		if isAndroid {
-			// Регистрируем как получателя нативных Android IME-событий (доставки изменения высоты системной клавиатуры)
-			vw.virtualKeyboard.RegisterAsIMETarget()
-
-			keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
-			logrus.Infof("⌨️ [DEBUG] keyboardLayout MinSize: %v", keyboardLayout.MinSize())
-			vw.virtualKeyboard.SetVisibleState(true)
-
-			canvasSize := vw.parentWindow.Canvas().Size()
-			logrus.Infof("⌨️ [DEBUG] Canvas Size: %v", canvasSize)
-
-			// Вместо фиксированной высоты позволяем контейнеру занимать столько, сколько нужно его содержимому.
-			// Fyne сам поднимет его вверх, так как он находится в нижней части Layout.
-			keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))
-			keyboardLayout.Move(fyne.NewPos(0, 0))
-
-			vw.contentContainer.Objects = []fyne.CanvasObject{keyboardLayout}
-			vw.contentContainer.Resize(keyboardLayout.Size())
-			vw.contentContainer.Show()
-			vw.container.Refresh()
-			logrus.Infof("⌨️ [DEBUG] contentContainer: Size=%v, Visible=%v", vw.contentContainer.Size(), vw.contentContainer.Visible())
-			logrus.Info("⌨️ Virtual keyboard shown with Android IME")
-		} else {
-			vw.virtualKeyboard.ShowInSeparateWindow()
-			logrus.Info("⌨️ Virtual keyboard shown in a separate window (desktop mode)")
-		}
-	}
+	vw.platformHandleVirtualKeyboard()
 }
 
 // updateStats обновляет статистику.

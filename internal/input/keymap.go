@@ -4,6 +4,12 @@ import (
 	"fyne.io/fyne/v2"
 )
 
+// RuneKeyInfo информация о HID коде для символа
+type RuneKeyInfo struct {
+	KeyCode   int
+	Modifiers int
+}
+
 // GetKeyCode возвращает HID код клавиши по имени Fyne
 func GetKeyCode(keyName fyne.KeyName) int {
 	keyNameStr := string(keyName)
@@ -59,8 +65,6 @@ func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
 }
 
 // IsPrintableKey возвращает true для клавиш, которые дают символ (TypedRune).
-// Для таких клавиш нужно обрабатывать только TypedRune (с модификаторами из rune),
-// и не отправлять TypedKey, иначе получается двойная отправка: сначала "a", потом "A" при Shift+A.
 func IsPrintableKey(keyName fyne.KeyName) bool {
 	switch keyName {
 	case fyne.KeyA, fyne.KeyB, fyne.KeyC, fyne.KeyD, fyne.KeyE, fyne.KeyF,
@@ -74,8 +78,6 @@ func IsPrintableKey(keyName fyne.KeyName) bool {
 		return true
 	case fyne.KeySpace:
 		return true
-	// KeyReturn и KeyTab не считаем печатаемыми: на многих платформах TypedRune для Enter не приходит,
-	// поэтому отправляем их только из TypedKey (keyCode 40 и 43).
 	case fyne.KeyMinus, fyne.KeyEqual, fyne.KeyLeftBracket, fyne.KeyRightBracket,
 		fyne.KeyBackslash, fyne.KeySemicolon, fyne.KeyApostrophe, fyne.KeyBackTick,
 		fyne.KeyComma, fyne.KeyPeriod, fyne.KeySlash:
@@ -83,12 +85,6 @@ func IsPrintableKey(keyName fyne.KeyName) bool {
 	default:
 		return false
 	}
-}
-
-// RuneKeyInfo информация о HID коде для символа
-type RuneKeyInfo struct {
-	KeyCode   int
-	Modifiers int
 }
 
 func mapRussianLayoutRuneToLatin(r rune) (rune, bool) {
@@ -132,45 +128,33 @@ func mapRussianLayoutRuneToLatin(r rune) (rune, bool) {
 	return latin, ok
 }
 
-// GetRuneKeyCodeWithModifiers возвращает HID код и модификаторы для символа
-func GetRuneKeyCodeWithModifiers(r rune) (int, int) {
-	runeMap := map[rune]RuneKeyInfo{
-		'a': {4, 0}, 'b': {5, 0}, 'c': {6, 0}, 'd': {7, 0}, 'e': {8, 0},
-		'f': {9, 0}, 'g': {10, 0}, 'h': {11, 0}, 'i': {12, 0}, 'j': {13, 0},
-		'k': {14, 0}, 'l': {15, 0}, 'm': {16, 0}, 'n': {17, 0}, 'o': {18, 0},
-		'p': {19, 0}, 'q': {20, 0}, 'r': {21, 0}, 's': {22, 0}, 't': {23, 0},
-		'u': {24, 0}, 'v': {25, 0}, 'w': {26, 0}, 'x': {27, 0}, 'y': {28, 0}, 'z': {29, 0},
+// CommonRuneMap общая карта символов для US раскладки
+var CommonRuneMap = map[rune]RuneKeyInfo{
+	'a': {4, 0}, 'b': {5, 0}, 'c': {6, 0}, 'd': {7, 0}, 'e': {8, 0},
+	'f': {9, 0}, 'g': {10, 0}, 'h': {11, 0}, 'i': {12, 0}, 'j': {13, 0},
+	'k': {14, 0}, 'l': {15, 0}, 'm': {16, 0}, 'n': {17, 0}, 'o': {18, 0},
+	'p': {19, 0}, 'q': {20, 0}, 'r': {21, 0}, 's': {22, 0}, 't': {23, 0},
+	'u': {24, 0}, 'v': {25, 0}, 'w': {26, 0}, 'x': {27, 0}, 'y': {28, 0}, 'z': {29, 0},
 
-		'A': {4, 2}, 'B': {5, 2}, 'C': {6, 2}, 'D': {7, 2}, 'E': {8, 2},
-		'F': {9, 2}, 'G': {10, 2}, 'H': {11, 2}, 'I': {12, 2}, 'J': {13, 2},
-		'K': {14, 2}, 'L': {15, 2}, 'M': {16, 2}, 'N': {17, 2}, 'O': {18, 2},
-		'P': {19, 2}, 'Q': {20, 2}, 'R': {21, 2}, 'S': {22, 2}, 'T': {23, 2},
-		'U': {24, 2}, 'V': {25, 2}, 'W': {26, 2}, 'X': {27, 2}, 'Y': {28, 2}, 'Z': {29, 2},
+	'A': {4, 2}, 'B': {5, 2}, 'C': {6, 2}, 'D': {7, 2}, 'E': {8, 2},
+	'F': {9, 2}, 'G': {10, 2}, 'H': {11, 2}, 'I': {12, 2}, 'J': {13, 2},
+	'K': {14, 2}, 'L': {15, 2}, 'M': {16, 2}, 'N': {17, 2}, 'O': {18, 2},
+	'P': {19, 2}, 'Q': {20, 2}, 'R': {21, 2}, 'S': {22, 2}, 'T': {23, 2},
+	'U': {24, 2}, 'V': {25, 2}, 'W': {26, 2}, 'X': {27, 2}, 'Y': {28, 2}, 'Z': {29, 2},
 
-		'1': {30, 0}, '2': {31, 0}, '3': {32, 0}, '4': {33, 0}, '5': {34, 0},
-		'6': {35, 0}, '7': {36, 0}, '8': {37, 0}, '9': {38, 0}, '0': {39, 0},
+	'1': {30, 0}, '2': {31, 0}, '3': {32, 0}, '4': {33, 0}, '5': {34, 0},
+	'6': {35, 0}, '7': {36, 0}, '8': {37, 0}, '9': {38, 0}, '0': {39, 0},
 
-		' ': {44, 0}, '-': {45, 0}, '=': {46, 0}, '[': {47, 0}, ']': {48, 0},
-		'\\': {49, 0}, ';': {51, 0}, '\'': {52, 0}, '`': {53, 0}, ',': {54, 0},
-		'.': {55, 0}, '/': {56, 0},
-		'\n': {40, 0}, '\r': {40, 0}, // Enter
-		'\t': {43, 0}, // Tab
+	' ': {44, 0}, '-': {45, 0}, '=': {46, 0}, '[': {47, 0}, ']': {48, 0},
+	'\\': {49, 0}, ';': {51, 0}, '\'': {52, 0}, '`': {53, 0}, ',': {54, 0},
+	'.': {55, 0}, '/': {56, 0},
+	'\n': {40, 0}, '\r': {40, 0}, // Enter
+	'\t': {43, 0}, // Tab
 
-		'×': {37, 2}, '÷': {56, 0}, // умножение, деление (как * и /)
+	'×': {37, 2}, '÷': {56, 0}, // умножение, деление (как * и /)
 
-		'!': {30, 2}, '@': {31, 2}, '#': {32, 2}, '$': {33, 2}, '%': {34, 2},
-		'^': {35, 2}, '&': {36, 2}, '*': {37, 2}, '(': {38, 2}, ')': {39, 2},
-		'_': {45, 2}, '+': {46, 2}, '{': {47, 2}, '}': {48, 2}, '|': {49, 2},
-		':': {51, 2}, '"': {52, 2}, '~': {53, 2}, '<': {54, 2}, '>': {55, 2}, '?': {56, 2},
-	}
-
-	if info, exists := runeMap[r]; exists {
-		return info.KeyCode, info.Modifiers
-	}
-	if latinRune, ok := mapRussianLayoutRuneToLatin(r); ok {
-		if info, exists := runeMap[latinRune]; exists {
-			return info.KeyCode, info.Modifiers
-		}
-	}
-	return 0, 0
+	'!': {30, 2}, '@': {31, 2}, '#': {32, 2}, '$': {33, 2}, '%': {34, 2},
+	'^': {35, 2}, '&': {36, 2}, '*': {37, 2}, '(': {38, 2}, ')': {39, 2},
+	'_': {45, 2}, '+': {46, 2}, '{': {47, 2}, '}': {48, 2}, '|': {49, 2},
+	':': {51, 2}, '"': {52, 2}, '~': {53, 2}, '<': {54, 2}, '>': {55, 2}, '?': {56, 2},
 }

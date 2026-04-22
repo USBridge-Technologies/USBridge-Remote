@@ -12,18 +12,6 @@ var (
 	activeMobileGestureTarget   *VideoWidget
 )
 
-func (vw *VideoWidget) registerMobileGestureTarget() {
-	activeMobileGestureTargetMu.Lock()
-	activeMobileGestureTarget = vw
-	activeMobileGestureTargetMu.Unlock()
-}
-
-func activeGestureVideoWidget() *VideoWidget {
-	activeMobileGestureTargetMu.RLock()
-	defer activeMobileGestureTargetMu.RUnlock()
-	return activeMobileGestureTarget
-}
-
 func (vw *VideoWidget) activeViewportWrapper() *TouchpadWrapper {
 	if vw.fullscreenDialog != nil && vw.fullscreenDialog.isFullscreen && vw.fullscreenDialog.touchpadWrapper != nil {
 		return vw.fullscreenDialog.touchpadWrapper

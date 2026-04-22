@@ -8,7 +8,6 @@ import (
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/graphics"
-	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -204,16 +203,7 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 func (fd *FullscreenDialog) createFullscreenWindow() {
 	logrus.Info("🔍 Создание полноэкранного окна с видео")
 
-	isAndroid := fyne.CurrentDevice().IsMobile()
-	if isAndroid {
-		logrus.Info("🔍 Android: используем основное окно для полноэкранного режима")
-		fd.fullscreenWindow = fd.parent
-		fd.originalContent = fd.parent.Content().(*fyne.Container)
-		fd.originalTitle = fd.parent.Title()
-	} else {
-		logrus.Info("🔍 Desktop: создаем новое окно для полноэкранного режима")
-		fd.fullscreenWindow = fyne.CurrentApp().NewWindow("")
-	}
+	fd.platformInitWindow()
 
 	currentFrame := fd.videoWidget.GetCurrentFrame()
 	if currentFrame != nil {
@@ -227,30 +217,15 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoImage.FillMode = canvas.ImageFillContain
 	fd.videoImage.ScaleMode = canvas.ImageScaleFastest
 	fd.touchpadWrapper = NewTouchpadWrapperWithImage(fd.videoWidget, fd.videoImage)
-	fd.videoWidget.registerMobileGestureTarget()
+	fd.videoWidget.platformRegisterGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
 	logrus.Info("✅ TouchpadWrapper создан для полноэкранного режима")
 
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
-	if fyne.CurrentDevice().IsMobile() {
-		// Регистрируем как получателя нативных Android IME-событий (KeyboardBridge → JNI → Go)
-		fd.virtualKeyboard.RegisterAsIMETarget()
+	fd.platformSetupUI()
 
-		// Когда Android IME открывается/закрывается, обновляем layout fullscreen окна.
-		// Это срабатывает как от нативного события (keyboard_ime_android.go),
-		// так и от потери фокуса полем ввода (onUnfocused).
-		fd.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
-			fyne.Do(func() {
-				if fd.ui != nil {
-					// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает)
-					fd.ui.VideoWithKeyboard.Resize(fd.ui.VideoWithKeyboard.Size())
-					fd.ui.VideoWithKeyboard.Refresh()
-				}
-			})
-		})
-	}
 	keyboardLayout := fd.virtualKeyboard.GetKeyboardLayout()
 	logrus.Infof("⌨️ [DEBUG] keyboardLayout получен: %v, MinSize: %v", keyboardLayout != nil, keyboardLayout.MinSize())
 	keyboardLayout.Hide()
@@ -301,24 +276,6 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		logrus.Infof("⌨️ [DEBUG]   Keyboard Size: %v", keyboardLayout.Size())
 	}
 
-	if !isAndroid {
-		fd.fullscreenWindow.SetTitle(i18n.Current.FullscreenWindowTitle)
-		fd.fullscreenWindow.SetCloseIntercept(func() {
-			logrus.Info("🔍 Перехвачена попытка закрытия окна - выход из полноэкранного режима")
-			fd.exitFullscreen()
-		})
-		fd.fullscreenWindow.SetOnClosed(func() {
-			logrus.Info("🔍 Окно полноэкранного режима закрыто")
-		})
-	} else {
-		logrus.Info("🔍 Android режим: используем основное окно, убираем заголовок")
-		fd.fullscreenWindow.SetTitle("")
-	}
-
-	if !isAndroid {
-		fd.fullscreenWindow.SetFullScreen(true)
-	}
-
 	fd.fullscreenWindow.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
 		if event.Name == fyne.KeyEscape || string(event.Name) == "Back" {
 			logrus.Infof("🔍 Нажата клавиша выхода (%s) - выход из полноэкранного режима", event.Name)
@@ -367,12 +324,8 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	logrus.Infof("⌨️ [DEBUG] Overlay контейнер создан")
 	logrus.Info("🔍 Полноэкранное окно создано")
-	fd.fullscreenWindow.Show()
+	fd.platformShow()
 	logrus.Info("🔍 Полноэкранное окно показано")
-
-	if !isAndroid {
-		fd.fullscreenWindow.RequestFocus()
-	}
 
 	if fd.videoImage != nil && fd.videoImage.Image != nil {
 		fd.videoImage.Refresh()
@@ -384,6 +337,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		if !fd.isFullscreen || fd.fullscreenWindow == nil || fd.touchpadWrapper == nil {
 			return
 		}
+		// На десктопе фокусируемся автоматически, на мобилках фокус управляется системно
 		if !fyne.CurrentDevice().IsMobile() {
 			fyne.Do(func() {
 				fd.fullscreenWindow.RequestFocus()
@@ -444,21 +398,7 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.virtualKeyboard = nil
 	}
 
-	isAndroid := fyne.CurrentDevice().IsMobile()
-	if isAndroid {
-		logrus.Info("🔍 Android: восстанавливаем оригинальное содержимое основного окна")
-		if fd.originalContent != nil {
-			fd.parent.SetContent(fd.originalContent)
-			fd.parent.SetTitle(fd.originalTitle)
-			logrus.Info("✅ Оригинальное содержимое восстановлено")
-		}
-	} else {
-		logrus.Info("🔍 Desktop: закрываем полноэкранное окно")
-		if fd.fullscreenWindow != nil {
-			fd.fullscreenWindow.Close()
-			fd.fullscreenWindow = nil
-		}
-	}
+	fd.platformExit()
 
 	if fd.gstreamerService != nil && fd.videoWidget != nil {
 		fd.gstreamerService.SetOnFrameReceived(func(frame image.Image) {
