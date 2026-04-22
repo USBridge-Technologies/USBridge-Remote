@@ -471,8 +471,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		videoStreaming = info.Streaming
 	}
 
-	for i := range dw.allDrives {
-		drive := &dw.allDrives[i]
+	drives := dw.allDrives
+	for i := range drives {
+		drive := &drives[i]
 		oldStatus := drive.IsMounted
 		isMounted := false
 

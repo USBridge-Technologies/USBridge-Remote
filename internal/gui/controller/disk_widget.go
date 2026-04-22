@@ -1016,13 +1016,14 @@ func (dw *DiskWidget) computeDrivesSignature() string {
 	if dw == nil {
 		return ""
 	}
+	drives := dw.allDrives
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("total=%d|api=%d|local=%d|user=%d|video=%d|mounted=%d|os=%s|op=%v|mnt=%v",
-		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices),
+		len(drives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices),
 		len(dw.mountedDevices), dw.agentOS, dw.userOperationInFlight.Load(), dw.apiMountInProgress.Load()))
 
-	for i := range dw.allDrives {
-		drive := dw.allDrives[i]
+	for i := range drives {
+		drive := drives[i]
 		// Включаем в сигнатуру все поля, влияющие на визуальное состояние строки в списке
 		builder.WriteString(fmt.Sprintf("|%d:%s:%t:%t:%t:%t:%s:%s:%s",
 			i, drive.Source, drive.IsMounted, drive.IsMounting, drive.IsUploading, drive.ReadOnly,
@@ -1204,10 +1205,10 @@ func (dw *DiskWidget) startPeriodicRefresh() {
 			if !dw.devicesRefreshQueued.CompareAndSwap(false, true) {
 				continue
 			}
-			go func() {
+			dw.updateUIAsync(func() {
 				defer dw.devicesRefreshQueued.Store(false)
 				dw.Refresh()
-			}()
+			})
 		}
 	}()
 }
