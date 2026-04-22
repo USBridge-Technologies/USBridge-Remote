@@ -3,6 +3,7 @@
 package graphics
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -97,25 +98,15 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	var suppress bool
 
 	// Буферизация для борьбы с "дрожанием" Android IME.
-	// Когда IME переписывает фразу целиком (удаляет и пишет заново за миллисекунды),
-	// мы ждем небольшую паузу и отправляем только итоговую разницу (diff).
 	var (
 		pendingText string
 		mu          sync.Mutex
 		timer       *time.Timer
 	)
 
-	// commitChanges вычисляет разницу между тем, что было отправлено на хост,
-	// и текущим состоянием поля ввода, и отправляет только необходимые нажатия.
-	commitChanges := func() {
-		mu.Lock()
-		newText := pendingText
-		if timer != nil {
-			timer.Stop()
-			timer = nil
-		}
-		mu.Unlock()
-
+	// sendDiff вычисляет и отправляет разницу между prevText и newText.
+	// Должен вызываться только из главного потока (main thread).
+	sendDiff := func(newText string) {
 		if newText == prevText {
 			return
 		}
@@ -123,6 +114,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		newRunes := []rune(newText)
 		prevRunes := []rune(prevText)
 
+		// Находим общий префикс
 		commonLen := 0
 		minLen := len(prevRunes)
 		if len(newRunes) < minLen {
@@ -136,6 +128,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			}
 		}
 
+		// 1. Стираем лишнее с конца (Backspace)
 		backspaces := len(prevRunes) - commonLen
 		if backspaces > 0 && vk.onKeyPress != nil {
 			logrus.Infof("⌨️ [BATCH] Sending %d backspaces (erasing %q)", backspaces, string(prevRunes[commonLen:]))
@@ -144,6 +137,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			}
 		}
 
+		// 2. Печатаем новое
 		if vk.onRuneTyped != nil {
 			added := newRunes[commonLen:]
 			if len(added) > 0 {
@@ -157,8 +151,20 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		prevText = newText
 	}
 
+	// commitChanges сбрасывает состояние буфера на хост.
+	commitChanges := func() {
+		mu.Lock()
+		text := pendingText
+		if timer != nil {
+			timer.Stop()
+			timer = nil
+		}
+		mu.Unlock()
+		sendDiff(text)
+	}
+
 	textHint.onKey = func(keyName fyne.KeyName) {
-		// Если нажата управляющая клавиша, немедленно сбрасываем буфер текста
+		// При нажатии управляющих клавиш немедленно сбрасываем все накопленные изменения
 		if keyName == fyne.KeyReturn || keyName == fyne.KeyTab {
 			commitChanges()
 			code := input.GetKeyCode(keyName)
@@ -177,7 +183,6 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.OnChanged = func(newText string) {
 		if suppress {
-			// При ручном сбросе буфера (SetText("")) просто синхронизируем состояние без отправки клавиш
 			mu.Lock()
 			pendingText = newText
 			prevText = newText
@@ -185,14 +190,28 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			return
 		}
 
+		// Оптимизация: если это простое добавление символов в конец (обычный ввод),
+		// отправляем немедленно, не дожидаясь таймера. Это убирает лаги и "путаницу" букв.
+		if strings.HasPrefix(newText, prevText) {
+			mu.Lock()
+			if timer != nil {
+				timer.Stop()
+				timer = nil
+			}
+			pendingText = newText
+			mu.Unlock()
+			sendDiff(newText)
+			return
+		}
+
+		// Если же текст изменился радикально (автозамена, вставка, удаление из середины),
+		// включаем задержку (debounce), чтобы дождаться стабилизации от IME.
 		mu.Lock()
 		pendingText = newText
 		if timer != nil {
 			timer.Stop()
 		}
-		// 40мс достаточно, чтобы поймать всплеск событий от IME (обычно < 10мс),
-		// но при этом задержка почти не заметна для человека.
-		timer = time.AfterFunc(40*time.Millisecond, func() {
+		timer = time.AfterFunc(20*time.Millisecond, func() {
 			fyne.Do(commitChanges)
 		})
 		mu.Unlock()
@@ -210,7 +229,8 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			suppress = false
 		}
 	}
-	// Добавляем проверку лимита в OnChanged (но после логики таймера)
+
+	// Добавляем проверку лимита
 	actualOnChanged := textHint.OnChanged
 	textHint.OnChanged = func(s string) {
 		actualOnChanged(s)
