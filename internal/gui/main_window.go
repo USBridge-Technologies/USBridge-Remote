@@ -36,7 +36,6 @@ type MainWindow struct {
 	deviceFooterBar     *fyne.Container
 	deviceMountBtn      fyne.CanvasObject
 	deviceUnmountBtn    fyne.CanvasObject
-	deviceVideoBtn      *view.DeviceActionButton
 	mainExitBtn         *view.HeaderActionButton
 	connectionFooterBar *fyne.Container
 

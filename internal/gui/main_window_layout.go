@@ -410,7 +410,7 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
-	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, view.MobileFooterBottomInset(2))
+	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, view.MobileFooterBottomInset(36))
 	mw.deviceFooterBar = bar
 	mw.deviceFooterBar.Hide()
 	return bar
@@ -978,13 +978,6 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
 	mw.deviceUnmountBtn = unmountBtn
-	mw.deviceVideoBtn = view.NewDeviceActionButton(i18n.Current.VideoStreamActiveButton, nil, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
-			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
-		}
-	})
-	mw.deviceVideoBtn.SetColors(design.ColorAccent, design.ColorAccentHover, design.ColorBackground, design.ColorBackground)
-	mw.deviceVideoBtn.Hide()
 	mw.deviceButtonsPanel = container.NewHBox()
 	mw.refreshDeviceFooterButtons()
 	mw.deviceButtonsPanel.Hide()
@@ -1005,19 +998,16 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 
 	objects := make([]fyne.CanvasObject, 0, 5)
-	appendVisible := func(obj fyne.CanvasObject) {
-		if obj == nil || !obj.Visible() {
-			return
-		}
+
+	if mw.deviceMountBtn != nil {
+		objects = append(objects, mw.deviceMountBtn)
+	}
+	if mw.deviceUnmountBtn != nil {
 		if len(objects) > 0 {
 			objects = append(objects, buildGap())
 		}
-		objects = append(objects, obj)
+		objects = append(objects, mw.deviceUnmountBtn)
 	}
-
-	appendVisible(mw.deviceMountBtn)
-	appendVisible(mw.deviceUnmountBtn)
-	appendVisible(mw.deviceVideoBtn)
 
 	mw.deviceButtonsPanel.Objects = objects
 	mw.deviceButtonsPanel.Refresh()
@@ -1116,16 +1106,6 @@ func (mw *MainWindow) updateStatusBar() {
 		keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected)
 
 	fyne.Do(func() {
-		if mw.deviceVideoBtn != nil {
-			if videoStreaming {
-				mw.deviceVideoBtn.Show()
-				mw.deviceVideoBtn.Enable()
-			} else {
-				mw.deviceVideoBtn.Hide()
-			}
-			mw.refreshDeviceFooterButtons()
-		}
-
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIconActive)
