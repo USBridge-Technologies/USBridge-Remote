@@ -584,16 +584,8 @@ func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
 }
 
 func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
-	title := canvas.NewText("Tailscale", design.ColorTextLight)
-	title.TextSize = 8
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
-
 	row := container.NewHBox(mode, centerSpacer(8), toggle)
-	content := container.New(&tailscaleHeaderAccessoryLayout{gap: 2},
-		container.NewCenter(title),
-		container.NewCenter(row),
-	)
+	content := container.NewCenter(row)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = design.RadiusMD + 2
@@ -606,42 +598,8 @@ func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObjec
 	return container.NewStack(
 		bg,
 		border,
-		NewInset(content, 10, 10, 4, 3),
+		NewInset(content, 10, 10, 8, 8),
 	)
-}
-
-type tailscaleHeaderAccessoryLayout struct {
-	gap float32
-}
-
-func (l *tailscaleHeaderAccessoryLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-
-	title := objects[0]
-	row := objects[1]
-	titleMin := title.MinSize()
-	rowMin := row.MinSize()
-
-	title.Move(fyne.NewPos(0, 0))
-	title.Resize(fyne.NewSize(size.Width, titleMin.Height))
-
-	rowY := titleMin.Height + l.gap
-	row.Move(fyne.NewPos(0, rowY))
-	row.Resize(fyne.NewSize(size.Width, rowMin.Height))
-}
-
-func (l *tailscaleHeaderAccessoryLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 2 {
-		return fyne.NewSize(0, 0)
-	}
-
-	titleMin := objects[0].MinSize()
-	rowMin := objects[1].MinSize()
-	width := maxFloat32(titleMin.Width, rowMin.Width)
-	height := titleMin.Height + l.gap + rowMin.Height
-	return fyne.NewSize(width, height)
 }
 
 func (ui *ConnectionManagerUI) SetTailscaleMode(mode TailscaleMode) {
