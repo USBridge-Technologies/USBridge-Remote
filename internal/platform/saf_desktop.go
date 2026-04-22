@@ -72,3 +72,16 @@ func (sh *SAFHelper) GetCachedFile(uriString string) (*os.File, bool) {
 	logrus.Debug("📍 [SAF-DESKTOP] GetCachedFile вызван (десктоп)")
 	return nil, false
 }
+
+// SetContext - заглушка для десктопа (JNI контекст не нужен)
+func (sh *SAFHelper) SetContext() {}
+
+// TriggerSAFPicker - заглушка для десктопа
+func (sh *SAFHelper) TriggerSAFPicker() error {
+	return fmt.Errorf("SAF picker недоступен на десктопе")
+}
+
+// PollSAFResult - заглушка для десктопа (всегда нет результата)
+func (sh *SAFHelper) PollSAFResult() (uri string, fileName string, fd int, size int64, hasResult bool) {
+	return "", "", -1, 0, false
+}
