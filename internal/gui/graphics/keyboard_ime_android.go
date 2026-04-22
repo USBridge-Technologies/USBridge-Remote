@@ -27,9 +27,31 @@ import (
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
+var (
+	lastIMEH float32 // Кэшируем последнее значение отступа в Fyne-единицах
+)
+
+// GetLastIMEH возвращает последний кэшированный отступ IME (включая NavBar)
+func GetLastIMEH() float32 {
+	return lastIMEH
+}
 
 func init() {
 	C.keepIMEBridgeSymbolsReferenced()
+}
+
+// RegisterAsIMETarget регистрирует этот VirtualKeyboard как получателя нативных IME-событий.
+func (vk *VirtualKeyboard) RegisterAsIMETarget() {
+	activeIMEKeyboardMu.Lock()
+	activeIMEKeyboardTarget = vk
+	activeIMEKeyboardMu.Unlock()
+
+	// Сразу применяем последний известный отступ, чтобы верстка встала на место до первого клика
+	if lastIMEH > 0 {
+		fyne.Do(func() {
+			vk.setIMEOffset(lastIMEH)
+		})
+	}
 }
 
 // deliverIMEHeightFromJNI вызывается из JNI (KeyboardBridge.onIMEHeightChanged).
@@ -44,30 +66,31 @@ func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 	logrus.Infof("⌨️ [IME-JNI] imeHeightPx=%d screenHeightPx=%d", imePx, screenPx)
 
 	vk := activeIMEKeyboard()
-	if vk == nil {
-		return
-	}
-
+	
 	fyne.Do(func() {
-		if imePx <= 0 || screenPx <= 0 {
-			// Клавиатура закрыта
-			vk.setIMEOffset(0)
+		if screenPx <= 0 {
 			return
 		}
 
-		// Конвертируем пиксели в Fyne-единицы через пропорцию:
-		// screenPx пикселей = canvasH Fyne-единиц (при fullscreen теме canvas = весь экран)
 		canvasH := float32(0)
-		if vk.parentWindow != nil {
+		if vk != nil && vk.parentWindow != nil {
 			canvasH = vk.parentWindow.Canvas().Size().Height
+		} else if fyne.CurrentApp() != nil && len(fyne.CurrentApp().Driver().AllWindows()) > 0 {
+			// Пытаемся найти хоть какое-то окно для получения масштаба
+			canvasH = fyne.CurrentApp().Driver().AllWindows()[0].Canvas().Size().Height
 		}
+
 		if canvasH <= 0 {
+			// Если окон еще нет, мы не можем рассчитать Fyne-единицы.
 			return
 		}
 
-		// imeH / canvasH = imePx / screenPx
-		imeH := float32(imePx) / float32(screenPx) * canvasH
-		logrus.Infof("⌨️ [IME-JNI] imeH=%.0f canvasH=%.0f", imeH, canvasH)
-		vk.setIMEOffset(imeH)
+		calculatedIMEH := float32(imePx) / float32(screenPx) * canvasH
+		lastIMEH = calculatedIMEH
+		logrus.Infof("⌨️ [IME-JNI] lastIMEH=%.0f canvasH=%.0f", lastIMEH, canvasH)
+
+		if vk != nil {
+			vk.setIMEOffset(calculatedIMEH)
+		}
 	})
 }

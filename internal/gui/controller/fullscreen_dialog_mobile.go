@@ -3,6 +3,8 @@
 package controller
 
 import (
+	"usbridge-client/internal/gui/graphics"
+
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -30,16 +32,17 @@ func (fd *FullscreenDialog) platformSetupUI() {
 	fd.virtualKeyboard.SetOnIMEChanged(func(open bool) {
 		fyne.Do(func() {
 			if fd.ui != nil {
-				// Вычисляем суммарный инсет: кнопки + IME
+				// Вычисляем суммарный инсет: кнопки виртуальной клавиатуры + системный IME/NavBar
 				var inset float32
 				if fd.ui.KeyboardLayout.Visible() {
+					// Если виртуальная клавиатура показана, её высота уже включает в себя системный imeSpacer
 					inset = fd.ui.KeyboardLayout.MinSize().Height
-					if inset < 50 {
-						inset = 145 // Запасной вариант
-					}
+				} else {
+					// Если скрыта — оставляем только системный отступ (например, NavBar)
+					inset = graphics.GetLastIMEH()
 				}
 				
-				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f", inset)
+				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f (open=%v)", inset, open)
 				if fd.videoWidget != nil {
 					fd.videoWidget.SetBottomInset(inset)
 				}

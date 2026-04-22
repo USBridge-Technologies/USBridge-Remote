@@ -91,6 +91,11 @@ func (vk *VirtualKeyboard) placeInvisiblePlaceholder(grid *fyne.Container, row i
 }
 
 // createKeyboardLayout создает раскладку клавиатуры для десктопа
+// GetLastIMEH заглушка для десктопа
+func GetLastIMEH() float32 {
+	return 0
+}
+
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	grid := container.NewWithoutLayout()
 	background := canvas.NewRectangle(theme.BackgroundColor())

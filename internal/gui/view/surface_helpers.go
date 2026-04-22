@@ -219,6 +219,6 @@ func MobileFooterBottomInset(base float32) float32 {
 		return base
 	}
 
-	// Keep footer actions above the Android system navigation bar.
-	return base + 40
+	// In Edge-to-Edge mode we need very little padding.
+	return base + 4
 }

@@ -240,7 +240,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			fd.virtualKeyboard.Hide()
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
 			if fd.videoWidget != nil {
-				fd.videoWidget.SetBottomInset(0)
+				fd.videoWidget.SetBottomInset(graphics.GetLastIMEH())
 			}
 		} else {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")

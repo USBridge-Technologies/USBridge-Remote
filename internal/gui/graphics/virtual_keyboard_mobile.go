@@ -25,12 +25,7 @@ var (
 	activeIMEKeyboardTarget *VirtualKeyboard
 )
 
-// RegisterAsIMETarget регистрирует этот VirtualKeyboard как получателя нативных IME-событий.
-func (vk *VirtualKeyboard) RegisterAsIMETarget() {
-	activeIMEKeyboardMu.Lock()
-	activeIMEKeyboardTarget = vk
-	activeIMEKeyboardMu.Unlock()
-}
+// RegisterAsIMETarget регистрируется в keyboard_ime_android.go
 
 func activeIMEKeyboard() *VirtualKeyboard {
 	activeIMEKeyboardMu.RLock()
@@ -347,11 +342,14 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onFocused = func() {
 		vk.adjustForIME(true)
 	}
+	// Мы НЕ сбрасываем отступ в onUnfocused (adjustForIME(false)),
+	// так как на Android системный навигационный бар все еще занимает место.
+	// Мы доверяем событиям KeyboardBridge.onIMEHeightChanged, которые приходят
+	// от Android при скрытии клавиатуры и содержат актуальную высоту (например, только NavBar).
 	textHint.onUnfocused = func() {
-		vk.adjustForIME(false)
 	}
 
-	paddedMain := view.NewInset(main, 4, 4, 4, view.MobileFooterBottomInset(4))
+	paddedMain := view.NewInset(main, 4, 4, 4, 4)
 	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
 	return container.NewStack(background, innerLayout)
 }
@@ -403,9 +401,8 @@ func (vk *VirtualKeyboard) adjustForIME(open bool) {
 		if vk.imeSpacer != nil && vk.imeSpacer.height > 0 {
 			return
 		}
-		if vk.parentWindow != nil {
-			vk.setIMEOffset(vk.parentWindow.Canvas().Size().Height * 0.42)
-		}
+		// Устанавливаем минимальный начальный отступ, пока не пришло реальное значение от JNI
+		vk.setIMEOffset(10)
 	} else {
 		vk.setIMEOffset(0)
 	}
