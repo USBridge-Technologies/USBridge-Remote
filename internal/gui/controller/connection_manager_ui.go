@@ -42,10 +42,15 @@ func (cm *ConnectionManager) initTailscaleMode() {
 		if !userspace {
 			cm.app.Preferences().SetBool("tailscale_userspace", true)
 			cm.config.TailscaleUserspace = true
+			userspace = true
 		}
 	} else {
 		cm.config.TailscaleUserspace = userspace
 	}
+
+	// Синхронизируем сервис с актуальным режимом и обновляем статус
+	cm.ts.SetUserspace(userspace)
+	cm.refreshTailscaleStatus()
 }
 
 func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {

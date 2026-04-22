@@ -238,7 +238,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 func (vk *VirtualKeyboard) createKeyboardLayoutAndroid() *fyne.Container {
 	// Поле ввода: при нажатии открывается системная клавиатура Android.
 	textHint := &backspaceEntry{}
-	textHint.Password = true // Отключает Т9 и автозамену
+	textHint.Password = false // Обычный ввод текста
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
 

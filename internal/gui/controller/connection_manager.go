@@ -179,7 +179,6 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 
 	cm.loadConnections()
 	cm.createInterface()
-	cm.refreshTailscaleStatus()
 	cm.startTailscaleStatusPolling()
 	return cm
 }
