@@ -7,7 +7,10 @@
       "Bash(go build:*)",
       "Bash(adb logcat *)",
       "Bash(adb shell *)",
-      "Bash(xargs ls *)"
+      "Bash(xargs ls *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(git push *)"
     ]
   }
 }

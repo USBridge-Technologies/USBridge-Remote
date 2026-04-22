@@ -172,7 +172,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		logrus.Info("📱 [ANDROID-INIT] SAF global context will be initialized on window set")
 	}
 
-	dw.createInterfaceV2()
+	dw.createInterface()
 
 	// Запускаем периодическое обновление состояния
 	dw.startPeriodicRefresh()
@@ -967,8 +967,8 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
 	dw.loadMountedDevices()
-	dw.combineDrives()
-	dw.requestDevicesRefresh()
+	// combineDrives + requestDevicesRefresh вызываются каждой горутиной по завершении,
+	// поэтому здесь они не нужны: синхронный вызов с устаревшими данными вызывал лишний рефреш.
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {

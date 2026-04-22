@@ -222,9 +222,19 @@ func (vw *VideoWidget) GetShowMouseCursor() bool {
 }
 
 // SetShowMouseCursor задаёт флаг отображения курсора в захваченном видео.
+// Если видео активно, перезапускает поток, чтобы сервер применил новое значение ShowMouse.
 func (vw *VideoWidget) SetShowMouseCursor(show bool) {
+	if vw.showMouseCursor == show {
+		return
+	}
 	vw.showMouseCursor = show
 	vw.refreshCursorOverlay()
+	if vw.isStreaming {
+		vw.videoOpMu.Lock()
+		vw.videoRestartPending = true
+		vw.videoOpMu.Unlock()
+		vw.scheduleVideoReconcile("show-mouse-cursor-changed")
+	}
 }
 
 func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {

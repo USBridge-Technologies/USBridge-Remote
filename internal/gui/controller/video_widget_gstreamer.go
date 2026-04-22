@@ -36,11 +36,6 @@ func NewVideoWidgetGStreamer(usbClient *api.USBClient, gstreamerService *service
 	return vw
 }
 
-// VideoWidget обновлённая структура с GStreamer
-type VideoWidgetExt struct {
-	VideoWidget
-	gstreamerService *service.GStreamerService
-}
 
 // setupGStreamerCallbacks настраивает callbacks для GStreamer
 func (vw *VideoWidget) setupGStreamerCallbacks() {
@@ -357,9 +352,3 @@ func (vw *VideoWidget) updateGStreamerStats() {
 	})
 }
 
-// Добавляем поле в VideoWidget
-type VideoWidgetWithGStreamer struct {
-	*VideoWidget
-	gstreamerService     *service.GStreamerService
-	isGStreamerConnected bool
-}

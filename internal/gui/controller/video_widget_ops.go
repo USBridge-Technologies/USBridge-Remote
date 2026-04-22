@@ -69,8 +69,12 @@ func (vw *VideoWidget) scheduleVideoReconcile(reason string) {
 	}
 
 	vw.enqueueVideoOp("video-reconcile:"+reason, func() {
-		defer vw.videoReconcilePending.Store(false)
+		defer vw.videoReconcilePending.Store(false) // safety net: always resets on panic
 		vw.reconcileVideoState(reason)
+		// Clear pending before the check so that scheduleVideoReconcile("coalesced")
+		// can succeed its CAS. Without this the defer runs too late and the coalesced
+		// reconcile is silently dropped, leaving desired≠streaming forever.
+		vw.videoReconcilePending.Store(false)
 		if vw.videoReconcileNeeded() {
 			vw.scheduleVideoReconcile("coalesced")
 		}

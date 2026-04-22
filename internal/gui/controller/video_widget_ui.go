@@ -47,7 +47,11 @@ func (vw *VideoWidget) createInterface() {
 func (vw *VideoWidget) handleStartVideo() {
 	vw.setDesiredStreaming(true)
 	if !vw.beginVideoOperation() {
-		logrus.Warn("⚠️ video operation already in progress, skipping start")
+		// Another op (likely stop/reconcile) is running. Mark restart so the
+		// coalesced reconcile will start video once the current op finishes.
+		vw.videoOpMu.Lock()
+		vw.videoRestartPending = true
+		vw.videoOpMu.Unlock()
 		return
 	}
 	go func() {

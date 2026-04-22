@@ -55,8 +55,7 @@ func (dw *DiskWidget) loadLocalDrives() {
 
 		logrus.Debugf("Загружено %d устройств из API", len(dw.localDrives))
 		dw.updateUIAsync(func() {
-			dw.combineDrives()
-			dw.requestDevicesRefresh()
+			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
 		})
 
 		// Загружаем информацию о месте на SD-карте (раздел iso/data/backup)
@@ -147,8 +146,7 @@ func (dw *DiskWidget) loadLocalFiles() {
 		logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
 		dw.updateUIAsync(func() {
 			dw.localFiles = foundFiles
-			dw.combineDrives()
-			dw.requestDevicesRefresh()
+			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
 		})
 	}()
 }
@@ -165,16 +163,14 @@ func (dw *DiskWidget) loadVideoDevices() {
 			logrus.Debugf("video devices unavailable: %v", err)
 			dw.updateUIAsync(func() {
 				dw.videoDevices = nil
-				dw.combineDrives()
-				dw.requestDevicesRefresh()
+				dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
 			})
 			return
 		}
 
 		dw.updateUIAsync(func() {
 			dw.videoDevices = devices
-			dw.combineDrives()
-			dw.requestDevicesRefresh()
+			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
 		})
 	}()
 }
