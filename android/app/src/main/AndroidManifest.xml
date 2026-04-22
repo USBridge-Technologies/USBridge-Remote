@@ -33,7 +33,7 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="USBridge Client"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/AppTheme"
         android:requestLegacyExternalStorage="true"
         android:preserveLegacyExternalStorage="true"
         android:usesCleartextTraffic="true"
@@ -45,7 +45,7 @@
         <activity
             android:name="com.usbridge.client.MainActivity"
             android:label="USBridge Client"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen"
+            android:theme="@style/AppTheme"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask"
