@@ -29,9 +29,14 @@ func (fd *FullscreenDialog) platformSetupUI() {
 	fd.virtualKeyboard.SetOnIMEChanged(func(_ bool) {
 		fyne.Do(func() {
 			if fd.ui != nil {
-				// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает)
-				fd.ui.VideoWithKeyboard.Resize(fd.ui.VideoWithKeyboard.Size())
+				// Используем актуальный размер Canvas для принудительного пересчета всего дерева объектов.
+				// Это заставляет BorderLayout сжать видео-контейнер, освобождая место под кнопки и IME.
+				size := fd.fullscreenWindow.Canvas().Size()
+				fd.ui.VideoWithKeyboard.Resize(size)
 				fd.ui.VideoWithKeyboard.Refresh()
+				
+				// Дополнительно обновляем положение кнопки переключения
+				fd.virtualKeyboard.UpdatePosition(size)
 			}
 		})
 	})

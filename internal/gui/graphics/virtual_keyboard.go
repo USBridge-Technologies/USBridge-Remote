@@ -222,7 +222,10 @@ func (vk *VirtualKeyboard) Show() {
 	vk.isVisible = true
 	vk.keyboard.Show()
 
-	if vk.parentWindow != nil {
+	// На мобильных платформах (Android/iOS) клавиатура обычно встроена в BorderLayout
+	// основного окна через FullscreenUI. Ручное позиционирование здесь приведет к наложению на видео.
+	// Поэтому выполняем ручной Move/Resize только если мы НЕ на мобилке или если окно отдельное.
+	if vk.parentWindow != nil && fyne.CurrentDevice().IsMobile() == false {
 		size := vk.parentWindow.Canvas().Size()
 		keyboardSize := fyne.NewSize(700, 250)
 

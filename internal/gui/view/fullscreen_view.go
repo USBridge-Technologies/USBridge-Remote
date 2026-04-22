@@ -19,11 +19,16 @@ type FullscreenUI struct {
 
 func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keyboardLayout *fyne.Container, onToggleKeyboard func()) *FullscreenUI {
 	videoContainer := container.NewMax(touchpad)
+	
+	// Используем Border layout: видео в центре (растягивается), клавиатура снизу (занимает только нужную высоту)
+	// Это гарантирует, что видео всегда будет ВЫШЕ кнопок и они не перекроются.
 	videoWithKeyboard := container.NewBorder(nil, keyboardLayout, nil, nil, videoContainer)
 
 	keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
 	keyboardButton.Importance = widget.MediumImportance
 
+	// Оборачиваем кнопку в контейнер без лейаута для ручного позиционирования,
+	// но саму структуру видео/клавиатуры держим в Stack для правильной отрисовки.
 	mainContainer := container.NewStack(videoWithKeyboard, container.NewWithoutLayout(keyboardButton))
 
 	return &FullscreenUI{
