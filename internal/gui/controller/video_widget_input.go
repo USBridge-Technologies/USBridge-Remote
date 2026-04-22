@@ -25,7 +25,7 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 	if input.IsPrintableKey(event.Name) {
 		return
 	}
-	go vw.sendPhysicalKeyToRemote(event)
+	vw.sendPhysicalKeyToRemote(event)
 }
 
 // handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
@@ -33,12 +33,7 @@ func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	if vw.usbClient == nil {
 		return
 	}
-	if vw.virtualKeyboard != nil && vw.virtualKeyboard.IsVisible() {
-		// Если видна виртуальная клавиатура, ввод идет через её поле ввода.
-		// Игнорируем это событие, чтобы не было дублирования (эха).
-		return
-	}
-	go vw.sendRuneToRemote(r)
+	vw.sendRuneToRemote(r)
 }
 
 // sendPhysicalKeyToRemote конвертирует fyne.KeyEvent в HID и отправляет.
@@ -85,7 +80,7 @@ func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 	}
 
 	logrus.Infof("⌨️ Sending key to remote machine: code=%d, modifiers=%d", keyCode, modifiers)
-	go vw.sendKeyToRemote(keyCode, modifiers)
+	vw.sendKeyToRemote(keyCode, modifiers)
 }
 
 // sendKeyToRemote отправляет клавишу на удаленную машину через HID.

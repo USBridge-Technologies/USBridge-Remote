@@ -38,12 +38,12 @@ func activeIMEKeyboard() *VirtualKeyboard {
 	return activeIMEKeyboardTarget
 }
 
-// backspaceEntry — поле ввода для Android/iOS, которое позволяет ловить системные клавиши
+// backspaceEntry — поле ввода для Android/iOS
 type backspaceEntry struct {
 	widget.Entry
 	onKey       func(fyne.KeyName)
-	onFocused   func() // вызывается когда поле получает фокус (IME откроется)
-	onUnfocused func() // вызывается когда поле теряет фокус (IME закроется)
+	onFocused   func()
+	onUnfocused func()
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
@@ -90,73 +90,80 @@ func (l *imeSpacerLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
 // createKeyboardLayout создает раскладку клавиатуры для мобильных устройств
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint := &backspaceEntry{}
-	textHint.MultiLine = false // Используем стандартную однострочную прокрутку
+	textHint.MultiLine = false
 	textHint.Password = false
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
 
-	var prevText string
-	var suppress bool
-
-	// Буферизация для борьбы с "дрожанием" Android IME.
 	var (
 		pendingText string
 		mu          sync.Mutex
 		timer       *time.Timer
+		suppress    bool
 	)
 
-	// sendDiff вычисляет и отправляет разницу между prevText и newText.
-	sendDiff := func(newText string) {
-		mu.Lock()
-		oldText := prevText
-		if newText == oldText {
-			mu.Unlock()
-			return
-		}
-		// Обновляем состояние немедленно для предотвращения гонок при быстрых всплесках IME
-		prevText = newText
-		mu.Unlock()
-
-		newRunes := []rune(newText)
-		prevRunes := []rune(oldText)
-
-		// Находим общий префикс
-		commonLen := 0
-		minLen := len(prevRunes)
-		if len(newRunes) < minLen {
-			minLen = len(newRunes)
-		}
-		for i := 0; i < minLen; i++ {
-			if prevRunes[i] == newRunes[i] {
-				commonLen++
-			} else {
-				break
-			}
-		}
-
-		// 1. Стираем лишнее с конца (Backspace)
-		backspaces := len(prevRunes) - commonLen
-		if backspaces > 0 && vk.onKeyPress != nil {
-			logrus.Infof("⌨️ [BATCH] Sending %d backspaces (erasing %q)", backspaces, string(prevRunes[commonLen:]))
-			for i := 0; i < backspaces; i++ {
-				vk.onKeyPress(42, 0) // HID Backspace
-			}
-		}
-
-		// 2. Печатаем новое
-		if vk.onRuneTyped != nil {
-			added := newRunes[commonLen:]
-			if len(added) > 0 {
-				// Печатаем символы по одному без пауз
-				for _, r := range added {
-					vk.onRuneTyped(r)
-				}
-			}
-		}
+	type syncTask struct {
+		text string
+		key  int
 	}
+	taskChan := make(chan syncTask, 100)
 
-	// commitChanges сбрасывает состояние буфера на хост.
-	commitChanges := func() {
+	// Фоновый воркер
+	go func() {
+		var currentSynced string
+		for task := range taskChan {
+			target := task.text
+
+			if target != currentSynced {
+				newRunes := []rune(target)
+				oldRunes := []rune(currentSynced)
+
+				commonLen := 0
+				minLen := len(newRunes)
+				if len(oldRunes) < minLen {
+					minLen = len(oldRunes)
+				}
+				for i := 0; i < minLen; i++ {
+					if oldRunes[i] == newRunes[i] {
+						commonLen++
+					} else {
+						break
+					}
+				}
+
+				// 1. Стираем лишнее с конца
+				backspaces := len(oldRunes) - commonLen
+				if backspaces > 0 && vk.onKeyPress != nil {
+					logrus.Infof("⌨️ [WORKER] Erasing %d characters", backspaces)
+					for i := 0; i < backspaces; i++ {
+						vk.onKeyPress(42, 0) // HID Backspace
+					}
+				}
+
+				// 2. Дописываем новое пачкой (SendText) или по одному символу
+				added := newRunes[commonLen:]
+				if len(added) > 0 {
+					logrus.Infof("⌨️ [WORKER] Typing %d new runes: %q", len(added), string(added))
+					if vk.onTextTyped != nil {
+						// Оптимизация: шлем все слово/фразу одним запросом!
+						vk.onTextTyped(string(added))
+					} else if vk.onRuneTyped != nil {
+						for _, r := range added {
+							vk.onRuneTyped(r) // Медленный фоллбэк
+						}
+					}
+				}
+
+				currentSynced = target
+			}
+
+			if task.key != 0 && vk.onKeyPress != nil {
+				vk.onKeyPress(task.key, 0)
+			}
+		}
+	}()
+
+	commitChanges := func(key int) {
 		mu.Lock()
 		text := pendingText
 		if timer != nil {
@@ -164,71 +171,43 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			timer = nil
 		}
 		mu.Unlock()
-		sendDiff(text)
+		taskChan <- syncTask{text: text, key: key}
 	}
 
 	textHint.onKey = func(keyName fyne.KeyName) {
-		// При нажатии управляющих клавиш немедленно сбрасываем все накопленные изменения
 		if keyName == fyne.KeyReturn || keyName == fyne.KeyTab {
-			commitChanges()
 			code := input.GetKeyCode(keyName)
-			if code != 0 && vk.onKeyPress != nil {
-				vk.onKeyPress(code, 0)
-			}
-			return
-		}
-
-		if keyName == fyne.KeyBackspace {
-			if textHint.Text == "" && vk.onKeyPress != nil {
-				vk.onKeyPress(42, 0) // HID Backspace
+			commitChanges(code)
+			// Никакой очистки поля на Enter (как и просил пользователь)
+		} else if keyName == fyne.KeyBackspace {
+			if textHint.Text == "" {
+				commitChanges(42)
 			}
 		}
 	}
 
 	textHint.OnChanged = func(newText string) {
+		mu.Lock()
 		if suppress {
-			mu.Lock()
 			pendingText = newText
-			prevText = newText
 			mu.Unlock()
 			return
 		}
 
-		// Оптимизация: если это простое добавление символов в конец (обычный ввод),
-		// отправляем немедленно.
-		mu.Lock()
-		isPrefix := strings.HasPrefix(newText, prevText)
-		mu.Unlock()
-
-		if isPrefix {
-			mu.Lock()
-			if timer != nil {
-				timer.Stop()
-				timer = nil
-			}
-			pendingText = newText
-			mu.Unlock()
-			sendDiff(newText)
-			return
-		}
-
-		// ЗАКОММЕНТИРОВАНО: Защита от дребезга и обработка сложных правок.
-		/*
-		mu.Lock()
+		lastPending := pendingText
 		pendingText = newText
+
+		delay := 100 * time.Millisecond
+		if strings.HasPrefix(newText, lastPending) {
+			delay = 10 * time.Millisecond
+		}
+
 		if timer != nil {
 			timer.Stop()
 		}
-		timer = time.AfterFunc(100*time.Millisecond, func() {
-			fyne.Do(commitChanges)
+		timer = time.AfterFunc(delay, func() {
+			commitChanges(0)
 		})
-		mu.Unlock()
-		*/
-
-		// Синхронизируем состояние без отправки
-		mu.Lock()
-		pendingText = newText
-		prevText = newText 
 		mu.Unlock()
 	}
 
@@ -321,15 +300,20 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	keysWithEnterAndDpad := container.NewBorder(nil, nil, leftKeys, dpad, enterBtn)
 
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
+		// Нельзя держать mu пока вызываем SetText — она синхронно триггерит OnChanged,
+		// который тоже берёт mu → deadlock на одном горутине UI.
+		mu.Lock()
 		suppress = true
+		pendingText = ""
+		mu.Unlock()
 		textHint.SetText("")
 		mu.Lock()
-		pendingText = ""
-		prevText = ""
-		mu.Unlock()
 		suppress = false
+		mu.Unlock()
+		taskChan <- syncTask{text: "", key: 0}
 	})
 	clearBtn.Importance = widget.MediumImportance
+
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
 

@@ -35,6 +35,13 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		}
 		// Используем handlePhysicalRunePress для мобилок, так как маппинг в нем теперь адаптивный
 		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
+		vw.virtualKeyboard.SetOnTextTyped(func(text string) {
+			if vw.usbClient != nil {
+				if err := vw.usbClient.SendText(text); err != nil {
+					logrus.Errorf("⚠️ Ошибка отправки текста: %v", err)
+				}
+			}
+		})
 		
 		// Когда Android IME открывается/закрывается, обновляем layout:
 		vw.virtualKeyboard.SetOnIMEChanged(func(open bool) {
@@ -61,6 +68,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 
 		keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
 		vw.virtualKeyboard.SetVisibleState(true)
+		vw.virtualKeyboard.FocusInput() // Принудительный фокус для Android
 
 		canvasSize := vw.parentWindow.Canvas().Size()
 		keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))

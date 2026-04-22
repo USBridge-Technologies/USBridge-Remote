@@ -17,7 +17,7 @@ func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
 	}
 
 	logrus.Infof("⌨️ Отправляем клавишу на удаленную машину: код=%d, модификаторы=%d", keyCode, modifiers)
-	go fd.sendKeyToRemoteVirtual(keyCode, modifiers)
+	fd.sendKeyToRemoteVirtual(keyCode, modifiers)
 }
 
 // sendKeyToRemoteVirtual отправляет клавишу на удаленную машину через HID (из виртуальной клавиатуры)
@@ -61,7 +61,7 @@ func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 		return
 	}
 
-	go fd.sendKeyToRemote(event)
+	fd.sendKeyToRemote(event)
 }
 
 // sendKeyToRemote отправляет клавишу на удаленную машину через HID.
@@ -89,7 +89,7 @@ func (fd *FullscreenDialog) handleRunePress(r rune) {
 	}
 
 	logrus.Infof("⌨️ Отправляем символ на удаленную машину: %c", r)
-	go fd.sendRuneToRemote(r)
+	fd.sendRuneToRemote(r)
 }
 
 // sendRuneToRemote отправляет символ на удаленную машину через HID

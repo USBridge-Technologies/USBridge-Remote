@@ -16,7 +16,8 @@ type VirtualKeyboard struct {
 	toggleBtn      *widget.Button
 	isVisible      bool
 	onKeyPress     func(keyCode int, modifiers int)
-	onRuneTyped    func(r rune) // Отправка каждого символа на хост
+	onRuneTyped    func(r rune)      // Отправка каждого символа на хост
+	onTextTyped    func(text string) // Отправка текста пачкой
 	parentWindow   fyne.Window
 	keyboardWindow fyne.Window
 
@@ -42,6 +43,11 @@ type VirtualKeyboard struct {
 	imeSpacer     *imeSpacerLayout
 	imeSpacerCont *fyne.Container
 	onIMEChanged  func(open bool)
+}
+
+// SetOnTextTyped устанавливает обработчик для вставки текста пачкой
+func (vk *VirtualKeyboard) SetOnTextTyped(fn func(text string)) {
+	vk.onTextTyped = fn
 }
 
 // NewVirtualKeyboard создает новую виртуальную клавиатуру.

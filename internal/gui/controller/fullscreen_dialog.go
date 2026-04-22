@@ -224,6 +224,13 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
+	fd.virtualKeyboard.SetOnTextTyped(func(text string) {
+		if fd.usbClient != nil {
+			if err := fd.usbClient.SendText(text); err != nil {
+				logrus.Errorf("⚠️ Ошибка отправки текста: %v", err)
+			}
+		}
+	})
 	fd.platformSetupUI()
 
 	keyboardLayout := fd.virtualKeyboard.GetKeyboardLayout()
@@ -242,6 +249,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		} else {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
 			fd.virtualKeyboard.SetVisibleState(true)
+			fd.virtualKeyboard.FocusInput() // Принудительный фокус для Android
 			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
 		}
 
@@ -286,11 +294,6 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	})
 
 	fd.fullscreenWindow.Canvas().SetOnTypedRune(func(r rune) {
-		if fd.virtualKeyboard != nil && fd.virtualKeyboard.IsVisible() {
-			// На мобилках ввод идет через OnChanged текстового поля, 
-			// игнорируем системное событие окна чтобы не было дублей (эха).
-			return
-		}
 		fd.handleRunePress(r)
 	})
 
