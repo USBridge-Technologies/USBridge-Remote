@@ -89,6 +89,7 @@ const (
 	connectionCompactActionSize   float32 = 30
 	connectionCompactActionGap    float32 = 2
 	connectionNameEditGap         float32 = 10
+	connectionTitleEditGap        float32 = 4
 )
 
 var (
@@ -587,18 +588,18 @@ func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObjec
 	row := container.NewHBox(mode, centerSpacer(8), toggle)
 	content := container.NewCenter(row)
 
-	bg := canvas.NewRectangle(design.ColorGray950)
+	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = design.RadiusMD + 2
 
 	border := canvas.NewRectangle(color.Transparent)
 	border.CornerRadius = design.RadiusMD + 2
-	border.StrokeColor = design.ColorAccent
-	border.StrokeWidth = 1.2
+	border.StrokeColor = color.NRGBA{R: 0x4e, G: 0x4e, B: 0x4e, A: 0xff}
+	border.StrokeWidth = 1
 
 	return container.NewStack(
 		bg,
 		border,
-		NewInset(content, 10, 10, 8, 8),
+		NewInset(content, 6, 6, 5, 5),
 	)
 }
 
@@ -1036,7 +1037,8 @@ func (b *connectionNameButton) MinSize() fyne.Size {
 		subLineCount = 1
 	}
 	subHeight := lineHeight * float32(subLineCount)
-	width := maxFloat32(title.Width, subWidth+b.subtitleIconOffset()) + 34
+	titleWidth := title.Width + 13 + connectionTitleEditGap
+	width := maxFloat32(titleWidth, subWidth+b.subtitleIconOffset()) + 20
 	height := title.Height + subHeight + 12
 	return fyne.NewSize(width, height)
 }
@@ -1050,7 +1052,8 @@ func (b *connectionNameButton) preferredWidth() float32 {
 			subWidth = size.Width
 		}
 	}
-	return maxFloat32(title.Width, subWidth+b.subtitleIconOffset()) + 34
+	titleWidth := title.Width + 13 + connectionTitleEditGap
+	return maxFloat32(titleWidth, subWidth+b.subtitleIconOffset()) + 20
 }
 
 func (b *connectionNameButton) subtitleHeight() float32 {
@@ -1111,7 +1114,7 @@ func (b *connectionNameButton) CreateRenderer() fyne.WidgetRenderer {
 	b.osIcon = canvas.NewImageFromResource(nil)
 	b.osIcon.FillMode = canvas.ImageFillContain
 	b.osIcon.SetMinSize(fyne.NewSize(18, 18))
-	b.icon = canvas.NewImageFromResource(theme.DocumentCreateIcon())
+	b.icon = canvas.NewImageFromResource(assets.ConnectionEditIconMuted)
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(13, 13))
 
@@ -1174,25 +1177,35 @@ type connectionNameButtonRenderer struct {
 func (r *connectionNameButtonRenderer) Layout(size fyne.Size) {
 	r.button.bg.Resize(size)
 
-	titleWidth := maxFloat32(0, size.Width-34)
+	iconSize := fyne.NewSize(13, 13)
+	titleX := float32(8)
+	titleY := float32(3)
+	titleAvailableWidth := maxFloat32(0, size.Width-16)
+	titleWidth := maxFloat32(0, titleAvailableWidth-iconSize.Width-connectionTitleEditGap)
 	r.button.titleTxt.Move(fyne.NewPos(8, 3))
 	r.button.titleTxt.Resize(fyne.NewSize(titleWidth, r.button.titleTxt.MinSize().Height))
+
+	measuredTitleWidth := fyne.MeasureText(r.button.title, 14, fyne.TextStyle{Bold: true}).Width
+	visibleTitleWidth := minFloat32(measuredTitleWidth, titleWidth)
+	editX := titleX + visibleTitleWidth + connectionTitleEditGap
+	maxEditX := maxFloat32(titleX, size.Width-iconSize.Width-8)
+	if editX > maxEditX {
+		editX = maxEditX
+	}
+	r.button.icon.Resize(iconSize)
+	r.button.icon.Move(fyne.NewPos(editX, titleY+1))
 
 	subY := float32(24)
 	subX := float32(8)
 	if r.button.osIcon.Visible() {
-		iconSize := fyne.NewSize(18, 18)
-		iconY := subY + maxFloat32(0, (r.button.subtitleHeight()-iconSize.Height)/2)
-		r.button.osIcon.Resize(iconSize)
+		osIconSize := fyne.NewSize(18, 18)
+		iconY := subY + maxFloat32(0, (r.button.subtitleHeight()-osIconSize.Height)/2)
+		r.button.osIcon.Resize(osIconSize)
 		r.button.osIcon.Move(fyne.NewPos(8, iconY))
 		subX += r.button.subtitleIconOffset()
 	}
 	r.button.subTxt.Move(fyne.NewPos(subX, subY))
 	r.button.subTxt.Resize(fyne.NewSize(maxFloat32(0, size.Width-subX-8), r.button.subtitleHeight()))
-
-	iconSize := fyne.NewSize(13, 13)
-	r.button.icon.Resize(iconSize)
-	r.button.icon.Move(fyne.NewPos(maxFloat32(0, size.Width-iconSize.Width-8), 5))
 }
 
 func (r *connectionNameButtonRenderer) MinSize() fyne.Size {
@@ -1802,8 +1815,8 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 		return
 	}
 
-	bgColor := design.ColorSurfaceLight
-	trackColor := design.ColorSurfaceLight
+	bgColor := design.ColorGray900
+	trackColor := design.ColorBorder
 	thumbColor := design.ColorGray400
 	labelColor := design.ColorTextMuted
 	if t.on {
@@ -1816,12 +1829,7 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 		thumbColor = design.ColorBorder
 		labelColor = design.ColorBorder
 	} else if t.hovered {
-		bgColor = design.ColorGray900
-		if t.on {
-			trackColor = design.ColorAlphaAccentHover55
-		} else {
-			trackColor = design.ColorBorder
-		}
+		bgColor = design.ColorSurfaceLight
 	}
 
 	t.bg.FillColor = bgColor
@@ -2130,7 +2138,7 @@ func (b *connectionPrimaryButton) StopAnimations() {
 }
 
 func centerSpacer(width float32) fyne.CanvasObject {
-	spacer := canvas.NewRectangle(design.ColorGray950)
+	spacer := canvas.NewRectangle(color.Transparent)
 	spacer.SetMinSize(fyne.NewSize(width, 1))
 	return spacer
 }
