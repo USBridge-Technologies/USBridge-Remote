@@ -92,6 +92,38 @@ func (s *TailscaleService) IsSystemTailscaleAvailable() bool {
 	return getTailscaleBinaryPath() != ""
 }
 
+// CheckSystemTailscaleStatus returns system Tailscale status without starting tsnet.
+// Returns nil if system Tailscale is unavailable or not in a connected state.
+func (s *TailscaleService) CheckSystemTailscaleStatus() *TailscaleStatus {
+	tsPath := getTailscaleBinaryPath()
+	if tsPath == "" {
+		return nil
+	}
+	cmd := exec.Command(tsPath, "status", "--json")
+	maybeHideWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var st ipnstate.Status
+	if err := json.Unmarshal(out, &st); err != nil {
+		return nil
+	}
+	if st.BackendState == "" || st.BackendState == "NeedsLogin" || st.BackendState == "LoggedOut" || st.BackendState == "NoState" {
+		return nil
+	}
+	result := &TailscaleStatus{
+		Running:   strings.TrimSpace(st.BackendState) == "Running",
+		LoggedIn:  true,
+		Backend:   strings.TrimSpace(st.BackendState),
+		Userspace: false,
+	}
+	if st.Self != nil {
+		result.Self = s.convertPeer(&st, st.Self)
+	}
+	return result
+}
+
 func (s *TailscaleService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	userspace := s.userspace
@@ -151,6 +183,15 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 	}
 
 	if state == nil {
+		// Don't auto-start the tsnet server during a status check.
+		// Only query the local client if the server was already explicitly started.
+		s.mu.Lock()
+		serverStarted := s.server != nil
+		s.mu.Unlock()
+		if !serverStarted {
+			return &TailscaleStatus{Running: false}, nil
+		}
+
 		refreshAndroidDefaultRouteInterface()
 		lc, err := s.localClient()
 		if err != nil {

@@ -34,7 +34,6 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	}
 	cm.ui.SetTailscaleMode(mode)
 
-	// Check if system tailscale is available
 	hasSystemTS := cm.ts.IsSystemTailscaleAvailable()
 	if !hasSystemTS {
 		cm.ui.SetTailscaleMode(models.TailscaleModeUserspace)
@@ -45,11 +44,17 @@ func (cm *ConnectionManager) initTailscaleMode() {
 			userspace = true
 		}
 	} else {
+		// If system Tailscale is already connected, switch to system mode regardless of saved preference
+		if sysSt := cm.ts.CheckSystemTailscaleStatus(); sysSt != nil && sysSt.LoggedIn {
+			userspace = false
+			cm.ui.SetTailscaleMode(models.TailscaleModeSystem)
+			cm.app.Preferences().SetBool("tailscale_userspace", false)
+		}
 		cm.config.TailscaleUserspace = userspace
 	}
 
-	// Синхронизируем сервис с актуальным режимом и обновляем статус
 	cm.ts.SetUserspace(userspace)
+	// Status() will not start tsnet if server hasn't been explicitly started
 	cm.refreshTailscaleStatus()
 }
 
