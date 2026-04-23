@@ -1,8 +1,40 @@
 package input
 
 import (
+	"strings"
+	"sync"
+
 	"fyne.io/fyne/v2"
+	"github.com/sirupsen/logrus"
 )
+
+var (
+	currentLanguage   = "en-US"
+	currentLanguageMu sync.RWMutex
+)
+
+// SetCurrentLanguage устанавливает текущий язык ввода (из Android IME)
+func SetCurrentLanguage(lang string) {
+	if lang == "" {
+		lang = "en-US"
+	}
+	currentLanguageMu.Lock()
+	defer currentLanguageMu.Unlock()
+	if currentLanguage != lang {
+		logrus.Infof("⌨️ [KEYMAP] Language changed: %q -> %q", currentLanguage, lang)
+		currentLanguage = lang
+	}
+}
+
+// IsRussianLanguage возвращает true, если текущий язык — русский
+func IsRussianLanguage() bool {
+	currentLanguageMu.RLock()
+	lang := currentLanguage
+	currentLanguageMu.RUnlock()
+	
+	isRu := strings.HasPrefix(strings.ToLower(lang), "ru")
+	return isRu
+}
 
 // RuneKeyInfo информация о HID коде для символа
 type RuneKeyInfo struct {

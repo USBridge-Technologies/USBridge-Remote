@@ -76,6 +76,17 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
+    private val inputMethodReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action == Intent.ACTION_INPUT_METHOD_CHANGED) {
+                Log.d(TAG, "⌨️ [IME] Input method changed")
+                reportLanguage()
+            }
+        }
+    }
+
+
+    private var lastReportedLang = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +96,38 @@ class MainActivity : GoNativeActivity() {
         
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
+
+        val filter = android.content.IntentFilter(Intent.ACTION_INPUT_METHOD_CHANGED)
+        registerReceiver(inputMethodReceiver, filter)
+    }
+
+    private fun reportLanguage() {
+        try {
+            val imm = getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            val ims = imm?.currentInputMethodSubtype
+            
+            var lang = ""
+            if (ims != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    lang = ims.languageTag.ifEmpty { ims.locale }
+                } else {
+                    @Suppress("DEPRECATION")
+                    lang = ims.locale
+                }
+            }
+            
+            if (lang.isEmpty()) {
+                lang = java.util.Locale.getDefault().toString()
+            }
+            
+            if (lang == lastReportedLang) return
+            lastReportedLang = lang
+            
+            Log.i(TAG, "⌨️ [IME] Current language detected: $lang (subtype: ${ims?.mode}, extra: ${ims?.extraValue})")
+            KeyboardBridge.onLanguageChanged(lang)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [IME] Error reporting language", e)
+        }
     }
 
     /**
@@ -112,6 +155,12 @@ class MainActivity : GoNativeActivity() {
             if (screenHeight == 0) return@addOnGlobalLayoutListener
 
             val imeHeight = (screenHeight - rect.bottom).coerceAtLeast(0)
+
+            // Проверяем язык всегда, когда клавиатура открыта,
+            // так как переключение раскладки может не менять высоту окна.
+            if (imeHeight > 0) {
+                reportLanguage()
+            }
 
             if (imeHeight != lastImeHeightPx) {
                 val wasVisible = lastImeHeightPx > 0
@@ -144,6 +193,11 @@ class MainActivity : GoNativeActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(inputMethodReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister input method receiver", e)
+        }
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback)
         } catch (e: Exception) {
@@ -300,6 +354,12 @@ class MainActivity : GoNativeActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "❌ [NETWORK] Failed to enumerate interfaces", e)
             ""
+        }
+    }
+
+    fun requestLanguageReport() {
+        runOnUiThread {
+            reportLanguage()
         }
     }
 

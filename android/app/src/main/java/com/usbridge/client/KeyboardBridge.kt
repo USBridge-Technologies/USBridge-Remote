@@ -11,4 +11,12 @@ package com.usbridge.client
 object KeyboardBridge {
     @JvmStatic
     external fun onIMEHeightChanged(imeHeightPx: Int, screenHeightPx: Int)
+
+    @JvmStatic
+    external fun onLanguageChanged(lang: String)
+
+    @JvmStatic
+    fun requestLanguageReport() {
+        MainActivity.getInstance()?.requestLanguageReport()
+    }
 }

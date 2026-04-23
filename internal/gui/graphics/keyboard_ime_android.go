@@ -9,24 +9,38 @@ package graphics
 #include <jni.h>
 
 extern void deliverIMEHeightFromJNI(jint imeHeightPx, jint screenHeightPx);
+extern void deliverLanguageFromJNI(char* lang);
 
 __attribute__((used))
 JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv *env, jclass clazz, jint imeHeightPx, jint screenHeightPx) {
     deliverIMEHeightFromJNI(imeHeightPx, screenHeightPx);
 }
 
+__attribute__((used))
+JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv *env, jclass clazz, jstring lang) {
+    const char *nativeString = (*env)->GetStringUTFChars(env, lang, 0);
+    deliverLanguageFromJNI((char*)nativeString);
+    (*env)->ReleaseStringUTFChars(env, lang, nativeString);
+}
+
 // keepIMEBridgeSymbolsReferenced — фиктивная ссылка, чтобы линкер не удалял JNI-символы
 void keepIMEBridgeSymbolsReferenced(void) {
     extern void Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
     (void)Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged;
+
+    extern void Java_com_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv*, jclass, jstring);
+    (void)Java_com_usbridge_client_KeyboardBridge_onLanguageChanged;
 }
 */
 import "C"
 
 import (
+	"usbridge-client/internal/input"
+
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
+
 var (
 	lastIMEH float32 // Кэшируем последнее значение отступа в Fyne-единицах
 )
@@ -93,4 +107,13 @@ func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 			vk.setIMEOffset(calculatedIMEH)
 		}
 	})
+}
+
+// deliverLanguageFromJNI вызывается из JNI (KeyboardBridge.onLanguageChanged).
+//
+//export deliverLanguageFromJNI
+func deliverLanguageFromJNI(langStr *C.char) {
+	goLang := C.GoString(langStr)
+	logrus.Infof("⌨️ [IME-JNI] onLanguageChanged: %s", goLang)
+	input.SetCurrentLanguage(goLang)
 }
