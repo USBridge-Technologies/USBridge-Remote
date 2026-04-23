@@ -109,12 +109,20 @@ func detectPlatformVideoAdapters() []string {
 
 func preferredCodecsForAdapters(adapters []string) []string {
 	order := make([]string, 0, 4)
+	// First pass: Prioritize NVIDIA as it usually has the best encoder quality
+	for _, adapter := range adapters {
+		if containsAny(adapter, "nvidia", "geforce", "quadro", "rtx", "gtx") {
+			order = append(order, "h264_nvenc")
+		}
+	}
+	// Second pass: Add other adapters
 	for _, adapter := range adapters {
 		switch {
+		case containsAny(adapter, "nvidia", "geforce", "quadro", "rtx", "gtx"):
+			// Already added
+			continue
 		case containsAny(adapter, "amd", "radeon"):
 			order = append(order, "h264_amf")
-		case containsAny(adapter, "nvidia", "geforce", "quadro", "rtx", "gtx"):
-			order = append(order, "h264_nvenc")
 		case containsAny(adapter, "intel", "iris", "uhd", "arc"):
 			order = append(order, "h264_qsv")
 		}

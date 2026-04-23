@@ -491,26 +491,26 @@ func captureModeForPlatform(configured string) string {
 func codecArgs(codec string) []string {
 	switch strings.ToLower(codec) {
 	case "h264_videotoolbox":
-		return []string{"-realtime", "true", "-profile:v", "baseline", "-pix_fmt", "nv12"}
+		return []string{"-realtime", "true", "-profile:v", "high", "-pix_fmt", "nv12"}
 	case "h264_nvenc":
-		return []string{"-preset", "p1", "-tune", "ll", "-profile:v", "baseline", "-level", "3.2", "-rc", "cbr_ld_hq", "-pix_fmt", "nv12"}
+		return []string{"-preset", "p1", "-tune", "ll", "-profile:v", "high", "-level", "5.1", "-rc", "cbr_ld_hq", "-pix_fmt", "nv12"}
 	case "h264_qsv":
-		return []string{"-preset", "veryfast", "-profile:v", "baseline", "-level", "3.2", "-look_ahead", "0", "-pix_fmt", "nv12"}
+		return []string{"-preset", "veryfast", "-profile:v", "high", "-level", "5.1", "-look_ahead", "0", "-pix_fmt", "nv12"}
 	case "h264_amf":
 		return []string{
 			"-usage", "ultralowlatency",
 			"-quality", "speed",
 			"-rc", "cbr",
-			"-profile:v", "constrained_baseline",
-			"-level", "3.2",
-			"-coder", "cavlc",
+			"-profile:v", "high",
+			"-level", "5.1",
+			"-coder", "cabac",
 			"-forced_idr", "1",
 			"-aud", "1",
 			"-header_spacing", "1",
 			"-pix_fmt", "nv12",
 		}
 	default:
-		return []string{"-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "baseline", "-level", "3.2", "-pix_fmt", "yuv420p"}
+		return []string{"-preset", "ultrafast", "-tune", "zerolatency", "-profile:v", "high", "-level", "5.1", "-pix_fmt", "yuv420p"}
 	}
 }
 
