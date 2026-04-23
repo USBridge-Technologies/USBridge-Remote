@@ -63,6 +63,7 @@ type TailscaleService struct {
 	videoRelayPackets  uint64
 	videoRelayLastFrom string
 	videoRelayLastAt   time.Time
+	lastBackendState   string
 }
 
 func NewTailscaleService(userspace bool) *TailscaleService {
@@ -176,6 +177,13 @@ func (s *TailscaleService) Status(ctx context.Context) (status *TailscaleStatus,
 		Backend:   strings.TrimSpace(state.BackendState),
 		Userspace: !state.TUN,
 	}
+
+	s.mu.Lock()
+	if s.lastBackendState != out.Backend {
+		logrus.Infof("🛰️ [Tailscale] State transition: %s -> %s", s.lastBackendState, out.Backend)
+		s.lastBackendState = out.Backend
+	}
+	s.mu.Unlock()
 
 	if state.Self != nil {
 		out.Self = s.convertPeer(state, state.Self)
@@ -473,19 +481,25 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 
 	addr, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err == nil {
-		logrus.Infof("🎯 [%s] Sending PUNCH to target %v...", traceID, addr)
+		logrus.Infof("🎯 [%s] Sending PUNCH to target direct IP %v (primary path)...", traceID, addr)
 		puncher(addr)
+	} else {
+		logrus.Warnf("⚠️ [%s] Failed to resolve target host %s: %v", traceID, host, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if st, err := s.Status(ctx); err == nil && st != nil {
+		foundPeer := false
 		for _, peer := range st.Peers {
 			if peer.IP4 == host || strings.Contains(peer.DNSName, host) || peer.HostName == host {
+				foundPeer = true
+				logrus.Infof("🎯 [%s] Found Tailscale peer %s (online=%v, active=%v, relay=%s)", traceID, peer.HostName, peer.Online, peer.Active, peer.Relay)
+				
 				if peer.CurAddr != "" {
 					if ra, err := net.ResolveUDPAddr("udp4", peer.CurAddr); err == nil {
 						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
-						logrus.Infof("🎯 [%s] Sending PUNCH to current peer address %v...", traceID, videoAddr)
+						logrus.Infof("🎯 [%s] Sending PUNCH to current peer active endpoint %v...", traceID, videoAddr)
 						puncher(videoAddr)
 					}
 				}
@@ -502,6 +516,11 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 				break
 			}
 		}
+		if !foundPeer {
+			logrus.Warnf("⚠️ [%s] Target host %s not found in Tailscale peer list", traceID, host)
+		}
+	} else {
+		logrus.Errorf("⚠️ [%s] Failed to get Tailscale status for punching: %v", traceID, err)
 	}
 }
 
@@ -735,22 +754,57 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 	_ = localConn.SetWriteBuffer(bufferSize)
 
 	buf := make([]byte, 65536)
-	packetCount := 0
+	packetCount := uint64(0)
+	lastReportCount := uint64(0)
+	lastReportTime := time.Now()
+	lastPacketTime := time.Now()
+
+	logrus.Infof("📡 [%s] Relay started: %s -> 127.0.0.1:%d", traceID, tailAddr, port)
 
 	for {
 		select {
 		case <-ctx.Done():
+			logrus.Infof("📡 [%s] Relay context cancelled, total packets: %d", traceID, packetCount)
 			return
 		default:
+			_ = pc.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			n, remoteAddr, err := pc.ReadFrom(buf)
+			
 			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					if time.Since(lastPacketTime) > 2*time.Second {
+						logrus.Warnf("📡 [%s] Relay SILENCE: no packets for %.1fs from %s", traceID, time.Since(lastPacketTime).Seconds(), tailAddr)
+						lastPacketTime = time.Now().Add(-1500 * time.Millisecond) // Log every 0.5s of silence after first 2s
+					}
+					continue
+				}
+				logrus.Errorf("📡 [%s] Relay read error: %v", traceID, err)
 				return
 			}
 
 			if n > 0 {
+				now := time.Now()
+				if packetCount == 0 {
+					logrus.Infof("📡 [%s] FIRST PACKET received at relay from %v (%d bytes)", traceID, remoteAddr, n)
+				}
+				
 				packetCount++
-				if packetCount <= 10 || packetCount%1000 == 0 {
-					logrus.Infof("📡 [%s] Relay received packet #%d (%d bytes) from %v", traceID, packetCount, n, remoteAddr)
+				s.mu.Lock()
+				s.videoRelayPackets = packetCount
+				s.videoRelayLastAt = now
+				s.videoRelayLastFrom = remoteAddr.String()
+				s.mu.Unlock()
+				
+				if time.Since(lastPacketTime) > 1*time.Second && packetCount > 1 {
+					logrus.Infof("📡 [%s] Relay RESUMED: packets started flowing again after %.1fs", traceID, time.Since(lastPacketTime).Seconds())
+				}
+				lastPacketTime = now
+
+				if time.Since(lastReportTime) > 5*time.Second {
+					diff := packetCount - lastReportCount
+					logrus.Infof("📡 [%s] Relay status: %d pkts in last 5s (total: %d), last from %v", traceID, diff, packetCount, remoteAddr)
+					lastReportCount = packetCount
+					lastReportTime = now
 				}
 
 				_, err = localConn.Write(buf[:n])

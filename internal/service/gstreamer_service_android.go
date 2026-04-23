@@ -1728,6 +1728,7 @@ type GStreamerService struct {
 	// Статистика
 	frameDropCount int64
 	lastFrameTime  time.Time
+	lastFrameReport time.Time
 	frameCount     int64
 	latencyProfile videoLatencyProfile
 
@@ -2040,12 +2041,19 @@ func (gs *GStreamerService) processFrames() {
 		gs.mutex.Lock()
 		gs.frameCount++
 		currentCount := gs.frameCount
-		gs.lastFrameTime = producedAt
-		gs.mutex.Unlock()
-
-		if currentCount <= 3 || currentCount%100 == 0 {
-			logrus.Infof("📊 Android: Кадр #%d обработан (callback mode)", currentCount)
+		
+		if gs.lastFrameTime.IsZero() {
+			logrus.Infof("🖼️ Android: FIRST FRAME received (%dx%d)", w, h)
+		} else if now.Sub(gs.lastFrameTime) > 1*time.Second {
+			logrus.Infof("🖼️ Android: RESUMED after %.1fs gap", now.Sub(gs.lastFrameTime).Seconds())
 		}
+		gs.lastFrameTime = now
+
+		if currentCount%100 == 0 || now.Sub(gs.lastFrameReport) > 10*time.Second {
+			gs.lastFrameReport = now
+			logrus.Infof("📊 Android: GStreamer status: %d frames total | Dropped: %d | Size: %dx%d", currentCount, gs.frameDropCount, w, h)
+		}
+		gs.mutex.Unlock()
 
 		gs.recordIngressLatency(meta)
 

@@ -57,8 +57,10 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime  time.Time
-	frameCount     int64
+	lastFrameTime    time.Time
+	lastSampleTime   time.Time
+	lastSampleReport time.Time
+	frameCount       int64
 	framesDropped  int64
 	latencyProfile videoLatencyProfile
 
@@ -575,6 +577,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	// Конвертируем в image.Image используя скопированные данные
 	img := gs.rgbaToImage(dataCopy, w, h)
 	if img != nil {
+		now := time.Now()
 		meta := videoLatencyFrameMeta{
 			producedAt:  producedAt,
 			copyTime:    time.Since(producedAt),
@@ -584,17 +587,23 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 		gs.mutex.Lock()
 		gs.frameCount++
 		frameNum := gs.frameCount
-		gs.mutex.Unlock()
-
+		
+		if gs.lastSampleTime.IsZero() {
+			logrus.Infof("🎬 [Windows] GStreamer: FIRST SAMPLE received (%dx%d)", w, h)
+		} else if now.Sub(gs.lastSampleTime) > 1*time.Second {
+			logrus.Infof("🎬 [Windows] GStreamer: RESUMED after %.1fs gap", now.Sub(gs.lastSampleTime).Seconds())
+		}
+		gs.lastSampleTime = now
+		
 		// Логируем каждый 300-й кадр (~10 сек при 30fps)
-		if frameNum%300 == 0 {
-			gs.mutex.Lock()
+		if frameNum%300 == 0 || now.Sub(gs.lastSampleReport) > 10*time.Second {
+			gs.lastSampleReport = now
 			dropped := gs.framesDropped
-			gs.mutex.Unlock()
 			chanLen := len(gs.frameChan)
 			chanCap := cap(gs.frameChan)
-			logrus.Debugf("🎬 [Windows] GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
+			logrus.Infof("🎬 [Windows] GStreamer status: %d frames total | Dropped: %d | Channel: %d/%d | Size: %dx%d", frameNum, dropped, chanLen, chanCap, w, h)
 		}
+		gs.mutex.Unlock()
 
 		// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
 		select {
@@ -742,7 +751,16 @@ func (gs *GStreamerService) monitorPipeline() {
 		connected := gs.isConnected
 		manualDisc := gs.manualDisconnect
 		currentPipeline := gs.pipeline
+		lastSample := gs.lastSampleTime
 		gs.mutex.RUnlock()
+
+		if connected && !manualDisc && !lastSample.IsZero() && time.Since(lastSample) > 5*time.Second {
+			logrus.Warnf("⚠️ [Windows] GStreamer SILENCE: no samples for %.1fs (pipeline is %s)", time.Since(lastSample).Seconds(), "PLAYING")
+			// Reset lastSampleTime partially to avoid spamming every 100ms
+			gs.mutex.Lock()
+			gs.lastSampleTime = time.Now().Add(-4 * time.Second)
+			gs.mutex.Unlock()
+		}
 
 		// Если pipeline изменился или был удален, завершаем мониторинг
 		if currentPipeline != pipeline {

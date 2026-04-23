@@ -54,8 +54,9 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime  time.Time
-	frameCount     int64
+	lastFrameTime    time.Time
+	lastFrameReport   time.Time
+	frameCount       int64
 	framesDropped  int64
 	latencyProfile videoLatencyProfile
 
@@ -749,6 +750,7 @@ func (gs *GStreamerService) readFrames() {
 		producedAt := time.Now()
 		img := rgbaToImage(buffer, width, height)
 		if img != nil {
+			now := time.Now()
 			meta := videoLatencyFrameMeta{
 				producedAt:  producedAt,
 				copyTime:    time.Since(producedAt),
@@ -758,35 +760,37 @@ func (gs *GStreamerService) readFrames() {
 			gs.mutex.Lock()
 			gs.frameCount++
 			frameNum := gs.frameCount
+			
+			if gs.lastFrameTime.IsZero() {
+				logrus.Infof("🎬 macOS: FIRST FRAME received (%dx%d)", width, height)
+			} else if now.Sub(gs.lastFrameTime) > 1*time.Second {
+				logrus.Infof("🎬 macOS: RESUMED after %.1fs gap", now.Sub(gs.lastFrameTime).Seconds())
+			}
+			gs.lastFrameTime = now
 
 			// Устанавливаем isConnected = true при получении первого кадра
 			if !firstFrameReceived {
 				gs.isConnected = true
 				firstFrameReceived = true
 				closeWaitDone()
-				gs.mutex.Unlock()
 				logrus.Info("✅ [VIDEO] Шаг 6: Первый кадр получен! Соединение установлено.")
 
 				// Вызываем callback если есть
-				gs.mutex.RLock()
 				stateCallback := gs.onStateChanged
-				gs.mutex.RUnlock()
 				if stateCallback != nil {
-					stateCallback("connected")
+					go stateCallback("connected")
 				}
-				gs.mutex.Lock()
 			}
-			gs.mutex.Unlock()
 
 			// Логируем каждый 300-й кадр (~10 сек при 30fps)
-			if frameNum%300 == 0 {
-				gs.mutex.Lock()
+			if frameNum%300 == 0 || now.Sub(gs.lastFrameReport) > 10*time.Second {
+				gs.lastFrameReport = now
 				dropped := gs.framesDropped
-				gs.mutex.Unlock()
 				chanLen := len(gs.frameChan)
 				chanCap := cap(gs.frameChan)
-				logrus.Debugf("🎬 macOS GStreamer: %d кадров | Пропущено: %d | Канал: %d/%d", frameNum, dropped, chanLen, chanCap)
+				logrus.Infof("🎬 macOS status: %d frames total | Dropped: %d | Channel: %d/%d | Size: %dx%d", frameNum, dropped, chanLen, chanCap, width, height)
 			}
+			gs.mutex.Unlock()
 
 			// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
 			select {

@@ -658,51 +658,6 @@ func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
 	logrus.Infof("✅ Образ успешно загружен на устройство: %s", drive.Name)
 }
 
-// handleDeleteImageFromDevice обрабатывает удаление образа с устройства.
-func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int) {
-	if driveIndex < 0 || driveIndex >= len(dw.allDrives) {
-		logrus.Warnf("⚠️ Неверный индекс образа: %d", driveIndex)
-		return
-	}
-
-	drive := dw.allDrives[driveIndex]
-	if drive.Source != "api" && drive.Source != "local" {
-		logrus.Warnf("⚠️ Попытка удалить образ неподдерживаемого типа: %s", drive.Name)
-		return
-	}
-
-	if dw.usbClient == nil {
-		logrus.Warn("⚠️ USB клиент не инициализирован")
-		if dw.window != nil {
-			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.ErrorNotConnected), dw.window)
-		}
-		return
-	}
-
-	var filename string
-	if drive.LocalDrive != nil {
-		filename = drive.LocalDrive.Name
-	} else if drive.DiskInfo != nil {
-		filename = drive.DiskInfo.Name
-	} else {
-		filename = drive.Name
-	}
-
-	if dw.window != nil {
-		fyne.Do(func() {
-			view.ShowDeleteImageConfirm(
-				drive.Name,
-				func(confirmed bool) {
-					if confirmed {
-						go dw.deleteImageFromDevice(filename, drive.Name)
-					}
-				},
-				dw.window,
-			)
-		})
-	}
-}
-
 // deleteImageFromDevice выполняет удаление образа с устройства.
 func (dw *DiskWidget) deleteImageFromDevice(filename string, displayName string) {
 	logrus.Infof("🗑️ Начало удаления образа с устройства: %s", filename)
