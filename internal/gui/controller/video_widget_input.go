@@ -769,17 +769,20 @@ func (vw *VideoWidget) recalculateViewport() {
 	// Логика вертикального позиционирования:
 	var contentY float32
 	if contentH > availableH {
-		// Видео ТАПИТ (выталкивается) вверх. 
+		// Видео больше доступной области.
 		// Базовая позиция: низ видео совпадает с низом доступной области.
 		contentY = availableH - contentH
-		
-		// Позволяем panOffsetY только поднимать видео еще выше (в минус) 
-		// или опускать его обратно до базовой позиции (но не ниже).
-		if vw.panOffsetY > 0 {
-			vw.panOffsetY = 0 // Запрещаем опускать видео ниже кнопок
+
+		// Разрешаем перетаскивание в обоих направлениях:
+		//   panOffsetY < 0: видео идёт вверх (зазор между видео и клавиатурой)
+		//   panOffsetY > 0: видео идёт вниз (верхняя часть видео входит в поле зрения)
+		// Максимум вниз: верх видео на уровне верха экрана (contentY = 0)
+		maxPanY := contentH - availableH
+		if vw.panOffsetY > maxPanY {
+			vw.panOffsetY = maxPanY
 		}
 		contentY += vw.panOffsetY
-		logrus.Infof("📐 [PUSH-UP] contentH(%.1f) > availableH(%.1f) -> contentY=%.1f", contentH, availableH, contentY)
+		logrus.Infof("📐 [PAN-Y] contentH(%.1f) > availableH(%.1f) -> panOffsetY=%.1f contentY=%.1f", contentH, availableH, vw.panOffsetY, contentY)
 	} else {
 		// Видео меньше доступной области - центрируем его в ней
 		contentY = (availableH - contentH) / 2
@@ -809,12 +812,6 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.contentRectY = contentY
 	vw.contentRectW = contentW
 	vw.contentRectH = contentH
-
-	// ЖЕСТКАЯ ФИКСАЦИЯ: Нижний край видео не должен заходить в зону кнопок (availableH)
-	if vw.contentRectY + vw.contentRectH > availableH {
-		vw.contentRectY = availableH - vw.contentRectH
-		logrus.Infof("🛑 [FORCE-ALIGN] Bottom overflow detected! Corrected contentY to %.1f", vw.contentRectY)
-	}
 
 	logrus.Infof("🖼️ [VIEWPORT] Result: X=%.1f, Y=%.1f, W=%.1f, H=%.1f (scale=%.2f)", vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH, vw.zoomScale)
 }

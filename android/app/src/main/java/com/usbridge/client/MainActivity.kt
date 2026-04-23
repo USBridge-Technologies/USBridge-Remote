@@ -164,6 +164,7 @@ class MainActivity : GoNativeActivity() {
 
             if (imeHeight != lastImeHeightPx) {
                 val wasVisible = lastImeHeightPx > 0
+                val isInitialLayout = lastImeHeightPx < 0
                 lastImeHeightPx = imeHeight
                 Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight screenHeight=$screenHeight")
 
@@ -174,13 +175,27 @@ class MainActivity : GoNativeActivity() {
                     // а в обычном режиме Fyne не знает что клавиатура ушла и не перерисовывает layout.
                     Log.d(TAG, "⌨️ [IME] скрылась — сбрасываем keyboardUp через hideKeyboard()")
                     org.golang.app.GoNativeActivity.hideKeyboard()
-                    
+
                     // Снимаем фокус с поля ввода, чтобы Fyne перерисовал layout.
                     // Без этого в обычном режиме layout не возвращается на место, пока не кликнешь по окну.
                     currentFocus?.let {
                         Log.d(TAG, "⌨️ [IME] сбрасываем фокус с ${it.javaClass.simpleName}")
                         it.clearFocus()
                     }
+                } else if (imeHeight == 0 && isInitialLayout) {
+                    // Первый запуск: Fyne использует полный canvas включая NavBar.
+                    // hideKeyboard() заставляет Fyne пересчитать размер canvas без NavBar,
+                    // чтобы кнопки и поля ввода изначально были в правильной позиции.
+                    // Задержка нужна чтобы Fyne успел инициализировать textEdit.
+                    Log.d(TAG, "⌨️ [IME] первый layout — планируем начальный hideKeyboard()")
+                    decorView.postDelayed({
+                        try {
+                            org.golang.app.GoNativeActivity.hideKeyboard()
+                            Log.d(TAG, "⌨️ [IME] начальный hideKeyboard() выполнен")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ [IME] начальный hideKeyboard() не удался: ${e.message}")
+                        }
+                    }, 600)
                 }
 
                 try {
