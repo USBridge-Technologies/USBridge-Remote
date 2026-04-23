@@ -50,12 +50,79 @@ type Service struct {
 	server        *tsnet.Server
 	stateDir      string
 	latestAuthURL string
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 func New(mode config.TailscaleMode, stateDir string) *Service {
-	return &Service{
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Service{
 		userspace: mode == config.TailscaleModeUserspace,
 		stateDir:  stateDir,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	go s.monitorLoop()
+	return s
+}
+
+func (s *Service) monitorLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	var lastState string
+	var lastPeers = make(map[string]string) // Peer IP -> Connection Type (Direct/Relay)
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			status, err := s.Status(s.ctx)
+			if err != nil {
+				continue
+			}
+
+			if status.Backend != lastState {
+				logrus.Infof("🛰️ [Tailscale] Backend state changed: %s -> %s", lastState, status.Backend)
+				lastState = status.Backend
+			}
+
+			if !status.Running {
+				continue
+			}
+
+			currentPeers := make(map[string]string)
+			for _, p := range status.Peers {
+				if !p.Online {
+					continue
+				}
+				
+				connType := "Direct"
+				if p.Relay != "" {
+					connType = fmt.Sprintf("Relay (%s)", p.Relay)
+				}
+				
+				// Identify connection change for ACTIVE peers
+				if p.Active {
+					prevType, exists := lastPeers[p.IP4]
+					if !exists || prevType != connType {
+						if p.Relay != "" {
+							logrus.Warnf("⚠️ [Tailscale] Connection to %s (%s) is via RELAY (%s). NAT traversal failed or is in progress.", p.HostName, p.IP4, p.Relay)
+						} else {
+							logrus.Infof("🎯 [Tailscale] Connection to %s (%s) is DIRECT (NAT punch successful!)", p.HostName, p.IP4)
+						}
+					}
+					
+					if p.CurAddr != "" {
+						// Optionally log the current endpoint address
+						// logrus.Debugf("📡 [Tailscale] Peer %s endpoint: %s", p.HostName, p.CurAddr)
+					}
+				}
+				currentPeers[p.IP4] = connType
+			}
+			lastPeers = currentPeers
+		}
 	}
 }
 

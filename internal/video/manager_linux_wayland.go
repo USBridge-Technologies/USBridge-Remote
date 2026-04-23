@@ -74,8 +74,12 @@ func buildGstreamerArgs(cfg config.Config, req api.VideoStartRequest, childFD in
 		format = "NV12"
 	}
 
-	args = append(args, "!", "videoscale")
-	args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d,format=%s", req.VideoWidth, req.VideoHeight, format))
+	if req.VideoWidth > 0 && req.VideoHeight > 0 {
+		args = append(args, "!", "videoscale")
+		args = append(args, "!", fmt.Sprintf("video/x-raw,width=%d,height=%d,format=%s", req.VideoWidth, req.VideoHeight, format))
+	} else {
+		args = append(args, "!", fmt.Sprintf("video/x-raw,format=%s", format))
+	}
 	
 	args = append(args, "!", "videorate")
 	args = append(args, "!", fmt.Sprintf("video/x-raw,framerate=%d/1", req.VideoFPS))

@@ -142,11 +142,12 @@ type VideoTransportMode struct {
 }
 
 type VideoDeviceInfo struct {
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Bus       string `json:"bus"`
-	Index     int    `json:"index"`
-	Connected bool   `json:"connected"`
+	Path           string             `json:"path"`
+	Name           string             `json:"name"`
+	Bus            string             `json:"bus"`
+	Index          int                `json:"index"`
+	Connected      bool               `json:"connected"`
+	SupportedModes []VideoCaptureMode `json:"supported_modes,omitempty"`
 }
 
 type LegacyDeviceInfo struct {

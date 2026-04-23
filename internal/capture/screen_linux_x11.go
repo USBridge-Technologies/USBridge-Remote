@@ -77,11 +77,12 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 
 		return []api.VideoDeviceInfo{
 			{
-				Path:      fmt.Sprintf("pipewire:%d", nodeID),
-				Name:      fmt.Sprintf("Wayland Shared Screen%s (Node %d)", resStr, nodeID),
-				Bus:       "wayland",
-				Index:     0,
-				Connected: true,
+				Path:           fmt.Sprintf("pipewire:%d", nodeID),
+				Name:           fmt.Sprintf("Wayland Shared Screen%s (Node %d)", resStr, nodeID),
+				Bus:            "wayland",
+				Index:          0,
+				Connected:      true,
+				SupportedModes: GetDisplayModes(0),
 			},
 		}
 	}
@@ -90,11 +91,12 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 	out := make([]api.VideoDeviceInfo, 0, num)
 	for i := 0; i < num; i++ {
 		out = append(out, api.VideoDeviceInfo{
-			Path:      fmt.Sprintf("display:%d", i),
-			Name:      fmt.Sprintf("Display %d%s", i, GetDisplayResString(i)),
-			Bus:       "x11",
-			Index:     i,
-			Connected: true,
+			Path:           fmt.Sprintf("display:%d", i),
+			Name:           fmt.Sprintf("Display %d%s", i, GetDisplayResString(i)),
+			Bus:            "x11",
+			Index:          i,
+			Connected:      true,
+			SupportedModes: GetDisplayModes(i),
 		})
 	}
 	return out

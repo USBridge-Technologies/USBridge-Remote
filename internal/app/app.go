@@ -186,7 +186,7 @@ func (a *App) Run() error {
 		}
 		_ = a.ts.Close()
 		_ = a.frp.Stop()
-		_ = a.video.Stop()
+		_ = a.video.Close()
 		fyne.Do(func() {
 			a.fyneApp.Quit()
 		})

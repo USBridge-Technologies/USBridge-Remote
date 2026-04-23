@@ -3,6 +3,7 @@ package frp
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 func (m *Manager) startLocked(ctx context.Context) error {
+	log.Printf("🚀 [FRP] Starting server on %s:%d (auth: %s)", m.cfg.FRPBindHost, m.cfg.FRPBindPort, m.cfg.FRPToken)
 	srvCfg := &v1.ServerConfig{
 		BindAddr:     m.cfg.FRPBindHost,
 		BindPort:     m.cfg.FRPBindPort,
@@ -81,6 +83,7 @@ func (m *Manager) startLocked(ctx context.Context) error {
 	m.server = svc
 	go svc.Run(ctx)
 
+	log.Printf("🚀 [FRP] Starting client (protocol: quic)")
 	common := &v1.ClientCommonConfig{
 		ServerAddr: "127.0.0.1",
 		ServerPort: m.cfg.FRPBindPort,
@@ -123,6 +126,7 @@ func (m *Manager) startLocked(ctx context.Context) error {
 	m.client = cli
 	m.clientCtx, m.clientStop = context.WithCancel(ctx)
 	go func() { _ = cli.Run(m.clientCtx) }()
+	log.Printf("✅ [FRP] System ready")
 	time.Sleep(1500 * time.Millisecond)
 	return nil
 }
@@ -130,6 +134,7 @@ func (m *Manager) startLocked(ctx context.Context) error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	log.Printf("🛑 [FRP] Stopping services")
 	m.stopLocked()
 	return nil
 }
@@ -182,6 +187,12 @@ func (m *Manager) UpdateVideoVisitor(port int) error {
 	if port <= 0 {
 		port = m.cfg.VideoUDPPort
 	}
+	
+	if m.videoUDP == port && m.client != nil {
+		return nil
+	}
+	
+	log.Printf("🔄 [FRP] Updating video visitor port: %d", port)
 	m.videoUDP = port
 	if m.client == nil {
 		return nil

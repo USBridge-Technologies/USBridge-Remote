@@ -673,11 +673,38 @@ func enrichVideoInfo(info map[string]interface{}, devices []VideoDeviceInfo, req
 	info["udp_listener_ready"] = true
 	info["stream_url"] = fmt.Sprintf("rtp://127.0.0.1:%d", firstPositiveInt(info["udp_port"], 55000))
 	info["available_devices"] = devices
-	info["capture_modes"] = []VideoCaptureMode{
+
+	captureModes := []VideoCaptureMode{
 		{Width: 640, Height: 480, FPS: []int{15, 30}, PixelFormat: "BGRA"},
 		{Width: 1280, Height: 720, FPS: []int{15, 30, 60}, PixelFormat: "BGRA"},
 		{Width: 1920, Height: 1080, FPS: []int{15, 30, 60}, PixelFormat: "BGRA"},
 	}
+
+	for _, d := range devices {
+		if d.Path == devicePath && len(d.SupportedModes) > 0 {
+			captureModes = d.SupportedModes
+			break
+		}
+	}
+	info["capture_modes"] = captureModes
+
+	if width <= 0 && len(captureModes) > 0 {
+		width = captureModes[0].Width
+	}
+	if height <= 0 && len(captureModes) > 0 {
+		height = captureModes[0].Height
+	}
+
+	if width <= 0 {
+		width = 1280
+	}
+	if height <= 0 {
+		height = 720
+	}
+	if fps <= 0 {
+		fps = 30
+	}
+
 	info["supported_modes"] = []VideoTransportMode{
 		{
 			ID:                "h264",

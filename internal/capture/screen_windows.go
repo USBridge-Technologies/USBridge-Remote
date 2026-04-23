@@ -45,11 +45,12 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 	for i := 0; i < screenshot.NumActiveDisplays(); i++ {
 		bounds := screenshot.GetDisplayBounds(i)
 		out = append(out, api.VideoDeviceInfo{
-			Path:      fmt.Sprintf("display:%d", i),
-			Name:      fmt.Sprintf("Display %d (%dx%d)", i, bounds.Dx(), bounds.Dy()),
-			Bus:       "dxgi",
-			Index:     i,
-			Connected: true,
+			Path:           fmt.Sprintf("display:%d", i),
+			Name:           fmt.Sprintf("Display %d (%dx%d)", i, bounds.Dx(), bounds.Dy()),
+			Bus:            "dxgi",
+			Index:          i,
+			Connected:      true,
+			SupportedModes: GetDisplayModes(i),
 		})
 	}
 	return out

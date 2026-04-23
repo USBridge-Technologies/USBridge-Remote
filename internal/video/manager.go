@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kbinani/screenshot"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/config"
 )
@@ -38,13 +39,25 @@ type Manager struct {
 	sessionCodec  string
 	stopRequested bool
 	startTraceSeq atomic.Uint64
+	lastFrameAt   atomic.Pointer[time.Time]
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 func New(cfg config.Config, frp interface{ UpdateVideoVisitor(int) error }, ts interface {
 	TailnetIPv4(context.Context) (string, error)
 	IsUserspace(context.Context) (bool, error)
 }) *Manager {
-	return &Manager{cfg: cfg, frp: frp, ts: ts}
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &Manager{
+		cfg:    cfg,
+		frp:    frp,
+		ts:     ts,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	go m.monitorVideoHealth(ctx)
+	return m
 }
 
 func (m *Manager) Start(req api.VideoStartRequest) error {
@@ -53,6 +66,30 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 	defer m.mu.Unlock()
 
 	req = m.normalize(req)
+
+	// Auto-detect native resolution to skip scaling
+	if strings.HasPrefix(req.VideoDevice, "display:") {
+		var idx int
+		if _, err := fmt.Sscanf(req.VideoDevice, "display:%d", &idx); err == nil {
+			if idx >= 0 && idx < screenshot.NumActiveDisplays() {
+				bounds := screenshot.GetDisplayBounds(idx)
+				if req.VideoWidth == bounds.Dx() && req.VideoHeight == bounds.Dy() {
+					log.Printf("[video] requested resolution %dx%d matches display %d native size; disabling scaler", req.VideoWidth, req.VideoHeight, idx)
+					req.VideoWidth = -1
+					req.VideoHeight = -1
+				}
+			}
+		}
+	} else if req.VideoDevice == "desktop" || req.VideoDevice == "" {
+		if screenshot.NumActiveDisplays() > 0 {
+			bounds := screenshot.GetDisplayBounds(0)
+			if req.VideoWidth == bounds.Dx() && req.VideoHeight == bounds.Dy() {
+				log.Printf("[video] requested resolution %dx%d matches primary display native size; disabling scaler", req.VideoWidth, req.VideoHeight)
+				req.VideoWidth = -1
+				req.VideoHeight = -1
+			}
+		}
+	}
 
 	if m.proc != nil {
 		if m.info.VideoWidth == req.VideoWidth &&
@@ -130,6 +167,11 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
+func (m *Manager) Close() error {
+	m.cancel()
+	return m.Stop()
+}
+
 func (m *Manager) beginStartTrace(req api.VideoStartRequest) (uint64, time.Time) {
 	traceID := m.startTraceSeq.Add(1)
 	startedAt := time.Now()
@@ -174,12 +216,25 @@ func (m *Manager) listenForClientPunch(port int) {
 
 func (m *Manager) streamFFmpegStats(r io.Reader, mode string) {
 	scanner := bufio.NewScanner(r)
+	lastLog := time.Now()
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
-		if strings.Contains(line, "bitrate=") || strings.Contains(line, "fps=") {
+
+		now := time.Now()
+		m.lastFrameAt.Store(&now)
+
+		if strings.Contains(line, "bitrate=") || strings.Contains(line, "fps=") || strings.Contains(line, "frame=") {
+			now := time.Now()
+			m.lastFrameAt.Store(&now)
+
+			if time.Since(lastLog) < 5*time.Second {
+				continue
+			}
+			lastLog = now
+
 			parts := strings.Fields(line)
 			var out []string
 			for _, p := range parts {
@@ -193,7 +248,35 @@ func (m *Manager) streamFFmpegStats(r io.Reader, mode string) {
 			}
 		}
 		// Log EVERYTHING else from stderr to catch errors like "Configuration failed"
-		log.Printf("[video/%s/stderr] %s", mode, line)
+		if !strings.Contains(line, "frame=") {
+			log.Printf("[video/%s/stderr] %s", mode, line)
+		}
+	}
+}
+
+func (m *Manager) monitorVideoHealth(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.mu.Lock()
+			proc := m.proc
+			m.mu.Unlock()
+
+			if proc == nil {
+				continue
+			}
+
+			lastFrame := m.lastFrameAt.Load()
+			if lastFrame != nil && time.Since(*lastFrame) > 15*time.Second {
+				log.Printf("🚨 [video] STALL DETECTED! No frames from FFmpeg for %v", time.Since(*lastFrame).Round(time.Second))
+				// We don't automatically restart here yet, but we log it as requested.
+			}
+		}
 	}
 }
 
@@ -351,8 +434,7 @@ func (m *Manager) resolveCodecList() []string {
 func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) {
 	err := <-proc.done
 	runtime := time.Since(proc.startedAt).Round(time.Millisecond)
-	log.Printf("[video] process stopped mode=%s codec=%s runtime=%s err=%v", proc.mode, proc.codec, runtime, err)
-
+	
 	m.mu.Lock()
 	current := m.proc != nil && m.proc.cmd == proc.cmd
 	stopping := m.stopRequested
@@ -361,6 +443,15 @@ func (m *Manager) watchProcess(proc *runningProcess, req api.VideoStartRequest) 
 		m.sessionCodec = ""
 	}
 	m.mu.Unlock()
+
+	if stopping {
+		log.Printf("🛑 [video] streaming stopped by request mode=%s codec=%s runtime=%s", proc.mode, proc.codec, runtime)
+	} else if err != nil {
+		log.Printf("❌ [video] process crashed! mode=%s codec=%s runtime=%s err=%v", proc.mode, proc.codec, runtime, err)
+	} else {
+		log.Printf("⚠️ [video] process exited unexpectedly mode=%s codec=%s runtime=%s", proc.mode, proc.codec, runtime)
+	}
+	
 	if !current || stopping {
 		return
 	}
@@ -424,17 +515,27 @@ func codecArgs(codec string) []string {
 }
 
 func softwareFilter(width, height int, codec string) string {
-	if prefersNV12(codec) {
-		return fmt.Sprintf("scale=%d:%d,format=nv12", width, height)
+	scale := ""
+	if width > 0 && height > 0 {
+		scale = fmt.Sprintf("scale=%d:%d,", width, height)
 	}
-	return fmt.Sprintf("scale=%d:%d,format=yuv420p", width, height)
+
+	if prefersNV12(codec) {
+		return fmt.Sprintf("%sformat=nv12", scale)
+	}
+	return fmt.Sprintf("%sformat=yuv420p", scale)
 }
 
 func dxgiFilter(width, height int, codec string) string {
-	if prefersNV12(codec) {
-		return fmt.Sprintf("hwdownload,format=bgra,scale=%d:%d,format=nv12", width, height)
+	scale := ""
+	if width > 0 && height > 0 {
+		scale = fmt.Sprintf("format=bgra,scale=%d:%d,", width, height)
 	}
-	return fmt.Sprintf("hwdownload,format=bgra,scale=%d:%d,format=yuv420p", width, height)
+
+	if prefersNV12(codec) {
+		return fmt.Sprintf("hwdownload,%sformat=nv12", scale)
+	}
+	return fmt.Sprintf("hwdownload,%sformat=yuv420p", scale)
 }
 
 func prefersNV12(codec string) bool {
