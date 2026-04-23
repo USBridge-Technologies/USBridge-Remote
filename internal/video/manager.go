@@ -529,13 +529,15 @@ func softwareFilter(width, height int, codec string) string {
 func dxgiFilter(width, height int, codec string) string {
 	scale := ""
 	if width > 0 && height > 0 {
-		scale = fmt.Sprintf("format=bgra,scale=%d:%d,", width, height)
+		scale = fmt.Sprintf("scale=%d:%d,", width, height)
 	}
 
+	targetFmt := "yuv420p"
 	if prefersNV12(codec) {
-		return fmt.Sprintf("hwdownload,%sformat=nv12", scale)
+		targetFmt = "nv12"
 	}
-	return fmt.Sprintf("hwdownload,%sformat=yuv420p", scale)
+
+	return fmt.Sprintf("hwdownload,format=bgra,%sformat=%s", scale, targetFmt)
 }
 
 func prefersNV12(codec string) bool {
