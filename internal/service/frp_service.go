@@ -256,7 +256,7 @@ func findAvailableLocalPort(preferred int) (int, error) {
 }
 
 func waitForLocalListener(host string, port int, timeout time.Duration) error {
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, fmt.Sprint(port))
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 

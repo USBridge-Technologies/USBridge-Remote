@@ -1055,146 +1055,57 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 }
 
 func (p *PCPanelWidget) showPowerDialog() {
-	{
-		label := widget.NewLabel(i18n.Current.PCPanelPowerConfirm)
-		label.Wrapping = fyne.TextWrapWord
-
-		holdSlider := widget.NewSlider(0, 10)
-		holdSlider.Step = 1
-		holdSlider.Value = 0
-
-		holdLabel := widget.NewLabel(i18n.Current.PCPanelPowerShortPress)
-		holdLabel.Wrapping = fyne.TextWrapWord
-		holdSlider.OnChanged = func(v float64) {
-			if v <= 0 {
-				holdLabel.SetText(i18n.Current.PCPanelPowerShortPress)
-				return
-			}
-			holdLabel.SetText(fmt.Sprintf(i18n.Current.PCPanelPowerLongPress, int(v)) + " - " + i18n.Current.PCPanelLongPressNotSupported)
-		}
-
-		extra := container.NewVBox(
-			label,
-			widget.NewLabel(i18n.Current.PCPanelPowerHoldTime),
-			holdSlider,
-			holdLabel,
-		)
-
-		p.showProtectedActionDialog(
-			i18n.Current.PCPanelPowerTitle,
-			`Type "power" to confirm shutdown.`,
-			"power",
-			extra,
-			func() {
-				client := p.usbClient
-				if client != nil {
-					if err := client.PressPCPanelButton("power", int(holdSlider.Value)); err != nil {
-						logrus.Errorf("PCPanel Power error: %v", err)
-						view.ShowErrorDialog(err, p.window)
-					}
-				}
-			},
-		)
-		return
-	}
-
 	label := widget.NewLabel(i18n.Current.PCPanelPowerConfirm)
 	label.Wrapping = fyne.TextWrapWord
 
-	// Ползунок: 0 = короткое нажатие, 1–10 = длительность зажатия в секундах
 	holdSlider := widget.NewSlider(0, 10)
 	holdSlider.Step = 1
 	holdSlider.Value = 0
+
 	holdLabel := widget.NewLabel(i18n.Current.PCPanelPowerShortPress)
 	holdLabel.Wrapping = fyne.TextWrapWord
 	holdSlider.OnChanged = func(v float64) {
 		if v <= 0 {
 			holdLabel.SetText(i18n.Current.PCPanelPowerShortPress)
-		} else {
-			holdLabel.SetText(fmt.Sprintf(i18n.Current.PCPanelPowerLongPress, int(v)) + " — " + i18n.Current.PCPanelLongPressNotSupported)
+			return
 		}
+		holdLabel.SetText(fmt.Sprintf(i18n.Current.PCPanelPowerLongPress, int(v)) + " - " + i18n.Current.PCPanelLongPressNotSupported)
 	}
 
-	form := container.NewVBox(
+	extra := container.NewVBox(
 		label,
 		widget.NewLabel(i18n.Current.PCPanelPowerHoldTime),
 		holdSlider,
 		holdLabel,
 	)
 
-	// Фиксированная ширина диалога — не узко на short press, не растягивается при движении ползунка
-	var minW float32 = 360
-	if p.window != nil && fyne.CurrentDevice().IsMobile() {
-		sz := p.window.Canvas().Size()
-		minW = sz.Width * 0.85
-		if minW < 280 {
-			minW = 280
-		}
-	}
-	inner := container.NewVBox(form, widget.NewSeparator())
-	content := container.New(&pcpanelFixedWidthLayout{width: minW}, inner)
-
-	var d dialog.Dialog
-	yesBtn := widget.NewButton(i18n.Current.Yes, func() {
-		durationSec := int(holdSlider.Value)
-		client := p.usbClient
-		if client != nil {
-			if err := client.PressPCPanelButton("power", durationSec); err != nil {
-				logrus.Errorf("PCPanel Power error: %v", err)
-				view.ShowErrorDialog(err, p.window)
+	p.showProtectedActionDialog(
+		i18n.Current.PCPanelPowerTitle,
+		`Type "power" to confirm shutdown.`,
+		"power",
+		extra,
+		func() {
+			client := p.usbClient
+			if client != nil {
+				if err := client.PressPCPanelButton("power", int(holdSlider.Value)); err != nil {
+					logrus.Errorf("PCPanel Power error: %v", err)
+					view.ShowErrorDialog(err, p.window)
+				}
 			}
-		}
-		if d != nil {
-			d.Hide()
-		}
-	})
-	yesBtn.Importance = widget.DangerImportance
-	yesBtn.SetIcon(theme.ConfirmIcon())
-
-	noBtn := widget.NewButton(i18n.Current.No, func() {
-		if d != nil {
-			d.Hide()
-		}
-	})
-	noBtn.SetIcon(theme.CancelIcon())
-
-	buttons := container.NewGridWithColumns(2, yesBtn, noBtn)
-	inner.Objects = append(inner.Objects, buttons)
-
-	d = dialog.NewCustomWithoutButtons(i18n.Current.PCPanelPowerTitle, content, p.window)
-	d.Show()
+		},
+	)
 }
 
 func (p *PCPanelWidget) showResetDialog() {
-	{
-		label := widget.NewLabel(i18n.Current.PCPanelResetConfirm)
-		label.Wrapping = fyne.TextWrapWord
+	label := widget.NewLabel(i18n.Current.PCPanelResetConfirm)
+	label.Wrapping = fyne.TextWrapWord
 
-		p.showProtectedActionDialog(
-			i18n.Current.PCPanelResetTitle,
-			`Type "reset" to confirm reboot.`,
-			"reset",
-			label,
-			func() {
-				client := p.usbClient
-				if client != nil {
-					if err := client.PressPCPanelButton("reset", 0); err != nil {
-						logrus.Errorf("PCPanel Reset error: %v", err)
-						view.ShowErrorDialog(err, p.window)
-					}
-				}
-			},
-		)
-		return
-	}
-
-	view.ShowConfirmYesLeftDanger(
+	p.showProtectedActionDialog(
 		i18n.Current.PCPanelResetTitle,
-		i18n.Current.PCPanelResetConfirm,
-		func(ok bool) {
-			if !ok {
-				return
-			}
+		`Type "reset" to confirm reboot.`,
+		"reset",
+		label,
+		func() {
 			client := p.usbClient
 			if client != nil {
 				if err := client.PressPCPanelButton("reset", 0); err != nil {
@@ -1203,7 +1114,6 @@ func (p *PCPanelWidget) showResetDialog() {
 				}
 			}
 		},
-		p.window,
 	)
 }
 

@@ -304,7 +304,7 @@ func (ns *NBDServer) verifyReadiness(port int, hasListener bool, hasExports bool
 	if checkHost == "" {
 		checkHost = "127.0.0.1"
 	}
-	checkAddr := fmt.Sprintf("%s:%d", checkHost, port)
+	checkAddr := net.JoinHostPort(checkHost, fmt.Sprint(port))
 	logrus.Infof("📍 [NBD-VERIFY-1] Запуск проверки готовности: подключаемся к %s (hasListener=%v, hasExports=%v)", checkAddr, hasListener, hasExports)
 
 	// Проверяем, что сервер действительно слушает порт и готов обрабатывать NBD протокол
