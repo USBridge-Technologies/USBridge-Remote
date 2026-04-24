@@ -31,3 +31,16 @@ func FindAvailableUDPPort(preferred int) (int, error) {
 	}
 	return addr.Port, nil
 }
+
+// GetLocalIPForTarget определяет локальный IP-адрес интерфейса, через который
+// будет осуществляться связь с указанным целевым адресом.
+func GetLocalIPForTarget(target string) string {
+	conn, err := net.Dial("udp", net.JoinHostPort(target, "80"))
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
+}

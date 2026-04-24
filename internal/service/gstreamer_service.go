@@ -174,7 +174,7 @@ func (gs *GStreamerService) getUDPPort() int {
 }
 func (gs *GStreamerService) getBindHost() string {
 	host := strings.TrimSpace(gs.config.VideoBindHost)
-	if host == "" || host == "127.0.0.1" {
+	if host == "" {
 		return "0.0.0.0"
 	}
 	return host

@@ -37,7 +37,6 @@ func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, gstre
 	return vw
 }
 
-
 // setupGStreamerCallbacks настраивает callbacks для GStreamer
 func (vw *VideoWidget) setupGStreamerCallbacks() {
 	if vw.gstreamerService == nil {
@@ -93,7 +92,7 @@ func (vw *VideoWidget) handleGStreamerStateChange(state string) {
 	})
 }
 
-// handleVideoStartWithParams обновлённая версия для GStreamer (новый UDP протокол)
+// handleVideoStartWithParamsGStreamer обновлённая версия для GStreamer (новый UDP протокол)
 func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.VideoStartRequest) {
 	fyne.Do(func() {
 		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
@@ -131,11 +130,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		if err := vw.usbClient.StopVideo(); err != nil {
 			logrus.Debugf("stop stale remote video before restart: %v", err)
 		} else {
-			// Ждём достаточно времени, чтобы сервер успел убить ffmpeg/gst-launch
-			// (StopStreaming делает: SIGINT → sleep 500ms → SIGKILL → Wait).
-			// 200ms было недостаточно: новый StartStreaming мог прийти раньше,
-			// чем сервер сбросил isStreaming, и получал "already running" без
-			// фактического старта нового ffmpeg.
 			time.Sleep(700 * time.Millisecond)
 		}
 	}
@@ -146,6 +140,9 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		_, clientPort, _ = vw.frpService.GetServerPorts()
 		transportKind = "frp-video_sudp"
 		request.ClientHost = "127.0.0.1"
+		if vw.gstreamerService != nil {
+			vw.gstreamerService.UpdateHost("127.0.0.1")
+		}
 	} else {
 		preferredPort := clientPort
 		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
@@ -163,10 +160,10 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		if vw.gstreamerService != nil {
 			vw.gstreamerService.UpdateVideoPort(clientPort)
 			vw.gstreamerService.UpdateVideoUDPPort(clientPort)
+			vw.gstreamerService.UpdateHost("0.0.0.0")
 		}
 	}
 	request.ClientPort = clientPort
-	// Уменьшаем размер RTP пакетов для повышения стабильности в Tailscale/FRP
 	request.CapturePixelFormat = "pkt_size=1200"
 
 	mode := request.VideoMode
@@ -174,58 +171,63 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		mode = models.VideoModeH264
 	}
 
-	var systemIP string
-	if vw.frpService == nil && vw.tailscaleService != nil {
-		vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
-
-		// System Stack for all OS: try system Tailscale IP first
-		systemIP = vw.tailscaleService.GetSystemTailscaleIP()
-		if systemIP != "" {
-			request.ClientHost = systemIP
-			// Bind udpsrc to the Tailscale IP specifically — avoids EADDRINUSE conflict
-			// with the frp visitor that already holds 127.0.0.1:<port>.
-			if vw.gstreamerService != nil {
-				vw.gstreamerService.UpdateHost(systemIP)
+	if vw.frpService == nil {
+		if vw.tailscaleService != nil {
+			vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
+			systemIP := vw.tailscaleService.GetSystemTailscaleIP()
+			if systemIP != "" {
+				request.ClientHost = systemIP
+				if vw.gstreamerService != nil {
+					vw.gstreamerService.UpdateHost(systemIP)
+				}
+				logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
+			} else {
+				logrus.Warn("⚠️ [Tailscale/SystemStack] No system Tailscale IP found, trying userspace relay...")
+				actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
+				if err == nil {
+					clientPort = actualPort
+					request.ClientPort = actualPort
+					if vw.gstreamerService != nil {
+						vw.gstreamerService.UpdateVideoPort(clientPort)
+						vw.gstreamerService.UpdateVideoUDPPort(clientPort)
+					}
+					tailIP, _ := vw.tailscaleService.TailnetIPv4(context.Background())
+					request.ClientHost = tailIP
+					if vw.gstreamerService != nil {
+						vw.gstreamerService.UpdateHost("127.0.0.1")
+					}
+				}
 			}
-			logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
-		} else {
-			logrus.Warn("⚠️ [Tailscale/SystemStack] FAILED: No system Tailscale IP found (is tailscaled running?). Falling back to userspace relay...")
-
-			// Fallback to userspace relay
-			actualPort, err := vw.tailscaleService.EnsureVideoUDPRelay(clientPort)
-			if err != nil {
-				logrus.Errorf("❌ Не удалось запустить Tailscale video relay: %v", err)
-				fyne.Do(func() {
-					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-				})
-				return
-			}
-			clientPort = actualPort
-			// Обновляем порт в GStreamer, так как релей теперь пересылает на этот локальный порт
-			if vw.gstreamerService != nil {
-				vw.gstreamerService.UpdateVideoPort(clientPort)
-				vw.gstreamerService.UpdateVideoUDPPort(clientPort)
-			}
-
-			tailIP, err := vw.tailscaleService.TailnetIPv4(context.Background())
-			if err != nil {
-				logrus.Errorf("❌ Не удалось определить Tailscale IP клиента для видео: %v", err)
-				fyne.Do(func() {
-					vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-				})
-				return
-			}
-			request.ClientHost = tailIP
 		}
 
-		// Выполняем UDP Hole Punching через сокет Tailscale (всегда, даже в System Mode)
-		// Это "прогревает" соединение и заставляет Tailscale искать P2P путь.
+		if request.ClientHost == "" && vw.usbClient != nil {
+			agentHost := vw.usbClient.GetBaseURL()
+			if strings.Contains(agentHost, "://") {
+				hostPart := strings.Split(strings.Split(agentHost, "://")[1], ":")[0]
+				if strings.HasPrefix(hostPart, "100.") {
+					localIP := service.GetLocalIPForTarget(hostPart)
+					if localIP != "" {
+						request.ClientHost = localIP
+						if vw.gstreamerService != nil {
+							vw.gstreamerService.UpdateHost(localIP)
+						}
+						logrus.Infof("🎯 [VideoRoute] Resolved local Tailscale IP %s from agent host %s", localIP, hostPart)
+					}
+				}
+			}
+		}
+
+		if request.ClientHost == "" {
+			request.ClientHost = "127.0.0.1"
+			logrus.Warn("⚠️ [VideoRoute] Could not determine Tailscale IP, falling back to 127.0.0.1")
+		}
+	}
+
+	if vw.tailscaleService != nil && vw.usbClient != nil {
 		agentHost := vw.usbClient.GetBaseURL()
 		if strings.Contains(agentHost, "://") {
 			parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
 			agentIP := parts[0]
-
-			// Прогреваем Tailscale: отправляем PUNCH пакет несколько раз
 			for i := 0; i < 3; i++ {
 				vw.tailscaleService.PunchVideoHole(agentIP, clientPort)
 				if i < 2 {
@@ -235,23 +237,14 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		}
 		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost))
 	}
+
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
-		request.TraceID,
-		mode,
-		request.VideoDevice,
-		request.CapturePixelFormat,
-		request.VideoWidth,
-		request.VideoHeight,
-		request.VideoFPS,
-		request.VideoBitrate,
-		transportKind,
-		vw.gstreamerService.GetBindHost(),
-		clientPort,
-		request.ClientHost,
-		request.ClientPort,
+		request.TraceID, mode, request.VideoDevice, request.CapturePixelFormat,
+		request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate,
+		transportKind, vw.gstreamerService.GetBindHost(), clientPort,
+		request.ClientHost, request.ClientPort,
 	)
 
-	// 1. Сначала поднимаем HID и ждём завершения переконфигурации gadget.
 	logrus.Debug("⌨️🖱️ [VIDEO] Проверка и автоподключение HID перед стартом видео...")
 	if err := vw.ensureControlHIDDevices(); err != nil {
 		logrus.Errorf("❌ [VIDEO] HID auto-connect before video failed: %v", err)
@@ -261,7 +254,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		return
 	}
 
-	// 3. Запускаем GStreamer и видео на сервере
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
 
 	if !vw.connectToGStreamerWithRetries() {
@@ -285,15 +277,11 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	if vw.tailscaleService != nil {
 		relayInfo := vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost)
 		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, relayInfo)
-
-		// Проверяем P2P vs DERP — важно для диагностики видео через Android/userspace Tailscale
 		connMode := vw.tailscaleService.PeerConnectionMode(request.ClientHost)
 		if strings.HasPrefix(connMode, "derp:") {
-			logrus.Warnf("⚠️ [Tailscale] Видео идёт через DERP-релей (%s) — это OK, но latency выше. Для P2P нужен открытый UDP между устройствами.", connMode)
+			logrus.Warnf("⚠️ [Tailscale] Видео идёт через DERP-релей (%s) — это OK, но latency выше.", connMode)
 		} else if strings.HasPrefix(connMode, "direct:") {
 			logrus.Infof("✅ [Tailscale] Видео идёт P2P direct (%s) — оптимально.", connMode)
-		} else {
-			logrus.Infof("ℹ️ [Tailscale] Режим соединения: %s (возможно, сервер не в списке peers этого клиента)", connMode)
 		}
 	}
 
@@ -302,8 +290,6 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		vw.updateButtons()
 	})
 	vw.updateStatus()
-
-	// Проверяем статус мыши сразу после запуска видео
 	vw.checkMouseConnected()
 }
 
@@ -332,24 +318,22 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 
 // updateGStreamerStats обновляет статистику RTP/UDP потока
 func (vw *VideoWidget) updateGStreamerStats() {
-	if vw.gstreamerService == nil {
+	if vw.gstreamerService == nil || !vw.isGStreamerConnected {
 		return
 	}
 
 	stats := vw.gstreamerService.GetStats()
-	connected := stats["connected"].(bool)
-	framesDropped := stats["frames_dropped"].(int64)
-	lowLatencyMode := stats["low_latency_mode"].(bool)
+	if stats == nil {
+		return
+	}
 
-	gstreamerInfo := fmt.Sprintf("GStreamer: %s | %s: %d | %s: %s",
-		map[bool]string{true: "✅", false: "❌"}[connected],
-		i18n.Current.FramesDropped,
-		framesDropped,
-		i18n.Current.LowLatencyMode,
-		map[bool]string{true: "✅", false: "❌"}[lowLatencyMode])
+	frameCount, _ := stats["frame_count"].(uint64)
+	lastFrame, _ := stats["last_frame_time"].(time.Time)
 
-	fyne.Do(func() {
-		vw.infoLabel.SetText(gstreamerInfo)
-	})
+	if frameCount > 0 && !lastFrame.IsZero() {
+		vw.frameMutex.Lock()
+		vw.frameCount = int64(frameCount)
+		vw.lastFrameTime = lastFrame
+		vw.frameMutex.Unlock()
+	}
 }
-

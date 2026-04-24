@@ -127,6 +127,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.gstreamerService, mw.updateStatus)
+	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
 
