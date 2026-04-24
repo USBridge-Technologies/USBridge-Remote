@@ -69,7 +69,3 @@ func mouseModeFromDeviceType(deviceType string) string {
 	}
 	return defaultMouseMode()
 }
-
-func IsMouseDeviceType(deviceType string) bool {
-	return isMouseDeviceType(deviceType)
-}

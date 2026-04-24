@@ -1070,22 +1070,22 @@ func (mw *MainWindow) updateStatusBar() {
 		if err == nil {
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" {
-					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
+					if controller.IsKeyboardDeviceType(device.Type) {
 						keyboardConnected = true
 					}
 					if controller.IsMouseDeviceType(device.Type) {
 						mouseConnected = true
 					}
-					if device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:") {
+					if controller.IsRNDISDeviceType(device.Type) {
 						rndisConnected = true
 					}
-					if device.Type == "local" && !strings.Contains(device.Name, "data") {
+					if controller.IsStorageDeviceType(device.Type, device.Name) {
 						cdromConnected = true
 					}
-					if device.Type == "mtp" && strings.Contains(device.Name, "data") && !strings.Contains(device.ProductName, "snapshot") {
+					if controller.IsBackupDeviceType(device.Type, device.Name, device.ProductName) {
 						backupConnected = true
 					}
-					if device.Type == "nbd" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
+					if controller.IsSnapshotDeviceType(device.Type, device.Name, device.ProductName) {
 						snapshotConnected = true
 					}
 				}
