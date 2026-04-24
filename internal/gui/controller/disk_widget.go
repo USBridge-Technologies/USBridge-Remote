@@ -70,6 +70,10 @@ type DiskWidget struct {
 	imagePickerInFlight   atomic.Bool
 	refreshMu             sync.Mutex
 	lastDevicesRefresh    time.Time
+	
+	// UI Cache
+	rowsCache  map[string]fyne.CanvasObject
+	cardsCache map[string]fyne.CanvasObject
 
 	// Сервисы
 	nbdServers   map[string]service.NBDRunner // Карта NBD (go-nbd или qemu-nbd) по именам экспортов
@@ -167,6 +171,8 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		scanPaths:          scanPaths,
 		supportedTypes:     supportedTypes,
 		safHelper:          platform.GetSAFHelper(app),
+		rowsCache:          make(map[string]fyne.CanvasObject),
+		cardsCache:         make(map[string]fyne.CanvasObject),
 	}
 
 	if runtime.GOOS == "android" && dw.safHelper != nil {
@@ -208,7 +214,6 @@ func (dw *DiskWidget) createInterface() {
 
 	dw.mountBtn = widget.NewButton(i18n.Current.MountButton, dw.handleMount)
 	dw.unmountBtn = widget.NewButton(i18n.Current.UnmountButton, dw.handleUnmount)
-	dw.container = dw.ui.Container
 }
 
 func (dw *DiskWidget) openQuickStartDocs() {
@@ -236,6 +241,25 @@ func (dw *DiskWidget) openQuickStartDocs() {
 	}()
 }
 
+func (dw *DiskWidget) getDriveUniqueID(drive DriveItem) string {
+	switch {
+	case drive.IsKeyboard:
+		return "keyboard"
+	case drive.IsMouse:
+		return "mouse"
+	case drive.IsRNDIS:
+		return "rndis"
+	case drive.IsVideo && drive.VideoDevice != nil:
+		return "video:" + drive.VideoDevice.Path
+	case drive.LocalDrive != nil:
+		return "api:" + drive.LocalDrive.Name + ":" + drive.LocalDrive.SourceType
+	case drive.DiskInfo != nil:
+		return drive.Source + ":" + drive.DiskInfo.Path
+	default:
+		return "raw:" + drive.Name
+	}
+}
+
 func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 	sections := dw.groupDriveIndexes()
 	cards := make([]fyne.CanvasObject, 0, len(sections))
@@ -247,7 +271,14 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 
 		rows := make([]fyne.CanvasObject, 0, len(section.indexes))
 		for _, driveIndex := range section.indexes {
-			rowObj := view.NewDiskRowTemplate()
+			drive := dw.allDrives[driveIndex]
+			id := dw.getDriveUniqueID(drive)
+			
+			rowObj, ok := dw.rowsCache[id]
+			if !ok {
+				rowObj = view.NewDiskRowTemplate()
+				dw.rowsCache[id] = rowObj
+			}
 			dw.configureDriveRow(driveIndex, rowObj)
 			rows = append(rows, rowObj)
 		}
@@ -262,18 +293,29 @@ func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
 			})
 		}
 
-		cards = append(cards, view.NewDeviceSectionCard(
-			section.eyebrow,
-			section.title,
-			section.description,
-			formatSectionCount(len(section.indexes)),
-			fill,
-			border,
-			badge,
-			rows,
-			sectionAction,
-			sectionTrailingAction,
-		))
+		// Re-use or create section card
+		// Using eyebrow as part of key because it contains the section title
+		card, ok := dw.cardsCache[section.key]
+		if !ok {
+			card = view.NewDeviceSectionCard(
+				section.title,
+				section.title,
+				section.description,
+				formatSectionCount(len(section.indexes)),
+				fill,
+				border,
+				badge,
+				rows,
+				sectionAction,
+				sectionTrailingAction,
+			)
+			dw.cardsCache[section.key] = card
+		} else {
+			// Update existing card with new rows
+			view.UpdateDeviceSectionCard(card, rows, formatSectionCount(len(section.indexes)))
+		}
+
+		cards = append(cards, card)
 	}
 
 	return cards
@@ -947,12 +989,16 @@ func (dw *DiskWidget) hasMountedStorageDevices() bool {
 
 // Refresh обновляет виджет
 func (dw *DiskWidget) Refresh() {
+	// Сбрасываем кэш, чтобы гарантировать чистое обновление при ручном запросе (например, смена языка или реконнект)
+	dw.refreshMu.Lock()
+	dw.rowsCache = make(map[string]fyne.CanvasObject)
+	dw.cardsCache = make(map[string]fyne.CanvasObject)
+	dw.refreshMu.Unlock()
+
 	dw.loadLocalDrives()
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
 	dw.loadMountedDevices()
-	// combineDrives + requestDevicesRefresh вызываются каждой горутиной по завершении,
-	// поэтому здесь они не нужны: синхронный вызов с устаревшими данными вызывал лишний рефреш.
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {
@@ -1052,8 +1098,8 @@ func (dw *DiskWidget) markDevicesRefresh() {
 }
 
 // GetContainer возвращает контейнер виджета
-func (dw *DiskWidget) GetContainer() *fyne.Container {
-	return dw.container
+func (dw *DiskWidget) GetContainer() fyne.CanvasObject {
+	return dw.ui.Container
 }
 
 // GetButtons возвращает компактные кнопки управления для размещения в statusBar

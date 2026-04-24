@@ -105,8 +105,6 @@ func (t *BrandTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 
 func (t *BrandTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
-	case fynetheme.SizeNamePadding:
-		return 0 // Removes the 4px border around the entire window content
 	case fynetheme.SizeNameInputRadius, fynetheme.SizeNameSelectionRadius, fynetheme.SizeNameWindowButtonRadius:
 		return RadiusMD
 	}

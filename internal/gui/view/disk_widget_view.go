@@ -773,17 +773,39 @@ func NewDeviceSectionCard(
 	eyebrowText := NewBrandText(eyebrow, 11, design.ColorTextMuted, true)
 	header := newSectionCardHeader(eyebrowText, action, trailingAction, 6)
 
-	var bodyContent fyne.CanvasObject
+	var bodyContainer *fyne.Container
 	if len(rows) == 0 {
 		spacer := canvas.NewRectangle(color.Transparent)
 		spacer.SetMinSize(fyne.NewSize(1, 12))
-		bodyContent = NewInset(spacer, 6, 6, 1, 1)
+		bodyContainer = container.NewVBox(NewInset(spacer, 6, 6, 1, 1))
 	} else {
-		bodyContent = NewInset(container.NewVBox(rows...), 4, 4, 1, 1)
+		bodyContainer = container.NewVBox(rows...)
 	}
 
-	cardContent := NewInset(bodyContent, 0, 0, 1, 1)
+	cardContent := NewInset(bodyContainer, 0, 0, 1, 1)
 
 	card := NewInset(NewCompactSurfacePanel(cardContent, fill, design.RadiusMD+2), 0, 0, 0, 3)
-	return container.NewVBox(header, card)
+	root := container.NewVBox(header, card)
+	
+	// Сохраняем контейнер для последующих обновлений без пересоздания карточки
+	sectionRegistry.Store(root, bodyContainer)
+	
+	return root
+}
+
+var sectionRegistry sync.Map
+
+func UpdateDeviceSectionCard(card fyne.CanvasObject, rows []fyne.CanvasObject, count string) {
+	if body, ok := sectionRegistry.Load(card); ok {
+		if bodyContainer, ok := body.(*fyne.Container); ok {
+			if len(rows) == 0 {
+				spacer := canvas.NewRectangle(color.Transparent)
+				spacer.SetMinSize(fyne.NewSize(1, 12))
+				bodyContainer.Objects = []fyne.CanvasObject{NewInset(spacer, 6, 6, 1, 1)}
+			} else {
+				bodyContainer.Objects = rows
+			}
+			bodyContainer.Refresh()
+		}
+	}
 }

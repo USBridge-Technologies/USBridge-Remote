@@ -9,7 +9,6 @@ import (
 
 type deviceSection struct {
 	key         string
-	eyebrow     string
 	title       string
 	description string
 	count       int
@@ -44,7 +43,6 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 	return []deviceSection{
 		{
 			key:         "storage",
-			eyebrow:     i18n.Current.DevicesSectionStorageEyebrow,
 			title:       i18n.Current.DevicesSectionStorage,
 			description: i18n.Current.DevicesSectionStorageHint,
 			count:       len(storage),
@@ -52,7 +50,6 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 		},
 		{
 			key:         "backup",
-			eyebrow:     i18n.Current.DevicesSectionBackupEyebrow,
 			title:       i18n.Current.DevicesSectionBackup,
 			description: i18n.Current.DevicesSectionBackupHint,
 			count:       len(backup),
@@ -60,7 +57,6 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 		},
 		{
 			key:         "control",
-			eyebrow:     i18n.Current.DevicesSectionControlEyebrow,
 			title:       i18n.Current.DevicesSectionControl,
 			description: i18n.Current.DevicesSectionControlHint,
 			count:       len(control),
@@ -68,7 +64,6 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 		},
 		{
 			key:         "connectivity",
-			eyebrow:     i18n.Current.DevicesSectionConnectivityEyebrow,
 			title:       i18n.Current.DevicesSectionConnectivity,
 			description: i18n.Current.DevicesSectionConnectivityHint,
 			count:       len(connectivity),
