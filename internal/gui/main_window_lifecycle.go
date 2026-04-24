@@ -160,6 +160,7 @@ func (mw *MainWindow) Show() {
 			mw.setupEventHandlers()
 			mw.setDefaultValues()
 			mw.showConnectionManager()
+			mw.applyInitialWindowSize()
 			mw.updateStatusBar()
 			mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromManager, mw.handleSaveFromDeepLink)
 			mw.checkDeepLink()
@@ -215,6 +216,7 @@ func (mw *MainWindow) reloadUI() {
 		mw.showConnectionManager()
 	}
 
+	mw.applyInitialWindowSize()
 	mw.updateStatusBar()
 	logrus.Info("UI reloaded successfully")
 }

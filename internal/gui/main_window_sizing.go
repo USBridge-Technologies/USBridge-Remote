@@ -3,10 +3,10 @@ package gui
 import "fyne.io/fyne/v2"
 
 const (
-	minConfiguredWindowWidth  = 640
-	minConfiguredWindowHeight = 480
-	defaultWindowWidth        = 960
-	defaultWindowHeight       = 640
+	minConfiguredWindowWidth  = 800
+	minConfiguredWindowHeight = 600
+	defaultWindowWidth        = 1024
+	defaultWindowHeight       = 768
 )
 
 func normalizeConfiguredWindowPixels(width, height int) (int, int) {

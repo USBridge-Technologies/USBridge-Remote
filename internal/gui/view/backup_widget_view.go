@@ -137,8 +137,8 @@ func NewBackupListRow(spec BackupListRowSpec) fyne.CanvasObject {
 		controls = append(controls, actionBtn)
 	}
 
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, controls...)
-	row := container.New(&deviceRowLayout{gap: 6}, left, center, right)
+	right := container.New(&DeviceRowControlsLayout{Gap: 10}, controls...)
+	row := container.New(&DeviceRowLayout{Gap: 6}, left, center, right)
 	return NewInset(row, 6, 6, 6, 4)
 }
 

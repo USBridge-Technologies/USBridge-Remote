@@ -19,7 +19,6 @@ import (
 	"fyne.io/fyne/v2/layout"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -1054,22 +1053,22 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 
 // updateStatusBar обновляет панель статусов.
 func (mw *MainWindow) updateStatusBar() {
-	keyboardConnected := false
-	mouseConnected := false
-	rndisConnected := false
-	cdromConnected := false
-	backupConnected := false
-	snapshotConnected := false
+	if mw.usbClient == nil {
+		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming())
+		return
+	}
 
-	videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
+	go func() {
+		keyboardConnected := false
+		mouseConnected := false
+		rndisConnected := false
+		cdromConnected := false
+		backupConnected := false
+		snapshotConnected := false
 
-	if mw.usbClient != nil {
 		deviceInfo, err := mw.usbClient.GetDeviceInfo()
 		if err == nil {
-			logrus.Debugf("🔍 updateStatusBar: найдено %d устройств", len(deviceInfo.Devices))
 			for _, device := range deviceInfo.Devices {
-				logrus.Debugf("🔍 Устройство: Type=%s, Status=%s, Name=%s, ProductName=%s",
-					device.Type, device.Status, device.Name, device.ProductName)
 				if device.Status == "connected" {
 					if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
 						keyboardConnected = true
@@ -1088,7 +1087,6 @@ func (mw *MainWindow) updateStatusBar() {
 					}
 					if device.Type == "nbd" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
 						snapshotConnected = true
-						logrus.Debugf("📸 Найден снапшот: Type=%s, Name=%s, ProductName=%s", device.Type, device.Name, device.ProductName)
 					}
 				}
 			}
@@ -1100,17 +1098,18 @@ func (mw *MainWindow) updateStatusBar() {
 				for _, snapshot := range snapshotsResp.Snapshots {
 					if snapshot.Connected {
 						snapshotConnected = true
-						logrus.Debugf("📸 Найден подключенный снапшот через API снапшотов: %s", snapshot.Name)
 						break
 					}
 				}
 			}
 		}
-	}
 
-	logrus.Debugf("🔍 Статусы: keyboard=%v, mouse=%v, rndis=%v, cdrom=%v, backup=%v, snapshot=%v",
-		keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected)
+		videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
+		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming)
+	}()
+}
 
+func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming bool) {
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
@@ -1161,7 +1160,9 @@ func (mw *MainWindow) updateStatusBar() {
 			mw.backupIcon.Refresh()
 		}
 
-		mw.statusPanel.Refresh()
+		if mw.statusPanel != nil {
+			mw.statusPanel.Refresh()
+		}
 		if mw.protocolPanel != nil {
 			mw.protocolPanel.Objects = []fyne.CanvasObject{
 				newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)),

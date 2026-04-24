@@ -50,8 +50,7 @@ var diskRowRegistry sync.Map
 const (
 	deviceControlHeight    = 36
 	deviceControlUnitWidth = 40
-	deviceControlGap       = 8
-	deviceWideControlWidth = (deviceControlUnitWidth * 2) + deviceControlGap
+	deviceWideControlWidth = (deviceControlUnitWidth * 2) + 10 // Use 10 instead of deviceControlGap
 )
 
 type adaptiveNameText struct {
@@ -436,156 +435,6 @@ func (t *diskCheckboxTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.base.Size(name)
 }
 
-type deviceRowLayout struct {
-	gap float32
-}
-
-type deviceNameRowLayout struct {
-	gap float32
-}
-
-func (l *deviceRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 3 {
-		return
-	}
-
-	left := objects[0]
-	center := objects[1]
-	right := objects[2]
-
-	leftSize := left.MinSize()
-	rightSize := right.MinSize()
-
-	leftY := (size.Height - leftSize.Height) / 2
-	if leftY < 0 {
-		leftY = 0
-	}
-	left.Move(fyne.NewPos(0, leftY))
-	left.Resize(leftSize)
-
-	rightY := (size.Height - rightSize.Height) / 2
-	if rightY < 0 {
-		rightY = 0
-	}
-	rightX := size.Width - rightSize.Width
-	if rightX < leftSize.Width+l.gap {
-		rightX = leftSize.Width + l.gap
-	}
-	right.Move(fyne.NewPos(rightX, rightY))
-	right.Resize(rightSize)
-
-	centerX := leftSize.Width + l.gap
-	centerWidth := rightX - centerX - l.gap
-	if centerWidth < 0 {
-		centerWidth = 0
-	}
-	center.Move(fyne.NewPos(centerX, 0))
-	center.Resize(fyne.NewSize(centerWidth, size.Height))
-}
-
-func (l *deviceRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 3 {
-		return fyne.NewSize(0, 0)
-	}
-
-	left := objects[0].MinSize()
-	center := objects[1].MinSize()
-	right := objects[2].MinSize()
-
-	width := left.Width + center.Width + right.Width + (l.gap * 2)
-	height := left.Height
-	if center.Height > height {
-		height = center.Height
-	}
-	if right.Height > height {
-		height = right.Height
-	}
-	return fyne.NewSize(width, height)
-}
-
-func (l *deviceNameRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 3 {
-		return
-	}
-
-	left := objects[0]
-	center := objects[1]
-	right := objects[2]
-
-	leftWidth := float32(0)
-	rightWidth := float32(0)
-	if left.Visible() {
-		leftSize := left.MinSize()
-		leftWidth = leftSize.Width
-		leftY := (size.Height-leftSize.Height)/2 + 2
-		if leftY < 0 {
-			leftY = 0
-		}
-		left.Move(fyne.NewPos(0, leftY))
-		left.Resize(leftSize)
-	}
-	if right.Visible() {
-		rightSize := right.MinSize()
-		rightWidth = rightSize.Width
-		right.Move(fyne.NewPos(size.Width-rightWidth, (size.Height-rightSize.Height)/2))
-		right.Resize(rightSize)
-	}
-
-	centerX := float32(0)
-	if left.Visible() {
-		centerX += leftWidth + l.gap
-	}
-	centerRight := size.Width
-	if right.Visible() {
-		centerRight -= rightWidth + l.gap
-	}
-	centerWidth := centerRight - centerX
-	if centerWidth < 0 {
-		centerWidth = 0
-	}
-	center.Move(fyne.NewPos(centerX, 2))
-	center.Resize(fyne.NewSize(centerWidth, size.Height))
-}
-
-func (l *deviceNameRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 3 {
-		return fyne.NewSize(0, 0)
-	}
-
-	left := objects[0]
-	center := objects[1]
-	right := objects[2]
-
-	width := center.MinSize().Width
-	height := center.MinSize().Height
-	visibleSideCount := 0
-
-	if left.Visible() {
-		size := left.MinSize()
-		width += size.Width
-		if size.Height > height {
-			height = size.Height
-		}
-		visibleSideCount++
-	}
-	if right.Visible() {
-		size := right.MinSize()
-		width += size.Width
-		if size.Height > height {
-			height = size.Height
-		}
-		visibleSideCount++
-	}
-	if visibleSideCount > 0 {
-		width += l.gap * float32(visibleSideCount)
-	}
-	return fyne.NewSize(width, height)
-}
-
-type deviceRowControlsLayout struct {
-	gap float32
-}
-
 type sectionHeaderInlineLayout struct {
 	gap float32
 }
@@ -616,44 +465,6 @@ func (l *deviceRowContentLayout) MinSize(objects []fyne.CanvasObject) fyne.Size 
 		return fyne.NewSize(0, 0)
 	}
 	return objects[0].MinSize()
-}
-
-func (l *deviceRowControlsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	x := float32(0)
-	for _, obj := range objects {
-		if obj == nil || !obj.Visible() {
-			continue
-		}
-		childSize := obj.MinSize()
-		y := (size.Height - childSize.Height) / 2
-		if y < 0 {
-			y = 0
-		}
-		obj.Move(fyne.NewPos(x, y))
-		obj.Resize(childSize)
-		x += childSize.Width + l.gap
-	}
-}
-
-func (l *deviceRowControlsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	width := float32(0)
-	height := float32(0)
-	visibleCount := 0
-	for _, obj := range objects {
-		if obj == nil || !obj.Visible() {
-			continue
-		}
-		childSize := obj.MinSize()
-		width += childSize.Width
-		if childSize.Height > height {
-			height = childSize.Height
-		}
-		visibleCount++
-	}
-	if visibleCount > 1 {
-		width += l.gap * float32(visibleCount-1)
-	}
-	return fyne.NewSize(width, height)
 }
 
 func (l *sectionHeaderInlineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -800,9 +611,15 @@ func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyn
 }
 
 func NewDeviceSectionAddButton(onTapped func()) fyne.CanvasObject {
-	btn := widget.NewButton("+", onTapped)
-	btn.Importance = widget.LowImportance
-	return newCompactActionWrap(connectionCompactActionSize, btn)
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill: color.Transparent,
+		HoverFill:  design.ColorSurfaceLight,
+		NormalIcon: theme.ContentAddIcon(),
+		HoverIcon:  theme.ContentAddIcon(),
+		IconSize:   fyne.NewSize(18, 18),
+		ButtonSize: fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
+		OnTapped:   onTapped,
+	})
 }
 
 func newSectionCardHeader(titleText fyne.CanvasObject, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, leadingGap float32) fyne.CanvasObject {
@@ -844,7 +661,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	modeTitleLabel.Hide()
 	modeWrap := container.NewHBox(modeIcon, modeTitleLabel)
 
-	nameRow := container.New(&deviceNameRowLayout{gap: 6}, prefixIcon, nameLabel, layout.NewSpacer())
+	nameRow := container.New(&DeviceNameRowLayout{Gap: 6}, prefixIcon, nameLabel, layout.NewSpacer())
 	centerContent := container.NewVBox(nameRow, modeWrap)
 	center := container.New(&deviceRowContentLayout{}, centerContent)
 
@@ -887,10 +704,10 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	settingsBtn := NewDeviceActionButton("Config", assets.ConfigVerticalIcon, nil)
 	settingsBtn.Hide()
 
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusInfo)
+	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusInfo)
 	left := container.NewMax(container.NewCenter(checkboxWrap), container.NewCenter(captureSelector))
 
-	root := container.New(&deviceRowLayout{gap: 6}, left, center, right)
+	root := container.New(&DeviceRowLayout{Gap: 6}, left, center, right)
 	diskRowRegistry.Store(root, &DiskRowWidgets{
 		Checkbox:        checkbox,
 		CaptureSelector: captureSelector,

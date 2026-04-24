@@ -90,7 +90,196 @@ const (
 	connectionCompactActionGap    float32 = 2
 	connectionNameEditGap         float32 = 10
 	connectionTitleEditGap        float32 = 4
+	deviceControlGap              float32 = 10
 )
+
+type DeviceRowLayout struct {
+	Gap float32
+}
+
+func (l *DeviceRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	left := objects[0]
+	center := objects[1]
+	right := objects[2]
+
+	leftSize := left.MinSize()
+	rightSize := right.MinSize()
+
+	leftY := (size.Height - leftSize.Height) / 2
+	if leftY < 0 {
+		leftY = 0
+	}
+	left.Move(fyne.NewPos(0, leftY))
+	left.Resize(leftSize)
+
+	rightY := (size.Height - rightSize.Height) / 2
+	if rightY < 0 {
+		rightY = 0
+	}
+	rightX := size.Width - rightSize.Width
+	if rightX < leftSize.Width+l.Gap {
+		rightX = leftSize.Width + l.Gap
+	}
+	right.Move(fyne.NewPos(rightX, rightY))
+	right.Resize(rightSize)
+
+	centerX := leftSize.Width + l.Gap
+	centerWidth := rightX - centerX - l.Gap
+	if centerWidth < 0 {
+		centerWidth = 0
+	}
+	center.Move(fyne.NewPos(centerX, 0))
+	center.Resize(fyne.NewSize(centerWidth, size.Height))
+}
+
+func (l *DeviceRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	left := objects[0].MinSize()
+	center := objects[1].MinSize()
+	right := objects[2].MinSize()
+
+	width := left.Width + center.Width + right.Width + (l.Gap * 2)
+	height := left.Height
+	if center.Height > height {
+		height = center.Height
+	}
+	if right.Height > height {
+		height = right.Height
+	}
+	return fyne.NewSize(width, height)
+}
+
+type DeviceRowControlsLayout struct {
+	Gap float32
+}
+
+func (l *DeviceRowControlsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	x := float32(0)
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		childSize := obj.MinSize()
+		y := (size.Height - childSize.Height) / 2
+		if y < 0 {
+			y = 0
+		}
+		obj.Move(fyne.NewPos(x, y))
+		obj.Resize(childSize)
+		x += childSize.Width + l.Gap
+	}
+}
+
+func (l *DeviceRowControlsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	width := float32(0)
+	height := float32(0)
+	visibleCount := 0
+	for _, obj := range objects {
+		if obj == nil || !obj.Visible() {
+			continue
+		}
+		childSize := obj.MinSize()
+		width += childSize.Width
+		if childSize.Height > height {
+			height = childSize.Height
+		}
+		visibleCount++
+	}
+	if visibleCount > 1 {
+		width += float32(visibleCount-1) * l.Gap
+	}
+	return fyne.NewSize(width, height)
+}
+
+type DeviceNameRowLayout struct {
+	Gap float32
+}
+
+func (l *DeviceNameRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+
+	left := objects[0]
+	center := objects[1]
+	right := objects[2]
+
+	leftWidth := float32(0)
+	rightWidth := float32(0)
+	if left.Visible() {
+		leftSize := left.MinSize()
+		leftWidth = leftSize.Width
+		leftY := (size.Height-leftSize.Height)/2 + 2
+		if leftY < 0 {
+			leftY = 0
+		}
+		left.Move(fyne.NewPos(0, leftY))
+		left.Resize(leftSize)
+	}
+	if right.Visible() {
+		rightSize := right.MinSize()
+		rightWidth = rightSize.Width
+		right.Move(fyne.NewPos(size.Width-rightWidth, (size.Height-rightSize.Height)/2))
+		right.Resize(rightSize)
+	}
+
+	centerX := float32(0)
+	if left.Visible() {
+		centerX += leftWidth + l.Gap
+	}
+	centerRight := size.Width
+	if right.Visible() {
+		centerRight -= rightWidth + l.Gap
+	}
+	centerWidth := centerRight - centerX
+	if centerWidth < 0 {
+		centerWidth = 0
+	}
+	center.Move(fyne.NewPos(centerX, 2))
+	center.Resize(fyne.NewSize(centerWidth, size.Height))
+}
+
+func (l *DeviceNameRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+
+	left := objects[0]
+	center := objects[1]
+	right := objects[2]
+
+	width := center.MinSize().Width
+	height := center.MinSize().Height
+	visibleSideCount := 0
+
+	if left.Visible() {
+		size := left.MinSize()
+		width += size.Width
+		if size.Height > height {
+			height = size.Height
+		}
+		visibleSideCount++
+	}
+	if right.Visible() {
+		size := right.MinSize()
+		width += size.Width
+		if size.Height > height {
+			height = size.Height
+		}
+		visibleSideCount++
+	}
+	if visibleSideCount > 0 {
+		width += l.Gap * float32(visibleSideCount)
+	}
+	return fyne.NewSize(width, height)
+}
 
 var (
 	onboardingIndicatorInactive = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff}
@@ -930,8 +1119,8 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	rightItems := []fyne.CanvasObject{registerCheck, protocolBtn}
 	rightItems = append(rightItems, useBtn)
 
-	right := container.New(&deviceRowControlsLayout{gap: deviceControlGap}, rightItems...)
-	row := container.New(&deviceRowLayout{gap: 6}, left, center, right)
+	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, rightItems...)
+	row := container.New(&DeviceRowLayout{Gap: 6}, left, center, right)
 	return NewInset(row, 0, 4, 4, 4)
 }
 

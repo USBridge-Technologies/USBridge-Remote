@@ -805,7 +805,7 @@ func (dw *DiskWidget) updateButtons() {
 		if selectedNotMountedCount == 0 {
 			dw.mountBtn.Hide()
 			if dw.compactMountBtn != nil {
-				dw.compactMountBtn.Show()
+				dw.compactMountBtn.Hide()
 				dw.compactMountBtn.Disable()
 			}
 		} else {
@@ -820,7 +820,7 @@ func (dw *DiskWidget) updateButtons() {
 			}
 		}
 
-		if hasMountedDevices {
+		if hasMountedDevices || selectedCount > 0 {
 			dw.unmountBtn.Show()
 			if controlsLocked {
 				dw.unmountBtn.Disable()
@@ -838,7 +838,7 @@ func (dw *DiskWidget) updateButtons() {
 		} else {
 			dw.unmountBtn.Hide()
 			if dw.compactUnmountBtn != nil {
-				dw.compactUnmountBtn.Show()
+				dw.compactUnmountBtn.Hide()
 				dw.compactUnmountBtn.Disable()
 			}
 		}
