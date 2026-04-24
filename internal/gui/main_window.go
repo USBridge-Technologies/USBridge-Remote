@@ -129,6 +129,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.gstreamerService, mw.updateStatus)
+	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
