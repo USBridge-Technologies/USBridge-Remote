@@ -43,12 +43,13 @@ type connectionDialogSpec struct {
 	nameValue          string
 	internalHostValue  string
 	tailscaleHostValue string
+	quicPortValue      int
 	tokenValue         string
 	tailscaleRegisterValue bool
 	feedbackText       string
 	feedbackColor      color.Color
-	onConnect          func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool
-	onSave             func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool
+	onConnect          func(name, internalHost, tailscaleHost, token string, quicPort int, tailscaleRegister bool) bool
+	onSave             func(name, internalHost, tailscaleHost, token string, quicPort int, tailscaleRegister bool) bool
 	onDelete           func(close func())
 }
 
@@ -386,7 +387,7 @@ func createTokenField(tokenEntry *connectionDialogEntry) fyne.CanvasObject {
 	return tokenEntry
 }
 
-func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	copyBtn := newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := tokenEntry.Text
 		if txt != "" && window != nil {
@@ -410,12 +411,18 @@ func newTokenActionItem(tokenEntry *connectionDialogEntry, internalHostEntry, ta
 			logrus.Warn("cannot show quick QR: both internal and tailscale addresses are empty")
 			return
 		}
-		showQuickConnectQRCode(window, internalHost, tailscaleHost, token)
+
+		var quicPort int
+		if quicPortEntry != nil {
+			fmt.Sscanf(quicPortEntry.Text, "%d", &quicPort)
+		}
+
+		showQuickConnectQRCode(window, internalHost, tailscaleHost, token, quicPort)
 	})
 	return container.NewHBox(copyBtn, qrBtn)
 }
 
-func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, tokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
 	var formContainer *fyne.Container
 
 	updateCheckVisibility := func() {
@@ -442,8 +449,9 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
 		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+		newConnectionDialogField(i18n.Current.QUICPortLabel, quicPortEntry),
 		tailscaleRegisterCheck,
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, internalHostEntry, tailscaleHostEntry, window)),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createTokenField(tokenEntry), newTokenActionItem(tokenEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, window)),
 	)
 
 	updateCheckVisibility()
@@ -547,10 +555,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	nameEntry := newConnectionNameEntry(spec.nameValue, nil)
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
+	quicPortEntry := newConnectionQUICPortEntry(spec.quicPortValue, nil)
 	tokenEntry := newConnectionTokenEntry(spec.tokenValue, nil)
 	tailscaleRegisterCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
 	tailscaleRegisterCheck.Checked = spec.tailscaleRegisterValue
-	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, tokenEntry, tailscaleRegisterCheck, window)
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, tokenEntry, tailscaleRegisterCheck, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -575,13 +584,20 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	var connectBtn fyne.CanvasObject
 	var deleteBtn fyne.CanvasObject
 	var saveBtn fyne.CanvasObject
+
+	getQuicPort := func() int {
+		var port int
+		fmt.Sscanf(quicPortEntry.Text, "%d", &port)
+		return port
+	}
+
 	if spec.onConnect != nil {
 		connectLabel := spec.connectLabel
 		if connectLabel == "" {
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -592,7 +608,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	saveBtn = widget.NewButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 			return
 		}
 		if d != nil {
@@ -604,7 +620,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		saveBtn = newConnectionDialogAccentButton(saveLabel, nil, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, tailscaleRegisterCheck.Checked) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, tokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -648,7 +664,17 @@ func newConnectionTailscaleEntry(value string, onFocusChanged func(bool)) *conne
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
-	entry.SetPlaceHolder("device.tailnet.ts.net")
+	entry.SetPlaceHolder("tailscale-address")
+	return entry
+}
+
+func newConnectionQUICPortEntry(value int, onFocusChanged func(bool)) *connectionDialogEntry {
+	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
+	entry.ExtendBaseWidget(entry)
+	if value > 0 {
+		entry.Text = fmt.Sprintf("%d", value)
+	}
+	entry.SetPlaceHolder(i18n.Current.QUICPortPlaceholder)
 	return entry
 }
 
@@ -673,11 +699,11 @@ func generateQuickToken() (string, error) {
 	return token, nil
 }
 
-func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, token string) {
+func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, token string, quicPort int) {
 	if window == nil {
 		return
 	}
-	qrURL := buildServiceQRFormat(internalHost, tailscaleHost, token)
+	qrURL := buildServiceQRFormat(internalHost, tailscaleHost, token, quicPort)
 	pngBytes, err := qrcode.Encode(qrURL, qrcode.Medium, 280)
 	if err != nil {
 		logrus.Errorf("failed to render quick QR: %v", err)
@@ -707,7 +733,7 @@ func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, tok
 	d.Show()
 }
 
-func buildServiceQRFormat(internalHost, tailscaleHost, token string) string {
+func buildServiceQRFormat(internalHost, tailscaleHost, token string, quicPort int) string {
 	values := url.Values{}
 	if strings.TrimSpace(internalHost) != "" {
 		values.Set("internal_host", strings.TrimSpace(internalHost))
@@ -716,6 +742,14 @@ func buildServiceQRFormat(internalHost, tailscaleHost, token string) string {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
 	values.Set("token", strings.TrimSpace(token))
+	if quicPort > 0 {
+		params := url.Values{}
+		params.Set("quic_port", fmt.Sprintf("%d", quicPort))
+		// values.Set("quic_port", fmt.Sprintf("%d", quicPort)) // Actually values is url.Values
+	}
+	if quicPort > 0 {
+		values.Set("quic_port", fmt.Sprintf("%d", quicPort))
+	}
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("protocol", models.ConnectionProtocolTailscale)
 	} else if strings.TrimSpace(internalHost) != "" {
@@ -746,9 +780,10 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 		nameValue:              conn.Name,
 		internalHostValue:      conn.InternalHost,
 		tailscaleHostValue:     conn.TailscaleHost,
+		quicPortValue:          conn.QUICPort,
 		tokenValue:             conn.Token,
 		tailscaleRegisterValue: conn.TailscaleRegister,
-		onSave: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, token string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if name == "" || (internalHost == "" && tailscaleHost == "") {
@@ -760,6 +795,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				Name:              name,
 				InternalHost:      internalHost,
 				TailscaleHost:     tailscaleHost,
+				QUICPort:          quicPort,
 				Host:              fallbackText(internalHost, tailscaleHost),
 				Token:             strings.TrimSpace(token),
 				Protocol:          conn.Protocol,
@@ -786,10 +822,10 @@ func (cm *ConnectionManager) showAddDialog() {
 	if selected := normalizeConnectionProtocol(cm.protocolSelect.Selected); selected == models.ConnectionProtocolTailscale {
 		internalHost, tailscaleHost = "", strings.TrimSpace(cm.hostEntry.Text)
 	}
-	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.tokenEntry.Text, "", "", false)
+	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.tokenEntry.Text, "", "", 0, false)
 }
 
-func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool) {
+func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, scanned bool) {
 	feedbackText := ""
 	if scanned {
 		feedbackText = qrScanSuccessText
@@ -804,7 +840,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		}
 	}
 
-	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s scanned=%v", internalHost, tailscaleHost, scanned)
+	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s quicPort=%d scanned=%v", internalHost, tailscaleHost, quicPort, scanned)
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
 		title:                  i18n.Current.AddConnectionTitle,
@@ -814,11 +850,12 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		nameValue:              name,
 		internalHostValue:      internalHost,
 		tailscaleHostValue:     tailscaleHost,
+		quicPortValue:          quicPort,
 		tokenValue:             token,
 		tailscaleRegisterValue: false,
 		feedbackText:           feedbackText,
 		feedbackColor:          design.ColorAccent,
-		onConnect: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
+		onConnect: func(name, internalHost, tailscaleHost, token string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -837,11 +874,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 				cm.applyConnectionToForm(host, token, selectedProtocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token, selectedProtocol, wireGuardInvite, tailscaleRegister)
+				cm.onConnect(host, token, selectedProtocol, wireGuardInvite, quicPort, tailscaleRegister)
 			}
 			return true
 		},
-		onSave: func(name, internalHost, tailscaleHost, token string, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, token string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -855,7 +892,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, internalHost, tailscaleHost, token, selectedProtocol, wireGuardInvite, tailscaleRegister)
+			cm.SaveConnection(name, internalHost, tailscaleHost, token, selectedProtocol, wireGuardInvite, quicPort, tailscaleRegister)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(host, token, selectedProtocol)
 				cm.refreshConnectionsList()

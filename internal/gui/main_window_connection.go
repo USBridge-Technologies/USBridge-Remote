@@ -25,11 +25,12 @@ func (mw *MainWindow) handleSelectionFromManager(wireGuardInvite string, tailsca
 
 // handleConnectionFromManager обрабатывает подключение из менеджера (стрелка на карточке).
 // Заполняет поля и вызывает единый обработчик handleConnectionToggle для защиты от множественных нажатий.
-func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
+func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
 	mw.tokenEntry.SetText(token)
 	mw.pendingWireGuardInvite = wireGuardInvite
 	mw.pendingTailscaleRegister = tailscaleRegister
+	mw.pendingQUICPort = quicPort
 	if protocol != "" {
 		mw.protocolSelect.SetSelected(protocol)
 	}
@@ -37,12 +38,12 @@ func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGua
 }
 
 // handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
-func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {
 		host = strings.TrimSpace(internalHost)
 	}
-	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' token='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, token, protocol, tailscaleRegister)
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d token='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, token, protocol, tailscaleRegister)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
@@ -54,7 +55,7 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 
 	if mw.connectionManager != nil {
 		mw.pendingWireGuardInvite = wireGuardInvite
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -570,10 +571,16 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if !mw.config.FRPEnabled {
 			return fmt.Errorf("FRP disabled in config")
 		}
-		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, mw.config.FRPServerPort, maskSensitiveToken(quicToken))
+
+		port := mw.config.FRPServerPort
+		if mw.pendingQUICPort > 0 {
+			port = mw.pendingQUICPort
+		}
+
+		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, port, maskSensitiveToken(quicToken))
 		mw.frpService = service.NewFRPService(
 			quicHost,
-			mw.config.FRPServerPort,
+			port,
 			quicToken,
 		)
 

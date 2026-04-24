@@ -56,6 +56,7 @@ type SavedConnection struct {
 	Name              string `json:"name"`
 	InternalHost      string `json:"internal_host,omitempty"`
 	TailscaleHost     string `json:"tailscale_host,omitempty"`
+	QUICPort          int    `json:"quic_port,omitempty"`
 	Host              string `json:"host,omitempty"`
 	Token             string `json:"token"`
 	Protocol          string `json:"protocol,omitempty"`
@@ -84,7 +85,7 @@ type ConnectionManager struct {
 	ts        *service.TailscaleService
 	tsStatus  *service.TailscaleStatus
 
-	onConnect                func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool)
+	onConnect                func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)
 	onSelect                 func(wireGuardInvite string, tailscaleRegister bool)
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
@@ -133,7 +134,7 @@ func (cm *ConnectionManager) ResolveInternalHost(host string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool), onSelect func(wireGuardInvite string, tailscaleRegister bool)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool), onSelect func(wireGuardInvite string, tailscaleRegister bool)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
@@ -155,25 +156,25 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 
 	cm.qrScanner = NewQRScanner(
 		app,
-		func(host, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
+		func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
 			fyne.Do(func() {
 				cm.ClearSelection()
 				cm.applyConnectionToForm(host, token, protocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token, protocol, wireGuardInvite, tailscaleRegister)
+				cm.onConnect(host, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
 			}
-			logrus.Infof("QR connect: host=%s", host)
+			logrus.Infof("QR connect: host=%s quicPort=%d", host, quicPort)
 		},
-		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, tailscaleRegister bool) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, tailscaleRegister)
+		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
+			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), token, protocol)
 			})
-			logrus.Infof("QR saved directly: internal=%s tailscale=%s", internalHost, tailscaleHost)
+			logrus.Infof("QR saved directly: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
 		},
-		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, scanned bool) {
-			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, scanned)
+		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, scanned bool) {
+			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, scanned)
 		},
 	)
 
@@ -380,9 +381,12 @@ func (cm *ConnectionManager) SetConnectionPending(pending bool) {
 	cm.setConnectionPendingState(pending, activeIndex)
 }
 
-func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) {
-	if cm == nil || cm.syncingForm || cm.selectedIndex < 0 || cm.selectedIndex >= len(cm.connections) {
-		return
+func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) bool {
+	if cm == nil || cm.syncingForm {
+		return false
+	}
+	if cm.selectedIndex < 0 {
+		return true // Selection already cleared
 	}
 
 	host = strings.TrimSpace(host)
@@ -393,10 +397,11 @@ func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) {
 	if strings.TrimSpace(current.Host) == host &&
 		strings.TrimSpace(current.Token) == token &&
 		normalizeConnectionProtocol(current.Protocol) == protocol {
-		return
+		return false
 	}
 
 	cm.selectedIndex = -1
+	return true
 }
 
 func (cm *ConnectionManager) ClearSelection() {

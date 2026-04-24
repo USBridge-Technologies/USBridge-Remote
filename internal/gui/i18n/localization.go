@@ -38,6 +38,8 @@ type LocalizedStrings struct {
 	DeleteConnectionTitle     string
 	DeleteConnectionConfirm   string
 	TailscaleRegisterLabel    string
+	QUICPortLabel             string
+	QUICPortPlaceholder       string
 
 	// Video Widget
 	VideoNotStarted      string
@@ -391,6 +393,8 @@ func EN() *LocalizedStrings {
 		DeleteConnectionTitle:     "Delete connection",
 		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
 		TailscaleRegisterLabel:    "Register in Tailscale",
+		QUICPortLabel:             "QUIC Port:",
+		QUICPortPlaceholder:       "443",
 
 		// Video Widget
 		VideoNotStarted:      "Video not started",

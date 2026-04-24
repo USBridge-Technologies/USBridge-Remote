@@ -91,11 +91,13 @@ func (mw *MainWindow) createInterface() {
 	mw.hostEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.HandleFormEdited(
+			if mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
-			)
+			) {
+				mw.pendingQUICPort = 0
+			}
 		}
 		mw.refreshConnectionControls()
 	}
@@ -106,11 +108,13 @@ func (mw *MainWindow) createInterface() {
 	mw.tokenEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.HandleFormEdited(
+			if mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
-			)
+			) {
+				mw.pendingQUICPort = 0
+			}
 		}
 	}
 
@@ -122,11 +126,13 @@ func (mw *MainWindow) createInterface() {
 	mw.protocolSelect.OnChanged = func(value string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			mw.connectionManager.HandleFormEdited(
+			if mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				value,
-			)
+			) {
+				mw.pendingQUICPort = 0
+			}
 		}
 		if mw.protocolDropdown != nil {
 			mw.protocolDropdown.SetSelected(protocolDropdownLabel(value))
