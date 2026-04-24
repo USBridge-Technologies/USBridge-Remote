@@ -106,6 +106,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	}
 	a := app.NewWithID("com.usbridge.client")
 	w := a.NewWindow("USBridge Client")
+	w.SetPadded(false)
 
 	mw := &MainWindow{
 		app:    a,
