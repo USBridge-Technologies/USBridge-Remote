@@ -311,19 +311,29 @@ func (mw *MainWindow) recreateContainers() {
 
 	deviceFooterOverlay := container.NewBorder(nil, mainFooter, nil, nil, nil)
 	tabsWithTheme := container.NewThemeOverride(mw.tabs, &tabsTheme{base: design.NewBrandTheme()})
-	mw.mainContent = container.NewBorder(
-		mainAddressBar,
-		nil,
-		nil,
-		nil,
-		container.NewStack(tabsWithTheme, deviceFooterOverlay),
+
+	mainBg := canvas.NewRectangle(design.ColorGray950)
+	mw.mainContent = container.NewStack(
+		mainBg,
+		container.NewBorder(
+			mainAddressBar,
+			nil,
+			nil,
+			nil,
+			container.NewStack(tabsWithTheme, deviceFooterOverlay),
+		),
 	)
-	mw.connectionContent = container.NewBorder(
-		connectionAddressBar,
-		connectionFooter,
-		nil,
-		nil,
-		mw.connectionManager.GetContainer(),
+
+	connBg := canvas.NewRectangle(design.ColorGray950)
+	mw.connectionContent = container.NewStack(
+		connBg,
+		container.NewBorder(
+			connectionAddressBar,
+			connectionFooter,
+			nil,
+			nil,
+			mw.connectionManager.GetContainer(),
+		),
 	)
 
 	mw.window.SetContent(mw.connectionContent)

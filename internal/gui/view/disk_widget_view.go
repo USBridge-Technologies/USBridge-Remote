@@ -591,7 +591,7 @@ func (v *DevicesListView) RefreshItem(_ int) {
 
 func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyne.CanvasObject, topRightOverlay fyne.CanvasObject) *DiskWidgetUI {
 	devicesList := NewDevicesListView(buildIntro, buildRows)
-	root := NewInset(devicesList.Scroll, 8, 0, 6, 0)
+	root := container.NewMax(devicesList.Scroll)
 	if topRightOverlay != nil {
 		fixedOverlay := container.NewGridWrap(topRightOverlay.MinSize(), topRightOverlay)
 		overlay := container.NewBorder(
@@ -599,9 +599,9 @@ func NewDiskWidgetUI(buildIntro func() fyne.CanvasObject, buildRows func() []fyn
 			nil,
 			nil,
 			nil,
-			NewInset(container.NewHBox(layout.NewSpacer(), fixedOverlay), 10, 22, 6, 0),
+			NewInset(container.NewHBox(layout.NewSpacer(), fixedOverlay), 0, 22, 0, 0),
 		)
-		root = container.NewStack(root, overlay)
+		root = container.NewStack(devicesList.Scroll, overlay)
 	}
 
 	return &DiskWidgetUI{

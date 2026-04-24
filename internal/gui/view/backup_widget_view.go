@@ -70,7 +70,7 @@ func NewBackupWidgetUI(buildRows func() []fyne.CanvasObject, onHelp func()) *Bac
 	})
 
 	return &BackupWidgetUI{
-		Container:     NewInset(list.Scroll, 8, 0, 6, 0),
+		Container:     container.NewMax(list.Scroll),
 		SnapshotsList: list,
 		StatusLabel:   statusLabel,
 	}

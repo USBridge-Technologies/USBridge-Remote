@@ -346,10 +346,8 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 
 	contentArea := container.NewMax()
 
-	mainContent := NewInset(contentArea, 16, 16, 4, 16)
-
 	bg := canvas.NewRectangle(design.ColorGray950)
-	root := container.NewStack(bg, mainContent)
+	root := container.NewStack(bg, contentArea)
 
 	ui := &ConnectionManagerUI{
 		Container:         root,
