@@ -539,7 +539,7 @@ func (ui *ConnectionManagerUI) SetTailscaleState(status, account, address, authL
 	if ui.tsToggle != nil {
 		ui.tsToggle.SetOn(active)
 		ui.tsToggle.SetLoading(loading)
-		ui.tsToggle.SetDisabled(false)
+		ui.tsToggle.SetDisabled(loading) // Block button during transition
 	}
 }
 
@@ -549,13 +549,13 @@ func summarizeTailscaleState(status, _ string) (bool, bool) {
 	switch {
 	case strings.Contains(raw, "signed out"), strings.Contains(raw, "not connected"):
 		return false, false
-	case strings.Contains(raw, "starting login"), strings.Contains(raw, "signing out"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"):
+	case strings.Contains(raw, "starting"), strings.Contains(raw, "signing"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"), strings.Contains(raw, "needslogin"):
 		return false, true
-	case strings.Contains(raw, "needslogin"), strings.Contains(raw, "stopped"), strings.Contains(raw, "no state"), strings.Contains(raw, "login failed"):
+	case strings.Contains(raw, "stopped"), strings.Contains(raw, "no state"), strings.Contains(raw, "login failed"):
 		return false, false
-	case strings.Contains(raw, "running"), strings.Contains(raw, "connected"):
+	case strings.Contains(raw, "running"), strings.Contains(raw, "connected"), strings.Contains(raw, "active"):
 		return true, false
-	case strings.Contains(raw, "tailscale:"), strings.Contains(raw, "error"), raw != "":
+	case strings.Contains(raw, "tailscale:"):
 		return false, false
 	default:
 		return false, false

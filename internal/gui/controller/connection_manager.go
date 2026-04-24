@@ -444,8 +444,14 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 	}
 	loginText := fallbackText(status.Self.UserLogin, "connected")
 
+	// Use raw state string from backend (Running, NeedsLogin, etc.) for easier recognition in View
+	header := fmt.Sprintf("Tailscale: %s", status.Backend)
+	if status.Backend == "" {
+		header = "Tailscale: status available"
+	}
+
 	cm.setTailscaleStateAsync(
-		"Tailscale: active",
+		header,
 		fmt.Sprintf("Google: %s", loginText),
 		fmt.Sprintf("Address: %s (%s)", address, ternary(status.Userspace, "embedded", "system")),
 		ternary(status.LoggedIn, "Sign Out", "Sign In With Google"),
