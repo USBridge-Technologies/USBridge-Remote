@@ -19,13 +19,13 @@ import (
 
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
-	onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)                              // Подключиться
-	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) // Только сохранить без подключения
+	onConnect func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool)                              // Подключиться
+	onSave    func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) // Только сохранить без подключения
 	lastURI   string                                                                                                   // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 
 // NewDeepLinkHandler создает новый обработчик
-func NewDeepLinkHandler(onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool), onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)) *DeepLinkHandler {
+func NewDeepLinkHandler(onConnect func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool), onSave func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool)) *DeepLinkHandler {
 	return &DeepLinkHandler{
 		onConnect: onConnect,
 		onSave:    onSave,
@@ -59,7 +59,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Парсим URI
-	internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, err := h.parseDeepLink(uri)
+	internalHost, tailscaleHost, quicToken, protocol, quicPort, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		view.ShowErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
@@ -67,25 +67,25 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	}
 
 	// Показываем диалог подтверждения
-	h.showConfirmDialog(internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, parent)
+	h.showConfirmDialog(internalHost, tailscaleHost, quicToken, protocol, quicPort, parent)
 }
 
 // parseDeepLink парсит deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, err error) {
+func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, quicToken, protocol string, quicPort int, err error) {
 	// Парсим URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", "", "", "", 0, fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", 0, fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Проверяем схему (только usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", "", "", "", 0, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", 0, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
-	// Формат: usbridge://connect?host=192.168.1.1&token=secret
+	// Формат: usbridge://connect?host=192.168.1.1&quic_token=secret
 	if u.Host != "connect" {
-		return "", "", "", "", "", 0, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", 0, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Получаем параметры
@@ -100,9 +100,11 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 			internalHost = host
 		}
 	}
-	token = query.Get("token")
+	quicToken = query.Get("quic_token")
+	if quicToken == "" {
+		quicToken = query.Get("token")
+	}
 	protocol = query.Get("protocol")
-	wireGuardInvite = query.Get("invite")
 
 	if query.Get("quic_port") != "" {
 		fmt.Sscanf(query.Get("quic_port"), "%d", &quicPort)
@@ -110,20 +112,20 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 
 	// Проверяем обязательные параметры
 	if internalHost == "" && tailscaleHost == "" {
-		return "", "", "", "", "", 0, fmt.Errorf("missing host parameter")
+		return "", "", "", "", 0, fmt.Errorf("missing host parameter")
 	}
 
-	if token == "" && wireGuardInvite == "" {
-		return "", "", "", "", "", 0, fmt.Errorf("missing token or wireguard_invite parameter")
+	if quicToken == "" {
+		return "", "", "", "", 0, fmt.Errorf("missing quic_token parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s token=%s protocol=%s", internalHost, tailscaleHost, token, protocol)
-	return internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, nil
+	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s quicToken=%s protocol=%s", internalHost, tailscaleHost, maskSensitiveToken(quicToken), protocol)
+	return internalHost, tailscaleHost, quicToken, protocol, quicPort, nil
 }
 
 // showConfirmDialog показывает диалог подтверждения подключения с возможностью сохранения
 // ВАЖНО: должна вызываться из UI потока (внутри fyne.Do)
-func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, parent fyne.Window) {
+func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, parent fyne.Window) {
 	host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
 	// Создаем превью с данными
 	titleLabel := widget.NewLabelWithStyle(
@@ -132,10 +134,10 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 		fyne.TextStyle{Bold: true},
 	)
 
-	tokenLabel := widget.NewLabel(i18n.Current.DeepLinkToken)
-	tokenEntry := widget.NewEntry()
-	tokenEntry.SetText(token)
-	tokenEntry.Disable() // Только для чтения
+	quicTokenLabel := widget.NewLabel(i18n.Current.DeepLinkToken)
+	quicTokenEntry := widget.NewEntry()
+	quicTokenEntry.SetText(quicToken)
+	quicTokenEntry.Disable() // Только для чтения
 
 	infoLabel := widget.NewLabel(i18n.Current.DeepLinkConnectPrompt)
 	infoLabel.Wrapping = fyne.TextWrapWord
@@ -149,7 +151,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 			d.Hide()
 		}
 		if h.onConnect != nil {
-			h.onConnect(host, token, protocol, wireGuardInvite, quicPort, false)
+			h.onConnect(host, quicToken, protocol, quicPort, false)
 		}
 	})
 	connectBtn.Importance = widget.HighImportance
@@ -161,7 +163,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 		}
 		// Вызываем callback для сохранения с пустым именем - будет сгенерировано автоматически
 		if h.onSave != nil {
-			h.onSave("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, false)
+			h.onSave("", internalHost, tailscaleHost, quicToken, protocol, quicPort, false)
 		}
 	})
 	saveBtn.Importance = widget.MediumImportance
@@ -192,8 +194,8 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 			disabledDeepLinkEntry(internalHost),
 			widget.NewLabel("Tailscale Address"),
 			disabledDeepLinkEntry(tailscaleHost),
-			tokenLabel,
-			tokenEntry,
+			quicTokenLabel,
+			quicTokenEntry,
 		), // Верх
 		buttons,  // Низ
 		nil, nil, // Лево, Право
@@ -207,8 +209,8 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, token, 
 }
 
 // GenerateDeepLink генерирует deep link для подключения.
-// Формат: usbridge://connect?internal_host=<HOST>&tailscale_host=<HOST>&token=<TOKEN>&protocol=<PROTOCOL>
-func GenerateDeepLink(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int) string {
+// Формат: usbridge://connect?internal_host=<HOST>&tailscale_host=<HOST>&quic_token=<TOKEN>&protocol=<PROTOCOL>
+func GenerateDeepLink(internalHost, tailscaleHost, quicToken, protocol string, quicPort int) string {
 	// Кодируем параметры
 	params := url.Values{}
 	if internalHost != "" {
@@ -217,14 +219,11 @@ func GenerateDeepLink(internalHost, tailscaleHost, token, protocol, wireGuardInv
 	if tailscaleHost != "" {
 		params.Set("tailscale_host", tailscaleHost)
 	}
-	if token != "" {
-		params.Set("token", token)
+	if quicToken != "" {
+		params.Set("quic_token", quicToken)
 	}
 	if protocol != "" {
 		params.Set("protocol", protocol)
-	}
-	if wireGuardInvite != "" {
-		params.Set("wireguard_invite", wireGuardInvite)
 	}
 	if quicPort > 0 {
 		params.Set("quic_port", fmt.Sprintf("%d", quicPort))

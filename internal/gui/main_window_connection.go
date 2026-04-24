@@ -18,17 +18,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (mw *MainWindow) handleSelectionFromManager(wireGuardInvite string, tailscaleRegister bool) {
-	mw.pendingWireGuardInvite = wireGuardInvite
+func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 	mw.pendingTailscaleRegister = tailscaleRegister
 }
 
 // handleConnectionFromManager обрабатывает подключение из менеджера (стрелка на карточке).
 // Заполняет поля и вызывает единый обработчик handleConnectionToggle для защиты от множественных нажатий.
-func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
+func (mw *MainWindow) handleConnectionFromManager(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
-	mw.tokenEntry.SetText(token)
-	mw.pendingWireGuardInvite = wireGuardInvite
+	mw.tokenEntry.SetText(quicToken)
 	mw.pendingTailscaleRegister = tailscaleRegister
 	mw.pendingQUICPort = quicPort
 	if protocol != "" {
@@ -38,24 +36,23 @@ func (mw *MainWindow) handleConnectionFromManager(host, token, protocol, wireGua
 }
 
 // handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
-func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {
 		host = strings.TrimSpace(internalHost)
 	}
-	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d token='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, token, protocol, tailscaleRegister)
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d quicToken='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, maskSensitiveToken(quicToken), protocol, tailscaleRegister)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
-		mw.tokenEntry.SetText(token)
+		mw.tokenEntry.SetText(quicToken)
 		if protocol != "" {
 			mw.protocolSelect.SetSelected(protocol)
 		}
 	})
 
 	if mw.connectionManager != nil {
-		mw.pendingWireGuardInvite = wireGuardInvite
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, quicToken, protocol, quicPort, tailscaleRegister)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -83,31 +80,27 @@ func (mw *MainWindow) clearConnectionPending() {
 	}
 }
 
-func (mw *MainWindow) resolveConnectionToken(host, token string) string {
-	resolved := strings.TrimSpace(token)
+func (mw *MainWindow) resolveConnectionToken(host, quicToken string) string {
+	resolved := strings.TrimSpace(quicToken)
 	if resolved != "" {
 		return resolved
 	}
 
 	if mw.connectionManager != nil {
-		resolved = mw.connectionManager.ResolveToken(host, token)
+		resolved = mw.connectionManager.ResolveQUICToken(host, quicToken)
 		if resolved != "" {
-			logrus.Infof("🔍 [DEBUG] Resolved token from saved connection for host='%s'", host)
+			logrus.Infof("🔍 [DEBUG] Resolved QUIC token from saved connection for host='%s'", host)
 			return resolved
 		}
 	}
 
-	resolved = strings.TrimSpace(mw.activeConnectionToken)
+	resolved = strings.TrimSpace(mw.activeQUICToken)
 	if resolved != "" {
-		logrus.Infof("🔍 [DEBUG] Reusing active session token for host='%s'", host)
+		logrus.Infof("🔍 [DEBUG] Reusing active session QUIC token for host='%s'", host)
 		return resolved
 	}
 
-	resolved = strings.TrimSpace(mw.config.FRPAuthToken)
-	if resolved != "" {
-		logrus.Warnf("🔍 [DEBUG] Token is empty, falling back to config token for host='%s'", host)
-	}
-	return resolved
+	return ""
 }
 
 func (mw *MainWindow) resolveBootstrapHost(host string) string {
@@ -126,200 +119,39 @@ func (mw *MainWindow) resolveBootstrapHost(host string) string {
 	return ""
 }
 
-func isLikelyTailscaleAuthKey(token string) bool {
-	token = strings.ToLower(strings.TrimSpace(token))
-	return strings.HasPrefix(token, "tskey-")
-}
-
-func isLikelyTailscaleHost(host string) bool {
-	host = strings.TrimSpace(strings.ToLower(host))
-	return host != "" && (strings.HasSuffix(host, ".ts.net") || strings.HasPrefix(host, "100."))
-}
-
-func splitBridgeAuthInputs(raw string) (deviceToken, tailscaleAuthKey string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", ""
-	}
-
-	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == '|' || r == ',' || r == ';' || r == '\n'
-	})
-	if len(parts) == 0 {
-		return "", ""
-	}
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if isLikelyTailscaleAuthKey(part) {
-			tailscaleAuthKey = part
-			continue
-		}
-		if deviceToken == "" {
-			deviceToken = part
-		}
-	}
-
-	if tailscaleAuthKey == "" && isLikelyTailscaleAuthKey(raw) {
-		tailscaleAuthKey = raw
-		deviceToken = ""
-	}
-	if deviceToken == "" && tailscaleAuthKey == "" {
-		deviceToken = raw
-	}
-	return strings.TrimSpace(deviceToken), strings.TrimSpace(tailscaleAuthKey)
-}
-
-func fallbackText(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
-func maskSensitiveToken(token string) string {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return "<empty>"
-	}
-	if len(token) <= 8 {
-		return token[:2] + "..." + token[len(token)-2:]
-	}
-	return token[:4] + "..." + token[len(token)-4:]
-}
-
-func (mw *MainWindow) resolveBridgeAuthInputs(host, rawToken string) (deviceToken, tailscaleAuthKey string) {
-	deviceToken, tailscaleAuthKey = splitBridgeAuthInputs(rawToken)
-	if strings.TrimSpace(deviceToken) == "" {
-		deviceToken = mw.resolveConnectionToken(host, "")
-	}
-	return strings.TrimSpace(deviceToken), strings.TrimSpace(tailscaleAuthKey)
-}
-
-func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
-	if client == nil {
-		return nil
-	}
-	client.SetTransportErrorHandler(func(err error) {
-		mw.handleTransportError(client, err)
-	})
-	return client
-}
-
-func (mw *MainWindow) handleTransportError(client *api.USBClient, err error) {
-	if client == nil || err == nil || !api.IsConnectionLostError(err) {
-		return
-	}
-	if mw.connectedProtocol == models.ConnectionProtocolWireGuard {
-		// Для WireGuard потерю туннеля определяет отдельный peer-status monitor, а не фоновые HTTP-запросы.
-		return
-	}
-	if mw.usbClient != client || !mw.isConnected {
-		return
-	}
-	if !mw.connectionLossInProgress.CompareAndSwap(false, true) {
-		return
-	}
-
-	logrus.Warnf("⚠️ Active connection lost: %v", err)
-	go mw.handleConnectionLost(err, client)
-}
-
-func (mw *MainWindow) cleanupDeadConnectionState() {
-	mw.stopWireGuardMonitor()
-
-	if mw.videoWidget != nil {
-		mw.videoWidget.HandleConnectionLost()
-	}
-
-	if mw.nbdServer.IsRunning() {
-		if stopErr := mw.nbdServer.Stop(); stopErr != nil {
-			logrus.Errorf("Failed to stop NBD server after connection loss: %v", stopErr)
-		}
-	}
-	if mw.frpService != nil && mw.frpService.IsRunning() {
-		if stopErr := mw.frpService.Disconnect(); stopErr != nil {
-			logrus.Errorf("Failed to stop FRP tunnel after connection loss: %v", stopErr)
-		}
-		mw.frpService = nil
-	}
-	if mw.wgService != nil && mw.wgService.IsRunning() {
-		if stopErr := mw.wgService.Disconnect(); stopErr != nil {
-			logrus.Errorf("Failed to stop WireGuard tunnel after connection loss: %v", stopErr)
-		}
-		mw.wgService = nil
-	}
-
-	mw.isConnected = false
-	mw.isStreaming = false
-	mw.connectedProtocol = ""
-	mw.appState.IsConnected = false
-	mw.appState.IsStreaming = false
-	mw.appState.IsNBDRunning = false
-	mw.appState.LastDisconnected = time.Now()
-	mw.usbClient = nil
-
-	mw.diskWidget.UpdateClient(nil)
-	mw.diskWidget.SetFRPService(nil)
-	mw.videoWidget.UpdateClient(nil)
-	mw.videoWidget.SetFRPService(nil)
-	mw.videoWidget.SetTailscaleService(nil)
-	if mw.backupWidget != nil {
-		mw.backupWidget.UpdateClient(nil)
-	}
-	if mw.pcpanelWidget != nil {
-		mw.pcpanelWidget.SetClient(nil)
-	}
-
-	mw.config.NBDBindHost = "0.0.0.0"
-	mw.config.VideoBindHost = "0.0.0.0"
-}
-
-func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, cause error) bool {
-	if client == nil || client != mw.usbClient {
+func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastErr error) bool {
+	if client == nil || client != mw.usbClient || !mw.isConnected {
 		return false
 	}
-
-	host := strings.TrimSpace(mw.hostEntry.Text)
-	if host == "" {
-		return false
-	}
-
-	token := mw.resolveConnectionToken(host, mw.tokenEntry.Text)
 
 	protocol := mw.connectedProtocol
-	if protocol == "" || protocol == "direct" {
-		return false
+	if protocol == "" {
+		protocol = models.ConnectionProtocolAuto
 	}
 
-	retryDelays := []time.Duration{
-		0,
-		1500 * time.Millisecond,
-		3 * time.Second,
-	}
+	logrus.Infof("🔄 Attempting automatic connection recovery for host=%s protocol=%s", mw.hostEntry.Text, protocol)
 
+	retryDelays := []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second}
 	for attempt, delay := range retryDelays {
-		if delay > 0 {
-			logrus.Infof("⏳ Waiting %v before recovery attempt %d/%d", delay, attempt+1, len(retryDelays))
-			time.Sleep(delay)
+		if !mw.isConnected || client != mw.usbClient || mw.isClosing.Load() {
+			return false
 		}
 
-		logrus.Warnf("🔄 Attempting to recover lost %s connection (%d/%d): %v", protocol, attempt+1, len(retryDelays), cause)
-		mw.cleanupDeadConnectionState()
+		select {
+		case <-time.After(delay):
+		}
 
 		fyne.Do(func() {
-			mw.clearConnectionPending()
-			mw.setConnectionLoading(true)
+			mw.isConnectionPending.Store(true)
+			mw.isConnectionLoading = true
+			mw.refreshConnectionControls()
 			mw.hostEntry.Disable()
 			mw.tokenEntry.Disable()
 			mw.protocolSelect.Disable()
 		})
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-		err := mw.doConnectWithProtocol(ctx, host, token, protocol)
+		err := mw.doConnectWithProtocol(ctx, mw.hostEntry.Text, mw.tokenEntry.Text, protocol)
 		cancel()
 		if err == nil {
 			return true
@@ -363,95 +195,60 @@ func (mw *MainWindow) handleConnectionLost(err error, client *api.USBClient) {
 	mw.connectionLossInProgress.Store(false)
 }
 
-func (mw *MainWindow) stopWireGuardMonitor() {
-	if mw.wireGuardMonitorStop == nil {
-		return
+func (mw *MainWindow) cleanupDeadConnectionState() {
+	mw.isConnected = false
+	mw.isStreaming = false
+
+	if mw.videoWidget != nil {
+		mw.videoWidget.HandleConnectionLost()
 	}
 
-	close(mw.wireGuardMonitorStop)
-	mw.wireGuardMonitorStop = nil
+	if mw.frpService != nil {
+		_ = mw.frpService.Disconnect()
+		mw.frpService = nil
+	}
+
+	mw.usbClient = nil
 }
 
-func (mw *MainWindow) startWireGuardMonitor(client *api.USBClient) {
-	mw.stopWireGuardMonitor()
-	if client == nil || mw.connectedProtocol != models.ConnectionProtocolWireGuard {
-		return
-	}
-
-	stopCh := make(chan struct{})
-	mw.wireGuardMonitorStop = stopCh
-
-	go func(expectedClient *api.USBClient, stop <-chan struct{}) {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-
-		consecutiveFailures := 0
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-			}
-
-			if expectedClient != mw.usbClient || !mw.isConnected || mw.connectedProtocol != models.ConnectionProtocolWireGuard {
-				return
-			}
-
-			if err := mw.verifyWireGuardTunnel(); err != nil {
-				consecutiveFailures++
-				logrus.Warnf("⚠️ [WireGuard] peer status degraded (%d/3): %v", consecutiveFailures, err)
-				if consecutiveFailures < 3 {
-					continue
-				}
-				if mw.connectionLossInProgress.CompareAndSwap(false, true) {
-					logrus.Warnf("⚠️ Active WireGuard tunnel lost: %v", err)
-					go mw.handleConnectionLost(err, expectedClient)
-				}
-				return
-			}
-
-			consecutiveFailures = 0
-		}
-	}(client, stopCh)
+func isLikelyTailscaleAuthKey(quicToken string) bool {
+	quicToken = strings.ToLower(strings.TrimSpace(quicToken))
+	return strings.HasPrefix(quicToken, "tskey-")
 }
 
-func (mw *MainWindow) verifyWireGuardTunnel() error {
-	if mw.wgService == nil || !mw.wgService.IsRunning() {
-		return fmt.Errorf("wireguard service is not running")
-	}
-
-	status, err := mw.wgService.GetPeerStatus()
-	if err != nil {
-		return err
-	}
-	if status == nil {
-		return fmt.Errorf("wireguard peer status is nil")
-	}
-	if status.PeerCount == 0 {
-		return fmt.Errorf("wireguard peer is missing")
-	}
-
-	maxHandshakeAge := 90 * time.Second
-	if status.PersistentKeepalive > 0 {
-		candidate := time.Duration(status.PersistentKeepalive*3)*time.Second + 15*time.Second
-		if candidate > maxHandshakeAge {
-			maxHandshakeAge = candidate
-		}
-	}
-
-	if status.LastHandshakeAt.IsZero() {
-		return fmt.Errorf("wireguard peer has no successful handshake yet")
-	}
-
-	handshakeAge := time.Since(status.LastHandshakeAt)
-	if handshakeAge > maxHandshakeAge {
-		return fmt.Errorf("wireguard handshake is stale: age=%v rx=%d tx=%d", handshakeAge.Truncate(time.Second), status.RxBytes, status.TxBytes)
-	}
-
-	return nil
+func isLikelyTailscaleHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	return host != "" && (strings.HasSuffix(host, ".ts.net") || strings.HasPrefix(host, "100."))
 }
 
-// handleConnectionToggle переключает состояние подключения
+func splitBridgeAuthInputs(raw string) (deviceToken, tailscaleAuthKey string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '|' || r == ',' || r == ';' || r == '\n'
+	})
+	if len(parts) == 0 {
+		return "", ""
+	}
+
+	deviceToken = strings.TrimSpace(parts[0])
+	if len(parts) > 1 {
+		tailscaleAuthKey = strings.TrimSpace(parts[1])
+	}
+	return deviceToken, tailscaleAuthKey
+}
+
+func (mw *MainWindow) resolveBridgeAuthInputs(host, quicToken string) (deviceToken, tailscaleAuthKey string) {
+	deviceToken, tailscaleAuthKey = splitBridgeAuthInputs(quicToken)
+	if deviceToken == "" {
+		deviceToken = mw.resolveConnectionToken(host, "")
+	}
+	return deviceToken, tailscaleAuthKey
+}
+
 func (mw *MainWindow) handleConnectionToggle() {
 	if mw.isConnectionPending.Load() {
 		logrus.Warn("⚠️ Операция подключения/отключения уже выполняется, игнорируем повторное нажатие")
@@ -473,33 +270,19 @@ func (mw *MainWindow) handleConnectionToggle() {
 
 	mw.isConnectionPending.Store(true)
 	mw.setConnectionLoading(true)
-	host := mw.hostEntry.Text
-	token := mw.tokenEntry.Text
 	mw.hostEntry.Disable()
 	mw.tokenEntry.Disable()
 	mw.protocolSelect.Disable()
 
-	mw.enqueueLifecycleOp("connect", func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-		defer cancel()
-
-		if err := mw.doConnect(ctx, host, token); err != nil {
-			mw.handleConnectFailure("Connection failed", err)
-		}
-	})
+	go mw.handleConnect()
 }
 
 // handleConnect обрабатывает подключение
 func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
-	if mw.isConnectionPending.Load() {
-		logrus.Warn("⚠️ Операция подключения уже выполняется, игнорируем повторный вызов")
-		return
-	}
-
 	host := mw.hostEntry.Text
-	token := mw.tokenEntry.Text
+	quicToken := mw.tokenEntry.Text
 
 	if host == "" {
 		logrus.Warn("Enter a server address")
@@ -508,20 +291,12 @@ func (mw *MainWindow) handleConnect() {
 		return
 	}
 
-	mw.isConnectionPending.Store(true)
-	mw.setConnectionLoading(true)
-	mw.hostEntry.Disable()
-	mw.tokenEntry.Disable()
-	mw.protocolSelect.Disable()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
+	defer cancel()
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-		defer cancel()
-
-		if err := mw.doConnect(ctx, host, token); err != nil {
-			mw.handleConnectFailure("Connection failed", err)
-		}
-	}()
+	if err := mw.doConnect(ctx, host, quicToken); err != nil {
+		mw.handleConnectFailure("Connection failed", err)
+	}
 }
 
 // getFreeVideoUDPPort finds an available UDP port dynamically
@@ -540,7 +315,7 @@ func getFreeVideoUDPPort() int {
 }
 
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины)
-func (mw *MainWindow) doConnect(ctx context.Context, host, token string) error {
+func (mw *MainWindow) doConnect(ctx context.Context, host, quicToken string) error {
 	// Принудительно останавливаем видео и сбрасываем GStreamer перед новым подключением
 	if mw.videoWidget != nil {
 		_ = mw.videoWidget.StopVideoSync()
@@ -560,14 +335,18 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, token string) error {
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
-	mw.activeConnectionToken = strings.TrimSpace(token)
-	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s raw_token=%s timeout=%ds",
-		strings.TrimSpace(host), protocol, maskSensitiveToken(token), mw.config.APITimeout)
-	return mw.doConnectWithProtocol(ctx, host, token, protocol)
+	
+	// Используем токен СТРОГО из аргумента функции (то что ввел юзер или выбрал в менеджере)
+	cleanToken := strings.TrimSpace(quicToken)
+	mw.activeQUICToken = cleanToken
+	
+	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s raw_quic_token=%s timeout=%ds",
+		strings.TrimSpace(host), protocol, maskSensitiveToken(cleanToken), mw.config.APITimeout)
+	return mw.doConnectWithProtocol(ctx, host, cleanToken, protocol)
 }
 
-func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
-	connectQUICTo := func(ctx context.Context, quicHost, quicToken string) error {
+func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken, protocol string) error {
+	connectQUICTo := func(ctx context.Context, quicHost, quicTokenParam string) error {
 		if !mw.config.FRPEnabled {
 			return fmt.Errorf("FRP disabled in config")
 		}
@@ -577,11 +356,11 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			port = mw.pendingQUICPort
 		}
 
-		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, port, maskSensitiveToken(quicToken))
+		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d quicToken=%s", quicHost, port, maskSensitiveToken(quicTokenParam))
 		mw.frpService = service.NewFRPService(
 			quicHost,
 			port,
-			quicToken,
+			quicTokenParam,
 		)
 
 		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
@@ -616,12 +395,12 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	}
 
 	connectQUIC := func(ctx context.Context) error {
-		if err := connectQUICTo(ctx, host, token); err != nil {
+		if err := connectQUICTo(ctx, host, quicToken); err != nil {
 			return err
 		}
 
 		if mw.pendingTailscaleRegister {
-			quicToken, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, token)
+			quicTokenInput, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, quicToken)
 			httpPort, _, _ := mw.frpService.GetServerPorts()
 			bootstrapClient := api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout)
 			tsStatus, err := bootstrapClient.GetTailscaleStatusWithContext(ctx)
@@ -632,7 +411,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			}
 			if needsRegister {
 				regStatus, regErr := bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
-					DeviceToken: quicToken,
+					DeviceToken: quicTokenInput,
 					AuthKey:     tailscaleAuthKey,
 					Hostname:    "usbridge",
 				})
@@ -679,7 +458,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			if tsStatus != nil && (strings.TrimSpace(tsStatus.IP4) != "" || strings.TrimSpace(tsStatus.DNSName) != "") {
 				resolvedHost := fallbackText(tsStatus.IP4, tsStatus.DNSName)
 				if mw.connectionManager != nil {
-					mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicToken)
+					mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), host, resolvedHost, quicTokenInput)
 				}
 			}
 		}
@@ -704,7 +483,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 
 		resolvedHost := strings.TrimSpace(host)
 		bootstrapHost := mw.resolveBootstrapHost(host)
-		quicToken, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, token)
+		quicTokenInput, tailscaleAuthKey := mw.resolveBridgeAuthInputs(host, quicToken)
 
 		tryDirect := func(ctx context.Context, target string) error {
 			if target == "" {
@@ -832,7 +611,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			return fmt.Errorf("tailscale host is empty and no QUIC bootstrap host is available")
 		}
 
-		if err := connectQUICTo(ctx, bootstrapHost, quicToken); err != nil {
+		if err := connectQUICTo(ctx, bootstrapHost, quicTokenInput); err != nil {
 			return fmt.Errorf("tailscale bootstrap over QUIC failed: %w", err)
 		}
 
@@ -846,7 +625,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 		if needsRegister {
 			regStatus, regErr := bootstrapClient.RegisterTailscaleWithContext(ctx, &models.TailscaleRegistrationRequest{
-				DeviceToken: quicToken,
+				DeviceToken: quicTokenInput,
 				AuthKey:     tailscaleAuthKey,
 				Hostname:    "usbridge",
 			})
@@ -897,7 +676,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 
 		if mw.connectionManager != nil {
-			mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), bootstrapHost, resolvedHost, quicToken)
+			mw.connectionManager.RememberResolvedTailscaleHost(strings.TrimSpace(host), bootstrapHost, resolvedHost, quicTokenInput)
 		}
 
 		return tryDirect(ctx, resolvedHost)
@@ -935,11 +714,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			_ = mw.frpService.Disconnect()
 			mw.frpService = nil
 		}
-		if mw.wgService != nil && mw.wgService.IsRunning() {
-			_ = mw.wgService.Disconnect()
-			mw.wgService = nil
-			mw.config.NBDBindHost = "0.0.0.0"
-		}
 		mw.usbClient = nil
 		fyne.Do(func() {
 			mw.clearConnectionPending()
@@ -953,15 +727,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		return fmt.Errorf("connection verification failed: %w", err)
 	}
 
-	logrus.Debug("Loading devices...")
-	if mw.connectedProtocol == models.ConnectionProtocolWireGuard && mw.frpService != nil && mw.frpService.IsRunning() {
-		logrus.Info("🔐 [WireGuard] STEP 8: WireGuard verified, stopping FRP bootstrap transport")
-		if err := mw.frpService.Disconnect(); err != nil {
-			logrus.Warnf("⚠️ Failed to stop FRP after WireGuard handoff: %v", err)
-		}
-		mw.frpService = nil
-	}
-
 	mw.diskWidget.UpdateClient(mw.usbClient)
 	mw.videoWidget.UpdateClient(mw.usbClient)
 	if mw.backupWidget != nil {
@@ -972,9 +737,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	mw.appState.IsConnected = true
 	mw.appState.LastConnected = time.Now()
 	mw.connectionLossInProgress.Store(false)
-	if mw.connectedProtocol == models.ConnectionProtocolWireGuard {
-		mw.startWireGuardMonitor(mw.usbClient)
-	}
 
 	fyne.Do(func() {
 		mw.clearConnectionPending()
@@ -1020,37 +782,7 @@ func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) err
 		return fmt.Errorf("usb client is not initialized")
 	}
 
-	if mw.connectedProtocol != models.ConnectionProtocolWireGuard {
-		return mw.usbClient.TestConnectionWithContext(ctx)
-	}
-
-	var lastErr error
-	for attempt := 1; attempt <= 12; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if attempt > 1 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(1 * time.Second):
-			}
-		}
-
-		err := mw.verifyWireGuardTunnel()
-		if err == nil {
-			if attempt > 1 {
-				logrus.Infof("✅ [WireGuard] connection verified on retry %d/12", attempt)
-			}
-			return nil
-		}
-
-		lastErr = err
-		logrus.Warnf("⚠️ [WireGuard] verification attempt %d/12 failed: %v", attempt, err)
-	}
-
-	return lastErr
+	return mw.usbClient.TestConnectionWithContext(ctx)
 }
 
 func (mw *MainWindow) verifyActiveConnection() error {
@@ -1063,7 +795,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
-		mw.activeConnectionToken = ""
+		mw.activeQUICToken = ""
 		mw.refreshConnectionControls()
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
@@ -1076,7 +808,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
-	logrus.Infof("[shutdown] handleDisconnect: start connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
+	logrus.Infof("[shutdown] handleDisconnect: start connected=%v frp_running=%v", mw.isConnected, mw.frpService != nil && mw.frpService.IsRunning())
 
 	// Сразу сбрасываем состояние, чтобы прервать фоновые Refresh циклы
 	mw.isConnected = false
@@ -1092,8 +824,6 @@ func (mw *MainWindow) handleDisconnect() {
 	if mw.backupWidget != nil {
 		mw.backupWidget.Close() // Останавливаем фоновые опросы
 	}
-
-	mw.stopWireGuardMonitor()
 
 	// Выполняем сетевое завершение в фоне с таймаутом, чтобы не вешать UI
 	if mw.usbClient != nil {
@@ -1124,16 +854,9 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 		mw.frpService = nil
 	}
-	if mw.wgService != nil {
-		if mw.wgService.IsRunning() {
-			logrus.Info("[shutdown] stopping WireGuard service")
-			_ = mw.wgService.Disconnect()
-		}
-		mw.wgService = nil
-	}
 
 	mw.connectedProtocol = ""
-	mw.activeConnectionToken = ""
+	mw.activeQUICToken = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false

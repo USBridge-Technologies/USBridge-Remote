@@ -8,3 +8,7 @@ func SetAppVersion(version string) {
 	}
 	appVersion = version
 }
+
+func GetAppVersion() string {
+	return appVersion
+}

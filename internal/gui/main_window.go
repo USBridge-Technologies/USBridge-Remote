@@ -1,19 +1,19 @@
 package gui
 
 import (
-	"image/color"
+	"strings"
 	"sync"
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/controller"
-	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -44,7 +44,6 @@ type MainWindow struct {
 	gstreamerService *service.GStreamerService
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
-	wgService        service.WireGuardService
 	tailscaleService *service.TailscaleService
 
 	// Состояние
@@ -55,8 +54,7 @@ type MainWindow struct {
 	isConnectionPending     atomic.Bool
 	isConnectionLoading     bool
 	connectedProtocol       string
-	activeConnectionToken   string
-	pendingWireGuardInvite  string
+	activeQUICToken         string
 	pendingTailscaleRegister bool
 	pendingQUICPort         int
 	currentVideoFPS         float64
@@ -77,6 +75,10 @@ type MainWindow struct {
 	tokenEntry        *widget.Entry
 	sdStorageProgress *view.StorageProgressBar
 	deepLinkHandler        *DeepLinkHandler
+	deepLinkMonitorStop    chan struct{}
+
+	lifecycleMu              sync.Mutex
+	lifecycleOps             chan func()
 
 	// Иконки статуса
 	connectionIcon *widget.Button
@@ -94,93 +96,80 @@ type MainWindow struct {
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
-	wireGuardMonitorStop     chan struct{}
-	deepLinkMonitorStop      chan struct{}
-	lifecycleMu              sync.Mutex
-	lifecycleOps             chan func()
-	onReadyCallback          func()
 	isClosing                atomic.Bool
+	onReadyCallback          func()
 }
 
-func protocolButtonState(protocol string) (string, color.Color, color.Color) {
-	switch protocol {
-	case models.ConnectionProtocolWireGuard:
-		return "wireguard", design.ColorAccent, design.ColorBackground
-	case models.ConnectionProtocolTailscale:
-		return "tailscale", design.ColorProtocolQUIC, design.ColorBackground
-	case models.ConnectionProtocolQUIC:
-		return "quic", design.ColorProtocolQUIC, design.ColorBackground
-	case "direct":
-		return "online", design.ColorSurfaceLight, design.ColorTextLight
-	case models.ConnectionProtocolAuto:
-		return "online", design.ColorSurfaceLight, design.ColorTextLight
-	default:
-		return "online", design.ColorSurfaceLight, design.ColorTextLight
+func NewMainWindow(cfg *models.AppConfig) *MainWindow {
+	if i18n.Current == nil {
+		i18n.Init("en")
 	}
-}
-
-func protocolStatusText(protocol string) string {
-	text, _, _ := protocolButtonState(protocol)
-	return text
-}
-
-// NewMainWindow создает новое главное окно.
-func NewMainWindow(config *models.AppConfig) *MainWindow {
-	myApp := newFyneApp()
-	myApp.SetIcon(nil)
-
-	savedLang := myApp.Preferences().StringWithFallback("language", "en")
-	i18n.Init(savedLang)
-	logrus.Infof("Localization initialized (%s)", savedLang)
-
-	window := myApp.NewWindow(i18n.Current.AppTitle)
-	window.SetPadded(false)
-
-	scale := startupWindowScale(myApp)
-	size := dpiAwareWindowSize(
-		config.WindowWidth,
-		config.WindowHeight,
-		scale,
-		fyne.NewSize(0, 0),
-	)
-	size = expandWindowSizeToPreferredArea(size, startupWindowPreferredSize(scale))
-	size = clampWindowSizeToAvailableArea(size, startupWindowMaxSize(scale))
-	window.Resize(size)
-	window.SetFixedSize(false)
-	window.CenterOnScreen()
+	a := app.NewWithID("com.usbridge.client")
+	w := a.NewWindow("USBridge Client")
 
 	mw := &MainWindow{
-		app:          myApp,
-		window:       window,
-		config:       config,
-		lifecycleOps: make(chan func(), 32),
+		app:    a,
+		window: w,
+		config: cfg,
 		appState: &models.AppState{
-			IsConnected:  false,
-			IsStreaming:  false,
-			IsNBDRunning: false,
+			IsConnected: false,
 		},
+		lifecycleOps: make(chan func(), 32),
 	}
 
-	mw.nbdServer = service.NewNBDServer(config)
-	mw.gstreamerService = service.NewGStreamerService(config)
-	mw.tailscaleService = service.NewTailscaleService(config.TailscaleUserspace)
+	mw.nbdServer = service.NewNBDServer(cfg)
+	mw.gstreamerService = service.NewGStreamerService(cfg)
+	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
 
-	logrus.Info("GStreamer service initialized")
+	// Initialize UI fields
+	mw.createInterface()
 
-	mw.usbClient = nil
-	mw.frpService = nil
-	mw.wgService = nil
+	// Initialize widgets
+	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
+	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.gstreamerService, mw.updateStatus)
+	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
+	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
 
-	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, myApp, config)
-	mw.diskWidget.SetWindow(window)
-	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.usbClient, mw.gstreamerService, mw.updateStatus)
-	mw.videoWidget.SetShowMouseCursor(myApp.Preferences().BoolWithFallback("show_mouse_cursor", false))
-	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
-	mw.videoWidget.SetParentWindow(window)
-	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, nil, mw.updateStatus)
-	mw.backupWidget.SetWindow(window)
+	// Initialize connection manager
+	mw.connectionManager = controller.NewConnectionManager(
+		a, w, cfg,
+		mw.hostEntry, mw.tokenEntry, mw.protocolSelect,
+		mw.tailscaleService,
+		mw.handleConnectionFromManager, mw.handleSelectionFromManager,
+	)
 
 	go mw.runLifecycleLoop()
 
 	return mw
+}
+
+func maskSensitiveToken(quicToken string) string {
+	if len(quicToken) <= 4 {
+		return "****"
+	}
+	return quicToken[:2] + "..." + quicToken[len(quicToken)-2:]
+}
+
+func fallbackText(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
+	if client == nil {
+		return nil
+	}
+
+	client.SetOnTransportError(func(err error) {
+		logrus.Errorf("📡 [Transport] Network error detected: %v", err)
+		if mw.connectionLossInProgress.CompareAndSwap(false, true) {
+			go mw.handleConnectionLost(err, client)
+		}
+	})
+
+	return client
 }

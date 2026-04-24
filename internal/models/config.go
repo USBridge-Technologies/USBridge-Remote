@@ -13,7 +13,6 @@ const DefaultVideoUDPPort = 55000
 const (
 	ConnectionProtocolAuto      = "auto"
 	ConnectionProtocolQUIC      = "quic"
-	ConnectionProtocolWireGuard = "wireguard"
 	ConnectionProtocolTailscale = "tailscale"
 )
 
@@ -25,18 +24,11 @@ type AppConfig struct {
 
 	// FRP настройки (QUIC туннель)
 	FRPServerPort      int    `json:"frp_server_port" mapstructure:"frp_server_port"` // Порт FRP сервера (443)
-	FRPAuthToken       string `json:"frp_auth_token" mapstructure:"frp_auth_token"`   // Токен аутентификации FRP
-	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Включить FRP туннель
+	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Включить FRP тунлель
 	FRPTLSCert         string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Путь к TLS сертификату
 	FRPTLSKey          string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Путь к TLS ключу
 	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Путь к CA сертификату
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
-
-	// WireGuard настройки
-	WireGuardEnabled       bool   `json:"wireguard_enabled" mapstructure:"wireguard_enabled"`
-	WireGuardInterfaceName string `json:"wireguard_interface_name" mapstructure:"wireguard_interface_name"`
-	WireGuardServerPort    int    `json:"wireguard_server_port" mapstructure:"wireguard_server_port"`
-	WireGuardListenPort    int    `json:"wireguard_listen_port" mapstructure:"wireguard_listen_port"`
 
 	// Tailscale настройки
 	TailscaleEnabled   bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
@@ -88,18 +80,14 @@ func DefaultConfig() *AppConfig {
 
 		// FRP
 		FRPServerPort:          443,
-		FRPAuthToken:           "usbridge-secret-token",
 		FRPEnabled:             true,
 		FRPTLSCert:             "./certs/server.crt",
 		FRPTLSKey:              "./certs/server.key",
 		FRPTLSCa:               "./certs/ca.crt",
 		ConnectionProtocol:     modelsafeProtocol(ConnectionProtocolAuto),
-		WireGuardEnabled:       true,
-		WireGuardInterfaceName: "usbwg0",
-		WireGuardServerPort:    51820,
-		WireGuardListenPort:    51821,
-		TailscaleEnabled:       true,
-		TailscaleUserspace:     true,
+
+		TailscaleEnabled:   true,
+		TailscaleUserspace: true,
 
 		// NBD сервер
 		NBDPort:           10809,
@@ -139,8 +127,6 @@ func DefaultConfig() *AppConfig {
 
 func modelsafeProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case ConnectionProtocolWireGuard:
-		return ConnectionProtocolTailscale
 	case ConnectionProtocolQUIC, ConnectionProtocolTailscale:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	default:

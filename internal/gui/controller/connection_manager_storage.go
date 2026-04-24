@@ -14,7 +14,7 @@ import (
 )
 
 // SaveConnection сохраняет подключение напрямую
-func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) string {
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
@@ -42,9 +42,8 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, t
 		InternalHost:      internalHost,
 		TailscaleHost:     tailscaleHost,
 		QUICPort:          quicPort,
-		Token:             strings.TrimSpace(token),
+		QUICToken:         strings.TrimSpace(quicToken),
 		Protocol:          normalizeConnectionProtocol(protocol),
-		WireGuardInvite:   wireGuardInvite,
 		TailscaleRegister: tailscaleRegister,
 	}
 	conn.Host = fallbackText(conn.InternalHost, conn.TailscaleHost)
@@ -59,7 +58,7 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, t
 
 // RememberResolvedTailscaleHost updates an existing saved connection with the tailnet address
 // discovered during bootstrap, or creates a new one when none matches.
-func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internalHost, tailscaleHost, token string) {
+func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internalHost, tailscaleHost, quicToken string) {
 	if cm == nil {
 		return
 	}
@@ -67,7 +66,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	currentHost = strings.TrimSpace(currentHost)
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
-	token = strings.TrimSpace(token)
+	quicToken = strings.TrimSpace(quicToken)
 	if tailscaleHost == "" {
 		return
 	}
@@ -78,8 +77,8 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
 			cm.connections[i].InternalHost = fallbackText(internalHost, savedInternal)
 			cm.connections[i].TailscaleHost = tailscaleHost
-			if token != "" {
-				cm.connections[i].Token = token
+			if quicToken != "" {
+				cm.connections[i].QUICToken = quicToken
 			}
 			cm.connections[i].Protocol = normalizeConnectionProtocol("tailscale")
 			cm.connections[i].Host = fallbackText(cm.connections[i].TailscaleHost, cm.connections[i].InternalHost)
@@ -92,7 +91,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		}
 	}
 
-	name := cm.SaveConnection("", internalHost, tailscaleHost, token, "tailscale", "", 0, false)
+	name := cm.SaveConnection("", internalHost, tailscaleHost, quicToken, "tailscale", 0, false)
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 
@@ -179,7 +178,7 @@ func (cm *ConnectionManager) loadConnections() {
 		cm.connections[i].InternalHost = internalHost
 		cm.connections[i].TailscaleHost = tailscaleHost
 		cm.connections[i].Host = fallbackText(internalHost, tailscaleHost)
-		cm.connections[i].Token = strings.TrimSpace(cm.connections[i].Token)
+		cm.connections[i].QUICToken = strings.TrimSpace(cm.connections[i].QUICToken)
 		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
 	}
 }

@@ -119,7 +119,7 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 	return client
 }
 
-func (c *USBClient) SetTransportErrorHandler(handler func(error)) {
+func (c *USBClient) SetOnTransportError(handler func(error)) {
 	c.transportErrorHandler = handler
 }
 
@@ -1160,36 +1160,6 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 
 	logrus.Info("✅ Видео стриминг запущен")
 	return nil
-}
-
-func (c *USBClient) BootstrapWireGuard(request *models.WireGuardBootstrapRequest) (*models.WireGuardBootstrapResponse, error) {
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal WireGuard bootstrap request: %v", err)
-	}
-
-	resp, err := c.makeRequest("POST", "/api/auth/wireguard/bootstrap", requestJSON)
-	if err != nil {
-		return nil, err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %v", err)
-	}
-	if !apiResp.Success {
-		return nil, fmt.Errorf("wireguard bootstrap failed: %s", apiResp.Message)
-	}
-
-	raw, err := json.Marshal(apiResp.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to re-marshal bootstrap data: %v", err)
-	}
-	var parsed models.WireGuardBootstrapResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse bootstrap payload: %v", err)
-	}
-	return &parsed, nil
 }
 
 func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {

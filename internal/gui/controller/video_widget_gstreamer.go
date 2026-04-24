@@ -18,8 +18,9 @@ import (
 )
 
 // NewVideoWidgetGStreamer создает новый виджет видео с GStreamer
-func NewVideoWidgetGStreamer(usbClient *api.USBClient, gstreamerService *service.GStreamerService, updateStatus func()) *VideoWidget {
+func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, gstreamerService *service.GStreamerService, updateStatus func()) *VideoWidget {
 	vw := &VideoWidget{
+		parentWindow:     parent,
 		usbClient:        usbClient,
 		gstreamerService: gstreamerService,
 		updateStatus:     updateStatus,

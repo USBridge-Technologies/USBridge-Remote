@@ -8,9 +8,8 @@ import (
 
 const (
 	connectionDraftHostPrefKey            = "connection_draft_host"
-	connectionDraftTokenPrefKey           = "connection_draft_token"
+	connectionDraftQUICTokenPrefKey       = "connection_draft_quic_token"
 	connectionDraftProtocolPrefKey        = "connection_draft_protocol"
-	connectionDraftWireGuardInvitePrefKey = "connection_draft_wireguard_invite"
 )
 
 func (mw *MainWindow) persistConnectionDraft() {
@@ -28,9 +27,9 @@ func (mw *MainWindow) persistConnectionDraft() {
 		host = strings.TrimSpace(mw.hostEntry.Text)
 	}
 
-	token := ""
+	quicToken := ""
 	if mw.tokenEntry != nil {
-		token = mw.tokenEntry.Text
+		quicToken = mw.tokenEntry.Text
 	}
 
 	protocol := models.ConnectionProtocolAuto
@@ -40,14 +39,10 @@ func (mw *MainWindow) persistConnectionDraft() {
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
-	if protocol == models.ConnectionProtocolWireGuard {
-		protocol = models.ConnectionProtocolTailscale
-	}
 
 	prefs.SetString(connectionDraftHostPrefKey, host)
-	prefs.SetString(connectionDraftTokenPrefKey, token)
+	prefs.SetString(connectionDraftQUICTokenPrefKey, quicToken)
 	prefs.SetString(connectionDraftProtocolPrefKey, protocol)
-	prefs.SetString(connectionDraftWireGuardInvitePrefKey, strings.TrimSpace(mw.pendingWireGuardInvite))
 }
 
 func (mw *MainWindow) restoreConnectionDraft() {
@@ -61,7 +56,19 @@ func (mw *MainWindow) restoreConnectionDraft() {
 	}
 
 	host := strings.TrimSpace(prefs.StringWithFallback(connectionDraftHostPrefKey, ""))
-	token := prefs.StringWithFallback(connectionDraftTokenPrefKey, "")
+	quicToken := prefs.StringWithFallback(connectionDraftQUICTokenPrefKey, "")
+	
+	// Legacy fallback
+	if quicToken == "" {
+		quicToken = prefs.StringWithFallback("connection_draft_token", "")
+	}
+
+	// Очищаем старый дефолтный токен, если он застрял в преференсах
+	if quicToken == "usbridge-secret-token" {
+		quicToken = ""
+		prefs.SetString(connectionDraftQUICTokenPrefKey, "")
+	}
+
 	protocol := strings.TrimSpace(prefs.StringWithFallback(connectionDraftProtocolPrefKey, mw.config.ConnectionProtocol))
 	if protocol == "" {
 		protocol = mw.config.ConnectionProtocol
@@ -69,21 +76,14 @@ func (mw *MainWindow) restoreConnectionDraft() {
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
-	if protocol == models.ConnectionProtocolWireGuard {
-		protocol = models.ConnectionProtocolTailscale
-	}
 
 	if mw.hostEntry != nil {
 		mw.hostEntry.SetText(host)
 	}
 	if mw.tokenEntry != nil {
-		mw.tokenEntry.SetText(token)
+		mw.tokenEntry.SetText(quicToken)
 	}
 	if mw.protocolSelect != nil {
 		mw.protocolSelect.SetSelected(protocol)
 	}
-
-	mw.pendingWireGuardInvite = strings.TrimSpace(
-		prefs.StringWithFallback(connectionDraftWireGuardInvitePrefKey, ""),
-	)
 }

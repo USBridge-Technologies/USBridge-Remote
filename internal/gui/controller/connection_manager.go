@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 
@@ -17,39 +17,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func normalizeConnectionProtocol(protocol string) string {
-	switch strings.TrimSpace(protocol) {
-	case models.ConnectionProtocolQUIC:
-		return models.ConnectionProtocolQUIC
-	case models.ConnectionProtocolTailscale:
-		return models.ConnectionProtocolTailscale
-	case models.ConnectionProtocolWireGuard:
-		return models.ConnectionProtocolTailscale
-	default:
-		return models.ConnectionProtocolAuto
+func ternary(condition bool, a, b string) string {
+	if condition {
+		return a
 	}
-}
-
-func connectionProtocolBadge(protocol string) string {
-	switch normalizeConnectionProtocol(protocol) {
-	case models.ConnectionProtocolTailscale:
-		return "ts"
-	case models.ConnectionProtocolQUIC:
-		return "quic"
-	default:
-		return models.ConnectionProtocolAuto
-	}
-}
-
-func connectionProtocolFromBadge(label string) string {
-	switch strings.TrimSpace(strings.ToLower(label)) {
-	case "ts":
-		return models.ConnectionProtocolTailscale
-	case models.ConnectionProtocolQUIC:
-		return models.ConnectionProtocolQUIC
-	default:
-		return models.ConnectionProtocolAuto
-	}
+	return b
 }
 
 type SavedConnection struct {
@@ -58,9 +30,8 @@ type SavedConnection struct {
 	TailscaleHost     string `json:"tailscale_host,omitempty"`
 	QUICPort          int    `json:"quic_port,omitempty"`
 	Host              string `json:"host,omitempty"`
-	Token             string `json:"token"`
+	QUICToken         string `json:"quic_token"`
 	Protocol          string `json:"protocol,omitempty"`
-	WireGuardInvite   string `json:"wireguard_invite,omitempty"`
 	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
 	RemoteOS          string `json:"remote_os,omitempty"`
 }
@@ -78,24 +49,24 @@ type ConnectionManager struct {
 	syncingForm           bool
 
 	hostEntry      *widget.Entry
-	tokenEntry     *widget.Entry
+	quicTokenEntry *widget.Entry
 	protocolSelect *widget.Select
 
 	qrScanner *QRScanner
 	ts        *service.TailscaleService
 	tsStatus  *service.TailscaleStatus
 
-	onConnect                func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)
-	onSelect                 func(wireGuardInvite string, tailscaleRegister bool)
+	onConnect                func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool)
+	onSelect                 func(tailscaleRegister bool)
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
 	tsPollStop               chan struct{}
 }
 
-func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
-	token := strings.TrimSpace(currentToken)
-	if token != "" {
-		return token
+func (cm *ConnectionManager) ResolveQUICToken(host, currentQUICToken string) string {
+	quicToken := strings.TrimSpace(currentQUICToken)
+	if quicToken != "" {
+		return quicToken
 	}
 
 	normalizedHost := strings.TrimSpace(host)
@@ -109,7 +80,7 @@ func (cm *ConnectionManager) ResolveToken(host, currentToken string) string {
 		if strings.TrimSpace(conn.Host) == normalizedHost ||
 			internalHost == normalizedHost ||
 			tailscaleHost == normalizedHost {
-			return strings.TrimSpace(conn.Token)
+			return strings.TrimSpace(conn.QUICToken)
 		}
 	}
 
@@ -134,13 +105,13 @@ func (cm *ConnectionManager) ResolveInternalHost(host string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, tokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool), onSelect func(wireGuardInvite string, tailscaleRegister bool)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, quicTokenEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool), onSelect func(tailscaleRegister bool)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
 		config:                config,
 		hostEntry:             hostEntry,
-		tokenEntry:            tokenEntry,
+		quicTokenEntry:        quicTokenEntry,
 		protocolSelect:        protocolSelect,
 		onConnect:             onConnect,
 		onSelect:              onSelect,
@@ -153,28 +124,27 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		cm.ts = service.NewTailscaleService(config.TailscaleUserspace)
 	}
 
-
 	cm.qrScanner = NewQRScanner(
 		app,
-		func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
+		func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
 			fyne.Do(func() {
 				cm.ClearSelection()
-				cm.applyConnectionToForm(host, token, protocol)
+				cm.applyConnectionToForm(host, quicToken, protocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
+				cm.onConnect(host, quicToken, protocol, quicPort, tailscaleRegister)
 			}
 			logrus.Infof("QR connect: host=%s quicPort=%d", host, quicPort)
 		},
-		func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, tailscaleRegister)
+		func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+			cm.SaveConnection(name, internalHost, tailscaleHost, quicToken, protocol, quicPort, tailscaleRegister)
 			fyne.Do(func() {
-				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), token, protocol)
+				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), quicToken, protocol)
 			})
 			logrus.Infof("QR saved directly: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
 		},
-		func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, scanned bool) {
-			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, scanned)
+		func(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool) {
+			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, quicToken, protocol, quicPort, scanned)
 		},
 	)
 
@@ -257,131 +227,43 @@ func (cm *ConnectionManager) handleTailscaleToggleAction() {
 			},
 			cm.window,
 		)
-		return
+	} else {
+		cm.startTailscaleAuthAction()
 	}
-
-	cm.startTailscaleAuthAction()
 }
 
-func (cm *ConnectionManager) refreshTailscaleStatus() {
-	if cm.ts == nil || cm.ui == nil {
+func (cm *ConnectionManager) SelectConnection(idx int) {
+	if idx < 0 || idx >= len(cm.connections) {
+		cm.selectedIndex = -1
 		return
 	}
-	go func() {
-		status, err := cm.ts.Status(context.Background())
-		if err != nil {
-			cm.tsStatus = nil
-			cm.setTailscaleStateAsync(
-				fmt.Sprintf("Tailscale: %v", err),
-				"Google: not connected",
-				"Address: unavailable",
-				"Sign In With Google",
-			)
-			return
-		}
-		cm.tsStatus = status
-		if !status.LoggedIn {
-			cm.setTailscaleStateAsync("Tailscale: signed out", "Google: sign in required", "Address: sign in to get your tailnet address", "Sign In With Google")
-			return
-		}
+	cm.selectedIndex = idx
+	conn := cm.connections[idx]
+	cm.applyConnectionToForm(cm.resolveHostForProtocol(conn, conn.Protocol), conn.QUICToken, conn.Protocol)
 
-		address := ""
-		if dns := strings.TrimSpace(status.Self.DNSName); dns != "" {
-			address = dns
-		} else if ip := strings.TrimSpace(status.Self.IP4); ip != "" {
-			address = ip
-		} else {
-			address = status.Self.HostName
-		}
+	if cm.onSelect != nil {
+		cm.onSelect(conn.TailscaleRegister)
+	}
+}
 
-		cm.setTailscaleStateAsync(
-			fmt.Sprintf("Tailscale: %s", strings.ToLower(strings.TrimSpace(status.Backend))),
-			fmt.Sprintf("Google: %s", fallbackText(status.Self.UserLogin, "connected")),
-			fmt.Sprintf("Address: %s (%s)", address, ternary(status.Userspace, "embedded", "system")),
-			"Sign Out",
-		)
+func (cm *ConnectionManager) applyConnectionToForm(host, quicToken, protocol string) {
+	cm.syncingForm = true
+	defer func() {
+		cm.syncingForm = false
 	}()
-}
 
-func (cm *ConnectionManager) startTailscaleStatusPolling() {
-	if cm == nil || cm.ts == nil {
-		return
+	if cm.hostEntry != nil {
+		cm.hostEntry.SetText(strings.TrimSpace(host))
 	}
-	if cm.tsPollStop != nil {
-		close(cm.tsPollStop)
+	if cm.quicTokenEntry != nil {
+		cm.quicTokenEntry.SetText(strings.TrimSpace(quicToken))
 	}
-	stop := make(chan struct{})
-	cm.tsPollStop = stop
-
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				cm.refreshTailscaleStatus()
-			case <-stop:
-				return
-			}
-		}
-	}()
-}
-
-func (cm *ConnectionManager) setTailscaleStateAsync(status, account, address, authLabel string) {
-	if cm == nil || cm.ui == nil {
-		return
-	}
-	fyne.Do(func() {
-		if cm.ui != nil {
-			cm.ui.SetTailscaleState(status, account, address, authLabel)
-		}
-	})
-}
-
-func ternary[T any](condition bool, ifTrue, ifFalse T) T {
-	if condition {
-		return ifTrue
-	}
-	return ifFalse
-}
-
-func fallbackText(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
-func (cm *ConnectionManager) SetConnectionsStateCallback(callback func(bool)) {
-	cm.onConnectionsStateChange = callback
-	cm.notifyConnectionsState()
-}
-
-func (cm *ConnectionManager) notifyConnectionsState() {
-	if cm.onConnectionsStateChange != nil {
-		cm.onConnectionsStateChange(len(cm.connections) > 0)
+	if cm.protocolSelect != nil {
+		cm.protocolSelect.SetSelected(normalizeConnectionProtocol(protocol))
 	}
 }
 
-func (cm *ConnectionManager) beginConnectionFromRow(idx int) bool {
-	if cm.connectionPending {
-		return false
-	}
-
-	cm.setConnectionPendingState(true, idx)
-	return true
-}
-
-func (cm *ConnectionManager) SetConnectionPending(pending bool) {
-	activeIndex := cm.activeConnectionIndex
-	if !pending {
-		activeIndex = -1
-	}
-	cm.setConnectionPendingState(pending, activeIndex)
-}
-
-func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) bool {
+func (cm *ConnectionManager) HandleFormEdited(host, quicToken, protocol string) bool {
 	if cm == nil || cm.syncingForm {
 		return false
 	}
@@ -390,12 +272,12 @@ func (cm *ConnectionManager) HandleFormEdited(host, token, protocol string) bool
 	}
 
 	host = strings.TrimSpace(host)
-	token = strings.TrimSpace(token)
+	quicToken = strings.TrimSpace(quicToken)
 	protocol = normalizeConnectionProtocol(protocol)
 
 	current := cm.connections[cm.selectedIndex]
 	if strings.TrimSpace(current.Host) == host &&
-		strings.TrimSpace(current.Token) == token &&
+		strings.TrimSpace(current.QUICToken) == quicToken &&
 		normalizeConnectionProtocol(current.Protocol) == protocol {
 		return false
 	}
@@ -408,113 +290,30 @@ func (cm *ConnectionManager) ClearSelection() {
 	if cm == nil {
 		return
 	}
-
 	cm.selectedIndex = -1
 }
 
-func (cm *ConnectionManager) SelectConnection(idx int) {
-	if cm == nil || idx < 0 || idx >= len(cm.connections) {
+func (cm *ConnectionManager) SetConnectionsStateCallback(cb func(bool)) {
+	cm.onConnectionsStateChange = cb
+}
+
+func (cm *ConnectionManager) SetLanguageChangeCallback(cb func()) {
+	cm.onLanguageChange = cb
+}
+
+func (cm *ConnectionManager) SetConnectionPending(pending bool) {
+	if cm == nil {
 		return
 	}
-
-	cm.selectedIndex = idx
-	conn := cm.connections[idx]
-	cm.applyConnectionToForm(cm.resolveHostForProtocol(conn, conn.Protocol), conn.Token, conn.Protocol)
-
-	if cm.onSelect != nil {
-		cm.onSelect(conn.WireGuardInvite, conn.TailscaleRegister)
+	cm.connectionPending = pending
+	activeIndex := cm.selectedIndex
+	if cm.selectedIndex < 0 || cm.selectedIndex >= len(cm.connections) {
+		activeIndex = -1
 	}
-}
-
-func (cm *ConnectionManager) applyConnectionToForm(host, token, protocol string) {
-	cm.syncingForm = true
-	defer func() {
-		cm.syncingForm = false
-	}()
-
-	if cm.hostEntry != nil {
-		cm.hostEntry.SetText(strings.TrimSpace(host))
-	}
-	if cm.tokenEntry != nil {
-		cm.tokenEntry.SetText(strings.TrimSpace(token))
-	}
-	if cm.protocolSelect != nil {
-		cm.protocolSelect.SetSelected(normalizeConnectionProtocol(protocol))
-	}
-}
-
-func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protocol string) string {
-	internalHost, tailscaleHost := classifyConnectionHosts(conn)
-	switch normalizeConnectionProtocol(protocol) {
-	case models.ConnectionProtocolTailscale:
-		return fallbackText(tailscaleHost, internalHost)
-	case models.ConnectionProtocolQUIC:
-		return fallbackText(internalHost, tailscaleHost)
-	default:
-		return fallbackText(tailscaleHost, internalHost)
-	}
-}
-
-func classifyConnectionHosts(conn SavedConnection) (internalHost, tailscaleHost string) {
-	internalHost = strings.TrimSpace(conn.InternalHost)
-	tailscaleHost = strings.TrimSpace(conn.TailscaleHost)
-	legacyHost := strings.TrimSpace(conn.Host)
-
-	if internalHost == "" && tailscaleHost == "" {
-		if isLikelyTailnetHost(legacyHost) {
-			tailscaleHost = legacyHost
-		} else {
-			internalHost = legacyHost
-		}
-	}
-	if internalHost == "" && !isLikelyTailnetHost(tailscaleHost) && strings.TrimSpace(tailscaleHost) != "" {
-		internalHost = tailscaleHost
-	}
-	if tailscaleHost == "" && isLikelyTailnetHost(internalHost) {
-		tailscaleHost = internalHost
-		internalHost = ""
-	}
-	return strings.TrimSpace(internalHost), strings.TrimSpace(tailscaleHost)
-}
-
-func isLikelyTailnetHost(host string) bool {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return false
-	}
-	if strings.HasSuffix(strings.ToLower(host), ".ts.net") {
-		return true
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	return netip.MustParsePrefix("100.64.0.0/10").Contains(addr)
-}
-
-func splitHostByType(host string) (internalHost, tailscaleHost string) {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return "", ""
-	}
-	if isLikelyTailnetHost(host) {
-		return "", host
-	}
-	return host, ""
+	cm.setConnectionPendingState(pending, activeIndex)
 }
 
 func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex int) {
-	if pending && (activeIndex < 0 || activeIndex >= len(cm.connections)) {
-		activeIndex = -1
-	}
-	if !pending {
-		activeIndex = -1
-	}
-
-	if cm.connectionPending == pending && cm.activeConnectionIndex == activeIndex {
-		return
-	}
-
 	cm.connectionPending = pending
 	cm.activeConnectionIndex = activeIndex
 
@@ -524,4 +323,222 @@ func (cm *ConnectionManager) setConnectionPendingState(pending bool, activeIndex
 			cm.refreshConnectionsList()
 		})
 	}
+}
+
+func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protocol string) string {
+	switch normalizeConnectionProtocol(protocol) {
+	case models.ConnectionProtocolTailscale:
+		if strings.TrimSpace(conn.TailscaleHost) != "" {
+			return strings.TrimSpace(conn.TailscaleHost)
+		}
+		return strings.TrimSpace(conn.InternalHost)
+	default:
+		if strings.TrimSpace(conn.InternalHost) != "" {
+			return strings.TrimSpace(conn.InternalHost)
+		}
+		return strings.TrimSpace(conn.TailscaleHost)
+	}
+}
+
+func normalizeConnectionProtocol(protocol string) string {
+	switch strings.TrimSpace(protocol) {
+	case models.ConnectionProtocolQUIC:
+		return models.ConnectionProtocolQUIC
+	case models.ConnectionProtocolTailscale:
+		return models.ConnectionProtocolTailscale
+	default:
+		return models.ConnectionProtocolAuto
+	}
+}
+
+func classifyConnectionHosts(conn SavedConnection) (internalHost, tailscaleHost string) {
+	internalHost = strings.TrimSpace(conn.InternalHost)
+	tailscaleHost = strings.TrimSpace(conn.TailscaleHost)
+	return internalHost, tailscaleHost
+}
+
+func splitHostByType(raw string) (internalHost, tailscaleHost string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '|' || r == ',' || r == ';' || r == '\n'
+	})
+	if len(parts) == 0 {
+		return "", ""
+	}
+
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if isLikelyTailnetHost(p) {
+			if tailscaleHost == "" {
+				tailscaleHost = p
+			}
+		} else {
+			if internalHost == "" {
+				internalHost = p
+			}
+		}
+	}
+	return internalHost, tailscaleHost
+}
+
+func (cm *ConnectionManager) OpenDiscordInvite() {
+	cm.openDiscordInvite()
+}
+
+func (cm *ConnectionManager) HeaderAccessory() fyne.CanvasObject {
+	if cm == nil || cm.ui == nil {
+		return nil
+	}
+	return cm.ui.HeaderAccessory()
+}
+
+func (cm *ConnectionManager) startTailscaleStatusPolling() {
+	if cm.tsPollStop != nil {
+		close(cm.tsPollStop)
+	}
+	cm.tsPollStop = make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-cm.tsPollStop:
+				return
+			case <-ticker.C:
+				cm.refreshTailscaleStatus()
+			}
+		}
+	}()
+}
+
+func (cm *ConnectionManager) refreshTailscaleStatus() {
+	if cm.ts == nil {
+		return
+	}
+	status, err := cm.ts.Status(context.Background())
+	if err != nil {
+		cm.setTailscaleStateAsync(
+			"Tailscale: status unavailable",
+			fmt.Sprintf("Error: %v", err),
+			"Address: unavailable",
+			"Sign In With Google",
+		)
+		return
+	}
+	cm.tsStatus = status
+
+	address := "unavailable"
+	if status.Self.IP4 != "" {
+		address = status.Self.IP4
+	} else if status.Self.DNSName != "" {
+		address = status.Self.DNSName
+	}
+	loginText := fallbackText(status.Self.UserLogin, "connected")
+
+	cm.setTailscaleStateAsync(
+		"Tailscale: active",
+		fmt.Sprintf("Google: %s", loginText),
+		fmt.Sprintf("Address: %s (%s)", address, ternary(status.Userspace, "embedded", "system")),
+		ternary(status.LoggedIn, "Sign Out", "Sign In With Google"),
+	)
+}
+
+func (cm *ConnectionManager) setTailscaleStateAsync(header, subHeader, addr, button string) {
+	if cm.ui == nil {
+		return
+	}
+	fyne.Do(func() {
+		cm.ui.SetTailscaleState(header, subHeader, addr, button)
+	})
+}
+
+func (cm *ConnectionManager) notifyConnectionsState() {
+	if cm.onConnectionsStateChange != nil {
+		cm.onConnectionsStateChange(len(cm.connections) > 0)
+	}
+}
+
+func (cm *ConnectionManager) beginConnectionFromRow(idx int) bool {
+	if cm.connectionPending {
+		return false
+	}
+	cm.connectionPending = true
+	cm.activeConnectionIndex = idx
+	if cm.ui != nil {
+		fyne.Do(func() {
+			cm.ui.SetActionButtonsDisabled(true)
+			cm.refreshConnectionsList()
+		})
+	}
+	return true
+}
+
+func connectionProtocolBadge(protocol string) string {
+	switch normalizeConnectionProtocol(protocol) {
+	case models.ConnectionProtocolQUIC:
+		return "QUIC"
+	case models.ConnectionProtocolTailscale:
+		return "TS"
+	default:
+		return "AUTO"
+	}
+}
+
+func connectionProtocolFromBadge(badge string) string {
+	switch strings.ToUpper(strings.TrimSpace(badge)) {
+	case "QUIC":
+		return models.ConnectionProtocolQUIC
+	case "TS":
+		return models.ConnectionProtocolTailscale
+	default:
+		return models.ConnectionProtocolAuto
+	}
+}
+
+func isLikelyTailnetHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return strings.HasSuffix(host, ".ts.net") || strings.HasPrefix(host, "100.")
+}
+
+func (cm *ConnectionManager) GetContainer() fyne.CanvasObject {
+	if cm == nil || cm.ui == nil {
+		return nil
+	}
+	return cm.ui.Container
+}
+
+func (cm *ConnectionManager) OpenQuickStartDocs() {
+	cm.openQuickStartDocs()
+}
+
+func (cm *ConnectionManager) openExternalLink(rawURL string, label string) {
+	uri, err := url.Parse(rawURL)
+	if err != nil {
+		logrus.Errorf("failed to parse %s %q: %v", label, rawURL, err)
+		return
+	}
+
+	fyneApp := cm.app
+	if fyneApp == nil {
+		fyneApp = fyne.CurrentApp()
+	}
+	if fyneApp == nil {
+		logrus.Errorf("failed to open %s: fyne app is nil", label)
+		return
+	}
+
+	go func() {
+		if err := fyneApp.OpenURL(uri); err != nil {
+			logrus.Errorf("failed to open %s %q: %v", label, rawURL, err)
+		}
+	}()
 }

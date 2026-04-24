@@ -222,7 +222,7 @@ func newEmptyStatePromoCard(onLearnMore func()) fyne.CanvasObject {
 	subtitleTheme := container.NewThemeOverride(subtitle, newForegroundOverrideTheme(design.NewBrandTheme(), design.ColorTextMuted))
 	subtitle.TextStyle = fyne.TextStyle{}
 
-	cta := newConnectionPrimaryButton("Upgrade to Hardware", onLearnMore)
+	cta := NewConnectionPrimaryButton("Upgrade to Hardware", onLearnMore)
 	cta.SetAccent(false)
 	cta.SetPromoStyle(true)
 	ctaWrap := container.NewCenter(cta)
@@ -886,9 +886,9 @@ var (
 	_ fyne.Tappable     = (*tailscaleHeaderToggle)(nil)
 	_ desktop.Hoverable = (*tailscaleHeaderToggle)(nil)
 	_ fyne.Widget       = (*tailscaleHeaderToggle)(nil)
-	_ fyne.Tappable     = (*connectionPrimaryButton)(nil)
-	_ desktop.Hoverable = (*connectionPrimaryButton)(nil)
-	_ fyne.Widget       = (*connectionPrimaryButton)(nil)
+	_ fyne.Tappable     = (*ConnectionPrimaryButton)(nil)
+	_ desktop.Hoverable = (*ConnectionPrimaryButton)(nil)
+	_ fyne.Widget       = (*ConnectionPrimaryButton)(nil)
 )
 
 func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions ConnectionRowActions) *fyne.Container {
@@ -1900,7 +1900,7 @@ func (r *tailscaleHeaderToggleRenderer) BackgroundColor() color.Color {
 	return color.Transparent
 }
 
-type connectionPrimaryButton struct {
+type ConnectionPrimaryButton struct {
 	widget.BaseWidget
 
 	labelText string
@@ -1919,8 +1919,8 @@ type connectionPrimaryButton struct {
 	spinnerStep int
 }
 
-func newConnectionPrimaryButton(label string, onTapped func()) *connectionPrimaryButton {
-	btn := &connectionPrimaryButton{
+func NewConnectionPrimaryButton(label string, onTapped func()) *ConnectionPrimaryButton {
+	btn := &ConnectionPrimaryButton{
 		labelText: label,
 		onTapped:  onTapped,
 		accent:    true,
@@ -1929,7 +1929,7 @@ func newConnectionPrimaryButton(label string, onTapped func()) *connectionPrimar
 	return btn
 }
 
-func (b *connectionPrimaryButton) SetDisabled(disabled bool) {
+func (b *ConnectionPrimaryButton) SetDisabled(disabled bool) {
 	b.disabled = disabled
 	if disabled {
 		b.hovered = false
@@ -1937,7 +1937,7 @@ func (b *connectionPrimaryButton) SetDisabled(disabled bool) {
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) SetLoading(loading bool) {
+func (b *ConnectionPrimaryButton) SetLoading(loading bool) {
 	b.loading = loading
 	if loading {
 		b.hovered = false
@@ -1945,7 +1945,7 @@ func (b *connectionPrimaryButton) SetLoading(loading bool) {
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) SetLabel(label string) {
+func (b *ConnectionPrimaryButton) SetLabel(label string) {
 	b.labelText = label
 	if b.label != nil {
 		b.label.Text = label
@@ -1954,17 +1954,17 @@ func (b *connectionPrimaryButton) SetLabel(label string) {
 	b.Refresh()
 }
 
-func (b *connectionPrimaryButton) SetAccent(accent bool) {
+func (b *ConnectionPrimaryButton) SetAccent(accent bool) {
 	b.accent = accent
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) SetPromoStyle(promo bool) {
+func (b *ConnectionPrimaryButton) SetPromoStyle(promo bool) {
 	b.promo = promo
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {
+func (b *ConnectionPrimaryButton) Tapped(*fyne.PointEvent) {
 	if b.disabled || b.loading || b.onTapped == nil {
 		return
 	}
@@ -1972,9 +1972,9 @@ func (b *connectionPrimaryButton) Tapped(*fyne.PointEvent) {
 	b.onTapped()
 }
 
-func (b *connectionPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
+func (b *ConnectionPrimaryButton) TappedSecondary(*fyne.PointEvent) {}
 
-func (b *connectionPrimaryButton) MouseIn(*desktop.MouseEvent) {
+func (b *ConnectionPrimaryButton) MouseIn(*desktop.MouseEvent) {
 	if b.disabled || b.loading {
 		return
 	}
@@ -1983,9 +1983,9 @@ func (b *connectionPrimaryButton) MouseIn(*desktop.MouseEvent) {
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) MouseMoved(*desktop.MouseEvent) {}
+func (b *ConnectionPrimaryButton) MouseMoved(*desktop.MouseEvent) {}
 
-func (b *connectionPrimaryButton) MouseOut() {
+func (b *ConnectionPrimaryButton) MouseOut() {
 	if !b.hovered {
 		return
 	}
@@ -1994,7 +1994,7 @@ func (b *connectionPrimaryButton) MouseOut() {
 	b.refreshVisuals()
 }
 
-func (b *connectionPrimaryButton) MinSize() fyne.Size {
+func (b *ConnectionPrimaryButton) MinSize() fyne.Size {
 	measure := canvas.NewText(b.labelText, design.ColorBackground)
 	measure.TextSize = 14
 	measure.TextStyle.Bold = true
@@ -2006,7 +2006,7 @@ func (b *connectionPrimaryButton) MinSize() fyne.Size {
 	return fyne.NewSize(width, 40)
 }
 
-func (b *connectionPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
+func (b *ConnectionPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg = canvas.NewRectangle(design.ColorAccent)
 	b.bg.CornerRadius = design.RadiusMD
 	b.bg.StrokeColor = color.Transparent
@@ -2025,7 +2025,7 @@ func (b *connectionPrimaryButton) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(container.NewMax(b.bg, container.NewCenter(container.NewStack(b.icon, b.label))))
 }
 
-func (b *connectionPrimaryButton) refreshVisuals() {
+func (b *ConnectionPrimaryButton) refreshVisuals() {
 	if b.bg == nil || b.label == nil || b.icon == nil {
 		return
 	}
@@ -2077,7 +2077,7 @@ func (b *connectionPrimaryButton) refreshVisuals() {
 	b.label.Show()
 }
 
-func (b *connectionPrimaryButton) startSpinner() {
+func (b *ConnectionPrimaryButton) startSpinner() {
 	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
 		return
 	}
@@ -2122,7 +2122,7 @@ func (b *connectionPrimaryButton) startSpinner() {
 	}()
 }
 
-func (b *connectionPrimaryButton) stopSpinner() {
+func (b *ConnectionPrimaryButton) stopSpinner() {
 	b.spinnerMu.Lock()
 	stop := b.spinnerStop
 	b.spinnerStop = nil
@@ -2133,7 +2133,7 @@ func (b *connectionPrimaryButton) stopSpinner() {
 	}
 }
 
-func (b *connectionPrimaryButton) StopAnimations() {
+func (b *ConnectionPrimaryButton) StopAnimations() {
 	b.stopSpinner()
 }
 

@@ -1,5 +1,7 @@
 package controller
 
+import "strings"
+
 func minFloat32(a, b float32) float32 {
 	if a < b {
 		return a
@@ -25,4 +27,13 @@ func clampFloat32(value, minValue, maxValue float32) float32 {
 		return maxValue
 	}
 	return value
+}
+
+func fallbackText(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

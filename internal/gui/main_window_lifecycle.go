@@ -109,7 +109,7 @@ func (mw *MainWindow) handleClose() {
 
 	mw.stopDeepLinkMonitoring()
 	mw.enqueueLifecycleOp("app-close", func() {
-		logrus.Infof("[shutdown] handleClose: entered connected=%v wg_running=%v frp_running=%v", mw.isConnected, mw.wgService != nil && mw.wgService.IsRunning(), mw.frpService != nil && mw.frpService.IsRunning())
+		logrus.Infof("[shutdown] handleClose: entered connected=%v frp_running=%v", mw.isConnected, mw.frpService != nil && mw.frpService.IsRunning())
 
 		if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
 			logrus.Info("handleClose: fullscreen active, exit it first")
@@ -122,7 +122,6 @@ func (mw *MainWindow) handleClose() {
 			mw.usbClient != nil ||
 			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
 			(mw.nbdServer != nil && mw.nbdServer.IsRunning()) ||
-			(mw.wgService != nil && mw.wgService.IsRunning()) ||
 			(mw.frpService != nil && mw.frpService.IsRunning())
 
 		if needsDisconnect {
@@ -155,8 +154,7 @@ func (mw *MainWindow) Show() {
 		time.Sleep(200 * time.Millisecond)
 
 		fyne.Do(func() {
-			mw.createInterface()
-			mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.config, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager, mw.handleSelectionFromManager)
+			// createInterface and connectionManager creation moved to NewMainWindow
 			mw.recreateContainers()
 			mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 			mw.setupEventHandlers()
@@ -184,12 +182,26 @@ func (mw *MainWindow) reloadUI() {
 	currentToken := mw.tokenEntry.Text
 	wasConnected := mw.isConnected
 
+	// Re-initialize UI fields with new language
 	mw.createInterface()
 	mw.hostEntry.SetText(currentHost)
 	mw.tokenEntry.SetText(currentToken)
 
-	mw.connectionManager = controller.NewConnectionManager(mw.app, mw.window, mw.config, mw.hostEntry, mw.tokenEntry, mw.protocolSelect, mw.tailscaleService, mw.handleConnectionFromManager, mw.handleSelectionFromManager)
+	// Re-initialize widgets to refresh their localized strings
+	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, mw.app, mw.config)
+	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.window, mw.usbClient, mw.gstreamerService, mw.updateStatus)
+	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, mw.hostEntry, mw.updateStatus)
+	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
+
+	// Re-initialize connection manager
+	mw.connectionManager = controller.NewConnectionManager(
+		mw.app, mw.window, mw.config,
+		mw.hostEntry, mw.tokenEntry, mw.protocolSelect,
+		mw.tailscaleService,
+		mw.handleConnectionFromManager, mw.handleSelectionFromManager,
+	)
 	mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)
+
 	mw.recreateContainers()
 	mw.connectionManager.SetConnectionsStateCallback(mw.updateConnectionFooterVisibility)
 	mw.window.SetTitle(i18n.Current.AppTitle)

@@ -171,7 +171,7 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		return fmt.Errorf("FRP connection failed: %v", err)
 	case <-time.After(2 * time.Second):
 		// 2 секунды — базовое время на стабилизацию QUIC и регистрацию всех proxy в frps.
-		// Но для WireGuard bootstrap этого мало: нужно дождаться, пока локальный visitor реально
+		// Но для Tailscale bootstrap этого мало: нужно дождаться, пока локальный visitor реально
 		// начнет слушать localhost:httpPort, иначе первый POST упрется в connect refused.
 		if err := waitForLocalListener("127.0.0.1", localHTTPPort, 5*time.Second); err != nil {
 			if f.cancel != nil {

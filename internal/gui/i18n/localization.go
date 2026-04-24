@@ -309,7 +309,7 @@ type LocalizedStrings struct {
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
-	DeepLinkToken         string // "Token:"
+	DeepLinkToken         string // "QUIC Token:"
 	DeepLinkConnectPrompt string // "Do you want to connect to this server?\n\nChoose action:"
 	DeepLinkConnect       string // "Connect"
 	DeepLinkSave          string // "Save"
@@ -360,7 +360,7 @@ func EN() *LocalizedStrings {
 		// Main Window
 		AppTitle:                "USBridge Client",
 		ServerAddress:           "Server Address",
-		Token:                   "device token",
+		Token:                   "QUIC Token",
 		ConnectButton:           "Connect",
 		DisconnectButton:        "Disconnect",
 		DisconnectAllButton:     "Disconnect All",
@@ -373,7 +373,7 @@ func EN() *LocalizedStrings {
 		ConnectionManager:         "🔌 Connection Manager",
 		SavedConnections:          "Connections",
 		ConnectionManagement:      "💾 Connection Management",
-		AddressAndTokenHint:       "💡 Address and token are entered in the bar above",
+		AddressAndTokenHint:       "💡 Address and QUIC Token are entered in the bar above",
 		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
 		ConnectionPanelHint:       "Launch a saved profile or create a new one.",
 		ConnectionNameLabel:       "Name for saving:",
@@ -498,7 +498,7 @@ func EN() *LocalizedStrings {
 		Apply:                   "Apply",
 		Cancel:                  "Cancel",
 		ServerAddressLabel:      "Server address:",
-		TokenLabel:              "Token:",
+		TokenLabel:              "QUIC Token:",
 		ScanSuccess:             "✓ QR code successfully scanned!\n\nCheck the data and press 'Apply' to fill in the fields.",
 		ErrorOpeningFile:        "Error opening file: %v",
 		ErrorDecodingImage:      "Error decoding image: %v",
@@ -506,7 +506,7 @@ func EN() *LocalizedStrings {
 		ErrorLaunchingQRScanner: "Error launching QR scanner: %v",
 		ImageNotLoaded:          "Image not loaded",
 		QRCodeNotFound:          "QR code not found in image.\n\nMake sure that:\n• Image contains QR code\n• QR code is clear and visible\n• Image has sufficient resolution",
-		InvalidQRFormat:         "Invalid QR code format.\nExpected: host:token\nReceived: %s",
+		InvalidQRFormat:         "Invalid QR code format.\nExpected: host:quic_token\nReceived: %s",
 		HostCannotBeEmpty:       "Host address cannot be empty",
 		QRExampleText:           "QR code example:\n\n%s\n\nUse a QR code generator to create an image with this text.",
 		CopyText:                "📋 Copy text",
@@ -662,7 +662,7 @@ func EN() *LocalizedStrings {
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",
-		DeepLinkToken:         "Token:",
+		DeepLinkToken:         "QUIC Token:",
 		DeepLinkConnectPrompt: "Do you want to connect to this server?\n\nChoose action:",
 		DeepLinkConnect:       "Connect",
 		DeepLinkSave:          "Save",
@@ -713,7 +713,7 @@ func ES() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Cliente USBridge"
 	locale.ServerAddress = "Direccion del servidor"
-	locale.Token = "token del dispositivo"
+	locale.Token = "QUIC Token"
 	locale.ConnectButton = "Conectar"
 	locale.DisconnectButton = "Desconectar"
 	locale.DisconnectAllButton = "Desconectar todo"
@@ -790,7 +790,7 @@ func ES() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
-	locale.DeepLinkToken = "Token:"
+	locale.DeepLinkToken = "QUIC Token:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
 	locale.DeepLinkConnect = "Conectar"
 	locale.DeepLinkSave = "Guardar"
@@ -840,7 +840,7 @@ func UKProper() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Клієнт USBridge"
 	locale.ServerAddress = "Адреса сервера"
-	locale.Token = "токен пристрою"
+	locale.Token = "QUIC токен"
 	locale.ConnectButton = "Підключити"
 	locale.DisconnectButton = "Відключити"
 	locale.DisconnectAllButton = "Відключити все"
@@ -917,7 +917,7 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
-	locale.DeepLinkToken = "Токен:"
+	locale.DeepLinkToken = "QUIC токен:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
 	locale.DeepLinkConnect = "Підключити"
 	locale.DeepLinkSave = "Зберегти"

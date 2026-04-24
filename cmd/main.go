@@ -8,8 +8,8 @@ import (
 	"runtime/debug"
 
 	"usbridge-client/internal/gui"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
-	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -30,14 +30,6 @@ func main() {
 		}
 	}()
 
-	if len(os.Args) > 1 && os.Args[1] == "wg-helper" {
-		if err := service.RunWindowsWireGuardHelper(os.Args[2:]); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "wg-helper failed: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-
 	var (
 		configFile  = flag.String("config", "", "Path to the configuration file")
 		logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
@@ -57,6 +49,8 @@ func main() {
 	writeStartupTrace("main: setupLogging done")
 
 	logrus.Infof("Starting %s version %s", appName, version)
+
+	i18n.Init("en")
 
 	writeStartupTrace("main: loadConfig start")
 	config, err := loadConfig(*configFile)

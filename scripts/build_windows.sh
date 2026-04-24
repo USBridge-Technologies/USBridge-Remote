@@ -27,8 +27,6 @@ OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
 EXE_NAME="USBridge_Client.exe"
 BUILD_CACHE_ROOT="$REPO_ROOT/.cache/build/windows-amd64"
-WINTUN_VERSION="0.14.1"
-WINTUN_URL="https://www.wintun.net/builds/wintun-${WINTUN_VERSION}.zip"
 GST_RUNTIME_STAMP_NAME=".gstreamer-runtime.stamp"
 GST_RUNTIME_MANIFEST_NAME=".gstreamer-runtime.manifest"
 MINIMAL_GST="${MINIMAL_GST:-1}"
@@ -87,18 +85,6 @@ extract_zip() {
     echo -e "${RED}❌ Не найден архиватор для $archive${NC}"
     echo "   Нужен один из инструментов: unzip, bsdtar, tar или powershell."
     exit 1
-}
-
-resolve_wintun_arch() {
-    case "$1" in
-        amd64) echo "amd64" ;;
-        386) echo "x86" ;;
-        arm64) echo "arm64" ;;
-        *)
-            echo -e "${RED}❌ Неподдерживаемая архитектура для wintun: $1${NC}" >&2
-            return 1
-            ;;
-    esac
 }
 
 hash_file_sha256() {
@@ -241,7 +227,6 @@ else
 fi
 
 # 2.5. pkg-config (target: Windows)
-# Важно: нельзя использовать host pkg-config (он отдаст /usr/include и сборка будет ломаться).
 echo -e "\n${YELLOW}🧩 Проверка pkg-config (Windows target)...${NC}"
 PKG_CONFIG_BIN=""
 if command -v x86_64-w64-mingw32-pkg-config &>/dev/null; then
@@ -256,8 +241,6 @@ if [ -z "$PKG_CONFIG_BIN" ]; then
     exit 1
 fi
 
-# Если задан GSTREAMER_ROOT (Linux path), подключаем его pkgconfig.
-# Примечание: для Windows SDK важно, чтобы *.pc содержали пути, существующие на Linux.
 if [ -n "$GSTREAMER_ROOT" ] && [ -d "$GSTREAMER_ROOT" ]; then
     if [ -d "$GSTREAMER_ROOT/lib/pkgconfig" ]; then
         export PKG_CONFIG_LIBDIR="$GSTREAMER_ROOT/lib/pkgconfig"
@@ -269,32 +252,21 @@ if [ -n "$GSTREAMER_ROOT" ] && [ -d "$GSTREAMER_ROOT" ]; then
     fi
 fi
 
-# Защита от ситуации, когда pkg-config видит только host glib/gstreamer.
 if [ "$PKG_CONFIG_BIN" = "pkg-config" ] && [ -z "${PKG_CONFIG_LIBDIR:-}" ]; then
     echo -e "${RED}❌ Для кросс-сборки Windows нужен pkg-config для target или PKG_CONFIG_LIBDIR${NC}"
-    echo "   Сейчас найден только host pkg-config, он будет тянуть /usr/include и сборка упадёт."
-    echo "   Варианты:"
-    echo "   1) Установить x86_64-w64-mingw32-pkg-config (пакет обычно: pkg-config-mingw-w64-x86-64)"
-    echo "   2) Скачать/подготовить Windows (MinGW) GStreamer SDK и указать GSTREAMER_ROOT (Linux path),"
-    echo "      чтобы там был lib/pkgconfig с корректными путями."
     exit 1
 fi
 
-# Явно задаём PKG_CONFIG для CGO.
 export PKG_CONFIG="$PKG_CONFIG_BIN"
 echo -e "${GREEN}✓${NC} PKG_CONFIG: $PKG_CONFIG"
 
-# Быстрая проверка: glib/gstreamer должны находиться в target окружении.
 if ! "$PKG_CONFIG" --exists glib-2.0 2>/dev/null; then
     echo -e "${RED}❌ pkg-config не находит glib-2.0 для Windows target${NC}"
-    echo "   Это означает, что вы кросс-компилируете, но dev-зависимости под Windows не подключены."
-    echo "   Решение: установите/подготовьте Windows (MinGW) GStreamer/GLib SDK и задайте GSTREAMER_ROOT."
     exit 1
 fi
 
 if ! "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
     echo -e "${RED}❌ pkg-config не находит gstreamer-1.0 для Windows target${NC}"
-    echo "   Решение: Windows (MinGW) GStreamer SDK + GSTREAMER_ROOT."
     exit 1
 fi
 
@@ -302,7 +274,6 @@ fi
 echo -e "\n${YELLOW}📦 Проверка fyne...${NC}"
 FYNE_BIN=""
 GOPATH_BIN="$(go env GOPATH)/bin"
-# На Windows/MSYS2 исполняемый файл — fyne.exe
 for name in fyne fyne.exe; do
     if command -v "$name" &> /dev/null; then
         FYNE_BIN="$name"
@@ -343,7 +314,6 @@ export GOMAXPROCS=12
 export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
 mkdir -p "$GOCACHE" "$GOMODCACHE"
-# Disable VCS stamping (common failure inside containers)
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 BUILD_LDFLAGS="-H=windowsgui"
 BUILD_VARIANT="release"
@@ -357,7 +327,6 @@ BUILD_CACHE_EXE="$BUILD_CACHE_DIR/$EXE_NAME"
 BUILD_CACHE_FINGERPRINT="$BUILD_CACHE_DIR/.build-inputs.sha256"
 BUILD_CACHE_FINGERPRINT_TMP="$BUILD_CACHE_DIR/.build-inputs.current"
 mkdir -p "$BUILD_CACHE_DIR"
-# Добавляем GOPATH/bin в PATH для корректного запуска fyne (MSYS2/Windows)
 export PATH="$GOPATH_BIN:$PATH"
 
 REBUILD_WINDOWS_EXE=0
@@ -424,13 +393,10 @@ if ! env \
     --release \
     -- -j 12 2>&1; then
     echo -e "\n${RED}❌ fyne package завершился с ошибкой${NC}"
-    echo "Содержимое $(pwd):"
-    ls -la
     exit 1
 fi
 echo "--- Конец вывода fyne ---"
 
-# Ищем созданный exe
 EXE_SRC="$BUILD_CACHE_EXE"
 EXE_SRC_LABEL="$BUILD_CACHE_EXE"
 for n in "USBridge_Client.exe" "USBridge Client.exe"; do
@@ -440,12 +406,6 @@ for n in "USBridge_Client.exe" "USBridge Client.exe"; do
         break
     fi
 done
-
-if false && [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
-    echo -e "${RED}❌ exe не создан${NC}"
-    ls -la
-    exit 1
-fi
 
 if [ "$EXE_SRC" = "$BUILD_CACHE_EXE" ]; then
     echo -e "${YELLOW}⚠${NC} fyne package did not produce a fresh Windows exe, using the rebuilt cache binary"
@@ -462,19 +422,10 @@ while IFS= read -r proc; do
 done < <(find_dist_windows_processes "$DIST_WIN")
 
 if [ "${#running_dist_processes[@]}" -gt 0 ]; then
-    echo -e "${RED}âŒ Cannot clean $DIST_WIN while USBridge is running from that folder${NC}"
-    echo "   Stop these processes first:"
-    for proc in "${running_dist_processes[@]}"; do
-        proc_pid="${proc%%|*}"
-        proc_path="${proc#*|}"
-        echo "   - PID $proc_pid: $proc_path"
-    done
-    echo "   Then rerun scripts/build_windows.sh."
+    echo -e "${RED}❌ Cannot clean $DIST_WIN while USBridge is running from that folder${NC}"
     exit 1
 fi
 
-# Определяем GStreamer runtime заранее, чтобы при повторной сборке можно было
-# переиспользовать уже подготовленный portable bundle в dist/windows.
 if [ -z "$GSTREAMER_ROOT" ]; then
     GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
 fi
@@ -548,100 +499,14 @@ done < <(find "$DIST_WIN" -mindepth 1 -maxdepth 1 -print 2>>"$cleanup_err")
 
 if [ "$cleanup_failed" != "0" ]; then
     echo -e "${RED}❌ Failed to clean $DIST_WIN${NC}"
-    if [ -s "$cleanup_err" ]; then
-        sed 's/^/   /' "$cleanup_err"
-    fi
     rm -f "$cleanup_err"
-    echo "   This usually means a file in dist/windows is open or locked."
-    echo "   Check the following:"
-    echo "   - USBridge_Client.exe is not running from dist/windows"
-    echo "   - no other terminal is currently inside dist/windows"
-    echo "   - Explorer, archiver, or antivirus is not locking files there"
     exit 1
 fi
 rm -f "$cleanup_err"
 
-# Копируем exe
 cp "$EXE_SRC" "$DIST_WIN/$EXE_NAME"
 echo -e "${GREEN}✓${NC} $EXE_NAME ($(basename "$EXE_SRC_LABEL"))"
-
-# Копируем config
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
-
-# Копируем wintun.dll рядом с exe, потому что рантайм WireGuard ищет её
-# только в каталоге приложения или в System32.
-echo -e "\n${YELLOW}🔐 Подготовка WireGuard runtime...${NC}"
-WINTUN_TARGET_ARCH="$(resolve_wintun_arch "$GOARCH")"
-WINTUN_CANDIDATES=()
-if [ -n "${WINTUN_DLL:-}" ]; then
-    WINTUN_CANDIDATES+=("$WINTUN_DLL")
-fi
-if [ -n "${WINTUN_ROOT:-}" ]; then
-    WINTUN_CANDIDATES+=(
-        "$WINTUN_ROOT/wintun.dll"
-        "$WINTUN_ROOT/bin/wintun.dll"
-    )
-fi
-WINTUN_CANDIDATES+=(
-    "$REPO_ROOT/wintun.dll"
-    "$REPO_ROOT/third_party/wintun/wintun.dll"
-    "/c/Program Files/WireGuard/wintun.dll"
-    "/c/Windows/System32/wintun.dll"
-    "C:/Program Files/WireGuard/wintun.dll"
-    "C:/Windows/System32/wintun.dll"
-)
-
-WINTUN_DLL_SRC=""
-for cand in "${WINTUN_CANDIDATES[@]}"; do
-    [ -z "$cand" ] && continue
-    if [ -f "$cand" ]; then
-        WINTUN_DLL_SRC="$cand"
-        break
-    fi
-done
-
-if [ -n "$WINTUN_DLL_SRC" ]; then
-    cp -L "$WINTUN_DLL_SRC" "$DIST_WIN/wintun.dll"
-    echo -e "${GREEN}✓${NC} wintun.dll ($(basename "$WINTUN_DLL_SRC"))"
-else
-    echo -e "${YELLOW}⚠${NC} wintun.dll не найден локально, скачиваю ${WINTUN_URL}"
-
-    WINTUN_CACHE_DIR="${REPO_ROOT}/.cache/wintun/${WINTUN_VERSION}"
-    WINTUN_ZIP_PATH="${WINTUN_CACHE_DIR}/wintun-${WINTUN_VERSION}.zip"
-    WINTUN_EXTRACT_DIR="${WINTUN_CACHE_DIR}/unzipped"
-    mkdir -p "$WINTUN_CACHE_DIR"
-
-    if [ ! -f "$WINTUN_ZIP_PATH" ]; then
-        download_file "$WINTUN_URL" "$WINTUN_ZIP_PATH"
-    fi
-
-    rm -rf "$WINTUN_EXTRACT_DIR"
-    extract_zip "$WINTUN_ZIP_PATH" "$WINTUN_EXTRACT_DIR"
-
-    for cand in \
-        "$WINTUN_EXTRACT_DIR/wintun/bin/$WINTUN_TARGET_ARCH/wintun.dll" \
-        "$WINTUN_EXTRACT_DIR/bin/$WINTUN_TARGET_ARCH/wintun.dll" \
-        "$WINTUN_EXTRACT_DIR/$WINTUN_TARGET_ARCH/wintun.dll"; do
-        if [ -f "$cand" ]; then
-            WINTUN_DLL_SRC="$cand"
-            break
-        fi
-    done
-
-    if [ -z "$WINTUN_DLL_SRC" ]; then
-        WINTUN_DLL_SRC="$(find "$WINTUN_EXTRACT_DIR" -type f -path "*/$WINTUN_TARGET_ARCH/wintun.dll" 2>/dev/null | head -1)"
-    fi
-
-    if [ -n "$WINTUN_DLL_SRC" ] && [ -f "$WINTUN_DLL_SRC" ]; then
-        cp -L "$WINTUN_DLL_SRC" "$DIST_WIN/wintun.dll"
-        echo -e "${GREEN}✓${NC} wintun.dll скачан и добавлен для $WINTUN_TARGET_ARCH"
-    else
-        echo -e "${RED}❌ Не удалось подготовить wintun.dll для архитектуры $WINTUN_TARGET_ARCH${NC}"
-        echo "   Проверялся архив: $WINTUN_URL"
-        echo "   Можно задать WINTUN_DLL=/path/to/wintun.dll вручную."
-        exit 1
-    fi
-fi
 
 # 7. Копирование GStreamer
 echo -e "\n${YELLOW}📚 Копирование GStreamer...${NC}"
@@ -652,9 +517,7 @@ if [ -n "$GST_ROOT" ]; then
     if [ "$SKIP_GST_COPY" = "1" ]; then
         echo -e "${GREEN}✓${NC} GStreamer runtime уже подготовлен, переиспользую без перекопирования"
     else
-
         mkdir -p "$DIST_WIN/bin"
-
         OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
         if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
             OBJDUMP_BIN="objdump"
@@ -664,35 +527,20 @@ if [ -n "$GST_ROOT" ]; then
             local name="$1"
             for core in "${CORE_DLLS[@]}"; do
                 case "${name,,}" in
-                    ${core,,})
-                        return 0
-                        ;;
+                    ${core,,}) return 0 ;;
                 esac
-                if [ "${core,,}" = "${name,,}" ]; then
-                    return 0
-                fi
             done
             return 1
         }
 
         copy_dll_by_name() {
             local name="$1"
-            if [ -z "$name" ]; then
-                return
-            fi
+            [ -z "$name" ] && return
             if [ -f "$GST_ROOT/bin/$name" ]; then
                 if is_core_dll "$name"; then
                     cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/" 2>/dev/null || true
                 else
                     cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/bin/" 2>/dev/null || true
-                fi
-                return
-            fi
-            if [ -f "$GST_ROOT/lib/$name" ]; then
-                if is_core_dll "$name"; then
-                    cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/" 2>/dev/null || true
-                else
-                    cp -L "$GST_ROOT/lib/$name" "$DIST_WIN/bin/" 2>/dev/null || true
                 fi
                 return
             fi
@@ -707,339 +555,111 @@ if [ -n "$GST_ROOT" ]; then
             fi
         }
 
-    collect_deps() {
-        local file="$1"
-        [ -f "$file" ] || return
-        "$OBJDUMP_BIN" -p "$file" 2>/dev/null | awk -F': ' '/DLL Name:/ {gsub(/\\r/,"",$2); print $2}'
-    }
+        collect_deps() {
+            local file="$1"
+            [ -f "$file" ] || return
+            "$OBJDUMP_BIN" -p "$file" 2>/dev/null | awk -F': ' '/DLL Name:/ {gsub(/\\r/,"",$2); print $2}'
+        }
 
-    is_system_dll() {
-        local name="${1,,}"
-        case "$name" in
-            api-ms-win-*.dll|ext-ms-win-*.dll|kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|d3dcompiler_47.dll|opengl32.dll)
-                return 0
-                ;;
-        esac
-        return 1
-    }
+        is_system_dll() {
+            local name="${1,,}"
+            case "$name" in
+                api-ms-win-*.dll|ext-ms-win-*.dll|kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|d3dcompiler_47.dll|opengl32.dll)
+                    return 0
+                    ;;
+            esac
+            return 1
+        }
 
-    resolve_dll_path() {
-        local name="$1"
-        [ -z "$name" ] && return
+        resolve_dll_path() {
+            local name="$1"
+            [ -z "$name" ] && return
+            if [ -f "$GST_ROOT/bin/$name" ]; then printf "%s\n" "$GST_ROOT/bin/$name"; return; fi
+            if [ -f "$GST_ROOT/lib/$name" ]; then printf "%s\n" "$GST_ROOT/lib/$name"; return; fi
+            local found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
+            if [ -n "$found" ]; then printf "%s\n" "$found"; return; fi
+        }
 
-        if [ -f "$GST_ROOT/bin/$name" ]; then
-            printf "%s\n" "$GST_ROOT/bin/$name"
-            return
-        fi
-        if [ -f "$GST_ROOT/lib/$name" ]; then
-            printf "%s\n" "$GST_ROOT/lib/$name"
-            return
-        fi
-
-        local found=""
-        found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-        if [ -n "$found" ]; then
-            printf "%s\n" "$found"
-            return
-        fi
-
-        for extra in /ucrt64/bin /ucrt64/lib /mingw64/bin /mingw64/lib; do
-            if [ -f "$extra/$name" ]; then
-                printf "%s\n" "$extra/$name"
-                return
+        copy_dll_to_dir() {
+            local name="$1"
+            local target_dir="$2"
+            [ -z "$name" ] && return
+            local resolved="$(resolve_dll_path "$name")"
+            if [ -n "$resolved" ] && [ -f "$resolved" ]; then
+                cp -L "$resolved" "$target_dir/" 2>/dev/null || true
+                printf "%s\n" "$(basename "$resolved")"
             fi
-        done
-    }
+        }
 
-    copy_dll_to_dir() {
-        local name="$1"
-        local target_dir="$2"
-        local resolved=""
-        [ -z "$name" ] && return
-        [ -z "$target_dir" ] && return
-
-        resolved="$(resolve_dll_path "$name")"
-        if [ -n "$resolved" ] && [ -f "$resolved" ]; then
-            cp -L "$resolved" "$target_dir/" 2>/dev/null || true
-            printf "%s\n" "$(basename "$resolved")"
-        fi
-    }
-
-    expand_dll_pattern() {
-        local pattern="$1"
-        [ -z "$pattern" ] && return
-
-        {
-            find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$pattern" -printf "%f\n" 2>/dev/null
-            for extra in /ucrt64/bin /ucrt64/lib /mingw64/bin /mingw64/lib; do
-                find "$extra" -maxdepth 1 -type f -iname "$pattern" -printf "%f\n" 2>/dev/null
+        collect_recursive_deps_into() {
+            local target_dir="$1"
+            shift
+            local queue=("$@")
+            local idx=0
+            while [ "$idx" -lt "${#queue[@]}" ]; do
+                local file="${queue[$idx]}"
+                idx=$((idx + 1))
+                [ -f "$file" ] || continue
+                while IFS= read -r dep; do
+                    [ -z "$dep" ] || is_system_dll "$dep" && continue
+                    local dep_name="$(basename "$dep")"
+                    [ -f "$target_dir/$dep_name" ] && continue
+                    local copied_name="$(copy_dll_to_dir "$dep_name" "$target_dir")"
+                    [ -n "$copied_name" ] && queue+=("$target_dir/$copied_name")
+                done < <(collect_deps "$file")
             done
-        } | sort -u
-    }
-
-    collect_recursive_deps_into() {
-        local target_dir="$1"
-        shift
-        local queue=("$@")
-        local idx=0
-
-        while [ "$idx" -lt "${#queue[@]}" ]; do
-            local file="${queue[$idx]}"
-            idx=$((idx + 1))
-            [ -f "$file" ] || continue
-
-            while IFS= read -r dep; do
-                [ -z "$dep" ] && continue
-                if is_system_dll "$dep"; then
-                    continue
-                fi
-
-                local dep_name
-                dep_name="$(basename "$dep")"
-                if [ -f "$target_dir/$dep_name" ]; then
-                    continue
-                fi
-
-                local copied_name
-                copied_name="$(copy_dll_to_dir "$dep_name" "$target_dir")"
-                if [ -n "$copied_name" ] && [ -f "$target_dir/$copied_name" ]; then
-                    queue+=("$target_dir/$copied_name")
-                fi
-            done < <(collect_deps "$file")
-        done
-    }
+        }
 
         if [ "$MINIMAL_GST" = "1" ]; then
             mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
-        PLUGINS_DEFAULT=(
-            "libgstcoreelements.dll"
-            "libgstapp.dll"
-            "libgstrtp.dll"
-            "libgstrtpmanager.dll"
-            "libgstudp.dll"
-            "libgstvideoconvert.dll"
-            "libgstvideoconvertscale.dll"
-            "libgstvideoscale.dll"
-            "libgstplayback.dll"
-            "libgsttypefindfunctions.dll"
-            "libgstd3d11.dll"
-            "libgstjpeg.dll"
-            "libgstjpegformat.dll"
-            "libgstlibav.dll"
-            "libgstautodetect.dll"
-            "libgstwic.dll"
-            "libgstqsv.dll"
-            "libgstmsdk.dll"
-            "libgstnvcodec.dll"
-            "libgstamfcodec.dll"
-            "libgstvideoparsersbad.dll"
-            "libgstvideoparsers.dll"
-            "libgstwinks.dll" # contains ksvideosrc for Windows QR camera capture
-        )
-        PLUGINS=("${PLUGINS_DEFAULT[@]}")
-        if [ -n "${GST_PLUGIN_ALLOWLIST:-}" ]; then
-            IFS=',' read -r -a PLUGINS <<< "$GST_PLUGIN_ALLOWLIST"
-        fi
-        REQUIRED_PLUGINS=(
-            "libgstrtp.dll"
-            "libgstrtpmanager.dll"
-            "libgstplayback.dll"
-            "libgsttypefindfunctions.dll"
-            "libgstjpeg.dll"
-            "libgstjpegformat.dll"
-            "libgstlibav.dll"
-            "libgstwinks.dll"
-        )
+            PLUGINS=(
+                "libgstcoreelements.dll" "libgstapp.dll" "libgstrtp.dll" "libgstrtpmanager.dll"
+                "libgstudp.dll" "libgstvideoconvert.dll" "libgstvideoconvertscale.dll"
+                "libgstvideoscale.dll" "libgstplayback.dll" "libgsttypefindfunctions.dll"
+                "libgstd3d11.dll" "libgstjpeg.dll" "libgstjpegformat.dll" "libgstlibav.dll"
+                "libgstautodetect.dll" "libgstwic.dll" "libgstqsv.dll" "libgstmsdk.dll"
+                "libgstnvcodec.dll" "libgstamfcodec.dll" "libgstvideoparsersbad.dll"
+                "libgstvideoparsers.dll" "libgstwinks.dll"
+            )
+            CORE_DLLS=(
+                "libgobject-2.0-0.dll" "libglib-2.0-0.dll" "libgio-2.0-0.dll" "libgmodule-2.0-0.dll"
+                "libgstreamer-1.0-0.dll" "libgstbase-1.0-0.dll" "libgstvideo-1.0-0.dll"
+                "libgstpbutils-1.0-0.dll" "libgstapp-1.0-0.dll" "libintl-*.dll" "libffi-*.dll"
+                "libpcre2-8-0.dll" "libgcc_s_seh-1.dll" "libwinpthread-1.dll" "libz-1.dll"
+            )
+            needed_dlls=("${CORE_DLLS[@]}")
+            while IFS= read -r dep; do needed_dlls+=("$dep"); done < <(collect_deps "$DIST_WIN/$EXE_NAME")
 
-        needed_dlls=()
-        while IFS= read -r dep; do
-            needed_dlls+=("$dep")
-        done < <(collect_deps "$DIST_WIN/$EXE_NAME")
-
-        # Core runtime DLLs (safe minimal baseline)
-        CORE_DLLS=(
-            "libgobject-2.0-0.dll"
-            "libglib-2.0-0.dll"
-            "libgio-2.0-0.dll"
-            "libgmodule-2.0-0.dll"
-            "libgstreamer-1.0-0.dll"
-            "libgstbase-1.0-0.dll"
-            "libgstvideo-1.0-0.dll"
-            "libgstpbutils-1.0-0.dll"
-            "libgstapp-1.0-0.dll"
-            "libintl-*.dll"
-            "libffi-*.dll"
-            "libpcre2-8-0.dll"
-            "libgcc_s_seh-1.dll"
-            "libwinpthread-1.dll"
-            "libz-1.dll"
-        )
-        needed_dlls+=("${CORE_DLLS[@]}")
-
-        missing_required_plugins=()
-        for plugin in "${PLUGINS[@]}"; do
-            [ -z "$plugin" ] && continue
-            if [ -f "$GST_ROOT/lib/gstreamer-1.0/$plugin" ]; then
-                cp -L "$GST_ROOT/lib/gstreamer-1.0/$plugin" "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
-                while IFS= read -r dep; do
-                    needed_dlls+=("$dep")
-                done < <(collect_deps "$GST_ROOT/lib/gstreamer-1.0/$plugin")
-            else
-                case " ${REQUIRED_PLUGINS[*]} " in
-                    *" $plugin "*) missing_required_plugins+=("$plugin") ;;
-                esac
-            fi
-        done
-
-        if [ "${#missing_required_plugins[@]}" -gt 0 ]; then
-            echo -e "${RED}❌ Missing required GStreamer plugin(s) in $GST_ROOT/lib/gstreamer-1.0:${NC}"
-            printf '   - %s\n' "${missing_required_plugins[@]}"
-            echo "   Windows camera capture uses ksvideosrc, which is provided by libgstwinks.dll."
-            echo "   Install a GStreamer build with gst-plugins-bad for Windows, then rebuild."
-            exit 1
-        fi
-
-        # unique + copy deps
-        if [ "${#needed_dlls[@]}" -gt 0 ]; then
-            printf "%s\n" "${needed_dlls[@]}" | sort -u | while read -r dll; do
-                case "$dll" in
-                    *'*'*|*'?'*)
-                        while IFS= read -r matched; do
-                            [ -n "$matched" ] && copy_dll_by_name "$matched"
-                        done < <(expand_dll_pattern "$dll")
-                        ;;
-                    *)
-                        copy_dll_by_name "$dll"
-                        ;;
-                esac
+            for plugin in "${PLUGINS[@]}"; do
+                if [ -f "$GST_ROOT/lib/gstreamer-1.0/$plugin" ]; then
+                    cp -L "$GST_ROOT/lib/gstreamer-1.0/$plugin" "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
+                    while IFS= read -r dep; do needed_dlls+=("$dep"); done < <(collect_deps "$GST_ROOT/lib/gstreamer-1.0/$plugin")
+                fi
             done
+
+            printf "%s\n" "${needed_dlls[@]}" | sort -u | while read -r dll; do
+                copy_dll_by_name "$dll"
+            done
+
+            collect_recursive_deps_into "$DIST_WIN" "$DIST_WIN/$EXE_NAME"
+            collect_recursive_deps_into "$DIST_WIN/bin" $(find "$DIST_WIN/lib/gstreamer-1.0" -name "*.dll")
         fi
 
-        root_dep_seeds=("$DIST_WIN/$EXE_NAME")
-        while IFS= read -r root_dll; do
-            root_dep_seeds+=("$root_dll")
-        done < <(find "$DIST_WIN" -maxdepth 1 -type f -iname "*.dll" 2>/dev/null | sort)
-        collect_recursive_deps_into "$DIST_WIN" "${root_dep_seeds[@]}"
-
-        bin_dep_seeds=()
-        while IFS= read -r bin_dll; do
-            bin_dep_seeds+=("$bin_dll")
-        done < <(find "$DIST_WIN/bin" "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" 2>/dev/null | sort)
-        if [ "${#bin_dep_seeds[@]}" -gt 0 ]; then
-            collect_recursive_deps_into "$DIST_WIN/bin" "${bin_dep_seeds[@]}"
-        fi
-
-        GST_PLUGIN_SCANNER_SRC=""
-        for scanner in \
-            "$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner.exe" \
-            "$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner" \
-            "$GST_ROOT/bin/gst-plugin-scanner.exe" \
-            "$GST_ROOT/bin/gst-plugin-scanner"; do
-            if [ -f "$scanner" ]; then
-                GST_PLUGIN_SCANNER_SRC="$scanner"
-                break
-            fi
+        for tool in gst-launch-1.0.exe gst-inspect-1.0.exe; do
+            [ -f "$GST_ROOT/bin/$tool" ] && cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN/bin/"
         done
-
-        if [ -n "$GST_PLUGIN_SCANNER_SRC" ]; then
-            mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
-            cp -L "$GST_PLUGIN_SCANNER_SRC" "$DIST_WIN/libexec/gstreamer-1.0/"
-            echo -e "${GREEN}✓${NC} gst-plugin-scanner ($(basename "$GST_PLUGIN_SCANNER_SRC"))"
-        else
-            echo -e "${YELLOW}⚠${NC} gst-plugin-scanner не найден в $GST_ROOT"
-            echo "   Портативный пакет всё ещё может работать, но часть плагинов может не обнаруживаться без scanner."
-        fi
-
-        for tool in gst-launch-1.0.exe gst-launch-1.0 gst-inspect-1.0.exe gst-inspect-1.0; do
-            if [ -f "$GST_ROOT/bin/$tool" ]; then
-                cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN/bin/"
-                echo -e "${GREEN}✓${NC} $tool"
-            fi
-        done
-
         find "$DIST_WIN/lib/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
-        echo -e "${GREEN}✓${NC} gstreamer-plugins.txt"
-            echo -e "${GREEN}✓${NC} GStreamer минимальный набор (MINIMAL_GST=1)"
-        else
-            if [ -d "$GST_ROOT/bin" ]; then
-                cp -L "$GST_ROOT"/bin/*.dll "$DIST_WIN/bin/" 2>/dev/null || true
-                echo -e "${GREEN}✓${NC} bin/*.dll"
-            fi
-
-            if [ -d "$GST_ROOT/lib/gstreamer-1.0" ]; then
-                mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
-                cp -L "$GST_ROOT/lib/gstreamer-1.0"/*.dll "$DIST_WIN/lib/gstreamer-1.0/" 2>/dev/null || true
-                echo -e "${GREEN}✓${NC} lib/gstreamer-1.0/*.dll"
-            fi
-
-            if [ -d "$GST_ROOT/libexec/gstreamer-1.0" ]; then
-                mkdir -p "$DIST_WIN/libexec/gstreamer-1.0"
-                cp -L "$GST_ROOT/libexec/gstreamer-1.0"/gst-plugin-scanner* "$DIST_WIN/libexec/gstreamer-1.0/" 2>/dev/null || true
-                echo -e "${GREEN}✓${NC} libexec/gstreamer-1.0/gst-plugin-scanner*"
-            fi
-            if [ -d "$GST_ROOT/bin" ]; then
-                cp -L "$GST_ROOT/bin"/gst-launch-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
-                cp -L "$GST_ROOT/bin"/gst-inspect-1.0* "$DIST_WIN/bin/" 2>/dev/null || true
-                echo -e "${GREEN}✓${NC} gst-launch-1.0* / gst-inspect-1.0*"
-            fi
-        fi
-
-        # libintl_setlocale — явная проверка (gettext), критично для glib/GStreamer
-        for libintl in "$GST_ROOT/bin/libintl"*.dll "$GST_ROOT/lib/libintl"*.dll /ucrt64/bin/libintl*.dll /mingw64/bin/libintl*.dll; do
-            if [ -f "$libintl" ]; then
-                cp -L "$libintl" "$DIST_WIN/bin/" 2>/dev/null && cp -L "$libintl" "$DIST_WIN/" 2>/dev/null
-                echo -e "${GREEN}✓${NC} $(basename "$libintl") (libintl_setlocale)"
-                break
-            fi
-        done
-
         printf "%s\n" "$CURRENT_GST_RUNTIME_STAMP" > "$GST_RUNTIME_STAMP_PATH"
         write_gst_runtime_manifest "$GST_RUNTIME_MANIFEST_PATH"
     fi
-else
-    echo -e "${YELLOW}⚠ GStreamer не найден. Проверка путей:${NC}"
-    for cand in "${GST_CANDIDATES[@]}"; do
-        [ -z "$cand" ] && continue
-        if [ ! -d "$cand" ]; then
-            echo "   - $cand — папки нет"
-        elif [ ! -d "$cand/bin" ]; then
-            echo "   - $cand — нет bin/"
-        elif [ ! -d "$cand/lib/gstreamer-1.0" ]; then
-            echo "   - $cand — нет lib/gstreamer-1.0/"
-        else
-            echo "   - $cand — структура есть, но *.dll не найдены"
-        fi
-    done
-    echo ""
-    echo "   Установите GStreamer (MinGW x86_64):"
-    echo "   https://gstreamer.freedesktop.org/download/#windows"
-    echo "   Путь по умолчанию: C:\\gstreamer\\1.0\\mingw_x86_64"
 fi
 
 # 8. README
 cat > "$DIST_WIN/README.txt" << 'README'
 USBridge Client for Windows
 ===========================
-
-Run:
-  USBridge_Client.exe - directly
-
-If the folder contains bin/ and lib/gstreamer-1.0/, the package is portable.
-It uses a minimal GStreamer plugin set.
-
-If GStreamer is not bundled, install GStreamer (MinGW x86_64):
-  https://gstreamer.freedesktop.org/download/#windows
-
-Configuration: config.yaml (in this folder or %APPDATA%\usbridge-client\)
+Run USBridge_Client.exe. GStreamer (MinGW x86_64) must be installed or bundled.
 README
 
-echo -e "${GREEN}✓${NC} README.txt"
-
-# 9. Итог
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_WIN/"
-echo -e "   Содержимое:"
-ls -la "$DIST_WIN/"
-echo ""
-echo -e "   Для запуска на другой машине — скопируйте папку $DIST_WIN целиком."
-echo ""

@@ -2,15 +2,12 @@ package controller
 
 import (
 	"context"
-	"net/url"
 	"strings"
 
-	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
-	"github.com/sirupsen/logrus"
 )
 
 func (cm *ConnectionManager) createInterface() {
@@ -82,21 +79,21 @@ func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {
 	currentLanguage := cm.app.Preferences().StringWithFallback("language", "en")
 	view.ShowStyledMenu(anchor, []view.StyledMenuItem{
 		{
-			Label:    i18n.Current.LanguageEnglish,
+			Label:    "English",
 			Selected: currentLanguage == "en",
 			OnTap: func() {
 				cm.setLanguage("en")
 			},
 		},
 		{
-			Label:    i18n.Current.LanguageSpanish,
+			Label:    "Español",
 			Selected: currentLanguage == "es",
 			OnTap: func() {
 				cm.setLanguage("es")
 			},
 		},
 		{
-			Label:    i18n.Current.LanguageUkrainian,
+			Label:    "Українська",
 			Selected: currentLanguage == "uk" || currentLanguage == "ua",
 			OnTap: func() {
 				cm.setLanguage("uk")
@@ -121,29 +118,6 @@ func (cm *ConnectionManager) openHardwarePromo() {
 	const promoURL = "https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"
 
 	cm.openExternalLink(promoURL, "hardware promo URL")
-}
-
-func (cm *ConnectionManager) openExternalLink(rawURL string, label string) {
-	uri, err := url.Parse(rawURL)
-	if err != nil {
-		logrus.Errorf("failed to parse %s %q: %v", label, rawURL, err)
-		return
-	}
-
-	app := cm.app
-	if app == nil {
-		app = fyne.CurrentApp()
-	}
-	if app == nil {
-		logrus.Errorf("failed to open %s: fyne app is nil", label)
-		return
-	}
-
-	go func() {
-		if err := openExternalURL(app, uri); err != nil {
-			logrus.Errorf("failed to open %s %q: %v", label, rawURL, err)
-		}
-	}()
 }
 
 func (cm *ConnectionManager) refreshConnectionsList() {
@@ -207,7 +181,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 						conn := cm.connections[idx]
 						protocol := normalizeConnectionProtocol(conn.Protocol)
 						host := cm.resolveHostForProtocol(conn, protocol)
-						cm.onConnect(host, conn.Token, protocol, conn.WireGuardInvite, conn.QUICPort, conn.TailscaleRegister)
+						cm.onConnect(host, conn.QUICToken, protocol, conn.QUICPort, conn.TailscaleRegister)
 						return
 					}
 					cm.SetConnectionPending(false)
@@ -233,7 +207,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				cm.saveConnections()
 				// If this is the currently selected connection, update the main check too
 				if cm.selectedIndex == idx && cm.onSelect != nil {
-					cm.onSelect(cm.connections[idx].WireGuardInvite, checked)
+					cm.onSelect(checked)
 				}
 			},
 		},
@@ -258,29 +232,6 @@ func formatConnectionAddressSummary(internalHost, tailscaleHost string) string {
 	return "LAN: " + internalHost + "\nTS: " + tailscaleHost
 }
 
-func (cm *ConnectionManager) GetContainer() *fyne.Container {
-	return cm.ui.Container
-}
-
-func (cm *ConnectionManager) SetLanguageChangeCallback(callback func()) {
-	cm.onLanguageChange = callback
-}
-
 func (cm *ConnectionManager) ShowLanguageMenu(anchor fyne.CanvasObject) {
 	cm.showLanguageMenu(anchor)
-}
-
-func (cm *ConnectionManager) OpenQuickStartDocs() {
-	cm.openQuickStartDocs()
-}
-
-func (cm *ConnectionManager) OpenDiscordInvite() {
-	cm.openDiscordInvite()
-}
-
-func (cm *ConnectionManager) HeaderAccessory() fyne.CanvasObject {
-	if cm == nil || cm.ui == nil {
-		return nil
-	}
-	return cm.ui.HeaderAccessory()
 }

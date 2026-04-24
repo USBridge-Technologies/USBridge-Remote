@@ -1319,3 +1319,18 @@ func (mw *MainWindow) showRNDISModeMenu() {
 
 	view.ShowStyledMenu(mw.rndisIcon, items)
 }
+
+func protocolButtonState(protocol string) (string, color.Color, color.Color) {
+	switch protocol {
+	case models.ConnectionProtocolTailscale:
+		return "tailscale", design.ColorProtocolQUIC, design.ColorBackground
+	case models.ConnectionProtocolQUIC:
+		return "quic", design.ColorProtocolQUIC, design.ColorBackground
+	case "direct":
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
+	case models.ConnectionProtocolAuto:
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
+	default:
+		return "online", design.ColorSurfaceLight, design.ColorTextLight
+	}
+}

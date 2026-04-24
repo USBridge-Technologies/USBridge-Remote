@@ -26,9 +26,9 @@ type QRScanner struct {
 	app    fyne.App
 	window fyne.Window
 
-	onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)
-	onSave    func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool)
-	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, scanned bool)
+	onConnect func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool)
+	onSave    func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool)
+	onPrefill func(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool)
 
 	scanSession       atomic.Uint64
 	scanResultHandled atomic.Bool
@@ -36,9 +36,9 @@ type QRScanner struct {
 
 func NewQRScanner(
 	app fyne.App,
-	onConnect func(host, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool),
-	onSave func(name, internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, tailscaleRegister bool),
-	onPrefill func(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, scanned bool),
+	onConnect func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool),
+	onSave func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool),
+	onPrefill func(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool),
 ) *QRScanner {
 	return &QRScanner{
 		app:       app,
@@ -92,7 +92,7 @@ func (qs *QRScanner) scanQRCode(img image.Image, parent fyne.Window) {
 }
 
 func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
-	internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, err := parseQRContents(qrText)
+	internalHost, tailscaleHost, quicToken, protocol, quicPort, err := parseQRContents(qrText)
 	if err != nil {
 		view.ShowErrorDialog(errors.New(fmt.Sprintf(i18n.Current.InvalidQRFormat, qrText)), parent)
 		return
@@ -107,27 +107,27 @@ func (qs *QRScanner) parseAndApply(qrText string, parent fyne.Window) {
 	fyne.Do(func() {
 		if qs.onPrefill != nil {
 			logrus.Infof("Opening prefilled connection dialog from QR: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
-			qs.onPrefill(internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, true)
+			qs.onPrefill(internalHost, tailscaleHost, quicToken, protocol, quicPort, true)
 			return
 		}
 
-		qs.showPreview(internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, parent)
+		qs.showPreview(internalHost, tailscaleHost, quicToken, protocol, quicPort, parent)
 	})
 }
 
-func parseQRContents(qrText string) (internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, err error) {
+func parseQRContents(qrText string) (internalHost, tailscaleHost, quicToken, protocol string, quicPort int, err error) {
 	qrText = strings.TrimSpace(qrText)
 	if qrText == "" {
-		return "", "", "", "", "", 0, fmt.Errorf("empty QR code")
+		return "", "", "", "", 0, fmt.Errorf("empty QR code")
 	}
 
 	if strings.HasPrefix(qrText, "usbridge://") {
 		u, parseErr := url.Parse(qrText)
 		if parseErr != nil {
-			return "", "", "", "", "", 0, parseErr
+			return "", "", "", "", 0, parseErr
 		}
 		if u.Scheme != "usbridge" || u.Host != "connect" {
-			return "", "", "", "", "", 0, fmt.Errorf("unsupported deep link format")
+			return "", "", "", "", 0, fmt.Errorf("unsupported deep link format")
 		}
 
 		query := u.Query()
@@ -141,42 +141,44 @@ func parseQRContents(qrText string) (internalHost, tailscaleHost, token, protoco
 				internalHost = host
 			}
 		}
-		token = strings.TrimSpace(query.Get("token"))
+		quicToken = strings.TrimSpace(query.Get("quic_token"))
+		if quicToken == "" {
+			quicToken = strings.TrimSpace(query.Get("token"))
+		}
 		protocol = strings.TrimSpace(query.Get("protocol"))
-		wireGuardInvite = strings.TrimSpace(query.Get("wireguard_invite"))
 
 		if query.Get("quic_port") != "" {
 			fmt.Sscanf(query.Get("quic_port"), "%d", &quicPort)
 		}
 
-		if (internalHost != "" || tailscaleHost != "") && (token != "" || wireGuardInvite != "") {
-			return internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, nil
+		if (internalHost != "" || tailscaleHost != "") && quicToken != "" {
+			return internalHost, tailscaleHost, quicToken, protocol, quicPort, nil
 		}
-		return "", "", "", "", "", 0, fmt.Errorf("host or auth data is missing in the link")
+		return "", "", "", "", 0, fmt.Errorf("host or auth data is missing in the link")
 	}
 
 	parts := strings.SplitN(qrText, ":", 2)
 	if len(parts) != 2 {
-		return "", "", "", "", "", 0, fmt.Errorf("expected format host:token or usbridge://connect?host=X&token=Y")
+		return "", "", "", "", 0, fmt.Errorf("expected format host:quic_token or usbridge://connect?host=X&quic_token=Y")
 	}
 
 	host := strings.TrimSpace(parts[0])
-	token = strings.TrimSpace(parts[1])
+	quicToken = strings.TrimSpace(parts[1])
 	if isLikelyTailnetHost(host) {
 		tailscaleHost = host
 	} else {
 		internalHost = host
 	}
-	return internalHost, tailscaleHost, token, "", "", 0, nil
+	return internalHost, tailscaleHost, quicToken, "", 0, nil
 }
 
-func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, wireGuardInvite string, quicPort int, parent fyne.Window) {
+func (qs *QRScanner) showPreview(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, parent fyne.Window) {
 	host := resolveScannedHost(protocol, internalHost, tailscaleHost)
 
-	tokenLabel := widget.NewLabel(i18n.Current.TokenLabel)
-	tokenValue := widget.NewEntry()
-	tokenValue.SetText(token)
-	tokenValue.Disable()
+	quicTokenLabel := widget.NewLabel(i18n.Current.TokenLabel)
+	quicTokenValue := widget.NewEntry()
+	quicTokenValue.SetText(quicToken)
+	quicTokenValue.Disable()
 
 	infoLabel := widget.NewLabel(i18n.Current.ScanSuccess)
 	infoLabel.Wrapping = fyne.TextWrapWord
@@ -188,7 +190,7 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, w
 			d.Hide()
 		}
 		if qs.onSave != nil {
-			qs.onSave(host, internalHost, tailscaleHost, token, protocol, wireGuardInvite, quicPort, false)
+			qs.onSave("", internalHost, tailscaleHost, quicToken, protocol, quicPort, false)
 			logrus.Infof("QR saved: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
 		}
 	})
@@ -199,7 +201,7 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, w
 			d.Hide()
 		}
 		if qs.onConnect != nil {
-			qs.onConnect(host, token, protocol, wireGuardInvite, quicPort, false)
+			qs.onConnect(host, quicToken, protocol, quicPort, false)
 			logrus.Infof("QR connect: host=%s quicPort=%d", host, quicPort)
 		}
 	})
@@ -220,8 +222,8 @@ func (qs *QRScanner) showPreview(internalHost, tailscaleHost, token, protocol, w
 			disabledPreviewEntry(internalHost),
 			widget.NewLabel("Tailscale Address"),
 			disabledPreviewEntry(tailscaleHost),
-			tokenLabel,
-			tokenValue,
+			quicTokenLabel,
+			quicTokenValue,
 		),
 		buttons,
 		nil, nil, nil,
@@ -253,7 +255,7 @@ func resolveScannedHost(protocol, internalHost, tailscaleHost string) string {
 }
 
 func ShowTestQRCode(parent fyne.Window) {
-	qrText := "192.168.88.244:supersecret"
+	qrText := "192.168.88.244:secret"
 
 	info := widget.NewLabel(fmt.Sprintf(i18n.Current.QRExampleText, qrText))
 	info.Wrapping = fyne.TextWrapWord

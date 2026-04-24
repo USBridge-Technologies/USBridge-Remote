@@ -3,7 +3,9 @@ package controller
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -138,7 +140,7 @@ func currentVideoInfoDevice(info *models.VideoInfoData) []models.SystemDevice {
 		return nil
 	}
 	path := strings.TrimSpace(info.Device)
-	if !strings.HasPrefix(path, "/dev/video") {
+	if path == "" {
 		return nil
 	}
 
@@ -342,28 +344,38 @@ func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
 		devices, err := vw.GetAvailableVideoDevices()
 		if err != nil {
 			logrus.Warnf("⚠️ cannot load available video devices: %v", err)
-			return
+			// Continue with fallback below
 		}
 
-		for _, device := range devices {
-			if device.Path != devicePath {
-				continue
+		var selectedDevice *models.SystemDevice
+		for i := range devices {
+			if devices[i].Path == devicePath {
+				selectedDevice = &devices[i]
+				break
 			}
-			cfg := loadSavedVideoDeviceConfig(device.Path, device.Name)
-			cfg.DevicePath = device.Path
-			cfg.DeviceName = device.Name
-			if !hasSavedVideoDeviceConfig(device.Path) {
-				if info, err := getVideoInfoData(vw.usbClient); err == nil && info != nil && info.Device == device.Path {
-					cfg = mergeVideoConfigWithInfo(cfg, info)
-				}
-			}
-			if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
-				logrus.Warnf("⚠️ cannot start selected video device %s: %v", devicePath, err)
-			}
-			return
 		}
 
-		logrus.Warnf("⚠️ selected video device not found: %s", devicePath)
+		var cfg models.VideoDeviceConfig
+		var deviceName string
+		if selectedDevice != nil {
+			deviceName = selectedDevice.Name
+			cfg = loadSavedVideoDeviceConfig(selectedDevice.Path, selectedDevice.Name)
+		} else {
+			deviceName = filepath.Base(devicePath)
+			cfg = loadSavedVideoDeviceConfig(devicePath, deviceName)
+		}
+
+		cfg.DevicePath = devicePath
+		cfg.DeviceName = deviceName
+
+		if !hasSavedVideoDeviceConfig(devicePath) {
+			if info, err := getVideoInfoData(vw.usbClient); err == nil && info != nil && info.Device == devicePath {
+				cfg = mergeVideoConfigWithInfo(cfg, info)
+			}
+		}
+		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
+			logrus.Warnf("⚠️ cannot start selected video device %s: %v", devicePath, err)
+		}
 	}()
 }
 
@@ -383,14 +395,17 @@ func (vw *VideoWidget) ShowCurrentVideoSettings(showFullscreen bool) {
 
 func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply bool, showFullscreen bool) {
 	if vw.usbClient == nil || vw.parentWindow == nil {
+		logrus.Warn("⚠️ cannot show video settings: usbClient or parentWindow is nil")
 		return
 	}
+
+	logrus.Infof("⚙️ opening video settings for device: %s", devicePath)
 
 	go func() {
 		devices, err := vw.GetAvailableVideoDevices()
 		if err != nil {
 			logrus.Warnf("⚠️ failed to load video devices: %v", err)
-			return
+			// Continue with fallback
 		}
 
 		var device models.SystemDevice
@@ -400,8 +415,15 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 				break
 			}
 		}
+
+		if device.Path == "" && devicePath != "" {
+			device.Path = devicePath
+			device.Name = filepath.Base(devicePath)
+			device.Description = i18n.Current.CaptureDevice
+		}
+
 		if device.Path == "" {
-			logrus.Warnf("⚠️ video device %s not found", devicePath)
+			logrus.Warnf("⚠️ video device %s not found and path is empty", devicePath)
 			return
 		}
 
@@ -412,9 +434,39 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 		info := vw.fetchVideoInfoForStartDialog(device.Path)
 		if info != nil && info.Device == device.Path {
 			cfg = mergeVideoConfigWithInfo(cfg, info)
+		} else if strings.HasPrefix(device.Path, "display:") {
+			// Try to parse resolution from name like "Display 0 (1920x1080)"
+			w, h := 1920, 1080
+			re := regexp.MustCompile(`\((\d+)x(\d+)\)`)
+			matches := re.FindStringSubmatch(device.Name)
+			if len(matches) == 3 {
+				if parsedW, err := strconv.Atoi(matches[1]); err == nil {
+					w = parsedW
+				}
+				if parsedH, err := strconv.Atoi(matches[2]); err == nil {
+					h = parsedH
+				}
+			}
+
+			if info == nil {
+				info = &models.VideoInfoData{
+					VideoStatus: models.VideoStatus{
+						Device: device.Path,
+						Width:  w,
+						Height: h,
+						FPS:    30,
+					},
+				}
+			}
+			// Update cfg if it was default
+			if cfg.VideoWidth <= 0 || cfg.VideoHeight <= 0 {
+				cfg.VideoWidth = w
+				cfg.VideoHeight = h
+			}
 		}
 
 		fyne.Do(func() {
+			logrus.Infof("📦 showing video start dialog for %s", device.Path)
 			if vw.startDialog == nil {
 				vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
 			}
@@ -436,6 +488,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 					VideoBitrate: request.VideoBitrate,
 					VideoMode:    request.VideoMode,
 				}
+				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
 				if err := vw.applyVideoDeviceConfig(applied, restartOnApply); err != nil {
 					logrus.Warnf("⚠️ failed to apply video config: %v", err)
 					fyne.Do(func() {

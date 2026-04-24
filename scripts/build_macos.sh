@@ -32,7 +32,6 @@ APP_CONTENTS_DIR="$DIST_DIR/$APP_BUNDLE_NAME/Contents"
 APP_MACOS_DIR="$APP_CONTENTS_DIR/MacOS"
 APP_RESOURCES_DIR="$APP_CONTENTS_DIR/Resources"
 BINARY_NAME="$OUTPUT_NAME"
-HELPER_NAME="USBridgeWireGuardHelper"
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -125,15 +124,10 @@ rm -rf "$DIST_DIR"
 mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR"
 APP_BINARY_PATH="$APP_MACOS_DIR/$BINARY_NAME"
 go build -ldflags="-s -w" -o "$APP_BINARY_PATH" ./cmd
-HELPER_TMP="$(mktemp "/tmp/${HELPER_NAME}.XXXXXX")"
-go build -ldflags="-s -w" -o "$HELPER_TMP" ./cmd/wghelper
-cp "$HELPER_TMP" "$APP_RESOURCES_DIR/$HELPER_NAME"
-rm -f "$HELPER_TMP"
 
 # Добавляем стабильные rpath к Homebrew lib, чтобы .app запускался напрямую из Finder.
 ensure_rpath "$APP_BINARY_PATH" "/opt/homebrew/lib"
 ensure_rpath "$APP_BINARY_PATH" "/usr/local/lib"
-chmod +x "$APP_RESOURCES_DIR/$HELPER_NAME"
 
 chmod +x "$APP_BINARY_PATH"
 
