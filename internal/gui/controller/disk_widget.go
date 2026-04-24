@@ -67,6 +67,7 @@ type DiskWidget struct {
 	devicesRefreshQueued  atomic.Bool
 	userOperationInFlight atomic.Bool
 	apiMountInProgress    atomic.Bool
+	imagePickerInFlight   atomic.Bool
 	refreshMu             sync.Mutex
 	lastDevicesRefresh    time.Time
 

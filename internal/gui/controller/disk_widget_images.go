@@ -48,10 +48,26 @@ func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 
 // handleAddImage обрабатывает добавление образа диска из файловой системы.
 func (dw *DiskWidget) handleAddImage() {
+	if !dw.imagePickerInFlight.CompareAndSwap(false, true) {
+		logrus.Debug("image picker already in flight, skipping overlapping request")
+		return
+	}
+	defer func() {
+		// Reset flag after a short delay to ensure any double-clicks are ignored
+		// but allowing the user to try again after the dialog is shown/handled.
+		if runtime.GOOS != "windows" {
+			go func() {
+				time.Sleep(1 * time.Second)
+				dw.imagePickerInFlight.Store(false)
+			}()
+		}
+	}()
+
 	fmt.Printf("🚀 [HANDLE-ADD-IMAGE] ENTER, GOOS=%s\n", runtime.GOOS)
 	logrus.Infof("🚀 [HANDLE-ADD-IMAGE] ENTER, GOOS=%s", runtime.GOOS)
 	if dw.window == nil {
 		logrus.Warn("⚠️ Окно не установлено")
+		dw.imagePickerInFlight.Store(false)
 		return
 	}
 
@@ -76,6 +92,7 @@ func (dw *DiskWidget) handleAddImage() {
 		dw.setUserOperationInFlight(true)
 		busyPopup := view.ShowBusyDialog(i18n.Current.SelectDiskImage, "Use the Windows file dialog to choose a disk image.", dw.window)
 		go func() {
+			defer dw.imagePickerInFlight.Store(false)
 			selected, ok := dw.showPlatformNativeImagePicker()
 			fyne.Do(func() {
 				if busyPopup != nil {
