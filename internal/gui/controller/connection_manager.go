@@ -442,7 +442,12 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 	} else if status.Self.DNSName != "" {
 		address = status.Self.DNSName
 	}
-	loginText := fallbackText(status.Self.UserLogin, "connected")
+	loginText := "disconnected"
+	if status.Self.UserLogin != "" {
+		loginText = status.Self.UserLogin
+	} else if status.LoggedIn {
+		loginText = "connected"
+	}
 
 	// Use raw state string from backend (Running, NeedsLogin, etc.) for easier recognition in View
 	header := fmt.Sprintf("Tailscale: %s", status.Backend)

@@ -736,9 +736,9 @@ func summarizeTailscaleState(status, _ string) (bool, bool) {
 	raw := strings.ToLower(strings.TrimSpace(status))
 
 	switch {
-	case strings.Contains(raw, "signed out"), strings.Contains(raw, "not connected"):
+	case strings.Contains(raw, "signed out"), strings.Contains(raw, "not connected"), strings.Contains(raw, "needslogin"), strings.Contains(raw, "loggedout"):
 		return false, false
-	case strings.Contains(raw, "starting"), strings.Contains(raw, "signing"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"), strings.Contains(raw, "needslogin"):
+	case strings.Contains(raw, "starting"), strings.Contains(raw, "signing"), strings.Contains(raw, "browser opened"), strings.Contains(raw, "auth url"), strings.Contains(raw, "checking"):
 		return false, true
 	case strings.Contains(raw, "stopped"), strings.Contains(raw, "no state"), strings.Contains(raw, "login failed"):
 		return false, false

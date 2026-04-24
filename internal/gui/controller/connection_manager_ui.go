@@ -8,6 +8,7 @@ import (
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
+	"github.com/sirupsen/logrus"
 )
 
 func (cm *ConnectionManager) createInterface() {
@@ -51,8 +52,18 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	}
 
 	cm.ts.SetUserspace(userspace)
-	// Status() will not start tsnet if server hasn't been explicitly started
-	cm.refreshTailscaleStatus()
+	
+	if cm.config.TailscaleEnabled {
+		go func() {
+			if err := cm.ts.Start(context.Background()); err != nil {
+				logrus.Errorf("Failed to auto-start Tailscale: %v", err)
+			}
+			cm.refreshTailscaleStatus()
+		}()
+	} else {
+		// Status() will not start tsnet if server hasn't been explicitly started
+		cm.refreshTailscaleStatus()
+	}
 }
 
 func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {

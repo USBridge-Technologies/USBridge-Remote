@@ -678,7 +678,7 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
-		Ephemeral: true, 
+		Ephemeral: false, // Set to false to persist authorization across restarts
 	}
 
 	logrus.Info("🛰️ [Tailscale] Starting tsnet server...")
