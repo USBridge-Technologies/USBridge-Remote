@@ -225,52 +225,61 @@ func (vw *VideoWidget) handleStopVideo() {
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	// Выполняем напрямую в очереди, минуя beginVideoOperation-guard,
-	// чтобы не застрять если handleStartVideo-горутина ещё держит флаг.
-	vw.runVideoOpSync("stop-video-sync", func() {
-		// Убираем проверку if !vw.isStreaming, чтобы гарантированно очистить все зависшие
-		// состояния GStreamer и Tailscale, если пользователь отключается до конца инициализации.
-		if vw.usbClient != nil {
-			vw.stopVideoInternal()
-		} else {
-			// Клиент уже ушёл — чистим только локальное состояние
-			vw.isStreaming = false
-			vw.isGStreamerConnected = false
-			vw.isMouseConnected = false
-			vw.clearVideo()
-			fyne.Do(func() { vw.updateButtons() })
-			vw.updateStatus()
-		}
-	})
-	return nil
-}
+	
+	// Используем таймаут для синхронной операции, чтобы не повесить вызывающий поток (lifecycle loop)
+	done := make(chan struct{})
+	go func() {
+		vw.runVideoOpSync("stop-video-sync", func() {
+			if vw.usbClient != nil {
+				vw.stopVideoInternal()
+			} else {
+				// Клиент уже ушёл — чистим только локальное состояние
+				vw.isStreaming = false
+				vw.isGStreamerConnected = false
+				vw.isMouseConnected = false
+				vw.clearVideo()
+				fyne.Do(func() { 
+					if vw.statusLabel != nil {
+						vw.statusLabel.SetText(i18n.Current.VideoStopped)
+					}
+					vw.updateButtons() 
+				})
+				vw.updateStatus()
+			}
+		})
+		close(done)
+	}()
 
-func (vw *VideoWidget) waitForVideoOperation(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		vw.videoOpMu.Lock()
-		running := vw.videoOpRunning
-		vw.videoOpMu.Unlock()
-		if !running {
-			return nil
+	select {
+	case <-done:
+		return nil
+	case <-time.After(4 * time.Second):
+		logrus.Warn("⚠️ StopVideoSync timed out, forcing local cleanup")
+		vw.isStreaming = false
+		vw.isGStreamerConnected = false
+		if vw.gstreamerService != nil {
+			_ = vw.gstreamerService.Disconnect()
 		}
-		time.Sleep(25 * time.Millisecond)
+		return fmt.Errorf("stop video timeout")
 	}
-	return fmt.Errorf("timed out waiting for video operation")
 }
 
 func (vw *VideoWidget) stopVideoInternal() {
-
+	logrus.Info("🛑 [VideoWidget] Internal stop starting...")
+	
 	fyne.Do(func() {
-		vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
+		if vw.statusLabel != nil {
+			vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
+		}
 	})
 	resetVideoInfoCache()
 
-	vw.usbClient.DisconnectMouseWebSocket()
-
-	// Сначала говорим серверу СТОП, чтобы он перестал слать пакеты
-	if err := vw.usbClient.StopVideo(); err != nil {
-		logrus.Warnf("⚠️ Failed to stop video on the server: %v (ignoring because it may already be stopped)", err)
+	if vw.usbClient != nil {
+		vw.usbClient.DisconnectMouseWebSocket()
+		// Сначала говорим серверу СТОП, чтобы он перестал слать пакеты
+		if err := vw.usbClient.StopVideo(); err != nil {
+			logrus.Warnf("⚠️ Failed to stop video on the server: %v", err)
+		}
 	}
 
 	if vw.gstreamerService != nil {
@@ -294,11 +303,13 @@ func (vw *VideoWidget) stopVideoInternal() {
 
 	fyne.Do(func() {
 		vw.updateButtons()
-		vw.statusLabel.SetText(i18n.Current.VideoStopped)
+		if vw.statusLabel != nil {
+			vw.statusLabel.SetText(i18n.Current.VideoStopped)
+		}
 	})
 
 	vw.updateStatus()
-	logrus.Info("🛑 Video capture stopped")
+	logrus.Info("✅ [VideoWidget] Internal stop complete")
 }
 
 func isConnectedStorageDevice(device models.DeviceInfo) bool {

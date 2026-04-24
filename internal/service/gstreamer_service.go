@@ -147,20 +147,37 @@ func (gs *GStreamerService) readLoop() {
 		}
 	}
 }
-
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
-	if !gs.running { return nil }
+
+	if gs.cmd == nil {
+		gs.running = false
+		return nil
+	}
+
+	logrus.Info("🛑 [GStreamer] Stopping pipeline...")
 	gs.running = false
-	if gs.stopChan != nil { close(gs.stopChan) }
+
+	if gs.stopChan != nil {
+		select {
+		case <-gs.stopChan:
+			// already closed
+		default:
+			close(gs.stopChan)
+		}
+	}
+
 	if gs.cmd != nil && gs.cmd.Process != nil {
 		_ = gs.cmd.Process.Kill()
 		_ = gs.cmd.Wait()
+		gs.cmd = nil
+		gs.stdout = nil
 	}
-	gs.cmd = nil
-	gs.stdout = nil
-	if gs.onStateChanged != nil { gs.onStateChanged("disconnected") }
+
+	if gs.onStateChanged != nil {
+		gs.onStateChanged("null")
+	}
 	return nil
 }
 

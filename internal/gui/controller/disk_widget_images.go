@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -88,9 +89,17 @@ func (dw *DiskWidget) handleAddImage() {
 		return
 	}
 
-	if runtime.GOOS == "windows" {
+	isDesktop := runtime.GOOS == "windows" || runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+
+	if isDesktop {
 		dw.setUserOperationInFlight(true)
-		busyPopup := view.ShowBusyDialog(i18n.Current.SelectDiskImage, "Use the Windows file dialog to choose a disk image.", dw.window)
+		// On non-Windows we don't show a busy dialog because osascript/zenity don't block the same way
+		// or they are fast enough to show their own UI immediately.
+		var busyPopup *widget.PopUp
+		if runtime.GOOS == "windows" {
+			busyPopup = view.ShowBusyDialog(i18n.Current.SelectDiskImage, "Use the system file dialog to choose a disk image.", dw.window)
+		}
+
 		go func() {
 			defer dw.imagePickerInFlight.Store(false)
 			selected, ok := dw.showPlatformNativeImagePicker()
@@ -303,6 +312,13 @@ func (dw *DiskWidget) checkStoragePermission() bool {
 
 	logrus.Warn("⚠️ Нет доступа к хранилищу на Android")
 	return false
+}
+
+func (dw *DiskWidget) pickerTitle() string {
+	if i18n.Current != nil && strings.TrimSpace(i18n.Current.SelectDiskImage) != "" {
+		return i18n.Current.SelectDiskImage
+	}
+	return "Select disk image"
 }
 
 // convertAndroidURIToPath конвертирует Android document URI в реальный путь файла.

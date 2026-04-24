@@ -3,12 +3,15 @@ package gui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"net"
 	"net/url"
 	"strings"
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
@@ -256,6 +259,17 @@ func (mw *MainWindow) handleConnectionToggle() {
 	}
 
 	if mw.isConnected {
+		// Immediately provide visual feedback
+		if mw.mainExitBtn != nil {
+			mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
+				Disabled:      true,
+				Fill:          design.ColorSurfaceLight,
+				Foreground:    design.ColorTextLight,
+				Stroke:        color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
+				StrokeWidth:   1.2,
+				SpinnerFrames: assets.LoadingGrayFrames,
+			})
+		}
 		mw.isConnectionPending.Store(true)
 		mw.refreshConnectionControls()
 		mw.enqueueLifecycleOp("disconnect", func() {
@@ -808,75 +822,54 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 
 // handleDisconnect обрабатывает отключение
 func (mw *MainWindow) handleDisconnect() {
-	logrus.Infof("[shutdown] handleDisconnect: start connected=%v frp_running=%v", mw.isConnected, mw.frpService != nil && mw.frpService.IsRunning())
+	logrus.Infof("[shutdown] handleDisconnect: start connected=%v", mw.isConnected)
 
-	// Сразу сбрасываем состояние, чтобы прервать фоновые Refresh циклы
+	// Копируем ссылки для фоновой очистки
+	client := mw.usbClient
+	video := mw.videoWidget
+	backup := mw.backupWidget
+	frp := mw.frpService
+	nbd := mw.nbdServer
+
+	// 1. Немедленно сбрасываем состояние
 	mw.isConnected = false
 	mw.isStreaming = false
-	mw.connectionLossInProgress.Store(false)
-
-	if mw.videoWidget != nil {
-		logrus.Info("🛑 Stopping video before disconnect...")
-		_ = mw.videoWidget.StopVideoSync()
-		mw.videoWidget.Close() // Останавливаем фоновые опросы после завершения стопа
-	}
-
-	if mw.backupWidget != nil {
-		mw.backupWidget.Close() // Останавливаем фоновые опросы
-	}
-
-	// Выполняем сетевое завершение в фоне с таймаутом, чтобы не вешать UI
-	if mw.usbClient != nil {
-		client := mw.usbClient
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logrus.Errorf("🔥 PANIC in remote resource cleanup: %v", r)
-				}
-			}()
-			logrus.Info("[shutdown] Remote resource cleanup...")
-			_ = client.StopAllDevices()
-			client.Disconnect()
-		}()
-	}
-
-	if mw.nbdServer.IsRunning() {
-		logrus.Info("[shutdown] stopping NBD server")
-		if err := mw.nbdServer.Stop(); err != nil {
-			logrus.Errorf("Failed to stop NBD server: %v", err)
-		}
-	}
-
-	if mw.frpService != nil {
-		if mw.frpService.IsRunning() {
-			logrus.Info("[shutdown] stopping FRP service")
-			_ = mw.frpService.Disconnect()
-		}
-		mw.frpService = nil
-	}
-
 	mw.connectedProtocol = ""
 	mw.activeQUICToken = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false
+	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
-	// Все операции с UI переносим в поток Fyne
+	// 2. Немедленно обновляем UI (уходим на экран логина)
 	fyne.Do(func() {
+		mw.showConnectionManager()
+		if mw.mainExitBtn != nil {
+			mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
+				Fill:        design.ColorSurfaceLight,
+				Foreground:  design.ColorTextLight,
+				Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
+				StrokeWidth: 1.2,
+				Icon:        assets.ExitIcon,
+				IconSize:    fyne.NewSize(24, 24),
+			})
+		}
+		
 		if mw.diskWidget != nil {
 			mw.diskWidget.UpdateClient(nil)
 			mw.diskWidget.SetFRPService(nil)
 		}
-		if mw.videoWidget != nil {
-			mw.videoWidget.UpdateClient(nil)
-			mw.videoWidget.SetFRPService(nil)
+		if video != nil {
+			video.UpdateClient(nil)
+			video.SetFRPService(nil)
 		}
-		if mw.backupWidget != nil {
-			mw.backupWidget.UpdateClient(nil)
+		if backup != nil {
+			backup.UpdateClient(nil)
 		}
 
 		mw.usbClient = nil
+		mw.frpService = nil
 
 		mw.clearConnectionPending()
 		mw.refreshConnectionControls()
@@ -893,10 +886,48 @@ func (mw *MainWindow) handleDisconnect() {
 			mw.hostEntry.Enable()
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
-			mw.showConnectionManager()
 		}
+		
+		mw.updateStatusBar()
 	})
-	logrus.Infof("[shutdown] handleDisconnect: completed")
+
+	// 3. Выполняем тяжелую работу в ФОНЕ
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Errorf("🔥 PANIC in background disconnect cleanup: %v", r)
+			}
+			logrus.Info("✅ [shutdown] Background disconnect cleanup complete")
+		}()
+
+		logrus.Info("⏳ [shutdown] Background cleanup starting...")
+
+		if video != nil {
+			logrus.Info("🛑 [shutdown] Stopping video...")
+			_ = video.StopVideoSync()
+			video.Close() 
+		}
+
+		if backup != nil {
+			backup.Close()
+		}
+
+		if client != nil {
+			logrus.Info("🛑 [shutdown] Stopping remote devices...")
+			_ = client.StopAllDevices()
+			client.Disconnect()
+		}
+
+		if nbd != nil && nbd.IsRunning() {
+			logrus.Info("🛑 [shutdown] Stopping NBD server...")
+			_ = nbd.Stop()
+		}
+
+		if frp != nil && frp.IsRunning() {
+			logrus.Info("🛑 [shutdown] Stopping FRP service...")
+			_ = frp.Disconnect()
+		}
+	}()
 }
 
 // handleRefresh обрабатывает обновление

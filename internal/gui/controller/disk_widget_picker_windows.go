@@ -9,8 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"usbridge-client/internal/gui/i18n"
-
 	"fyne.io/fyne/v2/storage"
 	"github.com/sirupsen/logrus"
 )
@@ -61,9 +59,3 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 	}, true
 }
 
-func (dw *DiskWidget) pickerTitle() string {
-	if strings.TrimSpace(i18n.Current.SelectDiskImage) != "" {
-		return i18n.Current.SelectDiskImage
-	}
-	return "Select disk image"
-}
