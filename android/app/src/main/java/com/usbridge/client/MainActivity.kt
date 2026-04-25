@@ -14,6 +14,8 @@ import android.util.Log
 import android.view.MotionEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.golang.app.GoNativeActivity
 import java.net.NetworkInterface
 import java.util.concurrent.CountDownLatch
@@ -154,7 +156,18 @@ class MainActivity : GoNativeActivity() {
             val screenHeight = decorView.height
             if (screenHeight == 0) return@addOnGlobalLayoutListener
 
-            val imeHeight = (screenHeight - rect.bottom).coerceAtLeast(0)
+            val visibleImeHeight = (screenHeight - rect.bottom).coerceAtLeast(0)
+
+            // В edge-to-edge / fullscreen режиме getWindowVisibleDisplayFrame не учитывает
+            // навигационный бар (окно занимает весь экран). Получаем его высоту через WindowInsets,
+            // чтобы тулбар с кнопками всегда поднимался над видимым навбаром.
+            val navBarHeight = ViewCompat.getRootWindowInsets(decorView)
+                ?.getInsets(WindowInsetsCompat.Type.navigationBars())
+                ?.bottom ?: 0
+
+            // Используем максимум: IME-высота или высота навбара.
+            // Это гарантирует корректный отступ как в обычном, так и в fullscreen edge-to-edge режиме.
+            val imeHeight = maxOf(visibleImeHeight, navBarHeight)
 
             // Проверяем язык всегда, когда клавиатура открыта,
             // так как переключение раскладки может не менять высоту окна.
@@ -163,12 +176,12 @@ class MainActivity : GoNativeActivity() {
             }
 
             if (imeHeight != lastImeHeightPx) {
-                val wasVisible = lastImeHeightPx > 0
+                val wasKeyboardVisible = lastImeHeightPx > navBarHeight
                 val isInitialLayout = lastImeHeightPx < 0
                 lastImeHeightPx = imeHeight
-                Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight screenHeight=$screenHeight")
+                Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight (visible=$visibleImeHeight, navBar=$navBarHeight) screenHeight=$screenHeight")
 
-                if (imeHeight == 0 && wasVisible) {
+                if (visibleImeHeight == 0 && wasKeyboardVisible) {
                     // IME только что скрылась (пользователь нажал ↓ или кнопку сворачивания).
                     // Синхронизируем состояние GoNativeActivity: keyboardUp=false и textEdit=GONE.
                     // Без этого: кнопка "Назад" видит keyboardUp=true и не выходит из fullscreen;
