@@ -413,6 +413,7 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	)
 	body := container.NewVBox(bodyObjects...)
 	scroll := container.NewVScroll(body)
+	scroll.SetMinSize(body.MinSize())
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
