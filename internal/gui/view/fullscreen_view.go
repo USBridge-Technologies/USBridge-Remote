@@ -1,6 +1,8 @@
 package view
 
 import (
+	"image/color"
+
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 
@@ -26,10 +28,13 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 	// Оборачиваем keyboardLayout в ThemeOverride, чтобы кнопки гарантированно были в темной теме
 	themedKeyboard := container.NewThemeOverride(keyboardLayout, design.NewBrandTheme())
 
+	bg := canvas.NewRectangle(color.Black)
+
 	// Используем Stack, чтобы кнопки ГАРАНТИРОВАННО были поверх видео.
 	// Мы используем BorderLayout только для того, чтобы прижать keyboardLayout к низу,
 	// но сам этот контейнер не ограничивает видео.
 	mainContent := container.NewStack(
+		bg,
 		videoContainer,
 		container.NewBorder(nil, themedKeyboard, nil, nil),
 	)

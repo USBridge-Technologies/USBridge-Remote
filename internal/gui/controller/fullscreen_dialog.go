@@ -348,13 +348,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		if !fd.isFullscreen || fd.fullscreenWindow == nil || fd.touchpadWrapper == nil {
 			return
 		}
-		// На десктопе фокусируемся автоматически, на мобилках фокус управляется системно
-		if !fyne.CurrentDevice().IsMobile() {
-			fyne.Do(func() {
-				fd.fullscreenWindow.RequestFocus()
-				fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
-			})
-		}
+		// На десктопе и на мобилках фокус на touchpad нужен для перехвата кнопки "Назад" без первого тапа.
+		fyne.Do(func() {
+			fd.fullscreenWindow.RequestFocus()
+			fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
+		})
 	}()
 }
 
