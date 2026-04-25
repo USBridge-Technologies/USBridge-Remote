@@ -549,7 +549,7 @@ func (l *sectionCardWithAttachmentLayout) MinSize(objects []fyne.CanvasObject) f
 
 func NewDevicesListView(buildIntro func() fyne.CanvasObject, buildRows func() []fyne.CanvasObject) *DevicesListView {
 	content := container.NewVBox()
-	scroll := container.NewVScroll(NewInset(content, 0, 6, 0, 0))
+	scroll := container.NewVScroll(NewInset(content, 6, 6, 0, 0))
 	return &DevicesListView{
 		Scroll:     scroll,
 		content:    content,
