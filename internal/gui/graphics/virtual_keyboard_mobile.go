@@ -415,9 +415,4 @@ func (vk *VirtualKeyboard) ResetIMEState() {
 	}
 	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
 	vk.setIMEOffset(0)
-}
-)
-}
-�а)")
-	vk.setIMEOffset(0)
-}
+	}
