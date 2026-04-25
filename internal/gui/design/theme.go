@@ -69,7 +69,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameMenuBackground:
 		return ColorGray950
 	case fynetheme.ColorNameOverlayBackground:
-		return ColorGray950
+		return color.Transparent
 	case fynetheme.ColorNamePlaceHolder:
 		return ColorTextMuted
 	case fynetheme.ColorNamePressed:
@@ -107,6 +107,8 @@ func (t *BrandTheme) Size(name fyne.ThemeSizeName) float32 {
 	switch name {
 	case fynetheme.SizeNameInputRadius, fynetheme.SizeNameSelectionRadius, fynetheme.SizeNameWindowButtonRadius:
 		return RadiusMD
+	case fynetheme.SizeNameInnerPadding:
+		return 0
 	}
 	return t.fallback.Size(name)
 }
