@@ -301,7 +301,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	const dpadSize = 28
 	ph := func() fyne.CanvasObject {
-		r := canvas.NewRectangle(theme.BackgroundColor())
+		r := canvas.NewRectangle(design.ColorGray950)
 		r.Resize(fyne.NewSize(dpadSize, dpadSize))
 		return r
 	}
@@ -414,5 +414,8 @@ func (vk *VirtualKeyboard) ResetIMEState() {
 		return
 	}
 	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
+	vk.setIMEOffset(0)
+	}
+а)")
 	vk.setIMEOffset(0)
 	}
