@@ -12,7 +12,8 @@
       "Bash(git stash *)",
       "Bash(git push *)",
       "Bash(git checkout *)",
-      "Bash(grep -E \"\\\\.\\(dart|yaml\\)$\")"
+      "Bash(grep -E \"\\\\.\\(dart|yaml\\)$\")",
+      "Bash(grep -rn \"VirtualKeyboard\\\\|virtualKeyboard\\\\|NewVirtualKeyboard\\\\|keyboard\" /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen_dialog*.go)"
     ]
   }
 }

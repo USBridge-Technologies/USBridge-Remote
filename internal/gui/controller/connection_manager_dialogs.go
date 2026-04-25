@@ -424,9 +424,14 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 		border,
 	)
 
+	dimColor := color.Color(color.Transparent)
+	if fyne.CurrentDevice().IsMobile() {
+		dimColor = design.ColorGray950
+	}
+
 	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
 		Panel:    panel,
-		DimColor: color.Transparent, // No more gray/dim background
+		DimColor: dimColor,
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
