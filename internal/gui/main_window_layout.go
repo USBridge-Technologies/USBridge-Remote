@@ -425,7 +425,11 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
-	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, view.MobileFooterBottomInset(36))
+	bottomInset := float32(0)
+	if fyne.CurrentDevice().IsMobile() {
+		bottomInset = 36
+	}
+	bar := view.NewInset(container.NewCenter(mw.deviceButtonsPanel), 6, 8, 2, bottomInset)
 	mw.deviceFooterBar = bar
 	mw.deviceFooterBar.Hide()
 	return bar

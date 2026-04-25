@@ -3,6 +3,7 @@
 package graphics
 
 import (
+	"image/color"
 	"strings"
 	"sync"
 	"time"
@@ -254,7 +255,21 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	fCol1 := makeFColumn(f1_12_Labels, f1_12_Codes)
 	fCol2 := makeFColumn(f13_24_Labels, f13_24_Codes)
-	fPopupContent := container.NewHBox(fCol1, fCol2)
+	fPopupBody := container.NewHBox(fCol1, fCol2)
+	fPopupBG := canvas.NewRectangle(design.ColorGray900)
+	fPopupBG.CornerRadius = design.RadiusMD
+	fPopupBorder := canvas.NewRectangle(color.Transparent)
+	fPopupBorder.CornerRadius = design.RadiusMD
+	fPopupBorder.StrokeColor = design.ColorBorder
+	fPopupBorder.StrokeWidth = 1
+	fPopupContent := container.NewThemeOverride(
+		container.NewStack(
+			fPopupBG,
+			view.NewInset(fPopupBody, 8, 8, 8, 8),
+			fPopupBorder,
+		),
+		design.NewBrandTheme(),
+	)
 	fBtn := widget.NewButton("Fx", nil)
 	fBtn.OnTapped = func() {
 		if vk.parentWindow == nil {
@@ -352,7 +367,10 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	paddedMain := view.NewInset(main, 4, 4, 4, 4)
 	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
-	return container.NewStack(background, innerLayout)
+	return container.NewThemeOverride(
+		container.NewStack(background, innerLayout),
+		design.NewBrandTheme(),
+	)
 }
 
 // FocusInput запрашивает фокус у строки ввода Android-клавиатуры
