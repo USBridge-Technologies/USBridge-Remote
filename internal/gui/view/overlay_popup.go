@@ -4,9 +4,12 @@ import (
 	"image/color"
 	"time"
 
+	"usbridge-client/internal/gui/design"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -30,8 +33,12 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	dim := objects[0]
 	panel := objects[1]
 
-	dim.Move(fyne.NewPos(0, 0))
-	dim.Resize(size)
+	// widget.PopUp insets its content by theme.InnerPadding() on each side.
+	// Extend the dim rectangle beyond the layout area to cover that border so
+	// the popup widget's own background color is never visible on Android.
+	innerPad := theme.InnerPadding()
+	dim.Move(fyne.NewPos(-innerPad/2, -innerPad/2))
+	dim.Resize(fyne.NewSize(size.Width+innerPad, size.Height+innerPad))
 
 	panelSize := defaultOverlayPanelSize(size, panel)
 	if l.panelSize != nil {
@@ -89,7 +96,11 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	}
 
 	dim := canvas.NewRectangle(dimColor)
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, dim, spec.Panel)
+	// Wrap the panel in a ThemeOverride so all child widgets (entries, buttons,
+	// labels) reliably use BrandTheme inside the overlay on Android where the
+	// popup's rendering context may not propagate the app theme correctly.
+	themedPanel := container.NewThemeOverride(spec.Panel, design.NewBrandTheme())
+	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, dim, themedPanel)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
