@@ -328,7 +328,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 	centerAddBtn := centerAddButton
 
 	connectionsBox := container.NewVBox()
-	connectionsScroll := container.NewScroll(connectionsBox)
+	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, 0, 6, 0, 0))
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
 
 	topActions := container.NewHBox(topAddBtn, centerSpacer(connectionCompactActionGap), topQRBtn)
@@ -709,8 +709,6 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 		ui.ConnectionsBox.Add(row)
 	}
 	ui.ConnectionsBox.Refresh()
-	listMin := ui.ConnectionsBox.MinSize()
-	ui.ConnectionsScroll.SetMinSize(fyne.NewSize(0, listMin.Height))
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
 			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, ui.ConnectionsScroll),
