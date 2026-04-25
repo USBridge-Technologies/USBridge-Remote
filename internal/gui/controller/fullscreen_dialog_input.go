@@ -1,11 +1,46 @@
 package controller
 
 import (
+	"time"
 	"usbridge-client/internal/input"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
+
+func (fd *FullscreenDialog) handleKeyDown(event *fyne.KeyEvent) {
+	if event == nil {
+		return
+	}
+	logrus.Infof("⌨️ [FS][INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
+	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
+		for {
+			current := fd.keyboardModifierState.Load()
+			next := current | mask
+			if fd.keyboardModifierState.CompareAndSwap(current, next) {
+				logrus.Infof("⌨️ [FS][INPUT][DOWN] modifiers=%d", next)
+				return
+			}
+		}
+	}
+}
+
+func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {
+	if event == nil {
+		return
+	}
+	logrus.Infof("⌨️ [FS][INPUT][UP] key=%q physical=%+v", event.Name, event.Physical)
+	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
+		for {
+			current := fd.keyboardModifierState.Load()
+			next := current &^ mask
+			if fd.keyboardModifierState.CompareAndSwap(current, next) {
+				logrus.Infof("⌨️ [FS][INPUT][UP] modifiers=%d", next)
+				return
+			}
+		}
+	}
+}
 
 // handleVirtualKeyPress обрабатывает нажатие клавиш виртуальной клавиатуры
 func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
@@ -43,84 +78,99 @@ func (fd *FullscreenDialog) sendKeyToRemoteVirtual(keyCode int, modifiers int) {
 
 // handleKeyPress обрабатывает нажатие клавиш в полноэкранном режиме.
 func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
-	logrus.Infof("⌨️ Получено нажатие клавиши: %s (физическая: %v)", event.Name, event.Physical)
+	if event == nil {
+		return
+	}
+	logrus.Infof("⌨️ [FS][INPUT][PRESS] key=%q physical=%+v printable=%v modifiers=%d", event.Name, event.Physical, input.IsPrintableKey(event.Name), int(fd.keyboardModifierState.Load()))
 
 	// Handle Back button for Android
 	if event.Name == fyne.KeyEscape || event.Name == fyne.KeyF11 || string(event.Name) == "Back" {
-		logrus.Info("🔍 Нажата клавиша выхода из полноэкранного режима")
+		logrus.Info("⌨️ [FS][INPUT][PRESS] leaving fullscreen")
 		fd.exitFullscreen()
 		return
 	}
 
 	if input.IsPrintableKey(event.Name) {
+		if isDesktopPrintableKeyFallbackEnabled() && fd.sendKeyToRemote(event, int(fd.keyboardModifierState.Load())) {
+			fd.suppressRuneUntilNS.Store(time.Now().Add(desktopPrintableRuneSuppressWindow).UnixNano())
+			logrus.Info("⌨️ [FS][INPUT][PRESS] printable key sent via TypedKey fallback")
+		}
 		return
 	}
 
 	if !fd.keyboardEnabled || fd.usbClient == nil {
-		logrus.Warnf("⌨️ Клавиатура не подключена, игнорируем клавишу: %s", event.Name)
+		logrus.Warnf("⌨️ [FS][INPUT][PRESS] ignored key=%q keyboardEnabled=%v usb=%v", event.Name, fd.keyboardEnabled, fd.usbClient != nil)
 		return
 	}
 
-	fd.sendKeyToRemote(event)
+	fd.sendKeyToRemote(event, 0)
 }
 
 // sendKeyToRemote отправляет клавишу на удаленную машину через HID.
-func (fd *FullscreenDialog) sendKeyToRemote(event *fyne.KeyEvent) {
+func (fd *FullscreenDialog) sendKeyToRemote(event *fyne.KeyEvent, modifiers int) bool {
 	keyCode := input.GetKeyCodeFromPhysical(event.Physical)
 	if keyCode == 0 {
 		keyCode = input.GetKeyCode(event.Name)
 	}
 	if keyCode == 0 {
-		logrus.Warnf("⌨️ Неизвестная клавиша: %s", event.Name)
-		return
+		logrus.Warnf("⌨️ [FS][INPUT][SEND-KEY] unresolved key=%q physical=%+v", event.Name, event.Physical)
+		return false
 	}
-	if err := fd.usbClient.SendKey(keyCode); err != nil {
+	logrus.Infof("⌨️ [FS][INPUT][SEND-KEY] key=%q hid=%d modifiers=%d", event.Name, keyCode, modifiers)
+	var err error
+	if modifiers != 0 {
+		err = fd.usbClient.SendCombo(modifiers, keyCode)
+	} else {
+		err = fd.usbClient.SendKey(keyCode)
+	}
+	if err != nil {
 		logrus.Errorf("⚠️ Ошибка отправки клавиши: %v", err)
+		return false
 	}
+	logrus.Infof("⌨️ [FS][INPUT][SEND-KEY] delivered hid=%d modifiers=%d", keyCode, modifiers)
+	return true
 }
 
 // handleRunePress обрабатывает нажатие символов (буквы, цифры, знаки препинания)
 func (fd *FullscreenDialog) handleRunePress(r rune) {
-	logrus.Infof("⌨️ Получен символ: %c (код: %d)", r, r)
+	logrus.Infof("⌨️ [FS][INPUT][RUNE] rune=%q code=%U", string(r), r)
 
 	if !fd.keyboardEnabled || fd.usbClient == nil {
-		logrus.Warnf("⌨️ Клавиатура не подключена, игнорируем символ: %c", r)
+		logrus.Warnf("⌨️ [FS][INPUT][RUNE] ignored keyboardEnabled=%v usb=%v", fd.keyboardEnabled, fd.usbClient != nil)
 		return
 	}
 
-	logrus.Infof("⌨️ Отправляем символ на удаленную машину: %c", r)
+	if isDesktopPrintableKeyFallbackEnabled() && time.Now().UnixNano() <= fd.suppressRuneUntilNS.Load() {
+		logrus.Info("⌨️ [FS][INPUT][RUNE] suppressed duplicate after TypedKey fallback")
+		return
+	}
+
 	fd.sendRuneToRemote(r)
 }
 
 // sendRuneToRemote отправляет символ на удаленную машину через HID
 func (fd *FullscreenDialog) sendRuneToRemote(r rune) {
 	if r == '\n' || r == '\r' {
+		logrus.Info("⌨️ [FS][INPUT][SEND-RUNE] ignored newline")
 		return
 	}
-	logrus.Infof("⌨️ sendRuneToRemote: обработка символа %c (код: %d)", r, r)
-
 	keyCode, modifiers := input.GetRuneKeyCodeWithModifiers(r)
 	if keyCode == 0 {
-		logrus.Warnf("⌨️ Неизвестный символ: %c (код: %d)", r, r)
+		logrus.Warnf("⌨️ [FS][INPUT][SEND-RUNE] unresolved rune=%q code=%U", string(r), r)
 		return
 	}
-
-	logrus.Infof("⌨️ Найден код клавиши: %d, модификаторы: %d для символа %c", keyCode, modifiers, r)
+	logrus.Infof("⌨️ [FS][INPUT][SEND-RUNE] rune=%q hid=%d modifiers=%d", string(r), keyCode, modifiers)
 
 	var err error
 	if modifiers > 0 {
-		logrus.Infof("⌨️ Отправляем символ с модификаторами: %d, модификаторы: %d (%c)", keyCode, modifiers, r)
 		err = fd.usbClient.SendCombo(modifiers, keyCode)
-		logrus.Infof("⌨️ Отправлен символ с модификаторами: %d, модификаторы: %d (%c) - результат: %v", keyCode, modifiers, r, err)
 	} else {
-		logrus.Infof("⌨️ Отправляем символ: %d (%c)", keyCode, r)
 		err = fd.usbClient.SendKey(keyCode)
-		logrus.Infof("⌨️ Отправлен символ: %d (%c) - результат: %v", keyCode, r, err)
 	}
 
 	if err != nil {
 		logrus.Errorf("⚠️ Ошибка отправки символа: %v", err)
 	} else {
-		logrus.Infof("✅ Символ успешно отправлен: %c (код: %d, модификаторы: %d)", r, keyCode, modifiers)
+		logrus.Infof("⌨️ [FS][INPUT][SEND-RUNE] delivered hid=%d modifiers=%d rune=%q", keyCode, modifiers, string(r))
 	}
 }

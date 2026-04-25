@@ -3,6 +3,7 @@ package controller
 import (
 	"image"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -18,23 +19,25 @@ import (
 
 // FullscreenDialog диалог полноэкранного режима
 type FullscreenDialog struct {
-	parent           fyne.Window
-	videoWidget      *VideoWidget
-	isFullscreen     bool
-	nativeFullscreen bool
-	gstreamerService *service.GStreamerService
-	usbClient        *api.USBClient
-	keyboardEnabled  bool
-	fullscreenWindow fyne.Window
-	virtualKeyboard  *graphics.VirtualKeyboard
-	videoImage       *canvas.Image
-	touchpadWrapper  *TouchpadWrapper
-	nativeCapture    nativeFullscreenCapture
-	lastFrame        image.Image
-	frameMutex       sync.RWMutex
-	originalContent  *fyne.Container
-	originalTitle    string
-	ui               *view.FullscreenUI
+	parent                fyne.Window
+	videoWidget           *VideoWidget
+	isFullscreen          bool
+	nativeFullscreen      bool
+	gstreamerService      *service.GStreamerService
+	usbClient             *api.USBClient
+	keyboardEnabled       bool
+	fullscreenWindow      fyne.Window
+	virtualKeyboard       *graphics.VirtualKeyboard
+	videoImage            *canvas.Image
+	touchpadWrapper       *TouchpadWrapper
+	nativeCapture         nativeFullscreenCapture
+	lastFrame             image.Image
+	frameMutex            sync.RWMutex
+	originalContent       *fyne.Container
+	originalTitle         string
+	ui                    *view.FullscreenUI
+	keyboardModifierState atomic.Int32
+	suppressRuneUntilNS   atomic.Int64
 }
 
 // NewFullscreenDialog создает новый диалог полноэкранного режима
@@ -218,7 +221,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoImage.ScaleMode = canvas.ImageScaleFastest
 	fd.touchpadWrapper = NewTouchpadWrapperWithImage(fd.videoWidget, fd.videoImage)
 	fd.videoWidget.platformRegisterGestureTarget()
-	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyPress, fd.handleRunePress)
+	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyDown, fd.handleKeyUp, fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
 	logrus.Info("✅ TouchpadWrapper создан для полноэкранного режима")
 
@@ -250,7 +253,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			if fd.videoWidget != nil {
 				h := keyboardLayout.MinSize().Height
 				if h < 50 { // Если размер еще не просчитан, используем разумное значение по умолчанию
-					h = 145 
+					h = 145
 				}
 				fd.videoWidget.SetBottomInset(h)
 			}
@@ -414,6 +417,7 @@ func (fd *FullscreenDialog) exitFullscreen() {
 			fd.videoWidget.handleVideoFrame(frame)
 		})
 		logrus.Info("✅ Восстановлена подписка на кадры для основного окна")
+		fd.videoWidget.ensureInputFocusAsync("exit-fullscreen", 150*time.Millisecond)
 	}
 	fd.lastFrame = nil
 

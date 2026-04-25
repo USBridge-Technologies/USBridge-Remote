@@ -18,7 +18,7 @@ type VideoWidgetUI struct {
 	ContentContainer *fyne.Container
 }
 
-func NewVideoWidgetUI(touchpad fyne.CanvasObject, onStart, onStop, onFullscreen func()) *VideoWidgetUI {
+func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObject, onStart, onStop, onFullscreen func()) *VideoWidgetUI {
 	videoCanvas := canvas.NewImageFromResource(nil)
 	videoCanvas.FillMode = canvas.ImageFillContain
 	videoCanvas.ScaleMode = canvas.ImageScaleFastest
@@ -30,7 +30,11 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, onStart, onStop, onFullscreen 
 	contentContainer := container.NewStack()
 	contentContainer.Hide()
 
-	videoContainer := container.NewMax(touchpad)
+	videoObjects := []fyne.CanvasObject{touchpad}
+	if keyboardCapture != nil {
+		videoObjects = append(videoObjects, keyboardCapture)
+	}
+	videoContainer := container.NewMax(videoObjects...)
 	mainContainer := container.NewBorder(nil, contentContainer, nil, nil, videoContainer)
 
 	return &VideoWidgetUI{

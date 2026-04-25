@@ -31,7 +31,7 @@ func IsRussianLanguage() bool {
 	currentLanguageMu.RLock()
 	lang := currentLanguage
 	currentLanguageMu.RUnlock()
-	
+
 	isRu := strings.HasPrefix(strings.ToLower(lang), "ru")
 	return isRu
 }
@@ -75,6 +75,9 @@ func GetKeyCode(keyName fyne.KeyName) int {
 		fyne.Key6: 35, fyne.Key7: 36, fyne.Key8: 37, fyne.Key9: 38, fyne.Key0: 39,
 
 		fyne.KeyReturn: 40, fyne.KeyEscape: 41, fyne.KeyBackspace: 42, fyne.KeyTab: 43, fyne.KeySpace: 44,
+		fyne.KeyMinus: 45, fyne.KeyEqual: 46, fyne.KeyLeftBracket: 47, fyne.KeyRightBracket: 48,
+		fyne.KeyBackslash: 49, fyne.KeySemicolon: 51, fyne.KeyApostrophe: 52, fyne.KeyBackTick: 53,
+		fyne.KeyComma: 54, fyne.KeyPeriod: 55, fyne.KeySlash: 56,
 
 		fyne.KeyF1: 58, fyne.KeyF2: 59, fyne.KeyF3: 60, fyne.KeyF4: 61,
 		fyne.KeyF5: 62, fyne.KeyF6: 63, fyne.KeyF7: 64, fyne.KeyF8: 65,

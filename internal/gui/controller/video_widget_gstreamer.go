@@ -32,6 +32,9 @@ func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, gstre
 	}
 
 	vw.createInterface()
+	if parent != nil {
+		vw.SetParentWindow(parent)
+	}
 	vw.startVideoOpsLoop()
 	vw.setupGStreamerCallbacks()
 	return vw

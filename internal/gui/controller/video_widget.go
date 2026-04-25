@@ -38,19 +38,19 @@ type VideoWidget struct {
 	isMouseConnected     bool // Флаг подключенной мыши
 
 	// Сервисы
-	usbClient             *api.USBClient
-	gstreamerService      *service.GStreamerService
-	frpService            *service.FRPService // для проверки режима FRP
-	tailscaleService      *service.TailscaleService
-	updateStatus          func()
-	onFPSChanged          func(float64)
-	videoOpMu             sync.Mutex
-	videoOpRunning        bool
-	desiredStreaming      bool
-	videoRestartPending   bool
-	inputQueue            chan inputCommand
-	moveQueueMu           sync.Mutex
-	bottomInset           float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
+	usbClient           *api.USBClient
+	gstreamerService    *service.GStreamerService
+	frpService          *service.FRPService // для проверки режима FRP
+	tailscaleService    *service.TailscaleService
+	updateStatus        func()
+	onFPSChanged        func(float64)
+	videoOpMu           sync.Mutex
+	videoOpRunning      bool
+	desiredStreaming    bool
+	videoRestartPending bool
+	inputQueue          chan inputCommand
+	moveQueueMu         sync.Mutex
+	bottomInset         float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
 
 	pendingMoveX          int
 	pendingMoveY          int
@@ -79,10 +79,13 @@ type VideoWidget struct {
 	frameContentH        float32 // нормализованная высота активной области кадра
 
 	// Диалоги
-	fullscreenDialog *FullscreenDialog
-	startDialog      *view.VideoStartDialog
-	parentWindow     fyne.Window
-	virtualKeyboard  *graphics.VirtualKeyboard
+	fullscreenDialog      *FullscreenDialog
+	startDialog           *view.VideoStartDialog
+	parentWindow          fyne.Window
+	virtualKeyboard       *graphics.VirtualKeyboard
+	desktopKeyCapture     *desktopKeyboardCapture
+	keyboardModifierState atomic.Int32
+	suppressRuneUntilNS   atomic.Int64
 
 	// Мышь/тачпад
 	lastMouseX         float32

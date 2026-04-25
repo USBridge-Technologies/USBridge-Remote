@@ -28,7 +28,7 @@ func (vw *VideoWidget) createInterface() {
 	vw.startInputWorker()
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
 	vw.platformRegisterGestureTarget()
-	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
+	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, nil, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
 	vw.container = vw.ui.Container
 	vw.videoCanvas = vw.ui.VideoCanvas
 	vw.touchpadWrapper.SetImage(vw.videoCanvas)
@@ -225,7 +225,7 @@ func (vw *VideoWidget) handleStopVideo() {
 
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
-	
+
 	// Используем таймаут для синхронной операции, чтобы не повесить вызывающий поток (lifecycle loop)
 	done := make(chan struct{})
 	go func() {
@@ -238,11 +238,11 @@ func (vw *VideoWidget) StopVideoSync() error {
 				vw.isGStreamerConnected = false
 				vw.isMouseConnected = false
 				vw.clearVideo()
-				fyne.Do(func() { 
+				fyne.Do(func() {
 					if vw.statusLabel != nil {
 						vw.statusLabel.SetText(i18n.Current.VideoStopped)
 					}
-					vw.updateButtons() 
+					vw.updateButtons()
 				})
 				vw.updateStatus()
 			}
@@ -266,7 +266,7 @@ func (vw *VideoWidget) StopVideoSync() error {
 
 func (vw *VideoWidget) stopVideoInternal() {
 	logrus.Info("🛑 [VideoWidget] Internal stop starting...")
-	
+
 	fyne.Do(func() {
 		if vw.statusLabel != nil {
 			vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
@@ -688,15 +688,30 @@ func (vw *VideoWidget) updateStats() {
 func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 	vw.parentWindow = window
 
-	vw.touchpadWrapper.SetKeyHandlers(vw.handlePhysicalKeyPress, vw.handlePhysicalRunePress)
+	vw.touchpadWrapper.SetKeyHandlers(vw.handlePhysicalKeyDown, vw.handlePhysicalKeyUp, vw.handlePhysicalKeyPress, vw.handlePhysicalRunePress)
 	vw.touchpadWrapper.SetWindowForFocus(window)
+	vw.touchpadWrapper.SetWindowFocusTarget(nil)
+	vw.ensureInputFocusAsync("set-parent-window", 150*time.Millisecond)
+}
 
-	window.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
-		if event.Name == fyne.KeyF11 && vw.isStreaming {
-			logrus.Info("🔍 F11 pressed, entering fullscreen mode")
-			vw.ShowFullscreen()
+func (vw *VideoWidget) ensureInputFocusAsync(reason string, delay time.Duration) {
+	if vw.parentWindow == nil || vw.touchpadWrapper == nil || fyne.CurrentDevice().IsMobile() {
+		return
+	}
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
 		}
-	})
+		fyne.Do(func() {
+			if vw.parentWindow == nil || vw.touchpadWrapper == nil {
+				return
+			}
+			logrus.Infof("⌨️ [WINDOW][FOCUS] requesting focus reason=%s current=%T", reason, vw.parentWindow.Canvas().Focused())
+			vw.parentWindow.RequestFocus()
+			vw.parentWindow.Canvas().Focus(vw.touchpadWrapper)
+			logrus.Infof("⌨️ [WINDOW][FOCUS] focused=%T reason=%s", vw.parentWindow.Canvas().Focused(), reason)
+		})
+	}()
 }
 
 func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
@@ -739,6 +754,9 @@ func (vw *VideoWidget) IsStreaming() bool {
 func (vw *VideoWidget) SetStreaming(streaming bool) {
 	vw.isStreaming = streaming
 	vw.updateButtons()
+	if streaming {
+		vw.ensureInputFocusAsync("set-streaming", 300*time.Millisecond)
+	}
 }
 
 // StopVideo останавливает видеопоток через публичный API виджета.

@@ -22,6 +22,7 @@ var (
 	_ fyne.Scrollable        = (*TouchpadWrapper)(nil)
 	_ fyne.Draggable         = (*TouchpadWrapper)(nil)
 	_ fyne.Focusable         = (*TouchpadWrapper)(nil)
+	_ desktop.Keyable        = (*TouchpadWrapper)(nil)
 	_ desktop.Cursorable     = (*TouchpadWrapper)(nil)
 	_ desktop.Mouseable      = (*TouchpadWrapper)(nil)
 	_ desktop.Hoverable      = (*TouchpadWrapper)(nil)
@@ -39,9 +40,12 @@ type TouchpadWrapper struct {
 	vScrollBar  *canvas.Rectangle
 
 	// Обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey может не работать)
-	window      fyne.Window
-	onKeyPress  func(*fyne.KeyEvent)
-	onRunePress func(rune)
+	window            fyne.Window
+	windowFocusTarget fyne.Focusable
+	onKeyDown         func(*fyne.KeyEvent)
+	onKeyUp           func(*fyne.KeyEvent)
+	onKeyPress        func(*fyne.KeyEvent)
+	onRunePress       func(rune)
 }
 
 // NewTouchpadWrapper создает обертку для тачпада
@@ -112,7 +116,9 @@ func (t *TouchpadWrapper) UpdateCursorOverlay() {
 }
 
 // SetKeyHandlers устанавливает обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey ненадёжен)
-func (t *TouchpadWrapper) SetKeyHandlers(onKey func(*fyne.KeyEvent), onRune func(rune)) {
+func (t *TouchpadWrapper) SetKeyHandlers(onKeyDown func(*fyne.KeyEvent), onKeyUp func(*fyne.KeyEvent), onKey func(*fyne.KeyEvent), onRune func(rune)) {
+	t.onKeyDown = onKeyDown
+	t.onKeyUp = onKeyUp
 	t.onKeyPress = onKey
 	t.onRunePress = onRune
 }
@@ -120,6 +126,10 @@ func (t *TouchpadWrapper) SetKeyHandlers(onKey func(*fyne.KeyEvent), onRune func
 // SetWindowForFocus устанавливает окно для запроса фокуса при клике (desktop)
 func (t *TouchpadWrapper) SetWindowForFocus(w fyne.Window) {
 	t.window = w
+}
+
+func (t *TouchpadWrapper) SetWindowFocusTarget(target fyne.Focusable) {
+	t.windowFocusTarget = target
 }
 
 // FocusGained реализация fyne.Focusable
@@ -870,6 +880,11 @@ func (t *TouchpadWrapper) DragEnd() {
 // TypedKey обрабатывает нажатие клавиши
 // На macOS Canvas.SetOnTypedKey ненадёжен, поэтому пересылаем через виджет с фокусом
 func (t *TouchpadWrapper) TypedKey(key *fyne.KeyEvent) {
+	if key != nil && key.Name == fyne.KeyF11 && t.videoWidget != nil && t.videoWidget.isStreaming {
+		logrus.Info("⌨️ [TOUCHPAD][PRESS] opening fullscreen")
+		t.videoWidget.ShowFullscreen()
+		return
+	}
 	if t.onKeyPress != nil {
 		t.onKeyPress(key)
 	}
@@ -882,14 +897,29 @@ func (t *TouchpadWrapper) TypedRune(r rune) {
 	}
 }
 
+func (t *TouchpadWrapper) KeyDown(key *fyne.KeyEvent) {
+	if t.onKeyDown != nil {
+		t.onKeyDown(key)
+	}
+}
+
+func (t *TouchpadWrapper) KeyUp(key *fyne.KeyEvent) {
+	if t.onKeyUp != nil {
+		t.onKeyUp(key)
+	}
+}
+
 // requestFocus запрашивает фокус для виджета (только на desktop, когда окно задано)
 func (t *TouchpadWrapper) requestFocus() {
 	if t.window == nil || fyne.CurrentDevice().IsMobile() {
 		return
 	}
-	// На macOS fullscreen окно должно быть key window для приёма клавиатуры
+	target := fyne.Focusable(t)
+	if t.windowFocusTarget != nil {
+		target = t.windowFocusTarget
+	}
 	t.window.RequestFocus()
-	t.window.Canvas().Focus(t)
+	t.window.Canvas().Focus(target)
 }
 
 // clamp ограничивает значение в пределах min..max

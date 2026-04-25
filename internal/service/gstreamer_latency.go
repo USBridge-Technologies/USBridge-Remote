@@ -7,6 +7,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	videoLatencyLogEverySamples = 600
+	videoLatencyLogMinInterval  = 20 * time.Second
+)
+
 type videoFramePacket struct {
 	img  image.Image
 	meta videoLatencyFrameMeta
@@ -71,7 +76,7 @@ func (gs *GStreamerService) recordUIDelay(uiDelay time.Duration, meta videoLaten
 	if gs.latencyProfile.samples == 0 {
 		return
 	}
-	if gs.latencyProfile.samples%120 != 0 && time.Since(gs.latencyProfile.windowStarted) < 5*time.Second {
+	if gs.latencyProfile.samples%videoLatencyLogEverySamples != 0 && time.Since(gs.latencyProfile.windowStarted) < videoLatencyLogMinInterval {
 		return
 	}
 

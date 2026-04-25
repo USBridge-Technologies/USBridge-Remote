@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,51 +15,137 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const desktopPrintableRuneSuppressWindow = 75 * time.Millisecond
+
+func modifierMaskForKeyName(keyName fyne.KeyName) int32 {
+	switch keyName {
+	case fyne.KeyName("LeftControl"), fyne.KeyName("RightControl"):
+		return 1
+	case fyne.KeyName("LeftShift"), fyne.KeyName("RightShift"):
+		return 2
+	case fyne.KeyName("LeftAlt"), fyne.KeyName("RightAlt"):
+		return 4
+	case fyne.KeyName("LeftSuper"), fyne.KeyName("RightSuper"):
+		return 8
+	default:
+		return 0
+	}
+}
+
+func isDesktopPrintableKeyFallbackEnabled() bool {
+	return runtime.GOOS != "android" && runtime.GOOS != "ios"
+}
+
+func (vw *VideoWidget) currentHIDModifiers() int {
+	return int(vw.keyboardModifierState.Load())
+}
+
+func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
+	if event == nil {
+		return
+	}
+	logrus.Infof("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
+	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
+		for {
+			current := vw.keyboardModifierState.Load()
+			next := current | mask
+			if vw.keyboardModifierState.CompareAndSwap(current, next) {
+				logrus.Infof("⌨️ [INPUT][DOWN] modifiers=%d", next)
+				return
+			}
+		}
+	}
+}
+
+func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
+	if event == nil {
+		return
+	}
+	logrus.Infof("⌨️ [INPUT][UP] key=%q physical=%+v", event.Name, event.Physical)
+	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
+		for {
+			current := vw.keyboardModifierState.Load()
+			next := current &^ mask
+			if vw.keyboardModifierState.CompareAndSwap(current, next) {
+				logrus.Infof("⌨️ [INPUT][UP] modifiers=%d", next)
+				return
+			}
+		}
+	}
+}
+
 // handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 	if vw.usbClient == nil {
+		logrus.Warn("⌨️ [INPUT][PRESS] ignored: usb client is nil")
 		return
 	}
+	logrus.Infof("⌨️ [INPUT][PRESS] key=%q physical=%+v printable=%v modifiers=%d", event.Name, event.Physical, input.IsPrintableKey(event.Name), vw.currentHIDModifiers())
 	if event.Name == fyne.KeyF11 {
+		logrus.Info("⌨️ [INPUT][PRESS] ignored: F11 reserved locally")
 		return
 	}
 	if input.IsPrintableKey(event.Name) {
+		if isDesktopPrintableKeyFallbackEnabled() && vw.sendPhysicalKeyToRemote(event, vw.currentHIDModifiers()) {
+			vw.suppressRuneUntilNS.Store(time.Now().Add(desktopPrintableRuneSuppressWindow).UnixNano())
+			logrus.Info("⌨️ [INPUT][PRESS] printable key sent via TypedKey fallback")
+		}
 		return
 	}
-	vw.sendPhysicalKeyToRemote(event)
+	vw.sendPhysicalKeyToRemote(event, 0)
 }
 
 // handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	if vw.usbClient == nil {
+		logrus.Warnf("⌨️ [INPUT][RUNE] ignored: usb client is nil rune=%q", string(r))
+		return
+	}
+	logrus.Infof("⌨️ [INPUT][RUNE] rune=%q code=%U", string(r), r)
+	if isDesktopPrintableKeyFallbackEnabled() && time.Now().UnixNano() <= vw.suppressRuneUntilNS.Load() {
+		logrus.Info("⌨️ [INPUT][RUNE] suppressed duplicate after TypedKey fallback")
 		return
 	}
 	vw.sendRuneToRemote(r)
 }
 
 // sendPhysicalKeyToRemote конвертирует fyne.KeyEvent в HID и отправляет.
-func (vw *VideoWidget) sendPhysicalKeyToRemote(event *fyne.KeyEvent) {
+func (vw *VideoWidget) sendPhysicalKeyToRemote(event *fyne.KeyEvent, modifiers int) bool {
 	keyCode := input.GetKeyCodeFromPhysical(event.Physical)
 	if keyCode == 0 {
 		keyCode = input.GetKeyCode(event.Name)
 	}
 	if keyCode == 0 {
-		return
+		logrus.Warnf("⌨️ [INPUT][SEND-KEY] unresolved key=%q physical=%+v", event.Name, event.Physical)
+		return false
 	}
-	if err := vw.usbClient.SendKey(keyCode); err != nil {
+	logrus.Infof("⌨️ [INPUT][SEND-KEY] key=%q hid=%d modifiers=%d physical=%+v", event.Name, keyCode, modifiers, event.Physical)
+	var err error
+	if modifiers != 0 {
+		err = vw.usbClient.SendCombo(modifiers, keyCode)
+	} else {
+		err = vw.usbClient.SendKey(keyCode)
+	}
+	if err != nil {
 		logrus.Errorf("⌨️ Failed to send key: %v", err)
+		return false
 	}
+	logrus.Infof("⌨️ [INPUT][SEND-KEY] delivered hid=%d modifiers=%d", keyCode, modifiers)
+	return true
 }
 
 // sendRuneToRemote отправляет символ на удалённую машину.
 func (vw *VideoWidget) sendRuneToRemote(r rune) {
 	if r == '\n' || r == '\r' {
+		logrus.Info("⌨️ [INPUT][SEND-RUNE] ignored newline")
 		return
 	}
 	keyCode, modifiers := input.GetRuneKeyCodeWithModifiers(r)
 	if keyCode == 0 {
+		logrus.Warnf("⌨️ [INPUT][SEND-RUNE] unresolved rune=%q code=%U", string(r), r)
 		return
 	}
+	logrus.Infof("⌨️ [INPUT][SEND-RUNE] rune=%q hid=%d modifiers=%d", string(r), keyCode, modifiers)
 	var err error
 	if modifiers > 0 {
 		err = vw.usbClient.SendCombo(modifiers, keyCode)
@@ -67,7 +154,9 @@ func (vw *VideoWidget) sendRuneToRemote(r rune) {
 	}
 	if err != nil {
 		logrus.Errorf("⌨️ Failed to send rune: %v", err)
+		return
 	}
+	logrus.Infof("⌨️ [INPUT][SEND-RUNE] delivered hid=%d modifiers=%d rune=%q", keyCode, modifiers, string(r))
 }
 
 // handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры.
@@ -509,7 +598,6 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 	if w <= 0 || h <= 0 {
 		return
 	}
-	logrus.Infof("📐 [LAYOUT] UpdateTouchpadAndContentRect: w=%.1f, h=%.1f, bottomInset=%.1f", w, h, vw.bottomInset)
 	vw.touchpadSizeW = w
 	vw.touchpadSizeH = h
 	vw.contentRectX = 0
@@ -746,8 +834,6 @@ func (vw *VideoWidget) recalculateViewport() {
 	if availableH < 0 {
 		availableH = 0
 	}
-	logrus.Infof("📐 [VIEWPORT] Recalculate: touchpadH=%.1f, bottomInset=%.1f, availableH=%.1f", vw.touchpadSizeH, vw.bottomInset, availableH)
-
 	baseW := vw.baseContentRectW
 	baseH := vw.baseContentRectH
 	if baseW <= 0 || baseH <= 0 {
@@ -762,10 +848,10 @@ func (vw *VideoWidget) recalculateViewport() {
 
 	contentW := baseW * scale
 	contentH := baseH * scale
-	
+
 	// Центрируем горизонтально относительно всего экрана
 	contentX := (vw.touchpadSizeW - contentW) / 2
-	
+
 	// Логика вертикального позиционирования:
 	var contentY float32
 	if contentH > availableH {
@@ -782,7 +868,6 @@ func (vw *VideoWidget) recalculateViewport() {
 			vw.panOffsetY = maxPanY
 		}
 		contentY += vw.panOffsetY
-		logrus.Infof("📐 [PAN-Y] contentH(%.1f) > availableH(%.1f) -> panOffsetY=%.1f contentY=%.1f", contentH, availableH, vw.panOffsetY, contentY)
 	} else {
 		// Видео меньше доступной области - центрируем его в ней
 		contentY = (availableH - contentH) / 2
@@ -813,7 +898,6 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.contentRectW = contentW
 	vw.contentRectH = contentH
 
-	logrus.Infof("🖼️ [VIEWPORT] Result: X=%.1f, Y=%.1f, W=%.1f, H=%.1f (scale=%.2f)", vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH, vw.zoomScale)
 }
 
 func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {
