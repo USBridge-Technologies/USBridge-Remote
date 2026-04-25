@@ -41,8 +41,9 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 
 	keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
 	keyboardButton.Importance = widget.MediumImportance
+	themedKeyboardButton := container.NewThemeOverride(keyboardButton, design.NewBrandTheme())
 
-	mainContainer := container.NewStack(mainContent, container.NewWithoutLayout(keyboardButton))
+	mainContainer := container.NewStack(mainContent, container.NewWithoutLayout(themedKeyboardButton))
 
 	return &FullscreenUI{
 		VideoImage:        videoImage,

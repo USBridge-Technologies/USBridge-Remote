@@ -45,8 +45,8 @@ func (fd *FullscreenDialog) sendKeyToRemoteVirtual(keyCode int, modifiers int) {
 func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	logrus.Infof("⌨️ Получено нажатие клавиши: %s (физическая: %v)", event.Name, event.Physical)
 
-	switch event.Name {
-	case fyne.KeyEscape, fyne.KeyF11:
+	// Handle Back button for Android
+	if event.Name == fyne.KeyEscape || event.Name == fyne.KeyF11 || string(event.Name) == "Back" {
 		logrus.Info("🔍 Нажата клавиша выхода из полноэкранного режима")
 		fd.exitFullscreen()
 		return
