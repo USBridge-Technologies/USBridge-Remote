@@ -799,11 +799,7 @@ func (ui *ConnectionManagerUI) SetTailscaleModeDisabled(disabled bool) {
 
 func newConnectionsSectionCard(title string, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, body fyne.CanvasObject) fyne.CanvasObject {
 	titleText := NewBrandText(strings.ToUpper(strings.TrimSpace(title)), 11, design.ColorTextMuted, true)
-	headerContent := newSectionCardHeader(titleText, leadingAction, trailingAction, 6)
-	header := NewInset(
-		NewCompactSurfacePanel(headerContent, design.ColorGray900, design.RadiusMD+2),
-		0, 0, 0, 3,
-	)
+	header := newSectionCardHeader(titleText, leadingAction, trailingAction, 6)
 	return container.NewBorder(header, nil, nil, nil, body)
 }
 
