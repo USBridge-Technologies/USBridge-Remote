@@ -220,7 +220,10 @@ func (d *HeaderDropdown) openPopup() {
 	menuList := container.NewVBox(rows...)
 	inset := d.menuInset()
 	menuContent := fyne.CanvasObject(NewInset(menuList, inset, inset, inset, inset))
-	menu := container.NewStack(menuBG, menuContent, menuBorder)
+	menu := container.NewThemeOverride(
+		container.NewStack(menuBG, menuContent, menuBorder),
+		&dropdownMenuTheme{base: design.NewBrandTheme()},
+	)
 
 	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(d)
 	if canvasForObj == nil {
@@ -666,7 +669,10 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 
 	menuList := container.NewVBox(rows...)
 	menuContent := fyne.CanvasObject(NewInset(menuList, 6, 6, 6, 6))
-	menu := container.NewStack(menuBG, menuContent, menuBorder)
+	menu := container.NewThemeOverride(
+		container.NewStack(menuBG, menuContent, menuBorder),
+		&dropdownMenuTheme{base: design.NewBrandTheme()},
+	)
 
 	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(anchor)
 	if canvasForObj == nil {

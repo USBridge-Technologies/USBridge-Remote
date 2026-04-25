@@ -710,10 +710,7 @@ func (ui *ConnectionManagerUI) SetRows(rows []*fyne.Container) {
 	}
 	ui.ConnectionsBox.Refresh()
 	ui.contentArea.Objects = []fyne.CanvasObject{
-		container.NewVBox(
-			newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, ui.ConnectionsScroll),
-			layout.NewSpacer(),
-		),
+		newConnectionsSectionCard(i18n.Current.SavedConnections, ui.topActions, ui.topHelpBtn, ui.ConnectionsScroll),
 	}
 	ui.ConnectionsScroll.Refresh()
 	ui.contentArea.Refresh()
@@ -809,7 +806,7 @@ func newConnectionsSectionCard(title string, leadingAction fyne.CanvasObject, tr
 		0, 0, 0, 3,
 	)
 
-	return container.NewVBox(header, card)
+	return container.NewBorder(header, nil, nil, nil, card)
 }
 
 type onboardingSlide struct {
@@ -1117,7 +1114,16 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 
 	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, rightItems...)
 	row := container.New(&DeviceRowLayout{Gap: 6}, left, center, right)
-	return NewInset(row, 0, 4, 4, 4)
+	return newConnectionRowCard(row)
+}
+
+func newConnectionRowCard(content fyne.CanvasObject) *fyne.Container {
+	card := NewCompactSurfacePanel(
+		NewInset(content, 8, 8, 6, 6),
+		color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff},
+		design.RadiusMD+1,
+	)
+	return NewInset(card, 0, 0, 0, 8)
 }
 
 func osIconResource(os string) fyne.Resource {

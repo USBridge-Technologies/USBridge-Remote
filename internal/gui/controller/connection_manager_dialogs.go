@@ -14,7 +14,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -360,6 +359,10 @@ func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObjec
 	return label
 }
 
+func connectionDialogDimColor() color.Color {
+	return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72}
+}
+
 func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
@@ -424,14 +427,9 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 		border,
 	)
 
-	dimColor := color.Color(color.Transparent)
-	if fyne.CurrentDevice().IsMobile() {
-		dimColor = design.ColorGray950
-	}
-
 	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
 		Panel:    panel,
-		DimColor: dimColor,
+		DimColor: connectionDialogDimColor(),
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
@@ -608,18 +606,53 @@ func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, qui
 	linkEntry.SetText(qrURL)
 	linkEntry.Disable()
 
-	copyBtn := widget.NewButton("Copy Link", func() {
+	copyBtn := view.NewConnectionPrimaryButton("Copy Link", func() {
 		window.Clipboard().SetContent(qrURL)
 	})
+	copyBtn.SetAccent(true)
+
+	title := view.NewBrandText("Quick Connect", 19, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+
+	var popup *widget.PopUp
+	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
+
 	content := container.NewVBox(
-		widget.NewLabelWithStyle("Quick Connect QR", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		container.NewCenter(image),
-		linkEntry,
+		titleBar,
+		view.NewInset(container.NewCenter(image), 0, 0, 10, 10),
+		view.NewInset(linkEntry, 0, 0, 0, 14),
 		copyBtn,
 	)
-	d := dialog.NewCustom("Quick Connect", "Close", content, window)
-	d.Resize(fyne.NewSize(360, 460))
-	d.Show()
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+
+	panel := container.NewStack(
+		bg,
+		view.NewInset(content, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: connectionDialogDimColor(),
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			panelMin := panel.MinSize()
+			width := minFloat32(maxFloat32(panelMin.Width, 360), canvasSize.Width-24)
+			height := minFloat32(maxFloat32(panelMin.Height, 460), canvasSize.Height-24)
+			return fyne.NewSize(width, height)
+		},
+	})
 }
 
 func buildServiceQRFormat(internalHost, tailscaleHost, quicToken string, quicPort int) string {
