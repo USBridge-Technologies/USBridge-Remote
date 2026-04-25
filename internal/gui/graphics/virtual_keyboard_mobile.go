@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/input"
@@ -14,7 +15,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )

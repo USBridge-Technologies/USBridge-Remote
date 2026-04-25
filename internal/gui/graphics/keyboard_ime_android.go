@@ -79,9 +79,9 @@ func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 
 	logrus.Infof("⌨️ [IME-JNI] imeHeightPx=%d screenHeightPx=%d", imePx, screenPx)
 
-	vk := activeIMEKeyboard()
-	
 	fyne.Do(func() {
+		vk := activeIMEKeyboard()
+		
 		if screenPx <= 0 {
 			return
 		}
