@@ -17,7 +17,7 @@
         <!-- MainActivity extends GoNativeActivity - камера, SAF, QR сканер -->
         <activity
             android:name="com.usbridge.client.MainActivity"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask"

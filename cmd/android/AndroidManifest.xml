@@ -17,7 +17,7 @@
         <!-- Главная активность с полноэкранным режимом -->
         <activity
             android:name="org.golang.app.GoNativeActivity"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask"

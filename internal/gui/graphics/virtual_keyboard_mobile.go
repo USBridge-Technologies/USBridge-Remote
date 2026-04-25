@@ -350,7 +350,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onUnfocused = func() {
 	}
 
-	paddedMain := view.NewInset(main, 4, 4, 4, 4)
+	paddedMain := view.NewInset(main, 4, 4, 4, view.MobileFooterBottomInset(36))
 	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
 	return container.NewStack(background, innerLayout)
 }
