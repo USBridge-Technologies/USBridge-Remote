@@ -425,7 +425,7 @@ func (mw *MainWindow) createConnectionFooterBar() *fyne.Container {
 }
 
 func (mw *MainWindow) createDeviceFooterBar() *fyne.Container {
-	bottomInset := float32(0)
+	bottomInset := float32(6)
 	if fyne.CurrentDevice().IsMobile() {
 		bottomInset = 36
 	}

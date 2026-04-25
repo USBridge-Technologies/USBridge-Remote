@@ -280,7 +280,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		contentH := fPopupContent.MinSize().Height
 		popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y-contentH))
 		
-		for _, colObj := range fPopupContent.Objects {
+		for _, colObj := range fPopupBody.Objects {
 			if col, ok := colObj.(*fyne.Container); ok {
 				for _, btnObj := range col.Objects {
 					if btn, ok := btnObj.(*widget.Button); ok {
@@ -367,10 +367,10 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	paddedMain := view.NewInset(main, 4, 4, 4, 4)
 	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
-	return container.NewThemeOverride(
+	return container.NewMax(container.NewThemeOverride(
 		container.NewStack(background, innerLayout),
 		design.NewBrandTheme(),
-	)
+	))
 }
 
 // FocusInput запрашивает фокус у строки ввода Android-клавиатуры
