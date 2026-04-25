@@ -328,7 +328,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 	centerAddBtn := centerAddButton
 
 	connectionsBox := container.NewVBox()
-	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, 0, 6, 0, 0))
+	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, 6, 6, 0, 0))
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
 
 	topActions := container.NewHBox(topAddBtn, centerSpacer(connectionCompactActionGap), topQRBtn)
@@ -1113,11 +1113,11 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 
 func newConnectionRowCard(content fyne.CanvasObject) *fyne.Container {
 	card := NewCompactSurfacePanel(
-		NewInset(content, 8, 8, 6, 6),
+		NewInset(content, 8, 8, 3, 3),
 		color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff},
 		design.RadiusMD+1,
 	)
-	return NewInset(card, 0, 0, 0, 8)
+	return NewInset(card, 0, 0, 0, 1)
 }
 
 func osIconResource(os string) fyne.Resource {
