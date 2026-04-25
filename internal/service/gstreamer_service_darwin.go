@@ -54,11 +54,11 @@ type GStreamerService struct {
 	monitorRunning        bool
 
 	// Статистика
-	lastFrameTime    time.Time
-	lastFrameReport   time.Time
-	frameCount       int64
-	framesDropped  int64
-	latencyProfile videoLatencyProfile
+	lastFrameTime   time.Time
+	lastFrameReport time.Time
+	frameCount      int64
+	framesDropped   int64
+	latencyProfile  videoLatencyProfile
 
 	// Размеры кадра (по умолчанию 1280x720 для HD захвата)
 	width  int
@@ -760,7 +760,7 @@ func (gs *GStreamerService) readFrames() {
 			gs.mutex.Lock()
 			gs.frameCount++
 			frameNum := gs.frameCount
-			
+
 			if gs.lastFrameTime.IsZero() {
 				logrus.Infof("🎬 macOS: FIRST FRAME received (%dx%d)", width, height)
 			} else if now.Sub(gs.lastFrameTime) > 1*time.Second {
@@ -963,12 +963,12 @@ func (gs *GStreamerService) Disconnect() error {
 		logrus.Info("🛑 macOS: Остановка gst-launch процесса...")
 		cmd.Process.Kill()
 		cmd.Wait()
-		
+
 		// Явно убиваем любые другие процессы на этом порту
 		if gs.config != nil && gs.config.VideoUDPPort > 0 {
 			gs.killStaleGStreamerProcesses(gs.config.VideoUDPPort)
 		}
-		
+
 		logrus.Info("✅ macOS: gst-launch процесс остановлен")
 	}
 
@@ -1207,7 +1207,10 @@ func (gs *GStreamerService) GetConfig() *models.AppConfig {
 }
 
 func (gs *GStreamerService) SupportsNativeFullscreen() bool {
-	return true
+	// Native macOS fullscreen depends on a global event tap that can trigger
+	// Input Monitoring / Accessibility prompts and aggressively capture the mouse.
+	// Keep fullscreen on the regular window path until a safer implementation exists.
+	return false
 }
 
 func (gs *GStreamerService) IsNativeFullscreenActive() bool {
