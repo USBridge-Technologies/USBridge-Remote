@@ -337,7 +337,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	background := canvas.NewRectangle(design.ColorGray950)
 	background.FillColor = design.ColorGray950
 
-	vk.imeSpacer = &imeSpacerLayout{}
+	vk.imeSpacer = &imeSpacerLayout{height: 36}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
 
 	textHint.onFocused = func() {
@@ -350,7 +350,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onUnfocused = func() {
 	}
 
-	paddedMain := view.NewInset(main, 4, 4, 4, view.MobileFooterBottomInset(36))
+	paddedMain := view.NewInset(main, 4, 4, 4, 4)
 	innerLayout := container.NewBorder(nil, vk.imeSpacerCont, nil, nil, paddedMain)
 	return container.NewStack(background, innerLayout)
 }

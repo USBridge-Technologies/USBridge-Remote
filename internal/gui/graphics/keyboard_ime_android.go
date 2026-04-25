@@ -65,6 +65,10 @@ func (vk *VirtualKeyboard) RegisterAsIMETarget() {
 		fyne.Do(func() {
 			vk.setIMEOffset(lastIMEH)
 		})
+	} else {
+		fyne.Do(func() {
+			vk.setIMEOffset(36)
+		})
 	}
 }
 
