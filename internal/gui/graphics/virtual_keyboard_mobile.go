@@ -333,8 +333,8 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
 
-	background := canvas.NewRectangle(theme.BackgroundColor())
-	background.FillColor = theme.BackgroundColor()
+	background := canvas.NewRectangle(design.ColorGray950)
+	background.FillColor = design.ColorGray950
 
 	vk.imeSpacer = &imeSpacerLayout{}
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
@@ -414,5 +414,10 @@ func (vk *VirtualKeyboard) ResetIMEState() {
 		return
 	}
 	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
+	vk.setIMEOffset(0)
+}
+)
+}
+�а)")
 	vk.setIMEOffset(0)
 }
