@@ -370,7 +370,7 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), nil)
 	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
 
-	bodyObjects := []fyne.CanvasObject{titleBar}
+	bodyObjects := make([]fyne.CanvasObject, 0, 3)
 	if feedback != nil {
 		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
 	}
@@ -412,6 +412,7 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 		buttons,
 	)
 	body := container.NewVBox(bodyObjects...)
+	scroll := container.NewVScroll(body)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -423,7 +424,7 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 
 	panel := container.NewStack(
 		bg,
-		view.NewInset(body, 18, 18, 16, 16),
+		view.NewInset(container.NewBorder(titleBar, nil, nil, nil, scroll), 18, 18, 16, 16),
 		border,
 	)
 
