@@ -36,7 +36,6 @@ type AppConfig struct {
 
 	// NBD сервер (как сервер)
 	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"` // Порт NBD сервера (10809)
-	NBDBindHost       string   `json:"nbd_bind_host" mapstructure:"nbd_bind_host"`
 	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Максимум NBD клиентов
 	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Пути для сканирования устройств
 	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Поддерживаемые типы файлов
@@ -91,7 +90,6 @@ func DefaultConfig() *AppConfig {
 
 		// NBD сервер
 		NBDPort:           10809,
-		NBDBindHost:       "0.0.0.0",
 		MaxClients:        5,
 		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},

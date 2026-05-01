@@ -6,37 +6,37 @@ import (
 	"image"
 )
 
-// H264Decoder заглушка для Android
+// H264Decoder stub for Android
 type H264Decoder struct {
 	onFrameDecoded func(image.Image)
 }
 
-// NewH264Decoder создает заглушку H264 декодера для Android
+// NewH264Decoder creates a stub H264 decoder for Android
 func NewH264Decoder() (*H264Decoder, error) {
 	return &H264Decoder{}, nil
 }
 
-// SetFrameCallback устанавливает callback
+// SetFrameCallback sets the callback
 func (d *H264Decoder) SetFrameCallback(callback func(image.Image)) {
 	d.onFrameDecoded = callback
 }
 
-// DecodeRTPPacket заглушка
+// DecodeRTPPacket stub
 func (d *H264Decoder) DecodeRTPPacket(packet []byte) error {
 	return nil
 }
 
-// Close закрывает декодер
+// Close closes the decoder
 func (d *H264Decoder) Close() error {
 	return nil
 }
 
-// Start запускает декодер
+// Start starts the decoder
 func (d *H264Decoder) Start() error {
 	return nil
 }
 
-// Stop останавливает декодер
+// Stop stops the decoder
 func (d *H264Decoder) Stop() error {
 	return nil
 }

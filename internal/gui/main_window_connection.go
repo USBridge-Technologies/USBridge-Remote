@@ -403,7 +403,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
 		mw.connectedProtocol = models.ConnectionProtocolQUIC
-		mw.config.NBDBindHost = "0.0.0.0"
 
 		return nil
 	}
@@ -879,7 +878,6 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 
 		mw.updateStatus()
-		mw.config.NBDBindHost = "0.0.0.0"
 		mw.config.VideoBindHost = "0.0.0.0"
 
 		if !mw.isClosing.Load() {

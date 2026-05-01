@@ -16,71 +16,71 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FrameDecoder декодер видео кадров для Fyne.
+// FrameDecoder video frame decoder for Fyne.
 type FrameDecoder struct {
 	startTime      time.Time
 	lastFrameTime  time.Time
 	frameCount     int64
-	frameTimes     []time.Time   // Времена получения кадров для скользящего окна
-	windowDuration time.Duration // Длительность скользящего окна (5 секунд)
+	frameTimes     []time.Time   // Frame reception times for sliding window
+	windowDuration time.Duration // Sliding window duration (5 seconds)
 	mu             sync.Mutex
 }
 
-// NewFrameDecoder создает новый декодер видео кадров.
+// NewFrameDecoder creates a new video frame decoder.
 func NewFrameDecoder() *FrameDecoder {
 	return &FrameDecoder{
-		frameTimes:     make([]time.Time, 0, 300), // Примерно 60 FPS * 5 секунд
+		frameTimes:     make([]time.Time, 0, 300), // Approx 60 FPS * 5 seconds
 		windowDuration: 5 * time.Second,
 	}
 }
 
-// ImageToResource конвертирует image.Image в fyne.Resource
+// ImageToResource converts image.Image to fyne.Resource
 func (vfd *FrameDecoder) ImageToResource(img image.Image) fyne.Resource {
 	if img == nil {
 		return nil
 	}
 
-	// Конвертируем изображение в PNG формат
+	// Convert image to PNG format
 	var buf bytes.Buffer
 	err := png.Encode(&buf, img)
 	if err != nil {
-		logrus.Errorf("❌ FrameDecoder: ошибка кодирования PNG: %v", err)
+		logrus.Errorf("❌ FrameDecoder: PNG encoding error: %v", err)
 		return nil
 	}
 
-	// Создаем ресурс из буфера
+	// Create resource from buffer
 	resource := fyne.NewStaticResource("frame", buf.Bytes())
 	return resource
 }
 
-// ImageToJPEGResource конвертирует image.Image в JPEG fyne.Resource
+// ImageToJPEGResource converts image.Image to JPEG fyne.Resource
 func (vfd *FrameDecoder) ImageToJPEGResource(img image.Image, quality int) fyne.Resource {
 	if img == nil {
 		return nil
 	}
 
-	// Конвертируем изображение в JPEG формат
+	// Convert image to JPEG format
 	var buf bytes.Buffer
 	err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
 	if err != nil {
-		logrus.Errorf("Ошибка кодирования JPEG: %v", err)
+		logrus.Errorf("JPEG encoding error: %v", err)
 		return nil
 	}
 
-	// Создаем ресурс из буфера
+	// Create resource from buffer
 	resource := fyne.NewStaticResource("frame", buf.Bytes())
 	return resource
 }
 
-// CreateTestFrame создает тестовое изображение для демонстрации
+// CreateTestFrame creates a test image for demonstration
 func (vfd *FrameDecoder) CreateTestFrame(width, height int) image.Image {
-	// Создаем RGBA изображение
+	// Create RGBA image
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// Заполняем градиентом
+	// Fill with gradient
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Создаем градиент от синего к красному
+			// Create gradient from blue to red
 			r := uint8((x * 255) / width)
 			g := uint8((y * 255) / height)
 			b := uint8(255 - (x*y*255)/(width*height))
@@ -90,17 +90,17 @@ func (vfd *FrameDecoder) CreateTestFrame(width, height int) image.Image {
 		}
 	}
 
-	// Добавляем текст (упрощенная версия)
+	// Add text (simplified version)
 	vfd.drawText(img, "USBridge Video Stream", 50, 50, color.White)
 	vfd.drawText(img, time.Now().Format("15:04:05"), 50, 80, color.White)
 
 	return img
 }
 
-// drawText рисует текст на изображении (упрощенная версия)
+// drawText draws text on the image (simplified version)
 func (vfd *FrameDecoder) drawText(img *image.RGBA, text string, x, y int, c color.Color) {
-	// Упрощенная реализация рисования текста
-	// В реальном проекте здесь должен быть полноценный рендеринг текста
+	// Simplified text drawing implementation
+	// In a real project, full text rendering should be here
 	for i, char := range text {
 		if x+i*8 >= img.Bounds().Max.X {
 			break
@@ -109,10 +109,10 @@ func (vfd *FrameDecoder) drawText(img *image.RGBA, text string, x, y int, c colo
 	}
 }
 
-// drawChar рисует символ на изображении (упрощенная версия)
+// drawChar draws a character on the image (simplified version)
 func (vfd *FrameDecoder) drawChar(img *image.RGBA, char rune, x, y int, c color.Color) {
-	// Упрощенная реализация рисования символа
-	// Создаем простой прямоугольник для каждого символа
+	// Simplified character drawing implementation
+	// Create a simple rectangle for each character
 	for dy := 0; dy < 12; dy++ {
 		for dx := 0; dx < 8; dx++ {
 			if x+dx < img.Bounds().Max.X && y+dy < img.Bounds().Max.Y {
@@ -122,18 +122,18 @@ func (vfd *FrameDecoder) drawChar(img *image.RGBA, char rune, x, y int, c color.
 	}
 }
 
-// CreateAnimatedFrame создает анимированное тестовое изображение
+// CreateAnimatedFrame creates an animated test image
 func (vfd *FrameDecoder) CreateAnimatedFrame(width, height int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// Создаем анимированный эффект
-	timeOffset := time.Now().UnixNano() / 1000000 // миллисекунды
+	// Create animated effect
+	timeOffset := time.Now().UnixNano() / 1000000 // milliseconds
 	waveOffset := float64(timeOffset%1000) / 1000.0
 
-	// Заполняем синусоидальным градиентом
+	// Fill with sinusoidal gradient
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Создаем волновой эффект
+			// Create wave effect
 			waveX := float64(x) / float64(width) * 2 * 3.14159
 			waveY := float64(y) / float64(height) * 2 * 3.14159
 
@@ -146,7 +146,7 @@ func (vfd *FrameDecoder) CreateAnimatedFrame(width, height int) image.Image {
 		}
 	}
 
-	// Добавляем информацию о времени
+	// Add time information
 	vfd.drawText(img, "RTP/UDP Video Stream", 50, 50, color.White)
 	vfd.drawText(img, time.Now().Format("15:04:05.000"), 50, 80, color.White)
 	vfd.drawText(img, "Frame: "+fmt.Sprintf("%d", vfd.frameCount+1), 50, 110, color.White)
@@ -154,7 +154,7 @@ func (vfd *FrameDecoder) CreateAnimatedFrame(width, height int) image.Image {
 	return img
 }
 
-// ConvertToRGBA конвертирует любое изображение в RGBA
+// ConvertToRGBA converts any image to RGBA
 func (vfd *FrameDecoder) ConvertToRGBA(src image.Image) *image.RGBA {
 	bounds := src.Bounds()
 	dst := image.NewRGBA(bounds)
@@ -162,10 +162,10 @@ func (vfd *FrameDecoder) ConvertToRGBA(src image.Image) *image.RGBA {
 	return dst
 }
 
-// ResizeImage изменяет размер изображения
+// ResizeImage resizes the image
 func (vfd *FrameDecoder) ResizeImage(src image.Image, width, height int) image.Image {
-	// Упрощенная реализация изменения размера
-	// В реальном проекте здесь должен быть качественный алгоритм ресайза
+	// Simplified resizing implementation
+	// In a real project, a high-quality resize algorithm should be here
 
 	bounds := src.Bounds()
 	srcWidth := bounds.Dx()
@@ -173,7 +173,7 @@ func (vfd *FrameDecoder) ResizeImage(src image.Image, width, height int) image.I
 
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// Простое масштабирование методом ближайшего соседа
+	// Simple nearest neighbor scaling
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			srcX := (x * srcWidth) / width
@@ -188,7 +188,7 @@ func (vfd *FrameDecoder) ResizeImage(src image.Image, width, height int) image.I
 	return dst
 }
 
-// GetFrameStats возвращает статистику кадров
+// GetFrameStats returns frame statistics
 func (vfd *FrameDecoder) GetFrameStats() map[string]interface{} {
 	vfd.mu.Lock()
 	defer vfd.mu.Unlock()
@@ -200,12 +200,12 @@ func (vfd *FrameDecoder) GetFrameStats() map[string]interface{} {
 	}
 }
 
-// calculateFPS вычисляет скользящее среднее FPS за последние 5 секунд
+// calculateFPS calculates moving average FPS for the last 5 seconds
 func (vfd *FrameDecoder) calculateFPSLocked() float64 {
 	now := time.Now()
 	cutoff := now.Add(-vfd.windowDuration)
 
-	// Удаляем старые кадры за пределами окна
+	// Remove old frames outside the window
 	for i, t := range vfd.frameTimes {
 		if t.After(cutoff) {
 			vfd.frameTimes = vfd.frameTimes[i:]
@@ -220,24 +220,24 @@ fpsReady:
 		return 0
 	}
 
-	// Вычисляем FPS: количество кадров / длительность в секундах
-	// Длительность = от первого кадра в окне до текущего момента
+	// Calculate FPS: frame count / duration in seconds
+	// Duration = from the first frame in window to the current moment
 	duration := now.Sub(vfd.frameTimes[0]).Seconds()
 	if duration < 0.1 {
-		return 0 // Слишком мало времени прошло
+		return 0 // Too little time has passed
 	}
 
 	return float64(validFrames) / duration
 }
 
-// UpdateFrameTime обновляет время последнего кадра
+// UpdateFrameTime updates the time of the last frame
 func (vfd *FrameDecoder) UpdateFrameTime() {
 	vfd.mu.Lock()
 	defer vfd.mu.Unlock()
 	vfd.lastFrameTime = time.Now()
 }
 
-// IncrementFrameCount увеличивает счетчик кадров
+// IncrementFrameCount increments frame counter
 func (vfd *FrameDecoder) IncrementFrameCount() {
 	vfd.mu.Lock()
 	defer vfd.mu.Unlock()
@@ -249,7 +249,7 @@ func (vfd *FrameDecoder) IncrementFrameCount() {
 	vfd.frameCount++
 	vfd.lastFrameTime = now
 
-	// Добавляем время кадра для скользящего окна
+	// Add frame time for sliding window
 	vfd.frameTimes = append(vfd.frameTimes, now)
 }
 

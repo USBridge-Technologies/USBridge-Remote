@@ -22,49 +22,49 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// GStreamerService сервис для работы с GStreamer на macOS через внешний процесс
+// GStreamerService service for working with GStreamer on macOS via an external process
 type GStreamerService struct {
 	config    *models.AppConfig
 	videoMode string
 
-	// Процесс GStreamer
+	// GStreamer process
 	cmd                    *exec.Cmd
 	stdout                 io.ReadCloser
 	nativeFullscreenCmd    *exec.Cmd
 	nativeFullscreenActive bool
 
-	// Состояние
+	// State
 	isConnected    bool
 	isConnecting   bool
 	isReconnecting bool
 
-	// Автоматическое переподключение
+	// Auto-reconnect
 	autoReconnect        bool
 	reconnectAttempts    int
 	maxReconnectAttempts int
 	manualDisconnect     bool
 
-	// Канал для неблокирующей передачи кадров
+	// Channel for non-blocking frame transfer
 	frameChan chan videoFramePacket
-	stop      *stopSignal // безопасное однократное закрытие
+	stop      *stopSignal // safe single closure
 
-	// Флаги для управления горутинами
+	// Flags for goroutine management
 	frameProcessorRunning bool
 	frameReaderRunning    bool
 	monitorRunning        bool
 
-	// Статистика
+	// Statistics
 	lastFrameTime   time.Time
 	lastFrameReport time.Time
 	frameCount      int64
 	framesDropped   int64
 	latencyProfile  videoLatencyProfile
 
-	// Размеры кадра (по умолчанию 1280x720 для HD захвата)
+	// Frame dimensions (default 1280x720 for HD capture)
 	width  int
 	height int
 
-	// Мьютексы
+	// Mutexes
 	mutex sync.RWMutex
 
 	// Callbacks
@@ -83,7 +83,7 @@ type darwinSinkSpec struct {
 	args []string
 }
 
-// NewGStreamerService создает новый GStreamer сервис для macOS
+// NewGStreamerService creates a new GStreamer service for macOS
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 	gs := &GStreamerService{
 		config:                config,
@@ -100,11 +100,11 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		height:                1080,
 	}
 
-	logrus.Info("✅ GStreamer сервис для macOS инициализирован (внешний процесс)")
+	logrus.Info("✅ GStreamer service for macOS initialized (external process)")
 	return gs
 }
 
-// getGStreamerEnv возвращает окружение для gst-launch с путями к плагинам (applemedia/vtdec)
+// getGStreamerEnv returns environment for gst-launch with plugin paths (applemedia/vtdec)
 func (gs *GStreamerService) getGStreamerEnv() []string {
 	env := os.Environ()
 
@@ -176,20 +176,20 @@ func findDarwinGStreamerTool(name string) (string, error) {
 	return "", fmt.Errorf("%s not found in PATH, /opt/homebrew/bin, or /usr/local/bin", name)
 }
 
-// buildPipelineArgs формирует аргументы pipeline для RTP video (через QUIC/SUDP туннель)
+// buildPipelineArgs forms pipeline arguments for RTP video (via QUIC/SUDP tunnel)
 func (gs *GStreamerService) buildPipelineArgs(udpPort int) []string {
 	bindHost := gs.darwinBindHost()
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.buildPipelineArgsJPEG(udpPort)
 	}
 
-	// Низкая задержка: удушаем jitterbuffer и разрешаем сбрасывать опоздавшие кадры.
+	// Low latency: choke jitterbuffer and allow dropping late frames.
 	return []string{
 		"-q",
 		"udpsrc",
 		fmt.Sprintf("address=%s", bindHost),
 		fmt.Sprintf("port=%d", udpPort),
-		"buffer-size=131072", // 128KB вместо 2MB — меньше буферизация
+		"buffer-size=131072", // 128KB instead of 2MB — less buffering
 		`caps=application/x-rtp,media=video,encoding-name=H264,payload=96`,
 		"!",
 		"rtpjitterbuffer",
@@ -248,7 +248,7 @@ func (gs *GStreamerService) darwinBindHost() string {
 	return host
 }
 
-// GetBindHost возвращает адрес, на котором GStreamer слушает входящие UDP пакеты
+// GetBindHost returns the address where GStreamer listens for incoming UDP packets
 func (gs *GStreamerService) GetBindHost() string {
 	return gs.darwinBindHost()
 }
@@ -346,7 +346,7 @@ func (gs *GStreamerService) buildDarwinFullscreenCandidates(udpPort int, latency
 	return gs.buildDarwinPipelineCandidates(gs.buildDarwinRTPBaseArgs(udpPort, latency), gs.darwinDecodeChains(), middle, sinks)
 }
 
-// buildPipelineArgsPipe — fdsrc для RTP H.264 из pipe (UDP relay с keepalive)
+// buildPipelineArgsPipe — fdsrc for RTP H.264 from pipe (UDP relay with keepalive)
 func (gs *GStreamerService) buildPipelineArgsPipe(fd int) []string {
 	return []string{
 		"-q",
@@ -382,20 +382,20 @@ func (gs *GStreamerService) buildPipelineArgsPipe(fd int) []string {
 	}
 }
 
-// ConnectToUDP подключается к UDP H.264 потоку (новый протокол, минимальная задержка)
+// ConnectToUDP connects to UDP H.264 stream (new protocol, minimal latency)
 func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.mutex.Lock()
 
 	if gs.isConnecting || gs.isConnected {
 		gs.mutex.Unlock()
-		logrus.Warnf("⚠️ macOS: Уже подключен или подключается (isConnecting=%v, isConnected=%v)", gs.isConnecting, gs.isConnected)
-		return fmt.Errorf("уже подключен или подключается")
+		logrus.Warnf("⚠️ macOS: Already connected or connecting (isConnecting=%v, isConnected=%v)", gs.isConnecting, gs.isConnected)
+		return fmt.Errorf("already connected or connecting")
 	}
 
 	gs.manualDisconnect = false
 	gs.lastFrameTime = time.Time{}
 
-	// Сигнализируем остановку и ждём завершения горутин
+	// Signal stop and wait for goroutines to finish
 	if gs.stop != nil {
 		gs.stop.signal()
 	}
@@ -407,27 +407,27 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 
 	gs.stop = newStopSignal()
 
-	// Запускаем новый обработчик кадров ОДИН РАЗ
+	// Start new frame processor ONCE
 	gs.frameProcessorRunning = true
 	go gs.frameProcessor()
-	logrus.Info("🔍 macOS DEBUG: frameProcessor запущен")
+	logrus.Info("🔍 macOS DEBUG: frameProcessor started")
 
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 [VIDEO] Шаг 2: Подключение к RTP video mode=%s (port=%d)", gs.videoMode, udpPort)
+	logrus.Infof("🔗 [VIDEO] Step 2: Connecting to RTP video mode=%s (port=%d)", gs.videoMode, udpPort)
 
-	// Убиваем старые процессы на этом порту ПЕРЕД запуском нового
+	// Kill stale processes on this port BEFORE starting new one
 	gs.killStaleGStreamerProcesses(udpPort)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		var lastErr error
 		candidates := gs.buildPipelineArgsJPEGCandidates(udpPort)
 		for idx, args := range candidates {
-			logrus.Infof("🔄 macOS JPEG pipeline попытка %d/%d: %v", idx+1, len(candidates), args)
+			logrus.Infof("🔄 macOS JPEG pipeline attempt %d/%d: %v", idx+1, len(candidates), args)
 			if err := gs.runGStreamerPipeline(args, nil); err != nil {
 				lastErr = err
-				logrus.Warnf("⚠️ macOS JPEG pipeline попытка %d неудачна: %v", idx+1, err)
+				logrus.Warnf("⚠️ macOS JPEG pipeline attempt %d failed: %v", idx+1, err)
 				continue
 			}
 			return nil
@@ -440,12 +440,12 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	return gs.runGStreamerPipeline(gs.buildPipelineArgs(udpPort), nil)
 }
 
-// ConnectToUDPViaPipe подключается к H.264 через pipe (UDP relay с keepalive для FRP).
+// ConnectToUDPViaPipe connects to H.264 via pipe (UDP relay with keepalive for FRP).
 func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	gs.mutex.Lock()
 	if gs.isConnecting || gs.isConnected {
 		gs.mutex.Unlock()
-		return fmt.Errorf("уже подключен или подключается")
+		return fmt.Errorf("already connected or connecting")
 	}
 	gs.manualDisconnect = false
 	gs.lastFrameTime = time.Time{}
@@ -463,21 +463,21 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 [VIDEO] Подключение через pipe (UDP relay, mode=%s)", gs.videoMode)
-	// ExtraFiles[0] → fd 3 в дочернем процессе
+	logrus.Infof("🔗 [VIDEO] Connecting via pipe (UDP relay, mode=%s)", gs.videoMode)
+	// ExtraFiles[0] → fd 3 in child process
 	return gs.runGStreamerPipeline(gs.buildPipelineArgsPipe(3), pipeReader)
 }
 
-// killStaleGStreamerProcesses убивает осиротевшие gst-launch процессы на том же UDP-порту.
-// Без этого старый зомби-процесс перехватывает все UDP-пакеты и новый GStreamer ничего не получает.
+// killStaleGStreamerProcesses kills orphaned gst-launch processes on the same UDP port.
+// Without this, an old zombie process intercepts all UDP packets and the new GStreamer receives nothing.
 func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 	myPID := os.Getpid()
 	portStr := fmt.Sprintf("port=%d", udpPort)
 
-	// Ищем все gst-launch процессы
+	// Look for all gst-launch processes
 	out, err := exec.Command("pgrep", "-f", "gst-launch.*udpsrc").Output()
 	if err != nil {
-		return // нет процессов — нечего убивать
+		return // no processes to kill
 	}
 
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -486,7 +486,7 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 			continue
 		}
 
-		// Не убиваем свой текущий дочерний процесс
+		// Don't kill our current child process
 		gs.mutex.RLock()
 		ownCmd := gs.cmd
 		gs.mutex.RUnlock()
@@ -494,7 +494,7 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 			continue
 		}
 
-		// Проверяем командную строку — совпадает ли порт
+		// Check command line — does port match
 		cmdline, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
 		if err != nil {
 			continue
@@ -504,7 +504,7 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 			continue
 		}
 
-		// Проверяем PPID — осиротевший (PPID=1) или чужой (PPID != наш PID)
+		// Check PPID — orphaned (PPID=1) or stranger (PPID != our PID)
 		ppidOut, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=").Output()
 		if err != nil {
 			continue
@@ -514,13 +514,13 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 			continue
 		}
 		if ppid == myPID {
-			continue // наш дочерний — не трогаем
+			continue // our child — don't touch
 		}
 
-		logrus.Warnf("🧹 Убиваем старый gst-launch (PID=%d, PPID=%d) на порту %d", pid, ppid, udpPort)
+		logrus.Warnf("🧹 Killing old gst-launch (PID=%d, PPID=%d) on port %d", pid, ppid, udpPort)
 		if proc, err := os.FindProcess(pid); err == nil {
 			_ = proc.Signal(syscall.SIGTERM)
-			// Даём время на graceful shutdown, потом SIGKILL
+			// Allow time for graceful shutdown, then SIGKILL
 			go func(p *os.Process) {
 				time.Sleep(500 * time.Millisecond)
 				_ = p.Signal(syscall.SIGKILL)
@@ -529,7 +529,7 @@ func (gs *GStreamerService) killStaleGStreamerProcesses(udpPort int) {
 	}
 }
 
-// runGStreamerPipeline запускает gst-launch. pipeReader != nil → fdsrc (ExtraFiles[0]=fd 3).
+// runGStreamerPipeline starts gst-launch. pipeReader != nil → fdsrc (ExtraFiles[0]=fd 3).
 func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeReader *os.File) error {
 	logrus.Infof("🔧 macOS: GStreamer pipeline: gst-launch-1.0 %v", pipelineArgs)
 
@@ -542,15 +542,15 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 		if gs.stop != nil {
 			gs.stop.signal()
 		}
-		return fmt.Errorf("gst-launch-1.0 не найден. Установите: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad")
+		return fmt.Errorf("gst-launch-1.0 not found. Install with: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad")
 	}
 
-	// Убиваем осиротевшие gst-launch на нашем порту (зомби от предыдущих запусков перехватывают UDP)
+	// Kill orphaned gst-launch on our port (zombies from previous runs intercept UDP)
 	for _, arg := range pipelineArgs {
 		if strings.HasPrefix(arg, "port=") {
 			if p, err := strconv.Atoi(strings.TrimPrefix(arg, "port=")); err == nil && p > 0 {
 				gs.killStaleGStreamerProcesses(p)
-				time.Sleep(200 * time.Millisecond) // даём ОС время освободить сокет
+				time.Sleep(200 * time.Millisecond) // give OS time to free socket
 				break
 			}
 		}
@@ -573,8 +573,8 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 		if gs.stop != nil {
 			gs.stop.signal()
 		}
-		logrus.Errorf("❌ macOS: Ошибка создания stdout pipe: %v", err)
-		return fmt.Errorf("ошибка создания stdout pipe: %v", err)
+		logrus.Errorf("❌ macOS: Error creating stdout pipe: %v", err)
+		return fmt.Errorf("error creating stdout pipe: %v", err)
 	}
 
 	stderr, err := gs.cmd.StderrPipe()
@@ -586,20 +586,20 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 		if gs.stop != nil {
 			gs.stop.signal()
 		}
-		logrus.Errorf("❌ macOS: Ошибка создания stderr pipe: %v", err)
-		return fmt.Errorf("ошибка создания stderr pipe: %v", err)
+		logrus.Errorf("❌ macOS: Error creating stderr pipe: %v", err)
+		return fmt.Errorf("error creating stderr pipe: %v", err)
 	}
 
 	gs.mutex.Lock()
 	gs.stdout = stdout
 	gs.mutex.Unlock()
 
-	// Запускаем горутину для чтения stderr (для диагностики)
+	// Start goroutine to read stderr (for diagnostics)
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			// Пропускаем безвредные предупреждения GTK (дубликаты классов при gtk3+gtk4)
+			// Skip harmless GTK warnings (duplicate classes when gtk3+gtk4)
 			if strings.Contains(line, "implemented in both") && strings.Contains(line, "libgtk") {
 				continue
 			}
@@ -615,36 +615,36 @@ func (gs *GStreamerService) runGStreamerPipeline(pipelineArgs []string, pipeRead
 		if gs.stop != nil {
 			gs.stop.signal()
 		}
-		logrus.Errorf("❌ macOS: Ошибка запуска gst-launch-1.0: %v", err)
-		return fmt.Errorf("ошибка запуска gst-launch-1.0: %v", err)
+		logrus.Errorf("❌ macOS: Error starting gst-launch-1.0: %v", err)
+		return fmt.Errorf("error starting gst-launch-1.0: %v", err)
 	}
 
-	logrus.Infof("✅ macOS: gst-launch-1.0 процесс запущен (PID: %d)", gs.cmd.Process.Pid)
+	logrus.Infof("✅ macOS: gst-launch-1.0 process started (PID: %d)", gs.cmd.Process.Pid)
 
-	// Запускаем чтение кадров
+	// Start reading frames
 	gs.mutex.Lock()
 	gs.frameReaderRunning = true
 	gs.mutex.Unlock()
 	go gs.readFrames()
 
-	// Запускаем мониторинг процесса
+	// Start process monitoring
 	gs.mutex.Lock()
 	gs.monitorRunning = true
 	gs.mutex.Unlock()
 	go gs.monitorProcess()
 
-	// НЕ устанавливаем isConnected = true здесь!
-	// Это будет сделано в readFrames() после получения первого кадра
+	// DO NOT set isConnected = true here!
+	// This will be done in readFrames() after receiving the first frame
 	gs.mutex.Lock()
 	gs.isConnecting = false
-	// isConnected останется false до получения первого кадра
+	// isConnected stays false until first frame
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 [VIDEO] Шаг 3: GStreamer процесс запущен, ожидание первого кадра (mode=%s)...", gs.videoMode)
+	logrus.Infof("🔗 [VIDEO] Step 3: GStreamer process started, waiting for first frame (mode=%s)...", gs.videoMode)
 	return nil
 }
 
-// firstByteLogReader оборачивает io.Reader и логирует при первом получении байтов
+// firstByteLogReader wraps io.Reader and logs upon first byte reception
 type firstByteLogReader struct {
 	io.Reader
 	port int
@@ -655,20 +655,20 @@ func (r *firstByteLogReader) Read(p []byte) (n int, err error) {
 	n, err = r.Reader.Read(p)
 	r.once.Do(func() {
 		if n > 0 {
-			logrus.Infof("📥 [VIDEO] Шаг 5: Первые байты от GStreamer (%d байт) — udpsrc RTP получает данные", n)
+			logrus.Infof("📥 [VIDEO] Step 5: First bytes from GStreamer (%d bytes) — udpsrc RTP receiving data", n)
 		}
 	})
 	return n, err
 }
 
-// readFrames читает RGBA кадры из stdout gst-launch
+// readFrames reads RGBA frames from gst-launch stdout
 func (gs *GStreamerService) readFrames() {
 	defer func() {
 		gs.mutex.Lock()
 		gs.frameReaderRunning = false
-		gs.isConnected = false // Важно! Сбрасываем флаг при завершении
+		gs.isConnected = false // Important! Reset flag on finish
 		gs.mutex.Unlock()
-		logrus.Info("🛑 macOS: readFrames завершен")
+		logrus.Info("🛑 macOS: readFrames finished")
 	}()
 
 	gs.mutex.RLock()
@@ -682,7 +682,7 @@ func (gs *GStreamerService) readFrames() {
 	}
 	gs.mutex.RUnlock()
 
-	logrus.Infof("🎬 [VIDEO] Шаг 1: readFrames запущен (udpsrc RTP port=%d, кадр=%dx%d RGBA)", udpPort, width, height)
+	logrus.Infof("🎬 [VIDEO] Step 1: readFrames started (udpsrc RTP port=%d, frame=%dx%d RGBA)", udpPort, width, height)
 
 	frameSize := width * height * 4 // RGBA
 	buffer := make([]byte, frameSize)
@@ -690,7 +690,7 @@ func (gs *GStreamerService) readFrames() {
 	firstFrameReceived := false
 	waitStart := time.Now()
 
-	// Периодический лог ожидания первого кадра (ReadFull блокируется, поэтому отдельная горутина)
+	// Periodic log for waiting first frame (ReadFull blocks, so separate goroutine)
 	waitDone := make(chan struct{})
 	var waitDoneOnce sync.Once
 	closeWaitDone := func() { waitDoneOnce.Do(func() { close(waitDone) }) }
@@ -704,7 +704,7 @@ func (gs *GStreamerService) readFrames() {
 			case <-done:
 				return
 			case <-ticker.C:
-				logrus.Warnf("⚠️ [VIDEO] Шаг 4: Ожидание первого кадра (%.0f сек) — udpsrc RTP port=%d, проверьте FRP visitor→GStreamer", time.Since(waitStart).Seconds(), udpPort)
+				logrus.Warnf("⚠️ [VIDEO] Step 4: Waiting for first frame (%.0f sec) — udpsrc RTP port=%d, check FRP visitor→GStreamer", time.Since(waitStart).Seconds(), udpPort)
 			}
 		}
 	}()
@@ -713,17 +713,17 @@ func (gs *GStreamerService) readFrames() {
 		select {
 		case <-done:
 			closeWaitDone()
-			logrus.Info("🛑 macOS: Остановка чтения кадров по сигналу stop")
+			logrus.Info("🛑 macOS: Stopping frame reading by stop signal")
 			return
 		default:
 		}
 
-		// Читаем ровно один кадр
+		// Read exactly one frame
 		n, err := io.ReadFull(reader, buffer)
 		if err != nil {
 			closeWaitDone()
 			if err == io.EOF {
-				logrus.Warn("⚠️ [VIDEO] EOF - поток завершён (GStreamer не получил данных?)")
+				logrus.Warn("⚠️ [VIDEO] EOF - stream finished (GStreamer received no data?)")
 				gs.mutex.RLock()
 				shouldReconnect := !gs.manualDisconnect && gs.autoReconnect
 				gs.mutex.RUnlock()
@@ -732,7 +732,7 @@ func (gs *GStreamerService) readFrames() {
 				}
 				return
 			}
-			logrus.Errorf("❌ [VIDEO] Ошибка чтения кадра: %v", err)
+			logrus.Errorf("❌ [VIDEO] Frame read error: %v", err)
 			gs.mutex.RLock()
 			shouldReconnect := !gs.manualDisconnect && gs.autoReconnect
 			gs.mutex.RUnlock()
@@ -743,7 +743,7 @@ func (gs *GStreamerService) readFrames() {
 		}
 
 		if n != frameSize {
-			logrus.Warnf("⚠️ macOS: Неполный кадр: %d байт (ожидается %d)", n, frameSize)
+			logrus.Warnf("⚠️ macOS: Incomplete frame: %d bytes (expected %d)", n, frameSize)
 			continue
 		}
 
@@ -768,21 +768,21 @@ func (gs *GStreamerService) readFrames() {
 			}
 			gs.lastFrameTime = now
 
-			// Устанавливаем isConnected = true при получении первого кадра
+			// Set isConnected = true upon first frame
 			if !firstFrameReceived {
 				gs.isConnected = true
 				firstFrameReceived = true
 				closeWaitDone()
-				logrus.Info("✅ [VIDEO] Шаг 6: Первый кадр получен! Соединение установлено.")
+				logrus.Info("✅ [VIDEO] Step 6: First frame received! Connection established.")
 
-				// Вызываем callback если есть
+				// Call callback if present
 				stateCallback := gs.onStateChanged
 				if stateCallback != nil {
 					go stateCallback("connected")
 				}
 			}
 
-			// Логируем каждый 300-й кадр (~10 сек при 30fps)
+			// Log every 300th frame (~10 sec at 30fps)
 			if frameNum%300 == 0 || now.Sub(gs.lastFrameReport) > 10*time.Second {
 				gs.lastFrameReport = now
 				dropped := gs.framesDropped
@@ -792,41 +792,41 @@ func (gs *GStreamerService) readFrames() {
 			}
 			gs.mutex.Unlock()
 
-			// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
+			// Send frame to channel in NON-BLOCKING way
 			select {
 			case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
-				// Кадр отправлен успешно
+				// Frame sent successfully
 				gs.recordIngressLatency(meta)
 			default:
-				// Канал полон - пропускаем кадр (критично для реалтайма!)
+				// Channel full - drop frame (critical for realtime!)
 				gs.mutex.Lock()
 				gs.framesDropped++
 				dropped := gs.framesDropped
 				gs.mutex.Unlock()
-				// Логируем каждый 30-й пропущенный кадр
+				// Log every 30th dropped frame
 				if dropped%120 == 1 {
 					chanLen := len(gs.frameChan)
-					logrus.Debugf("⏭️ macOS GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
+					logrus.Debugf("⏭️ macOS GStreamer: dropped frame #%d (total dropped: %d, channel: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 				}
 			}
 		}
 	}
 }
 
-// frameProcessor обрабатывает кадры из канала и отправляет в UI
+// frameProcessor processes frames from channel and sends to UI
 func (gs *GStreamerService) frameProcessor() {
 	defer func() {
-		// Очищаем оставшиеся кадры из канала при завершении
+		// Clear remaining frames from channel on finish
 		for {
 			select {
 			case _, ok := <-gs.frameChan:
 				if !ok {
-					// Канал закрыт
+					// Channel closed
 					goto cleanup
 				}
-				// Игнорируем оставшиеся кадры
+				// Ignore remaining frames
 			default:
-				// Канал пуст
+				// Channel empty
 				goto cleanup
 			}
 		}
@@ -834,7 +834,7 @@ func (gs *GStreamerService) frameProcessor() {
 		gs.mutex.Lock()
 		gs.frameProcessorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 macOS: frameProcessor завершен и очищен")
+		logrus.Info("🛑 macOS: frameProcessor finished and cleared")
 	}()
 
 	processedCount := int64(0)
@@ -844,11 +844,11 @@ func (gs *GStreamerService) frameProcessor() {
 	for {
 		select {
 		case <-done:
-			logrus.Info("🛑 macOS: Остановка обработчика кадров по сигналу stop")
+			logrus.Info("🛑 macOS: Stopping frame processor by stop signal")
 			return
 		case packet, ok := <-gs.frameChan:
 			if !ok {
-				logrus.Info("🛑 macOS: frameChan закрыт, остановка обработчика")
+				logrus.Info("🛑 macOS: frameChan closed, stopping processor")
 				return
 			}
 
@@ -856,7 +856,7 @@ func (gs *GStreamerService) frameProcessor() {
 
 			if time.Since(lastLogTime) > 5*time.Second {
 				chanLen := len(gs.frameChan)
-				logrus.Debugf("📤 macOS frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
+				logrus.Debugf("📤 macOS frameProcessor: processed %d frames, channel: %d/%d", processedCount, chanLen, cap(gs.frameChan))
 				lastLogTime = time.Now()
 			}
 
@@ -876,20 +876,20 @@ func (gs *GStreamerService) frameProcessor() {
 	}
 }
 
-// monitorProcess мониторит состояние процесса GStreamer
+// monitorProcess monitors GStreamer process state
 func (gs *GStreamerService) monitorProcess() {
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("❌ macOS: Паника в monitorProcess: %v", r)
+			logrus.Errorf("❌ macOS: Panic in monitorProcess: %v", r)
 		}
 
 		gs.mutex.Lock()
 		gs.monitorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 macOS: monitorProcess завершен")
+		logrus.Info("🛑 macOS: monitorProcess finished")
 	}()
 
-	logrus.Info("📊 macOS: Запуск мониторинга gst-launch процесса")
+	logrus.Info("📊 macOS: Starting gst-launch process monitoring")
 
 	gs.mutex.RLock()
 	cmd := gs.cmd
@@ -909,42 +909,42 @@ func (gs *GStreamerService) monitorProcess() {
 	gs.mutex.RUnlock()
 
 	if err != nil && !manualDisc {
-		logrus.Errorf("❌ macOS: gst-launch процесс завершился с ошибкой: %v", err)
+		logrus.Errorf("❌ macOS: gst-launch process exited with error: %v", err)
 		gs.mutex.RLock()
 		errCallback := gs.onError
 		gs.mutex.RUnlock()
 		if errCallback != nil {
-			errCallback(fmt.Errorf("процесс gst-launch завершился: %v", err))
+			errCallback(fmt.Errorf("gst-launch process finished: %v", err))
 		}
 	} else if !manualDisc {
-		logrus.Warn("⚠️ macOS: gst-launch процесс завершился")
+		logrus.Warn("⚠️ macOS: gst-launch process finished")
 	}
 
 	select {
 	case <-done:
-		logrus.Info("🛑 macOS: Остановка мониторинга по stop")
+		logrus.Info("🛑 macOS: Stopping monitoring by stop signal")
 		return
 	default:
 	}
 
-	// Запускаем переподключение если нужно
+	// Start reconnect if needed
 	if shouldReconnect {
-		logrus.Info("🔄 macOS: Запуск автоматического переподключения...")
+		logrus.Info("🔄 macOS: Starting automatic reconnection...")
 		go gs.attemptReconnect()
 	}
 }
 
-// Disconnect отключается от RTP/UDP потока
+// Disconnect disconnects from RTP/UDP stream
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
 	if !gs.isConnected && !gs.isConnecting {
 		gs.mutex.Unlock()
-		logrus.Info("🔌 macOS: Disconnect: уже отключен")
+		logrus.Info("🔌 macOS: Disconnect: already disconnected")
 		return nil
 	}
 
-	logrus.Info("🔌 macOS: Отключение от RTP/UDP потока...")
+	logrus.Info("🔌 macOS: Disconnecting from RTP/UDP stream...")
 
 	gs.manualDisconnect = true
 	gs.isConnected = false
@@ -958,21 +958,21 @@ func (gs *GStreamerService) Disconnect() error {
 		stop.signal()
 	}
 
-	// Останавливаем процесс gst-launch
+	// Stop gst-launch process
 	if cmd != nil && cmd.Process != nil {
-		logrus.Info("🛑 macOS: Остановка gst-launch процесса...")
+		logrus.Info("🛑 macOS: Stopping gst-launch process...")
 		cmd.Process.Kill()
 		cmd.Wait()
 
-		// Явно убиваем любые другие процессы на этом порту
+		// Explicitly kill any other processes on this port
 		if gs.config != nil && gs.config.VideoUDPPort > 0 {
 			gs.killStaleGStreamerProcesses(gs.config.VideoUDPPort)
 		}
 
-		logrus.Info("✅ macOS: gst-launch процесс остановлен")
+		logrus.Info("✅ macOS: gst-launch process stopped")
 	}
 
-	// Ждем завершения горутин (не более 2 секунд)
+	// Wait for goroutines to finish (max 2 seconds)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		gs.mutex.RLock()
@@ -985,61 +985,61 @@ func (gs *GStreamerService) Disconnect() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Проверяем, завершились ли горутины
+	// Check if goroutines finished
 	gs.mutex.RLock()
 	stillRunning := gs.frameProcessorRunning || gs.frameReaderRunning || gs.monitorRunning
 	gs.mutex.RUnlock()
 
 	if stillRunning {
-		logrus.Warn("⚠️ macOS: Некоторые горутины не завершились в течение 2 секунд, продолжаем...")
+		logrus.Warn("⚠️ macOS: Some goroutines didn't finish within 2 seconds, continuing...")
 	}
 
-	// Очищаем
+	// Cleanup
 	gs.mutex.Lock()
 	gs.cmd = nil
 	gs.stdout = nil
 
-	// Очищаем канал кадров от оставшихся данных
+	// Clear frame channel from remaining data
 	if gs.frameChan != nil {
-		// Неблокирующая очистка канала
+		// Non-blocking channel clearing
 		for {
 			select {
 			case <-gs.frameChan:
-				// Игнорируем оставшиеся кадры
+				// Ignore remaining frames
 			default:
-				// Канал пуст
+				// Channel empty
 				goto doneClearing
 			}
 		}
 	doneClearing:
-		logrus.Info("✅ macOS: Канал кадров очищен")
+		logrus.Info("✅ macOS: Frame channel cleared")
 	}
 	gs.mutex.Unlock()
 
-	logrus.Info("✅ macOS: GStreamer соединение закрыто")
+	logrus.Info("✅ macOS: GStreamer connection closed")
 	return nil
 }
 
-// attemptReconnect пытается переподключиться к RTP/UDP потоку
+// attemptReconnect attempts to reconnect to RTP/UDP stream
 func (gs *GStreamerService) attemptReconnect() {
 	gs.mutex.Lock()
 
-	// Проверяем условия для переподключения
+	// Check conditions for reconnection
 	if !gs.autoReconnect || gs.manualDisconnect || gs.isConnecting || gs.isReconnecting {
 		gs.mutex.Unlock()
-		logrus.Infof("🔄 macOS: Переподключение пропущено: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v, isReconnecting=%v",
+		logrus.Infof("🔄 macOS: Reconnection skipped: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v, isReconnecting=%v",
 			gs.autoReconnect, gs.manualDisconnect, gs.isConnecting, gs.isReconnecting)
 		return
 	}
 
 	if gs.reconnectAttempts >= gs.maxReconnectAttempts {
-		logrus.Errorf("❌ macOS: Превышено максимальное количество попыток переподключения (%d)", gs.maxReconnectAttempts)
+		logrus.Errorf("❌ macOS: Maximum reconnection attempts reached (%d)", gs.maxReconnectAttempts)
 		gs.autoReconnect = false
 		gs.mutex.Unlock()
 		return
 	}
 
-	// Устанавливаем флаг переподключения
+	// Set reconnection flag
 	gs.isReconnecting = true
 	gs.isConnected = false
 	gs.isConnecting = false
@@ -1049,23 +1049,23 @@ func (gs *GStreamerService) attemptReconnect() {
 	gs.cmd = nil
 	gs.mutex.Unlock()
 
-	logrus.Info("🧹 macOS: Очистка старого процесса перед переподключением...")
+	logrus.Info("🧹 macOS: Cleaning up old process before reconnection...")
 
 	if stop != nil {
 		stop.signal()
 	}
 
-	// Останавливаем старый процесс
+	// Stop old process
 	if oldCmd != nil && oldCmd.Process != nil {
-		logrus.Info("🛑 macOS: Остановка старого процесса...")
+		logrus.Info("🛑 macOS: Stopping old process...")
 		oldCmd.Process.Kill()
 		oldCmd.Wait()
 		time.Sleep(200 * time.Millisecond)
-		logrus.Info("✅ macOS: Старый процесс остановлен")
+		logrus.Info("✅ macOS: Old process stopped")
 	}
 
-	// Ждем завершения горутин
-	logrus.Info("⏳ macOS: Ожидание завершения горутин...")
+	// Wait for goroutines to finish
+	logrus.Info("⏳ macOS: Waiting for goroutines to finish...")
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		gs.mutex.RLock()
@@ -1073,7 +1073,7 @@ func (gs *GStreamerService) attemptReconnect() {
 		gs.mutex.RUnlock()
 
 		if !running {
-			logrus.Info("✅ macOS: Все горутины завершены")
+			logrus.Info("✅ macOS: All goroutines finished")
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -1085,29 +1085,29 @@ func (gs *GStreamerService) attemptReconnect() {
 	maxAttempts := gs.maxReconnectAttempts
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔄 macOS: Попытка переподключения GStreamer #%d/%d...", attempt, maxAttempts)
+	logrus.Infof("🔄 macOS: GStreamer reconnection attempt #%d/%d...", attempt, maxAttempts)
 
-	// Задержка перед переподключением
+	// Delay before reconnection
 	delay := time.Duration(attempt) * 2 * time.Second
 	if delay > 10*time.Second {
 		delay = 10 * time.Second
 	}
-	logrus.Infof("⏳ macOS: Задержка перед переподключением: %v", delay)
+	logrus.Infof("⏳ macOS: Delay before reconnection: %v", delay)
 	time.Sleep(delay)
 
 	if err := gs.ConnectToRTP(); err != nil {
-		logrus.Errorf("❌ macOS: Ошибка переподключения GStreamer #%d: %v", attempt, err)
+		logrus.Errorf("❌ macOS: GStreamer reconnection attempt #%d failed: %v", attempt, err)
 		gs.mutex.Lock()
 		gs.isReconnecting = false
 		gs.mutex.Unlock()
 
-		// Пробуем еще раз если не достигли лимита
+		// Try again if not reached limit
 		if attempt < maxAttempts {
-			logrus.Info("🔄 macOS: Запланирована следующая попытка переподключения...")
+			logrus.Info("🔄 macOS: Next reconnection attempt scheduled...")
 			go gs.attemptReconnect()
 		}
 	} else {
-		logrus.Info("✅ macOS: Успешное переподключение GStreamer!")
+		logrus.Info("✅ macOS: GStreamer reconnection successful!")
 		gs.mutex.Lock()
 		gs.reconnectAttempts = 0
 		gs.isReconnecting = false
@@ -1115,29 +1115,29 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 }
 
-// SetOnFrameReceived устанавливает callback для получения кадров
+// SetOnFrameReceived sets callback for frame reception
 func (gs *GStreamerService) SetOnFrameReceived(callback func(image.Image)) {
 	gs.onFrameReceived = callback
 }
 
-// SetOnStateChanged устанавливает callback для изменения состояния
+// SetOnStateChanged sets callback for state change
 func (gs *GStreamerService) SetOnStateChanged(callback func(string)) {
 	gs.onStateChanged = callback
 }
 
-// SetOnError устанавливает callback для ошибок
+// SetOnError sets callback for errors
 func (gs *GStreamerService) SetOnError(callback func(error)) {
 	gs.onError = callback
 }
 
-// IsConnected возвращает состояние подключения
+// IsConnected returns connection state
 func (gs *GStreamerService) IsConnected() bool {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
 	return gs.isConnected
 }
 
-// GetStats возвращает статистику соединения
+// GetStats returns connection statistics
 func (gs *GStreamerService) GetStats() map[string]interface{} {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
@@ -1152,31 +1152,31 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 	}
 }
 
-// UpdateHost обновляет хост видеопотока
+// UpdateHost updates video stream host
 func (gs *GStreamerService) UpdateHost(host string) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoHost = host
-	logrus.Debugf("🔧 macOS: GStreamer сервис: хост обновлен на %s", host)
+	logrus.Debugf("🔧 macOS: GStreamer service: host updated to %s", host)
 }
 
-// UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
+// UpdateVideoPort updates video stream port (RTP/UDP)
 func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Debugf("🔧 macOS: GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 macOS: GStreamer service: video UDP port updated to %d", port)
 }
 
-// UpdateVideoUDPPort обновляет порт приёма UDP видео
+// UpdateVideoUDPPort updates video UDP reception port
 func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Debugf("🔧 macOS: GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 macOS: GStreamer service: video UDP port updated to %d", port)
 }
 
 func (gs *GStreamerService) SetVideoMode(mode string) {
@@ -1199,7 +1199,7 @@ func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
 	}
 }
 
-// GetConfig возвращает конфигурацию
+// GetConfig returns configuration
 func (gs *GStreamerService) GetConfig() *models.AppConfig {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
@@ -1326,7 +1326,7 @@ func (gs *GStreamerService) startNativeFullscreenProcess(name string, args []str
 	}
 }
 
-// SetAutoReconnect включает/выключает автоматическое переподключение
+// SetAutoReconnect enables/disables automatic reconnection
 func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
@@ -1335,7 +1335,7 @@ func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 
 func (gs *GStreamerService) ResetRuntimeDecoderFallback() {}
 
-// SetMaxReconnectAttempts устанавливает максимальное количество попыток переподключения
+// SetMaxReconnectAttempts sets maximum reconnection attempts
 func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
@@ -1343,7 +1343,7 @@ func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.reconnectAttempts = 0
 }
 
-// ConnectToRTP подключается к RTP H.264 (через QUIC/SUDP туннель или напрямую)
+// ConnectToRTP connects to RTP H.264 (via QUIC/SUDP tunnel or directly)
 func (gs *GStreamerService) ConnectToRTP() error {
 	port := gs.config.VideoUDPPort
 	if port <= 0 {
@@ -1352,26 +1352,26 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	return gs.ConnectToUDP(port)
 }
 
-// Reconnect принудительно переподключается к UDP потоку (для смены устройств)
+// Reconnect forcibly reconnects to UDP stream (for device switching)
 func (gs *GStreamerService) Reconnect() error {
-	logrus.Info("🔄 macOS: Принудительное переподключение (смена устройства)...")
+	logrus.Info("🔄 macOS: Forced reconnection (device switch)...")
 
-	// Сначала отключаемся
+	// Disconnect first
 	if err := gs.Disconnect(); err != nil {
-		logrus.Warnf("⚠️ macOS: Ошибка при отключении перед переподключением: %v", err)
+		logrus.Warnf("⚠️ macOS: Error disconnecting before reconnection: %v", err)
 	}
 
-	// Ждем немного для корректного отключения
+	// Wait a bit for proper disconnection
 	time.Sleep(500 * time.Millisecond)
 
-	// Сбрасываем счетчик попыток переподключения
+	// Reset reconnection attempt counter
 	gs.mutex.Lock()
 	gs.reconnectAttempts = 0
 	gs.autoReconnect = true
 	gs.manualDisconnect = false
 	gs.mutex.Unlock()
 
-	// Подключаемся заново
-	logrus.Info("🔗 macOS: Подключаемся к новому устройству...")
+	// Connect again
+	logrus.Info("🔗 macOS: Connecting to new device...")
 	return gs.ConnectToRTP()
 }

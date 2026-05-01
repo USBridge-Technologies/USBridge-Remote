@@ -118,7 +118,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		lifecycleOps: make(chan func(), 32),
 	}
 
-	mw.nbdServer = service.NewNBDServer(cfg)
+	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.gstreamerService = service.NewGStreamerService(cfg)
 	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
 

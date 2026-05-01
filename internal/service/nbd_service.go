@@ -25,7 +25,8 @@ import (
 
 // NBDServer NBD сервер для раздачи ISO образов
 type NBDServer struct {
-	config       *models.AppConfig
+	bindHost     string
+	port         int
 	exports      map[string]*DiskExport
 	listener     net.Listener
 	isRunning    bool
@@ -108,22 +109,22 @@ func (b *FileBackend) Sync() error {
 }
 
 // NewNBDServer создает новый NBD сервер
-func NewNBDServer(config *models.AppConfig) *NBDServer {
+func NewNBDServer(bindHost string) *NBDServer {
 	return &NBDServer{
-		config:     config,
+		bindHost:   bindHost,
 		exports:    make(map[string]*DiskExport),
 		clients:    make(map[string]*NBDClient),
 		stopHealth: make(chan bool),
-		app:        nil, // Будет установлен через SetApp
+		app:        nil,
 		readyChan:  make(chan struct{}),
 	}
 }
 
 // NewNBDServerWithApp создает новый NBD сервер с поддержкой SAF
-func NewNBDServerWithApp(config *models.AppConfig, app fyne.App) *NBDServer {
+func NewNBDServerWithApp(bindHost string, app fyne.App) *NBDServer {
 	logrus.Infof("📍 [NBD-INIT] Создание NBD сервера с поддержкой SAF (app: %T)", app)
 	return &NBDServer{
-		config:     config,
+		bindHost:   bindHost,
 		exports:    make(map[string]*DiskExport),
 		clients:    make(map[string]*NBDClient),
 		stopHealth: make(chan bool),
@@ -158,10 +159,11 @@ func (ns *NBDServer) Start(port int) error {
 		},
 	}
 
-	bindHost := strings.TrimSpace(ns.config.NBDBindHost)
+	bindHost := ns.bindHost
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
+	ns.port = port
 	addr := fmt.Sprintf("%s:%d", bindHost, port)
 	logrus.Infof("📍 [NBD-START-1] Создание TCP listener на %s (порт %d)", addr, port)
 	listener, err := lc.Listen(context.Background(), "tcp", addr)
@@ -289,7 +291,7 @@ func (ns *NBDServer) SignalReady() {
 		logrus.Infof("     • %s: %s (size: %d bytes)", exportName, export.FilePath, export.Size)
 	}
 
-	port := ns.config.NBDPort
+	port := ns.port
 	hasExports := len(ns.exports) > 0
 	hasListener := ns.listener != nil
 	ns.mutex.Unlock()
@@ -300,7 +302,7 @@ func (ns *NBDServer) SignalReady() {
 
 // verifyReadiness проверяет готовность NBD протокола и закрывает readyChan когда готов
 func (ns *NBDServer) verifyReadiness(port int, hasListener bool, hasExports bool) {
-	checkHost := strings.TrimSpace(ns.config.NBDBindHost)
+	checkHost := ns.bindHost
 	if checkHost == "" {
 		checkHost = "127.0.0.1"
 	}
@@ -1161,7 +1163,7 @@ func (ns *NBDServer) GetServerStatus() map[string]interface{} {
 		"export_count": exportCount,
 		"client_count": clientCount,
 		"exports":      exportList,
-		"server_port":  ns.config.NBDPort,
+		"server_port":  ns.port,
 	}
 }
 

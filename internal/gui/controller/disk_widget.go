@@ -1315,6 +1315,31 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 	return 0, fmt.Errorf("не удалось найти свободный порт в диапазоне %d-%d", basePort, basePort+maxAttempts-1)
 }
 
+// resolveNBDBindHost возвращает адрес, на котором должен слушать NBD сервер.
+// QUIC/FRP: FRP подключается локально → 127.0.0.1.
+// Tailscale: только интерфейс Tailscale (100.x.x.x), иначе 127.0.0.1.
+func (dw *DiskWidget) resolveNBDBindHost() string {
+	if dw.frpService != nil {
+		return "127.0.0.1"
+	}
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		name := strings.ToLower(iface.Name)
+		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "wg") && !strings.Contains(name, "tun") {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ip := ipnet.IP.To4(); ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
 // startNBDServer запускает NBD для файла. Для VMDK/QCOW2/VDI на десктопе используется qemu-nbd
 // (экспортируется виртуальный диск — MBR/GPT), иначе — наш go-nbd (файл как есть).
 func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, exportName string, readOnly bool) (service.NBDRunner, error) {
@@ -1327,10 +1352,7 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 
 	if useQemuNbd {
 		logrus.Infof("📍 [START-NBD-QEMU] Формат образа требует qemu-nbd (экспорт виртуального диска)")
-		bindHost := strings.TrimSpace(dw.config.NBDBindHost)
-		if bindHost == "" {
-			bindHost = "127.0.0.1"
-		}
+		bindHost := dw.resolveNBDBindHost()
 		runner := service.NewQemuNBDRunner(diskInfo.Path, readOnly, bindHost)
 		if err := runner.EnsureQemuNbdForExport(); err != nil {
 			return nil, fmt.Errorf("для образов VMDK/QCOW2/VDI нужен qemu-nbd: %w", err)
@@ -1344,12 +1366,8 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 	}
 
 	// go-nbd: ISO, raw, img (файл как есть)
-	bindHost := strings.TrimSpace(dw.config.NBDBindHost)
-	if bindHost == "" {
-		bindHost = "127.0.0.1"
-	}
-	config := &models.AppConfig{NBDPort: port, NBDBindHost: bindHost}
-	nbdServer := service.NewNBDServerWithApp(config, dw.app)
+	bindHost := dw.resolveNBDBindHost()
+	nbdServer := service.NewNBDServerWithApp(bindHost, dw.app)
 	if err := nbdServer.Start(port); err != nil {
 		return nil, fmt.Errorf("ошибка запуска NBD сервера: %v", err)
 	}

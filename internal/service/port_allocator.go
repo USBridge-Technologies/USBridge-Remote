@@ -7,8 +7,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FindAvailableUDPPort подбирает свободный локальный UDP-порт.
-// Сначала пробует preferred, затем запрашивает системный ephemeral-порт.
+// FindAvailableUDPPort finds an available local UDP port.
+// First it tries the preferred port, then requests a system ephemeral port.
 func FindAvailableUDPPort(preferred int) (int, error) {
 	if preferred > 0 {
 		conn, err := net.ListenPacket("udp4", fmt.Sprintf("0.0.0.0:%d", preferred))
@@ -16,7 +16,7 @@ func FindAvailableUDPPort(preferred int) (int, error) {
 			_ = conn.Close()
 			return preferred, nil
 		}
-		logrus.Warnf("⚠️ Локальный UDP порт %d занят, выбираем свободный порт для видео", preferred)
+		logrus.Warnf("⚠️ Local UDP port %d is busy, selecting an available port for video", preferred)
 	}
 
 	conn, err := net.ListenPacket("udp4", "0.0.0.0:0")

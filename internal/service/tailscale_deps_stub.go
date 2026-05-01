@@ -2,7 +2,7 @@
 
 package service
 
-// Этот файл нужен только для того, чтобы go mod tidy не удалял зависимости Tailscale CLI
+// This file is only needed to prevent go mod tidy from removing Tailscale CLI dependencies
 import (
 	_ "tailscale.com/cmd/tailscale/cli"
 	_ "tailscale.com/cmd/tailscaled"

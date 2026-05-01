@@ -8,13 +8,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// setSocketReuseAddr устанавливает SO_REUSEADDR для сокета (Windows-версия)
+// setSocketReuseAddr sets SO_REUSEADDR for the socket (Windows version)
 func setSocketReuseAddr(c syscall.RawConn) error {
 	var opErr error
 	err := c.Control(func(h uintptr) {
-		// На Windows сокет - это HANDLE, используем правильный тип
+		// On Windows, a socket is a HANDLE, using the correct type
 		s := windows.Handle(h)
-		// Устанавливаем SO_REUSEADDR для немедленного переиспользования порта
+		// Set SO_REUSEADDR for immediate port reuse
 		opErr = windows.SetsockoptInt(s, windows.SOL_SOCKET, windows.SO_REUSEADDR, 1)
 	})
 	if err != nil {

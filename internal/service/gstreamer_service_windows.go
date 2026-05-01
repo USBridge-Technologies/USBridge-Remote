@@ -21,8 +21,8 @@ import (
 	"github.com/tinyzimmer/go-gst/gst/app"
 )
 
-// GStreamerService сервис для работы с GStreamer H264 потоком на Windows
-// Использует d3d11h264dec для аппаратного декодирования (Direct3D11/DXVA)
+// GStreamerService service for working with GStreamer H264 stream on Windows
+// Uses d3d11h264dec for hardware decoding (Direct3D11/DXVA)
 type GStreamerService struct {
 	config    *models.AppConfig
 	videoMode string
@@ -37,26 +37,26 @@ type GStreamerService struct {
 	expectedWidth          int
 	expectedHeight         int
 
-	// Состояние
+	// State
 	isConnected    bool
 	isConnecting   bool
 	isReconnecting bool
 
-	// Автоматическое переподключение
+	// Auto-reconnect
 	autoReconnect        bool
 	reconnectAttempts    int
 	maxReconnectAttempts int
 	manualDisconnect     bool
 
-	// Канал для неблокирующей передачи кадров
+	// Channel for non-blocking frame transfer
 	frameChan chan videoFramePacket
 	stopChan  chan struct{}
 
-	// Флаги для управления горутинами
+	// Flags for goroutine management
 	frameProcessorRunning bool
 	monitorRunning        bool
 
-	// Статистика
+	// Statistics
 	lastFrameTime    time.Time
 	lastSampleTime   time.Time
 	lastSampleReport time.Time
@@ -64,7 +64,7 @@ type GStreamerService struct {
 	framesDropped  int64
 	latencyProfile videoLatencyProfile
 
-	// Мьютексы
+	// Mutexes
 	mutex sync.RWMutex
 
 	// Callbacks
@@ -73,7 +73,7 @@ type GStreamerService struct {
 	onError         func(error)
 }
 
-// NewGStreamerService создает новый GStreamer сервис для Windows
+// NewGStreamerService creates a new GStreamer service for Windows
 func (gs *GStreamerService) GetBindHost() string {
 	if gs == nil || gs.config == nil || strings.TrimSpace(gs.config.VideoBindHost) == "" {
 		return "127.0.0.1"
@@ -81,7 +81,7 @@ func (gs *GStreamerService) GetBindHost() string {
 	return strings.TrimSpace(gs.config.VideoBindHost)
 }
 
-// UpdateHost обновляет хост видеопотока
+// UpdateHost updates video stream host
 func (gs *GStreamerService) UpdateHost(host string) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
@@ -89,7 +89,7 @@ func (gs *GStreamerService) UpdateHost(host string) {
 	if gs.config != nil {
 		gs.config.VideoHost = host
 	}
-	logrus.Debugf("🔧 [Windows] GStreamer сервис: хост обновлен на %s", host)
+	logrus.Debugf("🔧 [Windows] GStreamer service: host updated to %s", host)
 }
 
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
@@ -99,71 +99,71 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		reconnectAttempts:     0,
 		maxReconnectAttempts:  5,
 		videoMode:             models.VideoModeH264,
-		frameChan:             make(chan videoFramePacket, 1), // Один кадр — минимальная задержка
+		frameChan:             make(chan videoFramePacket, 1), // One frame — minimal latency
 		stopChan:              make(chan struct{}),
 		frameProcessorRunning: false,
 		monitorRunning:        false,
 	}
 
-	logrus.Info("✅ GStreamer сервис для Windows инициализирован (d3d11h264dec - аппаратное декодирование)")
+	logrus.Info("✅ GStreamer service for Windows initialized (d3d11h264dec - hardware decoding)")
 	return gs
 }
 
-// ConnectToRTP подключается к RTP H.264 потоку (UDP, новый протокол)
+// ConnectToRTP connects to RTP H.264 stream (UDP, new protocol)
 func (gs *GStreamerService) ConnectToRTP() error {
 	gs.mutex.Lock()
 
 	if gs.isConnecting || gs.isConnected {
 		gs.mutex.Unlock()
-		return fmt.Errorf("уже подключен или подключается")
+		return fmt.Errorf("already connected or connecting")
 	}
 
 	gs.manualDisconnect = false
 	gs.lastFrameTime = time.Time{}
 
-	// Закрываем старый stopChan если есть
+	// Close old stopChan if exists
 	if gs.stopChan != nil {
 		select {
-		case <-gs.stopChan: // Канал уже закрыт
+		case <-gs.stopChan: // Channel already closed
 		default:
-			close(gs.stopChan) // Закрываем канал
+			close(gs.stopChan) // Close channel
 		}
 	}
 
-	// Ждем остановки горутин если они еще работают
+	// Wait for goroutines to stop if they are still running
 	for gs.frameProcessorRunning || gs.monitorRunning {
 		gs.mutex.Unlock()
 		time.Sleep(50 * time.Millisecond)
 		gs.mutex.Lock()
 	}
 
-	// Пересоздаем stopChan для нового соединения
+	// Recreate stopChan for new connection
 	gs.stopChan = make(chan struct{})
 
-	// Запускаем новый обработчик кадров ОДИН РАЗ
+	// Start new frame processor ONCE
 	gs.frameProcessorRunning = true
 	go gs.frameProcessor()
 
 	gs.isConnecting = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔗 [Windows] Подключение к RTP потоку mode=%s...", gs.videoMode)
+	logrus.Infof("🔗 [Windows] Connecting to RTP stream mode=%s...", gs.videoMode)
 
-	// Инициализируем GStreamer (gst.Init не возвращает ошибку)
+	// Initialize GStreamer (gst.Init does not return error)
 	gst.Init(nil)
 
-	// Создаем pipeline с аппаратным декодированием (d3d11h264dec + d3d11download для перехода в PLAYING)
+	// Create pipeline with hardware decoding (d3d11h264dec + d3d11download to enter PLAYING)
 	if err := gs.createPipeline(); err != nil {
 		gs.mutex.Lock()
 		gs.isConnecting = false
 		gs.mutex.Unlock()
-		return fmt.Errorf("ошибка создания pipeline: %v", err)
+		return fmt.Errorf("pipeline creation error: %v", err)
 	}
 
-	// Запускаем pipeline
+	// Start pipeline
 	if err := gs.pipeline.SetState(gst.StatePlaying); err != nil {
-		// Аппаратный декодер создался, но не перешёл в PLAYING (типично без d3d11download) — пробуем программный
-		logrus.Warnf("⚠️ [Windows] d3d11h264dec не перешёл в PLAYING (%v), переходим на avdec_h264", err)
+		// Hardware decoder created but didn't enter PLAYING (typically without d3d11download) — try software
+		logrus.Warnf("⚠️ [Windows] d3d11h264dec didn't enter PLAYING (%v), switching to avdec_h264", err)
 		gs.pipeline.SetState(gst.StateNull)
 		gs.pipeline = nil
 		gs.appsink = nil
@@ -171,17 +171,17 @@ func (gs *GStreamerService) ConnectToRTP() error {
 			gs.mutex.Lock()
 			gs.isConnecting = false
 			gs.mutex.Unlock()
-			return fmt.Errorf("ошибка запуска pipeline и fallback: %v", errSW)
+			return fmt.Errorf("pipeline start and fallback error: %v", errSW)
 		}
 		if errPlay := gs.pipeline.SetState(gst.StatePlaying); errPlay != nil {
 			gs.mutex.Lock()
 			gs.isConnecting = false
 			gs.mutex.Unlock()
-			return fmt.Errorf("ошибка запуска pipeline: %v", errPlay)
+			return fmt.Errorf("pipeline start error: %v", errPlay)
 		}
 	}
 
-	// Запускаем мониторинг состояния ОДИН РАЗ
+	// Start state monitoring ONCE
 	gs.mutex.Lock()
 	gs.monitorRunning = true
 	gs.mutex.Unlock()
@@ -192,17 +192,17 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	gs.isConnected = true
 	gs.mutex.Unlock()
 
-	logrus.Infof("✅ [Windows] GStreamer RTP подключение установлено (mode=%s)", gs.videoMode)
+	logrus.Infof("✅ [Windows] GStreamer RTP connection established (mode=%s)", gs.videoMode)
 	return nil
 }
 
-// ConnectToUDPViaPipe — pipe mode для FRP relay (Windows: пока заглушка)
+// ConnectToUDPViaPipe — pipe mode for FRP relay (Windows: stub for now)
 func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	_ = pipeReader
-	return fmt.Errorf("UDP relay (pipe) пока не реализован на Windows, используйте прямое подключение")
+	return fmt.Errorf("UDP relay (pipe) not yet implemented on Windows, use direct connection")
 }
 
-// createPipeline создает GStreamer pipeline для текущего RTP video mode на Windows.
+// createPipeline creates GStreamer pipeline for current RTP video mode on Windows.
 func (gs *GStreamerService) createPipeline() error {
 	udpPort := gs.config.VideoUDPPort
 	if udpPort <= 0 {
@@ -212,7 +212,7 @@ func (gs *GStreamerService) createPipeline() error {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
-	logrus.Infof("📹 [Windows] UDP порт приёма RTP video: %d (mode=%s)", udpPort, gs.videoMode)
+	logrus.Infof("📹 [Windows] UDP RTP video reception port: %d (mode=%s)", udpPort, gs.videoMode)
 
 	if gs.videoMode == models.VideoModeJPEGRTP {
 		return gs.createPipelineJPEG(udpPort)
@@ -221,7 +221,7 @@ func (gs *GStreamerService) createPipeline() error {
 		return gs.createPipelineRawYUYV(udpPort)
 	}
 
-	logrus.Info("🔧 [Windows] GStreamer pipeline (аппаратное декодирование d3d11h264dec + d3d11download)")
+	logrus.Info("🔧 [Windows] GStreamer pipeline (hardware decoding d3d11h264dec + d3d11download)")
 
 	baseCandidates := []string{
 		fmt.Sprintf(
@@ -251,13 +251,13 @@ func (gs *GStreamerService) createPipeline() error {
 				lastErr = err
 				continue
 			}
-			logrus.Info("✅ [Windows] GStreamer pipeline создан (d3d11h264dec - аппаратное декодирование)")
+			logrus.Info("✅ [Windows] GStreamer pipeline created (d3d11h264dec - hardware decoding)")
 			gs.pipeline = pipeline
 			return gs.attachAppsink()
 		}
 	}
 
-	logrus.Warnf("⚠️ [Windows] d3d11h264dec недоступен (%v), используем avdec_h264 (программный декодер)", lastErr)
+	logrus.Warnf("⚠️ [Windows] d3d11h264dec unavailable (%v), switching to avdec_h264 (software decoder)", lastErr)
 	return gs.createPipelineSoftware()
 }
 
@@ -318,7 +318,7 @@ func (gs *GStreamerService) createPipelineRawYUYV(udpPort int) error {
 
 	pipeline, err = gst.NewPipelineFromString(swPipeline)
 	if err != nil {
-		return fmt.Errorf("ошибка создания RAW YUYV pipeline: %v", err)
+		return fmt.Errorf("error creating RAW YUYV pipeline: %v", err)
 	}
 
 	logrus.Info("✅ [Windows/RAW] GStreamer pipeline created: videoconvert fallback")
@@ -433,13 +433,13 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 		candidateIdx := (gs.jpegCandidateIndex + idx) % len(pipelines)
 		candidate := pipelines[candidateIdx]
 		if candidate.requiredElement != "" && gst.Find(candidate.requiredElement) == nil {
-			logrus.Infof("ℹ️ [Windows/JPEG] пропускаем %s: element %q не установлен в текущем runtime", candidate.name, candidate.requiredElement)
+			logrus.Infof("ℹ️ [Windows/JPEG] skipping %s: element %q not installed in current runtime", candidate.name, candidate.requiredElement)
 			continue
 		}
 		pipeline, err := gst.NewPipelineFromString(candidate.str)
 		if err != nil {
 			lastErr = err
-			logrus.Warnf("⚠️ [Windows/JPEG] pipeline недоступен (%s): %v", candidate.name, err)
+			logrus.Warnf("⚠️ [Windows/JPEG] pipeline unavailable (%s): %v", candidate.name, err)
 			continue
 		}
 
@@ -451,17 +451,17 @@ func (gs *GStreamerService) createPipelineJPEG(udpPort int) error {
 			continue
 		}
 		gs.lastJPEGPipeline = candidate.name
-		logrus.Infof("✅ [Windows/JPEG] GStreamer pipeline создан: %s", candidate.name)
+		logrus.Infof("✅ [Windows/JPEG] GStreamer pipeline created: %s", candidate.name)
 		return nil
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("не найдено подходящих JPEG декодеров GStreamer")
+		lastErr = fmt.Errorf("no suitable GStreamer JPEG decoders found")
 	}
 	return lastErr
 }
 
-// createPipelineSoftware создает pipeline только с программным декодером avdec_h264 (fallback при ошибке PLAYING или отсутствии d3d11).
+// createPipelineSoftware creates pipeline with software decoder avdec_h264 only (fallback on PLAYING error or no d3d11).
 func (gs *GStreamerService) createPipelineSoftware() error {
 	udpPort := gs.config.VideoUDPPort
 	if udpPort <= 0 {
@@ -504,18 +504,18 @@ func (gs *GStreamerService) createPipelineSoftware() error {
 			lastErr = err
 			continue
 		}
-		logrus.Info("✅ [Windows] GStreamer pipeline создан (avdec_h264 - программный декодер)")
+		logrus.Info("✅ [Windows] GStreamer pipeline created (avdec_h264 - software decoder)")
 		gs.pipeline = pipeline
 		return gs.attachAppsink()
 	}
-	return fmt.Errorf("ошибка создания pipeline (avdec_h264): %v", lastErr)
+	return fmt.Errorf("pipeline creation error (avdec_h264): %v", lastErr)
 }
 
-// attachAppsink находит appsink в текущем pipeline и подключает callback для кадров.
+// attachAppsink finds appsink in current pipeline and connects frame callback.
 func (gs *GStreamerService) attachAppsink() error {
 	sinkElement, err := gs.pipeline.GetElementByName("sink")
 	if err != nil {
-		return fmt.Errorf("ошибка получения appsink: %v", err)
+		return fmt.Errorf("appsink retrieval error: %v", err)
 	}
 	gs.appsink = app.SinkFromElement(sinkElement)
 	gs.appsink.SetCallbacks(&app.SinkCallbacks{
@@ -531,16 +531,16 @@ func (gs *GStreamerService) attachAppsink() error {
 	return nil
 }
 
-// processSample обрабатывает один sample
+// processSample processes one sample
 func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	producedAt := time.Now()
-	// Получаем buffer
+	// Get buffer
 	buffer := sample.GetBuffer()
 	if buffer == nil {
 		return
 	}
 
-	// Получаем caps для определения размера кадра
+	// Get caps to determine frame size
 	caps := sample.GetCaps()
 	if caps == nil {
 		return
@@ -553,7 +553,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	w := width.(int)
 	h := height.(int)
 
-	// Читаем данные из buffer
+	// Read data from buffer
 	mapInfo := buffer.Map(gst.MapRead)
 	if mapInfo == nil {
 		return
@@ -562,7 +562,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	data := mapInfo.Bytes()
 	expectedSize := w * h * 4
 
-	// Копируем данные в новый slice ДО Unmap
+	// Copy data to new slice BEFORE Unmap
 	dataCopy := make([]byte, expectedSize)
 	if len(data) >= expectedSize {
 		copy(dataCopy, data[:expectedSize])
@@ -571,10 +571,10 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 		return
 	}
 
-	// Освобождаем map
+	// Release map
 	buffer.Unmap()
 
-	// Конвертируем в image.Image используя скопированные данные
+	// Convert to image.Image using copied data
 	img := gs.rgbaToImage(dataCopy, w, h)
 	if img != nil {
 		now := time.Now()
@@ -595,7 +595,7 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 		}
 		gs.lastSampleTime = now
 		
-		// Логируем каждый 300-й кадр (~10 сек при 30fps)
+		// Log every 300th frame (~10 sec at 30fps)
 		if frameNum%300 == 0 || now.Sub(gs.lastSampleReport) > 10*time.Second {
 			gs.lastSampleReport = now
 			dropped := gs.framesDropped
@@ -605,33 +605,33 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 		}
 		gs.mutex.Unlock()
 
-		// Отправляем кадр в канал НЕБЛОКИРУЮЩИМ способом
+		// Send frame to channel in NON-BLOCKING way
 		select {
 		case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
-			// Кадр отправлен успешно
+			// Frame sent successfully
 			gs.recordIngressLatency(meta)
 		default:
-			// Канал полон - пропускаем кадр (критично для реалтайма!)
+			// Channel full - drop frame (critical for realtime!)
 			gs.mutex.Lock()
 			gs.framesDropped++
 			dropped := gs.framesDropped
 			gs.mutex.Unlock()
-			// Логируем каждый 30-й пропущенный кадр
+			// Log every 120th dropped frame
 			if dropped%120 == 1 {
 				chanLen := len(gs.frameChan)
-				logrus.Debugf("⏭️ [Windows] GStreamer: пропущен кадр #%d (всего пропущено: %d, канал: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
+				logrus.Debugf("⏭️ [Windows] GStreamer: dropped frame #%d (total dropped: %d, channel: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 			}
 		}
 	}
 }
 
-// rgbaToImage конвертирует RGBA данные в image.Image
+// rgbaToImage converts RGBA data to image.Image
 func (gs *GStreamerService) rgbaToImage(data []byte, width, height int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
 	expectedSize := width * height * 4
 	if len(data) < expectedSize {
-		logrus.Warnf("⚠️ [Windows] Недостаточно данных для кадра: %d байт (ожидается %d)", len(data), expectedSize)
+		logrus.Warnf("⚠️ [Windows] Insufficient data for frame: %d bytes (expected %d)", len(data), expectedSize)
 		return nil
 	}
 
@@ -639,20 +639,20 @@ func (gs *GStreamerService) rgbaToImage(data []byte, width, height int) image.Im
 	return img
 }
 
-// frameProcessor обрабатывает кадры из канала и отправляет в UI
+// frameProcessor processes frames from channel and sends to UI
 func (gs *GStreamerService) frameProcessor() {
 	defer func() {
-		// Очищаем оставшиеся кадры из канала при завершении
+		// Clear remaining frames from channel on finish
 		for {
 			select {
 			case _, ok := <-gs.frameChan:
 				if !ok {
-					// Канал закрыт
+					// Channel closed
 					goto cleanup
 				}
-				// Игнорируем оставшиеся кадры
+				// Ignore remaining frames
 			default:
-				// Канал пуст
+				// Channel empty
 				goto cleanup
 			}
 		}
@@ -660,7 +660,7 @@ func (gs *GStreamerService) frameProcessor() {
 		gs.mutex.Lock()
 		gs.frameProcessorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 [Windows] frameProcessor завершен и очищен")
+		logrus.Info("🛑 [Windows] frameProcessor finished and cleared")
 	}()
 
 	processedCount := int64(0)
@@ -669,24 +669,24 @@ func (gs *GStreamerService) frameProcessor() {
 	for {
 		select {
 		case <-gs.stopChan:
-			logrus.Info("🛑 [Windows] Остановка обработчика кадров по сигналу stopChan")
+			logrus.Info("🛑 [Windows] Stopping frame processor by stopChan signal")
 			return
 		case packet, ok := <-gs.frameChan:
 			if !ok {
-				logrus.Info("🛑 [Windows] frameChan закрыт, остановка обработчика")
+				logrus.Info("🛑 [Windows] frameChan closed, stopping processor")
 				return
 			}
 
 			processedCount++
 
-			// Логируем каждую секунду
+			// Log every 5 seconds
 			if time.Since(lastLogTime) > 5*time.Second {
 				chanLen := len(gs.frameChan)
-				logrus.Debugf("📤 [Windows] frameProcessor: обработано %d кадров, канал: %d/%d", processedCount, chanLen, cap(gs.frameChan))
+				logrus.Debugf("📤 [Windows] frameProcessor: processed %d frames, channel: %d/%d", processedCount, chanLen, cap(gs.frameChan))
 				lastLogTime = time.Now()
 			}
 
-			// Отправляем кадр в callback
+			// Send frame to callback
 			gs.mutex.RLock()
 			callback := gs.onFrameReceived
 			gs.mutex.RUnlock()
@@ -703,23 +703,23 @@ func (gs *GStreamerService) frameProcessor() {
 	}
 }
 
-// monitorPipeline мониторит состояние GStreamer pipeline
+// monitorPipeline monitors GStreamer pipeline state
 func (gs *GStreamerService) monitorPipeline() {
 	defer func() {
-		// Обработка паники для безопасности
+		// Safety panic handling
 		if r := recover(); r != nil {
-			logrus.Errorf("❌ [Windows] Паника в monitorPipeline: %v", r)
+			logrus.Errorf("❌ [Windows] Panic in monitorPipeline: %v", r)
 		}
 
 		gs.mutex.Lock()
 		gs.monitorRunning = false
 		gs.mutex.Unlock()
-		logrus.Info("🛑 [Windows] monitorPipeline завершен и очищен")
+		logrus.Info("🛑 [Windows] monitorPipeline finished and cleared")
 	}()
 
-	logrus.Info("📊 [Windows] Запуск мониторинга GStreamer pipeline")
+	logrus.Info("📊 [Windows] Starting GStreamer pipeline monitoring")
 
-	// Получаем bus для мониторинга сообщений
+	// Get bus for message monitoring
 	gs.mutex.RLock()
 	pipeline := gs.pipeline
 	stopChan := gs.stopChan
@@ -736,17 +736,17 @@ func (gs *GStreamerService) monitorPipeline() {
 		return
 	}
 
-	// Используем TimedPop БЕЗ ручного Unref - сообщения освобождаются автоматически
+	// Use TimedPop WITHOUT manual Unref - messages are freed automatically
 	for {
-		// Проверяем stopChan для немедленной остановки
+		// Check stopChan for immediate stop
 		select {
 		case <-stopChan:
-			logrus.Info("🛑 [Windows] Остановка мониторинга по stopChan")
+			logrus.Info("🛑 [Windows] Stopping monitoring by stopChan signal")
 			return
 		default:
 		}
 
-		// Проверяем состояние подключения перед каждым циклом
+		// Check connection state before each cycle
 		gs.mutex.RLock()
 		connected := gs.isConnected
 		manualDisc := gs.manualDisconnect
@@ -762,14 +762,14 @@ func (gs *GStreamerService) monitorPipeline() {
 			gs.mutex.Unlock()
 		}
 
-		// Если pipeline изменился или был удален, завершаем мониторинг
+		// If pipeline changed or was removed, finish monitoring
 		if currentPipeline != pipeline {
-			logrus.Info("🛑 [Windows] Остановка мониторинга: pipeline изменился")
+			logrus.Info("🛑 [Windows] Stopping monitoring: pipeline changed")
 			return
 		}
 
 		if !connected || manualDisc {
-			logrus.Info("🛑 [Windows] Остановка мониторинга: disconnected или manual disconnect")
+			logrus.Info("🛑 [Windows] Stopping monitoring: disconnected or manual disconnect")
 			return
 		}
 
@@ -780,14 +780,14 @@ func (gs *GStreamerService) monitorPipeline() {
 
 		switch msg.Type() {
 		case gst.MessageEOS:
-			logrus.Warn("⚠️ [Windows] GStreamer: конец потока (EOS)")
+			logrus.Warn("⚠️ [Windows] GStreamer: end of stream (EOS)")
 			gs.mutex.RLock()
 			callback := gs.onStateChanged
 			gs.mutex.RUnlock()
 			if callback != nil {
 				callback("eos")
 			}
-			// Запускаем переподключение только если не было ручного отключения
+			// Start reconnect only if no manual disconnect
 			gs.mutex.RLock()
 			shouldReconnect := !gs.manualDisconnect && gs.autoReconnect
 			gs.mutex.RUnlock()
@@ -797,7 +797,7 @@ func (gs *GStreamerService) monitorPipeline() {
 
 		case gst.MessageError:
 			err := msg.ParseError()
-			logrus.Errorf("❌ [Windows] GStreamer ошибка: %v", err)
+			logrus.Errorf("❌ [Windows] GStreamer error: %v", err)
 			gs.mutex.Lock()
 			if gs.videoMode == models.VideoModeJPEGRTP && strings.Contains(fmt.Sprint(err), "Internal data stream error") {
 				gs.jpegCandidateIndex++
@@ -810,7 +810,7 @@ func (gs *GStreamerService) monitorPipeline() {
 			if errCallback != nil {
 				errCallback(fmt.Errorf("%v", err))
 			}
-			// Запускаем переподключение только если не было ручного отключения
+			// Start reconnect only if no manual disconnect
 			gs.mutex.RLock()
 			shouldReconnect := !gs.manualDisconnect && gs.autoReconnect
 			gs.mutex.RUnlock()
@@ -820,11 +820,11 @@ func (gs *GStreamerService) monitorPipeline() {
 
 		case gst.MessageWarning:
 			warn := msg.ParseWarning()
-			logrus.Warnf("⚠️ [Windows] GStreamer предупреждение: %v", warn)
+			logrus.Warnf("⚠️ [Windows] GStreamer warning: %v", warn)
 
 		case gst.MessageStateChanged:
 			old, new := msg.ParseStateChanged()
-			logrus.Debugf("🔄 [Windows] GStreamer состояние: %s -> %s", old.String(), new.String())
+			logrus.Debugf("🔄 [Windows] GStreamer state: %s -> %s", old.String(), new.String())
 			gs.mutex.RLock()
 			stateCallback := gs.onStateChanged
 			gs.mutex.RUnlock()
@@ -833,51 +833,51 @@ func (gs *GStreamerService) monitorPipeline() {
 			}
 		}
 
-		// НЕ вызываем msg.Unref() - сообщение освобождается автоматически!
+		// DO NOT call msg.Unref() - message is freed automatically!
 	}
 }
 
-// Disconnect отключается от RTP/UDP потока
+// Disconnect disconnects from RTP/UDP stream
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
 	if !gs.isConnected && !gs.isConnecting {
 		gs.mutex.Unlock()
-		logrus.Info("🔌 [Windows] Disconnect: уже отключен")
+		logrus.Info("🔌 [Windows] Disconnect: already disconnected")
 		return nil
 	}
 
-	logrus.Info("🔌 [Windows] Отключение от RTP/UDP потока...")
+	logrus.Info("🔌 [Windows] Disconnecting from RTP/UDP stream...")
 
 	gs.manualDisconnect = true
 
-	// Устанавливаем флаги остановки ПЕРЕД остановкой pipeline
+	// Set stop flags BEFORE pipeline stop
 	gs.isConnected = false
 	gs.isConnecting = false
 
-	// Сохраняем pipeline перед unlock
+	// Save pipeline before unlock
 	pipeline := gs.pipeline
 	stopChan := gs.stopChan
 	gs.mutex.Unlock()
 
-	// Сигнализируем горутинам об остановке через закрытие stopChan
+	// Signal goroutines to stop by closing stopChan
 	if stopChan != nil {
 		select {
-		case <-stopChan: // Канал уже закрыт
-			logrus.Info("🔌 [Windows] stopChan уже закрыт")
+		case <-stopChan: // Channel already closed
+			logrus.Info("🔌 [Windows] stopChan already closed")
 		default:
 			close(stopChan)
-			logrus.Info("🔌 [Windows] stopChan закрыт")
+			logrus.Info("🔌 [Windows] stopChan closed")
 		}
 	}
 
-	// Отправляем EOS для корректного завершения pipeline
+	// Send EOS for graceful pipeline finish
 	if pipeline != nil {
-		logrus.Info("🛑 [Windows] Отправка EOS в GStreamer pipeline...")
+		logrus.Info("🛑 [Windows] Sending EOS to GStreamer pipeline...")
 		pipeline.SendEvent(gst.NewEOSEvent())
 	}
 
-	// Ждем завершения горутин (не более 2 секунд)
+	// Wait for goroutines to finish (max 2 seconds)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		gs.mutex.RLock()
@@ -890,123 +890,123 @@ func (gs *GStreamerService) Disconnect() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Проверяем, завершились ли горутины
+	// Check if goroutines finished
 	gs.mutex.RLock()
 	stillRunning := gs.frameProcessorRunning || gs.monitorRunning
 	gs.mutex.RUnlock()
 
 	if stillRunning {
-		logrus.Warn("⚠️ [Windows] Некоторые горутины не завершились в течение 2 секунд, продолжаем...")
+		logrus.Warn("⚠️ [Windows] Some goroutines didn't finish within 2 seconds, continuing...")
 	}
 
-	// Останавливаем pipeline
+	// Stop pipeline
 	gs.mutex.Lock()
 	if gs.pipeline != nil {
-		logrus.Info("🛑 [Windows] Остановка GStreamer pipeline...")
+		logrus.Info("🛑 [Windows] Stopping GStreamer pipeline...")
 		gs.pipeline.SetState(gst.StateNull)
 
-		// Небольшая задержка для корректного перехода в StateNull
+		// Small delay for proper StateNull transition
 		time.Sleep(100 * time.Millisecond)
 
-		// НЕ вызываем Unref() - pipeline освобождается автоматически при SetState(StateNull)
+		// DO NOT call Unref() - pipeline is freed automatically upon SetState(StateNull)
 		gs.pipeline = nil
-		logrus.Info("✅ [Windows] GStreamer pipeline остановлен")
+		logrus.Info("✅ [Windows] GStreamer pipeline stopped")
 	}
 
-	// Очищаем канал кадров от оставшихся данных
+	// Clear frame channel from remaining data
 	if gs.frameChan != nil {
-		// Неблокирующая очистка канала
+		// Non-blocking channel clearing
 		for {
 			select {
 			case <-gs.frameChan:
-				// Игнорируем оставшиеся кадры
+				// Ignore remaining frames
 			default:
-				// Канал пуст
+				// Channel empty
 				goto doneClearing
 			}
 		}
 	doneClearing:
-		logrus.Info("✅ [Windows] Канал кадров очищен")
+		logrus.Info("✅ [Windows] Frame channel cleared")
 	}
 	gs.mutex.Unlock()
 
-	logrus.Info("✅ [Windows] GStreamer соединение закрыто")
+	logrus.Info("✅ [Windows] GStreamer connection closed")
 	return nil
 }
 
-// attemptReconnect пытается переподключиться к RTP/UDP потоку
+// attemptReconnect attempts to reconnect to RTP/UDP stream
 func (gs *GStreamerService) attemptReconnect() {
 	gs.mutex.Lock()
 
-	// Проверяем условия для переподключения
+	// Check conditions for reconnection
 	if !gs.autoReconnect || gs.manualDisconnect || gs.isConnecting || gs.isReconnecting {
 		gs.mutex.Unlock()
-		logrus.Infof("🔄 [Windows] Переподключение пропущено: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v, isReconnecting=%v",
+		logrus.Infof("🔄 [Windows] Reconnection skipped: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v, isReconnecting=%v",
 			gs.autoReconnect, gs.manualDisconnect, gs.isConnecting, gs.isReconnecting)
 		return
 	}
 
 	if gs.reconnectAttempts >= gs.maxReconnectAttempts {
-		logrus.Errorf("❌ [Windows] Превышено максимальное количество попыток переподключения (%d)", gs.maxReconnectAttempts)
+		logrus.Errorf("❌ [Windows] Maximum reconnection attempts reached (%d)", gs.maxReconnectAttempts)
 		gs.autoReconnect = false
 		gs.mutex.Unlock()
 		return
 	}
 
-	// Устанавливаем флаг переподключения чтобы избежать множественных попыток
+	// Set reconnection flag to avoid multiple attempts
 	gs.isReconnecting = true
 	gs.isConnected = false
 	gs.isConnecting = false
 
-	// Принудительно очищаем старый pipeline перед переподключением
+	// Forcibly clear old pipeline before reconnection
 	oldPipeline := gs.pipeline
 	stopChan := gs.stopChan
 	gs.pipeline = nil
 	gs.mutex.Unlock()
 
-	logrus.Info("🧹 [Windows] Очистка старого pipeline перед переподключением...")
+	logrus.Info("🧹 [Windows] Cleaning up old pipeline before reconnection...")
 
-	// Закрываем stopChan чтобы остановить горутины
+	// Close stopChan to stop goroutines
 	if stopChan != nil {
 		select {
 		case <-stopChan:
-			logrus.Info("🔌 [Windows] stopChan уже был закрыт")
+			logrus.Info("🔌 [Windows] stopChan was already closed")
 		default:
 			close(stopChan)
-			logrus.Info("🔌 [Windows] stopChan закрыт для переподключения")
+			logrus.Info("🔌 [Windows] stopChan closed for reconnection")
 		}
 	}
 
-	// Останавливаем старый pipeline
+	// Stop old pipeline
 	if oldPipeline != nil {
-		logrus.Info("🛑 [Windows] Остановка старого pipeline...")
+		logrus.Info("🛑 [Windows] Stopping old pipeline...")
 		oldPipeline.SetState(gst.StateNull)
-		time.Sleep(200 * time.Millisecond) // Увеличенная задержка для полной остановки
-		logrus.Info("✅ [Windows] Старый pipeline остановлен")
+		time.Sleep(200 * time.Millisecond) // Increased delay for full stop
+		logrus.Info("✅ [Windows] Old pipeline stopped")
 	}
 
-	// Ждем завершения горутин
-	logrus.Info("⏳ [Windows] Ожидание завершения горутин...")
-	deadline := time.Now().Add(3 * time.Second) // Увеличено до 3 секунд
+	// Wait for goroutines to finish
+	logrus.Info("⏳ [Windows] Waiting for goroutines to finish...")
+	deadline := time.Now().Add(3 * time.Second) // Increased to 3 seconds
 	for time.Now().Before(deadline) {
 		gs.mutex.RLock()
 		running := gs.frameProcessorRunning || gs.monitorRunning
 		gs.mutex.RUnlock()
 
 		if !running {
-			logrus.Info("✅ [Windows] Все горутины завершены")
+			logrus.Info("✅ [Windows] All goroutines finished")
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Проверяем, завершились ли горутины
+	// Check if goroutines finished
 	gs.mutex.RLock()
 	stillRunning := gs.frameProcessorRunning || gs.monitorRunning
 	gs.mutex.RUnlock()
 
 	if stillRunning {
-		logrus.Warn("⚠️ [Windows] Некоторые горутины все еще работают, но продолжаем переподключение")
+		logrus.Warn("⚠️ [Windows] Some goroutines are still running, but continuing reconnection")
 	}
 
 	gs.mutex.Lock()
@@ -1015,21 +1015,21 @@ func (gs *GStreamerService) attemptReconnect() {
 	maxAttempts := gs.maxReconnectAttempts
 	gs.mutex.Unlock()
 
-	logrus.Infof("🔄 [Windows] Попытка переподключения GStreamer #%d/%d...", attempt, maxAttempts)
+	logrus.Infof("🔄 [Windows] GStreamer reconnection attempt #%d/%d...", attempt, maxAttempts)
 
-	// Задержка перед переподключением (увеличивается с каждой попыткой)
+	// Delay before reconnection (increases with each attempt)
 	delay := time.Duration(attempt) * 2 * time.Second
 	if delay > 10*time.Second {
-		delay = 10 * time.Second // Максимум 10 секунд
+		delay = 10 * time.Second // Max 10 seconds
 	}
-	logrus.Infof("⏳ [Windows] Задержка перед переподключением: %v", delay)
+	logrus.Infof("⏳ [Windows] Delay before reconnection: %v", delay)
 	time.Sleep(delay)
 
 	gs.mutex.RLock()
 	abortReconnect := !gs.autoReconnect || gs.manualDisconnect
 	gs.mutex.RUnlock()
 	if abortReconnect {
-		logrus.Info("🛑 [Windows] Переподключение отменено до нового ConnectToRTP")
+		logrus.Info("🛑 [Windows] Reconnection cancelled before new ConnectToRTP")
 		gs.mutex.Lock()
 		gs.isReconnecting = false
 		gs.mutex.Unlock()
@@ -1037,19 +1037,19 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 
 	if err := gs.ConnectToRTP(); err != nil {
-		logrus.Errorf("❌ [Windows] Ошибка переподключения GStreamer #%d: %v", attempt, err)
+		logrus.Errorf("❌ [Windows] GStreamer reconnection attempt #%d failed: %v", attempt, err)
 		gs.mutex.Lock()
 		gs.isReconnecting = false
 		gs.mutex.Unlock()
 
-		// Пробуем еще раз если не достигли лимита
+		// Try again if not reached limit
 		if attempt < maxAttempts {
-			logrus.Info("🔄 [Windows] Запланирована следующая попытка переподключения...")
-			// Запускаем следующую попытку асинхронно
+			logrus.Info("🔄 [Windows] Next reconnection attempt scheduled...")
+			// Start next attempt asynchronously
 			go gs.attemptReconnect()
 		}
 	} else {
-		logrus.Info("✅ [Windows] Успешное переподключение GStreamer!")
+		logrus.Info("✅ [Windows] GStreamer reconnection successful!")
 		gs.mutex.Lock()
 		gs.reconnectAttempts = 0
 		gs.isReconnecting = false
@@ -1057,29 +1057,29 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 }
 
-// SetOnFrameReceived устанавливает callback для получения кадров
+// SetOnFrameReceived sets callback for receiving frames
 func (gs *GStreamerService) SetOnFrameReceived(callback func(image.Image)) {
 	gs.onFrameReceived = callback
 }
 
-// SetOnStateChanged устанавливает callback для изменения состояния
+// SetOnStateChanged sets callback for state change
 func (gs *GStreamerService) SetOnStateChanged(callback func(string)) {
 	gs.onStateChanged = callback
 }
 
-// SetOnError устанавливает callback для ошибок
+// SetOnError sets callback for errors
 func (gs *GStreamerService) SetOnError(callback func(error)) {
 	gs.onError = callback
 }
 
-// IsConnected возвращает состояние подключения
+// IsConnected returns connection state
 func (gs *GStreamerService) IsConnected() bool {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
 	return gs.isConnected
 }
 
-// GetStats возвращает статистику соединения
+// GetStats returns connection statistics
 func (gs *GStreamerService) GetStats() map[string]interface{} {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
@@ -1094,22 +1094,22 @@ func (gs *GStreamerService) GetStats() map[string]interface{} {
 	}
 }
 
-// UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
+// UpdateVideoPort updates video stream port (RTP/UDP)
 func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Debugf("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 [Windows] GStreamer service: video UDP port updated to %d", port)
 }
 
-// UpdateVideoUDPPort обновляет порт приёма UDP видео
+// UpdateVideoUDPPort updates video UDP reception port
 func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	gs.config.VideoUDPPort = port
-	logrus.Debugf("🔧 [Windows] GStreamer сервис: видео UDP порт обновлен на %d", port)
+	logrus.Debugf("🔧 [Windows] GStreamer service: video UDP port updated to %d", port)
 }
 
 func (gs *GStreamerService) SetVideoMode(mode string) {
@@ -1132,7 +1132,7 @@ func (gs *GStreamerService) SetExpectedVideoSize(width, height int) {
 	}
 }
 
-// GetConfig возвращает конфигурацию
+// GetConfig returns configuration
 func (gs *GStreamerService) GetConfig() *models.AppConfig {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
@@ -1425,7 +1425,7 @@ func appendOrPrependEnv(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
-// SetAutoReconnect включает/выключает автоматическое переподключение
+// SetAutoReconnect enables/disables automatic reconnection
 func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
@@ -1434,34 +1434,34 @@ func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 
 func (gs *GStreamerService) ResetRuntimeDecoderFallback() {}
 
-// SetMaxReconnectAttempts устанавливает максимальное количество попыток переподключения
+// SetMaxReconnectAttempts sets maximum reconnection attempts
 func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 	gs.maxReconnectAttempts = max
-	gs.reconnectAttempts = 0 // Сбрасываем счетчик при изменении максимума
+	gs.reconnectAttempts = 0 // Reset counter when max changes
 }
 
-// Reconnect принудительно переподключается к RTP/UDP потоку (для смены устройств)
+// Reconnect forcibly reconnects to RTP/UDP stream (for device switching)
 func (gs *GStreamerService) Reconnect() error {
-	logrus.Info("🔄 [Windows] Принудительное переподключение (смена устройства)...")
+	logrus.Info("🔄 [Windows] Forced reconnection (device switch)...")
 
-	// Сначала отключаемся
+	// Disconnect first
 	if err := gs.Disconnect(); err != nil {
-		logrus.Warnf("⚠️ [Windows] Ошибка при отключении перед переподключением: %v", err)
+		logrus.Warnf("⚠️ [Windows] Error disconnecting before reconnection: %v", err)
 	}
 
-	// Ждем немного для корректного отключения
+	// Wait a bit for proper disconnection
 	time.Sleep(500 * time.Millisecond)
 
-	// Сбрасываем счетчик попыток переподключения
+	// Reset reconnection attempt counter
 	gs.mutex.Lock()
 	gs.reconnectAttempts = 0
 	gs.autoReconnect = true
 	gs.manualDisconnect = false
 	gs.mutex.Unlock()
 
-	// Подключаемся заново
-	logrus.Info("🔗 [Windows] Подключаемся к новому устройству...")
+	// Reconnect
+	logrus.Info("🔗 [Windows] Connecting to new device...")
 	return gs.ConnectToRTP()
 }
