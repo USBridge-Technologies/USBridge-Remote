@@ -184,6 +184,36 @@ echo -e "\n${YELLOW}📁 Подготовка dist...${NC}"
 # Копируем config если есть рядом с .app
 [ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
 
+# Создаем скрипт установки FFmpeg
+cat > "$DIST_DIR/install_ffmpeg.sh" << 'EOF'
+#!/bin/bash
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_DIR="$DIR/USBridgeClient.app/Contents/MacOS"
+mkdir -p "$TARGET_DIR"
+echo "Downloading FFmpeg for macOS..."
+curl -L https://evermeet.cx/ffmpeg/get/zip -o ffmpeg.zip
+unzip -o ffmpeg.zip -d "$TARGET_DIR"
+rm ffmpeg.zip
+chmod +x "$TARGET_DIR/ffmpeg"
+echo "FFmpeg installed to $TARGET_DIR"
+EOF
+chmod +x "$DIST_DIR/install_ffmpeg.sh"
+
+# Создаем скрипт установки GStreamer
+cat > "$DIST_DIR/install_gstreamer.sh" << 'EOF'
+#!/bin/bash
+set -e
+echo "Downloading and installing GStreamer for macOS via Homebrew..."
+if ! command -v brew >/dev/null 2>&1; then
+    echo "Homebrew is required but not installed. Please install Homebrew first."
+    exit 1
+fi
+brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+echo "GStreamer installed system-wide. USBridgeClient will find it automatically."
+EOF
+chmod +x "$DIST_DIR/install_gstreamer.sh"
+
 # 4. Создаём README для dist
 cat > "$DIST_DIR/README.txt" << 'README'
 USBridgeClient for macOS
@@ -193,7 +223,8 @@ Run:
   Open USBridgeClient.app
 
 Requirements:
-  - GStreamer: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+  - Run ./install_ffmpeg.sh to download FFmpeg locally (required for video decoding fallback).
+  - Run ./install_gstreamer.sh to install GStreamer via Homebrew (required for main video decoding).
   - macOS 10.15+
 
 Configuration:
@@ -204,8 +235,14 @@ Application log:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
+echo -e "\n${YELLOW}📦 Создание архива...${NC}"
+cd "$DIST_DIR"
+zip -rq "../USBridgeClient-macOS.zip" ./*
+cd "$REPO_ROOT"
+
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
+echo -e "   Архив:     dist/USBridgeClient-macOS.zip"
 echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
 echo -e "   Лог app:   ~/Library/Logs/USBridgeClient/app.log"
 echo ""

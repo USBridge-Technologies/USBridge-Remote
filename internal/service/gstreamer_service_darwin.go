@@ -159,6 +159,19 @@ func appendOrPrependDarwinEnv(env []string, key, value string) []string {
 }
 
 func findDarwinGStreamerTool(name string) (string, error) {
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates := []string{
+			filepath.Join(exeDir, name),
+			filepath.Join(exeDir, "bin", name),
+		}
+		for _, candidate := range candidates {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+				return candidate, nil
+			}
+		}
+	}
+
 	if path, err := exec.LookPath(name); err == nil {
 		return path, nil
 	}

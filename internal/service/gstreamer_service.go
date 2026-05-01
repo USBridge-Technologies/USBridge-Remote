@@ -71,7 +71,9 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	logrus.Infof("🎬 Running manual-tested pipeline: %s", pipeline)
 
 	bindHost := gs.getBindHost()
-	cmd := exec.Command("gst-launch-1.0", "-q")
+	
+	gstPath := gs.findLinuxGStreamerTool("gst-launch-1.0")
+	cmd := exec.Command(gstPath, "-q")
 	udpsrcArgs := []string{"udpsrc", fmt.Sprintf("port=%d", udpPort)}
 	if bindHost != "" && bindHost != "0.0.0.0" {
 		udpsrcArgs = append(udpsrcArgs, fmt.Sprintf("address=%s", bindHost))
@@ -88,6 +90,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	if err != nil {
 		return err
 	}
+
 	
 	if err := cmd.Start(); err != nil {
 		return err
@@ -221,3 +224,23 @@ func (gs *GStreamerService) SetAutoReconnect(b bool) {}
 func (gs *GStreamerService) SetMaxReconnectAttempts(i int) {}
 func (gs *GStreamerService) ConnectToUDPViaPipe(f *os.File) error { return nil }
 func (gs *GStreamerService) GetBindHost() string { return gs.getBindHost() }
+
+func (gs *GStreamerService) findLinuxGStreamerTool(name string) string {
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates := []string{
+			filepath.Join(exeDir, name),
+			filepath.Join(exeDir, "bin", name),
+		}
+		for _, candidate := range candidates {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+				return candidate
+			}
+		}
+	}
+
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	return name
+}

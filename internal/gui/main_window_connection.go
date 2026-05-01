@@ -399,7 +399,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 		mw.gstreamerService.UpdateHost("127.0.0.1")
 		mw.gstreamerService.UpdateVideoPort(videoPort)
 		mw.gstreamerService.UpdateVideoUDPPort(videoPort)
-		mw.config.VideoBindHost = "0.0.0.0"
+		mw.config.VideoBindHost = mw.resolveVideoBindHost()
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
 		mw.connectedProtocol = models.ConnectionProtocolQUIC
@@ -878,7 +878,7 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 
 		mw.updateStatus()
-		mw.config.VideoBindHost = "0.0.0.0"
+		mw.config.VideoBindHost = "127.0.0.1"
 
 		if !mw.isClosing.Load() {
 			mw.hostEntry.Enable()
@@ -960,4 +960,29 @@ func (mw *MainWindow) updateStatus() {
 	}
 
 	mw.updateStatusBar()
+}
+
+// resolveVideoBindHost returns the address on which GStreamer should listen for video.
+// QUIC/FRP: FRP connects locally → 127.0.0.1.
+// Tailscale: Tailscale interface (100.x.x.x), otherwise 127.0.0.1.
+func (mw *MainWindow) resolveVideoBindHost() string {
+	if mw.frpService != nil {
+		return "127.0.0.1"
+	}
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		name := strings.ToLower(iface.Name)
+		if !strings.Contains(name, "tailscale") && !strings.Contains(name, "wg") && !strings.Contains(name, "tun") {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ip := ipnet.IP.To4(); ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return "127.0.0.1"
 }

@@ -654,12 +654,54 @@ if [ -n "$GST_ROOT" ]; then
     fi
 fi
 
-# 8. README
+# 8. Скрипт установки FFmpeg и README
+echo -e "\n${YELLOW}📝 Создание скриптов установки...${NC}"
+
+cat > "$DIST_WIN/install_ffmpeg.bat" << 'EOF'
+@echo off
+setlocal
+set "DIR=%~dp0"
+echo Downloading FFmpeg for Windows...
+powershell -NoProfile -NonInteractive -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile 'ffmpeg.zip'"
+if errorlevel 1 (
+    echo Failed to download FFmpeg.
+    pause
+    exit /b 1
+)
+echo Extracting FFmpeg...
+powershell -NoProfile -NonInteractive -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath '.' -Force"
+del ffmpeg.zip
+if exist "ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" (
+    move /y "ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "%DIR%" >nul
+    rmdir /s /q "ffmpeg-master-latest-win64-gpl"
+    echo FFmpeg installed successfully to %DIR%ffmpeg.exe
+) else (
+    echo Failed to extract FFmpeg.
+)
+pause
+EOF
+
 cat > "$DIST_WIN/README.txt" << 'README'
 USBridge Client for Windows
 ===========================
-Run USBridge_Client.exe. GStreamer (MinGW x86_64) must be installed or bundled.
+Run USBridge_Client.exe. 
+
+Requirements:
+  - GStreamer (MinGW x86_64) must be installed or bundled (for hardware video decoding).
+  - Run install_ffmpeg.bat to download FFmpeg locally (required for video decoding fallback if GStreamer is missing).
 README
+
+echo -e "\n${YELLOW}📦 Создание архива...${NC}"
+cd "$DIST_WIN"
+if command -v zip >/dev/null 2>&1; then
+    zip -rq "../USBridgeClient-Windows.zip" ./*
+elif command -v powershell >/dev/null 2>&1; then
+    powershell -NoProfile -NonInteractive -Command "Compress-Archive -Path '.\*' -DestinationPath '..\USBridgeClient-Windows.zip' -Force"
+else
+    echo -e "${YELLOW}⚠ Zip утилита не найдена. Архив не создан.${NC}"
+fi
+cd "$REPO_ROOT"
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_WIN/"
+echo -e "   Архив:     dist/USBridgeClient-Windows.zip"
