@@ -10,59 +10,59 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Обработчики, которые могут быть установлены из других пакетов для предотвращения циклической зависимости
+// Handlers that can be set from other packages to prevent cyclic dependency
 var (
 	GlobalSuccessHandler func(uri string, fd int, size int64)
 	GlobalErrorHandler   func(err string)
 )
 
 var (
-	// Callbacks для SAF результата
+	// Callbacks for SAF result
 	safSuccessCallback func(uri string, fd int, size int64)
 	safErrorCallback   func(error string)
 
-	// Mutex для защиты SAF callbacks
+	// Mutex to protect SAF callbacks
 	callbackMu sync.RWMutex
 
-	// QR результат — polling. Результат приходит через JNI (QRResultBridge → main app), не через nbdbridge.aar
+	// QR result — polling. Result comes via JNI (QRResultBridge → main app), not via nbdbridge.aar
 	qrResultMu    sync.Mutex
 	qrResult      *QRScanResult
 	qrResultReady bool
 )
 
-// QRScanResult содержит результат сканирования QR
+// QRScanResult contains the result of QR scanning
 type QRScanResult struct {
-	Contents  string // QR содержимое (если успех)
-	ImageData []byte // Изображение для сканирования (если ZXing не распознал)
-	Cancelled bool   // Пользователь отменил
+	Contents  string // QR contents (if success)
+	ImageData []byte // Image for scanning (if ZXing failed to recognize)
+	Cancelled bool   // User cancelled
 }
 
-// SetSAFCallbacks устанавливает callbacks для SAF
-// Вызывается из Go UI кода перед открытием SAF пикера
+// SetSAFCallbacks sets callbacks for SAF
+// Called from Go UI code before opening SAF picker
 func SetSAFCallbacks(onSuccess func(uri string, fd int, size int64), onError func(error string)) {
 	callbackMu.Lock()
 	defer callbackMu.Unlock()
 	safSuccessCallback = onSuccess
 	safErrorCallback = onError
-	logrus.Infof("📍 [NBDBRIDGE] SAF callbacks установлены (success: %v, error: %v)", onSuccess != nil, onError != nil)
+	logrus.Infof("📍 [NBDBRIDGE] SAF callbacks set (success: %v, error: %v)", onSuccess != nil, onError != nil)
 }
 
-// OnSAFSuccess вызывается из Kotlin когда файл выбран
-// Эта функция экспортируется через gomobile и доступна как Nbdbridge.onSAFSuccess()
+// OnSAFSuccess is called from Kotlin when a file is selected
+// This function is exported via gomobile and available as Nbdbridge.onSAFSuccess()
 func OnSAFSuccess(uri string, fd int64, size int64) {
 	logrus.Infof("🏁 [SAF-CALLBACK-ENTRY] OnSAFSuccess triggered: uri=%s, fd=%d, size=%d", uri, fd, size)
-	
-	// Закрепляем горутину на OS потоке для стабильности JNI вызова
+
+	// Lock goroutine to OS thread for JNI call stability
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в OnSAFSuccess: %v", r)
+			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic in OnSAFSuccess: %v", r)
 		}
 	}()
 
-	// Делаем копию строки чтобы она не зависели от JNI памяти
+	// Make a copy of the string so it doesn't depend on JNI memory
 	uriCopy := strings.Clone(uri)
 
 	callbackMu.RLock()
@@ -72,11 +72,11 @@ func OnSAFSuccess(uri string, fd int64, size int64) {
 
 	if callback != nil {
 		logrus.Infof("📞 [SAF-CALLBACK-INVOKE] Calling Go success callback...")
-		// Вызываем callback в горутине чтобы не блокировать JNI поток
+		// Call callback in goroutine to avoid blocking JNI thread
 		go func(c func(string, int, int64), u string, f int, s int64) {
 			defer func() {
 				if r := recover(); r != nil {
-					logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в SAF success callback: %v", r)
+					logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic in SAF success callback: %v", r)
 				}
 			}()
 			c(u, f, s)
@@ -86,26 +86,27 @@ func OnSAFSuccess(uri string, fd int64, size int64) {
 		logrus.Warn("⚠️ [SAF-CALLBACK-WARN] No success callback registered in nbdbridge!")
 	}
 
-	// Попытка вызвать глобальный обработчик (внедренный)
+	// Attempt to call global handler (injected)
 	if GlobalSuccessHandler != nil {
 		logrus.Info("📞 [SAF-GLOBAL-INVOKE] Calling injected global success handler...")
 		go GlobalSuccessHandler(uriCopy, int(fd), size)
 	}
 }
+
 func OnSAFError(errorMsg string) {
 	logrus.Errorf("🏁 [SAF-ERROR-ENTRY] OnSAFError triggered: %s", errorMsg)
 
-	// Закрепляем горутину на OS потоке для стабильности JNI вызова
+	// Lock goroutine to OS thread for JNI call stability
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic в OnSAFError: %v", r)
+			logrus.Errorf("❌ [SAF-CALLBACK-PANIC] panic in OnSAFError: %v", r)
 		}
 	}()
 
-	// Делаем копию строки чтобы она не зависели от JNI памяти
+	// Make a copy of the string so it doesn't depend on JNI memory
 	errCopy := strings.Clone(errorMsg)
 
 	callbackMu.RLock()
@@ -122,8 +123,8 @@ func OnSAFError(errorMsg string) {
 	}
 }
 
-// SetQRResultFromJNI вызывается из main app через JNI (QRResultBridge.deliverQRResult).
-// Не использует nbdbridge.aar — результат приходит напрямую в main app.
+// SetQRResultFromJNI is called from main app via JNI (QRResultBridge.deliverQRResult).
+// Does not use nbdbridge.aar — result comes directly to main app.
 func SetQRResultFromJNI(contents string) {
 	contentsCopy := strings.Clone(contents)
 	logrus.Infof("Go: QR result from JNI - %s", contentsCopy)
@@ -133,7 +134,7 @@ func SetQRResultFromJNI(contents string) {
 	qrResultMu.Unlock()
 }
 
-// SetQRResultCancelledFromJNI вызывается из main app через JNI (QRResultBridge.deliverQRCancel)
+// SetQRResultCancelledFromJNI is called from main app via JNI (QRResultBridge.deliverQRCancel)
 func SetQRResultCancelledFromJNI() {
 	logrus.Info("Go: QR cancelled from JNI")
 	qrResultMu.Lock()
@@ -142,7 +143,7 @@ func SetQRResultCancelledFromJNI() {
 	qrResultMu.Unlock()
 }
 
-// ClearQRResult очищает результат QR сканирования (вызывать перед запуском сканера)
+// ClearQRResult clears QR scan result (call before starting scanner)
 func ClearQRResult() {
 	qrResultMu.Lock()
 	qrResult = nil
@@ -151,8 +152,8 @@ func ClearQRResult() {
 	logrus.Info("Go: QR result cleared")
 }
 
-// GetQRResult возвращает результат QR сканирования (polling)
-// Возвращает nil если результат ещё не готов
+// GetQRResult returns QR scan result (polling)
+// Returns nil if result is not ready yet
 func GetQRResult() *QRScanResult {
 	qrResultMu.Lock()
 	defer qrResultMu.Unlock()
@@ -162,14 +163,14 @@ func GetQRResult() *QRScanResult {
 	return qrResult
 }
 
-// IsQRResultReady проверяет готов ли результат
+// IsQRResultReady checks if result is ready
 func IsQRResultReady() bool {
 	qrResultMu.Lock()
 	defer qrResultMu.Unlock()
 	return qrResultReady
 }
 
-// OnQRScanSuccess — для nbdbridge.aar (SAF/другие сценарии). QR теперь идёт через QRResultBridge/JNI.
+// OnQRScanSuccess — for nbdbridge.aar (SAF/other scenarios). QR now goes through QRResultBridge/JNI.
 func OnQRScanSuccess(contents string) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -181,7 +182,7 @@ func OnQRScanSuccess(contents string) {
 	qrResultMu.Unlock()
 }
 
-// OnCameraImageReceived — для nbdbridge.aar
+// OnCameraImageReceived — for nbdbridge.aar
 func OnCameraImageReceived(data []byte) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -194,7 +195,7 @@ func OnCameraImageReceived(data []byte) {
 	qrResultMu.Unlock()
 }
 
-// OnQRScanCancel — для nbdbridge.aar
+// OnQRScanCancel — for nbdbridge.aar
 func OnQRScanCancel() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

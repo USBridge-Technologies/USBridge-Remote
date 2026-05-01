@@ -23,7 +23,7 @@ JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onLanguageChanged
     (*env)->ReleaseStringUTFChars(env, lang, nativeString);
 }
 
-// keepIMEBridgeSymbolsReferenced — фиктивная ссылка, чтобы линкер не удалял JNI-символы
+// keepIMEBridgeSymbolsReferenced - dummy reference to prevent the linker from removing JNI symbols
 void keepIMEBridgeSymbolsReferenced(void) {
     extern void Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
     (void)Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged;
@@ -42,10 +42,10 @@ import (
 )
 
 var (
-	lastIMEH float32 // Кэшируем последнее значение отступа в Fyne-единицах
+	lastIMEH float32 // Cache the last margin value in Fyne units
 )
 
-// GetLastIMEH возвращает последний кэшированный отступ IME (включая NavBar)
+// GetLastIMEH returns the last cached IME margin (including NavBar)
 func GetLastIMEH() float32 {
 	return lastIMEH
 }
@@ -54,13 +54,13 @@ func init() {
 	C.keepIMEBridgeSymbolsReferenced()
 }
 
-// RegisterAsIMETarget регистрирует этот VirtualKeyboard как получателя нативных IME-событий.
+// RegisterAsIMETarget registers this VirtualKeyboard as a receiver of native IME events.
 func (vk *VirtualKeyboard) RegisterAsIMETarget() {
 	activeIMEKeyboardMu.Lock()
 	activeIMEKeyboardTarget = vk
 	activeIMEKeyboardMu.Unlock()
 
-	// Сразу применяем последний известный отступ, чтобы верстка встала на место до первого клика
+	// Immediately apply the last known margin so the layout falls into place before the first click
 	if lastIMEH > 0 {
 		fyne.Do(func() {
 			vk.setIMEOffset(lastIMEH)
@@ -72,9 +72,9 @@ func (vk *VirtualKeyboard) RegisterAsIMETarget() {
 	}
 }
 
-// deliverIMEHeightFromJNI вызывается из JNI (KeyboardBridge.onIMEHeightChanged).
-// Получает точную высоту IME в пикселях и высоту экрана, конвертирует в Fyne-единицы
-// пропорционально (не нужно знать DPI — используем соотношение высот).
+// deliverIMEHeightFromJNI is called from JNI (KeyboardBridge.onIMEHeightChanged).
+// Receives the exact IME height in pixels and the screen height, converts to Fyne units
+// proportionally (no need to know DPI - we use the height ratio).
 //
 //export deliverIMEHeightFromJNI
 func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
@@ -94,12 +94,12 @@ func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 		if vk != nil && vk.parentWindow != nil {
 			canvasH = vk.parentWindow.Canvas().Size().Height
 		} else if fyne.CurrentApp() != nil && len(fyne.CurrentApp().Driver().AllWindows()) > 0 {
-			// Пытаемся найти хоть какое-то окно для получения масштаба
+			// Try to find any window to get the scale
 			canvasH = fyne.CurrentApp().Driver().AllWindows()[0].Canvas().Size().Height
 		}
 
 		if canvasH <= 0 {
-			// Если окон еще нет, мы не можем рассчитать Fyne-единицы.
+			// If there are no windows yet, we cannot calculate Fyne units.
 			return
 		}
 
@@ -113,7 +113,7 @@ func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 	})
 }
 
-// deliverLanguageFromJNI вызывается из JNI (KeyboardBridge.onLanguageChanged).
+// deliverLanguageFromJNI is called from JNI (KeyboardBridge.onLanguageChanged).
 //
 //export deliverLanguageFromJNI
 func deliverLanguageFromJNI(langStr *C.char) {

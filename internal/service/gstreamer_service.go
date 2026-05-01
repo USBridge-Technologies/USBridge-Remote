@@ -62,7 +62,7 @@ func (gs *GStreamerService) ConnectToRTP() error {
 	udpPort := gs.getUDPPort()
 	gs.mutex.Unlock()
 
-	// ИСПОЛЬЗУЕМ В ТОЧНОСТИ ТВОЙ РАБОЧИЙ КОНВЕЙЕР
+	// USE EXACTLY YOUR WORKING PIPELINE
 	pipeline := fmt.Sprintf("udpsrc port=%d caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "+
 		"rtpjitterbuffer latency=100 ! rtph264depay ! h264parse ! avdec_h264 ! "+
 		"videoconvert ! video/x-raw,format=RGBA,width=%d,height=%d ! fdsink fd=1 sync=false", 
@@ -124,14 +124,14 @@ func (gs *GStreamerService) readLoop() {
 		case <-stopChan:
 			return
 		default:
-			// Читаем строго один кадр. Если GStreamer выдал меньше - это ошибка.
+			// Read exactly one frame. If GStreamer gave less - it's an error.
 			_, err := io.ReadFull(stdout, buffer)
 			if err != nil {
 				return
 			}
 
-			// Копируем данные в НОВЫЙ объект изображения.
-			// Это единственный способ избежать серых кадров в Fyne.
+			// Copy data to a NEW image object.
+			// This is the only way to avoid gray frames in Fyne.
 			img := image.NewRGBA(image.Rect(0, 0, w, h))
 			copy(img.Pix, buffer)
 

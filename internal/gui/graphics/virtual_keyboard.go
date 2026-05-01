@@ -9,43 +9,43 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// VirtualKeyboard виртуальная клавиатура для полноэкранного режима
+// VirtualKeyboard virtual keyboard for fullscreen mode
 type VirtualKeyboard struct {
 	container      *fyne.Container
 	keyboard       *fyne.Container
 	toggleBtn      *widget.Button
 	isVisible      bool
 	onKeyPress     func(keyCode int, modifiers int)
-	onRuneTyped    func(r rune) // Отправка каждого символа на хост
+	onRuneTyped    func(r rune) // Sending each character to the host
 	parentWindow   fyne.Window
 	keyboardWindow fyne.Window
 
-	// Состояние модификаторов
+	// Modifier state
 	ctrlPressed     bool
 	altPressed      bool
 	shiftPressed    bool
 	capsLockPressed bool
 	winPressed      bool
 
-	// Кнопки модификаторов для обновления стиля
+	// Modifier buttons for style updates
 	ctrlBtn     *widget.Button
 	altBtn      *widget.Button
 	shiftBtn    *widget.Button
 	capsLockBtn *widget.Button
 	winBtn      *widget.Button
 	
-	// Платформозависимые поля: на десктопе используются заглушки типов (определены в _desktop.go),
-	// на мобилках — реальные реализации (определены в _mobile.go)
+	// Platform-dependent fields: dummy types are used on desktop (defined in _desktop.go),
+	// real implementations on mobile (defined in _mobile.go)
 	mobileInput *backspaceEntry
 
-	// Динамический отступ снизу для мобильного IME
+	// Dynamic bottom padding for mobile IME
 	imeSpacer     *imeSpacerLayout
 	imeSpacerCont *fyne.Container
 	onIMEChanged  func(open bool)
 }
 
-// NewVirtualKeyboard создает новую виртуальную клавиатуру.
-// onRuneTyped — опциональный колбэк для немедленной отправки каждого символа на хост (Android/iOS).
+// NewVirtualKeyboard creates a new virtual keyboard.
+// onRuneTyped is an optional callback for sending each character to the host immediately (Android/iOS).
 func NewVirtualKeyboard(parentWindow fyne.Window, onKeyPress func(int, int), onRuneTyped func(r rune)) *VirtualKeyboard {
 	vk := &VirtualKeyboard{
 		isVisible:    false,
@@ -58,68 +58,68 @@ func NewVirtualKeyboard(parentWindow fyne.Window, onKeyPress func(int, int), onR
 	return vk
 }
 
-// createKeyboard создает интерфейс клавиатуры
+// createKeyboard creates the keyboard interface
 func (vk *VirtualKeyboard) createKeyboard() {
-	// Создаем кнопку переключения видимости (всегда видимая в углу)
+	// Create the visibility toggle button (always visible in the corner)
 	vk.toggleBtn = widget.NewButton("⌨", vk.toggleVisibility)
-	vk.toggleBtn.Importance = widget.HighImportance // Делаем кнопку заметной
+	vk.toggleBtn.Importance = widget.HighImportance // Make the button noticeable
 
-	// Вызываем платформозависимую реализацию раскладки (через build tags)
+	// Call the platform-dependent layout implementation (via build tags)
 	vk.keyboard = vk.createKeyboardLayout()
-	vk.keyboard.Hide() // Скрываем по умолчанию
+	vk.keyboard.Hide() // Hide by default
 
-	// Создаем контейнер для позиционирования
+	// Create container for positioning
 	vk.container = container.NewWithoutLayout()
 
-	// Добавляем кнопку переключения в правый нижний угол
+	// Add toggle button to the bottom right corner
 	vk.container.Add(vk.toggleBtn)
 
-	// Добавляем клавиатуру по центру
+	// Add keyboard to the center
 	vk.container.Add(vk.keyboard)
 }
 
-// createKey создает кнопку клавиши (общее для мобилки и десктопа)
+// createKey creates a key button (common for mobile and desktop)
 func (vk *VirtualKeyboard) createKey(label string, keyCode int, modifiers int) *widget.Button {
 	btn := widget.NewButton(label, func() {
 		vk.handleKeyPress(keyCode, modifiers)
 	})
 
-	// Устанавливаем размеры клавиш по умолчанию
+	// Set default key sizes
 	btn.Resize(fyne.NewSize(40, 35))
 
-	// Делаем пробел шире
+	// Make spacebar wider
 	if label == "Space" {
 		btn.Resize(fyne.NewSize(200, 35))
 	}
 
-	// Делаем специальные клавиши шире
+	// Make special keys wider
 	if label == "Tab" || label == "Caps" || label == "Shift" || label == "Ctrl" || label == "Alt" {
 		btn.Resize(fyne.NewSize(60, 35))
 	}
 
-	// Делаем Enter шире
+	// Make Enter wider
 	if label == "Enter" {
 		btn.Resize(fyne.NewSize(80, 35))
 	}
 
-	// Делаем Backspace шире
+	// Make Backspace wider
 	if label == "⌫" {
 		btn.Resize(fyne.NewSize(80, 35))
 	}
 
-	// Делаем функциональные клавиши меньше
+	// Make function keys smaller
 	if label == "F1" || label == "F2" || label == "F3" || label == "F4" ||
 		label == "F5" || label == "F6" || label == "F7" || label == "F8" ||
 		label == "F9" || label == "F10" || label == "F11" || label == "F12" {
 		btn.Resize(fyne.NewSize(35, 30))
 	}
 
-	// Делаем Escape меньше
+	// Make Escape smaller
 	if label == "Esc" {
 		btn.Resize(fyne.NewSize(35, 30))
 	}
 
-	// Делаем Windows и Menu клавиши среднего размера
+	// Make Windows and Menu keys medium size
 	if label == "Win" || label == "Menu" || label == "⊞" || label == "☰" {
 		btn.Resize(fyne.NewSize(50, 35))
 	}
@@ -127,7 +127,7 @@ func (vk *VirtualKeyboard) createKey(label string, keyCode int, modifiers int) *
 	return btn
 }
 
-// createModifierKey создает кнопку модификатора с переключением
+// createModifierKey creates a modifier button with toggle
 func (vk *VirtualKeyboard) createModifierKey(label string, keyCode int) *widget.Button {
 	btn := widget.NewButton(label, func() {
 		vk.toggleModifier(keyCode)
@@ -137,7 +137,7 @@ func (vk *VirtualKeyboard) createModifierKey(label string, keyCode int) *widget.
 	return btn
 }
 
-// toggleModifier переключает состояние модификатора
+// toggleModifier toggles modifier state
 func (vk *VirtualKeyboard) toggleModifier(keyCode int) {
 	switch keyCode {
 	case 224, 228: // Ctrl (Left/Right)
@@ -166,7 +166,7 @@ func (vk *VirtualKeyboard) toggleModifier(keyCode int) {
 	}
 }
 
-// updateModifierButton обновляет внешний вид кнопки модификатора
+// updateModifierButton updates the modifier button appearance
 func (vk *VirtualKeyboard) updateModifierButton(btn *widget.Button, label string, pressed bool) {
 	if btn == nil {
 		return
@@ -180,7 +180,7 @@ func (vk *VirtualKeyboard) updateModifierButton(btn *widget.Button, label string
 	btn.Refresh()
 }
 
-// handleKeyPress обрабатывает нажатие клавиши
+// handleKeyPress handles key press
 func (vk *VirtualKeyboard) handleKeyPress(keyCode int, modifiers int) {
 	currentModifiers := modifiers
 	if vk.ctrlPressed {
@@ -204,7 +204,7 @@ func (vk *VirtualKeyboard) handleKeyPress(keyCode int, modifiers int) {
 	}
 }
 
-// toggleVisibility переключает видимость клавиатуры
+// toggleVisibility toggles keyboard visibility
 func (vk *VirtualKeyboard) toggleVisibility() {
 	if vk.isVisible {
 		vk.Hide()
@@ -213,7 +213,7 @@ func (vk *VirtualKeyboard) toggleVisibility() {
 	}
 }
 
-// Show показывает клавиатуру
+// Show shows the keyboard
 func (vk *VirtualKeyboard) Show() {
 	if vk.isVisible {
 		return
@@ -222,9 +222,9 @@ func (vk *VirtualKeyboard) Show() {
 	vk.isVisible = true
 	vk.keyboard.Show()
 
-	// На мобильных платформах (Android/iOS) клавиатура обычно встроена в BorderLayout
-	// основного окна через FullscreenUI. Ручное позиционирование здесь приведет к наложению на видео.
-	// Поэтому выполняем ручной Move/Resize только если мы НЕ на мобилке или если окно отдельное.
+	// On mobile platforms (Android/iOS), the keyboard is usually embedded in the BorderLayout
+	// of the main window via FullscreenUI. Manual positioning here will lead to overlapping with the video.
+	// Therefore, we perform manual Move/Resize only if we are NOT on mobile or if the window is separate.
 	if vk.parentWindow != nil && fyne.CurrentDevice().IsMobile() == false {
 		size := vk.parentWindow.Canvas().Size()
 		keyboardSize := fyne.NewSize(700, 250)
@@ -250,7 +250,7 @@ func (vk *VirtualKeyboard) Show() {
 	logrus.Info("⌨️ Virtual keyboard shown")
 }
 
-// ShowInSeparateWindow показывает клавиатуру в отдельном окне
+// ShowInSeparateWindow shows the keyboard in a separate window
 func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 	if vk.isVisible {
 		return
@@ -276,7 +276,7 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 	logrus.Info("⌨️ Virtual keyboard shown in a separate window")
 }
 
-// Hide скрывает клавиатуру
+// Hide hides the keyboard
 func (vk *VirtualKeyboard) Hide() {
 	if !vk.isVisible {
 		return
@@ -289,7 +289,7 @@ func (vk *VirtualKeyboard) Hide() {
 		vk.keyboardWindow = nil
 	}
 
-	// Сбрасываем IME-отступ (метод-заглушка на десктопе, реальный на мобилках)
+	// Reset IME padding (dummy method on desktop, real one on mobile)
 	vk.setIMEOffset(0)
 
 	if vk.keyboard != nil {
@@ -300,22 +300,22 @@ func (vk *VirtualKeyboard) Hide() {
 	logrus.Info("⌨️ Virtual keyboard hidden")
 }
 
-// IsVisible возвращает состояние видимости
+// IsVisible returns visibility state
 func (vk *VirtualKeyboard) IsVisible() bool {
 	return vk.isVisible
 }
 
-// GetContainer возвращает контейнер клавиатуры
+// GetContainer returns keyboard container
 func (vk *VirtualKeyboard) GetContainer() *fyne.Container {
 	return vk.container
 }
 
-// GetKeyboardLayout возвращает только layout клавиатуры
+// GetKeyboardLayout returns only keyboard layout
 func (vk *VirtualKeyboard) GetKeyboardLayout() *fyne.Container {
 	return vk.keyboard
 }
 
-// UpdatePosition обновляет позицию элементов клавиатуры
+// UpdatePosition updates keyboard elements position
 func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 	btnSize := fyne.NewSize(50, 50)
 	x := windowSize.Width - btnSize.Width - 10
@@ -325,7 +325,7 @@ func (vk *VirtualKeyboard) UpdatePosition(windowSize fyne.Size) {
 	vk.toggleBtn.Resize(btnSize)
 }
 
-// SetVisibleState устанавливает состояние видимости без показа отдельного окна
+// SetVisibleState sets visibility state without showing a separate window
 func (vk *VirtualKeyboard) SetVisibleState(visible bool) {
 	vk.isVisible = visible
 	if vk.keyboard == nil {

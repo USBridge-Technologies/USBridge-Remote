@@ -10,21 +10,21 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Константы сетки клавиатуры (как у аппаратной): ширина/высота одной «единицы» клавиши
+// Keyboard grid constants (like hardware): width/height of one key "unit"
 const (
 	keyUnitW  = 30
 	keyUnitH  = 28
 	keyGap    = 2
 	keyboardW = 600
 	keyboardH = 180
-	// Ширина контента самого длинного ряда в единицах (ряд 1 и 4: 15)
+	// Content width of the longest row in units (row 1 and 4: 15)
 	keyboardContentUnits = 15
 )
 
-// Левый отступ: центрируем контент в сетке, чтобы кнопки не прижимались к левому краю
+// Left margin: center content in the grid so buttons do not press against the left edge
 var keyboardLeftMargin = float32((keyboardW - keyboardContentUnits*keyUnitW) / 2)
 
-// centerKeyboardLayout центрирует содержимое клавиатуры при изменении размера области
+// centerKeyboardLayout centers the keyboard content when the area size changes
 type centerKeyboardLayout struct {
 	width  float32
 	height float32
@@ -49,7 +49,7 @@ func (c *centerKeyboardLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(c.width, c.height)
 }
 
-// Заглушки типов для десктопа
+// Dummy types for desktop
 type backspaceEntry struct {
 	widget.Entry
 }
@@ -58,7 +58,7 @@ type imeSpacerLayout struct {
 	height float32
 }
 
-// Заглушки методов для десктопа
+// Dummy methods for desktop
 func (vk *VirtualKeyboard) RegisterAsIMETarget()               {}
 func (vk *VirtualKeyboard) FocusInput()                        {}
 func (vk *VirtualKeyboard) BlurInput()                         {}
@@ -67,7 +67,7 @@ func (vk *VirtualKeyboard) setIMEOffset(imeH float32)          {}
 func (vk *VirtualKeyboard) adjustForIME(open bool)             {}
 func (vk *VirtualKeyboard) ResetIMEState()                     {}
 
-// placeKey размещает кнопку в сетке: row/col в «единицах» клавиши, widthUnits — ширина в единицах (1 = обычная клавиша).
+// placeKey places a button in the grid: row/col in key "units", widthUnits is the width in units (1 = normal key).
 func (vk *VirtualKeyboard) placeKey(grid *fyne.Container, btn *widget.Button, row int, col float32, widthUnits float32) {
 	x := keyboardLeftMargin + col*keyUnitW + keyGap/2
 	y := float32(row)*keyUnitH + keyGap/2
@@ -78,7 +78,7 @@ func (vk *VirtualKeyboard) placeKey(grid *fyne.Container, btn *widget.Button, ro
 	grid.Add(btn)
 }
 
-// placeInvisiblePlaceholder добавляет невидимый прямоугольник (цвет фона) в сетку — для выравнивания столбцов
+// placeInvisiblePlaceholder adds an invisible rectangle (background color) to the grid - for column alignment
 func (vk *VirtualKeyboard) placeInvisiblePlaceholder(grid *fyne.Container, row int, col float32) {
 	x := keyboardLeftMargin + col*keyUnitW + keyGap/2
 	y := float32(row)*keyUnitH + keyGap/2
@@ -90,8 +90,8 @@ func (vk *VirtualKeyboard) placeInvisiblePlaceholder(grid *fyne.Container, row i
 	grid.Add(rect)
 }
 
-// createKeyboardLayout создает раскладку клавиатуры для десктопа
-// GetLastIMEH заглушка для десктопа
+// createKeyboardLayout creates the desktop keyboard layout
+// GetLastIMEH dummy for desktop
 func GetLastIMEH() float32 {
 	return 0
 }
@@ -104,7 +104,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	var col float32
 
-	// Ряд 0: Esc, F1–F12, Del
+	// Row 0: Esc, F1-F12, Del
 	col = 0
 	vk.placeKey(grid, vk.createKey("Esc", 41, 0), 0, col, 1)
 	col++
@@ -116,7 +116,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	vk.placeKey(grid, vk.createKey("Del", 76, 0), 0, col, 1)
 
-	// Ряд 1: ` 1 2 3 4 5 6 7 8 9 0 - = Backspace(2)
+	// Row 1: ` 1 2 3 4 5 6 7 8 9 0 - = Backspace(2)
 	col = 0
 	for _, pair := range []struct {
 		l string
@@ -129,7 +129,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	vk.placeKey(grid, vk.createKey("⌫", 42, 0), 1, col, 2)
 
-	// Ряд 2: Tab(1.5) Q W E R T Y U I O P [ ] \ 
+	// Row 2: Tab(1.5) Q W E R T Y U I O P [ ] \ 
 	col = 0
 	vk.placeKey(grid, vk.createKey("Tab", 43, 0), 2, col, 1.5)
 	col += 1.5
@@ -143,7 +143,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		col++
 	}
 
-	// Ряд 3: Caps(1.75) A S D F G H J K L ; ' Enter(2.25)
+	// Row 3: Caps(1.75) A S D F G H J K L ; ' Enter(2.25)
 	vk.capsLockBtn = vk.createModifierKey("Caps", 57)
 	col = 0
 	vk.placeKey(grid, vk.capsLockBtn, 3, col, 1.75)
@@ -159,7 +159,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	vk.placeKey(grid, vk.createKey("Enter", 40, 0), 3, col, 2.25)
 
-	// Ряд 4: Shift(1.5) Z X C V B N M , . / Shift(1.5) ↑ [невидимая]
+	// Row 4: Shift(1.5) Z X C V B N M , . / Shift(1.5) ↑ [invisible]
 	vk.shiftBtn = vk.createModifierKey("Shift", 225)
 	col = 0
 	vk.placeKey(grid, vk.shiftBtn, 4, col, 1.5)
@@ -179,7 +179,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	col++
 	vk.placeInvisiblePlaceholder(grid, 4, col)
 
-	// Ряд 5: Ctrl(1.25) Win(1.25) Alt(1.25) Space(3.5) Alt Win Menu Ctrl ← ↓ →
+	// Row 5: Ctrl(1.25) Win(1.25) Alt(1.25) Space(3.5) Alt Win Menu Ctrl ← ↓ →
 	vk.ctrlBtn = vk.createModifierKey("Ctrl", 224)
 	vk.winBtn = vk.createModifierKey("⊞", 227)
 	vk.altBtn = vk.createModifierKey("Alt", 226)

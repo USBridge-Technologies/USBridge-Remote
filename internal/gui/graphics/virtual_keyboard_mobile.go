@@ -21,13 +21,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// activeIMEKeyboardMu защищает activeIMEKeyboardTarget от гонок.
+// activeIMEKeyboardMu protects activeIMEKeyboardTarget from races.
 var (
 	activeIMEKeyboardMu     sync.RWMutex
 	activeIMEKeyboardTarget *VirtualKeyboard
 )
 
-// RegisterAsIMETarget регистрируется в keyboard_ime_android.go
+// RegisterAsIMETarget registers in keyboard_ime_android.go
 
 func activeIMEKeyboard() *VirtualKeyboard {
 	activeIMEKeyboardMu.RLock()
@@ -35,12 +35,12 @@ func activeIMEKeyboard() *VirtualKeyboard {
 	return activeIMEKeyboardTarget
 }
 
-// backspaceEntry — поле ввода для Android/iOS, которое позволяет ловить системные клавиши
+// backspaceEntry is an input field for Android/iOS that allows catching system keys
 type backspaceEntry struct {
 	widget.Entry
 	onKey       func(fyne.KeyName)
-	onFocused   func() // вызывается когда поле получает фокус (IME откроется)
-	onUnfocused func() // вызывается когда поле теряет фокус (IME закроется)
+	onFocused   func() // called when the field gains focus (IME will open)
+	onUnfocused func() // called when the field loses focus (IME will close)
 }
 
 func (e *backspaceEntry) TypedKey(key *fyne.KeyEvent) {
@@ -68,7 +68,7 @@ func (e *backspaceEntry) FocusLost() {
 	}
 }
 
-// imeSpacerLayout — layout с динамической высотой для отступа под IME
+// imeSpacerLayout is a layout with dynamic height for IME padding
 type imeSpacerLayout struct {
 	height float32
 }
@@ -84,14 +84,14 @@ func (l *imeSpacerLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(0, l.height)
 }
 
-// createKeyboardLayout создает раскладку клавиатуры для мобильных устройств
+// createKeyboardLayout creates keyboard layout for mobile devices
 func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint := &backspaceEntry{}
 	textHint.Password = false
 	textHint.ExtendBaseWidget(textHint)
 	vk.mobileInput = textHint
 
-	// Всё состояние под одним мьютексом — OnChanged вызывается из разных goroutine на Android.
+	// All state under one mutex - OnChanged is called from different goroutines on Android.
 	var (
 		mu          sync.Mutex
 		prevText    string
@@ -100,7 +100,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		timer       *time.Timer
 	)
 
-	// Фоновый worker: все сетевые вызовы здесь, UI-поток никогда не блокируется.
+	// Background worker: all network calls here, UI thread is never blocked.
 	type netTask struct {
 		backspaces int
 		runes      []rune
@@ -125,8 +125,8 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		}
 	}()
 
-	// enqueueDiff вычисляет diff от prevText к target и кладёт задачу в netChan.
-	// Вызывать строго под mu; сам освобождает mu перед отправкой в канал.
+	// enqueueDiff calculates the diff from prevText to target and puts a task into netChan.
+	// Call strictly under mu; it releases mu itself before sending to the channel.
 	enqueueDiff := func(target string, extraKey int) {
 		if target == prevText && extraKey == 0 {
 			mu.Unlock()
@@ -154,7 +154,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		netChan <- netTask{backspaces: bs, runes: added, extraKey: extraKey}
 	}
 
-	// commitChanges сбрасывает буфер: берёт mu, вычисляет diff, отпускает.
+	// commitChanges flushes the buffer: acquires mu, calculates diff, releases.
 	commitChanges := func(extraKey int) {
 		mu.Lock()
 		if timer != nil {
@@ -162,7 +162,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 			timer = nil
 		}
 		target := pendingText
-		enqueueDiff(target, extraKey) // освобождает mu
+		enqueueDiff(target, extraKey) // releases mu
 	}
 
 	textHint.onKey = func(keyName fyne.KeyName) {
@@ -193,18 +193,18 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		isPrefix := strings.HasPrefix(newText, prevText)
 
 		if isPrefix {
-			// Быстрый путь: простой набор — шлём diff сразу без таймера.
+			// Fast path: simple typing - send diff immediately without timer.
 			if timer != nil {
 				timer.Stop()
 				timer = nil
 			}
 			pendingText = newText
-			enqueueDiff(newText, 0) // освобождает mu
+			enqueueDiff(newText, 0) // releases mu
 			return
 		}
 
-		// Медленный путь: IME заменяет слово (автозамена, autocomplete).
-		// Ждём стабилизации 20ms.
+		// Slow path: IME replaces a word (autocorrect, autocomplete).
+		// Waiting 20ms for stabilization.
 		pendingText = newText
 		if timer != nil {
 			timer.Stop()
@@ -215,7 +215,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		mu.Unlock()
 	}
 
-	// Очистка буфера при переполнении (100+ рун).
+	// Buffer cleanup on overflow (100+ runes).
 	actualOnChanged := textHint.OnChanged
 	textHint.OnChanged = func(s string) {
 		actualOnChanged(s)
@@ -358,10 +358,10 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	textHint.onFocused = func() {
 		vk.adjustForIME(true)
 	}
-	// Мы НЕ сбрасываем отступ в onUnfocused (adjustForIME(false)),
-	// так как на Android системный навигационный бар все еще занимает место.
-	// Мы доверяем событиям KeyboardBridge.onIMEHeightChanged, которые приходят
-	// от Android при скрытии клавиатуры и содержат актуальную высоту (например, только NavBar).
+	// We do NOT reset the padding in onUnfocused (adjustForIME(false)),
+	// because on Android the system navigation bar still takes up space.
+	// We rely on KeyboardBridge.onIMEHeightChanged events that come
+	// from Android when hiding the keyboard and contain the actual height (e.g. just NavBar).
 	textHint.onUnfocused = func() {
 	}
 
@@ -373,7 +373,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	))
 }
 
-// FocusInput запрашивает фокус у строки ввода Android-клавиатуры
+// FocusInput requests focus on the Android keyboard input field
 func (vk *VirtualKeyboard) FocusInput() {
 	if vk.parentWindow == nil || vk.mobileInput == nil {
 		return
@@ -382,7 +382,7 @@ func (vk *VirtualKeyboard) FocusInput() {
 	vk.parentWindow.Canvas().Focus(vk.mobileInput)
 }
 
-// BlurInput снимает фокус со строки ввода
+// BlurInput removes focus from the input field
 func (vk *VirtualKeyboard) BlurInput() {
 	if vk.parentWindow == nil {
 		return
@@ -390,12 +390,12 @@ func (vk *VirtualKeyboard) BlurInput() {
 	vk.parentWindow.Canvas().Focus(nil)
 }
 
-// SetOnIMEChanged устанавливает callback
+// SetOnIMEChanged sets the callback
 func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(open bool)) {
 	vk.onIMEChanged = fn
 }
 
-// setIMEOffset выставляет точный нижний отступ
+// setIMEOffset sets the exact bottom padding
 func (vk *VirtualKeyboard) setIMEOffset(imeH float32) {
 	if vk.imeSpacer == nil || vk.imeSpacerCont == nil {
 		return
@@ -403,7 +403,7 @@ func (vk *VirtualKeyboard) setIMEOffset(imeH float32) {
 	if imeH < 0 {
 		imeH = 0
 	}
-	logrus.Infof("⌨️ [IME] setIMEOffset: %.0f Fyne-единиц", imeH)
+	logrus.Infof("⌨️ [IME] setIMEOffset: %.0f Fyne units", imeH)
 	vk.imeSpacer.height = imeH
 	vk.imeSpacerCont.Refresh()
 	if vk.keyboard != nil {
@@ -414,24 +414,24 @@ func (vk *VirtualKeyboard) setIMEOffset(imeH float32) {
 	}
 }
 
-// adjustForIME — запасной путь
+// adjustForIME - fallback path
 func (vk *VirtualKeyboard) adjustForIME(open bool) {
 	if open {
 		if vk.imeSpacer != nil && vk.imeSpacer.height > 0 {
 			return
 		}
-		// Устанавливаем минимальный начальный отступ, пока не пришло реальное значение от JNI
+		// Set minimal initial padding until the real value comes from JNI
 		vk.setIMEOffset(10)
 	} else {
 		vk.setIMEOffset(0)
 	}
 }
 
-// ResetIMEState сбрасывает отступ IME
+// ResetIMEState resets the IME padding
 func (vk *VirtualKeyboard) ResetIMEState() {
 	if vk.imeSpacer == nil || vk.imeSpacer.height == 0 {
 		return
 	}
-	logrus.Info("⌨️ [IME] принудительный сброс отступа (canvas вырос — IME закрыта)")
+	logrus.Info("⌨️ [IME] forced padding reset (canvas grew - IME is closed)")
 	vk.setIMEOffset(0)
 }

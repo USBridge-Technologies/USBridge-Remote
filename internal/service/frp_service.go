@@ -23,8 +23,8 @@ type FRPService struct {
 	serverAddr string
 	serverPort int
 	authToken  string
-	httpPort   int // локальный порт HTTP visitor (клиент подключается сюда)
-	videoPort  int // порт proxy video_sudp (GStreamer udpsrc)
+	httpPort   int // local HTTP visitor port (client connects here)
+	videoPort  int // video_sudp proxy port (GStreamer udpsrc)
 }
 
 // NewFRPService creates a new FRP service instance
@@ -62,8 +62,8 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		Transport: v1.ClientTransportConfig{
 			Protocol: "quic", // Use QUIC protocol for encrypted connection
 			QUIC: v1.QUICOptions{
-				KeepalivePeriod:    10,    // Keepalive каждые 10 с — агрессивно держим QUIC alive, сбрасываем idle-таймер
-				MaxIdleTimeout:     86400, // 24 часа — NBD-сессии долгоживущие, QUIC не должен их рвать (ВАЖНО: frps тоже должен иметь >= 86400)
+				KeepalivePeriod:    10,    // Keepalive every 10s — aggressively keep QUIC alive, reset idle timer
+				MaxIdleTimeout:     86400, // 24 hours — NBD sessions are long-lived, QUIC must not drop them (IMPORTANT: frps must also have >= 86400)
 				MaxIncomingStreams: 100000,
 			},
 			TLS: v1.TLSClientConfig{
@@ -72,22 +72,22 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 			DialServerTimeout:   10,
 			DialServerKeepAlive: 7200,
 			TCPMux:              lo.ToPtr(true),
-			HeartbeatInterval:   3,  // Частые heartbeat — сервер иначе кикает каждые ~5 сек (tcpMuxKeepaliveInterval)
-			HeartbeatTimeout:    10, // Время на ответ
+			HeartbeatInterval:   3,  // Frequent heartbeat — otherwise server kicks every ~5 sec (tcpMuxKeepaliveInterval)
+			HeartbeatTimeout:    10, // Time to reply
 		},
 		LoginFailExit: lo.ToPtr(true),
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════════
-	// FRP STCP: Конфигурация должна совпадать с Bridge (frpc.yaml).
+	// FRP STCP: Configuration must match Bridge (frpc.yaml).
 	// Bridge visitors: nbd_from_client1-16, serverName=nbd_srv1-16, secretKey=sk-nbd
-	// Наши proxy: nbd_srv1-16, LocalPort=10809-10824, secretKey=sk-nbd
-	// Цепочка: mountdrive->127.0.0.1:10810 (Bridge)->visitor nbd_from_client2->frps->наш proxy nbd_srv2->127.0.0.1:10810 (Mac)
+	// Our proxies: nbd_srv1-16, LocalPort=10809-10824, secretKey=sk-nbd
+	// Chain: mountdrive->127.0.0.1:10810 (Bridge)->visitor nbd_from_client2->frps->our proxy nbd_srv2->127.0.0.1:10810 (Mac)
 	// ═══════════════════════════════════════════════════════════════════════════
 
 	proxies := []v1.ProxyConfigurer{}
 
-	// Создаем все 16 NBD proxy — имена и secretKey должны совпадать с Bridge visitors
+	// Create all 16 NBD proxies — names and secretKey must match Bridge visitors
 	for i := 1; i <= 5; i++ {
 		port := 10808 + i // 10809..10824
 		proxyName := fmt.Sprintf("nbd_srv%d", i)
@@ -101,7 +101,7 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 					LocalPort: port,
 				},
 			},
-			Secretkey: "sk-nbd", // Должен совпадать с Bridge visitor secretKey
+			Secretkey: "sk-nbd", // Must match Bridge visitor secretKey
 		}
 		proxies = append(proxies, nbdProxy)
 	}
@@ -126,17 +126,17 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 	proxies = append(proxies, videoProxy)
 	logrus.Debugf("   📤 Video proxy: video_sudp -> 127.0.0.1:%d (secretKey=sk-video)", vp)
 
-	// Тянем радксовый HTTP как локальный порт на клиенте
+	// Pull remote HTTP as local port on client
 	visitors := []v1.VisitorConfigurer{}
 
-	// HTTP visitor: клиент слушает 127.0.0.1:8080 -> QUIC -> сервер http_srv -> 127.0.0.1:8080
+	// HTTP visitor: client listens on 127.0.0.1:8080 -> QUIC -> server http_srv -> 127.0.0.1:8080
 	httpVisitor := &v1.STCPVisitorConfig{
 		VisitorBaseConfig: v1.VisitorBaseConfig{
 			Name:       "http_from_server",
 			Type:       "stcp",
-			ServerName: "http_srv",  // Имя STCP прокси на сервере
-			SecretKey:  "sk-http",   // Общий секрет
-			BindAddr:   "127.0.0.1", // Клиент слушает локально
+			ServerName: "http_srv",  // STCP proxy name on server
+			SecretKey:  "sk-http",   // Shared secret
+			BindAddr:   "127.0.0.1", // Client listens locally
 			BindPort:   localHTTPPort,
 		},
 	}
@@ -165,14 +165,14 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 	}()
 
 	// Wait for connection to establish or fail
-	// Нужно дать FRP время на полную регистрацию прокси в frps (nbd_srv1-16, video_sudp)
+	// Need to give FRP time to fully register proxies in frps (nbd_srv1-16, video_sudp)
 	select {
 	case err := <-errChan:
 		return fmt.Errorf("FRP connection failed: %v", err)
 	case <-time.After(2 * time.Second):
-		// 2 секунды — базовое время на стабилизацию QUIC и регистрацию всех proxy в frps.
-		// Но для Tailscale bootstrap этого мало: нужно дождаться, пока локальный visitor реально
-		// начнет слушать localhost:httpPort, иначе первый POST упрется в connect refused.
+		// 2 seconds — base time for QUIC stabilization and all proxy registration in frps.
+		// But this is not enough for Tailscale bootstrap: need to wait until local visitor actually
+		// starts listening on localhost:httpPort, otherwise first POST will hit connection refused.
 		if err := waitForLocalListener("127.0.0.1", localHTTPPort, 5*time.Second); err != nil {
 			if f.cancel != nil {
 				f.cancel()
@@ -186,8 +186,8 @@ func (f *FRPService) Connect(httpPort, nbdPort, videoPort int) error {
 		f.videoPort = vp
 		logrus.Debugf("   📥 HTTP API: localhost:%d -> QUIC -> %s:8080", f.httpPort, f.serverAddr)
 		logrus.Debugf("   📤 Video UDP: localhost:%d (proxy) <- Bridge visitor -> QUIC -> %s", vp, f.serverAddr)
-		logrus.Debugf("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 портов) -> %s", f.serverAddr)
-		logrus.Debugf("   💡 Приложение работает через localhost:%d", f.httpPort)
+		logrus.Debugf("   📤 NBD Servers: localhost:10809-10824 -> QUIC -> Bridge visitors (16 ports) -> %s", f.serverAddr)
+		logrus.Debugf("   💡 Application is running via localhost:%d", f.httpPort)
 		return nil
 	}
 }
@@ -218,7 +218,7 @@ func (f *FRPService) IsRunning() bool {
 }
 
 // GetServerPorts returns the local ports exposed via FRP tunnel
-// videoPort — порт proxy (GStreamer udpsrc слушает здесь, Bridge visitor шлёт сюда)
+// videoPort — proxy port (GStreamer udpsrc listens here, Bridge visitor sends here)
 func (f *FRPService) GetServerPorts() (httpPort, videoPort, nbdPort int) {
 	hp := 8080
 	if f.httpPort > 0 {
@@ -239,7 +239,7 @@ func findAvailableLocalPort(preferred int) (int, error) {
 			_ = ln.Close()
 			return preferred, nil
 		}
-		logrus.Warnf("⚠️ Локальный порт %d занят, выбираем свободный порт для FRP HTTP visitor", preferred)
+		logrus.Warnf("⚠️ Local port %d is occupied, choosing a free port for FRP HTTP visitor", preferred)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

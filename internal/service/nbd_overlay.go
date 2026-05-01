@@ -1,5 +1,5 @@
-// Package service: создание qcow2-overlay для NBD экспорта в режиме RW без порчи базового образа.
-// Только десктоп (не Android); требует qemu-img в PATH.
+// Package service: creating qcow2-overlay for NBD export in RW mode without corrupting the base image.
+// Desktop only (not Android); requires qemu-img in PATH.
 
 package service
 
@@ -16,7 +16,7 @@ import (
 
 const overlaySuffix = ".overlay.qcow2"
 
-// backingFormat возвращает формат backing file для qemu-img по расширению.
+// backingFormat returns the backing file format for qemu-img by extension.
 func backingFormat(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".qcow2", ".qcow":
@@ -32,8 +32,8 @@ func backingFormat(ext string) string {
 	}
 }
 
-// IsOverlayCapableExtension возвращает true, если для формата можно создать overlay (qcow2 с backing).
-// Используется в UI для отображения переключателя RO/RW у образов vdi, vmdk, qcow2 и т.д.
+// IsOverlayCapableExtension returns true if an overlay can be created for the format (qcow2 with backing).
+// Used in UI to show RO/RW switch for vdi, vmdk, qcow2, etc. images.
 func IsOverlayCapableExtension(ext string) bool {
 	switch strings.ToLower(ext) {
 	case ".qcow2", ".qcow", ".vmdk", ".vdi", ".raw", ".img", ".vmi":
@@ -43,17 +43,17 @@ func IsOverlayCapableExtension(ext string) bool {
 	}
 }
 
-// qemuImgPath ищет qemu-img в PATH.
+// qemuImgPath looks for qemu-img in PATH.
 func qemuImgPath() string {
 	path, _ := exec.LookPath("qemu-img")
 	return path
 }
 
-// qemuImgVirtualSize возвращает виртуальный размер образа в байтах (qemu-img info --output=json).
+// qemuImgVirtualSize returns the virtual size of the image in bytes (qemu-img info --output=json).
 func qemuImgVirtualSize(imagePath string) (int64, error) {
 	qemuImg := qemuImgPath()
 	if qemuImg == "" {
-		return 0, fmt.Errorf("qemu-img не найден в PATH")
+		return 0, fmt.Errorf("qemu-img not found in PATH")
 	}
 	cmd := exec.Command(qemuImg, "info", "--output=json", imagePath)
 	maybeHideWindow(cmd)
@@ -69,39 +69,39 @@ func qemuImgVirtualSize(imagePath string) (int64, error) {
 		VirtualSize int64 `json:"virtual-size"`
 	}
 	if err := json.Unmarshal(out, &info); err != nil {
-		return 0, fmt.Errorf("парсинг qemu-img info: %w", err)
+		return 0, fmt.Errorf("parsing qemu-img info: %w", err)
 	}
 	if info.VirtualSize <= 0 {
-		return 0, fmt.Errorf("qemu-img info: virtual-size не найден или 0")
+		return 0, fmt.Errorf("qemu-img info: virtual-size not found or 0")
 	}
 	return info.VirtualSize, nil
 }
 
-// createOverlay создаёт qcow2 overlay с backing на basePath (рядом с базой: base.overlay.qcow2).
-// Возвращает путь к overlay и виртуальный размер. Только для десктопа; basePath должен быть абсолютным.
+// createOverlay creates a qcow2 overlay with backing on basePath (next to base: base.overlay.qcow2).
+// Returns the path to the overlay and virtual size. Desktop only; basePath must be absolute.
 func createOverlay(basePath string) (overlayPath string, virtualSize int64, err error) {
 	qemuImg := qemuImgPath()
 	if qemuImg == "" {
-		return "", 0, fmt.Errorf("qemu-img не найден в PATH: для RW-экспорта через overlay установите QEMU")
+		return "", 0, fmt.Errorf("qemu-img not found in PATH: for RW-export via overlay, install QEMU")
 	}
 	baseAbs, err := filepath.Abs(basePath)
 	if err != nil {
-		return "", 0, fmt.Errorf("абсолютный путь базы: %w", err)
+		return "", 0, fmt.Errorf("absolute base path: %w", err)
 	}
 	ext := strings.ToLower(filepath.Ext(baseAbs))
 	if !IsOverlayCapableExtension(ext) {
-		return "", 0, fmt.Errorf("формат %s не поддерживает overlay", ext)
+		return "", 0, fmt.Errorf("format %s does not support overlay", ext)
 	}
 	dir := filepath.Dir(baseAbs)
 	baseName := strings.TrimSuffix(filepath.Base(baseAbs), filepath.Ext(baseAbs))
-	// Один overlay на образ: baseName.overlay.qcow2 — при повторном запуске используем уже созданный
+	// One overlay per image: baseName.overlay.qcow2 - on restart we use the already created one
 	overlayPath = filepath.Join(dir, baseName+overlaySuffix)
 	if _, err := os.Stat(overlayPath); err == nil {
 		virtualSize, err = qemuImgVirtualSize(overlayPath)
 		if err != nil {
-			return "", 0, fmt.Errorf("получение размера существующего overlay: %w", err)
+			return "", 0, fmt.Errorf("getting size of existing overlay: %w", err)
 		}
-		logrus.Infof("✅ [NBD-OVERLAY] Используется существующий overlay %s (backing %s)", overlayPath, baseAbs)
+		logrus.Infof("✅ [NBD-OVERLAY] Using existing overlay %s (backing %s)", overlayPath, baseAbs)
 		return overlayPath, virtualSize, nil
 	}
 	format := backingFormat(ext)
@@ -110,14 +110,14 @@ func createOverlay(basePath string) (overlayPath string, virtualSize int64, err 
 	maybeHideWindow(cmd)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		// Overlay не удаляем даже при ошибке — не трогаем существующие файлы
+		// We do not delete Overlay even on error - do not touch existing files
 		return "", 0, fmt.Errorf("qemu-img create overlay: %s: %w", string(out), err)
 	}
-	logrus.Infof("✅ [NBD-OVERLAY] Создан overlay %s (backing %s, format %s)", overlayPath, baseAbs, format)
+	logrus.Infof("✅ [NBD-OVERLAY] Overlay created %s (backing %s, format %s)", overlayPath, baseAbs, format)
 	virtualSize, err = qemuImgVirtualSize(overlayPath)
 	if err != nil {
-		// Overlay не удаляем — оставляем созданный файл
-		return "", 0, fmt.Errorf("получение размера overlay: %w", err)
+		// We do not delete Overlay - leave the created file
+		return "", 0, fmt.Errorf("getting size of overlay: %w", err)
 	}
 	return overlayPath, virtualSize, nil
 }

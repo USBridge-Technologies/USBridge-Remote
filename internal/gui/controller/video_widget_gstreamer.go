@@ -269,22 +269,22 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	if err := vw.usbClient.StartVideo(request); err != nil {
 		vw.gstreamerService.Disconnect()
-		logrus.Errorf("❌ Ошибка запуска видео на сервере: %v", err)
+		logrus.Errorf("❌ Error starting video on server: %v", err)
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
 		})
 		return
 	}
 
-	logrus.Infof("✅ Видео захват инициирован (mode=%s, UDP порт %d)", mode, clientPort)
+	logrus.Infof("✅ Video capture initiated (mode=%s, UDP port %d)", mode, clientPort)
 	if vw.tailscaleService != nil {
 		relayInfo := vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost)
 		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, relayInfo)
 		connMode := vw.tailscaleService.PeerConnectionMode(request.ClientHost)
 		if strings.HasPrefix(connMode, "derp:") {
-			logrus.Warnf("⚠️ [Tailscale] Видео идёт через DERP-релей (%s) — это OK, но latency выше.", connMode)
+			logrus.Warnf("⚠️ [Tailscale] Video goes through DERP-relay (%s) — this is OK, but latency is higher.", connMode)
 		} else if strings.HasPrefix(connMode, "direct:") {
-			logrus.Infof("✅ [Tailscale] Видео идёт P2P direct (%s) — оптимально.", connMode)
+			logrus.Infof("✅ [Tailscale] Video goes P2P direct (%s) — optimal.", connMode)
 		}
 	}
 

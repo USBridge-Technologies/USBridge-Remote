@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// USBStatus статус USBridge 2
+// USBStatus USBridge 2 status
 type USBStatus struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
 	Data    *StatusData `json:"data"`
 }
 
-// StatusData данные статуса
+// StatusData status data
 type StatusData struct {
 	Service *ServiceStatus `json:"service"`
 	NBD     *NBDStatus     `json:"nbd"`
@@ -26,14 +26,14 @@ type StatusData struct {
 	OS      string         `json:"os,omitempty"`
 }
 
-// ServiceStatus статус сервиса
+// ServiceStatus service status
 type ServiceStatus struct {
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
 	Uptime    string    `json:"uptime"`
 }
 
-// NBDStatus статус NBD подключения
+// NBDStatus NBD connection status
 type NBDStatus struct {
 	Connected bool   `json:"connected"`
 	Device    string `json:"device"`
@@ -42,7 +42,7 @@ type NBDStatus struct {
 	Export    string `json:"export"`
 }
 
-// USBDeviceInfo информация об USB устройстве
+// USBDeviceInfo USB device information
 type USBDeviceInfo struct {
 	Connected       bool   `json:"connected"`
 	GadgetName      string `json:"gadget_name"`
@@ -52,13 +52,13 @@ type USBDeviceInfo struct {
 	KeyboardEnabled bool   `json:"keyboard_enabled"`
 }
 
-// KernelInfo информация о ядре
+// KernelInfo kernel information
 type KernelInfo struct {
 	ModulesLoaded bool     `json:"modules_loaded"`
 	Modules       []string `json:"modules"`
 }
 
-// VideoStatus статус видео
+// VideoStatus video status
 type VideoStatus struct {
 	Enabled           bool                 `json:"enabled"`
 	Device            string               `json:"device"`
@@ -132,25 +132,25 @@ func ParseVideoInfoData(data interface{}) (*VideoInfoData, error) {
 	return &parsed, nil
 }
 
-// PCPanelLedsData данные о состоянии светодиодов PC Panel
+// PCPanelLedsData PC Panel LED status data
 type PCPanelLedsData struct {
 	Power bool `json:"power"`
 	HDD   bool `json:"hdd"`
 }
 
-// PCPanelLedsResponse ответ API /api/pcpanel/leds
+// PCPanelLedsResponse API response for /api/pcpanel/leds
 type PCPanelLedsResponse struct {
 	Success bool            `json:"success"`
 	Message string          `json:"message"`
 	Data    PCPanelLedsData `json:"data"`
 }
 
-// PCPanelButtonRequest запрос на нажатие кнопки Power/Reset
+// PCPanelButtonRequest power/reset button press request
 type PCPanelButtonRequest struct {
-	Button string `json:"button"` // "power" или "reset"
+	Button string `json:"button"` // "power" or "reset"
 }
 
-// APIResponse стандартный ответ API
+// APIResponse standard API response
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
@@ -189,7 +189,7 @@ type TailscaleStatus struct {
 	AuthURL  string `json:"auth_url,omitempty"`
 }
 
-// KeyboardRequest запрос на отправку клавиши
+// KeyboardRequest key send request
 type KeyboardRequest struct {
 	Action    string `json:"action"` // key, combo, text
 	KeyCode   int    `json:"key_code,omitempty"`
@@ -197,56 +197,56 @@ type KeyboardRequest struct {
 	Text      string `json:"text,omitempty"`
 }
 
-// MouseRequest запрос на управление мышью или тачскрином
+// MouseRequest mouse or touchscreen control request
 type MouseRequest struct {
-	Action      string `json:"action"`                 // move, click, scroll, action (мышь) или touch (тачскрин)
-	DX          int    `json:"dx,omitempty"`           // Смещение по X (от -128 до 127)
-	DY          int    `json:"dy,omitempty"`           // Смещение по Y (от -128 до 127)
-	X           *int   `json:"x,omitempty"`            // X для тачскрина (0..4095); указатель нужен, чтобы 0 не выпадал из JSON
-	Y           *int   `json:"y,omitempty"`            // Y для тачскрина (0..4095); указатель нужен, чтобы 0 не выпадал из JSON
-	Tip         bool   `json:"tip"`                    // для action "touch": true = касание, false = отпускание (обязательно передавать; без omitempty чтобы false не опускался в JSON)
-	Button      int    `json:"button,omitempty"`       // Кнопка мыши (1=левая, 2=правая, 3=средняя)
-	Scroll      int    `json:"scroll,omitempty"`       // Прокрутка колесика (от -127 до 127)
-	ButtonState int    `json:"button_state,omitempty"` // Битмаска кнопок (bit0=L, bit1=R, bit2=M) для absolute_event
+	Action      string `json:"action"`                 // move, click, scroll, action (mouse) or touch (touchscreen)
+	DX          int    `json:"dx,omitempty"`           // X offset (from -128 to 127)
+	DY          int    `json:"dy,omitempty"`           // Y offset (from -128 to 127)
+	X           *int   `json:"x,omitempty"`            // X for touchscreen (0..4095); pointer needed so 0 doesn't fall out of JSON
+	Y           *int   `json:"y,omitempty"`            // Y for touchscreen (0..4095); pointer needed so 0 doesn't fall out of JSON
+	Tip         bool   `json:"tip"`                    // for action "touch": true = touch, false = release (must be passed; no omitempty so false doesn't drop in JSON)
+	Button      int    `json:"button,omitempty"`       // Mouse button (1=left, 2=right, 3=middle)
+	Scroll      int    `json:"scroll,omitempty"`       // Mouse wheel scroll (from -127 to 127)
+	ButtonState int    `json:"button_state,omitempty"` // Button bitmask (bit0=L, bit1=R, bit2=M) for absolute_event
 }
 
-// DeviceStartRequest запрос на запуск устройства (старый формат - deprecated)
+// DeviceStartRequest device start request (old format - deprecated)
 type DeviceStartRequest struct {
-	Device                  string `json:"device"`                               // keyboard, drive, mouse и т.д.
-	Type                    string `json:"type,omitempty"`                       // Для мыши: "mouse" (touchpad), "touchscreen" или "absolute"
-	RNDISMode               string `json:"rndis_mode,omitempty"`                 // Для RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
-	Server                  string `json:"server,omitempty"`                     // IP сервера для NBD
-	Port                    int    `json:"port,omitempty"`                       // Порт сервера для NBD
-	ExportName              string `json:"export_name,omitempty"`                // Имя экспорта для API
-	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"` // true = в NBD handshake пустое имя (qemu-nbd)
-	ReadOnly                bool   `json:"read_only"`                            // true = только чтение
-	VendorID                string `json:"vendor_id"`                            // ID производителя
-	ProductID               string `json:"product_id"`                           // ID продукта
-	ProductName             string `json:"product_name"`                         // Название продукта
-	Manufacturer            string `json:"manufacturer"`                         // Производитель
-	KeyboardMode            bool   `json:"keyboard_mode,omitempty"`              // Использовать параметр -k для клавиатуры
+	Device                  string `json:"device"`                               // keyboard, drive, mouse, etc.
+	Type                    string `json:"type,omitempty"`                       // For mouse: "mouse" (touchpad), "touchscreen" or "absolute"
+	RNDISMode               string `json:"rndis_mode,omitempty"`                 // For RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
+	Server                  string `json:"server,omitempty"`                     // Server IP for NBD
+	Port                    int    `json:"port,omitempty"`                       // Server port for NBD
+	ExportName              string `json:"export_name,omitempty"`                // Export name for API
+	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"` // true = empty name in NBD handshake (qemu-nbd)
+	ReadOnly                bool   `json:"read_only"`                            // true = read-only
+	VendorID                string `json:"vendor_id"`                            // Vendor ID
+	ProductID               string `json:"product_id"`                           // Product ID
+	ProductName             string `json:"product_name"`                         // Product name
+	Manufacturer            string `json:"manufacturer"`                         // Manufacturer
+	KeyboardMode            bool   `json:"keyboard_mode,omitempty"`              // Use -k parameter for keyboard
 }
 
-// DeviceStartBatchRequest запрос на запуск нескольких устройств (старый API - deprecated)
+// DeviceStartBatchRequest request to start multiple devices (old API - deprecated)
 type DeviceStartBatchRequest []DeviceStartRequest
 
-// DeviceStartRequestNew новый формат запроса на запуск устройств через sources
+// DeviceStartRequestNew new format for device start request via sources
 type DeviceStartRequestNew struct {
-	Sources  []string `json:"sources"`  // Список источников (nbd://, mtp://, /path/to/file)
-	Keyboard bool     `json:"keyboard"` // Включить клавиатуру
-	Mouse    bool     `json:"mouse"`    // Включить мышь
-	RNDIS    bool     `json:"rndis"`    // Включить сетевую карту
+	Sources  []string `json:"sources"`  // List of sources (nbd://, mtp://, /path/to/file)
+	Keyboard bool     `json:"keyboard"` // Enable keyboard
+	Mouse    bool     `json:"mouse"`    // Enable mouse
+	RNDIS    bool     `json:"rndis"`    // Enable network card
 }
 
-// DeviceStopRequest запрос на остановку устройства
+// DeviceStopRequest device stop request
 type DeviceStopRequest struct {
-	ID int `json:"id"` // ID устройства для остановки
+	ID int `json:"id"` // Device ID to stop
 }
 
-// DeviceInfo информация об устройстве
+// DeviceInfo device information
 type DeviceInfo struct {
 	ID           int       `json:"id"`
-	Device       string    `json:"device"` // disk:имя_файла, keyboard, etc.
+	Device       string    `json:"device"` // disk:file_name, keyboard, etc.
 	Status       string    `json:"status"` // connected, disconnected
 	VendorID     string    `json:"vendor_id"`
 	ProductID    string    `json:"product_id"`
@@ -254,20 +254,20 @@ type DeviceInfo struct {
 	Manufacturer string    `json:"manufacturer"`
 	CreatedAt    time.Time `json:"created_at"`
 	Type         string    `json:"type"` // nbd, local, keyboard
-	Name         string    `json:"name"` // Имя устройства/файла
+	Name         string    `json:"name"` // Device/file name
 }
 
-// DeviceInfoResponse ответ с информацией об устройствах
+// DeviceInfoResponse device information response
 type DeviceInfoResponse struct {
 	Devices         []DeviceInfo `json:"devices"`
 	Count           int          `json:"count"`
-	MountInProgress bool         `json:"mount_in_progress"` // true — монтирование идёт в фоне
-	LastMountError  string       `json:"last_mount_error"`  // ошибка последнего монтирования
+	MountInProgress bool         `json:"mount_in_progress"` // true - mounting is in progress in background
+	LastMountError  string       `json:"last_mount_error"`  // last mount error
 	AgentOS         string       `json:"agent_os,omitempty"`
 	AgentDisplay    string       `json:"agent_display,omitempty"`
 }
 
-// DeviceStatusResponse ответ со статусом устройств (новый API)
+// DeviceStatusResponse device status response (new API)
 type DeviceStatusResponse struct {
 	Available         bool     `json:"available"`
 	UnmountAvailable  bool     `json:"unmount_available"`
@@ -275,7 +275,7 @@ type DeviceStatusResponse struct {
 	KeyboardAvailable bool     `json:"keyboard_available"`
 }
 
-// VideoStartRequest запрос на запуск видео стриминга
+// VideoStartRequest video streaming start request
 type VideoStartRequest struct {
 	VideoDevice        string `json:"video_device,omitempty"`
 	VideoWidth         int    `json:"video_width"`
@@ -285,14 +285,14 @@ type VideoStartRequest struct {
 	VideoBitrate       string `json:"video_bitrate"`
 	VideoMode          string `json:"video_mode,omitempty"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
-	// ClientPort — порт клиента для приёма UDP потока (сервер возьмёт IP из HTTP)
+	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
 	ShowMouse  bool   `json:"show_mouse,omitempty"`
 	TraceID    string `json:"-"`
 }
 
-// SystemDevice устройство, видимое на стороне bridge через /api/devices.
+// SystemDevice device visible on the bridge side via /api/devices.
 type SystemDevice struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
@@ -302,7 +302,7 @@ type SystemDevice struct {
 	Description string `json:"description"`
 }
 
-// VideoDeviceConfig сохраненный клиентом конфиг запуска видео для конкретного /dev/video*.
+// VideoDeviceConfig video start config saved by client for a specific /dev/video*.
 type VideoDeviceConfig struct {
 	DevicePath    string `json:"device_path"`
 	DeviceName    string `json:"device_name,omitempty"`
@@ -329,7 +329,7 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 	}
 }
 
-// ConfigRequest запрос на обновление конфигурации
+// ConfigRequest configuration update request
 type ConfigRequest struct {
 	NBDDevice       string           `json:"nbd_device,omitempty"`
 	NBDServer       string           `json:"nbd_server,omitempty"`
@@ -354,36 +354,36 @@ type ConfigRequest struct {
 	CheckInterval   int              `json:"check_interval,omitempty"`
 }
 
-// WebServerConfig конфигурация веб-сервера
+// WebServerConfig web server configuration
 type WebServerConfig struct {
 	Enabled bool   `json:"enabled"`
 	Host    string `json:"host"`
 	Port    int    `json:"port"`
 }
 
-// LocalDrive информация о локальном устройстве
+// LocalDrive local drive information
 type LocalDrive struct {
-	Name        string    `json:"name"`         // Имя файла
-	Size        int64     `json:"size"`         // Размер в байтах (общий объём)
-	FreeSpace   int64     `json:"free_space"`   // Свободное место в байтах (0 = неизвестно)
-	SizeHuman   string    `json:"size_human"`   // Размер в читаемом формате (может быть "used / total")
-	Modified    time.Time `json:"modified"`     // Дата изменения
-	IsMounted   bool      `json:"is_mounted"`   // Монтировано ли устройство
-	MountDevice string    `json:"mount_device"` // Устройство монтирования
-	FileType    string    `json:"file_type"`    // Тип файла (ISO, IMG, MTP, etc.)
-	IsValid     bool      `json:"is_valid"`     // Валидный ли файл
-	SourceType  string    `json:"source_type"`  // Тип источника (images, data, mtp)
-	SourcePath  string    `json:"source_path"`  // Путь к источнику
+	Name        string    `json:"name"`         // File name
+	Size        int64     `json:"size"`         // Size in bytes (total volume)
+	FreeSpace   int64     `json:"free_space"`   // Free space in bytes (0 = unknown)
+	SizeHuman   string    `json:"size_human"`   // Size in human-readable format (can be "used / total")
+	Modified    time.Time `json:"modified"`     // Modification date
+	IsMounted   bool      `json:"is_mounted"`   // Is device mounted
+	MountDevice string    `json:"mount_device"` // Mount device
+	FileType    string    `json:"file_type"`    // File type (ISO, IMG, MTP, etc.)
+	IsValid     bool      `json:"is_valid"`     // Is file valid
+	SourceType  string    `json:"source_type"`  // Source type (images, data, mtp)
+	SourcePath  string    `json:"source_path"`  // Source path
 }
 
-// LocalDrivesResponse ответ с локальными устройствами
+// LocalDrivesResponse response with local drives
 type LocalDrivesResponse struct {
 	Drives []LocalDrive `json:"drives"`
 	Count  int          `json:"count"`
-	Path   string       `json:"path"` // Путь к папке с устройствами
+	Path   string       `json:"path"` // Path to devices folder
 }
 
-// FormatSize форматирует размер в читаемый вид для LocalDrive
+// FormatSize formats size to human-readable string for LocalDrive
 func (ld *LocalDrive) FormatSize() string {
 	const unit = 1024
 	if ld.Size < unit {
@@ -397,7 +397,7 @@ func (ld *LocalDrive) FormatSize() string {
 	return fmt.Sprintf("%.1f %cB", float64(ld.Size)/float64(div), "KMGTPE"[exp])
 }
 
-// parseSizeHumanPair парсит строку формата "X GB / Y GB" или "X B / Y GB", возвращает (used, total) в байтах.
+// parseSizeHumanPair parses string formatted like "X GB / Y GB" or "X B / Y GB", returns (used, total) in bytes.
 func parseSizeHumanPair(s string) (used, total int64) {
 	parts := strings.SplitN(strings.TrimSpace(s), "/", 2)
 	if len(parts) != 2 {
@@ -437,8 +437,8 @@ func parseHumanSize(s string) int64 {
 	return int64(val * float64(mult))
 }
 
-// StorageDisplay возвращает (totalBytes, freeBytes, usedPercent) для отображения.
-// freeBytes=0 и usedPercent=0 если данные недоступны.
+// StorageDisplay returns (totalBytes, freeBytes, usedPercent) for display.
+// freeBytes=0 and usedPercent=0 if data is unavailable.
 func (ld *LocalDrive) StorageDisplay() (totalBytes, freeBytes int64, usedPercent float64) {
 	totalBytes = ld.Size
 	if totalBytes <= 0 {
@@ -452,7 +452,7 @@ func (ld *LocalDrive) StorageDisplay() (totalBytes, freeBytes int64, usedPercent
 		}
 		return totalBytes, freeBytes, usedPercent
 	}
-	// Пробуем распарсить SizeHuman формата "used / total" (например "5.2 GB / 32 GB")
+	// Try to parse SizeHuman formatted like "used / total" (e.g. "5.2 GB / 32 GB")
 	if ld.SizeHuman != "" {
 		used, total := parseSizeHumanPair(ld.SizeHuman)
 		if used >= 0 && total > 0 {
@@ -465,7 +465,7 @@ func (ld *LocalDrive) StorageDisplay() (totalBytes, freeBytes int64, usedPercent
 	return totalBytes, 0, 0
 }
 
-// FormatSizeShort форматирует байты кратко (для отображения в заголовке).
+// FormatSizeShort formats bytes shortly (for display in header).
 func FormatSizeShort(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
@@ -479,13 +479,13 @@ func FormatSizeShort(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// FormatStorageCompact возвращает компактную строку для индикатора: "43% 66/119 GB" с MB/GB/TB по размеру.
+// FormatStorageCompact returns compact string for indicator: "43% 66/119 GB" with MB/GB/TB by size.
 func FormatStorageCompact(available, total int64, usedPct float64) string {
 	const unit = 1024
 	if total < unit {
 		return fmt.Sprintf("%.0f%% %d/%d B", usedPct, available, total)
 	}
-	// Выбираем единицу по total: KB, MB, GB, TB
+	// Select unit by total: KB, MB, GB, TB
 	div, exp := int64(unit), 0
 	for n := total / unit; n >= unit; n /= unit {
 		div *= unit
@@ -512,7 +512,7 @@ func FormatStorageCompact(available, total int64, usedPct float64) string {
 	return fmt.Sprintf("%.0f%% %s/%s %s", usedPct, avStr, totStr, unitStr)
 }
 
-// FormatStorageSizeOnly возвращает только занятость: "53/119 GB" (занято/всего, для мелкого текста под процентом).
+// FormatStorageSizeOnly returns only occupied space: "53/119 GB" (used/total, for small text under percent).
 func FormatStorageSizeOnly(used, total int64) string {
 	const unit = 1024
 	if total < unit {

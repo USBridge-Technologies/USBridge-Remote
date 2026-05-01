@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-// rgbaToImage конвертирует RGBA данные в image.Image (общая функция для darwin/linux)
+// rgbaToImage converts RGBA data to image.Image (common function for darwin/linux)
 func rgbaToImage(data []byte, width, height int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	expectedSize := width * height * 4
@@ -19,8 +19,8 @@ func rgbaToImage(data []byte, width, height int) image.Image {
 	return img
 }
 
-// stopSignal — обёртка для безопасного однократного сигнала остановки.
-// Создаётся заново при каждом Connect.
+// stopSignal — wrapper for a safe one-time stop signal.
+// Created anew on each Connect.
 type stopSignal struct {
 	ch   chan struct{}
 	once sync.Once

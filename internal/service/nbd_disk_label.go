@@ -1,4 +1,4 @@
-// Package service: чтение метки тома (имя диска внутри образа) для использования как export_name.
+// Package service: reading volume label (disk name inside image) for use as export_name.
 
 package service
 
@@ -16,16 +16,16 @@ import (
 )
 
 const (
-	mbrPart1StartLBA = 0x1C6   // смещение в MBR: LBA начала первой партиции (4 байта LE)
-	ext4MagicOffset  = 0x38    // в суперблоке ext4: сигнатура 0xEF53
-	ext4LabelOffset  = 0x278   // в суперблоке ext4: volume name, 16 байт
-	gptNameOffset    = 0x48    // в GPT header (LBA 1): disk name, 72 байта UTF-16LE
-	superblockSize   = 1024   // суперблок ext4 начинается с offset 1024 от начала партиции
-	readSectors      = 32768  // 16MB — покрывает выравнивание партиции до 8MB (16384 секторов)
+	mbrPart1StartLBA = 0x1C6   // offset in MBR: start LBA of the first partition (4 bytes LE)
+	ext4MagicOffset  = 0x38    // in ext4 superblock: signature 0xEF53
+	ext4LabelOffset  = 0x278   // in ext4 superblock: volume name, 16 bytes
+	gptNameOffset    = 0x48    // in GPT header (LBA 1): disk name, 72 bytes UTF-16LE
+	superblockSize   = 1024   // ext4 superblock starts at offset 1024 from the beginning of the partition
+	readSectors      = 32768  // 16MB - covers partition alignment up to 8MB (16384 sectors)
 )
 
-// GetVolumeLabelFromImage читает метку тома из образа (ext4 — из суперблока первой партиции).
-// Требует qemu-img. Возвращает метку (без пробелов по краям) или "disk" при ошибке/пустой метке.
+// GetVolumeLabelFromImage reads the volume label from the image (ext4 - from the superblock of the first partition).
+// Requires qemu-img. Returns the label (without trailing spaces) or "disk" on error/empty label.
 func GetVolumeLabelFromImage(imagePath string) string {
 	qemuImg := qemuImgPath()
 	if qemuImg == "" {
@@ -58,7 +58,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 		return "disk"
 	}
 
-	// Сначала GPT: имя диска в заголовке (LBA 1)
+	// First GPT: disk name in header (LBA 1)
 	if len(data) >= 512+72+72 && bytes.Equal(data[512:520], []byte("EFI PART")) {
 		nameUTF16 := data[512+gptNameOffset : 512+gptNameOffset+72]
 		if s := decodeUTF16LE(nameUTF16); s != "" {
@@ -66,7 +66,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 		}
 	}
 
-	// MBR: партиция 1 — LBA начала (4 байта LE) по смещению 0x1C6
+	// MBR: partition 1 - start LBA (4 bytes LE) at offset 0x1C6
 	if len(data) < mbrPart1StartLBA+4 {
 		return "disk"
 	}
@@ -75,7 +75,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 		return "disk"
 	}
 
-	// Суперблок ext4: offset = part1LBA*512 + 1024
+	// ext4 superblock: offset = part1LBA*512 + 1024
 	superOff := int(part1LBA)*512 + superblockSize
 	if superOff+1024 > len(data) {
 		return "disk"
@@ -84,7 +84,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 	if len(super) < ext4MagicOffset+2 {
 		return "disk"
 	}
-	// ext4 magic 0xEF53 в little-endian
+	// ext4 magic 0xEF53 in little-endian
 	if super[ext4MagicOffset] != 0x53 || super[ext4MagicOffset+1] != 0xEF {
 		return "disk"
 	}
@@ -106,7 +106,7 @@ func decodeUTF16LE(b []byte) string {
 	return string(utf16.Decode(u16))
 }
 
-// sanitizeExportName убирает символы, недопустимые в имени экспорта (пробелы → подчёркивания и т.д.).
+// sanitizeExportName removes characters not allowed in export name (spaces -> underscores, etc.).
 func sanitizeExportName(s string) string {
 	s = strings.TrimSpace(s)
 	var b strings.Builder
@@ -124,7 +124,7 @@ func sanitizeExportName(s string) string {
 	if out == "" {
 		return "disk"
 	}
-	// Ограничиваем длину (NBD/API могут иметь лимит)
+	// Limit length (NBD/API may have a limit)
 	if len(out) > 64 {
 		out = out[:64]
 	}

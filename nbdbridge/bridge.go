@@ -52,7 +52,7 @@ func (fb *fileBackend) Size() (int64, error) {
 }
 
 // ReadAt reads up to len(p) bytes from the backend at offset off.
-// Ограничиваем чтение размером устройства, чтобы не запрашивать данные за концом (SAF/файл может вернуть ошибку и ядро даёт I/O error на nbd0).
+// Limit reading by device size to not request data past the end (SAF/file can return error and kernel gives I/O error on nbd0).
 func (fb *fileBackend) ReadAt(p []byte, off int64) (int, error) {
 	if off >= fb.size {
 		return 0, io.EOF

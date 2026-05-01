@@ -19,8 +19,8 @@ package service
 
 #define LOG_TAG "GStreamer"
 
-// Мост JNI для androidmedia (amcvideodec) — плагин ищет эти символы при инициализации.
-// Объявления функций, реализованных в gstreamer_jni_android.c
+// JNI bridge for androidmedia (amcvideodec) - the plugin looks for these symbols during initialization.
+// Declarations of functions implemented in gstreamer_jni_android.c
 void gst_android_set_java_vm_and_context(JavaVM *vm, JNIEnv *env, jobject context);
 JavaVM* gst_android_get_java_vm(void);
 jobject gst_android_get_application_class_loader(void);
@@ -28,27 +28,27 @@ jobject gst_android_get_application_class_loader(void);
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Объявление функции регистрации статических плагинов
+// Declaration of static plugins registration function
 
 // ═══════════════════════════════════════════════════════════════════════
-// Полноценный EGL контекст для amcviddec (аппаратный H.264 → SurfaceTexture)
+// Full EGL context for amcviddec (hardware H.264 -> SurfaceTexture)
 //
-// amcviddec декодирует через MediaCodec → SurfaceTexture → GL external-oes текстура.
-// updateTexImage() ТРЕБУЕТ:
-//   1) Инициализированный EGLDisplay (eglInitialize)
-//   2) EGLContext с корректной конфигурацией
-//   3) EGLSurface (хотя бы 1×1 pbuffer)
-// Без этого gst_buffer_map на GL-памяти будет падать.
+// amcviddec decodes via MediaCodec -> SurfaceTexture -> GL external-oes texture.
+// updateTexImage() REQUIRES:
+//   1) Initialized EGLDisplay (eglInitialize)
+//   2) EGLContext with correct configuration
+//   3) EGLSurface (at least 1x1 pbuffer)
+// Without this gst_buffer_map on GL memory will crash.
 // ═══════════════════════════════════════════════════════════════════════
 
 static EGLDisplay g_egl_display = EGL_NO_DISPLAY;
 static EGLContext g_egl_context = EGL_NO_CONTEXT;
 static EGLSurface g_egl_surface = EGL_NO_SURFACE;
 
-// Fallback на SW декодер при провале HW — объявление до create_pipeline
+// Fallback to SW decoder on HW failure - declaration before create_pipeline
 static volatile int g_hw_map_fail_count;
 static volatile gboolean g_force_sw_decoder;
-static volatile gboolean g_reconnect_requested;  // TRUE = Go должен сделать Reconnect; сбрасывается в hw_frame_store_init
+static volatile gboolean g_reconnect_requested;  // TRUE = Go must trigger Reconnect; reset in hw_frame_store_init
 static volatile gint64 g_last_rtp_packet_us;
 static volatile gint64 g_last_appsink_frame_us;
 static gchar *g_cached_h264_hw_decoder = NULL;
@@ -140,7 +140,7 @@ static gboolean ensure_egl_context(void) {
         LOGE("⚠️ eglCreatePbufferSurface failed: 0x%x", eglGetError());
     }
 
-    // Тест: проверяем что контекст можно активировать
+    // Test: verify that the context can be activated
     if (eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context)) {
         LOGI("✅ EGL context created & tested: display=%p ctx=%p surface=%p",
              (void*)(intptr_t)g_egl_display, (void*)(intptr_t)g_egl_context, (void*)(intptr_t)g_egl_surface);
@@ -158,7 +158,7 @@ static void init_gstreamer() {
     gst_init(NULL, NULL);
     maybe_init_static_plugins();
 
-    // Выводим список доступных плагинов
+    // Output the list of available plugins
     GList *plugins = gst_registry_get_plugin_list(gst_registry_get());
     GList *l;
     LOGI("Available static plugins:");
@@ -180,7 +180,7 @@ static jmethodID get_optional_method_id(JNIEnv *env, jclass cls, const char *nam
     return mid;
 }
 
-// Fallback для g_memdup2 (доступен только с GLib 2.68+)
+// Fallback for g_memdup2 (only available since GLib 2.68+)
 static gpointer my_g_memdup2(gconstpointer mem, gsize byte_size) {
     if (!mem || byte_size == 0) return NULL;
     gpointer new_mem = g_malloc(byte_size);
@@ -195,14 +195,14 @@ static gboolean gst_android_attach_env(JNIEnv **env_out) {
     if (!vm) return FALSE;
 
     jint rc = (*vm)->GetEnv(vm, (void **)env_out, JNI_VERSION_1_6);
-    if (rc == JNI_OK) return FALSE; // Уже присоединён, отсоединять не нужно
+    if (rc == JNI_OK) return FALSE; // Already attached, no need to detach
     if (rc != JNI_EDETACHED) return FALSE;
 
     if ((*vm)->AttachCurrentThread(vm, env_out, NULL) != JNI_OK) {
         *env_out = NULL;
         return FALSE;
     }
-    return TRUE; // Мы присоединили, нужно будет отсоединить
+    return TRUE; // We attached, will need to detach
 }
 
 static void gst_android_detach_env(void) {
@@ -524,7 +524,7 @@ void gst_android_force_software_decoder(int enabled) {
     LOGI("🔧 Android decoder mode forced: software=%d", enabled ? 1 : 0);
 }
 
-// udpsrc_probe_cb — вызывается при получении RTP пакета (диагностика)
+// udpsrc_probe_cb - called upon receiving RTP packet (diagnostics)
 static GstPadProbeReturn udpsrc_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpointer user_data) {
     (void)pad;
     (void)user_data;
@@ -533,12 +533,12 @@ static GstPadProbeReturn udpsrc_probe_cb(GstPad *pad, GstPadProbeInfo *info, gpo
     if (first == 0) {
         first = 1;
         GstBuffer *buf = GST_PAD_PROBE_INFO_BUFFER(info);
-        LOGI("📨 RTP: первый пакет получен! size=%zu", buf ? gst_buffer_get_size(buf) : 0);
+        LOGI("📨 RTP: first packet received! size=%zu", buf ? gst_buffer_get_size(buf) : 0);
     }
     return GST_PAD_PROBE_OK;
 }
 
-// log_element_src_caps — выводит src pad template caps элемента (диагностика)
+// log_element_src_caps - outputs src pad template caps of an element (diagnostics)
 static void log_element_src_caps(GstElement *element, const char *name) {
     GstPad *srcpad = gst_element_get_static_pad(element, "src");
     if (srcpad) {
@@ -553,7 +553,7 @@ static void log_element_src_caps(GstElement *element, const char *name) {
     }
 }
 
-// Forward declarations (определены ниже)
+// Forward declarations (defined below)
 static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer user_data);
 static void apply_gl_context_to_pipeline(GstElement *pipeline);
 static void drain_bus_messages(GstElement* pipeline);
@@ -578,29 +578,29 @@ static gchar* find_android_decoder_by_name_fragments(const char *required1, cons
     return decoder_name;
 }
 
-// create_hw_pipeline — создаёт HW pipeline через gst_parse_launch (надёжнее ручной линковки)
-// Пробует несколько вариантов цепочки GL→CPU для amcviddec (external-oes текстуры)
-// Возвращает pipeline или NULL если не удалось
+// create_hw_pipeline - creates HW pipeline via gst_parse_launch (more reliable than manual linking)
+// Tries several variants of GL->CPU chain for amcviddec (external-oes textures)
+// Returns pipeline or NULL if failed
 static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
-    LOGI("🔧 Сборка HW pipeline (gst_parse_launch): декодер=%s", decoder_name);
+    LOGI("🔧 Building HW pipeline (gst_parse_launch): decoder=%s", decoder_name);
 
-    // Диагностика: src caps декодера
+    // Diagnostics: decoder src caps
     GstElement *tmp_dec = gst_element_factory_make(decoder_name, NULL);
     if (tmp_dec) {
         log_element_src_caps(tmp_dec, decoder_name);
         gst_object_unref(tmp_dec);
     }
 
-    // Варианты GL→CPU цепочки (от лучшего к простому).
-    // На ряде Qualcomm/Pixel/Samsung устройств одного "gldownload ! video/x-raw"
-    // недостаточно: appsink всё равно получает GLMemory, а gst_buffer_map падает.
-    // Поэтому сначала жёстко переводим texture-target в 2D, потом явно требуем
-    // SystemMemory после gldownload.
+    // GL->CPU chain variants (from best to simplest).
+    // On some Qualcomm/Pixel/Samsung devices a simple "gldownload ! video/x-raw"
+    // is not enough: appsink still gets GLMemory, and gst_buffer_map crashes.
+    // So first we strictly set texture-target to 2D, then explicitly request
+    // SystemMemory after gldownload.
     const char *gl_chains[] = {
         "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D,format=RGBA ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
         "glcolorconvert ! video/x-raw(memory:GLMemory),texture-target=2D ! gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
         "gldownload ! video/x-raw(memory:SystemMemory),format=RGBA",
-        NULL  // прямой videoconvert
+        NULL  // direct videoconvert
     };
     const char *gl_chain_names[] = {
         "glcolorconvert+2d+download+sysmem-rgba",
@@ -645,22 +645,22 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
             );
         }
 
-        LOGI("📝 HW pipeline вариант %d (%s): %s", i+1, gl_chain_names[i], pipeline_str);
+        LOGI("📝 HW pipeline variant %d (%s): %s", i+1, gl_chain_names[i], pipeline_str);
 
         GError *error = NULL;
         pipeline = gst_parse_launch(pipeline_str, &error);
         g_free(pipeline_str);
 
         if (error) {
-            LOGI("⚠️ HW вариант %d (%s): gst_parse_launch ERROR: %s", i+1, gl_chain_names[i], error->message);
+            LOGI("⚠️ HW variant %d (%s): gst_parse_launch ERROR: %s", i+1, gl_chain_names[i], error->message);
             g_error_free(error);
             if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
             continue;
         }
 
         if (pipeline) {
-            LOGI("✅ HW вариант %d (%s): pipeline created, preparing context...", i+1, gl_chain_names[i]);
-            // Устанавливаем GL context и bus sync ДО set_state
+            LOGI("✅ HW variant %d (%s): pipeline created, preparing context...", i+1, gl_chain_names[i]);
+            // Set GL context and bus sync BEFORE set_state
             apply_gl_context_to_pipeline(pipeline);
             GstBus *bus = gst_element_get_bus(pipeline);
             if (bus) {
@@ -668,20 +668,20 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
                 gst_object_unref(bus);
             }
 
-            LOGI("✅ HW вариант %d (%s): context prepared, testing set_state(READY)...", i+1, gl_chain_names[i]);
-            // Пробуем перевести в PAUSED — проверяет реальную negotiation
+            LOGI("✅ HW variant %d (%s): context prepared, testing set_state(READY)...", i+1, gl_chain_names[i]);
+            // Try to switch to PAUSED - checks actual negotiation
             GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_READY);
             if (ret == GST_STATE_CHANGE_FAILURE) {
-                LOGI("⚠️ HW вариант %d (%s): set_state(READY) FAILURE — пробуем следующий", i+1, gl_chain_names[i]);
+                LOGI("⚠️ HW variant %d (%s): set_state(READY) FAILURE - trying next", i+1, gl_chain_names[i]);
                 drain_bus_messages(pipeline);
                 gst_element_set_state(pipeline, GST_STATE_NULL);
                 gst_object_unref(pipeline);
                 pipeline = NULL;
                 continue;
             }
-            LOGI("✅ HW вариант %d (%s): set_state(READY) SUCCESS", i+1, gl_chain_names[i]);
+            LOGI("✅ HW variant %d (%s): set_state(READY) SUCCESS", i+1, gl_chain_names[i]);
 
-            // Pad probe для диагностики RTP
+            // Pad probe for RTP diagnostics
             GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
             if (udpsrc) {
                 GstPad *pad = gst_element_get_static_pad(udpsrc, "src");
@@ -692,20 +692,20 @@ static GstElement* create_hw_pipeline(int port, const char *decoder_name) {
                 gst_object_unref(udpsrc);
             }
 
-            // Возвращаем в NULL — вызывающий код сам сделает set_state(PLAYING)
+            // Return to NULL - caller will do set_state(PLAYING) itself
             gst_element_set_state(pipeline, GST_STATE_NULL);
 
-            LOGI("✅ HW pipeline с %s (%s) готов!", decoder_name, gl_chain_names[i]);
+            LOGI("✅ HW pipeline with %s (%s) is ready!", decoder_name, gl_chain_names[i]);
             return pipeline;
         }
     }
 
-    LOGI("⚠️ Все HW варианты для %s не сработали", decoder_name);
+    LOGI("⚠️ All HW variants for %s failed", decoder_name);
     return NULL;
 }
 
 static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
-    LOGI("🔧 Сборка JPEG HW pipeline (gst_parse_launch): декодер=%s", decoder_name);
+    LOGI("🔧 Building JPEG HW pipeline (gst_parse_launch): decoder=%s", decoder_name);
 
     GstElement *tmp_dec = gst_element_factory_make(decoder_name, NULL);
     if (tmp_dec) {
@@ -762,14 +762,14 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
             );
         }
 
-        LOGI("📝 JPEG HW pipeline вариант %d (%s): %s", i+1, gl_chain_names[i], pipeline_str);
+        LOGI("📝 JPEG HW pipeline variant %d (%s): %s", i+1, gl_chain_names[i], pipeline_str);
 
         GError *error = NULL;
         pipeline = gst_parse_launch(pipeline_str, &error);
         g_free(pipeline_str);
 
         if (error) {
-            LOGI("⚠️ JPEG HW вариант %d (%s): %s", i+1, gl_chain_names[i], error->message);
+            LOGI("⚠️ JPEG HW variant %d (%s): %s", i+1, gl_chain_names[i], error->message);
             g_error_free(error);
             if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
             continue;
@@ -785,7 +785,7 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
 
             GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_READY);
             if (ret == GST_STATE_CHANGE_FAILURE) {
-                LOGI("⚠️ JPEG HW вариант %d (%s): set_state(READY) FAILURE — пробуем следующий", i+1, gl_chain_names[i]);
+                LOGI("⚠️ JPEG HW variant %d (%s): set_state(READY) FAILURE - trying next", i+1, gl_chain_names[i]);
                 drain_bus_messages(pipeline);
                 gst_element_set_state(pipeline, GST_STATE_NULL);
                 gst_object_unref(pipeline);
@@ -804,12 +804,12 @@ static GstElement* create_hw_jpeg_pipeline(int port, const char *decoder_name) {
             }
 
             gst_element_set_state(pipeline, GST_STATE_NULL);
-            LOGI("✅ JPEG HW pipeline с %s (%s) готов!", decoder_name, gl_chain_names[i]);
+            LOGI("✅ JPEG HW pipeline with %s (%s) is ready!", decoder_name, gl_chain_names[i]);
             return pipeline;
         }
     }
 
-    LOGI("⚠️ Все JPEG HW варианты для %s не сработали", decoder_name);
+    LOGI("⚠️ All JPEG HW variants for %s failed", decoder_name);
     return NULL;
 }
 
@@ -819,7 +819,7 @@ static GstElement* create_jpeg_pipeline(int port) {
     GstElement *pipeline = NULL;
     gchar *jpeg_hw_name = NULL;
     if (g_force_sw_decoder) {
-        LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем Android JPEG HW decoder");
+        LOGI("⚠️ g_force_sw_decoder=TRUE - skipping Android JPEG HW decoder");
     } else {
         jpeg_hw_name = resolve_preferred_android_decoder("image/jpeg", "amc", &g_cached_jpeg_hw_decoder);
         if (!jpeg_hw_name) {
@@ -830,11 +830,11 @@ static GstElement* create_jpeg_pipeline(int port) {
     if (jpeg_hw_name) {
         pipeline = create_hw_jpeg_pipeline(port, jpeg_hw_name);
         if (pipeline) {
-            LOGI("✅ Pipeline с JPEG HW декодером %s готов", jpeg_hw_name);
+            LOGI("✅ Pipeline with JPEG HW decoder %s is ready", jpeg_hw_name);
             g_free(jpeg_hw_name);
             return pipeline;
         }
-        LOGI("⚠️ JPEG HW декодер %s не удалось использовать — пробуем software fallback", jpeg_hw_name);
+        LOGI("⚠️ JPEG HW decoder %s could not be used - trying software fallback", jpeg_hw_name);
         g_free(jpeg_hw_name);
     }
 
@@ -860,14 +860,14 @@ static GstElement* create_jpeg_pipeline(int port) {
 
     for (guint i = 0; i < G_N_ELEMENTS(candidates); i++) {
         gchar *pipeline_str = g_strdup_printf(candidates[i], port);
-        LOGI("📝 JPEG fallback pipeline вариант %u: %s", i + 1, pipeline_str);
+        LOGI("📝 JPEG fallback pipeline variant %u: %s", i + 1, pipeline_str);
 
         GError *error = NULL;
         pipeline = gst_parse_launch(pipeline_str, &error);
         g_free(pipeline_str);
 
         if (error) {
-            LOGI("⚠️ JPEG fallback вариант %u: %s", i + 1, error->message);
+            LOGI("⚠️ JPEG fallback variant %u: %s", i + 1, error->message);
             g_error_free(error);
             if (pipeline) { gst_object_unref(pipeline); pipeline = NULL; }
             continue;
@@ -883,7 +883,7 @@ static GstElement* create_jpeg_pipeline(int port) {
                 }
                 gst_object_unref(udpsrc);
             }
-            LOGI("✅ JPEG fallback pipeline готов (вариант %u)", i + 1);
+            LOGI("✅ JPEG fallback pipeline is ready (variant %u)", i + 1);
             return pipeline;
         }
     }
@@ -892,8 +892,8 @@ static GstElement* create_jpeg_pipeline(int port) {
     return NULL;
 }
 
-// bus_sync_handler — обрабатывает NEED_CONTEXT для GL элементов.
-// Предоставляет полноценный EGL display + app context (не пустой gst_gl_display_egl_new).
+// bus_sync_handler - handles NEED_CONTEXT for GL elements.
+// Provides full EGL display + app context (not empty gst_gl_display_egl_new).
 static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer user_data) {
     (void)bus;
     if (GST_MESSAGE_TYPE(msg) != GST_MESSAGE_NEED_CONTEXT)
@@ -906,15 +906,15 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
     gst_message_parse_context_type(msg, &context_type);
     if (!context_type) return GST_BUS_PASS;
 
-    LOGI("🔧 NEED_CONTEXT: %s (от %s)", context_type, GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)));
+    LOGI("🔧 NEED_CONTEXT: %s (from %s)", context_type, GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)));
 
     if (!ensure_egl_context()) {
-        LOGE("❌ EGL context не создан, не можем ответить на NEED_CONTEXT");
+        LOGE("❌ EGL context not created, cannot respond to NEED_CONTEXT");
         return GST_BUS_PASS;
     }
 
     if (strcmp(context_type, GST_GL_DISPLAY_CONTEXT_TYPE) == 0) {
-        // Запрос GL display → даём наш инициализированный EGL display
+        // GL display request -> provide our initialized EGL display
         GstGLDisplay *display = create_gst_gl_display();
         if (display) {
             GstContext *ctx = gst_context_new(context_type, TRUE);
@@ -922,11 +922,11 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
             gst_element_set_context(pipeline, ctx);
             gst_context_unref(ctx);
             gst_object_unref(display);
-            LOGI("✅ GL display установлен (bus sync)");
+            LOGI("✅ GL display set (bus sync)");
             return GST_BUS_DROP;
         }
     } else if (strcmp(context_type, "gst.gl.app_context") == 0) {
-        // Запрос app GL context → даём wrapped EGLContext (amcviddec создаст shared от него)
+        // App GL context request -> provide wrapped EGLContext (amcviddec will create shared from it)
         GstGLDisplay *display = create_gst_gl_display();
         if (display) {
             GstGLContext *gl_ctx = gst_gl_context_new_wrapped(display,
@@ -938,7 +938,7 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
                 gst_element_set_context(pipeline, ctx);
                 gst_context_unref(ctx);
                 gst_object_unref(gl_ctx);
-                LOGI("✅ GL app context установлен (bus sync)");
+                LOGI("✅ GL app context set (bus sync)");
             }
             gst_object_unref(display);
             return GST_BUS_DROP;
@@ -948,23 +948,23 @@ static GstBusSyncReply bus_sync_handler(GstBus *bus, GstMessage *msg, gpointer u
     return GST_BUS_PASS;
 }
 
-// apply_gl_context_to_pipeline — устанавливает полноценный EGL контекст на pipeline.
-// Предоставляет и GstGLDisplay (EGL display), и gst.gl.app_context (wrapped EGLContext).
-// Это позволяет amcviddec создать shared GL context для SurfaceTexture.updateTexImage().
+// apply_gl_context_to_pipeline - sets full EGL context on pipeline.
+// Provides both GstGLDisplay (EGL display) and gst.gl.app_context (wrapped EGLContext).
+// This allows amcviddec to create shared GL context for SurfaceTexture.updateTexImage().
 static void apply_gl_context_to_pipeline(GstElement *pipeline) {
     if (!ensure_egl_context()) {
-        LOGE("⚠️ EGL context не создан — HW декодер может не работать");
+        LOGE("⚠️ EGL context not created - HW decoder might not work");
         return;
     }
 
-    // 1. Оборачиваем наш EGLDisplay в GstGLDisplayEGL
+    // 1. Wrap our EGLDisplay in GstGLDisplayEGL
     GstGLDisplay *display = create_gst_gl_display();
     if (!display) {
         LOGE("⚠️ create_gst_gl_display failed");
         return;
     }
 
-    // 2. Оборачиваем наш EGLContext в GstGLContext
+    // 2. Wrap our EGLContext in GstGLContext
     GstGLContext *gl_ctx = gst_gl_context_new_wrapped(display,
         (guintptr)g_egl_context, GST_GL_PLATFORM_EGL, GST_GL_API_GLES2);
     if (!gl_ctx) {
@@ -973,9 +973,9 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
         return;
     }
 
-    // 3. Заполняем GL info.
-    // Для wrapped GstGLContext недостаточно одного eglMakeCurrent():
-    // нужно также уведомить сам GStreamer, что этот GstGLContext активен на текущем потоке.
+    // 3. Fill GL info.
+    // For wrapped GstGLContext, eglMakeCurrent() alone is not enough:
+    // we also need to notify GStreamer itself that this GstGLContext is active on the current thread.
     gboolean egl_current = eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context);
     gboolean gst_ctx_active = FALSE;
     if (!egl_current) {
@@ -989,7 +989,7 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
 
     GError *err = NULL;
     if (!gst_gl_context_fill_info(gl_ctx, &err)) {
-        LOGI("⚠️ gst_gl_context_fill_info: %s (не критично)", err ? err->message : "?");
+        LOGI("⚠️ gst_gl_context_fill_info: %s (not critical)", err ? err->message : "?");
         if (err) g_error_free(err);
     }
     if (gst_ctx_active) {
@@ -999,27 +999,27 @@ static void apply_gl_context_to_pipeline(GstElement *pipeline) {
         eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     }
 
-    // 4. Устанавливаем GL display на pipeline
+    // 4. Set GL display on pipeline
     GstContext *display_ctx = gst_context_new(GST_GL_DISPLAY_CONTEXT_TYPE, TRUE);
     gst_context_set_gl_display(display_ctx, display);
     gst_element_set_context(pipeline, display_ctx);
     gst_context_unref(display_ctx);
 
-    // 5. Устанавливаем app GL context на pipeline (amcviddec создаст shared context от него)
+    // 5. Set app GL context on pipeline (amcviddec will create shared context from it)
     GstContext *app_ctx = gst_context_new("gst.gl.app_context", TRUE);
     GstStructure *s = gst_context_writable_structure(app_ctx);
     gst_structure_set(s, "context", GST_TYPE_GL_CONTEXT, gl_ctx, NULL);
     gst_element_set_context(pipeline, app_ctx);
     gst_context_unref(app_ctx);
 
-    LOGI("✅ GL context предустановлен на pipeline: EGL display=%p, ctx=%p, surface=%p",
+    LOGI("✅ GL context pre-configured on pipeline: EGL display=%p, ctx=%p, surface=%p",
          (void*)(intptr_t)g_egl_display, (void*)(intptr_t)g_egl_context, (void*)(intptr_t)g_egl_surface);
 
     gst_object_unref(gl_ctx);
     gst_object_unref(display);
 }
 
-// gst_android_prepare_hw_pipeline — bus sync + GL context перед PLAYING (вызывается из Go)
+// gst_android_prepare_hw_pipeline - bus sync + GL context before PLAYING (called from Go)
 static gboolean pipeline_needs_gl_context(GstElement *pipeline) {
     if (!pipeline || !GST_IS_BIN(pipeline)) return FALSE;
 
@@ -1068,7 +1068,7 @@ void gst_android_prepare_hw_pipeline(GstElement *pipeline) {
     }
 }
 
-// create_pipeline создаёт pipeline для Android (HW H264/MJPEG, SW fallback)
+// create_pipeline creates pipeline for Android (HW H264/MJPEG, SW fallback)
 static GstElement* create_pipeline(int port, int width, int height, int mode) {
     (void)width;
     (void)height;
@@ -1081,44 +1081,44 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     GstElement *pipeline = NULL;
     gchar *pipeline_str;
 
-    // 1) Ищем amcviddec (аппаратный декодер) — пропускаем если ранее GL провалился
+    // 1) Look for amcviddec (hardware decoder) - skip if GL failed previously
     gchar *amc_name = NULL;
     if (g_force_sw_decoder) {
-        LOGI("⚠️ g_force_sw_decoder=TRUE — пропускаем amcviddec, сразу avdec_h264");
+        LOGI("⚠️ g_force_sw_decoder=TRUE - skipping amcviddec, directly to avdec_h264");
     } else {
-        LOGI("🔍 Android: Поиск аппаратного H.264 декодера...");
+        LOGI("🔍 Android: Searching for hardware H.264 decoder...");
         amc_name = resolve_preferred_android_decoder("video/avc", "amcviddec", &g_cached_h264_hw_decoder);
         if (!amc_name) {
-            LOGI("🔍 Android: amcviddec не найден через preferred, ищем в реестре...");
+            LOGI("🔍 Android: amcviddec not found via preferred, searching in registry...");
             amc_name = find_android_decoder_by_name_fragments("amcviddec", NULL);
         }
     }
 
-    // 2) Пробуем HW pipeline через gst_parse_launch (amcviddec + GL chain)
+    // 2) Try HW pipeline via gst_parse_launch (amcviddec + GL chain)
     if (amc_name) {
-        LOGI("🚀 Android: Пробуем аппаратный декодер: %s", amc_name);
+        LOGI("🚀 Android: Trying hardware decoder: %s", amc_name);
         pipeline = create_hw_pipeline(port, amc_name);
         if (pipeline) {
-            LOGI("✅ Android: Pipeline с аппаратным декодером %s готов", amc_name);
+            LOGI("✅ Android: Pipeline with hardware decoder %s is ready", amc_name);
             g_free(amc_name);
             return pipeline;
         }
-        LOGI("⚠️ Android: HW декодер %s не удалось запустить, пробуем software fallback", amc_name);
+        LOGI("⚠️ Android: HW decoder %s failed to start, trying software fallback", amc_name);
         g_free(amc_name);
     } else {
-        LOGI("ℹ️ Android: Аппаратный декодер не найден или отключен");
+        LOGI("ℹ️ Android: Hardware decoder not found or disabled");
     }
 
     // 3) Fallback: avdec_h264 (software, multi-threaded)
-    LOGI("🔍 Android: Поиск программного декодера avdec_h264...");
+    LOGI("🔍 Android: Searching for software decoder avdec_h264...");
     GstElementFactory *avdec_factory = gst_element_factory_find("avdec_h264");
     if (!avdec_factory) {
-        LOGE("❌ Android: Критическая ошибка — нет ни amcviddec ни avdec_h264!");
+        LOGE("❌ Android: Critical error - neither amcviddec nor avdec_h264 found!");
         return NULL;
     }
     gst_object_unref(avdec_factory);
 
-    // avdec_h264 max-threads=0 — авто-выбор числа потоков (NEON на ARM64)
+    // avdec_h264 max-threads=0 - auto-select thread count (NEON on ARM64)
     pipeline_str = g_strdup_printf(
         "udpsrc name=udpsrc0 port=%d buffer-size=16777216 timeout=0 caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
         "rtpjitterbuffer latency=100 max-misorder-time=1000 max-dropout-time=3000 faststart-min-packets=1 drop-on-latency=false do-lost=true ! "
@@ -1130,7 +1130,7 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
         "appsink name=sink emit-signals=false max-buffers=1 drop=true sync=false",
         port
     );
-    LOGI("📝 Android: Сборка программного pipeline: %s", pipeline_str);
+    LOGI("📝 Android: Building software pipeline: %s", pipeline_str);
 
     GError *error = NULL;
     pipeline = gst_parse_launch(pipeline_str, &error);
@@ -1143,7 +1143,7 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
     }
 
     if (pipeline) {
-        LOGI("✅ Android: Программный pipeline с avdec_h264 готов");
+        LOGI("✅ Android: Software pipeline with avdec_h264 is ready");
         // Pad probe
         GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), "udpsrc0");
         if (udpsrc) {
@@ -1155,14 +1155,14 @@ static GstElement* create_pipeline(int port, int width, int height, int mode) {
             gst_object_unref(udpsrc);
         }
     } else {
-        LOGE("❌ Android: Не удалось создать ни один pipeline!");
+        LOGE("❌ Android: Failed to create any pipeline!");
     }
 
     return pipeline;
 }
 
-// wait_for_playing_or_error: ждёт перехода в PLAYING или ошибки на bus (timeout в секундах)
-// Возвращает 0=OK (PLAYING), 1=ошибка, 2=таймаут
+// wait_for_playing_or_error: waits for transition to PLAYING or error on bus (timeout in seconds)
+// Returns 0=OK (PLAYING), 1=error, 2=timeout
 static int wait_for_playing_or_error(GstElement* pipeline, int timeout_sec) {
     GstBus *bus = gst_element_get_bus(pipeline);
     if (!bus) return 1;
@@ -1171,7 +1171,7 @@ static int wait_for_playing_or_error(GstElement* pipeline, int timeout_sec) {
     GstMessage *msg = gst_bus_timed_pop_filtered(bus, timeout_ns,
         (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_STATE_CHANGED | GST_MESSAGE_EOS));
 
-    int result = 2; // таймаут
+    int result = 2; // timeout
     if (msg) {
         switch (GST_MESSAGE_TYPE(msg)) {
             case GST_MESSAGE_ERROR: {
@@ -1185,7 +1185,7 @@ static int wait_for_playing_or_error(GstElement* pipeline, int timeout_sec) {
                 break;
             }
             case GST_MESSAGE_STATE_CHANGED: {
-                // Ищем переход pipeline в PLAYING
+                // Looking for pipeline transition to PLAYING
                 if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline)) {
                     GstState old_s, new_s, pending_s;
                     gst_message_parse_state_changed(msg, &old_s, &new_s, &pending_s);
@@ -1196,7 +1196,7 @@ static int wait_for_playing_or_error(GstElement* pipeline, int timeout_sec) {
                     if (new_s == GST_STATE_PLAYING) {
                         result = 0;
                     } else {
-                        // Не PLAYING — ждём ещё
+                        // Not PLAYING - waiting more
                         gst_message_unref(msg);
                         msg = gst_bus_timed_pop_filtered(bus, timeout_ns,
                             (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_STATE_CHANGED));
@@ -1226,7 +1226,7 @@ static int wait_for_playing_or_error(GstElement* pipeline, int timeout_sec) {
     return result;
 }
 
-// Функция для проверки состояния pipeline
+// Function to check pipeline state
 static void check_pipeline_state(GstElement* pipeline) {
     GstState state, pending;
     GstStateChangeReturn ret = gst_element_get_state(pipeline, &state, &pending, 0);
@@ -1237,7 +1237,7 @@ static void check_pipeline_state(GstElement* pipeline) {
     LOGI("📊 Pipeline state: %s (pending: %s)", state_name, pending_name);
 }
 
-// Функция для проверки ошибок на bus
+// Function to check for errors on bus
 static char* check_pipeline_errors(GstElement* pipeline) {
     GstBus *bus = gst_element_get_bus(pipeline);
     if (!bus) {
@@ -1275,7 +1275,7 @@ static char* check_pipeline_errors(GstElement* pipeline) {
     return error_str;
 }
 
-// drain_bus_messages логирует ВСЕ сообщения с bus (для отладки)
+// drain_bus_messages logs ALL bus messages (for debugging)
 static void drain_bus_messages(GstElement* pipeline) {
     GstBus *bus = gst_element_get_bus(pipeline);
     if (!bus) return;
@@ -1331,7 +1331,7 @@ static void drain_bus_messages(GstElement* pipeline) {
     gst_object_unref(bus);
 }
 
-// Функция для получения кадра из appsink
+// Function to get a frame from appsink
 static GstSample* get_sample_from_appsink(GstElement* pipeline) {
     static int call_count = 0;
     call_count++;
@@ -1345,13 +1345,13 @@ static GstSample* get_sample_from_appsink(GstElement* pipeline) {
     }
 
     if (call_count == 1) {
-        // Логируем детали только при первом вызове
+        // Log details only on first call
         gboolean is_eos = gst_app_sink_is_eos(GST_APP_SINK(appsink));
         LOGI("📊 Appsink status: EOS=%d", is_eos);
         check_pipeline_state(pipeline);
     }
 
-    GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink), 16000000); // 16ms — не блокировать надолго
+    GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(appsink), 16000000); // 16ms - do not block for long
 
     if (call_count <= 3) {
         if (sample) {
@@ -1365,7 +1365,7 @@ static GstSample* get_sample_from_appsink(GstElement* pipeline) {
     return sample;
 }
 
-// Функция для получения данных кадра
+// Function to get frame data
 static void extract_frame_data(GstSample* sample, guint8** data, gint* width, gint* height, gsize* size) {
     static int extract_count = 0;
     extract_count++;
@@ -1415,7 +1415,7 @@ static void extract_frame_data(GstSample* sample, guint8** data, gint* width, gi
 
     GstMapInfo map;
     if (extract_count <= 3) {
-        LOGI("📊 Вызываем gst_buffer_map #%d...", extract_count);
+        LOGI("📊 Calling gst_buffer_map #%d...", extract_count);
     }
     if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
         *size = map.size;
@@ -1430,10 +1430,10 @@ static void extract_frame_data(GstSample* sample, guint8** data, gint* width, gi
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// HWFrameStore — потокобезопасное хранилище кадра.
-// appsink callback вызывается на streaming thread (где доступен GL контекст),
-// маппит буфер, копирует данные в HWFrameStore.
-// Go-горутина забирает данные через hw_frame_poll().
+// HWFrameStore - thread-safe frame storage.
+// appsink callback is called on streaming thread (where GL context is available),
+// maps the buffer, copies data to HWFrameStore.
+// Go goroutine takes data via hw_frame_poll().
 // ═══════════════════════════════════════════════════════════════════════
 
 typedef struct {
@@ -1450,11 +1450,11 @@ typedef struct {
 static HWFrameStore hw_frame_store;
 
 // ═══════════════════════════════════════════════════════════════════════
-// Автоматический fallback на SW декодер при провале HW (amcviddec + GL)
+// Automatic fallback to SW decoder on HW failure (amcviddec + GL)
 // ═══════════════════════════════════════════════════════════════════════
 
-// is_hw_decoder_failed — Go проверяет этот флаг и триггерит переподключение с SW.
-// Возвращает 1 только когда нужен reconnect (сбрасывается в hw_frame_store_init при создании нового pipeline).
+// is_hw_decoder_failed - Go checks this flag and triggers reconnect with SW.
+// Returns 1 only when reconnect is needed (reset in hw_frame_store_init when creating a new pipeline).
 int is_hw_decoder_failed() {
     return g_reconnect_requested ? 1 : 0;
 }
@@ -1465,10 +1465,10 @@ void hw_frame_store_init() {
     g_cond_init(&hw_frame_store.cond);
     hw_frame_store.active = TRUE;
     g_hw_map_fail_count = 0;
-    g_reconnect_requested = FALSE;  // новый pipeline создан — больше не триггерить Reconnect
+    g_reconnect_requested = FALSE;  // new pipeline created - no longer trigger Reconnect
     g_last_rtp_packet_us = 0;
     g_last_appsink_frame_us = 0;
-    LOGI("✅ hw_frame_store инициализирован (force_sw=%d)", g_force_sw_decoder);
+    LOGI("✅ hw_frame_store initialized (force_sw=%d)", g_force_sw_decoder);
 }
 
 void hw_frame_store_stop() {
@@ -1476,7 +1476,7 @@ void hw_frame_store_stop() {
     hw_frame_store.active = FALSE;
     g_cond_broadcast(&hw_frame_store.cond);
     g_mutex_unlock(&hw_frame_store.mutex);
-    LOGI("🛑 hw_frame_store остановлен");
+    LOGI("🛑 hw_frame_store stopped");
 }
 
 void hw_frame_store_destroy() {
@@ -1489,12 +1489,12 @@ void hw_frame_store_destroy() {
     hw_frame_store.has_frame = FALSE;
     hw_frame_store.active = FALSE;
     g_mutex_unlock(&hw_frame_store.mutex);
-    LOGI("🗑️ hw_frame_store очищен (mutex сохранен)");
+    LOGI("🗑️ hw_frame_store cleared (mutex preserved)");
 }
 
-// appsink_new_sample_cb — вызывается на streaming thread GStreamer.
-// На этом потоке GL контекст доступен, поэтому gst_buffer_map работает корректно
-// даже для буферов в GL-памяти (amcviddec → glcolorconvert → gldownload).
+// appsink_new_sample_cb - called on GStreamer streaming thread.
+// GL context is available on this thread, so gst_buffer_map works correctly
+// even for buffers in GL memory (amcviddec -> glcolorconvert -> gldownload).
 static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_data) {
     (void)user_data;
     static int cb_count = 0;
@@ -1531,10 +1531,10 @@ static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_da
     GstMapInfo map;
     if (cb_count <= 5) LOGI("📊 [CB] gst_buffer_map #%d (streaming thread)...", cb_count);
 
-    // ═══ Safety net: активируем наш EGL контекст на streaming thread ═══
-    // GL-память (amcviddec → glcolorconvert → gldownload) требует
-    // активного GL контекста для маппинга (glReadPixels / transfer).
-    // Сохраняем предыдущий контекст (GStreamer может установить свой).
+    // ═══ Safety net: activate our EGL context on streaming thread ═══
+    // GL memory (amcviddec -> glcolorconvert -> gldownload) requires
+    // active GL context for mapping (glReadPixels / transfer).
+    // Save previous context (GStreamer might set its own).
     EGLContext prev_egl_ctx = eglGetCurrentContext();
     EGLDisplay prev_egl_dpy = eglGetCurrentDisplay();
     EGLSurface prev_egl_draw = eglGetCurrentSurface(EGL_DRAW);
@@ -1542,7 +1542,7 @@ static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_da
     gboolean egl_made_current = FALSE;
 
     if (g_egl_context != EGL_NO_CONTEXT && prev_egl_ctx == EGL_NO_CONTEXT) {
-        // GL контекст не активен на этом потоке — активируем наш
+        // GL context not active on this thread - activating ours
         egl_made_current = eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context);
         if (cb_count <= 3) LOGI("📊 [CB] eglMakeCurrent(ours): %s", egl_made_current ? "OK" : "FAIL");
     } else if (cb_count <= 3) {
@@ -1550,7 +1550,7 @@ static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_da
     }
 
     if (!gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-        // Первая попытка не удалась — если EGL ещё не наш, пробуем принудительно
+        // First attempt failed - if EGL is not ours yet, try forcefully
         if (!egl_made_current && g_egl_context != EGL_NO_CONTEXT) {
             egl_made_current = eglMakeCurrent(g_egl_display, g_egl_surface, g_egl_surface, g_egl_context);
             if (cb_count <= 5) LOGI("📊 [CB] retry eglMakeCurrent: %s", egl_made_current ? "OK" : "FAIL");
@@ -1562,11 +1562,11 @@ static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_da
         g_hw_map_fail_count++;
         if (cb_count <= 10) LOGE("❌ [CB] gst_buffer_map FAILED #%d (consecutive=%d)", cb_count, g_hw_map_fail_count);
         if (g_hw_map_fail_count >= 50 && !g_force_sw_decoder) {
-            LOGE("❌ [CB] %d подряд провалов gst_buffer_map — GL декодер не работает, переключаемся на avdec_h264", g_hw_map_fail_count);
+            LOGE("❌ [CB] %d consecutive gst_buffer_map failures - GL decoder is not working, switching to avdec_h264", g_hw_map_fail_count);
             g_force_sw_decoder = TRUE;
-            g_reconnect_requested = TRUE;  // Go триггернет Reconnect
+            g_reconnect_requested = TRUE;  // Go will trigger Reconnect
         }
-        // Восстанавливаем предыдущий контекст
+        // Restore previous context
         if (egl_made_current) {
             if (prev_egl_ctx != EGL_NO_CONTEXT)
                 eglMakeCurrent(prev_egl_dpy, prev_egl_draw, prev_egl_read, prev_egl_ctx);
@@ -1579,13 +1579,13 @@ static GstFlowReturn appsink_new_sample_cb(GstAppSink *appsink, gpointer user_da
 map_success:
     (void)0; // label requires statement
 
-    // Успех — сбрасываем счётчик провалов
+    // Success - reset failure counter
     g_hw_map_fail_count = 0;
     g_last_appsink_frame_us = g_get_monotonic_time();
     gsize frame_size = map.size;
     if (cb_count <= 5) LOGI("✅ [CB] gst_buffer_map OK #%d, size=%zu", cb_count, frame_size);
 
-    // Копируем данные в HWFrameStore (потокобезопасно)
+    // Copy data to HWFrameStore (thread-safe)
     g_mutex_lock(&hw_frame_store.mutex);
     if (hw_frame_store.active) {
         if (hw_frame_store.data) g_free(hw_frame_store.data);
@@ -1600,7 +1600,7 @@ map_success:
 
     gst_buffer_unmap(buffer, &map);
 
-    // Восстанавливаем предыдущий EGL контекст (если мы его подменяли)
+    // Restore previous EGL context (if we substituted it)
     if (egl_made_current) {
         if (prev_egl_ctx != EGL_NO_CONTEXT)
             eglMakeCurrent(prev_egl_dpy, prev_egl_draw, prev_egl_read, prev_egl_ctx);
@@ -1616,10 +1616,10 @@ map_success:
     return GST_FLOW_OK;
 }
 
-// hw_frame_poll — вызывается из Go для получения последнего кадра.
-// Ждёт до timeout_ms миллисекунд, если кадра пока нет.
-// Возвращает 1 если кадр получен, 0 если нет.
-// Данные (*data) нужно освободить через g_free из Go.
+// hw_frame_poll - called from Go to get the latest frame.
+// Waits up to timeout_ms milliseconds if frame is not available yet.
+// Returns 1 if frame received, 0 if not.
+// Data (*data) must be freed via g_free from Go.
 int hw_frame_poll(guint8 **data, gint *width, gint *height, gsize *size, int timeout_ms) {
     g_mutex_lock(&hw_frame_store.mutex);
 
@@ -1634,7 +1634,7 @@ int hw_frame_poll(guint8 **data, gint *width, gint *height, gsize *size, int tim
         return 0;
     }
 
-    // Забираем данные (ownership transfer → Go вызовет g_free)
+    // Taking data (ownership transfer -> Go will call g_free)
     *data = hw_frame_store.data;
     *width = hw_frame_store.width;
     *height = hw_frame_store.height;
@@ -1657,13 +1657,13 @@ long long video_latency_appsink_age_us() {
     return (long long)(g_get_monotonic_time() - ts);
 }
 
-// setup_appsink_callbacks — настраивает appsink на callback-режим.
-// Callback вызывается на streaming thread GStreamer, где GL контекст доступен.
+// setup_appsink_callbacks - configures appsink for callback mode.
+// Callback is called on GStreamer streaming thread, where GL context is available.
 void setup_appsink_callbacks(GstElement *pipeline) {
     if (!pipeline) return;
     GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
     if (!appsink) {
-        LOGE("❌ setup_appsink_callbacks: sink не найден в pipeline");
+        LOGE("❌ setup_appsink_callbacks: sink not found in pipeline");
         return;
     }
     GstAppSinkCallbacks callbacks;
@@ -1671,7 +1671,7 @@ void setup_appsink_callbacks(GstElement *pipeline) {
     callbacks.new_sample = appsink_new_sample_cb;
     gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &callbacks, NULL, NULL);
     gst_object_unref(appsink);
-    LOGI("✅ Appsink callbacks установлены (gst_buffer_map на streaming thread)");
+    LOGI("✅ Appsink callbacks established (gst_buffer_map on streaming thread)");
 }
 */
 import "C"
@@ -1693,7 +1693,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// GStreamerService сервис для работы с GStreamer на Android
+// GStreamerService service for working with GStreamer on Android
 type GStreamerService struct {
 	config *models.AppConfig
 
@@ -1701,38 +1701,38 @@ type GStreamerService struct {
 	pipeline  unsafe.Pointer
 	videoMode string
 
-	// Размеры кадра (как на Mac: 1920x1080)
+	// Frame dimensions (like on Mac: 1920x1080)
 	width  int
 	height int
 
-	// Состояние
+	// State
 	isConnected  bool
 	isConnecting bool
 
-	// Автоматическое переподключение
+	// Automatic reconnect
 	autoReconnect        bool
 	reconnectAttempts    int
 	maxReconnectAttempts int
 	manualDisconnect     bool
 
-	// Каналы для видео кадров
+	// Channels for video frames
 	videoFrameChan chan image.Image
 	stopChan       chan struct{}
 
-	// Последний кадр для throttled UI (30fps, не тормозит main thread)
+	// Latest frame for throttled UI (30fps, does not block main thread)
 	latestFrame     image.Image
 	latestFrameMeta videoLatencyFrameMeta
 	latestFrameMu   sync.RWMutex
 	lastQueuedFrame atomic.Int64
 
-	// Статистика
+	// Statistics
 	frameDropCount int64
 	lastFrameTime  time.Time
 	lastFrameReport time.Time
 	frameCount     int64
 	latencyProfile videoLatencyProfile
 
-	// Мьютексы
+	// Mutexes
 	mutex sync.RWMutex
 
 	// Callbacks
@@ -1741,9 +1741,9 @@ type GStreamerService struct {
 	onError         func(error)
 }
 
-// NewGStreamerService создает новый GStreamer сервис для Android
+// NewGStreamerService creates a new GStreamer service for Android
 func NewGStreamerService(config *models.AppConfig) *GStreamerService {
-	// ВАЖНО: Устанавливаем JNI ДО gst_init — androidmedia регистрирует amcvideodec при загрузке
+	// IMPORTANT: Set JNI BEFORE gst_init - androidmedia registers amcvideodec on load
 	driver.RunNative(func(ctx any) error {
 		if androidCtx, ok := ctx.(*driver.AndroidContext); ok && androidCtx.VM != 0 && androidCtx.Env != 0 && androidCtx.Ctx != 0 {
 			C.gst_android_set_java_vm_and_context(
@@ -1751,12 +1751,12 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 				(*C.JNIEnv)(unsafe.Pointer(androidCtx.Env)),
 				(C.jobject)(unsafe.Pointer(androidCtx.Ctx)),
 			)
-			logrus.Info("✅ Android: JNI VM установлен для amcvideodec (до gst_init)")
+			logrus.Info("✅ Android: JNI VM set for amcvideodec (before gst_init)")
 		}
 		return nil
 	})
 
-	// Инициализируем GStreamer (androidmedia загрузится с уже установленным VM)
+	// Initialize GStreamer (androidmedia will load with already set VM)
 	C.init_gstreamer()
 
 	gs := &GStreamerService{
@@ -1771,7 +1771,7 @@ func NewGStreamerService(config *models.AppConfig) *GStreamerService {
 		videoMode:            models.VideoModeH264,
 	}
 
-	logrus.Info("✅ GStreamer сервис для Android инициализирован")
+	logrus.Info("✅ GStreamer service for Android initialized")
 	return gs
 }
 
@@ -1782,13 +1782,13 @@ func durationFromMicroseconds(us C.longlong) time.Duration {
 	return time.Duration(int64(us)) * time.Microsecond
 }
 
-// ConnectToUDP подключается к UDP H.264 потоку (новый протокол)
+// ConnectToUDP connects to UDP H.264 stream (new protocol)
 func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 
 	if gs.isConnecting || gs.isConnected {
-		return fmt.Errorf("уже подключен или подключается")
+		return fmt.Errorf("already connected or connecting")
 	}
 
 	gs.manualDisconnect = false
@@ -1797,21 +1797,21 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.lastFrameTime = time.Time{}
 	gs.lastQueuedFrame.Store(0)
 
-	// Пересоздаем stopChan для нового подключения (старый может быть закрыт)
+	// Recreate stopChan for new connection (old might be closed)
 	gs.stopChan = make(chan struct{})
 
 	gs.isConnecting = true
-	logrus.Infof("🔗 Android: Подключение к UDP видеопотоку mode=%s...", gs.videoMode)
+	logrus.Infof("🔗 Android: Connecting to UDP video stream mode=%s...", gs.videoMode)
 
 	if udpPort <= 0 {
 		udpPort = models.DefaultVideoUDPPort
 	}
 
-	// Инициализируем хранилище кадров для callback-режима
+	// Initialize frame storage for callback mode
 	C.hw_frame_store_init()
 
-	// По умолчанию пробуем аппаратное декодирование (MediaCodec).
-	// Если оно провалится, C-код сам переключится на avdec_h264 (SW) через Reconnect().
+	// By default try hardware decoding (MediaCodec).
+	// If it fails, C code will switch to avdec_h264 (SW) via Reconnect().
 	forceSoftware := false
 	C.gst_android_force_software_decoder(C.int(boolToInt(forceSoftware)))
 	if forceSoftware {
@@ -1823,28 +1823,28 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 		pipelineMode = C.int(C.PIPELINE_MODE_JPEG_RTP)
 	}
 
-	// Создаем pipeline под выбранный видеорежим
-	logrus.Infof("🔧 Android: Создание pipeline для порта %d (режим %d)...", udpPort, pipelineMode)
+	// Create pipeline for selected video mode
+	logrus.Infof("🔧 Android: Creating pipeline for port %d (mode %d)...", udpPort, pipelineMode)
 	pipeline := C.create_pipeline(C.int(udpPort), C.int(gs.width), C.int(gs.height), pipelineMode)
 	if pipeline == nil {
 		gs.isConnecting = false
-		logrus.Error("❌ Android: Ошибка создания GStreamer pipeline (create_pipeline вернул NULL)")
-		return fmt.Errorf("ошибка создания GStreamer pipeline")
+		logrus.Error("❌ Android: Error creating GStreamer pipeline (create_pipeline returned NULL)")
+		return fmt.Errorf("error creating GStreamer pipeline")
 	}
 
 	gs.pipeline = unsafe.Pointer(pipeline)
-	logrus.Infof("✅ Android: Pipeline создан: %p", gs.pipeline)
+	logrus.Infof("✅ Android: Pipeline created: %p", gs.pipeline)
 
-	// GL-контекст и bus sync для аппаратного декодера (amcviddec→gldownload)
-	logrus.Debug("🔧 Android: Подготовка HW pipeline (GL context)...")
+	// GL-context and bus sync for hardware decoder (amcviddec->gldownload)
+	logrus.Debug("🔧 Android: Preparing HW pipeline (GL context)...")
 	C.gst_android_prepare_hw_pipeline((*C.GstElement)(gs.pipeline))
 
-	// Настраиваем appsink callbacks — gst_buffer_map вызывается на streaming thread (с GL контекстом)
-	logrus.Debug("🔧 Android: Настройка appsink callbacks...")
+	// Setup appsink callbacks - gst_buffer_map is called on streaming thread (with GL context)
+	logrus.Debug("🔧 Android: Setting up appsink callbacks...")
 	C.setup_appsink_callbacks((*C.GstElement)(gs.pipeline))
 
-	// Запускаем pipeline
-	logrus.Infof("▶️ Android: Установка pipeline в PLAYING (udpsrc port=%d, ожидаем RTP)...", udpPort)
+	// Start pipeline
+	logrus.Infof("▶️ Android: Setting pipeline to PLAYING (udpsrc port=%d, waiting for RTP)...", udpPort)
 	ret := C.gst_element_set_state((*C.GstElement)(gs.pipeline), C.GST_STATE_PLAYING)
 	retStr := "?"
 	switch ret {
@@ -1857,21 +1857,21 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	case C.GST_STATE_CHANGE_NO_PREROLL:
 		retStr = "NO_PREROLL"
 	}
-	logrus.Infof("▶️ Android: gst_element_set_state вернул: %s", retStr)
+	logrus.Infof("▶️ Android: gst_element_set_state returned: %s", retStr)
 	if ret == C.GST_STATE_CHANGE_FAILURE {
-		logrus.Error("❌ Android: Критическая ошибка при запуске pipeline")
+		logrus.Error("❌ Android: Critical error starting pipeline")
 		C.drain_bus_messages((*C.GstElement)(gs.pipeline))
 		
-		// Очистка при провале
+		// Cleanup on failure
 		C.gst_element_set_state((*C.GstElement)(gs.pipeline), C.GST_STATE_NULL)
 		C.gst_object_unref(C.gpointer(gs.pipeline))
 		gs.pipeline = nil
 		
 		gs.isConnecting = false
-		return fmt.Errorf("ошибка запуска GStreamer pipeline")
+		return fmt.Errorf("error starting GStreamer pipeline")
 	}
 
-	logrus.Info("✅ Android: Pipeline запущен (async) — возвращаемся, ожидаем RTP после StartVideo")
+	logrus.Info("✅ Android: Pipeline started (async) - returning, waiting for RTP after StartVideo")
 	go func(p *C.GstElement) { C.drain_bus_messages(p) }((*C.GstElement)(gs.pipeline))
 
 	gs.isConnected = true
@@ -1881,11 +1881,11 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 		gs.onStateChanged("connected")
 	}
 
-	logrus.Infof("✅ Android: GStreamer подключен к UDP видеопотоку mode=%s", gs.videoMode)
+	logrus.Infof("✅ Android: GStreamer connected to UDP video stream mode=%s", gs.videoMode)
 
-	// Запускаем обработку кадров (получение из appsink).
-	// Доставку в UI делаем напрямую отсюда, чтобы не было второго таймера,
-	// который раньше сдвигался относительно ingress-throttle и резал FPS вдвое.
+	// Start frame processing (fetching from appsink).
+	// Deliver to UI directly from here to avoid a second timer,
+	// which previously drifted relative to ingress-throttle and cut FPS in half.
 	go gs.processFrames()
 
 	return nil
@@ -1895,23 +1895,23 @@ func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
 	C.gst_android_reset_runtime_decoder_fallback()
 }
 
-// processFrames обрабатывает видео кадры из GStreamer (callback mode).
-// Кадры маппятся на streaming thread (appsink callback), а здесь забираются через hw_frame_poll.
-// Это решает проблему зависания gst_buffer_map на GL-памяти из Go-горутины.
+// processFrames processes video frames from GStreamer (callback mode).
+// Frames are mapped on streaming thread (appsink callback), and fetched here via hw_frame_poll.
+// This solves the problem of gst_buffer_map hanging on GL memory from Go goroutine.
 func (gs *GStreamerService) processFrames() {
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.Errorf("🔥 PANIC in processFrames: %v", r)
 		}
 	}()
-	logrus.Info("🎬 Android: Запуск обработки GStreamer кадров (callback mode)...")
+	logrus.Info("🎬 Android: Starting GStreamer frame processing (callback mode)...")
 
 	gs.mutex.RLock()
 	stopChan := gs.stopChan
 	gs.mutex.RUnlock()
 
 	logrus.Infof("🎬 Android: Pipeline pointer: %p", gs.pipeline)
-	logrus.Infof("🎬 Android: Callback установлен: %v", gs.onFrameReceived != nil)
+	logrus.Infof("🎬 Android: Callback set: %v", gs.onFrameReceived != nil)
 
 	frameNum := 0
 	noFrameCount := 0
@@ -1920,28 +1920,28 @@ func (gs *GStreamerService) processFrames() {
 	for {
 		select {
 		case <-stopChan:
-			logrus.Info("🛑 Android: Остановка обработки GStreamer кадров по сигналу stopChan")
+			logrus.Info("🛑 Android: Stopping GStreamer frame processing due to stopChan signal")
 			return
 		default:
 		}
 
-		// Получаем кадр из HWFrameStore (замаплен на streaming thread через callback)
+		// Get frame from HWFrameStore (mapped on streaming thread via callback)
 		var data *C.guint8
 		var width, height C.gint
 		var frameSize C.gsize
 
-		got := C.hw_frame_poll(&data, &width, &height, &frameSize, 30) // 30ms таймаут
+		got := C.hw_frame_poll(&data, &width, &height, &frameSize, 30) // 30ms timeout
 		if got == 0 || data == nil {
 			noFrameCount++
 
-			// Быстрая проверка: HW декодер провалился → автоматический fallback на SW
+			// Fast check: HW decoder failed -> automatic fallback to SW
 			if C.is_hw_decoder_failed() != 0 {
-				logrus.Warn("⚠️ Android: HW декодер (amcviddec) провалился (GL context), переключаемся на avdec_h264...")
-				go gs.Reconnect() // Reconnect вызовет create_pipeline, который теперь пропустит amcviddec
+				logrus.Warn("⚠️ Android: HW decoder (amcviddec) failed (GL context), switching to avdec_h264...")
+				go gs.Reconnect() // Reconnect will call create_pipeline, which will now skip amcviddec
 				return
 			}
 
-			// Периодически проверяем ошибки и EOS
+			// Periodically check for errors and EOS
 			if noFrameCount%100 == 0 && time.Since(lastErrorCheck) > 5*time.Second {
 				gs.mutex.RLock()
 				currentPipeline := gs.pipeline
@@ -1949,23 +1949,23 @@ func (gs *GStreamerService) processFrames() {
 				gs.mutex.RUnlock()
 
 				if currentPipeline == nil {
-					logrus.Warn("⚠️ Android: Pipeline is nil, завершаем обработку")
+					logrus.Warn("⚠️ Android: Pipeline is nil, stopping processing")
 					return
 				}
 
-				// Проверяем bus на ошибки
+				// Check bus for errors
 				errStr := C.check_pipeline_errors((*C.GstElement)(currentPipeline))
 				if errStr != nil {
 					errMsg := C.GoString(errStr)
 					C.g_free(C.gpointer(errStr))
-					logrus.Errorf("❌ Android: Ошибка pipeline: %s", errMsg)
+					logrus.Errorf("❌ Android: Pipeline error: %s", errMsg)
 					if gs.onError != nil {
 						gs.onError(fmt.Errorf("GStreamer: %s", errMsg))
 					}
 					return
 				}
 
-				// Проверяем EOS
+				// Check EOS
 				sinkName := C.CString("sink")
 				appsinkElement := C.gst_bin_get_by_name((*C.GstBin)(currentPipeline), sinkName)
 				C.free(unsafe.Pointer(sinkName))
@@ -1975,9 +1975,9 @@ func (gs *GStreamerService) processFrames() {
 					C.gst_object_unref(C.gpointer(appsinkElement))
 
 					if isEOS != 0 {
-						logrus.Warn("⚠️ Android: Обнаружен EOS (конец потока)")
+						logrus.Warn("⚠️ Android: EOS detected (end of stream)")
 						if shouldReconnect {
-							logrus.Info("🔄 Android: Запуск автоматического переподключения...")
+							logrus.Info("🔄 Android: Starting automatic reconnect...")
 							go gs.attemptReconnect()
 						}
 						return
@@ -1985,13 +1985,13 @@ func (gs *GStreamerService) processFrames() {
 				}
 
 				lastErrorCheck = time.Now()
-				logrus.Warnf("⚠️ Android: Нет кадров уже %d итераций (ожидаем callback)", noFrameCount)
+				logrus.Warnf("⚠️ Android: No frames for %d iterations (waiting for callback)", noFrameCount)
 				go func(p unsafe.Pointer) { C.drain_bus_messages((*C.GstElement)(p)) }(currentPipeline)
 			}
 			continue
 		}
 
-		// Кадр получен
+		// Frame received
 		noFrameCount = 0
 		frameNum++
 		now := time.Now()
@@ -1999,9 +1999,9 @@ func (gs *GStreamerService) processFrames() {
 		w := int(width)
 		h := int(height)
 
-		// Низкая задержка: держим один limiter на пути Android decode -> UI.
-		// Если с прошлого доставленного кадра прошло меньше целевого интервала,
-		// этот кадр просто пропускаем до дорогостоящего копирования.
+		// Low latency: keep one limiter on the Android decode -> UI path.
+		// If less than the target interval has passed since the last delivered frame,
+		// we just skip this frame before expensive copying.
 		queueInterval := gs.targetFrameInterval()
 		lastDelivered := gs.lastQueuedFrame.Load()
 		if lastDelivered != 0 && now.Sub(time.Unix(0, lastDelivered)) < queueInterval {
@@ -2015,16 +2015,16 @@ func (gs *GStreamerService) processFrames() {
 		copyStarted := time.Now()
 		src := unsafe.Slice((*byte)(unsafe.Pointer(data)), int(frameSize))
 
-		// Создаем RGBA image — данные уже в формате RGBA из GStreamer.
-		// Копируем напрямую из C-буфера в Pix без промежуточного C.GoBytes,
-		// чтобы убрать лишнюю полную аллокацию и копию на каждый кадр.
+		// Create RGBA image - data is already in RGBA format from GStreamer.
+		// Copy directly from C-buffer to Pix without intermediate C.GoBytes,
+		// to remove extra full allocation and copy for each frame.
 		img := image.NewRGBA(image.Rect(0, 0, w, h))
 		copy(img.Pix, src)
 		forceOpaqueAlpha(img)
 		C.g_free(C.gpointer(data))
 
 		if frameNum <= 5 {
-			logrus.Infof("🖼️ Android: Кадр #%d: %dx%d, %d bytes (callback mode) stats=%s", frameNum, w, h, len(src), summarizeRGBA(img))
+			logrus.Infof("🖼️ Android: Frame #%d: %dx%d, %d bytes (callback mode) stats=%s", frameNum, w, h, len(src), summarizeRGBA(img))
 		}
 
 		producedAt := time.Now()
@@ -2037,7 +2037,7 @@ func (gs *GStreamerService) processFrames() {
 			frameHeight: h,
 		}
 
-		// Обновляем статистику
+		// Update statistics
 		gs.mutex.Lock()
 		gs.frameCount++
 		currentCount := gs.frameCount
@@ -2162,16 +2162,16 @@ func boolToInt(value bool) int {
 	return 0
 }
 
-// attemptReconnect пытается переподключиться к UDP потоку
+// attemptReconnect tries to reconnect to UDP stream
 func (gs *GStreamerService) attemptReconnect() {
-	// Делаем несколько попыток в цикле вместо рекурсии
+	// Do several attempts in a loop instead of recursion
 	for attempt := 1; attempt <= gs.maxReconnectAttempts; attempt++ {
 		gs.mutex.Lock()
 
-		// Проверяем условия для переподключения
+		// Check conditions for reconnect
 		if !gs.autoReconnect || gs.manualDisconnect || gs.isConnecting {
 			gs.mutex.Unlock()
-			logrus.Infof("🔄 Android: Переподключение прервано: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v",
+			logrus.Infof("🔄 Android: Reconnect aborted: autoReconnect=%v, manualDisconnect=%v, isConnecting=%v",
 				gs.autoReconnect, gs.manualDisconnect, gs.isConnecting)
 			return
 		}
@@ -2179,37 +2179,37 @@ func (gs *GStreamerService) attemptReconnect() {
 		maxAttempts := gs.maxReconnectAttempts
 		gs.mutex.Unlock()
 
-		logrus.Infof("🔄 Android: Попытка переподключения #%d/%d...", attempt, maxAttempts)
+		logrus.Infof("🔄 Android: Reconnect attempt #%d/%d...", attempt, maxAttempts)
 
-		// Задержка перед переподключением (увеличивается с каждой попыткой)
+		// Delay before reconnect (increases with each attempt)
 		delay := time.Duration(attempt) * 2 * time.Second
 		if delay > 10*time.Second {
-			delay = 10 * time.Second // Максимум 10 секунд
+			delay = 10 * time.Second // Maximum 10 seconds
 		}
 
 		if attempt > 1 {
-			logrus.Infof("⏳ Android: Задержка перед переподключением: %v", delay)
+			logrus.Infof("⏳ Android: Delay before reconnect: %v", delay)
 			time.Sleep(delay)
 		}
 
-		// Переподключаемся
+		// Reconnecting
 		if err := gs.Reconnect(); err != nil {
-			logrus.Errorf("❌ Android: Ошибка переподключения #%d: %v", attempt, err)
+			logrus.Errorf("❌ Android: Reconnect error #%d: %v", attempt, err)
 
-			// Если это последняя попытка
+			// If this is the last attempt
 			if attempt >= maxAttempts {
-				logrus.Errorf("❌ Android: Все %d попыток переподключения исчерпаны", maxAttempts)
+				logrus.Errorf("❌ Android: All %d reconnect attempts exhausted", maxAttempts)
 				gs.mutex.Lock()
 				gs.autoReconnect = false
 				gs.mutex.Unlock()
 				return
 			}
-			// Продолжаем цикл для следующей попытки
+			// Continue loop for next attempt
 			continue
 		}
 
-		// Успешное переподключение
-		logrus.Info("✅ Android: Успешное переподключение!")
+		// Successful reconnect
+		logrus.Info("✅ Android: Successful reconnect!")
 		gs.mutex.Lock()
 		gs.reconnectAttempts = 0
 		gs.mutex.Unlock()
@@ -2217,14 +2217,14 @@ func (gs *GStreamerService) attemptReconnect() {
 	}
 }
 
-// Disconnect отключается от UDP потока
+// Disconnect disconnects from UDP stream
 func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
 	if !gs.isConnected && !gs.isConnecting && gs.pipeline == nil {
 		gs.mutex.Unlock()
-		logrus.Info("🔌 Android: Disconnect: уже полностью отключен")
-		C.hw_frame_store_destroy() // На всякий случай
+		logrus.Info("🔌 Android: Disconnect: already fully disconnected")
+		C.hw_frame_store_destroy() // Just in case
 		return nil
 	}
 
@@ -2232,36 +2232,36 @@ func (gs *GStreamerService) Disconnect() error {
 	gs.isConnected = false
 	gs.isConnecting = false
 	gs.lastQueuedFrame.Store(0)
-	logrus.Info("🔌 Android: Отключение от GStreamer...")
+	logrus.Info("🔌 Android: Disconnecting from GStreamer...")
 
-	// Сохраняем stopChan перед unlock
+	// Save stopChan before unlock
 	stopChan := gs.stopChan
 	pipeline := gs.pipeline
-	gs.pipeline = nil // Обнуляем сразу
+	gs.pipeline = nil // Nullify immediately
 	gs.mutex.Unlock()
 
-	// Останавливаем frame store (пробуждает заблокированный hw_frame_poll)
+	// Stop frame store (wakes up blocked hw_frame_poll)
 	C.hw_frame_store_stop()
 
-	// Останавливаем обработку (безопасно закрываем канал)
+	// Stop processing (safely close channel)
 	if stopChan != nil {
 		select {
 		case <-stopChan:
-			// Канал уже закрыт
+			// Channel already closed
 		default:
 			close(stopChan)
-			logrus.Info("🔌 Android: stopChan закрыт")
+			logrus.Info("🔌 Android: stopChan closed")
 		}
 	}
 
-	// Небольшая задержка для завершения горутины processFrames
+	// Small delay to finish processFrames goroutine
 	time.Sleep(150 * time.Millisecond)
 
-	// Останавливаем pipeline
+	// Stop pipeline
 	if pipeline != nil {
-		logrus.Info("🛑 Android: Остановка GStreamer pipeline...")
+		logrus.Info("🛑 Android: Stopping GStreamer pipeline...")
 		
-		// Сначала сбрасываем bus handler
+		// First reset bus handler
 		bus := C.gst_element_get_bus((*C.GstElement)(pipeline))
 		if bus != nil {
 			C.gst_bus_set_sync_handler(bus, nil, nil, nil)
@@ -2270,31 +2270,31 @@ func (gs *GStreamerService) Disconnect() error {
 
 		C.gst_element_set_state((*C.GstElement)(pipeline), C.GST_STATE_NULL)
 
-		// Небольшая задержка для корректного перехода в StateNull
+		// Small delay for correct transition to StateNull
 		time.Sleep(100 * time.Millisecond)
 
 		C.gst_object_unref(C.gpointer(pipeline))
-		logrus.Info("✅ Android: GStreamer pipeline остановлен и unref")
+		logrus.Info("✅ Android: GStreamer pipeline stopped and unref")
 	}
 
-	// Уничтожаем frame store
+	// Destroy frame store
 	C.hw_frame_store_destroy()
 
-	// Очищаем канал кадров от оставшихся данных
+	// Clear frame channel from remaining data
 	gs.mutex.Lock()
 	if gs.videoFrameChan != nil {
-		// Неблокирующая очистка канала
+		// Non-blocking channel clear
 		for {
 			select {
 			case <-gs.videoFrameChan:
-				// Игнорируем оставшиеся кадры
+				// Ignore remaining frames
 			default:
-				// Канал пуст
+				// Channel is empty
 				goto doneClearing
 			}
 		}
 	doneClearing:
-		logrus.Info("✅ Android: Канал кадров очищен")
+		logrus.Info("✅ Android: Frame channel cleared")
 	}
 	gs.mutex.Unlock()
 
@@ -2302,33 +2302,33 @@ func (gs *GStreamerService) Disconnect() error {
 		gs.onStateChanged("disconnected")
 	}
 
-	logrus.Info("✅ Android: GStreamer отключен и очищен")
+	logrus.Info("✅ Android: GStreamer disconnected and cleared")
 	return nil
 }
 
-// SetOnFrameReceived устанавливает callback для получения кадров
+// SetOnFrameReceived sets callback for receiving frames
 func (gs *GStreamerService) SetOnFrameReceived(callback func(image.Image)) {
 	gs.onFrameReceived = callback
 }
 
-// SetOnStateChanged устанавливает callback для изменения состояния
+// SetOnStateChanged sets callback for state change
 func (gs *GStreamerService) SetOnStateChanged(callback func(string)) {
 	gs.onStateChanged = callback
 }
 
-// SetOnError устанавливает callback для ошибок
+// SetOnError sets callback for errors
 func (gs *GStreamerService) SetOnError(callback func(error)) {
 	gs.onError = callback
 }
 
-// IsConnected возвращает состояние подключения
+// IsConnected returns connection state
 func (gs *GStreamerService) IsConnected() bool {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
 	return gs.isConnected
 }
 
-// GetStats возвращает статистику
+// GetStats returns statistics
 func (gs *GStreamerService) GetStats() map[string]interface{} {
 	gs.mutex.RLock()
 	defer gs.mutex.RUnlock()
@@ -2349,33 +2349,33 @@ func (gs *GStreamerService) GetBindHost() string {
 	return strings.TrimSpace(gs.config.VideoBindHost)
 }
 
-// UpdateHost обновляет хост
+// UpdateHost updates host
 func (gs *GStreamerService) UpdateHost(host string) {
 	gs.config.VideoHost = host
 }
 
-// ConnectToUDPViaPipe — pipe mode для FRP relay (Android: заглушка)
+// ConnectToUDPViaPipe - pipe mode for FRP relay (Android: dummy)
 func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	_ = pipeReader
-	return fmt.Errorf("UDP relay (pipe) пока не реализован на Android, используйте прямое подключение")
+	return fmt.Errorf("UDP relay (pipe) is not implemented on Android yet, use direct connection")
 }
 
-// ConnectToRTP — алиас для ConnectToUDP (совместимость)
+// ConnectToRTP - alias for ConnectToUDP (compatibility)
 func (gs *GStreamerService) ConnectToRTP() error {
 	port := gs.config.VideoUDPPort
 	if port <= 0 {
 		port = models.DefaultVideoUDPPort
 	}
-	logrus.Infof("🎬 Android: ConnectToRTP port=%d mode=%s (VideoUDPPort, FRP proxy шлёт сюда)", port, gs.videoMode)
+	logrus.Infof("🎬 Android: ConnectToRTP port=%d mode=%s (VideoUDPPort, FRP proxy sends here)", port, gs.videoMode)
 	return gs.ConnectToUDP(port)
 }
 
-// UpdateVideoPort обновляет порт видеопотока (RTP/UDP)
+// UpdateVideoPort updates video stream port (RTP/UDP)
 func (gs *GStreamerService) UpdateVideoPort(port int) {
 	gs.config.VideoUDPPort = port
 }
 
-// UpdateVideoUDPPort обновляет порт приёма UDP видео
+// UpdateVideoUDPPort updates port for receiving UDP video
 func (gs *GStreamerService) UpdateVideoUDPPort(port int) {
 	gs.config.VideoUDPPort = port
 }
@@ -2412,7 +2412,7 @@ func (gs *GStreamerService) targetFrameInterval() time.Duration {
 	return time.Second / time.Duration(targetFPS)
 }
 
-// GetConfig возвращает конфигурацию
+// GetConfig returns configuration
 func (gs *GStreamerService) GetConfig() *models.AppConfig {
 	return gs.config
 }
@@ -2433,39 +2433,39 @@ func (gs *GStreamerService) StopNativeFullscreen() error {
 	return nil
 }
 
-// SetAutoReconnect включает/выключает автоматическое переподключение
+// SetAutoReconnect enables/disables automatic reconnect
 func (gs *GStreamerService) SetAutoReconnect(enabled bool) {
 	gs.autoReconnect = enabled
 }
 
-// SetMaxReconnectAttempts устанавливает максимальное количество попыток переподключения
+// SetMaxReconnectAttempts sets maximum number of reconnect attempts
 func (gs *GStreamerService) SetMaxReconnectAttempts(max int) {
 	gs.mutex.Lock()
 	defer gs.mutex.Unlock()
 	gs.maxReconnectAttempts = max
-	gs.reconnectAttempts = 0 // Сбрасываем счетчик при изменении максимума
+	gs.reconnectAttempts = 0 // Reset counter when maximum changes
 }
 
-// Reconnect принудительно переподключается к UDP потоку (для смены устройств)
+// Reconnect forcefully reconnects to UDP stream (for changing devices)
 func (gs *GStreamerService) Reconnect() error {
-	logrus.Info("🔄 Android: Принудительное переподключение (смена устройства)...")
+	logrus.Info("🔄 Android: Forceful reconnect (device change)...")
 
-	// Сначала отключаемся
+	// First disconnect
 	if err := gs.Disconnect(); err != nil {
-		logrus.Warnf("⚠️ Android: Ошибка при отключении перед переподключением: %v", err)
+		logrus.Warnf("⚠️ Android: Error disconnecting before reconnecting: %v", err)
 	}
 
-	// Ждем немного для корректного отключения
+	// Wait a bit for correct disconnection
 	time.Sleep(500 * time.Millisecond)
 
-	// Сбрасываем счетчик попыток переподключения
+	// Reset reconnect attempt counter
 	gs.mutex.Lock()
 	gs.reconnectAttempts = 0
 	gs.autoReconnect = true
 	gs.manualDisconnect = false
 	gs.mutex.Unlock()
 
-	// Подключаемся заново
-	logrus.Info("🔗 Android: Подключаемся к новому устройству...")
+	// Reconnect again
+	logrus.Info("🔗 Android: Connecting to new device...")
 	return gs.ConnectToRTP()
 }

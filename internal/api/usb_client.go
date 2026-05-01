@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// progressReader оборачивает io.Reader и вызывает callback при чтении (для потоковой загрузки)
+// progressReader wraps io.Reader and calls callback on read (for stream upload)
 type progressReader struct {
 	reader    io.Reader
 	total     int64
@@ -68,7 +68,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// USBClient HTTP клиент для USBridge 2 API
+// USBClient HTTP client for USBridge 2 API
 type USBClient struct {
 	baseURL               string
 	httpClient            *http.Client
@@ -80,7 +80,7 @@ type USBClient struct {
 	transportErrorCount   int
 	lastTransportErrorAt  time.Time
 
-	// WebSocket для управления мышью
+	// WebSocket for mouse control
 	mouseWS             *websocket.Conn
 	mouseWSMutex        sync.Mutex
 	mouseWSActive       bool
@@ -93,7 +93,7 @@ type keyboardRequestTask struct {
 	result  chan error
 }
 
-// NewUSBClient создает новый USB клиент
+// NewUSBClient creates a new USB client
 func NewUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
@@ -106,8 +106,8 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 			Timeout: time.Duration(timeout) * time.Second,
 		}
 	} else if timeout > 0 && httpClient.Timeout == 0 {
-		// Tsnet и другие кастомные клиенты передаются без таймаута — применяем его.
-		// Без этого первый запрос через tsnet на Android может висеть бесконечно.
+		// Tsnet and other custom clients are passed without a timeout - applying it.
+		// Without this, the first request via tsnet on Android can hang infinitely.
 		httpClient.Timeout = time.Duration(timeout) * time.Second
 	}
 	client := &USBClient{
@@ -150,11 +150,11 @@ func (c *USBClient) shouldNotifyTransportError(err error) bool {
 	c.transportErrorCount++
 	c.lastTransportErrorAt = now
 
-	// Не рвём активное подключение из-за единичного фонового HTTP-сбоя.
+	// Do not break active connection due to a single background HTTP failure.
 	return c.transportErrorCount >= 3
 }
 
-// GetStatus получает статус системы
+// GetStatus gets system status
 func (c *USBClient) GetStatus() (*models.USBStatus, error) {
 	resp, err := c.makeRequest("GET", "/api/status", nil)
 	if err != nil {
@@ -170,7 +170,7 @@ func (c *USBClient) GetStatus() (*models.USBStatus, error) {
 	return &status, nil
 }
 
-// GetServiceStatus получает статус сервиса
+// GetServiceStatus gets service status
 func (c *USBClient) GetServiceStatus() (*models.APIResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/service/status", nil)
 	if err != nil {
@@ -185,14 +185,14 @@ func (c *USBClient) GetServiceStatus() (*models.APIResponse, error) {
 	return &apiResp, nil
 }
 
-// StartDevice запускает устройство (клавиатура или устройство) - старый API для совместимости
+// StartDevice starts device (keyboard or device) - legacy API for compatibility
 func (c *USBClient) StartDevice(request *models.DeviceStartRequest) (*models.APIResponse, error) {
-	// Конвертируем в новый формат массива
+	// Convert to new array format
 	batchRequest := models.DeviceStartBatchRequest{*request}
 	return c.StartDevicesBatch(batchRequest)
 }
 
-// StartDevicesBatch запускает несколько устройств через массив DeviceRequest
+// StartDevicesBatch starts multiple devices via DeviceRequest array
 func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (*models.APIResponse, error) {
 	requestJSON, err := json.Marshal(requests)
 	if err != nil {
@@ -219,7 +219,7 @@ func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (
 		}
 	}
 
-	// 200 = синхронный успех, 202 = Accepted (монтирование в фоне)
+	// 200 = synchronous success, 202 = Accepted (mounting in background)
 	respBody, statusCode, err := c.makeRequestWithAcceptStatuses("POST", "/api/device/start", requestJSON, []int{http.StatusOK, http.StatusAccepted})
 	if err != nil {
 		logrus.Errorf("❌ [API-START-DEVICES] Request failed: %v", err)
@@ -245,13 +245,13 @@ func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (
 	return &apiResp, nil
 }
 
-// StopDevice останавливает устройство по ID - старый API для совместимости
+// StopDevice stops device by ID - legacy API for compatibility
 func (c *USBClient) StopDevice(deviceID int) error {
-	// В новом API все устройства останавливаются одним запросом
+	// In the new API, all devices are stopped with a single request
 	return c.StopAllDevices()
 }
 
-// StopAllDevices останавливает все устройства (новый API)
+// StopAllDevices stops all devices (new API)
 func (c *USBClient) StopAllDevices() error {
 	logrus.Infof("🛑 Stopping all devices")
 
@@ -273,7 +273,7 @@ func (c *USBClient) StopAllDevices() error {
 	return nil
 }
 
-// GetDeviceInfo получает информацию об устройствах (новый API)
+// GetDeviceInfo gets device information (new API)
 func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/device/info", nil)
 	if err != nil {
@@ -289,7 +289,7 @@ func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 		return nil, fmt.Errorf("failed to get device information: %s", apiResp.Message)
 	}
 
-	// Парсим data в DeviceInfoResponse
+	// Parse data into DeviceInfoResponse
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data: %v", err)
@@ -307,7 +307,7 @@ func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
 	return &deviceInfo, nil
 }
 
-// GetLocalDrives получает список локальных устройств (новый API)
+// GetLocalDrives gets local devices list (new API)
 func (c *USBClient) GetLocalDrives() (*models.LocalDrivesResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/device/local_drives", nil)
 	if err != nil {
@@ -316,28 +316,28 @@ func (c *USBClient) GetLocalDrives() (*models.LocalDrivesResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения локальных устройств: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get local devices: %s", apiResp.Message)
 	}
 
-	// Парсим data в LocalDrivesResponse
+	// Parse data into LocalDrivesResponse
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации данных: %v", err)
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
 	}
 
 	var localDrives models.LocalDrivesResponse
 	if err := json.Unmarshal(dataBytes, &localDrives); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга локальных устройств: %v", err)
+		return nil, fmt.Errorf("failed to parse local devices: %v", err)
 	}
 
 	return &localDrives, nil
 }
 
-// GetISOSpace получает информацию о месте на SD-карте (btrfs раздел iso/data/backup)
+// GetISOSpace gets SD card space info (btrfs partition iso/data/backup)
 func (c *USBClient) GetISOSpace() (*models.ISOSpaceInfo, error) {
 	resp, err := c.makeRequest("GET", "/api/iso/space", nil)
 	if err != nil {
@@ -346,21 +346,21 @@ func (c *USBClient) GetISOSpace() (*models.ISOSpaceInfo, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения информации о месте: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get space info: %s", apiResp.Message)
 	}
 
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации данных: %v", err)
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
 	}
 
 	var spaceInfo models.ISOSpaceInfo
 	if err := json.Unmarshal(dataBytes, &spaceInfo); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга информации о месте: %v", err)
+		return nil, fmt.Errorf("failed to parse space info: %v", err)
 	}
 
 	logrus.Infof("📦 [API-ISO-SPACE] parsed total=%d available=%d used=%d used_pct=%.2f dir=%s",
@@ -373,7 +373,7 @@ func (c *USBClient) GetISOSpace() (*models.ISOSpaceInfo, error) {
 	return &spaceInfo, nil
 }
 
-// GetDeviceStatus получает статус устройств (новый API)
+// GetDeviceStatus gets device status (new API)
 func (c *USBClient) GetDeviceStatus() (*models.DeviceStatusResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/device/status", nil)
 	if err != nil {
@@ -382,33 +382,33 @@ func (c *USBClient) GetDeviceStatus() (*models.DeviceStatusResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения статуса устройств: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get device status: %s", apiResp.Message)
 	}
 
-	// Парсим data в DeviceStatusResponse
+	// Parse data into DeviceStatusResponse
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации данных: %v", err)
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
 	}
 
 	var deviceStatus models.DeviceStatusResponse
 	if err := json.Unmarshal(dataBytes, &deviceStatus); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга статуса устройств: %v", err)
+		return nil, fmt.Errorf("failed to parse device status: %v", err)
 	}
 
 	return &deviceStatus, nil
 }
 
-// StartService запускает сервис USBridge 2 (старый API для совместимости)
+// StartService starts USBridge 2 service (legacy API for compatibility)
 func (c *USBClient) StartService() error {
 	return c.startServiceWithRetry(0)
 }
 
-// startServiceWithRetry запускает сервис с ограниченным количеством попыток
+// startServiceWithRetry starts service with limited retries
 func (c *USBClient) startServiceWithRetry(retryCount int) error {
 	const maxRetries = 2
 
@@ -419,48 +419,48 @@ func (c *USBClient) startServiceWithRetry(retryCount int) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		// Проверяем, не является ли ошибка "device or resource busy"
+		// Check if error is \"device or resource busy\"
 		if (strings.Contains(apiResp.Message, "device or resource busy") ||
 			strings.Contains(apiResp.Error, "device or resource busy") ||
 			strings.Contains(apiResp.Message, "UDC") ||
 			strings.Contains(apiResp.Error, "UDC")) && retryCount < maxRetries {
 
-			logrus.Warnf("⚠️ USB gadget занят, попытка восстановления #%d/%d...", retryCount+1, maxRetries)
+			logrus.Warnf("⚠️ USB gadget is busy, recovery attempt #%d/%d...", retryCount+1, maxRetries)
 
-			// Принудительно отключаем USB gadget
+			// Forcefully disconnect USB gadget
 			if disconnectErr := c.ForceDisconnectUSBGadget(); disconnectErr != nil {
-				logrus.Warnf("⚠️ Ошибка принудительного отключения USB gadget: %v", disconnectErr)
+				logrus.Warnf("⚠️ Force disconnect USB gadget error: %v", disconnectErr)
 			}
 
-			// Останавливаем сервис
+			// Stopping service
 			if stopErr := c.StopService(); stopErr != nil {
-				logrus.Warnf("⚠️ Ошибка остановки сервиса: %v", stopErr)
+				logrus.Warnf("⚠️ Stop service error: %v", stopErr)
 			}
 
-			// Ждем немного
+			// Wait a bit
 			time.Sleep(3 * time.Second)
 
-			// Пытаемся запустить снова
-			logrus.Info("🔄 Повторная попытка запуска сервиса...")
+			// Trying to start again
+			logrus.Info("🔄 Retrying service start...")
 			return c.startServiceWithRetry(retryCount + 1)
 		}
-		return fmt.Errorf("ошибка запуска сервиса: %s", apiResp.Message)
+		return fmt.Errorf("failed to start service: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Сервис USBridge 2 запущен")
+	logrus.Info("✅ USBridge 2 service started")
 	return nil
 }
 
-// StopService останавливает сервис USBridge 2
+// StopService stops USBridge 2 service
 func (c *USBClient) StopService() error {
 	resp, err := c.makeRequest("POST", "/api/service/stop", nil)
 	if err != nil {
 		errText := strings.ToLower(err.Error())
-		if strings.Contains(errText, "http ошибка 404") || strings.Contains(errText, "404 page not found") {
+		if strings.Contains(errText, "http error 404") || strings.Contains(errText, "404 page not found") {
 			logrus.Warn("⚠️ StopService endpoint is not available on the server (HTTP 404), skipping")
 			return nil
 		}
@@ -469,20 +469,20 @@ func (c *USBClient) StopService() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка остановки сервиса: %s", apiResp.Message)
+		return fmt.Errorf("failed to stop service: %s", apiResp.Message)
 	}
 
-	logrus.Info("🛑 Сервис USBridge 2 остановлен")
+	logrus.Info("🛑 USBridge 2 service stopped")
 	return nil
 }
 
-// ForceDisconnectUSBGadget принудительно отключает USB gadget
+// ForceDisconnectUSBGadget forcefully disconnects USB gadget
 func (c *USBClient) ForceDisconnectUSBGadget() error {
-	logrus.Info("🔧 Принудительное отключение USB gadget...")
+	logrus.Info("🔧 Forcefully disconnecting USB gadget...")
 
 	resp, err := c.makeRequest("POST", "/api/usb/disconnect", nil)
 	if err != nil {
@@ -491,19 +491,19 @@ func (c *USBClient) ForceDisconnectUSBGadget() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		logrus.Warnf("⚠️ Ошибка принудительного отключения USB gadget: %s", apiResp.Message)
-		// Не возвращаем ошибку, так как это может быть нормально
+		logrus.Warnf("⚠️ Force disconnect USB gadget error: %s", apiResp.Message)
+		// Do not return error, as this might be normal
 	}
 
-	logrus.Info("✅ USB gadget принудительно отключен")
+	logrus.Info("✅ USB gadget forcefully disconnected")
 	return nil
 }
 
-// RestartService перезапускает сервис USBridge 2
+// RestartService restarts USBridge 2 service
 func (c *USBClient) RestartService() error {
 	resp, err := c.makeRequest("POST", "/api/service/restart", nil)
 	if err != nil {
@@ -512,18 +512,18 @@ func (c *USBClient) RestartService() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка перезапуска сервиса: %s", apiResp.Message)
+		return fmt.Errorf("failed to restart service: %s", apiResp.Message)
 	}
 
-	logrus.Info("🔄 Сервис USBridge 2 перезапущен")
+	logrus.Info("🔄 USBridge 2 service restarted")
 	return nil
 }
 
-// GetDevices получает список устройств
+// GetDevices gets device list
 func (c *USBClient) GetDevices() (*models.APIResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/devices", nil)
 	if err != nil {
@@ -532,13 +532,13 @@ func (c *USBClient) GetDevices() (*models.APIResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	return &apiResp, nil
 }
 
-// GetSystemDevices получает список системных устройств bridge из /api/devices.
+// GetSystemDevices gets bridge system devices list from /api/devices.
 func (c *USBClient) GetSystemDevices() ([]models.SystemDevice, error) {
 	apiResp, err := c.GetDevices()
 	if err != nil {
@@ -547,18 +547,18 @@ func (c *USBClient) GetSystemDevices() ([]models.SystemDevice, error) {
 
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации списка устройств: %v", err)
+		return nil, fmt.Errorf("failed to serialize device list: %v", err)
 	}
 
 	var devices []models.SystemDevice
 	if err := json.Unmarshal(dataBytes, &devices); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга списка устройств: %v", err)
+		return nil, fmt.Errorf("failed to parse device list: %v", err)
 	}
 
 	return devices, nil
 }
 
-// GetConfig получает конфигурацию
+// GetConfig gets configuration
 func (c *USBClient) GetConfig() (*models.APIResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/config", nil)
 	if err != nil {
@@ -567,17 +567,17 @@ func (c *USBClient) GetConfig() (*models.APIResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	return &apiResp, nil
 }
 
-// UpdateConfig обновляет конфигурацию
+// UpdateConfig updates configuration
 func (c *USBClient) UpdateConfig(config *models.ConfigRequest) error {
 	configJSON, err := json.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации конфигурации: %v", err)
+		return fmt.Errorf("failed to serialize configuration: %v", err)
 	}
 
 	resp, err := c.makeRequest("POST", "/api/config", configJSON)
@@ -587,18 +587,18 @@ func (c *USBClient) UpdateConfig(config *models.ConfigRequest) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка обновления конфигурации: %s", apiResp.Message)
+		return fmt.Errorf("failed to update configuration: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Конфигурация USBridge 2 обновлена")
+	logrus.Info("✅ USBridge 2 configuration updated")
 	return nil
 }
 
-// SendKey отправляет клавишу
+// SendKey sends key
 func (c *USBClient) SendKey(keyCode int) error {
 	request := models.KeyboardRequest{
 		Action:  "key",
@@ -608,7 +608,7 @@ func (c *USBClient) SendKey(keyCode int) error {
 	return c.sendKeyboardRequest(request)
 }
 
-// SendCombo отправляет комбинацию клавиш
+// SendCombo sends key combo
 func (c *USBClient) SendCombo(modifiers int, keyCode int) error {
 	request := models.KeyboardRequest{
 		Action:    "combo",
@@ -619,7 +619,7 @@ func (c *USBClient) SendCombo(modifiers int, keyCode int) error {
 	return c.sendKeyboardRequest(request)
 }
 
-// SendText отправляет текст
+// SendText sends text
 func (c *USBClient) SendText(text string) error {
 	request := models.KeyboardRequest{
 		Action: "text",
@@ -629,7 +629,7 @@ func (c *USBClient) SendText(text string) error {
 	return c.sendKeyboardRequest(request)
 }
 
-// sendKeyboardRequest отправляет запрос клавиатуры
+// sendKeyboardRequest sends keyboard request
 func (c *USBClient) sendKeyboardRequest(request models.KeyboardRequest) error {
 	if c.keyboardQueue == nil {
 		return c.doSendKeyboardRequest(request)
@@ -652,7 +652,7 @@ func (c *USBClient) runKeyboardWorker() {
 func (c *USBClient) doSendKeyboardRequest(request models.KeyboardRequest) error {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return fmt.Errorf("failed to serialize request: %v", err)
 	}
 
 	resp, err := c.makeRequest("POST", "/api/keyboard", requestJSON)
@@ -662,17 +662,17 @@ func (c *USBClient) doSendKeyboardRequest(request models.KeyboardRequest) error 
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка отправки команды: %s", apiResp.Message)
+		return fmt.Errorf("failed to send command: %s", apiResp.Message)
 	}
 
 	return nil
 }
 
-// SendMouseMove отправляет относительное перемещение мыши (тачпад)
+// SendMouseMove sends relative mouse movement (touchpad)
 func (c *USBClient) SendMouseMove(dx, dy int) error {
 	request := models.MouseRequest{
 		Action: "move",
@@ -682,14 +682,14 @@ func (c *USBClient) SendMouseMove(dx, dy int) error {
 	return c.sendMouseRequest(request)
 }
 
-// SendTouch отправляет касание тачскрина (action: "touch").
-// x, y — абсолютные координаты 0..32767; tip: true = касание, false = отпускание.
+// SendTouch sends touchscreen touch (action: \"touch\").
+// x, y — absolute coordinates 0..32767; tip: true = touch, false = release.
 func (c *USBClient) SendTouch(x, y int, tip bool) error {
-	action := "отпущено"
+	action := "released"
 	if tip {
-		action = "нажато"
+		action = "pressed"
 	}
-	logrus.Infof("🖐️ [Touch] отправлено: x=%d y=%d %s", x, y, action)
+	logrus.Infof("🖐️ [Touch] sent: x=%d y=%d %s", x, y, action)
 	request := models.MouseRequest{
 		Action: "touch",
 		X:      intPtr(x),
@@ -699,8 +699,8 @@ func (c *USBClient) SendTouch(x, y int, tip bool) error {
 	return c.sendMouseRequest(request)
 }
 
-// SendTouchPositionOnly отправляет только позицию тача без эмуляции левой кнопки (action: "touch_position").
-// Используется для правой кнопки в режиме тача: позиция по тачу, клик кнопкой 2 отдельно.
+// SendTouchPositionOnly sends only touch position without left button emulation (action: \"touch_position\").
+// Used for right button in touch mode: touch position, separate button 2 click.
 func (c *USBClient) SendTouchPositionOnly(x, y int, tip bool) error {
 	request := models.MouseRequest{
 		Action: "touch_position",
@@ -711,7 +711,7 @@ func (c *USBClient) SendTouchPositionOnly(x, y int, tip bool) error {
 	return c.sendMouseRequest(request)
 }
 
-// SendMouseClick отправляет клик мыши
+// SendMouseClick sends mouse click
 func (c *USBClient) SendMouseClick(button int) error {
 	request := models.MouseRequest{
 		Action: "click",
@@ -720,7 +720,7 @@ func (c *USBClient) SendMouseClick(button int) error {
 	return c.sendMouseRequest(request)
 }
 
-// SendMouseScroll отправляет прокрутку колесика
+// SendMouseScroll sends mouse scroll
 func (c *USBClient) SendMouseScroll(scroll int) error {
 	request := models.MouseRequest{
 		Action: "scroll",
@@ -729,7 +729,7 @@ func (c *USBClient) SendMouseScroll(scroll int) error {
 	return c.sendMouseRequest(request)
 }
 
-// SendAbsoluteEvent отправляет атомарное абсолютное событие (позиция + кнопки + колесо).
+// SendAbsoluteEvent sends atomic absolute event (position + buttons + scroll).
 func (c *USBClient) SendAbsoluteEvent(x, y int, buttons uint8, scroll int) error {
 	if scroll > 127 {
 		scroll = 127
@@ -750,7 +750,7 @@ func intPtr(v int) *int {
 	return &v
 }
 
-// SendMouseAction отправляет комплексное действие мыши
+// SendMouseAction sends complex mouse action
 func (c *USBClient) SendMouseAction(button, dx, dy, scroll int) error {
 	request := models.MouseRequest{
 		Action: "action",
@@ -762,9 +762,9 @@ func (c *USBClient) SendMouseAction(button, dx, dy, scroll int) error {
 	return c.sendMouseRequest(request)
 }
 
-// sendMouseRequest отправляет запрос мыши через WebSocket или HTTP
+// sendMouseRequest sends mouse request via WebSocket or HTTP
 func (c *USBClient) sendMouseRequest(request models.MouseRequest) error {
-	// Пытаемся отправить через WebSocket
+	// Trying to send via WebSocket
 	c.mouseWSMutex.Lock()
 	if c.mouseWSActive && c.mouseWS != nil {
 		err := c.mouseWS.WriteJSON(request)
@@ -772,17 +772,17 @@ func (c *USBClient) sendMouseRequest(request models.MouseRequest) error {
 		if err == nil {
 			return nil
 		}
-		// Если ошибка WebSocket, закрываем соединение
-		logrus.Warnf("⚠️ WebSocket ошибка, переключаемся на HTTP: %v", err)
+		// If WebSocket error, close connection
+		logrus.Warnf("⚠️ WebSocket error, switching to HTTP: %v", err)
 		c.DisconnectMouseWebSocket()
 	} else {
 		c.mouseWSMutex.Unlock()
 	}
 
-	// Fallback на HTTP если WebSocket не активен или произошла ошибка
+	// Fallback to HTTP if WebSocket is inactive or an error occurred
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return fmt.Errorf("failed to serialize request: %v", err)
 	}
 
 	resp, err := c.makeRequest("POST", "/api/mouse", requestJSON)
@@ -792,34 +792,34 @@ func (c *USBClient) sendMouseRequest(request models.MouseRequest) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка отправки команды мыши: %s", apiResp.Message)
+		return fmt.Errorf("failed to send mouse command: %s", apiResp.Message)
 	}
 	c.handleMouseResponseData(apiResp.Data)
 
 	return nil
 }
 
-// ConnectMouseWebSocket подключается к WebSocket для управления мышью
+// ConnectMouseWebSocket connects to WebSocket for mouse control
 func (c *USBClient) ConnectMouseWebSocket() error {
 	c.mouseWSMutex.Lock()
 	defer c.mouseWSMutex.Unlock()
 
-	// Если уже подключено, не переподключаемся
+	// If already connected, do not reconnect
 	if c.mouseWS != nil && c.mouseWSActive {
 		return nil
 	}
 
-	// Закрываем старое соединение если есть
+	// Close old connection if exists
 	if c.mouseWS != nil {
 		c.mouseWS.Close()
 		c.mouseWS = nil
 	}
 
-	// Сигнализируем что хотим поддерживать WS и запускаем фоновый reconnect
+	// Signal that we want to maintain WS and start background reconnect
 	if !c.mouseWSIntended {
 		c.mouseWSIntended = true
 		ch := make(chan struct{})
@@ -830,14 +830,14 @@ func (c *USBClient) ConnectMouseWebSocket() error {
 	return c.doConnectMouseWSLocked()
 }
 
-// doConnectMouseWSLocked выполняет одну попытку подключения. Вызывается под mouseWSMutex.
+// doConnectMouseWSLocked performs one connection attempt. Called under mouseWSMutex.
 func (c *USBClient) doConnectMouseWSLocked() error {
 	wsURL, err := c.getWebSocketURL("/api/mouse/ws")
 	if err != nil {
-		return fmt.Errorf("ошибка формирования WebSocket URL: %v", err)
+		return fmt.Errorf("failed to build WebSocket URL: %v", err)
 	}
 
-	logrus.Debugf("🔌 Подключение к WebSocket: %s", wsURL)
+	logrus.Debugf("🔌 Connecting to WebSocket: %s", wsURL)
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
@@ -863,13 +863,13 @@ func (c *USBClient) doConnectMouseWSLocked() error {
 	conn, resp, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		if resp != nil {
-			return fmt.Errorf("ошибка подключения к WebSocket: %v (status=%s)", err, resp.Status)
+			return fmt.Errorf("failed to connect to WebSocket: %v (status=%s)", err, resp.Status)
 		}
-		return fmt.Errorf("ошибка подключения к WebSocket: %v", err)
+		return fmt.Errorf("failed to connect to WebSocket: %v", err)
 	}
 
-	// Сервер шлёт PingMessage каждые ~25с; pong отправляется библиотекой автоматически.
-	// Устанавливаем PongHandler чтобы убедиться что горутина чтения не блокируется на ping.
+	// Server sends PingMessage every ~25s; pong is sent automatically by the library.
+	// Set PongHandler to ensure read goroutine does not block on ping.
 	conn.SetPongHandler(func(string) error { return nil })
 
 	c.mouseWS = conn
@@ -877,11 +877,11 @@ func (c *USBClient) doConnectMouseWSLocked() error {
 
 	go c.readMouseWebSocketResponses()
 
-	logrus.Info("✅ WebSocket для мыши подключен")
+	logrus.Info("✅ Mouse WebSocket connected")
 	return nil
 }
 
-// runMouseWSReconnectLoop повторяет попытки подключения при разрыве, пока mouseWSIntended == true.
+// runMouseWSReconnectLoop retries connection on disconnect, while mouseWSIntended == true.
 func (c *USBClient) runMouseWSReconnectLoop(stopCh chan struct{}) {
 	backoff := 2 * time.Second
 	const maxBackoff = 30 * time.Second
@@ -904,24 +904,24 @@ func (c *USBClient) runMouseWSReconnectLoop(stopCh chan struct{}) {
 			backoff = 2 * time.Second
 			continue
 		}
-		logrus.Infof("🔄 Переподключение WebSocket мыши (backoff=%s)", backoff)
+		logrus.Infof("🔄 Reconnecting mouse WebSocket (backoff=%s)", backoff)
 		err := c.doConnectMouseWSLocked()
 		c.mouseWSMutex.Unlock()
 
 		if err != nil {
-			logrus.Warnf("⚠️ WebSocket мыши: переподключение не удалось: %v", err)
+			logrus.Warnf("⚠️ Mouse WebSocket: reconnect failed: %v", err)
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
 			}
 		} else {
-			logrus.Info("✅ WebSocket мыши переподключён")
+			logrus.Info("✅ Mouse WebSocket reconnected")
 			backoff = 2 * time.Second
 		}
 	}
 }
 
-// DisconnectMouseWebSocket отключается от WebSocket и останавливает auto-reconnect.
+// DisconnectMouseWebSocket disconnects from WebSocket and stops auto-reconnect.
 func (c *USBClient) DisconnectMouseWebSocket() {
 	c.mouseWSMutex.Lock()
 
@@ -933,24 +933,24 @@ func (c *USBClient) DisconnectMouseWebSocket() {
 	if c.mouseWS != nil {
 		c.mouseWS.Close()
 		c.mouseWS = nil
-		logrus.Info("🔌 WebSocket для мыши отключен")
+		logrus.Info("🔌 Mouse WebSocket disconnected")
 	}
 	c.mouseWSMutex.Unlock()
 
-	// Останавливаем reconnect-горутину вне мьютекса
+	// Stop reconnect goroutine outside mutex
 	if ch != nil {
 		close(ch)
 	}
 }
 
-// IsMouseWebSocketActive проверяет, активен ли WebSocket
+// IsMouseWebSocketActive checks if WebSocket is active
 func (c *USBClient) IsMouseWebSocketActive() bool {
 	c.mouseWSMutex.Lock()
 	defer c.mouseWSMutex.Unlock()
 	return c.mouseWSActive && c.mouseWS != nil
 }
 
-// Disconnect закрывает все активные соединения и очищает ресурсы клиента
+// Disconnect closes all active connections and cleans up client resources
 func (c *USBClient) Disconnect() {
 	c.mouseWSMutex.Lock()
 	c.mouseWSActive = false
@@ -967,23 +967,23 @@ func (c *USBClient) Disconnect() {
 		close(ch)
 	}
 
-	// Прерываем очередь клавиатуры
+	// Interrupt keyboard queue
 	if c.keyboardQueue != nil {
-		// Просто закрываем канал, воркер выйдет
-		// Но лучше не закрывать если он shared,
-		// хотя у нас на каждое подключение новый клиент
+		// Just close the channel, worker will exit
+		// But better not close if it is shared,
+		// although we have a new client per connection
 	}
 
-	// Делаем httpClient неактивным для будущих запросов
+	// Make httpClient inactive for future requests
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
 	}
 
-	logrus.Info("🔌 USBClient: все соединения закрыты")
+	logrus.Info("🔌 USBClient: all connections closed")
 }
 
-// readMouseWebSocketResponses читает ответы от WebSocket сервера.
-// При разрыве помечает соединение как неактивное; reconnect-горутина восстановит его.
+// readMouseWebSocketResponses reads responses from WebSocket server.
+// On disconnect marks connection as inactive; reconnect goroutine will restore it.
 func (c *USBClient) readMouseWebSocketResponses() {
 	c.mouseWSMutex.Lock()
 	conn := c.mouseWS
@@ -1008,9 +1008,9 @@ func (c *USBClient) readMouseWebSocketResponses() {
 			conn.Close()
 
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				logrus.Warnf("⚠️ WebSocket мыши разорван: %v (reconnect=%v)", err, intended)
+				logrus.Warnf("⚠️ Mouse WebSocket disconnected: %v (reconnect=%v)", err, intended)
 			} else {
-				logrus.Infof("🔌 WebSocket для мыши закрыт нормально")
+				logrus.Infof("🔌 Mouse WebSocket closed normally")
 			}
 			return
 		}
@@ -1046,14 +1046,14 @@ func (c *USBClient) handleMouseResponseData(data interface{}) {
 	c.cursorUpdateHandler(*payload.Cursor)
 }
 
-// getWebSocketURL преобразует HTTP URL в WebSocket URL
+// getWebSocketURL converts HTTP URL to WebSocket URL
 func (c *USBClient) getWebSocketURL(path string) (string, error) {
 	parsedURL, err := url.Parse(c.baseURL)
 	if err != nil {
 		return "", err
 	}
 
-	// Меняем схему на ws:// или wss://
+	// Change scheme to ws:// or wss://
 	scheme := "ws"
 	if parsedURL.Scheme == "https" {
 		scheme = "wss"
@@ -1063,7 +1063,7 @@ func (c *USBClient) getWebSocketURL(path string) (string, error) {
 	return wsURL, nil
 }
 
-// GetVideoInfo получает информацию о видео
+// GetVideoInfo gets video information
 func (c *USBClient) GetVideoInfo() (*models.APIResponse, error) {
 	return c.GetVideoInfoForDevice("")
 }
@@ -1081,7 +1081,7 @@ func (c *USBClient) GetVideoInfoForDevice(devicePath string) (*models.APIRespons
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	return &apiResp, nil
@@ -1095,32 +1095,32 @@ func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения видеоустройств: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get video devices: %s", apiResp.Message)
 	}
 
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации списка видеоустройств: %v", err)
+		return nil, fmt.Errorf("failed to serialize video devices list: %v", err)
 	}
 
 	var payload struct {
 		Devices []models.SystemDevice `json:"devices"`
 	}
 	if err := json.Unmarshal(dataBytes, &payload); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга списка видеоустройств: %v", err)
+		return nil, fmt.Errorf("failed to parse video devices list: %v", err)
 	}
 
 	return payload.Devices, nil
 }
 
-// StartVideo запускает видео стриминг с параметрами (новый API)
+// StartVideo starts video streaming with parameters (new API)
 func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return fmt.Errorf("failed to serialize request: %v", err)
 	}
 
 	mode := request.VideoMode
@@ -1142,23 +1142,23 @@ func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		// Проверяем, не является ли ошибка сообщением о том, что видео уже запущено
+		// Check if the error is a message that video is already running
 		if apiResp.Message != "" &&
 			(strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "уже запущен") ||
+				strings.Contains(apiResp.Message, "already running") ||
 				strings.Contains(apiResp.Message, "already started") ||
-				strings.Contains(apiResp.Message, "уже запущено")) {
-			logrus.Info("🎥 Видео стриминг уже запущен")
+				strings.Contains(apiResp.Message, "already started")) {
+			logrus.Info("🎥 Video streaming is already running")
 			return nil
 		}
-		return fmt.Errorf("ошибка запуска видео: %s", apiResp.Message)
+		return fmt.Errorf("failed to start video: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Видео стриминг запущен")
+	logrus.Info("✅ Video streaming started")
 	return nil
 }
 
@@ -1229,7 +1229,7 @@ func (c *USBClient) RegisterTailscaleWithContext(ctx context.Context, request *m
 	return &parsed, nil
 }
 
-// StartVideoLegacy запускает видео стриминг (старый API для совместимости)
+// StartVideoLegacy starts video streaming (legacy API for compatibility)
 func (c *USBClient) StartVideoLegacy() error {
 	resp, err := c.makeRequest("POST", "/api/video/start", nil)
 	if err != nil {
@@ -1238,29 +1238,29 @@ func (c *USBClient) StartVideoLegacy() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		// Проверяем, не является ли ошибка сообщением о том, что видео уже запущено
+		// Check if the error is a message that video is already running
 		if apiResp.Message != "" &&
 			(strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "уже запущен") ||
+				strings.Contains(apiResp.Message, "already running") ||
 				strings.Contains(apiResp.Message, "already started") ||
-				strings.Contains(apiResp.Message, "уже запущено")) {
-			logrus.Info("🎥 Видео стриминг уже запущен")
+				strings.Contains(apiResp.Message, "already started")) {
+			logrus.Info("🎥 Video streaming is already running")
 			return nil
 		}
-		return fmt.Errorf("ошибка запуска видео: %s", apiResp.Message)
+		return fmt.Errorf("failed to start video: %s", apiResp.Message)
 	}
 
-	logrus.Info("🎥 Видео стриминг запущен")
+	logrus.Info("🎥 Video streaming started")
 	return nil
 }
 
-// StopVideo останавливает видео стриминг (новый API)
+// StopVideo stops video streaming (new API)
 func (c *USBClient) StopVideo() error {
-	logrus.Info("🛑 Остановка видео стриминга...")
+	logrus.Info("🛑 Stopping video streaming...")
 
 	resp, err := c.makeRequest("POST", "/api/video/stop", nil)
 	if err != nil {
@@ -1269,18 +1269,18 @@ func (c *USBClient) StopVideo() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка остановки видео: %s", apiResp.Message)
+		return fmt.Errorf("failed to stop video: %s", apiResp.Message)
 	}
 
-	logrus.Info("✅ Видео стриминг остановлен")
+	logrus.Info("✅ Video streaming stopped")
 	return nil
 }
 
-// StopVideoLegacy останавливает видео стриминг (старый API для совместимости)
+// StopVideoLegacy stops video streaming (legacy API for compatibility)
 func (c *USBClient) StopVideoLegacy() error {
 	resp, err := c.makeRequest("POST", "/api/video/stop", nil)
 	if err != nil {
@@ -1289,18 +1289,18 @@ func (c *USBClient) StopVideoLegacy() error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка остановки видео: %s", apiResp.Message)
+		return fmt.Errorf("failed to stop video: %s", apiResp.Message)
 	}
 
-	logrus.Info("🛑 Видео стриминг остановлен")
+	logrus.Info("🛑 Video streaming stopped")
 	return nil
 }
 
-// makeRequest выполняет HTTP запрос
+// makeRequest makes HTTP request
 func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, error) {
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, nil)
 }
@@ -1356,7 +1356,7 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, headers)
 }
 
-// makeRequestWithAcceptStatuses выполняет HTTP запрос, принимая указанные статус-коды как успешные
+// makeRequestWithAcceptStatuses makes HTTP request, accepting specified status codes as success
 func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body []byte, acceptStatuses []int) ([]byte, int, error) {
 	url := c.baseURL + endpoint
 
@@ -1405,11 +1405,11 @@ func IsHTTPNotFound(err error) bool {
 	}
 	errText := strings.ToLower(err.Error())
 	return strings.Contains(errText, "http error 404") ||
-		strings.Contains(errText, "http ошибка 404") ||
+		strings.Contains(errText, "http error 404") ||
 		strings.Contains(errText, "404 page not found")
 }
 
-// TestConnection проверяет соединение с USBridge 2
+// TestConnection tests connection with USBridge 2
 func (c *USBClient) TestConnection() error {
 	return c.TestConnectionWithContext(context.Background())
 }
@@ -1417,18 +1417,18 @@ func (c *USBClient) TestConnection() error {
 func (c *USBClient) TestConnectionWithContext(ctx context.Context) error {
 	_, err := c.makeRequestWithContext(ctx, "GET", "/api/healthz", nil, nil)
 	if err == nil {
-		logrus.Info("✅ Соединение с USBridge 2 установлено")
+		logrus.Info("✅ Connected to USBridge 2")
 		return nil
 	}
 
-	// Совместимость со старым сервером без healthz.
+	// Compatibility with old server without healthz.
 	if IsHTTPNotFound(err) {
 		// GetDeviceInfo uses makeRequest, which uses makeRequestWithContext(Background)
 		// For consistency, we should probably add context to GetDeviceInfo too,
 		// but let's just use makeRequestWithContext directly here for the fallback check.
 		_, err := c.makeRequestWithContext(ctx, "GET", "/api/device/info", nil, nil)
 		if err == nil {
-			logrus.Info("✅ Соединение с USBridge 2 установлено (fallback)")
+			logrus.Info("✅ Connected to USBridge 2 (fallback)")
 			return nil
 		}
 		return fmt.Errorf("unable to connect to USBridge 2: %v", err)
@@ -1437,7 +1437,7 @@ func (c *USBClient) TestConnectionWithContext(ctx context.Context) error {
 	return fmt.Errorf("unable to connect to USBridge 2: %v", err)
 }
 
-// GetSnapshots получает список снапшотов
+// GetSnapshots gets snapshots list
 func (c *USBClient) GetSnapshots() (*models.SnapshotsResponse, error) {
 	resp, err := c.makeRequest("POST", "/api/backup/get_snapshots", []byte("{}"))
 	if err != nil {
@@ -1446,35 +1446,35 @@ func (c *USBClient) GetSnapshots() (*models.SnapshotsResponse, error) {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка получения снапшотов: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to get snapshots: %s", apiResp.Message)
 	}
 
-	// Парсим data в SnapshotsJSONResponse
+	// Parse data into SnapshotsJSONResponse
 	dataBytes, err := json.Marshal(apiResp.Data)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации данных: %v", err)
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
 	}
 
 	var snapshotsJSON models.SnapshotsJSONResponse
 	if err := json.Unmarshal(dataBytes, &snapshotsJSON); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга снапшотов: %v", err)
+		return nil, fmt.Errorf("failed to parse snapshots: %v", err)
 	}
 
-	// Преобразуем JSON структуру в обычную структуру с правильным временем
+	// Convert JSON structure to normal structure with correct time
 	snapshots := snapshotsJSON.ToSnapshotsResponse()
 	return snapshots, nil
 }
 
-// GetBaseURL возвращает базовый URL USB клиента
+// GetBaseURL returns USB client base URL
 func (c *USBClient) GetBaseURL() string {
 	return c.baseURL
 }
 
-// GetPCPanelLeds получает состояние POWER и HDD LEDs целевого компьютера
+// GetPCPanelLeds gets POWER and HDD LEDs state of target computer
 func (c *USBClient) GetPCPanelLeds() (*models.PCPanelLedsResponse, error) {
 	resp, err := c.makeRequest("GET", "/api/pcpanel/leds", nil)
 	if err != nil {
@@ -1483,28 +1483,28 @@ func (c *USBClient) GetPCPanelLeds() (*models.PCPanelLedsResponse, error) {
 
 	var apiResp models.PCPanelLedsResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа LEDs: %v", err)
+		return nil, fmt.Errorf("failed to parse response LEDs: %v", err)
 	}
 
 	if !apiResp.Success {
-		return nil, fmt.Errorf("ошибка чтения LEDs: %s", apiResp.Message)
+		return nil, fmt.Errorf("failed to read LEDs: %s", apiResp.Message)
 	}
 
 	return &apiResp, nil
 }
 
-// PressPCPanelButton имитирует нажатие кнопки Power или Reset на целевом ПК
-// durationSec — длительность зажатия в секундах (0 = короткое нажатие).
-// TODO: когда API поддерживает long press, передавать durationSec в запросе
+// PressPCPanelButton simulates pressing Power or Reset button on target PC
+// durationSec — press duration in seconds (0 = short press).
+// TODO: when API supports long press, pass durationSec in request
 func (c *USBClient) PressPCPanelButton(button string, durationSec int) error {
 	if button != "power" && button != "reset" {
-		return fmt.Errorf("неверная кнопка: используйте power или reset")
+		return fmt.Errorf("invalid button: use power or reset")
 	}
 
 	req := models.PCPanelButtonRequest{Button: button}
 	requestJSON, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return fmt.Errorf("failed to serialize request: %v", err)
 	}
 
 	resp, err := c.makeRequest("POST", "/api/pcpanel/button", requestJSON)
@@ -1514,28 +1514,28 @@ func (c *USBClient) PressPCPanelButton(button string, durationSec int) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка нажатия кнопки: %s", apiResp.Message)
+		return fmt.Errorf("failed to press button: %s", apiResp.Message)
 	}
 
-	_ = durationSec // Заглушка для будущей поддержки long press
-	logrus.Infof("✅ PC Panel: кнопка %s нажата", button)
+	_ = durationSec // Placeholder for future long press support
+	logrus.Infof("✅ PC Panel: button %s pressed", button)
 	return nil
 }
 
-// UploadProgressCallback вызывается для обновления прогресса загрузки
+// UploadProgressCallback called to update upload progress
 type UploadProgressCallback func(percent float64, current, total int64, speed float64, eta time.Duration)
 
-// progressWriter отслеживает прогресс записи в HTTP соединение
+// progressWriter tracks write progress to HTTP connection
 type progressWriter struct {
 	writer        io.Writer
 	total         int64
-	current       *int64 // используем указатель для atomic операций
+	current       *int64 // use pointer for atomic operations
 	lastLog       time.Time
-	lastLogOutput time.Time // когда последний раз выводили в лог
+	lastLogOutput time.Time // when last logged
 	startTime     time.Time
 	lastCurrent   int64
 	callback      UploadProgressCallback
@@ -1547,7 +1547,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	if n > 0 {
 		atomic.AddInt64(pw.current, int64(n))
 
-		// Обновляем прогресс каждые 100ms для плавной анимации
+		// Update progress every 100ms for smooth animation
 		pw.mu.Lock()
 		now := time.Now()
 		shouldUpdate := now.Sub(pw.lastLog) >= 100*time.Millisecond
@@ -1560,21 +1560,21 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 				percent = 100
 			}
 
-			// Вычисляем скорость загрузки
+			// Calculate upload speed
 			elapsed := now.Sub(pw.startTime).Seconds()
 			var speed float64
 			if elapsed > 0 {
-				speed = float64(current) / elapsed / 1024 / 1024 // МБ/с
+				speed = float64(current) / elapsed / 1024 / 1024 // MB/s
 			}
 
-			// Оценка оставшегося времени
+			// Estimated remaining time
 			remaining := pw.total - current
 			var eta time.Duration
 			if elapsed > 0 && current > 0 && remaining > 0 {
 				eta = time.Duration(float64(remaining)/(float64(current)/elapsed)) * time.Second
 			}
 
-			// Логируем прогресс каждую секунду
+			// Log progress every second
 			pw.mu.Lock()
 			shouldLog := now.Sub(pw.lastLogOutput) >= time.Second
 			if shouldLog {
@@ -1585,7 +1585,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 			pw.mu.Unlock()
 
 			if shouldLog {
-				logrus.Infof("📊 Прогресс: %.1f%% (%.2f МБ / %.2f МБ) | Скорость: %.2f МБ/с | Осталось: %v",
+				logrus.Infof("📊 Progress: %.1f%% (%.2f MB / %.2f MB) | Speed: %.2f MB/s | Remaining: %v",
 					percent,
 					float64(current)/1024/1024,
 					float64(pw.total)/1024/1024,
@@ -1593,7 +1593,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 					eta.Round(time.Second))
 			}
 
-			// Вызываем callback для обновления UI каждые 100ms
+			// Call callback to update UI every 100ms
 			if pw.callback != nil {
 				pw.callback(percent, current, pw.total, speed, eta)
 			}
@@ -1603,13 +1603,13 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// UploadISO загружает ISO образ на устройство
+// UploadISO uploads ISO image to device
 func (c *USBClient) UploadISO(filePath string, fileReader io.Reader) error {
 	return c.UploadISOWithProgress(filePath, fileReader, nil)
 }
 
-// isRetriableUploadError возвращает true, если ошибка загрузки может быть исправлена повтором.
-// FRP туннель периодически переподключается — при broken pipe можно повторить запрос.
+// isRetriableUploadError returns true if upload error can be fixed by retrying.
+// FRP tunnel periodically reconnects - on broken pipe request can be retried.
 func isRetriableUploadError(err error) bool {
 	if err == nil {
 		return false
@@ -1639,8 +1639,8 @@ func IsConnectionLostError(err error) bool {
 		errors.Is(err, io.EOF)
 }
 
-// computeMultipartSize вычисляет точный размер multipart тела через реальную генерацию заголовков.
-// Использует тот же multipart.Writer — размер гарантированно совпадает с фактическим телом запроса.
+// computeMultipartSize computes exact multipart body size via real header generation.
+// Uses same multipart.Writer - size is guaranteed to match actual request body.
 func computeMultipartSize(boundary, fileName string, fileSize int64) int64 {
 	buf := &bytes.Buffer{}
 	w := multipart.NewWriter(buf)
@@ -1651,27 +1651,27 @@ func computeMultipartSize(boundary, fileName string, fileSize int64) int64 {
 	if err := w.Close(); err != nil {
 		return 0
 	}
-	// buf = --{boundary}\r\n + headers + \r\n + \r\n--{boundary}--\r\n (для пустого файла)
-	// С файлом: те же байты, но вместо пустого тела — fileSize байт
+	// buf = --{boundary}\r\n + headers + \r\n + \r\n--{boundary}--\r\n (for empty file)
+	// With file: same bytes, but instead of empty body - fileSize bytes
 	return int64(buf.Len()) + fileSize
 }
 
-// UploadISOWithProgress загружает ISO образ на устройство с callback для прогресса.
-// Использует потоковую передачу — файл не загружается целиком в память, UI не зависает.
-// При broken pipe (переподключение FRP туннеля) автоматически повторяет до 3 раз с паузой 3 сек.
+// UploadISOWithProgress uploads ISO image to device with progress callback.
+// Uses streaming - file is not fully loaded into memory, UI does not freeze.
+// On broken pipe (FRP tunnel reconnect) automatically retries up to 3 times with 3 sec pause.
 func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader, progressCallback UploadProgressCallback) error {
-	logrus.Infof("📤 Загрузка ISO образа на устройство: %s", filePath)
+	logrus.Infof("📤 Uploading ISO image to device: %s", filePath)
 
-	// Определяем размер файла для прогресс-бара
+	// Determine file size for progress bar
 	var fileSize int64
 	if f, ok := fileReader.(*os.File); ok {
 		if info, err := f.Stat(); err == nil {
 			fileSize = info.Size()
-			logrus.Infof("📊 Размер файла: %.2f МБ", float64(fileSize)/1024/1024)
+			logrus.Infof("📊 File size: %.2f MB", float64(fileSize)/1024/1024)
 		}
 	}
 
-	// Проверяем, можно ли повторить при ошибке (нужен io.Seeker для сброса позиции)
+	// Check if retry is possible on error (needs io.Seeker to reset position)
 	canRetry := false
 	if _, ok := fileReader.(io.Seeker); ok {
 		canRetry = true
@@ -1688,15 +1688,15 @@ func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader,
 			}
 			seeker := fileReader.(io.Seeker)
 			if _, err := seeker.Seek(0, 0); err != nil {
-				return fmt.Errorf("невозможно повторить загрузку: %w", err)
+				return fmt.Errorf("cannot retry upload: %w", err)
 			}
-			logrus.Warnf("🔄 Повтор загрузки (попытка %d/%d) после ошибки: %v", attempt+1, maxRetries, lastErr)
+			logrus.Warnf("🔄 Retrying upload (attempt %d/%d) after error: %v", attempt+1, maxRetries, lastErr)
 			time.Sleep(retryDelay)
 		}
 
 		lastErr = c.doUploadISOAttempt(filePath, fileReader, fileSize, progressCallback)
 		if lastErr == nil {
-			logrus.Infof("✅ Образ успешно загружен на устройство")
+			logrus.Infof("✅ Image successfully uploaded to device")
 			return nil
 		}
 		if !isRetriableUploadError(lastErr) {
@@ -1706,7 +1706,7 @@ func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader,
 	return lastErr
 }
 
-// doUploadISOAttempt выполняет одну попытку загрузки ISO.
+// doUploadISOAttempt performs one ISO upload attempt.
 func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fileSize int64, progressCallback UploadProgressCallback) error {
 	url := c.baseURL + "/api/iso/upload"
 	fileName := filepath.Base(filePath)
@@ -1728,7 +1728,7 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 
 		part, err := writer.CreateFormFile("file", fileName)
 		if err != nil {
-			logrus.Errorf("❌ Ошибка создания form field: %v", err)
+			logrus.Errorf("❌ Failed to create form field: %v", err)
 			pipeWriter.CloseWithError(err)
 			return
 		}
@@ -1747,11 +1747,11 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 
 		written, copyErr := io.Copy(part, src)
 		if copyErr != nil {
-			logrus.Errorf("❌ Ошибка чтения файла: %v", copyErr)
+			logrus.Errorf("❌ Failed to read file: %v", copyErr)
 			pipeWriter.CloseWithError(copyErr)
 			return
 		}
-		logrus.Infof("📊 Прочитано для отправки: %.2f МБ", float64(written)/1024/1024)
+		logrus.Infof("📊 Read for sending: %.2f MB", float64(written)/1024/1024)
 
 		if progressCallback != nil {
 			total := fileSize
@@ -1764,7 +1764,7 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 
 	req, err := http.NewRequest("POST", url, pipeReader)
 	if err != nil {
-		return fmt.Errorf("ошибка создания запроса: %v", err)
+		return fmt.Errorf("failed to create request: %v", err)
 	}
 
 	if fileSize > 0 {
@@ -1781,14 +1781,14 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	}
 
 	logrus.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logrus.Infof("🔍 HTTP ЗАПРОС:")
-	logrus.Infof("   Метод: %s", req.Method)
+	logrus.Infof("🔍 HTTP REQUEST:")
+	logrus.Infof("   Method: %s", req.Method)
 	logrus.Infof("   URL: %s", url)
-	logrus.Infof("   Заголовки:")
+	logrus.Infof("   Headers:")
 	for key, values := range req.Header {
 		for _, value := range values {
 			if key == "Authorization" && value != "" {
-				logrus.Infof("     %s: Bearer [СКРЫТ]", key)
+				logrus.Infof("     %s: Bearer [HIDDEN]", key)
 			} else {
 				logrus.Infof("     %s: %s", key, value)
 			}
@@ -1796,7 +1796,7 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	}
 	logrus.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	logrus.Info("⏳ Отправка запроса (streaming mode)...")
+	logrus.Info("⏳ Sending request (streaming mode)...")
 	uploadClient := &http.Client{
 		Timeout: 3600 * time.Second,
 		Transport: &http.Transport{
@@ -1805,64 +1805,64 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	}
 	resp, err := uploadClient.Do(req)
 	if err != nil {
-		logrus.Errorf("❌ Ошибка выполнения запроса: %v", err)
-		return fmt.Errorf("ошибка выполнения запроса: %v", err)
+		logrus.Errorf("❌ Failed to execute request: %v", err)
+		return fmt.Errorf("failed to execute request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	logrus.Info("✅ Ответ получен")
+	logrus.Info("✅ Response received")
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logrus.Errorf("❌ Ошибка чтения ответа: %v", err)
-		return fmt.Errorf("ошибка чтения ответа: %v", err)
+		logrus.Errorf("❌ Failed to read response: %v", err)
+		return fmt.Errorf("failed to read response: %v", err)
 	}
 
 	logrus.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logrus.Infof("🔍 HTTP ОТВЕТ:")
-	logrus.Infof("   Статус: %d %s", resp.StatusCode, resp.Status)
-	logrus.Infof("   Заголовки:")
+	logrus.Infof("🔍 HTTP RESPONSE:")
+	logrus.Infof("   Status: %d %s", resp.StatusCode, resp.Status)
+	logrus.Infof("   Headers:")
 	for key, values := range resp.Header {
 		for _, value := range values {
 			logrus.Infof("     %s: %s", key, value)
 		}
 	}
-	logrus.Infof("   Тело ответа (%d байт):", len(respBody))
+	logrus.Infof("   Response body (%d bytes):", len(respBody))
 	if len(respBody) > 0 {
 		logrus.Infof("   %s", string(respBody))
 	} else {
-		logrus.Info("   [пустое]")
+		logrus.Info("   [empty]")
 	}
 	logrus.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP ошибка %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка загрузки образа: %s", apiResp.Message)
+		return fmt.Errorf("failed to upload image: %s", apiResp.Message)
 	}
 
 	return nil
 }
 
-// DeleteISO удаляет ISO образ с устройства
+// DeleteISO deletes ISO image from device
 func (c *USBClient) DeleteISO(filename string) error {
-	logrus.Infof("🗑️ Удаление ISO образа с устройства: %s", filename)
+	logrus.Infof("🗑️ Deleting ISO image from device: %s", filename)
 
-	// Формируем запрос
+	// Prepare request
 	request := map[string]string{
 		"filename": filename,
 	}
 
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
-		return fmt.Errorf("ошибка сериализации запроса: %v", err)
+		return fmt.Errorf("failed to serialize request: %v", err)
 	}
 
 	resp, err := c.makeRequest("POST", "/api/iso/delete", requestJSON)
@@ -1872,13 +1872,13 @@ func (c *USBClient) DeleteISO(filename string) error {
 
 	var apiResp models.APIResponse
 	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %v", err)
+		return fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	if !apiResp.Success {
-		return fmt.Errorf("ошибка удаления образа: %s", apiResp.Message)
+		return fmt.Errorf("failed to delete image: %s", apiResp.Message)
 	}
 
-	logrus.Infof("✅ Образ успешно удален с устройства")
+	logrus.Infof("✅ Image successfully deleted from device")
 	return nil
 }

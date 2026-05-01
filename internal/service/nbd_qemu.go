@@ -1,4 +1,4 @@
-// Package service: экспорт виртуального диска через qemu-nbd (VMDK/QCOW2/VDI — клиент видит MBR/GPT, а не контейнер).
+// Package service: export virtual disk via qemu-nbd (VMDK/QCOW2/VDI - client sees MBR/GPT, not container).
 
 package service
 
@@ -14,8 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NBDRunner — общий интерфейс для нашего NBD-сервера (go-nbd) и процесса qemu-nbd.
-// Позволяет подменять экспорт "файла как есть" на экспорт расшифрованного диска.
+// NBDRunner - common interface for our NBD server (go-nbd) and qemu-nbd process.
+// Allows replacing export of "file as is" with export of decrypted disk.
 type NBDRunner interface {
 	Start(port int) error
 	Stop() error
@@ -24,16 +24,16 @@ type NBDRunner interface {
 	WaitReady() <-chan struct{}
 	SignalReady()
 	GetClients() []*NBDClient
-	// NBDExportNameForConnection — имя экспорта для NBD handshake. У qemu-nbd один экспорт с пустым именем.
+	// NBDExportNameForConnection - export name for NBD handshake. qemu-nbd has one export with an empty name.
 	NBDExportNameForConnection() string
-	// NBDExportNameForAPI — имя для API (export_name в запросе). Непустое, уникальное (у qemu-nbd — nbd_<port>, у go-nbd — имя экспорта).
+	// NBDExportNameForAPI - name for API (export_name in request). Non-empty, unique (for qemu-nbd - nbd_<port>, for go-nbd - export name).
 	NBDExportNameForAPI() string
-	// NBDHandshakeEmptyExport — true = Bridge должен в NBD handshake использовать пустое имя экспорта (qemu-nbd отдаёт один диск без имени).
+	// NBDHandshakeEmptyExport - true = Bridge must use empty export name in NBD handshake (qemu-nbd provides one disk without name).
 	NBDHandshakeEmptyExport() bool
 }
 
-// QemuNBDRunner запускает qemu-nbd для образа (vmdk/qcow2/vdi/qcow), чтобы по NBD
-// отдавался виртуальный диск (первые байты — MBR/GPT), а не контейнер.
+// QemuNBDRunner starts qemu-nbd for image (vmdk/qcow2/vdi/qcow) so that via NBD
+// a virtual disk is served (first bytes - MBR/GPT), not a container.
 type QemuNBDRunner struct {
 	filePath    string
 	format      string
@@ -47,7 +47,7 @@ type QemuNBDRunner struct {
 	mu          sync.RWMutex
 }
 
-// qemuNbdFormat по расширению возвращает формат для qemu-nbd -f.
+// qemuNbdFormat returns format for qemu-nbd -f by extension.
 func qemuNbdFormat(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".qcow2", ".qcow":
@@ -63,8 +63,8 @@ func qemuNbdFormat(ext string) string {
 	}
 }
 
-// IsQemuNbdFormatForPath возвращает true, если по пути образ нужно экспортировать через qemu-nbd
-// (виртуальный диск — MBR/GPT), а не как сырой файл (контейнер VMDK/QCOW2).
+// IsQemuNbdFormatForPath returns true if the image at the path needs to be exported via qemu-nbd
+// (virtual disk - MBR/GPT), not as a raw file (VMDK/QCOW2 container).
 func IsQemuNbdFormatForPath(path string) bool {
 	ext := path
 	if i := strings.LastIndex(ext, "."); i >= 0 {
@@ -80,8 +80,8 @@ func IsQemuNbdFormatForPath(path string) bool {
 	}
 }
 
-// NewQemuNBDRunner создаёт раннер для qemu-nbd. filePath — путь к образу (на десктопе).
-// Для RW при необходимости создаётся overlay; тогда экспортируется overlay.
+// NewQemuNBDRunner creates a runner for qemu-nbd. filePath - path to image (on desktop).
+// For RW, an overlay is created if necessary; then the overlay is exported.
 func NewQemuNBDRunner(filePath string, readOnly bool, bindHost string) *QemuNBDRunner {
 	ext := strings.ToLower(filePath)
 	if i := strings.LastIndex(ext, "."); i >= 0 {
@@ -99,13 +99,13 @@ func NewQemuNBDRunner(filePath string, readOnly bool, bindHost string) *QemuNBDR
 	}
 }
 
-// Start запускает qemu-nbd на порту. Экспортируется виртуальный диск (внутреннее содержимое образа).
+// Start launches qemu-nbd on a port. The virtual disk (internal contents of the image) is exported.
 func (q *QemuNBDRunner) Start(port int) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if q.cmd != nil {
-		return fmt.Errorf("qemu-nbd уже запущен")
+		return fmt.Errorf("qemu-nbd already started")
 	}
 
 	path := q.filePath
@@ -115,7 +115,7 @@ func (q *QemuNBDRunner) Start(port int) error {
 
 	qemuNbd, err := exec.LookPath("qemu-nbd")
 	if err != nil {
-		return fmt.Errorf("qemu-nbd не найден в PATH. Установите QEMU (например: apt install qemu-utils, brew install qemu)")
+		return fmt.Errorf("qemu-nbd not found in PATH. Install QEMU (e.g.: apt install qemu-utils, brew install qemu)")
 	}
 
 	args := []string{
@@ -134,14 +134,14 @@ func (q *QemuNBDRunner) Start(port int) error {
 	q.cmd.Stderr = nil
 	if err := q.cmd.Start(); err != nil {
 		q.cmd = nil
-		return fmt.Errorf("запуск qemu-nbd: %w", err)
+		return fmt.Errorf("starting qemu-nbd: %w", err)
 	}
 
 	q.port = port
 	q.running = true
-	logrus.Infof("✅ [NBD-QEMU] qemu-nbd запущен: bind=%s порт=%d, формат=%s, readOnly=%v, путь=%s", q.getBindHost(), port, q.format, q.readOnly, path)
+	logrus.Infof("✅ [NBD-QEMU] qemu-nbd started: bind=%s port=%d, format=%s, readOnly=%v, path=%s", q.getBindHost(), port, q.format, q.readOnly, path)
 
-	// Готовность: даём qemu-nbd время открыть порт
+	// Readiness: give qemu-nbd time to open the port
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		q.mu.Lock()
@@ -164,7 +164,7 @@ func (q *QemuNBDRunner) getBindHost() string {
 	return strings.TrimSpace(q.bindHost)
 }
 
-// Stop останавливает qemu-nbd и удаляет overlay при наличии.
+// Stop stops qemu-nbd and deletes the overlay if present.
 func (q *QemuNBDRunner) Stop() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -174,28 +174,28 @@ func (q *QemuNBDRunner) Stop() error {
 	}
 
 	if err := q.cmd.Process.Kill(); err != nil {
-		logrus.Warnf("⚠️ Ошибка завершения qemu-nbd: %v", err)
+		logrus.Warnf("⚠️ Error terminating qemu-nbd: %v", err)
 	}
 	_ = q.cmd.Wait()
 	q.cmd = nil
 	q.running = false
 
 	if q.overlayPath != "" {
-		// Overlay не удаляем — при следующем монтировании тот же overlay будет использован
+		// Do not delete overlay - the same overlay will be used on the next mount
 		q.overlayPath = ""
 	}
 
 	return nil
 }
 
-// IsRunning возвращает true, если процесс qemu-nbd ещё запущен.
+// IsRunning returns true if the qemu-nbd process is still running.
 func (q *QemuNBDRunner) IsRunning() bool {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 	return q.running
 }
 
-// GetServerStatus возвращает статус в том же формате, что и NBDServer (server_port и т.д.).
+// GetServerStatus returns status in the same format as NBDServer (server_port, etc.).
 func (q *QemuNBDRunner) GetServerStatus() map[string]interface{} {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -209,13 +209,13 @@ func (q *QemuNBDRunner) GetServerStatus() map[string]interface{} {
 			{
 				"name":        "",
 				"file_path":   q.filePath,
-				"description": "qemu-nbd (виртуальный диск)",
+				"description": "qemu-nbd (virtual disk)",
 			},
 		},
 	}
 }
 
-// WaitReady возвращает канал, закрываемый когда qemu-nbd готов принимать соединения.
+// WaitReady returns a channel that is closed when qemu-nbd is ready to accept connections.
 func (q *QemuNBDRunner) WaitReady() <-chan struct{} {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -223,7 +223,7 @@ func (q *QemuNBDRunner) WaitReady() <-chan struct{} {
 	return q.readyChan
 }
 
-// SignalReady для qemu-nbd не меняет состояние (готовность задаётся в Start).
+// SignalReady for qemu-nbd does not change state (readiness is set in Start).
 func (q *QemuNBDRunner) SignalReady() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -235,17 +235,17 @@ func (q *QemuNBDRunner) SignalReady() {
 	}
 }
 
-// GetClients для qemu-nbd клиенты не отслеживаются.
+// GetClients clients are not tracked for qemu-nbd.
 func (q *QemuNBDRunner) GetClients() []*NBDClient {
 	return nil
 }
 
-// NBDExportNameForConnection возвращает пустое имя — qemu-nbd экспортирует один диск без имени.
+// NBDExportNameForConnection returns an empty name - qemu-nbd exports one disk without a name.
 func (q *QemuNBDRunner) NBDExportNameForConnection() string {
 	return ""
 }
 
-// NBDExportNameForAPI — уникальное непустое имя для API (отображение, идентификация). По порту: nbd_10809 — без путаницы при нескольких дисках.
+// NBDExportNameForAPI - unique non-empty name for API (display, identification). By port: nbd_10809 - without confusion with multiple disks.
 func (q *QemuNBDRunner) NBDExportNameForAPI() string {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -255,16 +255,16 @@ func (q *QemuNBDRunner) NBDExportNameForAPI() string {
 	return "nbd_" + strconv.Itoa(q.port)
 }
 
-// NBDHandshakeEmptyExport — у qemu-nbd один экспорт с пустым именем.
+// NBDHandshakeEmptyExport - qemu-nbd has one export with an empty name.
 func (q *QemuNBDRunner) NBDHandshakeEmptyExport() bool {
 	return true
 }
 
-// EnsureQemuNbdForExport при необходимости создаёт overlay и настраивает раннер на экспорт через qemu-nbd.
-// Вызывать до Start. Для RW и overlay-совместимого формата создаётся overlay, path подменяется.
+// EnsureQemuNbdForExport creates an overlay if necessary and configures the runner for export via qemu-nbd.
+// Call before Start. For RW and overlay-compatible format, an overlay is created, path is substituted.
 func (q *QemuNBDRunner) EnsureQemuNbdForExport() error {
 	if runtime.GOOS == "android" {
-		return fmt.Errorf("qemu-nbd на Android не поддерживается")
+		return fmt.Errorf("qemu-nbd is not supported on Android")
 	}
 
 	ext := strings.ToLower(q.filePath)
@@ -277,13 +277,13 @@ func (q *QemuNBDRunner) EnsureQemuNbdForExport() error {
 	if !q.readOnly && IsOverlayCapableExtension(ext) {
 		overlayPath, _, err := createOverlay(q.filePath)
 		if err != nil {
-			logrus.Warnf("⚠️ [NBD-QEMU] overlay не создан, экспорт только для чтения: %v", err)
+			logrus.Warnf("⚠️ [NBD-QEMU] overlay not created, export read-only: %v", err)
 			q.readOnly = true
 			return nil
 		}
 		q.overlayPath = overlayPath
 		q.format = "qcow2"
-		logrus.Infof("✅ [NBD-QEMU] Экспорт RW через overlay: %s", overlayPath)
+		logrus.Infof("✅ [NBD-QEMU] Export RW via overlay: %s", overlayPath)
 	}
 
 	return nil
