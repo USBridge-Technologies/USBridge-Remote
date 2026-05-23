@@ -237,7 +237,26 @@ func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (
 	}
 
 	if statusCode == http.StatusAccepted {
-		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted: mounting in background, poll /api/device/info")
+		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted: mounting in background, waiting up to 30s...")
+		
+		// 30 секунд поллинга, как описано в документации
+		for i := 0; i < 30; i++ {
+			time.Sleep(1 * time.Second)
+			info, pollErr := c.GetDeviceInfo()
+			if pollErr != nil {
+				logrus.Warnf("⚠️ [API-START-DEVICES] Error polling device info: %v", pollErr)
+				continue
+			}
+			
+			if !info.MountInProgress {
+				if info.LastMountError != "" {
+					logrus.Errorf("❌ [API-START-DEVICES] Mount error: %s", info.LastMountError)
+					return nil, fmt.Errorf("ошибка монтирования: %s", info.LastMountError)
+				}
+				logrus.Infof("✅ [API-START-DEVICES] Mount completed successfully in %d seconds", i+1)
+				break
+			}
+		}
 	}
 
 	logrus.Infof("✅ Successfully started %d devices", len(requests))

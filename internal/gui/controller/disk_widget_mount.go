@@ -365,6 +365,14 @@ func (dw *DiskWidget) handleMount() {
 
 		batchRequest := models.DeviceStartBatchRequest(deviceRequests)
 
+		mountingExportNames := nbdExportNamesForUI
+		dw.updateUIAsync(func() {
+			dw.setMountingStateByExportNames(mountingExportNames, true)
+			dw.setAPIMountInProgress(true)
+			dw.selectedItems = make(map[int]bool)
+			dw.requestDevicesRefresh()
+		})
+
 		if len(deviceRequests) > 0 {
 			dw.updateStatusAsync("Запуск устройств...")
 			logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств, отправляем запрос /api/device/start", len(deviceRequests))
@@ -375,6 +383,12 @@ func (dw *DiskWidget) handleMount() {
 			deviceResp, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest)
 			if err != nil {
 				logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
+				dw.updateUIAsync(func() {
+					dw.setMountingStateByExportNames(mountingExportNames, false)
+					dw.setAPIMountInProgress(false)
+					dw.setUserOperationInFlight(false)
+					dw.setButtonsEnabled(true)
+				})
 				dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
 				return
 			}
@@ -402,34 +416,28 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
-		mountingExportNames := nbdExportNamesForUI
+		// Поскольку StartDevicesBatch теперь синхронно дожидается завершения (до 30 сек),
+		// мы сразу обновляем UI после возврата, pollMountStatus больше не нужен.
 		dw.updateUIAsync(func() {
-			dw.setMountingStateByExportNames(mountingExportNames, true)
-			dw.setAPIMountInProgress(true)
-			dw.requestDevicesRefresh()
+			dw.setAPIMountInProgress(false)
+			dw.setUserOperationInFlight(false)
+			dw.setMountingStateByExportNames(mountingExportNames, false)
+			dw.updateStatus()
+			dw.setButtonsEnabled(true) // разблокируем Mount после завершения монтирования
 		})
 
-		dw.updateUIAsync(func() {
-			dw.selectedItems = make(map[int]bool)
-		})
+		// Агрессивный цикл обновления после завершения монтирования (5 раз каждые 1 сек)
+		go func() {
+			for i := 0; i < 5; i++ {
+				if dw.usbClient == nil {
+					return
+				}
+				dw.refreshDataSync()
+				time.Sleep(1 * time.Second)
+			}
+		}()
 
-		reEnableButtons = false
-		if len(deviceRequests) == 0 {
-			go func() {
-				time.Sleep(1500 * time.Millisecond)
-				dw.updateUIAsync(func() {
-					dw.setAPIMountInProgress(false)
-					dw.setUserOperationInFlight(false)
-					dw.loadMountedDevices()
-					dw.requestDevicesRefresh()
-					dw.setButtonsEnabled(true)
-				})
-			}()
-		} else {
-			go dw.pollMountStatus(mountingExportNames)
-		}
-
-		logrus.Infof("✅ Запрос на монтирование gadget=%d отправлен", len(deviceRequests))
+		logrus.Infof("✅ Запрос на монтирование gadget=%d выполнен", len(deviceRequests))
 	}()
 }
 
@@ -945,9 +953,24 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			return
 		}
 
+		if hasStorageRequests {
+			dw.updateUIAsync(func() {
+				dw.setMountingStateByExportNames(mountingExportNames, true)
+				dw.setAPIMountInProgress(true)
+				dw.requestDevicesRefresh()
+			})
+		}
+
 		dw.updateStatusAsync("Reconfiguring USB gadget...")
 		if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests)); err != nil {
 			dw.showErrorAsync(fmt.Errorf("failed to reconfigure mouse mode: %w", err))
+			if hasStorageRequests {
+				dw.updateUIAsync(func() {
+					dw.setMountingStateByExportNames(mountingExportNames, false)
+					dw.setAPIMountInProgress(false)
+					dw.requestDevicesRefresh()
+				})
+			}
 			return
 		}
 
@@ -961,23 +984,21 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 
 		if hasStorageRequests {
 			dw.updateUIAsync(func() {
-				dw.setMountingStateByExportNames(mountingExportNames, true)
-				dw.setAPIMountInProgress(true)
+				dw.setMountingStateByExportNames(mountingExportNames, false)
+				dw.setAPIMountInProgress(false)
 				dw.requestDevicesRefresh()
 			})
-			reEnableButtons = false
-			go dw.pollMountStatus(mountingExportNames)
-			return
 		}
 
-		time.Sleep(1200 * time.Millisecond)
-		dw.updateUIAsync(func() {
-			dw.setAPIMountInProgress(false)
-			dw.loadMountedDevices()
-			dw.loadLocalDrives()
-			dw.requestDevicesRefresh()
-			dw.setUserOperationInFlight(false)
-			dw.setButtonsEnabled(true)
-		})
+		// Агрессивный цикл обновления после переконфигурации (5 раз каждые 1 сек)
+		go func() {
+			for i := 0; i < 5; i++ {
+				if dw.usbClient == nil {
+					return
+				}
+				dw.refreshDataSync()
+				time.Sleep(1 * time.Second)
+			}
+		}()
 	}()
 }

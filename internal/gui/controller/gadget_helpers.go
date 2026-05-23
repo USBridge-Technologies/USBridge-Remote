@@ -67,18 +67,18 @@ func rebuildUSBGadgetDevices(
 		return nil, fmt.Errorf("usb client is not initialized")
 	}
 
-	logrus.Infof("♻️ [GADGET] Rebuilding USB gadget with %d device(s)", len(requests))
-	if err := usbClient.StopAllDevices(); err != nil {
-		logrus.Warnf("⚠️ [GADGET] StopAllDevices during rebuild returned error: %v", err)
-	} else {
-		logrus.Info("🛑 [GADGET] Existing gadget devices stopped before rebuild")
-	}
+	logrus.Infof("♻️ [GADGET] Rebuilding USB gadget with %d device(s) (Full Replace)", len(requests))
 
 	if len(requests) == 0 {
-		return nil, nil
+		// Если список пуст, мы должны просто остановить все устройства
+		logrus.Infof("🛑 [GADGET] Stopping all devices since request list is empty")
+		err := usbClient.StopAllDevices()
+		if err != nil {
+			return nil, err
+		}
+		return &models.APIResponse{Success: true, Message: "All devices stopped"}, nil
 	}
 
-	time.Sleep(gadgetRebuildDelay)
 	return startBatch(requests)
 }
 

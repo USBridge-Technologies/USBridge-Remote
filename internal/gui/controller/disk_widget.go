@@ -1154,57 +1154,6 @@ func (dw *DiskWidget) setMountingStateByExportNames(exportNames map[string]bool,
 	}
 }
 
-// pollMountStatus опрашивает /api/device/info пока mount_in_progress, потом обновляет UI
-func (dw *DiskWidget) pollMountStatus(mountingExportNames map[string]bool) {
-	const pollInterval = 1500 * time.Millisecond
-	const maxPolls = 60 // ~90 секунд
-
-	for i := 0; i < maxPolls; i++ {
-		time.Sleep(pollInterval)
-
-		if dw.usbClient == nil {
-			break
-		}
-
-		info, err := dw.usbClient.GetDeviceInfo()
-		if err != nil {
-			logrus.Debugf("pollMountStatus: GetDeviceInfo: %v", err)
-			continue
-		}
-		dw.setAPIMountInProgress(info.MountInProgress)
-
-		if !info.MountInProgress {
-			// Монтирование завершено
-			if info.LastMountError != "" {
-				logrus.Warnf("pollMountStatus: Ошибка монтирования: %s", info.LastMountError)
-				dw.showErrorAsync(fmt.Errorf("ошибка монтирования: %s", info.LastMountError))
-			}
-			break
-		}
-		logrus.Debugf("pollMountStatus: монтирование в процессе (%d/%d)", i+1, maxPolls)
-	}
-
-	dw.updateUIAsync(func() {
-		dw.setAPIMountInProgress(false)
-		dw.setUserOperationInFlight(false)
-		dw.setMountingStateByExportNames(mountingExportNames, false)
-		dw.updateStatus()
-		dw.setButtonsEnabled(true) // разблокируем Mount после завершения монтирования
-	})
-
-	// Агрессивный цикл обновления после завершения монтирования (5 раз каждые 1 сек)
-	// Это гарантирует, что мы увидим финальный статус, даже если сервер обновляет его с задержкой.
-	go func() {
-		for i := 0; i < 5; i++ {
-			if dw.usbClient == nil {
-				return
-			}
-			dw.refreshDataSync()
-			time.Sleep(1 * time.Second)
-		}
-	}()
-}
-
 // updateUIAsync безопасно обновляет UI из горутины
 func (dw *DiskWidget) updateUIAsync(updateFunc func()) {
 	// В Fyne используем fyne.Do для обновления UI из горутин
