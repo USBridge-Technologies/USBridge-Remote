@@ -578,6 +578,8 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			dw.stopNBDAndCleanup(drivesToUnmount, true)
 		} else {
 			var deviceRequests []models.DeviceStartRequest
+			mountingExportNames := make(map[string]bool)
+
 			for idx := range keepIndices {
 				if idx >= len(dw.allDrives) {
 					continue
@@ -588,13 +590,36 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 					continue
 				}
 				deviceRequests = append(deviceRequests, *req)
+
+				// Добавляем имя для отслеживания состояния Mounting
+				drive := dw.allDrives[idx]
+				if drive.DiskInfo != nil {
+					mountingExportNames[drive.DiskInfo.Name] = true
+				} else if drive.LocalDrive != nil {
+					mountingExportNames[drive.LocalDrive.Name] = true
+				} else {
+					mountingExportNames[drive.Name] = true
+				}
 			}
+			
 			if len(deviceRequests) > 0 {
 				batchRequest := models.DeviceStartBatchRequest(deviceRequests)
+				
+				dw.updateUIAsync(func() {
+					dw.setMountingStateByExportNames(mountingExportNames, true)
+					dw.setAPIMountInProgress(true)
+					dw.requestDevicesRefresh()
+				})
+				
 				dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 				if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest); err != nil {
 					logrus.Warnf("⚠️ Ошибка переподключения устройств: %v", err)
 				}
+				
+				dw.updateUIAsync(func() {
+					dw.setMountingStateByExportNames(mountingExportNames, false)
+					dw.setAPIMountInProgress(false)
+				})
 			}
 			dw.stopNBDAndCleanup(drivesToUnmount, false)
 		}
