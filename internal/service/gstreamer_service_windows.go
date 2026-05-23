@@ -64,6 +64,10 @@ type GStreamerService struct {
 	framesDropped  int64
 	latencyProfile videoLatencyProfile
 
+	// Pool of *image.RGBA buffers — reused across frames to reduce GC pressure.
+	// frameChan cap=1 means at most 2 frames live at once.
+	framePool sync.Pool
+
 	// Mutexes
 	mutex sync.RWMutex
 
@@ -611,7 +615,8 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 			// Frame sent successfully
 			gs.recordIngressLatency(meta)
 		default:
-			// Channel full - drop frame (critical for realtime!)
+			// Channel full - return buffer to pool and drop frame (critical for realtime!)
+			framePoolPut(&gs.framePool, img)
 			gs.mutex.Lock()
 			gs.framesDropped++
 			dropped := gs.framesDropped
@@ -625,16 +630,14 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	}
 }
 
-// rgbaToImage converts RGBA data to image.Image
-func (gs *GStreamerService) rgbaToImage(data []byte, width, height int) image.Image {
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-
+// rgbaToImage converts RGBA data to image.Image, reusing a pooled buffer.
+func (gs *GStreamerService) rgbaToImage(data []byte, width, height int) *image.RGBA {
 	expectedSize := width * height * 4
 	if len(data) < expectedSize {
 		logrus.Warnf("⚠️ [Windows] Insufficient data for frame: %d bytes (expected %d)", len(data), expectedSize)
 		return nil
 	}
-
+	img := framePoolGet(&gs.framePool, width, height)
 	copy(img.Pix, data[:expectedSize])
 	return img
 }
@@ -642,17 +645,17 @@ func (gs *GStreamerService) rgbaToImage(data []byte, width, height int) image.Im
 // frameProcessor processes frames from channel and sends to UI
 func (gs *GStreamerService) frameProcessor() {
 	defer func() {
-		// Clear remaining frames from channel on finish
+		// Drain remaining frames and return buffers to pool.
 		for {
 			select {
-			case _, ok := <-gs.frameChan:
+			case pkt, ok := <-gs.frameChan:
 				if !ok {
-					// Channel closed
 					goto cleanup
 				}
-				// Ignore remaining frames
+				if rgba, ok2 := pkt.img.(*image.RGBA); ok2 {
+					framePoolPut(&gs.framePool, rgba)
+				}
 			default:
-				// Channel empty
 				goto cleanup
 			}
 		}
@@ -698,6 +701,10 @@ func (gs *GStreamerService) frameProcessor() {
 
 				gs.recordUIDelay(time.Since(packet.meta.producedAt), packet.meta, "Windows")
 				callback(packet.img)
+			}
+			// Return buffer to pool after callback has copied the pixels.
+			if rgba, ok := packet.img.(*image.RGBA); ok {
+				framePoolPut(&gs.framePool, rgba)
 			}
 		}
 	}

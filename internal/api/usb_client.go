@@ -259,26 +259,33 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 	if statusCode == http.StatusAccepted {
 		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted: mounting in background, waiting up to 30s...")
 
-		for i := 0; i < 30; i++ {
-			time.Sleep(1 * time.Second)
-			
-			// Поллинг статуса с коротким таймаутом
-			pollCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			info, pollErr := c.GetDeviceInfoWithContext(pollCtx)
-			cancel()
-			
-			if pollErr != nil {
-				logrus.Warnf("⚠️ [API-START-DEVICES] Error polling device info (attempt %d): %v", i+1, pollErr)
-				continue
-			}
-
-			if !info.MountInProgress {
-				if info.LastMountError != "" {
-					logrus.Errorf("❌ [API-START-DEVICES] Mount error: %s", info.LastMountError)
-					return nil, fmt.Errorf("ошибка монтирования: %s", info.LastMountError)
+		mountTimeout := time.NewTimer(30 * time.Second)
+		pollTicker := time.NewTicker(1 * time.Second)
+	pollLoop:
+		for {
+			select {
+			case <-mountTimeout.C:
+				pollTicker.Stop()
+				logrus.Warnf("⚠️ [API-START-DEVICES] Timed out waiting for mount to complete")
+				break pollLoop
+			case <-pollTicker.C:
+				pollCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				info, pollErr := c.GetDeviceInfoWithContext(pollCtx)
+				cancel()
+				if pollErr != nil {
+					logrus.Warnf("⚠️ [API-START-DEVICES] Error polling device info: %v", pollErr)
+					continue pollLoop
 				}
-				logrus.Infof("✅ [API-START-DEVICES] Mount completed successfully in %d seconds", i+1)
-				break
+				if !info.MountInProgress {
+					mountTimeout.Stop()
+					pollTicker.Stop()
+					if info.LastMountError != "" {
+						logrus.Errorf("❌ [API-START-DEVICES] Mount error: %s", info.LastMountError)
+						return nil, fmt.Errorf("ошибка монтирования: %s", info.LastMountError)
+					}
+					logrus.Infof("✅ [API-START-DEVICES] Mount completed successfully")
+					break pollLoop
+				}
 			}
 		}
 	}

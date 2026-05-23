@@ -57,6 +57,15 @@ static gchar *g_cached_jpeg_hw_decoder = NULL;
 typedef GstGLDisplay *(*gst_gl_display_egl_new_with_egl_display_fn)(gpointer display);
 typedef void (*gst_init_static_plugins_fn)(void);
 
+// Force alpha=0xFF on every pixel of an RGBA buffer.
+// Android HW decoders (amcviddec via MediaCodec/GL) may produce garbage alpha bytes.
+// This runs in C to exploit auto-vectorization (NEON on arm64) rather than Go's runtime loop.
+static void force_opaque_alpha(guint8 *pix, gsize n) {
+    for (gsize i = 3; i < n; i += 4) {
+        pix[i] = 0xFF;
+    }
+}
+
 static void maybe_init_static_plugins(void) {
     gst_init_static_plugins_fn init_static_plugins =
         (gst_init_static_plugins_fn)dlsym(RTLD_DEFAULT, "gst_init_static_plugins");
@@ -1735,6 +1744,13 @@ type GStreamerService struct {
 	// Mutexes
 	mutex sync.RWMutex
 
+	// Reusable frame buffer — avoids per-frame allocation at 30-60 FPS.
+	// Safe because callback copies pixels synchronously before returning.
+	frameBuffer *image.RGBA
+
+	// Closed when processFrames goroutine exits; used in Disconnect instead of time.Sleep.
+	processDone chan struct{}
+
 	// Callbacks
 	onFrameReceived func(image.Image)
 	onStateChanged  func(string)
@@ -1886,6 +1902,7 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	// Start frame processing (fetching from appsink).
 	// Deliver to UI directly from here to avoid a second timer,
 	// which previously drifted relative to ingress-throttle and cut FPS in half.
+	gs.processDone = make(chan struct{})
 	go gs.processFrames()
 
 	return nil
@@ -1899,6 +1916,9 @@ func (gs *GStreamerService) ResetRuntimeDecoderFallback() {
 // Frames are mapped on streaming thread (appsink callback), and fetched here via hw_frame_poll.
 // This solves the problem of gst_buffer_map hanging on GL memory from Go goroutine.
 func (gs *GStreamerService) processFrames() {
+	if gs.processDone != nil {
+		defer close(gs.processDone)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.Errorf("🔥 PANIC in processFrames: %v", r)
@@ -2015,12 +2035,17 @@ func (gs *GStreamerService) processFrames() {
 		copyStarted := time.Now()
 		src := unsafe.Slice((*byte)(unsafe.Pointer(data)), int(frameSize))
 
-		// Create RGBA image - data is already in RGBA format from GStreamer.
-		// Copy directly from C-buffer to Pix without intermediate C.GoBytes,
-		// to remove extra full allocation and copy for each frame.
-		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		// Reuse frame buffer when dimensions are unchanged to eliminate per-frame GC pressure.
+		// The callback (handleVideoFrame) copies pixels synchronously before returning, so
+		// this buffer is safe to overwrite on the next frame.
+		// Fix alpha in C (NEON-vectorized on arm64) before copying to Go heap.
+		C.force_opaque_alpha(data, frameSize)
+
+		if gs.frameBuffer == nil || gs.frameBuffer.Bounds().Dx() != w || gs.frameBuffer.Bounds().Dy() != h {
+			gs.frameBuffer = image.NewRGBA(image.Rect(0, 0, w, h))
+		}
+		img := gs.frameBuffer
 		copy(img.Pix, src)
-		forceOpaqueAlpha(img)
 		C.g_free(C.gpointer(data))
 
 		if frameNum <= 5 {
@@ -2066,16 +2091,6 @@ func (gs *GStreamerService) processFrames() {
 			callback(img)
 			gs.lastQueuedFrame.Store(time.Now().UnixNano())
 		}
-	}
-}
-
-func forceOpaqueAlpha(img *image.RGBA) {
-	if img == nil {
-		return
-	}
-	pix := img.Pix
-	for i := 3; i < len(pix); i += 4 {
-		pix[i] = 0xff
 	}
 }
 
@@ -2254,8 +2269,14 @@ func (gs *GStreamerService) Disconnect() error {
 		}
 	}
 
-	// Small delay to finish processFrames goroutine
-	time.Sleep(150 * time.Millisecond)
+	// Wait for processFrames goroutine to exit (it watches stopChan).
+	if processDone := gs.processDone; processDone != nil {
+		select {
+		case <-processDone:
+		case <-time.After(500 * time.Millisecond):
+			logrus.Warn("⚠️ Android: processFrames goroutine did not stop in time")
+		}
+	}
 
 	// Stop pipeline
 	if pipeline != nil {

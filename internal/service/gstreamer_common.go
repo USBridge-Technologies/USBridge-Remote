@@ -19,6 +19,25 @@ func rgbaToImage(data []byte, width, height int) image.Image {
 	return img
 }
 
+// framePoolGet returns a *image.RGBA from the pool if its dimensions match,
+// or allocates a new one. Call framePoolPut after the frame has been consumed.
+func framePoolGet(pool *sync.Pool, width, height int) *image.RGBA {
+	if v := pool.Get(); v != nil {
+		img := v.(*image.RGBA)
+		if img.Bounds().Dx() == width && img.Bounds().Dy() == height {
+			return img
+		}
+		// Wrong size — let GC collect it and allocate fresh.
+	}
+	return image.NewRGBA(image.Rect(0, 0, width, height))
+}
+
+func framePoolPut(pool *sync.Pool, img *image.RGBA) {
+	if img != nil {
+		pool.Put(img)
+	}
+}
+
 // stopSignal — wrapper for a safe one-time stop signal.
 // Created anew on each Connect.
 type stopSignal struct {

@@ -21,7 +21,10 @@
       "Bash(ANDROID_HOME=/home/amir/Android/Sdk ANDROID_NDK_HOME=/home/amir/Android/Sdk/ndk/30.0.14904198 /home/amir/go/bin/gomobile bind *)",
       "Bash(ANDROID_HOME=/home/amir/Android/Sdk ANDROID_NDK_HOME=/home/amir/Android/Sdk/ndk/30.0.14904198 /home/amir/go/bin/gomobile init *)",
       "Bash(go env *)",
-      "Bash(go version *)"
+      "Bash(go version *)",
+      "Bash(go vet *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

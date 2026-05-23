@@ -26,13 +26,17 @@ type GStreamerService struct {
 
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
-	
+
 	mutex     sync.RWMutex
 	stopChan  chan struct{}
 	running   bool
-	
+
 	width  int
 	height int
+
+	// Reusable frame buffer: callback (handleVideoFrame) copies pixels synchronously,
+	// so the same *image.RGBA can be overwritten on the next frame without allocation.
+	frameBuffer *image.RGBA
 
 	lastFrameTime  time.Time
 	frameCount     int64
@@ -134,9 +138,10 @@ func (gs *GStreamerService) readLoop() {
 				return
 			}
 
-			// Copy data to a NEW image object.
-			// This is the only way to avoid gray frames in Fyne.
-			img := image.NewRGBA(image.Rect(0, 0, w, h))
+			if gs.frameBuffer == nil || gs.frameBuffer.Bounds().Dx() != w || gs.frameBuffer.Bounds().Dy() != h {
+				gs.frameBuffer = image.NewRGBA(image.Rect(0, 0, w, h))
+			}
+			img := gs.frameBuffer
 			copy(img.Pix, buffer)
 
 			producedAt := time.Now()

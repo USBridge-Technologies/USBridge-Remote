@@ -400,39 +400,44 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 		return fmt.Errorf("failed to auto-connect HID devices: %w", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		info, err := vw.usbClient.GetDeviceInfo()
-		if err != nil {
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
+	hidTimer := time.NewTimer(5 * time.Second)
+	hidTicker := time.NewTicker(250 * time.Millisecond)
+	defer hidTimer.Stop()
+	defer hidTicker.Stop()
 
-		keyboardReady := false
-		mouseReady := false
-		for _, device := range info.Devices {
-			if device.Status != "connected" {
-				continue
+hidWaitLoop:
+	for {
+		select {
+		case <-hidTimer.C:
+			return fmt.Errorf("timed out waiting for HID devices after auto-connect")
+		case <-hidTicker.C:
+			info, err := vw.usbClient.GetDeviceInfo()
+			if err != nil {
+				continue hidWaitLoop
 			}
-			if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
-				keyboardReady = true
+
+			keyboardReady := false
+			mouseReady := false
+			for _, device := range info.Devices {
+				if device.Status != "connected" {
+					continue
+				}
+				if device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:") {
+					keyboardReady = true
+				}
+				if isMouseDeviceType(device.Type) {
+					observedMode := mouseModeFromDeviceType(device.Type)
+					vw.setObservedMouseMode(observedMode)
+					mouseReady = observedMode == desiredMouseType
+				}
 			}
-			if isMouseDeviceType(device.Type) {
-				observedMode := mouseModeFromDeviceType(device.Type)
-				vw.setObservedMouseMode(observedMode)
-				mouseReady = observedMode == desiredMouseType
+
+			if keyboardReady && mouseReady {
+				logrus.Info("✅ Control HID auto-connect completed and devices are visible in device/info")
+				return nil
 			}
 		}
-
-		if keyboardReady && mouseReady {
-			logrus.Info("✅ Control HID auto-connect completed and devices are visible in device/info")
-			return nil
-		}
-
-		time.Sleep(250 * time.Millisecond)
 	}
-
-	return fmt.Errorf("timed out waiting for HID devices after auto-connect")
 }
 
 func (vw *VideoWidget) controlHIDReady() (bool, error) {
@@ -986,7 +991,6 @@ func (vw *VideoWidget) renderLatestFrame() {
 		if vw.parentWindow != nil {
 			if content := vw.parentWindow.Content(); content != nil {
 				content.Refresh()
-				vw.parentWindow.Canvas().Refresh(content)
 			}
 		}
 	}

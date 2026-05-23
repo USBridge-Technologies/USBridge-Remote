@@ -127,13 +127,16 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		if err := vw.gstreamerService.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Ошибка отключения локального потока перед новым стартом: %v", err)
 		}
-		time.Sleep(150 * time.Millisecond)
+		// No sleep needed: Disconnect() is synchronous on all platforms
+		// (Android: waits on processDone channel; Linux/Darwin: kills process and waits).
 	}
 	if vw.usbClient != nil {
 		if err := vw.usbClient.StopVideo(); err != nil {
 			logrus.Debugf("stop stale remote video before restart: %v", err)
 		} else {
-			time.Sleep(700 * time.Millisecond)
+			// Brief pause to let the server flush its encoder pipeline and prevent
+			// stale RTP packets from confusing the new GStreamer session.
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 

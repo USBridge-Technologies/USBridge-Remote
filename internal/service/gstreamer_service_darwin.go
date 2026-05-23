@@ -64,6 +64,11 @@ type GStreamerService struct {
 	width  int
 	height int
 
+	// Pool of *image.RGBA buffers — reused across frames to reduce GC pressure.
+	// Frames in frameChan (cap=1) plus the frame being processed means at most 2
+	// live at once, so the pool converges to holding ~1 spare buffer.
+	framePool sync.Pool
+
 	// Mutexes
 	mutex sync.RWMutex
 
@@ -761,66 +766,72 @@ func (gs *GStreamerService) readFrames() {
 		}
 
 		producedAt := time.Now()
-		img := rgbaToImage(buffer, width, height)
-		if img != nil {
-			now := time.Now()
-			meta := videoLatencyFrameMeta{
-				producedAt:  producedAt,
-				copyTime:    time.Since(producedAt),
-				frameWidth:  width,
-				frameHeight: height,
+		expectedSize := width * height * 4
+		if len(buffer) < expectedSize {
+			logrus.Warnf("⚠️ macOS: Incomplete frame: %d bytes (expected %d)", len(buffer), expectedSize)
+			continue
+		}
+		img := framePoolGet(&gs.framePool, width, height)
+		copy(img.Pix, buffer[:expectedSize])
+
+		now := time.Now()
+		meta := videoLatencyFrameMeta{
+			producedAt:  producedAt,
+			copyTime:    time.Since(producedAt),
+			frameWidth:  width,
+			frameHeight: height,
+		}
+		gs.mutex.Lock()
+		gs.frameCount++
+		frameNum := gs.frameCount
+
+		if gs.lastFrameTime.IsZero() {
+			logrus.Infof("🎬 macOS: FIRST FRAME received (%dx%d)", width, height)
+		} else if now.Sub(gs.lastFrameTime) > 1*time.Second {
+			logrus.Infof("🎬 macOS: RESUMED after %.1fs gap", now.Sub(gs.lastFrameTime).Seconds())
+		}
+		gs.lastFrameTime = now
+
+		// Set isConnected = true upon first frame
+		if !firstFrameReceived {
+			gs.isConnected = true
+			firstFrameReceived = true
+			closeWaitDone()
+			logrus.Info("✅ [VIDEO] Step 6: First frame received! Connection established.")
+
+			// Call callback if present
+			stateCallback := gs.onStateChanged
+			if stateCallback != nil {
+				go stateCallback("connected")
 			}
+		}
+
+		// Log every 300th frame (~10 sec at 30fps)
+		if frameNum%300 == 0 || now.Sub(gs.lastFrameReport) > 10*time.Second {
+			gs.lastFrameReport = now
+			dropped := gs.framesDropped
+			chanLen := len(gs.frameChan)
+			chanCap := cap(gs.frameChan)
+			logrus.Infof("🎬 macOS status: %d frames total | Dropped: %d | Channel: %d/%d | Size: %dx%d", frameNum, dropped, chanLen, chanCap, width, height)
+		}
+		gs.mutex.Unlock()
+
+		// Send frame to channel in NON-BLOCKING way
+		select {
+		case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
+			// Frame sent successfully
+			gs.recordIngressLatency(meta)
+		default:
+			// Channel full - return buffer to pool and drop frame (critical for realtime!)
+			framePoolPut(&gs.framePool, img)
 			gs.mutex.Lock()
-			gs.frameCount++
-			frameNum := gs.frameCount
-
-			if gs.lastFrameTime.IsZero() {
-				logrus.Infof("🎬 macOS: FIRST FRAME received (%dx%d)", width, height)
-			} else if now.Sub(gs.lastFrameTime) > 1*time.Second {
-				logrus.Infof("🎬 macOS: RESUMED after %.1fs gap", now.Sub(gs.lastFrameTime).Seconds())
-			}
-			gs.lastFrameTime = now
-
-			// Set isConnected = true upon first frame
-			if !firstFrameReceived {
-				gs.isConnected = true
-				firstFrameReceived = true
-				closeWaitDone()
-				logrus.Info("✅ [VIDEO] Step 6: First frame received! Connection established.")
-
-				// Call callback if present
-				stateCallback := gs.onStateChanged
-				if stateCallback != nil {
-					go stateCallback("connected")
-				}
-			}
-
-			// Log every 300th frame (~10 sec at 30fps)
-			if frameNum%300 == 0 || now.Sub(gs.lastFrameReport) > 10*time.Second {
-				gs.lastFrameReport = now
-				dropped := gs.framesDropped
-				chanLen := len(gs.frameChan)
-				chanCap := cap(gs.frameChan)
-				logrus.Infof("🎬 macOS status: %d frames total | Dropped: %d | Channel: %d/%d | Size: %dx%d", frameNum, dropped, chanLen, chanCap, width, height)
-			}
+			gs.framesDropped++
+			dropped := gs.framesDropped
 			gs.mutex.Unlock()
-
-			// Send frame to channel in NON-BLOCKING way
-			select {
-			case gs.frameChan <- videoFramePacket{img: img, meta: meta}:
-				// Frame sent successfully
-				gs.recordIngressLatency(meta)
-			default:
-				// Channel full - drop frame (critical for realtime!)
-				gs.mutex.Lock()
-				gs.framesDropped++
-				dropped := gs.framesDropped
-				gs.mutex.Unlock()
-				// Log every 30th dropped frame
-				if dropped%120 == 1 {
-					chanLen := len(gs.frameChan)
-					logrus.Debugf("⏭️ macOS GStreamer: dropped frame #%d (total dropped: %d, channel: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
-				}
+			// Log every 30th dropped frame
+			if dropped%120 == 1 {
+				chanLen := len(gs.frameChan)
+				logrus.Debugf("⏭️ macOS GStreamer: dropped frame #%d (total dropped: %d, channel: %d/%d)", frameNum, dropped, chanLen, cap(gs.frameChan))
 			}
 		}
 	}
@@ -829,17 +840,17 @@ func (gs *GStreamerService) readFrames() {
 // frameProcessor processes frames from channel and sends to UI
 func (gs *GStreamerService) frameProcessor() {
 	defer func() {
-		// Clear remaining frames from channel on finish
+		// Drain remaining frames from channel and return buffers to pool.
 		for {
 			select {
-			case _, ok := <-gs.frameChan:
+			case pkt, ok := <-gs.frameChan:
 				if !ok {
-					// Channel closed
 					goto cleanup
 				}
-				// Ignore remaining frames
+				if rgba, ok2 := pkt.img.(*image.RGBA); ok2 {
+					framePoolPut(&gs.framePool, rgba)
+				}
 			default:
-				// Channel empty
 				goto cleanup
 			}
 		}
@@ -884,6 +895,10 @@ func (gs *GStreamerService) frameProcessor() {
 
 				gs.recordUIDelay(time.Since(packet.meta.producedAt), packet.meta, "macOS")
 				callback(packet.img)
+			}
+			// Return buffer to pool after callback has copied the pixels.
+			if rgba, ok := packet.img.(*image.RGBA); ok {
+				framePoolPut(&gs.framePool, rgba)
 			}
 		}
 	}
