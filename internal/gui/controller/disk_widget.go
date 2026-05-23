@@ -1199,10 +1199,15 @@ func (dw *DiskWidget) pollMountStatus(mountingExportNames map[string]bool) {
 		dw.setButtonsEnabled(true) // разблокируем Mount после завершения монтирования
 	})
 
-	// Дополнительное обновление через 3 секунды, чтобы точно поймать все изменения статусов от сервера
+	// Агрессивное обновление серии запросов с интервалами, чтобы поймать статус максимально быстро
+	// как только сервер его отдаст, не дожидаясь 3 секунд.
 	go func() {
-		time.Sleep(3 * time.Second)
-		if dw.usbClient != nil {
+		delays := []time.Duration{500 * time.Millisecond, 1500 * time.Millisecond, 3000 * time.Millisecond}
+		for _, delay := range delays {
+			time.Sleep(delay)
+			if dw.usbClient == nil {
+				return
+			}
 			dw.loadMountedDevices()
 			dw.updateUIAsync(func() {
 				dw.lastDrivesTraceSig = ""

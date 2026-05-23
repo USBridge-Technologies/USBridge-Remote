@@ -611,6 +611,23 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
 	})
+
+	// Агрессивное обновление после размонтирования
+	go func() {
+		delays := []time.Duration{500 * time.Millisecond, 1500 * time.Millisecond, 3000 * time.Millisecond}
+		for _, delay := range delays {
+			time.Sleep(delay)
+			if dw.usbClient == nil {
+				return
+			}
+			dw.loadMountedDevices()
+			dw.updateUIAsync(func() {
+				dw.lastDrivesTraceSig = ""
+				dw.requestDevicesRefresh()
+			})
+		}
+	}()
+
 	if dw.updateStatus != nil {
 		dw.updateStatus()
 	}
