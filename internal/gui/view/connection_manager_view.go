@@ -2437,13 +2437,17 @@ type iconChromeButtonSpec struct {
 type iconChromeButton struct {
 	widget.BaseWidget
 
-	spec    iconChromeButtonSpec
-	hovered bool
-	bg      *canvas.Rectangle
-	border  *canvas.Rectangle
-	icon    *canvas.Image
-	label   *canvas.Text
-	text    string
+	spec        iconChromeButtonSpec
+	hovered     bool
+	loading     bool
+	bg          *canvas.Rectangle
+	border      *canvas.Rectangle
+	icon        *canvas.Image
+	label       *canvas.Text
+	text        string
+	spinnerMu   sync.Mutex
+	spinnerStop chan struct{}
+	spinnerStep int
 }
 
 func newIconChromeButton(spec iconChromeButtonSpec) *iconChromeButton {
@@ -2481,8 +2485,20 @@ func (b *iconChromeButton) MinSize() fyne.Size {
 	return fyne.NewSize(48, 48)
 }
 
+func (b *iconChromeButton) SetLoading(loading bool) {
+	b.loading = loading
+	if loading {
+		b.hovered = false
+	}
+	b.refreshVisuals()
+}
+
+func (b *iconChromeButton) StopAnimations() {
+	b.iconChromeStopSpinner()
+}
+
 func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
-	if b.spec.Disabled {
+	if b.spec.Disabled || b.loading {
 		return
 	}
 
@@ -2516,7 +2532,7 @@ func (b *iconChromeButton) SetText(text string) {
 }
 
 func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
-	if b.spec.Disabled {
+	if b.spec.Disabled || b.loading {
 		return
 	}
 
@@ -2545,7 +2561,13 @@ func (b *iconChromeButton) refreshVisuals() {
 	b.icon.Translucency = 0
 	b.label.Text = b.text
 	b.label.Color = design.ColorTextLight
-	if b.spec.Disabled {
+
+	switch {
+	case b.loading:
+		if len(assets.LoadingGrayFrames) > 0 {
+			b.icon.Resource = assets.LoadingGrayFrames[0]
+		}
+	case b.spec.Disabled:
 		if b.spec.DisabledFill != nil {
 			b.bg.FillColor = b.spec.DisabledFill
 		}
@@ -2554,11 +2576,17 @@ func (b *iconChromeButton) refreshVisuals() {
 		}
 		b.icon.Translucency = 0.18
 		b.label.Color = design.ColorTextMuted
-	} else if b.hovered {
+	case b.hovered:
 		b.bg.FillColor = b.spec.HoverFill
 		if b.spec.HoverIcon != nil {
 			b.icon.Resource = b.spec.HoverIcon
 		}
+	}
+
+	if b.loading {
+		b.iconChromeStartSpinner()
+	} else {
+		b.iconChromeStopSpinner()
 	}
 
 	if b.text != "" {
@@ -2573,6 +2601,57 @@ func (b *iconChromeButton) refreshVisuals() {
 	b.border.Refresh()
 	b.icon.Refresh()
 	b.label.Refresh()
+}
+
+func (b *iconChromeButton) iconChromeStartSpinner() {
+	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
+		return
+	}
+	b.iconChromeStopSpinner()
+	stop := make(chan struct{})
+	b.spinnerMu.Lock()
+	b.spinnerStop = stop
+	b.spinnerStep = 0
+	b.spinnerMu.Unlock()
+
+	b.icon.Resource = assets.LoadingGrayFrames[0]
+	b.icon.Refresh()
+
+	go func() {
+		ticker := time.NewTicker(140 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() {
+					b.spinnerMu.Lock()
+					active := b.spinnerStop == stop
+					if active {
+						b.spinnerStep = (b.spinnerStep + 1) % len(assets.LoadingGrayFrames)
+					}
+					step := b.spinnerStep
+					b.spinnerMu.Unlock()
+					if !active || b.icon == nil {
+						return
+					}
+					b.icon.Resource = assets.LoadingGrayFrames[step]
+					b.icon.Refresh()
+				})
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+func (b *iconChromeButton) iconChromeStopSpinner() {
+	b.spinnerMu.Lock()
+	stop := b.spinnerStop
+	b.spinnerStop = nil
+	b.spinnerMu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
 }
 
 func NewFooterIconButton(normalIcon fyne.Resource, hoverIcon fyne.Resource, iconSize fyne.Size, onTapped func()) fyne.CanvasObject {

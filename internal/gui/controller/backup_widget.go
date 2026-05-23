@@ -23,6 +23,7 @@ type BackupWidget struct {
 	currentFlashConnected bool                 // Подключена ли бэкап-флешка (mtp:data)
 	loadingCurrentFlash   atomic.Bool
 	loadingSnapshots      atomic.Bool
+	isMounting            atomic.Bool
 	usbClient             *api.USBClient
 	hostEntry             *widget.Entry
 	updateStatus          func() // Callback для обновления статуса

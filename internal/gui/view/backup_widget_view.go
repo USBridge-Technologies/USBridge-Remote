@@ -33,6 +33,7 @@ type BackupListRowSpec struct {
 	ActionIconDim fyne.Resource
 	ActionTapped  func()
 	ActionEnabled bool
+	ActionLoading bool
 }
 
 type backupRowTextLayout struct {
@@ -129,10 +130,9 @@ func NewBackupListRow(spec BackupListRowSpec) fyne.CanvasObject {
 			ButtonSize:   fyne.NewSize(deviceControlUnitWidth, deviceControlHeight),
 			OnTapped:     spec.ActionTapped,
 		})
-		if spec.ActionEnabled {
-			actionBtn.SetDisabled(false)
-		} else {
-			actionBtn.SetDisabled(true)
+		actionBtn.SetDisabled(!spec.ActionEnabled)
+		if spec.ActionLoading {
+			actionBtn.SetLoading(true)
 		}
 		controls = append(controls, actionBtn)
 	}

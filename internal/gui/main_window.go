@@ -132,6 +132,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
+	mw.backupWidget.SetWindow(w)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
 
 	// Initialize connection manager
