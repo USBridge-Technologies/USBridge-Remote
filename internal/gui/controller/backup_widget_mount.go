@@ -58,7 +58,7 @@ func (l *snapshotInfoButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Si
 	return fyne.NewSize(leftMin.Width+rightMin.Width+l.gap, height)
 }
 
-func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStartBatchRequest {
+func (bw *BackupWidget) buildBaseDeviceBatch() []models.DeviceStartRequest {
 	var requests []models.DeviceStartRequest
 	addedKeyboard, addedMouse, addedRndis := false, false, false
 
@@ -73,14 +73,7 @@ func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStart
 			case device.Type == "mtp" && strings.Contains(device.Name, "data") && !strings.Contains(device.ProductName, "snapshot"):
 				continue
 			case (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) && !addedKeyboard:
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "keyboard",
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Keyboard",
-					Manufacturer: "USBridge",
-					KeyboardMode: true,
-				})
+				requests = append(requests, newKeyboardStartRequest())
 				addedKeyboard = true
 			case isMouseDeviceType(device.Type) && !addedMouse:
 				mouseType := mouseModeFromDeviceType(device.Type)
@@ -91,14 +84,7 @@ func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStart
 				if strings.HasPrefix(device.Type, "rndis:") {
 					rndisMode = strings.TrimPrefix(device.Type, "rndis:")
 				}
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "rndis",
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge RNDIS",
-					Manufacturer: "USBridge",
-					RNDISMode:    normalizeRNDISMode(rndisMode),
-				})
+				requests = append(requests, newRNDISStartRequest(rndisMode))
 				addedRndis = true
 			case device.Type == "local" && !strings.Contains(device.Name, "data"):
 				requests = append(requests, models.DeviceStartRequest{
@@ -113,8 +99,11 @@ func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStart
 			}
 		}
 	}
+	return requests
+}
 
-	return models.DeviceStartBatchRequest(requests)
+func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStartBatchRequest {
+	return models.DeviceStartBatchRequest(bw.buildBaseDeviceBatch())
 }
 
 // canConnectBackupOrSnapshot проверяет, можно ли подключить бэкап или снапшот.
@@ -145,58 +134,7 @@ func (bw *BackupWidget) canConnectBackupOrSnapshot() (bool, string) {
 
 // buildDeviceBatchWithMTP собирает batch-запрос с сохранением подключённых устройств и заменой MTP.
 func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string) models.DeviceStartBatchRequest {
-	var requests []models.DeviceStartRequest
-	addedKeyboard, addedMouse, addedRndis := false, false, false
-
-	deviceInfo, err := bw.usbClient.GetDeviceInfo()
-	if err == nil {
-		for _, device := range deviceInfo.Devices {
-			if device.Status != "connected" {
-				continue
-			}
-
-			switch {
-			case (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) && !addedKeyboard:
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "keyboard",
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Keyboard",
-					Manufacturer: "USBridge",
-					KeyboardMode: true,
-				})
-				addedKeyboard = true
-			case isMouseDeviceType(device.Type) && !addedMouse:
-				mouseType := mouseModeFromDeviceType(device.Type)
-				requests = append(requests, newMouseStartRequest(mouseType))
-				addedMouse = true
-			case (device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:")) && !addedRndis:
-				rndisMode := "auto"
-				if strings.HasPrefix(device.Type, "rndis:") {
-					rndisMode = strings.TrimPrefix(device.Type, "rndis:")
-				}
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "rndis",
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge RNDIS",
-					Manufacturer: "USBridge",
-					RNDISMode:    normalizeRNDISMode(rndisMode),
-				})
-				addedRndis = true
-			case device.Type == "local" && !strings.Contains(device.Name, "data"):
-				requests = append(requests, models.DeviceStartRequest{
-					Device:       "drive",
-					Server:       device.Name,
-					ReadOnly:     true,
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Local CD-ROM",
-					Manufacturer: "USBridge",
-				})
-			}
-		}
-	}
+	requests := bw.buildBaseDeviceBatch()
 
 	requests = append(requests, models.DeviceStartRequest{
 		Device:       "mtp",
@@ -229,19 +167,22 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 		return
 	}
 
-	if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
-		logrus.Warnf("⚠️ Нельзя подключить бэкап-флешку: %s", msg)
-		bw.updateStatusAsync(msg)
-		if bw.window != nil {
-			dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
-		}
-		return
-	}
-
-	logrus.Infof("🔧 Монтирование актуальной флешки: %s", bw.currentFlash.Name)
-	bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingFlash, bw.currentFlash.Name))
+	logrus.Infof("🔧 Инициировано монтирование актуальной флешки: %s", bw.currentFlash.Name)
 
 	go func() {
+		if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
+			logrus.Warnf("⚠️ Нельзя подключить бэкап-флешку: %s", msg)
+			bw.updateStatusAsync(msg)
+			if bw.window != nil {
+				bw.updateUIAsync(func() {
+					dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
+				})
+			}
+			return
+		}
+
+		bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingFlash, bw.currentFlash.Name))
+
 		batchRequest := bw.buildDeviceBatchWithMTP("data", "BackupDrive")
 		logrus.Infof("🚀 Запуск монтирования актуальной флешки как MTP: %s (с сохранением остальных устройств)", bw.currentFlash.Name)
 
@@ -273,19 +214,22 @@ func (bw *BackupWidget) handleMountSnapshot(id widget.ListItemID, snapshot *mode
 		return
 	}
 
-	if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
-		logrus.Warnf("⚠️ Нельзя подключить снапшот: %s", msg)
-		bw.updateStatusAsync(msg)
-		if bw.window != nil {
-			dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
-		}
-		return
-	}
-
-	logrus.Infof("🔧 Монтирование снапшота: %s", snapshot.Name)
-	bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingSnapshot, snapshot.Name))
+	logrus.Infof("🔧 Инициировано монтирование снапшота: %s", snapshot.Name)
 
 	go func() {
+		if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
+			logrus.Warnf("⚠️ Нельзя подключить снапшот: %s", msg)
+			bw.updateStatusAsync(msg)
+			if bw.window != nil {
+				bw.updateUIAsync(func() {
+					dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
+				})
+			}
+			return
+		}
+
+		bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingSnapshot, snapshot.Name))
+
 		batchRequest := bw.buildDeviceBatchWithMTP(snapshot.Name, snapshot.Name)
 		logrus.Infof("🚀 Запуск монтирования снапшота как MTP: %s (с сохранением остальных устройств)", snapshot.Name)
 

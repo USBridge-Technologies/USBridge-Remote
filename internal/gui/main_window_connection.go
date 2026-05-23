@@ -912,7 +912,9 @@ func (mw *MainWindow) handleDisconnect() {
 
 		if client != nil {
 			logrus.Info("🛑 [shutdown] Stopping remote devices...")
-			_ = client.StopAllDevices()
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = client.StopAllDevicesWithContext(cleanupCtx)
+			cancel()
 			client.Disconnect()
 		}
 

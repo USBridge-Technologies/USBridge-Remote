@@ -90,7 +90,6 @@ type USBClient struct {
 
 type keyboardRequestTask struct {
 	request models.KeyboardRequest
-	result  chan error
 }
 
 // NewUSBClient creates a new USB client
@@ -253,9 +252,13 @@ func (c *USBClient) StopDevice(deviceID int) error {
 
 // StopAllDevices stops all devices (new API)
 func (c *USBClient) StopAllDevices() error {
+	return c.StopAllDevicesWithContext(context.Background())
+}
+
+func (c *USBClient) StopAllDevicesWithContext(ctx context.Context) error {
 	logrus.Infof("🛑 Stopping all devices")
 
-	resp, err := c.makeRequest("POST", "/api/device/stop", nil)
+	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/device/stop", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -632,20 +635,25 @@ func (c *USBClient) SendText(text string) error {
 // sendKeyboardRequest sends keyboard request
 func (c *USBClient) sendKeyboardRequest(request models.KeyboardRequest) error {
 	if c.keyboardQueue == nil {
-		return c.doSendKeyboardRequest(request)
+		go c.doSendKeyboardRequest(request)
+		return nil
 	}
 
-	result := make(chan error, 1)
-	c.keyboardQueue <- keyboardRequestTask{
-		request: request,
-		result:  result,
+	select {
+	case c.keyboardQueue <- keyboardRequestTask{request: request}:
+		// Successfully queued
+	default:
+		logrus.Warn("⌨️ Keyboard queue is full, dropping key request")
 	}
-	return <-result
+	return nil
 }
 
 func (c *USBClient) runKeyboardWorker() {
 	for task := range c.keyboardQueue {
-		task.result <- c.doSendKeyboardRequest(task.request)
+		err := c.doSendKeyboardRequest(task.request)
+		if err != nil {
+			logrus.Errorf("⌨️ Failed to send key: %v", err)
+		}
 	}
 }
 
@@ -1358,6 +1366,10 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 
 // makeRequestWithAcceptStatuses makes HTTP request, accepting specified status codes as success
 func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body []byte, acceptStatuses []int) ([]byte, int, error) {
+	return c.makeRequestWithAcceptStatusesWithContext(context.Background(), method, endpoint, body, acceptStatuses)
+}
+
+func (c *USBClient) makeRequestWithAcceptStatusesWithContext(ctx context.Context, method, endpoint string, body []byte, acceptStatuses []int) ([]byte, int, error) {
 	url := c.baseURL + endpoint
 
 	var bodyReader io.Reader
@@ -1365,7 +1377,7 @@ func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body 
 		bodyReader = bytes.NewReader(body)
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, 0, fmt.Errorf("request creation failed: %v", err)
 	}
