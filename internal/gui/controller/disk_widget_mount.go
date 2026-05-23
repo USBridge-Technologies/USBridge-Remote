@@ -407,6 +407,8 @@ func (dw *DiskWidget) handleMount() {
 			}
 		}
 
+		reEnableButtons = false
+
 		// Поскольку StartDevicesBatch теперь синхронно дожидается завершения (до 30 сек),
 		// мы сразу обновляем UI после возврата, pollMountStatus больше не нужен.
 		dw.updateUIAsync(func() {
