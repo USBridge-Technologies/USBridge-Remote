@@ -407,6 +407,48 @@ func (dw *DiskWidget) combineDrives() {
 		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
 }
 
+// refreshDataSync синхронно загружает все данные об устройствах.
+// Должен вызываться из горутины.
+func (dw *DiskWidget) refreshDataSync() {
+	if dw.usbClient == nil {
+		return
+	}
+
+	// 1. Загружаем смонтированные устройства
+	deviceInfo, err := dw.usbClient.GetDeviceInfo()
+	if err == nil {
+		dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
+		for i := range deviceInfo.Devices {
+			dw.mountedDevices[i] = &deviceInfo.Devices[i]
+		}
+		dw.agentOS = deviceInfo.AgentOS
+	} else {
+		logrus.Errorf("refreshDataSync: GetDeviceInfo error: %v", err)
+	}
+
+	// 2. Загружаем локальные устройства API
+	localDrives, err := dw.usbClient.GetLocalDrives()
+	if err == nil {
+		dw.localDrives = make([]*models.LocalDrive, len(localDrives.Drives))
+		for i := range localDrives.Drives {
+			dw.localDrives[i] = &localDrives.Drives[i]
+		}
+	}
+
+	// 3. Обновляем статус
+	dw.updateDevicesStatus()
+
+	// 4. Обновляем UI
+	dw.updateUIAsync(func() {
+		if deviceInfo != nil {
+			dw.setAPIMountInProgress(deviceInfo.MountInProgress)
+		}
+		// Сбрасываем сигнатуру чтобы форсировать обновление списка
+		dw.lastDrivesTraceSig = ""
+		dw.requestDevicesRefresh()
+	})
+}
+
 // loadMountedDevices загружает смонтированные устройства через API
 func (dw *DiskWidget) loadMountedDevices() {
 	if !dw.loadingMountedInfo.CompareAndSwap(false, true) {
