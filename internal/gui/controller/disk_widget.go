@@ -1191,9 +1191,25 @@ func (dw *DiskWidget) pollMountStatus(mountingExportNames map[string]bool) {
 		dw.loadMountedDevices()
 		dw.loadLocalDrives()
 		dw.updateStatus()
+		
+		// Сбрасываем сигнатуру чтобы форсировать обновление UI
+		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
+		
 		dw.setButtonsEnabled(true) // разблокируем Mount после завершения монтирования
 	})
+
+	// Дополнительное обновление через 3 секунды, чтобы точно поймать все изменения статусов от сервера
+	go func() {
+		time.Sleep(3 * time.Second)
+		if dw.usbClient != nil {
+			dw.loadMountedDevices()
+			dw.updateUIAsync(func() {
+				dw.lastDrivesTraceSig = ""
+				dw.requestDevicesRefresh()
+			})
+		}
+	}()
 }
 
 // updateUIAsync безопасно обновляет UI из горутины

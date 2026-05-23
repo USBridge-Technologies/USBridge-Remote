@@ -606,6 +606,9 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		dw.updateButtons()
 		dw.loadMountedDevices()
 		dw.loadLocalDrives()
+		
+		// Сбрасываем сигнатуру чтобы форсировать обновление UI
+		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
 	})
 	if dw.updateStatus != nil {
