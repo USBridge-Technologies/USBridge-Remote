@@ -258,16 +258,20 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 
 	if statusCode == http.StatusAccepted {
 		logrus.Infof("⏳ [API-START-DEVICES] 202 Accepted: mounting in background, waiting up to 30s...")
-		
-		// 30 секунд поллинга, как описано в документации
+
 		for i := 0; i < 30; i++ {
 			time.Sleep(1 * time.Second)
-			info, pollErr := c.GetDeviceInfo()
+			
+			// Поллинг статуса с коротким таймаутом
+			pollCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			info, pollErr := c.GetDeviceInfoWithContext(pollCtx)
+			cancel()
+			
 			if pollErr != nil {
-				logrus.Warnf("⚠️ [API-START-DEVICES] Error polling device info: %v", pollErr)
+				logrus.Warnf("⚠️ [API-START-DEVICES] Error polling device info (attempt %d): %v", i+1, pollErr)
 				continue
 			}
-			
+
 			if !info.MountInProgress {
 				if info.LastMountError != "" {
 					logrus.Errorf("❌ [API-START-DEVICES] Mount error: %s", info.LastMountError)
@@ -291,7 +295,9 @@ func (c *USBClient) StopDevice(deviceID int) error {
 
 // StopAllDevices stops all devices (new API)
 func (c *USBClient) StopAllDevices() error {
-	return c.StopAllDevicesWithContext(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return c.StopAllDevicesWithContext(ctx)
 }
 
 func (c *USBClient) StopAllDevicesWithContext(ctx context.Context) error {
@@ -299,6 +305,7 @@ func (c *USBClient) StopAllDevicesWithContext(ctx context.Context) error {
 
 	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/device/stop", nil, nil)
 	if err != nil {
+		logrus.Errorf("❌ [API-STOP] Request failed: %v", err)
 		return err
 	}
 
@@ -317,7 +324,11 @@ func (c *USBClient) StopAllDevicesWithContext(ctx context.Context) error {
 
 // GetDeviceInfo gets device information (new API)
 func (c *USBClient) GetDeviceInfo() (*models.DeviceInfoResponse, error) {
-	resp, err := c.makeRequest("GET", "/api/device/info", nil)
+	return c.GetDeviceInfoWithContext(context.Background())
+}
+
+func (c *USBClient) GetDeviceInfoWithContext(ctx context.Context) (*models.DeviceInfoResponse, error) {
+	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/device/info", nil, nil)
 	if err != nil {
 		return nil, err
 	}

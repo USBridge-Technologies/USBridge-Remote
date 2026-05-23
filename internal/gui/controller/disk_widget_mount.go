@@ -360,7 +360,9 @@ func (dw *DiskWidget) handleMount() {
 		dw.updateUIAsync(func() {
 			dw.setMountingStateByExportNames(mountingExportNames, true)
 			dw.setAPIMountInProgress(true)
+			dw.selectedItemsMu.Lock()
 			dw.selectedItems = make(map[int]bool)
+			dw.selectedItemsMu.Unlock()
 			dw.requestDevicesRefresh()
 		})
 
@@ -419,16 +421,8 @@ func (dw *DiskWidget) handleMount() {
 			dw.setButtonsEnabled(true) // разблокируем Mount после завершения монтирования
 		})
 
-		// Агрессивный цикл обновления после завершения монтирования (5 раз каждые 1 сек)
-		go func() {
-			for i := 0; i < 5; i++ {
-				if dw.usbClient == nil {
-					return
-				}
-				dw.refreshDataSync()
-				time.Sleep(1 * time.Second)
-			}
-		}()
+		// Сразу обновляем данные один раз после завершения
+		dw.refreshDataSync()
 
 		logrus.Infof("✅ Запрос на монтирование gadget=%d выполнен", len(deviceRequests))
 	}()
@@ -519,6 +513,21 @@ func (dw *DiskWidget) handleUnmount() {
 
 // doUnmount выполняет размонтирование.
 func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, mountedDrives []DriveItem, mountedIndices []int) {
+	// Снимаем выделение сразу для визуального отклика
+	dw.updateUIAsync(func() {
+		dw.selectedItemsMu.Lock()
+		if unmountAll {
+			dw.selectedItems = make(map[int]bool)
+		} else {
+			for idx := range selectedIndices {
+				delete(dw.selectedItems, idx)
+			}
+		}
+		dw.selectedItemsMu.Unlock()
+		dw.updateButtons()
+		dw.requestDevicesRefresh()
+	})
+
 	defer func() {
 		dw.updateUIAsync(func() {
 			dw.setUserOperationInFlight(false)
@@ -618,34 +627,20 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		}
 	}
 
-	time.Sleep(2 * time.Second)
-	dw.updateUIAsync(func() {
-		dw.selectedItemsMu.Lock()
-		if unmountAll {
-			dw.selectedItems = make(map[int]bool)
-		} else {
-			for idx := range selectedIndices {
-				delete(dw.selectedItems, idx)
-			}
-		}
-		dw.selectedItemsMu.Unlock()
-		dw.updateButtons()
+	logrus.Infof("⏳ [UNMOUNT] Waiting for operation to complete...")
+	
+	// Ожидание здесь больше не нужно, так как StartDevicesBatch сам ждёт завершения на сервере.
+	// Оставляем маленькую паузу только для плавности UI, если нужно.
+	time.Sleep(200 * time.Millisecond)
 
+	dw.updateUIAsync(func() {
 		// Сбрасываем сигнатуру чтобы форсировать обновление UI
 		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
 	})
 
-	// Агрессивный цикл обновления после размонтирования (5 раз каждые 1 сек)
-	go func() {
-		for i := 0; i < 5; i++ {
-			if dw.usbClient == nil {
-				return
-			}
-			dw.refreshDataSync()
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	// Сразу обновляем данные один раз после завершения
+	dw.refreshDataSync()
 
 	if dw.updateStatus != nil {
 		dw.updateStatus()
@@ -1008,15 +1003,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			})
 		}
 
-		// Агрессивный цикл обновления после переконфигурации (5 раз каждые 1 сек)
-		go func() {
-			for i := 0; i < 5; i++ {
-				if dw.usbClient == nil {
-					return
-				}
-				dw.refreshDataSync()
-				time.Sleep(1 * time.Second)
-			}
-		}()
+		// Сразу обновляем данные один раз после завершения
+		dw.refreshDataSync()
 	}()
 }

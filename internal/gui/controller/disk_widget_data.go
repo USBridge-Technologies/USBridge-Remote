@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
@@ -414,8 +416,11 @@ func (dw *DiskWidget) refreshDataSync() {
 		return
 	}
 
-	// 1. Загружаем смонтированные устройства
-	deviceInfo, err := dw.usbClient.GetDeviceInfo()
+	// 1. Загружаем смонтированные устройства с таймаутом
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
+	deviceInfo, err := dw.usbClient.GetDeviceInfoWithContext(ctx)
 	if err == nil {
 		dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
 		for i := range deviceInfo.Devices {
@@ -442,7 +447,11 @@ func (dw *DiskWidget) refreshDataSync() {
 	dw.updateUIAsync(func() {
 		if deviceInfo != nil {
 			dw.setAPIMountInProgress(deviceInfo.MountInProgress)
+		} else {
+			// Если произошла ошибка, сбрасываем флаг монтирования, чтобы не лочить UI вечно
+			dw.setAPIMountInProgress(false)
 		}
+		dw.updateButtons()
 		// Сбрасываем сигнатуру чтобы форсировать обновление списка
 		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
