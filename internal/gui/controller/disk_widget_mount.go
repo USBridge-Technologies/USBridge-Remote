@@ -18,14 +18,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// startDevicesWithRetry выполняет StartDevicesBatch с 3 попытками и паузой 3 с между ними.
-func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatchRequest) (*models.APIResponse, error) {
+// startDevicesWithRetry выполняет StartDevicesBatchWithMerge с 3 попытками и паузой 3 с между ними.
+func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatchRequest, merge bool) (*models.APIResponse, error) {
 	const maxAttempts = 3
 	const retryDelay = 3 * time.Second
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		resp, err := dw.usbClient.StartDevicesBatch(batchRequest)
+		resp, err := dw.usbClient.StartDevicesBatchWithMerge(batchRequest, merge)
 		if err == nil {
 			if attempt > 1 {
 				logrus.Infof("✅ [MOUNT-API-RETRY] Попытка %d/%d успешна", attempt, maxAttempts)
@@ -159,15 +159,6 @@ func (dw *DiskWidget) handleMount() {
 
 		var deviceRequests []models.DeviceStartRequest
 		startedMouseMode := ""
-
-		for _, mountedDrive := range mountedDrives {
-			req, err := dw.buildDeviceRequestForDrive(mountedDrive, true)
-			if err != nil {
-				logrus.Warnf("⚠️ Не удалось построить запрос для подключённого %s: %v", mountedDrive.Name, err)
-				continue
-			}
-			deviceRequests = append(deviceRequests, *req)
-		}
 
 		for _, selectedDrive := range selectedDrives {
 			var deviceRequest *models.DeviceStartRequest
@@ -375,12 +366,12 @@ func (dw *DiskWidget) handleMount() {
 
 		if len(deviceRequests) > 0 {
 			dw.updateStatusAsync("Запуск устройств...")
-			logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств, отправляем запрос /api/device/start", len(deviceRequests))
+			logrus.Infof("🚀 [MOUNT-API-1] Запуск %d устройств (Merge), отправляем запрос /api/device/start", len(deviceRequests))
 			for i, req := range deviceRequests {
 				logrus.Infof("   📤 [MOUNT-API-1] Устройство %d: device=%s, server=%s, port=%d, export_name=%s, read_only=%v", i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
 			}
 
-			deviceResp, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest)
+			deviceResp, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, batchRequest, true)
 			if err != nil {
 				logrus.Errorf("❌ [MOUNT-API-ERROR] Ошибка запуска устройств: %v", err)
 				dw.updateUIAsync(func() {
@@ -538,7 +529,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			dw.onVideoDisconnect()
 		}
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-		if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, nil); err != nil {
+		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
 		} else {
 			logrus.Infof("✅ Все устройства остановлены")
@@ -572,7 +563,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 
 		if len(keepIndices) == 0 {
 			dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-			if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, nil); err != nil {
+			if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 				logrus.Warnf("⚠️ Ошибка остановки устройств: %v", err)
 			}
 			dw.stopNBDAndCleanup(drivesToUnmount, true)
@@ -612,7 +603,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 				})
 				
 				dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
-				if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, batchRequest); err != nil {
+				if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, batchRequest, false); err != nil {
 					logrus.Warnf("⚠️ Ошибка переподключения устройств: %v", err)
 				}
 				
@@ -987,7 +978,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 
 		dw.updateStatusAsync("Reconfiguring USB gadget...")
-		if _, err := rebuildUSBGadgetDevices(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests)); err != nil {
+		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), false); err != nil {
 			dw.showErrorAsync(fmt.Errorf("failed to reconfigure mouse mode: %w", err))
 			if hasStorageRequests {
 				dw.updateUIAsync(func() {

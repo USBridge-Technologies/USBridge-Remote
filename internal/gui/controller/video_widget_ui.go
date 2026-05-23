@@ -396,7 +396,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	}
 
 	logrus.Infof("⌨️🖱️ Control HID auto-connect: starting %d missing HID device(s)", len(requests))
-	if _, err := rebuildUSBGadgetDevices(vw.usbClient, vw.usbClient.StartDevicesBatch, requests); err != nil {
+	if _, err := executeDeviceBatch(vw.usbClient, vw.usbClient.StartDevicesBatchWithMerge, requests, true); err != nil {
 		return fmt.Errorf("failed to auto-connect HID devices: %w", err)
 	}
 

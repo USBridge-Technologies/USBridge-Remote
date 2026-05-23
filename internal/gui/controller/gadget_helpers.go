@@ -58,20 +58,26 @@ func newRNDISStartRequest(mode string) models.DeviceStartRequest {
 	}
 }
 
-func rebuildUSBGadgetDevices(
+func executeDeviceBatch(
 	usbClient *api.USBClient,
-	startBatch func(models.DeviceStartBatchRequest) (*models.APIResponse, error),
+	startBatch func(models.DeviceStartBatchRequest, bool) (*models.APIResponse, error),
 	requests models.DeviceStartBatchRequest,
+	merge bool,
 ) (*models.APIResponse, error) {
 	if usbClient == nil {
 		return nil, fmt.Errorf("usb client is not initialized")
 	}
 
-	logrus.Infof("♻️ [GADGET] Rebuilding USB gadget with %d device(s) (Full Replace)", len(requests))
+	modeStr := "Full Replace"
+	if merge {
+		modeStr = "Merge"
+	}
 
-	if len(requests) == 0 {
-		// Если список пуст, мы должны просто остановить все устройства
-		logrus.Infof("🛑 [GADGET] Stopping all devices since request list is empty")
+	logrus.Infof("♻️ [GADGET] Executing USB gadget batch with %d device(s) (%s)", len(requests), modeStr)
+
+	if len(requests) == 0 && !merge {
+		// Если список пуст и это Full Replace, мы должны просто остановить все устройства
+		logrus.Infof("🛑 [GADGET] Stopping all devices since request list is empty and mode is Full Replace")
 		err := usbClient.StopAllDevices()
 		if err != nil {
 			return nil, err
@@ -79,7 +85,7 @@ func rebuildUSBGadgetDevices(
 		return &models.APIResponse{Success: true, Message: "All devices stopped"}, nil
 	}
 
-	return startBatch(requests)
+	return startBatch(requests, merge)
 }
 
 func driveSelectionKey(drive DriveItem) string {

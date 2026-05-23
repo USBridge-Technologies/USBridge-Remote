@@ -191,15 +191,35 @@ func (c *USBClient) StartDevice(request *models.DeviceStartRequest) (*models.API
 	return c.StartDevicesBatch(batchRequest)
 }
 
-// StartDevicesBatch starts multiple devices via DeviceRequest array
+// StartDevicesBatch starts multiple devices via DeviceRequest array (Full Replace)
 func (c *USBClient) StartDevicesBatch(requests models.DeviceStartBatchRequest) (*models.APIResponse, error) {
-	requestJSON, err := json.Marshal(requests)
+	return c.StartDevicesBatchWithMerge(requests, false)
+}
+
+// StartDevicesBatchWithMerge starts multiple devices and optionally merges with currently connected ones
+func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchRequest, merge bool) (*models.APIResponse, error) {
+	var payload interface{}
+	if merge {
+		payload = map[string]interface{}{
+			"merge":   true,
+			"devices": requests,
+		}
+	} else {
+		// Для обратной совместимости или если merge=false, можно отправить либо объект, либо массив.
+		// Новое API поддерживает объект с merge: false
+		payload = map[string]interface{}{
+			"merge":   false,
+			"devices": requests,
+		}
+	}
+
+	requestJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	url := c.baseURL + "/api/device/start"
-	logrus.Infof("🚀 [API-START-DEVICES] POST %s", url)
+	logrus.Infof("🚀 [API-START-DEVICES] POST %s (merge=%v)", url, merge)
 	logrus.Infof("   📤 [API-START-DEVICES] Request body (JSON): %s", string(requestJSON))
 	for i, req := range requests {
 		logrus.Infof("   📤 [API-START-DEVICES] Device %d: device=%s", i+1, req.Device)
