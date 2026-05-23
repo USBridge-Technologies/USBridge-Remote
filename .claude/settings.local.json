@@ -13,7 +13,15 @@
       "Bash(git push *)",
       "Bash(git checkout *)",
       "Bash(grep -E \"\\\\.\\(dart|yaml\\)$\")",
-      "Bash(grep -rn \"VirtualKeyboard\\\\|virtualKeyboard\\\\|NewVirtualKeyboard\\\\|keyboard\" /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen_dialog*.go)"
+      "Bash(grep -rn \"VirtualKeyboard\\\\|virtualKeyboard\\\\|NewVirtualKeyboard\\\\|keyboard\" /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/fullscreen_dialog*.go)",
+      "Bash(./scripts/build_android.sh *)",
+      "Bash(/home/amir/go/bin/gomobile version *)",
+      "Bash(/home/amir/go/bin/gobind -version)",
+      "Bash(go get *)",
+      "Bash(ANDROID_HOME=/home/amir/Android/Sdk ANDROID_NDK_HOME=/home/amir/Android/Sdk/ndk/30.0.14904198 /home/amir/go/bin/gomobile bind *)",
+      "Bash(ANDROID_HOME=/home/amir/Android/Sdk ANDROID_NDK_HOME=/home/amir/Android/Sdk/ndk/30.0.14904198 /home/amir/go/bin/gomobile init *)",
+      "Bash(go env *)",
+      "Bash(go version *)"
     ]
   }
 }
