@@ -413,11 +413,16 @@ func (gs *GStreamerService) ConnectToUDP(udpPort int) error {
 	gs.manualDisconnect = false
 	gs.lastFrameTime = time.Time{}
 
-	// Signal stop and wait for goroutines to finish
+	// Signal stop and wait for goroutines to finish (3-second timeout guards against stuck goroutines)
 	if gs.stop != nil {
 		gs.stop.signal()
 	}
+	deadline := time.Now().Add(3 * time.Second)
 	for gs.frameProcessorRunning || gs.frameReaderRunning || gs.monitorRunning {
+		if time.Now().After(deadline) {
+			logrus.Warn("⚠️ macOS: ConnectToUDP: goroutines did not exit within 3s, proceeding anyway")
+			break
+		}
 		gs.mutex.Unlock()
 		time.Sleep(50 * time.Millisecond)
 		gs.mutex.Lock()
@@ -470,7 +475,12 @@ func (gs *GStreamerService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	if gs.stop != nil {
 		gs.stop.signal()
 	}
+	deadline := time.Now().Add(3 * time.Second)
 	for gs.frameProcessorRunning || gs.frameReaderRunning || gs.monitorRunning {
+		if time.Now().After(deadline) {
+			logrus.Warn("⚠️ macOS: ConnectToUDPViaPipe: goroutines did not exit within 3s, proceeding anyway")
+			break
+		}
 		gs.mutex.Unlock()
 		time.Sleep(50 * time.Millisecond)
 		gs.mutex.Lock()
@@ -967,9 +977,15 @@ func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
 	if !gs.isConnected && !gs.isConnecting {
-		gs.mutex.Unlock()
-		logrus.Info("🔌 macOS: Disconnect: already disconnected")
-		return nil
+		goroutinesRunning := gs.frameProcessorRunning || gs.frameReaderRunning || gs.monitorRunning
+		if !goroutinesRunning {
+			gs.mutex.Unlock()
+			logrus.Info("🔌 macOS: Disconnect: already disconnected")
+			return nil
+		}
+		// Pipeline goroutines are still alive (process was started but first frame never arrived).
+		// Fall through to kill the process so they unblock from io.ReadFull / cmd.Wait.
+		logrus.Warn("⚠️ macOS: Disconnect: not marked connected but goroutines still running, forcing cleanup")
 	}
 
 	logrus.Info("🔌 macOS: Disconnecting from RTP/UDP stream...")
