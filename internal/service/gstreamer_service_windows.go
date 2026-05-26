@@ -134,8 +134,13 @@ func (gs *GStreamerService) ConnectToRTP() error {
 		}
 	}
 
-	// Wait for goroutines to stop if they are still running
+	// Wait for goroutines to stop (3-second timeout guards against stuck goroutines)
+	deadline := time.Now().Add(3 * time.Second)
 	for gs.frameProcessorRunning || gs.monitorRunning {
+		if time.Now().After(deadline) {
+			logrus.Warn("⚠️ [Windows] ConnectToRTP: goroutines did not exit within 3s, proceeding anyway")
+			break
+		}
 		gs.mutex.Unlock()
 		time.Sleep(50 * time.Millisecond)
 		gs.mutex.Lock()
@@ -849,9 +854,13 @@ func (gs *GStreamerService) Disconnect() error {
 	gs.mutex.Lock()
 
 	if !gs.isConnected && !gs.isConnecting {
-		gs.mutex.Unlock()
-		logrus.Info("🔌 [Windows] Disconnect: already disconnected")
-		return nil
+		goroutinesRunning := gs.frameProcessorRunning || gs.monitorRunning
+		if !goroutinesRunning {
+			gs.mutex.Unlock()
+			logrus.Info("🔌 [Windows] Disconnect: already disconnected")
+			return nil
+		}
+		logrus.Warn("⚠️ [Windows] Disconnect: not marked connected but goroutines still running, forcing cleanup")
 	}
 
 	logrus.Info("🔌 [Windows] Disconnecting from RTP/UDP stream...")

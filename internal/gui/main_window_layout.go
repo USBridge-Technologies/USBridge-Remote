@@ -82,7 +82,7 @@ func (t *tabsTheme) Size(name fyne.ThemeSizeName) float32 {
 	return t.base.Size(name)
 }
 
-// createInterface инициализирует поля адресной строки.
+// createInterface initializes the address bar fields.
 func (mw *MainWindow) createInterface() {
 	mw.hostEntry = widget.NewEntry()
 	mw.hostEntry.SetPlaceHolder(i18n.Current.ServerAddress)
@@ -213,12 +213,12 @@ func (mw *MainWindow) refreshConnectionControls() {
 	}
 }
 
-// setDefaultValues устанавливает начальные значения для полей.
+// setDefaultValues sets initial values for fields.
 func (mw *MainWindow) setDefaultValues() {
 	mw.restoreConnectionDraft()
 }
 
-// recreateContainers пересоздает контейнеры с менеджером подключений.
+// recreateContainers recreates containers with the connection manager.
 func (mw *MainWindow) recreateContainers() {
 	storageUpdate := func(usedPct float64, available, total int64) {
 		fyne.Do(func() {
@@ -346,7 +346,7 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 	_ = activeIndex
 }
 
-// createAddressBar создает адресную строку.
+// createConnectionAddressBar creates the connection address bar.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	var langBtn *headerStatusBadgeButton
 	langBtn = newHeaderStatusBadgeButton(assets.LanguageIconActive, func() {
@@ -374,6 +374,7 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	return view.NewHeaderBand("", row)
 }
 
+// createMainAddressBar creates the main address bar.
 func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	if mw.pcpanelWidget == nil {
 		mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
@@ -941,7 +942,7 @@ func hasVisibleContent(obj fyne.CanvasObject) bool {
 	return true
 }
 
-// createStatusBar создает строку состояния.
+// createStatusBar creates the status bar.
 func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.connectionIcon = widget.NewButton("🔌", func() {})
 	mw.connectionIcon.Importance = widget.LowImportance
@@ -1045,7 +1046,7 @@ func buildHeaderStatusIndicators(backupIndicator, captureButton, keyboardButton,
 	}
 }
 
-// updateDeviceButtonsVisibility обновляет видимость кнопок устройств.
+// updateDeviceButtonsVisibility updates the visibility of device buttons.
 func (mw *MainWindow) updateDeviceButtonsVisibility() {
 	if mw.tabs == nil || mw.deviceButtonsPanel == nil || mw.deviceFooterBar == nil {
 		return
@@ -1065,7 +1066,7 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 	})
 }
 
-// updateStatusBar обновляет панель статусов.
+// updateStatusBar updates the status panel.
 func (mw *MainWindow) updateStatusBar() {
 	if mw.usbClient == nil {
 		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming())
@@ -1120,6 +1121,30 @@ func (mw *MainWindow) updateStatusBar() {
 
 		videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
 		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming)
+
+		// Fetch detailed storage status
+		storageStatus, err := mw.usbClient.GetStorageStatus()
+		if err == nil {
+			fyne.Do(func() {
+				mw.storageStatus = storageStatus
+				// Update the header progress bar if we have SD card info
+				if storageStatus.SDCard.Total > 0 {
+					mw.currentStorageTotal = storageStatus.SDCard.Total
+					mw.currentStorageAvailable = storageStatus.SDCard.Free
+					
+					used := storageStatus.SDCard.Used
+					usedPct := storageStatus.SDCard.Percent / 100 // view.ProgressBar expects 0..1
+					
+					if mw.sdStorageProgress != nil {
+						mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
+						mw.sdStorageProgress.SetValue(usedPct)
+						mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, storageStatus.SDCard.Total))
+						mw.sdStorageProgress.Show()
+						mw.refreshMainHeaderLayout()
+					}
+				}
+			})
+		}
 	}()
 }
 

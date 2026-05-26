@@ -543,3 +543,39 @@ func FormatStorageSizeOnly(used, total int64) string {
 	}
 	return fmt.Sprintf("%s/%s %s", usedStr, totStr, unitStr)
 }
+
+// StorageInfo detail storage information
+type StorageInfo struct {
+	Total      int64   `json:"total"`
+	Used       int64   `json:"used"`
+	Free       int64   `json:"free"`
+	Percent    float64 `json:"percent"`
+	TotalHuman string  `json:"total_human"`
+	UsedHuman  string  `json:"used_human"`
+	FreeHuman  string  `json:"free_human"`
+	Mounted    bool    `json:"mounted"`
+}
+
+// StorageStatusData detailed storage status
+type StorageStatusData struct {
+	SDCard StorageInfo `json:"sdcard"`
+	EMMC   StorageInfo `json:"emmc"`
+}
+
+// ScriptInfo information about a script
+type ScriptInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"desc"`
+	Path        string `json:"path"`
+}
+
+// ScriptRunRequest request to run a script
+type ScriptRunRequest struct {
+	Path string `json:"path"`
+}
+
+// ScriptSaveRequest request to save a script
+type ScriptSaveRequest struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}

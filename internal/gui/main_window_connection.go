@@ -25,8 +25,8 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 	mw.pendingTailscaleRegister = tailscaleRegister
 }
 
-// handleConnectionFromManager обрабатывает подключение из менеджера (стрелка на карточке).
-// Заполняет поля и вызывает единый обработчик handleConnectionToggle для защиты от множественных нажатий.
+// handleConnectionFromManager handles connection from the manager (arrow on the card).
+// It fills the fields and calls the unified handleConnectionToggle handler to protect against multiple clicks.
 func (mw *MainWindow) handleConnectionFromManager(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
 	mw.tokenEntry.SetText(quicToken)
@@ -38,7 +38,7 @@ func (mw *MainWindow) handleConnectionFromManager(host, quicToken, protocol stri
 	mw.handleConnectionToggle()
 }
 
-// handleSaveFromDeepLink сохраняет данные из deep link БЕЗ подключения
+// handleSaveFromDeepLink saves data from a deep link WITHOUT connecting.
 func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {

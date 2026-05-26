@@ -205,8 +205,8 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 			"devices": requests,
 		}
 	} else {
-		// Для обратной совместимости или если merge=false, можно отправить либо объект, либо массив.
-		// Новое API поддерживает объект с merge: false
+		// For backward compatibility or if merge=false, either an object or an array can be sent.
+		// New API supports object with merge: false
 		payload = map[string]interface{}{
 			"merge":   false,
 			"devices": requests,
@@ -281,7 +281,7 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 					pollTicker.Stop()
 					if info.LastMountError != "" {
 						logrus.Errorf("❌ [API-START-DEVICES] Mount error: %s", info.LastMountError)
-						return nil, fmt.Errorf("ошибка монтирования: %s", info.LastMountError)
+						return nil, fmt.Errorf("mount error: %s", info.LastMountError)
 					}
 					logrus.Infof("✅ [API-START-DEVICES] Mount completed successfully")
 					break pollLoop
@@ -1949,5 +1949,144 @@ func (c *USBClient) DeleteISO(filename string) error {
 	}
 
 	logrus.Infof("✅ Image successfully deleted from device")
+	return nil
+}
+
+// GetStorageStatus gets detailed storage status (SD card and eMMC)
+func (c *USBClient) GetStorageStatus() (*models.StorageStatusData, error) {
+	resp, err := c.makeRequest("GET", "/api/storage/status", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to get storage status: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
+	}
+
+	var storageStatus models.StorageStatusData
+	if err := json.Unmarshal(dataBytes, &storageStatus); err != nil {
+		return nil, fmt.Errorf("failed to parse storage status: %v", err)
+	}
+
+	return &storageStatus, nil
+}
+
+// ListScripts lists available Starlark scripts
+func (c *USBClient) ListScripts() ([]models.ScriptInfo, error) {
+	resp, err := c.makeRequest("GET", "/api/scripts/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to list scripts: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize data: %v", err)
+	}
+
+	var scripts []models.ScriptInfo
+	if err := json.Unmarshal(dataBytes, &scripts); err != nil {
+		return nil, fmt.Errorf("failed to parse scripts: %v", err)
+	}
+
+	return scripts, nil
+}
+
+// RunScript starts a script by path
+func (c *USBClient) RunScript(path string) error {
+	request := models.ScriptRunRequest{Path: path}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %v", err)
+	}
+
+	resp, err := c.makeRequest("POST", "/api/scripts/run", requestJSON)
+	if err != nil {
+		return err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return fmt.Errorf("failed to run script: %s", apiResp.Message)
+	}
+
+	return nil
+}
+
+// GetScriptContent gets raw script content
+func (c *USBClient) GetScriptContent(path string) (string, error) {
+	endpoint := fmt.Sprintf("/api/scripts/read?path=%s", url.QueryEscape(path))
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return "", fmt.Errorf("failed to get script content: %s", apiResp.Message)
+	}
+
+	if content, ok := apiResp.Data.(string); ok {
+		return content, nil
+	}
+
+	// Try to parse from map if it was returned as a structured data
+	if dataMap, ok := apiResp.Data.(map[string]interface{}); ok {
+		if content, ok := dataMap["content"].(string); ok {
+			return content, nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid script content format")
+}
+
+// SaveScript saves script content
+func (c *USBClient) SaveScript(path, content string) error {
+	request := models.ScriptSaveRequest{Path: path, Content: content}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %v", err)
+	}
+
+	resp, err := c.makeRequest("POST", "/api/scripts/write", requestJSON)
+	if err != nil {
+		return err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return fmt.Errorf("failed to save script: %s", apiResp.Message)
+	}
+
 	return nil
 }

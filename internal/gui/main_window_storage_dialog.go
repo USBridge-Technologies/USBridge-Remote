@@ -22,17 +22,43 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		return
 	}
 
-	internalUsed, internalTotal := int64(0), int64(0)
-	sdUsed, sdTotal := int64(0), int64(0)
-	currentUsed := mw.currentStorageTotal - mw.currentStorageAvailable
-	if currentUsed < 0 {
-		currentUsed = 0
-	}
+	internalValue := "0/0 GB"
+	internalPercent := "0%"
+	sdValue := "0/0 GB"
+	sdPercent := "0%"
 
-	if strings.HasPrefix(mw.currentStorageDir, "/mnt/sdcard/") {
-		sdUsed, sdTotal = currentUsed, mw.currentStorageTotal
+	if mw.storageStatus != nil {
+		if mw.storageStatus.EMMC.Total > 0 {
+			internalValue = models.FormatStorageSizeOnly(mw.storageStatus.EMMC.Used, mw.storageStatus.EMMC.Total)
+			internalPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.EMMC.Percent)
+		}
+		if mw.storageStatus.SDCard.Total > 0 {
+			sdValue = models.FormatStorageSizeOnly(mw.storageStatus.SDCard.Used, mw.storageStatus.SDCard.Total)
+			sdPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.SDCard.Percent)
+		}
 	} else {
-		internalUsed, internalTotal = currentUsed, mw.currentStorageTotal
+		// Fallback to old behavior if new status is not yet available
+		internalUsed, internalTotal := int64(0), int64(0)
+		sdUsed, sdTotal := int64(0), int64(0)
+		currentUsed := mw.currentStorageTotal - mw.currentStorageAvailable
+		if currentUsed < 0 {
+			currentUsed = 0
+		}
+
+		if strings.HasPrefix(mw.currentStorageDir, "/mnt/sdcard/") {
+			sdUsed, sdTotal = currentUsed, mw.currentStorageTotal
+		} else {
+			internalUsed, internalTotal = currentUsed, mw.currentStorageTotal
+		}
+
+		if internalTotal > 0 {
+			internalValue = models.FormatStorageSizeOnly(internalUsed, internalTotal)
+			internalPercent = formatStoragePercent(internalUsed, internalTotal)
+		}
+		if sdTotal > 0 {
+			sdValue = models.FormatStorageSizeOnly(sdUsed, sdTotal)
+			sdPercent = formatStoragePercent(sdUsed, sdTotal)
+		}
 	}
 
 	buildBlock := func(title, value, percent string) fyne.CanvasObject {
@@ -51,19 +77,6 @@ func (mw *MainWindow) showStorageInfoDialog() {
 			design.ColorGray950,
 			design.RadiusMD,
 		)
-	}
-
-	internalValue := "0/0 GB"
-	internalPercent := "0%"
-	if internalTotal > 0 {
-		internalValue = models.FormatStorageSizeOnly(internalUsed, internalTotal)
-		internalPercent = formatStoragePercent(internalUsed, internalTotal)
-	}
-	sdValue := "0/0 GB"
-	sdPercent := "0%"
-	if sdTotal > 0 {
-		sdValue = models.FormatStorageSizeOnly(sdUsed, sdTotal)
-		sdPercent = formatStoragePercent(sdUsed, sdTotal)
 	}
 
 	var popup *widget.PopUp

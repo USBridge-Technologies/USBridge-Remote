@@ -435,7 +435,13 @@ func (dw *DiskWidget) loadMountedDevices() {
 		dw.agentOS = deviceInfo.AgentOS
 		logrus.Debugf("Загружено %d смонтированных устройств, agentOS='%s'", len(dw.mountedDevices), dw.agentOS)
 		dw.updateUIAsync(func() {
-			dw.setAPIMountInProgress(deviceInfo.MountInProgress)
+			// Only propagate the server's MountInProgress flag when no local user
+			// operation is in flight. If we unconditionally overwrite, a stale
+			// background-poll response arriving after endOperation() has already
+			// cleared the flag will re-lock the UI permanently.
+			if !dw.userOperationInFlight.Load() {
+				dw.setAPIMountInProgress(deviceInfo.MountInProgress)
+			}
 			dw.updateDevicesStatus()
 			dw.requestDevicesRefresh()
 		})

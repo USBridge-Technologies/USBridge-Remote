@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -19,6 +21,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/mobile"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -26,7 +29,7 @@ import (
 
 const (
 	pcpanelLedPollInterval = 5 * time.Second
-	addressBarButtonSize   = 36 // Квадратные кнопки: ширина = высота = высоте строки
+	addressBarButtonSize   = 36 // Square buttons: width = height = line height
 )
 
 var (
@@ -37,7 +40,7 @@ var (
 	pcpanelHoldHoverFill  = color.NRGBA{R: 0x45, G: 0x45, B: 0x45, A: 0xff}
 )
 
-// pcpanelFixedWidthLayout фиксирует ширину контента (min=max), чтобы диалог не сужался и не растягивался
+// pcpanelFixedWidthLayout fixes content width (min=max) so that the dialog doesn't shrink or stretch
 type pcpanelFixedWidthLayout struct {
 	width float32
 }
@@ -774,7 +777,7 @@ func (l *pcpanelModeButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Siz
 	return fyne.NewSize(width, height)
 }
 
-// PCPanelWidget кнопка питания с индикатором активности в адресной строке
+// PCPanelWidget is a power button with activity indicator in the address bar
 type PCPanelWidget struct {
 	actionBtn *pcpanelActionButton
 	container *fyne.Container
@@ -786,7 +789,7 @@ type PCPanelWidget struct {
 	window    fyne.Window
 }
 
-// NewPCPanelWidget создаёт виджет с объединённой кнопкой Power/Reset.
+// NewPCPanelWidget creates a widget with a combined Power/Reset button.
 func NewPCPanelWidget(w fyne.Window) *PCPanelWidget {
 	p := &PCPanelWidget{
 		window: w,
@@ -797,12 +800,12 @@ func NewPCPanelWidget(w fyne.Window) *PCPanelWidget {
 	return p
 }
 
-// GetContainer возвращает контейнер для размещения в адресной строке
+// GetContainer returns the container for placement in the address bar
 func (p *PCPanelWidget) GetContainer() *fyne.Container {
 	return p.container
 }
 
-// SetClient устанавливает USB клиент и запускает опрос LEDs
+// SetClient sets the USB client and starts polling for LEDs
 func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 	p.pollMu.Lock()
 	if p.stopPoll != nil {
@@ -821,7 +824,7 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 	p.container.Show()
 	p.updateLEDIcons(false, false)
 	p.pollLeds()
-	// Первый опрос сразу
+	// Initial poll immediately
 	go func() {
 		resp, err := c.GetPCPanelLeds()
 		if err != nil {
@@ -834,7 +837,7 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 	}()
 }
 
-// pollLeds периодически опрашивает состояние LEDs
+// pollLeds periodically polls LEDs state
 func (p *PCPanelWidget) pollLeds() {
 	p.pollMu.Lock()
 	if p.stopPoll != nil {
@@ -872,7 +875,7 @@ func (p *PCPanelWidget) pollLeds() {
 	}()
 }
 
-// updateLEDIcons обновляет индикаторы по состоянию LEDs целевой машины.
+// updateLEDIcons updates indicators based on target machine's LED state.
 func (p *PCPanelWidget) updateLEDIcons(powerOn, hddOn bool) {
 	p.powerOn = powerOn
 	p.hddOn = hddOn
@@ -887,7 +890,215 @@ func (p *PCPanelWidget) onActionClick() {
 	if p.usbClient == nil {
 		return
 	}
-	p.showPowerActionDialog()
+
+	items := []view.StyledMenuItem{
+		{
+			Label: "Power",
+			OnTap: func() {
+				p.showPowerActionDialog()
+			},
+		},
+		{
+			Label: "Scripts",
+			OnTap: func() {
+				p.showScriptsDialog()
+			},
+		},
+	}
+
+	view.ShowStyledMenu(p.actionBtn, items)
+}
+
+func (p *PCPanelWidget) showScriptsDialog() {
+	if p.window == nil || p.usbClient == nil {
+		return
+	}
+
+	scripts, err := p.usbClient.ListScripts()
+	if err != nil {
+		view.ShowErrorDialog(err, p.window)
+		return
+	}
+
+	titleText := view.NewBrandText("Automation Scripts", 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	var popup *widget.PopUp
+
+	buildScriptRow := func(s models.ScriptInfo) fyne.CanvasObject {
+		name := s.Name
+		if name == "" {
+			name = filepath.Base(s.Path)
+		}
+		description := s.Description
+		if description == "" {
+			description = s.Path
+		}
+
+		nameLabel := view.NewBrandText(name, 14, design.ColorTextLight, true)
+		descLabel := widget.NewLabel(description)
+		descLabel.Wrapping = fyne.TextWrapWord
+
+		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
+			err := p.usbClient.RunScript(s.Path)
+			if err != nil {
+				view.ShowErrorDialog(err, p.window)
+			} else {
+				if popup != nil {
+					popup.Hide()
+				}
+			}
+		})
+		runBtn.Importance = widget.HighImportance
+
+		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+			p.showScriptEditor(s.Path, s.Name)
+		})
+		editBtn.Importance = widget.LowImportance
+
+		btns := container.NewHBox(runBtn, editBtn)
+		
+		content := container.NewVBox(nameLabel, descLabel)
+		return view.NewCompactSurfacePanel(
+			view.NewInset(container.NewBorder(nil, nil, nil, btns, content), 12, 12, 8, 8),
+			design.ColorGray950,
+			design.RadiusMD,
+		)
+	}
+
+	rows := make([]fyne.CanvasObject, 0, len(scripts))
+	for _, s := range scripts {
+		rows = append(rows, buildScriptRow(s))
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, container.NewCenter(widget.NewLabel("No scripts found")))
+	}
+
+	listContainer := container.NewVBox(rows...)
+	scroll := container.NewVScroll(listContainer)
+	scroll.SetMinSize(fyne.NewSize(400, 300))
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+
+	body := container.NewBorder(titleBar, nil, nil, nil, view.NewInset(scroll, 0, 0, 16, 0))
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := float32(24)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
+			panelHeight := minFloat32(maxFloat32(panelMin.Height, 400), maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
+		},
+	})
+}
+
+func (p *PCPanelWidget) showScriptEditor(path, name string) {
+	content, err := p.usbClient.GetScriptContent(path)
+	if err != nil {
+		view.ShowErrorDialog(err, p.window)
+		return
+	}
+
+	titleText := view.NewBrandText("Edit Script: "+name, 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	editor := widget.NewMultiLineEntry()
+	editor.SetText(content)
+	editor.TextStyle = fyne.TextStyle{Monospace: true}
+	
+	scroll := container.NewScroll(editor)
+	scroll.SetMinSize(fyne.NewSize(500, 400))
+
+	var popup *widget.PopUp
+
+	saveBtn := widget.NewButton("Save", func() {
+		err := p.usbClient.SaveScript(path, editor.Text)
+		if err != nil {
+			view.ShowErrorDialog(err, p.window)
+		} else {
+			if popup != nil {
+				popup.Hide()
+			}
+		}
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	cancelBtn := widget.NewButton("Cancel", func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+
+	runBtn := widget.NewButton("Run", func() {
+		err := p.usbClient.RunScript(path)
+		if err != nil {
+			view.ShowErrorDialog(err, p.window)
+		} else {
+			if popup != nil {
+				popup.Hide()
+			}
+		}
+	})
+	runBtn.Importance = widget.HighImportance
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+	footer := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, runBtn)
+
+	body := container.NewBorder(titleBar, footer, nil, nil, view.NewInset(scroll, 0, 0, 16, 16))
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			margin := float32(24)
+			maxWidth := canvasSize.Width - margin*2
+			maxHeight := canvasSize.Height - margin*2
+			panelMin := panel.MinSize()
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 600), maxWidth)
+			panelHeight := minFloat32(maxFloat32(panelMin.Height, 500), maxHeight)
+			return fyne.NewSize(panelWidth, panelHeight)
+		},
+	})
 }
 
 func (p *PCPanelWidget) showPowerActionDialog() {

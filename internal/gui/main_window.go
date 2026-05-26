@@ -19,12 +19,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// MainWindow главное окно приложения.
+// MainWindow is the main window of the application.
 type MainWindow struct {
 	app    fyne.App
 	window fyne.Window
 
-	// Виджеты
+	// Widgets
 	diskWidget          *controller.DiskWidget
 	videoWidget         *controller.VideoWidget
 	backupWidget        *controller.BackupWidget
@@ -39,14 +39,14 @@ type MainWindow struct {
 	mainExitBtn         *view.HeaderActionButton
 	connectionFooterBar *fyne.Container
 
-	// Сервисы
+	// Services
 	nbdServer        *service.NBDServer
 	gstreamerService *service.GStreamerService
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
 	tailscaleService *service.TailscaleService
 
-	// Состояние
+	// State
 	config                  *models.AppConfig
 	appState                *models.AppState
 	isConnected             bool
@@ -61,16 +61,17 @@ type MainWindow struct {
 	currentStorageDir       string
 	currentStorageTotal     int64
 	currentStorageAvailable int64
+	storageStatus           *models.StorageStatusData
 
-	// Кнопка подключения/отключения
+	// Connection/Disconnection button
 	connectionBtn    *view.HeaderActionButton
 	protocolSelect   *widget.Select
 	protocolDropdown *view.HeaderDropdown
 
-	// PC Panel (Power/Reset LED кнопки)
+	// PC Panel (Power/Reset LED buttons)
 	pcpanelWidget *controller.PCPanelWidget
 
-	// Адресная строка
+	// Address bar
 	hostEntry         *widget.Entry
 	tokenEntry        *widget.Entry
 	sdStorageProgress *view.StorageProgressBar
@@ -80,7 +81,7 @@ type MainWindow struct {
 	lifecycleMu              sync.Mutex
 	lifecycleOps             chan func()
 
-	// Иконки статуса
+	// Status icons
 	connectionIcon *widget.Button
 	nbdIcon        *widget.Button
 	videoIcon      *headerStatusBadgeButton
