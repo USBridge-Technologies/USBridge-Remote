@@ -29,3 +29,8 @@ func (w *MoonlightCgoWrapper) StartStream(
 }
 
 func (w *MoonlightCgoWrapper) StopStream() {}
+
+func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {}
+func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16)                        {}
+func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)            {}
+func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                            {}

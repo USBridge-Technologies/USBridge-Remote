@@ -158,6 +158,24 @@ static void do_li_stop(void) {
     g_video_pipe_fd = -1;            // prevent new dr_submit writes first
     LiStopConnection();              // join all background threads (blocking)
 }
+
+// ── Input forwarders ──────────────────────────────────────────────────────────
+
+static void do_send_key(short vkCode, char action, char modifiers) {
+    LiSendKeyboardEvent(vkCode, action, modifiers);
+}
+
+static void do_send_mouse_move(short dx, short dy) {
+    LiSendMouseMoveEvent(dx, dy);
+}
+
+static void do_send_mouse_button(char action, int button) {
+    LiSendMouseButtonEvent(action, button);
+}
+
+static void do_send_scroll(signed char clicks) {
+    LiSendScrollEvent(clicks);
+}
 */
 import "C"
 
@@ -325,6 +343,36 @@ func goMoonlightStage(stage, result, errCode C.int) {
 //export goMoonlightConnected
 func goMoonlightConnected() {
 	logrus.Info("🌕 [Moonlight] stream connected ✅ — frames should start flowing")
+}
+
+// ── Input methods (implement MoonlightInputSender) ─────────────────────────
+
+func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_key(C.short(vkCode), C.char(action), C.char(modifiers))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_mouse_move(C.short(dx), C.short(dy))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_mouse_button(C.char(action), C.int(button))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_scroll(C.schar(clicks))
 }
 
 //export goMoonlightTerminated

@@ -40,5 +40,25 @@ type VideoClient interface {
 	SetMaxReconnectAttempts(max int)
 }
 
+// MoonlightInputSender is implemented by MoonlightService when a Moonlight stream is
+// active. It routes input through LiSend* APIs instead of WebSocket HID.
+type MoonlightInputSender interface {
+	SendMoonlightKey(vkCode int16, action int8, modifiers int8)
+	SendMoonlightMouseMove(dx, dy int16)
+	SendMoonlightMouseButton(action int8, button int)
+	SendMoonlightScroll(clicks int8)
+}
+
+// Moonlight protocol constants matching Limelight.h KEY_ACTION_* / BUTTON_ACTION_* / BUTTON_*.
+const (
+	LiKeyActionDown      = int8(0x03)
+	LiKeyActionUp        = int8(0x04)
+	LiMouseButtonPress   = int8(0x07)
+	LiMouseButtonRelease = int8(0x08)
+	LiMouseButtonLeft    = 1
+	LiMouseButtonMiddle  = 2
+	LiMouseButtonRight   = 3
+)
+
 // Ensure GStreamerService implements VideoClient
 var _ VideoClient = (*GStreamerService)(nil)

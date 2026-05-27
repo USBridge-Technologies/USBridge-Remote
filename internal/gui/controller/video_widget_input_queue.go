@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -87,6 +88,17 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 		defer ticker.Stop()
 
 		for range ticker.C {
+			if mi := vw.moonlightInput(); mi != nil {
+				for {
+					dx, dy := vw.takeMouseMoveChunk()
+					if dx == 0 && dy == 0 {
+						break
+					}
+					mi.SendMoonlightMouseMove(int16(dx), int16(dy))
+				}
+				continue
+			}
+
 			client := vw.usbClient
 			if client == nil {
 				continue
@@ -148,12 +160,27 @@ func takeAxisChunk(pending *int) int {
 }
 
 func (vw *VideoWidget) enqueueMouseClick(button int) {
+	if mi := vw.moonlightInput(); mi != nil {
+		// Moonlight right button = 3; our right = 2.
+		moonlightBtn := button
+		if button == 2 {
+			moonlightBtn = 3
+		}
+		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+		return
+	}
 	vw.enqueueInputCommand(false, "mouse-click", func(client *api.USBClient) error {
 		return client.SendMouseClick(button)
 	})
 }
 
 func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
+	if mi := vw.moonlightInput(); mi != nil {
+		clicks := int8(clamp(scroll, -127, 127))
+		mi.SendMoonlightScroll(clicks)
+		return
+	}
 	vw.enqueueInputCommand(true, "mouse-scroll", func(client *api.USBClient) error {
 		return client.SendMouseScroll(scroll)
 	})

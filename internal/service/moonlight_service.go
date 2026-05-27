@@ -25,9 +25,10 @@ type MoonlightService struct {
 	width      int
 	height     int
 
-	client       *moonlight.Client
-	pairingPIN   string    // retained across reconnects so the user only needs to enter one PIN
-	stopPlayerCh chan struct{} // closed to stop the active GStreamer player goroutines
+	client        *moonlight.Client
+	pairingPIN    string             // retained across reconnects so the user only needs to enter one PIN
+	stopPlayerCh  chan struct{}       // closed to stop the active GStreamer player goroutines
+	activeWrapper *MoonlightCgoWrapper // set while a stream is running, used for input routing
 }
 
 // NewMoonlightService creates a new MoonlightService.
@@ -181,6 +182,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 	//     submitDecodeUnit writes H.264 frames to pipeWrite; when the session ends
 	//     pipeWrite is closed → GStreamer sees EOF and stops.
 	wrapper := NewMoonlightCgoWrapper(m.client.Host)
+	m.activeWrapper = wrapper
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
@@ -219,6 +221,7 @@ func (m *MoonlightService) Disconnect() error {
 	// LiStopConnection interrupts the LiStartConnection goroutine, which closes
 	// pipeWrite → GStreamer gets EOF → frame reader goroutine exits.
 	NewMoonlightCgoWrapper(m.host()).StopStream()
+	m.activeWrapper = nil
 	if m.stopPlayerCh != nil {
 		close(m.stopPlayerCh)
 		m.stopPlayerCh = nil
@@ -228,6 +231,34 @@ func (m *MoonlightService) Disconnect() error {
 	}
 	return nil
 }
+
+// ── MoonlightInputSender implementation ──────────────────────────────────────
+
+func (m *MoonlightService) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightKey(vkCode, action, modifiers)
+	}
+}
+
+func (m *MoonlightService) SendMoonlightMouseMove(dx, dy int16) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightMouseMove(dx, dy)
+	}
+}
+
+func (m *MoonlightService) SendMoonlightMouseButton(action int8, button int) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightMouseButton(action, button)
+	}
+}
+
+func (m *MoonlightService) SendMoonlightScroll(clicks int8) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightScroll(clicks)
+	}
+}
+
+var _ MoonlightInputSender = (*MoonlightService)(nil)
 
 func (m *MoonlightService) host() string {
 	if m.serverHost != "" {

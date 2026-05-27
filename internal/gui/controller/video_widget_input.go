@@ -10,6 +10,7 @@ import (
 
 	"usbridge-client/internal/input"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,36 @@ func isDesktopPrintableKeyFallbackEnabled() bool {
 	return runtime.GOOS != "android" && runtime.GOOS != "ios"
 }
 
+// moonlightInput returns the MoonlightInputSender when a Moonlight stream is active,
+// or nil to fall through to the WebSocket HID path.
+func (vw *VideoWidget) moonlightInput() service.MoonlightInputSender {
+	if vw.videoClient == nil || !vw.videoClient.IsConnected() {
+		return nil
+	}
+	mi, _ := vw.videoClient.(service.MoonlightInputSender)
+	return mi
+}
+
+// widgetToMoonlightModifiers converts the widget modifier bitmask
+// (Ctrl=1, Shift=2, Alt=4, Super=8) to Moonlight's bitmask
+// (MODIFIER_SHIFT=0x01, MODIFIER_CTRL=0x02, MODIFIER_ALT=0x04, MODIFIER_META=0x08).
+func widgetToMoonlightModifiers(widgetMods int) int8 {
+	var mods int8
+	if widgetMods&1 != 0 {
+		mods |= 0x02
+	}
+	if widgetMods&2 != 0 {
+		mods |= 0x01
+	}
+	if widgetMods&4 != 0 {
+		mods |= 0x04
+	}
+	if widgetMods&8 != 0 {
+		mods |= 0x08
+	}
+	return mods
+}
+
 func (vw *VideoWidget) currentHIDModifiers() int {
 	return int(vw.keyboardModifierState.Load())
 }
@@ -51,8 +82,13 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 			next := current | mask
 			if vw.keyboardModifierState.CompareAndSwap(current, next) {
 				logrus.Infof("⌨️ [INPUT][DOWN] modifiers=%d", next)
-				return
+				break
 			}
+		}
+	}
+	if mi := vw.moonlightInput(); mi != nil {
+		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
+			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}
 }
@@ -68,14 +104,22 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			next := current &^ mask
 			if vw.keyboardModifierState.CompareAndSwap(current, next) {
 				logrus.Infof("⌨️ [INPUT][UP] modifiers=%d", next)
-				return
+				break
 			}
+		}
+	}
+	if mi := vw.moonlightInput(); mi != nil {
+		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
+			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}
 }
 
 // handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
+	if vw.moonlightInput() != nil {
+		return // key press handled via down/up events in Moonlight mode
+	}
 	if vw.usbClient == nil {
 		logrus.Warn("⌨️ [INPUT][PRESS] ignored: usb client is nil")
 		return
@@ -97,6 +141,9 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 
 // handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
+	if vw.moonlightInput() != nil {
+		return // rune input handled via TypedKey down/up events in Moonlight mode
+	}
 	if vw.usbClient == nil {
 		logrus.Warnf("⌨️ [INPUT][RUNE] ignored: usb client is nil rune=%q", string(r))
 		return
