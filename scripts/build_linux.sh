@@ -5,6 +5,9 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "=> Building Moonlight Core..."
+"$SCRIPTS_DIR/build_moonlight.sh" || { echo "❌ Failed to build Moonlight Core"; exit 1; }
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 

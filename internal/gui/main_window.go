@@ -41,7 +41,7 @@ type MainWindow struct {
 
 	// Services
 	nbdServer        *service.NBDServer
-	gstreamerService *service.GStreamerService
+	videoClient service.VideoClient
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
 	tailscaleService *service.TailscaleService
@@ -120,7 +120,11 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	}
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
-	mw.gstreamerService = service.NewGStreamerService(cfg)
+	if cfg.VideoProtocol == models.VideoProtocolMoonlight {
+		mw.videoClient = service.NewMoonlightService(cfg)
+	} else {
+		mw.videoClient = service.NewGStreamerService(cfg)
+	}
 	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
 
 	// Initialize UI fields
@@ -129,7 +133,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
-	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.gstreamerService, mw.updateStatus)
+	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)

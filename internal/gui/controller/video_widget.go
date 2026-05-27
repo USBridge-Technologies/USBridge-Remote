@@ -39,7 +39,7 @@ type VideoWidget struct {
 
 	// Сервисы
 	usbClient           *api.USBClient
-	gstreamerService    *service.GStreamerService
+	videoClient    service.VideoClient
 	frpService          *service.FRPService // для проверки режима FRP
 	tailscaleService    *service.TailscaleService
 	updateStatus        func()
@@ -234,10 +234,10 @@ func (vw *VideoWidget) currentVideoTraceLabel() string {
 }
 
 func (vw *VideoWidget) safeGStreamerStats() map[string]interface{} {
-	if vw.gstreamerService == nil {
+	if vw.videoClient == nil {
 		return nil
 	}
-	return vw.gstreamerService.GetStats()
+	return vw.videoClient.GetStats()
 }
 
 func (vw *VideoWidget) safeRelayDebugInfo() string {

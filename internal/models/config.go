@@ -14,6 +14,9 @@ const (
 	ConnectionProtocolAuto      = "auto"
 	ConnectionProtocolQUIC      = "quic"
 	ConnectionProtocolTailscale = "tailscale"
+
+	VideoProtocolMoonlight = "moonlight"
+	VideoProtocolGStreamer = "gstreamer"
 )
 
 // AppConfig конфигурация приложения
@@ -44,6 +47,9 @@ type AppConfig struct {
 	// Хост видеопотока (задаётся из адресной строки; в конфиге не хранится)
 	VideoHost     string `json:"-"`
 	VideoBindHost string `json:"video_bind_host" mapstructure:"video_bind_host"`
+
+	// Видео протокол (moonlight или gstreamer)
+	VideoProtocol string `json:"video_protocol" mapstructure:"video_protocol"`
 
 	// Видео UDP (новый протокол)
 	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма RTP видео по UDP (55000 — свободен на Win/Mac/Linux/Android)
@@ -94,6 +100,9 @@ func DefaultConfig() *AppConfig {
 		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
 		NBDExportReadOnly: true, // безопасный дефолт: RO; false = экспорт RW через overlay (база не портится)
+
+		// Видео протокол (moonlight по умолчанию)
+		VideoProtocol: VideoProtocolMoonlight,
 
 		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
 		VideoUDPPort:  DefaultVideoUDPPort,

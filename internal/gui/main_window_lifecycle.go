@@ -30,7 +30,7 @@ func (mw *MainWindow) handleHostChanged(host string) {
 	}
 
 	tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
-	mw.gstreamerService.UpdateHost(host)
+	mw.videoClient.UpdateHost(host)
 	mw.diskWidget.UpdateClient(tempClient)
 	mw.videoWidget.UpdateClient(tempClient)
 	if mw.backupWidget != nil {
@@ -190,7 +190,7 @@ func (mw *MainWindow) reloadUI() {
 
 	// Re-initialize widgets to refresh their localized strings
 	mw.diskWidget = controller.NewDiskWidget(mw.usbClient, mw.updateStatus, mw.app, mw.config)
-	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.window, mw.usbClient, mw.gstreamerService, mw.updateStatus)
+	mw.videoWidget = controller.NewVideoWidgetGStreamer(mw.window, mw.usbClient, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, mw.hostEntry, mw.updateStatus)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)

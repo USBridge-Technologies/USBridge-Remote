@@ -334,15 +334,15 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, quicToken string) err
 	if mw.videoWidget != nil {
 		_ = mw.videoWidget.StopVideoSync()
 	}
-	if mw.gstreamerService != nil {
-		_ = mw.gstreamerService.Disconnect()
+	if mw.videoClient != nil {
+		_ = mw.videoClient.Disconnect()
 	}
 
 	// Генерируем новый UDP порт для видео, чтобы избежать коллизий пакетов с предыдущими хостами
 	mw.config.VideoUDPPort = getFreeVideoUDPPort()
-	if mw.gstreamerService != nil {
-		mw.gstreamerService.UpdateVideoPort(mw.config.VideoUDPPort)
-		mw.gstreamerService.UpdateVideoUDPPort(mw.config.VideoUDPPort)
+	if mw.videoClient != nil {
+		mw.videoClient.UpdateVideoPort(mw.config.VideoUDPPort)
+		mw.videoClient.UpdateVideoUDPPort(mw.config.VideoUDPPort)
 	}
 
 	protocol := mw.protocolSelect.Selected
@@ -396,9 +396,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
 		mw.usbClient = mw.attachUSBClient(api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout))
 
-		mw.gstreamerService.UpdateHost("127.0.0.1")
-		mw.gstreamerService.UpdateVideoPort(videoPort)
-		mw.gstreamerService.UpdateVideoUDPPort(videoPort)
+		mw.videoClient.UpdateHost("127.0.0.1")
+		mw.videoClient.UpdateVideoPort(videoPort)
+		mw.videoClient.UpdateVideoUDPPort(videoPort)
 		mw.config.VideoBindHost = mw.resolveVideoBindHost()
 		mw.videoWidget.SetFRPService(mw.frpService)
 		mw.diskWidget.SetFRPService(mw.frpService)
@@ -549,7 +549,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 			if statusErr != nil {
 				if api.IsHTTPNotFound(statusErr) {
 					mw.usbClient = mw.attachUSBClient(tsClient)
-					mw.gstreamerService.UpdateHost(target)
+					mw.videoClient.UpdateHost(target)
 					mw.connectedProtocol = models.ConnectionProtocolTailscale
 					return nil
 				}
@@ -561,7 +561,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 			}
 			mw.frpService = nil
 			mw.usbClient = mw.attachUSBClient(tsClient)
-			mw.gstreamerService.UpdateHost(target)
+			mw.videoClient.UpdateHost(target)
 			mw.connectedProtocol = models.ConnectionProtocolTailscale
 			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 			return nil
@@ -717,7 +717,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 			return err
 		}
 		mw.usbClient = mw.attachUSBClient(tempClient)
-		mw.gstreamerService.UpdateHost(host)
+		mw.videoClient.UpdateHost(host)
 		mw.connectedProtocol = "direct"
 	}
 

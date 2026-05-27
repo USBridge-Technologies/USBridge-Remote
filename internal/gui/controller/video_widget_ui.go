@@ -98,7 +98,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		defaultHeight := 600
 		defaultFPS := 30
 		defaultBitrate := "2M"
-		if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+		if cfg := vw.videoClient.GetConfig(); cfg != nil {
 			if cfg.VideoWidth > 0 {
 				defaultWidth = cfg.VideoWidth
 			}
@@ -199,7 +199,7 @@ func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequ
 }
 
 func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRequest) {
-	if vw.gstreamerService == nil {
+	if vw.videoClient == nil {
 		logrus.Warn("⚠️ GStreamer service is not initialized")
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.VideoLaunchFailed)
@@ -257,8 +257,8 @@ func (vw *VideoWidget) StopVideoSync() error {
 		logrus.Warn("⚠️ StopVideoSync timed out, forcing local cleanup")
 		vw.isStreaming = false
 		vw.isGStreamerConnected = false
-		if vw.gstreamerService != nil {
-			_ = vw.gstreamerService.Disconnect()
+		if vw.videoClient != nil {
+			_ = vw.videoClient.Disconnect()
 		}
 		return fmt.Errorf("stop video timeout")
 	}
@@ -282,8 +282,8 @@ func (vw *VideoWidget) stopVideoInternal() {
 		}
 	}
 
-	if vw.gstreamerService != nil {
-		if err := vw.gstreamerService.Disconnect(); err != nil {
+	if vw.videoClient != nil {
+		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Errorf("Failed to disconnect GStreamer: %v", err)
 		}
 	}
@@ -520,7 +520,7 @@ func (vw *VideoWidget) Refresh() {
 		}
 	})
 
-	if vw.gstreamerService != nil {
+	if vw.videoClient != nil {
 		vw.updateGStreamerStats()
 	}
 }
@@ -659,7 +659,7 @@ func (vw *VideoWidget) ShowFullscreen() {
 		}
 		vw.fullscreenDialog = NewFullscreenDialog(vw.parentWindow)
 		vw.fullscreenDialog.SetVideoWidget(vw)
-		vw.fullscreenDialog.SetGStreamerService(vw.gstreamerService)
+		vw.fullscreenDialog.SetVideoClient(vw.videoClient)
 		if vw.usbClient != nil {
 			vw.fullscreenDialog.SetUSBClient(vw.usbClient)
 		}
@@ -781,8 +781,8 @@ func (vw *VideoWidget) HandleConnectionLost() {
 	if vw.usbClient != nil {
 		vw.usbClient.DisconnectMouseWebSocket()
 	}
-	if vw.gstreamerService != nil {
-		if err := vw.gstreamerService.Disconnect(); err != nil {
+	if vw.videoClient != nil {
+		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect GStreamer after transport loss: %v", err)
 		}
 	}
@@ -810,8 +810,8 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 		vw.usbClient.DisconnectMouseWebSocket()
 	}
 	vw.stopDesktopMousePolling()
-	if vw.gstreamerService != nil {
-		if err := vw.gstreamerService.Disconnect(); err != nil {
+	if vw.videoClient != nil {
+		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Failed to disconnect GStreamer after device rebuild: %v", err)
 		}
 	}

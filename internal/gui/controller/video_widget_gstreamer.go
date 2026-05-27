@@ -18,11 +18,11 @@ import (
 )
 
 // NewVideoWidgetGStreamer создает новый виджет видео с GStreamer
-func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, gstreamerService *service.GStreamerService, updateStatus func()) *VideoWidget {
+func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, videoClient service.VideoClient, updateStatus func()) *VideoWidget {
 	vw := &VideoWidget{
 		parentWindow:     parent,
 		usbClient:        usbClient,
-		gstreamerService: gstreamerService,
+		videoClient: videoClient,
 		updateStatus:     updateStatus,
 		isStreaming:      false,
 		frameDecoder:     media.NewFrameDecoder(),
@@ -42,23 +42,23 @@ func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, gstre
 
 // setupGStreamerCallbacks настраивает callbacks для GStreamer
 func (vw *VideoWidget) setupGStreamerCallbacks() {
-	if vw.gstreamerService == nil {
+	if vw.videoClient == nil {
 		logrus.Warn("⚠️ GStreamer сервис не инициализирован")
 		return
 	}
 
 	// Callback для получения видео кадров
-	vw.gstreamerService.SetOnFrameReceived(func(frame image.Image) {
+	vw.videoClient.SetOnFrameReceived(func(frame image.Image) {
 		vw.handleVideoFrame(frame)
 	})
 
 	// Callback для изменения состояния соединения
-	vw.gstreamerService.SetOnStateChanged(func(state string) {
+	vw.videoClient.SetOnStateChanged(func(state string) {
 		vw.handleGStreamerStateChange(state)
 	})
 
 	// Callback для ошибок
-	vw.gstreamerService.SetOnError(func(err error) {
+	vw.videoClient.SetOnError(func(err error) {
 		logrus.Errorf("GStreamer ошибка: %v", err)
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.GStreamerError, err))
@@ -105,8 +105,8 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	request.TraceID = vw.currentVideoTraceLabel()
 	request.ShowMouse = vw.showMouseCursor
 
-	if vw.gstreamerService != nil {
-		if cfg := vw.gstreamerService.GetConfig(); cfg != nil {
+	if vw.videoClient != nil {
+		if cfg := vw.videoClient.GetConfig(); cfg != nil {
 			if request.VideoWidth > 0 {
 				cfg.VideoWidth = request.VideoWidth
 			}
@@ -119,12 +119,12 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		}
 	}
 
-	if vw.gstreamerService != nil {
-		vw.gstreamerService.SetAutoReconnect(false)
-		vw.gstreamerService.SetMaxReconnectAttempts(1)
-		vw.gstreamerService.SetVideoMode(request.VideoMode)
-		vw.gstreamerService.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
-		if err := vw.gstreamerService.Disconnect(); err != nil {
+	if vw.videoClient != nil {
+		vw.videoClient.SetAutoReconnect(false)
+		vw.videoClient.SetMaxReconnectAttempts(1)
+		vw.videoClient.SetVideoMode(request.VideoMode)
+		vw.videoClient.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
+		if err := vw.videoClient.Disconnect(); err != nil {
 			logrus.Warnf("⚠️ Ошибка отключения локального потока перед новым стартом: %v", err)
 		}
 		// No sleep needed: Disconnect() is synchronous on all platforms
@@ -146,12 +146,12 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		_, clientPort, _ = vw.frpService.GetServerPorts()
 		transportKind = "frp-video_sudp"
 		request.ClientHost = "127.0.0.1"
-		if vw.gstreamerService != nil {
-			vw.gstreamerService.UpdateHost("127.0.0.1")
+		if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
+			vw.videoClient.UpdateHost("127.0.0.1")
 		}
 	} else {
 		preferredPort := clientPort
-		if cfg := vw.gstreamerService.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
+		if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoUDPPort > 0 {
 			preferredPort = cfg.VideoUDPPort
 		}
 		allocatedPort, err := service.FindAvailableUDPPort(preferredPort)
@@ -163,10 +163,10 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 			return
 		}
 		clientPort = allocatedPort
-		if vw.gstreamerService != nil {
-			vw.gstreamerService.UpdateVideoPort(clientPort)
-			vw.gstreamerService.UpdateVideoUDPPort(clientPort)
-			vw.gstreamerService.UpdateHost("0.0.0.0")
+		if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
+			vw.videoClient.UpdateVideoPort(clientPort)
+			vw.videoClient.UpdateVideoUDPPort(clientPort)
+			vw.videoClient.UpdateHost("0.0.0.0")
 		}
 	}
 	request.ClientPort = clientPort
@@ -183,8 +183,8 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 			systemIP := vw.tailscaleService.GetSystemTailscaleIP()
 			if systemIP != "" {
 				request.ClientHost = systemIP
-				if vw.gstreamerService != nil {
-					vw.gstreamerService.UpdateHost(systemIP)
+				if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
+					vw.videoClient.UpdateHost(systemIP)
 				}
 				logrus.Infof("🚀 [Tailscale/SystemStack] SUCCESS: Found system stack IP %s. Connecting directly...", systemIP)
 			} else {
@@ -193,14 +193,14 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				if err == nil {
 					clientPort = actualPort
 					request.ClientPort = actualPort
-					if vw.gstreamerService != nil {
-						vw.gstreamerService.UpdateVideoPort(clientPort)
-						vw.gstreamerService.UpdateVideoUDPPort(clientPort)
+					if vw.videoClient != nil {
+						vw.videoClient.UpdateVideoPort(clientPort)
+						vw.videoClient.UpdateVideoUDPPort(clientPort)
 					}
 					tailIP, _ := vw.tailscaleService.TailnetIPv4(context.Background())
 					request.ClientHost = tailIP
-					if vw.gstreamerService != nil {
-						vw.gstreamerService.UpdateHost("127.0.0.1")
+					if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
+						vw.videoClient.UpdateHost("127.0.0.1")
 					}
 				}
 			}
@@ -214,8 +214,8 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 					localIP := service.GetLocalIPForTarget(hostPart)
 					if localIP != "" {
 						request.ClientHost = localIP
-						if vw.gstreamerService != nil {
-							vw.gstreamerService.UpdateHost(localIP)
+						if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
+							vw.videoClient.UpdateHost(localIP)
 						}
 						logrus.Infof("🎯 [VideoRoute] Resolved local Tailscale IP %s from agent host %s", localIP, hostPart)
 					}
@@ -247,7 +247,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
 		request.TraceID, mode, request.VideoDevice, request.CapturePixelFormat,
 		request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate,
-		transportKind, vw.gstreamerService.GetBindHost(), clientPort,
+		transportKind, vw.videoClient.GetBindHost(), clientPort,
 		request.ClientHost, request.ClientPort,
 	)
 
@@ -262,19 +262,20 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
 
-	if !vw.connectToGStreamerWithRetries() {
-		logrus.Error("❌ Не удалось запустить GStreamer")
+	if err := vw.usbClient.StartVideo(request); err != nil {
+		logrus.Errorf("❌ Error starting video on server: %v", err)
 		fyne.Do(func() {
-			vw.statusLabel.SetText(i18n.Current.ErrorVideoStart)
+			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
 		})
 		return
 	}
 
-	if err := vw.usbClient.StartVideo(request); err != nil {
-		vw.gstreamerService.Disconnect()
-		logrus.Errorf("❌ Error starting video on server: %v", err)
+	if !vw.connectToGStreamerWithRetries() {
+		logrus.Error("❌ Не удалось запустить GStreamer")
+		// We already sent StartVideo, so we might want to stop it if connect fails
+		_ = vw.usbClient.StopVideo()
 		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
+			vw.statusLabel.SetText(i18n.Current.ErrorVideoStart)
 		})
 		return
 	}
@@ -306,7 +307,7 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 	})
 	logrus.Debug("🔄 Single-attempt RTP video pipeline connect")
 
-	if err := vw.gstreamerService.ConnectToRTP(); err != nil {
+	if err := vw.videoClient.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ RTP pipeline connect failed: %v", err)
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.VideoLaunchFailed, 1))
@@ -324,11 +325,11 @@ func (vw *VideoWidget) connectToGStreamerWithRetries() bool {
 
 // updateGStreamerStats обновляет статистику RTP/UDP потока
 func (vw *VideoWidget) updateGStreamerStats() {
-	if vw.gstreamerService == nil || !vw.isGStreamerConnected {
+	if vw.videoClient == nil || !vw.isGStreamerConnected {
 		return
 	}
 
-	stats := vw.gstreamerService.GetStats()
+	stats := vw.videoClient.GetStats()
 	if stats == nil {
 		return
 	}

@@ -23,7 +23,7 @@ type FullscreenDialog struct {
 	videoWidget           *VideoWidget
 	isFullscreen          bool
 	nativeFullscreen      bool
-	gstreamerService      *service.GStreamerService
+	videoClient      service.VideoClient
 	usbClient             *api.USBClient
 	keyboardEnabled       bool
 	fullscreenWindow      fyne.Window
@@ -50,9 +50,9 @@ func (fd *FullscreenDialog) SetVideoWidget(videoWidget *VideoWidget) {
 	fd.videoWidget = videoWidget
 }
 
-// SetGStreamerService устанавливает ссылку на GStreamer сервис
-func (fd *FullscreenDialog) SetGStreamerService(gstreamerService *service.GStreamerService) {
-	fd.gstreamerService = gstreamerService
+// SetVideoClient устанавливает ссылку на видео сервис
+func (fd *FullscreenDialog) SetVideoClient(videoClient service.VideoClient) {
+	fd.videoClient = videoClient
 }
 
 // SetUSBClient устанавливает ссылку на USB клиент
@@ -125,14 +125,14 @@ func (fd *FullscreenDialog) enterFullscreen() {
 	logrus.Info("🔍 Вход в полноэкранный режим с GStreamer")
 
 	restartWindowPipeline := false
-	if fd.gstreamerService != nil && fd.gstreamerService.SupportsNativeFullscreen() {
+	if fd.videoClient != nil && fd.videoClient.SupportsNativeFullscreen() {
 		restartWindowPipeline = true
-		if err := fd.gstreamerService.StartNativeFullscreen(); err == nil {
+		if err := fd.videoClient.StartNativeFullscreen(); err == nil {
 			fd.nativeCapture = newNativeFullscreenCapture(fd.usbClient, fd.exitFullscreen)
 			if fd.nativeCapture != nil {
 				if captureErr := fd.nativeCapture.Start(); captureErr != nil {
 					logrus.Warnf("⚠️ Native fullscreen input capture unavailable, stopping native fullscreen: %v", captureErr)
-					_ = fd.gstreamerService.StopNativeFullscreen()
+					_ = fd.videoClient.StopNativeFullscreen()
 					fd.nativeCapture = nil
 				} else {
 					fd.isFullscreen = true
@@ -149,15 +149,15 @@ func (fd *FullscreenDialog) enterFullscreen() {
 	fd.nativeFullscreen = false
 	fd.createFullscreenWindow()
 
-	if fd.gstreamerService != nil && fd.videoWidget != nil {
-		fd.gstreamerService.SetOnFrameReceived(func(frame image.Image) {
+	if fd.videoClient != nil && fd.videoWidget != nil {
+		fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
 			fd.videoWidget.handleVideoFrame(frame)
 			fd.updateVideoFrame(frame)
 		})
 		logrus.Info("✅ Fullscreen получает кадры без перерисовки скрытого основного canvas")
 		if restartWindowPipeline {
 			go func() {
-				if err := fd.gstreamerService.ConnectToRTP(); err != nil {
+				if err := fd.videoClient.ConnectToRTP(); err != nil {
 					logrus.Warnf("⚠️ Не удалось восстановить video pipeline для Fyne fullscreen fallback: %v", err)
 				}
 			}()
@@ -380,16 +380,16 @@ func (fd *FullscreenDialog) exitFullscreen() {
 			}
 			fd.nativeCapture = nil
 		}
-		if fd.gstreamerService != nil {
-			if err := fd.gstreamerService.StopNativeFullscreen(); err != nil {
+		if fd.videoClient != nil {
+			if err := fd.videoClient.StopNativeFullscreen(); err != nil {
 				logrus.Warnf("⚠️ Ошибка остановки native fullscreen: %v", err)
 			}
 			if fd.videoWidget != nil {
-				fd.gstreamerService.SetOnFrameReceived(func(frame image.Image) {
+				fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
 					fd.videoWidget.handleVideoFrame(frame)
 				})
 				go func() {
-					if err := fd.gstreamerService.ConnectToRTP(); err != nil {
+					if err := fd.videoClient.ConnectToRTP(); err != nil {
 						logrus.Warnf("⚠️ Не удалось восстановить оконный video pipeline после native fullscreen: %v", err)
 					}
 				}()
@@ -412,8 +412,8 @@ func (fd *FullscreenDialog) exitFullscreen() {
 
 	fd.platformExit()
 
-	if fd.gstreamerService != nil && fd.videoWidget != nil {
-		fd.gstreamerService.SetOnFrameReceived(func(frame image.Image) {
+	if fd.videoClient != nil && fd.videoWidget != nil {
+		fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
 			fd.videoWidget.handleVideoFrame(frame)
 		})
 		logrus.Info("✅ Восстановлена подписка на кадры для основного окна")
