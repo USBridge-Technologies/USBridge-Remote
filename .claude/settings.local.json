@@ -36,7 +36,8 @@
       "Bash(awk '/100\\\\.81\\\\.182\\\\.91/ { *)",
       "Bash(sed -n '247,250p' /Users/amir/Projects/usbridge/usbridge_client/untitled)",
       "Bash(sed -n '279,285p' /Users/amir/Projects/usbridge/usbridge_client/untitled)",
-      "Bash(sed -n '855,862p' /Users/amir/Projects/usbridge/usbridge_client/untitled)"
+      "Bash(sed -n '855,862p' /Users/amir/Projects/usbridge/usbridge_client/untitled)",
+      "Bash(go list *)"
     ]
   }
 }

@@ -1,23 +1,21 @@
-//go:build (darwin || linux) && !android
+//go:build windows && cgo
 
 package service
 
 /*
 #cgo pkg-config: opus openssl
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build -L${SRCDIR}/../../moonlight-common-c/build/enet -lmoonlight-common-c -lenet
-#cgo linux LDFLAGS: -lpthread -lm -ldl
+#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build -L${SRCDIR}/../../moonlight-common-c/build/enet -lmoonlight-common-c -lenet -lws2_32 -lwinmm
 
 #include <Limelight.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <windows.h>
+#include <stdint.h>
 
-// Pipe fd that submitDecodeUnit writes H.264 Annex-B frames into.
-// Valid while LiStartConnection background threads are running.
-// Set to -1 by do_li_stop() before joining threads (not after LiStartConnection returns,
-// because LiStartConnection is NON-BLOCKING — it starts threads and returns immediately).
-static int g_video_pipe_fd = -1;
+// Pipe HANDLE that submitDecodeUnit writes H.264 Annex-B frames into.
+// Uses Windows HANDLE instead of POSIX fd. INVALID_HANDLE_VALUE means no active stream.
+static HANDLE g_video_pipe_handle = INVALID_HANDLE_VALUE;
 
 // ── Connection-listener callbacks ─────────────────────────────────────────
 
@@ -39,25 +37,27 @@ static void dr_start(void)   {}
 static void dr_stop(void)    {}
 static void dr_cleanup(void) {}
 
-// submitDecodeUnit writes each buffer in the linked list directly to the pipe.
+// submitDecodeUnit writes each buffer to the pipe using Windows WriteFile.
 // Called from the LiStartConnection video-receive thread — no Go runtime here.
 static int dr_submit(PDECODE_UNIT du) {
-    int fd = g_video_pipe_fd;
-    if (fd < 0) return DR_NEED_IDR;
+    HANDLE h = g_video_pipe_handle;
+    if (h == INVALID_HANDLE_VALUE) return DR_NEED_IDR;
     for (PLENTRY e = du->bufferList; e; e = e->next) {
         const char* ptr = e->data;
-        int remaining = e->length;
+        DWORD remaining = (DWORD)e->length;
         while (remaining > 0) {
-            ssize_t n = write(fd, ptr, remaining);
-            if (n <= 0) return DR_NEED_IDR;
-            ptr += n;
-            remaining -= n;
+            DWORD written = 0;
+            if (!WriteFile(h, ptr, remaining, &written, NULL) || written == 0) {
+                return DR_NEED_IDR;
+            }
+            ptr += written;
+            remaining -= written;
         }
     }
     return DR_OK;
 }
 
-// ── Audio callbacks (muted for now) ────────────────────────────────────────
+// ── Audio callbacks (muted) ────────────────────────────────────────────────
 
 static int  ar_init(int ac, const POPUS_MULTISTREAM_CONFIGURATION cfg, void* ctx, int flags) { return 0; }
 static void ar_start(void)                     {}
@@ -66,11 +66,6 @@ static void ar_cleanup(void)                   {}
 static void ar_decode(char* data, int len)     {}
 
 // ── LiStartConnection entrypoint ───────────────────────────────────────────
-//
-// IMPORTANT: LiStartConnection is NON-BLOCKING. It starts internal receive/control/
-// audio threads, calls connectionStarted(), then returns immediately. The background
-// threads continue to call dr_submit() which writes H.264 frames to g_video_pipe_fd.
-// g_video_pipe_fd must remain valid until do_li_stop() is called.
 
 static int do_li_start(
     const char* address,
@@ -79,13 +74,11 @@ static int do_li_start(
     const char* rtspSessionUrl,
     int serverCodecModeSupport,
     int width, int height, int fps, int bitrate,
-    const unsigned char* rikey,   // 16 bytes
+    const unsigned char* rikey,
     int rikeyid,
-    int pipeFd
+    uintptr_t pipeHandleULL   // Windows HANDLE passed as uintptr_t to avoid CGO type issues
 ) {
-    // Set the pipe fd BEFORE starting — background threads will use it via dr_submit.
-    // NOTE: do NOT clear it after LiStartConnection returns (threads still running).
-    g_video_pipe_fd = pipeFd;
+    g_video_pipe_handle = (HANDLE)pipeHandleULL;
 
     SERVER_INFORMATION srv;
     LiInitializeServerInformation(&srv);
@@ -117,12 +110,12 @@ static int do_li_start(
 
     DECODER_RENDERER_CALLBACKS dr;
     LiInitializeVideoCallbacks(&dr);
-    dr.setup           = dr_setup;
-    dr.start           = dr_start;
-    dr.stop            = dr_stop;
-    dr.cleanup         = dr_cleanup;
+    dr.setup            = dr_setup;
+    dr.start            = dr_start;
+    dr.stop             = dr_stop;
+    dr.cleanup          = dr_cleanup;
     dr.submitDecodeUnit = dr_submit;
-    dr.capabilities    = CAPABILITY_DIRECT_SUBMIT;
+    dr.capabilities     = CAPABILITY_DIRECT_SUBMIT;
 
     AUDIO_RENDERER_CALLBACKS ar;
     LiInitializeAudioCallbacks(&ar);
@@ -134,30 +127,24 @@ static int do_li_start(
 
     CONNECTION_LISTENER_CALLBACKS cl;
     LiInitializeConnectionCallbacks(&cl);
-    cl.stageStarting         = cl_stage_starting;
-    cl.stageComplete         = cl_stage_complete;
-    cl.stageFailed           = cl_stage_failed;
-    cl.connectionStarted     = cl_connected;
-    cl.connectionTerminated  = cl_terminated;
-    cl.logMessage            = cl_log;
+    cl.stageStarting        = cl_stage_starting;
+    cl.stageComplete        = cl_stage_complete;
+    cl.stageFailed          = cl_stage_failed;
+    cl.connectionStarted    = cl_connected;
+    cl.connectionTerminated = cl_terminated;
+    cl.logMessage           = cl_log;
 
-    // Non-blocking: starts background threads, calls connectionStarted(), returns.
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     if (ret != 0) {
-        // Setup failed — no background threads, clear the fd.
-        g_video_pipe_fd = -1;
+        g_video_pipe_handle = INVALID_HANDLE_VALUE;
     }
-    // On success (ret==0): g_video_pipe_fd stays valid for background thread dr_submit calls.
     return ret;
 }
 
-// do_li_stop stops background threads and clears g_video_pipe_fd.
-// Guards against spurious calls (when no stream is active) to avoid leaving
-// moonlight-common-c internal state dirty for the next LiStartConnection call.
 static void do_li_stop(void) {
-    if (g_video_pipe_fd < 0) return; // no active stream
-    g_video_pipe_fd = -1;            // prevent new dr_submit writes first
-    LiStopConnection();              // join all background threads (blocking)
+    if (g_video_pipe_handle == INVALID_HANDLE_VALUE) return;
+    g_video_pipe_handle = INVALID_HANDLE_VALUE;
+    LiStopConnection();
 }
 
 // ── Input forwarders ──────────────────────────────────────────────────────────
@@ -190,16 +177,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// liStartConnectionActive is true from when LiStartConnection's background
-// threads are running until do_li_stop() has joined them.
 var liStartConnectionActive atomic.Bool
 
-// activeStream* coordinates the goroutine waiting for stream termination.
-// Reset on each StartStream call.
 var (
 	activeStreamDone    chan struct{}
 	activeStreamOnce    sync.Once
-	activeStreamTermErr error // set by goMoonlightTerminated before closing activeStreamDone
+	activeStreamTermErr error
 )
 
 func closeActiveStreamDone() {
@@ -208,7 +191,6 @@ func closeActiveStreamDone() {
 	})
 }
 
-// MoonlightCgoWrapper calls LiStartConnection from moonlight-common-c.
 type MoonlightCgoWrapper struct {
 	host      string
 	pipeWrite *os.File
@@ -218,9 +200,6 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 	return &MoonlightCgoWrapper{host: host}
 }
 
-// StartStream launches LiStartConnection, waits for it to complete (either via
-// StopStream or server-initiated termination), then closes pipeWrite and calls onStop.
-// Returns as soon as the goroutine is started.
 func (w *MoonlightCgoWrapper) StartStream(
 	rtspSessionUrl string,
 	rikey []byte,
@@ -232,7 +211,6 @@ func (w *MoonlightCgoWrapper) StartStream(
 ) error {
 	w.pipeWrite = pipeWrite
 
-	// Reset per-stream state.
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
 	activeStreamTermErr = nil
@@ -247,7 +225,8 @@ func (w *MoonlightCgoWrapper) StartStream(
 		cRikey = (*C.uchar)(C.CBytes(rikey))
 	}
 
-	pipeFd := C.int(pipeWrite.Fd())
+	// On Windows, Fd() returns the Windows HANDLE as uintptr.
+	pipeHandle := C.uintptr_t(pipeWrite.Fd())
 
 	go func() {
 		defer C.free(unsafe.Pointer(host))
@@ -258,19 +237,18 @@ func (w *MoonlightCgoWrapper) StartStream(
 			defer C.free(unsafe.Pointer(cRikey))
 		}
 
-		logrus.Infof("🌕 [Moonlight/CGO] LiStartConnection starting: host=%s rtsp=%s %dx%d@%d bitrate=%d pipeFd=%d",
-			w.host, "rtsp://"+rtspSessionUrl, width, height, fps, bitrate, int(pipeFd))
+		logrus.Infof("🌕 [Moonlight/CGO] LiStartConnection starting: host=%s rtsp=%s %dx%d@%d bitrate=%d",
+			w.host, "rtsp://"+rtspSessionUrl, width, height, fps, bitrate)
 
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
 			C.int(serverCodecModeSupport),
 			C.int(width), C.int(height), C.int(fps), C.int(bitrate),
-			cRikey, C.int(1), // rikeyid=1
-			pipeFd,
+			cRikey, C.int(1),
+			pipeHandle,
 		)
 
 		if int(ret) != 0 {
-			// Setup failed — background threads never started, close pipe immediately.
 			logrus.Errorf("🌕 [Moonlight/CGO] LiStartConnection setup FAILED: code=%d", int(ret))
 			_ = pipeWrite.Close()
 			if onStop != nil {
@@ -279,74 +257,36 @@ func (w *MoonlightCgoWrapper) StartStream(
 			return
 		}
 
-		// LiStartConnection returned 0: all streams are set up and running in
-		// background threads. g_video_pipe_fd is still valid — dr_submit will write
-		// H.264 frames into the pipe for GStreamer to decode.
 		logrus.Info("🌕 [Moonlight/CGO] ✅ LiStartConnection setup done — streams active, waiting for termination")
 		liStartConnectionActive.Store(true)
 
-		// Block until StopStream() or connectionTerminated fires.
 		<-activeStreamDone
 
-		// Termination received. Call do_li_stop to join remaining background threads.
-		// do_li_stop is idempotent (guards on g_video_pipe_fd): if StopStream already
-		// called it, this is a no-op.
 		logrus.Info("🌕 [Moonlight/CGO] termination received — stopping streams and closing pipe")
 		C.do_li_stop()
 
 		liStartConnectionActive.Store(false)
-		_ = pipeWrite.Close() // EOF → GStreamer fdsrc stops
+		_ = pipeWrite.Close()
 
 		if onStop != nil {
-			onStop(activeStreamTermErr) // nil = clean stop, non-nil = server terminated
+			onStop(activeStreamTermErr)
 		}
 	}()
 
 	return nil
 }
 
-// StopStream interrupts the active stream. Safe to call when no stream is running.
 func (w *MoonlightCgoWrapper) StopStream() {
 	if !liStartConnectionActive.Load() {
-		logrus.Info("🌕 [Moonlight/CGO] StopStream: no active stream — skipping LiStopConnection (avoids stale stop-flag)")
+		logrus.Info("🌕 [Moonlight/CGO] StopStream: no active stream — skipping")
 		return
 	}
-	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping active stream via LiStopConnection")
-	C.do_li_stop()       // blocking: joins background threads, clears g_video_pipe_fd
-	closeActiveStreamDone() // wake the goroutine so it can close the pipe
+	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping active stream")
+	C.do_li_stop()
+	closeActiveStreamDone()
 }
 
-// ── CGO-exported Go callbacks (called from C threads) ─────────────────────
-
-var stageNames = []string{
-	"none", "platform-init", "name-resolution", "audio-stream-init",
-	"rtsp-handshake", "control-stream-init", "video-stream-init",
-	"input-stream-init", "control-stream-start", "video-stream-start",
-	"audio-stream-start", "input-stream-start",
-}
-
-//export goMoonlightStage
-func goMoonlightStage(stage, result, errCode C.int) {
-	name := "unknown"
-	if int(stage) < len(stageNames) {
-		name = stageNames[stage]
-	}
-	switch int(result) {
-	case 0:
-		logrus.Infof("🌕 [Moonlight] ► %s …", name)
-	case 1:
-		logrus.Infof("🌕 [Moonlight] ✅ %s", name)
-	default:
-		logrus.Errorf("🌕 [Moonlight] ❌ %s failed (err=%d)", name, int(errCode))
-	}
-}
-
-//export goMoonlightConnected
-func goMoonlightConnected() {
-	logrus.Info("🌕 [Moonlight] stream connected ✅ — frames should start flowing")
-}
-
-// ── Input methods (implement MoonlightInputSender) ─────────────────────────
+// ── Input methods ─────────────────────────────────────────────────────────────
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
 	if !liStartConnectionActive.Load() {
@@ -376,9 +316,38 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 	C.do_send_scroll(C.schar(clicks))
 }
 
+// ── CGO-exported Go callbacks ──────────────────────────────────────────────
+
+var stageNames = []string{
+	"none", "platform-init", "name-resolution", "audio-stream-init",
+	"rtsp-handshake", "control-stream-init", "video-stream-init",
+	"input-stream-init", "control-stream-start", "video-stream-start",
+	"audio-stream-start", "input-stream-start",
+}
+
+//export goMoonlightStage
+func goMoonlightStage(stage, result, errCode C.int) {
+	name := "unknown"
+	if int(stage) < len(stageNames) {
+		name = stageNames[stage]
+	}
+	switch int(result) {
+	case 0:
+		logrus.Infof("🌕 [Moonlight] ► %s …", name)
+	case 1:
+		logrus.Infof("🌕 [Moonlight] ✅ %s", name)
+	default:
+		logrus.Errorf("🌕 [Moonlight] ❌ %s failed (err=%d)", name, int(errCode))
+	}
+}
+
+//export goMoonlightConnected
+func goMoonlightConnected() {
+	logrus.Info("🌕 [Moonlight] stream connected ✅ — frames should start flowing")
+}
+
 //export goMoonlightTerminated
 func goMoonlightTerminated(errCode C.int) {
-	// Decode common Moonlight termination codes for easier diagnosis.
 	reason := "unknown"
 	switch int(errCode) {
 	case 0:
@@ -397,7 +366,6 @@ func goMoonlightTerminated(errCode C.int) {
 		reason = "input stream error"
 	}
 	logrus.Errorf("🌕 [Moonlight] ❌ stream terminated by server: code=%d (%s)", int(errCode), reason)
-	// Record the error and signal the goroutine to wake up.
 	activeStreamTermErr = fmt.Errorf("stream terminated by server: code=%d (%s)", int(errCode), reason)
 	closeActiveStreamDone()
 }
