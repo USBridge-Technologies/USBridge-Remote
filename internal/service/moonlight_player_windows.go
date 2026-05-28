@@ -14,6 +14,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func startMoonlightAudio(pipeRead *os.File, stopCh <-chan struct{}, onStop func(error)) error {
+	_ = pipeRead.Close()
+	logrus.Warn("🔊 [Moonlight/Audio] audio not yet implemented on Windows")
+	return nil
+}
+
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

@@ -38,6 +38,7 @@ type FullscreenDialog struct {
 	ui                    *view.FullscreenUI
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
+	audioMuted            bool
 }
 
 // NewFullscreenDialog создает новый диалог полноэкранного режима
@@ -265,10 +266,16 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fd.fullscreenWindow.Canvas().Refresh(fd.fullscreenWindow.Content())
 		logrus.Infof("⌨️ После переключения - Visible: %v, Size: %v, Position: %v",
 			keyboardLayout.Visible(), keyboardLayout.Size(), keyboardLayout.Position())
+	}, func() {
+		logrus.Info("🔊 ========== НАЖАТА КНОПКА АУДИО В ПОЛНОЭКРАННОМ РЕЖИМЕ ==========")
+		fd.toggleAudioMuted()
 	})
 
 	logrus.Info("⌨️ [DEBUG] Stack контейнер создан с overlay элементами")
 	fd.fullscreenWindow.SetContent(fd.ui.MainContainer)
+
+	// Установить начальный вид иконки аудио
+	fd.updateAudioButtonIcon()
 
 	updatePositions := func() {
 		canvasSize := fd.fullscreenWindow.Canvas().Size()
@@ -277,6 +284,8 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		buttonSize := fyne.NewSize(50, 40)
 		fd.ui.KeyboardButton.Resize(buttonSize)
 		fd.ui.KeyboardButton.Move(fyne.NewPos(10, 10))
+		fd.ui.AudioButton.Resize(buttonSize)
+		fd.ui.AudioButton.Move(fyne.NewPos(65, 10))
 
 		keyboardHeight := float32(300)
 		keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
@@ -427,4 +436,32 @@ func (fd *FullscreenDialog) exitFullscreen() {
 // IsFullscreen возвращает состояние полноэкранного режима
 func (fd *FullscreenDialog) IsFullscreen() bool {
 	return fd.isFullscreen
+}
+
+// toggleAudioMuted переключает состояние звука
+func (fd *FullscreenDialog) toggleAudioMuted() {
+	fd.audioMuted = !fd.audioMuted
+	if ms, ok := fd.videoClient.(interface{ SetAudioMuted(bool) }); ok {
+		ms.SetAudioMuted(fd.audioMuted)
+		logrus.Infof("🔊 Audio muted=%v", fd.audioMuted)
+	}
+	fd.updateAudioButtonIcon()
+}
+
+// updateAudioButtonIcon обновляет иконку кнопки аудио в соответствии с состоянием
+func (fd *FullscreenDialog) updateAudioButtonIcon() {
+	if fd.ui == nil || fd.ui.AudioButton == nil {
+		return
+	}
+	if fd.audioMuted {
+		fd.ui.AudioButton.SetIcon(assets.AudioMuteIconActive)
+	} else {
+		fd.ui.AudioButton.SetIcon(assets.AudioIcon)
+	}
+}
+
+// SetAudioMuted устанавливает состояние звука
+func (fd *FullscreenDialog) SetAudioMuted(muted bool) {
+	fd.audioMuted = muted
+	fd.updateAudioButtonIcon()
 }

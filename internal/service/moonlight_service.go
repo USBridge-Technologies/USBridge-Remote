@@ -28,10 +28,11 @@ type MoonlightService struct {
 	videoMode  string
 	width      int
 	height     int
+	audioMuted bool
 
 	client        *moonlight.Client
-	pairingPIN    string             // retained across reconnects so the user only needs to enter one PIN
-	stopPlayerCh  chan struct{}       // closed to stop the active GStreamer player goroutines
+	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
+	stopPlayerCh  chan struct{}         // closed to stop the active GStreamer player goroutines
 	activeWrapper *MoonlightCgoWrapper // set while a stream is running, used for input routing
 }
 
@@ -156,12 +157,33 @@ func (m *MoonlightService) ConnectToRTP() error {
 		height = 1080
 	}
 
-	// 5a. Create a pipe: LiStartConnection writes Annex-B H.264 to pipeWrite;
-	//     GStreamer fdsrc reads from pipeRead and decodes with vtdec.
+	// 5a. Create video pipe: LiStartConnection writes Annex-B H.264 to pipeWrite;
+	//     GStreamer fdsrc reads from pipeRead and decodes.
 	pipeRead, pipeWrite, err := os.Pipe()
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("pipe: %v", err)
+	}
+
+	// 5aa. Create audio pipe: ar_decode writes S16LE PCM to audioPipeWrite;
+	//      GStreamer fdsrc reads from audioPipeRead and plays via autoaudiosink.
+	var audioPipeWrite *os.File
+	if audioPipeRead, apw, aerr := os.Pipe(); aerr != nil {
+		logrus.Warnf("🔊 [Moonlight/Audio] failed to create audio pipe: %v — audio disabled", aerr)
+	} else {
+		audioPipeWrite = apw
+		if aerr := startMoonlightAudio(audioPipeRead, stopCh, func(err error) {
+			if err != nil {
+				logrus.Warnf("🔊 [Moonlight/Audio] stopped: %v", err)
+			} else {
+				logrus.Info("🔊 [Moonlight/Audio] stopped cleanly")
+			}
+		}); aerr != nil {
+			logrus.Warnf("🔊 [Moonlight/Audio] failed to start: %v — audio disabled", aerr)
+			_ = audioPipeRead.Close()
+			_ = audioPipeWrite.Close()
+			audioPipeWrite = nil
+		}
 	}
 
 	// 5b. Start GStreamer fdsrc pipeline (non-blocking).
@@ -188,6 +210,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 	); err != nil {
 		_ = pipeRead.Close()
 		_ = pipeWrite.Close()
+		if audioPipeWrite != nil {
+			_ = audioPipeWrite.Close()
+		}
 		m.isRunning = false
 		return fmt.Errorf("failed to start Moonlight GStreamer player: %v", err)
 	}
@@ -195,13 +220,14 @@ func (m *MoonlightService) ConnectToRTP() error {
 	//     submitDecodeUnit writes H.264 frames to pipeWrite; when the session ends
 	//     pipeWrite is closed → GStreamer sees EOF and stops.
 	wrapper := NewMoonlightCgoWrapper(m.client.Host)
+	wrapper.SetAudioMuted(m.audioMuted) // restore mute state across reconnects
 	m.activeWrapper = wrapper
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
 		serverInfo.ServerCodecModeSupport,
 		width, height, fps, bitrate,
-		pipeWrite,
+		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
 			// pipeWrite is closed inside StartStream when LiStartConnection returns.
 			if cgoErr != nil {
@@ -213,6 +239,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 		},
 	); err != nil {
 		_ = pipeWrite.Close()
+		if audioPipeWrite != nil {
+			_ = audioPipeWrite.Close()
+		}
 		m.isRunning = false
 		return fmt.Errorf("failed to start LiStartConnection: %v", err)
 	}
@@ -272,6 +301,19 @@ func (m *MoonlightService) SendMoonlightScroll(clicks int8) {
 }
 
 var _ MoonlightInputSender = (*MoonlightService)(nil)
+
+// ── Audio mute ────────────────────────────────────────────────────────────────
+
+func (m *MoonlightService) SetAudioMuted(muted bool) {
+	m.audioMuted = muted
+	if m.activeWrapper != nil {
+		m.activeWrapper.SetAudioMuted(muted)
+	}
+}
+
+func (m *MoonlightService) GetAudioMuted() bool {
+	return m.audioMuted
+}
 
 func (m *MoonlightService) host() string {
 	if m.serverHost != "" {

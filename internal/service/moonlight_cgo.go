@@ -9,6 +9,7 @@ package service
 #cgo linux LDFLAGS: -lpthread -lm -ldl
 
 #include <Limelight.h>
+#include <opus_multistream.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -18,6 +19,16 @@ package service
 // Set to -1 by do_li_stop() before joining threads (not after LiStartConnection returns,
 // because LiStartConnection is NON-BLOCKING — it starts threads and returns immediately).
 static int g_video_pipe_fd = -1;
+
+// ── Audio state ────────────────────────────────────────────────────────────
+static int g_audio_pipe_fd = -1;
+static volatile int g_audio_muted = 0;
+static OpusMSDecoder *g_opus_ms_decoder = NULL;
+static int g_audio_channels = 2;
+static int g_audio_samples_per_frame = 960;
+
+static void set_audio_pipe_fd(int fd) { g_audio_pipe_fd = fd; }
+static void set_audio_muted(int muted) { g_audio_muted = muted; }
 
 // ── Connection-listener callbacks ─────────────────────────────────────────
 
@@ -57,13 +68,57 @@ static int dr_submit(PDECODE_UNIT du) {
     return DR_OK;
 }
 
-// ── Audio callbacks (muted for now) ────────────────────────────────────────
+// ── Audio callbacks ────────────────────────────────────────────────────────
 
-static int  ar_init(int ac, const POPUS_MULTISTREAM_CONFIGURATION cfg, void* ctx, int flags) { return 0; }
-static void ar_start(void)                     {}
-static void ar_stop(void)                      {}
-static void ar_cleanup(void)                   {}
-static void ar_decode(char* data, int len)     {}
+static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, void* ctx, int flags) {
+    g_audio_channels = cfg->channelCount;
+    g_audio_samples_per_frame = cfg->samplesPerFrame > 0 ? cfg->samplesPerFrame : 960;
+
+    if (g_opus_ms_decoder) {
+        opus_multistream_decoder_destroy(g_opus_ms_decoder);
+        g_opus_ms_decoder = NULL;
+    }
+    int error = OPUS_OK;
+    g_opus_ms_decoder = opus_multistream_decoder_create(
+        cfg->sampleRate, cfg->channelCount,
+        cfg->streams, cfg->coupledStreams,
+        cfg->mapping, &error);
+    return (error == OPUS_OK) ? 0 : -1;
+}
+
+static void ar_start(void)   {}
+static void ar_stop(void)    {}
+
+static void ar_cleanup(void) {
+    if (g_opus_ms_decoder) {
+        opus_multistream_decoder_destroy(g_opus_ms_decoder);
+        g_opus_ms_decoder = NULL;
+    }
+}
+
+// ar_decode decodes one Opus packet and writes raw S16LE PCM to g_audio_pipe_fd.
+// When muted, writes silence instead to keep GStreamer pipeline timing stable.
+static void ar_decode(char* data, int len) {
+    if (!g_opus_ms_decoder) return;
+
+    // Max 120ms per frame at 48000Hz stereo = 5760 samples * 2ch * 2 bytes = 23040 bytes
+    opus_int16 pcm[5760 * 8];
+    int samples = opus_multistream_decode(
+        g_opus_ms_decoder,
+        (const unsigned char*)data, len,
+        pcm, 5760, 0);
+    if (samples <= 0) return;
+
+    int fd = g_audio_pipe_fd;
+    if (fd < 0) return;
+
+    int byte_count = samples * g_audio_channels * 2;
+    if (g_audio_muted) {
+        memset(pcm, 0, byte_count);
+    }
+    ssize_t n = write(fd, pcm, byte_count);
+    (void)n;
+}
 
 // ── LiStartConnection entrypoint ───────────────────────────────────────────
 //
@@ -210,8 +265,10 @@ func closeActiveStreamDone() {
 
 // MoonlightCgoWrapper calls LiStartConnection from moonlight-common-c.
 type MoonlightCgoWrapper struct {
-	host      string
-	pipeWrite *os.File
+	host           string
+	pipeWrite      *os.File
+	audioPipeWrite *os.File
+	audioMuted     bool
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
@@ -228,9 +285,11 @@ func (w *MoonlightCgoWrapper) StartStream(
 	serverCodecModeSupport int,
 	width, height, fps, bitrate int,
 	pipeWrite *os.File,
+	audioPipeWrite *os.File,
 	onStop func(error),
 ) error {
 	w.pipeWrite = pipeWrite
+	w.audioPipeWrite = audioPipeWrite
 
 	// Reset per-stream state.
 	activeStreamDone = make(chan struct{})
@@ -261,6 +320,11 @@ func (w *MoonlightCgoWrapper) StartStream(
 		logrus.Infof("🌕 [Moonlight/CGO] LiStartConnection starting: host=%s rtsp=%s %dx%d@%d bitrate=%d pipeFd=%d",
 			w.host, "rtsp://"+rtspSessionUrl, width, height, fps, bitrate, int(pipeFd))
 
+		// Set audio pipe fd before starting LiStartConnection background threads.
+		if audioPipeWrite != nil {
+			C.set_audio_pipe_fd(C.int(audioPipeWrite.Fd()))
+		}
+
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
 			C.int(serverCodecModeSupport),
@@ -270,9 +334,13 @@ func (w *MoonlightCgoWrapper) StartStream(
 		)
 
 		if int(ret) != 0 {
-			// Setup failed — background threads never started, close pipe immediately.
+			// Setup failed — background threads never started, close pipes immediately.
 			logrus.Errorf("🌕 [Moonlight/CGO] LiStartConnection setup FAILED: code=%d", int(ret))
+			C.set_audio_pipe_fd(-1)
 			_ = pipeWrite.Close()
+			if audioPipeWrite != nil {
+				_ = audioPipeWrite.Close()
+			}
 			if onStop != nil {
 				onStop(fmt.Errorf("LiStartConnection error code %d", int(ret)))
 			}
@@ -291,11 +359,15 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// Termination received. Call do_li_stop to join remaining background threads.
 		// do_li_stop is idempotent (guards on g_video_pipe_fd): if StopStream already
 		// called it, this is a no-op.
-		logrus.Info("🌕 [Moonlight/CGO] termination received — stopping streams and closing pipe")
+		logrus.Info("🌕 [Moonlight/CGO] termination received — stopping streams and closing pipes")
 		C.do_li_stop()
+		C.set_audio_pipe_fd(-1)
 
 		liStartConnectionActive.Store(false)
-		_ = pipeWrite.Close() // EOF → GStreamer fdsrc stops
+		_ = pipeWrite.Close() // EOF → video GStreamer fdsrc stops
+		if audioPipeWrite != nil {
+			_ = audioPipeWrite.Close() // EOF → audio GStreamer fdsrc stops
+		}
 
 		if onStop != nil {
 			onStop(activeStreamTermErr) // nil = clean stop, non-nil = server terminated
@@ -374,6 +446,21 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 		return
 	}
 	C.do_send_scroll(C.schar(clicks))
+}
+
+// ── Audio mute methods ────────────────────────────────────────────────────────
+
+func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) {
+	w.audioMuted = muted
+	if muted {
+		C.set_audio_muted(1)
+	} else {
+		C.set_audio_muted(0)
+	}
+}
+
+func (w *MoonlightCgoWrapper) GetAudioMuted() bool {
+	return w.audioMuted
 }
 
 //export goMoonlightTerminated

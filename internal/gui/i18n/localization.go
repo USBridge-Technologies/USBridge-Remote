@@ -306,6 +306,8 @@ type LocalizedStrings struct {
 	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
 	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
+	MuteAudio         string // "Mute Audio"
+	UnmuteAudio       string // "Unmute Audio"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -659,6 +661,8 @@ func EN() *LocalizedStrings {
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",
 		ShowMouseCursor:   "Show Mouse",
+		MuteAudio:         "Mute Audio",
+		UnmuteAudio:       "Unmute Audio",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",

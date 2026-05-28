@@ -15,6 +15,62 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func startMoonlightAudio(
+	pipeRead *os.File,
+	stopCh <-chan struct{},
+	onStop func(error),
+) error {
+	gstPath := (&GStreamerService{}).findLinuxGStreamerTool("gst-launch-1.0")
+	if gstPath == "" {
+		return fmt.Errorf("gst-launch-1.0 not found — install gstreamer1.0-tools gstreamer1.0-plugins-good")
+	}
+
+	args := []string{
+		"-q",
+		"fdsrc", "fd=3",
+		"!", "audio/x-raw,format=S16LE,rate=48000,channels=2",
+		"!", "audioconvert",
+		"!", "autoaudiosink", "sync=false",
+	}
+
+	cmd := exec.Command(gstPath, args...)
+	cmd.ExtraFiles = []*os.File{pipeRead} // → fd=3
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("audio stderr pipe: %v", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("audio gst-launch-1.0 start: %v", err)
+	}
+	_ = pipeRead.Close()
+
+	logrus.Infof("🔊 [Moonlight/Audio] started PID=%d — S16LE 48kHz stereo → autoaudiosink", cmd.Process.Pid)
+
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		for sc.Scan() {
+			logrus.Warnf("🔊 [Moonlight/Audio stderr] %s", sc.Text())
+		}
+	}()
+
+	go func() {
+		<-stopCh
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+	}()
+
+	go func() {
+		err := cmd.Wait()
+		logrus.Infof("🔊 [Moonlight/Audio] process exited: %v", err)
+		if onStop != nil {
+			onStop(err)
+		}
+	}()
+
+	return nil
+}
+
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

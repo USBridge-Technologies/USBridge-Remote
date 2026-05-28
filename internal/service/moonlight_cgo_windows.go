@@ -192,8 +192,9 @@ func closeActiveStreamDone() {
 }
 
 type MoonlightCgoWrapper struct {
-	host      string
-	pipeWrite *os.File
+	host       string
+	pipeWrite  *os.File
+	audioMuted bool
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
@@ -207,6 +208,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	serverCodecModeSupport int,
 	width, height, fps, bitrate int,
 	pipeWrite *os.File,
+	audioPipeWrite *os.File,
 	onStop func(error),
 ) error {
 	w.pipeWrite = pipeWrite
@@ -285,6 +287,9 @@ func (w *MoonlightCgoWrapper) StopStream() {
 	C.do_li_stop()
 	closeActiveStreamDone()
 }
+
+func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) { w.audioMuted = muted }
+func (w *MoonlightCgoWrapper) GetAudioMuted() bool      { return w.audioMuted }
 
 // ── Input methods ─────────────────────────────────────────────────────────────
 

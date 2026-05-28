@@ -13,6 +13,8 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
+	"github.com/sirupsen/logrus"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -1269,9 +1271,43 @@ func (mw *MainWindow) showVideoMenu() {
 				mw.videoWidget.ShowFullscreen()
 			},
 		})
+
+		audioMuted := mw.isAudioMuted()
+		audioLabel := i18n.Current.MuteAudio
+		if audioMuted {
+			audioLabel = i18n.Current.UnmuteAudio
+		}
+		items = append(items, view.StyledMenuItem{
+			Label:    audioLabel,
+			Selected: audioMuted,
+			OnTap: func() {
+				mw.toggleAudioMuted()
+			},
+		})
 	}
 
 	view.ShowStyledMenu(mw.videoIcon, items)
+}
+
+func (mw *MainWindow) isAudioMuted() bool {
+	if ms, ok := mw.videoClient.(interface{ GetAudioMuted() bool }); ok {
+		return ms.GetAudioMuted()
+	}
+	return false
+}
+
+func (mw *MainWindow) toggleAudioMuted() {
+	ms, ok := mw.videoClient.(interface {
+		SetAudioMuted(bool)
+		GetAudioMuted() bool
+	})
+	if !ok {
+		return
+	}
+	next := !ms.GetAudioMuted()
+	ms.SetAudioMuted(next)
+	mw.app.Preferences().SetBool("audio_muted", next)
+	logrus.Infof("🔊 Audio muted=%v", next)
 }
 
 func (mw *MainWindow) controlTabIndex() int {

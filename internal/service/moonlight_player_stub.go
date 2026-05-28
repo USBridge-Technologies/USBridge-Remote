@@ -17,3 +17,7 @@ func startMoonlightGStreamer(
 ) error {
 	return fmt.Errorf("Moonlight GStreamer player not supported on this platform")
 }
+
+func startMoonlightAudio(pipeRead *os.File, stopCh <-chan struct{}, onStop func(error)) error {
+	return fmt.Errorf("Moonlight audio not supported on this platform")
+}
