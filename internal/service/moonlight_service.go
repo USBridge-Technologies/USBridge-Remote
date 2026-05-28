@@ -175,9 +175,6 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.isRunning = false
 		return fmt.Errorf("failed to start Moonlight GStreamer player: %v", err)
 	}
-	// GStreamer child inherited the read end; close our copy.
-	_ = pipeRead.Close()
-
 	// 5c. Start LiStartConnection in background goroutine.
 	//     submitDecodeUnit writes H.264 frames to pipeWrite; when the session ends
 	//     pipeWrite is closed → GStreamer sees EOF and stops.

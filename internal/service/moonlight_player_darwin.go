@@ -65,6 +65,8 @@ func startMoonlightGStreamer(
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("gst-launch-1.0 start: %v", err)
 	}
+	// Child inherited fd via ExtraFiles; close the parent's copy so EOF propagates when pipeWrite closes.
+	_ = pipeRead.Close()
 
 	logrus.Infof("🌕 [Moonlight/GStreamer] started PID=%d %dx%d — waiting for vtdec frames on stdout", cmd.Process.Pid, width, height)
 

@@ -124,7 +124,9 @@ func startMoonlightGStreamer(
 
 	// Goroutine: read H.264 Annex-B from pipe and push to appsrc.
 	// EOF on pipe means LiStartConnection stopped — send EOS to pipeline.
+	// pipeRead ownership is taken here; close when the loop exits.
 	go func() {
+		defer pipeRead.Close()
 		buf := make([]byte, 65536)
 		for {
 			n, err := pipeRead.Read(buf)
