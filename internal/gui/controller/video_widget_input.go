@@ -683,17 +683,14 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	rectW := vw.contentRectW
 	rectH := vw.contentRectH
 
-	// Для absolute/tablet режима не применяем дополнительный auto-crop по самому
-	// кадру. Иначе даже небольшой ложный inset создаёт вторую "мини-область"
-	// в левом верхнем углу, где координаты повторно растягиваются на весь экран.
-	if !vw.IsAbsoluteLikeInputMode() {
-		frameX, frameY, frameW, frameH := vw.getFrameContentRect()
-		if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
-			rectX += rectW * frameX
-			rectY += rectH * frameY
-			rectW *= frameW
-			rectH *= frameH
-		}
+	// Применяем смещение по обнаруженным letterbox/pillarbox рамкам внутри кадра.
+	// Только симметричные рамки (±2px) применяются, что защищает от ложных детектов.
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
+		rectX += rectW * frameX
+		rectY += rectH * frameY
+		rectW *= frameW
+		rectH *= frameH
 	}
 
 	var u, v float32
@@ -750,24 +747,17 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	top := detectDarkInset(frame, bounds, false, true)
 	bottom := detectDarkInset(frame, bounds, false, false)
 
-	// Защита от ложного детекта: если "чёрная рамка" слишком большая хотя бы
-	// с одной стороны, считаем что это уже не служебный inset, и не кропаем
-	// кадр вообще. Иначе именно такой ложный crop может создать второе
-	// "мини-поле" в абсолютном режиме.
-	const maxAutoCropInsetPx = 20
+	// Разрешаем crop только если рамка симметрична (±2px) и не слишком мала
+	// (шум) и не занимает больше 40% стороны (защита от полностью тёмного кадра).
+	// Реальные letterbox/pillarbox рамки — обычно 5–25% стороны и строго симметричны.
 	const minMeaningfulCropInsetPx = 2
 	const maxCropAsymmetryPx = 2
-	if left > maxAutoCropInsetPx || right > maxAutoCropInsetPx || top > maxAutoCropInsetPx || bottom > maxAutoCropInsetPx {
-		left, right, top, bottom = 0, 0, 0, 0
-	}
-
-	// Разрешаем crop только если он выглядит как небольшая симметричная
-	// рамка. Односторонний или сильно асимметричный inset чаще всего ложный
-	// и даёт "дублирующее мини-поле" в углу.
-	if left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {
+	maxHInset := frameW * 2 / 5
+	maxVInset := frameH * 2 / 5
+	if left > maxHInset || right > maxHInset || left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {
 		left, right = 0, 0
 	}
-	if top < minMeaningfulCropInsetPx || bottom < minMeaningfulCropInsetPx || absInt(top-bottom) > maxCropAsymmetryPx {
+	if top > maxVInset || bottom > maxVInset || top < minMeaningfulCropInsetPx || bottom < minMeaningfulCropInsetPx || absInt(top-bottom) > maxCropAsymmetryPx {
 		top, bottom = 0, 0
 	}
 
