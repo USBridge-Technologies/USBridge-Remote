@@ -27,7 +27,7 @@ func startMoonlightGStreamer(
 	// appsrc receives raw Annex-B H.264 from the LiStartConnection pipe.
 	// appsink delivers decoded RGBA frames to the onFrame callback.
 	hwPipeline := fmt.Sprintf(
-		"appsrc name=src format=byte ! h264parse config-interval=-1 ! "+
+		"appsrc name=src format=bytes ! h264parse config-interval=-1 ! "+
 			"video/x-h264,stream-format=avc,alignment=au ! d3d11h264dec ! d3d11download ! "+
 			"videoscale ! video/x-raw,width=%d,height=%d ! "+
 			"videoconvert ! video/x-raw,format=RGBA ! "+
@@ -35,7 +35,7 @@ func startMoonlightGStreamer(
 		width, height,
 	)
 	swPipeline := fmt.Sprintf(
-		"appsrc name=src format=byte ! h264parse config-interval=-1 ! "+
+		"appsrc name=src format=bytes ! h264parse config-interval=-1 ! "+
 			"video/x-h264,stream-format=avc,alignment=au ! avdec_h264 ! "+
 			"videoscale ! video/x-raw,width=%d,height=%d ! "+
 			"videoconvert ! video/x-raw,format=RGBA ! "+
