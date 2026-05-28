@@ -28,7 +28,7 @@ func startMoonlightAudio(
 	args := []string{
 		"-q",
 		"fdsrc", "fd=3",
-		"!", "audio/x-raw,format=S16LE,rate=48000,channels=2",
+		"!", "audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved",
 		"!", "audioconvert",
 		"!", "autoaudiosink", "sync=false",
 	}
