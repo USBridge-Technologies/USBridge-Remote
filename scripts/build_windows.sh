@@ -526,6 +526,13 @@ if [ -n "$GST_ROOT" ]; then
             OBJDUMP_BIN="objdump"
         fi
 
+        # Extra DLL search dirs beyond GST_ROOT — MSYS2 prefixes where OpenSSL
+        # and other runtime deps live when built with ucrt64/mingw64 toolchain.
+        DLL_EXTRA_DIRS=()
+        for _msys_prefix in "/ucrt64" "/mingw64" "/clang64" "/c/msys64/ucrt64" "/c/msys64/mingw64"; do
+            [ -d "$_msys_prefix/bin" ] && DLL_EXTRA_DIRS+=("$_msys_prefix/bin")
+        done
+
         is_core_dll() {
             local name="$1"
             for core in "${CORE_DLLS[@]}"; do
@@ -539,22 +546,25 @@ if [ -n "$GST_ROOT" ]; then
         copy_dll_by_name() {
             local name="$1"
             [ -z "$name" ] && return
+            local found=""
             if [ -f "$GST_ROOT/bin/$name" ]; then
-                if is_core_dll "$name"; then
-                    cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/" 2>/dev/null || true
-                else
-                    cp -L "$GST_ROOT/bin/$name" "$DIST_WIN/bin/" 2>/dev/null || true
-                fi
-                return
+                found="$GST_ROOT/bin/$name"
+            else
+                found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
             fi
-            local found
-            found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-            if [ -n "$found" ]; then
-                if is_core_dll "$name"; then
-                    cp -L "$found" "$DIST_WIN/" 2>/dev/null || true
-                else
-                    cp -L "$found" "$DIST_WIN/bin/" 2>/dev/null || true
-                fi
+            # Fall back to MSYS2 prefix dirs (ucrt64, mingw64, etc.) for deps
+            # like libcrypto-3-x64.dll that live outside the GStreamer root.
+            if [ -z "$found" ]; then
+                local _extra
+                for _extra in "${DLL_EXTRA_DIRS[@]}"; do
+                    if [ -f "$_extra/$name" ]; then found="$_extra/$name"; break; fi
+                done
+            fi
+            [ -z "$found" ] && return
+            if is_core_dll "$name"; then
+                cp -L "$found" "$DIST_WIN/" 2>/dev/null || true
+            else
+                cp -L "$found" "$DIST_WIN/bin/" 2>/dev/null || true
             fi
         }
 
@@ -581,6 +591,11 @@ if [ -n "$GST_ROOT" ]; then
             if [ -f "$GST_ROOT/lib/$name" ]; then printf "%s\n" "$GST_ROOT/lib/$name"; return; fi
             local found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
             if [ -n "$found" ]; then printf "%s\n" "$found"; return; fi
+            # Fall back to MSYS2 prefix dirs for deps outside GST_ROOT.
+            local _extra
+            for _extra in "${DLL_EXTRA_DIRS[@]}"; do
+                [ -f "$_extra/$name" ] && printf "%s\n" "$_extra/$name" && return
+            done
         }
 
         copy_dll_to_dir() {
@@ -629,6 +644,8 @@ if [ -n "$GST_ROOT" ]; then
                 "libgstreamer-1.0-0.dll" "libgstbase-1.0-0.dll" "libgstvideo-1.0-0.dll"
                 "libgstpbutils-1.0-0.dll" "libgstapp-1.0-0.dll" "libintl-*.dll" "libffi-*.dll"
                 "libpcre2-8-0.dll" "libgcc_s_seh-1.dll" "libwinpthread-1.dll" "libz-1.dll"
+                "libcrypto-3-x64.dll" "libssl-3-x64.dll"
+                "libcrypto-1_1-x64.dll" "libssl-1_1-x64.dll"
             )
             needed_dlls=("${CORE_DLLS[@]}")
             while IFS= read -r dep; do needed_dlls+=("$dep"); done < <(collect_deps "$DIST_WIN/$EXE_NAME")
