@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"image"
+	"net/http"
 	"os"
+	"time"
 
 	"usbridge-client/internal/api/moonlight"
 	"usbridge-client/internal/models"
@@ -71,9 +75,21 @@ func (m *MoonlightService) ConnectToRTP() error {
 		if m.pairingPIN == "" {
 			m.pairingPIN = moonlight.GeneratePIN()
 		}
-		logrus.Infof("🔐 MOONLIGHT PAIRING REQUIRED. Please enter this PIN on the host: %s", m.pairingPIN)
+		pin := m.pairingPIN
+		logrus.Infof("🔐 MOONLIGHT PAIRING REQUIRED. Auto-submitting PIN %s to usbridge service...", pin)
 
-		if err := m.client.Pair(m.pairingPIN); err != nil {
+		// Pair() blocks in the getservercert stage until Sunshine receives the PIN via its web API.
+		// Start it in a goroutine, then submit the PIN after giving Sunshine time to register the request.
+		pairErrCh := make(chan error, 1)
+		go func() { pairErrCh <- m.client.Pair(pin) }()
+
+		time.Sleep(500 * time.Millisecond) // let Sunshine register the pending pairing
+
+		if submitErr := m.submitPinToService(pin); submitErr != nil {
+			logrus.Warnf("⚠️ [Moonlight] Auto-PIN failed (%v). Enter PIN manually on Sunshine host: %s", submitErr, pin)
+		}
+
+		if err := <-pairErrCh; err != nil {
 			errStr := fmt.Errorf("pairing failed: %v", err)
 			logrus.Error(errStr)
 			if m.onError != nil {
@@ -267,6 +283,34 @@ func (m *MoonlightService) host() string {
 func (m *MoonlightService) Reconnect() error {
 	_ = m.Disconnect()
 	return m.ConnectToRTP()
+}
+
+// submitPinToService sends the pairing PIN to the usbridge service, which forwards it
+// to Sunshine's local web API so the getservercert handshake can complete automatically.
+func (m *MoonlightService) submitPinToService(pin string) error {
+	host := m.serverHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := m.config.USBPort
+	if port == 0 {
+		port = 8080
+	}
+
+	body, _ := json.Marshal(map[string]string{"pin": pin})
+	url := fmt.Sprintf("http://%s:%d/api/moonlight/pin", host, port)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("usbridge service returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (m *MoonlightService) SetOnFrameReceived(callback func(image.Image)) {
