@@ -7,6 +7,7 @@ package platform
 #cgo LDFLAGS: -framework IOKit -framework CoreFoundation
 
 #include <IOKit/hid/IOHIDManager.h>
+#include <IOKit/IOKitLib.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <stdlib.h>
 
@@ -45,7 +46,13 @@ static int enumerateGamepads(uint64_t* ids, char** names, int maxDevices) {
         IOHIDDeviceRef* devs = (IOHIDDeviceRef*)malloc(n * sizeof(IOHIDDeviceRef));
         CFSetGetValues(devices, (const void**)devs);
         for (CFIndex i = 0; i < n && count < maxDevices; i++) {
-            ids[count] = (uint64_t)(uintptr_t)devs[i];
+            io_service_t svc = IOHIDDeviceGetService(devs[i]);
+            uint64_t entryID = 0;
+            if (svc != IO_OBJECT_NULL) {
+                IORegistryEntryGetRegistryEntryID(svc, &entryID);
+            }
+            if (entryID == 0) continue;
+            ids[count] = entryID;
             CFStringRef nameRef = (CFStringRef)IOHIDDeviceGetProperty(devs[i], CFSTR(kIOHIDProductKey));
             if (nameRef) {
                 char buf[256] = {0};

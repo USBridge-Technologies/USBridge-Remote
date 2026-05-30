@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
 
@@ -59,29 +60,52 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 		}
 		dw.activeCaptures[id] = cap
 	}
+
+	// Keep a persistent gamepad WebSocket open whenever any capture is active.
+	if dw.usbClient != nil {
+		if len(dw.activeCaptures) > 0 {
+			if err := dw.usbClient.ConnectGamepadWebSocket(); err != nil {
+				logrus.Warnf("🎮 [GAMEPAD] WebSocket connect failed: %v", err)
+			}
+		} else {
+			dw.usbClient.DisconnectGamepadWebSocket()
+		}
+	}
 }
 
-// forwardGamepadState sends the decoded gamepad state through the active Moonlight
-// stream. Called from the capture goroutine (not from the Fyne UI thread).
+// forwardGamepadState sends the decoded gamepad state. Prefers the Moonlight path
+// when a stream is active (lower latency); falls back to the direct WebSocket API.
+// Called from the capture goroutine (not from the Fyne UI thread).
 func (dw *DiskWidget) forwardGamepadState(_ string, state platform.GamepadCaptureState) {
-	if dw.moonlightProvider == nil {
-		return
+	// Prefer Moonlight when a stream is active.
+	if dw.moonlightProvider != nil {
+		if sender := dw.moonlightProvider(); sender != nil {
+			sender.SendMoonlightControllerEvent(
+				0, // controllerNumber
+				1, // activeGamepadMask (bit 0 = controller 0 active)
+				state.Buttons,
+				state.LeftTrigger,
+				state.RightTrigger,
+				state.LeftX,
+				state.LeftY,
+				state.RightX,
+				state.RightY,
+			)
+			return
+		}
 	}
-	sender := dw.moonlightProvider()
-	if sender == nil {
-		return
+	// Fall back to direct WebSocket API (works without video streaming).
+	if dw.usbClient != nil {
+		dw.usbClient.SendGamepadReportWS(models.GamepadRequest{
+			Buttons:      state.Buttons,
+			LeftX:        int8(state.LeftX >> 8),
+			LeftY:        int8(state.LeftY >> 8),
+			RightX:       int8(state.RightX >> 8),
+			RightY:       int8(state.RightY >> 8),
+			LeftTrigger:  state.LeftTrigger,
+			RightTrigger: state.RightTrigger,
+		})
 	}
-	sender.SendMoonlightControllerEvent(
-		0,              // controllerNumber
-		1,              // activeGamepadMask (bit 0 = controller 0 active)
-		state.Buttons,
-		state.LeftTrigger,
-		state.RightTrigger,
-		state.LeftX,
-		state.LeftY,
-		state.RightX,
-		state.RightY,
-	)
 }
 
 // stopAllGamepadCaptures stops every active capture; called on disconnect.
@@ -90,5 +114,8 @@ func (dw *DiskWidget) stopAllGamepadCaptures() {
 		logrus.Infof("🎮 [GAMEPAD] stopping capture (disconnect) for %s", id)
 		cap.Stop()
 		delete(dw.activeCaptures, id)
+	}
+	if dw.usbClient != nil {
+		dw.usbClient.DisconnectGamepadWebSocket()
 	}
 }

@@ -8,6 +8,7 @@ package platform
 
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDQueue.h>
+#include <IOKit/IOKitLib.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,19 +120,70 @@ static void processValue(HIDCapture* cap, IOHIDValueRef value) {
     }
 }
 
-// openCapture opens the device identified by deviceID (IOHIDDeviceRef cast to uint64).
-// Returns a malloc'd HIDCapture* or NULL on failure.
-static HIDCapture* openCapture(uint64_t deviceID) {
-    IOHIDDeviceRef dev = (IOHIDDeviceRef)(uintptr_t)deviceID;
+// openCapture finds the gamepad by its IOKit registry entry ID, retains it, and
+// opens an HID queue. Using a registry entry ID (instead of a raw IOHIDDeviceRef
+// pointer) avoids dangling-pointer crashes when the enumerating IOHIDManager has
+// been closed and released before capture starts.
+static HIDCapture* openCapture(uint64_t registryEntryID) {
+    // Create a temporary manager to locate the device by its stable registry ID.
+    IOHIDManagerRef mgr = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    if (!mgr) return NULL;
+
+    CFMutableArrayRef matchers = CFArrayCreateMutable(kCFAllocatorDefault, 2, &kCFTypeArrayCallBacks);
+    int usages[] = {kHIDUsage_GD_GamePad, kHIDUsage_GD_Joystick};
+    for (int i = 0; i < 2; i++) {
+        CFMutableDictionaryRef m = CFDictionaryCreateMutable(kCFAllocatorDefault, 2,
+                                    &kCFTypeDictionaryKeyCallBacks,
+                                    &kCFTypeDictionaryValueCallBacks);
+        int up = kHIDPage_GenericDesktop;
+        CFNumberRef upRef = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &up);
+        CFNumberRef uRef  = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usages[i]);
+        CFDictionarySetValue(m, CFSTR(kIOHIDDeviceUsagePageKey), upRef);
+        CFDictionarySetValue(m, CFSTR(kIOHIDDeviceUsageKey), uRef);
+        CFRelease(upRef); CFRelease(uRef);
+        CFArrayAppendValue(matchers, m);
+        CFRelease(m);
+    }
+    IOHIDManagerSetDeviceMatchingMultiple(mgr, matchers);
+    CFRelease(matchers);
+    IOHIDManagerOpen(mgr, kIOHIDOptionsTypeNone);
+
+    CFSetRef devices = IOHIDManagerCopyDevices(mgr);
+    IOHIDDeviceRef dev = NULL;
+    if (devices) {
+        CFIndex n = CFSetGetCount(devices);
+        IOHIDDeviceRef* devs = (IOHIDDeviceRef*)malloc(n * sizeof(IOHIDDeviceRef));
+        CFSetGetValues(devices, (const void**)devs);
+        for (CFIndex i = 0; i < n; i++) {
+            io_service_t svc = IOHIDDeviceGetService(devs[i]);
+            uint64_t entryID = 0;
+            if (svc != IO_OBJECT_NULL) {
+                IORegistryEntryGetRegistryEntryID(svc, &entryID);
+            }
+            if (entryID == registryEntryID) {
+                dev = devs[i];
+                CFRetain(dev); // keep alive after manager is released
+                break;
+            }
+        }
+        free(devs);
+        CFRelease(devices);
+    }
+    IOHIDManagerClose(mgr, kIOHIDOptionsTypeNone);
+    CFRelease(mgr); // manager gone, dev survives via our CFRetain
+
     if (!dev) return NULL;
 
     IOReturn ret = IOHIDDeviceOpen(dev, kIOHIDOptionsTypeNone);
-    if (ret != kIOReturnSuccess) return NULL;
+    if (ret != kIOReturnSuccess) {
+        CFRelease(dev);
+        return NULL;
+    }
 
-    // Build a queue for all elements
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, dev, 64, kIOHIDOptionsTypeNone);
     if (!queue) {
         IOHIDDeviceClose(dev, kIOHIDOptionsTypeNone);
+        CFRelease(dev);
         return NULL;
     }
 
@@ -188,6 +240,7 @@ static void closeCapture(HIDCapture* cap) {
     }
     if (cap->device) {
         IOHIDDeviceClose(cap->device, kIOHIDOptionsTypeNone);
+        CFRelease(cap->device); // balance the CFRetain in openCapture
     }
     free(cap);
 }

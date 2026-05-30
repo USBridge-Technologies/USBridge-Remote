@@ -84,8 +84,15 @@ type USBClient struct {
 	mouseWS             *websocket.Conn
 	mouseWSMutex        sync.Mutex
 	mouseWSActive       bool
-	mouseWSIntended     bool       // true while we WANT a WS connection
+	mouseWSIntended     bool         // true while we WANT a WS connection
 	mouseWSReconnectCh  chan struct{} // closed to stop the reconnect goroutine
+
+	// WebSocket for gamepad control
+	gamepadWS            *websocket.Conn
+	gamepadWSMutex       sync.Mutex
+	gamepadWSActive      bool
+	gamepadWSIntended    bool         // true while we WANT a WS connection
+	gamepadWSReconnectCh chan struct{} // closed to stop the reconnect goroutine
 }
 
 type keyboardRequestTask struct {
@@ -1027,10 +1034,11 @@ func (c *USBClient) Disconnect() {
 		c.mouseWS = nil
 	}
 	c.mouseWSMutex.Unlock()
-
 	if ch != nil {
 		close(ch)
 	}
+
+	c.DisconnectGamepadWebSocket()
 
 	// Interrupt keyboard queue
 	if c.keyboardQueue != nil {
@@ -1045,6 +1053,162 @@ func (c *USBClient) Disconnect() {
 	}
 
 	logrus.Info("🔌 USBClient: all connections closed")
+}
+
+// ── Gamepad WebSocket ──────────────────────────────────────────────────────────
+
+// ConnectGamepadWebSocket opens the /api/gamepad/ws WebSocket and starts
+// the auto-reconnect loop. Idempotent: safe to call when already connected.
+func (c *USBClient) ConnectGamepadWebSocket() error {
+	c.gamepadWSMutex.Lock()
+	defer c.gamepadWSMutex.Unlock()
+
+	if c.gamepadWS != nil && c.gamepadWSActive {
+		return nil
+	}
+	if c.gamepadWS != nil {
+		c.gamepadWS.Close()
+		c.gamepadWS = nil
+	}
+	if !c.gamepadWSIntended {
+		c.gamepadWSIntended = true
+		ch := make(chan struct{})
+		c.gamepadWSReconnectCh = ch
+		go c.runGamepadWSReconnectLoop(ch)
+	}
+	return c.doConnectGamepadWSLocked()
+}
+
+func (c *USBClient) doConnectGamepadWSLocked() error {
+	wsURL, err := c.getWebSocketURL("/api/gamepad/ws")
+	if err != nil {
+		return fmt.Errorf("gamepad WS URL: %w", err)
+	}
+
+	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	if transport, ok := c.httpClient.Transport.(*http.Transport); ok && transport != nil {
+		dialer.Proxy = transport.Proxy
+		dialer.NetDialContext = transport.DialContext
+		dialer.TLSClientConfig = transport.TLSClientConfig
+	}
+	if dialer.TLSClientConfig == nil && strings.HasPrefix(wsURL, "wss://") {
+		dialer.TLSClientConfig = &tls.Config{}
+	}
+
+	conn, resp, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("gamepad WS dial: %w (status=%s)", err, resp.Status)
+		}
+		return fmt.Errorf("gamepad WS dial: %w", err)
+	}
+	conn.SetPongHandler(func(string) error { return nil })
+
+	c.gamepadWS = conn
+	c.gamepadWSActive = true
+	go c.readGamepadWSMessages()
+	logrus.Info("✅ Gamepad WebSocket connected")
+	return nil
+}
+
+// runGamepadWSReconnectLoop retries on disconnect while gamepadWSIntended == true.
+func (c *USBClient) runGamepadWSReconnectLoop(stopCh chan struct{}) {
+	backoff := 2 * time.Second
+	const maxBackoff = 30 * time.Second
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-time.After(backoff):
+		}
+		c.gamepadWSMutex.Lock()
+		if !c.gamepadWSIntended {
+			c.gamepadWSMutex.Unlock()
+			return
+		}
+		if c.gamepadWSActive && c.gamepadWS != nil {
+			c.gamepadWSMutex.Unlock()
+			backoff = 2 * time.Second
+			continue
+		}
+		logrus.Infof("🔄 Reconnecting gamepad WebSocket (backoff=%s)", backoff)
+		err := c.doConnectGamepadWSLocked()
+		c.gamepadWSMutex.Unlock()
+		if err != nil {
+			logrus.Warnf("⚠️ Gamepad WebSocket reconnect failed: %v", err)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			logrus.Info("✅ Gamepad WebSocket reconnected")
+			backoff = 2 * time.Second
+		}
+	}
+}
+
+// DisconnectGamepadWebSocket closes the connection and stops auto-reconnect.
+func (c *USBClient) DisconnectGamepadWebSocket() {
+	c.gamepadWSMutex.Lock()
+	c.gamepadWSActive = false
+	c.gamepadWSIntended = false
+	ch := c.gamepadWSReconnectCh
+	c.gamepadWSReconnectCh = nil
+	if c.gamepadWS != nil {
+		c.gamepadWS.Close()
+		c.gamepadWS = nil
+		logrus.Info("🔌 Gamepad WebSocket disconnected")
+	}
+	c.gamepadWSMutex.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+// SendGamepadReportWS sends one gamepad state frame over the WebSocket.
+// Returns false if the WebSocket is not connected (caller may fall back to Moonlight).
+func (c *USBClient) SendGamepadReportWS(req models.GamepadRequest) bool {
+	c.gamepadWSMutex.Lock()
+	if !c.gamepadWSActive || c.gamepadWS == nil {
+		c.gamepadWSMutex.Unlock()
+		return false
+	}
+	err := c.gamepadWS.WriteJSON(req)
+	c.gamepadWSMutex.Unlock()
+	if err != nil {
+		logrus.Warnf("⚠️ Gamepad WS write error: %v", err)
+		c.DisconnectGamepadWebSocket()
+		return false
+	}
+	return true
+}
+
+// readGamepadWSMessages drains server messages and detects disconnects.
+func (c *USBClient) readGamepadWSMessages() {
+	c.gamepadWSMutex.Lock()
+	conn := c.gamepadWS
+	c.gamepadWSMutex.Unlock()
+	if conn == nil {
+		return
+	}
+	for {
+		// Server sends no responses; this loop exists only to detect disconnects.
+		if _, _, err := conn.ReadMessage(); err != nil {
+			intended := false
+			c.gamepadWSMutex.Lock()
+			if c.gamepadWS == conn {
+				c.gamepadWSActive = false
+				c.gamepadWS = nil
+				intended = c.gamepadWSIntended
+			}
+			c.gamepadWSMutex.Unlock()
+			conn.Close()
+			if intended && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				logrus.Warnf("⚠️ Gamepad WS read error (will reconnect): %v", err)
+			}
+			return
+		}
+	}
 }
 
 // readMouseWebSocketResponses reads responses from WebSocket server.

@@ -210,6 +210,17 @@ type MouseRequest struct {
 	ButtonState int    `json:"button_state,omitempty"` // Button bitmask (bit0=L, bit1=R, bit2=M) for absolute_event
 }
 
+// GamepadRequest gamepad state sent over /api/gamepad/ws at ~60 Hz.
+type GamepadRequest struct {
+	Buttons      uint16 `json:"buttons"`
+	LeftX        int8   `json:"lx"`
+	LeftY        int8   `json:"ly"`
+	RightX       int8   `json:"rx"`
+	RightY       int8   `json:"ry"`
+	LeftTrigger  uint8  `json:"lt"`
+	RightTrigger uint8  `json:"rt"`
+}
+
 // DeviceStartRequest device start request (old format - deprecated)
 type DeviceStartRequest struct {
 	Device                  string `json:"device"`                               // keyboard, drive, mouse, etc.
