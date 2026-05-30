@@ -34,6 +34,7 @@ func (w *MoonlightCgoWrapper) StopStream() {}
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {}
 func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16)                        {}
+func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16)          {}
 func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)            {}
 func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                            {}
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {

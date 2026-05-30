@@ -133,6 +133,11 @@ type VideoWidget struct {
 	lastAbsSentTime   time.Time // время последней отправки absolute (для дебаунса)
 	absSendMu         sync.Mutex
 	absButtons        uint8     // битмаска кнопок для absolute режима
+	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
+	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
+	statAbsWS         atomic.Int64 // absolute events sent via WebSocket
+	statRelMoonlight  atomic.Int64 // relative events sent via Moonlight SendMoonlightMouseMove
+	statRelWS         atomic.Int64 // relative events sent via WebSocket SendMouseMove
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).

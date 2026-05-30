@@ -45,12 +45,14 @@ type VideoClient interface {
 type MoonlightInputSender interface {
 	SendMoonlightKey(vkCode int16, action int8, modifiers int8)
 	SendMoonlightMouseMove(dx, dy int16)
+	// SendMoonlightMousePosition sends an absolute cursor position via
+	// LiSendMousePositionEvent. x/y are in 0..refW/refH range.
+	SendMoonlightMousePosition(x, y, refW, refH int16)
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
 	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
 	// IsInputActive returns true only when the underlying Moonlight stream is fully
-	// set up and LiSend* calls will actually transmit. Used to decide whether to fall
-	// through to the WebSocket HID path when the stream is not yet ready.
+	// set up and LiSend* calls will actually transmit.
 	IsInputActive() bool
 }
 

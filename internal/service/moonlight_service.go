@@ -288,6 +288,12 @@ func (m *MoonlightService) SendMoonlightMouseMove(dx, dy int16) {
 	}
 }
 
+func (m *MoonlightService) SendMoonlightMousePosition(x, y, refW, refH int16) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightMousePosition(x, y, refW, refH)
+	}
+}
+
 func (m *MoonlightService) SendMoonlightMouseButton(action int8, button int) {
 	if m.activeWrapper != nil {
 		m.activeWrapper.SendMoonlightMouseButton(action, button)

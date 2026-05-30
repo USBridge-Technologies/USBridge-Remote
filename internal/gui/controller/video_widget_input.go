@@ -529,12 +529,33 @@ func (vw *VideoWidget) updateAbsoluteButtonLocked(button int, pressed bool) {
 }
 
 func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
-	if vw.usbClient == nil {
-		return
-	}
 	vw.lastAbsX = x
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
+
+	// Forward via Moonlight (LiSendMousePositionEvent) when stream is active.
+	// This also feeds /dev/hid_t via bridgeMouse EV_ABS path on the server.
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+		prev := vw.statAbsMoonlight.Load()
+		vw.statAbsMoonlight.Add(1)
+		if prev == 0 {
+			logrus.Info("🖱️ [Mouse] absolute path → Moonlight LiSendMousePositionEvent (switched)")
+		}
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		if scroll != 0 {
+			mi.SendMoonlightScroll(int8(scroll))
+		}
+	}
+
+	// WebSocket is always the authoritative path for /dev/hid_t — we know it works.
+	if vw.usbClient == nil {
+		return
+	}
+	prev := vw.statAbsWS.Load()
+	vw.statAbsWS.Add(1)
+	if prev == 0 {
+		logrus.Info("🖱️ [Mouse] absolute path → WebSocket /dev/hid_t (started)")
+	}
 	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, scroll)
 }
 

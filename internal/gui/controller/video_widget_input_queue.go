@@ -83,20 +83,46 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 	vw.moveWorkerStarted = true
 	vw.moveQueueMu.Unlock()
 
+	// Periodic stats — every 30 s, mirrors the server-side [MouseBridge] log.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			relML := vw.statRelMoonlight.Swap(0)
+			relWS := vw.statRelWS.Swap(0)
+			absML := vw.statAbsMoonlight.Swap(0)
+			absWS := vw.statAbsWS.Swap(0)
+			logrus.Infof("🖱️ [Mouse] 30s | rel: moonlight=%d ws=%d | abs: moonlight=%d ws=%d | mode=%s",
+				relML, relWS, absML, absWS, vw.GetMouseInputMode())
+		}
+	}()
+
 	go func() {
 		ticker := time.NewTicker(vw.mouseMoveFlushInterval())
 		defer ticker.Stop()
 
+		var lastRelPath string // "moonlight" | "ws" | ""
+
 		for range ticker.C {
 			if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+				if lastRelPath != "moonlight" {
+					logrus.Infof("🖱️ [Mouse] relative path → Moonlight SendMoonlightMouseMove (was: %q)", lastRelPath)
+					lastRelPath = "moonlight"
+				}
 				for {
 					dx, dy := vw.takeMouseMoveChunk()
 					if dx == 0 && dy == 0 {
 						break
 					}
+					vw.statRelMoonlight.Add(1)
 					mi.SendMoonlightMouseMove(int16(dx), int16(dy))
 				}
 				continue
+			}
+
+			if lastRelPath == "moonlight" {
+				logrus.Info("🖱️ [Mouse] relative path → WebSocket (Moonlight no longer active)")
+				lastRelPath = "ws"
 			}
 
 			client := vw.usbClient
@@ -104,11 +130,17 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 				continue
 			}
 
+			if lastRelPath == "" {
+				logrus.Info("🖱️ [Mouse] relative path → WebSocket (initial)")
+				lastRelPath = "ws"
+			}
+
 			for {
 				dx, dy := vw.takeMouseMoveChunk()
 				if dx == 0 && dy == 0 {
 					break
 				}
+				vw.statRelWS.Add(1)
 				if err := client.SendMouseMove(dx, dy); err != nil {
 					logrus.Debugf("video input command mouse-move failed: %v", err)
 					vw.prependMouseMoveChunk(dx, dy)

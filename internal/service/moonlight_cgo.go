@@ -225,6 +225,10 @@ static void do_send_mouse_move(short dx, short dy) {
     LiSendMouseMoveEvent(dx, dy);
 }
 
+static void do_send_mouse_position(short x, short y, short refW, short refH) {
+    LiSendMousePositionEvent(x, y, refW, refH);
+}
+
 static void do_send_mouse_button(char action, int button) {
     LiSendMouseButtonEvent(action, button);
 }
@@ -445,6 +449,13 @@ func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) {
 		return
 	}
 	C.do_send_mouse_move(C.short(dx), C.short(dy))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_mouse_position(C.short(x), C.short(y), C.short(refW), C.short(refH))
 }
 
 func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int) {
