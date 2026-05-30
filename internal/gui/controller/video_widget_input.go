@@ -47,6 +47,12 @@ func (vw *VideoWidget) moonlightInput() service.MoonlightInputSender {
 	return mi
 }
 
+// GetMoonlightInput returns the active MoonlightInputSender, or nil if unavailable.
+// Intended for external consumers such as the gamepad capture controller.
+func (vw *VideoWidget) GetMoonlightInput() service.MoonlightInputSender {
+	return vw.moonlightInput()
+}
+
 // widgetToMoonlightModifiers converts the widget modifier bitmask
 // (Ctrl=1, Shift=2, Alt=4, Super=8) to Moonlight's bitmask
 // (MODIFIER_SHIFT=0x01, MODIFIER_CTRL=0x02, MODIFIER_ALT=0x04, MODIFIER_META=0x08).

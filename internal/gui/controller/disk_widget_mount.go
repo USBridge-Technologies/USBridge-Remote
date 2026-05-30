@@ -289,6 +289,9 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		rndisMode := normalizeRNDISMode(sel.RNDISMode)
 		req := newRNDISStartRequest(rndisMode)
 		return &req, "", nil
+	case "gamepad":
+		req := newGamepadStartRequest()
+		return &req, "", nil
 	case "api":
 		if sel.LocalDrive == nil {
 			return nil, "", fmt.Errorf("LocalDrive == nil для api-устройства: %s", sel.Name)

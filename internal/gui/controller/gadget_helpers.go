@@ -58,6 +58,16 @@ func newRNDISStartRequest(mode string) models.DeviceStartRequest {
 	}
 }
 
+func newGamepadStartRequest() models.DeviceStartRequest {
+	return models.DeviceStartRequest{
+		Device:       "gamepad",
+		VendorID:     "0x1d6b",
+		ProductID:    "0x0109",
+		ProductName:  "USBridge Gamepad",
+		Manufacturer: "USBridge",
+	}
+}
+
 func executeDeviceBatch(
 	usbClient *api.USBClient,
 	startBatch func(models.DeviceStartBatchRequest, bool) (*models.APIResponse, error),
@@ -96,6 +106,11 @@ func driveSelectionKey(drive DriveItem) string {
 		return "mouse"
 	case drive.IsRNDIS:
 		return "rndis"
+	case drive.IsGamepad:
+		if drive.GamepadID != "" {
+			return "gamepad:" + drive.GamepadID
+		}
+		return "gamepad"
 	case drive.IsVideo && drive.VideoDevice != nil:
 		return "video:" + drive.VideoDevice.Path
 	case drive.DiskInfo != nil:

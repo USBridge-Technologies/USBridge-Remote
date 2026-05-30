@@ -47,6 +47,7 @@ type MoonlightInputSender interface {
 	SendMoonlightMouseMove(dx, dy int16)
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
+	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
 }
 
 // Moonlight protocol constants matching Limelight.h KEY_ACTION_* / BUTTON_ACTION_* / BUTTON_*.
@@ -58,6 +59,23 @@ const (
 	LiMouseButtonLeft    = 1
 	LiMouseButtonMiddle  = 2
 	LiMouseButtonRight   = 3
+
+	// Gamepad button flags matching Limelight.h (same as the USB HID report bits).
+	LiGamepadDpadUp    = uint16(0x0001)
+	LiGamepadDpadDown  = uint16(0x0002)
+	LiGamepadDpadLeft  = uint16(0x0004)
+	LiGamepadDpadRight = uint16(0x0008)
+	LiGamepadStart     = uint16(0x0010)
+	LiGamepadBack      = uint16(0x0020)
+	LiGamepadLS        = uint16(0x0040)
+	LiGamepadRS        = uint16(0x0080)
+	LiGamepadLB        = uint16(0x0100)
+	LiGamepadRB        = uint16(0x0200)
+	LiGamepadGuide     = uint16(0x0400)
+	LiGamepadA         = uint16(0x1000)
+	LiGamepadB         = uint16(0x2000)
+	LiGamepadX         = uint16(0x4000)
+	LiGamepadY         = uint16(0x8000)
 )
 
 // Ensure GStreamerService implements VideoClient

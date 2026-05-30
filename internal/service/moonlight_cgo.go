@@ -232,6 +232,19 @@ static void do_send_mouse_button(char action, int button) {
 static void do_send_scroll(signed char clicks) {
     LiSendScrollEvent(clicks);
 }
+
+static void do_send_multi_controller(unsigned short controllerNumber,
+                                     unsigned short activeGamepadMask,
+                                     unsigned short buttons,
+                                     unsigned char leftTrigger,
+                                     unsigned char rightTrigger,
+                                     short leftStickX, short leftStickY,
+                                     short rightStickX, short rightStickY) {
+    LiSendMultiControllerEvent(controllerNumber, activeGamepadMask, buttons,
+                               leftTrigger, rightTrigger,
+                               leftStickX, leftStickY,
+                               rightStickX, rightStickY);
+}
 */
 import "C"
 
@@ -446,6 +459,18 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
 		return
 	}
 	C.do_send_scroll(C.schar(clicks))
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
+	if !liStartConnectionActive.Load() {
+		return
+	}
+	C.do_send_multi_controller(
+		C.ushort(controllerNumber), C.ushort(activeGamepadMask), C.ushort(buttons),
+		C.uchar(leftTrigger), C.uchar(rightTrigger),
+		C.short(leftStickX), C.short(leftStickY),
+		C.short(rightStickX), C.short(rightStickY),
+	)
 }
 
 // ── Audio mute methods ────────────────────────────────────────────────────────

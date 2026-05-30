@@ -136,6 +136,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+	mw.diskWidget.SetMoonlightProvider(mw.videoWidget.GetMoonlightInput)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.backupWidget.SetWindow(w)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)

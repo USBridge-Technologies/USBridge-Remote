@@ -42,6 +42,8 @@ var (
 	keyboardIcon []byte
 	//go:embed mouse-svgrepo-com.svg
 	mouseIcon []byte
+	//go:embed gamepad-svgrepo-com.svg
+	gamepadIcon []byte
 	//go:embed audio-svgrepo-com.svg
 	audioIcon []byte
 	//go:embed audio-mute-svgrepo-com.svg
@@ -131,6 +133,8 @@ var (
 	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
+	GamepadIcon                = fyne.NewStaticResource("gamepad-svgrepo-com.svg", recolorStrokeIcon(gamepadIcon, "#C9C9C9", "1.8"))
+	GamepadIconActive          = fyne.NewStaticResource("gamepad-svgrepo-com-active.svg", recolorStrokeIcon(gamepadIcon, "#93C572", "1.8"))
 	AudioIcon                  = fyne.NewStaticResource("audio-svgrepo-com.svg", recolorFillIcon(audioIcon, "#C9C9C9"))
 	AudioIconActive            = fyne.NewStaticResource("audio-svgrepo-com-active.svg", recolorFillIcon(audioIcon, "#93C572"))
 	AudioMuteIcon              = fyne.NewStaticResource("audio-mute-svgrepo-com.svg", recolorFillIcon(audioMuteIcon, "#C9C9C9"))

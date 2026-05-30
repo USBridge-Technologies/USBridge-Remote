@@ -49,7 +49,8 @@
       "Bash(gofmt -e config.go)",
       "Bash(gofmt -e modules/video/video_sunshine.go)",
       "Bash(grep \"\\\\.go$\")",
-      "Bash(gofmt -e modules/video/video_sunshine.go modules/keyboard/keyboard.go web/handlers.go)"
+      "Bash(gofmt -e modules/video/video_sunshine.go modules/keyboard/keyboard.go web/handlers.go)",
+      "Bash(gofmt -e modules/gamepad/gamepad.go modules/mountdrive/mountdrive.go gadget_manager.go)"
     ]
   }
 }

@@ -33,7 +33,7 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 			backup = append(backup, idx)
 		case drive.IsRNDIS:
 			connectivity = append(connectivity, idx)
-		case drive.IsVideo || drive.IsKeyboard || drive.IsMouse:
+		case drive.IsVideo || drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
 			control = append(control, idx)
 		default:
 			storage = append(storage, idx)
@@ -89,6 +89,8 @@ func driveBadge(drive DriveItem) (string, color.Color) {
 		return "PTR", color.NRGBA{R: 0x3d, G: 0x72, B: 0x56, A: 0xff}
 	case drive.IsRNDIS:
 		return "NET", color.NRGBA{R: 0x2b, G: 0x5d, B: 0x8c, A: 0xff}
+	case drive.IsGamepad:
+		return "GMD", color.NRGBA{R: 0x5b, G: 0x3d, B: 0x8a, A: 0xff}
 	case drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp":
 		return "MTP", color.NRGBA{R: 0x6e, G: 0x58, B: 0x2c, A: 0xff}
 	case drive.Source == "api":

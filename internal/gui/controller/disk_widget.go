@@ -42,10 +42,15 @@ type DiskWidget struct {
 	compactUnmountBtn *view.DeviceActionButton
 
 	// Данные
-	localDrives  []*models.LocalDrive // Устройства из API
-	localFiles   []*models.DiskInfo   // Локальные файлы из папки isos
-	videoDevices []models.SystemDevice
-	sdSpaceInfo  *models.ISOSpaceInfo // Информация о месте на SD-карте (при монтировании)
+	localDrives    []*models.LocalDrive // Устройства из API
+	localFiles     []*models.DiskInfo   // Локальные файлы из папки isos
+	videoDevices   []models.SystemDevice
+	gamepadDevices []platform.GamepadDevice // Геймпады в системе
+	sdSpaceInfo    *models.ISOSpaceInfo     // Информация о месте на SD-карте (при монтировании)
+
+	// Gamepad capture
+	activeCaptures   map[string]*platform.GamepadCapture
+	moonlightProvider moonlightProvider
 
 	// Callback для обновления общего прогрессбара в main window (место на флешке)
 	onStorageInfoUpdate   func(usedPct float64, available, total int64)
@@ -123,7 +128,7 @@ func normalizeRNDISMode(mode string) string {
 type DriveItem struct {
 	Name           string
 	Size           string
-	Source         string // "api", "local", "user", "keyboard", "mouse" или "rndis"
+	Source         string // "api", "local", "user", "keyboard", "mouse", "rndis", "gamepad"
 	IsMounted      bool
 	LocalDrive     *models.LocalDrive // Для устройств из API
 	DiskInfo       *models.DiskInfo   // Для локальных файлов
@@ -134,7 +139,9 @@ type DriveItem struct {
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
 	VideoDevice    *models.SystemDevice
-	ReadOnly       bool    // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay (только чтение не портит базовый образ)
+	IsGamepad      bool   // Для геймпада
+	GamepadID      string // Уникальный идентификатор геймпада (платформенный)
+	ReadOnly       bool   // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay
 	UploadProgress float64 // Прогресс загрузки 0-100
 	UploadSpeed    float64 // Скорость загрузки МБ/с
 	IsUploading    bool    // Идет ли загрузка
@@ -183,6 +190,8 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 
 	// Запускаем периодическое обновление состояния
 	dw.startPeriodicRefresh()
+
+	go dw.loadGamepadDevices()
 
 	return dw
 }
@@ -249,6 +258,11 @@ func (dw *DiskWidget) getDriveUniqueID(drive DriveItem) string {
 		return "mouse"
 	case drive.IsRNDIS:
 		return "rndis"
+	case drive.IsGamepad:
+		if drive.GamepadID != "" {
+			return "gamepad:" + drive.GamepadID
+		}
+		return "gamepad"
 	case drive.IsVideo && drive.VideoDevice != nil:
 		return "video:" + drive.VideoDevice.Path
 	case drive.LocalDrive != nil:
@@ -395,6 +409,12 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			iconRes = assets.NetworkIconActive
 		} else {
 			iconRes = assets.NetworkIcon
+		}
+	case "gamepad":
+		if drive.IsMounted {
+			iconRes = assets.GamepadIconActive
+		} else {
+			iconRes = assets.GamepadIcon
 		}
 	case "video":
 		if drive.IsMounted {
@@ -999,6 +1019,7 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
 	dw.loadMountedDevices()
+	go dw.loadGamepadDevices()
 }
 
 func (dw *DiskWidget) requestDevicesRefresh() {
@@ -1361,6 +1382,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	if usbClient == nil {
 		dw.sdSpaceInfo = nil
 		dw.updateSDStorageInfo()
+		dw.stopAllGamepadCaptures()
 	}
 	// Обновляем данные при смене клиента
 	dw.loadLocalDrives()

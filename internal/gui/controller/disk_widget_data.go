@@ -8,6 +8,7 @@ import (
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
@@ -371,6 +372,19 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, rndisItem)
 	}
 
+	// Добавляем геймпады из системы (macOS: IOKit; другие платформы: пусто)
+	for _, gpad := range dw.gamepadDevices {
+		gamepadItem := DriveItem{
+			Name:      gpad.Name,
+			Size:      "N/A",
+			Source:    "gamepad",
+			IsMounted: false,
+			IsGamepad: true,
+			GamepadID: gpad.ID,
+		}
+		dw.allDrives = append(dw.allDrives, gamepadItem)
+	}
+
 	// Восстанавливаем состояние загрузки и монтирования
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil {
@@ -407,6 +421,15 @@ func (dw *DiskWidget) combineDrives() {
 		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
 }
 
+
+// loadGamepadDevices обновляет список геймпадов из ОС и перестраивает список устройств.
+func (dw *DiskWidget) loadGamepadDevices() {
+	gamepads := platform.EnumerateGamepads()
+	dw.updateUIAsync(func() {
+		dw.gamepadDevices = gamepads
+		dw.combineDrives()
+	})
+}
 
 // loadMountedDevices загружает смонтированные устройства через API
 func (dw *DiskWidget) loadMountedDevices() {
@@ -521,7 +544,13 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				break
 			}
 
-			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS {
+			if drive.IsGamepad && (device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
+				isMounted = true
+				logrus.Debugf("🎮 Найден подключенный геймпад: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
+				break
+			}
+
+			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad {
 				continue
 			}
 
@@ -585,4 +614,5 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		logrus.Debugf("📊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
 	}
 	dw.updateButtons()
+	dw.syncGamepadCaptures()
 }
