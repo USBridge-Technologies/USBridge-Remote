@@ -39,5 +39,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                  
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
 }
 
+func (w *MoonlightCgoWrapper) IsInputActive() bool { return false }
+
 func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) { w.audioMuted = muted }
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool      { return w.audioMuted }

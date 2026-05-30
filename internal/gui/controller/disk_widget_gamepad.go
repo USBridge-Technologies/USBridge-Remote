@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"sync/atomic"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
@@ -73,13 +74,32 @@ func (dw *DiskWidget) syncGamepadCaptures() {
 	}
 }
 
+// gamepadLogSeq is used to rate-limit per-frame gamepad debug logs.
+var gamepadLogSeq atomic.Uint64
+
 // forwardGamepadState sends the decoded gamepad state. Prefers the Moonlight path
-// when a stream is active (lower latency); falls back to the direct WebSocket API.
+// when the stream is fully active (LiStartConnection running); falls back to the
+// direct WebSocket API otherwise.
 // Called from the capture goroutine (not from the Fyne UI thread).
-func (dw *DiskWidget) forwardGamepadState(_ string, state platform.GamepadCaptureState) {
-	// Prefer Moonlight when a stream is active.
+func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptureState) {
+	// Log non-zero state periodically so we can confirm data is flowing without flooding.
+	seq := gamepadLogSeq.Add(1)
+	hasInput := state.Buttons != 0 || state.LeftTrigger != 0 || state.RightTrigger != 0 ||
+		state.LeftX != 0 || state.LeftY != 0 || state.RightX != 0 || state.RightY != 0
+	if hasInput {
+		logrus.Infof("🎮 [GAMEPAD] input id=%s buttons=0x%04x lt=%d rt=%d lx=%d ly=%d rx=%d ry=%d",
+			id, state.Buttons, state.LeftTrigger, state.RightTrigger,
+			state.LeftX>>8, state.LeftY>>8, state.RightX>>8, state.RightY>>8)
+	} else if seq%300 == 1 {
+		logrus.Debugf("🎮 [GAMEPAD] heartbeat id=%s (idle)", id)
+	}
+
+	// Use Moonlight only when the stream is fully established and can actually send.
 	if dw.moonlightProvider != nil {
-		if sender := dw.moonlightProvider(); sender != nil {
+		if sender := dw.moonlightProvider(); sender != nil && sender.IsInputActive() {
+			if hasInput || seq%300 == 1 {
+				logrus.Debugf("🎮 [GAMEPAD] → Moonlight path active")
+			}
 			sender.SendMoonlightControllerEvent(
 				0, // controllerNumber
 				1, // activeGamepadMask (bit 0 = controller 0 active)
@@ -96,6 +116,9 @@ func (dw *DiskWidget) forwardGamepadState(_ string, state platform.GamepadCaptur
 	}
 	// Fall back to direct WebSocket API (works without video streaming).
 	if dw.usbClient != nil {
+		if hasInput || seq%300 == 1 {
+			logrus.Debugf("🎮 [GAMEPAD] → WebSocket path")
+		}
 		dw.usbClient.SendGamepadReportWS(models.GamepadRequest{
 			Buttons:      state.Buttons,
 			LeftX:        int8(state.LeftX >> 8),

@@ -88,7 +88,7 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if mi := vw.moonlightInput(); mi != nil {
+			if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 				for {
 					dx, dy := vw.takeMouseMoveChunk()
 					if dx == 0 && dy == 0 {
@@ -160,7 +160,7 @@ func takeAxisChunk(pending *int) int {
 }
 
 func (vw *VideoWidget) enqueueMouseClick(button int) {
-	if mi := vw.moonlightInput(); mi != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		// Moonlight right button = 3; our right = 2.
 		moonlightBtn := button
 		if button == 2 {
@@ -176,7 +176,7 @@ func (vw *VideoWidget) enqueueMouseClick(button int) {
 }
 
 func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
-	if mi := vw.moonlightInput(); mi != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		clicks := int8(clamp(scroll, -127, 127))
 		mi.SendMoonlightScroll(clicks)
 		return

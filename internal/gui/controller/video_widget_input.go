@@ -92,7 +92,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if mi := vw.moonlightInput(); mi != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
@@ -114,7 +114,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if mi := vw.moonlightInput(); mi != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
@@ -123,7 +123,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 
 // handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
-	if vw.moonlightInput() != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		return // key press handled via down/up events in Moonlight mode
 	}
 	if vw.usbClient == nil {
@@ -147,7 +147,7 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 
 // handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
-	if vw.moonlightInput() != nil {
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		return // rune input handled via TypedKey down/up events in Moonlight mode
 	}
 	if vw.usbClient == nil {
@@ -681,7 +681,9 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 // Windows-friendly absolute pointer descriptor (0..32767).
 func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
-		return 0, 0
+		// Widget not yet sized — return center instead of (0,0) so the cursor
+		// doesn't snap to the top-left corner before the first frame arrives.
+		return 16383, 16383
 	}
 
 	rectX := vw.contentRectX

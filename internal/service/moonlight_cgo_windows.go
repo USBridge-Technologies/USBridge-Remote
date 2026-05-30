@@ -346,6 +346,10 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(controllerNumber uint
 	)
 }
 
+func (w *MoonlightCgoWrapper) IsInputActive() bool {
+	return liStartConnectionActive.Load()
+}
+
 // ── CGO-exported Go callbacks ──────────────────────────────────────────────
 
 var stageNames = []string{

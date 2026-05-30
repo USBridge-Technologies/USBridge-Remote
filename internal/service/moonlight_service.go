@@ -306,6 +306,10 @@ func (m *MoonlightService) SendMoonlightControllerEvent(controllerNumber uint16,
 	}
 }
 
+func (m *MoonlightService) IsInputActive() bool {
+	return m.activeWrapper != nil && m.activeWrapper.IsInputActive()
+}
+
 var _ MoonlightInputSender = (*MoonlightService)(nil)
 
 // ── Audio mute ────────────────────────────────────────────────────────────────

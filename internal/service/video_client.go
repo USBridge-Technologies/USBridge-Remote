@@ -48,6 +48,10 @@ type MoonlightInputSender interface {
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
 	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
+	// IsInputActive returns true only when the underlying Moonlight stream is fully
+	// set up and LiSend* calls will actually transmit. Used to decide whether to fall
+	// through to the WebSocket HID path when the stream is not yet ready.
+	IsInputActive() bool
 }
 
 // Moonlight protocol constants matching Limelight.h KEY_ACTION_* / BUTTON_ACTION_* / BUTTON_*.

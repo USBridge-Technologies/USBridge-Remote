@@ -473,6 +473,10 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(controllerNumber uint
 	)
 }
 
+func (w *MoonlightCgoWrapper) IsInputActive() bool {
+	return liStartConnectionActive.Load()
+}
+
 // ── Audio mute methods ────────────────────────────────────────────────────────
 
 func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) {
