@@ -166,6 +166,32 @@ func (dw *DiskWidget) handleMount() {
 
 	logrus.Infof("📁 [MOUNT] смонтировано: %d, добавляем: %d", mountedGadgetCount, len(selectedDrives))
 
+	// XInput геймпад несовместим с клавиатурой/мышью в одном композитном устройстве:
+	// Windows не инициализирует остальные HID-интерфейсы под Xbox VID/PID.
+	// Проверяем как в новом выборе, так и среди уже смонтированных устройств.
+	if dw.window != nil {
+		hasXInputSelected := false
+		hasHIDSelected := false
+		for _, d := range selectedDrives {
+			if d.IsGamepad && normalizeGamepadMode(d.GamepadMode) == gamepadModeXInput {
+				hasXInputSelected = true
+			}
+			if d.IsKeyboard || d.IsMouse {
+				hasHIDSelected = true
+			}
+		}
+		hasHIDMounted := false
+		for _, d := range dw.allDrives {
+			if d.IsMounted && (d.IsKeyboard || d.IsMouse) {
+				hasHIDMounted = true
+			}
+		}
+		if hasXInputSelected && (hasHIDSelected || hasHIDMounted) {
+			view.ShowErrorDialog(fmt.Errorf("%s", i18n.Current.XInputIncompatibleWithHID), dw.window)
+			return
+		}
+	}
+
 	// Прогресс-диалог для файлов из Google Drive
 	var progressDialog dialog.Dialog
 	for _, d := range selectedDrives {

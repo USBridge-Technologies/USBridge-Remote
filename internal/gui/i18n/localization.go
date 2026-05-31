@@ -305,9 +305,10 @@ type LocalizedStrings struct {
 	DeviceTouch       string // "Touch" (touchscreen mode)
 	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
-	DeviceGamepad     string // "Gamepad"
-	DeviceDirectInput string // "DirectInput"
-	DeviceXInput      string // "XInput"
+	DeviceGamepad               string // "Gamepad"
+	DeviceDirectInput           string // "DirectInput"
+	DeviceXInput                string // "XInput"
+	XInputIncompatibleWithHID   string // error: XInput + keyboard/mouse
 	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
 	MuteAudio         string // "Mute Audio"
 	UnmuteAudio       string // "Unmute Audio"
@@ -663,9 +664,10 @@ func EN() *LocalizedStrings {
 		DeviceTouch:       "TouchScreen",
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",
-		DeviceGamepad:     "Gamepad",
-		DeviceDirectInput: "DirectInput",
-		DeviceXInput:      "XInput",
+		DeviceGamepad:             "Gamepad",
+		DeviceDirectInput:         "DirectInput",
+		DeviceXInput:              "XInput",
+		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
 		ShowMouseCursor:   "Show Mouse",
 		MuteAudio:         "Mute Audio",
 		UnmuteAudio:       "Unmute Audio",

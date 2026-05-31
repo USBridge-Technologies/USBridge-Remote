@@ -354,6 +354,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	mouseConnected := false
 	mouseModeMatches := false
 	storageConnected := false
+	xinputGamepadConnected := false
 	desiredMouseType := vw.GetMouseInputMode()
 
 	for _, device := range deviceInfo.Devices {
@@ -369,6 +370,8 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			observedMode := mouseModeFromDeviceType(device.Type)
 			vw.setObservedMouseMode(observedMode)
 			mouseModeMatches = observedMode == desiredMouseType
+		case IsGamepadXInputDeviceType(device.Type):
+			xinputGamepadConnected = true
 		}
 
 		if isConnectedStorageDevice(device) {
@@ -378,6 +381,11 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 
 	if storageConnected {
 		logrus.Info("💿 Control HID auto-connect skipped: storage devices are connected, avoiding gadget reconfiguration")
+		return nil
+	}
+
+	if xinputGamepadConnected {
+		logrus.Info("🎮 Control HID auto-connect skipped: XInput gamepad connected — keyboard/mouse share incompatible with XInput composite")
 		return nil
 	}
 

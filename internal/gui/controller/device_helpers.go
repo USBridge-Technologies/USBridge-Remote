@@ -25,6 +25,11 @@ func IsGamepadDeviceType(deviceType string) bool {
 	return deviceType == "gamepad" || strings.HasPrefix(deviceType, "gamepad:")
 }
 
+// IsGamepadXInputDeviceType checks if the device type represents a gamepad in XInput mode.
+func IsGamepadXInputDeviceType(deviceType string) bool {
+	return deviceType == "gamepad:xinput"
+}
+
 // IsStorageDeviceType checks if the device type represents a storage device.
 func IsStorageDeviceType(deviceType string, deviceName string) bool {
 	switch {
