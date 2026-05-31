@@ -191,12 +191,16 @@ func (dw *DiskWidget) combineDrives() {
 	selectedKeys := make(map[string]bool)
 	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
+	oldGamepadMode := gamepadModeDirectInput
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
 			oldMouseType = d.MouseType
 		}
 		if d.IsRNDIS && d.RNDISMode != "" {
 			oldRNDISMode = d.RNDISMode
+		}
+		if d.IsGamepad && d.GamepadMode != "" {
+			oldGamepadMode = d.GamepadMode
 		}
 		if d.IsUploading && d.DiskInfo != nil && d.DiskInfo.Path != "" {
 			uploadingByPath[d.DiskInfo.Path] = uploadState{progress: d.UploadProgress, speed: d.UploadSpeed}
@@ -375,12 +379,13 @@ func (dw *DiskWidget) combineDrives() {
 	// Добавляем геймпады из системы (macOS: IOKit; другие платформы: пусто)
 	for _, gpad := range dw.gamepadDevices {
 		gamepadItem := DriveItem{
-			Name:      gpad.Name,
-			Size:      "N/A",
-			Source:    "gamepad",
-			IsMounted: false,
-			IsGamepad: true,
-			GamepadID: gpad.ID,
+			Name:        gpad.Name,
+			Size:        "N/A",
+			Source:      "gamepad",
+			IsMounted:   false,
+			IsGamepad:   true,
+			GamepadID:   gpad.ID,
+			GamepadMode: oldGamepadMode,
 		}
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}

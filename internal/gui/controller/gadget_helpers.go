@@ -58,9 +58,10 @@ func newRNDISStartRequest(mode string) models.DeviceStartRequest {
 	}
 }
 
-func newGamepadStartRequest() models.DeviceStartRequest {
+func newGamepadStartRequest(mode string) models.DeviceStartRequest {
 	return models.DeviceStartRequest{
 		Device:       "gamepad",
+		Type:         normalizeGamepadMode(mode), // "xinput" or "directinput"
 		VendorID:     "0x1d6b",
 		ProductID:    "0x0109",
 		ProductName:  "USBridge Gamepad",

@@ -111,6 +111,26 @@ const MaxDevicesToMount = 5
 
 var rndisModeOptions = []string{"auto", "wifirouter", "etherouter", "etherbridge"}
 
+const (
+	gamepadModeDirectInput = "directinput"
+	gamepadModeXInput      = "xinput"
+)
+
+func normalizeGamepadMode(mode string) string {
+	if strings.ToLower(mode) == gamepadModeXInput {
+		return gamepadModeXInput
+	}
+	return gamepadModeDirectInput
+}
+
+func gamepadModeLabel(mode string) string {
+	if mode == gamepadModeXInput {
+		return i18n.Current.DeviceXInput
+	}
+	return i18n.Current.DeviceDirectInput
+}
+
+
 func normalizeRNDISMode(mode string) string {
 	switch strings.ToLower(mode) {
 	case "auto", "wifirouter", "etherouter", "etherbridge":
@@ -141,6 +161,7 @@ type DriveItem struct {
 	VideoDevice    *models.SystemDevice
 	IsGamepad      bool   // Для геймпада
 	GamepadID      string // Уникальный идентификатор геймпада (платформенный)
+	GamepadMode    string // "directinput" (default) или "xinput"
 	ReadOnly       bool   // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay
 	UploadProgress float64 // Прогресс загрузки 0-100
 	UploadSpeed    float64 // Скорость загрузки МБ/с
@@ -487,13 +508,17 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		modeRowIconText.Hide()
 		modeTitleLabel.Hide()
 
-		if drive.Source == "mouse" || drive.Source == "rndis" {
+		if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" {
 			modeSelect.Show()
 			modeSelect.SetDisabled(controlsLocked)
-			if drive.Source == "rndis" {
+			switch drive.Source {
+			case "rndis":
 				modeSelect.SetOptions(rndisModeOptions)
 				modeSelect.SetSelected(normalizeRNDISMode(drive.RNDISMode))
-			} else {
+			case "gamepad":
+				modeSelect.SetOptions([]string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput})
+				modeSelect.SetSelected(gamepadModeLabel(normalizeGamepadMode(drive.GamepadMode)))
+			default: // mouse
 				mode := normalizeMouseMode(drive.MouseType)
 				if mode == mouseModeAbsolute {
 					modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
@@ -641,6 +666,18 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			if rowID < len(dw.allDrives) {
 				dw.allDrives[rowID].RNDISMode = normalizeRNDISMode(s)
 			}
+		}
+	} else if drive.Source == "gamepad" {
+		rowID := id
+		modeSelect.OnSelected = func(s string) {
+			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
+				return
+			}
+			mode := gamepadModeDirectInput
+			if s == i18n.Current.DeviceXInput {
+				mode = gamepadModeXInput
+			}
+			dw.allDrives[rowID].GamepadMode = mode
 		}
 	} else if drive.Source == "mouse" {
 		rowID := id

@@ -306,6 +306,8 @@ type LocalizedStrings struct {
 	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
 	DeviceGamepad     string // "Gamepad"
+	DeviceDirectInput string // "DirectInput"
+	DeviceXInput      string // "XInput"
 	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
 	MuteAudio         string // "Mute Audio"
 	UnmuteAudio       string // "Unmute Audio"
@@ -662,6 +664,8 @@ func EN() *LocalizedStrings {
 		DeviceAbsolute:    "Absolute",
 		DeviceNetworkCard: "Network Card (RNDIS)",
 		DeviceGamepad:     "Gamepad",
+		DeviceDirectInput: "DirectInput",
+		DeviceXInput:      "XInput",
 		ShowMouseCursor:   "Show Mouse",
 		MuteAudio:         "Mute Audio",
 		UnmuteAudio:       "Unmute Audio",
