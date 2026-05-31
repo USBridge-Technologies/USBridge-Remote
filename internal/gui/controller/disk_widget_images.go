@@ -144,6 +144,24 @@ func (dw *DiskWidget) handleAddImage() {
 	}()
 }
 
+func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int, filename string) {
+	if driveIndex < 0 || driveIndex >= len(dw.allDrives) {
+		return
+	}
+	drive := dw.allDrives[driveIndex]
+	if dw.window != nil {
+		view.ShowDeleteImageConfirm(
+			drive.Name,
+			func(confirmed bool) {
+				if confirmed {
+					go dw.deleteImageFromDevice(filename, drive.Name)
+				}
+			},
+			dw.window,
+		)
+	}
+}
+
 func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 	fileName := strings.TrimSpace(selected.FileName)
 	uriString := strings.TrimSpace(selected.URI)
@@ -224,8 +242,7 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 	dw.userImages = append(dw.userImages, diskInfo)
 	dw.saveUserImagesToPreferences()
 	dw.updateUIAsync(func() {
-		dw.combineDrives()
-		dw.requestDevicesRefresh()
+		dw.scheduleCombine()
 	})
 }
 
@@ -329,22 +346,19 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 	}
 
 	if dw.window != nil {
-		fyne.Do(func() {
-			view.ShowDeleteImageConfirm(
-				drive.Name,
-				func(confirmed bool) {
-					if confirmed {
-						dw.userImages = append(dw.userImages[:userImageIndex], dw.userImages[userImageIndex+1:]...)
-						dw.saveUserImagesToPreferences()
-						dw.updateUIAsync(func() {
-							dw.combineDrives()
-							dw.requestDevicesRefresh()
-						})
-					}
-				},
-				dw.window,
-			)
-		})
+		view.ShowDeleteImageConfirm(
+			drive.Name,
+			func(confirmed bool) {
+				if confirmed {
+					dw.userImages = append(dw.userImages[:userImageIndex], dw.userImages[userImageIndex+1:]...)
+					dw.saveUserImagesToPreferences()
+					dw.updateUIAsync(func() {
+						dw.scheduleCombine()
+					})
+				}
+			},
+			dw.window,
+		)
 	}
 }
 

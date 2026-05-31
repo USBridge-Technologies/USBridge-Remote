@@ -56,7 +56,7 @@ func (dw *DiskWidget) loadLocalDrives() {
 
 		logrus.Debugf("Загружено %d устройств из API", len(dw.localDrives))
 		dw.updateUIAsync(func() {
-			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
+			dw.scheduleCombine()
 		})
 
 		// Загружаем информацию о месте на SD-карте (раздел iso/data/backup)
@@ -147,7 +147,7 @@ func (dw *DiskWidget) loadLocalFiles() {
 		logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
 		dw.updateUIAsync(func() {
 			dw.localFiles = foundFiles
-			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
+			dw.scheduleCombine()
 		})
 	}()
 }
@@ -164,14 +164,14 @@ func (dw *DiskWidget) loadVideoDevices() {
 			logrus.Debugf("video devices unavailable: %v", err)
 			dw.updateUIAsync(func() {
 				dw.videoDevices = nil
-				dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
+				dw.scheduleCombine()
 			})
 			return
 		}
 
 		dw.updateUIAsync(func() {
 			dw.videoDevices = devices
-			dw.combineDrives() // вызывает rebuildListItems → requestDevicesRefresh
+			dw.scheduleCombine()
 		})
 	}()
 }
@@ -434,7 +434,7 @@ func (dw *DiskWidget) loadGamepadDevices() {
 	gamepads := platform.EnumerateGamepads()
 	dw.updateUIAsync(func() {
 		dw.gamepadDevices = gamepads
-		dw.combineDrives()
+		dw.scheduleCombine()
 	})
 }
 
@@ -457,23 +457,20 @@ func (dw *DiskWidget) loadMountedDevices() {
 			return
 		}
 
-		dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
-		for i := range deviceInfo.Devices {
-			dw.mountedDevices[i] = &deviceInfo.Devices[i]
-		}
-
-		dw.agentOS = deviceInfo.AgentOS
-		logrus.Debugf("Загружено %d смонтированных устройств, agentOS='%s'", len(dw.mountedDevices), dw.agentOS)
+		logrus.Debugf("Загружено %d смонтированных устройств, agentOS='%s'", len(deviceInfo.Devices), deviceInfo.AgentOS)
 		dw.updateUIAsync(func() {
-			// Only propagate the server's MountInProgress flag when no local user
-			// operation is in flight. If we unconditionally overwrite, a stale
-			// background-poll response arriving after endOperation() has already
-			// cleared the flag will re-lock the UI permanently.
-			if !dw.userOperationInFlight.Load() {
-				dw.setAPIMountInProgress(deviceInfo.MountInProgress)
+			dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
+			for i := range deviceInfo.Devices {
+				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
-			dw.updateDevicesStatus()
-			dw.requestDevicesRefresh()
+			dw.agentOS = deviceInfo.AgentOS
+			// Only propagate the server's MountInProgress flag when no local user
+			// operation is in flight — a stale poll response must not re-lock the UI
+			// after endOperation() already cleared the flag.
+			if !dw.userOperationInFlight.Load() {
+				dw.apiMountInProgress.Store(deviceInfo.MountInProgress)
+			}
+			dw.scheduleCombine()
 		})
 	}()
 }

@@ -134,38 +134,56 @@ func (t *adaptiveNameText) SetColor(col color.Color) {
 	t.Refresh()
 }
 
+type adaptiveNameTextRenderer struct {
+	widget *adaptiveNameText
+	label  *canvas.Text
+}
+
+func (r *adaptiveNameTextRenderer) Layout(size fyne.Size) {
+	r.label.Move(fyne.NewPos(0, 0))
+	r.label.Resize(size)
+}
+
+func (r *adaptiveNameTextRenderer) MinSize() fyne.Size {
+	return r.widget.MinSize()
+}
+
+func (r *adaptiveNameTextRenderer) Refresh() {
+	r.label.Color = r.widget.color
+	r.label.TextStyle = r.widget.style
+	r.label.TextSize = r.widget.textSize
+	r.label.Text = r.widget.truncatedForWidth(r.widget.Size().Width)
+	r.label.Refresh()
+}
+
+func (r *adaptiveNameTextRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.label}
+}
+
+func (r *adaptiveNameTextRenderer) Destroy() {}
+
 func (t *adaptiveNameText) CreateRenderer() fyne.WidgetRenderer {
-	t.label = canvas.NewText("", t.color)
-	t.label.TextSize = t.textSize
-	t.label.TextStyle = t.style
-	return widget.NewSimpleRenderer(t.label)
+	lbl := canvas.NewText("", t.color)
+	lbl.TextSize = t.textSize
+	lbl.TextStyle = t.style
+	t.label = lbl
+	return &adaptiveNameTextRenderer{widget: t, label: lbl}
 }
 
 func (t *adaptiveNameText) MinSize() fyne.Size {
 	return fyne.MeasureText("...", t.textSize, t.style)
 }
 
+// Refresh schedules a re-render via Fyne's pipeline.
+// Safe to call from any goroutine — no direct canvas mutation here.
 func (t *adaptiveNameText) Refresh() {
-	fyne.Do(func() {
-		if t.label != nil {
-			t.label.Color = t.color
-			t.label.TextStyle = t.style
-			t.label.TextSize = t.textSize
-			t.label.Text = t.truncatedForWidth(t.Size().Width)
-			t.label.Refresh()
-		}
-		t.BaseWidget.Refresh()
-	})
+	t.BaseWidget.Refresh()
 }
 
 func (t *adaptiveNameText) Resize(size fyne.Size) {
 	t.BaseWidget.Resize(size)
-	fyne.Do(func() {
-		if t.label != nil {
-			t.label.Text = t.truncatedForWidth(size.Width)
-			t.label.Refresh()
-		}
-	})
+	// Trigger renderer.Refresh() so truncation is recalculated for the new width.
+	t.BaseWidget.Refresh()
 }
 
 func (t *adaptiveNameText) truncatedForWidth(width float32) string {
