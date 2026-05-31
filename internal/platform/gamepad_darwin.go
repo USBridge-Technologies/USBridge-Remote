@@ -79,8 +79,10 @@ import (
 
 // GamepadDevice describes a system gamepad.
 type GamepadDevice struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	VendorID  string // e.g. "0x045e" (empty if not available via IOKit)
+	ProductID string // e.g. "0x028e"
 }
 
 // EnumerateGamepads returns all gamepads currently connected to the system.

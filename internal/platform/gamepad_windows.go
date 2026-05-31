@@ -60,8 +60,10 @@ const (
 
 // GamepadDevice describes a system gamepad.
 type GamepadDevice struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	VendorID  string // e.g. "0x045e" from WinMM caps.wMid
+	ProductID string // e.g. "0x028e" from WinMM caps.wPid
 }
 
 // EnumerateGamepads returns all gamepads currently connected to the system.
@@ -81,9 +83,12 @@ func EnumerateGamepads() []GamepadDevice {
 		if name == "" {
 			name = fmt.Sprintf("Gamepad %d", joyID+1)
 		}
+		vid, pid := winmmJoystickVIDPID(joyID)
 		result = append(result, GamepadDevice{
-			ID:   fmt.Sprintf("winmm:%d", joyID),
-			Name: name,
+			ID:        fmt.Sprintf("winmm:%d", joyID),
+			Name:      name,
+			VendorID:  vid,
+			ProductID: pid,
 		})
 	}
 	return result
@@ -106,4 +111,17 @@ func winmmJoystickName(joyID uintptr) string {
 		return ""
 	}
 	return windows.UTF16ToString(caps.szPname[:])
+}
+
+func winmmJoystickVIDPID(joyID uintptr) (vid, pid string) {
+	var caps joyCapsW
+	ret, _, _ := procJoyGetDevCapsW.Call(
+		joyID,
+		uintptr(unsafe.Pointer(&caps)),
+		unsafe.Sizeof(caps),
+	)
+	if ret != joyErrNoError {
+		return "", ""
+	}
+	return fmt.Sprintf("0x%04x", uint16(caps.wMid)), fmt.Sprintf("0x%04x", uint16(caps.wPid))
 }

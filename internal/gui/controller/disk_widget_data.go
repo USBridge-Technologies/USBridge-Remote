@@ -379,13 +379,15 @@ func (dw *DiskWidget) combineDrives() {
 	// Добавляем геймпады из системы (macOS: IOKit; другие платформы: пусто)
 	for _, gpad := range dw.gamepadDevices {
 		gamepadItem := DriveItem{
-			Name:        gpad.Name,
-			Size:        "N/A",
-			Source:      "gamepad",
-			IsMounted:   false,
-			IsGamepad:   true,
-			GamepadID:   gpad.ID,
-			GamepadMode: oldGamepadMode,
+			Name:             gpad.Name,
+			Size:             "N/A",
+			Source:           "gamepad",
+			IsMounted:        false,
+			IsGamepad:        true,
+			GamepadID:        gpad.ID,
+			GamepadMode:      oldGamepadMode,
+			GamepadVendorID:  gpad.VendorID,
+			GamepadProductID: gpad.ProductID,
 		}
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}

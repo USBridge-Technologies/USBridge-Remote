@@ -33,10 +33,12 @@ func newRNDISStartRequest(mode string) models.DeviceStartRequest {
 	}
 }
 
-func newGamepadStartRequest(mode string) models.DeviceStartRequest {
+func newGamepadStartRequest(mode, vendorID, productID string) models.DeviceStartRequest {
 	return models.DeviceStartRequest{
-		Device: "gamepad",
-		Type:   normalizeGamepadMode(mode),
+		Device:    "gamepad",
+		Type:      normalizeGamepadMode(mode),
+		VendorID:  vendorID,
+		ProductID: productID,
 	}
 }
 

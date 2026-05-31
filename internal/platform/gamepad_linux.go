@@ -16,8 +16,10 @@ const ioctlEVIOCGNAME256 = uintptr(0x81004506)
 
 // GamepadDevice describes a system gamepad.
 type GamepadDevice struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	VendorID  string // e.g. "0x045e"
+	ProductID string // e.g. "0x028e"
 }
 
 // EnumerateGamepads returns all gamepads currently connected to the system.
@@ -33,6 +35,7 @@ func EnumerateGamepads() []GamepadDevice {
 // parseProcInputDevices reads /proc/bus/input/devices which is readable by all users.
 // Each device block is separated by a blank line and contains:
 //
+//	I: Bus=0003 Vendor=045e Product=028e Version=0114
 //	N: Name="Xbox 360 Wireless Receiver"
 //	H: Handlers=js0 event7
 func parseProcInputDevices() []GamepadDevice {
@@ -43,19 +46,19 @@ func parseProcInputDevices() []GamepadDevice {
 	defer f.Close()
 
 	var result []GamepadDevice
-	var currentName string
+	var currentName, currentVendor, currentProduct string
 	var currentHandlers []string
 
 	flush := func() {
 		defer func() {
 			currentName = ""
+			currentVendor = ""
+			currentProduct = ""
 			currentHandlers = nil
 		}()
 		if currentName == "" {
 			return
 		}
-		// A "js" handler is the definitive sign of a joystick/gamepad.
-		// Also accept devices whose name matches known gamepad keywords.
 		hasJS := false
 		var eventPath string
 		for _, h := range currentHandlers {
@@ -68,8 +71,10 @@ func parseProcInputDevices() []GamepadDevice {
 		}
 		if (hasJS || isGamepadName(currentName)) && eventPath != "" {
 			result = append(result, GamepadDevice{
-				ID:   eventPath,
-				Name: currentName,
+				ID:        eventPath,
+				Name:      currentName,
+				VendorID:  currentVendor,
+				ProductID: currentProduct,
 			})
 		}
 	}
@@ -80,6 +85,20 @@ func parseProcInputDevices() []GamepadDevice {
 		switch {
 		case line == "":
 			flush()
+		case strings.HasPrefix(line, "I: "):
+			// Parse "I: Bus=0003 Vendor=045e Product=028e Version=0114"
+			for _, field := range strings.Fields(strings.TrimPrefix(line, "I: ")) {
+				kv := strings.SplitN(field, "=", 2)
+				if len(kv) != 2 {
+					continue
+				}
+				switch kv[0] {
+				case "Vendor":
+					currentVendor = "0x" + strings.ToLower(kv[1])
+				case "Product":
+					currentProduct = "0x" + strings.ToLower(kv[1])
+				}
+			}
 		case strings.HasPrefix(line, "N: Name="):
 			name := strings.TrimPrefix(line, "N: Name=")
 			currentName = strings.Trim(name, `"`)
@@ -88,7 +107,7 @@ func parseProcInputDevices() []GamepadDevice {
 			currentHandlers = strings.Fields(handlers)
 		}
 	}
-	flush() // last device block (file may not end with blank line)
+	flush()
 
 	return result
 }

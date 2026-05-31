@@ -316,7 +316,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		req := newRNDISStartRequest(rndisMode)
 		return &req, "", nil
 	case "gamepad":
-		req := newGamepadStartRequest(sel.GamepadMode)
+		req := newGamepadStartRequest(sel.GamepadMode, sel.GamepadVendorID, sel.GamepadProductID)
 		return &req, "", nil
 	case "api":
 		if sel.LocalDrive == nil {
@@ -666,7 +666,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		return &req, nil
 	}
 	if drive.Source == "gamepad" {
-		req := newGamepadStartRequest(drive.GamepadMode)
+		req := newGamepadStartRequest(drive.GamepadMode, drive.GamepadVendorID, drive.GamepadProductID)
 		return &req, nil
 	}
 	if drive.Source == "api" && drive.LocalDrive != nil {

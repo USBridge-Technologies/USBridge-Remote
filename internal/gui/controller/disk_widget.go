@@ -159,9 +159,11 @@ type DriveItem struct {
 	RNDISMode      string             // "auto", "wifirouter", "etherouter" или "etherbridge", только для RNDIS
 	IsVideo        bool               // Для видеоустройства /dev/video*
 	VideoDevice    *models.SystemDevice
-	IsGamepad      bool   // Для геймпада
-	GamepadID      string // Уникальный идентификатор геймпада (платформенный)
-	GamepadMode    string // "directinput" (default) или "xinput"
+	IsGamepad        bool   // Для геймпада
+	GamepadID        string // Уникальный идентификатор геймпада (платформенный)
+	GamepadMode      string // "directinput" (default) или "xinput"
+	GamepadVendorID  string // VID физического геймпада, e.g. "0x045e"
+	GamepadProductID string // PID физического геймпада, e.g. "0x028e"
 	ReadOnly       bool   // Для образов vdi/vmdk/qcow2: true=RO, false=RW через overlay
 	UploadProgress float64 // Прогресс загрузки 0-100
 	UploadSpeed    float64 // Скорость загрузки МБ/с

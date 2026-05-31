@@ -4,8 +4,10 @@ package platform
 
 // GamepadDevice describes a system gamepad.
 type GamepadDevice struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	VendorID  string
+	ProductID string
 }
 
 // EnumerateGamepads returns all gamepads currently connected to the system.
