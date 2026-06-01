@@ -59,7 +59,10 @@
       "Bash(curl *)",
       "Bash(python3 *)",
       "WebFetch(domain:100.71.26.121)",
-      "WebFetch(domain:100.110.181.85)"
+      "WebFetch(domain:100.110.181.85)",
+      "Bash(gofmt -e modules/video/video_sunshine_input.go)",
+      "Bash(gofmt -e modules/video/video.go)",
+      "Bash(gofmt -e gadget_manager.go)"
     ]
   }
 }

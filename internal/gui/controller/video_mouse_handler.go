@@ -361,7 +361,6 @@ func (t *TouchpadWrapper) scrollbarAxisAt(pos fyne.Position) string {
 // Tapped вызывается при полном клике (нажали и отпустили на виджете). В Fyne MouseUp приходит виджету под курсором при отпускании,
 // поэтому при отпускании вне виджета MouseUp мы не получим. Tapped же приходит только при завершённом клике по виджету — используем для тапа.
 func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
-	t.requestFocus()
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -456,6 +455,7 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	// Absolute: синхронизируем позицию сразу при нажатии и атомарно обновляем кнопку.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		logrus.Infof("🖱️ [Drag] MouseDown btn=%d pos=(%.0f,%.0f) abs=(%d,%d)", btn, ev.Position.X, ev.Position.Y, x, y)
 		t.videoWidget.PressAbsoluteButton(btn, x, y)
 	}
 }
@@ -496,6 +496,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		button := t.videoWidget.dragButton
+		logrus.Infof("🖱️ [Drag] MouseUp btn=%d pos=(%.0f,%.0f) abs=(%d,%d) dx=%.0f dy=%.0f dur=%v", button, ev.Position.X, ev.Position.Y, x, y, dx, dy, duration)
 		t.videoWidget.dragButton = 0
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
@@ -608,9 +609,17 @@ func (t *TouchpadWrapper) MouseOut() {
 		return
 	}
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
-		if t.videoWidget.dragButton != 0 || t.videoWidget.absButtons != 0 {
+		// Don't release during an active drag — Fyne delivers MouseUp to the original
+		// widget even outside its bounds (implicit mouse capture), so the button will be
+		// properly released there. Releasing here would cause phantom button-up events
+		// while the physical button is still held.
+		if t.videoWidget.dragButton != 0 {
+			logrus.Infof("🖱️ [Drag] MouseOut skipped release (dragButton=%d still held)", t.videoWidget.dragButton)
+			return
+		}
+		if t.videoWidget.absButtons != 0 {
+			logrus.Infof("🖱️ [Drag] MouseOut releasing stuck absButtons=%d", t.videoWidget.absButtons)
 			x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
-			t.videoWidget.dragButton = 0
 			t.videoWidget.isDragging = false
 			t.videoWidget.resetRelativeMoveAccumulator()
 			t.videoWidget.ReleaseAllAbsoluteButtons(x, y)
