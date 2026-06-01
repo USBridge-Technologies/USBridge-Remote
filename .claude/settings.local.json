@@ -51,7 +51,11 @@
       "Bash(grep \"\\\\.go$\")",
       "Bash(gofmt -e modules/video/video_sunshine.go modules/keyboard/keyboard.go web/handlers.go)",
       "Bash(gofmt -e modules/gamepad/gamepad.go modules/mountdrive/mountdrive.go gadget_manager.go)",
-      "Bash(gofmt -e web/handlers.go web/api_types.go web/server.go)"
+      "Bash(gofmt -e web/handlers.go web/api_types.go web/server.go)",
+      "Bash(go syntax *)",
+      "Bash(gofmt -e modules/video/device_select.go)",
+      "Bash(curl -s http://100.71.26.121:8080/api/video/devices)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

@@ -146,10 +146,9 @@ func currentVideoInfoDevice(info *models.VideoInfoData) []models.SystemDevice {
 
 	return []models.SystemDevice{
 		{
-			Path:        path,
-			Name:        filepath.Base(path),
-			Description: i18n.Current.CaptureDevice,
-			Connected:   info.Enabled || info.Streaming,
+			Path:      path,
+			Name:      filepath.Base(path),
+			Connected: info.Enabled || info.Streaming,
 		},
 	}
 }

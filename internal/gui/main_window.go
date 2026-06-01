@@ -89,6 +89,7 @@ type MainWindow struct {
 	keyboardIcon   *widget.Button
 	mouseIcon      *widget.Button
 	rndisIcon      *widget.Button
+	gamepadIcon    *widget.Button
 	cdromIcon      *widget.Button
 	backupIcon     fyne.CanvasObject
 	snapshotIcon   *widget.Button

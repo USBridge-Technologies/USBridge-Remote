@@ -118,6 +118,10 @@ func (dw *DiskWidget) endOperation() {
 		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
 	})
+	// Refresh the main window header status icons (keyboard/mouse/gamepad/rndis).
+	if dw.updateStatus != nil {
+		go dw.updateStatus()
+	}
 }
 
 // handleMount обрабатывает нажатие кнопки Connect.

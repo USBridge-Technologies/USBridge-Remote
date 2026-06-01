@@ -980,6 +980,13 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.rndisIcon.Importance = widget.LowImportance
 	mw.rndisIcon.Hide()
+	mw.gamepadIcon = widget.NewButtonWithIcon("", assets.GamepadIconActive, func() {
+		if mw.tabs != nil && len(mw.tabs.Items) > mw.devicesTabIndex() {
+			mw.tabs.Select(mw.tabs.Items[mw.devicesTabIndex()])
+		}
+	})
+	mw.gamepadIcon.Importance = widget.LowImportance
+	mw.gamepadIcon.Hide()
 	mw.cdromIcon = widget.NewButton("💿", func() {})
 	mw.cdromIcon.Importance = widget.LowImportance
 	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconActive)
@@ -994,6 +1001,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.keyboardIcon,
 		mw.mouseIcon,
 		mw.rndisIcon,
+		mw.gamepadIcon,
 	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
@@ -1038,13 +1046,14 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, keyboardButton, mouseButton, rndisButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, keyboardButton, mouseButton, rndisButton, gamepadButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
 		keyboardButton,
 		mouseButton,
 		rndisButton,
+		gamepadButton,
 	}
 }
 
@@ -1071,7 +1080,7 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 // updateStatusBar updates the status panel.
 func (mw *MainWindow) updateStatusBar() {
 	if mw.usbClient == nil {
-		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming())
+		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming(), false)
 		return
 	}
 
@@ -1082,6 +1091,7 @@ func (mw *MainWindow) updateStatusBar() {
 		cdromConnected := false
 		backupConnected := false
 		snapshotConnected := false
+		gamepadConnected := false
 
 		deviceInfo, err := mw.usbClient.GetDeviceInfo()
 		if err == nil {
@@ -1095,6 +1105,9 @@ func (mw *MainWindow) updateStatusBar() {
 					}
 					if controller.IsRNDISDeviceType(device.Type) {
 						rndisConnected = true
+					}
+					if controller.IsGamepadDeviceType(device.Type) {
+						gamepadConnected = true
 					}
 					if controller.IsStorageDeviceType(device.Type, device.Name) {
 						cdromConnected = true
@@ -1122,7 +1135,7 @@ func (mw *MainWindow) updateStatusBar() {
 		}
 
 		videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
-		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming)
+		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected)
 
 		// Fetch detailed storage status
 		storageStatus, err := mw.usbClient.GetStorageStatus()
@@ -1150,7 +1163,7 @@ func (mw *MainWindow) updateStatusBar() {
 	}()
 }
 
-func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming bool) {
+func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected bool) {
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
@@ -1191,6 +1204,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.rndisIcon.Hide()
 			}
 			mw.rndisIcon.Refresh()
+		}
+		if mw.gamepadIcon != nil {
+			if gamepadConnected {
+				mw.gamepadIcon.Show()
+			} else {
+				mw.gamepadIcon.Hide()
+			}
+			mw.gamepadIcon.Refresh()
 		}
 		if mw.backupIcon != nil {
 			if backupConnected {

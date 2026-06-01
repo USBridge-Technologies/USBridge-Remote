@@ -500,13 +500,40 @@ func (dw *DiskWidget) localizedAPIDriveName(drive *models.LocalDrive) string {
 }
 
 func (dw *DiskWidget) captureDeviceTitle(drive DriveItem) string {
-	if drive.VideoDevice == nil || len(dw.videoDevices) <= 1 {
+	if drive.VideoDevice == nil {
 		return i18n.Current.CaptureDevice
 	}
-	for index, device := range dw.videoDevices {
-		if device.Path == drive.VideoDevice.Path {
-			return fmt.Sprintf("%s (%d)", i18n.Current.CaptureDevice, index+1)
+	name := strings.TrimSpace(firstNonEmpty(drive.VideoDevice.Name, drive.VideoDevice.Description))
+	if name == "" {
+		name = i18n.Current.CaptureDevice
+	}
+	if len(dw.videoDevices) > 1 {
+		for index, device := range dw.videoDevices {
+			if device.Path == drive.VideoDevice.Path {
+				name = fmt.Sprintf("%s (%d)", name, index+1)
+				break
+			}
 		}
 	}
-	return i18n.Current.CaptureDevice
+	if busLabel := formatVideoBusLabel(drive.VideoDevice.Bus); busLabel != "" {
+		return fmt.Sprintf("%s [%s]", name, busLabel)
+	}
+	return name
+}
+
+func formatVideoBusLabel(bus string) string {
+	switch bus {
+	case "usb-3.2":
+		return "10G"
+	case "usb-3.0":
+		return "5G"
+	case "usb-2.0":
+		return "480M"
+	case "usb-1.1":
+		return "USB 1.1"
+	case "usb":
+		return "USB"
+	default:
+		return ""
+	}
 }

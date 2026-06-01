@@ -596,7 +596,22 @@ func (v *DevicesListView) Refresh() {
 	}
 	v.mu.Unlock()
 
-	forgetDiskRowWidgets(v.content.Objects)
+	// Only release registry entries for cards/rows that are genuinely removed.
+	// Reused objects (same pointer, different data) must keep their entries so
+	// that ResolveDiskRowWidgets still works on the next configureDriveRow call.
+	if len(v.content.Objects) > 0 {
+		newSet := make(map[fyne.CanvasObject]bool, len(objects))
+		for _, obj := range objects {
+			newSet[obj] = true
+		}
+		removed := make([]fyne.CanvasObject, 0)
+		for _, obj := range v.content.Objects {
+			if !newSet[obj] {
+				removed = append(removed, obj)
+			}
+		}
+		forgetDiskRowWidgets(removed)
+	}
 	v.content.Objects = objects
 
 	v.content.Refresh()
