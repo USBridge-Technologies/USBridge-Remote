@@ -70,6 +70,7 @@ type DiskWidget struct {
 	devicesRefreshQueued  atomic.Bool
 	userOperationInFlight atomic.Bool
 	apiMountInProgress    atomic.Bool
+	audioAutoStarted      atomic.Bool
 	imagePickerInFlight   atomic.Bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
@@ -426,10 +427,14 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 					dw.allDrives[i].IsMounted = false
 				}
 			}
+			dw.requestDevicesRefresh()
 		})
 		logrus.Infof("💾 [AUDIO-PREFS] Selected device: %s (%s)", device.Name, device.Path)
 		if usbAudioWasMounted {
 			dw.disconnectUSBAudioGadget()
+		}
+		if dw.onAudioDisconnect != nil {
+			dw.onAudioDisconnect()
 		}
 		if dw.onAudioConnect != nil {
 			dw.onAudioConnect(device.Path)
@@ -448,6 +453,7 @@ func (dw *DiskWidget) selectUSBAudio(mode string) {
 					dw.allDrives[i].IsMounted = true
 				}
 			}
+			dw.requestDevicesRefresh()
 		})
 		logrus.Infof("💾 [USB-AUDIO] Selecting USB Audio Codec mode=%s", mode)
 		if dw.onAudioDisconnect != nil {
@@ -455,6 +461,10 @@ func (dw *DiskWidget) selectUSBAudio(mode string) {
 		}
 		if dw.onUSBAudioConnect != nil {
 			dw.onUSBAudioConnect(mode)
+		}
+		// Start capturing audio from the UAC gadget so Sunshine streams it.
+		if dw.onAudioConnect != nil {
+			dw.onAudioConnect("uac")
 		}
 	}()
 }
@@ -734,6 +744,7 @@ func (dw *DiskWidget) SetFRPService(frp *service.FRPService) {
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
 	dw.agentOS = ""
+	dw.audioAutoStarted.Store(false)
 	if usbClient == nil {
 		dw.localDrives = nil
 		dw.mountedDevices = nil

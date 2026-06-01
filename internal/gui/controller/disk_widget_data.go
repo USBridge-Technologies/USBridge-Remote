@@ -719,6 +719,24 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		drive.IsMounted = isMounted
 		logrus.Debugf("📊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
 	}
+
+	// On the first combineDrives after connecting, if no audio device is already
+	// streaming, automatically select and start the first available audio device.
+	if !audioStreaming && dw.usbClient != nil && dw.audioAutoStarted.CompareAndSwap(false, true) {
+		for i := range drives {
+			if drives[i].IsAudio && drives[i].AudioDevice != nil {
+				drives[i].IsMounted = true
+				device := *drives[i].AudioDevice
+				logrus.Infof("🔊 [Audio] Auto-starting default audio device: %s (%s)", device.Name, device.Path)
+				if dw.onAudioConnect != nil {
+					cb := dw.onAudioConnect
+					go cb(device.Path)
+				}
+				break
+			}
+		}
+	}
+
 	dw.updateButtons()
 	dw.syncGamepadCaptures()
 }

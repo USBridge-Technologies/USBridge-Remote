@@ -274,20 +274,20 @@ func (mw *MainWindow) recreateContainers() {
 			})
 			mw.diskWidget.SetOnAudioConnect(func(devicePath string) {
 				if mw.usbClient != nil {
-					go func() {
-						if err := mw.usbClient.StartAudio(devicePath); err != nil {
-							logrus.Errorf("Failed to start audio: %v", err)
-						}
-					}()
+					if err := mw.usbClient.StartAudio(devicePath); err != nil {
+						logrus.Errorf("Failed to start audio: %v", err)
+					} else {
+						mw.updateStatusBar()
+					}
 				}
 			})
 			mw.diskWidget.SetOnAudioDisconnect(func() {
 				if mw.usbClient != nil {
-					go func() {
-						if err := mw.usbClient.StopAudio(); err != nil {
-							logrus.Errorf("Failed to stop audio: %v", err)
-						}
-					}()
+					if err := mw.usbClient.StopAudio(); err != nil {
+						logrus.Errorf("Failed to stop audio: %v", err)
+					} else {
+						mw.updateStatusBar()
+					}
 				}
 			})
 			mw.diskWidget.SetOnUSBAudioConnect(func(mode string) {
