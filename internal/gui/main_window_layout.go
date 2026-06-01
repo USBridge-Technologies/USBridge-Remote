@@ -989,6 +989,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
 		mw.showAudioMenu()
 	})
+	mw.audioIcon.SetBadgeText("")
 	mw.audioIcon.Hide()
 	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
 		if mw.videoWidget != nil {

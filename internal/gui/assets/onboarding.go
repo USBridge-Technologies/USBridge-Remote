@@ -187,6 +187,7 @@ func recolorFillIcon(source []byte, fill string) []byte {
 	svg = strings.ReplaceAll(svg, "#222222", fill)
 	svg = strings.ReplaceAll(svg, `"black"`, fmt.Sprintf(`"%s"`, fill))
 	svg = strings.ReplaceAll(svg, "fill:black", "fill:"+fill)
+	svg = strings.ReplaceAll(svg, "currentColor", fill)
 	return []byte(svg)
 }
 
