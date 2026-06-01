@@ -140,7 +140,9 @@ func currentVideoInfoDevice(info *models.VideoInfoData) []models.SystemDevice {
 		return nil
 	}
 	path := strings.TrimSpace(info.Device)
-	if path == "" {
+	// Skip server-side aliases ("auto") that are not real device paths.
+	// Real paths contain "/" (Linux /dev/videoN) or ":" (display:N, pipewire:N).
+	if path == "" || (!strings.Contains(path, "/") && !strings.Contains(path, ":")) {
 		return nil
 	}
 

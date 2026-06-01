@@ -55,7 +55,9 @@
       "Bash(go syntax *)",
       "Bash(gofmt -e modules/video/device_select.go)",
       "Bash(curl -s http://100.71.26.121:8080/api/video/devices)",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(curl *)",
+      "Bash(python3 *)"
     ]
   }
 }

@@ -121,6 +121,14 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 			fyne.Do(func() { vw.updateButtons() })
 			vw.updateStatus()
 		}
+		// Clear restartPending: if we don't want streaming there's nothing to restart.
+		// Without this, videoReconcileNeeded() sees restartPending=true and re-schedules
+		// reconcile indefinitely, hammering StopVideo() and UpdateStatusBar() on each tick.
+		if restartPending {
+			vw.videoOpMu.Lock()
+			vw.videoRestartPending = false
+			vw.videoOpMu.Unlock()
+		}
 		return
 	}
 

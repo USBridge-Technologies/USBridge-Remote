@@ -57,6 +57,16 @@ func loadVideoPreferences() videoPreferences {
 		prefs.Devices = make(map[string]models.VideoDeviceConfig)
 	}
 
+	// Remove stale server-alias entries (e.g. "auto") that are not real device paths.
+	for path := range prefs.Devices {
+		if !strings.Contains(path, "/") && !strings.Contains(path, ":") {
+			delete(prefs.Devices, path)
+		}
+	}
+	if prefs.SelectedDevice != "" && !strings.Contains(prefs.SelectedDevice, "/") && !strings.Contains(prefs.SelectedDevice, ":") {
+		prefs.SelectedDevice = ""
+	}
+
 	return prefs
 }
 
