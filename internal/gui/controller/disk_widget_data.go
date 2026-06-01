@@ -722,15 +722,26 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 	// On the first combineDrives after connecting, if no audio device is already
 	// streaming, automatically select and start the first available audio device.
+	// Uses audioConnectGen to detect if the user manually switched while the
+	// auto-start goroutine was in-flight and bail out to avoid overriding.
 	if !audioStreaming && dw.usbClient != nil && dw.audioAutoStarted.CompareAndSwap(false, true) {
 		for i := range drives {
 			if drives[i].IsAudio && drives[i].AudioDevice != nil {
 				drives[i].IsMounted = true
 				device := *drives[i].AudioDevice
+				gen := dw.audioConnectGen.Add(1)
 				logrus.Infof("🔊 [Audio] Auto-starting default audio device: %s (%s)", device.Name, device.Path)
 				if dw.onAudioConnect != nil {
 					cb := dw.onAudioConnect
-					go cb(device.Path)
+					go func() {
+						// If the user manually switched audio before this goroutine runs,
+						// audioConnectGen will have been incremented — bail out.
+						if dw.audioConnectGen.Load() != gen {
+							logrus.Infof("🔊 [Audio] Auto-start cancelled: user switched audio manually")
+							return
+						}
+						cb(device.Path)
+					}()
 				}
 				break
 			}

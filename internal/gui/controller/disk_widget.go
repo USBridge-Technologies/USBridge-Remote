@@ -71,6 +71,7 @@ type DiskWidget struct {
 	userOperationInFlight atomic.Bool
 	apiMountInProgress    atomic.Bool
 	audioAutoStarted      atomic.Bool
+	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
 	imagePickerInFlight   atomic.Bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
@@ -415,6 +416,7 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 	if strings.TrimSpace(device.Path) == "" {
 		return
 	}
+	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
 	go func() {
 		usbAudioWasMounted := false
 		fyne.Do(func() {
@@ -443,6 +445,7 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 }
 
 func (dw *DiskWidget) selectUSBAudio(mode string) {
+	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
 	go func() {
 		fyne.Do(func() {
 			for i := range dw.allDrives {
