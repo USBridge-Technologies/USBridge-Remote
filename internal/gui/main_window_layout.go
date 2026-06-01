@@ -987,8 +987,13 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.gamepadIcon.Importance = widget.LowImportance
 	mw.gamepadIcon.Hide()
-	mw.cdromIcon = widget.NewButton("💿", func() {})
+	mw.cdromIcon = widget.NewButtonWithIcon("", assets.DiscIcon, func() {
+		if mw.tabs != nil && len(mw.tabs.Items) > mw.devicesTabIndex() {
+			mw.tabs.Select(mw.tabs.Items[mw.devicesTabIndex()])
+		}
+	})
 	mw.cdromIcon.Importance = widget.LowImportance
+	mw.cdromIcon.Hide()
 	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconActive)
 	mw.backupIcon.Hide()
 	mw.snapshotIcon = widget.NewButton("📸", func() {})
@@ -998,6 +1003,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
 		mw.backupIcon,
 		mw.videoIcon,
+		mw.cdromIcon,
 		mw.keyboardIcon,
 		mw.mouseIcon,
 		mw.rndisIcon,
@@ -1046,10 +1052,11 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, keyboardButton, mouseButton, rndisButton, gamepadButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
+		cdromButton,
 		keyboardButton,
 		mouseButton,
 		rndisButton,
@@ -1194,6 +1201,16 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.videoIcon.Hide()
 			}
 			mw.videoIcon.Refresh()
+		}
+		if mw.cdromIcon != nil {
+			if cdromConnected {
+				mw.cdromIcon.SetIcon(assets.DiscIconActive)
+				mw.cdromIcon.Show()
+			} else {
+				mw.cdromIcon.SetIcon(assets.DiscIcon)
+				mw.cdromIcon.Hide()
+			}
+			mw.cdromIcon.Refresh()
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
