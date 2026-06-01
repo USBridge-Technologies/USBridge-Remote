@@ -130,7 +130,10 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		// No sleep needed: Disconnect() is synchronous on all platforms
 		// (Android: waits on processDone channel; Linux/Darwin: kills process and waits).
 	}
-	if vw.usbClient != nil {
+	if vw.usbClient != nil && vw.isStreaming {
+		// Only stop+flush when video is actually running (restart-pending path).
+		// On fresh connect isStreaming=false and the server is already idle — skipping
+		// the stop call avoids a redundant round-trip and the 300 ms flush sleep.
 		if err := vw.usbClient.StopVideo(); err != nil {
 			logrus.Debugf("stop stale remote video before restart: %v", err)
 		} else {
