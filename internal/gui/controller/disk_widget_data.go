@@ -643,15 +643,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				break
 			}
 
-			if drive.IsUSBAudio && (device.Type == "audio:uac1" || device.Type == "audio:uac2") {
-				isMounted = true
-				usedMountedIdx[j] = true
-				if strings.HasPrefix(device.Type, "audio:") {
-					drive.USBAudioMode = strings.TrimPrefix(device.Type, "audio:")
-				}
-				logrus.Debugf("🔊 Найден USB Audio Gadget: %s (type: %s)", device.Name, device.Type)
-				break
-			}
+			// IsUSBAudio selection is determined exclusively by the GetAudioInfo inference
+			// block below — not from mountedDevices, which reflects USB gadget presence
+			// (stale) rather than which source PulseAudio is actually streaming.
 
 			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio {
 				continue
