@@ -251,14 +251,13 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		request.ClientHost, request.ClientPort,
 	)
 
-	logrus.Debug("⌨️🖱️ [VIDEO] Проверка и автоподключение HID перед стартом видео...")
-	if err := vw.ensureControlHIDDevices(); err != nil {
-		logrus.Errorf("❌ [VIDEO] HID auto-connect before video failed: %v", err)
-		fyne.Do(func() {
-			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.ErrorVideoStart, err))
-		})
-		return
-	}
+	// Run HID auto-connect in parallel with video server start — they are independent
+	// subsystems (USB gadget vs V4L2 capture). This saves ~2s on fresh connect.
+	hidDone := make(chan error, 1)
+	go func() {
+		logrus.Debug("⌨️🖱️ [VIDEO] HID auto-connect running in parallel with video start...")
+		hidDone <- vw.ensureControlHIDDevices()
+	}()
 
 	logrus.Infof("🎥 [VIDEO %s] start capture mode=%s client=%s:%d", request.TraceID, mode, request.ClientHost, request.ClientPort)
 
@@ -272,12 +271,17 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	if !vw.connectToGStreamerWithRetries() {
 		logrus.Error("❌ Не удалось запустить GStreamer")
-		// We already sent StartVideo, so we might want to stop it if connect fails
 		_ = vw.usbClient.StopVideo()
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.ErrorVideoStart)
 		})
 		return
+	}
+
+	// Wait for HID — by the time video starts streaming it's usually already done.
+	if err := <-hidDone; err != nil {
+		logrus.Errorf("❌ [VIDEO] HID auto-connect failed: %v", err)
+		// Non-fatal: video is streaming; checkMouseConnected() below will handle input setup.
 	}
 
 	logrus.Infof("✅ Video capture initiated (mode=%s, UDP port %d)", mode, clientPort)
