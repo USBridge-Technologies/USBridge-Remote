@@ -99,6 +99,7 @@ type DiskWidget struct {
 	onVideoDisconnect       func()
 	onAudioConnect          func(devicePath string)
 	onAudioDisconnect       func()
+	onUSBAudioConnect       func(mode string)
 	onButtonsChanged        func()
 
 	safHelper *platform.SAFHelper
@@ -405,23 +406,86 @@ func (dw *DiskWidget) SetOnAudioDisconnect(fn func()) {
 	dw.onAudioDisconnect = fn
 }
 
+func (dw *DiskWidget) SetOnUSBAudioConnect(fn func(mode string)) {
+	dw.onUSBAudioConnect = fn
+}
+
 func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 	if strings.TrimSpace(device.Path) == "" {
 		return
 	}
 	go func() {
+		usbAudioWasMounted := false
 		fyne.Do(func() {
 			for i := range dw.allDrives {
 				if dw.allDrives[i].IsAudio && dw.allDrives[i].AudioDevice != nil {
 					dw.allDrives[i].IsMounted = dw.allDrives[i].AudioDevice.Path == device.Path
 				}
+				if dw.allDrives[i].IsUSBAudio && dw.allDrives[i].IsMounted {
+					usbAudioWasMounted = true
+					dw.allDrives[i].IsMounted = false
+				}
 			}
 		})
 		logrus.Infof("💾 [AUDIO-PREFS] Selected device: %s (%s)", device.Name, device.Path)
+		if usbAudioWasMounted {
+			dw.disconnectUSBAudioGadget()
+		}
 		if dw.onAudioConnect != nil {
 			dw.onAudioConnect(device.Path)
 		}
 	}()
+}
+
+func (dw *DiskWidget) selectUSBAudio(mode string) {
+	go func() {
+		fyne.Do(func() {
+			for i := range dw.allDrives {
+				if dw.allDrives[i].IsAudio && dw.allDrives[i].AudioDevice != nil {
+					dw.allDrives[i].IsMounted = false
+				}
+				if dw.allDrives[i].IsUSBAudio {
+					dw.allDrives[i].IsMounted = true
+				}
+			}
+		})
+		logrus.Infof("💾 [USB-AUDIO] Selecting USB Audio Codec mode=%s", mode)
+		if dw.onAudioDisconnect != nil {
+			dw.onAudioDisconnect()
+		}
+		if dw.onUSBAudioConnect != nil {
+			dw.onUSBAudioConnect(mode)
+		}
+	}()
+}
+
+// disconnectUSBAudioGadget sends a batch-start without the usbaudio item,
+// effectively removing the USB audio gadget from the host while keeping other devices.
+// Must be called from a goroutine (not the Fyne event thread).
+func (dw *DiskWidget) disconnectUSBAudioGadget() {
+	if dw.usbClient == nil {
+		return
+	}
+	var keepDrives []DriveItem
+	fyne.Do(func() {
+		for _, drive := range dw.allDrives {
+			if drive.IsMounted && !drive.IsUSBAudio && !drive.IsVideo && !drive.IsAudio {
+				keepDrives = append(keepDrives, drive)
+			}
+		}
+	})
+	var keepRequests []models.DeviceStartRequest
+	for _, drive := range keepDrives {
+		req, err := dw.buildDeviceRequestForDrive(drive, true)
+		if err != nil || req == nil {
+			logrus.Warnf("⚠️ [USB-AUDIO-DISC] Skip %s: %v", drive.Name, err)
+			continue
+		}
+		keepRequests = append(keepRequests, *req)
+	}
+	if _, err := dw.startDevicesWithRetry(models.DeviceStartBatchRequest(keepRequests), false); err != nil {
+		logrus.Errorf("⚠️ [USB-AUDIO-DISC] Failed to disconnect USB audio gadget: %v", err)
+	}
 }
 
 func (dw *DiskWidget) isPreferredAudioDrive(drive DriveItem) bool {

@@ -329,8 +329,6 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		}
 		req := models.DeviceStartRequest{
 			Device: "usbaudio", Type: mode,
-			VendorID: "0x1d6b", ProductID: "0x0107",
-			ProductName: "USBridge Audio", Manufacturer: "USBridge",
 		}
 		return &req, "", nil
 	case "api":
@@ -340,14 +338,10 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		if sel.LocalDrive.SourceType == "mtp" {
 			return &models.DeviceStartRequest{
 				Device: "mtp", Server: sel.LocalDrive.Name,
-				VendorID: "0x1d6b", ProductID: "0x0104",
-				ProductName: "BackupDrive", Manufacturer: "USBridge",
 			}, "", nil
 		}
 		return &models.DeviceStartRequest{
 			Device: "drive", Server: sel.LocalDrive.Name,
-			VendorID: "0x1d6b", ProductID: "0x0104",
-			ProductName: "USBridge Local CD-ROM", Manufacturer: "USBridge",
 		}, "", nil
 	case "local", "user":
 		if sel.DiskInfo == nil {
@@ -380,8 +374,6 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			ExportName:              nbdServer.NBDExportNameForAPI(),
 			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
 			ReadOnly:                sel.ReadOnly,
-			VendorID:                "0x1d6b", ProductID: "0x0104",
-			ProductName:             "USBridge NBD CD-ROM", Manufacturer: "USBridge",
 		}, "", nil
 	}
 	return nil, "", fmt.Errorf("неизвестный тип устройства: %s (source=%s)", sel.Name, sel.Source)
@@ -697,12 +689,10 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		if drive.LocalDrive.SourceType == "mtp" {
 			return &models.DeviceStartRequest{
 				Device: "mtp", Server: drive.LocalDrive.Name,
-				VendorID: "0x1d6b", ProductID: "0x0104", ProductName: "BackupDrive", Manufacturer: "USBridge",
 			}, nil
 		}
 		return &models.DeviceStartRequest{
 			Device: "drive", Server: drive.LocalDrive.Name,
-			VendorID: "0x1d6b", ProductID: "0x0104", ProductName: "USBridge Local CD-ROM", Manufacturer: "USBridge",
 		}, nil
 	}
 	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingNBD {
@@ -739,8 +729,6 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 			ExportName:              exportNameForAPI,
 			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
 			ReadOnly:                drive.ReadOnly,
-			VendorID:                "0x1d6b", ProductID: "0x0104",
-			ProductName:             "USBridge NBD CD-ROM", Manufacturer: "USBridge",
 		}, nil
 	}
 	return nil, fmt.Errorf("неизвестный тип устройства: %s", drive.Name)

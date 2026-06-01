@@ -88,13 +88,9 @@ func (bw *BackupWidget) buildBaseDeviceBatch() []models.DeviceStartRequest {
 				addedRndis = true
 			case device.Type == "local" && !strings.Contains(device.Name, "data"):
 				requests = append(requests, models.DeviceStartRequest{
-					Device:       "drive",
-					Server:       device.Name,
-					ReadOnly:     true,
-					VendorID:     "0x1d6b",
-					ProductID:    "0x0104",
-					ProductName:  "USBridge Local CD-ROM",
-					Manufacturer: "USBridge",
+					Device:   "drive",
+					Server:   device.Name,
+					ReadOnly: true,
 				})
 			}
 		}
@@ -137,12 +133,8 @@ func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string
 	requests := bw.buildBaseDeviceBatch()
 
 	requests = append(requests, models.DeviceStartRequest{
-		Device:       "mtp",
-		Server:       mtpServer,
-		VendorID:     "0x1d6b",
-		ProductID:    "0x0104",
-		ProductName:  mtpProductName,
-		Manufacturer: "USBridge",
+		Device: "mtp",
+		Server: mtpServer,
 	})
 
 	logrus.Infof("📋 Собран batch: %d устройств (включая MTP %s)", len(requests), mtpServer)

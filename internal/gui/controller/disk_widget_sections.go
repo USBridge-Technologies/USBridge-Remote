@@ -26,14 +26,17 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 	backup := make([]int, 0)
 	control := make([]int, 0)
 	connectivity := make([]int, 0)
+	audio := make([]int, 0)
 
 	for idx, drive := range dw.allDrives {
 		switch {
 		case drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp":
 			backup = append(backup, idx)
-		case drive.IsRNDIS || drive.IsUSBAudio:
+		case drive.IsRNDIS:
 			connectivity = append(connectivity, idx)
-		case drive.IsVideo || drive.IsAudio || drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
+		case drive.IsAudio || drive.IsUSBAudio:
+			audio = append(audio, idx)
+		case drive.IsVideo || drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
 			control = append(control, idx)
 		default:
 			storage = append(storage, idx)
@@ -68,6 +71,13 @@ func (dw *DiskWidget) groupDriveIndexes() []deviceSection {
 			description: i18n.Current.DevicesSectionConnectivityHint,
 			count:       len(connectivity),
 			indexes:     connectivity,
+		},
+		{
+			key:         "audio",
+			title:       i18n.Current.DevicesSectionAudio,
+			description: i18n.Current.DevicesSectionAudioHint,
+			count:       len(audio),
+			indexes:     audio,
 		},
 	}
 }

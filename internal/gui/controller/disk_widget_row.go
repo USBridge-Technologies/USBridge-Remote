@@ -297,6 +297,14 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			captureSelector.SetDisabled(controlsLocked || audioUnavailable)
 		}
 		settingsBtn.Hide()
+	} else if drive.IsUSBAudio {
+		checkbox.Hide()
+		if captureSelector != nil {
+			captureSelector.Show()
+			captureSelector.SetSelected(drive.IsMounted)
+			captureSelector.SetDisabled(controlsLocked)
+		}
+		settingsBtn.Hide()
 	} else {
 		if captureSelector != nil {
 			captureSelector.Hide()
@@ -391,6 +399,21 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 					return
 				}
 				dw.setPreferredAudioDevice(deviceCopy)
+				dw.requestDevicesRefresh()
+			})
+		}
+	} else if drive.IsUSBAudio {
+		rowID := id
+		if captureSelector != nil {
+			captureSelector.SetOnTapped(func() {
+				if dw.controlsLocked() {
+					return
+				}
+				mode := "uac1"
+				if rowID < len(dw.allDrives) && dw.allDrives[rowID].USBAudioMode != "" {
+					mode = dw.allDrives[rowID].USBAudioMode
+				}
+				dw.selectUSBAudio(mode)
 				dw.requestDevicesRefresh()
 			})
 		}

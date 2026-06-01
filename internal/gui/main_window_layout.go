@@ -290,6 +290,19 @@ func (mw *MainWindow) recreateContainers() {
 					}()
 				}
 			})
+			mw.diskWidget.SetOnUSBAudioConnect(func(mode string) {
+				if mw.usbClient != nil {
+					go func() {
+						req := models.DeviceStartBatchRequest{models.DeviceStartRequest{
+							Device: "usbaudio",
+							Type:   mode,
+						}}
+						if _, err := mw.usbClient.StartDevicesBatchWithMerge(req, true); err != nil {
+							logrus.Errorf("Failed to connect USB audio codec: %v", err)
+						}
+					}()
+				}
+			})
 			mw.videoWidget.SetOnFPSChanged(func(fps float64) {
 				mw.currentVideoFPS = fps
 				mw.updateVideoIconLabel()

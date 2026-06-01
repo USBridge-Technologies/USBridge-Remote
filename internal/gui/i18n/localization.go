@@ -111,6 +111,8 @@ type LocalizedStrings struct {
 	DevicesSectionConnectivity        string
 	DevicesSectionConnectivityEyebrow string
 	DevicesSectionConnectivityHint    string
+	DevicesSectionAudio               string
+	DevicesSectionAudioHint           string
 	LocalDrives                       string
 	NetworkDrives                     string
 	MountButton                       string
@@ -313,7 +315,7 @@ type LocalizedStrings struct {
 	MuteAudio         string // "Mute Audio"
 	UnmuteAudio       string // "Unmute Audio"
 	DeviceAudio       string // "Audio"
-	DeviceUSBAudio    string // "USB Audio Gadget"
+	DeviceUSBAudio    string // "USB Audio Codec"
 	AudioDeviceUAC1   string // "UAC1"
 	AudioDeviceUAC2   string // "UAC2"
 
@@ -474,6 +476,8 @@ func EN() *LocalizedStrings {
 		DevicesSectionConnectivity:        "Connectivity",
 		DevicesSectionConnectivityEyebrow: "NETWORK",
 		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
+		DevicesSectionAudio:               "Audio",
+		DevicesSectionAudioHint:           "Audio capture sources and USB Audio Codec gadget.",
 		LocalDrives:                       "Local Drives",
 		NetworkDrives:                     "Network Drives",
 		MountButton:                       "🔌 Mount",
@@ -676,7 +680,7 @@ func EN() *LocalizedStrings {
 		MuteAudio:         "Mute Audio",
 		UnmuteAudio:       "Unmute Audio",
 		DeviceAudio:       "Audio",
-		DeviceUSBAudio:    "USB Audio Gadget",
+		DeviceUSBAudio:    "USB Audio Codec",
 		AudioDeviceUAC1:   "UAC1",
 		AudioDeviceUAC2:   "UAC2",
 
