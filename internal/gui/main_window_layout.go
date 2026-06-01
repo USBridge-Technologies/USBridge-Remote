@@ -996,8 +996,13 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.cdromIcon.Hide()
 	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconActive)
 	mw.backupIcon.Hide()
-	mw.snapshotIcon = widget.NewButton("📸", func() {})
+	mw.snapshotIcon = widget.NewButtonWithIcon("", assets.SnapshotsTabIconActive, func() {
+		if mw.tabs != nil && len(mw.tabs.Items) > mw.snapshotsTabIndex() {
+			mw.tabs.Select(mw.tabs.Items[mw.snapshotsTabIndex()])
+		}
+	})
 	mw.snapshotIcon.Importance = widget.LowImportance
+	mw.snapshotIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
@@ -1008,6 +1013,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.mouseIcon,
 		mw.rndisIcon,
 		mw.gamepadIcon,
+		mw.snapshotIcon,
 	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
@@ -1052,7 +1058,7 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
@@ -1061,6 +1067,7 @@ func buildHeaderStatusIndicators(backupIndicator, captureButton, cdromButton, ke
 		mouseButton,
 		rndisButton,
 		gamepadButton,
+		snapshotButton,
 	}
 }
 
@@ -1238,6 +1245,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 			}
 			mw.backupIcon.Refresh()
 		}
+		if mw.snapshotIcon != nil {
+			if snapshotConnected {
+				mw.snapshotIcon.Show()
+			} else {
+				mw.snapshotIcon.Hide()
+			}
+			mw.snapshotIcon.Refresh()
+		}
 
 		if mw.statusPanel != nil {
 			mw.statusPanel.Refresh()
@@ -1354,6 +1369,10 @@ func (mw *MainWindow) controlTabIndex() int {
 
 func (mw *MainWindow) devicesTabIndex() int {
 	return 1
+}
+
+func (mw *MainWindow) snapshotsTabIndex() int {
+	return 2
 }
 
 func (mw *MainWindow) showMouseModeMenu() {
