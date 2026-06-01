@@ -751,15 +751,21 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	// If audio is streaming to a path not found in any IsAudio drive (e.g. UAC "hw:2"),
 	// immediately mark IsUSBAudio as selected so the UI reflects the correct state
 	// even before mountedDevices is populated by the async load.
+	// Only infer UAC when the audio devices list is already populated — if it's empty
+	// (still loading async), we can't distinguish "UAC active" from "no data yet".
 	if audioStreaming && currentAudioPath != "" {
+		hasAudioDrives := false
 		foundInAudioDrive := false
 		for _, d := range drives {
-			if d.IsAudio && d.AudioDevice != nil && d.AudioDevice.Path == currentAudioPath {
-				foundInAudioDrive = true
-				break
+			if d.IsAudio && d.AudioDevice != nil {
+				hasAudioDrives = true
+				if d.AudioDevice.Path == currentAudioPath {
+					foundInAudioDrive = true
+					break
+				}
 			}
 		}
-		if !foundInAudioDrive {
+		if hasAudioDrives && !foundInAudioDrive {
 			for i := range drives {
 				if drives[i].IsUSBAudio && !drives[i].IsMounted {
 					drives[i].IsMounted = true
