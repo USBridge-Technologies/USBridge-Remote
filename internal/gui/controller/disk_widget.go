@@ -41,6 +41,7 @@ type DiskWidget struct {
 	localDrives    []*models.LocalDrive
 	localFiles     []*models.DiskInfo
 	videoDevices   []models.SystemDevice
+	audioDevices   []models.SystemDevice
 	gamepadDevices []platform.GamepadDevice
 	sdSpaceInfo    *models.ISOSpaceInfo
 
@@ -63,6 +64,7 @@ type DiskWidget struct {
 	loadingLocalDrives    atomic.Bool
 	loadingLocalFiles     atomic.Bool
 	loadingVideoDevices   atomic.Bool
+	loadingAudioDevices   atomic.Bool
 	loadingMountedInfo    atomic.Bool
 	devicesRefreshPending atomic.Bool
 	devicesRefreshQueued  atomic.Bool
@@ -95,6 +97,8 @@ type DiskWidget struct {
 	onVideoConfigRequested  func(devicePath string)
 	onVideoConnect          func(devicePath string)
 	onVideoDisconnect       func()
+	onAudioConnect          func(devicePath string)
+	onAudioDisconnect       func()
 	onButtonsChanged        func()
 
 	safHelper *platform.SAFHelper
@@ -143,7 +147,7 @@ func normalizeRNDISMode(mode string) string {
 type DriveItem struct {
 	Name           string
 	Size           string
-	Source         string // "api", "local", "user", "keyboard", "mouse", "rndis", "gamepad"
+	Source         string // "api", "local", "user", "keyboard", "mouse", "rndis", "gamepad", "video", "audio", "usbaudio"
 	IsMounted      bool
 	LocalDrive     *models.LocalDrive
 	DiskInfo       *models.DiskInfo
@@ -159,6 +163,10 @@ type DriveItem struct {
 	GamepadMode      string
 	GamepadVendorID  string
 	GamepadProductID string
+	IsAudio        bool
+	AudioDevice    *models.SystemDevice
+	IsUSBAudio     bool
+	USBAudioMode   string // "uac1" or "uac2"
 	ReadOnly       bool
 	UploadProgress float64
 	UploadSpeed    float64
@@ -187,6 +195,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		localDrives:        make([]*models.LocalDrive, 0),
 		localFiles:         make([]*models.DiskInfo, 0),
 		videoDevices:       make([]models.SystemDevice, 0),
+		audioDevices:       make([]models.SystemDevice, 0),
 		userImages:         make([]*models.DiskInfo, 0),
 		allDrives:          make([]DriveItem, 0),
 		mountedDevices:     make([]*models.DeviceInfo, 0),
@@ -280,6 +289,10 @@ func (dw *DiskWidget) getDriveUniqueID(drive DriveItem) string {
 		return "gamepad"
 	case drive.IsVideo && drive.VideoDevice != nil:
 		return "video:" + drive.VideoDevice.Path
+	case drive.IsAudio && drive.AudioDevice != nil:
+		return "audio:" + drive.AudioDevice.Path
+	case drive.IsUSBAudio:
+		return "usbaudio"
 	case drive.LocalDrive != nil:
 		return "api:" + drive.LocalDrive.Name + ":" + drive.LocalDrive.SourceType
 	case drive.DiskInfo != nil:
@@ -382,6 +395,45 @@ func (dw *DiskWidget) SetOnVideoConnect(fn func(devicePath string)) {
 
 func (dw *DiskWidget) SetOnVideoDisconnect(fn func()) {
 	dw.onVideoDisconnect = fn
+}
+
+func (dw *DiskWidget) SetOnAudioConnect(fn func(devicePath string)) {
+	dw.onAudioConnect = fn
+}
+
+func (dw *DiskWidget) SetOnAudioDisconnect(fn func()) {
+	dw.onAudioDisconnect = fn
+}
+
+func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
+	if strings.TrimSpace(device.Path) == "" {
+		return
+	}
+	go func() {
+		fyne.Do(func() {
+			for i := range dw.allDrives {
+				if dw.allDrives[i].IsAudio && dw.allDrives[i].AudioDevice != nil {
+					dw.allDrives[i].IsMounted = dw.allDrives[i].AudioDevice.Path == device.Path
+				}
+			}
+		})
+		logrus.Infof("💾 [AUDIO-PREFS] Selected device: %s (%s)", device.Name, device.Path)
+		if dw.onAudioConnect != nil {
+			dw.onAudioConnect(device.Path)
+		}
+	}()
+}
+
+func (dw *DiskWidget) isPreferredAudioDrive(drive DriveItem) bool {
+	if drive.AudioDevice == nil {
+		return false
+	}
+	for _, candidate := range dw.allDrives {
+		if candidate.IsAudio && candidate.AudioDevice != nil && candidate.IsMounted {
+			return candidate.AudioDevice.Path == drive.AudioDevice.Path
+		}
+	}
+	return false
 }
 
 func (dw *DiskWidget) SetOnButtonsChanged(fn func()) {
@@ -504,7 +556,7 @@ func (dw *DiskWidget) hasMountedStorageDevicesActual() bool {
 
 func (dw *DiskWidget) hasMountedStorageDevices() bool {
 	for _, drive := range dw.allDrives {
-		if !drive.IsMounted || drive.IsVideo || drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS {
+		if !drive.IsMounted || drive.IsVideo || drive.IsAudio || drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS {
 			continue
 		}
 		return true
@@ -522,6 +574,7 @@ func (dw *DiskWidget) Refresh() {
 	dw.loadLocalDrives()
 	dw.loadLocalFiles()
 	dw.loadVideoDevices()
+	dw.loadAudioDevices()
 	dw.loadMountedDevices()
 	go dw.loadGamepadDevices()
 }
@@ -620,6 +673,7 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	if usbClient == nil {
 		dw.localDrives = nil
 		dw.mountedDevices = nil
+		dw.audioDevices = nil
 		dw.sdSpaceInfo = nil
 		dw.updateSDStorageInfo()
 		dw.stopAllGamepadCaptures()

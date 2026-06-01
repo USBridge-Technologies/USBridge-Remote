@@ -107,9 +107,10 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	}
 
 	videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted
+	audioUnavailable := drive.IsAudio && drive.AudioDevice != nil && !drive.AudioDevice.Connected && !drive.IsMounted
 	controlsLocked := dw.controlsLocked()
 	checked := false
-	if !drive.IsVideo {
+	if !drive.IsVideo && !drive.IsAudio {
 		dw.selectedItemsMu.RLock()
 		checked = dw.selectedItems[id]
 		dw.selectedItemsMu.RUnlock()
@@ -162,6 +163,18 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			iconRes = assets.CameraIconActive
 		} else {
 			iconRes = assets.CameraIcon
+		}
+	case "audio":
+		if drive.IsMounted {
+			iconRes = assets.AudioIconActive
+		} else {
+			iconRes = assets.AudioIcon
+		}
+	case "usbaudio":
+		if drive.IsMounted {
+			iconRes = assets.AudioIconActive
+		} else {
+			iconRes = assets.AudioIcon
 		}
 	default:
 		iconRes = assets.DiscIcon
@@ -233,7 +246,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	modeRowIconText.Hide()
 	modeTitleLabel.Hide()
 
-	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" {
+	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" {
 		modeSelect.Show()
 		modeSelect.SetDisabled(controlsLocked)
 		switch drive.Source {
@@ -243,6 +256,13 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		case "gamepad":
 			modeSelect.SetOptions([]string{i18n.Current.DeviceDirectInput, i18n.Current.DeviceXInput})
 			modeSelect.SetSelected(gamepadModeLabel(normalizeGamepadMode(drive.GamepadMode)))
+		case "usbaudio":
+			modeSelect.SetOptions([]string{i18n.Current.AudioDeviceUAC1, i18n.Current.AudioDeviceUAC2})
+			if drive.USBAudioMode == "uac2" {
+				modeSelect.SetSelected(i18n.Current.AudioDeviceUAC2)
+			} else {
+				modeSelect.SetSelected(i18n.Current.AudioDeviceUAC1)
+			}
 		default: // mouse
 			mode := normalizeMouseMode(drive.MouseType)
 			if mode == mouseModeAbsolute {
@@ -269,6 +289,14 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		} else {
 			settingsBtn.Enable()
 		}
+	} else if drive.IsAudio {
+		checkbox.Hide()
+		if captureSelector != nil {
+			captureSelector.Show()
+			captureSelector.SetSelected(dw.isPreferredAudioDrive(drive))
+			captureSelector.SetDisabled(controlsLocked || audioUnavailable)
+		}
+		settingsBtn.Hide()
 	} else {
 		if captureSelector != nil {
 			captureSelector.Hide()
@@ -355,6 +383,17 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			}
 			dw.requestDevicesRefresh()
 		})
+	} else if drive.IsAudio && drive.AudioDevice != nil {
+		deviceCopy := *drive.AudioDevice
+		if captureSelector != nil {
+			captureSelector.SetOnTapped(func() {
+				if dw.controlsLocked() || audioUnavailable {
+					return
+				}
+				dw.setPreferredAudioDevice(deviceCopy)
+				dw.requestDevicesRefresh()
+			})
+		}
 	} else {
 		if captureSelector != nil {
 			captureSelector.SetOnTapped(nil)
@@ -411,6 +450,18 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				newMode = mouseModeAbsolute
 			}
 			dw.applyMouseModeSelection(rowID, newMode)
+		}
+	} else if drive.Source == "usbaudio" {
+		rowID := id
+		modeSelect.OnSelected = func(s string) {
+			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
+				return
+			}
+			mode := "uac1"
+			if s == i18n.Current.AudioDeviceUAC2 {
+				mode = "uac2"
+			}
+			dw.allDrives[rowID].USBAudioMode = mode
 		}
 	}
 

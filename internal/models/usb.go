@@ -313,6 +313,19 @@ type SystemDevice struct {
 	Description string `json:"description"`
 }
 
+// AudioStartRequest request to start audio capture.
+type AudioStartRequest struct {
+	DevicePath string `json:"device_path"`
+}
+
+// AudioInfoResponse audio streaming status.
+type AudioInfoResponse struct {
+	Streaming  bool   `json:"streaming"`
+	DevicePath string `json:"device_path"`
+	DeviceName string `json:"device_name"`
+	Muted      bool   `json:"muted"`
+}
+
 // VideoDeviceConfig video start config saved by client for a specific /dev/video*.
 type VideoDeviceConfig struct {
 	DevicePath    string `json:"device_path"`

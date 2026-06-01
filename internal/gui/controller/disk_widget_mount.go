@@ -135,13 +135,13 @@ func (dw *DiskWidget) handleMount() {
 		return
 	}
 
-	// Собираем выбранные несмонтированные не-видео устройства
+	// Собираем выбранные несмонтированные не-видео/не-аудио устройства
 	var selectedDrives []DriveItem
 	dw.selectedItemsMu.RLock()
 	for id, selected := range dw.selectedItems {
 		if selected && id < len(dw.allDrives) {
 			d := dw.allDrives[id]
-			if !d.IsMounted && !d.IsVideo {
+			if !d.IsMounted && !d.IsVideo && !d.IsAudio {
 				selectedDrives = append(selectedDrives, d)
 			}
 		}
@@ -322,6 +322,17 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 	case "gamepad":
 		req := newGamepadStartRequest(sel.GamepadMode, sel.GamepadVendorID, sel.GamepadProductID)
 		return &req, "", nil
+	case "usbaudio":
+		mode := sel.USBAudioMode
+		if mode == "" {
+			mode = "uac1"
+		}
+		req := models.DeviceStartRequest{
+			Device: "usbaudio", Type: mode,
+			VendorID: "0x1d6b", ProductID: "0x0107",
+			ProductName: "USBridge Audio", Manufacturer: "USBridge",
+		}
+		return &req, "", nil
 	case "api":
 		if sel.LocalDrive == nil {
 			return nil, "", fmt.Errorf("LocalDrive == nil для api-устройства: %s", sel.Name)
@@ -467,24 +478,27 @@ func (dw *DiskWidget) handleUnmount() {
 		return
 	}
 
-	// Собираем смонтированные не-видео устройства
+	// Собираем смонтированные не-видео/не-аудио устройства
 	var mountedDrives []DriveItem
 	var mountedIndices []int
 	for i, d := range dw.allDrives {
-		if d.IsMounted && !d.IsVideo {
+		if d.IsMounted && !d.IsVideo && !d.IsAudio {
 			mountedDrives = append(mountedDrives, d)
 			mountedIndices = append(mountedIndices, i)
 		}
 	}
 	videoMounted := false
+	audioMounted := false
 	for _, d := range dw.allDrives {
 		if d.IsVideo && d.IsMounted {
 			videoMounted = true
-			break
+		}
+		if d.IsAudio && d.IsMounted {
+			audioMounted = true
 		}
 	}
 
-	if len(mountedDrives) == 0 && !videoMounted {
+	if len(mountedDrives) == 0 && !videoMounted && !audioMounted {
 		if dw.window != nil {
 			dialog.ShowInformation(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
 		}
@@ -552,6 +566,9 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.onVideoDisconnect != nil {
 			dw.onVideoDisconnect()
 		}
+		if dw.onAudioDisconnect != nil {
+			dw.onAudioDisconnect()
+		}
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ [UNMOUNT-ALL] Ошибка остановки: %v", err)
@@ -578,6 +595,9 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		}
 		if dw.allDrives[idx].IsVideo && dw.onVideoDisconnect != nil {
 			dw.onVideoDisconnect()
+		}
+		if dw.allDrives[idx].IsAudio && dw.onAudioDisconnect != nil {
+			dw.onAudioDisconnect()
 		}
 		drivesToUnmount = append(drivesToUnmount, dw.allDrives[idx])
 	}

@@ -57,7 +57,9 @@
       "Bash(curl -s http://100.71.26.121:8080/api/video/devices)",
       "Bash(python3 -m json.tool)",
       "Bash(curl *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "WebFetch(domain:100.71.26.121)",
+      "WebFetch(domain:100.110.181.85)"
     ]
   }
 }

@@ -312,6 +312,10 @@ type LocalizedStrings struct {
 	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
 	MuteAudio         string // "Mute Audio"
 	UnmuteAudio       string // "Unmute Audio"
+	DeviceAudio       string // "Audio"
+	DeviceUSBAudio    string // "USB Audio Gadget"
+	AudioDeviceUAC1   string // "UAC1"
+	AudioDeviceUAC2   string // "UAC2"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -671,6 +675,10 @@ func EN() *LocalizedStrings {
 		ShowMouseCursor:   "Show Mouse",
 		MuteAudio:         "Mute Audio",
 		UnmuteAudio:       "Unmute Audio",
+		DeviceAudio:       "Audio",
+		DeviceUSBAudio:    "USB Audio Gadget",
+		AudioDeviceUAC1:   "UAC1",
+		AudioDeviceUAC2:   "UAC2",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",

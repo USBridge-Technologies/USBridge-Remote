@@ -272,6 +272,24 @@ func (mw *MainWindow) recreateContainers() {
 			mw.diskWidget.SetOnVideoDisconnect(func() {
 				mw.videoWidget.StopVideoAsync()
 			})
+			mw.diskWidget.SetOnAudioConnect(func(devicePath string) {
+				if mw.usbClient != nil {
+					go func() {
+						if err := mw.usbClient.StartAudio(devicePath); err != nil {
+							logrus.Errorf("Failed to start audio: %v", err)
+						}
+					}()
+				}
+			})
+			mw.diskWidget.SetOnAudioDisconnect(func() {
+				if mw.usbClient != nil {
+					go func() {
+						if err := mw.usbClient.StopAudio(); err != nil {
+							logrus.Errorf("Failed to stop audio: %v", err)
+						}
+					}()
+				}
+			})
 			mw.videoWidget.SetOnFPSChanged(func(fps float64) {
 				mw.currentVideoFPS = fps
 				mw.updateVideoIconLabel()
@@ -954,6 +972,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.showVideoMenu()
 	})
 	mw.videoIcon.Hide()
+	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
+		mw.showAudioMenu()
+	})
+	mw.audioIcon.Hide()
 	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowCurrentVideoSettings(false)
@@ -1008,6 +1030,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
 		mw.backupIcon,
 		mw.videoIcon,
+		mw.audioIcon,
 		mw.cdromIcon,
 		mw.keyboardIcon,
 		mw.mouseIcon,
@@ -1058,10 +1081,11 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
+		audioButton,
 		cdromButton,
 		keyboardButton,
 		mouseButton,
@@ -1094,7 +1118,7 @@ func (mw *MainWindow) updateDeviceButtonsVisibility() {
 // updateStatusBar updates the status panel.
 func (mw *MainWindow) updateStatusBar() {
 	if mw.usbClient == nil {
-		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming(), false)
+		mw.updateStatusBarUI(false, false, false, false, false, false, mw.videoWidget != nil && mw.videoWidget.IsStreaming(), false, false)
 		return
 	}
 
@@ -1149,7 +1173,13 @@ func (mw *MainWindow) updateStatusBar() {
 		}
 
 		videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
-		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected)
+		audioStreaming := false
+		if mw.usbClient != nil {
+			if info, err := mw.usbClient.GetAudioInfo(); err == nil && info != nil {
+				audioStreaming = info.Streaming
+			}
+		}
+		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming)
 
 		// Fetch detailed storage status
 		storageStatus, err := mw.usbClient.GetStorageStatus()
@@ -1177,7 +1207,7 @@ func (mw *MainWindow) updateStatusBar() {
 	}()
 }
 
-func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected bool) {
+func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming bool) {
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
@@ -1208,6 +1238,16 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.videoIcon.Hide()
 			}
 			mw.videoIcon.Refresh()
+		}
+		if mw.audioIcon != nil {
+			if audioStreaming {
+				mw.audioIcon.SetIcon(assets.AudioIconActive)
+				mw.audioIcon.Show()
+			} else {
+				mw.audioIcon.SetIcon(assets.AudioIcon)
+				mw.audioIcon.Hide()
+			}
+			mw.audioIcon.Refresh()
 		}
 		if mw.cdromIcon != nil {
 			if cdromConnected {
@@ -1324,22 +1364,33 @@ func (mw *MainWindow) showVideoMenu() {
 				mw.videoWidget.ShowFullscreen()
 			},
 		})
+	}
 
-		audioMuted := mw.isAudioMuted()
-		audioLabel := i18n.Current.MuteAudio
-		if audioMuted {
-			audioLabel = i18n.Current.UnmuteAudio
-		}
-		items = append(items, view.StyledMenuItem{
+	view.ShowStyledMenu(mw.videoIcon, items)
+}
+
+func (mw *MainWindow) showAudioMenu() {
+	if mw.audioIcon == nil {
+		return
+	}
+
+	audioMuted := mw.isAudioMuted()
+	audioLabel := i18n.Current.MuteAudio
+	if audioMuted {
+		audioLabel = i18n.Current.UnmuteAudio
+	}
+
+	items := []view.StyledMenuItem{
+		{
 			Label:    audioLabel,
 			Selected: audioMuted,
 			OnTap: func() {
 				mw.toggleAudioMuted()
 			},
-		})
+		},
 	}
 
-	view.ShowStyledMenu(mw.videoIcon, items)
+	view.ShowStyledMenu(mw.audioIcon, items)
 }
 
 func (mw *MainWindow) isAudioMuted() bool {

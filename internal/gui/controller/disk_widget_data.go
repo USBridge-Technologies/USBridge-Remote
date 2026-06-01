@@ -176,6 +176,36 @@ func (dw *DiskWidget) loadVideoDevices() {
 	}()
 }
 
+func (dw *DiskWidget) loadAudioDevices() {
+	if !dw.loadingAudioDevices.CompareAndSwap(false, true) {
+		logrus.Debug("loadAudioDevices already in flight, skipping overlapping refresh")
+		return
+	}
+	go func() {
+		defer dw.loadingAudioDevices.Store(false)
+		if dw.usbClient == nil {
+			dw.updateUIAsync(func() {
+				dw.audioDevices = nil
+				dw.scheduleCombine()
+			})
+			return
+		}
+		devices, err := dw.usbClient.GetAudioDevices()
+		if err != nil {
+			logrus.Debugf("audio devices unavailable: %v", err)
+			dw.updateUIAsync(func() {
+				dw.audioDevices = nil
+				dw.scheduleCombine()
+			})
+			return
+		}
+		dw.updateUIAsync(func() {
+			dw.audioDevices = devices
+			dw.scheduleCombine()
+		})
+	}()
+}
+
 // isSupportedFile проверяет, поддерживается ли файл
 func (dw *DiskWidget) isSupportedFile(filePath string) bool {
 	diskInfo := &models.DiskInfo{Path: filePath}
@@ -392,6 +422,39 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}
 
+	// Добавляем аудиоустройства захвата
+	for i := range dw.audioDevices {
+		device := dw.audioDevices[i]
+		audioItem := DriveItem{
+			Name:        fmt.Sprintf("%s [%s]", firstNonEmpty(device.Description, device.Name, device.Path), device.Path),
+			Size:        device.Path,
+			Source:      "audio",
+			IsMounted:   false,
+			IsAudio:     true,
+			AudioDevice: &dw.audioDevices[i],
+		}
+		dw.allDrives = append(dw.allDrives, audioItem)
+	}
+
+	// USB Audio Gadget (UAC) — только если ОС хоста "usbridge"
+	if strings.Contains(osName, "usbridge") {
+		oldUSBAudioMode := "uac1"
+		for _, d := range dw.allDrives {
+			if d.IsUSBAudio && d.USBAudioMode != "" {
+				oldUSBAudioMode = d.USBAudioMode
+			}
+		}
+		usbAudioItem := DriveItem{
+			Name:         i18n.Current.DeviceUSBAudio,
+			Size:         "N/A",
+			Source:       "usbaudio",
+			IsMounted:    false,
+			IsUSBAudio:   true,
+			USBAudioMode: oldUSBAudioMode,
+		}
+		dw.allDrives = append(dw.allDrives, usbAudioItem)
+	}
+
 	// Восстанавливаем состояние загрузки и монтирования
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil {
@@ -501,7 +564,17 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		videoStreaming = info.Streaming
 	}
 
+	var currentAudioPath string
+	audioStreaming := false
+	if dw.usbClient != nil {
+		if info, err := dw.usbClient.GetAudioInfo(); err == nil && info != nil {
+			currentAudioPath = info.DevicePath
+			audioStreaming = info.Streaming
+		}
+	}
+
 	drives := dw.allDrives
+	usedMountedIdx := make(map[int]bool)
 	for i := range drives {
 		drive := &drives[i]
 		oldStatus := drive.IsMounted
@@ -516,19 +589,33 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			continue
 		}
 
-		for _, device := range dw.mountedDevices {
+		if drive.IsAudio {
+			if drive.AudioDevice != nil && audioStreaming && drive.AudioDevice.Path == currentAudioPath {
+				isMounted = true
+			}
+			drive.IsMounted = isMounted
+			logrus.Debugf("🔊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
+			continue
+		}
+
+		for j, device := range dw.mountedDevices {
 			if device.Status != "connected" {
+				continue
+			}
+			if usedMountedIdx[j] {
 				continue
 			}
 
 			if drive.IsKeyboard && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
 				isMounted = true
+				usedMountedIdx[j] = true
 				logrus.Debugf("⌨️ Найдена подключенная клавиатура: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
 			if drive.IsMouse && isMouseDeviceType(device.Type) {
 				isMounted = true
+				usedMountedIdx[j] = true
 				dw.observedMouseMode = mouseModeFromDeviceType(device.Type)
 				drive.MouseType = normalizeMouseMode(dw.preferredMouseMode)
 				if drive.MouseType == "" {
@@ -540,6 +627,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 			if drive.IsRNDIS && (device.Type == "rndis" || strings.HasPrefix(device.Type, "rndis:")) {
 				isMounted = true
+				usedMountedIdx[j] = true
 				if strings.HasPrefix(device.Type, "rndis:") {
 					rndisMode := strings.TrimPrefix(device.Type, "rndis:")
 					drive.RNDISMode = normalizeRNDISMode(rndisMode)
@@ -550,11 +638,22 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 			if drive.IsGamepad && (device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
 				isMounted = true
+				usedMountedIdx[j] = true
 				logrus.Debugf("🎮 Найден подключенный геймпад: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
-			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad {
+			if drive.IsUSBAudio && (device.Type == "audio:uac1" || device.Type == "audio:uac2") {
+				isMounted = true
+				usedMountedIdx[j] = true
+				if strings.HasPrefix(device.Type, "audio:") {
+					drive.USBAudioMode = strings.TrimPrefix(device.Type, "audio:")
+				}
+				logrus.Debugf("🔊 Найден USB Audio Gadget: %s (type: %s)", device.Name, device.Type)
+				break
+			}
+
+			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio {
 				continue
 			}
 
@@ -589,6 +688,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					(drive.DiskInfo != nil && drive.DiskInfo.Name == expectedName))
 				if matchesDrive {
 					isMounted = true
+					usedMountedIdx[j] = true
 					logrus.Debugf("🌐 Найден подключенный NBD диск (по export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					break
 				}
@@ -598,6 +698,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				expectedDeviceKey := fmt.Sprintf("%s:%s", expectedServerType, driveName)
 				if device.Device == expectedDeviceKey || device.Name == driveName {
 					isMounted = true
+					usedMountedIdx[j] = true
 					if device.Type == "mtp" {
 						logrus.Debugf("📱 Найден подключенный MTP диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					} else {
@@ -609,6 +710,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 
 			if device.Type == "nbd" && (strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name)) {
 				isMounted = true
+				usedMountedIdx[j] = true
 				logrus.Debugf("🌐 Найден подключенный NBD диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 				break
 			}

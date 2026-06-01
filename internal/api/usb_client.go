@@ -1529,6 +1529,106 @@ func (c *USBClient) StopVideoLegacy() error {
 	return nil
 }
 
+// GetAudioDevices returns available ALSA audio capture devices.
+func (c *USBClient) GetAudioDevices() ([]models.SystemDevice, error) {
+	resp, err := c.makeRequest("GET", "/api/audio/devices", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to get audio devices: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize audio devices list: %v", err)
+	}
+
+	var payload struct {
+		Devices []models.SystemDevice `json:"devices"`
+	}
+	if err := json.Unmarshal(dataBytes, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse audio devices list: %v", err)
+	}
+
+	return payload.Devices, nil
+}
+
+// GetAudioInfo returns current audio streaming status.
+func (c *USBClient) GetAudioInfo() (*models.AudioInfoResponse, error) {
+	resp, err := c.makeRequest("GET", "/api/audio/info", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to get audio info: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize audio info: %v", err)
+	}
+
+	var info models.AudioInfoResponse
+	if err := json.Unmarshal(dataBytes, &info); err != nil {
+		return nil, fmt.Errorf("failed to parse audio info: %v", err)
+	}
+
+	return &info, nil
+}
+
+// StartAudio starts audio capture for the given device path.
+func (c *USBClient) StartAudio(devicePath string) error {
+	req := models.AudioStartRequest{DevicePath: devicePath}
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to serialize audio start request: %v", err)
+	}
+
+	resp, err := c.makeRequest("POST", "/api/audio/start", reqBytes)
+	if err != nil {
+		return err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("failed to start audio: %s", apiResp.Message)
+	}
+
+	return nil
+}
+
+// StopAudio stops audio capture.
+func (c *USBClient) StopAudio() error {
+	resp, err := c.makeRequest("POST", "/api/audio/stop", nil)
+	if err != nil {
+		return err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("failed to stop audio: %s", apiResp.Message)
+	}
+
+	return nil
+}
+
 // makeRequest makes HTTP request
 func (c *USBClient) makeRequest(method, endpoint string, body []byte) ([]byte, error) {
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, nil)
