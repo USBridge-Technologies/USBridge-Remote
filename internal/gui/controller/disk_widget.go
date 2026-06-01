@@ -463,8 +463,11 @@ func (dw *DiskWidget) selectUSBAudio(mode string) {
 			dw.onAudioDisconnect()
 		}
 		if dw.onUSBAudioConnect != nil {
+			// Blocks until USB gadget teardown+rebuild completes (synchronous handler).
 			dw.onUSBAudioConnect(mode)
 		}
+		// Brief wait for PulseAudio's udev-detect to register the recreated UAC card.
+		time.Sleep(400 * time.Millisecond)
 		// Start capturing audio from the UAC gadget so Sunshine streams it.
 		if dw.onAudioConnect != nil {
 			dw.onAudioConnect("uac")

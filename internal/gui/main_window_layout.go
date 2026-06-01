@@ -292,15 +292,16 @@ func (mw *MainWindow) recreateContainers() {
 			})
 			mw.diskWidget.SetOnUSBAudioConnect(func(mode string) {
 				if mw.usbClient != nil {
-					go func() {
-						req := models.DeviceStartBatchRequest{models.DeviceStartRequest{
-							Device: "usbaudio",
-							Type:   mode,
-						}}
-						if _, err := mw.usbClient.StartDevicesBatchWithMerge(req, true); err != nil {
-							logrus.Errorf("Failed to connect USB audio codec: %v", err)
-						}
-					}()
+					// Synchronous: selectUSBAudio goroutine waits for USB gadget teardown+rebuild
+					// to complete before calling onAudioConnect("uac"). If this were async, the UAC
+					// ALSA card would be destroyed mid-loopback, killing the PulseAudio loopback.
+					req := models.DeviceStartBatchRequest{models.DeviceStartRequest{
+						Device: "usbaudio",
+						Type:   mode,
+					}}
+					if _, err := mw.usbClient.StartDevicesBatchWithMerge(req, true); err != nil {
+						logrus.Errorf("Failed to connect USB audio codec: %v", err)
+					}
 				}
 			})
 			mw.videoWidget.SetOnFPSChanged(func(fps float64) {
