@@ -222,6 +222,7 @@ func (dw *DiskWidget) combineDrives() {
 	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
 	oldGamepadMode := gamepadModeDirectInput
+	oldUSBAudioMode := "uac1"
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {
 			oldMouseType = d.MouseType
@@ -231,6 +232,9 @@ func (dw *DiskWidget) combineDrives() {
 		}
 		if d.IsGamepad && d.GamepadMode != "" {
 			oldGamepadMode = d.GamepadMode
+		}
+		if d.IsUSBAudio && d.USBAudioMode != "" {
+			oldUSBAudioMode = d.USBAudioMode
 		}
 		if d.IsUploading && d.DiskInfo != nil && d.DiskInfo.Path != "" {
 			uploadingByPath[d.DiskInfo.Path] = uploadState{progress: d.UploadProgress, speed: d.UploadSpeed}
@@ -438,12 +442,6 @@ func (dw *DiskWidget) combineDrives() {
 
 	// USB Audio Gadget (UAC) — только если ОС хоста "usbridge"
 	if strings.Contains(osName, "usbridge") {
-		oldUSBAudioMode := "uac1"
-		for _, d := range dw.allDrives {
-			if d.IsUSBAudio && d.USBAudioMode != "" {
-				oldUSBAudioMode = d.USBAudioMode
-			}
-		}
 		usbAudioItem := DriveItem{
 			Name:         i18n.Current.DeviceUSBAudio,
 			Size:         "N/A",
