@@ -97,8 +97,8 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 	// Use Moonlight only when the stream is fully established and can actually send.
 	if dw.moonlightProvider != nil {
 		if sender := dw.moonlightProvider(); sender != nil && sender.IsInputActive() {
-			if hasInput || seq%300 == 1 {
-				logrus.Debugf("🎮 [GAMEPAD] → Moonlight path active")
+			if seq%300 == 1 {
+				logrus.Infof("🎮 [GAMEPAD] → Moonlight path (seq=%d)", seq)
 			}
 			sender.SendMoonlightControllerEvent(
 				0, // controllerNumber
@@ -116,8 +116,9 @@ func (dw *DiskWidget) forwardGamepadState(id string, state platform.GamepadCaptu
 	}
 	// Fall back to direct WebSocket API (works without video streaming).
 	if dw.usbClient != nil {
-		if hasInput || seq%300 == 1 {
-			logrus.Debugf("🎮 [GAMEPAD] → WebSocket path")
+		if seq%300 == 1 {
+			wsOK := dw.usbClient.IsGamepadWSConnected()
+			logrus.Infof("🎮 [GAMEPAD] → WebSocket path (seq=%d ws_connected=%v)", seq, wsOK)
 		}
 		dw.usbClient.SendGamepadReportWS(models.GamepadRequest{
 			Buttons:      state.Buttons,

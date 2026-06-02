@@ -1165,6 +1165,13 @@ func (c *USBClient) DisconnectGamepadWebSocket() {
 	}
 }
 
+// IsGamepadWSConnected returns true when the gamepad WebSocket is currently connected.
+func (c *USBClient) IsGamepadWSConnected() bool {
+	c.gamepadWSMutex.Lock()
+	defer c.gamepadWSMutex.Unlock()
+	return c.gamepadWSActive && c.gamepadWS != nil
+}
+
 // SendGamepadReportWS sends one gamepad state frame over the WebSocket.
 // Returns false if the WebSocket is not connected (caller may fall back to Moonlight).
 func (c *USBClient) SendGamepadReportWS(req models.GamepadRequest) bool {
