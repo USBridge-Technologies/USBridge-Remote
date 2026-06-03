@@ -108,9 +108,26 @@ func normalizeCaptureVideoDevices(devices []models.SystemDevice) []models.System
 		result = append(result, device)
 	}
 	sort.Slice(result, func(i, j int) bool {
+		wi := videoDeviceBusWeight(result[i].Bus)
+		wj := videoDeviceBusWeight(result[j].Bus)
+		if wi != wj {
+			return wi < wj
+		}
 		return result[i].Path < result[j].Path
 	})
 	return result
+}
+
+// videoDeviceBusWeight mirrors the server-side busWeight: USB first, then MIPI-CSI, rest last.
+func videoDeviceBusWeight(bus string) int {
+	switch {
+	case strings.HasPrefix(bus, "usb"):
+		return 0
+	case bus == "mipi-csi":
+		return 1
+	default:
+		return 2
+	}
 }
 
 func mergeVideoDeviceSet(dst map[string]models.SystemDevice, devices []models.SystemDevice) {
@@ -226,12 +243,11 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 
 	var info *models.VideoInfoData
 	selectedPath := selectedVideoDevicePath()
-	if selectedPath == "" && vw.usbClient != nil {
+	// Only inherit server's current device when the client already has a saved
+	// preference — on a fresh install, default to devices[0] (USB first after sort).
+	if selectedPath != "" && vw.usbClient != nil {
 		if currentInfo, err := getVideoInfoData(vw.usbClient); err == nil && currentInfo != nil {
 			info = currentInfo
-		}
-		if info != nil && info.Device != "" {
-			selectedPath = info.Device
 		}
 	}
 	if selectedPath == "" {

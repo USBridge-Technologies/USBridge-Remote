@@ -380,8 +380,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				if dw.controlsLocked() || videoUnavailable {
 					return
 				}
-				dw.setPreferredVideoDevice(deviceCopy)
-				dw.requestDevicesRefresh()
+				dw.selectVideoDevice(deviceCopy)
 			})
 		}
 		settingsBtn.SetOnTapped(func() {

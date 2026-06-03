@@ -549,6 +549,36 @@ func (dw *DiskWidget) setPreferredVideoDevice(device models.SystemDevice) {
 	}()
 }
 
+// selectVideoDevice saves the preferred device and, if video is currently
+// streaming, reconnects to the new device — mirrors setPreferredAudioDevice.
+func (dw *DiskWidget) selectVideoDevice(device models.SystemDevice) {
+	if strings.TrimSpace(device.Path) == "" {
+		return
+	}
+	go func() {
+		// Optimistic UI: mark the selected device as mounted, clear others.
+		fyne.Do(func() {
+			for i := range dw.allDrives {
+				if dw.allDrives[i].IsVideo && dw.allDrives[i].VideoDevice != nil {
+					dw.allDrives[i].IsMounted = dw.allDrives[i].VideoDevice.Path == device.Path
+				}
+			}
+			dw.requestDevicesRefresh()
+		})
+		cfg := loadSavedVideoDeviceConfig(device.Path, device.Name)
+		cfg.DevicePath = device.Path
+		cfg.DeviceName = device.Name
+		saveVideoDeviceConfig(cfg)
+		logrus.Infof("💾 [VIDEO-SELECT] Selected device: %s (%s)", device.Name, device.Path)
+		if dw.onVideoDisconnect != nil {
+			dw.onVideoDisconnect()
+		}
+		if dw.onVideoConnect != nil {
+			dw.onVideoConnect(device.Path)
+		}
+	}()
+}
+
 func (dw *DiskWidget) isPreferredVideoDrive(drive DriveItem) bool {
 	if drive.VideoDevice == nil {
 		return false
