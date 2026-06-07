@@ -13,7 +13,7 @@ import (
 
 func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string) (string, error) {
 	secret := input
-	
+
 	// If it's a deep link, extract the secret
 	if strings.HasPrefix(input, "usbridge://sync") {
 		u, _ := url.Parse(input)
@@ -27,13 +27,13 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	}
 
 	mw.activeAPISecret = []byte(secret)
-	
+
 	bootstrapClient := api.NewUSBClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout)
 	bootstrapClient.SetAPISecretV2(mw.activeAPISecret)
 
 	logrus.Infof("🔄 [SYNC] Performing master sync with bridge (host=%s)...", bootstrapHost)
-	
-	// Resolve TS key from current input
+
+	// Include Tailscale auth key if stored — server registers Tailscale internally.
 	_, tailscaleAuthKey := mw.resolveBridgeAuthInputs(bootstrapHost, secret)
 
 	syncPayload := api.MasterSyncPayloadV2{
@@ -48,5 +48,21 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	}
 
 	logrus.Infof("✅ [SYNC] Master sync successful. FRP Token received.")
+
+	// If server returned a Tailscale IP, remember it so the Tailscale protocol
+	// can connect directly without an additional API call.
+	if resp.TailscaleStatus != nil {
+		tsIP := strings.TrimSpace(resp.TailscaleStatus.IP4)
+		tsHost := strings.TrimSpace(resp.TailscaleStatus.DNSName)
+		resolved := tsIP
+		if resolved == "" {
+			resolved = tsHost
+		}
+		if resolved != "" && mw.connectionManager != nil {
+			mw.connectionManager.RememberResolvedTailscaleHost(bootstrapHost, bootstrapHost, resolved, secret)
+			logrus.Infof("🛰️ [SYNC] Bridge Tailscale address: %s", resolved)
+		}
+	}
+
 	return resp.FRPToken, nil
 }

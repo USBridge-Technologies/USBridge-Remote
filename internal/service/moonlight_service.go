@@ -30,10 +30,17 @@ type MoonlightService struct {
 	height     int
 	audioMuted bool
 
+	apiSecret []byte // master secret for HMAC-signed API requests
+
 	client        *moonlight.Client
 	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
 	stopPlayerCh  chan struct{}         // closed to stop the active GStreamer player goroutines
 	activeWrapper *MoonlightCgoWrapper // set while a stream is running, used for input routing
+}
+
+// SetAPISecret stores the master secret used to HMAC-sign requests to the usbridge API.
+func (m *MoonlightService) SetAPISecret(secret []byte) {
+	m.apiSecret = secret
 }
 
 // NewMoonlightService creates a new MoonlightService.
