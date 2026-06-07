@@ -1700,6 +1700,11 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 	return c.makeRequestWithContext(context.Background(), method, endpoint, body, headers)
 }
 
+// PostRaw sends a POST request with a raw JSON body and returns the raw response bytes.
+func (c *USBClient) PostRaw(endpoint string, body []byte) ([]byte, error) {
+	return c.makeRequest("POST", endpoint, body)
+}
+
 // makeRequestWithAcceptStatuses makes HTTP request, accepting specified status codes as success
 func (c *USBClient) makeRequestWithAcceptStatuses(method, endpoint string, body []byte, acceptStatuses []int) ([]byte, int, error) {
 	return c.makeRequestWithAcceptStatusesWithContext(context.Background(), method, endpoint, body, acceptStatuses)

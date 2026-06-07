@@ -186,9 +186,13 @@ func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
 		}
 	})
 
-    if len(mw.activeAPISecret) > 0 {
-            client.SetAPISecretV2(mw.activeAPISecret)
-    }
+	if len(mw.activeAPISecret) > 0 {
+		client.SetAPISecretV2(mw.activeAPISecret)
+		// Keep Moonlight's PIN relay in sync so it uses the same HMAC key.
+		if ms, ok := mw.videoClient.(interface{ SetAPISecret([]byte) }); ok {
+			ms.SetAPISecret(mw.activeAPISecret)
+		}
+	}
 
 	return client
 }

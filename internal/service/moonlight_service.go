@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	usbapi "usbridge-client/internal/api"
 	"usbridge-client/internal/api/moonlight"
 	"usbridge-client/internal/models"
 
@@ -363,19 +364,27 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 	}
 
 	body, _ := json.Marshal(map[string]string{"pin": pin})
-	url := fmt.Sprintf("http://%s:%d/api/moonlight/pin", host, port)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
+	// Use a plain HTTP client when we have no API secret (pre-pair state).
+	// Once paired the secret is set via SetAPISecret and we use HMAC signing.
+	if len(m.apiSecret) == 0 {
+		url := fmt.Sprintf("http://%s:%d/api/moonlight/pin", host, port)
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("POST %s: %w", url, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("usbridge service returned HTTP %d", resp.StatusCode)
+		}
+		return nil
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("usbridge service returned HTTP %d", resp.StatusCode)
-	}
-	return nil
+	usbClient := usbapi.NewUSBClient(host, port, 10)
+	usbClient.SetAPISecretV2(m.apiSecret)
+	_, err := usbClient.PostRaw("/api/moonlight/pin", body)
+	return err
 }
 
 func (m *MoonlightService) SetOnFrameReceived(callback func(image.Image)) {

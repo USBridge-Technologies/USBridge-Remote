@@ -1080,21 +1080,6 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	protocolBtn.SetSelected(data.ProtocolBadge)
 	protocolBtn.SetDisabled(state.Disabled)
 
-	registerCheck := widget.NewCheck("", func(checked bool) {
-		if actions.OnRegisterChange != nil {
-			actions.OnRegisterChange(checked)
-		}
-	})
-	registerCheck.Checked = data.RegisterChecked
-	if !data.RegisterVisible {
-		registerCheck.Hide()
-	}
-	if state.Disabled {
-		registerCheck.Disable()
-	} else {
-		registerCheck.Enable()
-	}
-
 	useBtn := newConnectionActionIconButton(actions.OnUse)
 	useBtn.SetDisabled(state.Disabled)
 	useBtn.SetLoading(state.Loading)
@@ -1103,7 +1088,7 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	left.SetMinSize(fyne.NewSize(1, 1))
 	center := container.New(&connectionCompactContentLayout{}, nameBlock)
 
-	rightItems := []fyne.CanvasObject{registerCheck, protocolBtn}
+	rightItems := []fyne.CanvasObject{protocolBtn}
 	rightItems = append(rightItems, useBtn)
 
 	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, rightItems...)

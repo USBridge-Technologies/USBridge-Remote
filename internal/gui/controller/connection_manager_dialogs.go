@@ -338,24 +338,27 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 		}
 	}
 
-	internalHostEntry.OnChanged = func(s string) {
-		if strings.TrimSpace(s) != "" && strings.TrimSpace(tailscaleHostEntry.Text) == "" {
+	updateRegisterVisibility := func() {
+		hasInternal := strings.TrimSpace(internalHostEntry.Text) != ""
+		hasTailscale := strings.TrimSpace(tailscaleHostEntry.Text) != ""
+		if hasInternal && !hasTailscale {
+			// Auto-enable "register in Tailscale" when no TS address is saved yet.
+			if !tailscaleRegisterCheck.Checked {
+				tailscaleRegisterCheck.SetChecked(true)
+			}
 			tailscaleRegisterCheck.Show()
 		} else {
 			tailscaleRegisterCheck.Hide()
 		}
 	}
-	tailscaleHostEntry.OnChanged = func(s string) {
-		if strings.TrimSpace(internalHostEntry.Text) != "" && strings.TrimSpace(s) == "" {
-			tailscaleRegisterCheck.Show()
-		} else {
-			tailscaleRegisterCheck.Hide()
-		}
-	}
-	tailscaleRegisterCheck.Hide()
+	internalHostEntry.OnChanged = func(_ string) { updateRegisterVisibility() }
+	tailscaleHostEntry.OnChanged = func(_ string) { updateRegisterVisibility() }
+
+	// Initial state.
+	updateRegisterVisibility()
 
 	// Pre-populate advanced visibility when editing an existing connection.
-	if strings.TrimSpace(tailscaleHostEntry.Text) != "" || strings.TrimSpace(quicPortEntry.Text) != "" || strings.TrimSpace(frpTokenEntry.Text) != "" {
+	if strings.TrimSpace(tailscaleHostEntry.Text) != "" || strings.TrimSpace(quicPortEntry.Text) != "" || strings.TrimSpace(frpTokenEntry.Text) != "" || tailscaleRegisterCheck.Visible() {
 		advancedBody.Show()
 		advancedToggle.SetText("▾ advanced")
 	}
