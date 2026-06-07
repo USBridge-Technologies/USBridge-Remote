@@ -13,8 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// SaveConnection сохраняет подключение напрямую
-func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) string {
+// SaveConnection сохраняет подключение напрямую.
+// masterKey — API master secret (из QR кода устройства).
+// frpToken — прямой FRP/QUIC токен туннеля (опционально, когда masterKey пуст).
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
@@ -42,7 +44,8 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, q
 		InternalHost:      internalHost,
 		TailscaleHost:     tailscaleHost,
 		QUICPort:          quicPort,
-		QUICToken:         strings.TrimSpace(quicToken),
+		QUICToken:         strings.TrimSpace(masterKey),
+		FRPToken:          strings.TrimSpace(frpToken),
 		Protocol:          normalizeConnectionProtocol(protocol),
 		TailscaleRegister: tailscaleRegister,
 	}
@@ -92,7 +95,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		}
 	}
 
-	name := cm.SaveConnection("", internalHost, tailscaleHost, quicToken, "tailscale", 0, false)
+	name := cm.SaveConnection("", internalHost, tailscaleHost, quicToken, "", "tailscale", 0, false)
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 

@@ -305,7 +305,9 @@ type LocalizedStrings struct {
 	DeviceTouchPad    string // "TouchPad" (relative touchpad mode)
 	DeviceMouse       string // "Mouse" (USB pointer device name)
 	DeviceTouch       string // "Touch" (touchscreen mode)
-	DeviceAbsolute    string // "Absolute" (absolute pointing mode)
+	DeviceAbsolute         string // "Absolute" (absolute pointing mode)
+	DeviceAbsoluteLeft2    string // "Abs L/2" (absolute, left display of 2)
+	DeviceAbsoluteRight2   string // "Abs R/2" (absolute, right display of 2)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
 	DeviceGamepad               string // "Gamepad"
 	DeviceDirectInput           string // "DirectInput"
@@ -321,7 +323,7 @@ type LocalizedStrings struct {
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
-	DeepLinkToken         string // "QUIC Token:"
+	DeepLinkToken         string // "Master Key:"
 	DeepLinkConnectPrompt string // "Do you want to connect to this server?\n\nChoose action:"
 	DeepLinkConnect       string // "Connect"
 	DeepLinkSave          string // "Save"
@@ -372,7 +374,7 @@ func EN() *LocalizedStrings {
 		// Main Window
 		AppTitle:                "USBridge Client",
 		ServerAddress:           "Server Address",
-		Token:                   "QUIC Token",
+		Token:                   "Master Key",
 		ConnectButton:           "Connect",
 		DisconnectButton:        "Disconnect",
 		DisconnectAllButton:     "Disconnect All",
@@ -385,7 +387,7 @@ func EN() *LocalizedStrings {
 		ConnectionManager:         "🔌 Connection Manager",
 		SavedConnections:          "Connections",
 		ConnectionManagement:      "💾 Connection Management",
-		AddressAndTokenHint:       "💡 Address and QUIC Token are entered in the bar above",
+		AddressAndTokenHint:       "💡 Address and Master Key are entered in the bar above",
 		ConnectionHeroEyebrow:     "USBRIDGE ACCESS",
 		ConnectionPanelHint:       "Launch a saved profile or create a new one.",
 		ConnectionNameLabel:       "Name for saving:",
@@ -512,7 +514,7 @@ func EN() *LocalizedStrings {
 		Apply:                   "Apply",
 		Cancel:                  "Cancel",
 		ServerAddressLabel:      "Server address:",
-		TokenLabel:              "QUIC Token:",
+		TokenLabel:              "Master Key:",
 		ScanSuccess:             "✓ QR code successfully scanned!\n\nCheck the data and press 'Apply' to fill in the fields.",
 		ErrorOpeningFile:        "Error opening file: %v",
 		ErrorDecodingImage:      "Error decoding image: %v",
@@ -670,7 +672,9 @@ func EN() *LocalizedStrings {
 		DeviceTouchPad:    "TouchPad",
 		DeviceMouse:       "Mouse",
 		DeviceTouch:       "TouchScreen",
-		DeviceAbsolute:    "Absolute",
+		DeviceAbsolute:       "Absolute",
+		DeviceAbsoluteLeft2:  "Abs L/2",
+		DeviceAbsoluteRight2: "Abs R/2",
 		DeviceNetworkCard: "Network Card (RNDIS)",
 		DeviceGamepad:             "Gamepad",
 		DeviceDirectInput:         "DirectInput",
@@ -686,7 +690,7 @@ func EN() *LocalizedStrings {
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",
-		DeepLinkToken:         "QUIC Token:",
+		DeepLinkToken:         "Master Key:",
 		DeepLinkConnectPrompt: "Do you want to connect to this server?\n\nChoose action:",
 		DeepLinkConnect:       "Connect",
 		DeepLinkSave:          "Save",
@@ -737,7 +741,7 @@ func ES() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Cliente USBridge"
 	locale.ServerAddress = "Direccion del servidor"
-	locale.Token = "QUIC Token"
+	locale.Token = "Master Key"
 	locale.ConnectButton = "Conectar"
 	locale.DisconnectButton = "Desconectar"
 	locale.DisconnectAllButton = "Desconectar todo"
@@ -811,10 +815,12 @@ func ES() *LocalizedStrings {
 	locale.DeviceMouse = "Raton"
 	locale.DeviceTouch = "Tactil"
 	locale.DeviceAbsolute = "Absoluto"
+	locale.DeviceAbsoluteLeft2 = "Abs I/2"
+	locale.DeviceAbsoluteRight2 = "Abs D/2"
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
-	locale.DeepLinkToken = "QUIC Token:"
+	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
 	locale.DeepLinkConnect = "Conectar"
 	locale.DeepLinkSave = "Guardar"
@@ -851,6 +857,8 @@ func UK() *LocalizedStrings {
 	locale.DeviceMouse = "Миша"
 	locale.DeviceTouch = "Дотик"
 	locale.DeviceAbsolute = "Абсолютний"
+	locale.DeviceAbsoluteLeft2 = "Абс Л/2"
+	locale.DeviceAbsoluteRight2 = "Абс П/2"
 	locale.Close = "Закрити"
 	locale.Cancel = "Скасувати"
 	locale.Yes = "Так"
@@ -864,7 +872,7 @@ func UKProper() *LocalizedStrings {
 	locale := EN()
 	locale.AppTitle = "Клієнт USBridge"
 	locale.ServerAddress = "Адреса сервера"
-	locale.Token = "QUIC токен"
+	locale.Token = "Master Key"
 	locale.ConnectButton = "Підключити"
 	locale.DisconnectButton = "Відключити"
 	locale.DisconnectAllButton = "Відключити все"
@@ -938,10 +946,12 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceMouse = "Миша"
 	locale.DeviceTouch = "Дотик"
 	locale.DeviceAbsolute = "Абсолютний"
+	locale.DeviceAbsoluteLeft2 = "Абс Л/2"
+	locale.DeviceAbsoluteRight2 = "Абс П/2"
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
-	locale.DeepLinkToken = "QUIC токен:"
+	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
 	locale.DeepLinkConnect = "Підключити"
 	locale.DeepLinkSave = "Зберегти"

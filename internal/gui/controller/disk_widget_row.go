@@ -265,12 +265,9 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			}
 		default: // mouse
 			mode := normalizeMouseMode(drive.MouseType)
-			if mode == mouseModeAbsolute {
-				modeSelect.SetSelected(i18n.Current.DeviceAbsolute)
-			} else {
-				modeSelect.SetSelected(i18n.Current.DeviceTouchPad)
-			}
-			modeSelect.SetOptions([]string{i18n.Current.DeviceTouchPad, i18n.Current.DeviceAbsolute})
+			dispIdx, dispCnt := dw.GetDisplayConfig()
+			modeSelect.SetOptions(mouseConfigOptions())
+			modeSelect.SetSelected(mouseConfigToLabel(mode, dispIdx, dispCnt))
 		}
 	} else {
 		modeSelect.Hide()
@@ -467,10 +464,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
 				return
 			}
-			newMode := mouseModeTouchPad
-			if s == i18n.Current.DeviceAbsolute {
-				newMode = mouseModeAbsolute
-			}
+			newMode, dispIdx, dispCnt := mouseLabelToConfig(s)
+			dw.SetDisplayConfig(dispIdx, dispCnt)
 			dw.applyMouseModeSelection(rowID, newMode)
 		}
 	} else if drive.Source == "usbaudio" {

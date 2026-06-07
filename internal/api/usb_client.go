@@ -73,6 +73,7 @@ type USBClient struct {
 	baseURL               string
 	httpClient            *http.Client
 	apiKey                string
+        apiSecret             []byte
 	transportErrorHandler func(error)
 	cursorUpdateHandler   func(models.CursorState)
 	keyboardQueue         chan keyboardRequestTask
@@ -1654,6 +1655,13 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
 
+
+        if len(c.apiSecret) > 0 && endpoint != "/api/healthz" && !strings.HasPrefix(endpoint, "/api/auth/qr") {
+                timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+                signature := CalculateHMACV2(method, endpoint, timestamp, string(body), c.apiSecret)
+                req.Header.Set("X-Auth-Signature", signature)
+                req.Header.Set("X-Auth-Timestamp", timestamp)
+        }
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -1710,6 +1718,12 @@ func (c *USBClient) makeRequestWithAcceptStatusesWithContext(ctx context.Context
 		return nil, 0, fmt.Errorf("request creation failed: %v", err)
 	}
 
+	if len(c.apiSecret) > 0 && endpoint != "/api/healthz" && !strings.HasPrefix(endpoint, "/api/auth/qr") {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		signature := CalculateHMACV2(method, endpoint, timestamp, string(body), c.apiSecret)
+		req.Header.Set("X-Auth-Signature", signature)
+		req.Header.Set("X-Auth-Timestamp", timestamp)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)

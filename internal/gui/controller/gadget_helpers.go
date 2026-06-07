@@ -20,9 +20,18 @@ func newKeyboardStartRequest() models.DeviceStartRequest {
 }
 
 func newMouseStartRequest(mode string) models.DeviceStartRequest {
+	return newMouseStartRequestWithDisplay(mode, 0, 1)
+}
+
+func newMouseStartRequestWithDisplay(mode string, displayIndex, displayCount int) models.DeviceStartRequest {
+	if displayCount < 1 {
+		displayCount = 1
+	}
 	return models.DeviceStartRequest{
-		Device: "mouse",
-		Type:   mouseTransportType(normalizeMouseMode(mode)),
+		Device:       "mouse",
+		Type:         mouseTransportType(normalizeMouseMode(mode)),
+		DisplayIndex: displayIndex,
+		DisplayCount: displayCount,
 	}
 }
 

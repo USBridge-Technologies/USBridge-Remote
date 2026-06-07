@@ -225,6 +225,8 @@ type GamepadRequest struct {
 type DeviceStartRequest struct {
 	Device                  string `json:"device"`                               // keyboard, drive, mouse, etc.
 	Type                    string `json:"type,omitempty"`                       // For mouse: "mouse" (touchpad), "touchscreen" or "absolute"
+	DisplayIndex            int    `json:"display_index,omitempty"`              // For mouse absolute: 0-based display index
+	DisplayCount            int    `json:"display_count,omitempty"`              // For mouse absolute: total display count (0/1 = single)
 	RNDISMode               string `json:"rndis_mode,omitempty"`                 // For RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
 	Server                  string `json:"server,omitempty"`                     // Server IP for NBD
 	Port                    int    `json:"port,omitempty"`                       // Server port for NBD

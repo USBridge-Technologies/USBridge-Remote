@@ -104,7 +104,7 @@ func (mw *MainWindow) createInterface() {
 	}
 
 	mw.tokenEntry = widget.NewEntry()
-	mw.tokenEntry.SetPlaceHolder(i18n.Current.Token)
+	mw.tokenEntry.SetPlaceHolder("Master Key")
 	mw.tokenEntry.Password = true
 	mw.tokenEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()

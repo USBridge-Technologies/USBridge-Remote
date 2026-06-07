@@ -58,8 +58,10 @@ type DiskWidget struct {
 	selectedItemsMu     sync.RWMutex
 	devicesTraceBudget  int
 	lastDrivesTraceSig  string
-	preferredMouseMode  string
-	observedMouseMode   string
+	preferredMouseMode    string
+	observedMouseMode     string
+	preferredDisplayIndex int // 0-based display index for absolute mouse (0 = first)
+	preferredDisplayCount int // total display count for absolute mouse (0/1 = single)
 
 	loadingLocalDrives    atomic.Bool
 	loadingLocalFiles     atomic.Bool
@@ -204,7 +206,8 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		mountedDevices:     make([]*models.DeviceInfo, 0),
 		selectedItems:      make(map[int]bool),
 		devicesTraceBudget: 20,
-		preferredMouseMode: defaultMouseMode(),
+		preferredMouseMode:   defaultMouseMode(),
+		preferredDisplayCount: 1,
 		scanPaths:          scanPaths,
 		supportedTypes:     supportedTypes,
 		safHelper:          platform.GetSAFHelper(app),
@@ -216,6 +219,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		logrus.Info("📱 [ANDROID-INIT] SAF global context will be initialized on window set")
 	}
 
+	dw.loadDisplayConfig()
 	dw.createInterface()
 	dw.startPeriodicRefresh()
 	go dw.loadGamepadDevices()
@@ -337,6 +341,38 @@ func (dw *DiskWidget) GetMouseMode() string {
 		}
 	}
 	return defaultMouseMode()
+}
+
+// GetDisplayConfig возвращает текущую конфигурацию дисплея для абсолютного режима мыши.
+func (dw *DiskWidget) GetDisplayConfig() (displayIndex, displayCount int) {
+	idx := dw.preferredDisplayIndex
+	cnt := dw.preferredDisplayCount
+	if cnt < 1 {
+		cnt = 1
+	}
+	return idx, cnt
+}
+
+// SetDisplayConfig сохраняет конфигурацию дисплея и записывает в preferences.
+func (dw *DiskWidget) SetDisplayConfig(displayIndex, displayCount int) {
+	if displayCount < 1 {
+		displayCount = 1
+	}
+	dw.preferredDisplayIndex = displayIndex
+	dw.preferredDisplayCount = displayCount
+	if dw.app != nil {
+		dw.app.Preferences().SetInt("mouse.display.index", displayIndex)
+		dw.app.Preferences().SetInt("mouse.display.count", displayCount)
+	}
+}
+
+// loadDisplayConfig загружает конфигурацию дисплея из preferences.
+func (dw *DiskWidget) loadDisplayConfig() {
+	if dw.app == nil {
+		return
+	}
+	dw.preferredDisplayIndex = dw.app.Preferences().IntWithFallback("mouse.display.index", 0)
+	dw.preferredDisplayCount = dw.app.Preferences().IntWithFallback("mouse.display.count", 1)
 }
 
 // GetRNDISMode возвращает текущий выбранный режим RNDIS.

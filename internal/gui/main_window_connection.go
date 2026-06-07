@@ -25,11 +25,17 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 	mw.pendingTailscaleRegister = tailscaleRegister
 }
 
+// handleConnectionFromDeepLink handles the old-style deep-link connect callback (no separate frp token).
+func (mw *MainWindow) handleConnectionFromDeepLink(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+	mw.handleConnectionFromManager(host, quicToken, "", protocol, quicPort, tailscaleRegister)
+}
+
 // handleConnectionFromManager handles connection from the manager (arrow on the card).
-// It fills the fields and calls the unified handleConnectionToggle handler to protect against multiple clicks.
-func (mw *MainWindow) handleConnectionFromManager(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+// masterKey is the API secret (from QR sync); frpToken is a direct FRP tunnel token override.
+func (mw *MainWindow) handleConnectionFromManager(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
-	mw.tokenEntry.SetText(quicToken)
+	mw.tokenEntry.SetText(masterKey)
+	mw.pendingFRPToken = frpToken
 	mw.pendingTailscaleRegister = tailscaleRegister
 	mw.pendingQUICPort = quicPort
 	if protocol != "" {
@@ -55,7 +61,7 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 	})
 
 	if mw.connectionManager != nil {
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, quicToken, protocol, quicPort, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, quicToken, "", protocol, quicPort, tailscaleRegister)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -97,7 +103,7 @@ func (mw *MainWindow) resolveConnectionToken(host, quicToken string) string {
 		}
 	}
 
-	resolved = strings.TrimSpace(mw.activeQUICToken)
+	resolved = strings.TrimSpace(mw.activeFRPToken)
 	if resolved != "" {
 		logrus.Infof("🔍 [DEBUG] Reusing active session QUIC token for host='%s'", host)
 		return resolved
@@ -308,7 +314,7 @@ func (mw *MainWindow) handleConnect() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
 	defer cancel()
 
-	if err := mw.doConnect(ctx, host, quicToken); err != nil {
+	if err := mw.doConnect(ctx, host, quicToken, ""); err != nil {
 		mw.handleConnectFailure("Connection failed", err)
 	}
 }
@@ -328,9 +334,16 @@ func getFreeVideoUDPPort() int {
 	return port
 }
 
-// doConnect выполняет блокирующую логику подключения (вызывается из горутины)
-func (mw *MainWindow) doConnect(ctx context.Context, host, quicToken string) error {
-	// Принудительно останавливаем видео и сбрасываем GStreamer перед новым подключением
+// doConnect выполняет блокирующую логику подключения (вызывается из горутины).
+// masterKey — API master secret (из QR кода): используется для sync и подписи API запросов.
+// frpToken  — прямой FRP/QUIC токен туннеля (из поля "quic token" в advanced): обходит sync.
+func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken string) error {
+	// Consume the pending FRP token (set by handleConnectionFromManager) before any async work.
+	if frpToken == "" {
+		frpToken = mw.pendingFRPToken
+	}
+	mw.pendingFRPToken = ""
+
 	if mw.videoWidget != nil {
 		_ = mw.videoWidget.StopVideoSync()
 	}
@@ -338,7 +351,6 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, quicToken string) err
 		_ = mw.videoClient.Disconnect()
 	}
 
-	// Генерируем новый UDP порт для видео, чтобы избежать коллизий пакетов с предыдущими хостами
 	mw.config.VideoUDPPort = getFreeVideoUDPPort()
 	if mw.videoClient != nil {
 		mw.videoClient.UpdateVideoPort(mw.config.VideoUDPPort)
@@ -349,14 +361,42 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, quicToken string) err
 	if protocol == "" {
 		protocol = models.ConnectionProtocolAuto
 	}
-	
-	// Используем токен СТРОГО из аргумента функции (то что ввел юзер или выбрал в менеджере)
-	cleanToken := strings.TrimSpace(quicToken)
-	mw.activeQUICToken = cleanToken
-	
-	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s raw_quic_token=%s timeout=%ds",
-		strings.TrimSpace(host), protocol, maskSensitiveToken(cleanToken), mw.config.APITimeout)
-	return mw.doConnectWithProtocol(ctx, host, cleanToken, protocol)
+
+	var tunnelToken string
+
+	switch {
+	case strings.TrimSpace(frpToken) != "":
+		// Direct FRP token — skip sync entirely.
+		tunnelToken = strings.TrimSpace(frpToken)
+		logrus.Infof("🔗 [CONNECT] using explicit frp_token (no sync)")
+
+	case strings.TrimSpace(masterKey) != "":
+		// Master key — perform QR sync to obtain the FRP tunnel token.
+		key := strings.TrimSpace(masterKey)
+		if strings.HasPrefix(key, "usbridge://sync") {
+			// Full deep-link URI passed via bar (e.g., manual paste).
+			u, _ := url.Parse(key)
+			if u != nil {
+				if s := u.Query().Get("secret"); s != "" {
+					key = s
+				}
+			}
+		}
+		if newToken, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
+			tunnelToken = newToken
+		} else {
+			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
+			return fmt.Errorf("sync failed: %w", err)
+		}
+
+	default:
+		logrus.Warn("⚠️ [CONNECT] No master key or FRP token provided")
+	}
+
+	mw.activeFRPToken = tunnelToken
+	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s tunnel_token=%s timeout=%ds",
+		strings.TrimSpace(host), protocol, maskSensitiveToken(tunnelToken), mw.config.APITimeout)
+	return mw.doConnectWithProtocol(ctx, host, tunnelToken, protocol)
 }
 
 func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken, protocol string) error {
@@ -797,7 +837,7 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
-		mw.activeQUICToken = ""
+		mw.activeFRPToken = ""
 		mw.refreshConnectionControls()
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
@@ -823,7 +863,7 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectedProtocol = ""
-	mw.activeQUICToken = ""
+	mw.activeFRPToken = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false

@@ -1,497 +1,135 @@
-# Актуальные API Endpoints USBridge 2
+# USBridge 2 API Documentation (Master QR Sync Protocol)
 
-## Системные endpoints
+## Authentication & Security (v2)
 
-### Статус системы
+All API requests (except `/api/healthz`) require a cryptographic signature. The root of trust is the **API Secret**, which is shared via a physical QR code on the device's screen.
+
+### 1. Mandatory Headers
+Every request must include:
+- `X-Auth-Timestamp`: Current Unix timestamp (seconds). Requests older than 60s are rejected.
+- `X-Auth-Signature`: HMAC-SHA256 hash of the request.
+
+### 2. Signature Calculation
+`HMAC_SHA256(API_SECRET, METHOD + PATH + TIMESTAMP + BODY)`
+- `METHOD`: HTTP method in uppercase (e.g., "POST").
+- `PATH`: Full URI path starting with `/` (e.g., `/api/mouse`).
+- `TIMESTAMP`: The same string used in the `X-Auth-Timestamp` header.
+- `BODY`: Raw request body string (empty string if no body).
+
+---
+
+## Initialization & Sync
+
+### Master Sync
 ```http
-GET /api/status
+POST /api/auth/sync
 ```
-**Описание**: Получить общий статус всех компонентов системы
-**Ответ**:
+**Description**: Unified endpoint for pairing and initial synchronization. Securely transmits sensitive data (PINs, keys) using AES-256-GCM encryption.
+
+**Request Body**:
+```json
+{
+  "payload": "AES_GCM_ENCRYPTED_BASE64",
+  "iv": "IV_BASE64",
+  "timestamp": 1717760000
+}
+```
+
+**Decrypted Payload Content**:
+```json
+{
+  "moonlight_pin": "1234",
+  "tailscale_key": "tskey-auth-...",
+  "hostname": "my-device",
+  "client_id": "uuid-..."
+}
+```
+
+**Response**:
 ```json
 {
   "success": true,
-  "message": "Статус системы получен",
   "data": {
-    "service": {
-      "status": "running",
-      "timestamp": "2024-01-15T10:30:00Z",
-      "uptime": "2h 15m 30s"
-    },
-    "nbd": {
-      "connected": true,
-      "device": "/dev/nbd2",
-      "server": "192.168.1.107",
-      "port": 10809,
-      "export": "test_system"
-    },
-    "usb": {
-      "connected": true,
-      "gadget_name": "radxa-cdrom",
-      "udc_name": "fcc00000.dwc3",
-      "vendor_id": "0x1d6b",
-      "product_id": "0x0104",
-      "keyboard_enabled": true
-    },
-    "kernel": {
-      "modules_loaded": true,
-      "modules": ["configfs", "libcomposite", "nbd"]
-    },
-    "timestamp": "2024-01-15T10:30:00Z"
+    "frp_token": "tunnel_token_here",
+    "tailscale_status": { ... },
+    "sunshine_status": "paired"
   }
 }
 ```
 
-### Статус сервиса
+---
+
+## Device Control
+
+### Device Start (Mounting)
 ```http
-GET /api/service/status
+POST /api/device/start
 ```
-**Описание**: Получить детальный статус USB gadget сервиса
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Статус сервиса получен",
-  "data": {
-    "status": "running",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "uptime": "2h 15m 30s",
-    "gadget_connected": true,
-    "nbd_connected": true,
-    "video_streaming": true
-  }
-}
-```
+**Description**: Starts USB gadgets (Drive, Keyboard, Mouse, RNDIS).
+**Request Body**: Array of device objects.
 
-## Управление сервисом
-
-### Запуск сервиса
+### Device Stop
 ```http
-POST /api/service/start
+POST /api/device/stop
 ```
-**Описание**: Запустить USB gadget и подключить все компоненты
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Сервис успешно запущен"
-}
-```
+**Description**: Stops all active USB gadgets.
 
-### Остановка сервиса
-```http
-POST /api/service/stop
-```
-**Описание**: Остановить USB gadget и отключить все компоненты
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Сервис успешно остановлен"
-}
-```
+---
 
-### Перезапуск сервиса
-```http
-POST /api/service/restart
-```
-**Описание**: Перезапустить USB gadget
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Сервис успешно перезапущен"
-}
-```
+## Input Control
 
-## Управление устройствами
-
-### Список устройств
-```http
-GET /api/devices
-```
-**Описание**: Получить список всех подключенных устройств
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Список устройств получен",
-  "data": [
-    {
-      "name": "NBD Device",
-      "path": "/dev/nbd2",
-      "connected": true,
-      "description": "NBD подключение к 192.168.1.107:10809"
-    },
-    {
-      "name": "Video Device",
-      "path": "/dev/video0",
-      "connected": true,
-      "description": "UVC камера"
-    },
-    {
-      "name": "USB Gadget",
-      "path": "/sys/kernel/config/usb_gadget/radxa-cdrom",
-      "connected": true,
-      "description": "USB OTG gadget"
-    }
-  ]
-}
-```
-
-## Конфигурация
-
-### Получить конфигурацию
-```http
-GET /api/config
-```
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Конфигурация получена",
-  "data": {
-    "nbd_device": "/dev/nbd2",
-    "nbd_server": "192.168.1.107",
-    "nbd_port": 10809,
-    "export_name": "test_system",
-    "gadget_name": "radxa-cdrom",
-    "udc_name": "fcc00000.dwc3",
-    "vendor_id": "0x1d6b",
-    "product_id": "0x0104",
-    "product_name": "Radxa NBD CD-ROM + Keyboard + Video (Hardware)",
-    "manufacturer": "Radxa",
-    "keyboard_enabled": true,
-    "video_enabled": true,
-    "video_device": "/dev/video0",
-    "video_width": 640,
-    "video_height": 480,
-    "video_fps": 30,
-    "video_quality": 80,
-    "video_bitrate": "2M",
-    "video_buffer_size": 2,
-    "web_server": {
-      "enabled": true,
-      "host": "0.0.0.0",
-      "port": 8080
-    },
-    "check_interval": 30
-  }
-}
-```
-
-### Обновить конфигурацию
-```http
-POST /api/config
-```
-**Тело запроса**:
-```json
-{
-  "nbd_server": "192.168.1.108",
-  "video_width": 1280,
-  "video_height": 720,
-  "video_fps": 15
-}
-```
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Конфигурация обновлена"
-}
-```
-
-## Управление клавиатурой
-
-### Отправка клавиш
+### Keyboard
 ```http
 POST /api/keyboard
 ```
-**Тело запроса**:
+**Actions**: `key`, `combo`, `text`.
 
-**Одна клавиша**:
-```json
-{
-  "action": "key",
-  "key_code": 40
-}
-```
-
-**Комбинация клавиш**:
-```json
-{
-  "action": "combo",
-  "modifiers": 5,
-  "key_code": 76
-}
-```
-
-**Отправка текста**:
-```json
-{
-  "action": "text",
-  "text": "Hello World!"
-}
-```
-
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Команда отправлена"
-}
-```
-
-## Управление мышью / тачем (HID)
-
-### Единый endpoint
-
+### Mouse
 ```http
 POST /api/mouse
-Content-Type: application/json
 ```
+**Actions**: `move`, `click`, `scroll`, `touch`, `touch_position`.
 
-Сервер принимает JSON-объект формата `MouseRequest` (см. `internal/models/usb.go`).
+---
 
-#### Поля запроса
+## Video & Audio
 
-- **`action`** *(string, обязателен)*:
-  - **`"move"`** — относительное перемещение мыши (тачпад/обычная мышь)
-  - **`"click"`** — клик мыши
-  - **`"scroll"`** — прокрутка колеса
-  - **`"action"`** — комплексное действие (обычно используется для drag: кнопка + dx/dy + scroll)
-  - **`"touch"`** — тачскрин: касание/отпускание в абсолютных координатах
-  - **`"touch_position"`** — установка абсолютной позиции указателя без касания (используется для правого клика в режиме тача и для режима **absolute**)
-
-- **`dx`, `dy`** *(int)*: используются для `action="move"` / `action="action"`.
-  - Диапазон: **-127..127** (HID)
-
-- **`x`, `y`** *(int)*: используются для `action="touch"` / `action="touch_position"`.
-  - Диапазон: **0..4095** (как реализовано в клиенте сейчас; см. `VideoWidget.PositionToAbsolute`)
-
-- **`tip`** *(bool, обязателен в JSON как поле; в модели без `omitempty`)*:
-  - Для `action="touch"`: **`true` = касание (down)**, **`false` = отпускание (up)**
-  - Для `action="touch_position"`: клиент обычно шлёт `false` (позиция без касания)
-
-- **`button`** *(int)*: используется для `action="click"` / `action="action"`.
-  - 1 = левая, 2 = правая, 3 = средняя
-
-- **`scroll`** *(int)*: используется для `action="scroll"` / `action="action"`.
-  - Диапазон: **-127..127**
-
-#### Ответ
-
-```json
-{
-  "success": true,
-  "message": "Команда отправлена"
-}
-```
-
-### Примеры
-
-#### 1) Тачпад/обычная мышь (относительное перемещение)
-
-```json
-{
-  "action": "move",
-  "dx": 12,
-  "dy": -4,
-  "tip": false
-}
-```
-
-#### 2) Клик
-
-```json
-{
-  "action": "click",
-  "button": 1,
-  "tip": false
-}
-```
-
-#### 3) Тачскрин (касание)
-
-```json
-{
-  "action": "touch",
-  "x": 2048,
-  "y": 1024,
-  "tip": true
-}
-```
-
-Отпускание:
-
-```json
-{
-  "action": "touch",
-  "x": 2048,
-  "y": 1024,
-  "tip": false
-}
-```
-
-#### 4) Абсолютное позиционирование без касания (режим `absolute`)
-
-```json
-{
-  "action": "touch_position",
-  "x": 3500,
-  "y": 500,
-  "tip": false
-}
-```
-
-### Режимы манипулятора на стороне клиента (важно для `/api/device/start`)
-
-При запуске устройства `"mouse"` через `/api/device/start` клиент может передать `type`:
-
-- **`"mouse"`** — тачпад/обычная мышь (сервер ожидает `action="move"` с `dx/dy`)
-- **`"touchscreen"`** — тачскрин (сервер ожидает `action="touch"` с `x/y` и `tip`)
-- **`"absolute"`** — абсолютный режим (сервер ожидает `action="touch_position"` с `x/y`, клики идут отдельными `action="click"`)
-
-#### Рекомендация для сервера (чтобы было «как VirtualBox»)
-
-Чтобы поведение было максимально близким к VirtualBox USB Tablet / absolute pointer, серверу стоит принимать **атомарное абсолютное событие**,
-в котором вместе приходят:
-
-- абсолютные координаты `x/y`
-- состояние кнопок (`buttonState` битмаской или отдельные down/up)
-- колесо (`dz`/`dw` или хотя бы `scroll`)
-
-Варианты:
-
-1) **Расширить существующий `/api/mouse`**:
-   - добавить новый `action: "absolute_event"` с полями `x,y,button_state,scroll`
-   - или расширить `touch_position`, добавив `button_state` и `scroll` (и интерпретировать их только в режиме `type="absolute"`)
-
-2) **Диапазон координат**:
-   - принять нормализацию `0..65535` (0..0xffff) для `absolute` (часто используемый диапазон для tablet/absolute HID)
-   - либо чётко документировать другой диапазон и выставить соответствующие логические максимумы в HID-репорте
-
-С текущим API, где позиция (`touch_position`) и кнопки/колесо (`click`/`scroll`) приходят раздельно, возможна микроскопическая рассинхронизация
-между положением и кнопкой/колесом (VirtualBox исторически упоминает такую проблему при разделении позиции и кнопок).
-
-## Видео управление
-
-### Информация о видео
+### Video Info
 ```http
 GET /api/video/info
 ```
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Информация о видео получена",
-  "data": {
-    "enabled": true,
-    "device": "/dev/video0",
-    "width": 640,
-    "height": 480,
-    "fps": 30,
-    "quality": 80,
-    "bitrate": "2M",
-    "buffer_size": 2,
-    "mode": "jpeg_rtp",
-    "transport": "rtp",
-    "encoding": "jpeg",
-    "source_format": "mjpeg",
-    "server_decodes_jpeg": false,
-    "streaming": true,
-    "udp_port": 55000
-  }
-}
-```
 
-### Запуск видео стриминга
+### Video Start
 ```http
 POST /api/video/start
 ```
-**Описание**: Запустить видео стриминг
-**Тело запроса**:
-```json
-{
-  "video_width": 1280,
-  "video_height": 720,
-  "video_fps": 60,
-  "video_quality": 80,
-  "video_bitrate": "4M",
-  "video_mode": "jpeg_rtp",
-  "client_port": 55000
-}
-```
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Видео стриминг запущен"
-}
-```
 
-### Остановка видео стриминга
+### Audio Info
 ```http
-POST /api/video/stop
-```
-**Описание**: Остановить видео стриминг
-**Ответ**:
-```json
-{
-  "success": true,
-  "message": "Видео стриминг остановлен"
-}
+GET /api/audio/info
 ```
 
-## Веб-интерфейс
+---
 
-### Главная страница
+## Storage & ISO
+
+### Storage Status
 ```http
-GET /
-```
-**Описание**: Веб-интерфейс для управления устройством
-**Ответ**: HTML страница с интерфейсом управления
-
-## Коды клавиш (HID)
-
-### Основные клавиши
-- `a-z`: 4-29
-- `0-9`: 30-39
-- `Space`: 44
-- `Enter`: 40
-- `Escape`: 41
-- `Backspace`: 42
-- `Tab`: 43
-
-### Функциональные клавиши
-- `F1-F12`: 58-69
-
-### Модификаторы
-- `Left Ctrl`: 1
-- `Left Shift`: 2
-- `Left Alt`: 4
-- `Left GUI`: 8
-
-### Примеры комбинаций
-- `Ctrl+C`: `{"action": "combo", "modifiers": 1, "key_code": 6}`
-- `Ctrl+Alt+Del`: `{"action": "combo", "modifiers": 5, "key_code": 76}`
-
-## Формат ошибок
-
-```json
-{
-  "success": false,
-  "error": "service_error",
-  "message": "Ошибка запуска сервиса",
-  "details": "USB gadget уже подключен"
-}
+GET /api/storage/status
 ```
 
-## Коды ответов
+### ISO Upload
+```http
+POST /api/iso/upload
+```
+**Note**: Large files (up to 50GB) supported.
 
-- `200` - Успешно
-- `400` - Неверный запрос
-- `405` - Метод не поддерживается
-- `500` - Внутренняя ошибка сервера
+---
 
-Это актуальные endpoints из реальной реализации USBridge 2.
+## Public Endpoints
+
+### Health Check
+```http
+GET /api/healthz
+```
+**Description**: Only endpoint that does **not** require a signature. Returns 200 OK if service is alive.

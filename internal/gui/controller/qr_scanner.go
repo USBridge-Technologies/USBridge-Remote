@@ -121,6 +121,17 @@ func parseQRContents(qrText string) (internalHost, tailscaleHost, quicToken, pro
 		return "", "", "", "", 0, fmt.Errorf("empty QR code")
 	}
 
+    if strings.HasPrefix(qrText, "usbridge://sync") {
+            u, _ := url.Parse(qrText)
+            if u != nil {
+                    host := u.Query().Get("host")
+                    secret := u.Query().Get("secret")
+                    if host != "" && secret != "" {
+                            return host, "", secret, "", 0, nil
+                    }
+            }
+    }
+
 	if strings.HasPrefix(qrText, "usbridge://") {
 		u, parseErr := url.Parse(qrText)
 		if parseErr != nil {

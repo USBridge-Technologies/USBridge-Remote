@@ -313,7 +313,8 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		return &req, "", nil
 	case "mouse":
 		mouseType := normalizeMouseMode(sel.MouseType)
-		req := newMouseStartRequest(mouseType)
+		dispIdx, dispCnt := dw.GetDisplayConfig()
+		req := newMouseStartRequestWithDisplay(mouseType, dispIdx, dispCnt)
 		return &req, mouseType, nil
 	case "rndis":
 		rndisMode := normalizeRNDISMode(sel.RNDISMode)
@@ -674,7 +675,8 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		return &req, nil
 	}
 	if drive.Source == "mouse" {
-		req := newMouseStartRequest(drive.MouseType)
+		dispIdx, dispCnt := dw.GetDisplayConfig()
+		req := newMouseStartRequestWithDisplay(drive.MouseType, dispIdx, dispCnt)
 		return &req, nil
 	}
 	if drive.Source == "rndis" {
@@ -906,7 +908,8 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 
 		if !mouseIncluded && dw.isMouseMountedActual() {
-			mouseReq := newMouseStartRequest(newMode)
+			dispIdx, dispCnt := dw.GetDisplayConfig()
+			mouseReq := newMouseStartRequestWithDisplay(newMode, dispIdx, dispCnt)
 			deviceRequests = append(deviceRequests, mouseReq)
 		}
 

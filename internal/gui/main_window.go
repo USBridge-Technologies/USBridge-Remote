@@ -51,10 +51,12 @@ type MainWindow struct {
 	appState                *models.AppState
 	isConnected             bool
 	isStreaming             bool
+        activeAPISecret         []byte
 	isConnectionPending     atomic.Bool
 	isConnectionLoading     bool
 	connectedProtocol       string
-	activeQUICToken         string
+	activeFRPToken          string
+	pendingFRPToken         string // direct FRP token override from saved connection (skips sync)
 	pendingTailscaleRegister bool
 	pendingQUICPort         int
 	currentVideoFPS         float64
@@ -183,6 +185,10 @@ func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
 			go mw.handleConnectionLost(err, client)
 		}
 	})
+
+    if len(mw.activeAPISecret) > 0 {
+            client.SetAPISecretV2(mw.activeAPISecret)
+    }
 
 	return client
 }

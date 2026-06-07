@@ -162,7 +162,7 @@ func (mw *MainWindow) Show() {
 			mw.showConnectionManager()
 			mw.applyInitialWindowSize()
 			mw.updateStatusBar()
-			mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromManager, mw.handleSaveFromDeepLink)
+			mw.deepLinkHandler = NewDeepLinkHandler(mw.handleConnectionFromDeepLink, mw.handleSaveFromDeepLink)
 			mw.checkDeepLink()
 			mw.startDeepLinkMonitoring()
 			mw.connectionManager.SetLanguageChangeCallback(mw.reloadUI)

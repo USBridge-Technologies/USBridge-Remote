@@ -26,7 +26,7 @@ const (
 	connectionDialogNameLabel                  = "name"
 	connectionDialogInternalHostLabel          = "internal ip address"
 	connectionDialogTailscaleHostLabel         = "tailscale address"
-	connectionDialogTokenLabel                 = "quic token"
+	connectionDialogTokenLabel                 = "master key"
 	qrScanSuccessText                          = "\u2713 qr code successfully scanned"
 	connectionDialogButtonsGap         float32 = 12
 )
@@ -41,12 +41,13 @@ type connectionDialogSpec struct {
 	internalHostValue  string
 	tailscaleHostValue string
 	quicPortValue      int
-	quicTokenValue     string
+	masterKeyValue     string // master key (API secret from QR)
+	frpTokenValue      string // direct FRP/QUIC tunnel token (advanced)
 	tailscaleRegisterValue bool
 	feedbackText       string
 	feedbackColor      color.Color
-	onConnect          func(name, internalHost, tailscaleHost, quicToken string, quicPort int, tailscaleRegister bool) bool
-	onSave             func(name, internalHost, tailscaleHost, quicToken string, quicPort int, tailscaleRegister bool) bool
+	onConnect          func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
+	onSave             func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
 	onDelete           func(close func())
 }
 
@@ -315,41 +316,57 @@ func newQUICTokenActionItem(quicTokenEntry *connectionDialogEntry, internalHostE
 	return container.NewHBox(copyBtn, qrBtn)
 }
 
-func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, quicTokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
-	var formContainer *fyne.Container
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, masterKeyEntry, frpTokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
+	// Advanced section — hidden by default, revealed via toggle.
+	advancedBody := container.NewVBox(
+		newConnectionDialogField("quic token", frpTokenEntry),
+		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+		newConnectionDialogField(i18n.Current.QUICPortLabel, quicPortEntry),
+		tailscaleRegisterCheck,
+	)
+	advancedBody.Hide()
 
-	updateCheckVisibility := func() {
-		internalHost := strings.TrimSpace(internalHostEntry.Text)
-		tailscaleHost := strings.TrimSpace(tailscaleHostEntry.Text)
-		if internalHost != "" && tailscaleHost == "" {
-			tailscaleRegisterCheck.Show()
+	advancedToggle := widget.NewButton("▸ advanced", nil)
+	advancedToggle.Importance = widget.LowImportance
+	advancedToggle.OnTapped = func() {
+		if advancedBody.Visible() {
+			advancedBody.Hide()
+			advancedToggle.SetText("▸ advanced")
 		} else {
-			tailscaleRegisterCheck.Hide()
-		}
-		if formContainer != nil {
-			formContainer.Refresh()
+			advancedBody.Show()
+			advancedToggle.SetText("▾ advanced")
 		}
 	}
 
 	internalHostEntry.OnChanged = func(s string) {
-		updateCheckVisibility()
+		if strings.TrimSpace(s) != "" && strings.TrimSpace(tailscaleHostEntry.Text) == "" {
+			tailscaleRegisterCheck.Show()
+		} else {
+			tailscaleRegisterCheck.Hide()
+		}
 	}
 	tailscaleHostEntry.OnChanged = func(s string) {
-		updateCheckVisibility()
+		if strings.TrimSpace(internalHostEntry.Text) != "" && strings.TrimSpace(s) == "" {
+			tailscaleRegisterCheck.Show()
+		} else {
+			tailscaleRegisterCheck.Hide()
+		}
+	}
+	tailscaleRegisterCheck.Hide()
+
+	// Pre-populate advanced visibility when editing an existing connection.
+	if strings.TrimSpace(tailscaleHostEntry.Text) != "" || strings.TrimSpace(quicPortEntry.Text) != "" || strings.TrimSpace(frpTokenEntry.Text) != "" {
+		advancedBody.Show()
+		advancedToggle.SetText("▾ advanced")
 	}
 
-	formContainer = container.NewVBox(
+	return container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
-		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
-		newConnectionDialogField(i18n.Current.QUICPortLabel, quicPortEntry),
-		tailscaleRegisterCheck,
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createQUICTokenField(quicTokenEntry), newQUICTokenActionItem(quicTokenEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, window)),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createQUICTokenField(masterKeyEntry), newQUICTokenActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, window)),
+		advancedToggle,
+		advancedBody,
 	)
-
-	updateCheckVisibility()
-
-	return formContainer
 }
 
 func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObject {
@@ -455,10 +472,11 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
 	quicPortEntry := newConnectionQUICPortEntry(spec.quicPortValue, nil)
-	quicTokenEntry := newConnectionQUICTokenEntry(spec.quicTokenValue, nil)
+	masterKeyEntry := newConnectionQUICTokenEntry(spec.masterKeyValue, nil)
+	frpTokenEntry := newConnectionQUICTokenEntry(spec.frpTokenValue, nil)
 	tailscaleRegisterCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
 	tailscaleRegisterCheck.Checked = spec.tailscaleRegisterValue
-	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, quicTokenEntry, tailscaleRegisterCheck, window)
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, masterKeyEntry, frpTokenEntry, tailscaleRegisterCheck, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -496,7 +514,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, quicTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -507,7 +525,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, quicTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 			return
 		}
 		if d != nil {
@@ -519,7 +537,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, quicTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, getQuicPort(), tailscaleRegisterCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -700,9 +718,10 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 		internalHostValue:      conn.InternalHost,
 		tailscaleHostValue:     conn.TailscaleHost,
 		quicPortValue:          conn.QUICPort,
-		quicTokenValue:         conn.QUICToken,
+		masterKeyValue:         conn.QUICToken,
+		frpTokenValue:          conn.FRPToken,
 		tailscaleRegisterValue: conn.TailscaleRegister,
-		onSave: func(name, internalHost, tailscaleHost, quicToken string, quicPort int, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if name == "" || (internalHost == "" && tailscaleHost == "") {
@@ -716,7 +735,8 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				TailscaleHost:     tailscaleHost,
 				QUICPort:          quicPort,
 				Host:              fallbackText(internalHost, tailscaleHost),
-				QUICToken:         strings.TrimSpace(quicToken),
+				QUICToken:         strings.TrimSpace(masterKey),
+				FRPToken:          strings.TrimSpace(frpToken),
 				Protocol:          conn.Protocol,
 				TailscaleRegister: tailscaleRegister,
 			}
@@ -740,7 +760,7 @@ func (cm *ConnectionManager) showAddDialog() {
 	if selected := normalizeConnectionProtocol(cm.protocolSelect.Selected); selected == models.ConnectionProtocolTailscale {
 		internalHost, tailscaleHost = "", strings.TrimSpace(cm.hostEntry.Text)
 	}
-	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.quicTokenEntry.Text, "", 0, false)
+	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.masterKeyEntry.Text, "", 0, false)
 }
 
 func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool) {
@@ -761,11 +781,12 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		internalHostValue:      internalHost,
 		tailscaleHostValue:     tailscaleHost,
 		quicPortValue:          quicPort,
-		quicTokenValue:         quicToken,
+		masterKeyValue:         quicToken, // from QR scan or prefill — treated as master key
+		frpTokenValue:          "",
 		tailscaleRegisterValue: false,
 		feedbackText:           feedbackText,
 		feedbackColor:          design.ColorAccent,
-		onConnect: func(name, internalHost, tailscaleHost, quicToken string, quicPort int, tailscaleRegister bool) bool {
+		onConnect: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -779,16 +800,20 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
+			effectiveToken := masterKey
+			if effectiveToken == "" {
+				effectiveToken = frpToken
+			}
 			fyne.Do(func() {
 				cm.ClearSelection()
-				cm.applyConnectionToForm(host, quicToken, selectedProtocol)
+				cm.applyConnectionToForm(host, effectiveToken, selectedProtocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, quicToken, selectedProtocol, quicPort, tailscaleRegister)
+				cm.onConnect(host, masterKey, frpToken, selectedProtocol, quicPort, tailscaleRegister)
 			}
 			return true
 		},
-		onSave: func(name, internalHost, tailscaleHost, quicToken string, quicPort int, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -802,9 +827,13 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, internalHost, tailscaleHost, quicToken, selectedProtocol, quicPort, tailscaleRegister)
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, frpToken, selectedProtocol, quicPort, tailscaleRegister)
+			effectiveToken := masterKey
+			if effectiveToken == "" {
+				effectiveToken = frpToken
+			}
 			fyne.Do(func() {
-				cm.applyConnectionToForm(host, quicToken, selectedProtocol)
+				cm.applyConnectionToForm(host, effectiveToken, selectedProtocol)
 				cm.refreshConnectionsList()
 			})
 			return true
