@@ -375,9 +375,9 @@ func (c *USBClient) GetDeviceInfoWithContext(ctx context.Context) (*models.Devic
 	return &deviceInfo, nil
 }
 
-// GetLocalDrives gets local devices list (new API)
+// GetLocalDrives gets local devices list.
 func (c *USBClient) GetLocalDrives() (*models.LocalDrivesResponse, error) {
-	resp, err := c.makeRequest("GET", "/api/device/local_drives", nil)
+	resp, err := c.makeRequest("GET", "/api/drives/local", nil)
 	if err != nil {
 		return nil, err
 	}

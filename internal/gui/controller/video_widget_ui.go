@@ -574,15 +574,21 @@ func (vw *VideoWidget) checkMouseConnected() {
 		vw.isMouseConnected = mouseConnected
 		if mouseConnected {
 			logrus.Info("🖱️ Touchpad activated: pointer device connected")
-			go func() {
-				if err := vw.usbClient.ConnectMouseWebSocket(); err != nil {
-					logrus.Warnf("⚠️ Failed to connect mouse WebSocket: %v (HTTP fallback will be used)", err)
-				} else {
-					logrus.Info("✅ Mouse WebSocket connected successfully")
-				}
-			}()
+			// In Moonlight mode mouse events go via LiSendMousePositionEvent — WS is not needed.
+			isMoonlight := vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol == models.VideoProtocolMoonlight
+			if !isMoonlight {
+				go func() {
+					if err := vw.usbClient.ConnectMouseWebSocket(); err != nil {
+						logrus.Warnf("⚠️ Failed to connect mouse WebSocket: %v (HTTP fallback will be used)", err)
+					} else {
+						logrus.Info("✅ Mouse WebSocket connected successfully")
+					}
+				}()
+				logrus.Info("🖱️ Pointer device connected (WebSocket)")
+			} else {
+				logrus.Info("🖱️ Pointer device connected (Moonlight mode — WS skipped)")
+			}
 			vw.startDesktopMousePolling()
-			logrus.Info("🖱️ Pointer device connected (WebSocket)")
 		} else {
 			logrus.Info("🖱️ Touchpad deactivated: pointer device disconnected")
 			vw.stopDesktopMousePolling()
