@@ -914,16 +914,15 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		return
 	}
 
-	scripts, err := p.usbClient.ListScripts()
-	if err != nil {
-		view.ShowErrorDialog(err, p.window)
-		return
-	}
-
 	titleText := view.NewBrandText("Automation Scripts", 19, design.ColorTextLight, true)
 	titleText.Alignment = fyne.TextAlignCenter
 
 	var popup *widget.PopUp
+	listContainer := container.NewVBox()
+	scroll := container.NewVScroll(listContainer)
+	scroll.SetMinSize(fyne.NewSize(400, 300))
+
+	var refreshList func()
 
 	buildScriptRow := func(s models.ScriptInfo) fyne.CanvasObject {
 		name := s.Name
@@ -940,24 +939,34 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		descLabel.Wrapping = fyne.TextWrapWord
 
 		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
-			err := p.usbClient.RunScript(s.Path)
-			if err != nil {
+			if err := p.usbClient.RunScript(s.Path); err != nil {
 				view.ShowErrorDialog(err, p.window)
-			} else {
-				if popup != nil {
-					popup.Hide()
-				}
+			} else if popup != nil {
+				popup.Hide()
 			}
 		})
 		runBtn.Importance = widget.HighImportance
 
 		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
-			p.showScriptEditor(s.Path, s.Name)
+			p.showScriptEditor(s.Path, s.Name, refreshList)
 		})
 		editBtn.Importance = widget.LowImportance
 
-		btns := container.NewHBox(runBtn, editBtn)
-		
+		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+			dialog.ShowConfirm("Delete Script", fmt.Sprintf("Delete \"%s\"?", name), func(ok bool) {
+				if !ok {
+					return
+				}
+				if err := p.usbClient.DeleteScript(s.Path); err != nil {
+					view.ShowErrorDialog(err, p.window)
+				} else {
+					refreshList()
+				}
+			}, p.window)
+		})
+		deleteBtn.Importance = widget.DangerImportance
+
+		btns := container.NewHBox(runBtn, editBtn, deleteBtn)
 		content := container.NewVBox(nameLabel, descLabel)
 		return view.NewCompactSurfacePanel(
 			view.NewInset(container.NewBorder(nil, nil, nil, btns, content), 12, 12, 8, 8),
@@ -966,18 +975,29 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		)
 	}
 
-	rows := make([]fyne.CanvasObject, 0, len(scripts))
-	for _, s := range scripts {
-		rows = append(rows, buildScriptRow(s))
+	refreshList = func() {
+		scripts, err := p.usbClient.ListScripts()
+		if err != nil {
+			view.ShowErrorDialog(err, p.window)
+			return
+		}
+		rows := make([]fyne.CanvasObject, 0, len(scripts))
+		for _, s := range scripts {
+			rows = append(rows, buildScriptRow(s))
+		}
+		if len(rows) == 0 {
+			rows = append(rows, container.NewCenter(widget.NewLabel("No scripts found")))
+		}
+		listContainer.Objects = rows
+		listContainer.Refresh()
 	}
 
-	if len(rows) == 0 {
-		rows = append(rows, container.NewCenter(widget.NewLabel("No scripts found")))
-	}
+	refreshList()
 
-	listContainer := container.NewVBox(rows...)
-	scroll := container.NewVScroll(listContainer)
-	scroll.SetMinSize(fyne.NewSize(400, 300))
+	newBtn := widget.NewButtonWithIcon("New Script", theme.ContentAddIcon(), func() {
+		p.showNewScriptDialog(refreshList)
+	})
+	newBtn.Importance = widget.MediumImportance
 
 	closeBtn := newPCPanelDialogCloseButton(func() {
 		if popup != nil {
@@ -985,8 +1005,9 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		}
 	})
 	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+	footer := container.NewHBox(newBtn, layout.NewSpacer())
 
-	body := container.NewBorder(titleBar, nil, nil, nil, view.NewInset(scroll, 0, 0, 16, 0))
+	body := container.NewBorder(titleBar, footer, nil, nil, view.NewInset(scroll, 0, 0, 8, 0))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -1009,39 +1030,85 @@ func (p *PCPanelWidget) showScriptsDialog() {
 			maxHeight := canvasSize.Height - margin*2
 			panelMin := panel.MinSize()
 			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
-			panelHeight := minFloat32(maxFloat32(panelMin.Height, 400), maxHeight)
+			panelHeight := minFloat32(maxFloat32(panelMin.Height, 420), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
 }
 
-func (p *PCPanelWidget) showScriptEditor(path, name string) {
+// showNewScriptDialog asks for a script name and opens the editor with empty content.
+// New scripts are saved to /mnt/emmc/scripts/ (internal eMMC).
+func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
+	nameEntry := widget.NewEntry()
+	nameEntry.SetPlaceHolder("my_script")
+
+	d := dialog.NewForm("New Script", "Create", "Cancel",
+		[]*widget.FormItem{
+			widget.NewFormItem("Name (.star)", nameEntry),
+		},
+		func(ok bool) {
+			if !ok || strings.TrimSpace(nameEntry.Text) == "" {
+				return
+			}
+			name := strings.TrimSpace(nameEntry.Text)
+			// Strip extension if user typed it
+			name = strings.TrimSuffix(name, ".star")
+			// Sanitize: keep only safe filename characters
+			safe := strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+					(r >= '0' && r <= '9') || r == '_' || r == '-' {
+					return r
+				}
+				return '_'
+			}, name)
+			path := "/mnt/emmc/scripts/" + safe + ".star"
+			p.showScriptEditorWithContent(path, safe, "# "+safe+"\n", onCreated)
+		},
+		p.window,
+	)
+	d.Show()
+}
+
+func (p *PCPanelWidget) showScriptEditor(path, name string, onClose func()) {
 	content, err := p.usbClient.GetScriptContent(path)
 	if err != nil {
 		view.ShowErrorDialog(err, p.window)
 		return
 	}
+	p.showScriptEditorWithContent(path, name, content, onClose)
+}
 
-	titleText := view.NewBrandText("Edit Script: "+name, 19, design.ColorTextLight, true)
+func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, onClose func()) {
+	displayName := name
+	if displayName == "" {
+		displayName = filepath.Base(path)
+	}
+	titleText := view.NewBrandText("Edit Script: "+displayName, 19, design.ColorTextLight, true)
 	titleText.Alignment = fyne.TextAlignCenter
 
 	editor := widget.NewMultiLineEntry()
 	editor.SetText(content)
 	editor.TextStyle = fyne.TextStyle{Monospace: true}
-	
+
 	scroll := container.NewScroll(editor)
 	scroll.SetMinSize(fyne.NewSize(500, 400))
 
 	var popup *widget.PopUp
 
+	closePopup := func() {
+		if popup != nil {
+			popup.Hide()
+		}
+		if onClose != nil {
+			onClose()
+		}
+	}
+
 	saveBtn := widget.NewButton("Save", func() {
-		err := p.usbClient.SaveScript(path, editor.Text)
-		if err != nil {
+		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
 			view.ShowErrorDialog(err, p.window)
 		} else {
-			if popup != nil {
-				popup.Hide()
-			}
+			closePopup()
 		}
 	})
 	saveBtn.Importance = widget.HighImportance
@@ -1053,13 +1120,10 @@ func (p *PCPanelWidget) showScriptEditor(path, name string) {
 	})
 
 	runBtn := widget.NewButton("Run", func() {
-		err := p.usbClient.RunScript(path)
-		if err != nil {
+		if err := p.usbClient.RunScript(path); err != nil {
 			view.ShowErrorDialog(err, p.window)
 		} else {
-			if popup != nil {
-				popup.Hide()
-			}
+			closePopup()
 		}
 	})
 	runBtn.Importance = widget.HighImportance

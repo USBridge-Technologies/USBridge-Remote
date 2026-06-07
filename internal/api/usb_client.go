@@ -2356,6 +2356,27 @@ func (c *USBClient) GetScriptContent(path string) (string, error) {
 	return "", fmt.Errorf("invalid script content format")
 }
 
+// DeleteScript removes a script by path.
+func (c *USBClient) DeleteScript(path string) error {
+	request := models.ScriptRunRequest{Path: path}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %v", err)
+	}
+	resp, err := c.makeRequest("POST", "/api/scripts/delete", requestJSON)
+	if err != nil {
+		return err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("failed to delete script: %s", apiResp.Message)
+	}
+	return nil
+}
+
 // SaveScript saves script content
 func (c *USBClient) SaveScript(path, content string) error {
 	request := models.ScriptSaveRequest{Path: path, Content: content}
