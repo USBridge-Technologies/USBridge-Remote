@@ -110,6 +110,25 @@ func (cm *ConnectionManager) ResolveInternalHost(host string) string {
 	return ""
 }
 
+// ResolveTailscaleHost returns the stored Tailscale IP/hostname for a given host key.
+// Used by connectTailscale when the current host is an internal LAN address.
+func (cm *ConnectionManager) ResolveTailscaleHost(host string) string {
+	normalizedHost := strings.TrimSpace(host)
+	if normalizedHost == "" {
+		return ""
+	}
+	for _, conn := range cm.connections {
+		internalHost, tailscaleHost := classifyConnectionHosts(conn)
+		if tailscaleHost == "" {
+			continue
+		}
+		if strings.TrimSpace(conn.Host) == normalizedHost || internalHost == normalizedHost || tailscaleHost == normalizedHost {
+			return tailscaleHost
+		}
+	}
+	return ""
+}
+
 func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, masterKeyEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool), onSelect func(tailscaleRegister bool)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,

@@ -480,6 +480,15 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 
 		resolvedHost := strings.TrimSpace(host)
 
+		// If the current host is not a Tailscale address (e.g. it's a LAN IP from QR scan),
+		// look up the Tailscale IP stored by a previous sync for this connection.
+		if !isLikelyTailscaleHost(resolvedHost) && mw.connectionManager != nil {
+			if tsHost := mw.connectionManager.ResolveTailscaleHost(resolvedHost); tsHost != "" {
+				logrus.Infof("🔍 [TS] Resolved tailscale host %s for internal %s", tsHost, resolvedHost)
+				resolvedHost = tsHost
+			}
+		}
+
 		tryDirect := func(ctx context.Context, target string) error {
 			if target == "" {
 				return fmt.Errorf("target host is empty")
