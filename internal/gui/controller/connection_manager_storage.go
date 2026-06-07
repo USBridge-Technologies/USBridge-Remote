@@ -81,6 +81,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 				cm.connections[i].QUICToken = quicToken
 			}
 			cm.connections[i].Protocol = normalizeConnectionProtocol("tailscale")
+			cm.connections[i].TailscaleRegister = false
 			cm.connections[i].Host = fallbackText(cm.connections[i].TailscaleHost, cm.connections[i].InternalHost)
 			cm.saveConnections()
 			fyne.Do(func() {
@@ -173,6 +174,7 @@ func (cm *ConnectionManager) loadConnections() {
 		return
 	}
 
+	needsSave := false
 	for i := range cm.connections {
 		internalHost, tailscaleHost := classifyConnectionHosts(cm.connections[i])
 		cm.connections[i].InternalHost = internalHost
@@ -180,5 +182,14 @@ func (cm *ConnectionManager) loadConnections() {
 		cm.connections[i].Host = fallbackText(internalHost, tailscaleHost)
 		cm.connections[i].QUICToken = strings.TrimSpace(cm.connections[i].QUICToken)
 		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
+		// Clear stale tailscale_register flag: once a tailscale_host is known,
+		// QUIC bootstrap for registration is no longer needed.
+		if tailscaleHost != "" && cm.connections[i].TailscaleRegister {
+			cm.connections[i].TailscaleRegister = false
+			needsSave = true
+		}
+	}
+	if needsSave {
+		cm.saveConnections()
 	}
 }

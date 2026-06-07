@@ -64,7 +64,9 @@
       "Bash(gofmt -e modules/video/video.go)",
       "Bash(gofmt -e gadget_manager.go)",
       "Bash(git -C /Users/amir/Projects/usbridge/usbridge_service diff --name-only HEAD)",
-      "Bash(git -C /Users/amir/Projects/usbridge/usbridge_service status --short)"
+      "Bash(git -C /Users/amir/Projects/usbridge/usbridge_service status --short)",
+      "Bash(ssh *)",
+      "Bash(sshpass *)"
     ]
   }
 }

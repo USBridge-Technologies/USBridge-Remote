@@ -534,7 +534,9 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 	vw.lastAbsSentTime = time.Now()
 
 	// Forward via Moonlight (LiSendMousePositionEvent) when stream is active.
-	// This also feeds /dev/hid_t via bridgeMouse EV_ABS path on the server.
+	// This feeds /dev/hid_t via bridgeAbsMouse EV_ABS path on the server.
+	// Must not also write via WebSocket — two simultaneous writers to /dev/hid_t
+	// corrupt HID reports and Windows stops responding to the cursor.
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		prev := vw.statAbsMoonlight.Load()
 		vw.statAbsMoonlight.Add(1)
@@ -545,9 +547,10 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 		if scroll != 0 {
 			mi.SendMoonlightScroll(int8(scroll))
 		}
+		return // Moonlight is active — do NOT also send via WebSocket
 	}
 
-	// WebSocket is always the authoritative path for /dev/hid_t — we know it works.
+	// Fall back to WebSocket /dev/hid_t when Moonlight is not streaming.
 	if vw.usbClient == nil {
 		return
 	}
@@ -569,46 +572,94 @@ func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 	vw.sendAbsoluteEventLocked(x, y, scroll)
 }
 
-func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
-	if vw.usbClient == nil {
-		return
+// absoluteButtonToMoonlight maps our HID button numbers to Moonlight button constants.
+// HID: 1=left, 2=right, 3=middle. Moonlight: Left=1, Middle=2, Right=3.
+func absoluteButtonToMoonlight(button int) int {
+	if button == 2 {
+		return service.LiMouseButtonRight
 	}
+	return button
+}
+
+func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
 	vw.updateAbsoluteButtonLocked(button, true)
-	vw.sendAbsoluteEventLocked(x, y, 0)
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, absoluteButtonToMoonlight(button))
+		vw.lastAbsX = x
+		vw.lastAbsY = y
+		return
+	}
+	if vw.usbClient == nil {
+		return
+	}
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
-	if vw.usbClient == nil {
-		return
-	}
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
 	vw.updateAbsoluteButtonLocked(button, false)
-	vw.sendAbsoluteEventLocked(x, y, 0)
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, absoluteButtonToMoonlight(button))
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		vw.lastAbsX = x
+		vw.lastAbsY = y
+		return
+	}
+	if vw.usbClient == nil {
+		return
+	}
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+		if vw.absButtons&0x01 != 0 {
+			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonLeft)
+		}
+		if vw.absButtons&0x02 != 0 {
+			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonRight)
+		}
+		if vw.absButtons&0x04 != 0 {
+			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonMiddle)
+		}
+		vw.absButtons = 0
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		vw.lastAbsX = x
+		vw.lastAbsY = y
+		return
+	}
+	vw.absButtons = 0
 	if vw.usbClient == nil {
 		return
 	}
-	vw.absSendMu.Lock()
-	defer vw.absSendMu.Unlock()
-	vw.absButtons = 0
-	vw.sendAbsoluteEventLocked(x, y, 0)
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, 0, 0)
 }
 
 func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
+	vw.absSendMu.Lock()
+	defer vw.absSendMu.Unlock()
+	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+		moonlightBtn := absoluteButtonToMoonlight(button)
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+		vw.lastAbsX = x
+		vw.lastAbsY = y
+		return
+	}
 	if vw.usbClient == nil {
 		return
 	}
-	vw.absSendMu.Lock()
-	defer vw.absSendMu.Unlock()
 	vw.updateAbsoluteButtonLocked(button, true)
-	vw.sendAbsoluteEventLocked(x, y, 0)
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 	vw.updateAbsoluteButtonLocked(button, false)
-	vw.sendAbsoluteEventLocked(x, y, 0)
+	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 // CancelTouchDownDelay отменяет отложенную отправку touch(down).

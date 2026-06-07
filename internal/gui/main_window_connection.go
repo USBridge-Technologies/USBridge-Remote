@@ -517,23 +517,17 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 
 			// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
 			// пока tsnet не установил маршрут до пира.
-			var statusErr error
-			const maxStatusAttempts = 6
-			for attempt := 1; attempt <= maxStatusAttempts; attempt++ {
-				// Check context before each attempt
+			var connErr error
+			const maxConnAttempts = 6
+			for attempt := 1; attempt <= maxConnAttempts; attempt++ {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-
-				_, statusErr = tsClient.GetTailscaleStatusWithContext(ctx)
-				if statusErr == nil {
+				connErr = tsClient.TestConnectionWithContext(ctx)
+				if connErr == nil {
 					break
 				}
-				if api.IsHTTPNotFound(statusErr) {
-					break // 404 = агент без bridge-регистрации, не retry-able
-				}
-
-				if attempt < maxStatusAttempts {
+				if attempt < maxConnAttempts {
 					pause := time.Duration(attempt*attempt) * time.Second
 					if pause > 10*time.Second {
 						pause = 10 * time.Second
@@ -546,14 +540,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 				}
 			}
 
-			if statusErr != nil {
-				if api.IsHTTPNotFound(statusErr) {
-					mw.usbClient = mw.attachUSBClient(tsClient)
-					mw.videoClient.UpdateHost(target)
-					mw.connectedProtocol = models.ConnectionProtocolTailscale
-					return nil
-				}
-				return fmt.Errorf("direct tailscale connect succeeded but bridge status check failed: %w", statusErr)
+			if connErr != nil {
+				return fmt.Errorf("tailscale direct connect: bridge unreachable at %s: %w", target, connErr)
 			}
 
 			if mw.frpService != nil && mw.frpService.IsRunning() {
@@ -598,8 +586,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 		if resolvedHost != "" && isLikelyTailscaleHost(resolvedHost) {
 			if err := tryDirect(ctx, resolvedHost); err == nil {
 				return nil
-			} else if protocol == models.ConnectionProtocolTailscale && !mw.pendingTailscaleRegister {
-				// Если пользователь явно выбрал Tailscale и регистрация не заказана - возвращаем ошибку
+			} else if protocol == models.ConnectionProtocolTailscale {
+				// Уже есть Tailscale-хост, но соединение не удалось — не пытаемся делать QUIC-бутстрап.
+				// QUIC-бутстрап нужен только для первичной регистрации (когда нет Tailscale-хоста).
 				return err
 			}
 		}
