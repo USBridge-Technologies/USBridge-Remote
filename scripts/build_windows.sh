@@ -663,6 +663,7 @@ MOONLIGHT_RUNTIME_DLLS=(
     "libjxl_cms.dll" "libjxl_cms-*.dll"
     "libjxl.dll" "libjxl-*.dll"
     "libsharpyuv-*.dll"
+    "libbrotlienc.dll" "libbrotlidec.dll" "libbrotlicommon.dll"
 )
 FFMPEG_COPIED=0
 FFMPEG_BIN_DIR=""
