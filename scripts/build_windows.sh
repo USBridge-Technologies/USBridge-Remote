@@ -37,6 +37,7 @@ BUILD_CACHE_ROOT="$REPO_ROOT/.cache/build/windows-amd64"
 GST_RUNTIME_STAMP_NAME=".gstreamer-runtime.stamp"
 GST_RUNTIME_MANIFEST_NAME=".gstreamer-runtime.manifest"
 MINIMAL_GST="${MINIMAL_GST:-1}"
+MISSING_DLLS_FOUND=0
 
 # Цвета
 RED='\033[0;31m'
@@ -579,13 +580,15 @@ _collect_dll_deps() {
     local file="$1"
     [ -f "$file" ] || return
     "$OBJDUMP_BIN" -p "$file" 2>/dev/null \
-        | awk -F': ' '/DLL Name:/ {gsub(/\r/,"",$2); print $2}'
+        | grep -i 'DLL Name:' \
+        | awk '{print $NF}' \
+        | tr -d '\r'
 }
 
 _resolve_dll() {
     local name="$1"
     # Search: FFMPEG_BIN_DIR → FFMPEG_ROOT → GST_ROOT → DLL_EXTRA_DIRS
-    local _d
+    local _d _found
     for _d in \
         "${FFMPEG_BIN_DIR:-}" \
         "${FFMPEG_ROOT:-}/bin" \
@@ -593,11 +596,29 @@ _resolve_dll() {
         "${GST_ROOT:-}/lib" \
         "${DLL_EXTRA_DIRS[@]}"; do
         [ -z "$_d" ] || [ ! -d "$_d" ] && continue
-        if [ -f "$_d/$name" ]; then printf "%s\n" "$_d/$name"; return; fi
-        # case-insensitive fallback on Linux host
-        local found
-        found="$(find "$_d" -maxdepth 1 -iname "$name" 2>/dev/null | head -1)"
-        [ -n "$found" ] && printf "%s\n" "$found" && return
+        
+        # Try direct match
+        if [ -f "$_d/$name" ]; then 
+            printf "%s\n" "$_d/$name"
+            return
+        fi
+        
+        # Try bash wildcard expansion
+        for _found in "$_d"/$name; do
+            if [ -f "$_found" ]; then
+                printf "%s\n" "$_found"
+                return
+            fi
+        done
+
+        # Try case-insensitive find
+        if command -v find >/dev/null 2>&1; then
+            _found="$(find "$_d" -maxdepth 1 -iname "$name" 2>/dev/null | head -1)"
+            if [ -n "$_found" ] && [ -f "$_found" ]; then
+                printf "%s\n" "$_found"
+                return
+            fi
+        fi
     done
 }
 
@@ -624,7 +645,13 @@ _walk_deps() {
             [ -f "$target_dir/$dep" ] && continue
             local copied
             copied="$(_copy_dll "$dep" "$target_dir")"
-            [ -n "$copied" ] && queue+=("$target_dir/$copied")
+            if [ -n "$copied" ]; then
+                echo -e "   ${GREEN}✓${NC} $copied (dep of $(basename "$file"))" >&2
+                queue+=("$target_dir/$copied")
+            else
+                echo -e "   ${RED}❌ ОШИБКА: Не найдена зависимость $dep (для $(basename "$file"))${NC}" >&2
+                MISSING_DLLS_FOUND=1
+            fi
         done < <(_collect_dll_deps "$file")
     done
 }
@@ -709,6 +736,13 @@ for _dll_name in "${MOONLIGHT_RUNTIME_DLLS[@]}"; do
     if [ -n "$_copied" ]; then
         echo -e "   ${GREEN}✓${NC} $_copied"
         MOONLIGHT_COPIED=$((MOONLIGHT_COPIED + 1))
+    else
+        # We don't fail for wildcard patterns that might legitimately match 0 files,
+        # but for explicit exact DLL names, we print an error.
+        if [[ "$_dll_name" != *"*"* ]]; then
+            echo -e "   ${RED}❌ ОШИБКА: Не найдена базовая библиотека $_dll_name${NC}" >&2
+            MISSING_DLLS_FOUND=1
+        fi
     fi
 done
 if [ "$MOONLIGHT_COPIED" -gt 0 ]; then
@@ -884,6 +918,15 @@ else
     echo -e "${YELLOW}⚠ Zip утилита не найдена. Архив не создан.${NC}"
 fi
 cd "$REPO_ROOT"
+
+if [ "$MISSING_DLLS_FOUND" = "1" ]; then
+    echo -e "\n${RED}❌ Сборка завершена с предупреждениями!${NC}"
+    echo -e "${RED}Некоторые необходимые DLL не были найдены.${NC}"
+    echo -e "Если вы используете MSYS2 UCRT64, попробуйте установить недостающие пакеты, например:"
+    echo -e "   pacman -S mingw-w64-ucrt-x86_64-brotli mingw-w64-ucrt-x86_64-libjxl mingw-w64-ucrt-x86_64-libogg"
+    echo -e "Проверьте вывод логов выше, чтобы узнать точные имена пропущенных зависимостей."
+    exit 1
+fi
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_WIN/"

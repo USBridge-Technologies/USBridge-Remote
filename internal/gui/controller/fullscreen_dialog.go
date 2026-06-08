@@ -350,6 +350,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.platformShow()
 	logrus.Info("🔍 Полноэкранное окно показано")
 
+	// Switch Metal overlay to the fullscreen window (full-window coverage).
+	if fd.videoWidget != nil {
+		fd.videoWidget.metalVideoEnterFullscreen(fd.fullscreenWindow)
+	}
+
 	if fd.videoImage != nil && fd.videoImage.Image != nil {
 		fd.videoImage.Refresh()
 		logrus.Info("🔍 Изображение обновлено после показа окна")
@@ -419,6 +424,11 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.virtualKeyboard = nil
 	}
 
+	// Destroy fullscreen Metal overlay before the window closes.
+	if fd.videoWidget != nil {
+		fd.videoWidget.stopMetalVideo()
+	}
+
 	fd.platformExit()
 
 	if fd.videoClient != nil && fd.videoWidget != nil {
@@ -429,6 +439,11 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.videoWidget.ensureInputFocusAsync("exit-fullscreen", 150*time.Millisecond)
 	}
 	fd.lastFrame = nil
+
+	// Restore Metal overlay on the main window.
+	if fd.videoWidget != nil {
+		fd.videoWidget.metalVideoExitFullscreen()
+	}
 
 	logrus.Info("✅ Полноэкранный режим деактивирован")
 }

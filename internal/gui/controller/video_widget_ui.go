@@ -663,6 +663,8 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		bounds := rgba.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
 		vw.dumpFrameSnapshot(rgba, frameNum)
+		// Start Metal overlay on first frame so the window/canvas layout is ready.
+		go vw.startMetalVideoOnWindow(vw.parentWindow, false)
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
 		bounds := rgba.Bounds()
@@ -712,6 +714,8 @@ func (vw *VideoWidget) updateStats() {
 	if vw.onFPSChanged != nil {
 		vw.onFPSChanged(math.Round(fps*10) / 10)
 	}
+	// Keep Metal overlay aligned with the video widget (handles window resizes).
+	vw.updateMetalVideoFrame()
 }
 
 // SetParentWindow устанавливает родительское окно для диалогов.
@@ -874,6 +878,7 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameContentW = 0
 	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
+	vw.stopMetalVideo()
 	vw.frameDecoder.Reset()
 	vw.pendingFrame.Store(nil)
 	vw.frameRenderScheduled.Store(false)
