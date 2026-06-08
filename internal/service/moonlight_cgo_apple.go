@@ -108,6 +108,11 @@ static uint8_t g_sps_data[1024]; static size_t g_sps_len = 0;
 static uint8_t g_pps_data[256];  static size_t g_pps_len = 0;
 static uint64_t g_vt_frame_count = 0;
 
+// Pre-allocated RGBA conversion buffer — avoids per-frame malloc.
+// Reallocated only on resolution changes; VT callbacks are serialised by VT's queue.
+static uint8_t *g_vt_rgba_buf      = NULL;
+static size_t   g_vt_rgba_buf_size = 0;
+
 static void vt_invalidate(void) {
     if (g_vt_session) {
         VTDecompressionSessionWaitForAsynchronousFrames(g_vt_session);
@@ -117,6 +122,7 @@ static void vt_invalidate(void) {
     }
     if (g_vt_fmt_desc) { CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL; }
     g_sps_len = 0; g_pps_len = 0; g_vt_frame_count = 0;
+    free(g_vt_rgba_buf); g_vt_rgba_buf = NULL; g_vt_rgba_buf_size = 0;
 }
 
 static void vt_callback(
@@ -127,14 +133,30 @@ static void vt_callback(
     (void)ctx; (void)frameRefCon; (void)flags; (void)pts; (void)dur;
     if (status != noErr || img == NULL) return;
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-    int w    = (int)CVPixelBufferGetWidth(img);
-    int h    = (int)CVPixelBufferGetHeight(img);
-    int bpr  = (int)CVPixelBufferGetBytesPerRow(img);
+    int w   = (int)CVPixelBufferGetWidth(img);
+    int h   = (int)CVPixelBufferGetHeight(img);
+    size_t bpr = CVPixelBufferGetBytesPerRow(img);
     const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
-    // VT outputs kCVPixelFormatType_32RGBA — pass directly, no malloc/swap needed.
-    // goVTFrame is a synchronous CGO call: it copies all pixels before returning,
-    // so src remains valid for the duration of the call.
-    goVTFrame((uint8_t*)src, w, h, bpr);
+
+    // VT outputs kCVPixelFormatType_32BGRA (native HW format, always supported).
+    // Convert BGRA→RGBA into a pre-allocated buffer to avoid per-frame malloc.
+    // VT callbacks are serialised by VT's dispatch queue so no mutex is needed.
+    size_t needed = (size_t)w * (size_t)h * 4;
+    if (needed > g_vt_rgba_buf_size) {
+        free(g_vt_rgba_buf);
+        g_vt_rgba_buf = (uint8_t *)malloc(needed);
+        g_vt_rgba_buf_size = g_vt_rgba_buf ? needed : 0;
+    }
+    if (g_vt_rgba_buf) {
+        for (int y = 0; y < h; y++) {
+            const uint8_t *row = src + (size_t)y * bpr;
+            uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
+            for (int x = 0; x < w; x++, row += 4, dst += 4) {
+                dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
+            }
+        }
+        goVTFrame(g_vt_rgba_buf, w, h, w * 4);
+    }
     CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
 }
 
@@ -152,7 +174,7 @@ static int vt_create_session(void) {
         kCFAllocatorDefault, 2, params, sizes, 4, &g_vt_fmt_desc);
     if (s != noErr) { goVTLog((char*)"VT: CMVideoFormatDescription FAILED"); return -1; }
 
-    int32_t fmt = kCVPixelFormatType_32RGBA;
+    int32_t fmt = kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
     const void *keys[] = { kCVPixelBufferPixelFormatTypeKey };
     const void *vals[] = { cfFmt };
