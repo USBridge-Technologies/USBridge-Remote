@@ -586,8 +586,11 @@ func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 	defer vw.absSendMu.Unlock()
 	vw.updateAbsoluteButtonLocked(button, true)
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		// Send button BEFORE position so the EV_SYN from the position event carries
+		// the updated button state. If position comes first, the button EV_SYN has
+		// no EV_ABS data and bridgeAbsMouse discards it (hasX/hasY both false).
 		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, absoluteButtonToMoonlight(button))
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return
@@ -646,9 +649,12 @@ func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 	defer vw.absSendMu.Unlock()
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		moonlightBtn := absoluteButtonToMoonlight(button)
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		// Press then position (so position EV_SYN carries button=pressed),
+		// then release then position (EV_SYN carries button=released).
 		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
 		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return

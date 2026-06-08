@@ -889,7 +889,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		mouseIncluded := false
 
 		for _, drive := range dw.allDrives {
-			if !drive.IsMounted || drive.IsVideo {
+			if !drive.IsMounted || drive.IsVideo || drive.IsAudio {
 				continue
 			}
 			current := drive
