@@ -165,16 +165,20 @@ func (m *MoonlightService) ConnectToRTP() error {
 		height = 1080
 	}
 
-	// 5a. Create video pipe: LiStartConnection writes Annex-B H.264 to pipeWrite;
-	//     GStreamer fdsrc reads from pipeRead and decodes.
+	// Determine decode path once so closures below capture a stable value.
+	vtPath := usesVideoToolbox()
+
+	// 5a. Video pipe — only used on non-Darwin (GStreamer) path.
+	//     Darwin (VideoToolbox): dr_submit calls VTDecompressionSession directly;
+	//     no pipe needed. We still create one so startMoonlightGStreamer can close
+	//     its read end and the GStreamer-shaped function signature is unchanged.
 	pipeRead, pipeWrite, err := os.Pipe()
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("pipe: %v", err)
 	}
 
-	// 5aa. Create audio pipe: ar_decode writes S16LE PCM to audioPipeWrite;
-	//      GStreamer fdsrc reads from audioPipeRead and plays via autoaudiosink.
+	// 5aa. Audio pipe: ar_decode writes S16LE PCM → GStreamer autoaudiosink.
 	var audioPipeWrite *os.File
 	if audioPipeRead, apw, aerr := os.Pipe(); aerr != nil {
 		logrus.Warnf("🔊 [Moonlight/Audio] failed to create audio pipe: %v — audio disabled", aerr)
@@ -194,7 +198,11 @@ func (m *MoonlightService) ConnectToRTP() error {
 		}
 	}
 
-	// 5b. Start GStreamer fdsrc pipeline (non-blocking).
+	// 5b. Start video decode path (non-blocking).
+	//   Darwin:  startMoonlightGStreamer registers the VT frame callback and
+	//            closes pipeRead; no subprocess is started.
+	//   Linux:   startMoonlightGStreamer launches a GStreamer subprocess that
+	//            reads from pipeRead; its onStop callback handles state change.
 	if err := startMoonlightGStreamer(pipeRead, width, height, stopCh,
 		func(img image.Image) {
 			if m.onFrameReceived != nil {
@@ -202,6 +210,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 			}
 		},
 		func(playerErr error) {
+			// GStreamer path (Linux/Windows): subprocess exit signals stream end.
 			m.isRunning = false
 			if playerErr != nil {
 				logrus.Errorf("🌕 [Moonlight/GStreamer] stopped with error: %v", playerErr)
@@ -222,13 +231,15 @@ func (m *MoonlightService) ConnectToRTP() error {
 			_ = audioPipeWrite.Close()
 		}
 		m.isRunning = false
-		return fmt.Errorf("failed to start Moonlight GStreamer player: %v", err)
+		return fmt.Errorf("failed to start video decode path: %v", err)
 	}
+
 	// 5c. Start LiStartConnection in background goroutine.
-	//     submitDecodeUnit writes H.264 frames to pipeWrite; when the session ends
-	//     pipeWrite is closed → GStreamer sees EOF and stops.
+	//   Darwin:  dr_submit feeds VTDecompressionSession; pipeWrite is passed
+	//            but its fd is ignored by do_li_start (#ifdef __APPLE__).
+	//   Linux:   dr_submit writes Annex-B H.264 to pipeWrite → GStreamer reads it.
 	wrapper := NewMoonlightCgoWrapper(m.client.Host)
-	wrapper.SetAudioMuted(m.audioMuted) // restore mute state across reconnects
+	wrapper.SetAudioMuted(m.audioMuted)
 	m.activeWrapper = wrapper
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
@@ -237,11 +248,21 @@ func (m *MoonlightService) ConnectToRTP() error {
 		width, height, fps, bitrate,
 		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
-			// pipeWrite is closed inside StartStream when LiStartConnection returns.
 			if cgoErr != nil {
 				logrus.Errorf("🌕 [Moonlight/CGO] stream error: %v", cgoErr)
 				if m.onError != nil {
 					m.onError(cgoErr)
+				}
+			}
+			// VideoToolbox path: no GStreamer subprocess to signal stream end,
+			// so we handle the state change here instead.
+			if vtPath {
+				m.isRunning = false
+				if cgoErr == nil {
+					logrus.Info("🌕 [Moonlight/VT] stream stopped cleanly")
+				}
+				if m.onStateChanged != nil {
+					m.onStateChanged("disconnected")
 				}
 			}
 		},

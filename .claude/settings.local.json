@@ -66,7 +66,9 @@
       "Bash(git -C /Users/amir/Projects/usbridge/usbridge_service diff --name-only HEAD)",
       "Bash(git -C /Users/amir/Projects/usbridge/usbridge_service status --short)",
       "Bash(ssh *)",
-      "Bash(sshpass *)"
+      "Bash(sshpass *)",
+      "Bash(otool -L /tmp/usbridge_test)",
+      "Bash(nm /tmp/usbridge_test)"
     ]
   }
 }

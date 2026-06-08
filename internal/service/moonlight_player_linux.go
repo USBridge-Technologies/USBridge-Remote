@@ -15,6 +15,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// usesVideoToolbox reports false — Linux uses GStreamer subprocess for H.264 decode.
+func usesVideoToolbox() bool { return false }
+
 func startMoonlightAudio(
 	pipeRead *os.File,
 	stopCh <-chan struct{},

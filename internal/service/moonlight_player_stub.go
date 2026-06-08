@@ -8,6 +8,8 @@ import (
 	"os"
 )
 
+func usesVideoToolbox() bool { return false }
+
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

@@ -14,6 +14,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// usesVideoToolbox reports false — Windows uses GStreamer for H.264 decode.
+func usesVideoToolbox() bool { return false }
+
 func startMoonlightAudio(pipeRead *os.File, stopCh <-chan struct{}, onStop func(error)) error {
 	_ = pipeRead.Close()
 	logrus.Warn("🔊 [Moonlight/Audio] audio not yet implemented on Windows")
