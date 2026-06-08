@@ -552,12 +552,27 @@ echo -e "\n${YELLOW}📚 Копирование FFmpeg DLLs (Moonlight HW decode
 
 # ── DLL utility functions (used by 7a, 7b, 7c) ────────────────────────────────
 OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
-command -v "$OBJDUMP_BIN" >/dev/null 2>&1 || OBJDUMP_BIN="objdump"
+if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
+    if command -v objdump >/dev/null 2>&1; then
+        OBJDUMP_BIN="objdump"
+    elif [ -n "$FFMPEG_BIN_DIR" ] && [ -f "$FFMPEG_BIN_DIR/objdump.exe" ]; then
+        OBJDUMP_BIN="$FFMPEG_BIN_DIR/objdump.exe"
+    elif [ -f "/ucrt64/bin/objdump.exe" ]; then
+        OBJDUMP_BIN="/ucrt64/bin/objdump.exe"
+    elif [ -f "/mingw64/bin/objdump.exe" ]; then
+        OBJDUMP_BIN="/mingw64/bin/objdump.exe"
+    fi
+fi
+echo "=> Using objdump: $OBJDUMP_BIN"
 
-# MSYS2 prefix dirs — populated further below after FFMPEG_BIN_DIR is known
+# MSYS2 prefix dirs
 DLL_EXTRA_DIRS=()
-for _pfx in "/ucrt64" "/mingw64" "/clang64" "/c/msys64/ucrt64" "/c/msys64/mingw64"; do
-    [ -d "$_pfx/bin" ] && DLL_EXTRA_DIRS+=("$_pfx/bin")
+for _pfx in "/ucrt64" "/mingw64" "/clang64" "/c/msys64/ucrt64" "/c/msys64/mingw64" "C:/msys64/ucrt64" "C:/msys64/mingw64"; do
+    if [ -d "$_pfx/bin" ]; then
+        DLL_EXTRA_DIRS+=("$_pfx/bin")
+    elif [ -d "$_pfx" ] && ls "$_pfx"/*.dll &>/dev/null 2>&1; then
+        DLL_EXTRA_DIRS+=("$_pfx")
+    fi
 done
 
 is_system_dll() {
@@ -579,7 +594,7 @@ is_system_dll() {
 _collect_dll_deps() {
     local file="$1"
     [ -f "$file" ] || return
-    "$OBJDUMP_BIN" -p "$file" 2>/dev/null \
+    "$OBJDUMP_BIN" -p "$file" \
         | grep -i 'DLL Name:' \
         | awk '{print $NF}' \
         | tr -d '\r'
@@ -589,12 +604,17 @@ _resolve_dll() {
     local name="$1"
     # Search: FFMPEG_BIN_DIR → FFMPEG_ROOT → GST_ROOT → DLL_EXTRA_DIRS
     local _d _found
-    for _d in \
-        "${FFMPEG_BIN_DIR:-}" \
-        "${FFMPEG_ROOT:-}/bin" \
-        "${GST_ROOT:-}/bin" \
-        "${GST_ROOT:-}/lib" \
-        "${DLL_EXTRA_DIRS[@]}"; do
+    
+    # Pre-process search paths to ensure they are MSYS2-friendly if possible
+    local _search_paths=(
+        "${FFMPEG_BIN_DIR:-}"
+        "${FFMPEG_ROOT:-}/bin"
+        "${GST_ROOT:-}/bin"
+        "${GST_ROOT:-}/lib"
+        "${DLL_EXTRA_DIRS[@]}"
+    )
+
+    for _d in "${_search_paths[@]}"; do
         [ -z "$_d" ] || [ ! -d "$_d" ] && continue
         
         # Try direct match
@@ -627,32 +647,71 @@ _copy_dll() {
     local resolved
     resolved="$(_resolve_dll "$name")"
     [ -n "$resolved" ] && [ -f "$resolved" ] || return
-    cp -L "$resolved" "$target_dir/" 2>/dev/null || true
+    cp -L "$resolved" "$target_dir/" || true
     printf "%s\n" "$(basename "$resolved")"
 }
 
 _walk_deps() {
     # collect_recursive_deps_into <target_dir> <file>...
     local target_dir="$1"; shift
-    local queue=("$@") idx=0
-    while [ "$idx" -lt "${#queue[@]}" ]; do
-        local file="${queue[$idx]}"; idx=$((idx+1))
+    local queue=("$@") 
+    local idx=0
+    local visited_deps=()
+    
+    # Pre-populate visited with what's already in queue (basenames)
+    for f in "${queue[@]}"; do
+        visited_deps+=("$(basename "$f" | tr '[:upper:]' '[:lower:]')")
+    done
+
+    echo "=> Starting recursive dependency walk in $target_dir"
+    while [ $idx -lt ${#queue[@]} ]; do
+        local file="${queue[$idx]}"
+        idx=$((idx+1))
+        
         [ -f "$file" ] || continue
-        local dep
+        echo "   ... walking deps of $(basename "$file")"
+        
+        local deps_tmp
+        deps_tmp="$(mktemp)"
+        _collect_dll_deps "$file" > "$deps_tmp" 2>/dev/null || { rm -f "$deps_tmp"; continue; }
+        
         while IFS= read -r dep; do
             [ -z "$dep" ] && continue
             is_system_dll "$dep" && continue
-            [ -f "$target_dir/$dep" ] && continue
-            local copied
-            copied="$(_copy_dll "$dep" "$target_dir")"
-            if [ -n "$copied" ]; then
-                echo -e "   ${GREEN}✓${NC} $copied (dep of $(basename "$file"))" >&2
-                queue+=("$target_dir/$copied")
+            
+            local dep_lower="${dep,,}"
+            local already_visited=0
+            for v in "${visited_deps[@]}"; do
+                if [ "$v" = "$dep_lower" ]; then already_visited=1; break; fi
+            done
+            [ "$already_visited" = "1" ] && continue
+            
+            # Even if it exists, we add it to visited and queue to walk its own deps
+            # but we only copy if it doesn't exist
+            local _existing
+            _existing="$(find "$target_dir" -maxdepth 1 -iname "$dep" 2>/dev/null | head -1)"
+            
+            if [ -z "$_existing" ]; then
+                local copied
+                copied="$(_copy_dll "$dep" "$target_dir")"
+                if [ -n "$copied" ]; then
+                    echo -e "   ${GREEN}✓${NC} $copied (dep of $(basename "$file"))" >&2
+                    visited_deps+=("${copied,,}")
+                    queue+=("$target_dir/$copied")
+                else
+                    echo -e "   ${RED}❌ ОШИБКА: Не найдена зависимость $dep (для $(basename "$file"))${NC}" >&2
+                    MISSING_DLLS_FOUND=1
+                    # Add to visited anyway to avoid spamming the same error
+                    visited_deps+=("$dep_lower")
+                fi
             else
-                echo -e "   ${RED}❌ ОШИБКА: Не найдена зависимость $dep (для $(basename "$file"))${NC}" >&2
-                MISSING_DLLS_FOUND=1
+                # Already exists, but we haven't "walked" it yet in this loop 
+                # (otherwise it would be in visited_deps already)
+                visited_deps+=("$dep_lower")
+                queue+=("$_existing")
             fi
-        done < <(_collect_dll_deps "$file")
+        done < "$deps_tmp"
+        rm -f "$deps_tmp"
     done
 }
 # ── end DLL utilities ──────────────────────────────────────────────────────────
@@ -678,21 +737,27 @@ FFMPEG_DLLS=(
     "swresample-*.dll" # audio resampling (avcodec dep)
     "avformat-*.dll"   # format/container (avcodec dep on some builds)
     "postproc-*.dll"   # postprocessing (dep on some GPL builds)
+    "libjxl*.dll"      # JPEG XL (needed for some FFmpeg builds)
+    "libhwy*.dll"      # Highway (jxl dep)
+    "libbrotli*.dll"   # Brotli (jxl dep)
+    "liblcms2-*.dll"   # Little CMS (jxl dep)
+    "libogg-*.dll"     # Ogg (vorbis dep)
+    "libvorbis*.dll"   # Vorbis
+    "libopus-*.dll"    # Opus
+    "libsoxr*.dll"     # SoX resampler (swresample dep)
+    "libsharpyuv-*.dll" # Sharp YUV (webp dep)
+    "libshaderc*.dll"  # Shaderc (swscale/vulkan dep)
+    "libgomp-*.dll"    # OpenMP runtime (aom/dav1d dep)
 )
-# Moonlight runtime DLLs: opus + openssl + MinGW C runtime + additional deps (like libjxl_cms)
+# Moonlight runtime DLLs: openssl + MinGW C runtime + additional deps
 MOONLIGHT_RUNTIME_DLLS=(
-    "libopus-0.dll"
-    "libcrypto-3-x64.dll" "libcrypto-1_1-x64.dll" "libcrypto-3.dll"
-    "libssl-3-x64.dll"    "libssl-1_1-x64.dll"    "libssl-3.dll"
-    "libgcc_s_seh-1.dll"
-    "libwinpthread-1.dll"
-    "libstdc++-6.dll"
-    "libjxl_cms.dll" "libjxl_cms-*.dll"
-    "libjxl.dll" "libjxl-*.dll"
-    "libsharpyuv-*.dll"
-    "libbrotlienc.dll" "libbrotlidec.dll" "libbrotlicommon.dll"
-    "libogg-0.dll"
+    "libcrypto-*.dll"
+    "libssl-*.dll"
+    "libgcc_s_*.dll"
+    "libwinpthread-*.dll"
+    "libstdc++-*.dll"
     "libzstd.dll"
+    "libdeflate.dll"
 )
 FFMPEG_COPIED=0
 FFMPEG_BIN_DIR=""
@@ -705,20 +770,23 @@ if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
     [ -n "$FFMPEG_BIN_DIR" ] && DLL_EXTRA_DIRS=("$FFMPEG_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
 
     if [ -n "$FFMPEG_BIN_DIR" ]; then
+        echo "=> Copying libraries from $FFMPEG_BIN_DIR..."
         for pattern in "${FFMPEG_DLLS[@]}"; do
-            for dll in "$FFMPEG_BIN_DIR"/$pattern; do
+            while IFS= read -r dll; do
                 [ -f "$dll" ] || continue
-                cp -L "$dll" "$DIST_WIN/"
-                echo -e "   ${GREEN}✓${NC} $(basename "$dll")"
-                FFMPEG_COPIED=$((FFMPEG_COPIED + 1))
-            done
+                base_dll="$(basename "$dll")"
+                if [ ! -f "$DIST_WIN/$base_dll" ]; then
+                    cp -L "$dll" "$DIST_WIN/"
+                    echo -e "   ${GREEN}✓${NC} $base_dll"
+                    FFMPEG_COPIED=$((FFMPEG_COPIED + 1))
+                fi
+            done < <(find "$FFMPEG_BIN_DIR" -maxdepth 1 -iname "$pattern" 2>/dev/null)
         done
-        echo -e "${GREEN}✓${NC} FFmpeg: $FFMPEG_COPIED DLLs copied"
+        echo -e "${GREEN}✓${NC} FFmpeg/Dependencies: $FFMPEG_COPIED base DLLs copied"
 
-        # Walk recursive deps of the copied FFmpeg DLLs
-        mapfile -t _ffmpeg_dlls < <(find "$DIST_WIN" -maxdepth 1 \
-            \( -name "av*.dll" -o -name "sw*.dll" -o -name "postproc*.dll" \) 2>/dev/null)
-        [ "${#_ffmpeg_dlls[@]}" -gt 0 ] && _walk_deps "$DIST_WIN" "${_ffmpeg_dlls[@]}"
+        # Walk recursive deps of all copied DLLs in dist/windows
+        mapfile -t _all_copied < <(find "$DIST_WIN" -maxdepth 1 -name "*.dll" 2>/dev/null)
+        [ "${#_all_copied[@]}" -gt 0 ] && _walk_deps "$DIST_WIN" "${_all_copied[@]}"
     else
         echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но DLLs не найдены в $FFMPEG_ROOT"
     fi
@@ -882,6 +950,30 @@ if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}⚠${NC} objdump не найден — пропускаем финальную проверку зависимостей"
 fi
+
+# 7d. Sanity check for known problematic DLLs
+echo -e "\n${YELLOW}🛠️ Проверка обязательных библиотек...${NC}"
+FORCE_DLLS=(
+    "libhwy.dll" "libogg-0.dll" "libbrotlienc.dll" "libjxl_cms.dll"
+    "libsoxr.dll" "libsharpyuv-0.dll" "libshaderc_shared.dll" "liblcms2-2.dll"
+    "libgomp-1.dll" "libstdc++-6.dll"
+)
+for _fdll in "${FORCE_DLLS[@]}"; do
+    _existing="$(find "$DIST_WIN" -maxdepth 1 -iname "$_fdll" 2>/dev/null | head -1)"
+    if [ -z "$_existing" ]; then
+        echo -e "   ${YELLOW}⚠ $_fdll отсутствует, пытаюсь найти принудительно...${NC}"
+        _copied="$(_copy_dll "$_fdll" "$DIST_WIN")"
+        if [ -n "$_copied" ]; then
+            echo -e "   ${GREEN}✓${NC} $_copied скопирована принудительно"
+            _walk_deps "$DIST_WIN" "$DIST_WIN/$_copied"
+        else
+            echo -e "   ${RED}❌ ОШИБКА: Не удалось найти $_fdll${NC}"
+            MISSING_DLLS_FOUND=1
+        fi
+    else
+        echo -e "   ${GREEN}✓${NC} $_fdll на месте"
+    fi
+done
 
 # 8. README
 echo -e "\n${YELLOW}📝 Создание README...${NC}"
