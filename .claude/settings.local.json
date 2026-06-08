@@ -76,7 +76,9 @@
       "Bash(grep -v \"^$\")",
       "Bash(echo \"EXIT $?\")",
       "Bash(nm /var/folders/4f/3zh7c6pd14b5w2v4yfx0p94m0000gn/T/go-link-3678409464/000011.o)",
-      "Bash(nm /var/folders/4f/3zh7c6pd14b5w2v4yfx0p94m0000gn/T/go-link-3678409464/000012.o)"
+      "Bash(nm /var/folders/4f/3zh7c6pd14b5w2v4yfx0p94m0000gn/T/go-link-3678409464/000012.o)",
+      "Bash(git commit *)",
+      "Bash(git rebase *)"
     ]
   }
 }
