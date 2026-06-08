@@ -549,20 +549,127 @@ echo -e "${GREEN}✓${NC} $EXE_NAME ($(basename "$EXE_SRC_LABEL"))"
 # 7a. Копирование FFmpeg DLLs (для Moonlight HW decode)
 echo -e "\n${YELLOW}📚 Копирование FFmpeg DLLs (Moonlight HW decode)...${NC}"
 
+# ── DLL utility functions (used by 7a, 7b, 7c) ────────────────────────────────
+OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
+command -v "$OBJDUMP_BIN" >/dev/null 2>&1 || OBJDUMP_BIN="objdump"
+
+# MSYS2 prefix dirs — populated further below after FFMPEG_BIN_DIR is known
+DLL_EXTRA_DIRS=()
+for _pfx in "/ucrt64" "/mingw64" "/clang64" "/c/msys64/ucrt64" "/c/msys64/mingw64"; do
+    [ -d "$_pfx/bin" ] && DLL_EXTRA_DIRS+=("$_pfx/bin")
+done
+
+is_system_dll() {
+    local name="${1,,}"
+    case "$name" in
+        api-ms-win-*.dll|ext-ms-win-*.dll|\
+        kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
+        ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|\
+        setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|\
+        rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|\
+        msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|\
+        d3dcompiler_47.dll|opengl32.dll|mf.dll|mfplat.dll|mfuuid.dll|\
+        uuid.dll|wininet.dll|netapi32.dll|iphlpapi.dll)
+            return 0 ;;
+    esac
+    return 1
+}
+
+_collect_dll_deps() {
+    local file="$1"
+    [ -f "$file" ] || return
+    "$OBJDUMP_BIN" -p "$file" 2>/dev/null \
+        | awk -F': ' '/DLL Name:/ {gsub(/\r/,"",$2); print $2}'
+}
+
+_resolve_dll() {
+    local name="$1"
+    # Search: FFMPEG_BIN_DIR → FFMPEG_ROOT → GST_ROOT → DLL_EXTRA_DIRS
+    local _d
+    for _d in \
+        "${FFMPEG_BIN_DIR:-}" \
+        "${FFMPEG_ROOT:-}/bin" \
+        "${GST_ROOT:-}/bin" \
+        "${GST_ROOT:-}/lib" \
+        "${DLL_EXTRA_DIRS[@]}"; do
+        [ -z "$_d" ] || [ ! -d "$_d" ] && continue
+        if [ -f "$_d/$name" ]; then printf "%s\n" "$_d/$name"; return; fi
+        # case-insensitive fallback on Linux host
+        local found
+        found="$(find "$_d" -maxdepth 1 -iname "$name" 2>/dev/null | head -1)"
+        [ -n "$found" ] && printf "%s\n" "$found" && return
+    done
+}
+
+_copy_dll() {
+    local name="$1" target_dir="$2"
+    local resolved
+    resolved="$(_resolve_dll "$name")"
+    [ -n "$resolved" ] && [ -f "$resolved" ] || return
+    cp -L "$resolved" "$target_dir/" 2>/dev/null || true
+    printf "%s\n" "$(basename "$resolved")"
+}
+
+_walk_deps() {
+    # collect_recursive_deps_into <target_dir> <file>...
+    local target_dir="$1"; shift
+    local queue=("$@") idx=0
+    while [ "$idx" -lt "${#queue[@]}" ]; do
+        local file="${queue[$idx]}"; idx=$((idx+1))
+        [ -f "$file" ] || continue
+        local dep
+        while IFS= read -r dep; do
+            [ -z "$dep" ] && continue
+            is_system_dll "$dep" && continue
+            [ -f "$target_dir/$dep" ] && continue
+            local copied
+            copied="$(_copy_dll "$dep" "$target_dir")"
+            [ -n "$copied" ] && queue+=("$target_dir/$copied")
+        done < <(_collect_dll_deps "$file")
+    done
+}
+# ── end DLL utilities ──────────────────────────────────────────────────────────
+
+# Auto-detect FFMPEG_ROOT from pkg-config when not explicitly set
+if [ -z "${FFMPEG_ROOT:-}" ] && [ "$HAS_FFMPEG" = "1" ]; then
+    _pc_prefix="$("$PKG_CONFIG" --variable=prefix libavcodec 2>/dev/null || true)"
+    _pc_libdir="$("$PKG_CONFIG" --variable=libdir  libavcodec 2>/dev/null || true)"
+    for _d in "$_pc_prefix/bin" "$_pc_libdir/../bin" "$_pc_libdir" "$_pc_prefix"; do
+        [ -z "$_d" ] && continue
+        if ls "$_d"/avutil-*.dll &>/dev/null 2>&1 || ls "$_d"/avcodec-*.dll &>/dev/null 2>&1; then
+            FFMPEG_ROOT="$(realpath "$(dirname "$_d")" 2>/dev/null || echo "$(dirname "$_d")")"
+            echo -e "${GREEN}✓${NC} FFMPEG_ROOT auto-detected from pkg-config: $FFMPEG_ROOT"
+            break
+        fi
+    done
+fi
+
 FFMPEG_DLLS=(
     "avcodec-*.dll"    # H.264 decoder
     "avutil-*.dll"     # utilities
     "swscale-*.dll"    # pixel format conversion
     "swresample-*.dll" # audio resampling (avcodec dep)
-    "avformat-*.dll"   # avcodec dep on some builds
+    "avformat-*.dll"   # format/container (avcodec dep on some builds)
+    "postproc-*.dll"   # postprocessing (dep on some GPL builds)
+)
+# Moonlight runtime DLLs: opus + openssl + MinGW C runtime
+MOONLIGHT_RUNTIME_DLLS=(
+    "libopus-0.dll"
+    "libcrypto-3-x64.dll" "libcrypto-1_1-x64.dll" "libcrypto-3.dll"
+    "libssl-3-x64.dll"    "libssl-1_1-x64.dll"    "libssl-3.dll"
+    "libgcc_s_seh-1.dll"
+    "libwinpthread-1.dll"
+    "libstdc++-6.dll"
 )
 FFMPEG_COPIED=0
+FFMPEG_BIN_DIR=""
 
 if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
-    FFMPEG_BIN_DIR=""
     for d in "$FFMPEG_ROOT/bin" "$FFMPEG_ROOT"; do
         if ls "$d"/*.dll &>/dev/null 2>&1; then FFMPEG_BIN_DIR="$d"; break; fi
     done
+    # Add to DLL_EXTRA_DIRS so the GStreamer section and final walk can find FFmpeg deps
+    [ -n "$FFMPEG_BIN_DIR" ] && DLL_EXTRA_DIRS=("$FFMPEG_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
 
     if [ -n "$FFMPEG_BIN_DIR" ]; then
         for pattern in "${FFMPEG_DLLS[@]}"; do
@@ -574,13 +681,34 @@ if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
             done
         done
         echo -e "${GREEN}✓${NC} FFmpeg: $FFMPEG_COPIED DLLs copied"
+
+        # Walk recursive deps of the copied FFmpeg DLLs
+        mapfile -t _ffmpeg_dlls < <(find "$DIST_WIN" -maxdepth 1 \
+            \( -name "av*.dll" -o -name "sw*.dll" -o -name "postproc*.dll" \) 2>/dev/null)
+        [ "${#_ffmpeg_dlls[@]}" -gt 0 ] && _walk_deps "$DIST_WIN" "${_ffmpeg_dlls[@]}"
     else
         echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но DLLs не найдены в $FFMPEG_ROOT"
     fi
 else
-    echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT не задан — FFmpeg DLLs не будут в дистрибутиве"
+    echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT не задан и не обнаружен автоматически — FFmpeg DLLs не будут в дистрибутиве"
     echo "   Скачайте: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)"
     echo "   Затем: export FFMPEG_ROOT=/path/to/ffmpeg-win64-gpl-shared && ./scripts/build_windows.sh"
+fi
+
+# Copy Moonlight-specific runtime DLLs (opus, openssl, MinGW runtime)
+echo -e "\n${YELLOW}📚 Копирование Moonlight runtime DLLs (opus, openssl, MinGW)...${NC}"
+MOONLIGHT_COPIED=0
+for _dll_name in "${MOONLIGHT_RUNTIME_DLLS[@]}"; do
+    _copied="$(_copy_dll "$_dll_name" "$DIST_WIN")"
+    if [ -n "$_copied" ]; then
+        echo -e "   ${GREEN}✓${NC} $_copied"
+        MOONLIGHT_COPIED=$((MOONLIGHT_COPIED + 1))
+    fi
+done
+if [ "$MOONLIGHT_COPIED" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} Moonlight runtime: $MOONLIGHT_COPIED DLLs copied"
+else
+    echo -e "${YELLOW}⚠${NC} Moonlight runtime DLLs not found (opus/openssl may be statically linked or missing)"
 fi
 
 # 7b. Копирование GStreamer (для RTP видео-режима)
@@ -593,18 +721,8 @@ if [ -n "$GST_ROOT" ]; then
         echo -e "${GREEN}✓${NC} GStreamer runtime уже подготовлен, переиспользую без перекопирования"
     else
         mkdir -p "$DIST_WIN/bin"
-        OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
-        if ! command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
-            OBJDUMP_BIN="objdump"
-        fi
 
-        # Extra DLL search dirs beyond GST_ROOT — MSYS2 prefixes where OpenSSL
-        # and other runtime deps live when built with ucrt64/mingw64 toolchain.
-        DLL_EXTRA_DIRS=()
-        for _msys_prefix in "/ucrt64" "/mingw64" "/clang64" "/c/msys64/ucrt64" "/c/msys64/mingw64"; do
-            [ -d "$_msys_prefix/bin" ] && DLL_EXTRA_DIRS+=("$_msys_prefix/bin")
-        done
-
+        # GST-specific: copy to DIST_WIN (core) or DIST_WIN/bin (plugins) based on CORE_DLLS
         is_core_dll() {
             local name="$1"
             for core in "${CORE_DLLS[@]}"; do
@@ -624,8 +742,6 @@ if [ -n "$GST_ROOT" ]; then
             else
                 found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
             fi
-            # Fall back to MSYS2 prefix dirs (ucrt64, mingw64, etc.) for deps
-            # like libcrypto-3-x64.dll that live outside the GStreamer root.
             if [ -z "$found" ]; then
                 local _extra
                 for _extra in "${DLL_EXTRA_DIRS[@]}"; do
@@ -640,65 +756,33 @@ if [ -n "$GST_ROOT" ]; then
             fi
         }
 
-        collect_deps() {
-            local file="$1"
-            [ -f "$file" ] || return
-            "$OBJDUMP_BIN" -p "$file" 2>/dev/null | awk -F': ' '/DLL Name:/ {gsub(/\\r/,"",$2); print $2}'
-        }
-
-        is_system_dll() {
-            local name="${1,,}"
-            case "$name" in
-                api-ms-win-*.dll|ext-ms-win-*.dll|kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|d3dcompiler_47.dll|opengl32.dll)
-                    return 0
-                    ;;
-            esac
-            return 1
-        }
-
-        resolve_dll_path() {
+        # Reuse global DLL utilities (_collect_dll_deps, _resolve_dll, _copy_dll, _walk_deps)
+        # but wrap resolve for GST: also search GST_ROOT explicitly
+        _gst_resolve_dll() {
             local name="$1"
             [ -z "$name" ] && return
-            if [ -f "$GST_ROOT/bin/$name" ]; then printf "%s\n" "$GST_ROOT/bin/$name"; return; fi
-            if [ -f "$GST_ROOT/lib/$name" ]; then printf "%s\n" "$GST_ROOT/lib/$name"; return; fi
-            local found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-            if [ -n "$found" ]; then printf "%s\n" "$found"; return; fi
-            # Fall back to MSYS2 prefix dirs for deps outside GST_ROOT.
-            local _extra
-            for _extra in "${DLL_EXTRA_DIRS[@]}"; do
-                [ -f "$_extra/$name" ] && printf "%s\n" "$_extra/$name" && return
+            local found=""
+            for _d in "$GST_ROOT/bin" "$GST_ROOT/lib"; do
+                if [ -f "$_d/$name" ]; then found="$_d/$name"; break; fi
+                local _fi
+                _fi="$(find "$_d" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
+                [ -n "$_fi" ] && { found="$_fi"; break; }
             done
+            if [ -z "$found" ]; then found="$(_resolve_dll "$name")"; fi
+            [ -n "$found" ] && printf "%s\n" "$found"
         }
 
         copy_dll_to_dir() {
-            local name="$1"
-            local target_dir="$2"
-            [ -z "$name" ] && return
-            local resolved="$(resolve_dll_path "$name")"
-            if [ -n "$resolved" ] && [ -f "$resolved" ]; then
-                cp -L "$resolved" "$target_dir/" 2>/dev/null || true
-                printf "%s\n" "$(basename "$resolved")"
-            fi
+            local name="$1" target_dir="$2"
+            local resolved
+            resolved="$(_gst_resolve_dll "$name")"
+            [ -n "$resolved" ] && [ -f "$resolved" ] || return
+            cp -L "$resolved" "$target_dir/" 2>/dev/null || true
+            printf "%s\n" "$(basename "$resolved")"
         }
 
-        collect_recursive_deps_into() {
-            local target_dir="$1"
-            shift
-            local queue=("$@")
-            local idx=0
-            while [ "$idx" -lt "${#queue[@]}" ]; do
-                local file="${queue[$idx]}"
-                idx=$((idx + 1))
-                [ -f "$file" ] || continue
-                while IFS= read -r dep; do
-                    [ -z "$dep" ] || is_system_dll "$dep" && continue
-                    local dep_name="$(basename "$dep")"
-                    [ -f "$target_dir/$dep_name" ] && continue
-                    local copied_name="$(copy_dll_to_dir "$dep_name" "$target_dir")"
-                    [ -n "$copied_name" ] && queue+=("$target_dir/$copied_name")
-                done < <(collect_deps "$file")
-            done
-        }
+        collect_deps() { _collect_dll_deps "$@"; }
+        collect_recursive_deps_into() { _walk_deps "$@"; }
 
         if [ "$MINIMAL_GST" = "1" ]; then
             mkdir -p "$DIST_WIN/lib/gstreamer-1.0"
@@ -744,6 +828,15 @@ if [ -n "$GST_ROOT" ]; then
         printf "%s\n" "$CURRENT_GST_RUNTIME_STAMP" > "$GST_RUNTIME_STAMP_PATH"
         write_gst_runtime_manifest "$GST_RUNTIME_MANIFEST_PATH"
     fi
+fi
+
+# 7c. Финальный dep walk — обходим все зависимости exe, чтобы не пропустить ни одну DLL
+echo -e "\n${YELLOW}🔍 Финальная проверка зависимостей...${NC}"
+if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
+    _walk_deps "$DIST_WIN" "$DIST_WIN/$EXE_NAME"
+    echo -e "${GREEN}✓${NC} Финальная проверка завершена"
+else
+    echo -e "${YELLOW}⚠${NC} objdump не найден — пропускаем финальную проверку зависимостей"
 fi
 
 # 8. README

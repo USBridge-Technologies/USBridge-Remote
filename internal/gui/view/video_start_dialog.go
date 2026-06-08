@@ -49,6 +49,7 @@ type VideoStartDialog struct {
 	modeDetailsSlot   *fyne.Container
 	jpegHint          *widget.Label
 	deviceLabel       *widget.Label
+	vsyncCheck        *widget.Check
 
 	startBtn  *widget.Button
 	cancelBtn *widget.Button
@@ -516,6 +517,8 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.jpegHint.Alignment = fyne.TextAlignCenter
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
+	vsd.vsyncCheck = widget.NewCheck(i18n.Current.EnableVSync, nil)
+	vsd.vsyncCheck.SetChecked(true)
 
 	vsd.startBtn = widget.NewButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.startBtn.Importance = widget.HighImportance
@@ -568,6 +571,7 @@ func (vsd *VideoStartDialog) createInterface() {
 			container.NewCenter(vsd.fpsMeta),
 		),
 		vsd.modeDetailsSlot,
+		vsd.vsyncCheck,
 	)
 	footer := container.NewVBox(
 		vsd.extraBtn,
@@ -998,6 +1002,7 @@ func (vsd *VideoStartDialog) handleStart() {
 		VideoBitrate:       fmt.Sprintf("%.0fK", vsd.bitrateSlider.Value),
 		VideoMode:          vsd.selectedModeID(),
 		CapturePixelFormat: selectedMode.PixelFormat,
+		EnableVSync:        vsd.vsyncCheck.Checked,
 	}
 
 	logrus.Infof("🎥 Starting video: mode=%s %dx%d @ %d fps, bitrate %s",

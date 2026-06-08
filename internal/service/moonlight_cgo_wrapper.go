@@ -313,17 +313,24 @@ func goVTLog(msg *C.char) {
 var vtFrameCount int64
 
 //export goVTFrame
-func goVTFrame(rgba *C.uint8_t, width, height C.int) {
+func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	vtFrameCallbackMu.Lock()
 	cb := vtFrameCallback
 	vtFrameCallbackMu.Unlock()
 	if cb == nil {
 		return
 	}
-	w, h := int(width), int(height)
+	w, h, s := int(width), int(height), int(stride)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	n := w * h * 4
-	copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:n:n])
+	rowBytes := w * 4
+	if s == rowBytes {
+		copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:w*h*4:w*h*4])
+	} else {
+		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[:h*s : h*s]
+		for y := 0; y < h; y++ {
+			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
+		}
+	}
 	cnt := atomic.AddInt64(&vtFrameCount, 1)
 	if cnt == 1 {
 		logrus.Infof("🎬 [Moonlight/HW] ✅ first RGBA frame — %dx%d", w, h)

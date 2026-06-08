@@ -21,7 +21,7 @@ extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
-extern void goVTFrame(uint8_t *rgba, int width, int height);
+extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
 #include "moonlight_cgo_shared.h"
 
@@ -127,22 +127,15 @@ static void vt_callback(
     (void)ctx; (void)frameRefCon; (void)flags; (void)pts; (void)dur;
     if (status != noErr || img == NULL) return;
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-    int w = (int)CVPixelBufferGetWidth(img);
-    int h = (int)CVPixelBufferGetHeight(img);
-    size_t bpr = CVPixelBufferGetBytesPerRow(img);
+    int w    = (int)CVPixelBufferGetWidth(img);
+    int h    = (int)CVPixelBufferGetHeight(img);
+    int bpr  = (int)CVPixelBufferGetBytesPerRow(img);
     const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
-    uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
-    if (rgba) {
-        for (int y = 0; y < h; y++) {
-            const uint8_t *row = src + (size_t)y * bpr;
-            uint8_t *dst = rgba + (size_t)y * (size_t)w * 4;
-            for (int x = 0; x < w; x++, row += 4, dst += 4) {
-                dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
-            }
-        }
-    }
+    // VT outputs kCVPixelFormatType_32RGBA — pass directly, no malloc/swap needed.
+    // goVTFrame is a synchronous CGO call: it copies all pixels before returning,
+    // so src remains valid for the duration of the call.
+    goVTFrame((uint8_t*)src, w, h, bpr);
     CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
-    if (rgba) { goVTFrame(rgba, w, h); free(rgba); }
 }
 
 static int vt_create_session(void) {
@@ -159,7 +152,7 @@ static int vt_create_session(void) {
         kCFAllocatorDefault, 2, params, sizes, 4, &g_vt_fmt_desc);
     if (s != noErr) { goVTLog((char*)"VT: CMVideoFormatDescription FAILED"); return -1; }
 
-    int32_t fmt = kCVPixelFormatType_32BGRA;
+    int32_t fmt = kCVPixelFormatType_32RGBA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
     const void *keys[] = { kCVPixelBufferPixelFormatTypeKey };
     const void *vals[] = { cfFmt };

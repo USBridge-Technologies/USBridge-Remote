@@ -31,7 +31,7 @@ extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
-extern void goVTFrame(uint8_t *rgba, int width, int height);
+extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -277,7 +277,7 @@ static void win_deliver_frame(AVFrame *frame) {
             sws_scale(g_sws, (const uint8_t *const *)frame->data, frame->linesize,
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first RGBA frame decoded");
-            goVTFrame(rgba, w, h);
+            goVTFrame(rgba, w, h, w * 4);
             free(rgba);
         }
     }

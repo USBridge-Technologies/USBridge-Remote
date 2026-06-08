@@ -22,7 +22,7 @@ extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
-extern void goVTFrame(uint8_t *rgba, int width, int height);
+extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ static int dr_submit(PDECODE_UNIT du) {
                 const uint8_t *up = out + y_size;
                 const uint8_t *vp = out + y_size + uv_size;
                 yuv420_to_rgba(yp, up, vp, w, w / 2, w, h, rgba);
-                goVTFrame(rgba, w, h);
+                goVTFrame(rgba, w, h, w * 4);
                 free(rgba);
             }
         }
@@ -505,17 +505,24 @@ func goVTLog(msg *C.char) { logrus.Infof("🎬 [Moonlight/HW/Android] %s", C.GoS
 var vtFrameCount int64
 
 //export goVTFrame
-func goVTFrame(rgba *C.uint8_t, width, height C.int) {
+func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	vtFrameCallbackMu.Lock()
 	cb := vtFrameCallback
 	vtFrameCallbackMu.Unlock()
 	if cb == nil {
 		return
 	}
-	w, h := int(width), int(height)
+	w, h, s := int(width), int(height), int(stride)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	n := w * h * 4
-	copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:n:n])
+	rowBytes := w * 4
+	if s == rowBytes {
+		copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:w*h*4:w*h*4])
+	} else {
+		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[:h*s : h*s]
+		for y := 0; y < h; y++ {
+			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
+		}
+	}
 	cnt := atomic.AddInt64(&vtFrameCount, 1)
 	if cnt == 1 {
 		logrus.Infof("🎬 [Moonlight/HW/Android] ✅ first RGBA frame — %dx%d", w, h)

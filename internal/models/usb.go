@@ -298,6 +298,7 @@ type VideoStartRequest struct {
 	VideoBitrate       string `json:"video_bitrate"`
 	VideoMode          string `json:"video_mode,omitempty"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
+	EnableVSync        bool   `json:"enable_vsync,omitempty"`
 	// ClientPort - client port to receive UDP stream (server will take IP from HTTP)
 	ClientHost string `json:"client_host,omitempty"`
 	ClientPort int    `json:"client_port,omitempty"`
@@ -339,6 +340,7 @@ type VideoDeviceConfig struct {
 	VideoBitrate  string `json:"video_bitrate"`
 	VideoMode     string `json:"video_mode"`
 	ShowMouse     bool   `json:"show_mouse,omitempty"`
+	EnableVSync   bool   `json:"enable_vsync,omitempty"`
 	LastAppliedAt int64  `json:"last_applied_at,omitempty"`
 }
 
@@ -352,6 +354,7 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 		VideoBitrate: c.VideoBitrate,
 		VideoMode:    c.VideoMode,
 		ShowMouse:    c.ShowMouse,
+		EnableVSync:  c.EnableVSync,
 	}
 }
 
