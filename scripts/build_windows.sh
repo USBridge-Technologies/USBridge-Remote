@@ -652,7 +652,7 @@ FFMPEG_DLLS=(
     "avformat-*.dll"   # format/container (avcodec dep on some builds)
     "postproc-*.dll"   # postprocessing (dep on some GPL builds)
 )
-# Moonlight runtime DLLs: opus + openssl + MinGW C runtime
+# Moonlight runtime DLLs: opus + openssl + MinGW C runtime + additional deps (like libjxl_cms)
 MOONLIGHT_RUNTIME_DLLS=(
     "libopus-0.dll"
     "libcrypto-3-x64.dll" "libcrypto-1_1-x64.dll" "libcrypto-3.dll"
@@ -660,6 +660,9 @@ MOONLIGHT_RUNTIME_DLLS=(
     "libgcc_s_seh-1.dll"
     "libwinpthread-1.dll"
     "libstdc++-6.dll"
+    "libjxl_cms.dll" "libjxl_cms-*.dll"
+    "libjxl.dll" "libjxl-*.dll"
+    "libsharpyuv-*.dll"
 )
 FFMPEG_COPIED=0
 FFMPEG_BIN_DIR=""
@@ -830,10 +833,14 @@ if [ -n "$GST_ROOT" ]; then
     fi
 fi
 
-# 7c. Финальный dep walk — обходим все зависимости exe, чтобы не пропустить ни одну DLL
+# 7c. Финальный dep walk — обходим все зависимости exe и всех DLL, чтобы не пропустить ни одну транзитивную зависимость
 echo -e "\n${YELLOW}🔍 Финальная проверка зависимостей...${NC}"
 if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
-    _walk_deps "$DIST_WIN" "$DIST_WIN/$EXE_NAME"
+    # Начинаем с exe и всех уже скопированных DLL
+    mapfile -t _initial_queue < <(find "$DIST_WIN" -maxdepth 1 \( -name "$EXE_NAME" -o -name "*.dll" \) 2>/dev/null)
+    if [ "${#_initial_queue[@]}" -gt 0 ]; then
+        _walk_deps "$DIST_WIN" "${_initial_queue[@]}"
+    fi
     echo -e "${GREEN}✓${NC} Финальная проверка завершена"
 else
     echo -e "${YELLOW}⚠${NC} objdump не найден — пропускаем финальную проверку зависимостей"
