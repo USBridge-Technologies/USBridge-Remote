@@ -320,6 +320,22 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	if cb == nil {
 		return
 	}
+
+	cnt := atomic.AddInt64(&vtFrameCount, 1)
+	if cnt == 1 {
+		logrus.Infof("🎬 [Moonlight/HW] ✅ first RGBA frame — %dx%d", int(width), int(height))
+	}
+
+	// When the native GPU overlay (Metal/GL) is active it already received this
+	// frame at the C level via metal_video_try_submit / gl_video_try_submit.
+	// Skip the 3.5 MB Go image allocation — only the Go-level frame count above
+	// is needed for stats, which we already incremented.
+	if NativeVideoOverlayIsActive() {
+		// Deliver a nil frame to let handleVideoFrame update its own counter.
+		cb(nil)
+		return
+	}
+
 	w, h, s := int(width), int(height), int(stride)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	rowBytes := w * 4
@@ -330,10 +346,6 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		for y := 0; y < h; y++ {
 			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
 		}
-	}
-	cnt := atomic.AddInt64(&vtFrameCount, 1)
-	if cnt == 1 {
-		logrus.Infof("🎬 [Moonlight/HW] ✅ first RGBA frame — %dx%d", w, h)
 	}
 	cb(img)
 }

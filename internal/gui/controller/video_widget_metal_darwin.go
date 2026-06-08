@@ -89,3 +89,7 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	service.MetalVideoDestroy() // release fullscreen overlay
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
+
+func (vw *VideoWidget) isNativeVideoActive() bool {
+	return service.MetalVideoIsActive()
+}

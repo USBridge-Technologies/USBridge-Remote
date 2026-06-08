@@ -33,6 +33,10 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
+// GL overlay fast path (defined in gl_video_impl_windows.c).
+extern int gl_video_is_active(void);
+extern int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 static volatile int    g_li_active          = 0;
@@ -277,6 +281,8 @@ static void win_deliver_frame(AVFrame *frame) {
             sws_scale(g_sws, (const uint8_t *const *)frame->data, frame->linesize,
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first RGBA frame decoded");
+            // GL overlay fast path: submit directly; still call goVTFrame for Go-level stats.
+            gl_video_try_submit(rgba, w, h, w * 4);
             goVTFrame(rgba, w, h, w * 4);
             free(rgba);
         }
@@ -642,6 +648,19 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	if cb == nil {
 		return
 	}
+
+	cnt := atomic.AddInt64(&vtFrameCount, 1)
+	if cnt == 1 {
+		logrus.Infof("🎬 [Moonlight/HW/Win] ✅ first RGBA frame — %dx%d", int(width), int(height))
+	}
+
+	// When GL overlay is active, the frame was already submitted at C level.
+	// Skip the 3.5 MB Go image allocation; deliver nil for stats-only tracking.
+	if NativeVideoOverlayIsActive() {
+		cb(nil)
+		return
+	}
+
 	w, h, s := int(width), int(height), int(stride)
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	rowBytes := w * 4
@@ -652,10 +671,6 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		for y := 0; y < h; y++ {
 			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
 		}
-	}
-	cnt := atomic.AddInt64(&vtFrameCount, 1)
-	if cnt == 1 {
-		logrus.Infof("🎬 [Moonlight/HW/Win] ✅ first RGBA frame — %dx%d", w, h)
 	}
 	cb(img)
 }

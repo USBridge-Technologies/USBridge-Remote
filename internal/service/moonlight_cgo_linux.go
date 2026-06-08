@@ -26,6 +26,10 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
+// GL overlay fast path (defined in gl_video_impl_linux.c).
+extern int gl_video_is_active(void);
+extern int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+
 #include "moonlight_cgo_shared.h"
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -194,6 +198,8 @@ static void deliver_frame(AVFrame *frame) {
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1)
                 goVTLog((char*)"libavcodec: first RGBA frame decoded");
+            // GL overlay fast path: submit directly; still call goVTFrame for Go-level stats.
+            gl_video_try_submit(rgba, w, h, w * 4);
             goVTFrame(rgba, w, h, w * 4);
             free(rgba);
         }

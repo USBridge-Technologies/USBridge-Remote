@@ -622,15 +622,25 @@ func (vw *VideoWidget) checkMouseConnected() {
 
 // handleVideoFrame обрабатывает полученный видео кадр.
 func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
-	if frame == nil {
-		return
-	}
-
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.Errorf("🔥 PANIC in handleVideoFrame: %v", r)
 		}
 	}()
+
+	// frame is nil when the native GPU overlay (Metal/GL) is active and has
+	// already received the frame at the C level. We still update counters so
+	// the Go-level FPS display and trace logging stay accurate.
+	if frame == nil {
+		vw.frameMutex.Lock()
+		vw.frameCount++
+		frameNum := vw.frameCount
+		vw.lastFrameTime = time.Now()
+		vw.frameMutex.Unlock()
+		vw.frameDecoder.IncrementFrameCount()
+		vw.noteVideoTraceFirstFrame(frameNum)
+		return
+	}
 
 	// Normalise to *image.RGBA (all HW decoders already produce this type).
 	var rgba *image.RGBA
@@ -648,9 +658,11 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	vw.lastFrameTime = time.Now()
 	vw.frameMutex.Unlock()
 
-	// Atomic store — render ticker picks this up at next 60Hz tick.
-	// No copy into currentFrame; that happens in renderLatestFrame on the display thread.
-	vw.pendingFrame.Store(rgba)
+	// When the native GPU overlay is already active, skip Fyne canvas update.
+	if !vw.isNativeVideoActive() {
+		// Atomic store — render ticker picks this up at next 60Hz tick.
+		vw.pendingFrame.Store(rgba)
+	}
 
 	if frameNum <= 10 || frameNum%120 == 0 {
 		vw.updateFrameContentRect(rgba)
@@ -663,7 +675,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		bounds := rgba.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
 		vw.dumpFrameSnapshot(rgba, frameNum)
-		// Start Metal overlay on first frame so the window/canvas layout is ready.
+		// Start native GPU overlay after first frame (window/canvas layout ready).
 		go vw.startMetalVideoOnWindow(vw.parentWindow, false)
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
@@ -1037,7 +1049,9 @@ func (vw *VideoWidget) renderLatestFrame() {
 
 	mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
 	needsFullRefresh := vw.forceCanvasRefresh.Swap(false)
-	if mainWindowVisible && vw.videoCanvas != nil {
+	// Skip Fyne canvas rendering when the native GPU overlay (Metal/GL) is active —
+	// the video is already being composited by the native layer.
+	if mainWindowVisible && vw.videoCanvas != nil && !vw.isNativeVideoActive() {
 		if frameNum <= 5 || frameNum%300 == 0 {
 			logrus.Infof("🪟 [VIDEO] canvas render trace=%s frame=%d stats=%s", vw.currentVideoTraceLabel(), frameNum, summarizeImage(frame))
 		}
