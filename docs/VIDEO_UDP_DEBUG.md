@@ -1,5 +1,11 @@
 # Диагностика UDP видео через FRP
 
+> **Режимы видео:**
+> - **Moonlight режим** — H.264 декодируется нативно (VideoToolbox/libavcodec/AMediaCodec) без GStreamer.
+>   GStreamer в этом пути не используется.
+> - **Legacy RTP режим** — GStreamer pipeline `udpsrc → rtph264depay → avdec_h264`.
+>   Диагностика ниже относится к этому режиму.
+
 ## Ручная проверка приёма UDP на клиенте
 
 ```bash

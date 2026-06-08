@@ -1,12 +1,16 @@
 #!/bin/bash
 # Build USBridge Client for Windows: binary + dist folder with libraries
-# Требования: Go, mingw-w64, Fyne, GStreamer (MinGW x86_64)
 #
-# Для портативного пакета с GStreamer:
-#   export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
-#   scripts/build_windows.sh
+# Требования:
+#   Обязательно:  Go, mingw-w64, Fyne
+#   Для Moonlight (HW decode + WASAPI audio):
+#     FFmpeg MinGW DLLs (avcodec, avutil, swscale, opus):
+#       Скачать: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)
+#       Распаковать и указать: export FFMPEG_ROOT="/path/to/ffmpeg-mingw"
+#   Для RTP видео-режима (опционально):
+#     export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
 #
-# Без GSTREAMER_ROOT — создаётся только exe + config (GStreamer должен быть установлен на целевой машине)
+# Без GSTREAMER_ROOT — Moonlight работает через libavcodec (D3D11VA/SW) без GStreamer
 
 set -e
 
@@ -244,33 +248,64 @@ if [ -z "$PKG_CONFIG_BIN" ]; then
     exit 1
 fi
 
-if [ -n "$GSTREAMER_ROOT" ] && [ -d "$GSTREAMER_ROOT" ]; then
+# Configure pkg-config paths from FFMPEG_ROOT and/or GSTREAMER_ROOT.
+PKG_CONFIG_EXTRA_DIRS=()
+
+if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
+    if [ -d "$FFMPEG_ROOT/lib/pkgconfig" ]; then
+        PKG_CONFIG_EXTRA_DIRS+=("$FFMPEG_ROOT/lib/pkgconfig")
+        echo -e "${GREEN}✓${NC} FFMPEG_ROOT: $FFMPEG_ROOT"
+    else
+        echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но нет $FFMPEG_ROOT/lib/pkgconfig"
+    fi
+fi
+
+if [ -n "${GSTREAMER_ROOT:-}" ] && [ -d "$GSTREAMER_ROOT" ]; then
     if [ -d "$GSTREAMER_ROOT/lib/pkgconfig" ]; then
-        export PKG_CONFIG_LIBDIR="$GSTREAMER_ROOT/lib/pkgconfig"
-        export PKG_CONFIG_PATH="$GSTREAMER_ROOT/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+        PKG_CONFIG_EXTRA_DIRS+=("$GSTREAMER_ROOT/lib/pkgconfig")
         echo -e "${GREEN}✓${NC} GSTREAMER_ROOT: $GSTREAMER_ROOT"
-        echo -e "${GREEN}✓${NC} PKG_CONFIG_LIBDIR: $PKG_CONFIG_LIBDIR"
     else
         echo -e "${YELLOW}⚠${NC} GSTREAMER_ROOT задан, но нет $GSTREAMER_ROOT/lib/pkgconfig"
     fi
 fi
 
+if [ "${#PKG_CONFIG_EXTRA_DIRS[@]}" -gt 0 ]; then
+    IFS=':' eval 'EXTRA_PC="${PKG_CONFIG_EXTRA_DIRS[*]}"'
+    export PKG_CONFIG_LIBDIR="$EXTRA_PC"
+    export PKG_CONFIG_PATH="$EXTRA_PC:${PKG_CONFIG_PATH:-}"
+fi
+
 if [ "$PKG_CONFIG_BIN" = "pkg-config" ] && [ -z "${PKG_CONFIG_LIBDIR:-}" ]; then
-    echo -e "${RED}❌ Для кросс-сборки Windows нужен pkg-config для target или PKG_CONFIG_LIBDIR${NC}"
+    echo -e "${RED}❌ Для кросс-сборки Windows нужен PKG_CONFIG_LIBDIR или FFMPEG_ROOT/GSTREAMER_ROOT${NC}"
     exit 1
 fi
 
 export PKG_CONFIG="$PKG_CONFIG_BIN"
 echo -e "${GREEN}✓${NC} PKG_CONFIG: $PKG_CONFIG"
 
-if ! "$PKG_CONFIG" --exists glib-2.0 2>/dev/null; then
-    echo -e "${RED}❌ pkg-config не находит glib-2.0 для Windows target${NC}"
-    exit 1
+# Moonlight requires FFmpeg (libavcodec/libavutil/libswscale) + opus + openssl.
+# GStreamer is optional — only used by legacy RTP video mode.
+HAS_FFMPEG=0
+HAS_GST=0
+
+if "$PKG_CONFIG" --exists libavcodec libavutil libswscale 2>/dev/null; then
+    HAS_FFMPEG=1
+    echo -e "${GREEN}✓${NC} FFmpeg libs found (Moonlight HW decode enabled)"
+else
+    echo -e "${YELLOW}⚠${NC} FFmpeg libs not found via pkg-config — Moonlight will use software decode fallback"
+    echo "   Set FFMPEG_ROOT to enable HW decode: export FFMPEG_ROOT=/path/to/ffmpeg-mingw"
 fi
 
-if ! "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
-    echo -e "${RED}❌ pkg-config не находит gstreamer-1.0 для Windows target${NC}"
-    exit 1
+if "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
+    HAS_GST=1
+    echo -e "${GREEN}✓${NC} GStreamer found (RTP video mode enabled)"
+else
+    echo -e "${YELLOW}⚠${NC} GStreamer not found — RTP video mode disabled (Moonlight still works)"
+fi
+
+if [ "$HAS_FFMPEG" = "0" ] && [ "$HAS_GST" = "0" ]; then
+    echo -e "${YELLOW}⚠${NC} Neither FFmpeg nor GStreamer found — building without video decode libraries"
+    echo "   Moonlight will fall back to software decode using bundled opus/openssl only"
 fi
 
 # 3. Проверка fyne
@@ -511,8 +546,45 @@ cp "$EXE_SRC" "$DIST_WIN/$EXE_NAME"
 echo -e "${GREEN}✓${NC} $EXE_NAME ($(basename "$EXE_SRC_LABEL"))"
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
 
-# 7. Копирование GStreamer
-echo -e "\n${YELLOW}📚 Копирование GStreamer...${NC}"
+# 7a. Копирование FFmpeg DLLs (для Moonlight HW decode)
+echo -e "\n${YELLOW}📚 Копирование FFmpeg DLLs (Moonlight HW decode)...${NC}"
+
+FFMPEG_DLLS=(
+    "avcodec-*.dll"    # H.264 decoder
+    "avutil-*.dll"     # utilities
+    "swscale-*.dll"    # pixel format conversion
+    "swresample-*.dll" # audio resampling (avcodec dep)
+    "avformat-*.dll"   # avcodec dep on some builds
+)
+FFMPEG_COPIED=0
+
+if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
+    FFMPEG_BIN_DIR=""
+    for d in "$FFMPEG_ROOT/bin" "$FFMPEG_ROOT"; do
+        if ls "$d"/*.dll &>/dev/null 2>&1; then FFMPEG_BIN_DIR="$d"; break; fi
+    done
+
+    if [ -n "$FFMPEG_BIN_DIR" ]; then
+        for pattern in "${FFMPEG_DLLS[@]}"; do
+            for dll in "$FFMPEG_BIN_DIR"/$pattern; do
+                [ -f "$dll" ] || continue
+                cp -L "$dll" "$DIST_WIN/"
+                echo -e "   ${GREEN}✓${NC} $(basename "$dll")"
+                FFMPEG_COPIED=$((FFMPEG_COPIED + 1))
+            done
+        done
+        echo -e "${GREEN}✓${NC} FFmpeg: $FFMPEG_COPIED DLLs copied"
+    else
+        echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но DLLs не найдены в $FFMPEG_ROOT"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT не задан — FFmpeg DLLs не будут в дистрибутиве"
+    echo "   Скачайте: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)"
+    echo "   Затем: export FFMPEG_ROOT=/path/to/ffmpeg-win64-gpl-shared && ./scripts/build_windows.sh"
+fi
+
+# 7b. Копирование GStreamer (для RTP видео-режима)
+echo -e "\n${YELLOW}📚 Копирование GStreamer (RTP видео-режим)...${NC}"
 
 if [ -n "$GST_ROOT" ]; then
     echo -e "   Найден: $GST_ROOT"
@@ -674,41 +746,29 @@ if [ -n "$GST_ROOT" ]; then
     fi
 fi
 
-# 8. Скрипт установки FFmpeg и README
-echo -e "\n${YELLOW}📝 Создание скриптов установки...${NC}"
-
-cat > "$DIST_WIN/install_ffmpeg.bat" << 'EOF'
-@echo off
-setlocal
-set "DIR=%~dp0"
-echo Downloading FFmpeg for Windows...
-powershell -NoProfile -NonInteractive -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile 'ffmpeg.zip'"
-if errorlevel 1 (
-    echo Failed to download FFmpeg.
-    pause
-    exit /b 1
-)
-echo Extracting FFmpeg...
-powershell -NoProfile -NonInteractive -Command "Expand-Archive -Path 'ffmpeg.zip' -DestinationPath '.' -Force"
-del ffmpeg.zip
-if exist "ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" (
-    move /y "ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" "%DIR%" >nul
-    rmdir /s /q "ffmpeg-master-latest-win64-gpl"
-    echo FFmpeg installed successfully to %DIR%ffmpeg.exe
-) else (
-    echo Failed to extract FFmpeg.
-)
-pause
-EOF
+# 8. README
+echo -e "\n${YELLOW}📝 Создание README...${NC}"
 
 cat > "$DIST_WIN/README.txt" << 'README'
 USBridge Client for Windows
 ===========================
-Run USBridge_Client.exe. 
+Run USBridge_Client.exe.
 
-Requirements:
-  - GStreamer (MinGW x86_64) must be installed or bundled (for hardware video decoding).
-  - Run install_ffmpeg.bat to download FFmpeg locally (required for video decoding fallback if GStreamer is missing).
+Video modes:
+  Moonlight streaming — libavcodec (D3D11VA hardware decode) + WASAPI audio.
+    Requires: avcodec-*.dll, avutil-*.dll, swscale-*.dll (bundled if FFMPEG_ROOT was set at build time).
+    If DLLs are missing, falls back to software decode automatically.
+
+  Legacy RTP mode — requires GStreamer.
+    Bundled if GSTREAMER_ROOT was set at build time, otherwise install GStreamer
+    from https://gstreamer.freedesktop.org/download/ (MinGW x86_64).
+
+Hardware acceleration:
+  D3D11VA: automatic on all modern Windows (DirectX 11 capable GPU).
+  Software fallback: used when D3D11VA is unavailable.
+
+Configuration:
+  config.yaml next to the exe, or %APPDATA%\usbridge-client\
 README
 
 echo -e "\n${YELLOW}📦 Создание архива...${NC}"

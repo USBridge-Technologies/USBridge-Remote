@@ -1,4 +1,4 @@
-//go:build !darwin && (!linux || android) && !windows
+//go:build !darwin && !ios && !linux && !windows && !android
 
 package service
 
@@ -17,7 +17,7 @@ func startMoonlightGStreamer(
 	onFrame func(image.Image),
 	onStop func(error),
 ) error {
-	return fmt.Errorf("Moonlight GStreamer player not supported on this platform")
+	return fmt.Errorf("Moonlight video not supported on this platform")
 }
 
 func startMoonlightAudio(pipeRead *os.File, stopCh <-chan struct{}, onStop func(error)) error {

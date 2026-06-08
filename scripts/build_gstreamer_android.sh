@@ -3,6 +3,11 @@
 # Скрипт для подготовки GStreamer для Android:
 # - Сборка из исходников (если есть gstreamer/)
 # - Или проверка/установка готовых библиотек
+#
+# NOTE: GStreamer is NOT required for Moonlight streaming on Android.
+#   Moonlight uses AMediaCodec (NDK system API) for hardware H.264 decode
+#   and AAudio (NDK system API) for audio output — both are built into Android NDK.
+#   This script is only needed if you use the legacy RTP/GStreamer video mode.
 
 set -e
 

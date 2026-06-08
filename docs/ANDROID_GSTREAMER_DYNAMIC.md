@@ -1,6 +1,10 @@
 # GStreamer Dynamic Build для Android
 
-Проект переведён на динамическую линковку GStreamer (.so) для аппаратного декодирования H.264.
+> **Примечание:** GStreamer используется только для legacy RTP видео-режима.  
+> **Moonlight streaming на Android использует `AMediaCodec` (NDK) для HW-декодирования H.264 и `AAudio` (NDK) для аудио** — системные API, не требующие GStreamer.  
+> Эта документация актуальна только если вы используете non-Moonlight RTP видео-режим.
+
+Проект поддерживает динамическую линковку GStreamer (.so) для legacy RTP видео-режима.
 
 ## Сборка
 

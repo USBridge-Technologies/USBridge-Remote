@@ -220,7 +220,7 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s gstreamer=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeGStreamerStats(), vw.safeRelayDebugInfo())
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeGStreamerStats(), vw.safeRelayDebugInfo())
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
 		default:

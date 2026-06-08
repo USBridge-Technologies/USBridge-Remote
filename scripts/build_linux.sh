@@ -1,6 +1,14 @@
 #!/bin/bash
 # Build USBridgeClient for Linux
 # Output: dist/linux/USBridgeClient.bin (+ config.yaml if present)
+#
+# Build deps (install before running this script):
+#   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libasound2-dev
+#   Moonlight core:       opus openssl pkg-config cmake
+#   RTP video mode:       gstreamer1.0-* (optional, see install_gstreamer.sh in dist)
+#
+# One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev \
+#              libopus-dev libssl-dev pkg-config cmake
 
 set -euo pipefail
 
@@ -23,43 +31,61 @@ fi
 OUT_DIR="$REPO_ROOT/dist/linux"
 mkdir -p "$OUT_DIR"
 
-# Suppress format-security warnings from the go-gst dependency (gst_debug.go)
+# go-gst (used for non-Moonlight RTP path) generates format-security warnings.
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
+
+# Verify Moonlight HW decode build deps are present before spending time compiling.
+for pkg in libavcodec libavutil libswscale alsa; do
+    if ! pkg-config --exists "$pkg" 2>/dev/null; then
+        echo "❌ Missing build dep: $pkg"
+        echo "   Install: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev"
+        exit 1
+    fi
+done
 
 go build -o "$OUT_DIR/USBridgeClient.bin" ./cmd
 
 [ -f "$REPO_ROOT/config.yaml" ] && cp -f "$REPO_ROOT/config.yaml" "$OUT_DIR/"
 
-# Создаем скрипт установки FFmpeg
-cat > "$OUT_DIR/install_ffmpeg.sh" << 'EOF'
+# Создаем скрипт установки зависимостей для Moonlight HW-decode
+cat > "$OUT_DIR/install_moonlight_deps.sh" << 'EOF'
 #!/bin/bash
 set -e
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "Downloading FFmpeg for Linux..."
-URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-curl -L "$URL" -o "$DIR/ffmpeg.tar.xz"
-mkdir -p "$DIR/ffmpeg_tmp"
-tar -xJf "$DIR/ffmpeg.tar.xz" -C "$DIR/ffmpeg_tmp" --strip-components=1
-mv "$DIR/ffmpeg_tmp/bin/ffmpeg" "$DIR/ffmpeg"
-rm -rf "$DIR/ffmpeg_tmp" "$DIR/ffmpeg.tar.xz"
-chmod +x "$DIR/ffmpeg"
-echo "FFmpeg downloaded to $DIR/ffmpeg"
+# Install runtime libraries required for Moonlight hardware decode (libavcodec/ALSA).
+# These are dynamically linked — required on the target machine.
+echo "Installing Moonlight HW decode runtime dependencies..."
+if [ -f /etc/debian_version ]; then
+    sudo apt-get update && sudo apt-get install -y \
+        libavcodec60 libavutil58 libswscale7 \
+        libasound2 \
+        libva2 libva-drm2  # VA-API for Intel/AMD GPU acceleration
+elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
+    sudo dnf install -y ffmpeg-libs alsa-lib libva
+else
+    echo "Install ffmpeg-libs (libavcodec), alsa-lib, and libva via your package manager."
+fi
+echo "Done. Moonlight streaming uses libavcodec (VA-API/NVDEC/SW) + ALSA."
 EOF
-chmod +x "$OUT_DIR/install_ffmpeg.sh"
+chmod +x "$OUT_DIR/install_moonlight_deps.sh"
 
-# Создаем скрипт установки GStreamer
+# Создаем скрипт установки GStreamer (для RTP видео-режима)
 cat > "$OUT_DIR/install_gstreamer.sh" << 'EOF'
 #!/bin/bash
 set -e
-echo "Installing GStreamer for Linux..."
+# GStreamer is required only for the legacy RTP video mode.
+# Moonlight streaming uses libavcodec (VA-API/NVDEC) + ALSA natively — no GStreamer.
+echo "Installing GStreamer for Linux (RTP video mode only)..."
 if [ -f /etc/debian_version ]; then
-    echo "Detected Debian/Ubuntu. Installing GStreamer via apt..."
-    sudo apt-get update && sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio
+    sudo apt-get update && sudo apt-get install -y \
+        gstreamer1.0-tools gstreamer1.0-libav \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+        gstreamer1.0-alsa gstreamer1.0-pulseaudio
 elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
-    echo "Detected RHEL/CentOS/Fedora. Installing GStreamer via dnf/yum..."
-    sudo dnf install -y gstreamer1-devel gstreamer1-plugins-base-tools gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-good-extras gstreamer1-plugins-bad-free gstreamer1-plugins-bad-free-devel gstreamer1-plugins-ugly-free || sudo yum install -y gstreamer1-devel gstreamer1-plugins-base-tools gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-good-extras gstreamer1-plugins-bad-free gstreamer1-plugins-bad-free-devel gstreamer1-plugins-ugly-free
+    sudo dnf install -y gstreamer1 gstreamer1-plugins-base \
+        gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav
 else
-    echo "Universal Linux detected. Please install GStreamer 1.0 plugins manually via your package manager."
+    echo "Install GStreamer 1.0 via your package manager (gstreamer1.0-tools gstreamer1.0-libav)."
 fi
 EOF
 chmod +x "$OUT_DIR/install_gstreamer.sh"
@@ -72,9 +98,17 @@ USBridgeClient for Linux
 Run:
   ./USBridgeClient.bin
 
-Requirements:
-  - Run ./install_ffmpeg.sh to download FFmpeg locally (required for video decoding fallback).
-  - Run ./install_gstreamer.sh to install GStreamer via package manager (required for main video decoding).
+Video modes:
+  Moonlight streaming — libavcodec hardware decode (VA-API/NVDEC/software fallback) + ALSA audio.
+    Run ./install_moonlight_deps.sh to install runtime libraries (libavcodec, libasound2, libva).
+
+  Legacy RTP mode — requires GStreamer.
+    Run ./install_gstreamer.sh to install.
+
+Hardware acceleration:
+  Intel/AMD:  VA-API (install libva2 libva-drm2)
+  NVIDIA:     NVDEC (install nvidia drivers with CUDA support)
+  Fallback:   software decode (works everywhere, higher CPU usage)
 
 Configuration:
   config.yaml next to the binary, or ~/.config/usbridge-client/

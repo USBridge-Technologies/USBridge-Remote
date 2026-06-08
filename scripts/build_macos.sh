@@ -1,6 +1,10 @@
 #!/bin/bash
 # Build USBridgeClient for macOS as a native .app bundle
-# Requirements: Go, Homebrew GStreamer
+#
+# Requirements:
+#   Required:  Go, Xcode Command Line Tools
+#   Optional:  GStreamer (Homebrew) — needed only for RTP video mode
+#              Moonlight streaming uses VideoToolbox + CoreAudio (no GStreamer required)
 
 set -e
 
@@ -92,8 +96,11 @@ create_app_icon() {
 
 echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
-# 1. Проверка GStreamer
+# 1. Проверка зависимостей
 echo -e "\n${YELLOW}📦 Проверка зависимостей...${NC}"
+
+# GStreamer — optional, only needed for RTP video mode.
+# Moonlight mode uses VideoToolbox + CoreAudio natively (no GStreamer).
 GST_LAUNCH=""
 for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst-launch-1.0"; do
     if command -v "$p" &>/dev/null || [ -x "$p" ]; then
@@ -103,11 +110,11 @@ for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst
 done
 
 if [ -z "$GST_LAUNCH" ]; then
-    echo -e "${RED}❌ GStreamer не найден. Установите:${NC}"
-    echo "   brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
-    exit 1
+    echo -e "${YELLOW}⚠${NC}  GStreamer не найден — Moonlight работает без него (VideoToolbox/CoreAudio)."
+    echo "   Для RTP видео-режима установите: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
+else
+    echo -e "   ${GREEN}✓${NC} gst-launch: $GST_LAUNCH"
 fi
-echo -e "   gst-launch: $GST_LAUNCH"
 
 # 2. Сборка .app bundle
 echo -e "\n${YELLOW}🔨 Компиляция .app...${NC}"
@@ -204,17 +211,19 @@ echo "FFmpeg installed to $TARGET_DIR"
 EOF
 chmod +x "$DIST_DIR/install_ffmpeg.sh"
 
-# Создаем скрипт установки GStreamer
+# Создаем скрипт установки GStreamer (для RTP видео-режима)
 cat > "$DIST_DIR/install_gstreamer.sh" << 'EOF'
 #!/bin/bash
 set -e
-echo "Downloading and installing GStreamer for macOS via Homebrew..."
+# GStreamer is required only for the legacy RTP video mode.
+# Moonlight streaming uses VideoToolbox + CoreAudio — no GStreamer needed.
+echo "Installing GStreamer for macOS (RTP video mode only)..."
 if ! command -v brew >/dev/null 2>&1; then
-    echo "Homebrew is required but not installed. Please install Homebrew first."
+    echo "Homebrew is required but not installed. See https://brew.sh"
     exit 1
 fi
 brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
-echo "GStreamer installed system-wide. USBridgeClient will find it automatically."
+echo "GStreamer installed. USBridgeClient will find it automatically."
 EOF
 chmod +x "$DIST_DIR/install_gstreamer.sh"
 
@@ -226,17 +235,22 @@ USBridgeClient for macOS
 Run:
   Open USBridgeClient.app
 
+Video modes:
+  Moonlight streaming — VideoToolbox (GPU hardware decode) + CoreAudio audio.
+    No external dependencies required.
+
+  Legacy RTP mode — requires GStreamer.
+    Run ./install_gstreamer.sh to install via Homebrew.
+
 Requirements:
-  - Run ./install_ffmpeg.sh to download FFmpeg locally (required for video decoding fallback).
-  - Run ./install_gstreamer.sh to install GStreamer via Homebrew (required for main video decoding).
   - macOS 10.15+
+  - No external installs needed for Moonlight mode.
 
 Configuration:
   config.yaml next to the .app, or ~/.config/usbridge-client/
 
 Application log:
   ~/Library/Logs/USBridgeClient/app.log
-  If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
 echo -e "\n${YELLOW}📦 Создание архива...${NC}"

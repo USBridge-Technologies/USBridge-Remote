@@ -68,7 +68,10 @@
       "Bash(ssh *)",
       "Bash(sshpass *)",
       "Bash(otool -L /tmp/usbridge_test)",
-      "Bash(nm /tmp/usbridge_test)"
+      "Bash(nm /tmp/usbridge_test)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_linux.sh)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_macos.sh)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_windows.sh)"
     ]
   }
 }

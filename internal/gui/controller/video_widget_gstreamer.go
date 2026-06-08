@@ -43,7 +43,7 @@ func NewVideoWidgetGStreamer(parent fyne.Window, usbClient *api.USBClient, video
 // setupGStreamerCallbacks настраивает callbacks для GStreamer
 func (vw *VideoWidget) setupGStreamerCallbacks() {
 	if vw.videoClient == nil {
-		logrus.Warn("⚠️ GStreamer сервис не инициализирован")
+		logrus.Warn("⚠️ video service not initialized")
 		return
 	}
 
@@ -59,7 +59,7 @@ func (vw *VideoWidget) setupGStreamerCallbacks() {
 
 	// Callback для ошибок
 	vw.videoClient.SetOnError(func(err error) {
-		logrus.Errorf("GStreamer ошибка: %v", err)
+		logrus.Errorf("❌ [Video] stream error: %v", err)
 		fyne.Do(func() {
 			vw.statusLabel.SetText(fmt.Sprintf(i18n.Current.GStreamerError, err))
 		})
@@ -68,7 +68,7 @@ func (vw *VideoWidget) setupGStreamerCallbacks() {
 
 // handleGStreamerStateChange обрабатывает изменение состояния GStreamer
 func (vw *VideoWidget) handleGStreamerStateChange(state string) {
-	logrus.Infof("🎬 [VideoTrace #%d] GStreamer state=%s", vw.videoTraceID.Load(), state)
+	logrus.Infof("🎬 [VideoTrace #%d] video state=%s", vw.videoTraceID.Load(), state)
 	fyne.Do(func() {
 		switch state {
 		case "playing", "connected":
@@ -89,7 +89,7 @@ func (vw *VideoWidget) handleGStreamerStateChange(state string) {
 			traceID := vw.videoTraceID.Load()
 			firstFrameNs := vw.videoTraceFirstFrame.Load()
 			firstPaintNs := vw.videoTraceFirstPaint.Load()
-			logrus.Warnf("⚠️ [VideoTrace #%d] GStreamer EOS first_frame=%v first_paint=%v", traceID, firstFrameNs != 0, firstPaintNs != 0)
+			logrus.Warnf("⚠️ [VideoTrace #%d] video EOS first_frame=%v first_paint=%v", traceID, firstFrameNs != 0, firstPaintNs != 0)
 			vw.infoLabel.SetText("❌ " + i18n.Current.GStreamerEndOfStream)
 		}
 	})
@@ -101,7 +101,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
 	})
 	traceID := vw.beginVideoTrace(fmt.Sprintf("mode=%s device=%s", request.VideoMode, request.VideoDevice))
-	logrus.Infof("🎯 [VideoTrace #%d] preparing GStreamer/video start", traceID)
+	logrus.Infof("🎯 [VideoTrace #%d] preparing video start", traceID)
 	request.TraceID = vw.currentVideoTraceLabel()
 	request.ShowMouse = vw.showMouseCursor
 
@@ -273,7 +273,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	}
 
 	if !vw.connectToGStreamerWithRetries() {
-		logrus.Error("❌ Не удалось запустить GStreamer")
+		logrus.Error("❌ Failed to start video pipeline")
 		_ = vw.usbClient.StopVideo()
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.ErrorVideoStart)
