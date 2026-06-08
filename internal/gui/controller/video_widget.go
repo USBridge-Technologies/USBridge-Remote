@@ -60,6 +60,7 @@ type VideoWidget struct {
 
 	// Видео поток
 	currentFrame         image.Image
+	pendingFrame         atomic.Pointer[image.RGBA] // latest decoded frame, not yet displayed
 	frameMutex           sync.RWMutex
 	lastFrameTime        time.Time
 	frameCount           int64
@@ -67,6 +68,7 @@ type VideoWidget struct {
 	frameRenderScheduled atomic.Bool
 	lastUIFrameRenderAt  atomic.Int64
 	forceCanvasRefresh   atomic.Bool
+	renderTickerStop     chan struct{}
 	videoTraceSeq        atomic.Uint64
 	videoTraceID         atomic.Uint64
 	videoTraceStartedAt  atomic.Int64

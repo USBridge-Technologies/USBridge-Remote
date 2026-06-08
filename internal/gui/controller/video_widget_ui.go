@@ -38,6 +38,7 @@ func (vw *VideoWidget) createInterface() {
 	vw.contentContainer = vw.ui.ContentContainer
 
 	vw.startStatsLoop()
+	vw.startRenderTicker()
 	vw.updateButtons()
 	vw.resetViewport()
 }
@@ -631,50 +632,43 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		}
 	}()
 
-	vw.frameMutex.Lock()
-
-	// Reuse existing frame if bounds match to avoid Fyne interface tear data race
-	if vw.currentFrame == nil || vw.currentFrame.Bounds() != frame.Bounds() {
-		newFrame := image.NewRGBA(frame.Bounds())
-		if rgba, ok := frame.(*image.RGBA); ok {
-			copy(newFrame.Pix, rgba.Pix)
-		} else {
-			draw.Draw(newFrame, newFrame.Bounds(), frame, frame.Bounds().Min, draw.Src)
-		}
-		vw.currentFrame = newFrame
+	// Normalise to *image.RGBA (all HW decoders already produce this type).
+	var rgba *image.RGBA
+	if r, ok := frame.(*image.RGBA); ok {
+		rgba = r
 	} else {
-		if currentRgba, ok := vw.currentFrame.(*image.RGBA); ok {
-			if srcRgba, ok := frame.(*image.RGBA); ok {
-				copy(currentRgba.Pix, srcRgba.Pix)
-			} else {
-				draw.Draw(currentRgba, currentRgba.Bounds(), frame, frame.Bounds().Min, draw.Src)
-			}
-		}
+		b := frame.Bounds()
+		rgba = image.NewRGBA(b)
+		draw.Draw(rgba, b, frame, b.Min, draw.Src)
 	}
 
+	vw.frameMutex.Lock()
 	vw.frameCount++
 	frameNum := vw.frameCount
 	vw.lastFrameTime = time.Now()
 	vw.frameMutex.Unlock()
 
+	// Atomic store — render ticker picks this up at next 60Hz tick.
+	// No copy into currentFrame; that happens in renderLatestFrame on the display thread.
+	vw.pendingFrame.Store(rgba)
+
 	if frameNum <= 10 || frameNum%120 == 0 {
-		vw.updateFrameContentRect(vw.currentFrame)
+		vw.updateFrameContentRect(rgba)
 	}
 
 	vw.frameDecoder.IncrementFrameCount()
 	vw.noteVideoTraceFirstFrame(frameNum)
 
 	if frameNum == 1 {
-		bounds := vw.currentFrame.Bounds()
+		bounds := rgba.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
-		vw.dumpFrameSnapshot(vw.currentFrame, frameNum)
+		vw.dumpFrameSnapshot(rgba, frameNum)
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
-		bounds := vw.currentFrame.Bounds()
-		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d stats=%s", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy(), summarizeImage(vw.currentFrame))
+		bounds := rgba.Bounds()
+		logrus.Infof("🖼️ [VIDEO] client frame trace=%s frame=%d size=%dx%d stats=%s", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy(), summarizeImage(rgba))
 	}
-
-	vw.scheduleFrameRender()
+	// Render is driven by the 60 Hz ticker — no scheduleFrameRender() call needed here.
 }
 
 // handleFullscreen обрабатывает переключение в полноэкранный режим.
@@ -881,6 +875,7 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
 	vw.frameDecoder.Reset()
+	vw.pendingFrame.Store(nil)
 	vw.frameRenderScheduled.Store(false)
 	vw.UpdateCursorOverlayPointer(0, 0, false)
 
@@ -983,16 +978,54 @@ func (vw *VideoWidget) scheduleFrameRender() {
 	})
 }
 
+// startRenderTicker starts a 60 Hz goroutine that drives all canvas refreshes.
+// Decoding and display are fully decoupled: the decoder stores frames via
+// pendingFrame.Store; the ticker picks up the latest one each display cycle.
+func (vw *VideoWidget) startRenderTicker() {
+	if vw.renderTickerStop != nil {
+		close(vw.renderTickerStop)
+	}
+	stop := make(chan struct{})
+	vw.renderTickerStop = stop
+
+	go func() {
+		ticker := time.NewTicker(time.Second / 60)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if vw.isClosing.Load() {
+					return
+				}
+				if vw.pendingFrame.Load() == nil && !vw.forceCanvasRefresh.Load() {
+					continue
+				}
+				vw.scheduleFrameRender()
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
 func (vw *VideoWidget) renderLatestFrame() {
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.Errorf("🔥 PANIC in renderLatestFrame: %v", r)
 		}
 	}()
-	vw.frameMutex.RLock()
+
+	// Atomically take the latest decoded frame (no copy — just pointer swap).
+	pending := vw.pendingFrame.Swap(nil)
+
+	vw.frameMutex.Lock()
+	if pending != nil {
+		vw.currentFrame = pending // transfer ownership to currentFrame
+	}
 	frame := vw.currentFrame
 	frameNum := vw.frameCount
-	vw.frameMutex.RUnlock()
+	vw.frameMutex.Unlock()
+
 	if frame == nil {
 		return
 	}
@@ -1008,9 +1041,8 @@ func (vw *VideoWidget) renderLatestFrame() {
 		}
 		vw.videoCanvas.Refresh()
 	}
-	if mainWindowVisible && vw.touchpadWrapper != nil {
-		vw.touchpadWrapper.Refresh()
-	}
+	// touchpadWrapper.Refresh() removed from per-frame hot path;
+	// cursor updates call Refresh() directly via UpdateCursorOverlayPointer.
 	if mainWindowVisible && (frameNum == 1 || needsFullRefresh) {
 		vw.noteVideoTraceFirstPaint(frameNum)
 		if vw.contentContainer != nil {
@@ -1027,13 +1059,7 @@ func (vw *VideoWidget) renderLatestFrame() {
 	}
 	vw.lastUIFrameRenderAt.Store(time.Now().UnixNano())
 	vw.frameRenderScheduled.Store(false)
-
-	vw.frameMutex.RLock()
-	hasNewerFrame := vw.currentFrame != nil && vw.frameCount != frameNum
-	vw.frameMutex.RUnlock()
-	if hasNewerFrame {
-		vw.scheduleFrameRender()
-	}
+	// No hasNewerFrame re-schedule — the 60 Hz ticker picks up the next frame automatically.
 }
 
 func summarizeImage(img image.Image) string {
