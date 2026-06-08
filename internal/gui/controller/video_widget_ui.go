@@ -176,6 +176,23 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 		}
 	}
 
+	// For virtual/display devices (e.g. "display:N" used in Sunshine/Moonlight mode)
+	// the server cannot run v4l2-ctl on the path and returns no capture_modes.
+	// Fall back to the default device query to get the actual V4L2 capabilities.
+	if devicePath != "" && (lastInfo == nil || len(lastInfo.CaptureModes) == 0) {
+		logrus.Infof("ℹ️ No capture modes for device=%s, falling back to default device query", devicePath)
+		fallback := vw.fetchVideoInfoForStartDialog("")
+		if fallback != nil && len(fallback.CaptureModes) > 0 {
+			if lastInfo != nil {
+				// Preserve current status (width/height/fps/streaming) but inject capture modes
+				lastInfo.CaptureModes = fallback.CaptureModes
+				lastInfo.SupportedModes = fallback.SupportedModes
+				return lastInfo
+			}
+			return fallback
+		}
+	}
+
 	return lastInfo
 }
 
