@@ -1,11 +1,19 @@
-// gl_video_impl_windows.c — GDI video overlay for Windows.
+// gl_video_impl_windows.c — GDI child-window video overlay for Windows.
 //
-// Previously used WGL/OpenGL which caused a DWM compositor deadlock on Win10+:
-//   render-thread SwapBuffers → DWM → SendMessage(parent) blocked on GLFW loop
-//   GLFW loop → blocked in its own SwapBuffers waiting for DWM
+// Architecture:
+//   Parent HWND  — Fyne's GLFW window (OpenGL rendering, owned by Fyne).
+//   Child HWND   — our overlay, WS_CHILD | WS_VISIBLE, positioned over the
+//                  video canvas area (CS_OWNDC for a dedicated GDI device context).
 //
-// Now uses CreateDIBSection + StretchBlt. GDI draws directly via WDDM without
-// any DWM swap-chain synchronisation, eliminating the deadlock entirely.
+// Why child HWND + GDI (not the parent DC, not WGL):
+//   • Parent DC + GDI conflicts with Fyne's OpenGL SwapBuffers — the DWM
+//     composites both layers but Fyne's SwapBuffers can overwrite GDI pixels,
+//     causing the double-image ("наложенная трансляция") artefact.
+//   • WGL on a child HWND + Fyne's parent-window SwapBuffers deadlock on
+//     Win10+ via DWM cross-thread SendMessage.
+//   • GDI on a child HWND is independent of Fyne's OpenGL surface.
+//     StretchBlt goes through WDDM without any DWM swap-chain interaction,
+//     and SetWindowPos on a GDI child is safe from the message-loop thread.
 
 #ifdef _WIN32
 
@@ -22,21 +30,19 @@
 extern void goGLLog(char *msg, int level);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Window / GDI state
+// Child window / GDI state
 
-static HWND    g_hwnd    = NULL;  // parent Fyne/GLFW HWND; no child HWND is created
-static HDC     g_hdc     = NULL;  // parent window DC acquired with GetDC(parent)
-static atomic_int g_dst_x = 0, g_dst_y = 0, g_dst_w = 0, g_dst_h = 0;
+static HWND    g_hwnd    = NULL;   // child HWND, CS_OWNDC
+static HDC     g_hdc     = NULL;   // child window DC, never released until DestroyWindow
 
-// DIB section used as source bitmap for StretchBlt.
-// Pixel format: BGRA (matches AV_PIX_FMT_BGRA from sws_scale — pure memcpy, no swap).
+// DIB section — BGRA pixels (matches AV_PIX_FMT_BGRA → BI_RGB/32-bit).
 static HBITMAP  g_bmp      = NULL;
 static uint8_t *g_bmp_bits = NULL;
 static int      g_bmp_w    = 0, g_bmp_h = 0;
 
-// Cached memory DC for StretchBlt (avoids CreateCompatibleDC per frame).
-static HDC     g_memDC    = NULL;
-static HBITMAP g_memDC_old = NULL;
+// Cached memory DC to avoid CreateCompatibleDC per frame.
+static HDC      g_memDC     = NULL;
+static HBITMAP  g_memDC_old = NULL;
 
 static volatile atomic_int g_active = 0;
 
@@ -51,7 +57,7 @@ static int              g_cs_init = 0;
 static HANDLE           g_thread  = NULL;
 static HANDLE           g_event   = NULL;
 
-// ── Stats — written by render thread (volatile), read by Go via polling ───────
+// ── Stats (written by render thread, read by Go via polling) ─────────────────
 static volatile long long g_submitted = 0, g_rendered = 0;
 static volatile long long g_fps_n = 0;
 static volatile double    g_fps_t0 = 0.0;
@@ -62,35 +68,6 @@ static volatile int       g_stat_fps_ready = 0;
 static volatile int       g_stat_first     = 0;
 static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
-// ── Diagnostics exported to a Go watchdog goroutine ─────────────────────────
-enum {
-    GDI_STAGE_IDLE = 0,
-    GDI_STAGE_WAIT = 1,
-    GDI_STAGE_COPY_PENDING = 2,
-    GDI_STAGE_ENSURE_DIB = 3,
-    GDI_STAGE_COPY_DIB = 4,
-    GDI_STAGE_GET_CLIENT = 5,
-    GDI_STAGE_FILL_BARS = 6,
-    GDI_STAGE_STRETCH_BLT = 7,
-    GDI_STAGE_STATS = 8,
-};
-
-static volatile int       g_diag_stage = GDI_STAGE_IDLE;
-static volatile double    g_diag_stage_t = 0.0;
-static volatile double    g_diag_last_submit_t = 0.0;
-static volatile double    g_diag_last_render_begin_t = 0.0;
-static volatile double    g_diag_last_render_end_t = 0.0;
-static volatile double    g_diag_last_blt_begin_t = 0.0;
-static volatile double    g_diag_last_blt_end_t = 0.0;
-static volatile double    g_diag_last_render_ms = 0.0;
-static volatile double    g_diag_last_blt_ms = 0.0;
-static volatile int       g_diag_last_blt_ok = 0;
-static volatile unsigned  g_diag_last_winerr = 0;
-static volatile long long g_diag_update_posted = 0;
-static volatile long long g_diag_update_applied = 0;
-static volatile double    g_diag_last_update_req_t = 0.0;
-static volatile double    g_diag_last_update_apply_t = 0.0;
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 static double mono_sec(void) {
@@ -100,26 +77,18 @@ static double mono_sec(void) {
     return (double)c.QuadPart / (double)f.QuadPart;
 }
 
-static void diag_stage(int stage) {
-    g_diag_stage = stage;
-    g_diag_stage_t = mono_sec();
-}
-
-// Recreate the DIB section (and memory DC) only when frame dimensions change.
 static void gdi_ensure_bmp(int w, int h) {
     if (g_bmp && g_bmp_w == w && g_bmp_h == h) return;
-
-    // Detach old bitmap from memory DC before deleting it.
     if (g_memDC && g_memDC_old) { SelectObject(g_memDC, g_memDC_old); g_memDC_old = NULL; }
     if (g_bmp) { DeleteObject(g_bmp); g_bmp = NULL; g_bmp_bits = NULL; }
 
     BITMAPINFO bmi = {0};
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth       = w;
-    bmi.bmiHeader.biHeight      = -h; // negative = top-down (matches FFmpeg row order)
+    bmi.bmiHeader.biHeight      = -h; // top-down
     bmi.bmiHeader.biPlanes      = 1;
     bmi.bmiHeader.biBitCount    = 32;
-    bmi.bmiHeader.biCompression = BI_RGB; // 32-bit: B G R A (GDI ignores A)
+    bmi.bmiHeader.biCompression = BI_RGB; // 32-bit BGRA, GDI ignores A byte
 
     HDC screen = GetDC(NULL);
     g_bmp = CreateDIBSection(screen, &bmi, DIB_RGB_COLORS, (void**)&g_bmp_bits, NULL, 0);
@@ -127,7 +96,6 @@ static void gdi_ensure_bmp(int w, int h) {
 
     if (g_bmp) {
         g_bmp_w = w; g_bmp_h = h;
-        // Create/reuse memory DC and select the new bitmap.
         if (!g_memDC) g_memDC = CreateCompatibleDC(g_hdc);
         if (g_memDC)  g_memDC_old = (HBITMAP)SelectObject(g_memDC, g_bmp);
     }
@@ -136,10 +104,7 @@ static void gdi_ensure_bmp(int w, int h) {
 static void gdi_render_frame(void) {
     int fw, fh, fs;
     uint8_t *tmp = NULL;
-    double render_t0 = mono_sec();
-    g_diag_last_render_begin_t = render_t0;
 
-    diag_stage(GDI_STAGE_COPY_PENDING);
     EnterCriticalSection(&g_cs);
     if (g_ready && g_buf) {
         fw = g_fw; fh = g_fh; fs = g_fs;
@@ -151,10 +116,8 @@ static void gdi_render_frame(void) {
     LeaveCriticalSection(&g_cs);
     if (!tmp) return;
 
-    // Copy BGRA rows into DIB (AV_PIX_FMT_BGRA matches GDI's BI_RGB/32-bit layout exactly).
-    diag_stage(GDI_STAGE_ENSURE_DIB);
+    // BGRA from sws_scale matches GDI BI_RGB/32-bit — straight memcpy per row.
     gdi_ensure_bmp(fw, fh);
-    diag_stage(GDI_STAGE_COPY_DIB);
     if (g_bmp && g_bmp_bits) {
         size_t row = (size_t)fw * 4;
         for (int y = 0; y < fh; y++)
@@ -164,58 +127,32 @@ static void gdi_render_frame(void) {
 
     if (!g_bmp || !g_memDC || !g_hdc) return;
 
-    diag_stage(GDI_STAGE_GET_CLIENT);
+    // Child window size = video canvas area; letterbox within it.
     RECT rc; GetClientRect(g_hwnd, &rc);
-    int parent_w = rc.right - rc.left, parent_h = rc.bottom - rc.top;
-    if (parent_w <= 0 || parent_h <= 0) return;
-
-    int vx = atomic_load(&g_dst_x);
-    int vy = atomic_load(&g_dst_y);
-    int ww = atomic_load(&g_dst_w);
-    int wh = atomic_load(&g_dst_h);
-    if (ww <= 0 || wh <= 0) {
-        vx = 0; vy = 0; ww = parent_w; wh = parent_h;
-    }
-    if (vx < 0) { ww += vx; vx = 0; }
-    if (vy < 0) { wh += vy; vy = 0; }
-    if (vx + ww > parent_w) ww = parent_w - vx;
-    if (vy + wh > parent_h) wh = parent_h - vy;
+    int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
     if (ww <= 0 || wh <= 0) return;
 
-    // Letterbox: keep frame aspect ratio, fill remainder with black.
     float fa = (float)fw / (float)(fh ? fh : 1);
     float wa = (float)ww / (float)(wh ? wh : 1);
     int dx = 0, dy = 0, dw = ww, dh = wh;
     if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }
     else         { dw = (int)(wh * fa + 0.5f); dx = (ww - dw) / 2; }
-    dx += vx;
-    dy += vy;
 
-    diag_stage(GDI_STAGE_FILL_BARS);
     HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    if (dy > vy) {
-        RECT top = {vx, vy, vx + ww, dy};       FillRect(g_hdc, &top, blk);
-        RECT bot = {vx, dy+dh, vx + ww, vy + wh};   FillRect(g_hdc, &bot, blk);
+    if (dy > 0) {
+        RECT top = {0, 0, ww, dy};       FillRect(g_hdc, &top, blk);
+        RECT bot = {0, dy+dh, ww, wh};   FillRect(g_hdc, &bot, blk);
     }
-    if (dx > vx) {
-        RECT lft = {vx, dy, dx, dy+dh};          FillRect(g_hdc, &lft, blk);
-        RECT rgt = {dx+dw, dy, vx + ww, dy+dh};      FillRect(g_hdc, &rgt, blk);
+    if (dx > 0) {
+        RECT lft = {0, dy, dx, dy+dh};        FillRect(g_hdc, &lft, blk);
+        RECT rgt = {dx+dw, dy, ww, dy+dh};    FillRect(g_hdc, &rgt, blk);
     }
 
     SetStretchBltMode(g_hdc, HALFTONE);
-    SetBrushOrgEx(g_hdc, 0, 0, NULL); // required after HALFTONE
-    diag_stage(GDI_STAGE_STRETCH_BLT);
-    double blt_t0 = mono_sec();
-    g_diag_last_blt_begin_t = blt_t0;
-    BOOL blt_ok = StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
-    double blt_t1 = mono_sec();
-    g_diag_last_blt_end_t = blt_t1;
-    g_diag_last_blt_ms = (blt_t1 - blt_t0) * 1000.0;
-    g_diag_last_blt_ok = blt_ok ? 1 : 0;
-    g_diag_last_winerr = blt_ok ? 0 : GetLastError();
+    SetBrushOrgEx(g_hdc, 0, 0, NULL);
+    StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
 
-    // Update stats atomics (render thread — no goGLLog allowed here).
-    diag_stage(GDI_STAGE_STATS);
+    // Stats (render thread — no goGLLog allowed here).
     g_rendered++;
     g_fps_n++;
     g_stat_rendered  = g_rendered;
@@ -231,17 +168,12 @@ static void gdi_render_frame(void) {
         g_stat_fps_ready = 1;
         g_fps_t0 = now; g_fps_n = 0;
     }
-    double render_t1 = mono_sec();
-    g_diag_last_render_end_t = render_t1;
-    g_diag_last_render_ms = (render_t1 - render_t0) * 1000.0;
-    diag_stage(GDI_STAGE_IDLE);
 }
 
 static DWORD WINAPI render_thread_fn(LPVOID unused) {
     (void)unused;
-    // Pure GDI — no wglMakeCurrent, no SwapBuffers, no DWM interaction.
+    // Pure GDI — no wglMakeCurrent, no SwapBuffers, no DWM swap-chain interaction.
     while (atomic_load(&g_active)) {
-        diag_stage(GDI_STAGE_WAIT);
         DWORD r = WaitForSingleObject(g_event, 16);
         if (!atomic_load(&g_active)) break;
         if ((r == WAIT_OBJECT_0 || r == WAIT_TIMEOUT) && g_ready)
@@ -250,13 +182,31 @@ static DWORD WINAPI render_thread_fn(LPVOID unused) {
     return 0;
 }
 
+static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_ERASEBKGND) return 1;
+    if (m == WM_PAINT) { PAINTSTRUCT ps; BeginPaint(h,&ps); EndPaint(h,&ps); return 0; }
+    return DefWindowProcW(h, m, w, l);
+}
+
+static const wchar_t *WCLASS = L"USBGDIVideo";
+static int ensure_class(void) {
+    static int done = 0;
+    if (done) return 1;
+    WNDCLASSEXW wc = {0};
+    wc.cbSize = sizeof(wc); wc.style = CS_OWNDC;
+    wc.lpfnWndProc = gl_wndproc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = WCLASS;
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return 0;
+    done = 1; return 1;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Public C API (called from gl_video_windows.go via CGO)
+// Public C API
 
 int gl_video_is_active(void) { return atomic_load(&g_active); }
 
-// gl_video_try_submit — accepts BGRA frames (AV_PIX_FMT_BGRA from sws_scale).
-// Returns 1 if overlay is active and the frame was queued.
 int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!atomic_load(&g_active)) return 0;
     size_t sz = (size_t)height * (size_t)stride;
@@ -271,24 +221,22 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
         memcpy(g_buf, rgba, sz);
         g_fw = width; g_fh = height; g_fs = stride;
         g_ready = 1; g_submitted++;
-        g_diag_last_submit_t = mono_sec();
     }
     LeaveCriticalSection(&g_cs);
     SetEvent(g_event);
     return 1;
 }
 
-// x,y,w,h in Windows client pixels. Pass w<=0 or h<=0 for full-client-area mode.
+// x,y,w,h in parent client pixels. Pass w<=0 or h<=0 for full-client-area mode.
 int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
-    (void)vsync; // GDI has no swap interval
+    (void)vsync;
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);
         if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
         if (g_event)   { CloseHandle(g_event); g_event=NULL; }
         if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
         if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-        if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
-        g_hwnd=NULL;
+        if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
         if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
         if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
         g_bmp_w=0; g_bmp_h=0;
@@ -296,6 +244,7 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goGLLog("gl_video_create: parent HWND is null", 2); return 0; }
+    if (!ensure_class()) { goGLLog("gl_video_create: RegisterClass failed", 2); return 0; }
 
     int fullwin = (w <= 0 || h <= 0);
     if (fullwin) {
@@ -303,28 +252,21 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         x=0; y=0; w=rc.right-rc.left; h=rc.bottom-rc.top;
     }
 
-    g_hwnd = parent;
-    g_hdc = GetDC(parent);
-    if (!g_hdc) { goGLLog("gl_video_create: GetDC(parent) failed", 2); g_hwnd=NULL; return 0; }
-    atomic_store(&g_dst_x, x);
-    atomic_store(&g_dst_y, y);
-    atomic_store(&g_dst_w, w);
-    atomic_store(&g_dst_h, h);
+    g_hwnd = CreateWindowExW(0, WCLASS, L"", WS_CHILD|WS_VISIBLE,
+                              x, y, w, h, parent, NULL, GetModuleHandleW(NULL), NULL);
+    if (!g_hwnd) { goGLLog("gl_video_create: CreateWindowEx failed", 2); return 0; }
+    g_hdc = GetDC(g_hwnd); // CS_OWNDC — kept for lifetime of g_hwnd
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) {
         goGLLog("gl_video_create: CreateEvent failed", 2);
-        ReleaseDC(g_hwnd, g_hdc); g_hwnd=NULL; g_hdc=NULL;
+        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
     g_ready=0; g_stat_first=0; g_stat_fw=0; g_stat_fh=0;
-    g_diag_last_submit_t=0; g_diag_last_render_begin_t=0; g_diag_last_render_end_t=0;
-    g_diag_last_blt_begin_t=0; g_diag_last_blt_end_t=0; g_diag_last_render_ms=0; g_diag_last_blt_ms=0;
-    g_diag_last_blt_ok=0; g_diag_last_winerr=0; g_diag_update_posted=0; g_diag_update_applied=0;
-    g_diag_last_update_req_t=0; g_diag_last_update_apply_t=0; diag_stage(GDI_STAGE_IDLE);
     atomic_store(&g_active, 1);
 
     g_thread = CreateThread(NULL, 0, render_thread_fn, NULL, 0, NULL);
@@ -332,31 +274,25 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         goGLLog("gl_video_create: CreateThread failed", 2);
         atomic_store(&g_active, 0);
         CloseHandle(g_event); g_event=NULL;
-        ReleaseDC(g_hwnd, g_hdc); g_hwnd=NULL; g_hdc=NULL;
+        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
     char m[256];
     if (fullwin)
-        snprintf(m, sizeof(m), "GDI parent-DC renderer created (full-window %dx%d) HWND=%p", w, h, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI child overlay created (full-window %dx%d) parent=%p", w, h, (void*)parent_hwnd);
     else
-        snprintf(m, sizeof(m), "GDI parent-DC renderer created %dx%d at (%d,%d) HWND=%p", w, h, x, y, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI child overlay created %dx%d at (%d,%d) parent=%p", w, h, x, y, (void*)parent_hwnd);
     goGLLog(m, 0);
     return 1;
 }
 
-// Stores the target video rect in parent client pixels. The render thread reads
-// this atomically and draws directly into the parent DC; no child HWND/messages.
+// Reposition the child HWND to track the video canvas.
+// Safe to call directly from the message-loop thread (fyne.Do) — GDI child
+// windows do NOT interact with the DWM swap chain, so no deadlock risk.
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active) || !g_hwnd) return;
-    atomic_store(&g_dst_x, x);
-    atomic_store(&g_dst_y, y);
-    atomic_store(&g_dst_w, w);
-    atomic_store(&g_dst_h, h);
-    g_diag_update_posted++;
-    g_diag_update_applied++;
-    g_diag_last_update_req_t = mono_sec();
-    g_diag_last_update_apply_t = g_diag_last_update_req_t;
+    SetWindowPos(g_hwnd, NULL, x, y, w, h, SWP_NOZORDER|SWP_NOACTIVATE);
 }
 
 void gl_video_destroy(void) {
@@ -366,27 +302,18 @@ void gl_video_destroy(void) {
     if (g_event)   { CloseHandle(g_event); g_event=NULL; }
     if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
     if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-    if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
-    g_hwnd=NULL;
+    if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
     if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
     if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
     g_bmp_w=0; g_bmp_h=0;
     char m[192];
-    snprintf(m, sizeof(m), "GDI overlay destroyed — rendered=%lld submitted=%lld", g_rendered, g_submitted);
+    snprintf(m, sizeof(m), "GDI child overlay destroyed — rendered=%lld submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
 }
 
 void gl_video_get_stats(long long *rendered, long long *submitted,
                         float *fps, int *fps_ready,
-                        int *first_frame, int *fw, int *fh,
-                        int *stage, int *stage_ms,
-                        int *last_submit_ms, int *last_render_begin_ms, int *last_render_end_ms,
-                        int *last_blt_begin_ms, int *last_blt_end_ms,
-                        int *last_render_ms, int *last_blt_ms,
-                        int *last_blt_ok, unsigned *last_winerr,
-                        long long *update_posted, long long *update_applied,
-                        int *last_update_req_ms, int *last_update_apply_ms) {
-    double now = mono_sec();
+                        int *first_frame, int *fw, int *fh) {
     *rendered    = g_stat_rendered;
     *submitted   = g_stat_submitted;
     *fps         = g_stat_fps;
@@ -394,21 +321,6 @@ void gl_video_get_stats(long long *rendered, long long *submitted,
     *first_frame = g_stat_first;
     *fw          = g_stat_fw;
     *fh          = g_stat_fh;
-    *stage       = g_diag_stage;
-    *stage_ms    = g_diag_stage_t > 0 ? (int)((now - g_diag_stage_t) * 1000.0) : -1;
-    *last_submit_ms = g_diag_last_submit_t > 0 ? (int)((now - g_diag_last_submit_t) * 1000.0) : -1;
-    *last_render_begin_ms = g_diag_last_render_begin_t > 0 ? (int)((now - g_diag_last_render_begin_t) * 1000.0) : -1;
-    *last_render_end_ms = g_diag_last_render_end_t > 0 ? (int)((now - g_diag_last_render_end_t) * 1000.0) : -1;
-    *last_blt_begin_ms = g_diag_last_blt_begin_t > 0 ? (int)((now - g_diag_last_blt_begin_t) * 1000.0) : -1;
-    *last_blt_end_ms = g_diag_last_blt_end_t > 0 ? (int)((now - g_diag_last_blt_end_t) * 1000.0) : -1;
-    *last_render_ms = (int)g_diag_last_render_ms;
-    *last_blt_ms = (int)g_diag_last_blt_ms;
-    *last_blt_ok = g_diag_last_blt_ok;
-    *last_winerr = g_diag_last_winerr;
-    *update_posted = g_diag_update_posted;
-    *update_applied = g_diag_update_applied;
-    *last_update_req_ms = g_diag_last_update_req_t > 0 ? (int)((now - g_diag_last_update_req_t) * 1000.0) : -1;
-    *last_update_apply_ms = g_diag_last_update_apply_t > 0 ? (int)((now - g_diag_last_update_apply_t) * 1000.0) : -1;
 }
 
 void gl_video_clear_pending_stats(void) {

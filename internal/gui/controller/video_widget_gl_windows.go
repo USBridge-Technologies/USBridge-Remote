@@ -50,12 +50,20 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			pw = int(w * scale)
 			ph = int(h * scale)
 		}
-		// pw=0,ph=0 means full client area in C code.
 		// Reset cached geometry so the first GLVideoUpdateFrame call after creation
 		// unconditionally repositions (in case position changed since creation).
 		service.GLVideoResetLastFrame()
 		if !service.GLVideoCreate(hwnd, px, py, pw, ph, vw.enableVSync) {
 			logrus.Warn("[GDI/Win] failed to create overlay — Fyne canvas path active")
+			return
+		}
+		// GDI child window now owns the video area. Clear the Fyne canvas so Fyne
+		// does not repaint the stale first-frame image underneath the overlay,
+		// which would produce a "double image" artefact.
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Image = nil
+			vw.videoCanvas.Resource = nil
+			vw.videoCanvas.Refresh()
 		}
 	})
 }
