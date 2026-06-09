@@ -15,7 +15,8 @@ extern void gl_video_update_frame(int x, int y, int w, int h);
 extern void gl_video_destroy(void);
 extern void gl_video_get_stats(long long *rendered, long long *submitted,
                                float *fps, int *fps_ready,
-                               int *first_frame, int *fw, int *fh);
+                               int *first_frame, int *fw, int *fh,
+                               float *max_gap_ms);
 extern void gl_video_clear_pending_stats(void);
 
 // goGLLog is called only from gl_video_create/destroy (CGO context — safe).
@@ -103,15 +104,18 @@ type GLVideoStats struct {
 	FPSReady   bool
 	FirstFrame bool
 	FW, FH     int
+	// MaxGapMs is the maximum interval between consecutive GDI blits in the last
+	// reporting window (ms). Values > 16 ms indicate a potential visible flash.
+	MaxGapMs float32
 }
 
 // GLVideoGetStats reads stats accumulated by the render thread.
 // Safe to call from any Go goroutine (render thread never calls Go).
 func GLVideoGetStats() GLVideoStats {
 	var r, s C.longlong
-	var fp C.float
+	var fp, mgap C.float
 	var fpsr, ff, fw, fh C.int
-	C.gl_video_get_stats(&r, &s, &fp, &fpsr, &ff, &fw, &fh)
+	C.gl_video_get_stats(&r, &s, &fp, &fpsr, &ff, &fw, &fh, &mgap)
 	return GLVideoStats{
 		Rendered:   int64(r),
 		Submitted:  int64(s),
@@ -120,6 +124,7 @@ func GLVideoGetStats() GLVideoStats {
 		FirstFrame: ff != 0,
 		FW:         int(fw),
 		FH:         int(fh),
+		MaxGapMs:   float32(mgap),
 	}
 }
 

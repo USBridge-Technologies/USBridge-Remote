@@ -68,6 +68,11 @@ static volatile int       g_stat_fps_ready = 0;
 static volatile int       g_stat_first     = 0;
 static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
+// Blit-gap profiling: maximum time between consecutive StretchBlt calls (ms).
+// A gap > 16 ms means the GDI surface was dark for at least one display frame.
+static volatile float  g_stat_max_gap_ms = 0.0f;
+static volatile double g_last_blit_ts    = 0.0;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 static double mono_sec(void) {
@@ -175,6 +180,14 @@ static void gdi_render_frame(void) {
     StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, sw, sh, SRCCOPY);
     GdiFlush(); // commit GDI batch immediately so DWM sees fresh surface on next composite
 
+    // Blit-gap profiling: track the maximum interval between consecutive blits.
+    double now_blit = mono_sec();
+    if (g_last_blit_ts > 0.0) {
+        float gap_ms = (float)((now_blit - g_last_blit_ts) * 1000.0);
+        if (gap_ms > g_stat_max_gap_ms) g_stat_max_gap_ms = gap_ms;
+    }
+    g_last_blit_ts = now_blit;
+
     // Count stats for new frames only (not for cached repaints).
     if (tmp) {
         g_rendered++;
@@ -273,6 +286,7 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
     g_ready=0; g_has_frame=0; g_stat_first=0; g_stat_fw=0; g_stat_fh=0;
+    g_stat_max_gap_ms=0.0f; g_last_blit_ts=0.0;
     atomic_store(&g_active, 1);
 
     g_thread = CreateThread(NULL, 0, render_thread_fn, NULL, 0, NULL);
@@ -322,7 +336,8 @@ void gl_video_destroy(void) {
 
 void gl_video_get_stats(long long *rendered, long long *submitted,
                         float *fps, int *fps_ready,
-                        int *first_frame, int *fw, int *fh) {
+                        int *first_frame, int *fw, int *fh,
+                        float *max_gap_ms) {
     *rendered    = g_stat_rendered;
     *submitted   = g_stat_submitted;
     *fps         = g_stat_fps;
@@ -330,11 +345,13 @@ void gl_video_get_stats(long long *rendered, long long *submitted,
     *first_frame = g_stat_first;
     *fw          = g_stat_fw;
     *fh          = g_stat_fh;
+    *max_gap_ms  = g_stat_max_gap_ms;
 }
 
 void gl_video_clear_pending_stats(void) {
-    g_stat_fps_ready = 0;
-    g_stat_first     = 0;
+    g_stat_fps_ready  = 0;
+    g_stat_first      = 0;
+    g_stat_max_gap_ms = 0.0f; // reset per reporting window
 }
 
 #endif // _WIN32
