@@ -61,6 +61,35 @@ static volatile int       g_stat_fps_ready = 0;
 static volatile int       g_stat_first     = 0;
 static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
+// ── Diagnostics exported to a Go watchdog goroutine ─────────────────────────
+enum {
+    GDI_STAGE_IDLE = 0,
+    GDI_STAGE_WAIT = 1,
+    GDI_STAGE_COPY_PENDING = 2,
+    GDI_STAGE_ENSURE_DIB = 3,
+    GDI_STAGE_COPY_DIB = 4,
+    GDI_STAGE_GET_CLIENT = 5,
+    GDI_STAGE_FILL_BARS = 6,
+    GDI_STAGE_STRETCH_BLT = 7,
+    GDI_STAGE_STATS = 8,
+};
+
+static volatile int       g_diag_stage = GDI_STAGE_IDLE;
+static volatile double    g_diag_stage_t = 0.0;
+static volatile double    g_diag_last_submit_t = 0.0;
+static volatile double    g_diag_last_render_begin_t = 0.0;
+static volatile double    g_diag_last_render_end_t = 0.0;
+static volatile double    g_diag_last_blt_begin_t = 0.0;
+static volatile double    g_diag_last_blt_end_t = 0.0;
+static volatile double    g_diag_last_render_ms = 0.0;
+static volatile double    g_diag_last_blt_ms = 0.0;
+static volatile int       g_diag_last_blt_ok = 0;
+static volatile unsigned  g_diag_last_winerr = 0;
+static volatile long long g_diag_update_posted = 0;
+static volatile long long g_diag_update_applied = 0;
+static volatile double    g_diag_last_update_req_t = 0.0;
+static volatile double    g_diag_last_update_apply_t = 0.0;
+
 // ── Deferred SetWindowPos — avoids any residual cross-thread issues ────────────
 // Written/read on Win32 message-loop thread only (fyne.Do → gl_wndproc).
 #define WM_GDI_UPDATE_FRAME (WM_APP + 1)
@@ -74,6 +103,11 @@ static double mono_sec(void) {
     QueryPerformanceFrequency(&f);
     QueryPerformanceCounter(&c);
     return (double)c.QuadPart / (double)f.QuadPart;
+}
+
+static void diag_stage(int stage) {
+    g_diag_stage = stage;
+    g_diag_stage_t = mono_sec();
 }
 
 // Recreate the DIB section (and memory DC) only when frame dimensions change.
@@ -107,7 +141,10 @@ static void gdi_ensure_bmp(int w, int h) {
 static void gdi_render_frame(void) {
     int fw, fh, fs;
     uint8_t *tmp = NULL;
+    double render_t0 = mono_sec();
+    g_diag_last_render_begin_t = render_t0;
 
+    diag_stage(GDI_STAGE_COPY_PENDING);
     EnterCriticalSection(&g_cs);
     if (g_ready && g_buf) {
         fw = g_fw; fh = g_fh; fs = g_fs;
@@ -120,7 +157,9 @@ static void gdi_render_frame(void) {
     if (!tmp) return;
 
     // Copy BGRA rows into DIB (AV_PIX_FMT_BGRA matches GDI's BI_RGB/32-bit layout exactly).
+    diag_stage(GDI_STAGE_ENSURE_DIB);
     gdi_ensure_bmp(fw, fh);
+    diag_stage(GDI_STAGE_COPY_DIB);
     if (g_bmp && g_bmp_bits) {
         size_t row = (size_t)fw * 4;
         for (int y = 0; y < fh; y++)
@@ -130,6 +169,7 @@ static void gdi_render_frame(void) {
 
     if (!g_bmp || !g_memDC || !g_hdc) return;
 
+    diag_stage(GDI_STAGE_GET_CLIENT);
     RECT rc; GetClientRect(g_hwnd, &rc);
     int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
     if (ww <= 0 || wh <= 0) return;
@@ -141,6 +181,7 @@ static void gdi_render_frame(void) {
     if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }
     else         { dw = (int)(wh * fa + 0.5f); dx = (ww - dw) / 2; }
 
+    diag_stage(GDI_STAGE_FILL_BARS);
     HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
     if (dy > 0) {
         RECT top = {0, 0, ww, dy};       FillRect(g_hdc, &top, blk);
@@ -153,9 +194,18 @@ static void gdi_render_frame(void) {
 
     SetStretchBltMode(g_hdc, HALFTONE);
     SetBrushOrgEx(g_hdc, 0, 0, NULL); // required after HALFTONE
-    StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
+    diag_stage(GDI_STAGE_STRETCH_BLT);
+    double blt_t0 = mono_sec();
+    g_diag_last_blt_begin_t = blt_t0;
+    BOOL blt_ok = StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
+    double blt_t1 = mono_sec();
+    g_diag_last_blt_end_t = blt_t1;
+    g_diag_last_blt_ms = (blt_t1 - blt_t0) * 1000.0;
+    g_diag_last_blt_ok = blt_ok ? 1 : 0;
+    g_diag_last_winerr = blt_ok ? 0 : GetLastError();
 
     // Update stats atomics (render thread — no goGLLog allowed here).
+    diag_stage(GDI_STAGE_STATS);
     g_rendered++;
     g_fps_n++;
     g_stat_rendered  = g_rendered;
@@ -171,12 +221,17 @@ static void gdi_render_frame(void) {
         g_stat_fps_ready = 1;
         g_fps_t0 = now; g_fps_n = 0;
     }
+    double render_t1 = mono_sec();
+    g_diag_last_render_end_t = render_t1;
+    g_diag_last_render_ms = (render_t1 - render_t0) * 1000.0;
+    diag_stage(GDI_STAGE_IDLE);
 }
 
 static DWORD WINAPI render_thread_fn(LPVOID unused) {
     (void)unused;
     // Pure GDI — no wglMakeCurrent, no SwapBuffers, no DWM interaction.
     while (atomic_load(&g_active)) {
+        diag_stage(GDI_STAGE_WAIT);
         DWORD r = WaitForSingleObject(g_event, 16);
         if (!atomic_load(&g_active)) break;
         if ((r == WAIT_OBJECT_0 || r == WAIT_TIMEOUT) && g_ready)
@@ -191,9 +246,12 @@ static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_GDI_UPDATE_FRAME) {
         // Deferred reposition: arrived after fyne.Do returned, so no lock contention.
         g_update_posted = 0;
-        if (atomic_load(&g_active))
+        if (atomic_load(&g_active)) {
             SetWindowPos(h, NULL, g_pending_x, g_pending_y, g_pending_w, g_pending_h,
                          SWP_NOZORDER|SWP_NOACTIVATE);
+            g_diag_update_applied++;
+            g_diag_last_update_apply_t = mono_sec();
+        }
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -234,6 +292,7 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
         memcpy(g_buf, rgba, sz);
         g_fw = width; g_fh = height; g_fs = stride;
         g_ready = 1; g_submitted++;
+        g_diag_last_submit_t = mono_sec();
     }
     LeaveCriticalSection(&g_cs);
     SetEvent(g_event);
@@ -279,6 +338,10 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
     g_ready=0; g_stat_first=0; g_stat_fw=0; g_stat_fh=0;
+    g_diag_last_submit_t=0; g_diag_last_render_begin_t=0; g_diag_last_render_end_t=0;
+    g_diag_last_blt_begin_t=0; g_diag_last_blt_end_t=0; g_diag_last_render_ms=0; g_diag_last_blt_ms=0;
+    g_diag_last_blt_ok=0; g_diag_last_winerr=0; g_diag_update_posted=0; g_diag_update_applied=0;
+    g_diag_last_update_req_t=0; g_diag_last_update_apply_t=0; diag_stage(GDI_STAGE_IDLE);
     atomic_store(&g_active, 1);
 
     g_thread = CreateThread(NULL, 0, render_thread_fn, NULL, 0, NULL);
@@ -305,6 +368,8 @@ void gl_video_update_frame(int x, int y, int w, int h) {
     g_pending_x = x; g_pending_y = y; g_pending_w = w; g_pending_h = h;
     if (!g_update_posted) {
         g_update_posted = 1;
+        g_diag_update_posted++;
+        g_diag_last_update_req_t = mono_sec();
         PostMessageW(g_hwnd, WM_GDI_UPDATE_FRAME, 0, 0);
     }
 }
@@ -327,7 +392,15 @@ void gl_video_destroy(void) {
 
 void gl_video_get_stats(long long *rendered, long long *submitted,
                         float *fps, int *fps_ready,
-                        int *first_frame, int *fw, int *fh) {
+                        int *first_frame, int *fw, int *fh,
+                        int *stage, int *stage_ms,
+                        int *last_submit_ms, int *last_render_begin_ms, int *last_render_end_ms,
+                        int *last_blt_begin_ms, int *last_blt_end_ms,
+                        int *last_render_ms, int *last_blt_ms,
+                        int *last_blt_ok, unsigned *last_winerr,
+                        long long *update_posted, long long *update_applied,
+                        int *last_update_req_ms, int *last_update_apply_ms) {
+    double now = mono_sec();
     *rendered    = g_stat_rendered;
     *submitted   = g_stat_submitted;
     *fps         = g_stat_fps;
@@ -335,6 +408,21 @@ void gl_video_get_stats(long long *rendered, long long *submitted,
     *first_frame = g_stat_first;
     *fw          = g_stat_fw;
     *fh          = g_stat_fh;
+    *stage       = g_diag_stage;
+    *stage_ms    = g_diag_stage_t > 0 ? (int)((now - g_diag_stage_t) * 1000.0) : -1;
+    *last_submit_ms = g_diag_last_submit_t > 0 ? (int)((now - g_diag_last_submit_t) * 1000.0) : -1;
+    *last_render_begin_ms = g_diag_last_render_begin_t > 0 ? (int)((now - g_diag_last_render_begin_t) * 1000.0) : -1;
+    *last_render_end_ms = g_diag_last_render_end_t > 0 ? (int)((now - g_diag_last_render_end_t) * 1000.0) : -1;
+    *last_blt_begin_ms = g_diag_last_blt_begin_t > 0 ? (int)((now - g_diag_last_blt_begin_t) * 1000.0) : -1;
+    *last_blt_end_ms = g_diag_last_blt_end_t > 0 ? (int)((now - g_diag_last_blt_end_t) * 1000.0) : -1;
+    *last_render_ms = (int)g_diag_last_render_ms;
+    *last_blt_ms = (int)g_diag_last_blt_ms;
+    *last_blt_ok = g_diag_last_blt_ok;
+    *last_winerr = g_diag_last_winerr;
+    *update_posted = g_diag_update_posted;
+    *update_applied = g_diag_update_applied;
+    *last_update_req_ms = g_diag_last_update_req_t > 0 ? (int)((now - g_diag_last_update_req_t) * 1000.0) : -1;
+    *last_update_apply_ms = g_diag_last_update_apply_t > 0 ? (int)((now - g_diag_last_update_apply_t) * 1000.0) : -1;
 }
 
 void gl_video_clear_pending_stats(void) {

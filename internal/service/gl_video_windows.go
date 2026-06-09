@@ -15,7 +15,14 @@ extern void gl_video_update_frame(int x, int y, int w, int h);
 extern void gl_video_destroy(void);
 extern void gl_video_get_stats(long long *rendered, long long *submitted,
                                float *fps, int *fps_ready,
-                               int *first_frame, int *fw, int *fh);
+                               int *first_frame, int *fw, int *fh,
+                               int *stage, int *stage_ms,
+                               int *last_submit_ms, int *last_render_begin_ms, int *last_render_end_ms,
+                               int *last_blt_begin_ms, int *last_blt_end_ms,
+                               int *last_render_ms, int *last_blt_ms,
+                               int *last_blt_ok, unsigned *last_winerr,
+                               long long *update_posted, long long *update_applied,
+                               int *last_update_req_ms, int *last_update_apply_ms);
 extern void gl_video_clear_pending_stats(void);
 
 // goGLLog is called only from gl_video_create/destroy (CGO context — safe).
@@ -25,10 +32,14 @@ extern void goGLLog(char *msg, int level);
 import "C"
 
 import (
+	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
 )
+
+var glDiagGeneration uint64
 
 //export goGLLog
 func goGLLog(msg *C.char, level C.int) {
@@ -67,7 +78,11 @@ func GLVideoCreate(hwnd uintptr, x, y, w, h int, vsync bool) bool {
 	if vsync {
 		v = 1
 	}
-	return C.gl_video_create(C.uintptr_t(hwnd), C.int(x), C.int(y), C.int(w), C.int(h), v) != 0
+	ok := C.gl_video_create(C.uintptr_t(hwnd), C.int(x), C.int(y), C.int(w), C.int(h), v) != 0
+	if ok {
+		startGLVideoDiagnostics()
+	}
+	return ok
 }
 
 // Last overlay geometry sent to C — used to suppress no-op repositions.
@@ -92,17 +107,33 @@ func GLVideoResetLastFrame() {
 
 // GLVideoDestroy removes the overlay and stops the render thread.
 func GLVideoDestroy() {
+	atomic.AddUint64(&glDiagGeneration, 1)
 	C.gl_video_destroy()
 }
 
 // GLVideoStats holds render-thread statistics read via atomic polling.
 type GLVideoStats struct {
-	Rendered   int64
-	Submitted  int64
-	FPS        float32
-	FPSReady   bool
-	FirstFrame bool
-	FW, FH     int
+	Rendered          int64
+	Submitted         int64
+	FPS               float32
+	FPSReady          bool
+	FirstFrame        bool
+	FW, FH            int
+	Stage             int
+	StageMS           int
+	LastSubmitMS      int
+	LastRenderBeginMS int
+	LastRenderEndMS   int
+	LastBltBeginMS    int
+	LastBltEndMS      int
+	LastRenderMS      int
+	LastBltMS         int
+	LastBltOK         bool
+	LastWinErr        uint32
+	UpdatePosted      int64
+	UpdateApplied     int64
+	LastUpdateReqMS   int
+	LastUpdateApplyMS int
 }
 
 // GLVideoGetStats reads stats accumulated by the render thread.
@@ -111,15 +142,46 @@ func GLVideoGetStats() GLVideoStats {
 	var r, s C.longlong
 	var fp C.float
 	var fpsr, ff, fw, fh C.int
-	C.gl_video_get_stats(&r, &s, &fp, &fpsr, &ff, &fw, &fh)
+	var stage, stageMS C.int
+	var lastSubmitMS, lastRenderBeginMS, lastRenderEndMS C.int
+	var lastBltBeginMS, lastBltEndMS, lastRenderMS, lastBltMS C.int
+	var lastBltOK C.int
+	var lastWinErr C.uint
+	var updatePosted, updateApplied C.longlong
+	var lastUpdateReqMS, lastUpdateApplyMS C.int
+	C.gl_video_get_stats(
+		&r, &s, &fp, &fpsr, &ff, &fw, &fh,
+		&stage, &stageMS,
+		&lastSubmitMS, &lastRenderBeginMS, &lastRenderEndMS,
+		&lastBltBeginMS, &lastBltEndMS,
+		&lastRenderMS, &lastBltMS,
+		&lastBltOK, &lastWinErr,
+		&updatePosted, &updateApplied,
+		&lastUpdateReqMS, &lastUpdateApplyMS,
+	)
 	return GLVideoStats{
-		Rendered:   int64(r),
-		Submitted:  int64(s),
-		FPS:        float32(fp),
-		FPSReady:   fpsr != 0,
-		FirstFrame: ff != 0,
-		FW:         int(fw),
-		FH:         int(fh),
+		Rendered:          int64(r),
+		Submitted:         int64(s),
+		FPS:               float32(fp),
+		FPSReady:          fpsr != 0,
+		FirstFrame:        ff != 0,
+		FW:                int(fw),
+		FH:                int(fh),
+		Stage:             int(stage),
+		StageMS:           int(stageMS),
+		LastSubmitMS:      int(lastSubmitMS),
+		LastRenderBeginMS: int(lastRenderBeginMS),
+		LastRenderEndMS:   int(lastRenderEndMS),
+		LastBltBeginMS:    int(lastBltBeginMS),
+		LastBltEndMS:      int(lastBltEndMS),
+		LastRenderMS:      int(lastRenderMS),
+		LastBltMS:         int(lastBltMS),
+		LastBltOK:         lastBltOK != 0,
+		LastWinErr:        uint32(lastWinErr),
+		UpdatePosted:      int64(updatePosted),
+		UpdateApplied:     int64(updateApplied),
+		LastUpdateReqMS:   int(lastUpdateReqMS),
+		LastUpdateApplyMS: int(lastUpdateApplyMS),
 	}
 }
 
@@ -127,4 +189,60 @@ func GLVideoGetStats() GLVideoStats {
 // after Go has consumed them.
 func GLVideoClearPendingStats() {
 	C.gl_video_clear_pending_stats()
+}
+
+func startGLVideoDiagnostics() {
+	gen := atomic.AddUint64(&glDiagGeneration, 1)
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		var lastRendered, lastSubmitted int64
+		for range ticker.C {
+			if atomic.LoadUint64(&glDiagGeneration) != gen || !GLVideoIsActive() {
+				return
+			}
+			st := GLVideoGetStats()
+			renderDelta := st.Rendered - lastRendered
+			submitDelta := st.Submitted - lastSubmitted
+			lastRendered = st.Rendered
+			lastSubmitted = st.Submitted
+
+			logf := logrus.Infof
+			if st.StageMS > 2000 || st.LastBltMS > 250 || (submitDelta > 0 && renderDelta == 0) {
+				logf = logrus.Warnf
+			}
+			logf("[GDI/Win][watchdog] stage=%s(%dms) submitted=%d(+%d) rendered=%d(+%d) lastSubmitAgo=%dms renderBeginAgo=%dms renderEndAgo=%dms lastRender=%dms bltBeginAgo=%dms bltEndAgo=%dms lastBlt=%dms bltOK=%v winerr=%d wmUpdate=%d/%d updateReqAgo=%dms updateApplyAgo=%dms",
+				gdiStageName(st.Stage), st.StageMS,
+				st.Submitted, submitDelta, st.Rendered, renderDelta,
+				st.LastSubmitMS, st.LastRenderBeginMS, st.LastRenderEndMS, st.LastRenderMS,
+				st.LastBltBeginMS, st.LastBltEndMS, st.LastBltMS, st.LastBltOK, st.LastWinErr,
+				st.UpdatePosted, st.UpdateApplied, st.LastUpdateReqMS, st.LastUpdateApplyMS)
+		}
+	}()
+}
+
+func gdiStageName(stage int) string {
+	switch stage {
+	case 0:
+		return "idle"
+	case 1:
+		return "wait"
+	case 2:
+		return "copy-pending"
+	case 3:
+		return "ensure-dib"
+	case 4:
+		return "copy-dib"
+	case 5:
+		return "get-client"
+	case 6:
+		return "fill-bars"
+	case 7:
+		return "stretch-blt"
+	case 8:
+		return "stats"
+	default:
+		return "unknown"
+	}
 }
