@@ -67,6 +67,11 @@ static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Custom message: reposition child window.
+// PostMessage'd by gl_video_update_frame (non-blocking); processed by GLFW's PeekMessage loop.
+// WPARAM = MAKEWPARAM(x, y),  LPARAM = MAKELPARAM(w, h)
+#define WM_VIDEO_SETPOS (WM_APP + 1)
+
 // WndProc for child window.  Suppresses background erase (render thread paints).
 static LRESULT CALLBACK ChildWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
@@ -74,6 +79,13 @@ static LRESULT CALLBACK ChildWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
         PAINTSTRUCT ps;
         BeginPaint(hwnd, &ps);
         EndPaint(hwnd, &ps);
+        return 0;
+    }
+    if (msg == WM_VIDEO_SETPOS) {
+        int x = (int)LOWORD(wp), y = (int)HIWORD(wp);
+        int w = (int)LOWORD(lp), h = (int)HIWORD(lp);
+        if (w < 1) w = 1; if (h < 1) h = 1;
+        MoveWindow(hwnd, x, y, w, h, FALSE);
         return 0;
     }
     return DefWindowProc(hwnd, msg, wp, lp);
@@ -309,15 +321,18 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     return 1;
 }
 
-// gl_video_update_frame — MUST be called from the Fyne main OS thread (CGO via fyne.Do).
-// Repositions the child window; no PostMessage, no message-queue dependency.
+// gl_video_update_frame — safe to call from fyne.Do (main goroutine).
+// Updates letterbox size via atomics, then posts WM_VIDEO_SETPOS to the child.
+// PostMessage is non-blocking — MoveWindow is deferred to GLFW's PeekMessage loop,
+// so no synchronous Win32 window management runs inside a GL rendering callback.
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_dst_w, w > 0 ? w : 0);
     atomic_store(&g_dst_h, h > 0 ? h : 0);
     if (g_child) {
-        SetWindowPos(g_child, HWND_TOP, x, y, w > 0 ? w : 1, h > 0 ? h : 1,
-                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        PostMessageW(g_child, WM_VIDEO_SETPOS,
+                     MAKEWPARAM((WORD)x, (WORD)y),
+                     MAKELPARAM((WORD)(w > 0 ? w : 1), (WORD)(h > 0 ? h : 1)));
     }
 }
 
