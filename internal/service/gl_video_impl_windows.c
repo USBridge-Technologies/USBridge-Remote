@@ -173,6 +173,7 @@ static void gdi_render_frame(void) {
     SetStretchBltMode(g_hdc, HALFTONE);
     SetBrushOrgEx(g_hdc, 0, 0, NULL);
     StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, sw, sh, SRCCOPY);
+    GdiFlush(); // commit GDI batch immediately so DWM sees fresh surface on next composite
 
     // Count stats for new frames only (not for cached repaints).
     if (tmp) {
@@ -200,7 +201,7 @@ static void gdi_render_frame(void) {
 static DWORD WINAPI render_thread_fn(LPVOID unused) {
     (void)unused;
     while (atomic_load(&g_active)) {
-        WaitForSingleObject(g_event, 16); // woken early by new frame, or timeout at 16 ms
+        WaitForSingleObject(g_event, 4); // woken early by new frame, or timeout at ~250 fps
         if (!atomic_load(&g_active)) break;
         gdi_render_frame();
     }
