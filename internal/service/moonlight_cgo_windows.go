@@ -33,9 +33,9 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
-// GL overlay fast path (defined in gl_video_impl_windows.c).
+// Native GDI overlay fast path (defined in gl_video_impl_windows.c).
 extern int gl_video_is_active(void);
-extern int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+extern int gl_video_try_submit(uint8_t *bgra, int width, int height, int stride);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -199,6 +199,7 @@ static AVCodecContext    *g_avctx       = NULL;
 static struct SwsContext *g_sws         = NULL;
 static AVBufferRef       *g_hw_dev_ctx  = NULL;
 static enum AVPixelFormat g_hw_pix_fmt  = AV_PIX_FMT_NONE;
+static enum AVPixelFormat g_av_dst_fmt  = AV_PIX_FMT_NONE;
 static int                g_av_w        = 0;
 static int                g_av_h        = 0;
 static CRITICAL_SECTION   g_av_cs;
@@ -267,24 +268,25 @@ static void win_deliver_frame(AVFrame *frame) {
         frame = sw;
     }
     int w = frame->width, h = frame->height;
-    if (!g_sws || w != g_av_w || h != g_av_h) {
+    enum AVPixelFormat dst_fmt = gl_video_is_active() ? AV_PIX_FMT_BGRA : AV_PIX_FMT_RGBA;
+    if (!g_sws || w != g_av_w || h != g_av_h || dst_fmt != g_av_dst_fmt) {
         if (g_sws) sws_freeContext(g_sws);
         g_sws = sws_getContext(w, h, (enum AVPixelFormat)frame->format,
-                               w, h, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
-        g_av_w = w; g_av_h = h;
+                               w, h, dst_fmt, SWS_BILINEAR, NULL, NULL, NULL);
+        g_av_w = w; g_av_h = h; g_av_dst_fmt = dst_fmt;
     }
     if (g_sws) {
-        uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
-        if (rgba) {
-            uint8_t *dst[4]   = { rgba, NULL, NULL, NULL };
+        uint8_t *pixels = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
+        if (pixels) {
+            uint8_t *dst[4]   = { pixels, NULL, NULL, NULL };
             int dst_stride[4] = { w * 4, 0, 0, 0 };
             sws_scale(g_sws, (const uint8_t *const *)frame->data, frame->linesize,
                       0, h, dst, dst_stride);
-            if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first RGBA frame decoded");
-            // GL overlay fast path: submit directly; still call goVTFrame for Go-level stats.
-            gl_video_try_submit(rgba, w, h, w * 4);
-            goVTFrame(rgba, w, h, w * 4);
-            free(rgba);
+            if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first video frame decoded");
+            // GDI overlay wants BGRA. Fyne fallback wants RGBA, so dst_fmt is chosen above.
+            gl_video_try_submit(pixels, w, h, w * 4);
+            goVTFrame(pixels, w, h, w * 4);
+            free(pixels);
         }
     }
     if (sw) av_frame_free(&sw);
@@ -651,7 +653,7 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 
 	cnt := atomic.AddInt64(&vtFrameCount, 1)
 	if cnt == 1 {
-		logrus.Infof("🎬 [Moonlight/HW/Win] ✅ first RGBA frame — %dx%d", int(width), int(height))
+		logrus.Infof("🎬 [Moonlight/HW/Win] ✅ first video frame — %dx%d", int(width), int(height))
 	}
 
 	// When GL overlay is active, the frame was already submitted at C level.
@@ -667,7 +669,7 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	if s == rowBytes {
 		copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:w*h*4:w*h*4])
 	} else {
-		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[:h*s : h*s]
+		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[: h*s : h*s]
 		for y := 0; y < h; y++ {
 			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
 		}

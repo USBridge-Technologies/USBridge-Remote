@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo LDFLAGS: -lopengl32
+#cgo LDFLAGS: -lgdi32 -luser32
 
 #include <stdint.h>
 
@@ -35,11 +35,11 @@ func goGLLog(msg *C.char, level C.int) {
 	text := C.GoString(msg)
 	switch int(level) {
 	case 1:
-		logrus.Warnf("[GL/Win] %s", text)
+		logrus.Warnf("[GDI/Win] %s", text)
 	case 2:
-		logrus.Errorf("[GL/Win] %s", text)
+		logrus.Errorf("[GDI/Win] %s", text)
 	default:
-		logrus.Infof("[GL/Win] %s", text)
+		logrus.Infof("[GDI/Win] %s", text)
 	}
 }
 
@@ -47,8 +47,8 @@ func GLVideoIsActive() bool {
 	return C.gl_video_is_active() != 0
 }
 
-// GLVideoTrySubmit offers an RGBA frame to the GL render thread.
-// Returns true if the GL overlay is active and the frame was queued.
+// GLVideoTrySubmit offers a BGRA frame to the native Windows render thread.
+// Returns true if the GDI overlay is active and the frame was queued.
 func GLVideoTrySubmit(rgba []byte, width, height, stride int) bool {
 	if len(rgba) == 0 {
 		return false
@@ -59,7 +59,7 @@ func GLVideoTrySubmit(rgba []byte, width, height, stride int) bool {
 	) != 0
 }
 
-// GLVideoCreate creates (or replaces) the GL overlay on the given HWND.
+// GLVideoCreate creates (or replaces) the GDI overlay on the given HWND.
 // x,y,w,h are in Windows client pixels (DPI-scaled by caller).
 // Pass w=0,h=0 to cover the entire parent client area.
 func GLVideoCreate(hwnd uintptr, x, y, w, h int, vsync bool) bool {
@@ -74,7 +74,7 @@ func GLVideoCreate(hwnd uintptr, x, y, w, h int, vsync bool) bool {
 // Written and read only from fyne.Do (single-threaded), no mutex needed.
 var glOverlayLastX, glOverlayLastY, glOverlayLastW, glOverlayLastH int
 
-// GLVideoUpdateFrame repositions the GL overlay (pixels).
+// GLVideoUpdateFrame repositions the GDI overlay (pixels).
 // Skips the call if the geometry hasn't changed to avoid redundant PostMessage spam.
 func GLVideoUpdateFrame(x, y, w, h int) {
 	if x == glOverlayLastX && y == glOverlayLastY && w == glOverlayLastW && h == glOverlayLastH {

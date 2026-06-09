@@ -1,47 +1,41 @@
-// gl_video_impl_windows.c — WGL OpenGL overlay for video rendering on Windows.
-// Creates a child HWND that covers the video widget area and renders RGBA
-// frames as an OpenGL texture on a dedicated render thread.
-// Uses only OpenGL 1.1 (fixed-function pipeline) — no extension loading needed.
+// gl_video_impl_windows.c — GDI video overlay for Windows.
+//
+// Previously used WGL/OpenGL which caused a DWM compositor deadlock on Win10+:
+//   render-thread SwapBuffers → DWM → SendMessage(parent) blocked on GLFW loop
+//   GLFW loop → blocked in its own SwapBuffers waiting for DWM
+//
+// Now uses CreateDIBSection + StretchBlt. GDI draws directly via WDDM without
+// any DWM swap-chain synchronisation, eliminating the deadlock entirely.
 
 #ifdef _WIN32
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <GL/gl.h>
-#ifndef GL_CLAMP_TO_EDGE
-#define GL_CLAMP_TO_EDGE 0x812F
-#endif
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdatomic.h>
 
-// WGL vsync extension (optional, loaded at runtime).
-typedef BOOL (WINAPI *PFNWGLSWAPINTERVALEXTPROC)(int);
-static PFNWGLSWAPINTERVALEXTPROC wgl_swap_interval = NULL;
-static int g_vsync = 0;
-
-// Custom window message: deferred SetWindowPos to avoid SwapBuffers/DWM deadlock.
-// gl_video_update_frame() posts this instead of calling SetWindowPos directly;
-// gl_wndproc() handles it on the message-loop thread when SwapBuffers is not running.
-#define WM_GL_UPDATE_FRAME (WM_APP + 1)
-
-// Pending position (written and read on the Win32 message-loop thread only — no race).
-static int g_pending_x = 0, g_pending_y = 0, g_pending_w = 0, g_pending_h = 0;
-static int g_update_posted = 0; // 1 if WM_GL_UPDATE_FRAME is already in the queue
-
-// goGLLog is called from gl_video_create/destroy (CGO context — safe).
-// NEVER called from the render thread (native CreateThread — would deadlock Go GC).
+// goGLLog — safe only from CGO context (gl_video_create/destroy calls).
+// Never call from the render thread (native CreateThread).
 extern void goGLLog(char *msg, int level);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Window / GDI state
 
-static HWND    g_hwnd  = NULL;
-static HDC     g_hdc   = NULL;
-static HGLRC   g_ctx   = NULL;
-static GLuint  g_tex   = 0;
-static int     g_tex_w = 0, g_tex_h = 0;
+static HWND    g_hwnd    = NULL;
+static HDC     g_hdc     = NULL;  // CS_OWNDC — valid for lifetime of g_hwnd
+
+// DIB section used as source bitmap for StretchBlt.
+// Pixel format: BGRA (matches AV_PIX_FMT_BGRA from sws_scale — pure memcpy, no swap).
+static HBITMAP  g_bmp      = NULL;
+static uint8_t *g_bmp_bits = NULL;
+static int      g_bmp_w    = 0, g_bmp_h = 0;
+
+// Cached memory DC for StretchBlt (avoids CreateCompatibleDC per frame).
+static HDC     g_memDC    = NULL;
+static HBITMAP g_memDC_old = NULL;
 
 static volatile atomic_int g_active = 0;
 
@@ -56,19 +50,24 @@ static int              g_cs_init = 0;
 static HANDLE           g_thread  = NULL;
 static HANDLE           g_event   = NULL;
 
-// ── Stats written by render thread, read by Go via gl_video_get_stats() ───────
-// All access is lock-free (atomic stores from render thread, reads from Go).
-// Go reads these every second from the Fyne main goroutine (safe CGO context).
+// ── Stats — written by render thread (volatile), read by Go via polling ───────
 static volatile long long g_submitted = 0, g_rendered = 0;
 static volatile long long g_fps_n = 0;
 static volatile double    g_fps_t0 = 0.0;
-// Exported stats (polled by Go).
 static volatile long long g_stat_rendered  = 0;
 static volatile long long g_stat_submitted = 0;
 static volatile float     g_stat_fps       = 0.0f;
-static volatile int       g_stat_fps_ready = 0; // 1 = new fps value available
-static volatile int       g_stat_first     = 0; // 1 after first frame rendered
+static volatile int       g_stat_fps_ready = 0;
+static volatile int       g_stat_first     = 0;
 static volatile int       g_stat_fw = 0, g_stat_fh = 0;
+
+// ── Deferred SetWindowPos — avoids any residual cross-thread issues ────────────
+// Written/read on Win32 message-loop thread only (fyne.Do → gl_wndproc).
+#define WM_GDI_UPDATE_FRAME (WM_APP + 1)
+static int g_pending_x = 0, g_pending_y = 0, g_pending_w = 0, g_pending_h = 0;
+static int g_update_posted = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 static double mono_sec(void) {
     LARGE_INTEGER f, c;
@@ -77,78 +76,93 @@ static double mono_sec(void) {
     return (double)c.QuadPart / (double)f.QuadPart;
 }
 
-// Letterbox: compute NDC quad that preserves frame aspect ratio.
-static void letterbox(int fw, int fh, int ww, int wh,
-                      float *x0, float *y0, float *x1, float *y1) {
-    float fa = (float)fw / (float)(fh ? fh : 1);
-    float wa = (float)ww / (float)(wh ? wh : 1);
-    if (fa > wa) { float s = wa/fa; *x0=-1;*x1=1;*y0=-s;*y1=s; }
-    else         { float s = fa/wa; *x0=-s;*x1=s;*y0=-1;*y1=1; }
+// Recreate the DIB section (and memory DC) only when frame dimensions change.
+static void gdi_ensure_bmp(int w, int h) {
+    if (g_bmp && g_bmp_w == w && g_bmp_h == h) return;
+
+    // Detach old bitmap from memory DC before deleting it.
+    if (g_memDC && g_memDC_old) { SelectObject(g_memDC, g_memDC_old); g_memDC_old = NULL; }
+    if (g_bmp) { DeleteObject(g_bmp); g_bmp = NULL; g_bmp_bits = NULL; }
+
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth       = w;
+    bmi.bmiHeader.biHeight      = -h; // negative = top-down (matches FFmpeg row order)
+    bmi.bmiHeader.biPlanes      = 1;
+    bmi.bmiHeader.biBitCount    = 32;
+    bmi.bmiHeader.biCompression = BI_RGB; // 32-bit: B G R A (GDI ignores A)
+
+    HDC screen = GetDC(NULL);
+    g_bmp = CreateDIBSection(screen, &bmi, DIB_RGB_COLORS, (void**)&g_bmp_bits, NULL, 0);
+    ReleaseDC(NULL, screen);
+
+    if (g_bmp) {
+        g_bmp_w = w; g_bmp_h = h;
+        // Create/reuse memory DC and select the new bitmap.
+        if (!g_memDC) g_memDC = CreateCompatibleDC(g_hdc);
+        if (g_memDC)  g_memDC_old = (HBITMAP)SelectObject(g_memDC, g_bmp);
+    }
 }
 
-static void gl_render_frame(void) {
-    // Take a local copy of the pending frame.
+static void gdi_render_frame(void) {
     int fw, fh, fs;
     uint8_t *tmp = NULL;
+
     EnterCriticalSection(&g_cs);
     if (g_ready && g_buf) {
         fw = g_fw; fh = g_fh; fs = g_fs;
         size_t sz = (size_t)fh * (size_t)fs;
         tmp = (uint8_t*)malloc(sz);
-        if (tmp) { memcpy(tmp, g_buf, sz); }
+        if (tmp) memcpy(tmp, g_buf, sz);
         g_ready = 0;
     }
     LeaveCriticalSection(&g_cs);
     if (!tmp) return;
 
-    // Upload to GL texture.
-    glBindTexture(GL_TEXTURE_2D, g_tex);
-    if (fw != g_tex_w || fh != g_tex_h) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fw, fh, 0, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
-        g_tex_w = fw; g_tex_h = fh;
-    } else {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, fw, fh, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
+    // Copy BGRA rows into DIB (AV_PIX_FMT_BGRA matches GDI's BI_RGB/32-bit layout exactly).
+    gdi_ensure_bmp(fw, fh);
+    if (g_bmp && g_bmp_bits) {
+        size_t row = (size_t)fw * 4;
+        for (int y = 0; y < fh; y++)
+            memcpy(g_bmp_bits + (size_t)y * row, tmp + (size_t)y * (size_t)fs, row);
     }
     free(tmp);
 
-    // Get current child-window size.
+    if (!g_bmp || !g_memDC || !g_hdc) return;
+
     RECT rc; GetClientRect(g_hwnd, &rc);
     int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
     if (ww <= 0 || wh <= 0) return;
-    glViewport(0, 0, ww, wh);
 
-    glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
+    // Letterbox: keep frame aspect ratio, fill remainder with black.
+    float fa = (float)fw / (float)(fh ? fh : 1);
+    float wa = (float)ww / (float)(wh ? wh : 1);
+    int dx = 0, dy = 0, dw = ww, dh = wh;
+    if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }
+    else         { dw = (int)(wh * fa + 0.5f); dx = (ww - dw) / 2; }
 
-    float x0, y0, x1, y1;
-    letterbox(fw, fh, ww, wh, &x0, &y0, &x1, &y1);
+    HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    if (dy > 0) {
+        RECT top = {0, 0, ww, dy};       FillRect(g_hdc, &top, blk);
+        RECT bot = {0, dy+dh, ww, wh};   FillRect(g_hdc, &bot, blk);
+    }
+    if (dx > 0) {
+        RECT lft = {0, dy, dx, dy+dh};          FillRect(g_hdc, &lft, blk);
+        RECT rgt = {dx+dw, dy, ww, dy+dh};      FillRect(g_hdc, &rgt, blk);
+    }
 
-    glMatrixMode(GL_PROJECTION); glLoadIdentity();
-    glMatrixMode(GL_MODELVIEW);  glLoadIdentity();
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, g_tex);
-    glColor4f(1, 1, 1, 1);
-    glBegin(GL_QUADS);
-        glTexCoord2f(0,1); glVertex2f(x0,y0);
-        glTexCoord2f(1,1); glVertex2f(x1,y0);
-        glTexCoord2f(1,0); glVertex2f(x1,y1);
-        glTexCoord2f(0,0); glVertex2f(x0,y1);
-    glEnd();
-    glDisable(GL_TEXTURE_2D);
-    SwapBuffers(g_hdc);
+    SetStretchBltMode(g_hdc, HALFTONE);
+    SetBrushOrgEx(g_hdc, 0, 0, NULL); // required after HALFTONE
+    StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
 
-    // Update stats atomics — Go reads these via gl_video_get_stats().
-    // NO goGLLog calls here: this runs on a native CreateThread thread,
-    // and CGO callbacks from non-Go threads can deadlock the Go GC.
+    // Update stats atomics (render thread — no goGLLog allowed here).
     g_rendered++;
     g_fps_n++;
     g_stat_rendered  = g_rendered;
     g_stat_submitted = g_submitted;
     double now = mono_sec();
     if (g_rendered == 1) {
-        g_stat_first = 1;
-        g_stat_fw    = fw;
-        g_stat_fh    = fh;
+        g_stat_first = 1; g_stat_fw = fw; g_stat_fh = fh;
         g_fps_t0 = now; g_fps_n = 0;
     }
     double el = now - g_fps_t0;
@@ -161,41 +175,21 @@ static void gl_render_frame(void) {
 
 static DWORD WINAPI render_thread_fn(LPVOID unused) {
     (void)unused;
-    // NOTE: Do NOT call goGLLog from this thread — it is a native CreateThread
-    // thread, and CGO callbacks from non-Go threads can deadlock the Go GC.
-    // All logging is done by Go via gl_video_get_stats() polling.
-    if (!wglMakeCurrent(g_hdc, g_ctx)) {
-        // Can't log via Go here; set error flag so Go can detect it.
-        atomic_store(&g_active, 0);
-        return 1;
-    }
-    wgl_swap_interval = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
-    if (wgl_swap_interval) wgl_swap_interval(g_vsync ? 1 : 0);
-    glGenTextures(1, &g_tex);
-    glBindTexture(GL_TEXTURE_2D, g_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
+    // Pure GDI — no wglMakeCurrent, no SwapBuffers, no DWM interaction.
     while (atomic_load(&g_active)) {
         DWORD r = WaitForSingleObject(g_event, 16);
         if (!atomic_load(&g_active)) break;
         if ((r == WAIT_OBJECT_0 || r == WAIT_TIMEOUT) && g_ready)
-            gl_render_frame();
+            gdi_render_frame();
     }
-    if (g_tex) { glDeleteTextures(1, &g_tex); g_tex = 0; }
-    wglMakeCurrent(NULL, NULL);
     return 0;
 }
 
 static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_ERASEBKGND) return 1;
     if (m == WM_PAINT) { PAINTSTRUCT ps; BeginPaint(h,&ps); EndPaint(h,&ps); return 0; }
-    if (m == WM_GL_UPDATE_FRAME) {
-        // Deferred reposition: SwapBuffers has had a chance to complete since
-        // PostMessage is processed only after the current message-loop cycle ends,
-        // breaking the SwapBuffers/SetWindowPos DWM deadlock on Windows 10+.
+    if (m == WM_GDI_UPDATE_FRAME) {
+        // Deferred reposition: arrived after fyne.Do returned, so no lock contention.
         g_update_posted = 0;
         if (atomic_load(&g_active))
             SetWindowPos(h, NULL, g_pending_x, g_pending_y, g_pending_w, g_pending_h,
@@ -205,27 +199,27 @@ static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 
-static const wchar_t *WCLASS = L"USBGLVideo";
+static const wchar_t *WCLASS = L"USBGDIVideo";
 static int ensure_class(void) {
     static int done = 0;
     if (done) return 1;
     WNDCLASSEXW wc = {0};
-    wc.cbSize=sizeof(wc); wc.style=CS_OWNDC;
-    wc.lpfnWndProc=gl_wndproc;
-    wc.hInstance=GetModuleHandleW(NULL);
-    wc.lpszClassName=WCLASS;
-    wc.hbrBackground=(HBRUSH)GetStockObject(BLACK_BRUSH);
-    if (!RegisterClassExW(&wc) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS) return 0;
+    wc.cbSize = sizeof(wc); wc.style = CS_OWNDC;
+    wc.lpfnWndProc = gl_wndproc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = WCLASS;
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return 0;
     done = 1; return 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public C API (called from gl_video_windows.go via CGO extern declarations)
-// ─────────────────────────────────────────────────────────────────────────────
+// Public C API (called from gl_video_windows.go via CGO)
 
 int gl_video_is_active(void) { return atomic_load(&g_active); }
 
-// Returns 1 if GL accepted the frame; 0 if overlay not yet active.
+// gl_video_try_submit — accepts BGRA frames (AV_PIX_FMT_BGRA from sws_scale).
+// Returns 1 if overlay is active and the frame was queued.
 int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!atomic_load(&g_active)) return 0;
     size_t sz = (size_t)height * (size_t)stride;
@@ -238,30 +232,29 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     }
     if (g_buf) {
         memcpy(g_buf, rgba, sz);
-        g_fw=width; g_fh=height; g_fs=stride;
-        g_ready=1; g_submitted++;
+        g_fw = width; g_fh = height; g_fs = stride;
+        g_ready = 1; g_submitted++;
     }
     LeaveCriticalSection(&g_cs);
     SetEvent(g_event);
     return 1;
 }
 
-// x,y,w,h are in Windows client pixels (already DPI-scaled by caller).
-// Pass w<=0 or h<=0 to cover the entire parent client area (fullscreen mode).
+// x,y,w,h in Windows client pixels. Pass w<=0 or h<=0 for full-client-area mode.
 int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
-    // Tear down any previous overlay.
+    (void)vsync; // GDI has no swap interval
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);
-        if (g_thread) { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
-        if (g_event)  { CloseHandle(g_event); g_event=NULL; }
-        if (g_ctx)    { wglDeleteContext(g_ctx); g_ctx=NULL; }
-        if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
-        if (g_hwnd)   { DestroyWindow(g_hwnd); g_hwnd=NULL; }
-        if (g_cs_init){ DeleteCriticalSection(&g_cs); g_cs_init=0; }
-        if (g_buf)    { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+        if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
+        if (g_event)   { CloseHandle(g_event); g_event=NULL; }
+        if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
+        if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
+        if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
+        if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
+        if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+        g_bmp_w=0; g_bmp_h=0;
     }
 
-    g_vsync = vsync;
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!ensure_class()) { goGLLog("gl_video_create: RegisterClass failed", 2); return 0; }
 
@@ -274,42 +267,18 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     g_hwnd = CreateWindowExW(0, WCLASS, L"", WS_CHILD|WS_VISIBLE,
                               x, y, w, h, parent, NULL, GetModuleHandleW(NULL), NULL);
     if (!g_hwnd) { goGLLog("gl_video_create: CreateWindowEx failed", 2); return 0; }
-
-    g_hdc = GetDC(g_hwnd);
-    if (!g_hdc) { goGLLog("gl_video_create: GetDC failed", 2); DestroyWindow(g_hwnd); g_hwnd=NULL; return 0; }
-
-    PIXELFORMATDESCRIPTOR pfd = {sizeof(pfd),1,
-        PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL|PFD_DOUBLEBUFFER,
-        PFD_TYPE_RGBA, 24, 0,0,0,0,0,0,0,0,0,0,0,0,0, 16, 0,0, PFD_MAIN_PLANE, 0,0,0,0};
-    int fmt = ChoosePixelFormat(g_hdc, &pfd);
-    if (!fmt || !SetPixelFormat(g_hdc, fmt, &pfd)) {
-        goGLLog("gl_video_create: SetPixelFormat failed", 2);
-        ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; DestroyWindow(g_hwnd); g_hwnd=NULL; return 0;
-    }
-
-    g_ctx = wglCreateContext(g_hdc);
-    if (!g_ctx) {
-        goGLLog("gl_video_create: wglCreateContext failed", 2);
-        ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; DestroyWindow(g_hwnd); g_hwnd=NULL; return 0;
-    }
-    // NOTE: Do NOT call wglMakeCurrent here. This function is invoked from
-    // Fyne's RunNative callback which runs on Fyne's GL thread. Calling
-    // wglMakeCurrent(NULL, NULL) would unbind Fyne's own context, causing
-    // the next Fyne draw call to fail. Vsync extension is loaded in the
-    // render thread instead, after it makes its own context current.
-    wgl_swap_interval = NULL;
+    g_hdc = GetDC(g_hwnd); // CS_OWNDC — never released until DestroyWindow
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) {
         goGLLog("gl_video_create: CreateEvent failed", 2);
-        wglDeleteContext(g_ctx); g_ctx=NULL;
-        ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; DestroyWindow(g_hwnd); g_hwnd=NULL;
+        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
-    g_ready=0; g_tex=0; g_tex_w=0; g_tex_h=0;
+    g_ready=0; g_stat_first=0; g_stat_fw=0; g_stat_fh=0;
     atomic_store(&g_active, 1);
 
     g_thread = CreateThread(NULL, 0, render_thread_fn, NULL, 0, NULL);
@@ -317,50 +286,45 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         goGLLog("gl_video_create: CreateThread failed", 2);
         atomic_store(&g_active, 0);
         CloseHandle(g_event); g_event=NULL;
-        wglDeleteContext(g_ctx); g_ctx=NULL;
-        ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; DestroyWindow(g_hwnd); g_hwnd=NULL;
+        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
-    char m[192];
+    char m[256];
     if (fullwin)
-        snprintf(m,sizeof(m),"overlay created (full-window %dx%d) HWND=%p", w, h, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI overlay created (full-window %dx%d) HWND=%p", w, h, (void*)parent_hwnd);
     else
-        snprintf(m,sizeof(m),"overlay created %dx%d at (%d,%d) HWND=%p", w, h, x, y, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI overlay created %dx%d at (%d,%d) HWND=%p", w, h, x, y, (void*)parent_hwnd);
     goGLLog(m, 0);
     return 1;
 }
 
-// x,y,w,h are in Windows client pixels.
-// Uses PostMessage to defer SetWindowPos so it never runs concurrently with
-// SwapBuffers on the render thread — avoids the DWM compositor deadlock on Win10+.
+// Uses PostMessage so SetWindowPos runs after fyne.Do returns (no lock contention).
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active) || !g_hwnd) return;
     g_pending_x = x; g_pending_y = y; g_pending_w = w; g_pending_h = h;
     if (!g_update_posted) {
         g_update_posted = 1;
-        PostMessageW(g_hwnd, WM_GL_UPDATE_FRAME, 0, 0);
+        PostMessageW(g_hwnd, WM_GDI_UPDATE_FRAME, 0, 0);
     }
 }
 
 void gl_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
-    if (g_thread) { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
-    if (g_event)  { CloseHandle(g_event); g_event=NULL; }
-    if (g_ctx)    { wglDeleteContext(g_ctx); g_ctx=NULL; }
-    if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; }
-    if (g_hwnd)   { DestroyWindow(g_hwnd); g_hwnd=NULL; }
-    if (g_cs_init){ DeleteCriticalSection(&g_cs); g_cs_init=0; }
-    if (g_buf)    { free(g_buf); g_buf=NULL; g_buf_sz=0; }
-    // goGLLog is safe here: called from a Go CGO goroutine, not the render thread.
+    if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
+    if (g_event)   { CloseHandle(g_event); g_event=NULL; }
+    if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
+    if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
+    if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
+    if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
+    if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+    g_bmp_w=0; g_bmp_h=0;
     char m[192];
-    snprintf(m,sizeof(m),"overlay destroyed — rendered=%lld  submitted=%lld", g_rendered, g_submitted);
+    snprintf(m, sizeof(m), "GDI overlay destroyed — rendered=%lld submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
 }
 
-// gl_video_get_stats — called from Go's main goroutine (safe CGO context).
-// Returns stats accumulated by the render thread via atomic writes.
 void gl_video_get_stats(long long *rendered, long long *submitted,
                         float *fps, int *fps_ready,
                         int *first_frame, int *fw, int *fh) {
@@ -373,7 +337,6 @@ void gl_video_get_stats(long long *rendered, long long *submitted,
     *fh          = g_stat_fh;
 }
 
-// Called by Go after consuming stats to reset the "ready" flags.
 void gl_video_clear_pending_stats(void) {
     g_stat_fps_ready = 0;
     g_stat_first     = 0;

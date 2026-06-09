@@ -20,7 +20,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 	}
 	nw, ok := window.(driver.NativeWindow)
 	if !ok {
-		logrus.Warn("[GL/Win] window does not implement driver.NativeWindow — GL skipped")
+		logrus.Warn("[GDI/Win] window does not implement driver.NativeWindow — overlay skipped")
 		return
 	}
 	nw.RunNative(func(ctx any) {
@@ -31,14 +31,14 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		case driver.WindowsWindowContext:
 			hwnd = c.HWND
 		default:
-			logrus.Warnf("[GL/Win] unexpected native context type %T", ctx)
+			logrus.Warnf("[GDI/Win] unexpected native context type %T", ctx)
 			return
 		}
 		var px, py, pw, ph int
 		if !fullscreen {
 			x, y, w, h := vw.videoCanvasFrame()
 			if w <= 0 || h <= 0 {
-				logrus.Warn("[GL/Win] videoCanvas has zero size — GL skipped")
+				logrus.Warn("[GDI/Win] videoCanvas has zero size — overlay skipped")
 				return
 			}
 			scale := float32(1)
@@ -55,7 +55,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		// unconditionally repositions (in case position changed since creation).
 		service.GLVideoResetLastFrame()
 		if !service.GLVideoCreate(hwnd, px, py, pw, ph, vw.enableVSync) {
-			logrus.Warn("[GL/Win] failed to create overlay — Fyne canvas path active")
+			logrus.Warn("[GDI/Win] failed to create overlay — Fyne canvas path active")
 		}
 	})
 }
@@ -75,10 +75,10 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if st.FirstFrame || st.FPSReady {
 		service.GLVideoClearPendingStats()
 		if st.FirstFrame {
-			logrus.Infof("[GL/Win] first frame rendered — %dx%d", st.FW, st.FH)
+			logrus.Infof("[GDI/Win] first frame rendered — %dx%d", st.FW, st.FH)
 		}
 		if st.FPSReady {
-			logrus.Infof("[GL/Win] fps=%.1f  rendered=%d  submitted=%d  size=%dx%d",
+			logrus.Infof("[GDI/Win] fps=%.1f  rendered=%d  submitted=%d  size=%dx%d",
 				st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
 		}
 	}
