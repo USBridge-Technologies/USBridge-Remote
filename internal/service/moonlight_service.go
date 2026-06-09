@@ -49,7 +49,7 @@ func NewMoonlightService(config *models.AppConfig) *MoonlightService {
 	// Initialize Moonlight Identity and Client
 	identity, err := moonlight.LoadOrGenerateIdentity()
 	if err != nil {
-		logrus.Errorf("❌ Failed to load or generate Moonlight identity: %v", err)
+		logrus.Panicf("❌ Failed to load or generate Moonlight identity: %v", err)
 	}
 
 	return &MoonlightService{

@@ -52,7 +52,7 @@ mkdir -p android/app/src/main/jniLibs/arm64-v8a
 (
     export_android_env
     if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
-        setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 24
+        setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
         echo "   Using NDK toolchain: $CC"
     else
         echo -e "${RED}❌ ANDROID_NDK_HOME not set, CGO build may fail${NC}"
@@ -250,9 +250,9 @@ fi
 
 # Убедимся, что ANDROID_HOME/ANDROID_NDK_HOME заданы до gomobile init
 export_android_env
-if ! ensure_android_sdk_package "platforms;android-24" "platforms/android-24"; then
-    echo -e "${RED}❌ Android SDK platform android-24 не найден${NC}"
-    echo "   Установите через sdkmanager: platforms;android-24"
+if ! ensure_android_sdk_package "platforms;android-26" "platforms/android-26"; then
+    echo -e "${RED}❌ Android SDK platform android-26 не найден${NC}"
+    echo "   Установите через sdkmanager: platforms;android-26"
     exit 1
 fi
 
@@ -294,7 +294,7 @@ fi
 
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
     rm -f "$AAR_OUT"
-    $GOMOBILE_CMD bind -target android -androidapi 24 -o "$AAR_OUT" ./nbdbridge || {
+    $GOMOBILE_CMD bind -target android -androidapi 26 -o "$AAR_OUT" ./nbdbridge || {
         echo -e "${RED}❌ gomobile bind не удался. Установите вручную:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
@@ -335,6 +335,16 @@ export ANDROID_NDK_HOME
 export CGO_ENABLED=1
 export GO111MODULE=on
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
+
+# fyne uses aarch64-linux-android21-clang whose sysroot lacks libaaudio.so.
+# Add the API 26 sysroot explicitly so the linker can find it.
+_NDK_PREBUILT="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
+    -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
+_NDK_API26_LIB="${_NDK_PREBUILT}/sysroot/usr/lib/aarch64-linux-android/26"
+if [ -d "${_NDK_API26_LIB}" ]; then
+    export CGO_LDFLAGS="${CGO_LDFLAGS:-} -L${_NDK_API26_LIB}"
+fi
+unset _NDK_PREBUILT _NDK_API26_LIB
 if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
     export PATH="$GOPATH_BIN:$PATH"
 fi

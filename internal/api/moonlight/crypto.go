@@ -26,15 +26,43 @@ type Identity struct {
 }
 
 func GetConfigDir() (string, error) {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+	// Try candidates in order; use the first one where MkdirAll succeeds.
+	candidates := []func() (string, error){
+		func() (string, error) {
+			d, err := os.UserConfigDir()
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(d, "usbridge-client", "moonlight"), nil
+		},
+		func() (string, error) {
+			d, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(d, ".usbridge-client", "moonlight"), nil
+		},
+		// Android / restricted environments: fall back to the process temp dir.
+		// os.TempDir() is always writable and is tied to the app's lifetime on Android.
+		func() (string, error) {
+			return filepath.Join(os.TempDir(), "usbridge-client", "moonlight"), nil
+		},
 	}
-	dir := filepath.Join(configDir, "usbridge-client", "moonlight")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return "", err
+
+	var lastErr error
+	for _, candidate := range candidates {
+		dir, err := candidate()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			lastErr = err
+			continue
+		}
+		return dir, nil
 	}
-	return dir, nil
+	return "", fmt.Errorf("no writable config directory found: %w", lastErr)
 }
 
 // LoadOrGenerateIdentity loads the identity from disk or generates a new one

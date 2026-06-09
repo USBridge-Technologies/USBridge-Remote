@@ -3,6 +3,8 @@
 // frames as a GL texture on a dedicated render thread.
 // Handles both X11 native windows and XWayland.
 
+#if defined(__linux__) && !defined(__ANDROID__)
+
 #include <X11/Xlib.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
@@ -297,3 +299,5 @@ void gl_video_destroy(void) {
     snprintf(m,sizeof(m),"overlay destroyed — rendered=%lld  submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
 }
+
+#endif // defined(__linux__) && !defined(__ANDROID__)

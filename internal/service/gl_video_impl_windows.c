@@ -3,6 +3,8 @@
 // frames as an OpenGL texture on a dedicated render thread.
 // Uses only OpenGL 1.1 (fixed-function pipeline) — no extension loading needed.
 
+#ifdef _WIN32
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <GL/gl.h>
@@ -311,3 +313,5 @@ void gl_video_destroy(void) {
     snprintf(m,sizeof(m),"overlay destroyed — rendered=%lld  submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
 }
+
+#endif // _WIN32

@@ -47,6 +47,9 @@ type AppList struct {
 }
 
 func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
+	if identity == nil {
+		panic("moonlight.NewClient: identity must not be nil — LoadOrGenerateIdentity failed")
+	}
 	// Unique ID is a hex representation of the public key or a random string.
 	// We'll use the first 16 bytes of the cert's hash as a consistent client ID.
 	hash := ExtractPlainCert(identity.CertPEM)
