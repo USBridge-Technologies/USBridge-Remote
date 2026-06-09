@@ -57,32 +57,26 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Warn("[GDI/Win] failed to create overlay — Fyne canvas path active")
 			return
 		}
-		// GDI child window now owns the video area. Clear the Fyne canvas so Fyne
-		// does not repaint the stale first-frame image underneath the overlay,
-		// which would produce a "double image" artefact.
+		// GDI now owns the video area. Hide the Fyne canvas so Fyne's GL pass
+		// never renders into that region — prevents double-image and blink artefacts.
+		// Hidden widgets keep their layout space but are skipped in the render pass.
 		if vw.videoCanvas != nil {
-			vw.videoCanvas.Image = nil
-			vw.videoCanvas.Resource = nil
-			vw.videoCanvas.Refresh()
+			vw.videoCanvas.Hide()
 		}
 	})
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
-	// DestroyWindow must be called from the OS thread that created the child HWND.
-	// RunNative ensures we're on the Fyne/GLFW main OS thread.
-	if vw.parentWindow == nil {
-		service.GLVideoDestroy()
-		return
+	service.GLVideoDestroy()
+	// Restore the Fyne canvas so subsequent frames render normally via the Fyne path.
+	// Must run on the Fyne main goroutine; use fyne.Do so it's safe from any caller.
+	if vw.videoCanvas != nil {
+		fyne.Do(func() {
+			if vw.videoCanvas != nil {
+				vw.videoCanvas.Show()
+			}
+		})
 	}
-	nw, ok := vw.parentWindow.(driver.NativeWindow)
-	if !ok {
-		service.GLVideoDestroy()
-		return
-	}
-	nw.RunNative(func(_ any) {
-		service.GLVideoDestroy()
-	})
 }
 
 func (vw *VideoWidget) updateMetalVideoFrame() {
