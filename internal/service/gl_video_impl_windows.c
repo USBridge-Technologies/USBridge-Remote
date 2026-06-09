@@ -1,14 +1,12 @@
-// gl_video_impl_windows.c — GDI parent-DC video renderer for Windows.
+// gl_video_impl_windows.c — GDI child-window video renderer for Windows.
 //
 // Architecture:
-//   • No child HWND — we draw directly into the parent window's GDI DC.
-//   • Atomic video-rect (g_dst_x/y/w/h) updated by Go via gl_video_update_frame().
-//   • Render thread reads the rect and calls StretchBlt on each frame.
-//   • No PostMessage, no custom WndProc, no WGL — zero deadlock risk.
-//
-// On Windows 10+ / WDDM: GDI writes to the parent DC surface appear above
-// the OpenGL backbuffer in DWM composition, so the video is visible over Fyne's
-// blank canvas area without conflicts.
+//   • Child HWND (WS_CHILD, CS_OWNDC, no WGL) created on the Fyne main thread.
+//   • Fyne's GLFW event loop pumps the child's messages (same OS thread) —
+//     no custom PostMessage, no unprocessed queue.
+//   • Render thread: StretchBlt to permanent child DC (CS_OWNDC).
+//   • gl_video_update_frame: SetWindowPos from main thread (CGO from fyne.Do).
+//   • Zero deadlock risk: child has no WGL context, no DWM swap-chain conflict.
 
 #ifdef _WIN32
 
@@ -27,13 +25,14 @@ extern void goGLLog(char *msg, int level);
 // ─────────────────────────────────────────────────────────────────────────────
 // State
 
-static HWND g_hwnd = NULL;   // parent Fyne/GLFW HWND; we hold GetDC() on it
-static HDC  g_hdc  = NULL;   // parent window DC — released on destroy
+static HWND g_hwnd     = NULL;  // parent Fyne/GLFW HWND
+static HWND g_child    = NULL;  // our video child window
+static HDC  g_child_dc = NULL;  // permanent DC (CS_OWNDC — never released until destroy)
 
-// Video rect in parent client pixels (set by gl_video_update_frame, read by render thread).
-static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
+// Child size in client pixels — set by main thread, read by render thread for letterboxing.
+static atomic_int g_dst_w, g_dst_h;
 
-// DIB section — BGRA pixels (AV_PIX_FMT_BGRA from sws_scale, matches BI_RGB/32-bit).
+// DIB section — BGRA pixels (AV_PIX_FMT_BGRA from sws_scale).
 static HBITMAP  g_bmp      = NULL;
 static uint8_t *g_bmp_bits = NULL;
 static int      g_bmp_w    = 0, g_bmp_h = 0;
@@ -68,6 +67,18 @@ static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// WndProc for child window.  Suppresses background erase (render thread paints).
+static LRESULT CALLBACK ChildWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_PAINT) {
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    return DefWindowProc(hwnd, msg, wp, lp);
+}
+
 static double mono_sec(void) {
     LARGE_INTEGER f, c;
     QueryPerformanceFrequency(&f);
@@ -94,7 +105,7 @@ static void gdi_ensure_bmp(int w, int h) {
 
     if (g_bmp) {
         g_bmp_w = w; g_bmp_h = h;
-        if (!g_memDC) g_memDC = CreateCompatibleDC(g_hdc);
+        if (!g_memDC) g_memDC = CreateCompatibleDC(g_child_dc);
         if (g_memDC)  g_memDC_old = (HBITMAP)SelectObject(g_memDC, g_bmp);
     }
 }
@@ -114,7 +125,6 @@ static void gdi_render_frame(void) {
     LeaveCriticalSection(&g_cs);
     if (!tmp) return;
 
-    // BGRA from sws_scale → BI_RGB/32-bit DIB: straight memcpy per row.
     gdi_ensure_bmp(fw, fh);
     if (g_bmp && g_bmp_bits) {
         size_t row = (size_t)fw * 4;
@@ -123,43 +133,41 @@ static void gdi_render_frame(void) {
     }
     free(tmp);
 
-    if (!g_bmp || !g_memDC || !g_hdc) return;
+    if (!g_bmp || !g_memDC || !g_child_dc) return;
 
-    // Read the current video rect (set by gl_video_update_frame).
-    int vx = atomic_load(&g_dst_x);
-    int vy = atomic_load(&g_dst_y);
+    // Child window size — this IS the video rect; coords are child-relative (origin 0,0).
     int ww = atomic_load(&g_dst_w);
     int wh = atomic_load(&g_dst_h);
     if (ww <= 0 || wh <= 0) {
-        // Fallback: full parent client area.
-        RECT rc; GetClientRect(g_hwnd, &rc);
-        vx = 0; vy = 0;
-        ww = rc.right - rc.left; wh = rc.bottom - rc.top;
+        RECT rc; GetClientRect(g_child, &rc);
+        ww = rc.right; wh = rc.bottom;
     }
     if (ww <= 0 || wh <= 0) return;
 
-    // Letterbox within the video rect: keep frame aspect ratio.
+    // Letterbox: keep frame aspect ratio within the child area.
     float fa = (float)fw / (float)(fh ? fh : 1);
     float wa = (float)ww / (float)(wh ? wh : 1);
     int dx = 0, dy = 0, dw = ww, dh = wh;
     if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }
     else         { dw = (int)(wh * fa + 0.5f); dx = (ww - dw) / 2; }
-    dx += vx; dy += vy;
 
-    // Fill black bars around the video within the video rect.
+    // Fill black bars (child-relative coordinates).
     HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    if (dy > vy) {
-        RECT top = {vx, vy, vx+ww, dy};          FillRect(g_hdc, &top, blk);
-        RECT bot = {vx, dy+dh, vx+ww, vy+wh};    FillRect(g_hdc, &bot, blk);
+    if (dy > 0) {
+        RECT top = {0, 0, ww, dy};       FillRect(g_child_dc, &top, blk);
+        RECT bot = {0, dy+dh, ww, wh};   FillRect(g_child_dc, &bot, blk);
     }
-    if (dx > vx) {
-        RECT lft = {vx, dy, dx, dy+dh};           FillRect(g_hdc, &lft, blk);
-        RECT rgt = {dx+dw, dy, vx+ww, dy+dh};     FillRect(g_hdc, &rgt, blk);
+    if (dx > 0) {
+        RECT lft = {0, dy, dx, dy+dh};       FillRect(g_child_dc, &lft, blk);
+        RECT rgt = {dx+dw, dy, ww, dy+dh};   FillRect(g_child_dc, &rgt, blk);
     }
 
-    SetStretchBltMode(g_hdc, HALFTONE);
-    SetBrushOrgEx(g_hdc, 0, 0, NULL);
-    StretchBlt(g_hdc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
+    SetStretchBltMode(g_child_dc, HALFTONE);
+    SetBrushOrgEx(g_child_dc, 0, 0, NULL);
+    StretchBlt(g_child_dc, dx, dy, dw, dh, g_memDC, 0, 0, fw, fh, SRCCOPY);
+
+    // Validate dirty region so Windows doesn't keep requesting WM_PAINT.
+    ValidateRect(g_child, NULL);
 
     // Stats (no goGLLog — render thread is not a CGO thread).
     g_rendered++;
@@ -215,33 +223,58 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     return 1;
 }
 
-// x,y,w,h — video canvas rect in parent client pixels.
-// Pass w<=0 or h<=0 to use the full parent client area.
+// gl_video_create — MUST be called from the Fyne main OS thread (via RunNative).
+// The child HWND is created on the calling thread; GLFW's event loop then pumps its messages.
 int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
-    (void)vsync; // no swap interval in GDI path
+    (void)vsync;
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);
-        if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
-        if (g_event)   { CloseHandle(g_event); g_event=NULL; }
-        if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
-        if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-        if (g_hdc)     { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
+        if (g_thread)   { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
+        if (g_event)    { CloseHandle(g_event); g_event=NULL; }
+        if (g_memDC)    { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
+        if (g_bmp)      { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
+        if (g_child_dc) { ReleaseDC(g_child, g_child_dc); g_child_dc=NULL; }
+        if (g_child)    { DestroyWindow(g_child); g_child=NULL; }
         g_hwnd = NULL;
-        if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
-        if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+        if (g_cs_init)  { DeleteCriticalSection(&g_cs); g_cs_init=0; }
+        if (g_buf)      { free(g_buf); g_buf=NULL; g_buf_sz=0; }
         g_bmp_w=0; g_bmp_h=0;
     }
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goGLLog("gl_video_create: parent HWND is null", 2); return 0; }
-
     g_hwnd = parent;
-    g_hdc  = GetDC(parent);
-    if (!g_hdc) { goGLLog("gl_video_create: GetDC(parent) failed", 2); g_hwnd=NULL; return 0; }
 
-    // Store initial video rect.
-    atomic_store(&g_dst_x, x);
-    atomic_store(&g_dst_y, y);
+    // Register window class (ignore "already registered" on repeated create/destroy).
+    WNDCLASSEXW wc = {0};
+    wc.cbSize        = sizeof(wc);
+    wc.style         = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc   = ChildWndProc;
+    wc.hInstance     = GetModuleHandleW(NULL);
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.lpszClassName = L"USBridgeVideoChild";
+    RegisterClassExW(&wc);
+
+    int cw = w > 0 ? w : 16, ch = h > 0 ? h : 16;
+    g_child = CreateWindowExW(
+        0, L"USBridgeVideoChild", L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        x, y, cw, ch,
+        parent, NULL, GetModuleHandleW(NULL), NULL
+    );
+    if (!g_child) {
+        char m[256];
+        snprintf(m, sizeof(m), "gl_video_create: CreateWindowEx failed err=%lu", GetLastError());
+        goGLLog(m, 2); g_hwnd=NULL; return 0;
+    }
+
+    // CS_OWNDC: GetDC returns the window's permanent DC — valid for the window's lifetime.
+    g_child_dc = GetDC(g_child);
+    if (!g_child_dc) {
+        goGLLog("gl_video_create: GetDC(child) failed", 2);
+        DestroyWindow(g_child); g_child=NULL; g_hwnd=NULL; return 0;
+    }
+
     atomic_store(&g_dst_w, w);
     atomic_store(&g_dst_h, h);
 
@@ -249,7 +282,8 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) {
         goGLLog("gl_video_create: CreateEvent failed", 2);
-        ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; g_hwnd=NULL;
+        ReleaseDC(g_child, g_child_dc); g_child_dc=NULL;
+        DestroyWindow(g_child); g_child=NULL; g_hwnd=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
@@ -262,41 +296,47 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         goGLLog("gl_video_create: CreateThread failed", 2);
         atomic_store(&g_active, 0);
         CloseHandle(g_event); g_event=NULL;
-        ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; g_hwnd=NULL;
+        ReleaseDC(g_child, g_child_dc); g_child_dc=NULL;
+        DestroyWindow(g_child); g_child=NULL; g_hwnd=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
     char m[256];
     snprintf(m, sizeof(m),
-             "GDI parent-DC renderer created — rect=(%d,%d,%dx%d) parent=%p",
-             x, y, w, h, (void*)parent_hwnd);
+             "GDI child-window renderer created — rect=(%d,%d,%dx%d) parent=%p child=%p",
+             x, y, w, h, (void*)parent_hwnd, (void*)g_child);
     goGLLog(m, 0);
     return 1;
 }
 
-// Update the video rect (called from Go/fyne.Do — just stores atomics, no messages).
+// gl_video_update_frame — MUST be called from the Fyne main OS thread (CGO via fyne.Do).
+// Repositions the child window; no PostMessage, no message-queue dependency.
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
-    atomic_store(&g_dst_x, x);
-    atomic_store(&g_dst_y, y);
-    atomic_store(&g_dst_w, w);
-    atomic_store(&g_dst_h, h);
+    atomic_store(&g_dst_w, w > 0 ? w : 0);
+    atomic_store(&g_dst_h, h > 0 ? h : 0);
+    if (g_child) {
+        SetWindowPos(g_child, HWND_TOP, x, y, w > 0 ? w : 1, h > 0 ? h : 1,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
 }
 
+// gl_video_destroy — MUST be called from the Fyne main OS thread (DestroyWindow requirement).
 void gl_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
-    if (g_thread)  { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
-    if (g_event)   { CloseHandle(g_event); g_event=NULL; }
-    if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
-    if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-    if (g_hdc)     { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
+    if (g_thread)   { SetEvent(g_event); WaitForSingleObject(g_thread, 2000); CloseHandle(g_thread); g_thread=NULL; }
+    if (g_event)    { CloseHandle(g_event); g_event=NULL; }
+    if (g_memDC)    { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
+    if (g_bmp)      { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
+    if (g_child_dc) { ReleaseDC(g_child, g_child_dc); g_child_dc=NULL; }
+    if (g_child)    { DestroyWindow(g_child); g_child=NULL; }
     g_hwnd = NULL;
-    if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
-    if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+    if (g_cs_init)  { DeleteCriticalSection(&g_cs); g_cs_init=0; }
+    if (g_buf)      { free(g_buf); g_buf=NULL; g_buf_sz=0; }
     g_bmp_w=0; g_bmp_h=0;
     char m[192];
-    snprintf(m, sizeof(m), "GDI parent-DC renderer destroyed — rendered=%lld submitted=%lld",
+    snprintf(m, sizeof(m), "GDI child-window renderer destroyed — rendered=%lld submitted=%lld",
              g_rendered, g_submitted);
     goGLLog(m, 0);
 }

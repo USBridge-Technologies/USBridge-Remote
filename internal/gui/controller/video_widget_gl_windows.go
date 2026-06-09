@@ -69,7 +69,20 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
-	service.GLVideoDestroy()
+	// DestroyWindow must be called from the OS thread that created the child HWND.
+	// RunNative ensures we're on the Fyne/GLFW main OS thread.
+	if vw.parentWindow == nil {
+		service.GLVideoDestroy()
+		return
+	}
+	nw, ok := vw.parentWindow.(driver.NativeWindow)
+	if !ok {
+		service.GLVideoDestroy()
+		return
+	}
+	nw.RunNative(func(_ any) {
+		service.GLVideoDestroy()
+	})
 }
 
 func (vw *VideoWidget) updateMetalVideoFrame() {
@@ -107,12 +120,12 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
-	service.GLVideoDestroy()
+	// GLVideoCreate (inside RunNative in startMetalVideoOnWindow) handles
+	// destroy-if-active on the main OS thread, so no explicit destroy needed here.
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
-	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
 
