@@ -22,6 +22,15 @@ typedef BOOL (WINAPI *PFNWGLSWAPINTERVALEXTPROC)(int);
 static PFNWGLSWAPINTERVALEXTPROC wgl_swap_interval = NULL;
 static int g_vsync = 0;
 
+// Custom window message: deferred SetWindowPos to avoid SwapBuffers/DWM deadlock.
+// gl_video_update_frame() posts this instead of calling SetWindowPos directly;
+// gl_wndproc() handles it on the message-loop thread when SwapBuffers is not running.
+#define WM_GL_UPDATE_FRAME (WM_APP + 1)
+
+// Pending position (written and read on the Win32 message-loop thread only — no race).
+static int g_pending_x = 0, g_pending_y = 0, g_pending_w = 0, g_pending_h = 0;
+static int g_update_posted = 0; // 1 if WM_GL_UPDATE_FRAME is already in the queue
+
 // goGLLog is called from gl_video_create/destroy (CGO context — safe).
 // NEVER called from the render thread (native CreateThread — would deadlock Go GC).
 extern void goGLLog(char *msg, int level);
@@ -183,6 +192,16 @@ static DWORD WINAPI render_thread_fn(LPVOID unused) {
 static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_ERASEBKGND) return 1;
     if (m == WM_PAINT) { PAINTSTRUCT ps; BeginPaint(h,&ps); EndPaint(h,&ps); return 0; }
+    if (m == WM_GL_UPDATE_FRAME) {
+        // Deferred reposition: SwapBuffers has had a chance to complete since
+        // PostMessage is processed only after the current message-loop cycle ends,
+        // breaking the SwapBuffers/SetWindowPos DWM deadlock on Windows 10+.
+        g_update_posted = 0;
+        if (atomic_load(&g_active))
+            SetWindowPos(h, NULL, g_pending_x, g_pending_y, g_pending_w, g_pending_h,
+                         SWP_NOZORDER|SWP_NOACTIVATE);
+        return 0;
+    }
     return DefWindowProcW(h, m, w, l);
 }
 
@@ -313,9 +332,15 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
 }
 
 // x,y,w,h are in Windows client pixels.
+// Uses PostMessage to defer SetWindowPos so it never runs concurrently with
+// SwapBuffers on the render thread — avoids the DWM compositor deadlock on Win10+.
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active) || !g_hwnd) return;
-    SetWindowPos(g_hwnd, NULL, x, y, w, h, SWP_NOZORDER|SWP_NOACTIVATE);
+    g_pending_x = x; g_pending_y = y; g_pending_w = w; g_pending_h = h;
+    if (!g_update_posted) {
+        g_update_posted = 1;
+        PostMessageW(g_hwnd, WM_GL_UPDATE_FRAME, 0, 0);
+    }
 }
 
 void gl_video_destroy(void) {

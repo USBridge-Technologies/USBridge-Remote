@@ -70,9 +70,24 @@ func GLVideoCreate(hwnd uintptr, x, y, w, h int, vsync bool) bool {
 	return C.gl_video_create(C.uintptr_t(hwnd), C.int(x), C.int(y), C.int(w), C.int(h), v) != 0
 }
 
+// Last overlay geometry sent to C — used to suppress no-op repositions.
+// Written and read only from fyne.Do (single-threaded), no mutex needed.
+var glOverlayLastX, glOverlayLastY, glOverlayLastW, glOverlayLastH int
+
 // GLVideoUpdateFrame repositions the GL overlay (pixels).
+// Skips the call if the geometry hasn't changed to avoid redundant PostMessage spam.
 func GLVideoUpdateFrame(x, y, w, h int) {
+	if x == glOverlayLastX && y == glOverlayLastY && w == glOverlayLastW && h == glOverlayLastH {
+		return
+	}
+	glOverlayLastX, glOverlayLastY, glOverlayLastW, glOverlayLastH = x, y, w, h
 	C.gl_video_update_frame(C.int(x), C.int(y), C.int(w), C.int(h))
+}
+
+// GLVideoResetLastFrame resets the cached overlay geometry so the next
+// GLVideoUpdateFrame call unconditionally repositions the window.
+func GLVideoResetLastFrame() {
+	glOverlayLastX, glOverlayLastY, glOverlayLastW, glOverlayLastH = 0, 0, 0, 0
 }
 
 // GLVideoDestroy removes the overlay and stops the render thread.
