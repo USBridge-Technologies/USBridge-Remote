@@ -67,6 +67,20 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.GLVideoIsActive() {
 		return
 	}
+
+	// Read and log stats from the render thread (safe: runs on Fyne main goroutine).
+	st := service.GLVideoGetStats()
+	if st.FirstFrame || st.FPSReady {
+		service.GLVideoClearPendingStats()
+		if st.FirstFrame {
+			logrus.Infof("[GL/Linux] first frame rendered — %dx%d", st.FW, st.FH)
+		}
+		if st.FPSReady {
+			logrus.Infof("[GL/Linux] fps=%.1f  rendered=%d  submitted=%d  size=%dx%d",
+				st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
+		}
+	}
+
 	x, y, w, h := vw.videoCanvasFrame()
 	if w <= 0 || h <= 0 {
 		return

@@ -65,6 +65,22 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.GLVideoIsActive() {
 		return
 	}
+
+	// Read and log any stats accumulated by the render thread.
+	// This runs on the Fyne main goroutine (safe CGO context) once per second.
+	st := service.GLVideoGetStats()
+	if st.FirstFrame || st.FPSReady {
+		service.GLVideoClearPendingStats()
+		if st.FirstFrame {
+			logrus.Infof("[GL/Win] first frame rendered — %dx%d", st.FW, st.FH)
+		}
+		if st.FPSReady {
+			logrus.Infof("[GL/Win] fps=%.1f  rendered=%d  submitted=%d  size=%dx%d",
+				st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
+		}
+	}
+
+	// Reposition the overlay to follow window resizes.
 	x, y, w, h := vw.videoCanvasFrame()
 	if w <= 0 || h <= 0 {
 		return

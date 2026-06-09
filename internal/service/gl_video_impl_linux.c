@@ -22,8 +22,10 @@ typedef void (*PFNGLXSWAPINTERVALEXTPROC)(Display*, GLXDrawable, int);
 typedef int  (*PFNGLXSWAPINTERVALMESAPROC)(unsigned);
 static PFNGLXSWAPINTERVALEXTPROC  glx_swap_ext  = NULL;
 static PFNGLXSWAPINTERVALMESAPROC glx_swap_mesa = NULL;
-static int g_vsync = 0; // set by gl_video_create
+static int g_vsync = 0;
 
+// goGLLog is called only from gl_video_create/destroy (CGO context — safe).
+// NEVER called from the render thread (native pthread — would deadlock Go GC).
 extern void goGLLog(char *msg, int level);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,10 +45,18 @@ static volatile int g_ready = 0;
 
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
-static int             g_pipe_r = -1, g_pipe_w = -1; // wakeup pipe
+static int             g_pipe_r = -1, g_pipe_w = -1;
 
 static long long g_submitted=0, g_rendered=0, g_fps_n=0;
 static double    g_fps_t0=0.0;
+
+// Stats accessible from Go via gl_video_get_stats() — no CGO from render thread.
+static volatile long long g_stat_rendered  = 0;
+static volatile long long g_stat_submitted = 0;
+static volatile float     g_stat_fps       = 0.0f;
+static volatile int       g_stat_fps_ready = 0;
+static volatile int       g_stat_first     = 0;
+static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
 static double mono_sec(void) {
     struct timespec ts;
@@ -110,18 +120,20 @@ static void gl_render_frame(void) {
     glDisable(GL_TEXTURE_2D);
     glXSwapBuffers(g_dpy, g_win);
 
+    // Update stats atomics — Go polls these, no CGO from render thread.
     g_rendered++; g_fps_n++;
+    g_stat_rendered  = g_rendered;
+    g_stat_submitted = g_submitted;
     double now = mono_sec();
     if (g_rendered == 1) {
-        char m[128]; snprintf(m,sizeof(m),"first frame rendered — %dx%d",fw,fh);
-        goGLLog(m,0); g_fps_t0=now; g_fps_n=0;
+        g_stat_first = 1; g_stat_fw = fw; g_stat_fh = fh;
+        g_fps_t0=now; g_fps_n=0;
     }
     double el = now - g_fps_t0;
     if (el >= 5.0 && g_fps_n > 0) {
-        char m[192];
-        snprintf(m,sizeof(m),"fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d",
-                 (double)g_fps_n/el, g_rendered, g_submitted, fw, fh);
-        goGLLog(m,0); g_fps_t0=now; g_fps_n=0;
+        g_stat_fps       = (float)((double)g_fps_n/el);
+        g_stat_fps_ready = 1;
+        g_fps_t0=now; g_fps_n=0;
     }
 }
 
@@ -142,8 +154,10 @@ static void vsync_apply(void) {
 
 static void *render_thread_fn(void *unused) {
     (void)unused;
+    // NOTE: Do NOT call goGLLog here — this is a native pthread, and CGO
+    // callbacks from non-Go threads can deadlock the Go GC.
     if (!glXMakeCurrent(g_dpy, g_win, g_ctx)) {
-        goGLLog("render_thread: glXMakeCurrent failed", 2);
+        atomic_store(&g_active, 0);
         return NULL;
     }
     glGenTextures(1, &g_tex);
@@ -153,7 +167,6 @@ static void *render_thread_fn(void *unused) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     vsync_apply();
-    goGLLog(g_vsync ? "render thread started (vsync on)" : "render thread started (vsync off)", 0);
 
     while (atomic_load(&g_active)) {
         // Poll with short timeout so we can check g_active.
@@ -298,9 +311,27 @@ void gl_video_destroy(void) {
     if (g_win && g_dpy) { XDestroyWindow(g_dpy, g_win); g_win=0; }
     if (g_dpy) { XCloseDisplay(g_dpy); g_dpy=NULL; }
     if (g_buf) { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+    // goGLLog is safe here: called from a Go CGO goroutine, not the render thread.
     char m[192];
     snprintf(m,sizeof(m),"overlay destroyed — rendered=%lld  submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
+}
+
+void gl_video_get_stats(long long *rendered, long long *submitted,
+                        float *fps, int *fps_ready,
+                        int *first_frame, int *fw, int *fh) {
+    *rendered    = g_stat_rendered;
+    *submitted   = g_stat_submitted;
+    *fps         = g_stat_fps;
+    *fps_ready   = g_stat_fps_ready;
+    *first_frame = g_stat_first;
+    *fw          = g_stat_fw;
+    *fh          = g_stat_fh;
+}
+
+void gl_video_clear_pending_stats(void) {
+    g_stat_fps_ready = 0;
+    g_stat_first     = 0;
 }
 
 #endif // defined(__linux__) && !defined(__ANDROID__)

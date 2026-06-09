@@ -20,9 +20,10 @@
 // WGL vsync extension (optional, loaded at runtime).
 typedef BOOL (WINAPI *PFNWGLSWAPINTERVALEXTPROC)(int);
 static PFNWGLSWAPINTERVALEXTPROC wgl_swap_interval = NULL;
-static int g_vsync = 0; // 1 = vsync on, 0 = vsync off (set by gl_video_create)
+static int g_vsync = 0;
 
-// Forward declaration — defined by CGO export in gl_video_windows.go.
+// goGLLog is called from gl_video_create/destroy (CGO context — safe).
+// NEVER called from the render thread (native CreateThread — would deadlock Go GC).
 extern void goGLLog(char *msg, int level);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,9 +47,19 @@ static int              g_cs_init = 0;
 static HANDLE           g_thread  = NULL;
 static HANDLE           g_event   = NULL;
 
-// Stats (written / read on render thread only).
-static long long g_submitted = 0, g_rendered = 0, g_fps_n = 0;
-static double    g_fps_t0 = 0.0;
+// ── Stats written by render thread, read by Go via gl_video_get_stats() ───────
+// All access is lock-free (atomic stores from render thread, reads from Go).
+// Go reads these every second from the Fyne main goroutine (safe CGO context).
+static volatile long long g_submitted = 0, g_rendered = 0;
+static volatile long long g_fps_n = 0;
+static volatile double    g_fps_t0 = 0.0;
+// Exported stats (polled by Go).
+static volatile long long g_stat_rendered  = 0;
+static volatile long long g_stat_submitted = 0;
+static volatile float     g_stat_fps       = 0.0f;
+static volatile int       g_stat_fps_ready = 0; // 1 = new fps value available
+static volatile int       g_stat_first     = 0; // 1 after first frame rendered
+static volatile int       g_stat_fw = 0, g_stat_fh = 0;
 
 static double mono_sec(void) {
     LARGE_INTEGER f, c;
@@ -117,43 +128,46 @@ static void gl_render_frame(void) {
     glDisable(GL_TEXTURE_2D);
     SwapBuffers(g_hdc);
 
-    // Stats (not spam — first frame + every 5 s).
+    // Update stats atomics — Go reads these via gl_video_get_stats().
+    // NO goGLLog calls here: this runs on a native CreateThread thread,
+    // and CGO callbacks from non-Go threads can deadlock the Go GC.
     g_rendered++;
     g_fps_n++;
+    g_stat_rendered  = g_rendered;
+    g_stat_submitted = g_submitted;
     double now = mono_sec();
     if (g_rendered == 1) {
-        char m[128];
-        snprintf(m, sizeof(m), "first frame rendered — %dx%d", fw, fh);
-        goGLLog(m, 0);
+        g_stat_first = 1;
+        g_stat_fw    = fw;
+        g_stat_fh    = fh;
         g_fps_t0 = now; g_fps_n = 0;
     }
     double el = now - g_fps_t0;
     if (el >= 5.0 && g_fps_n > 0) {
-        char m[192];
-        snprintf(m, sizeof(m), "fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d",
-                 (double)g_fps_n / el, g_rendered, g_submitted, fw, fh);
-        goGLLog(m, 0);
+        g_stat_fps       = (float)((double)g_fps_n / el);
+        g_stat_fps_ready = 1;
         g_fps_t0 = now; g_fps_n = 0;
     }
 }
 
 static DWORD WINAPI render_thread_fn(LPVOID unused) {
     (void)unused;
+    // NOTE: Do NOT call goGLLog from this thread — it is a native CreateThread
+    // thread, and CGO callbacks from non-Go threads can deadlock the Go GC.
+    // All logging is done by Go via gl_video_get_stats() polling.
     if (!wglMakeCurrent(g_hdc, g_ctx)) {
-        goGLLog("render_thread: wglMakeCurrent failed", 2);
+        // Can't log via Go here; set error flag so Go can detect it.
+        atomic_store(&g_active, 0);
         return 1;
     }
-    // Load vsync extension here (context is current on this thread only).
     wgl_swap_interval = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
     if (wgl_swap_interval) wgl_swap_interval(g_vsync ? 1 : 0);
-    // Initialise texture on this thread (GL context is current here).
     glGenTextures(1, &g_tex);
     glBindTexture(GL_TEXTURE_2D, g_tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    goGLLog(g_vsync ? "render thread started (vsync on)" : "render thread started (vsync off)", 0);
 
     while (atomic_load(&g_active)) {
         DWORD r = WaitForSingleObject(g_event, 16);
@@ -314,9 +328,30 @@ void gl_video_destroy(void) {
     if (g_hwnd)   { DestroyWindow(g_hwnd); g_hwnd=NULL; }
     if (g_cs_init){ DeleteCriticalSection(&g_cs); g_cs_init=0; }
     if (g_buf)    { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+    // goGLLog is safe here: called from a Go CGO goroutine, not the render thread.
     char m[192];
     snprintf(m,sizeof(m),"overlay destroyed — rendered=%lld  submitted=%lld", g_rendered, g_submitted);
     goGLLog(m, 0);
+}
+
+// gl_video_get_stats — called from Go's main goroutine (safe CGO context).
+// Returns stats accumulated by the render thread via atomic writes.
+void gl_video_get_stats(long long *rendered, long long *submitted,
+                        float *fps, int *fps_ready,
+                        int *first_frame, int *fw, int *fh) {
+    *rendered    = g_stat_rendered;
+    *submitted   = g_stat_submitted;
+    *fps         = g_stat_fps;
+    *fps_ready   = g_stat_fps_ready;
+    *first_frame = g_stat_first;
+    *fw          = g_stat_fw;
+    *fh          = g_stat_fh;
+}
+
+// Called by Go after consuming stats to reset the "ready" flags.
+void gl_video_clear_pending_stats(void) {
+    g_stat_fps_ready = 0;
+    g_stat_first     = 0;
 }
 
 #endif // _WIN32
