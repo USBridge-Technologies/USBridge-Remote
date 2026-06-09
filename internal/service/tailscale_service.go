@@ -602,6 +602,46 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 	}()
 }
 
+// GetPeerDirectIP returns the non-Tailscale (LAN/direct) IP of a peer when
+// both nodes are on the same local network. Returns "" when the peer is only
+// reachable via DERP relay (different networks).
+// Used on Android userspace tsnet where C-level sockets bypass tsnet and can
+// only reach LAN IPs through the kernel's wlan0 route.
+func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	st, err := s.Status(ctx)
+	if err != nil || st == nil {
+		return ""
+	}
+	for _, peer := range st.Peers {
+		if peer.IP4 != tailscaleIP {
+			continue
+		}
+		// CurAddr is the active endpoint, e.g. "192.168.1.108:41641"
+		if peer.CurAddr != "" {
+			if host, _, err := net.SplitHostPort(peer.CurAddr); err == nil {
+				if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+					// Skip Tailscale CGNAT range (100.64.0.0/10)
+					if !strings.HasPrefix(host, "100.") {
+						return host
+					}
+				}
+			}
+		}
+		// Fall back to any non-Tailscale address in Addrs list
+		for _, addr := range peer.Addrs {
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				if !strings.HasPrefix(host, "100.") && !strings.Contains(host, ":") {
+					return host
+				}
+			}
+		}
+		break
+	}
+	return ""
+}
+
 func (s *TailscaleService) PeerConnectionMode(targetHost string) string {
 	if targetHost == "" {
 		return "unknown"

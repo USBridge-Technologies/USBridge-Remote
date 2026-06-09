@@ -257,7 +257,22 @@ func (m *MoonlightService) ConnectToRTP() error {
 	//   Darwin:  dr_submit feeds VTDecompressionSession; pipeWrite is passed
 	//            but its fd is ignored by do_li_start (#ifdef __APPLE__).
 	//   Linux:   dr_submit writes Annex-B H.264 to pipeWrite → GStreamer reads it.
-	wrapper := NewMoonlightCgoWrapper(m.client.Host)
+	// On Android with userspace tsnet, C-level BSD sockets bypass the Go tsnet
+	// stack and can only reach LAN IPs via the kernel wlan0 route.
+	// If the Tailscale peer has a direct (non-100.x) endpoint on the same LAN,
+	// use that so LiStartConnection's RTSP/RTP go through the kernel directly.
+	// For remote peers (DERP only), warn and use the Tailscale IP — RTSP will
+	// likely stall; the user needs kernel Tailscale for cross-network Moonlight.
+	moonlightHost := m.client.Host
+	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
+		if lanIP := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); lanIP != "" {
+			logrus.Infof("🌕 [Moonlight/Android] peer on same LAN → using direct IP %s (C-code bypasses tsnet)", lanIP)
+			moonlightHost = lanIP
+		} else {
+			logrus.Warn("🌕 [Moonlight/Android] no LAN endpoint for peer — RTSP may stall on userspace tsnet; install Tailscale app for cross-network support")
+		}
+	}
+	wrapper := NewMoonlightCgoWrapper(moonlightHost)
 	wrapper.SetAudioMuted(m.audioMuted)
 	m.activeWrapper = wrapper
 	if err := wrapper.StartStream(
