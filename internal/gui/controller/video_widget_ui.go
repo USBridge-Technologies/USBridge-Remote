@@ -995,10 +995,15 @@ func (vw *VideoWidget) scheduleFrameRender() {
 	})
 }
 
-// startRenderTicker starts a 60 Hz goroutine that drives all canvas refreshes.
+// startRenderTicker starts a render goroutine at the given FPS (default 60).
 // Decoding and display are fully decoupled: the decoder stores frames via
 // pendingFrame.Store; the ticker picks up the latest one each display cycle.
-func (vw *VideoWidget) startRenderTicker() {
+// Call with the stream's configured FPS so the tick interval matches the source.
+func (vw *VideoWidget) startRenderTicker(fps ...int) {
+	targetFPS := 60
+	if len(fps) > 0 && fps[0] > 0 {
+		targetFPS = fps[0]
+	}
 	if vw.renderTickerStop != nil {
 		close(vw.renderTickerStop)
 	}
@@ -1006,7 +1011,7 @@ func (vw *VideoWidget) startRenderTicker() {
 	vw.renderTickerStop = stop
 
 	go func() {
-		ticker := time.NewTicker(time.Second / 60)
+		ticker := time.NewTicker(time.Second / time.Duration(targetFPS))
 		defer ticker.Stop()
 		for {
 			select {
