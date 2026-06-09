@@ -36,6 +36,7 @@ type VideoWidget struct {
 	streamURL            string
 	isGStreamerConnected bool
 	isMouseConnected     bool // Флаг подключенной мыши
+	enableVSync          bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
 
 	// Сервисы
 	usbClient           *api.USBClient

@@ -22,6 +22,7 @@ typedef void (*PFNGLXSWAPINTERVALEXTPROC)(Display*, GLXDrawable, int);
 typedef int  (*PFNGLXSWAPINTERVALMESAPROC)(unsigned);
 static PFNGLXSWAPINTERVALEXTPROC  glx_swap_ext  = NULL;
 static PFNGLXSWAPINTERVALMESAPROC glx_swap_mesa = NULL;
+static int g_vsync = 0; // set by gl_video_create
 
 extern void goGLLog(char *msg, int level);
 
@@ -124,7 +125,7 @@ static void gl_render_frame(void) {
     }
 }
 
-static void vsync_enable(void) {
+static void vsync_apply(void) {
     const char *ext = glXQueryExtensionsString(g_dpy, DefaultScreen(g_dpy));
     if (ext) {
         if (strstr(ext, "GLX_EXT_swap_control"))
@@ -134,8 +135,9 @@ static void vsync_enable(void) {
             glx_swap_mesa = (PFNGLXSWAPINTERVALMESAPROC)glXGetProcAddressARB(
                                 (const GLubyte*)"glXSwapIntervalMESA");
     }
-    if (glx_swap_ext)  glx_swap_ext(g_dpy, g_win, 1);
-    else if (glx_swap_mesa) glx_swap_mesa(1);
+    int v = g_vsync ? 1 : 0;
+    if (glx_swap_ext)  glx_swap_ext(g_dpy, g_win, v);
+    else if (glx_swap_mesa) glx_swap_mesa(v);
 }
 
 static void *render_thread_fn(void *unused) {
@@ -150,8 +152,8 @@ static void *render_thread_fn(void *unused) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    vsync_enable();
-    goGLLog("render thread started (vsync)", 0);
+    vsync_apply();
+    goGLLog(g_vsync ? "render thread started (vsync on)" : "render thread started (vsync off)", 0);
 
     while (atomic_load(&g_active)) {
         // Poll with short timeout so we can check g_active.
@@ -196,7 +198,8 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 
 // x,y,w,h are in X11 pixels (DPI-scaled by caller).
 // Pass w<=0 or h<=0 to cover the full parent window.
-int gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
+int gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h, int vsync) {
+    g_vsync = vsync;
     // Tear down previous.
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);

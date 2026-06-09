@@ -51,7 +51,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			ph = int(h * scale)
 		}
 		// pw=0,ph=0 means full client area in C code.
-		if !service.GLVideoCreate(hwnd, px, py, pw, ph) {
+		if !service.GLVideoCreate(hwnd, px, py, pw, ph, vw.enableVSync) {
 			logrus.Warn("[GL/Win] failed to create overlay — Fyne canvas path active")
 		}
 	})

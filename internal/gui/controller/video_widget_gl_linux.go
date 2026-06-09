@@ -53,7 +53,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			pw = int(w * scale)
 			ph = int(h * scale)
 		}
-		if !service.GLVideoCreate(xwin, px, py, pw, ph) {
+		if !service.GLVideoCreate(xwin, px, py, pw, ph, vw.enableVSync) {
 			logrus.Warn("[GL/Linux] failed to create overlay — Fyne canvas path active")
 		}
 	})

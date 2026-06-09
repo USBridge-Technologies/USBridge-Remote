@@ -20,6 +20,7 @@
 // WGL vsync extension (optional, loaded at runtime).
 typedef BOOL (WINAPI *PFNWGLSWAPINTERVALEXTPROC)(int);
 static PFNWGLSWAPINTERVALEXTPROC wgl_swap_interval = NULL;
+static int g_vsync = 0; // 1 = vsync on, 0 = vsync off (set by gl_video_create)
 
 // Forward declaration — defined by CGO export in gl_video_windows.go.
 extern void goGLLog(char *msg, int level);
@@ -142,6 +143,9 @@ static DWORD WINAPI render_thread_fn(LPVOID unused) {
         goGLLog("render_thread: wglMakeCurrent failed", 2);
         return 1;
     }
+    // Load vsync extension here (context is current on this thread only).
+    wgl_swap_interval = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
+    if (wgl_swap_interval) wgl_swap_interval(g_vsync ? 1 : 0);
     // Initialise texture on this thread (GL context is current here).
     glGenTextures(1, &g_tex);
     glBindTexture(GL_TEXTURE_2D, g_tex);
@@ -149,8 +153,7 @@ static DWORD WINAPI render_thread_fn(LPVOID unused) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    if (wgl_swap_interval) wgl_swap_interval(1); // vsync ON
-    goGLLog("render thread started (vsync)", 0);
+    goGLLog(g_vsync ? "render thread started (vsync on)" : "render thread started (vsync off)", 0);
 
     while (atomic_load(&g_active)) {
         DWORD r = WaitForSingleObject(g_event, 16);
@@ -212,7 +215,7 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 
 // x,y,w,h are in Windows client pixels (already DPI-scaled by caller).
 // Pass w<=0 or h<=0 to cover the entire parent client area (fullscreen mode).
-int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
+int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync) {
     // Tear down any previous overlay.
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);
@@ -225,6 +228,7 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
         if (g_buf)    { free(g_buf); g_buf=NULL; g_buf_sz=0; }
     }
 
+    g_vsync = vsync;
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!ensure_class()) { goGLLog("gl_video_create: RegisterClass failed", 2); return 0; }
 
@@ -255,11 +259,12 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
         goGLLog("gl_video_create: wglCreateContext failed", 2);
         ReleaseDC(g_hwnd,g_hdc); g_hdc=NULL; DestroyWindow(g_hwnd); g_hwnd=NULL; return 0;
     }
-
-    // Load vsync extension (needs a current context momentarily).
-    wglMakeCurrent(g_hdc, g_ctx);
-    wgl_swap_interval = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
-    wglMakeCurrent(NULL, NULL);
+    // NOTE: Do NOT call wglMakeCurrent here. This function is invoked from
+    // Fyne's RunNative callback which runs on Fyne's GL thread. Calling
+    // wglMakeCurrent(NULL, NULL) would unbind Fyne's own context, causing
+    // the next Fyne draw call to fail. Vsync extension is loaded in the
+    // render thread instead, after it makes its own context current.
+    wgl_swap_interval = NULL;
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);

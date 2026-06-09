@@ -10,7 +10,7 @@ package service
 // Implemented in gl_video_impl_linux.c.
 extern int  gl_video_is_active(void);
 extern int  gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
-extern int  gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h);
+extern int  gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h, int vsync);
 extern void gl_video_update_frame(int x, int y, int w, int h);
 extern void gl_video_destroy(void);
 
@@ -54,8 +54,12 @@ func GLVideoTrySubmit(rgba []byte, width, height, stride int) bool {
 // GLVideoCreate creates (or replaces) the GL overlay on the given X11 Window.
 // x,y,w,h are in X11 pixels (DPI-scaled by caller).
 // Pass w=0,h=0 to cover the entire parent window.
-func GLVideoCreate(xwin uintptr, x, y, w, h int) bool {
-	return C.gl_video_create(C.uintptr_t(xwin), C.int(x), C.int(y), C.int(w), C.int(h)) != 0
+func GLVideoCreate(xwin uintptr, x, y, w, h int, vsync bool) bool {
+	v := C.int(0)
+	if vsync {
+		v = 1
+	}
+	return C.gl_video_create(C.uintptr_t(xwin), C.int(x), C.int(y), C.int(w), C.int(h), v) != 0
 }
 
 func GLVideoUpdateFrame(x, y, w, h int) {

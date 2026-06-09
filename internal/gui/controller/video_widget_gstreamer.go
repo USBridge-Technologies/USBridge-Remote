@@ -97,6 +97,7 @@ func (vw *VideoWidget) handleGStreamerStateChange(state string) {
 
 // handleVideoStartWithParamsGStreamer обновлённая версия для GStreamer (новый UDP протокол)
 func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.VideoStartRequest) {
+	vw.enableVSync = request.EnableVSync
 	fyne.Do(func() {
 		vw.statusLabel.SetText(i18n.Current.StartingVideoCapture)
 	})
