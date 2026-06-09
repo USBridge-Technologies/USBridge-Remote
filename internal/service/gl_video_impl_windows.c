@@ -24,8 +24,9 @@ extern void goGLLog(char *msg, int level);
 // ─────────────────────────────────────────────────────────────────────────────
 // Window / GDI state
 
-static HWND    g_hwnd    = NULL;
-static HDC     g_hdc     = NULL;  // CS_OWNDC — valid for lifetime of g_hwnd
+static HWND    g_hwnd    = NULL;  // parent Fyne/GLFW HWND; no child HWND is created
+static HDC     g_hdc     = NULL;  // parent window DC acquired with GetDC(parent)
+static atomic_int g_dst_x = 0, g_dst_y = 0, g_dst_w = 0, g_dst_h = 0;
 
 // DIB section used as source bitmap for StretchBlt.
 // Pixel format: BGRA (matches AV_PIX_FMT_BGRA from sws_scale — pure memcpy, no swap).
@@ -89,12 +90,6 @@ static volatile long long g_diag_update_posted = 0;
 static volatile long long g_diag_update_applied = 0;
 static volatile double    g_diag_last_update_req_t = 0.0;
 static volatile double    g_diag_last_update_apply_t = 0.0;
-
-// ── Deferred SetWindowPos — avoids any residual cross-thread issues ────────────
-// Written/read on Win32 message-loop thread only (fyne.Do → gl_wndproc).
-#define WM_GDI_UPDATE_FRAME (WM_APP + 1)
-static int g_pending_x = 0, g_pending_y = 0, g_pending_w = 0, g_pending_h = 0;
-static int g_update_posted = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -171,7 +166,20 @@ static void gdi_render_frame(void) {
 
     diag_stage(GDI_STAGE_GET_CLIENT);
     RECT rc; GetClientRect(g_hwnd, &rc);
-    int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
+    int parent_w = rc.right - rc.left, parent_h = rc.bottom - rc.top;
+    if (parent_w <= 0 || parent_h <= 0) return;
+
+    int vx = atomic_load(&g_dst_x);
+    int vy = atomic_load(&g_dst_y);
+    int ww = atomic_load(&g_dst_w);
+    int wh = atomic_load(&g_dst_h);
+    if (ww <= 0 || wh <= 0) {
+        vx = 0; vy = 0; ww = parent_w; wh = parent_h;
+    }
+    if (vx < 0) { ww += vx; vx = 0; }
+    if (vy < 0) { wh += vy; vy = 0; }
+    if (vx + ww > parent_w) ww = parent_w - vx;
+    if (vy + wh > parent_h) wh = parent_h - vy;
     if (ww <= 0 || wh <= 0) return;
 
     // Letterbox: keep frame aspect ratio, fill remainder with black.
@@ -180,16 +188,18 @@ static void gdi_render_frame(void) {
     int dx = 0, dy = 0, dw = ww, dh = wh;
     if (fa > wa) { dh = (int)(ww / fa + 0.5f); dy = (wh - dh) / 2; }
     else         { dw = (int)(wh * fa + 0.5f); dx = (ww - dw) / 2; }
+    dx += vx;
+    dy += vy;
 
     diag_stage(GDI_STAGE_FILL_BARS);
     HBRUSH blk = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    if (dy > 0) {
-        RECT top = {0, 0, ww, dy};       FillRect(g_hdc, &top, blk);
-        RECT bot = {0, dy+dh, ww, wh};   FillRect(g_hdc, &bot, blk);
+    if (dy > vy) {
+        RECT top = {vx, vy, vx + ww, dy};       FillRect(g_hdc, &top, blk);
+        RECT bot = {vx, dy+dh, vx + ww, vy + wh};   FillRect(g_hdc, &bot, blk);
     }
-    if (dx > 0) {
-        RECT lft = {0, dy, dx, dy+dh};          FillRect(g_hdc, &lft, blk);
-        RECT rgt = {dx+dw, dy, ww, dy+dh};      FillRect(g_hdc, &rgt, blk);
+    if (dx > vx) {
+        RECT lft = {vx, dy, dx, dy+dh};          FillRect(g_hdc, &lft, blk);
+        RECT rgt = {dx+dw, dy, vx + ww, dy+dh};      FillRect(g_hdc, &rgt, blk);
     }
 
     SetStretchBltMode(g_hdc, HALFTONE);
@@ -240,37 +250,6 @@ static DWORD WINAPI render_thread_fn(LPVOID unused) {
     return 0;
 }
 
-static LRESULT CALLBACK gl_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == WM_ERASEBKGND) return 1;
-    if (m == WM_PAINT) { PAINTSTRUCT ps; BeginPaint(h,&ps); EndPaint(h,&ps); return 0; }
-    if (m == WM_GDI_UPDATE_FRAME) {
-        // Deferred reposition: arrived after fyne.Do returned, so no lock contention.
-        g_update_posted = 0;
-        if (atomic_load(&g_active)) {
-            SetWindowPos(h, NULL, g_pending_x, g_pending_y, g_pending_w, g_pending_h,
-                         SWP_NOZORDER|SWP_NOACTIVATE);
-            g_diag_update_applied++;
-            g_diag_last_update_apply_t = mono_sec();
-        }
-        return 0;
-    }
-    return DefWindowProcW(h, m, w, l);
-}
-
-static const wchar_t *WCLASS = L"USBGDIVideo";
-static int ensure_class(void) {
-    static int done = 0;
-    if (done) return 1;
-    WNDCLASSEXW wc = {0};
-    wc.cbSize = sizeof(wc); wc.style = CS_OWNDC;
-    wc.lpfnWndProc = gl_wndproc;
-    wc.hInstance = GetModuleHandleW(NULL);
-    wc.lpszClassName = WCLASS;
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return 0;
-    done = 1; return 1;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Public C API (called from gl_video_windows.go via CGO)
 
@@ -308,14 +287,15 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         if (g_event)   { CloseHandle(g_event); g_event=NULL; }
         if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
         if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-        if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
+        if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
+        g_hwnd=NULL;
         if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
         if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
         g_bmp_w=0; g_bmp_h=0;
     }
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
-    if (!ensure_class()) { goGLLog("gl_video_create: RegisterClass failed", 2); return 0; }
+    if (!parent) { goGLLog("gl_video_create: parent HWND is null", 2); return 0; }
 
     int fullwin = (w <= 0 || h <= 0);
     if (fullwin) {
@@ -323,16 +303,19 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         x=0; y=0; w=rc.right-rc.left; h=rc.bottom-rc.top;
     }
 
-    g_hwnd = CreateWindowExW(0, WCLASS, L"", WS_CHILD|WS_VISIBLE,
-                              x, y, w, h, parent, NULL, GetModuleHandleW(NULL), NULL);
-    if (!g_hwnd) { goGLLog("gl_video_create: CreateWindowEx failed", 2); return 0; }
-    g_hdc = GetDC(g_hwnd); // CS_OWNDC — never released until DestroyWindow
+    g_hwnd = parent;
+    g_hdc = GetDC(parent);
+    if (!g_hdc) { goGLLog("gl_video_create: GetDC(parent) failed", 2); g_hwnd=NULL; return 0; }
+    atomic_store(&g_dst_x, x);
+    atomic_store(&g_dst_y, y);
+    atomic_store(&g_dst_w, w);
+    atomic_store(&g_dst_h, h);
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) {
         goGLLog("gl_video_create: CreateEvent failed", 2);
-        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
+        ReleaseDC(g_hwnd, g_hdc); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
@@ -349,29 +332,31 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         goGLLog("gl_video_create: CreateThread failed", 2);
         atomic_store(&g_active, 0);
         CloseHandle(g_event); g_event=NULL;
-        DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL;
+        ReleaseDC(g_hwnd, g_hdc); g_hwnd=NULL; g_hdc=NULL;
         DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
     }
 
     char m[256];
     if (fullwin)
-        snprintf(m, sizeof(m), "GDI overlay created (full-window %dx%d) HWND=%p", w, h, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI parent-DC renderer created (full-window %dx%d) HWND=%p", w, h, (void*)parent_hwnd);
     else
-        snprintf(m, sizeof(m), "GDI overlay created %dx%d at (%d,%d) HWND=%p", w, h, x, y, (void*)parent_hwnd);
+        snprintf(m, sizeof(m), "GDI parent-DC renderer created %dx%d at (%d,%d) HWND=%p", w, h, x, y, (void*)parent_hwnd);
     goGLLog(m, 0);
     return 1;
 }
 
-// Uses PostMessage so SetWindowPos runs after fyne.Do returns (no lock contention).
+// Stores the target video rect in parent client pixels. The render thread reads
+// this atomically and draws directly into the parent DC; no child HWND/messages.
 void gl_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active) || !g_hwnd) return;
-    g_pending_x = x; g_pending_y = y; g_pending_w = w; g_pending_h = h;
-    if (!g_update_posted) {
-        g_update_posted = 1;
-        g_diag_update_posted++;
-        g_diag_last_update_req_t = mono_sec();
-        PostMessageW(g_hwnd, WM_GDI_UPDATE_FRAME, 0, 0);
-    }
+    atomic_store(&g_dst_x, x);
+    atomic_store(&g_dst_y, y);
+    atomic_store(&g_dst_w, w);
+    atomic_store(&g_dst_h, h);
+    g_diag_update_posted++;
+    g_diag_update_applied++;
+    g_diag_last_update_req_t = mono_sec();
+    g_diag_last_update_apply_t = g_diag_last_update_req_t;
 }
 
 void gl_video_destroy(void) {
@@ -381,7 +366,8 @@ void gl_video_destroy(void) {
     if (g_event)   { CloseHandle(g_event); g_event=NULL; }
     if (g_memDC)   { if (g_memDC_old) SelectObject(g_memDC, g_memDC_old); DeleteDC(g_memDC); g_memDC=NULL; g_memDC_old=NULL; }
     if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
-    if (g_hwnd)    { DestroyWindow(g_hwnd); g_hwnd=NULL; g_hdc=NULL; }
+    if (g_hdc && g_hwnd) { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
+    g_hwnd=NULL;
     if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
     if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
     g_bmp_w=0; g_bmp_h=0;
