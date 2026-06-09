@@ -24,8 +24,13 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		return
 	}
 	nw.RunNative(func(ctx any) {
-		win, ok := ctx.(*driver.WindowsWindowContext)
-		if !ok {
+		var hwnd uintptr
+		switch c := ctx.(type) {
+		case *driver.WindowsWindowContext:
+			hwnd = c.HWND
+		case driver.WindowsWindowContext:
+			hwnd = c.HWND
+		default:
 			logrus.Warnf("[GL/Win] unexpected native context type %T", ctx)
 			return
 		}
@@ -46,7 +51,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			ph = int(h * scale)
 		}
 		// pw=0,ph=0 means full client area in C code.
-		if !service.GLVideoCreate(win.HWND, px, py, pw, ph) {
+		if !service.GLVideoCreate(hwnd, px, py, pw, ph) {
 			logrus.Warn("[GL/Win] failed to create overlay — Fyne canvas path active")
 		}
 	})
