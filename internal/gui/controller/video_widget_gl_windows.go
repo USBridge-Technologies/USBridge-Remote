@@ -120,7 +120,9 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.videoCanvas == nil {
 		return
 	}
-	pos := vw.videoCanvas.Position()
+	// AbsolutePositionForObject returns position in window-canvas coordinates
+	// (same origin as HWND client area), not relative to the parent container.
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.videoCanvas)
 	sz := vw.videoCanvas.Size()
 	return pos.X, pos.Y, sz.Width, sz.Height
 }
