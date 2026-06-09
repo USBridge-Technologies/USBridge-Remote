@@ -105,6 +105,49 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
         fi
     fi
 
+    # ── Opus ─────────────────────────────────────────────────────────────────
+    OPUS_VERSION="1.5.2"
+    OPUS_OUT="${ANDROID_OUT}/opus"
+
+    if [ -f "${OPUS_OUT}/lib/libopus.a" ]; then
+        echo "⚡ Opus already present at ${OPUS_OUT}"
+    else
+        echo "📦 Building Opus ${OPUS_VERSION} for Android arm64..."
+        OPUS_SRC="${BUILD_DIR}/opus-${OPUS_VERSION}"
+
+        if [ ! -d "${OPUS_SRC}" ]; then
+            OPUS_TARBALL="${BUILD_DIR}/opus-${OPUS_VERSION}.tar.gz"
+            if [ ! -f "${OPUS_TARBALL}" ]; then
+                echo "  Downloading Opus ${OPUS_VERSION}..."
+                wget -q "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
+                    -O "${OPUS_TARBALL}" \
+                    || curl -fsSL "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
+                        -o "${OPUS_TARBALL}"
+            fi
+            tar xzf "${OPUS_TARBALL}" -C "${BUILD_DIR}"
+        fi
+
+        OPUS_CMAKE_BUILD="${BUILD_DIR}/opus-cmake-build"
+        mkdir -p "${OPUS_CMAKE_BUILD}"
+
+        cmake "${OPUS_SRC}" \
+            -B "${OPUS_CMAKE_BUILD}" \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPUS_BUILD_TESTING=OFF \
+            -DOPUS_BUILD_PROGRAMS=OFF \
+            -DCMAKE_INSTALL_PREFIX="${OPUS_OUT}"
+
+        cmake --build "${OPUS_CMAKE_BUILD}" -j"${NCPU}"
+        cmake --install "${OPUS_CMAKE_BUILD}"
+
+        echo "✅ Opus ${OPUS_VERSION} built for Android arm64"
+        echo "   Outputs: ${OPUS_OUT}/"
+    fi
+
     # ── moonlight-common-c ────────────────────────────────────────────────────
     if [ ! -f "${ANDROID_OUT}/libmoonlight-common-c.a" ]; then
         echo "⚙️ Cross-compiling moonlight-common-c for Android arm64..."
@@ -138,8 +181,14 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Host build
+# Host build (пропускается при MOONLIGHT_SKIP_HOST=1)
 # ────────────────────────────────────────────────────────────────────────────
+if [ "${MOONLIGHT_SKIP_HOST:-0}" = "1" ]; then
+    echo ""
+    echo "⚡ Host build пропущен (MOONLIGHT_SKIP_HOST=1)"
+    exit 0
+fi
+
 OS="$(uname -s)"
 case "${OS}" in
     Linux*)   PLATFORM=Linux;;

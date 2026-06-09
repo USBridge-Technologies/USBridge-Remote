@@ -1,3 +1,5 @@
+//go:build !android || gstreamer
+
 package service
 
 import (

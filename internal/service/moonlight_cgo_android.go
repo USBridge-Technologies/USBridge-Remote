@@ -3,10 +3,11 @@
 package service
 
 /*
-#cgo pkg-config: opus
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
+#cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/build/android/opus/include/opus
 #cgo android CFLAGS: -D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
 #cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -lmoonlight-common-c -lenet -lssl -lcrypto
+#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android/opus/lib -lopus
 #cgo LDFLAGS: -lmediandk -laaudio -lm -ldl -landroid -lEGL -lGLESv2
 
 #include <media/NdkMediaCodec.h>

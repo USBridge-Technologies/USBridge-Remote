@@ -365,6 +365,20 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 	return srv.HTTPClient(), nil
 }
 
+// WaitUntilReady blocks until the tsnet node is online (Running state) or
+// the context expires. On kernel Tailscale or non-userspace builds this is a no-op.
+func (s *TailscaleService) WaitUntilReady(ctx context.Context) error {
+	if !s.IsUserspace() {
+		return nil
+	}
+	srv, err := s.serverInstance()
+	if err != nil {
+		return err
+	}
+	_, err = srv.Up(ctx)
+	return err
+}
+
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err error) {

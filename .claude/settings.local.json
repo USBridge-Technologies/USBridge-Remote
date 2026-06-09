@@ -83,7 +83,15 @@
       "Read(//home/amir/Android/Sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/**)",
       "Bash(MOONLIGHT_ANDROID_TARGET=1 ANDROID_NDK_HOME=/home/amir/Android/Sdk/ndk/30.0.14904198 bash /media/amir/kubuntu_2510/home/amir/Projects/usbridge_client/scripts/build_moonlight.sh)",
       "Read(//home/**)",
-      "Read(//media/amir/**)"
+      "Read(//media/amir/**)",
+      "Bash(meson --version)",
+      "Bash(gofmt -e /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/video_widget_android.go)",
+      "Bash(gofmt -e /Users/amir/Projects/usbridge/usbridge_client/internal/gui/controller/video_widget_windows.go)",
+      "Bash(gofmt -e /Users/amir/Projects/usbridge/usbridge_client/internal/service/gstreamer_service_android_stub.go)",
+      "Bash(git -C /Users/amir/Projects/usbridge/usbridge_client status --short)",
+      "Read(//tmp/**)",
+      "Bash(adb devices *)",
+      "Bash(xargs -I{} sh -c 'echo \"=== $\\(basename {}\\): $\\(head -1 {}\\)\"')"
     ]
   }
 }

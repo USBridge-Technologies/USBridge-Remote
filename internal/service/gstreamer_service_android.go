@@ -1,5 +1,4 @@
-//go:build android
-// +build android
+//go:build android && gstreamer
 
 package service
 

@@ -124,12 +124,14 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	}
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
+	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
 	if cfg.VideoProtocol == models.VideoProtocolMoonlight {
-		mw.videoClient = service.NewMoonlightService(cfg)
+		ms := service.NewMoonlightService(cfg)
+		ms.SetTailscaleService(mw.tailscaleService)
+		mw.videoClient = ms
 	} else {
 		mw.videoClient = service.NewGStreamerService(cfg)
 	}
-	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
 
 	// Initialize UI fields
 	mw.createInterface()

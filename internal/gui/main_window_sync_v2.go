@@ -28,7 +28,18 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 
 	mw.activeAPISecret = []byte(secret)
 
-	bootstrapClient := api.NewUSBClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout)
+	// On Android with userspace Tailscale (tsnet), the OS dialer can't reach
+	// Tailscale IPs. Use the tsnet-aware HTTP client so the sync goes through
+	// the Tailscale netstack instead of failing with "connection refused".
+	var bootstrapClient *api.USBClient
+	if isLikelyTailscaleHost(bootstrapHost) && mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
+		if tsHTTPClient, tsErr := mw.tailscaleService.HTTPClient(); tsErr == nil {
+			bootstrapClient = api.NewUSBClientWithHTTPClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout, tsHTTPClient)
+		}
+	}
+	if bootstrapClient == nil {
+		bootstrapClient = api.NewUSBClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout)
+	}
 	bootstrapClient.SetAPISecretV2(mw.activeAPISecret)
 
 	logrus.Infof("🔄 [SYNC] Performing master sync with bridge (host=%s)...", bootstrapHost)

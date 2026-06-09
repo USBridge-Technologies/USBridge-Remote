@@ -35,13 +35,21 @@ type MoonlightService struct {
 
 	client        *moonlight.Client
 	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
-	stopPlayerCh  chan struct{}         // closed to stop the active GStreamer player goroutines
-	activeWrapper *MoonlightCgoWrapper // set while a stream is running, used for input routing
+	stopPlayerCh    chan struct{}         // closed to stop the active GStreamer player goroutines
+	activeWrapper   *MoonlightCgoWrapper // set while a stream is running, used for input routing
+	tailscaleSvc    *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
 }
 
 // SetAPISecret stores the master secret used to HMAC-sign requests to the usbridge API.
 func (m *MoonlightService) SetAPISecret(secret []byte) {
 	m.apiSecret = secret
+}
+
+// SetTailscaleService wires in the Tailscale service so that Moonlight can use
+// the Tailscale-aware dialer when userspace Tailscale is active (Android).
+// On kernel Tailscale or desktop, the standard OS dialer already routes correctly.
+func (m *MoonlightService) SetTailscaleService(ts *TailscaleService) {
+	m.tailscaleSvc = ts
 }
 
 // NewMoonlightService creates a new MoonlightService.
@@ -69,6 +77,17 @@ func (m *MoonlightService) ConnectToRTP() error {
 	m.client.Host = m.serverHost
 	if m.client.Host == "0.0.0.0" || m.client.Host == "" {
 		m.client.Host = "127.0.0.1" // Default to localhost if unbound
+	}
+
+	// 1b. On userspace Tailscale (Android), the OS dialer can't reach Tailscale IPs.
+	// Use the Tailscale-aware dialer so HTTP connections to Sunshine go through the netstack.
+	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
+		if tsHTTP, err := m.tailscaleSvc.HTTPClient(); err == nil && tsHTTP.Transport != nil {
+			if tr, ok := tsHTTP.Transport.(*http.Transport); ok && tr.DialContext != nil {
+				m.client.SetDialTransport(tr.DialContext)
+				logrus.Info("🌕 [Moonlight] using Tailscale userspace dialer for Sunshine HTTP")
+			}
+		}
 	}
 
 	// 2. Fetch Server Info
@@ -386,11 +405,23 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 
 	body, _ := json.Marshal(map[string]string{"pin": pin})
 
+	// On userspace Tailscale (Android tsnet), both plain and signed requests
+	// must go through the tsnet dialer — the OS dialer can't reach Tailscale IPs.
+	tsHTTPClient := (*http.Client)(nil)
+	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
+		if c, err := m.tailscaleSvc.HTTPClient(); err == nil {
+			tsHTTPClient = c
+		}
+	}
+
 	// Use a plain HTTP client when we have no API secret (pre-pair state).
 	// Once paired the secret is set via SetAPISecret and we use HMAC signing.
 	if len(m.apiSecret) == 0 {
 		url := fmt.Sprintf("http://%s:%d/api/moonlight/pin", host, port)
 		client := &http.Client{Timeout: 10 * time.Second}
+		if tsHTTPClient != nil {
+			client.Transport = tsHTTPClient.Transport
+		}
 		resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 		if err != nil {
 			return fmt.Errorf("POST %s: %w", url, err)
@@ -402,7 +433,12 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		return nil
 	}
 
-	usbClient := usbapi.NewUSBClient(host, port, 10)
+	var usbClient *usbapi.USBClient
+	if tsHTTPClient != nil {
+		usbClient = usbapi.NewUSBClientWithHTTPClient(host, port, 10, tsHTTPClient)
+	} else {
+		usbClient = usbapi.NewUSBClient(host, port, 10)
+	}
 	usbClient.SetAPISecretV2(m.apiSecret)
 	_, err := usbClient.PostRaw("/api/moonlight/pin", body)
 	return err

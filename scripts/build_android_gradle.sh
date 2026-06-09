@@ -32,13 +32,17 @@ echo "  USBridge Client - Gradle build (camera)"
 echo "=============================================="
 echo ""
 
-# 1. GStreamer — динамическая линковка (.so)
-# Для Android используем только dynamic build: CGO в проекте смотрит на
-# gstreamer-android-dynamic/{include,lib}. Старый prebuilt fallback тянет
-# другой набор библиотек и на чистых машинах даёт невоспроизводимую сборку.
-echo "📦 Шаг 1/5: GStreamer (dynamic .so)..."
-"$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh"
-echo ""
+# 1. GStreamer — опциональный динамический .so (только при WITH_GSTREAMER=1)
+# По умолчанию пропускается: приложение использует Moonlight (AMediaCodec/AAudio),
+# GStreamer не нужен. Для включения: ./scripts/build_android.sh --gstreamer
+if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
+    echo "📦 Шаг 1/5: GStreamer (dynamic .so)..."
+    "$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh"
+    echo ""
+else
+    echo "⚡ Шаг 1/5: GStreamer — пропущен (Moonlight-only build)"
+    echo ""
+fi
 
 # 2. gomobile bind для nbdbridge
 echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
@@ -47,30 +51,41 @@ echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
 echo "📦 Шаг 2.5/5: Building Tailscale binaries..."
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
 
-# Configure NDK toolchain for CGO cross-compilation
-# We use API level 24 (matching gomobile bind)
-(
-    export_android_env
-    if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
-        setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
-        echo "   Using NDK toolchain: $CC"
-    else
-        echo -e "${RED}❌ ANDROID_NDK_HOME not set, CGO build may fail${NC}"
-    fi
+TS_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscale.so"
+TSD_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so"
 
-    export GOOS=android
-    export GOARCH=arm64
-    export CGO_ENABLED=1
-    
-    # We use multiple tags to ensure GUI and desktop dependencies are skipped.
-    # nosystray: skip fyne.io/systray which is not supported on Android.
-    # omitgui, ts_omit_gui: Tailscale-specific tags to skip GUI/systray.
-    BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
-    
-    go build -v -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so tailscale.com/cmd/tailscale
-    go build -v -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled
-)
-echo -e "${GREEN}✓${NC} Tailscale binaries (libtailscale.so, libtailscaled.so) built"
+# Пересобираем только если .so нет или go.mod/go.sum обновились
+NEED_TAILSCALE=0
+[ ! -f "$TS_SO" ] || [ ! -f "$TSD_SO" ] && NEED_TAILSCALE=1
+if [ "$NEED_TAILSCALE" -eq 0 ] && path_is_newer_than "$TS_SO" \
+    "$REPO_ROOT/go.mod" "$REPO_ROOT/go.sum"; then
+    NEED_TAILSCALE=1
+fi
+if [ "${FORCE_TAILSCALE:-0}" = "1" ]; then NEED_TAILSCALE=1; fi
+
+if [ "$NEED_TAILSCALE" -eq 1 ]; then
+    (
+        export_android_env
+        if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+            setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
+            echo "   Using NDK toolchain: $CC"
+        else
+            echo -e "${RED}❌ ANDROID_NDK_HOME not set, CGO build may fail${NC}"
+        fi
+
+        export GOOS=android
+        export GOARCH=arm64
+        export CGO_ENABLED=1
+
+        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
+
+        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o "$TS_SO"  tailscale.com/cmd/tailscale
+        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o "$TSD_SO" tailscale.com/cmd/tailscaled
+    )
+    echo -e "${GREEN}✓${NC} Tailscale binaries built"
+else
+    echo "⚡ Tailscale binaries уже актуальны"
+fi
 if ! ensure_command_available go Go; then
     echo -e "${RED}❌ Go не найден${NC}"
     exit 1
@@ -318,10 +333,13 @@ echo ""
 echo "🔨 Шаг 3/5: Сборка Go приложения (fyne)..."
 ANDROID_SRC="$REPO_ROOT/cmd/android"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
-for so_file in android/jniLibs/arm64-v8a/*.so; do
-    [ -f "$so_file" ] || continue
-    sync_file_if_needed "$so_file" "$ANDROID_SRC/libs/arm64-v8a/$(basename "$so_file")"
-done
+# GStreamer .so копируем только когда WITH_GSTREAMER=1; иначе их нет и не нужны
+if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
+    for so_file in android/jniLibs/arm64-v8a/*.so; do
+        [ -f "$so_file" ] || continue
+        sync_file_if_needed "$so_file" "$ANDROID_SRC/libs/arm64-v8a/$(basename "$so_file")"
+    done
+fi
 
 if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     export_android_env
@@ -385,9 +403,25 @@ run_apksigner() {
     esac
 }
 
+# Формируем build tags: базовые + gstreamer если включён
+FYNE_TAGS="nosystray"
+if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
+    FYNE_TAGS="nosystray,gstreamer"
+fi
+
+# Stamp-файл для инвалидации кэша при смене режима gstreamer/no-gstreamer
+FYNE_TAGS_STAMP="$REPO_ROOT/.build-cache/android/fyne_tags.stamp"
+mkdir -p "$(dirname "$FYNE_TAGS_STAMP")"
+PREV_FYNE_TAGS="$(cat "$FYNE_TAGS_STAMP" 2>/dev/null || true)"
+
 NEED_FYNE_BUILD=0
 [ ! -f "$FYNE_APK" ] && NEED_FYNE_BUILD=1
 if [ "${FORCE_FYNE:-0}" = "1" ]; then
+    NEED_FYNE_BUILD=1
+fi
+# Режим сборки изменился (с GStreamer ↔ без)
+if [ "$NEED_FYNE_BUILD" -eq 0 ] && [ "$PREV_FYNE_TAGS" != "$FYNE_TAGS" ]; then
+    echo "   Build tags изменились ($PREV_FYNE_TAGS → $FYNE_TAGS) — пересборка"
     NEED_FYNE_BUILD=1
 fi
 if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$FYNE_APK" \
@@ -410,19 +444,20 @@ if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
     cd "$ANDROID_SRC"
     "$FYNE_BIN" package \
         --target android/arm64 \
-        --tags nosystray \
+        --tags "$FYNE_TAGS" \
         --app-id com.usbridge.client \
         --name "USBridge Client" \
         --app-version "1.0.0" \
         --icon "$REPO_ROOT/Icon.png" \
         --release
     cd "$REPO_ROOT"
+    printf '%s' "$FYNE_TAGS" > "$FYNE_TAGS_STAMP"
     if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
         FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
     fi
-    echo -e "${GREEN}✓${NC} Fyne APK пересобран"
+    echo -e "${GREEN}✓${NC} Fyne APK пересобран (tags: $FYNE_TAGS)"
 else
-    echo "⚡ Fyne APK уже актуален"
+    echo "⚡ Fyne APK уже актуален (tags: $FYNE_TAGS)"
 fi
 echo ""
 
@@ -456,10 +491,12 @@ if [ "$NEED_EXTRACT_FYNE_SO" -eq 1 ]; then
 else
     echo "⚡ libUSBridge_Client.so уже актуален"
 fi
-for so_file in android/jniLibs/arm64-v8a/*.so; do
-    [ -f "$so_file" ] || continue
-    sync_file_if_needed "$so_file" "android/app/src/main/jniLibs/arm64-v8a/$(basename "$so_file")"
-done
+if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
+    for so_file in android/jniLibs/arm64-v8a/*.so; do
+        [ -f "$so_file" ] || continue
+        sync_file_if_needed "$so_file" "android/app/src/main/jniLibs/arm64-v8a/$(basename "$so_file")"
+    done
+fi
 echo -e "${GREEN}✓${NC} Нативные библиотеки синхронизированы"
 echo ""
 

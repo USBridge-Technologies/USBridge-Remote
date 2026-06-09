@@ -385,6 +385,23 @@ if [ "${FORCE_GSTREAMER:-0}" != "1" ] && [ -f "$GST_BUILD_STAMP" ] && gstreamer_
 fi
 
 echo "📦 Настройка динамической сборки (shared .so)..."
+
+# gst-build monorepo: subprojects/X должны быть симлинками на ../X.
+# При обычном git clone они оказываются реальными директориями → Meson бросает
+# FileExistsError и в итоге завершается с «Unhandled python exception».
+# Конвертируем дубликаты в симлинки до запуска meson.
+echo "🔧 Подготовка monorepo-симлинков в subprojects/..."
+for component in gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad \
+                  gst-plugins-ugly gst-libav gst-rtsp-server gst-editing-services; do
+    toplevel="$GSTREAMER_DIR/$component"
+    subproj="$GSTREAMER_DIR/subprojects/$component"
+    if [ -d "$toplevel" ] && [ -d "$subproj" ] && [ ! -L "$subproj" ]; then
+        echo "  $component: директория → симлинк"
+        rm -rf "$subproj"
+        ln -s "../$component" "$subproj"
+    fi
+done
+
 MESON_EXTRA=""
 [ -d "$BUILD_DIR" ] && MESON_EXTRA="--reconfigure"
 MSYS2_ARG_CONV_EXCL='--prefix=' meson setup $MESON_EXTRA "$BUILD_DIR" \
@@ -392,7 +409,6 @@ MSYS2_ARG_CONV_EXCL='--prefix=' meson setup $MESON_EXTRA "$BUILD_DIR" \
     --prefix="$MESON_PREFIX" \
     --buildtype=release \
     --default-library=shared \
-    -Dgst-full-plugins='*' \
     -Dbase=enabled \
     -Dgood=enabled \
     -Dbad=enabled \

@@ -383,6 +383,18 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 				}
 			}
 		}
+		// On Android userspace Tailscale (tsnet), wait for the node to be
+		// online before sending the sync request to a Tailscale host.
+		// tsnet.Up() blocks until Running state (~4s on first launch).
+		if isLikelyTailscaleHost(host) && mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
+			logrus.Info("🛰️ [SYNC] Waiting for Tailscale (userspace) to be ready...")
+			if waitErr := mw.tailscaleService.WaitUntilReady(ctx); waitErr != nil {
+				logrus.Warnf("🛰️ [SYNC] Tailscale not ready: %v (proceeding anyway)", waitErr)
+			} else {
+				logrus.Info("🛰️ [SYNC] Tailscale ready")
+			}
+		}
+
 		if newToken, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
 			tunnelToken = newToken
 		} else {

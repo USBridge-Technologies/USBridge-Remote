@@ -1,12 +1,14 @@
 package moonlight
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -82,6 +84,23 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 		httpsClient:       httpsClient,
 		pairingHTTPClient: pairingHTTPClient,
 	}
+}
+
+// SetDialTransport replaces the underlying transport on all HTTP clients with
+// one that uses the provided dialer. Call this when Tailscale runs in userspace
+// (Android) so connections to Tailscale IPs go through the Tailscale netstack
+// instead of the default OS dialer which can't reach them.
+func (c *Client) SetDialTransport(dialCtx func(ctx context.Context, network, addr string) (net.Conn, error)) {
+	base := &http.Transport{DialContext: dialCtx}
+	tlsCfg := &tls.Config{
+		Certificates:       []tls.Certificate{{Certificate: [][]byte{c.Identity.Cert.Raw}, PrivateKey: c.Identity.PrivateKey}},
+		InsecureSkipVerify: true,
+	}
+	tlsBase := &http.Transport{DialContext: dialCtx, TLSClientConfig: tlsCfg}
+
+	c.httpClient = &http.Client{Transport: base, Timeout: 10 * time.Second}
+	c.httpsClient = &http.Client{Transport: tlsBase, Timeout: 10 * time.Second}
+	c.pairingHTTPClient = &http.Client{Transport: tlsBase, Timeout: 120 * time.Second}
 }
 
 func (c *Client) getURL(secure bool, path string, params map[string]string) string {
