@@ -7,12 +7,14 @@ package service
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
 #cgo android CFLAGS: -D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
 #cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build/android -lmoonlight-common-c -lenet -lssl -lcrypto
-#cgo LDFLAGS: -lmediandk -laaudio -lm -ldl -landroid
+#cgo LDFLAGS: -lmediandk -laaudio -lm -ldl -landroid -lEGL -lGLESv2
 
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#include <android/native_window_jni.h>
+#include <jni.h>
 #include <Limelight.h>
 #include <opus_multistream.h>
 #include <stdlib.h>
@@ -24,6 +26,12 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+
+// Declared in gl_video_impl_android.c
+extern void         android_gl_set_jvm(JavaVM *jvm);
+extern ANativeWindow *android_gl_init(int width, int height);
+extern uint8_t      *android_gl_get_frame(int width, int height);
+extern void          android_gl_release(void);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -115,36 +123,49 @@ static void ar_decode(char *data, int len) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AMediaCodec H.264 hardware decoder (Android NDK)
+// AMediaCodec H.264 hardware decoder — SurfaceTexture GPU path (Android NDK)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static AMediaCodec  *g_amc        = NULL;
-static int           g_amc_w      = 0;
-static int           g_amc_h      = 0;
-static uint64_t      g_amc_pts    = 0;
+static AMediaCodec  *g_amc     = NULL;
+static int           g_amc_w   = 0;
+static int           g_amc_h   = 0;
+static uint64_t      g_amc_pts = 0;
+static int           g_gl_ok   = 0;  // 1 = GPU path active
 
 static void amc_init(int width, int height) {
     if (g_amc) return;
     g_amc_w = width; g_amc_h = height;
 
+    // Initialize EGL + SurfaceTexture and get the ANativeWindow for Surface output.
+    ANativeWindow *nwin = android_gl_init(width, height);
+
     AMediaFormat *fmt = AMediaFormat_new();
     AMediaFormat_setString(fmt, AMEDIAFORMAT_KEY_MIME, "video/avc");
     AMediaFormat_setInt32(fmt,  AMEDIAFORMAT_KEY_WIDTH,  width);
     AMediaFormat_setInt32(fmt,  AMEDIAFORMAT_KEY_HEIGHT, height);
-    AMediaFormat_setInt32(fmt,  AMEDIAFORMAT_KEY_COLOR_FORMAT, 19); // COLOR_FormatYUV420Planar
+    // Do NOT set COLOR_FORMAT — Surface output uses the decoder's native GPU format.
 
     g_amc = AMediaCodec_createDecoderByType("video/avc");
-    if (!g_amc) { AMediaFormat_delete(fmt); goVTLog((char*)"AMediaCodec: create FAILED"); return; }
-
-    if (AMediaCodec_configure(g_amc, fmt, NULL, NULL, 0) != AMEDIA_OK) {
-        AMediaCodec_delete(g_amc); g_amc = NULL;
+    if (!g_amc) {
         AMediaFormat_delete(fmt);
-        goVTLog((char*)"AMediaCodec: configure FAILED");
+        if (nwin) ANativeWindow_release(nwin);
+        goVTLog((char*)"AMediaCodec: create FAILED");
         return;
     }
+
+    if (AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) != AMEDIA_OK) {
+        AMediaCodec_delete(g_amc); g_amc = NULL;
+        AMediaFormat_delete(fmt);
+        if (nwin) ANativeWindow_release(nwin);
+        goVTLog((char*)"AMediaCodec: configure FAILED (GPU path)");
+        g_gl_ok = 0;
+        return;
+    }
+    if (nwin) ANativeWindow_release(nwin); // AMediaCodec holds its own reference
     AMediaCodec_start(g_amc);
     AMediaFormat_delete(fmt);
-    goVTLog((char*)"AMediaCodec: decoder started");
+    g_gl_ok = 1;
+    goVTLog((char*)"AMediaCodec: HW decoder started (SurfaceTexture GPU path)");
 }
 
 static void amc_teardown(void) {
@@ -152,40 +173,18 @@ static void amc_teardown(void) {
     AMediaCodec_stop(g_amc);
     AMediaCodec_delete(g_amc);
     g_amc = NULL;
+    g_gl_ok = 0;
+    android_gl_release();
     goVTLog((char*)"AMediaCodec: decoder stopped");
-}
-
-// YUV420p → RGBA (simple I420 conversion for RGBA output to goVTFrame)
-static void yuv420_to_rgba(const uint8_t *y, const uint8_t *u, const uint8_t *v,
-                             int y_stride, int uv_stride, int w, int h,
-                             uint8_t *rgba)
-{
-    for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
-            int yv = y[row * y_stride + col];
-            int uv_row = row / 2, uv_col = col / 2;
-            int uval = u[uv_row * uv_stride + uv_col] - 128;
-            int vval = v[uv_row * uv_stride + uv_col] - 128;
-            int r = yv + (int)(1.402f * vval);
-            int g = yv - (int)(0.344f * uval) - (int)(0.714f * vval);
-            int b = yv + (int)(1.772f * uval);
-            uint8_t *p = rgba + (row * w + col) * 4;
-            p[0] = r < 0 ? 0 : r > 255 ? 255 : (uint8_t)r;
-            p[1] = g < 0 ? 0 : g > 255 ? 255 : (uint8_t)g;
-            p[2] = b < 0 ? 0 : b > 255 ? 255 : (uint8_t)b;
-            p[3] = 255;
-        }
-    }
 }
 
 static int dr_submit(PDECODE_UNIT du) {
     if (!g_amc) {
-        // Width/height from dr_setup not available here; use globals set externally.
         amc_init(g_amc_w > 0 ? g_amc_w : 1920, g_amc_h > 0 ? g_amc_h : 1080);
         if (!g_amc) return DR_NEED_IDR;
     }
 
-    // Queue all LENTRY buffers into input buffer.
+    // Feed compressed data into MediaCodec input buffer.
     ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 5000); // 5 ms timeout
     if (idx < 0) return DR_OK;
 
@@ -202,27 +201,18 @@ static int dr_submit(PDECODE_UNIT du) {
     }
     AMediaCodec_queueInputBuffer(g_amc, (size_t)idx, 0, written, g_amc_pts++, 0);
 
-    // Drain output.
+    // Drain output: render to SurfaceTexture, read back RGBA via FBO.
     AMediaCodecBufferInfo info;
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
-        size_t out_size = 0;
-        const uint8_t *out = AMediaCodec_getOutputBuffer(g_amc, (size_t)out_idx, &out_size);
-        if (out && g_amc_w > 0 && g_amc_h > 0) {
-            int w = g_amc_w, h = g_amc_h;
-            uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
-            if (rgba) {
-                int y_size  = w * h;
-                int uv_size = (w / 2) * (h / 2);
-                const uint8_t *yp = out;
-                const uint8_t *up = out + y_size;
-                const uint8_t *vp = out + y_size + uv_size;
-                yuv420_to_rgba(yp, up, vp, w, w / 2, w, h, rgba);
-                goVTFrame(rgba, w, h, w * 4);
-                free(rgba);
-            }
+        if (g_gl_ok && g_amc_w > 0 && g_amc_h > 0) {
+            // render=true → decoder outputs frame directly to SurfaceTexture
+            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)out_idx, 1);
+            uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
+            if (rgba) goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+        } else {
+            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)out_idx, 0);
         }
-        AMediaCodec_releaseOutputBuffer(g_amc, (size_t)out_idx, 0);
     }
     return DR_OK;
 }
@@ -319,6 +309,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"fyne.io/fyne/v2/driver"
 	"github.com/sirupsen/logrus"
 )
 
@@ -345,6 +336,15 @@ type MoonlightCgoWrapper struct {
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
+	// Pass the JavaVM to the C GL layer (needed for JNI calls to VideoSurfaceBridge).
+	// driver.RunNative on Android provides AndroidContext with the JavaVM pointer.
+	_ = driver.RunNative(func(ctx any) error {
+		if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 {
+			C.android_gl_set_jvm((*C.JavaVM)(unsafe.Pointer(ac.VM)))
+			logrus.Info("🎬 [Moonlight/Android] JavaVM set for GPU video path")
+		}
+		return nil
+	})
 	return &MoonlightCgoWrapper{host: host}
 }
 
