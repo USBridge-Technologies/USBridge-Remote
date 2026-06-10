@@ -80,6 +80,8 @@ type VideoWidget struct {
 	videoTraceLabel      atomic.Value
 	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
 	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
+	lastVideoImgW        float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
+	lastVideoImgH        float32      // pixel height of the last decoded video frame
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра
@@ -209,6 +211,10 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.videoTraceStartedAt.Store(startedAt.UnixNano())
 	vw.videoTraceFirstFrame.Store(0)
 	vw.videoTraceFirstPaint.Store(0)
+	// Reset saved video dimensions so a new stream with different resolution
+	// doesn't inherit stale values from the previous session.
+	vw.lastVideoImgW = 0
+	vw.lastVideoImgH = 0
 	label := fmt.Sprintf("vt-%d", traceID)
 	vw.videoTraceLabel.Store(label)
 	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s", traceID, label, reason)

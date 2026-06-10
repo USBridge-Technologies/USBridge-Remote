@@ -735,22 +735,41 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 	vw.contentRectY = 0
 	vw.contentRectW = w
 	vw.contentRectH = h
-	vw.baseContentRectW = w
-	vw.baseContentRectH = h
+
+	// Determine the pixel dimensions of the video stream.
+	// When frame != nil (Fyne canvas path), read directly from the image.
+	// When frame == nil (Metal active — canvas cleared), reuse the last known dimensions
+	// so that aspect-ratio correction and black-bar detection remain accurate after resize.
+	imgW, imgH := vw.lastVideoImgW, vw.lastVideoImgH
 	if frame != nil {
 		b := frame.Bounds()
-		imgW := float32(b.Dx())
-		imgH := float32(b.Dy())
-		if imgW > 0 && imgH > 0 {
-			scale := w / imgW
-			if h/imgH < scale {
-				scale = h / imgH
-			}
-			renderW := imgW * scale
-			renderH := imgH * scale
-			vw.baseContentRectW = renderW
-			vw.baseContentRectH = renderH
+		fw, fh := float32(b.Dx()), float32(b.Dy())
+		if fw > 0 && fh > 0 {
+			imgW, imgH = fw, fh
+			vw.lastVideoImgW = fw
+			vw.lastVideoImgH = fh
 		}
+	}
+	// Fall back to configured dimensions if we have never seen a frame.
+	if imgW <= 0 || imgH <= 0 {
+		if vw.videoClient != nil {
+			if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoWidth > 0 {
+				imgW = float32(cfg.VideoWidth)
+				imgH = float32(cfg.VideoHeight)
+			}
+		}
+	}
+
+	if imgW > 0 && imgH > 0 {
+		scale := w / imgW
+		if h/imgH < scale {
+			scale = h / imgH
+		}
+		vw.baseContentRectW = imgW * scale
+		vw.baseContentRectH = imgH * scale
+	} else {
+		vw.baseContentRectW = w
+		vw.baseContentRectH = h
 	}
 	vw.recalculateViewport()
 }

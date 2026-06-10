@@ -934,6 +934,7 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 // clearVideo очищает видео.
 func (vw *VideoWidget) clearVideo() {
 	vw.frameMutex.Lock()
+	lastFrame := vw.currentFrame // saved for darkened pause display
 	vw.currentFrame = nil
 	vw.frameCount = 0
 	vw.lastFrameTime = time.Time{}
@@ -942,6 +943,7 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameContentW = 0
 	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
+	// Keep lastVideoImgW/H — aspect ratio is still valid for the same stream config.
 	vw.stopMetalVideo()
 	vw.frameDecoder.Reset()
 	vw.pendingFrame.Store(nil)
@@ -950,8 +952,15 @@ func (vw *VideoWidget) clearVideo() {
 
 	fyne.Do(func() {
 		if vw.videoCanvas != nil {
-			vw.videoCanvas.Resource = nil
-			vw.videoCanvas.Image = nil
+			if lastFrame != nil {
+				// Show last frame darkened to indicate stream stopped.
+				vw.videoCanvas.Image = lastFrame
+				vw.videoCanvas.Translucency = 0.55
+			} else {
+				vw.videoCanvas.Resource = nil
+				vw.videoCanvas.Image = nil
+				vw.videoCanvas.Translucency = 0
+			}
 			vw.videoCanvas.Refresh()
 		}
 		if vw.touchpadWrapper != nil {
@@ -1114,6 +1123,7 @@ func (vw *VideoWidget) renderLatestFrame() {
 		}
 		if vw.videoCanvas.Image != frame {
 			vw.videoCanvas.Image = frame
+			vw.videoCanvas.Translucency = 0 // clear darkening from paused state
 		}
 		vw.videoCanvas.Refresh()
 	}

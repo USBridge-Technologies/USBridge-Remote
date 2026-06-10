@@ -62,9 +62,11 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		} else {
 			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
 			// Clear the static Fyne canvas frame — Metal overlay now handles rendering.
+			// Also clear Translucency so the darkened pause frame doesn't bleed through.
 			// Running on main thread already (RunNative context).
 			if vw.videoCanvas != nil {
 				vw.videoCanvas.Image = nil
+				vw.videoCanvas.Translucency = 0
 				vw.videoCanvas.Refresh()
 			}
 		}
