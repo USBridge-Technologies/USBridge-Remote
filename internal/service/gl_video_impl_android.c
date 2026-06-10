@@ -14,6 +14,8 @@
 #include <GLES3/gl3ext.h>
 #include <GLES2/gl2ext.h>   // GL_TEXTURE_EXTERNAL_OES, GL_OES_EGL_image_external
 #include <android/native_window_jni.h>
+#include <stdatomic.h>
+#include <time.h>
 #include <jni.h>
 #include <android/log.h>
 #include <stdlib.h>
@@ -46,6 +48,11 @@ static jobject    g_surf_ref = NULL; // global ref to android.view.Surface
 static int     g_gles3      = 0;     // 1 = GLES 3.0 context
 static GLuint  g_pbo[2]     = {0,0};
 static size_t  g_pbo_sz     = 0;
+
+// EGL access lock: prevents android_gl_release from destroying the context
+// while render_and_readback holds it on the decoder thread.
+// 0 = idle, 1 = render in progress.
+static atomic_int g_egl_busy = 0;
 static int     g_pbo_wr     = 0;     // which PBO we just wrote into
 static int     g_pbo_primed = 0;     // 1 after first frame (other PBO ready)
 
@@ -336,9 +343,16 @@ static const float kVerts[] = {
 };
 
 static uint8_t *render_and_readback(int w, int h) {
+    // Mark EGL as busy so android_gl_release waits before destroying the context.
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_egl_busy, &expected, 1)) {
+        return NULL; // release already in progress
+    }
+
     // Bind our EGL context to the current thread before any GL/SurfaceTexture call.
     if (!eglMakeCurrent(g_display, g_surface, g_surface, g_context)) {
         VLOGE("eglMakeCurrent failed in render");
+        atomic_store(&g_egl_busy, 0);
         return NULL;
     }
 
@@ -402,8 +416,9 @@ static uint8_t *render_and_readback(int w, int h) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    // Unbind so cleanup on another thread doesn't fail with EGL_BAD_ACCESS.
+    // Unbind and release the EGL lock so android_gl_release can proceed.
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    atomic_store(&g_egl_busy, 0);
 
     return g_readback;
 }
@@ -491,6 +506,16 @@ uint8_t *android_gl_get_frame(int width, int height) {
 
 void android_gl_release(void) {
     if (g_context == EGL_NO_CONTEXT) return;
+
+    // Wait for any in-progress render_and_readback to release the EGL context.
+    // Avoids EGL_BAD_ACCESS when both the render thread and the cleanup thread
+    // try to eglMakeCurrent simultaneously.
+    int waited = 0;
+    while (atomic_load(&g_egl_busy)) {
+        struct timespec ts = {0, 500000}; // 0.5ms
+        nanosleep(&ts, NULL);
+        if (++waited > 200) { VLOGE("android_gl_release: timeout waiting for render"); break; }
+    }
 
     eglMakeCurrent(g_display, g_surface, g_surface, g_context);
 
