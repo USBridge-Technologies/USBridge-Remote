@@ -110,10 +110,10 @@ func DefaultConfig() *AppConfig {
 
 
 		// Видео
-		VideoBitrate:   2000,
-		VideoWidth:     640,
-		VideoHeight:    480,
-		VideoFPS:       30,
+		VideoBitrate:   10000,
+		VideoWidth:     1280,
+		VideoHeight:    720,
+		VideoFPS:       60,
 		LowLatencyMode: true, // Включаем режим низкой задержки по умолчанию
 		BufferSize:     2,    // Минимальный буфер кадров
 		SkipFrameDelay: true, // Пропускаем задержки между кадрами

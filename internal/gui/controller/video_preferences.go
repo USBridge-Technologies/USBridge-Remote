@@ -22,11 +22,11 @@ func defaultVideoDeviceConfig(devicePath, deviceName string) models.VideoDeviceC
 	return models.VideoDeviceConfig{
 		DevicePath:    devicePath,
 		DeviceName:    deviceName,
-		VideoWidth:    640,
-		VideoHeight:   480,
-		VideoFPS:      30,
-		VideoQuality:  80,
-		VideoBitrate:  "2000K",
+		VideoWidth:    1280,
+		VideoHeight:   720,
+		VideoFPS:      60,
+		VideoQuality:  100,
+		VideoBitrate:  "10000K",
 		VideoMode:     models.VideoModeH264,
 		LastAppliedAt: time.Now().Unix(),
 	}
@@ -96,7 +96,7 @@ func loadSavedVideoDeviceConfig(devicePath, deviceName string) models.VideoDevic
 			cfg.DeviceName = deviceName
 		}
 		if cfg.VideoQuality <= 0 {
-			cfg.VideoQuality = 80
+			cfg.VideoQuality = 100
 		}
 		if cfg.VideoBitrate == "" {
 			cfg.VideoBitrate = "2000K"

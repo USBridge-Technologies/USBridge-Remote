@@ -440,7 +440,14 @@ func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
 	vtFrameCallbackMu.Lock(); cb := vtFrameCallback; vtFrameCallbackMu.Unlock()
 	if cb == nil { return }
 	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
-	copy(img.Pix, C.GoBytes(unsafe.Pointer(rgba), C.int(int(w)*int(h)*4)))
+	src := C.GoBytes(unsafe.Pointer(rgba), C.int(int(w)*int(h)*4))
+	stride := int(w) * 4
+	// glReadPixels returns rows bottom-up; flip vertically so row 0 is the top.
+	for y := 0; y < int(h); y++ {
+		srcOff := (int(h) - 1 - y) * stride
+		dstOff := y * stride
+		copy(img.Pix[dstOff:dstOff+stride], src[srcOff:srcOff+stride])
+	}
 	cb(img)
 }
 func SetVTFrameCallback(cb func(image.Image)) { vtFrameCallbackMu.Lock(); vtFrameCallback = cb; vtFrameCallbackMu.Unlock() }

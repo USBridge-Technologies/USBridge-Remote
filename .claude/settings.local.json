@@ -92,7 +92,9 @@
       "Read(//tmp/**)",
       "Bash(adb devices *)",
       "Bash(xargs -I{} sh -c 'echo \"=== $\\(basename {}\\): $\\(head -1 {}\\)\"')",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(tee /tmp/test_android_out.txt)",
+      "Bash(tee /tmp/test_flip.txt)"
     ]
   }
 }
