@@ -25,9 +25,20 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 	}
 	logrus.Infof("🍎 [Metal] RunNative starting (fullscreen=%v)", fullscreen)
 	nw.RunNative(func(ctx any) {
-		mac, ok := ctx.(*driver.MacWindowContext)
-		if !ok {
-			logrus.Warnf("🍎 [Metal] RunNative ctx type=%T, expected *driver.MacWindowContext — Metal skipped", ctx)
+		// Fyne passes MacWindowContext as a value (not pointer) in recent versions.
+		// Support both forms so we don't silently skip Metal on version changes.
+		var nsWin uintptr
+		switch m := ctx.(type) {
+		case driver.MacWindowContext:
+			nsWin = m.NSWindow
+		case *driver.MacWindowContext:
+			nsWin = m.NSWindow
+		default:
+			logrus.Warnf("🍎 [Metal] RunNative ctx type=%T — Metal skipped", ctx)
+			return
+		}
+		if nsWin == 0 {
+			logrus.Warn("🍎 [Metal] NSWindow pointer is nil — Metal skipped")
 			return
 		}
 		var x, y, w, h float32
@@ -40,7 +51,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			}
 		}
 		// w=0,h=0 signals full-window mode in C code.
-		if !service.MetalVideoCreate(mac.NSWindow, x, y, w, h) {
+		if !service.MetalVideoCreate(nsWin, x, y, w, h) {
 			logrus.Warn("🍎 [Metal] failed to create overlay — Fyne canvas path active")
 		} else {
 			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
