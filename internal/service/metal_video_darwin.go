@@ -16,6 +16,7 @@ extern int  metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, fl
 extern void metal_video_update_frame(float x, float y, float w, float h);
 extern void metal_video_destroy(void);
 extern double metal_video_last_fps(void);
+extern void metal_video_set_hidden(int hidden);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
@@ -64,4 +65,14 @@ func MetalVideoIsActive() bool {
 // Returns 0 if not enough frames yet.
 func MetalVideoLastFPS() float64 {
 	return float64(C.metal_video_last_fps())
+}
+
+// MetalVideoSetHidden hides or shows the Metal overlay NSView without destroying it.
+// Use this to let Fyne popups/menus render on top of the video.
+func MetalVideoSetHidden(hidden bool) {
+	h := C.int(0)
+	if hidden {
+		h = 1
+	}
+	C.metal_video_set_hidden(h)
 }

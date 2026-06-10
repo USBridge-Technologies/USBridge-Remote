@@ -227,6 +227,14 @@ void metal_video_update_frame(float x, float y, float w, float h) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+void metal_video_set_hidden(int hidden) {
+    if (!atomic_load(&g_active)) return;
+    dispatch_block_t blk = ^{
+        if (g_view) g_view.hidden = (hidden != 0);
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
 void metal_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);

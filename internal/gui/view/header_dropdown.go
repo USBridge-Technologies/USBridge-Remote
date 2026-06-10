@@ -775,10 +775,7 @@ func (p *dropdownPopup) Tapped(ev *fyne.PointEvent) {
 	if p.isInside(ev.Position) {
 		return
 	}
-	p.Hide()
-	if p.onDismiss != nil {
-		p.onDismiss()
-	}
+	p.Hide() // onDismiss and overlayHide are called inside Hide()
 }
 
 func (p *dropdownPopup) TappedSecondary(ev *fyne.PointEvent) {
@@ -790,6 +787,7 @@ func (p *dropdownPopup) ShowAtPosition(pos fyne.Position) {
 	if !p.shown {
 		p.canvas.Overlays().Add(p)
 		p.shown = true
+		overlayShow()
 	}
 	p.BaseWidget.Resize(p.canvas.Size())
 	p.Show()
@@ -797,11 +795,18 @@ func (p *dropdownPopup) ShowAtPosition(pos fyne.Position) {
 }
 
 func (p *dropdownPopup) Hide() {
-	if p.shown {
-		p.canvas.Overlays().Remove(p)
-		p.shown = false
+	if !p.shown {
+		p.BaseWidget.Hide()
+		return
 	}
+	p.canvas.Overlays().Remove(p)
+	p.shown = false
 	p.BaseWidget.Hide()
+	dismiss := p.onDismiss
+	if dismiss != nil {
+		dismiss()
+	}
+	overlayHide()
 }
 
 func (p *dropdownPopup) isInside(pos fyne.Position) bool {

@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -14,6 +15,11 @@ import (
 // Set fullscreen=true to cover the entire contentView; otherwise the overlay
 // is positioned to match the Fyne videoCanvas widget bounds.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
+	// Wire up overlay lifecycle hooks so that every Fyne popup/menu temporarily
+	// hides the Metal NSView, letting Fyne render popups on top of the video.
+	// These are idempotent no-ops when Metal is not active.
+	view.OnOverlayShow = func() { service.MetalVideoSetHidden(true) }
+	view.OnOverlayHide = func() { service.MetalVideoSetHidden(false) }
 	if window == nil {
 		logrus.Warn("🍎 [Metal] startMetalVideoOnWindow: window=nil — skipped")
 		return

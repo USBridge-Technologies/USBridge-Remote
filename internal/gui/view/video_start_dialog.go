@@ -26,8 +26,9 @@ type ResolutionPreset struct {
 }
 
 type VideoStartDialog struct {
-	dialog *widget.PopUp
-	parent fyne.Window
+	dialog      *widget.PopUp
+	parent      fyne.Window
+	dialogShown bool // tracks whether overlayShow was called (guards against double-hide)
 
 	streamModes      []models.VideoTransportMode
 	captureModes     []models.VideoCaptureMode
@@ -713,6 +714,10 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 		vsd.dialog.Resize(vsd.parent.Canvas().Size())
 		vsd.dialog.Refresh()
 	}
+	if !vsd.dialogShown {
+		vsd.dialogShown = true
+		overlayShow()
+	}
 	vsd.dialog.Show()
 }
 
@@ -741,6 +746,10 @@ func (vsd *VideoStartDialog) SetExtraAction(label string, onTap func()) {
 }
 
 func (vsd *VideoStartDialog) Hide() {
+	if vsd.dialogShown {
+		vsd.dialogShown = false
+		overlayHide()
+	}
 	vsd.dialog.Hide()
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
