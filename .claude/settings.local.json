@@ -107,7 +107,8 @@
       "Bash(ping *)",
       "Bash(brew list *)",
       "Bash(docker info *)",
-      "Bash(pip3 install *)"
+      "Bash(pip3 install *)",
+      "Bash(go tool *)"
     ]
   }
 }
