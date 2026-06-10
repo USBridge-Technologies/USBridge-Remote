@@ -100,7 +100,9 @@
       "Bash(grep -E \" $\\(adb shell pidof com.usbridge.client \\) \")",
       "Bash(FORCE_FYNE=1 GOFLAGS=\"-a\" ./scripts/build_android.sh)",
       "Bash(echo \"Build started in background, PID=$!\")",
-      "Bash(awk '/10:25:4[4-9]|10:25:5/')"
+      "Bash(awk '/10:25:4[4-9]|10:25:5/')",
+      "Bash(go mod *)",
+      "Bash(go run *)"
     ]
   }
 }

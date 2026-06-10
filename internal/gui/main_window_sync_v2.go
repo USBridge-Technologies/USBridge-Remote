@@ -11,7 +11,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string) (string, error) {
+// syncWithBridgeV2 performs master sync with the bridge.
+// Returns (frpToken, tailscaleReady, error).
+// tailscaleReady is true when the bridge is already logged in to Tailscale
+// and a Tailscale address was obtained from the sync response.
+func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string) (string, bool, error) {
 	secret := input
 
 	// If it's a deep link, extract the secret
@@ -23,7 +27,7 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	}
 
 	if secret == "" {
-		return "", fmt.Errorf("empty API secret")
+		return "", false, fmt.Errorf("empty API secret")
 	}
 
 	mw.activeAPISecret = []byte(secret)
@@ -55,13 +59,14 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 
 	resp, err := bootstrapClient.MasterSyncV2(ctx, syncPayload)
 	if err != nil {
-		return "", fmt.Errorf("master sync failed: %v", err)
+		return "", false, fmt.Errorf("master sync failed: %v", err)
 	}
 
 	logrus.Infof("✅ [SYNC] Master sync successful. FRP Token received.")
 
 	// If server returned a Tailscale IP, remember it so the Tailscale protocol
 	// can connect directly without an additional API call.
+	tailscaleReady := false
 	if resp.TailscaleStatus != nil {
 		tsIP := strings.TrimSpace(resp.TailscaleStatus.IP4)
 		tsHost := strings.TrimSpace(resp.TailscaleStatus.DNSName)
@@ -72,8 +77,11 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 		if resolved != "" && mw.connectionManager != nil {
 			mw.connectionManager.RememberResolvedTailscaleHost(bootstrapHost, bootstrapHost, resolved, secret)
 			logrus.Infof("🛰️ [SYNC] Bridge Tailscale address: %s", resolved)
+			tailscaleReady = true
 		}
+		logrus.Infof("🛰️ [SYNC] Bridge Tailscale status: logged_in=%v backend=%s ip=%s",
+			resp.TailscaleStatus.LoggedIn, resp.TailscaleStatus.Backend, tsIP)
 	}
 
-	return resp.FRPToken, nil
+	return resp.FRPToken, tailscaleReady, nil
 }

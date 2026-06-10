@@ -409,8 +409,15 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 			}
 		}
 
-		if newToken, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
+		if newToken, tsReady, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
 			tunnelToken = newToken
+			// When the user wants Tailscale registration but the bridge is not yet
+			// in the tailnet (no auth key was sent), fall back to Auto so QUIC is
+			// used for this attempt instead of failing hard.
+			if mw.pendingTailscaleRegister && !tsReady && protocol == models.ConnectionProtocolTailscale {
+				logrus.Infof("🛰️ [CONNECT] Bridge not in Tailscale yet; switching protocol tailscale→auto for this attempt")
+				protocol = models.ConnectionProtocolAuto
+			}
 		} else {
 			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
 			return fmt.Errorf("sync failed: %w", err)
