@@ -9,8 +9,10 @@
 #ifdef __ANDROID__
 
 #include <EGL/egl.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <GLES3/gl3ext.h>
+#include <GLES2/gl2ext.h>   // GL_TEXTURE_EXTERNAL_OES, GL_OES_EGL_image_external
 #include <android/native_window_jni.h>
 #include <jni.h>
 #include <android/log.h>
@@ -39,6 +41,13 @@ static int        g_fbo_h    = 0;
 static uint8_t   *g_readback = NULL;
 static size_t     g_readback_sz = 0;
 static jobject    g_surf_ref = NULL; // global ref to android.view.Surface
+
+// GLES 3.0 double-buffered PBO for async glReadPixels (zero GPU stall).
+static int     g_gles3      = 0;     // 1 = GLES 3.0 context
+static GLuint  g_pbo[2]     = {0,0};
+static size_t  g_pbo_sz     = 0;
+static int     g_pbo_wr     = 0;     // which PBO we just wrote into
+static int     g_pbo_primed = 0;     // 1 after first frame (other PBO ready)
 
 // ── JNI helpers ───────────────────────────────────────────────────────────────
 
@@ -105,25 +114,41 @@ static int egl_init(void) {
     if (g_display == EGL_NO_DISPLAY) { VLOGE("eglGetDisplay failed"); return 0; }
     eglInitialize(g_display, NULL, NULL);
 
-    EGLint attribs[] = {
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+    // Try GLES 3.0 first — enables PBO async readback.
+    EGLConfig cfg = 0;
+    EGLint n = 0;
+#ifdef EGL_OPENGL_ES3_BIT_KHR
+    EGLint attribs3[] = {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
         EGL_SURFACE_TYPE,    EGL_PBUFFER_BIT,
-        EGL_RED_SIZE,   8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE,  8,
-        EGL_ALPHA_SIZE, 8,
+        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
         EGL_NONE
     };
-    EGLConfig cfg;
-    EGLint n = 0;
-    if (!eglChooseConfig(g_display, attribs, &cfg, 1, &n) || n == 0) {
-        VLOGE("eglChooseConfig failed");
-        return 0;
+    if (eglChooseConfig(g_display, attribs3, &cfg, 1, &n) && n > 0) {
+        EGLint ctx3[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+        g_context = eglCreateContext(g_display, cfg, EGL_NO_CONTEXT, ctx3);
+        if (g_context != EGL_NO_CONTEXT) {
+            g_gles3 = 1;
+        }
     }
-
-    EGLint ctx_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-    g_context = eglCreateContext(g_display, cfg, EGL_NO_CONTEXT, ctx_attribs);
-    if (g_context == EGL_NO_CONTEXT) { VLOGE("eglCreateContext failed"); return 0; }
+#endif
+    // Fall back to GLES 2.0 if 3.0 unavailable.
+    if (g_context == EGL_NO_CONTEXT) {
+        EGLint attribs2[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+            EGL_SURFACE_TYPE,    EGL_PBUFFER_BIT,
+            EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+            EGL_NONE
+        };
+        n = 0;
+        if (!eglChooseConfig(g_display, attribs2, &cfg, 1, &n) || n == 0) {
+            VLOGE("eglChooseConfig failed");
+            return 0;
+        }
+        EGLint ctx2[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+        g_context = eglCreateContext(g_display, cfg, EGL_NO_CONTEXT, ctx2);
+        if (g_context == EGL_NO_CONTEXT) { VLOGE("eglCreateContext failed"); return 0; }
+    }
 
     EGLint pbuf[] = { EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE };
     g_surface = eglCreatePbufferSurface(g_display, cfg, pbuf);
@@ -133,7 +158,8 @@ static int egl_init(void) {
         VLOGE("eglMakeCurrent failed");
         return 0;
     }
-    VLOGI("EGL GL ES 2.0 context ready");
+    VLOGI("EGL GL ES %s context ready%s", g_gles3 ? "3.0" : "2.0",
+          g_gles3 ? " (PBO async readback)" : "");
     return 1;
 }
 
@@ -175,7 +201,12 @@ static int gl_setup(void) {
     }
     g_loc_tex = glGetUniformLocation(g_prog, "sTexture");
     g_loc_mtx = glGetUniformLocation(g_prog, "uMtx");
-    VLOGI("GL resources ready (oes=%u fbo=%u prog=%u)", g_oes_tex, g_fbo, g_prog);
+
+    if (g_gles3) {
+        glGenBuffers(2, g_pbo);
+        VLOGI("PBO double-buffered async readback enabled");
+    }
+    VLOGI("GL resources ready (oes=%u fbo=%u prog=%u gles3=%d)", g_oes_tex, g_fbo, g_prog, g_gles3);
     return 1;
 }
 
@@ -279,17 +310,29 @@ static void resize_fbo(int w, int h) {
         g_readback    = (uint8_t *)malloc(sz);
         g_readback_sz = g_readback ? sz : 0;
     }
+    // Resize PBOs to match new frame size.
+    if (g_gles3 && g_pbo[0] && sz != g_pbo_sz) {
+        for (int i = 0; i < 2; i++) {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, g_pbo[i]);
+            glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)sz, NULL, GL_STREAM_READ);
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        g_pbo_sz     = sz;
+        g_pbo_primed = 0;  // reset pipeline — first frame will sync
+    }
     VLOGI("FBO resized to %dx%d", w, h);
 }
 
 // ── Render OES → FBO → readback ───────────────────────────────────────────────
 
-// Full-screen quad: pos(x,y) + texcoord(u,v), triangle-strip order
+// Full-screen quad: pos(x,y) + texcoord(u,v), triangle-strip order.
+// Y positions are flipped so glReadPixels (bottom-up) produces a top-down image
+// without any CPU row-reversal on the Go side.
 static const float kVerts[] = {
-    -1.0f, -1.0f,  0.0f, 0.0f,
-     1.0f, -1.0f,  1.0f, 0.0f,
-    -1.0f,  1.0f,  0.0f, 1.0f,
-     1.0f,  1.0f,  1.0f, 1.0f,
+    -1.0f, +1.0f,  0.0f, 0.0f,
+     1.0f, +1.0f,  1.0f, 0.0f,
+    -1.0f, -1.0f,  0.0f, 1.0f,
+     1.0f, -1.0f,  1.0f, 1.0f,
 };
 
 static uint8_t *render_and_readback(int w, int h) {
@@ -326,11 +369,40 @@ static uint8_t *render_and_readback(int w, int h) {
     glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
 
-    // CPU readback (required for Fyne canvas path).
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, g_readback);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    
-    // Unbind so that cleanup on another thread doesn't fail with EGL_BAD_ACCESS
+    if (g_gles3 && g_pbo[0] && g_pbo_sz == (size_t)w * (size_t)h * 4) {
+        // Async PBO path: submit readback for THIS frame into PBO[g_pbo_wr].
+        // The GPU schedules async DMA — returns immediately without stalling.
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, g_pbo[g_pbo_wr]);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, 0); // 0 = offset into PBO
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        if (!g_pbo_primed) {
+            // First frame: the other PBO has no data yet; do a sync readback to fill g_readback.
+            glBindFramebuffer(GL_FRAMEBUFFER, g_fbo);
+            glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, g_readback);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            g_pbo_primed = 1;
+        } else {
+            // Map the PREVIOUS PBO — GPU DMA completed a full frame ago, no stall.
+            int prev = 1 - g_pbo_wr;
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, g_pbo[prev]);
+            void *ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
+                                         (GLsizeiptr)g_pbo_sz, GL_MAP_READ_BIT);
+            if (ptr) {
+                memcpy(g_readback, ptr, g_pbo_sz);
+                glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+            }
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        }
+        g_pbo_wr = 1 - g_pbo_wr;
+    } else {
+        // GLES 2.0 fallback: synchronous readback (stalls until GPU is done).
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, g_readback);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    // Unbind so cleanup on another thread doesn't fail with EGL_BAD_ACCESS.
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     return g_readback;
@@ -422,6 +494,11 @@ void android_gl_release(void) {
 
     eglMakeCurrent(g_display, g_surface, g_surface, g_context);
 
+    if (g_gles3 && g_pbo[0]) {
+        glDeleteBuffers(2, g_pbo);
+        g_pbo[0] = g_pbo[1] = 0;
+        g_pbo_sz = 0; g_pbo_primed = 0; g_pbo_wr = 0;
+    }
     if (g_prog)    { glDeleteProgram(g_prog);        g_prog = 0; }
     if (g_fbo)     { glDeleteFramebuffers(1, &g_fbo); g_fbo = 0; }
     if (g_fbo_tex) { glDeleteTextures(1, &g_fbo_tex); g_fbo_tex = 0; }

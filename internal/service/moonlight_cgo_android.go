@@ -435,19 +435,27 @@ func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
 func goMoonlightTerminated(e C.int) { activeStreamTermErr = fmt.Errorf("terminated %d", int(e)); if liStartConnectionActive.Load() { activeStreamOnce.Do(func() { close(activeStreamDone) }) } }
 //export goVTLog
 func goVTLog(m *C.char) { logrus.Infof("🎬 [Moonlight/CGO] %s", C.GoString(m)) }
+// vtFramePool reuses image.RGBA buffers to avoid per-frame allocation.
+var vtFramePool sync.Pool
+
 //export goVTFrame
 func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
 	vtFrameCallbackMu.Lock(); cb := vtFrameCallback; vtFrameCallbackMu.Unlock()
 	if cb == nil { return }
-	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
-	src := C.GoBytes(unsafe.Pointer(rgba), C.int(int(w)*int(h)*4))
-	stride := int(w) * 4
-	// glReadPixels returns rows bottom-up; flip vertically so row 0 is the top.
-	for y := 0; y < int(h); y++ {
-		srcOff := (int(h) - 1 - y) * stride
-		dstOff := y * stride
-		copy(img.Pix[dstOff:dstOff+stride], src[srcOff:srcOff+stride])
+	n := int(w) * int(h) * 4
+	// Reuse or allocate image buffer.
+	img, _ := vtFramePool.Get().(*image.RGBA)
+	if img == nil || len(img.Pix) != n {
+		img = image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
+	} else {
+		img.Rect = image.Rect(0, 0, int(w), int(h))
+		img.Stride = int(w) * 4
 	}
+	// C buffer orientation is already correct (Y-flipped in kVerts, then glReadPixels un-flips).
+	// One copy via unsafe.Slice avoids C.GoBytes intermediate allocation.
+	src := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), n)
+	copy(img.Pix[:n], src)
 	cb(img)
+	vtFramePool.Put(img)
 }
 func SetVTFrameCallback(cb func(image.Image)) { vtFrameCallbackMu.Lock(); vtFrameCallback = cb; vtFrameCallbackMu.Unlock() }

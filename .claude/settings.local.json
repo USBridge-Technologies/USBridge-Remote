@@ -94,7 +94,9 @@
       "Bash(xargs -I{} sh -c 'echo \"=== $\\(basename {}\\): $\\(head -1 {}\\)\"')",
       "Bash(echo \"EXIT:$?\")",
       "Bash(tee /tmp/test_android_out.txt)",
-      "Bash(tee /tmp/test_flip.txt)"
+      "Bash(tee /tmp/test_flip.txt)",
+      "Bash(FORCE_FYNE=1 ./scripts/build_android.sh)",
+      "Bash(adb install *)"
     ]
   }
 }

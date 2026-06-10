@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -268,26 +269,35 @@ func (m *MoonlightService) ConnectToRTP() error {
 	moonlightHost := m.client.Host
 	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
 		if lanIP := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); lanIP != "" {
-			logrus.Infof("🌕 [Moonlight/Android] peer on same LAN → using direct IP %s (C-code bypasses tsnet)", lanIP)
-			moonlightHost = lanIP
-			
-			// Also replace the host in sessionUrl because RTSP uses it directly
-			fullUrl := sessionUrl
-			if !strings.HasPrefix(fullUrl, "rtsp://") {
-				fullUrl = "rtsp://" + fullUrl
-			}
-
-			if u, err := url.Parse(fullUrl); err == nil {
-				port := u.Port()
-				if port != "" {
-					u.Host = lanIP + ":" + port
-				} else {
-					u.Host = lanIP
-				}
-				sessionUrl = u.String()
-				logrus.Infof("🌕 [Moonlight/Android] Rewrote RTSP Session URL to LAN: %s", sessionUrl)
+			// Verify the candidate LAN IP is actually reachable from this device.
+			// Docker/VM bridge IPs (e.g. 172.17.x.x) show up as peer endpoints but
+			// are only routable on the server host — not from the Android Wi-Fi.
+			probeAddr := net.JoinHostPort(lanIP, "47989")
+			probeConn, probeErr := net.DialTimeout("tcp", probeAddr, 400*time.Millisecond)
+			if probeErr != nil {
+				logrus.Warnf("🌕 [Moonlight/Android] LAN IP %s probe failed (%v) — likely a VM/Docker IP, skipping", lanIP, probeErr)
 			} else {
-				logrus.Warnf("🌕 [Moonlight/Android] Failed to parse RTSP URL %s: %v", fullUrl, err)
+				probeConn.Close()
+				logrus.Infof("🌕 [Moonlight/Android] LAN IP %s reachable → using direct path (bypasses tsnet)", lanIP)
+				moonlightHost = lanIP
+
+				// Also replace the host in sessionUrl because RTSP uses it directly.
+				fullUrl := sessionUrl
+				if !strings.HasPrefix(fullUrl, "rtsp://") {
+					fullUrl = "rtsp://" + fullUrl
+				}
+				if u, err := url.Parse(fullUrl); err == nil {
+					port := u.Port()
+					if port != "" {
+						u.Host = lanIP + ":" + port
+					} else {
+						u.Host = lanIP
+					}
+					sessionUrl = u.String()
+					logrus.Infof("🌕 [Moonlight/Android] Rewrote RTSP Session URL to LAN: %s", sessionUrl)
+				} else {
+					logrus.Warnf("🌕 [Moonlight/Android] Failed to parse RTSP URL %s: %v", fullUrl, err)
+				}
 			}
 		} else {
 			logrus.Warn("🌕 [Moonlight/Android] no LAN endpoint for peer — RTSP may stall on userspace tsnet; install Tailscale app for cross-network support")
