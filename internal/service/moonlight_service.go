@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"image"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	usbapi "usbridge-client/internal/api"
@@ -268,6 +270,25 @@ func (m *MoonlightService) ConnectToRTP() error {
 		if lanIP := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); lanIP != "" {
 			logrus.Infof("🌕 [Moonlight/Android] peer on same LAN → using direct IP %s (C-code bypasses tsnet)", lanIP)
 			moonlightHost = lanIP
+			
+			// Also replace the host in sessionUrl because RTSP uses it directly
+			fullUrl := sessionUrl
+			if !strings.HasPrefix(fullUrl, "rtsp://") {
+				fullUrl = "rtsp://" + fullUrl
+			}
+
+			if u, err := url.Parse(fullUrl); err == nil {
+				port := u.Port()
+				if port != "" {
+					u.Host = lanIP + ":" + port
+				} else {
+					u.Host = lanIP
+				}
+				sessionUrl = u.String()
+				logrus.Infof("🌕 [Moonlight/Android] Rewrote RTSP Session URL to LAN: %s", sessionUrl)
+			} else {
+				logrus.Warnf("🌕 [Moonlight/Android] Failed to parse RTSP URL %s: %v", fullUrl, err)
+			}
 		} else {
 			logrus.Warn("🌕 [Moonlight/Android] no LAN endpoint for peer — RTSP may stall on userspace tsnet; install Tailscale app for cross-network support")
 		}

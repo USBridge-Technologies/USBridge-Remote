@@ -128,6 +128,8 @@ int do_li_start(
     int pipeFd
 ) {
     (void)pipeFd;
+    printf("DEBUG: do_li_start(addr=%s, appV=%s, gfeV=%s, rtsp=%s, codec=%d, %dx%d@%d, bit=%d)\n", 
+           address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport, width, height, fps, bitrate);
 
     SERVER_INFORMATION srv;
     LiInitializeServerInformation(&srv);

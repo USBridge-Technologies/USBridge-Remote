@@ -59,10 +59,19 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Парсим URI
-	internalHost, tailscaleHost, quicToken, protocol, quicPort, err := h.parseDeepLink(uri)
+	internalHost, tailscaleHost, quicToken, protocol, quicPort, immediate, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		view.ShowErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
+		return
+	}
+
+	if immediate {
+		logrus.Info("🚀 Immediate connection requested via deep link")
+		host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
+		if h.onConnect != nil {
+			h.onConnect(host, quicToken, protocol, quicPort, false)
+		}
 		return
 	}
 
@@ -71,21 +80,21 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 }
 
 // parseDeepLink парсит deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, quicToken, protocol string, quicPort int, err error) {
+func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, quicToken, protocol string, quicPort int, immediate bool, err error) {
 	// Парсим URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", "", "", 0, fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", 0, false, fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Проверяем схему (только usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", "", "", 0, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", 0, false, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Формат: usbridge://connect?host=192.168.1.1&quic_token=secret
 	if u.Host != "connect" {
-		return "", "", "", "", 0, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", 0, false, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Получаем параметры
@@ -105,6 +114,7 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 		quicToken = query.Get("token")
 	}
 	protocol = query.Get("protocol")
+	immediate = query.Get("immediate") == "true"
 
 	if query.Get("quic_port") != "" {
 		fmt.Sscanf(query.Get("quic_port"), "%d", &quicPort)
@@ -112,15 +122,15 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 
 	// Проверяем обязательные параметры
 	if internalHost == "" && tailscaleHost == "" {
-		return "", "", "", "", 0, fmt.Errorf("missing host parameter")
+		return "", "", "", "", 0, false, fmt.Errorf("missing host parameter")
 	}
 
 	if quicToken == "" {
-		return "", "", "", "", 0, fmt.Errorf("missing quic_token parameter")
+		return "", "", "", "", 0, false, fmt.Errorf("missing quic_token parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s quicToken=%s protocol=%s", internalHost, tailscaleHost, maskSensitiveToken(quicToken), protocol)
-	return internalHost, tailscaleHost, quicToken, protocol, quicPort, nil
+	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s quicToken=%s protocol=%s immediate=%v", internalHost, tailscaleHost, maskSensitiveToken(quicToken), protocol, immediate)
+	return internalHost, tailscaleHost, quicToken, protocol, quicPort, immediate, nil
 }
 
 // showConfirmDialog показывает диалог подтверждения подключения с возможностью сохранения

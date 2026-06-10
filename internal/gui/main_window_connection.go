@@ -568,6 +568,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 		return fmt.Errorf("no tailscale address available for bridge (do a fresh sync to register)")
 	}
 
+	logrus.Infof("🔗 [CONNECT] protocol=%s host=%s", protocol, host)
+
 	switch protocol {
 	case models.ConnectionProtocolTailscale:
 		if err := connectTailscale(ctx); err != nil {

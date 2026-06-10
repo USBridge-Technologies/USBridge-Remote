@@ -618,24 +618,53 @@ func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string {
 		if peer.IP4 != tailscaleIP {
 			continue
 		}
+
+		var candidates []string
+
 		// CurAddr is the active endpoint, e.g. "192.168.1.108:41641"
 		if peer.CurAddr != "" {
 			if host, _, err := net.SplitHostPort(peer.CurAddr); err == nil {
-				if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
-					// Skip Tailscale CGNAT range (100.64.0.0/10)
-					if !strings.HasPrefix(host, "100.") {
-						return host
-					}
-				}
+				candidates = append(candidates, host)
 			}
 		}
-		// Fall back to any non-Tailscale address in Addrs list
+		// Also look in Addrs list
 		for _, addr := range peer.Addrs {
 			if host, _, err := net.SplitHostPort(addr); err == nil {
-				if !strings.HasPrefix(host, "100.") && !strings.Contains(host, ":") {
-					return host
-				}
+				candidates = append(candidates, host)
 			}
+		}
+
+		// Filter and prioritize candidates
+		var bestIP string
+		maxPriority := -1
+
+		logrus.Debugf("🎯 [Tailscale] Peer %s direct IP candidates: %v", tailscaleIP, candidates)
+
+		for _, ipStr := range candidates {
+			ip := net.ParseIP(ipStr)
+			if ip == nil || ip.IsLoopback() || strings.HasPrefix(ipStr, "100.") || strings.Contains(ipStr, ":") {
+				continue
+			}
+
+			priority := 0
+			if strings.HasPrefix(ipStr, "192.168.") {
+				priority = 10
+			} else if strings.HasPrefix(ipStr, "10.") {
+				priority = 8
+			} else if strings.HasPrefix(ipStr, "172.") {
+				// 172.16.x.x to 172.31.x.x is private, but let's just prefer others
+				priority = 5
+			}
+
+			if priority > maxPriority {
+				maxPriority = priority
+				bestIP = ipStr
+			}
+		}
+
+		if bestIP != "" {
+			logrus.Infof("🎯 [Tailscale] Selected best direct IP %s for peer %s (priority %d)", bestIP, tailscaleIP, maxPriority)
+			return bestIP
 		}
 		break
 	}

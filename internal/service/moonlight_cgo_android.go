@@ -20,7 +20,9 @@ package service
 #include <opus_multistream.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  "Moonlight/CGO", __VA_ARGS__)
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, "Moonlight/CGO", __VA_ARGS__)
 
 extern void goMoonlightStage(int stage, int result, int errCode);
 extern void goMoonlightConnected(void);
@@ -29,274 +31,261 @@ extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
 // Declared in gl_video_impl_android.c
-extern void         android_gl_set_jvm(JavaVM *jvm);
+extern void         android_gl_set_jvm(JavaVM *jvm, jobject ctx);
 extern ANativeWindow *android_gl_init(int width, int height);
 extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void          android_gl_release(void);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
-static volatile int    g_li_active       = 0;
-static volatile int    g_audio_muted     = 0;
-static OpusMSDecoder  *g_opus_ms_decoder = NULL;
-static int             g_audio_channels  = 2;
-
-static void set_audio_pipe_fd(int fd) { (void)fd; }
-static void set_audio_muted(int muted) { g_audio_muted = muted; }
+static volatile int   g_li_active      = 0;
+static volatile int   g_audio_muted    = 0;
+static AAudioStream  *g_aa_stream      = NULL;
+static int            g_audio_channels = 2;
+static OpusMSDecoder *g_opus_decoder   = NULL;
+static AMediaCodec   *g_amc            = NULL;
+static int            g_amc_w          = 0;
+static int            g_amc_h          = 0;
+static uint64_t       g_amc_pts        = 0;
 
 // ── Connection callbacks ──────────────────────────────────────────────────────
 
-static void cl_stage_starting(int s)      { goMoonlightStage(s,  0, 0); }
-static void cl_stage_complete(int s)       { goMoonlightStage(s,  1, 0); }
-static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
-static void cl_connected(void)             { goMoonlightConnected(); }
-static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
-static void cl_log(const char *fmt, ...)   { (void)fmt; }
+static void cl_stage_starting(int s) {
+    ALOGI("cl_stage_starting: %d", s);
+    goMoonlightStage(s, 0, 0);
+}
+static void cl_stage_complete(int s) {
+    ALOGI("cl_stage_complete: %d", s);
+    goMoonlightStage(s, 1, 0);
+}
+static void cl_stage_failed(int s, int ec) {
+    ALOGE("cl_stage_failed: stage=%d, error=%d", s, ec);
+    goMoonlightStage(s, -1, ec);
+}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// AAudio output
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Audio: Opus → AAudio ─────────────────────────────────────────────────────
 
-static AAudioStream *g_aa_stream = NULL;
-
-static void aaudio_init(int channels, int sample_rate) {
+static void aaudio_open(int channels, int sample_rate) {
     if (g_aa_stream) return;
     AAudioStreamBuilder *builder = NULL;
-    if (AAudio_createStreamBuilder(&builder) != AAUDIO_OK) return;
-
-    AAudioStreamBuilder_setDirection(builder,      AAUDIO_DIRECTION_OUTPUT);
-    AAudioStreamBuilder_setSharingMode(builder,    AAUDIO_SHARING_MODE_SHARED);
-    AAudioStreamBuilder_setFormat(builder,         AAUDIO_FORMAT_PCM_I16);
-    AAudioStreamBuilder_setChannelCount(builder,   channels);
-    AAudioStreamBuilder_setSampleRate(builder,     sample_rate);
-    AAudioStreamBuilder_setPerformanceMode(builder,AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-
-    AAudioStream *stream = NULL;
-    if (AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_OK) {
-        AAudioStream_requestStart(stream);
-        g_aa_stream = stream;
-        goVTLog((char*)"AAudio: stream started (S16LE native output)");
-    }
+    AAudio_createStreamBuilder(&builder);
+    AAudioStreamBuilder_setDirection(builder,       AAUDIO_DIRECTION_OUTPUT);
+    AAudioStreamBuilder_setSharingMode(builder,     AAUDIO_SHARING_MODE_SHARED);
+    AAudioStreamBuilder_setFormat(builder,          AAUDIO_FORMAT_PCM_I16);
+    AAudioStreamBuilder_setChannelCount(builder,    channels);
+    AAudioStreamBuilder_setSampleRate(builder,      (int32_t)sample_rate);
+    AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    aaudio_result_t status = AAudioStreamBuilder_openStream(builder, &g_aa_stream);
     AAudioStreamBuilder_delete(builder);
+    if (status == AAUDIO_OK) {
+        AAudioStream_requestStart(g_aa_stream);
+        ALOGI("AAudio stream started: ch=%d rate=%d", channels, sample_rate);
+    } else {
+        ALOGE("AAudio openStream failed: %d", (int)status);
+        g_aa_stream = NULL;
+    }
 }
 
-static void aaudio_teardown(void) {
-    if (!g_aa_stream) return;
-    AAudioStream_requestStop(g_aa_stream);
-    AAudioStream_close(g_aa_stream);
-    g_aa_stream = NULL;
-    goVTLog((char*)"AAudio: stream closed");
-}
-
-static void aaudio_write(const opus_int16 *pcm, int samples) {
-    if (!g_aa_stream) return;
-    AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL); // 10 ms timeout
-}
-
-// ── Audio callbacks ───────────────────────────────────────────────────────────
-
-static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, void *ctx, int flags) {
-    (void)audioConfig; (void)ctx; (void)flags;
+// ar_init: called by Moonlight with Opus multistream config.
+static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, void *ctx, int arFlags) {
+    (void)audioConfig; (void)ctx; (void)arFlags;
+    ALOGI("ar_init: ch=%d rate=%d streams=%d coupled=%d",
+          cfg->channelCount, cfg->sampleRate, cfg->streams, cfg->coupledStreams);
     g_audio_channels = cfg->channelCount;
-    if (g_opus_ms_decoder) { opus_multistream_decoder_destroy(g_opus_ms_decoder); g_opus_ms_decoder = NULL; }
-    int error = OPUS_OK;
-    g_opus_ms_decoder = opus_multistream_decoder_create(
+    if (g_opus_decoder) { opus_multistream_decoder_destroy(g_opus_decoder); g_opus_decoder = NULL; }
+    int err = OPUS_OK;
+    g_opus_decoder = opus_multistream_decoder_create(
         cfg->sampleRate, cfg->channelCount,
-        cfg->streams, cfg->coupledStreams, cfg->mapping, &error);
-    if (error != OPUS_OK) return -1;
-    aaudio_init(cfg->channelCount, (int)cfg->sampleRate);
+        cfg->streams, cfg->coupledStreams, cfg->mapping, &err);
+    if (err != OPUS_OK) { ALOGE("opus create failed: %d", err); return -1; }
+    aaudio_open(cfg->channelCount, (int)cfg->sampleRate);
     return 0;
 }
-static void ar_start(void)   {}
-static void ar_stop(void)    {}
+
 static void ar_cleanup(void) {
-    aaudio_teardown();
-    if (g_opus_ms_decoder) { opus_multistream_decoder_destroy(g_opus_ms_decoder); g_opus_ms_decoder = NULL; }
+    ALOGI("ar_cleanup");
+    if (g_aa_stream) {
+        AAudioStream_requestStop(g_aa_stream);
+        AAudioStream_close(g_aa_stream);
+        g_aa_stream = NULL;
+    }
+    if (g_opus_decoder) { opus_multistream_decoder_destroy(g_opus_decoder); g_opus_decoder = NULL; }
 }
+
+static void ar_start(void) {}
+static void ar_stop(void)  {}
+
+// ar_decode: called with Opus-encoded packet; decode → AAudio.
 static void ar_decode(char *data, int len) {
-    if (!g_opus_ms_decoder) return;
+    if (!g_opus_decoder || !g_aa_stream) return;
     opus_int16 pcm[5760 * 8];
-    int samples = opus_multistream_decode(g_opus_ms_decoder,
+    int samples = opus_multistream_decode(g_opus_decoder,
         (const unsigned char *)data, len, pcm, 5760, 0);
     if (samples <= 0) return;
-    if (g_audio_muted) memset(pcm, 0, samples * g_audio_channels * 2);
-    aaudio_write(pcm, samples);
+    if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
+    AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// AMediaCodec H.264 hardware decoder — SurfaceTexture GPU path (Android NDK)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-static AMediaCodec  *g_amc     = NULL;
-static int           g_amc_w   = 0;
-static int           g_amc_h   = 0;
-static uint64_t      g_amc_pts = 0;
-static int           g_gl_ok   = 0;  // 1 = GPU path active
+// ── Video implementation (AMediaCodec) ──────────────────────────────────────
 
 static void amc_init(int width, int height) {
+    ALOGI("amc_init: %dx%d", width, height);
     if (g_amc) return;
     g_amc_w = width; g_amc_h = height;
-
-    // Initialize EGL + SurfaceTexture and get the ANativeWindow for Surface output.
+    
     ANativeWindow *nwin = android_gl_init(width, height);
+    if (!nwin) { ALOGE("amc_init: no native window"); return; }
 
     AMediaFormat *fmt = AMediaFormat_new();
-    AMediaFormat_setString(fmt, AMEDIAFORMAT_KEY_MIME, "video/avc");
-    AMediaFormat_setInt32(fmt,  AMEDIAFORMAT_KEY_WIDTH,  width);
-    AMediaFormat_setInt32(fmt,  AMEDIAFORMAT_KEY_HEIGHT, height);
-    // Do NOT set COLOR_FORMAT — Surface output uses the decoder's native GPU format.
+    AMediaFormat_setString(fmt, "mime", "video/avc");
+    AMediaFormat_setInt32(fmt,  "width",  width);
+    AMediaFormat_setInt32(fmt,  "height", height);
 
     g_amc = AMediaCodec_createDecoderByType("video/avc");
-    if (!g_amc) {
-        AMediaFormat_delete(fmt);
-        if (nwin) ANativeWindow_release(nwin);
-        goVTLog((char*)"AMediaCodec: create FAILED");
-        return;
-    }
-
-    if (AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) != AMEDIA_OK) {
-        AMediaCodec_delete(g_amc); g_amc = NULL;
-        AMediaFormat_delete(fmt);
-        if (nwin) ANativeWindow_release(nwin);
-        goVTLog((char*)"AMediaCodec: configure FAILED (GPU path)");
-        g_gl_ok = 0;
-        return;
-    }
-    if (nwin) ANativeWindow_release(nwin); // AMediaCodec holds its own reference
-    AMediaCodec_start(g_amc);
+    if (g_amc && AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK) {
+        if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
+            ALOGI("AMediaCodec started");
+        } else { ALOGE("AMediaCodec_start failed"); }
+    } else { ALOGE("AMediaCodec configure failed"); }
+    
     AMediaFormat_delete(fmt);
-    g_gl_ok = 1;
-    goVTLog((char*)"AMediaCodec: HW decoder started (SurfaceTexture GPU path)");
+    if (nwin) ANativeWindow_release(nwin);
 }
 
-static void amc_teardown(void) {
-    if (!g_amc) return;
-    AMediaCodec_stop(g_amc);
-    AMediaCodec_delete(g_amc);
-    g_amc = NULL;
-    g_gl_ok = 0;
-    android_gl_release();
-    goVTLog((char*)"AMediaCodec: decoder stopped");
+static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
+    ALOGI("dr_setup: %dx%d@%d", w, h, rate);
+    amc_init(w, h);
+    return 0;
 }
 
 static int dr_submit(PDECODE_UNIT du) {
-    if (!g_amc) {
-        amc_init(g_amc_w > 0 ? g_amc_w : 1920, g_amc_h > 0 ? g_amc_h : 1080);
-        if (!g_amc) return DR_NEED_IDR;
+    if (!g_amc) return DR_OK;
+    ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 1000);
+    if (idx >= 0) {
+        size_t sz = 0;
+        uint8_t *buf = AMediaCodec_getInputBuffer(g_amc, idx, &sz);
+        if (buf) {
+            size_t written = 0;
+            for (PLENTRY e = du->bufferList; e && written < sz; e = e->next) {
+                size_t n = (e->length < sz - written) ? e->length : sz - written;
+                memcpy(buf + written, e->data, n);
+                written += n;
+            }
+            AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts += 33333, 0);
+        }
     }
-
-    // Feed compressed data into MediaCodec input buffer.
-    ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 5000); // 5 ms timeout
-    if (idx < 0) return DR_OK;
-
-    size_t buf_size = 0;
-    uint8_t *buf = AMediaCodec_getInputBuffer(g_amc, (size_t)idx, &buf_size);
-    if (!buf) { AMediaCodec_queueInputBuffer(g_amc, (size_t)idx, 0, 0, 0, 0); return DR_OK; }
-
-    size_t written = 0;
-    for (PLENTRY e = du->bufferList; e && written < buf_size; e = e->next) {
-        size_t n = e->length;
-        if (written + n > buf_size) n = buf_size - written;
-        memcpy(buf + written, e->data, n);
-        written += n;
-    }
-    AMediaCodec_queueInputBuffer(g_amc, (size_t)idx, 0, written, g_amc_pts++, 0);
-
-    // Drain output: render to SurfaceTexture, read back RGBA via FBO.
     AMediaCodecBufferInfo info;
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
-        if (g_gl_ok && g_amc_w > 0 && g_amc_h > 0) {
-            // render=true → decoder outputs frame directly to SurfaceTexture
-            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)out_idx, 1);
-            uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
-            if (rgba) goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
-        } else {
-            AMediaCodec_releaseOutputBuffer(g_amc, (size_t)out_idx, 0);
-        }
+        AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
+        uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
+        if (rgba) goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
     }
     return DR_OK;
 }
 
-static int  dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
-    (void)fmt; (void)rate; (void)ctx; (void)flags;
-    g_amc_w = w; g_amc_h = h;
-    amc_init(w, h);
-    return 0;
+static void dr_cleanup(void) {
+    ALOGI("dr_cleanup");
+    if (g_amc) {
+        AMediaCodec_stop(g_amc);
+        AMediaCodec_delete(g_amc);
+        g_amc = NULL;
+        android_gl_release();
+    }
 }
-static void dr_start(void)   {}
-static void dr_stop(void)    {}
-static void dr_cleanup(void) { amc_teardown(); }
 
-// ── LiStartConnection entrypoint ─────────────────────────────────────────────
+// ── Start/Stop ────────────────────────────────────────────────────────────────
 
-static int do_li_start(
-    const char *address, const char *appVersion, const char *gfeVersion,
-    const char *rtspSessionUrl, int serverCodecModeSupport,
-    int width, int height, int fps, int bitrate,
-    const unsigned char *rikey, int rikeyid, int pipeFd
-) {
+static void cl_connected(void)    { goMoonlightConnected(); }
+static void cl_terminated(int ec) { goMoonlightTerminated(ec); }
+static void cl_log(const char *fmt, ...) { (void)fmt; }
+
+int do_li_start(const char *address, const char *appV, const char *gfeV, const char *rtsp,
+                int codec, int w, int h, int fps, int bit,
+                const unsigned char *key, int kid, int pipeFd) {
     (void)pipeFd;
-    g_amc_w = width; g_amc_h = height;
+    ALOGI("do_li_start: addr=%s rtsp=%s codec=%d %dx%d@%d bit=%d", address, rtsp, codec, w, h, fps, bit);
 
-    SERVER_INFORMATION srv; LiInitializeServerInformation(&srv);
-    srv.address = address; srv.serverInfoAppVersion = appVersion;
-    srv.serverInfoGfeVersion = gfeVersion; srv.rtspSessionUrl = rtspSessionUrl;
-    srv.serverCodecModeSupport = serverCodecModeSupport;
+    g_amc_w = w; g_amc_h = h;
 
-    STREAM_CONFIGURATION cfg; LiInitializeStreamConfiguration(&cfg);
-    cfg.width = width; cfg.height = height; cfg.fps = fps; cfg.bitrate = bitrate;
-    cfg.packetSize = 1200; cfg.streamingRemotely = STREAM_CFG_AUTO;
-    cfg.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
-    cfg.supportedVideoFormats = VIDEO_FORMAT_H264;
-    cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_NONE;
-    if (rikey) {
-        memcpy(cfg.remoteInputAesKey, rikey, 16);
-        cfg.remoteInputAesIv[0] = (char)( rikeyid        & 0xff);
-        cfg.remoteInputAesIv[1] = (char)((rikeyid >>  8) & 0xff);
-        cfg.remoteInputAesIv[2] = (char)((rikeyid >> 16) & 0xff);
-        cfg.remoteInputAesIv[3] = (char)((rikeyid >> 24) & 0xff);
+    SERVER_INFORMATION srv;
+    LiInitializeServerInformation(&srv);
+    srv.address                = address;
+    srv.serverInfoAppVersion   = appV;
+    srv.serverInfoGfeVersion   = gfeV;
+    srv.rtspSessionUrl         = rtsp;
+    srv.serverCodecModeSupport = codec;
+
+    STREAM_CONFIGURATION cfg;
+    LiInitializeStreamConfiguration(&cfg);
+    cfg.width                  = w;
+    cfg.height                 = h;
+    cfg.fps                    = fps;
+    cfg.bitrate                = bit;
+    cfg.packetSize             = 1200;
+    cfg.streamingRemotely      = STREAM_CFG_AUTO;
+    cfg.audioConfiguration     = AUDIO_CONFIGURATION_STEREO;
+    cfg.supportedVideoFormats  = VIDEO_FORMAT_H264;
+    cfg.clientRefreshRateX100  = fps * 100;
+    cfg.encryptionFlags        = ENCFLG_NONE;
+    if (key) {
+        memcpy(cfg.remoteInputAesKey, key, 16);
+        cfg.remoteInputAesIv[0] = (char)( kid        & 0xff);
+        cfg.remoteInputAesIv[1] = (char)((kid >>  8) & 0xff);
+        cfg.remoteInputAesIv[2] = (char)((kid >> 16) & 0xff);
+        cfg.remoteInputAesIv[3] = (char)((kid >> 24) & 0xff);
     }
 
-    DECODER_RENDERER_CALLBACKS dr; LiInitializeVideoCallbacks(&dr);
-    dr.setup = dr_setup; dr.start = dr_start; dr.stop = dr_stop;
-    dr.cleanup = dr_cleanup; dr.submitDecodeUnit = dr_submit;
-    dr.capabilities = CAPABILITY_DIRECT_SUBMIT;
+    DECODER_RENDERER_CALLBACKS dr;
+    LiInitializeVideoCallbacks(&dr);
+    dr.setup            = dr_setup;
+    dr.submitDecodeUnit = dr_submit;
+    dr.cleanup          = dr_cleanup;
+    dr.capabilities     = CAPABILITY_DIRECT_SUBMIT;
 
-    AUDIO_RENDERER_CALLBACKS ar; LiInitializeAudioCallbacks(&ar);
-    ar.init = ar_init; ar.start = ar_start; ar.stop = ar_stop;
-    ar.cleanup = ar_cleanup; ar.decodeAndPlaySample = ar_decode;
+    AUDIO_RENDERER_CALLBACKS ar;
+    LiInitializeAudioCallbacks(&ar);
+    ar.init                = ar_init;
+    ar.start               = ar_start;
+    ar.stop                = ar_stop;
+    ar.cleanup             = ar_cleanup;
+    ar.decodeAndPlaySample = ar_decode;
 
-    CONNECTION_LISTENER_CALLBACKS cl; LiInitializeConnectionCallbacks(&cl);
-    cl.stageStarting = cl_stage_starting; cl.stageComplete = cl_stage_complete;
-    cl.stageFailed = cl_stage_failed; cl.connectionStarted = cl_connected;
-    cl.connectionTerminated = cl_terminated; cl.logMessage = cl_log;
+    CONNECTION_LISTENER_CALLBACKS cl;
+    LiInitializeConnectionCallbacks(&cl);
+    cl.stageStarting       = cl_stage_starting;
+    cl.stageComplete       = cl_stage_complete;
+    cl.stageFailed         = cl_stage_failed;
+    cl.connectionStarted   = cl_connected;
+    cl.connectionTerminated = cl_terminated;
+    cl.logMessage          = cl_log;
 
+    ALOGI("do_li_start: calling LiStartConnection");
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
+    ALOGI("do_li_start: LiStartConnection returned %d", ret);
     if (ret != 0) return ret;
     g_li_active = 1;
     return 0;
 }
 
-static void do_li_stop(void) {
+void do_li_stop(void) {
+    ALOGI("do_li_stop (active=%d)", g_li_active);
     if (!g_li_active) return;
     g_li_active = 0;
     LiStopConnection();
-    amc_teardown();
 }
 
-static void do_send_key(short vkCode, char action, char modifiers) {
-    LiSendKeyboardEvent(vkCode, action, modifiers);
-}
-static void do_send_mouse_move(short dx, short dy)        { LiSendMouseMoveEvent(dx, dy); }
-static void do_send_mouse_position(short x, short y, short rW, short rH) {
-    LiSendMousePositionEvent(x, y, rW, rH);
-}
-static void do_send_mouse_button(char action, int button) { LiSendMouseButtonEvent(action, button); }
-static void do_send_scroll(signed char clicks)            { LiSendScrollEvent(clicks); }
-static void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b,
-    unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry)
-{
+void set_audio_muted(int muted) { g_audio_muted = muted; }
+void set_audio_pipe_fd(int fd)  { (void)fd; }
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+
+void do_send_key(short code, char act, char mod) { LiSendKeyboardEvent(code, act, mod); }
+void do_send_mouse_move(short dx, short dy) { LiSendMouseMoveEvent(dx, dy); }
+void do_send_mouse_position(short x, short y, short w, short h) { LiSendMousePositionEvent(x, y, w, h); }
+void do_send_mouse_button(char act, int btn) { LiSendMouseButtonEvent(act, btn); }
+void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
+void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
 }
 */
@@ -314,22 +303,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var liStartConnectionActive atomic.Bool
-
 var (
-	activeStreamDone    chan struct{}
-	activeStreamOnce    sync.Once
-	activeStreamTermErr error
+	jniInitOnce             sync.Once
+	liStartConnectionActive atomic.Bool
+	activeStreamDone        chan struct{}
+	activeStreamOnce        sync.Once
+	activeStreamTermErr     error
+	vtFrameCallback         func(image.Image)
+	vtFrameCallbackMu       sync.Mutex
 )
-
-var (
-	vtFrameCallback   func(image.Image)
-	vtFrameCallbackMu sync.Mutex
-)
-
-func closeActiveStreamDone() {
-	activeStreamOnce.Do(func() { close(activeStreamDone) })
-}
 
 type MoonlightCgoWrapper struct {
 	host       string
@@ -337,56 +319,57 @@ type MoonlightCgoWrapper struct {
 }
 
 func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
-	// Pass the JavaVM to the C GL layer (needed for JNI calls to VideoSurfaceBridge).
-	// driver.RunNative on Android provides AndroidContext with the JavaVM pointer.
-	_ = driver.RunNative(func(ctx any) error {
-		if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 {
-			C.android_gl_set_jvm((*C.JavaVM)(unsafe.Pointer(ac.VM)))
-			logrus.Info("🎬 [Moonlight/Android] JavaVM set for GPU video path")
-		}
-		return nil
+	jniInitOnce.Do(func() {
+		_ = driver.RunNative(func(ctx any) error {
+			if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 && ac.Ctx != 0 {
+				C.android_gl_set_jvm((*C.JavaVM)(unsafe.Pointer(ac.VM)), (C.jobject)(unsafe.Pointer(ac.Ctx)))
+				logrus.Info("🎬 [Moonlight/Android] JNI Initialized (VER: V4_FINAL_TRACE)")
+			}
+			return nil
+		})
 	})
 	return &MoonlightCgoWrapper{host: host}
 }
 
-func (w *MoonlightCgoWrapper) StartStream(
-	rtspSessionUrl string, rikey []byte,
-	appVersion, gfeVersion string, serverCodecModeSupport int,
-	width, height, fps, bitrate int,
-	pipeWrite *os.File, audioPipeWrite *os.File, onStop func(error),
-) error {
+func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
+	// Stop any stale previous connection before starting a new one.
+	C.do_li_stop()
+
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
-	activeStreamTermErr = nil
 
-	host := C.CString(w.host)
-	appVer := C.CString(appVersion)
-	gfeVer := C.CString(gfeVersion)
-	rtsp := C.CString("rtsp://" + rtspSessionUrl)
-	var cRikey *C.uchar
-	if len(rikey) == 16 {
-		cRikey = (*C.uchar)(C.CBytes(rikey))
+	cHost := C.CString(w.host)
+	cAppV := C.CString(appV)
+	cGfeV := C.CString(gfeV)
+	cRtsp := C.CString(url)
+	var cKey *C.uchar
+	if len(key) == 16 {
+		cKey = (*C.uchar)(C.CBytes(key))
 	}
 
 	go func() {
-		defer C.free(unsafe.Pointer(host))
-		defer C.free(unsafe.Pointer(appVer))
-		defer C.free(unsafe.Pointer(gfeVer))
-		defer C.free(unsafe.Pointer(rtsp))
-		if cRikey != nil {
-			defer C.free(unsafe.Pointer(cRikey))
+		defer C.free(unsafe.Pointer(cHost))
+		defer C.free(unsafe.Pointer(cAppV))
+		defer C.free(unsafe.Pointer(cGfeV))
+		defer C.free(unsafe.Pointer(cRtsp))
+		if cKey != nil {
+			defer C.free(unsafe.Pointer(cKey))
+		}
+		if pw != nil {
+			defer pw.Close()
+		}
+		if apw != nil {
+			defer apw.Close()
 		}
 
-		logrus.Infof("🌕 [Moonlight/CGO/Android] LiStartConnection: host=%s %dx%d@%d", w.host, width, height, fps)
+		logrus.Infof("🌕 [Moonlight/CGO/Android] CALLING_C_LI_START: host=%s rtsp=%s codec=%d %dx%d@%d",
+			w.host, url, codec, width, height, fps)
+		ret := C.do_li_start(cHost, cAppV, cGfeV, cRtsp,
+			C.int(codec), C.int(width), C.int(height), C.int(fps), C.int(bit),
+			cKey, C.int(1), C.int(-1))
 
-		ret := C.do_li_start(
-			host, appVer, gfeVer, rtsp,
-			C.int(serverCodecModeSupport),
-			C.int(width), C.int(height), C.int(fps), C.int(bitrate),
-			cRikey, C.int(1), C.int(-1),
-		)
 		if int(ret) != 0 {
-			logrus.Errorf("🌕 [Moonlight/CGO/Android] LiStartConnection FAILED: %d", int(ret))
+			logrus.Errorf("🌕 [Moonlight/CGO/Android] LI_START_ERROR_CODE: %d", int(ret))
 			if onStop != nil {
 				onStop(fmt.Errorf("LiStartConnection error %d", int(ret)))
 			}
@@ -411,123 +394,53 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	if !liStartConnectionActive.Load() {
+		C.do_li_stop() // clean up even if streams haven't started yet
 		return
 	}
 	C.do_li_stop()
-	closeActiveStreamDone()
+	activeStreamOnce.Do(func() { close(activeStreamDone) })
 }
 
-func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) {
-	w.audioMuted = muted
-	if muted {
+func (w *MoonlightCgoWrapper) SetAudioMuted(m bool) {
+	w.audioMuted = m
+	if m {
 		C.set_audio_muted(1)
 	} else {
 		C.set_audio_muted(0)
 	}
 }
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool { return w.audioMuted }
-
-func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_key(C.short(vkCode), C.char(action), C.char(modifiers))
-}
-func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_mouse_move(C.short(dx), C.short(dy))
-}
-func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_mouse_position(C.short(x), C.short(y), C.short(refW), C.short(refH))
-}
-func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_mouse_button(C.char(action), C.int(button))
-}
-func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_scroll(C.schar(clicks))
-}
-func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
-	cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,
-) {
-	if !liStartConnectionActive.Load() {
-		return
-	}
-	C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.ushort(b),
-		C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
-}
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
-var stageNames = []string{
-	"none", "platform-init", "name-resolution", "audio-stream-init",
-	"rtsp-handshake", "control-stream-init", "video-stream-init",
-	"input-stream-init", "control-stream-start", "video-stream-start",
-	"audio-stream-start", "input-stream-start",
+func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) { if liStartConnectionActive.Load() { C.do_send_key(C.short(c), C.char(a), C.char(m)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) { if liStartConnectionActive.Load() { C.do_send_mouse_move(C.short(dx), C.short(dy)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, rw, rh int16) { if liStartConnectionActive.Load() { C.do_send_mouse_position(C.short(x), C.short(y), C.short(rw), C.short(rh)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(a int8, b int) { if liStartConnectionActive.Load() { C.do_send_mouse_button(C.char(a), C.int(b)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightScroll(c int8) { if liStartConnectionActive.Load() { C.do_send_scroll(C.schar(c)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16) {
+	if liStartConnectionActive.Load() {
+		C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.ushort(b), C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
+	}
 }
 
 //export goMoonlightStage
-func goMoonlightStage(stage, result, errCode C.int) {
-	name := "unknown"
-	if int(stage) < len(stageNames) {
-		name = stageNames[stage]
-	}
-	switch int(result) {
-	case 0:
-		logrus.Infof("🌕 [Moonlight] ► %s …", name)
-	case 1:
-		logrus.Infof("🌕 [Moonlight] ✅ %s", name)
-	default:
-		logrus.Errorf("🌕 [Moonlight] ❌ %s failed (err=%d)", name, int(errCode))
-	}
+func goMoonlightStage(s, r, e C.int) {
+	stages := []string{"none", "platform-init", "name-resolution", "audio-stream-init", "rtsp-handshake", "control-stream-init", "video-stream-init", "input-stream-init", "control-stream-start", "video-stream-start", "audio-stream-start", "input-stream-start"}
+	name := "unknown"; if int(s) < len(stages) { name = stages[s] }
+	if r == 0 { logrus.Infof("🌕 [Moonlight] ► %s …", name) } else if r == 1 { logrus.Infof("🌕 [Moonlight] ✅ %s", name) } else { logrus.Errorf("🌕 [Moonlight] ❌ %s failed (%d)", name, int(e)) }
 }
-
 //export goMoonlightConnected
-func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] stream connected ✅") }
-
+func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
 //export goMoonlightTerminated
-func goMoonlightTerminated(errCode C.int) {
-	logrus.Errorf("🌕 [Moonlight] ❌ terminated: code=%d", int(errCode))
-	activeStreamTermErr = fmt.Errorf("stream terminated: code=%d", int(errCode))
-	closeActiveStreamDone()
-}
-
+func goMoonlightTerminated(e C.int) { activeStreamTermErr = fmt.Errorf("terminated %d", int(e)); if liStartConnectionActive.Load() { activeStreamOnce.Do(func() { close(activeStreamDone) }) } }
 //export goVTLog
-func goVTLog(msg *C.char) { logrus.Infof("🎬 [Moonlight/HW/Android] %s", C.GoString(msg)) }
-
-var vtFrameCount int64
-
+func goVTLog(m *C.char) { logrus.Infof("🎬 [Moonlight/CGO] %s", C.GoString(m)) }
 //export goVTFrame
-func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
-	vtFrameCallbackMu.Lock()
-	cb := vtFrameCallback
-	vtFrameCallbackMu.Unlock()
-	if cb == nil {
-		return
-	}
-	w, h, s := int(width), int(height), int(stride)
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	rowBytes := w * 4
-	if s == rowBytes {
-		copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:w*h*4:w*h*4])
-	} else {
-		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[:h*s : h*s]
-		for y := 0; y < h; y++ {
-			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
-		}
-	}
-	cnt := atomic.AddInt64(&vtFrameCount, 1)
-	if cnt == 1 {
-		logrus.Infof("🎬 [Moonlight/HW/Android] ✅ first RGBA frame — %dx%d", w, h)
-	}
+func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
+	vtFrameCallbackMu.Lock(); cb := vtFrameCallback; vtFrameCallbackMu.Unlock()
+	if cb == nil { return }
+	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
+	copy(img.Pix, C.GoBytes(unsafe.Pointer(rgba), C.int(int(w)*int(h)*4)))
 	cb(img)
 }
+func SetVTFrameCallback(cb func(image.Image)) { vtFrameCallbackMu.Lock(); vtFrameCallback = cb; vtFrameCallbackMu.Unlock() }

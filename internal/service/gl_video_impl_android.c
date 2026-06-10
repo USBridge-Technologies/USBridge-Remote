@@ -24,6 +24,7 @@
 // ── State ──────────────────────────────────────────────────────────────────────
 
 static JavaVM    *g_jvm      = NULL;
+static jclass     g_cls_vsb  = NULL; // cached com/usbridge/client/VideoSurfaceBridge
 static EGLDisplay g_display  = EGL_NO_DISPLAY;
 static EGLContext g_context  = EGL_NO_CONTEXT;
 static EGLSurface g_surface  = EGL_NO_SURFACE; // tiny pbuffer (just to hold the context)
@@ -97,6 +98,9 @@ static GLuint compile_shader(GLenum type, const char *src) {
 // ── EGL init ──────────────────────────────────────────────────────────────────
 
 static int egl_init(void) {
+    if (g_display != EGL_NO_DISPLAY && g_context != EGL_NO_CONTEXT) {
+        return 1; // Already initialized
+    }
     g_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (g_display == EGL_NO_DISPLAY) { VLOGE("eglGetDisplay failed"); return 0; }
     eglInitialize(g_display, NULL, NULL);
@@ -182,13 +186,12 @@ static ANativeWindow *java_create_surface(int width, int height) {
     JNIEnv *env = get_env(&detach);
     if (!env) { VLOGE("no JNI env"); return NULL; }
 
-    jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
-    if (!cls || (*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionClear(env);
-        VLOGE("VideoSurfaceBridge class not found");
+    if (!g_cls_vsb) {
+        VLOGE("VideoSurfaceBridge class not cached");
         detach_env(detach);
         return NULL;
     }
+    jclass cls = g_cls_vsb;
 
     jmethodID mid_create = (*env)->GetStaticMethodID(env, cls,
         "createSurface", "(I)Landroid/view/Surface;");
@@ -221,11 +224,11 @@ static ANativeWindow *java_create_surface(int width, int height) {
 }
 
 static void java_update_tex(void) {
+    if (!g_cls_vsb) return;
     int detach;
     JNIEnv *env = get_env(&detach);
     if (!env) return;
-    jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
-    if (!cls || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(detach); return; }
+    jclass cls = g_cls_vsb;
     jmethodID mid = (*env)->GetStaticMethodID(env, cls, "updateTexImage", "()V");
     if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(detach); return; }
     (*env)->CallStaticVoidMethod(env, cls, mid);
@@ -238,11 +241,11 @@ static void java_get_transform(float mtx[16]) {
     memset(mtx, 0, 16 * sizeof(float));
     mtx[0] = mtx[5] = mtx[10] = mtx[15] = 1.0f;
 
+    if (!g_cls_vsb) return;
     int detach;
     JNIEnv *env = get_env(&detach);
     if (!env) return;
-    jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
-    if (!cls || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(detach); return; }
+    jclass cls = g_cls_vsb;
     jmethodID mid = (*env)->GetStaticMethodID(env, cls, "getTransformMatrix", "([F)V");
     if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(detach); return; }
     jfloatArray arr = (*env)->NewFloatArray(env, 16);
@@ -326,15 +329,63 @@ static uint8_t *render_and_readback(int w, int h) {
     // CPU readback (required for Fyne canvas path).
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, g_readback);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    
+    // Unbind so that cleanup on another thread doesn't fail with EGL_BAD_ACCESS
+    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     return g_readback;
 }
 
 // ── Public C API (called from moonlight_cgo_android.go) ───────────────────────
 
-void android_gl_set_jvm(JavaVM *jvm) {
+void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
+    if (g_jvm != NULL && g_cls_vsb != NULL) {
+        return; // Already initialized
+    }
+    
     g_jvm = jvm;
-    VLOGI("JavaVM set");
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (env) {
+        // Try to find class normally first
+        jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
+        
+        if (!cls) {
+            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+            VLOGI("android_gl_set_jvm: fallback to ClassLoader for VideoSurfaceBridge");
+            
+            if (ctx) {
+                jclass contextClass = (*env)->GetObjectClass(env, ctx);
+                jmethodID getClassLoaderMethod = (*env)->GetMethodID(env, contextClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+                jobject classLoader = (*env)->CallObjectMethod(env, ctx, getClassLoaderMethod);
+                
+                jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
+                jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+                
+                jstring className = (*env)->NewStringUTF(env, "com.usbridge.client.VideoSurfaceBridge");
+                cls = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
+                
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                    cls = NULL;
+                }
+                
+                (*env)->DeleteLocalRef(env, className);
+                (*env)->DeleteLocalRef(env, classLoaderClass);
+                (*env)->DeleteLocalRef(env, classLoader);
+                (*env)->DeleteLocalRef(env, contextClass);
+            }
+        }
+
+        if (cls) {
+            g_cls_vsb = (jclass)(*env)->NewGlobalRef(env, cls);
+            (*env)->DeleteLocalRef(env, cls);
+        } else {
+            VLOGE("android_gl_set_jvm: could not find VideoSurfaceBridge class even with ClassLoader");
+        }
+        detach_env(detach);
+    }
+    VLOGI("JavaVM set (g_cls_vsb=%p)", g_cls_vsb);
 }
 
 // Initialize EGL + GL ES + SurfaceTexture.
@@ -348,7 +399,14 @@ ANativeWindow *android_gl_init(int width, int height) {
     }
     if (!egl_init()) { VLOGE("egl_init failed"); return NULL; }
     if (!gl_setup())  { VLOGE("gl_setup failed"); return NULL; }
-    return java_create_surface(width, height);
+    
+    ANativeWindow *win = java_create_surface(width, height);
+    
+    // Unbind context so it can be bound in the render thread (dr_submit).
+    // Failing to do this causes EGL_BAD_ACCESS when render thread calls eglMakeCurrent.
+    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    
+    return win;
 }
 
 // Render the last decoded frame and return RGBA pixels.
@@ -380,10 +438,9 @@ void android_gl_release(void) {
     if (g_surf_ref) {
         int detach; JNIEnv *env = get_env(&detach);
         if (env) {
-            jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
-            if (cls) {
-                jmethodID mid = (*env)->GetStaticMethodID(env, cls, "release", "()V");
-                if (mid) (*env)->CallStaticVoidMethod(env, cls, mid);
+            if (g_cls_vsb) {
+                jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vsb, "release", "()V");
+                if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vsb, mid);
                 if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
             }
             (*env)->DeleteGlobalRef(env, g_surf_ref);
