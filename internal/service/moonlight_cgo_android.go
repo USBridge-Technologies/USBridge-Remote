@@ -130,7 +130,13 @@ static void ar_decode(char *data, int len) {
 
 static void amc_init(int width, int height) {
     ALOGI("amc_init: %dx%d", width, height);
-    if (g_amc) return;
+    // Safety: clean up stale codec if dr_cleanup wasn't called.
+    if (g_amc) {
+        ALOGE("amc_init: stale g_amc found — cleaning up");
+        AMediaCodec_stop(g_amc);
+        AMediaCodec_delete(g_amc);
+        g_amc = NULL;
+    }
     g_amc_w = width; g_amc_h = height;
     
     ANativeWindow *nwin = android_gl_init(width, height);
@@ -261,6 +267,9 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cl.logMessage          = cl_log;
 
     ALOGI("do_li_start: calling LiStartConnection");
+    // LiStartConnection is NON-BLOCKING — it returns 0 immediately once all
+    // stream threads are started. Set g_li_active=1 only on success so that
+    // do_li_stop can call LiStopConnection to terminate the running streams.
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     ALOGI("do_li_start: LiStartConnection returned %d", ret);
     if (ret != 0) return ret;
@@ -311,6 +320,12 @@ var (
 	activeStreamTermErr     error
 	vtFrameCallback         func(image.Image)
 	vtFrameCallbackMu       sync.Mutex
+
+	// liStreamMu serializes LiStopConnection / LiStartConnection so they never
+	// run concurrently. liStreamGen is a generation counter that lets the goroutine
+	// detect whether it is still the "current" stream before touching shared state.
+	liStreamMu  sync.Mutex
+	liStreamGen atomic.Uint64
 )
 
 type MoonlightCgoWrapper struct {
@@ -332,11 +347,17 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 }
 
 func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
-	// Stop any stale previous connection before starting a new one.
+	// Hold the stream mutex while stopping any previous connection and resetting
+	// state.  This blocks until any in-progress LiStopConnection (from a prior
+	// goroutine or from StopStream) has fully returned, preventing concurrent
+	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
+	// static state and causes SIGSEGV in VideoRecv.
+	liStreamMu.Lock()
 	C.do_li_stop()
-
+	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
+	liStreamMu.Unlock()
 
 	cHost := C.CString(w.host)
 	cAppV := C.CString(appV)
@@ -370,35 +391,46 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 
 		if int(ret) != 0 {
 			logrus.Errorf("🌕 [Moonlight/CGO/Android] LI_START_ERROR_CODE: %d", int(ret))
-			if onStop != nil {
+			if onStop != nil && liStreamGen.Load() == myGen {
 				onStop(fmt.Errorf("LiStartConnection error %d", int(ret)))
 			}
 			return
 		}
 
 		logrus.Info("🌕 [Moonlight/CGO/Android] ✅ streams active")
-		liStartConnectionActive.Store(true)
+		if liStreamGen.Load() == myGen {
+			liStartConnectionActive.Store(true)
+		}
 		<-activeStreamDone
 
+		// Call LiStopConnection under the mutex so that the next StartStream
+		// cannot call LiStartConnection until this stop is fully complete.
+		liStreamMu.Lock()
 		C.do_li_stop()
-		vtFrameCallbackMu.Lock()
-		vtFrameCallback = nil
-		vtFrameCallbackMu.Unlock()
-		liStartConnectionActive.Store(false)
-		if onStop != nil {
-			onStop(activeStreamTermErr)
+		liStreamMu.Unlock()
+
+		// Only clear shared state if we are still the current generation;
+		// a newer StartStream may have already reset these.
+		if liStreamGen.Load() == myGen {
+			vtFrameCallbackMu.Lock()
+			vtFrameCallback = nil
+			vtFrameCallbackMu.Unlock()
+			liStartConnectionActive.Store(false)
+			if onStop != nil {
+				onStop(activeStreamTermErr)
+			}
 		}
 	}()
 	return nil
 }
 
 func (w *MoonlightCgoWrapper) StopStream() {
-	if !liStartConnectionActive.Load() {
-		C.do_li_stop() // clean up even if streams haven't started yet
-		return
-	}
+	liStreamMu.Lock()
 	C.do_li_stop()
-	activeStreamOnce.Do(func() { close(activeStreamDone) })
+	liStreamMu.Unlock()
+	if activeStreamDone != nil {
+		activeStreamOnce.Do(func() { close(activeStreamDone) })
+	}
 }
 
 func (w *MoonlightCgoWrapper) SetAudioMuted(m bool) {

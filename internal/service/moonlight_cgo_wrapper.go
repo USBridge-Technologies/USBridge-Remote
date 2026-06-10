@@ -56,6 +56,14 @@ var (
 	activeStreamTermErr error
 )
 
+// liStreamMu serializes LiStopConnection / LiStartConnection so they never
+// run concurrently. liStreamGen is a generation counter that lets the goroutine
+// detect whether it is still the "current" stream before touching shared state.
+var (
+	liStreamMu  sync.Mutex
+	liStreamGen atomic.Uint64
+)
+
 func closeActiveStreamDone() {
 	activeStreamOnce.Do(func() { close(activeStreamDone) })
 }
@@ -85,9 +93,18 @@ func (w *MoonlightCgoWrapper) StartStream(
 	w.pipeWrite = pipeWrite
 	w.audioPipeWrite = audioPipeWrite
 
+	// Hold the stream mutex while stopping any previous connection and resetting
+	// state.  This blocks until any in-progress LiStopConnection (from a prior
+	// goroutine or from StopStream) has fully returned, preventing concurrent
+	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
+	// static state and causes SIGSEGV.
+	liStreamMu.Lock()
+	C.do_li_stop()
+	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
 	activeStreamTermErr = nil
+	liStreamMu.Unlock()
 
 	host := C.CString(w.host)
 	appVer := C.CString(appVersion)
@@ -137,26 +154,36 @@ func (w *MoonlightCgoWrapper) StartStream(
 			if audioPipeWrite != nil {
 				_ = audioPipeWrite.Close()
 			}
-			if onStop != nil {
+			if onStop != nil && liStreamGen.Load() == myGen {
 				onStop(fmt.Errorf("LiStartConnection error code %d", int(ret)))
 			}
 			return
 		}
 
 		logrus.Info("🌕 [Moonlight/CGO] ✅ LiStartConnection setup done — streams active")
-		liStartConnectionActive.Store(true)
+		if liStreamGen.Load() == myGen {
+			liStartConnectionActive.Store(true)
+		}
 
 		<-activeStreamDone
 
 		logrus.Info("🌕 [Moonlight/CGO] termination received — stopping streams")
+		// Call LiStopConnection under the mutex so that the next StartStream
+		// cannot call LiStartConnection until this stop is fully complete.
+		liStreamMu.Lock()
 		C.do_li_stop()
+		liStreamMu.Unlock()
+
 		C.set_audio_pipe_fd(-1)
 
-		vtFrameCallbackMu.Lock()
-		vtFrameCallback = nil
-		vtFrameCallbackMu.Unlock()
-
-		liStartConnectionActive.Store(false)
+		// Only clear shared state if we are still the current generation;
+		// a newer StartStream may have already reset these.
+		if liStreamGen.Load() == myGen {
+			vtFrameCallbackMu.Lock()
+			vtFrameCallback = nil
+			vtFrameCallbackMu.Unlock()
+			liStartConnectionActive.Store(false)
+		}
 
 		if pipeWrite != nil {
 			_ = pipeWrite.Close()
@@ -165,7 +192,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 			_ = audioPipeWrite.Close()
 		}
 
-		if onStop != nil {
+		if onStop != nil && liStreamGen.Load() == myGen {
 			onStop(activeStreamTermErr)
 		}
 	}()
@@ -174,13 +201,13 @@ func (w *MoonlightCgoWrapper) StartStream(
 }
 
 func (w *MoonlightCgoWrapper) StopStream() {
-	if !liStartConnectionActive.Load() {
-		logrus.Info("🌕 [Moonlight/CGO] StopStream: no active stream — skipping")
-		return
-	}
-	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping active stream")
+	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping")
+	liStreamMu.Lock()
 	C.do_li_stop()
-	closeActiveStreamDone()
+	liStreamMu.Unlock()
+	if activeStreamDone != nil {
+		closeActiveStreamDone()
+	}
 }
 
 func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool) {
