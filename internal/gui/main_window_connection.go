@@ -444,12 +444,22 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 }
 
 func (mw *MainWindow) pollTailscaleRegistration(host, masterKey string) {
+	// Cancel any previous poll goroutine before starting a new one.
+	if mw.tailscalePollCancel != nil {
+		mw.tailscalePollCancel()
+		mw.tailscalePollCancel = nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	mw.tailscalePollCancel = cancel
+
 	go func() {
+		defer func() {
+			cancel()
+		}()
+
 		logrus.Infof("🛰️ [TS] Starting Tailscale registration polling for host=%s", host)
 		time.Sleep(3 * time.Second)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
 
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -806,6 +816,12 @@ func (mw *MainWindow) handleDisconnect() {
 	backup := mw.backupWidget
 	frp := mw.frpService
 	nbd := mw.nbdServer
+
+	// Stop any running Tailscale registration poll goroutine.
+	if mw.tailscalePollCancel != nil {
+		mw.tailscalePollCancel()
+		mw.tailscalePollCancel = nil
+	}
 
 	// 1. Немедленно сбрасываем состояние
 	mw.isConnected = false

@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,7 @@ type MainWindow struct {
 	pendingTailscaleRegister bool
 	pendingQUICPort         int
 	lastTailscaleAuthURL    string
+	tailscalePollCancel     context.CancelFunc
 	currentVideoFPS         float64
 	currentStorageDir       string
 	currentStorageTotal     int64
