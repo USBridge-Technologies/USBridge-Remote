@@ -15,21 +15,25 @@ import (
 // is positioned to match the Fyne videoCanvas widget bounds.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
 	if window == nil {
+		logrus.Warn("🍎 [Metal] startMetalVideoOnWindow: window=nil — skipped")
 		return
 	}
 	nw, ok := window.(driver.NativeWindow)
 	if !ok {
-		logrus.Warn("🍎 [Metal] window does not implement driver.NativeWindow — Metal skipped")
+		logrus.Warnf("🍎 [Metal] window type %T does not implement driver.NativeWindow — Metal skipped", window)
 		return
 	}
+	logrus.Infof("🍎 [Metal] RunNative starting (fullscreen=%v)", fullscreen)
 	nw.RunNative(func(ctx any) {
 		mac, ok := ctx.(*driver.MacWindowContext)
 		if !ok {
+			logrus.Warnf("🍎 [Metal] RunNative ctx type=%T, expected *driver.MacWindowContext — Metal skipped", ctx)
 			return
 		}
 		var x, y, w, h float32
 		if !fullscreen {
 			x, y, w, h = vw.videoCanvasFrame()
+			logrus.Infof("🍎 [Metal] videoCanvas frame: x=%.0f y=%.0f w=%.0f h=%.0f", x, y, w, h)
 			if w <= 0 || h <= 0 {
 				logrus.Warn("🍎 [Metal] videoCanvas has zero size — Metal skipped")
 				return
@@ -38,6 +42,8 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		// w=0,h=0 signals full-window mode in C code.
 		if !service.MetalVideoCreate(mac.NSWindow, x, y, w, h) {
 			logrus.Warn("🍎 [Metal] failed to create overlay — Fyne canvas path active")
+		} else {
+			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
 		}
 	})
 }
