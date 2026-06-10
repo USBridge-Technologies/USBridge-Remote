@@ -619,8 +619,15 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	vsd.resolutionLabels = make(map[string]models.VideoCaptureMode)
 	vsd.resolutionHints = make(map[string]string)
 
-	if info != nil && len(info.SupportedModes) > 0 {
-		vsd.streamModes = append(vsd.streamModes, info.SupportedModes...)
+	// Only Moonlight-compatible encodings are supported; filter out legacy JPEG/RAW modes
+	// that older server versions may still advertise.
+	moonlightEncodings := map[string]bool{"h264": true, "h265": true, "av1": true}
+	if info != nil {
+		for _, m := range info.SupportedModes {
+			if moonlightEncodings[m.Encoding] {
+				vsd.streamModes = append(vsd.streamModes, m)
+			}
+		}
 	}
 	if len(vsd.streamModes) == 0 {
 		vsd.streamModes = []models.VideoTransportMode{

@@ -110,7 +110,10 @@
       "Bash(pip3 install *)",
       "Bash(go tool *)",
       "Bash(tailscale status *)",
-      "Bash(tailscale ping *)"
+      "Bash(tailscale ping *)",
+      "Bash(awk -F: '$1 > 518')",
+      "Bash(echo \"exit:$?\")",
+      "Bash(awk '{print $1}')"
     ]
   }
 }

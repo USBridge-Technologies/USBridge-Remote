@@ -34,6 +34,7 @@ static int64_t g_renderCount = 0;
 static int64_t g_fpsFrames   = 0;
 static double  g_fpsStart    = 0.0;
 static int     g_lastW = 0, g_lastH = 0;
+static int     g_fullWindow  = 0; // 1 when overlay covers the full contentView (fullscreen mode)
 
 // Last rendered pixel buffer — retained for pause snapshot (read by metal_video_get_last_frame_rgba).
 static CVPixelBufferRef g_lastRenderedBuf = NULL;
@@ -173,10 +174,10 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
             g_layer = nil;
         }
 
-        int fullWindow = (w <= 0 || h <= 0);
+        g_fullWindow = (w <= 0 || h <= 0);
         CGFloat cvH = cv.bounds.size.height;
-        NSRect frame = fullWindow ? cv.bounds
-                                  : fyne_to_nsrect(cvH, x, y, w, h);
+        NSRect frame = g_fullWindow ? cv.bounds
+                                    : fyne_to_nsrect(cvH, x, y, w, h);
 
         NSView *ov = [[NSView alloc] initWithFrame:frame];
         ov.wantsLayer = YES;
@@ -207,7 +208,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         ok = 1;
 
         char msg[192];
-        if (fullWindow) {
+        if (g_fullWindow) {
             snprintf(msg, sizeof(msg),
                      "overlay created (full-window %.0fx%.0f) NSWindow=%p",
                      cv.bounds.size.width, cv.bounds.size.height, (void*)nsWinPtr);
@@ -224,6 +225,8 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
 
 void metal_video_update_frame(float x, float y, float w, float h) {
     if (!atomic_load(&g_active) || !g_view) return;
+    // Full-window (fullscreen) overlay is pinned to the contentView — don't resize it.
+    if (g_fullWindow) return;
     dispatch_block_t blk = ^{
         if (!g_view) return;
         NSView *cv = g_view.superview;
@@ -286,6 +289,7 @@ void metal_video_set_hidden(int hidden) {
 void metal_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
+    g_fullWindow = 0;
     dispatch_block_t blk = ^{
         if (g_view) {
             [g_view removeFromSuperview];
