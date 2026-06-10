@@ -93,8 +93,11 @@ func (m *MoonlightService) ConnectToRTP() error {
 		}
 	}
 
+	tConnect := time.Now()
+
 	// 2. Fetch Server Info
 	serverInfo, err := m.client.GetServerInfo()
+	logrus.Infof("⏱️ [Moonlight] serverinfo: %.0fms", float64(time.Since(tConnect).Milliseconds()))
 	if err != nil || serverInfo.PairStatus == 0 {
 		if err != nil {
 			logrus.Warnf("⚠️ Moonlight ServerInfo failed (Needs pairing?): %v", err)
@@ -144,7 +147,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 	logrus.Infof("🖥️ Sunshine Server Info: AppVersion=%s, GfeVersion=%s", serverInfo.AppVersion, serverInfo.GfeVersion)
 
 	// 3. Fetch App List to find 'Desktop'
+	t1 := time.Now()
 	apps, err := m.client.GetAppList()
+	logrus.Infof("⏱️ [Moonlight] applist: %.0fms (total %.0fms)", float64(time.Since(t1).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("failed to get app list: %v", err)
@@ -164,8 +169,10 @@ func (m *MoonlightService) ConnectToRTP() error {
 		fps = m.config.VideoFPS
 	}
 	bitrate := 10000 // 10 Mbps default
-	
+
+	t2 := time.Now()
 	sessionUrl, rikey, err := m.client.Launch(appId, m.videoMode, m.width, m.height, fps, bitrate)
+	logrus.Infof("⏱️ [Moonlight] launch/resume HTTP: %.0fms (total %.0fms)", float64(time.Since(t2).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("failed to launch app: %v", err)
@@ -301,6 +308,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 			logrus.Warn("🌕 [Moonlight/tsnet] no reachable LAN IP — C sockets will use Tailscale IP (needs system VPN)")
 		}
 	}
+	t3 := time.Now()
 	wrapper := NewMoonlightCgoWrapper(moonlightHost)
 	wrapper.SetAudioMuted(m.audioMuted)
 	m.activeWrapper = wrapper
@@ -337,6 +345,8 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.isRunning = false
 		return fmt.Errorf("failed to start LiStartConnection: %v", err)
 	}
+
+	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for first frame...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
 
 	if m.onStateChanged != nil {
 		m.onStateChanged("connected")

@@ -114,6 +114,16 @@ static uint8_t g_sps_data[1024]; static size_t g_sps_len = 0;
 static uint8_t g_pps_data[256];  static size_t g_pps_len = 0;
 static uint64_t g_vt_frame_count = 0;
 
+// FPS counter for VT decode delivery.
+static uint64_t g_vt_fps_frames = 0;
+static double   g_vt_fps_start  = 0.0;
+
+static double vt_mono_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
 // Pre-allocated RGBA conversion buffer — avoids per-frame malloc.
 // Reallocated only on resolution changes; VT callbacks are serialised by VT's queue.
 static uint8_t *g_vt_rgba_buf      = NULL;
@@ -128,6 +138,7 @@ static void vt_invalidate(void) {
     }
     if (g_vt_fmt_desc) { CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL; }
     g_sps_len = 0; g_pps_len = 0; g_vt_frame_count = 0;
+    g_vt_fps_frames = 0; g_vt_fps_start = 0.0;
     free(g_vt_rgba_buf); g_vt_rgba_buf = NULL; g_vt_rgba_buf_size = 0;
 }
 
@@ -138,6 +149,24 @@ static void vt_callback(
 {
     (void)ctx; (void)frameRefCon; (void)flags; (void)pts; (void)dur;
     if (status != noErr || img == NULL) return;
+
+    // ── VT FPS counter (runs before routing so it always counts) ─────────────
+    {
+        double now = vt_mono_sec();
+        if (g_vt_fps_start == 0.0) g_vt_fps_start = now;
+        g_vt_fps_frames++;
+        double elapsed = now - g_vt_fps_start;
+        if (elapsed >= 2.0) {
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                     "VT decode: fps=%.1f  frames=%llu  (%.1fs window)",
+                     (double)g_vt_fps_frames / elapsed,
+                     (unsigned long long)g_vt_fps_frames, elapsed);
+            goVTLog(msg);
+            g_vt_fps_start  = now;
+            g_vt_fps_frames = 0;
+        }
+    }
 
     // ── Metal fast path (zero CPU copy via IOSurface) ─────────────────────────
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE

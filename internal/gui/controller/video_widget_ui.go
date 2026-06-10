@@ -639,6 +639,15 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		vw.frameMutex.Unlock()
 		vw.frameDecoder.IncrementFrameCount()
 		vw.noteVideoTraceFirstFrame(frameNum)
+		// Log FPS for Metal path (frame=nil means VT→Metal bypasses Go image).
+		if frameNum%60 == 0 {
+			now := time.Now().UnixNano()
+			prev := vw.fpsWindowStart.Swap(now)
+			if prev > 0 {
+				elapsed := time.Duration(now - prev)
+				logrus.Infof("📊 [VIDEO FPS] Go callback (Metal): %.1f fps (frame=%d)", float64(60)/elapsed.Seconds(), frameNum)
+			}
+		}
 		return
 	}
 
@@ -670,6 +679,16 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 
 	vw.frameDecoder.IncrementFrameCount()
 	vw.noteVideoTraceFirstFrame(frameNum)
+
+	// Log Go-level frame arrival FPS every 60 frames (≈2s at 30fps, ≈1s at 60fps).
+	if frameNum%60 == 0 {
+		now := time.Now().UnixNano()
+		prev := vw.fpsWindowStart.Swap(now)
+		if prev > 0 {
+			elapsed := time.Duration(now - prev)
+			logrus.Infof("📊 [VIDEO FPS] Go frame arrival: %.1f fps (frame=%d metal=%v)", float64(60)/elapsed.Seconds(), frameNum, vw.isNativeVideoActive())
+		}
+	}
 
 	if frameNum == 1 {
 		bounds := rgba.Bounds()

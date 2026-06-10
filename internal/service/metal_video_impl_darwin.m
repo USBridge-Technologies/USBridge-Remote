@@ -84,7 +84,16 @@ static void metal_render_main(void) {
     g_fpsFrames++;
     double now     = mono_sec();
     double elapsed = now - g_fpsStart;
-    if (elapsed >= 5.0 && g_fpsFrames > 0) {
+    // Early snapshot after 30 frames to catch FPS issues quickly.
+    if (n == 30 && g_fpsStart > 0.0) {
+        char msg[192];
+        snprintf(msg, sizeof(msg),
+                 "first 30 frames: fps=%.1f  submitted=%lld  size=%dx%d",
+                 (double)g_fpsFrames / elapsed,
+                 (long long)g_submitCount, g_lastW, g_lastH);
+        goMetalLog(msg, 0);
+    }
+    if (elapsed >= 2.0 && g_fpsFrames > 0) {
         char msg[192];
         snprintf(msg, sizeof(msg),
                  "fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d",

@@ -78,6 +78,7 @@ type VideoWidget struct {
 	videoTraceFirstFrame atomic.Int64
 	videoTraceFirstPaint atomic.Int64
 	videoTraceLabel      atomic.Value
+	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра
