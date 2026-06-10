@@ -791,6 +791,12 @@ func (vw *VideoWidget) SetTailscaleVideoEnabled(enabled bool) {
 	vw.tailscaleVideoEnabled = enabled
 }
 
+// SetBridgeInternalHost stores the bridge's LAN/internal IP so the video
+// transport can prefer a direct LAN path over the Tailscale DERP relay.
+func (vw *VideoWidget) SetBridgeInternalHost(host string) {
+	vw.bridgeInternalHost = strings.TrimSpace(host)
+}
+
 // GetContainer возвращает контейнер виджета.
 func (vw *VideoWidget) GetContainer() *fyne.Container {
 	return vw.container

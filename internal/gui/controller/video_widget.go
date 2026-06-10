@@ -43,7 +43,8 @@ type VideoWidget struct {
 	videoClient    service.VideoClient
 	frpService              *service.FRPService // для проверки режима FRP
 	tailscaleService        *service.TailscaleService
-	tailscaleVideoEnabled   bool // false when connected via direct/LAN (disables Tailscale UDP routing for video)
+	tailscaleVideoEnabled   bool   // false when connected via direct/LAN (disables Tailscale UDP routing for video)
+	bridgeInternalHost      string // LAN/internal IP of bridge; used to detect same-subnet direct path
 	updateStatus        func()
 	onFPSChanged        func(float64)
 	videoOpMu           sync.Mutex

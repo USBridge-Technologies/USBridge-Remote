@@ -82,7 +82,14 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 			resolved = tsHost
 		}
 		if resolved != "" && mw.connectionManager != nil {
-			mw.connectionManager.RememberResolvedTailscaleHost(bootstrapHost, bootstrapHost, resolved, secret)
+			// Pass empty internalHost when bootstrapHost is itself a Tailscale IP —
+			// otherwise RememberResolvedTailscaleHost would overwrite the saved LAN
+			// address with the Tailscale IP, losing the direct-LAN path.
+			internalForSave := bootstrapHost
+			if isLikelyTailscaleHost(bootstrapHost) {
+				internalForSave = ""
+			}
+			mw.connectionManager.RememberResolvedTailscaleHost(bootstrapHost, internalForSave, resolved, secret)
 			logrus.Infof("🛰️ [SYNC] Bridge Tailscale address: %s", resolved)
 			tailscaleReady = true
 		}

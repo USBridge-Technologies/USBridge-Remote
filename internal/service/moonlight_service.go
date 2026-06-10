@@ -275,9 +275,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 			if conn, err := net.DialTimeout("tcp", net.JoinHostPort(candidate, "47989"), 400*time.Millisecond); err == nil {
 				conn.Close()
 				lanIP = candidate
-				logrus.Infof("🌕 [Moonlight/Android] LAN IP %s reachable → using for C sockets", lanIP)
+				logrus.Infof("🌕 [Moonlight/tsnet] LAN IP %s reachable → using for C sockets", lanIP)
 			} else {
-				logrus.Warnf("🌕 [Moonlight/Android] LAN candidate %s unreachable (%v)", candidate, err)
+				logrus.Warnf("🌕 [Moonlight/tsnet] LAN candidate %s unreachable (%v)", candidate, err)
 			}
 		}
 
@@ -295,10 +295,10 @@ func (m *MoonlightService) ConnectToRTP() error {
 					u.Host = lanIP
 				}
 				sessionUrl = u.String()
-				logrus.Infof("🌕 [Moonlight/Android] RTSP via LAN: %s", sessionUrl)
+				logrus.Infof("🌕 [Moonlight/tsnet] RTSP via LAN: %s", sessionUrl)
 			}
 		} else {
-			logrus.Warn("🌕 [Moonlight/Android] no reachable LAN IP — C sockets will use Tailscale IP (needs system VPN)")
+			logrus.Warn("🌕 [Moonlight/tsnet] no reachable LAN IP — C sockets will use Tailscale IP (needs system VPN)")
 		}
 	}
 	wrapper := NewMoonlightCgoWrapper(moonlightHost)
