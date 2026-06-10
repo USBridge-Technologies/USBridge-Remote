@@ -27,7 +27,7 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 
 // handleConnectionFromDeepLink handles the deep-link connect callback.
 // tsMode optionally overrides the Tailscale mode before connecting.
-func (mw *MainWindow) handleConnectionFromDeepLink(host, quicToken, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
+func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
 	// Apply ts_mode override if specified.
 	if mw.tailscaleService != nil {
 		switch tsMode {
@@ -41,7 +41,7 @@ func (mw *MainWindow) handleConnectionFromDeepLink(host, quicToken, protocol str
 			// TailscaleModeAuto: do not change current setting
 		}
 	}
-	mw.handleConnectionFromManager(host, quicToken, "", protocol, quicPort, tailscaleRegister)
+	mw.handleConnectionFromManager(host, masterKey, "", protocol, quicPort, tailscaleRegister)
 }
 
 // handleConnectionFromManager handles connection from the manager (arrow on the card).
@@ -59,23 +59,23 @@ func (mw *MainWindow) handleConnectionFromManager(host, masterKey, frpToken, pro
 }
 
 // handleSaveFromDeepLink saves data from a deep link WITHOUT connecting.
-func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {
 		host = strings.TrimSpace(internalHost)
 	}
-	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d quicToken='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, maskSensitiveToken(quicToken), protocol, tailscaleRegister)
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d masterKey='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, maskSensitiveToken(masterKey), protocol, tailscaleRegister)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
-		mw.tokenEntry.SetText(quicToken)
+		mw.tokenEntry.SetText(masterKey)
 		if protocol != "" {
 			mw.protocolSelect.SetSelected(protocol)
 		}
 	})
 
 	if mw.connectionManager != nil {
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, quicToken, "", protocol, quicPort, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
 		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Сохранено как: %s", generatedName)
@@ -103,23 +103,23 @@ func (mw *MainWindow) clearConnectionPending() {
 	}
 }
 
-func (mw *MainWindow) resolveConnectionToken(host, quicToken string) string {
-	resolved := strings.TrimSpace(quicToken)
+func (mw *MainWindow) resolveConnectionToken(host, masterKey string) string {
+	resolved := strings.TrimSpace(masterKey)
 	if resolved != "" {
 		return resolved
 	}
 
 	if mw.connectionManager != nil {
-		resolved = mw.connectionManager.ResolveQUICToken(host, quicToken)
+		resolved = mw.connectionManager.ResolveMasterKey(host, masterKey)
 		if resolved != "" {
-			logrus.Infof("🔍 [DEBUG] Resolved QUIC token from saved connection for host='%s'", host)
+			logrus.Infof("🔍 [DEBUG] Resolved master key from saved connection for host='%s'", host)
 			return resolved
 		}
 	}
 
 	resolved = strings.TrimSpace(mw.activeFRPToken)
 	if resolved != "" {
-		logrus.Infof("🔍 [DEBUG] Reusing active session QUIC token for host='%s'", host)
+		logrus.Infof("🔍 [DEBUG] Reusing active session token for host='%s'", host)
 		return resolved
 	}
 
@@ -235,9 +235,9 @@ func (mw *MainWindow) cleanupDeadConnectionState() {
 	mw.usbClient = nil
 }
 
-func isLikelyTailscaleAuthKey(quicToken string) bool {
-	quicToken = strings.ToLower(strings.TrimSpace(quicToken))
-	return strings.HasPrefix(quicToken, "tskey-")
+func isLikelyTailscaleAuthKey(token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	return strings.HasPrefix(token, "tskey-")
 }
 
 func isLikelyTailscaleHost(host string) bool {
@@ -265,8 +265,8 @@ func splitBridgeAuthInputs(raw string) (deviceToken, tailscaleAuthKey string) {
 	return deviceToken, tailscaleAuthKey
 }
 
-func (mw *MainWindow) resolveBridgeAuthInputs(host, quicToken string) (deviceToken, tailscaleAuthKey string) {
-	deviceToken, tailscaleAuthKey = splitBridgeAuthInputs(quicToken)
+func (mw *MainWindow) resolveBridgeAuthInputs(host, masterKey string) (deviceToken, tailscaleAuthKey string) {
+	deviceToken, tailscaleAuthKey = splitBridgeAuthInputs(masterKey)
 	if deviceToken == "" {
 		deviceToken = mw.resolveConnectionToken(host, "")
 	}
@@ -317,7 +317,7 @@ func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
 	host := mw.hostEntry.Text
-	quicToken := mw.tokenEntry.Text
+	masterKey := mw.tokenEntry.Text
 
 	if host == "" {
 		logrus.Warn("Enter a server address")
@@ -329,7 +329,7 @@ func (mw *MainWindow) handleConnect() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
 	defer cancel()
 
-	if err := mw.doConnect(ctx, host, quicToken, ""); err != nil {
+	if err := mw.doConnect(ctx, host, masterKey, ""); err != nil {
 		mw.handleConnectFailure("Connection failed", err)
 	}
 }
@@ -412,11 +412,16 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		if newToken, tsReady, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
 			tunnelToken = newToken
 			// When the user wants Tailscale registration but the bridge is not yet
-			// in the tailnet (no auth key was sent), fall back to Auto so QUIC is
-			// used for this attempt instead of failing hard.
-			if mw.pendingTailscaleRegister && !tsReady && protocol == models.ConnectionProtocolTailscale {
-				logrus.Infof("🛰️ [CONNECT] Bridge not in Tailscale yet; switching protocol tailscale→auto for this attempt")
-				protocol = models.ConnectionProtocolAuto
+			// in the tailnet (no auth key was sent), fall back to Auto or Direct
+			// so that registration can proceed over the current connection.
+			if mw.pendingTailscaleRegister && !tsReady {
+				if !isLikelyTailscaleHost(host) {
+					logrus.Infof("🛰️ [CONNECT] Bridge not in Tailscale yet; staying on direct LAN for this session to finish registration")
+					protocol = "direct"
+				} else if protocol == models.ConnectionProtocolTailscale {
+					logrus.Infof("🛰️ [CONNECT] Bridge not in Tailscale yet; switching protocol tailscale→auto for this attempt")
+					protocol = models.ConnectionProtocolAuto
+				}
 			}
 		} else {
 			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
@@ -433,8 +438,8 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 	return mw.doConnectWithProtocol(ctx, host, tunnelToken, protocol)
 }
 
-func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken, protocol string) error {
-	connectQUICTo := func(ctx context.Context, quicHost, quicTokenParam string) error {
+func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
+	connectQUICTo := func(ctx context.Context, quicHost, tokenParam string) error {
 		if !mw.config.FRPEnabled {
 			return fmt.Errorf("FRP disabled in config")
 		}
@@ -451,11 +456,11 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 			port = mw.pendingQUICPort
 		}
 
-		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d quicToken=%s", quicHost, port, maskSensitiveToken(quicTokenParam))
+		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, port, maskSensitiveToken(tokenParam))
 		mw.frpService = service.NewFRPService(
 			quicHost,
 			port,
-			quicTokenParam,
+			tokenParam,
 		)
 
 		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
@@ -489,7 +494,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, quicToken
 	}
 
 	connectQUIC := func(ctx context.Context) error {
-		if err := connectQUICTo(ctx, host, quicToken); err != nil {
+		if err := connectQUICTo(ctx, host, token); err != nil {
 			return err
 		}
 		return nil

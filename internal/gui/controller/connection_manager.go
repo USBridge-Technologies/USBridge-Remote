@@ -30,15 +30,32 @@ type SavedConnection struct {
 	TailscaleHost     string `json:"tailscale_host,omitempty"`
 	QUICPort          int    `json:"quic_port,omitempty"`
 	Host              string `json:"host,omitempty"`
-	// QUICToken holds the API master secret (obtained by scanning the device QR code).
+	// MasterKey holds the API master secret (obtained by scanning the device QR code).
 	// It is used to sign requests and perform the initial sync that returns the FRP tunnel token.
-	QUICToken         string `json:"quic_token"`
+	MasterKey         string `json:"master_key"`
 	// FRPToken is an explicit FRP/QUIC tunnel token used to bypass the sync flow.
-	// Leave empty when QUICToken (master key) is set.
+	// Leave empty when MasterKey (API secret) is set.
 	FRPToken          string `json:"frp_token,omitempty"`
 	Protocol          string `json:"protocol,omitempty"`
 	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
 	RemoteOS          string `json:"remote_os,omitempty"`
+}
+
+func (s *SavedConnection) UnmarshalJSON(data []byte) error {
+	type Alias SavedConnection
+	aux := &struct {
+		QUICToken string `json:"quic_token"`
+		*Alias
+	}{
+		Alias: (*Alias)(s),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if s.MasterKey == "" && aux.QUICToken != "" {
+		s.MasterKey = aux.QUICToken
+	}
+	return nil
 }
 
 type ConnectionManager struct {
@@ -68,10 +85,10 @@ type ConnectionManager struct {
 	tsPollStop               chan struct{}
 }
 
-func (cm *ConnectionManager) ResolveQUICToken(host, currentQUICToken string) string {
-	quicToken := strings.TrimSpace(currentQUICToken)
-	if quicToken != "" {
-		return quicToken
+func (cm *ConnectionManager) ResolveMasterKey(host, currentMasterKey string) string {
+	masterKey := strings.TrimSpace(currentMasterKey)
+	if masterKey != "" {
+		return masterKey
 	}
 
 	normalizedHost := strings.TrimSpace(host)
@@ -85,7 +102,7 @@ func (cm *ConnectionManager) ResolveQUICToken(host, currentQUICToken string) str
 		if strings.TrimSpace(conn.Host) == normalizedHost ||
 			internalHost == normalizedHost ||
 			tailscaleHost == normalizedHost {
-			return strings.TrimSpace(conn.QUICToken)
+			return strings.TrimSpace(conn.MasterKey)
 		}
 	}
 
@@ -150,25 +167,25 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 
 	cm.qrScanner = NewQRScanner(
 		app,
-		func(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+		func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
 			fyne.Do(func() {
 				cm.ClearSelection()
-				cm.applyConnectionToForm(host, quicToken, protocol)
+				cm.applyConnectionToForm(host, masterKey, protocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, quicToken, "", protocol, quicPort, tailscaleRegister)
+				cm.onConnect(host, masterKey, "", protocol, quicPort, tailscaleRegister)
 			}
 			logrus.Infof("QR connect: host=%s quicPort=%d", host, quicPort)
 		},
-		func(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, quicToken, "", protocol, quicPort, tailscaleRegister)
+		func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
 			fyne.Do(func() {
-				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), quicToken, protocol)
+				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), masterKey, protocol)
 			})
 			logrus.Infof("QR saved directly: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
 		},
-		func(internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool) {
-			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, quicToken, protocol, quicPort, scanned)
+		func(internalHost, tailscaleHost, masterKey, protocol string, quicPort int, scanned bool) {
+			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, masterKey, protocol, quicPort, scanned)
 		},
 	)
 
@@ -263,14 +280,14 @@ func (cm *ConnectionManager) SelectConnection(idx int) {
 	}
 	cm.selectedIndex = idx
 	conn := cm.connections[idx]
-	cm.applyConnectionToForm(cm.resolveHostForProtocol(conn, conn.Protocol), conn.QUICToken, conn.Protocol)
+	cm.applyConnectionToForm(cm.resolveHostForProtocol(conn, conn.Protocol), conn.MasterKey, conn.Protocol)
 
 	if cm.onSelect != nil {
 		cm.onSelect(conn.TailscaleRegister)
 	}
 }
 
-func (cm *ConnectionManager) applyConnectionToForm(host, quicToken, protocol string) {
+func (cm *ConnectionManager) applyConnectionToForm(host, masterKey, protocol string) {
 	cm.syncingForm = true
 	defer func() {
 		cm.syncingForm = false
@@ -280,14 +297,14 @@ func (cm *ConnectionManager) applyConnectionToForm(host, quicToken, protocol str
 		cm.hostEntry.SetText(strings.TrimSpace(host))
 	}
 	if cm.masterKeyEntry != nil {
-		cm.masterKeyEntry.SetText(strings.TrimSpace(quicToken))
+		cm.masterKeyEntry.SetText(strings.TrimSpace(masterKey))
 	}
 	if cm.protocolSelect != nil {
 		cm.protocolSelect.SetSelected(normalizeConnectionProtocol(protocol))
 	}
 }
 
-func (cm *ConnectionManager) HandleFormEdited(host, quicToken, protocol string) bool {
+func (cm *ConnectionManager) HandleFormEdited(host, masterKey, protocol string) bool {
 	if cm == nil || cm.syncingForm {
 		return false
 	}
@@ -296,12 +313,12 @@ func (cm *ConnectionManager) HandleFormEdited(host, quicToken, protocol string) 
 	}
 
 	host = strings.TrimSpace(host)
-	quicToken = strings.TrimSpace(quicToken)
+	masterKey = strings.TrimSpace(masterKey)
 	protocol = normalizeConnectionProtocol(protocol)
 
 	current := cm.connections[cm.selectedIndex]
 	if strings.TrimSpace(current.Host) == host &&
-		strings.TrimSpace(current.QUICToken) == quicToken &&
+		strings.TrimSpace(current.MasterKey) == masterKey &&
 		normalizeConnectionProtocol(current.Protocol) == protocol {
 		return false
 	}

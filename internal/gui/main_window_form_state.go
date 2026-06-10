@@ -8,7 +8,7 @@ import (
 
 const (
 	connectionDraftHostPrefKey            = "connection_draft_host"
-	connectionDraftQUICTokenPrefKey       = "connection_draft_quic_token"
+	connectionDraftMasterKeyPrefKey       = "connection_draft_quic_token"
 	connectionDraftProtocolPrefKey        = "connection_draft_protocol"
 )
 
@@ -27,9 +27,9 @@ func (mw *MainWindow) persistConnectionDraft() {
 		host = strings.TrimSpace(mw.hostEntry.Text)
 	}
 
-	quicToken := ""
+	masterKey := ""
 	if mw.tokenEntry != nil {
-		quicToken = mw.tokenEntry.Text
+		masterKey = mw.tokenEntry.Text
 	}
 
 	protocol := models.ConnectionProtocolAuto
@@ -41,7 +41,7 @@ func (mw *MainWindow) persistConnectionDraft() {
 	}
 
 	prefs.SetString(connectionDraftHostPrefKey, host)
-	prefs.SetString(connectionDraftQUICTokenPrefKey, quicToken)
+	prefs.SetString(connectionDraftMasterKeyPrefKey, masterKey)
 	prefs.SetString(connectionDraftProtocolPrefKey, protocol)
 }
 
@@ -56,17 +56,17 @@ func (mw *MainWindow) restoreConnectionDraft() {
 	}
 
 	host := strings.TrimSpace(prefs.StringWithFallback(connectionDraftHostPrefKey, ""))
-	quicToken := prefs.StringWithFallback(connectionDraftQUICTokenPrefKey, "")
+	masterKey := prefs.StringWithFallback(connectionDraftMasterKeyPrefKey, "")
 	
 	// Legacy fallback
-	if quicToken == "" {
-		quicToken = prefs.StringWithFallback("connection_draft_token", "")
+	if masterKey == "" {
+		masterKey = prefs.StringWithFallback("connection_draft_token", "")
 	}
 
 	// Очищаем старый дефолтный токен, если он застрял в преференсах
-	if quicToken == "usbridge-secret-token" {
-		quicToken = ""
-		prefs.SetString(connectionDraftQUICTokenPrefKey, "")
+	if masterKey == "usbridge-secret-token" {
+		masterKey = ""
+		prefs.SetString(connectionDraftMasterKeyPrefKey, "")
 	}
 
 	protocol := strings.TrimSpace(prefs.StringWithFallback(connectionDraftProtocolPrefKey, mw.config.ConnectionProtocol))
@@ -81,7 +81,7 @@ func (mw *MainWindow) restoreConnectionDraft() {
 		mw.hostEntry.SetText(host)
 	}
 	if mw.tokenEntry != nil {
-		mw.tokenEntry.SetText(quicToken)
+		mw.tokenEntry.SetText(masterKey)
 	}
 	if mw.protocolSelect != nil {
 		mw.protocolSelect.SetSelected(protocol)

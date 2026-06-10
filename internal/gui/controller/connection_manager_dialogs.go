@@ -280,23 +280,23 @@ func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, 
 	)
 }
 
-func createQUICTokenField(quicTokenEntry *connectionDialogEntry) fyne.CanvasObject {
-	quicTokenEntry.ActionItem = nil
-	quicTokenEntry.Refresh()
-	return quicTokenEntry
+func createMasterKeyField(masterKeyEntry *connectionDialogEntry) fyne.CanvasObject {
+	masterKeyEntry.ActionItem = nil
+	masterKeyEntry.Refresh()
+	return masterKeyEntry
 }
 
-func newQUICTokenActionItem(quicTokenEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	copyBtn := newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
-		txt := quicTokenEntry.Text
+		txt := masterKeyEntry.Text
 		if txt != "" && window != nil {
 			window.Clipboard().SetContent(txt)
 		}
 	})
 	qrBtn := newCompactConnectionDialogIconButton(theme.VisibilityIcon(), func() {
-		quicToken := strings.TrimSpace(quicTokenEntry.Text)
-		if quicToken == "" {
-			logrus.Warn("cannot show quick QR: quic token is empty")
+		masterKey := strings.TrimSpace(masterKeyEntry.Text)
+		if masterKey == "" {
+			logrus.Warn("cannot show quick QR: master key is empty")
 			return
 		}
 		internalHost := strings.TrimSpace(internalHostEntry.Text)
@@ -311,7 +311,7 @@ func newQUICTokenActionItem(quicTokenEntry *connectionDialogEntry, internalHostE
 			fmt.Sscanf(quicPortEntry.Text, "%d", &quicPort)
 		}
 
-		showQuickConnectQRCode(window, internalHost, tailscaleHost, quicToken, quicPort)
+		showQuickConnectQRCode(window, internalHost, tailscaleHost, masterKey, quicPort)
 	})
 	return container.NewHBox(copyBtn, qrBtn)
 }
@@ -319,7 +319,7 @@ func newQUICTokenActionItem(quicTokenEntry *connectionDialogEntry, internalHostE
 func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, masterKeyEntry, frpTokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
 	// Advanced section — hidden by default, revealed via toggle.
 	advancedBody := container.NewVBox(
-		newConnectionDialogField("quic token", frpTokenEntry),
+		newConnectionDialogField("frp token", frpTokenEntry),
 		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
 		newConnectionDialogField(i18n.Current.QUICPortLabel, quicPortEntry),
 		tailscaleRegisterCheck,
@@ -366,7 +366,7 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 	return container.NewVBox(
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createQUICTokenField(masterKeyEntry), newQUICTokenActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, window)),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createMasterKeyField(masterKeyEntry), newMasterKeyActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, window)),
 		advancedToggle,
 		advancedBody,
 	)
@@ -475,8 +475,8 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
 	quicPortEntry := newConnectionQUICPortEntry(spec.quicPortValue, nil)
-	masterKeyEntry := newConnectionQUICTokenEntry(spec.masterKeyValue, nil)
-	frpTokenEntry := newConnectionQUICTokenEntry(spec.frpTokenValue, nil)
+	masterKeyEntry := newConnectionMasterKeyEntry(spec.masterKeyValue, nil)
+	frpTokenEntry := newConnectionMasterKeyEntry(spec.frpTokenValue, nil)
 	tailscaleRegisterCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
 	tailscaleRegisterCheck.Checked = spec.tailscaleRegisterValue
 	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, quicPortEntry, masterKeyEntry, frpTokenEntry, tailscaleRegisterCheck, window)
@@ -600,7 +600,7 @@ func newConnectionQUICPortEntry(value int, onFocusChanged func(bool)) *connectio
 	return entry
 }
 
-func newConnectionQUICTokenEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
+func newConnectionMasterKeyEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
@@ -609,11 +609,11 @@ func newConnectionQUICTokenEntry(value string, onFocusChanged func(bool)) *conne
 	return entry
 }
 
-func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, quicToken string, quicPort int) {
+func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, masterKey string, quicPort int) {
 	if window == nil {
 		return
 	}
-	qrURL := buildServiceQRFormat(internalHost, tailscaleHost, quicToken, quicPort)
+	qrURL := buildServiceQRFormat(internalHost, tailscaleHost, masterKey, quicPort)
 	pngBytes, err := qrcode.Encode(qrURL, qrcode.Medium, 280)
 	if err != nil {
 		logrus.Errorf("failed to render quick QR: %v", err)
@@ -678,7 +678,7 @@ func showQuickConnectQRCode(window fyne.Window, internalHost, tailscaleHost, qui
 	})
 }
 
-func buildServiceQRFormat(internalHost, tailscaleHost, quicToken string, quicPort int) string {
+func buildServiceQRFormat(internalHost, tailscaleHost, masterKey string, quicPort int) string {
 	values := url.Values{}
 	if strings.TrimSpace(internalHost) != "" {
 		values.Set("internal_host", strings.TrimSpace(internalHost))
@@ -686,7 +686,7 @@ func buildServiceQRFormat(internalHost, tailscaleHost, quicToken string, quicPor
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
-	values.Set("quic_token", strings.TrimSpace(quicToken))
+	values.Set("master_key", strings.TrimSpace(masterKey))
 	if quicPort > 0 {
 		values.Set("quic_port", fmt.Sprintf("%d", quicPort))
 	}
@@ -721,7 +721,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 		internalHostValue:      conn.InternalHost,
 		tailscaleHostValue:     conn.TailscaleHost,
 		quicPortValue:          conn.QUICPort,
-		masterKeyValue:         conn.QUICToken,
+		masterKeyValue:         conn.MasterKey,
 		frpTokenValue:          conn.FRPToken,
 		tailscaleRegisterValue: conn.TailscaleRegister,
 		onSave: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
@@ -738,7 +738,7 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				TailscaleHost:     tailscaleHost,
 				QUICPort:          quicPort,
 				Host:              fallbackText(internalHost, tailscaleHost),
-				QUICToken:         strings.TrimSpace(masterKey),
+				MasterKey:         strings.TrimSpace(masterKey),
 				FRPToken:          strings.TrimSpace(frpToken),
 				Protocol:          conn.Protocol,
 				TailscaleRegister: tailscaleRegister,
@@ -766,12 +766,12 @@ func (cm *ConnectionManager) showAddDialog() {
 	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.masterKeyEntry.Text, "", 0, false)
 }
 
-func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, quicToken, protocol string, quicPort int, scanned bool) {
+func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, scanned bool) {
 	feedbackText := ""
 	if scanned {
 		feedbackText = qrScanSuccessText
 	}
-	quicToken = strings.TrimSpace(quicToken)
+	masterKey = strings.TrimSpace(masterKey)
 
 	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s quicPort=%d scanned=%v", internalHost, tailscaleHost, quicPort, scanned)
 
@@ -784,7 +784,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		internalHostValue:      internalHost,
 		tailscaleHostValue:     tailscaleHost,
 		quicPortValue:          quicPort,
-		masterKeyValue:         quicToken, // from QR scan or prefill — treated as master key
+		masterKeyValue:         masterKey, // from QR scan or prefill — treated as master key
 		frpTokenValue:          "",
 		tailscaleRegisterValue: false,
 		feedbackText:           feedbackText,

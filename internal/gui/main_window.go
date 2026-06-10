@@ -160,11 +160,11 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	return mw
 }
 
-func maskSensitiveToken(quicToken string) string {
-	if len(quicToken) <= 4 {
+func maskSensitiveToken(token string) string {
+	if len(token) <= 4 {
 		return "****"
 	}
-	return quicToken[:2] + "..." + quicToken[len(quicToken)-2:]
+	return token[:2] + "..." + token[len(token)-2:]
 }
 
 func fallbackText(values ...string) string {
