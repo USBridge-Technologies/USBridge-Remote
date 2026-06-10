@@ -79,6 +79,7 @@ type VideoWidget struct {
 	videoTraceFirstPaint atomic.Int64
 	videoTraceLabel      atomic.Value
 	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
+	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars
 	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
 	frameContentW        float32 // нормализованная ширина активной области кадра

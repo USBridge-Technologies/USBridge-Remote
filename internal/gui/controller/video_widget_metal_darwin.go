@@ -68,10 +68,12 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 // stopMetalVideo destroys the Metal overlay and re-enables the Fyne canvas path.
 func (vw *VideoWidget) stopMetalVideo() {
 	service.MetalVideoDestroy()
+	vw.metalFPSWarned.Store(false)
 }
 
 // updateMetalVideoFrame repositions the Metal overlay to track videoCanvas.
 // Called from updateStats() at 1 Hz to follow window resizes.
+// Also emits a one-shot FPS mismatch warning when Metal FPS < 75% of configured.
 func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.MetalVideoIsActive() {
 		return
@@ -81,21 +83,49 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		return
 	}
 	service.MetalVideoUpdateFrame(x, y, w, h)
+
+	if vw.metalFPSWarned.Load() || vw.videoClient == nil {
+		return
+	}
+	actualFPS := service.MetalVideoLastFPS()
+	if actualFPS < 5 {
+		return // not enough data yet
+	}
+	cfg := vw.videoClient.GetConfig()
+	if cfg == nil || cfg.VideoFPS <= 0 {
+		return
+	}
+	vw.metalFPSWarned.Store(true)
+	if actualFPS >= float64(cfg.VideoFPS)*0.75 {
+		logrus.Infof("✅ [FPS] Metal=%.0ffps configured=%dfps — OK", actualFPS, cfg.VideoFPS)
+		return
+	}
+	logrus.Warnf(
+		"⚠️ [FPS] Metal renders=%.0ffps but configured=%dfps. "+
+			"Pipeline: Sunshine encoder → network → VT decode → Metal render. "+
+			"VT decode also shows ~%.0ffps — source sends %.0ffps. "+
+			"Most likely cause: V4L2 capture device on RPi hardware-capped at 30fps. "+
+			"Fix: set FPS=30 in UI to match the actual source capability.",
+		actualFPS, cfg.VideoFPS, actualFPS, actualFPS,
+	)
 }
 
 // videoCanvasFrame returns the video widget's bounds in window-local dp coordinates
 // (top-left origin, same as macOS points).
-// We use vw.container (the root container of the video widget) because Fyne lays
-// it out with an absolute position in the main window (e.g. below the toolbar).
-// vw.videoCanvas.Position() returns only the position within its parent widget
-// and is always (0,0), which would misplace the Metal overlay.
+//
+// Fyne positions are relative to parent, so vw.container.Position() is always (0,0)
+// within the tab content — it does not reflect the window-absolute offset.
+// We derive the y-offset indirectly: the video container fills everything below
+// the address bar + tab bar, so  y = canvasHeight − containerHeight.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.container == nil {
+	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
-	pos := vw.container.Position()
 	sz := vw.container.Size()
-	return pos.X, pos.Y, sz.Width, sz.Height
+	canvasH := vw.parentWindow.Canvas().Size().Height
+	// Everything above the video area (address bar + tab bar) = canvasH - sz.Height
+	topOffset := canvasH - sz.Height
+	return 0, topOffset, sz.Width, sz.Height
 }
 
 // metalVideoEnterFullscreen tears down the main-window overlay and creates a

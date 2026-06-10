@@ -15,6 +15,7 @@ extern int  metal_video_try_submit(CVImageBufferRef img);
 extern int  metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h);
 extern void metal_video_update_frame(float x, float y, float w, float h);
 extern void metal_video_destroy(void);
+extern double metal_video_last_fps(void);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
@@ -57,4 +58,10 @@ func MetalVideoDestroy() {
 // MetalVideoIsActive reports whether the Metal overlay is live.
 func MetalVideoIsActive() bool {
 	return C.metal_video_is_active() != 0
+}
+
+// MetalVideoLastFPS returns the current Metal render FPS from the last ~2s window.
+// Returns 0 if not enough frames yet.
+func MetalVideoLastFPS() float64 {
+	return float64(C.metal_video_last_fps())
 }

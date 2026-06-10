@@ -114,6 +114,15 @@ int metal_video_is_active(void) {
     return atomic_load(&g_active);
 }
 
+// Returns the instantaneous Metal render FPS measured over the last 2-second window.
+// Returns 0 if not enough data yet.
+double metal_video_last_fps(void) {
+    if (!atomic_load(&g_active) || g_fpsStart == 0.0 || g_fpsFrames == 0) return 0.0;
+    double elapsed = mono_sec() - g_fpsStart;
+    if (elapsed < 0.5) return 0.0;
+    return (double)g_fpsFrames / elapsed;
+}
+
 int metal_video_try_submit(CVImageBufferRef img) {
     if (!atomic_load(&g_active)) return 0;
     if (!CVPixelBufferGetIOSurface(img)) return 0;

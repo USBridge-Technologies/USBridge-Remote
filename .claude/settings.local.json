@@ -108,7 +108,9 @@
       "Bash(brew list *)",
       "Bash(docker info *)",
       "Bash(pip3 install *)",
-      "Bash(go tool *)"
+      "Bash(go tool *)",
+      "Bash(tailscale status *)",
+      "Bash(tailscale ping *)"
     ]
   }
 }
