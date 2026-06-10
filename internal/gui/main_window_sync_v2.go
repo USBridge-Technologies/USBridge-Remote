@@ -32,7 +32,7 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	// Tailscale IPs. Use the tsnet-aware HTTP client so the sync goes through
 	// the Tailscale netstack instead of failing with "connection refused".
 	var bootstrapClient *api.USBClient
-	if isLikelyTailscaleHost(bootstrapHost) && mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
+	if isLikelyTailscaleHost(bootstrapHost) && mw.tailscaleService != nil {
 		if tsHTTPClient, tsErr := mw.tailscaleService.HTTPClient(); tsErr == nil {
 			bootstrapClient = api.NewUSBClientWithHTTPClient(bootstrapHost, mw.config.USBPort, mw.config.APITimeout, tsHTTPClient)
 		}

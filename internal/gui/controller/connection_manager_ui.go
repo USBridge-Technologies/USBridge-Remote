@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/view"
@@ -25,33 +26,39 @@ func (cm *ConnectionManager) createInterface() {
 }
 
 func (cm *ConnectionManager) initTailscaleMode() {
-	mode := models.TailscaleModeUserspace
-	userspace := cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace)
-	if !userspace {
-		mode = models.TailscaleModeSystem
-	}
-	cm.ui.SetTailscaleMode(mode)
-
-	hasSystemTS := cm.ts.IsSystemTailscaleAvailable()
-	if !hasSystemTS {
-		cm.ui.SetTailscaleMode(models.TailscaleModeUserspace)
-		cm.ui.SetTailscaleModeDisabled(true)
-		if !userspace {
-			cm.app.Preferences().SetBool("tailscale_userspace", true)
-			cm.config.TailscaleUserspace = true
-			userspace = true
-		}
+	// On Android always use userspace tsnet — no system Tailscale VPN available.
+	if runtime.GOOS == "android" {
+		cm.app.Preferences().SetBool("tailscale_userspace", true)
+		cm.config.TailscaleUserspace = true
+		cm.ts.SetUserspace(true)
+		logrus.Info("🛰️ [Tailscale] Android: forced userspace (tsnet) mode")
 	} else {
-		// If system Tailscale is already connected, switch to system mode regardless of saved preference
-		if sysSt := cm.ts.CheckSystemTailscaleStatus(); sysSt != nil && sysSt.LoggedIn {
-			userspace = false
-			cm.ui.SetTailscaleMode(models.TailscaleModeSystem)
-			cm.app.Preferences().SetBool("tailscale_userspace", false)
+		mode := models.TailscaleModeUserspace
+		userspace := cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace)
+		if !userspace {
+			mode = models.TailscaleModeSystem
 		}
-		cm.config.TailscaleUserspace = userspace
-	}
+		cm.ui.SetTailscaleMode(mode)
 
-	cm.ts.SetUserspace(userspace)
+		hasSystemTS := cm.ts.IsSystemTailscaleAvailable()
+		if !hasSystemTS {
+			cm.ui.SetTailscaleMode(models.TailscaleModeUserspace)
+			cm.ui.SetTailscaleModeDisabled(true)
+			if !userspace {
+				cm.app.Preferences().SetBool("tailscale_userspace", true)
+				cm.config.TailscaleUserspace = true
+				userspace = true
+			}
+		} else {
+			if sysSt := cm.ts.CheckSystemTailscaleStatus(); sysSt != nil && sysSt.LoggedIn {
+				userspace = false
+				cm.ui.SetTailscaleMode(models.TailscaleModeSystem)
+				cm.app.Preferences().SetBool("tailscale_userspace", false)
+			}
+			cm.config.TailscaleUserspace = userspace
+		}
+		cm.ts.SetUserspace(userspace)
+	}
 	
 	if cm.config.TailscaleEnabled {
 		go func() {

@@ -25,8 +25,22 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 	mw.pendingTailscaleRegister = tailscaleRegister
 }
 
-// handleConnectionFromDeepLink handles the old-style deep-link connect callback (no separate frp token).
-func (mw *MainWindow) handleConnectionFromDeepLink(host, quicToken, protocol string, quicPort int, tailscaleRegister bool) {
+// handleConnectionFromDeepLink handles the deep-link connect callback.
+// tsMode optionally overrides the Tailscale mode before connecting.
+func (mw *MainWindow) handleConnectionFromDeepLink(host, quicToken, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
+	// Apply ts_mode override if specified.
+	if mw.tailscaleService != nil {
+		switch tsMode {
+		case TailscaleModeUserspace:
+			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: userspace (tsnet)")
+			mw.tailscaleService.SetUserspace(true)
+		case TailscaleModeKernel:
+			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: kernel (system VPN)")
+			mw.tailscaleService.SetUserspace(false)
+		default:
+			// TailscaleModeAuto: do not change current setting
+		}
+	}
 	mw.handleConnectionFromManager(host, quicToken, "", protocol, quicPort, tailscaleRegister)
 }
 
@@ -386,8 +400,8 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		// On Android userspace Tailscale (tsnet), wait for the node to be
 		// online before sending the sync request to a Tailscale host.
 		// tsnet.Up() blocks until Running state (~4s on first launch).
-		if isLikelyTailscaleHost(host) && mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
-			logrus.Info("🛰️ [SYNC] Waiting for Tailscale (userspace) to be ready...")
+		if isLikelyTailscaleHost(host) && mw.tailscaleService != nil {
+			logrus.Info("🛰️ [SYNC] Waiting for Tailscale to be ready...")
 			if waitErr := mw.tailscaleService.WaitUntilReady(ctx); waitErr != nil {
 				logrus.Warnf("🛰️ [SYNC] Tailscale not ready: %v (proceeding anyway)", waitErr)
 			} else {

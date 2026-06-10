@@ -82,13 +82,13 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.client.Host = "127.0.0.1" // Default to localhost if unbound
 	}
 
-	// 1b. On userspace Tailscale (Android), the OS dialer can't reach Tailscale IPs.
-	// Use the Tailscale-aware dialer so HTTP connections to Sunshine go through the netstack.
-	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
+	// 1b. Use the tsnet-aware dialer for all Moonlight HTTP (serverinfo, launch, etc.).
+	// tsnet is always running on Android — use it regardless of userspace/kernel mode setting.
+	if m.tailscaleSvc != nil {
 		if tsHTTP, err := m.tailscaleSvc.HTTPClient(); err == nil && tsHTTP.Transport != nil {
 			if tr, ok := tsHTTP.Transport.(*http.Transport); ok && tr.DialContext != nil {
 				m.client.SetDialTransport(tr.DialContext)
-				logrus.Info("🌕 [Moonlight] using Tailscale userspace dialer for Sunshine HTTP")
+				logrus.Info("🌕 [Moonlight] using Tailscale tsnet dialer for Sunshine HTTP")
 			}
 		}
 	}
@@ -267,40 +267,38 @@ func (m *MoonlightService) ConnectToRTP() error {
 	// For remote peers (DERP only), warn and use the Tailscale IP — RTSP will
 	// likely stall; the user needs kernel Tailscale for cross-network Moonlight.
 	moonlightHost := m.client.Host
-	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
-		if lanIP := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); lanIP != "" {
-			// Verify the candidate LAN IP is actually reachable from this device.
-			// Docker/VM bridge IPs (e.g. 172.17.x.x) show up as peer endpoints but
-			// are only routable on the server host — not from the Android Wi-Fi.
-			probeAddr := net.JoinHostPort(lanIP, "47989")
-			probeConn, probeErr := net.DialTimeout("tcp", probeAddr, 400*time.Millisecond)
-			if probeErr != nil {
-				logrus.Warnf("🌕 [Moonlight/Android] LAN IP %s probe failed (%v) — likely a VM/Docker IP, skipping", lanIP, probeErr)
+	if m.tailscaleSvc != nil {
+		// C-level BSD sockets bypass tsnet and need a direct LAN route.
+		// Ask Tailscale for a known direct endpoint and probe it.
+		lanIP := ""
+		if candidate := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); candidate != "" {
+			if conn, err := net.DialTimeout("tcp", net.JoinHostPort(candidate, "47989"), 400*time.Millisecond); err == nil {
+				conn.Close()
+				lanIP = candidate
+				logrus.Infof("🌕 [Moonlight/Android] LAN IP %s reachable → using for C sockets", lanIP)
 			} else {
-				probeConn.Close()
-				logrus.Infof("🌕 [Moonlight/Android] LAN IP %s reachable → using direct path (bypasses tsnet)", lanIP)
-				moonlightHost = lanIP
+				logrus.Warnf("🌕 [Moonlight/Android] LAN candidate %s unreachable (%v)", candidate, err)
+			}
+		}
 
-				// Also replace the host in sessionUrl because RTSP uses it directly.
-				fullUrl := sessionUrl
-				if !strings.HasPrefix(fullUrl, "rtsp://") {
-					fullUrl = "rtsp://" + fullUrl
-				}
-				if u, err := url.Parse(fullUrl); err == nil {
-					port := u.Port()
-					if port != "" {
-						u.Host = lanIP + ":" + port
-					} else {
-						u.Host = lanIP
-					}
-					sessionUrl = u.String()
-					logrus.Infof("🌕 [Moonlight/Android] Rewrote RTSP Session URL to LAN: %s", sessionUrl)
+		if lanIP != "" {
+			moonlightHost = lanIP
+			fullUrl := sessionUrl
+			if !strings.HasPrefix(fullUrl, "rtsp://") {
+				fullUrl = "rtsp://" + fullUrl
+			}
+			if u, err := url.Parse(fullUrl); err == nil {
+				port := u.Port()
+				if port != "" {
+					u.Host = lanIP + ":" + port
 				} else {
-					logrus.Warnf("🌕 [Moonlight/Android] Failed to parse RTSP URL %s: %v", fullUrl, err)
+					u.Host = lanIP
 				}
+				sessionUrl = u.String()
+				logrus.Infof("🌕 [Moonlight/Android] RTSP via LAN: %s", sessionUrl)
 			}
 		} else {
-			logrus.Warn("🌕 [Moonlight/Android] no LAN endpoint for peer — RTSP may stall on userspace tsnet; install Tailscale app for cross-network support")
+			logrus.Warn("🌕 [Moonlight/Android] no reachable LAN IP — C sockets will use Tailscale IP (needs system VPN)")
 		}
 	}
 	wrapper := NewMoonlightCgoWrapper(moonlightHost)
@@ -511,6 +509,7 @@ func (m *MoonlightService) GetStats() map[string]interface{} {
 		"protocol": "moonlight (stub)",
 	}
 }
+
 
 func (m *MoonlightService) GetConfig() *models.AppConfig {
 	return m.config

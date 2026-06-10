@@ -2,6 +2,7 @@ package view
 
 import (
 	"image/color"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -342,7 +343,11 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		)
 	}
 	tsToggle := newTailscaleHeaderToggle(onTSAuth)
-	tsMode := NewTailscaleModeSwitch(TailscaleModeUserspace, onTSMode)
+	// On Android always use userspace tsnet — hide the mode switch entirely.
+	var tsMode *TailscaleModeSwitch
+	if runtime.GOOS != "android" {
+		tsMode = NewTailscaleModeSwitch(TailscaleModeUserspace, onTSMode)
+	}
 
 	contentArea := container.NewMax()
 
@@ -763,11 +768,23 @@ func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
 	if ui == nil {
 		return nil
 	}
-	return newTailscaleHeaderAccessory(ui.tsMode, ui.tsToggle)
+	// Convert *TailscaleModeSwitch to interface properly — a typed nil pointer
+	// wrapped in an interface is not a nil interface, causing Fyne to call methods
+	// on a nil receiver and crash. Explicitly nil-check before wrapping.
+	var modeObj fyne.CanvasObject
+	if ui.tsMode != nil {
+		modeObj = ui.tsMode
+	}
+	return newTailscaleHeaderAccessory(modeObj, ui.tsToggle)
 }
 
 func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
-	row := container.NewHBox(mode, centerSpacer(8), toggle)
+	var row fyne.CanvasObject
+	if mode != nil {
+		row = container.NewHBox(mode, centerSpacer(8), toggle)
+	} else {
+		row = container.NewHBox(toggle)
+	}
 	content := container.NewCenter(row)
 
 	bg := canvas.NewRectangle(color.Transparent)
