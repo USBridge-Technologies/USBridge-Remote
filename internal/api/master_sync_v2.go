@@ -15,10 +15,11 @@ type MasterSyncRequestV2 struct {
 }
 
 type MasterSyncPayloadV2 struct {
-	MoonlightPIN string `json:"moonlight_pin,omitempty"`
-	TailscaleKey string `json:"tailscale_key,omitempty"`
-	Hostname     string `json:"hostname,omitempty"`
-	ClientID     string `json:"client_id,omitempty"`
+	MoonlightPIN      string `json:"moonlight_pin,omitempty"`
+	TailscaleKey      string `json:"tailscale_key,omitempty"`
+	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
+	Hostname          string `json:"hostname,omitempty"`
+	ClientID          string `json:"client_id,omitempty"`
 }
 
 type MasterSyncResponseV2 struct {

@@ -59,6 +59,7 @@ type MainWindow struct {
 	pendingFRPToken         string // direct FRP token override from saved connection (skips sync)
 	pendingTailscaleRegister bool
 	pendingQUICPort         int
+	lastTailscaleAuthURL    string
 	currentVideoFPS         float64
 	currentStorageDir       string
 	currentStorageTotal     int64

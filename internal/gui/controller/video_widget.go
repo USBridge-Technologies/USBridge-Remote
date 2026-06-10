@@ -41,8 +41,9 @@ type VideoWidget struct {
 	// Сервисы
 	usbClient           *api.USBClient
 	videoClient    service.VideoClient
-	frpService          *service.FRPService // для проверки режима FRP
-	tailscaleService    *service.TailscaleService
+	frpService              *service.FRPService // для проверки режима FRP
+	tailscaleService        *service.TailscaleService
+	tailscaleVideoEnabled   bool // false when connected via direct/LAN (disables Tailscale UDP routing for video)
 	updateStatus        func()
 	onFPSChanged        func(float64)
 	videoOpMu           sync.Mutex

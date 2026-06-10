@@ -117,12 +117,8 @@ func (mw *MainWindow) resolveConnectionToken(host, masterKey string) string {
 		}
 	}
 
-	resolved = strings.TrimSpace(mw.activeFRPToken)
-	if resolved != "" {
-		logrus.Infof("🔍 [DEBUG] Reusing active session token for host='%s'", host)
-		return resolved
-	}
-
+	// NOTE: activeFRPToken is the FRP tunnel token — a completely different credential from
+	// the master key (API secret). Do NOT fall back to it here.
 	return ""
 }
 
@@ -359,6 +355,8 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 	}
 	mw.pendingFRPToken = ""
 
+	mw.lastTailscaleAuthURL = ""
+
 	if mw.videoWidget != nil {
 		_ = mw.videoWidget.StopVideoSync()
 	}
@@ -432,10 +430,80 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		logrus.Warn("⚠️ [CONNECT] No master key or FRP token provided")
 	}
 
+	// Cache the FRP tunnel token for connection recovery (tryRecoverConnectionAfterLoss).
+	// This is the tunnel token, NOT the master key — they are independent credentials.
 	mw.activeFRPToken = tunnelToken
 	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s tunnel_token=%s timeout=%ds",
 		strings.TrimSpace(host), protocol, maskSensitiveToken(tunnelToken), mw.config.APITimeout)
+
+	if mw.pendingTailscaleRegister {
+		mw.pollTailscaleRegistration(host, masterKey)
+	}
+
 	return mw.doConnectWithProtocol(ctx, host, tunnelToken, protocol)
+}
+
+func (mw *MainWindow) pollTailscaleRegistration(host, masterKey string) {
+	go func() {
+		logrus.Infof("🛰️ [TS] Starting Tailscale registration polling for host=%s", host)
+		time.Sleep(3 * time.Second)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			// Pass tailscaleRegister=true so the bridge runs 'tailscale up --json'
+			// and returns an AuthURL when not yet logged in.
+			syncCtx, syncCancel := context.WithTimeout(ctx, 25*time.Second)
+			_, tsReady, err := mw.syncWithBridgeV2(syncCtx, host, masterKey, true)
+			syncCancel()
+
+			if err == nil && tsReady {
+				logrus.Infof("🛰️ [TS] Bridge registered in Tailscale for host=%s — reconnecting via Tailscale", host)
+				mw.reconnectViaTailscaleAfterRegistration(host, masterKey)
+				return
+			}
+
+			if err != nil {
+				logrus.Debugf("🛰️ [TS] Poll sync failed for host=%s: %v", host, err)
+			}
+
+			select {
+			case <-ctx.Done():
+				logrus.Warnf("🛰️ [TS] Tailscale registration polling timed out for host=%s", host)
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey string) {
+	if !mw.isConnected {
+		// Not connected right now — next manual connect will pick up the saved Tailscale IP.
+		return
+	}
+
+	capturedHost := host
+	capturedKey := masterKey
+
+	// Disconnect from LAN bootstrap session then reconnect via Tailscale.
+	fyne.Do(func() {
+		mw.enqueueLifecycleOp("tailscale-switch", func() {
+			logrus.Infof("🛰️ [TS] Disconnecting LAN bootstrap session to reconnect via Tailscale")
+			mw.handleDisconnect()
+
+			// Give background cleanup time before initiating the reconnect.
+			time.Sleep(2 * time.Second)
+
+			fyne.Do(func() {
+				mw.handleConnectionFromManager(capturedHost, capturedKey, "", models.ConnectionProtocolTailscale, 0, false)
+			})
+		})
+	})
 }
 
 func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
@@ -581,6 +649,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			mw.videoClient.UpdateHost(target)
 			mw.connectedProtocol = models.ConnectionProtocolTailscale
 			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+			mw.videoWidget.SetTailscaleVideoEnabled(true)
 			return nil
 		}
 
@@ -619,7 +688,14 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 		mw.usbClient = mw.attachUSBClient(tempClient)
 		mw.videoClient.UpdateHost(host)
-		mw.connectedProtocol = "direct"
+		if isLikelyTailscaleHost(host) {
+			mw.connectedProtocol = models.ConnectionProtocolTailscale
+		} else {
+			mw.connectedProtocol = "direct"
+			// In direct/LAN mode, disable Tailscale video routing so video UDP
+			// stays on LAN and doesn't travel through DERP relay.
+			mw.videoWidget.SetTailscaleVideoEnabled(false)
+		}
 	}
 
 	if err := mw.verifyActiveConnectionWithContext(ctx); err != nil {

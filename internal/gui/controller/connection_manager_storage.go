@@ -77,6 +77,10 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	for i := range cm.connections {
 		conn := cm.connections[i]
 		savedInternal, savedTailscale := classifyConnectionHosts(conn)
+		
+		logrus.Debugf("🔍 [TS] Checking match: current=%q savedHost=%q savedInternal=%q savedTailscale=%q", 
+			currentHost, strings.TrimSpace(conn.Host), savedInternal, savedTailscale)
+
 		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
 			cm.connections[i].InternalHost = fallbackText(internalHost, savedInternal)
 			cm.connections[i].TailscaleHost = tailscaleHost
@@ -95,6 +99,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		}
 	}
 
+	logrus.Warnf("⚠️ [TS] No matching connection found for currentHost=%q; saving as NEW connection", currentHost)
 	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, "", "tailscale", 0, false)
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
@@ -180,13 +185,26 @@ func (cm *ConnectionManager) loadConnections() {
 	needsSave := false
 	for i := range cm.connections {
 		internalHost, tailscaleHost := classifyConnectionHosts(cm.connections[i])
+		// Migrate old-format connections that stored only the legacy `host` field without
+		// a separate `internal_host`. Without this, loadConnections would overwrite `host`
+		// with an empty string, breaking RememberResolvedTailscaleHost lookups.
+		if internalHost == "" && tailscaleHost == "" {
+			if legacy := strings.TrimSpace(cm.connections[i].Host); legacy != "" {
+				if isLikelyTailnetHost(legacy) {
+					tailscaleHost = legacy
+				} else {
+					internalHost = legacy
+				}
+				needsSave = true
+			}
+		}
 		cm.connections[i].InternalHost = internalHost
 		cm.connections[i].TailscaleHost = tailscaleHost
 		cm.connections[i].Host = fallbackText(internalHost, tailscaleHost)
 		cm.connections[i].MasterKey = strings.TrimSpace(cm.connections[i].MasterKey)
 		cm.connections[i].Protocol = normalizeConnectionProtocol(cm.connections[i].Protocol)
 		// Clear stale tailscale_register flag: once a tailscale_host is known,
-		// QUIC bootstrap for registration is no longer needed.
+		// registration bootstrap is no longer needed.
 		if tailscaleHost != "" && cm.connections[i].TailscaleRegister {
 			cm.connections[i].TailscaleRegister = false
 			needsSave = true

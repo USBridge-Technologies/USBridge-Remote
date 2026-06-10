@@ -784,6 +784,11 @@ func (vw *VideoWidget) SetFRPService(frp *service.FRPService) {
 
 func (vw *VideoWidget) SetTailscaleService(ts *service.TailscaleService) {
 	vw.tailscaleService = ts
+	vw.tailscaleVideoEnabled = ts != nil
+}
+
+func (vw *VideoWidget) SetTailscaleVideoEnabled(enabled bool) {
+	vw.tailscaleVideoEnabled = enabled
 }
 
 // GetContainer возвращает контейнер виджета.

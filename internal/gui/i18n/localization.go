@@ -404,7 +404,7 @@ func EN() *LocalizedStrings {
 		NoSavedConnectionsHint:    "Use QR or add a connection below to get started.",
 		OnboardingStepConnect:     "Plug usb-c into target host for power and hid. Connect video path from target hdmi to capture dongle.",
 		OnboardingStepIP:          "Navigate to settings -> internet to connect your network.",
-		OnboardingStepScan:        "Navigate to the auth token section and scan the qr code. You can also enter the ip and access token manually.",
+		OnboardingStepScan:        "Navigate to the Master Key section and scan the QR code. You can also enter the IP and Master Key manually.",
 		DeleteConnectionTitle:     "Delete connection",
 		DeleteConnectionConfirm:   "Are you sure you want to delete connection \"%s\"?",
 		TailscaleRegisterLabel:    "Register in Tailscale",
@@ -523,7 +523,7 @@ func EN() *LocalizedStrings {
 		ErrorLaunchingQRScanner: "Error launching QR scanner: %v",
 		ImageNotLoaded:          "Image not loaded",
 		QRCodeNotFound:          "QR code not found in image.\n\nMake sure that:\n• Image contains QR code\n• QR code is clear and visible\n• Image has sufficient resolution",
-		InvalidQRFormat:         "Invalid QR code format.\nExpected: host:quic_token\nReceived: %s",
+		InvalidQRFormat:         "Invalid QR code format.\nExpected: host:master_key\nReceived: %s",
 		HostCannotBeEmpty:       "Host address cannot be empty",
 		QRExampleText:           "QR code example:\n\n%s\n\nUse a QR code generator to create an image with this text.",
 		CopyText:                "📋 Copy text",
@@ -768,7 +768,7 @@ func ES() *LocalizedStrings {
 	locale.PromoFeatureL0Control = "L0 Control"
 	locale.OnboardingStepConnect = "Conecta USB-C al host de destino para energia y HID. Conecta la salida HDMI al capturador."
 	locale.OnboardingStepIP = "Abre configuracion de red y conecta el dispositivo a tu red."
-	locale.OnboardingStepScan = "Escanea el codigo QR del token o introduce IP y token manualmente."
+	locale.OnboardingStepScan = "Escanea el codigo QR del Master Key o introduce IP y Master Key manualmente."
 	locale.SaveButton = "Guardar"
 	locale.DeleteButton = "Eliminar"
 	locale.DeleteConnectionTitle = "Eliminar conexion"
@@ -900,7 +900,7 @@ func UKProper() *LocalizedStrings {
 	locale.PromoFeatureL0Control = "L0 Control"
 	locale.OnboardingStepConnect = "Підключіть USB-C до цільового хоста для живлення та HID. Підключіть HDMI до пристрою захоплення."
 	locale.OnboardingStepIP = "Відкрийте налаштування мережі та підключіть пристрій до вашої мережі."
-	locale.OnboardingStepScan = "Відскануйте QR-код токена або введіть IP і токен вручну."
+	locale.OnboardingStepScan = "Відскануйте QR-код Master Key або введіть IP і Master Key вручну."
 	locale.SaveButton = "Зберегти"
 	locale.DeleteButton = "Видалити"
 	locale.DeleteConnectionTitle = "Видалити з'єднання"

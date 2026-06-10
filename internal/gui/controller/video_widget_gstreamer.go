@@ -182,7 +182,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 	}
 
 	if vw.frpService == nil {
-		if vw.tailscaleService != nil {
+		if vw.tailscaleService != nil && vw.tailscaleVideoEnabled {
 			vw.tailscaleService.SetVideoRelayTraceID(request.TraceID)
 			systemIP := vw.tailscaleService.GetSystemTailscaleIP()
 			if systemIP != "" {
@@ -214,14 +214,16 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 			agentHost := vw.usbClient.GetBaseURL()
 			if strings.Contains(agentHost, "://") {
 				hostPart := strings.Split(strings.Split(agentHost, "://")[1], ":")[0]
-				if strings.HasPrefix(hostPart, "100.") {
+				// Resolve the client's local IP that can reach the bridge, whether via
+				// LAN (192.168.x.x) or Tailscale (100.x.x.x).
+				if hostPart != "" && !strings.HasPrefix(hostPart, "127.") {
 					localIP := service.GetLocalIPForTarget(hostPart)
 					if localIP != "" {
 						request.ClientHost = localIP
 						if vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol != models.VideoProtocolMoonlight {
 							vw.videoClient.UpdateHost(localIP)
 						}
-						logrus.Infof("🎯 [VideoRoute] Resolved local Tailscale IP %s from agent host %s", localIP, hostPart)
+						logrus.Infof("🎯 [VideoRoute] Resolved local client IP %s for bridge host %s", localIP, hostPart)
 					}
 				}
 			}
@@ -229,7 +231,7 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 		if request.ClientHost == "" {
 			request.ClientHost = "127.0.0.1"
-			logrus.Warn("⚠️ [VideoRoute] Could not determine Tailscale IP, falling back to 127.0.0.1")
+			logrus.Warn("⚠️ [VideoRoute] Could not determine client IP, falling back to 127.0.0.1")
 		}
 	}
 

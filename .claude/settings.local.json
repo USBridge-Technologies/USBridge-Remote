@@ -102,7 +102,12 @@
       "Bash(echo \"Build started in background, PID=$!\")",
       "Bash(awk '/10:25:4[4-9]|10:25:5/')",
       "Bash(go mod *)",
-      "Bash(go run *)"
+      "Bash(go run *)",
+      "Bash(ping -c 1 -W 1 192.168.1.108)",
+      "Bash(ping *)",
+      "Bash(brew list *)",
+      "Bash(docker info *)",
+      "Bash(pip3 install *)"
     ]
   }
 }

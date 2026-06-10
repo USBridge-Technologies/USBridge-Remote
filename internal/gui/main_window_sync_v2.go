@@ -8,6 +8,7 @@ import (
 
 	"usbridge-client/internal/api"
 
+	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,7 +16,12 @@ import (
 // Returns (frpToken, tailscaleReady, error).
 // tailscaleReady is true when the bridge is already logged in to Tailscale
 // and a Tailscale address was obtained from the sync response.
-func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string) (string, bool, error) {
+// syncWithBridgeV2 performs master sync with the bridge.
+// Returns (frpToken, tailscaleReady, error).
+// tailscaleRegister=true makes the bridge run 'tailscale up' (returns AuthURL if not yet logged in).
+func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string, tailscaleRegister ...bool) (string, bool, error) {
+	doRegister := len(tailscaleRegister) > 0 && tailscaleRegister[0]
+	_ = doRegister // used below
 	secret := input
 
 	// If it's a deep link, extract the secret
@@ -52,9 +58,10 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	_, tailscaleAuthKey := mw.resolveBridgeAuthInputs(bootstrapHost, secret)
 
 	syncPayload := api.MasterSyncPayloadV2{
-		TailscaleKey: tailscaleAuthKey,
-		Hostname:     "usbridge",
-		ClientID:     "usbridge-client-desktop",
+		TailscaleKey:      tailscaleAuthKey,
+		TailscaleRegister: doRegister,
+		Hostname:          "usbridge",
+		ClientID:          "usbridge-client-desktop",
 	}
 
 	resp, err := bootstrapClient.MasterSyncV2(ctx, syncPayload)
@@ -81,6 +88,23 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 		}
 		logrus.Infof("🛰️ [SYNC] Bridge Tailscale status: logged_in=%v backend=%s ip=%s",
 			resp.TailscaleStatus.LoggedIn, resp.TailscaleStatus.Backend, tsIP)
+
+		// If bridge returned an AuthURL, open it in the browser for user approval.
+		// Only open when the URL is new — polling runs every 10s and we must not
+		// spam the browser with a new tab on every tick.
+		if authURL := strings.TrimSpace(resp.TailscaleStatus.AuthURL); authURL != "" && !tailscaleReady {
+			if authURL != mw.lastTailscaleAuthURL {
+				mw.lastTailscaleAuthURL = authURL
+				logrus.Infof("🛰️ [SYNC] Bridge Tailscale needs approval — opening browser: %s", authURL)
+				fyne.Do(func() {
+					if u, err := url.Parse(authURL); err == nil {
+						_ = fyne.CurrentApp().OpenURL(u)
+					}
+				})
+			} else {
+				logrus.Debugf("🛰️ [SYNC] Bridge Tailscale still needs approval (same URL)")
+			}
+		}
 	}
 
 	return resp.FRPToken, tailscaleReady, nil
