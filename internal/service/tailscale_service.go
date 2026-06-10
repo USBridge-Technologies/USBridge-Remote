@@ -121,6 +121,13 @@ func (s *TailscaleService) CheckSystemTailscaleStatus() *TailscaleStatus {
 	if st.Self != nil {
 		result.Self = s.convertPeer(&st, st.Self)
 	}
+	for _, key := range st.Peers() {
+		p := st.Peer[key]
+		if p == nil {
+			continue
+		}
+		result.Peers = append(result.Peers, s.convertPeer(&st, p))
+	}
 	return result
 }
 
@@ -470,7 +477,11 @@ func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
 	s.mu.Lock(); defer s.mu.Unlock(); s.videoRelayTraceID = traceID
 }
 
-func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
+// VideoRelayDebugInfo returns a human-readable string describing how video
+// traffic reaches the bridge. bridgeHost is the bridge's Tailscale IP.
+// It checks system Tailscale first (more accurate for actual UDP path),
+// then falls back to tsnet peer status.
+func (s *TailscaleService) VideoRelayDebugInfo(bridgeHost string) string {
 	s.mu.Lock()
 	state := "inactive"
 	if s.videoRelayConn != nil {
@@ -480,28 +491,42 @@ func (s *TailscaleService) VideoRelayDebugInfo(targetHost string) string {
 	}
 	s.mu.Unlock()
 
-	routingInfo := ""
-	if targetHost != "" {
-		cleanTarget := strings.Split(targetHost, ":")[0]
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		if st, err := s.Status(ctx); err == nil && st != nil {
-			for _, peer := range st.Peers {
-				if peer.IP4 == cleanTarget || strings.Contains(peer.DNSName, cleanTarget) || peer.HostName == cleanTarget {
-					if peer.CurAddr != "" {
-						routingInfo = fmt.Sprintf(" (Direct via %s)", peer.CurAddr)
-					} else if peer.Relay != "" {
-						routingInfo = fmt.Sprintf(" (DERP via %s)", peer.Relay)
-					} else {
-						routingInfo = " (routing unknown)"
-					}
-					break
+	if bridgeHost == "" {
+		return state
+	}
+	cleanBridge := strings.Split(bridgeHost, ":")[0]
+
+	// Check system Tailscale first — it has the actual WireGuard peer endpoints
+	// and reflects the real path that UDP video traffic takes.
+	if sysSt := s.CheckSystemTailscaleStatus(); sysSt != nil {
+		for _, peer := range sysSt.Peers {
+			if peer.IP4 == cleanBridge || strings.Contains(peer.DNSName, cleanBridge) {
+				if peer.CurAddr != "" {
+					return fmt.Sprintf("%s (system-ts: direct via %s)", state, peer.CurAddr)
+				} else if peer.Relay != "" {
+					return fmt.Sprintf("%s (system-ts: DERP via %s)", state, peer.Relay)
 				}
 			}
 		}
 	}
 
-	return state + routingInfo
+	// Fall back to tsnet peer status.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if st, err := s.Status(ctx); err == nil && st != nil {
+		for _, peer := range st.Peers {
+			if peer.IP4 == cleanBridge || strings.Contains(peer.DNSName, cleanBridge) || peer.HostName == cleanBridge {
+				if peer.CurAddr != "" {
+					return fmt.Sprintf("%s (tsnet: direct via %s)", state, peer.CurAddr)
+				} else if peer.Relay != "" {
+					return fmt.Sprintf("%s (tsnet: DERP via %s)", state, peer.Relay)
+				}
+				return fmt.Sprintf("%s (tsnet: routing unknown)", state)
+			}
+		}
+	}
+
+	return state
 }
 
 func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
@@ -605,9 +630,28 @@ func (s *TailscaleService) pingSystemTailscale(host string) {
 // GetPeerDirectIP returns the non-Tailscale (LAN/direct) IP of a peer when
 // both nodes are on the same local network. Returns "" when the peer is only
 // reachable via DERP relay (different networks).
-// Used on Android userspace tsnet where C-level sockets bypass tsnet and can
-// only reach LAN IPs through the kernel's wlan0 route.
+// Used on macOS/Android with userspace tsnet where C-level sockets bypass tsnet
+// and can only reach LAN IPs through the kernel network stack.
 func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string {
+	// Prefer system Tailscale status — it discovers the correct LAN endpoint
+	// via proper STUN/NAT traversal, while tsnet may see a Docker/VM interface.
+	if sysSt := s.CheckSystemTailscaleStatus(); sysSt != nil {
+		for _, peer := range sysSt.Peers {
+			if peer.IP4 != tailscaleIP {
+				continue
+			}
+			if peer.CurAddr != "" {
+				if host, _, err := net.SplitHostPort(peer.CurAddr); err == nil {
+					if !strings.HasPrefix(host, "100.") && net.ParseIP(host) != nil {
+						logrus.Infof("🎯 [Tailscale] system-ts direct IP for peer %s: %s (tsnet may differ)", tailscaleIP, host)
+						return host
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to tsnet peer status.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	st, err := s.Status(ctx)
@@ -633,12 +677,11 @@ func (s *TailscaleService) GetPeerDirectIP(tailscaleIP string) string {
 				candidates = append(candidates, host)
 			}
 		}
+		logrus.Debugf("🎯 [Tailscale] tsnet peer %s candidates: %v", tailscaleIP, candidates)
 
 		// Filter and prioritize candidates
 		var bestIP string
 		maxPriority := -1
-
-		logrus.Debugf("🎯 [Tailscale] Peer %s direct IP candidates: %v", tailscaleIP, candidates)
 
 		for _, ipStr := range candidates {
 			ip := net.ParseIP(ipStr)
@@ -675,6 +718,23 @@ func (s *TailscaleService) PeerConnectionMode(targetHost string) string {
 	if targetHost == "" {
 		return "unknown"
 	}
+	cleanTarget := strings.Split(targetHost, ":")[0]
+
+	// Check system Tailscale first — it reflects the real UDP path.
+	if sysSt := s.CheckSystemTailscaleStatus(); sysSt != nil {
+		for _, peer := range sysSt.Peers {
+			if peer.IP4 == cleanTarget || strings.HasPrefix(peer.DNSName, cleanTarget) {
+				if peer.CurAddr != "" {
+					return "direct:" + peer.CurAddr
+				}
+				if peer.Relay != "" {
+					return "derp:" + peer.Relay
+				}
+			}
+		}
+	}
+
+	// Fall back to tsnet.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	st, err := s.Status(ctx)
@@ -682,7 +742,7 @@ func (s *TailscaleService) PeerConnectionMode(targetHost string) string {
 		return "unknown"
 	}
 	for _, peer := range st.Peers {
-		if peer.IP4 == targetHost || strings.HasPrefix(peer.DNSName, targetHost) {
+		if peer.IP4 == cleanTarget || strings.HasPrefix(peer.DNSName, cleanTarget) {
 			if peer.CurAddr != "" {
 				return "direct:" + peer.CurAddr
 			}

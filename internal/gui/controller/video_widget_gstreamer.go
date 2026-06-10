@@ -235,19 +235,24 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 		}
 	}
 
+	bridgeIP := ""
 	if vw.tailscaleService != nil && vw.usbClient != nil {
 		agentHost := vw.usbClient.GetBaseURL()
 		if strings.Contains(agentHost, "://") {
 			parts := strings.Split(strings.Split(agentHost, "://")[1], ":")
-			agentIP := parts[0]
+			bridgeIP = parts[0]
 			for i := 0; i < 3; i++ {
-				vw.tailscaleService.PunchVideoHole(agentIP, clientPort)
+				vw.tailscaleService.PunchVideoHole(bridgeIP, clientPort)
 				if i < 2 {
 					time.Sleep(50 * time.Millisecond)
 				}
 			}
 		}
-		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s", request.TraceID, request.ClientHost, request.ClientPort, vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost))
+		// Pass bridgeIP (not clientHost) — relay info should reflect the path
+		// to the bridge, not from tsnet to the Mac's own system Tailscale IP.
+		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s",
+			request.TraceID, request.ClientHost, request.ClientPort,
+			vw.tailscaleService.VideoRelayDebugInfo(bridgeIP))
 	}
 
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",
@@ -292,13 +297,13 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 
 	logrus.Infof("✅ Video capture initiated (mode=%s, UDP port %d)", mode, clientPort)
 	if vw.tailscaleService != nil {
-		relayInfo := vw.tailscaleService.VideoRelayDebugInfo(request.ClientHost)
+		relayInfo := vw.tailscaleService.VideoRelayDebugInfo(bridgeIP)
 		logrus.Infof("🎬 [VIDEO %s] client relay after start: %s", request.TraceID, relayInfo)
-		connMode := vw.tailscaleService.PeerConnectionMode(request.ClientHost)
+		connMode := vw.tailscaleService.PeerConnectionMode(bridgeIP)
 		if strings.HasPrefix(connMode, "derp:") {
-			logrus.Warnf("⚠️ [Tailscale] Video goes through DERP-relay (%s) — this is OK, but latency is higher.", connMode)
+			logrus.Warnf("⚠️ [Tailscale] Bridge reachable only via DERP-relay (%s). Check bridge has no Docker IPs in Tailscale endpoints (172.x). Latency higher than LAN direct.", connMode)
 		} else if strings.HasPrefix(connMode, "direct:") {
-			logrus.Infof("✅ [Tailscale] Video goes P2P direct (%s) — optimal.", connMode)
+			logrus.Infof("✅ [Tailscale] Bridge direct path: %s — optimal latency.", connMode)
 		}
 	}
 
