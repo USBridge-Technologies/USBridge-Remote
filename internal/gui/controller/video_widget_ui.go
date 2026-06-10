@@ -645,7 +645,18 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 			prev := vw.fpsWindowStart.Swap(now)
 			if prev > 0 {
 				elapsed := time.Duration(now - prev)
-				logrus.Infof("📊 [VIDEO FPS] Go callback (Metal): %.1f fps (frame=%d)", float64(60)/elapsed.Seconds(), frameNum)
+				measuredFPS := float64(60) / elapsed.Seconds()
+				configuredFPS := 0
+				if vw.videoClient != nil {
+					if cfg := vw.videoClient.GetConfig(); cfg != nil {
+						configuredFPS = cfg.VideoFPS
+					}
+				}
+				if configuredFPS > 0 && measuredFPS < float64(configuredFPS)*0.75 {
+					logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps (Metal path) — Sunshine sending less than requested.", measuredFPS, configuredFPS)
+				} else {
+					logrus.Infof("📊 [VIDEO FPS] Metal callback: %.1f fps (frame=%d configured=%d)", measuredFPS, frameNum, configuredFPS)
+				}
 			}
 		}
 		return
@@ -686,7 +697,18 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		prev := vw.fpsWindowStart.Swap(now)
 		if prev > 0 {
 			elapsed := time.Duration(now - prev)
-			logrus.Infof("📊 [VIDEO FPS] Go frame arrival: %.1f fps (frame=%d metal=%v)", float64(60)/elapsed.Seconds(), frameNum, vw.isNativeVideoActive())
+			measuredFPS := float64(60) / elapsed.Seconds()
+			configuredFPS := 0
+			if vw.videoClient != nil {
+				if cfg := vw.videoClient.GetConfig(); cfg != nil {
+					configuredFPS = cfg.VideoFPS
+				}
+			}
+			if configuredFPS > 0 && measuredFPS < float64(configuredFPS)*0.75 {
+				logrus.Warnf("⚠️ [FPS] delivery=%.1f fps configured=%d fps — Sunshine sending less than requested. Causes: V4L2 source limited to 30fps, or /resume ignores fps param. Set matching fps in UI.", measuredFPS, configuredFPS)
+			} else {
+				logrus.Infof("📊 [VIDEO FPS] Go callback: %.1f fps (frame=%d configured=%d metal=%v)", measuredFPS, frameNum, configuredFPS, vw.isNativeVideoActive())
+			}
 		}
 	}
 

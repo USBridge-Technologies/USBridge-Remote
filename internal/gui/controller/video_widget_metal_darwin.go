@@ -55,6 +55,12 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Warn("🍎 [Metal] failed to create overlay — Fyne canvas path active")
 		} else {
 			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
+			// Clear the static Fyne canvas frame — Metal overlay now handles rendering.
+			// Running on main thread already (RunNative context).
+			if vw.videoCanvas != nil {
+				vw.videoCanvas.Image = nil
+				vw.videoCanvas.Refresh()
+			}
 		}
 	})
 }
@@ -77,14 +83,18 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	service.MetalVideoUpdateFrame(x, y, w, h)
 }
 
-// videoCanvasFrame returns the Fyne videoCanvas widget bounds in window-local
-// dp coordinates (top-left origin, same as macOS points).
+// videoCanvasFrame returns the video widget's bounds in window-local dp coordinates
+// (top-left origin, same as macOS points).
+// We use vw.container (the root container of the video widget) because Fyne lays
+// it out with an absolute position in the main window (e.g. below the toolbar).
+// vw.videoCanvas.Position() returns only the position within its parent widget
+// and is always (0,0), which would misplace the Metal overlay.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.videoCanvas == nil {
+	if vw.container == nil {
 		return
 	}
-	pos := vw.videoCanvas.Position()
-	sz := vw.videoCanvas.Size()
+	pos := vw.container.Position()
+	sz := vw.container.Size()
 	return pos.X, pos.Y, sz.Width, sz.Height
 }
 
