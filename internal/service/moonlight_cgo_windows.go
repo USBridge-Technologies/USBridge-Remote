@@ -342,6 +342,7 @@ static int dr_submit(PDECODE_UNIT du) {
 static int do_li_start(
     const char *address, const char *appVersion, const char *gfeVersion,
     const char *rtspSessionUrl, int serverCodecModeSupport,
+    int videoFormat,
     int width, int height, int fps, int bitrate,
     const unsigned char *rikey, int rikeyid, uintptr_t unused
 ) {
@@ -357,7 +358,7 @@ static int do_li_start(
     cfg.width = width; cfg.height = height; cfg.fps = fps; cfg.bitrate = bitrate;
     cfg.packetSize = 1200; cfg.streamingRemotely = STREAM_CFG_AUTO;
     cfg.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
-    cfg.supportedVideoFormats = VIDEO_FORMAT_H264;
+    cfg.supportedVideoFormats = videoFormat ? videoFormat : VIDEO_FORMAT_H264;
     cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_NONE;
     if (rikey) {
         memcpy(cfg.remoteInputAesKey, rikey, 16);
@@ -467,6 +468,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	rikey []byte,
 	appVersion, gfeVersion string,
 	serverCodecModeSupport int,
+	videoFormat int,
 	width, height, fps, bitrate int,
 	pipeWrite *os.File,
 	audioPipeWrite *os.File,
@@ -509,7 +511,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
-			C.int(serverCodecModeSupport),
+			C.int(serverCodecModeSupport), C.int(videoFormat),
 			C.int(width), C.int(height), C.int(fps), C.int(bitrate),
 			cRikey, C.int(1), C.uintptr_t(0),
 		)

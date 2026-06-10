@@ -35,6 +35,9 @@ static int64_t g_fpsFrames   = 0;
 static double  g_fpsStart    = 0.0;
 static int     g_lastW = 0, g_lastH = 0;
 
+// Last rendered pixel buffer — retained for pause snapshot (read by metal_video_get_last_frame_rgba).
+static CVPixelBufferRef g_lastRenderedBuf = NULL;
+
 static double mono_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -56,6 +59,11 @@ static void metal_render_main(void) {
 
     int w = (int)CVPixelBufferGetWidth(buf);
     int h = (int)CVPixelBufferGetHeight(buf);
+
+    // Save a retained copy for the pause snapshot (one frame, cheap retain).
+    CVPixelBufferRetain(buf);
+    if (g_lastRenderedBuf) CVPixelBufferRelease(g_lastRenderedBuf);
+    g_lastRenderedBuf = buf;
 
     // IOSurface path: CALayer compositor reads GPU memory directly — zero CPU copy.
     IOSurfaceRef surf = CVPixelBufferGetIOSurface(buf);
@@ -227,6 +235,46 @@ void metal_video_update_frame(float x, float y, float w, float h) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
+// Copies the last rendered frame to a caller-owned RGBA buffer.
+// Returns 1 on success; caller must free(*out) with free().
+// Safe to call from any thread; uses the main queue for pixel access.
+int metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out) {
+    if (!g_lastRenderedBuf) return 0;
+
+    CVPixelBufferRef buf = g_lastRenderedBuf;
+    CVPixelBufferRetain(buf);
+
+    int w = (int)CVPixelBufferGetWidth(buf);
+    int h = (int)CVPixelBufferGetHeight(buf);
+    if (w <= 0 || h <= 0) { CVPixelBufferRelease(buf); return 0; }
+
+    CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    uint8_t *src    = (uint8_t *)CVPixelBufferGetBaseAddress(buf);
+    size_t srcStride = CVPixelBufferGetBytesPerRow(buf);
+
+    uint8_t *rgba = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
+    if (!rgba) {
+        CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+        CVPixelBufferRelease(buf);
+        return 0;
+    }
+
+    // VT decodes to kCVPixelFormatType_32BGRA; swap B↔R to produce RGBA.
+    for (int y = 0; y < h; y++) {
+        uint8_t *s = src  + (size_t)y * srcStride;
+        uint8_t *d = rgba + (size_t)y * (size_t)w * 4;
+        for (int x = 0; x < w; x++, s += 4, d += 4) {
+            d[0] = s[2]; d[1] = s[1]; d[2] = s[0]; d[3] = s[3];
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferRelease(buf);
+
+    *outW = w; *outH = h; *out = rgba;
+    return 1;
+}
+
 void metal_video_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
     dispatch_block_t blk = ^{
@@ -249,6 +297,11 @@ void metal_video_destroy(void) {
         g_pendingBuf = NULL;
         pthread_mutex_unlock(&g_mu);
         if (old) CVPixelBufferRelease(old);
+
+        if (g_lastRenderedBuf) {
+            CVPixelBufferRelease(g_lastRenderedBuf);
+            g_lastRenderedBuf = NULL;
+        }
 
         char msg[192];
         snprintf(msg, sizeof(msg),

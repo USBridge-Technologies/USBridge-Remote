@@ -17,13 +17,19 @@ extern void metal_video_update_frame(float x, float y, float w, float h);
 extern void metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void metal_video_set_hidden(int hidden);
+extern int  metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
 */
 import "C"
 
-import "github.com/sirupsen/logrus"
+import (
+	"image"
+	"unsafe"
+
+	"github.com/sirupsen/logrus"
+)
 
 // goMetalLog is called from C (metal_video_impl_darwin.m) to log via logrus.
 //
@@ -65,6 +71,27 @@ func MetalVideoIsActive() bool {
 // Returns 0 if not enough frames yet.
 func MetalVideoLastFPS() float64 {
 	return float64(C.metal_video_last_fps())
+}
+
+// MetalVideoGetLastFrameRGBA returns the last rendered VT frame as an image.RGBA.
+// Returns nil if no frame has been rendered yet. Called once on stream stop — cost is acceptable.
+func MetalVideoGetLastFrameRGBA() *image.RGBA {
+	var w, h C.int
+	var ptr *C.uint8_t
+	if C.metal_video_get_last_frame_rgba(&w, &h, &ptr) == 0 || ptr == nil {
+		return nil
+	}
+	defer C.free(unsafe.Pointer(ptr))
+	width, height := int(w), int(h)
+	size := width * height * 4
+	src := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), size)
+	dst := make([]byte, size)
+	copy(dst, src)
+	return &image.RGBA{
+		Pix:    dst,
+		Stride: width * 4,
+		Rect:   image.Rect(0, 0, width, height),
+	}
 }
 
 // MetalVideoSetHidden hides or shows the Metal overlay NSView without destroying it.

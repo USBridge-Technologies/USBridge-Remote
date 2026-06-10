@@ -80,6 +80,7 @@ type VideoWidget struct {
 	videoTraceLabel      atomic.Value
 	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
 	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
+	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
 	lastVideoImgW        float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
 	lastVideoImgH        float32      // pixel height of the last decoded video frame
 	frameContentX        float32 // нормализованная активная область кадра по X без black bars

@@ -257,6 +257,10 @@ type LocalizedStrings struct {
 	VideoRawYUYVHint            string
 	VideoModeH264Name           string
 	VideoModeH264Description    string
+	VideoModeH265Name           string
+	VideoModeH265Description    string
+	VideoModeAV1Name            string
+	VideoModeAV1Description     string
 	VideoModeJPEGName           string
 	VideoModeJPEGDescription    string
 	VideoModeRawYUYVName        string
@@ -625,6 +629,10 @@ func EN() *LocalizedStrings {
 		VideoRawYUYVHint:            "RAW YUYV: uncompressed video over RTP. Very high bandwidth, use only on fast local links.",
 		VideoModeH264Name:           "H.264",
 		VideoModeH264Description:    "UVC capture → H.264 encode → RTP/UDP",
+		VideoModeH265Name:           "H.265",
+		VideoModeH265Description:    "HEVC hardware encode — better quality at lower bitrate",
+		VideoModeAV1Name:            "AV1",
+		VideoModeAV1Description:     "AV1 hardware encode — best compression (requires Apple Silicon)",
 		VideoModeJPEGName:           "JPEG RTP",
 		VideoModeJPEGDescription:    "MJPEG direct / YUYV encode → RTP",
 		VideoModeRawYUYVName:        "RAW YUYV",

@@ -316,6 +316,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
 		serverInfo.ServerCodecModeSupport,
+		moonlightVideoFormat(m.videoMode),
 		width, height, fps, bitrate,
 		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
@@ -542,6 +543,19 @@ func (m *MoonlightService) UpdateVideoUDPPort(port int) {
 
 func (m *MoonlightService) SetVideoMode(mode string) {
 	m.videoMode = mode
+}
+
+// moonlightVideoFormat maps a video mode string to the VIDEO_FORMAT_* constant
+// used by moonlight-common-c (matches Limelight.h defines).
+func moonlightVideoFormat(mode string) int {
+	switch mode {
+	case models.VideoModeH265:
+		return 0x0100 // VIDEO_FORMAT_H265
+	case models.VideoModeAV1:
+		return 0x1000 // VIDEO_FORMAT_AV1_MAIN8
+	default:
+		return 0x0001 // VIDEO_FORMAT_H264
+	}
 }
 
 func (m *MoonlightService) SetExpectedVideoSize(width, height int) {

@@ -110,9 +110,19 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
 
 static VTDecompressionSessionRef   g_vt_session  = NULL;
 static CMVideoFormatDescriptionRef g_vt_fmt_desc = NULL;
+static uint8_t g_vps_data[2048]; static size_t g_vps_len = 0; // H.265 VPS
 static uint8_t g_sps_data[1024]; static size_t g_sps_len = 0;
 static uint8_t g_pps_data[256];  static size_t g_pps_len = 0;
 static uint64_t g_vt_frame_count = 0;
+
+// Codec type set by platform_set_video_format() before LiStartConnection.
+// 0x0001=H264, 0x0100=H265, 0x1000=AV1_MAIN8 (matches VIDEO_FORMAT_* constants)
+static int g_video_format = 0x0001;
+
+void platform_set_video_format(int videoFormat) {
+    g_video_format = videoFormat ? videoFormat : 0x0001;
+    g_vps_len = 0; g_sps_len = 0; g_pps_len = 0; // clear old parameter sets
+}
 
 // FPS counter for VT decode delivery.
 static uint64_t g_vt_fps_frames = 0;
@@ -137,7 +147,7 @@ static void vt_invalidate(void) {
         g_vt_session = NULL;
     }
     if (g_vt_fmt_desc) { CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL; }
-    g_sps_len = 0; g_pps_len = 0; g_vt_frame_count = 0;
+    g_vps_len = 0; g_sps_len = 0; g_pps_len = 0; g_vt_frame_count = 0;
     g_vt_fps_frames = 0; g_vt_fps_start = 0.0;
     free(g_vt_rgba_buf); g_vt_rgba_buf = NULL; g_vt_rgba_buf_size = 0;
 }
@@ -210,10 +220,38 @@ static int vt_create_session(void) {
     }
     if (g_vt_fmt_desc) { CFRelease(g_vt_fmt_desc); g_vt_fmt_desc = NULL; }
 
-    const uint8_t *params[2] = { g_sps_data, g_pps_data };
-    size_t         sizes[2]  = { g_sps_len,  g_pps_len  };
-    OSStatus s = CMVideoFormatDescriptionCreateFromH264ParameterSets(
-        kCFAllocatorDefault, 2, params, sizes, 4, &g_vt_fmt_desc);
+    OSStatus s;
+    int isHEVC = (g_video_format & 0x0F00) != 0; // VIDEO_FORMAT_MASK_H265
+    if (isHEVC) {
+        // H.265: need VPS + SPS + PPS (VPS may be absent for some encoders)
+        if (g_sps_len == 0 || g_pps_len == 0) {
+            goVTLog((char*)"VT[HEVC]: waiting for SPS/PPS");
+            return -1;
+        }
+        const uint8_t *params[3]; size_t sizes[3]; int count;
+        if (g_vps_len > 0) {
+            params[0] = g_vps_data; sizes[0] = g_vps_len;
+            params[1] = g_sps_data; sizes[1] = g_sps_len;
+            params[2] = g_pps_data; sizes[2] = g_pps_len;
+            count = 3;
+        } else {
+            params[0] = g_sps_data; sizes[0] = g_sps_len;
+            params[1] = g_pps_data; sizes[1] = g_pps_len;
+            count = 2;
+        }
+        s = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+            kCFAllocatorDefault, count, params, sizes, 4, NULL, &g_vt_fmt_desc);
+    } else {
+        // H.264
+        if (g_sps_len == 0 || g_pps_len == 0) {
+            goVTLog((char*)"VT[H264]: waiting for SPS/PPS");
+            return -1;
+        }
+        const uint8_t *params[2] = { g_sps_data, g_pps_data };
+        size_t         sizes[2]  = { g_sps_len,  g_pps_len  };
+        s = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+            kCFAllocatorDefault, 2, params, sizes, 4, &g_vt_fmt_desc);
+    }
     if (s != noErr) { goVTLog((char*)"VT: CMVideoFormatDescription FAILED"); return -1; }
 
     int32_t fmt = kCVPixelFormatType_32BGRA;
@@ -271,20 +309,50 @@ typedef struct { uint8_t *avcc; int avcc_len; int avcc_cap; int new_params; } vt
 static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
     vt_nal_ctx *ctx = (vt_nal_ctx *)ptr;
     if (len <= 0) return;
-    int nal_type = nal[0] & 0x1F;
-    if (nal_type == 7) {
-        if (len <= (int)sizeof(g_sps_data) &&
-            (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
-            memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
+
+    int isHEVC = (g_video_format & 0x0F00) != 0;
+    if (isHEVC) {
+        // H.265: NAL header is 2 bytes; type = (nal[0] >> 1) & 0x3F
+        if (len < 2) return;
+        int nal_type = (nal[0] >> 1) & 0x3F;
+        if (nal_type == 32) { // VPS
+            if (len <= (int)sizeof(g_vps_data) &&
+                (g_vps_len != (size_t)len || memcmp(g_vps_data, nal, len) != 0)) {
+                memcpy(g_vps_data, nal, len); g_vps_len = len; ctx->new_params = 1;
+            }
+            return;
         }
-        return;
-    }
-    if (nal_type == 8) {
-        if (len <= (int)sizeof(g_pps_data) &&
-            (g_pps_len != (size_t)len || memcmp(g_pps_data, nal, len) != 0)) {
-            memcpy(g_pps_data, nal, len); g_pps_len = len; ctx->new_params = 1;
+        if (nal_type == 33) { // SPS
+            if (len <= (int)sizeof(g_sps_data) &&
+                (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
+                memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
+            }
+            return;
         }
-        return;
+        if (nal_type == 34) { // PPS
+            if (len <= (int)sizeof(g_pps_data) &&
+                (g_pps_len != (size_t)len || memcmp(g_pps_data, nal, len) != 0)) {
+                memcpy(g_pps_data, nal, len); g_pps_len = len; ctx->new_params = 1;
+            }
+            return;
+        }
+    } else {
+        // H.264: NAL type = nal[0] & 0x1F
+        int nal_type = nal[0] & 0x1F;
+        if (nal_type == 7) { // SPS
+            if (len <= (int)sizeof(g_sps_data) &&
+                (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
+                memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
+            }
+            return;
+        }
+        if (nal_type == 8) { // PPS
+            if (len <= (int)sizeof(g_pps_data) &&
+                (g_pps_len != (size_t)len || memcmp(g_pps_data, nal, len) != 0)) {
+                memcpy(g_pps_data, nal, len); g_pps_len = len; ctx->new_params = 1;
+            }
+            return;
+        }
     }
     int needed = ctx->avcc_len + 4 + len;
     if (needed > ctx->avcc_cap) {

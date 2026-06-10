@@ -3,6 +3,8 @@
 package controller
 
 import (
+	"image"
+
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -69,12 +71,18 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 				vw.videoCanvas.Translucency = 0
 				vw.videoCanvas.Refresh()
 			}
+			// Fire the one-shot ready callback (e.g. fullscreen dialog clears its canvas).
+			if cb := vw.onNativeReady; cb != nil {
+				vw.onNativeReady = nil
+				cb()
+			}
 		}
 	})
 }
 
 // stopMetalVideo destroys the Metal overlay and re-enables the Fyne canvas path.
 func (vw *VideoWidget) stopMetalVideo() {
+	vw.onNativeReady = nil // discard any pending fullscreen-ready callback
 	service.MetalVideoDestroy()
 	vw.metalFPSWarned.Store(false)
 }
@@ -157,4 +165,15 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 
 func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.MetalVideoIsActive()
+}
+
+// getNativeFPS returns the current Metal render FPS for the status/icon counter.
+func (vw *VideoWidget) getNativeFPS() float64 {
+	return service.MetalVideoLastFPS()
+}
+
+// getMetalLastFrame captures the last VT-decoded frame from the Metal overlay.
+// Called by clearVideo() before stopMetalVideo() so the pause display has something to show.
+func (vw *VideoWidget) getMetalLastFrame() *image.RGBA {
+	return service.MetalVideoGetLastFrameRGBA()
 }

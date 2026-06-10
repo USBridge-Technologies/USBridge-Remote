@@ -762,6 +762,14 @@ func (vw *VideoWidget) updateStats() {
 	decoderStats := vw.frameDecoder.GetFrameStats()
 	fps := decoderStats["fps"].(float64)
 
+	// When Metal overlay is active, VT frames bypass the Go decoder entirely,
+	// so decoderStats.fps is always 0. Read the actual render FPS from Metal instead.
+	if vw.isNativeVideoActive() {
+		if metalFPS := vw.getNativeFPS(); metalFPS > 0 {
+			fps = metalFPS
+		}
+	}
+
 	stats := fmt.Sprintf("FPS: %.1f | %s", fps, lastFrameTime.Format("15:04:05"))
 	vw.statsLabel.SetText(stats)
 	if vw.onFPSChanged != nil {
@@ -934,7 +942,7 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 // clearVideo очищает видео.
 func (vw *VideoWidget) clearVideo() {
 	vw.frameMutex.Lock()
-	lastFrame := vw.currentFrame // saved for darkened pause display
+	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
 	vw.currentFrame = nil
 	vw.frameCount = 0
 	vw.lastFrameTime = time.Time{}
@@ -944,6 +952,17 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameContentH = 0
 	vw.frameMutex.Unlock()
 	// Keep lastVideoImgW/H — aspect ratio is still valid for the same stream config.
+
+	// When Metal was active, currentFrame is nil (VT frames bypass Go entirely).
+	// Capture the last rendered frame from Metal before destroying the overlay.
+	// Must use a typed check to avoid the Go typed-nil-interface pitfall:
+	// getMetalLastFrame returns (*image.RGBA)(nil) on non-darwin/no-frame,
+	// which would make lastFrame non-nil as an image.Image and crash Fyne.
+	if lastFrame == nil {
+		if f := vw.getMetalLastFrame(); f != nil {
+			lastFrame = f
+		}
+	}
 	vw.stopMetalVideo()
 	vw.frameDecoder.Reset()
 	vw.pendingFrame.Store(nil)

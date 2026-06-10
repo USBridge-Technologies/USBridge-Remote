@@ -176,6 +176,12 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 		return
 	}
 
+	// When native overlay (Metal/GL) is rendering, it has its own frame source.
+	// Skip canvas updates entirely to prevent picture-in-picture artefacts.
+	if fd.videoWidget != nil && fd.videoWidget.isNativeVideoActive() {
+		return
+	}
+
 	fd.frameMutex.Lock()
 	fd.lastFrame = frame
 	videoImg := fd.videoImage
@@ -209,12 +215,18 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	fd.platformInitWindow()
 
-	currentFrame := fd.videoWidget.GetCurrentFrame()
+	// When native GPU overlay (Metal/GL) is active, Go-side currentFrame is stale
+	// (set from early frames before the overlay took over). Passing it to fd.videoImage
+	// causes a ghost background frame in fullscreen alongside the Metal overlay.
+	var currentFrame image.Image
+	if !fd.videoWidget.isNativeVideoActive() {
+		currentFrame = fd.videoWidget.GetCurrentFrame()
+	}
 	if currentFrame != nil {
 		bounds := currentFrame.Bounds()
 		logrus.Infof("✅ Установлен начальный кадр в полноэкранное окно: %dx%d", bounds.Dx(), bounds.Dy())
 	} else {
-		logrus.Warn("⚠️ Нет текущего кадра для полноэкранного окна - будет черный экран до первого кадра")
+		logrus.Info("⚠️ Нет текущего кадра для fullscreen canvas (ожидается: native overlay или первый кадр)")
 	}
 
 	fd.videoImage = canvas.NewImageFromImage(currentFrame)
@@ -351,8 +363,23 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	logrus.Info("🔍 Полноэкранное окно показано")
 
 	// Switch Metal overlay to the fullscreen window (full-window coverage).
+	// Delay slightly so macOS finishes the fullscreen animation and the
+	// contentView.bounds reflect the actual screen size before we create the overlay.
 	if fd.videoWidget != nil {
-		fd.videoWidget.metalVideoEnterFullscreen(fd.fullscreenWindow)
+		fsWin := fd.fullscreenWindow
+		vw := fd.videoWidget
+		fsImg := fd.videoImage
+		// Once the native overlay is live, clear the Fyne canvas so only Metal renders.
+		// Without this the Go canvas shows its last frame behind the overlay (PiP).
+		vw.onNativeReady = func() {
+			if fsImg != nil {
+				fsImg.Image = nil
+				fsImg.Refresh()
+			}
+		}
+		time.AfterFunc(250*time.Millisecond, func() {
+			vw.metalVideoEnterFullscreen(fsWin)
+		})
 	}
 
 	if fd.videoImage != nil && fd.videoImage.Image != nil {

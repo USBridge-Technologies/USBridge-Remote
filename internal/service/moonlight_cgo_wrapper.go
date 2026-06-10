@@ -10,7 +10,7 @@ package service
 
 extern int do_li_start(
     const char *address, const char *appVersion, const char *gfeVersion,
-    const char *rtspSessionUrl, int serverCodecModeSupport,
+    const char *rtspSessionUrl, int serverCodecModeSupport, int videoFormat,
     int width, int height, int fps, int bitrate,
     const unsigned char *rikey, int rikeyid, int pipeFd);
 extern void do_li_stop(void);
@@ -85,6 +85,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	rikey []byte,
 	appVersion, gfeVersion string,
 	serverCodecModeSupport int,
+	videoFormat int,
 	width, height, fps, bitrate int,
 	pipeWrite *os.File,
 	audioPipeWrite *os.File,
@@ -139,7 +140,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
-			C.int(serverCodecModeSupport),
+			C.int(serverCodecModeSupport), C.int(videoFormat),
 			C.int(width), C.int(height), C.int(fps), C.int(bitrate),
 			cRikey, C.int(1),
 			pipeFd,

@@ -20,6 +20,7 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 func (w *MoonlightCgoWrapper) StartStream(
 	rtspSessionUrl string, rikey []byte,
 	appVersion, gfeVersion string, serverCodecModeSupport int,
+	videoFormat int,
 	width, height, fps, bitrate int,
 	pipeWrite *os.File, audioPipeWrite *os.File, onStop func(error),
 ) error {

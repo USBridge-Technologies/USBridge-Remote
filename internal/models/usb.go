@@ -81,6 +81,8 @@ type VideoStatus struct {
 
 const (
 	VideoModeH264    = "h264"
+	VideoModeH265    = "h265"
+	VideoModeAV1     = "av1"
 	VideoModeJPEGRTP = "jpeg_rtp"
 	VideoModeRawYUYV = "raw_yuyv"
 )

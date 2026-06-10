@@ -116,20 +116,27 @@ static int dr_submit(PDECODE_UNIT du) { return platform_dr_submit(du); }
 //
 // pipeFd is ignored — all platforms decode natively without a pipe.
 
+// platform_set_video_format lets the platform decoder know which codec was negotiated.
+// Implemented in each platform CGO file (apple: sets g_codec_type; others: no-op).
+extern void platform_set_video_format(int videoFormat);
+
 int do_li_start(
     const char *address,
     const char *appVersion,
     const char *gfeVersion,
     const char *rtspSessionUrl,
     int serverCodecModeSupport,
+    int videoFormat,
     int width, int height, int fps, int bitrate,
     const unsigned char *rikey,
     int rikeyid,
     int pipeFd
 ) {
     (void)pipeFd;
-    printf("DEBUG: do_li_start(addr=%s, appV=%s, gfeV=%s, rtsp=%s, codec=%d, %dx%d@%d, bit=%d)\n", 
-           address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport, width, height, fps, bitrate);
+    if (videoFormat == 0) videoFormat = VIDEO_FORMAT_H264; // default
+    platform_set_video_format(videoFormat);
+    printf("DEBUG: do_li_start(addr=%s, codec_fmt=%d, %dx%d@%d, bit=%d)\n",
+           address, videoFormat, width, height, fps, bitrate);
 
     SERVER_INFORMATION srv;
     LiInitializeServerInformation(&srv);
@@ -148,7 +155,7 @@ int do_li_start(
     cfg.packetSize            = 1200;
     cfg.streamingRemotely     = STREAM_CFG_AUTO;
     cfg.audioConfiguration    = AUDIO_CONFIGURATION_STEREO;
-    cfg.supportedVideoFormats = VIDEO_FORMAT_H264;
+    cfg.supportedVideoFormats = videoFormat;
     cfg.clientRefreshRateX100 = fps * 100;
     cfg.encryptionFlags       = ENCFLG_NONE;
     if (rikey) {

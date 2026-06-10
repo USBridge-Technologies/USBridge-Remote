@@ -623,16 +623,27 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		vsd.streamModes = append(vsd.streamModes, info.SupportedModes...)
 	}
 	if len(vsd.streamModes) == 0 {
-		// Only H.264 (Moonlight) mode is active. JPEG RTP and Raw YUYV are GStreamer-only
-		// legacy modes — under development, hidden for now.
 		vsd.streamModes = []models.VideoTransportMode{
 			{
-				ID:                models.VideoModeH264,
-				Name:              i18n.Current.VideoModeH264Name,
-				Description:       i18n.Current.VideoModeH264Description,
-				Transport:         "rtp",
-				Encoding:          "h264",
-				ServerDecodesJPEG: true,
+				ID:          models.VideoModeH264,
+				Name:        i18n.Current.VideoModeH264Name,
+				Description: i18n.Current.VideoModeH264Description,
+				Transport:   "rtp",
+				Encoding:    "h264",
+			},
+			{
+				ID:          models.VideoModeH265,
+				Name:        i18n.Current.VideoModeH265Name,
+				Description: i18n.Current.VideoModeH265Description,
+				Transport:   "rtp",
+				Encoding:    "h265",
+			},
+			{
+				ID:          models.VideoModeAV1,
+				Name:        i18n.Current.VideoModeAV1Name,
+				Description: i18n.Current.VideoModeAV1Description,
+				Transport:   "rtp",
+				Encoding:    "av1",
 			},
 		}
 	}

@@ -210,6 +210,9 @@ static void deliver_frame(AVFrame *frame) {
 // platform_post_stop: no session state to tear down on Linux.
 void platform_post_stop(void) {}
 
+// platform_set_video_format: Linux GStreamer handles codec selection internally.
+void platform_set_video_format(int videoFormat) { (void)videoFormat; }
+
 int platform_dr_submit(PDECODE_UNIT du) {
     pthread_mutex_lock(&g_av_mu);
     if (!g_avctx) linux_av_init();
