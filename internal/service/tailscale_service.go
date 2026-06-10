@@ -131,6 +131,19 @@ func (s *TailscaleService) CheckSystemTailscaleStatus() *TailscaleStatus {
 	return result
 }
 
+// LogSystemTailscalePeers logs system Tailscale peer routing for diagnostic purposes.
+func (s *TailscaleService) LogSystemTailscalePeers() {
+	sysSt := s.CheckSystemTailscaleStatus()
+	if sysSt == nil {
+		logrus.Info("🛰️ [sys-ts] CheckSystemTailscaleStatus: not available (binary missing or not running)")
+		return
+	}
+	logrus.Infof("🛰️ [sys-ts] backend=%s peers=%d", sysSt.Backend, len(sysSt.Peers))
+	for _, p := range sysSt.Peers {
+		logrus.Infof("🛰️ [sys-ts]   peer ip4=%-18s curAddr=%-28s relay=%s hostname=%s", p.IP4, p.CurAddr, p.Relay, p.HostName)
+	}
+}
+
 func (s *TailscaleService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	userspace := s.userspace

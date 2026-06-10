@@ -248,8 +248,9 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				}
 			}
 		}
-		// Pass bridgeIP (not clientHost) — relay info should reflect the path
-		// to the bridge, not from tsnet to the Mac's own system Tailscale IP.
+		// Dump system Tailscale peer table once so we can diagnose
+		// whether the correct direct endpoint is being used.
+		vw.tailscaleService.LogSystemTailscalePeers()
 		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s",
 			request.TraceID, request.ClientHost, request.ClientPort,
 			vw.tailscaleService.VideoRelayDebugInfo(bridgeIP))
