@@ -96,7 +96,11 @@
       "Bash(tee /tmp/test_android_out.txt)",
       "Bash(tee /tmp/test_flip.txt)",
       "Bash(FORCE_FYNE=1 ./scripts/build_android.sh)",
-      "Bash(adb install *)"
+      "Bash(adb install *)",
+      "Bash(grep -E \" $\\(adb shell pidof com.usbridge.client \\) \")",
+      "Bash(FORCE_FYNE=1 GOFLAGS=\"-a\" ./scripts/build_android.sh)",
+      "Bash(echo \"Build started in background, PID=$!\")",
+      "Bash(awk '/10:25:4[4-9]|10:25:5/')"
     ]
   }
 }

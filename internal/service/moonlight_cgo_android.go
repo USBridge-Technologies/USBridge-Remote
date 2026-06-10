@@ -38,7 +38,10 @@ extern void          android_gl_release(void);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
-static volatile int   g_li_active      = 0;
+#include <stdatomic.h>
+// g_li_active uses a proper C11 atomic to ensure cross-thread visibility
+// on ARM64 (plain volatile is insufficient for inter-thread signalling).
+static _Atomic int    g_li_active      = 0;
 static volatile int   g_audio_muted    = 0;
 static AAudioStream  *g_aa_stream      = NULL;
 static int            g_audio_channels = 2;
@@ -130,15 +133,16 @@ static void ar_decode(char *data, int len) {
 
 static void amc_init(int width, int height) {
     ALOGI("amc_init: %dx%d", width, height);
-    // Safety: clean up stale codec if dr_cleanup wasn't called.
+    // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
     if (g_amc) {
         ALOGE("amc_init: stale g_amc found — cleaning up");
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
+        android_gl_release();  // also tear down stale EGL context
     }
     g_amc_w = width; g_amc_h = height;
-    
+
     ANativeWindow *nwin = android_gl_init(width, height);
     if (!nwin) { ALOGE("amc_init: no native window"); return; }
 
@@ -196,8 +200,8 @@ static void dr_cleanup(void) {
         AMediaCodec_stop(g_amc);
         AMediaCodec_delete(g_amc);
         g_amc = NULL;
-        android_gl_release();
     }
+    android_gl_release();  // always release EGL, even if codec creation failed
 }
 
 // ── Start/Stop ────────────────────────────────────────────────────────────────
@@ -211,6 +215,12 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
                 const unsigned char *key, int kid, int pipeFd) {
     (void)pipeFd;
     ALOGI("do_li_start: addr=%s rtsp=%s codec=%d %dx%d@%d bit=%d", address, rtsp, codec, w, h, fps, bit);
+
+    // Safety: unconditionally stop any lingering C-level connection before
+    // starting a new one.  LiStopConnection is a no-op when stage==STAGE_NONE,
+    // so this is safe even when the Go layer already called do_li_force_stop.
+    atomic_store(&g_li_active, 0);
+    LiStopConnection();
 
     g_amc_w = w; g_amc_h = h;
 
@@ -267,21 +277,32 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cl.logMessage          = cl_log;
 
     ALOGI("do_li_start: calling LiStartConnection");
-    // LiStartConnection is NON-BLOCKING — it returns 0 immediately once all
-    // stream threads are started. Set g_li_active=1 only on success so that
-    // do_li_stop can call LiStopConnection to terminate the running streams.
     int ret = LiStartConnection(&srv, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     ALOGI("do_li_start: LiStartConnection returned %d", ret);
     if (ret != 0) return ret;
-    g_li_active = 1;
+    atomic_store(&g_li_active, 1);
+    ALOGI("do_li_start: g_li_active set to 1");
     return 0;
 }
 
 void do_li_stop(void) {
-    ALOGI("do_li_stop (active=%d)", g_li_active);
-    if (!g_li_active) return;
-    g_li_active = 0;
+    int was_active = atomic_load(&g_li_active);
+    ALOGI("do_li_stop (active=%d)", was_active);
+    if (!was_active) return;
+    atomic_store(&g_li_active, 0);
+    ALOGI("do_li_stop: calling LiStopConnection");
     LiStopConnection();
+    ALOGI("do_li_stop: LiStopConnection returned");
+}
+
+// do_li_force_stop unconditionally calls LiStopConnection regardless of
+// g_li_active.  Go code that reliably tracks connection state calls this
+// instead of do_li_stop to avoid the g_li_active-is-mysteriously-zero bug.
+void do_li_force_stop(void) {
+    int prev = atomic_exchange(&g_li_active, 0);
+    ALOGI("do_li_force_stop: was active=%d, calling LiStopConnection", prev);
+    LiStopConnection();
+    ALOGI("do_li_force_stop: LiStopConnection returned");
 }
 
 void set_audio_muted(int muted) { g_audio_muted = muted; }
@@ -326,6 +347,13 @@ var (
 	// detect whether it is still the "current" stream before touching shared state.
 	liStreamMu  sync.Mutex
 	liStreamGen atomic.Uint64
+
+	// liConnected tracks whether LiStartConnection succeeded and LiStopConnection
+	// has NOT yet been called.  Unlike C's g_li_active (which is mysteriously
+	// cleared before StopStream reaches it), this is a reliable Go-level atomic
+	// that is set by the goroutine and cleared atomically by whoever calls
+	// LiStopConnection first (goroutine or StopStream).
+	liConnected atomic.Bool
 )
 
 type MoonlightCgoWrapper struct {
@@ -347,16 +375,19 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 }
 
 func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
-	// Hold the stream mutex while stopping any previous connection and resetting
-	// state.  This blocks until any in-progress LiStopConnection (from a prior
-	// goroutine or from StopStream) has fully returned, preventing concurrent
-	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
-	// static state and causes SIGSEGV in VideoRecv.
+	// Acquire the mutex and cleanly stop any in-progress connection before
+	// resetting state.  We use liConnected (Go-level atomic) as the reliable
+	// signal because C's g_li_active may be zero by the time we reach here
+	// even though the connection is technically still active.
 	liStreamMu.Lock()
-	C.do_li_stop()
+	if liConnected.Swap(false) {
+		logrus.Info("🌕 [Moonlight/Android] StartStream: stopping previous connection")
+		C.do_li_force_stop()
+	}
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
+	activeStreamTermErr = nil // clear stale terminated-during-startup callbacks
 	liStreamMu.Unlock()
 
 	cHost := C.CString(w.host)
@@ -397,20 +428,31 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 			return
 		}
 
+		// Mark that LiStartConnection succeeded — from this point on whoever
+		// atomically swaps liConnected from true→false owns calling
+		// do_li_force_stop (i.e. LiStopConnection).
+		liConnected.Store(true)
 		logrus.Info("🌕 [Moonlight/CGO/Android] ✅ streams active")
 		if liStreamGen.Load() == myGen {
 			liStartConnectionActive.Store(true)
 		}
 		<-activeStreamDone
 
-		// Call LiStopConnection under the mutex so that the next StartStream
-		// cannot call LiStartConnection until this stop is fully complete.
+		logrus.Infof("🌕 [Moonlight/Android] goroutine woke from activeStreamDone — gen=%d current=%d connected=%v",
+			myGen, liStreamGen.Load(), liConnected.Load())
+
+		// Whoever wins the liConnected.Swap(false) race calls LiStopConnection.
+		// This is reliable regardless of g_li_active state.
 		liStreamMu.Lock()
-		C.do_li_stop()
+		if liConnected.Swap(false) {
+			logrus.Info("🌕 [Moonlight/Android] goroutine calling do_li_force_stop")
+			C.do_li_force_stop()
+		} else {
+			logrus.Info("🌕 [Moonlight/Android] goroutine: StopStream already called LiStopConnection")
+		}
 		liStreamMu.Unlock()
 
-		// Only clear shared state if we are still the current generation;
-		// a newer StartStream may have already reset these.
+		// Only clear shared state if we are still the current generation.
 		if liStreamGen.Load() == myGen {
 			vtFrameCallbackMu.Lock()
 			vtFrameCallback = nil
@@ -426,7 +468,12 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	liStreamMu.Lock()
-	C.do_li_stop()
+	if liConnected.Swap(false) {
+		logrus.Info("🌕 [Moonlight/Android] StopStream: calling do_li_force_stop")
+		C.do_li_force_stop()
+	} else {
+		logrus.Info("🌕 [Moonlight/Android] StopStream: not connected (goroutine already stopped or never started)")
+	}
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })
@@ -464,7 +511,13 @@ func goMoonlightStage(s, r, e C.int) {
 //export goMoonlightConnected
 func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
 //export goMoonlightTerminated
-func goMoonlightTerminated(e C.int) { activeStreamTermErr = fmt.Errorf("terminated %d", int(e)); if liStartConnectionActive.Load() { activeStreamOnce.Do(func() { close(activeStreamDone) }) } }
+func goMoonlightTerminated(e C.int) {
+	logrus.Errorf("🌕 [Moonlight/Android] ❌ terminated: code=%d active=%v", int(e), liStartConnectionActive.Load())
+	activeStreamTermErr = fmt.Errorf("terminated %d", int(e))
+	if liStartConnectionActive.Load() {
+		activeStreamOnce.Do(func() { close(activeStreamDone) })
+	}
+}
 //export goVTLog
 func goVTLog(m *C.char) { logrus.Infof("🎬 [Moonlight/CGO] %s", C.GoString(m)) }
 // vtFramePool reuses image.RGBA buffers to avoid per-frame allocation.
