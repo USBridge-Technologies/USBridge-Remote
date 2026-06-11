@@ -1043,34 +1043,97 @@ func (p *PCPanelWidget) showScriptsDialog() {
 // showNewScriptDialog asks for a script name and opens the editor with empty content.
 // New scripts are saved to /mnt/emmc/scripts/ (internal eMMC).
 func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
+	if p.window == nil {
+		return
+	}
+
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("my_script")
 
-	d := dialog.NewForm("New Script", "Create", "Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("Name (.star)", nameEntry),
-		},
-		func(ok bool) {
-			if !ok || strings.TrimSpace(nameEntry.Text) == "" {
-				return
+	var popup *widget.PopUp
+
+	createScript := func() {
+		raw := strings.TrimSpace(nameEntry.Text)
+		if raw == "" {
+			return
+		}
+		name := strings.TrimSuffix(raw, ".star")
+		safe := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9') || r == '_' || r == '-' {
+				return r
 			}
-			name := strings.TrimSpace(nameEntry.Text)
-			// Strip extension if user typed it
-			name = strings.TrimSuffix(name, ".star")
-			// Sanitize: keep only safe filename characters
-			safe := strings.Map(func(r rune) rune {
-				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-					(r >= '0' && r <= '9') || r == '_' || r == '-' {
-					return r
-				}
-				return '_'
-			}, name)
-			path := "/mnt/emmc/scripts/" + safe + ".star"
-			p.showScriptEditorWithContent(path, safe, "# "+safe+"\n", onCreated)
-		},
-		p.window,
+			return '_'
+		}, name)
+		if safe == "" {
+			return
+		}
+		if popup != nil {
+			popup.Hide()
+		}
+		path := "/mnt/emmc/scripts/" + safe + ".star"
+		// Defer so this popup is fully removed from the canvas before the editor opens.
+		time.AfterFunc(50*time.Millisecond, func() {
+			fyne.Do(func() {
+				p.showScriptEditorWithContent(path, safe, "# "+safe+"\n", onCreated)
+			})
+		})
+	}
+
+	nameEntry.OnSubmitted = func(_ string) { createScript() }
+
+	titleText := view.NewBrandText("New Script", 17, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	nameLabel := widget.NewLabel("Name (.star)")
+	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	cancelBtn := widget.NewButton("Cancel", func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+
+	createBtn := widget.NewButton("Create", func() { createScript() })
+	createBtn.Importance = widget.HighImportance
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+
+	body := container.NewVBox(
+		titleBar,
+		widget.NewSeparator(),
+		view.NewInset(container.NewVBox(nameLabel, nameEntry), 0, 0, 4, 4),
+		widget.NewSeparator(),
+		container.NewHBox(layout.NewSpacer(), cancelBtn, createBtn),
 	)
-	d.Show()
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			panelMin := panel.MinSize()
+			w := minFloat32(maxFloat32(panelMin.Width, 320), canvasSize.Width-48)
+			h := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-48)
+			return fyne.NewSize(w, h)
+		},
+	})
 }
 
 func (p *PCPanelWidget) showScriptEditor(path, name string, onClose func()) {
