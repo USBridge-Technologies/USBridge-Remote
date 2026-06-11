@@ -211,10 +211,11 @@ static void cl_terminated(int ec) { goMoonlightTerminated(ec); }
 static void cl_log(const char *fmt, ...) { (void)fmt; }
 
 int do_li_start(const char *address, const char *appV, const char *gfeV, const char *rtsp,
-                int codec, int w, int h, int fps, int bit,
+                int codec, int videoFmt, int w, int h, int fps, int bit,
                 const unsigned char *key, int kid, int pipeFd) {
     (void)pipeFd;
-    ALOGI("do_li_start: addr=%s rtsp=%s codec=%d %dx%d@%d bit=%d", address, rtsp, codec, w, h, fps, bit);
+    if (videoFmt == 0) videoFmt = VIDEO_FORMAT_H264;
+    ALOGI("do_li_start: addr=%s rtsp=%s codec=%d videoFmt=%d %dx%d@%d bit=%d", address, rtsp, codec, videoFmt, w, h, fps, bit);
 
     // Safety: unconditionally stop any lingering C-level connection before
     // starting a new one.  LiStopConnection is a no-op when stage==STAGE_NONE,
@@ -241,7 +242,7 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cfg.packetSize             = 1200;
     cfg.streamingRemotely      = STREAM_CFG_AUTO;
     cfg.audioConfiguration     = AUDIO_CONFIGURATION_STEREO;
-    cfg.supportedVideoFormats  = VIDEO_FORMAT_H264;
+    cfg.supportedVideoFormats  = videoFmt;
     cfg.clientRefreshRateX100  = fps * 100;
     cfg.encryptionFlags        = ENCFLG_NONE;
     if (key) {
@@ -374,7 +375,7 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 	return &MoonlightCgoWrapper{host: host}
 }
 
-func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
+func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, videoFormat, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
 	// Acquire the mutex and cleanly stop any in-progress connection before
 	// resetting state.  We use liConnected (Go-level atomic) as the reliable
 	// signal because C's g_li_active may be zero by the time we reach here
@@ -414,10 +415,10 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 			defer apw.Close()
 		}
 
-		logrus.Infof("🌕 [Moonlight/CGO/Android] CALLING_C_LI_START: host=%s rtsp=%s codec=%d %dx%d@%d",
-			w.host, url, codec, width, height, fps)
+		logrus.Infof("🌕 [Moonlight/CGO/Android] CALLING_C_LI_START: host=%s rtsp=%s codec=%d videoFmt=%d %dx%d@%d",
+			w.host, url, codec, videoFormat, width, height, fps)
 		ret := C.do_li_start(cHost, cAppV, cGfeV, cRtsp,
-			C.int(codec), C.int(width), C.int(height), C.int(fps), C.int(bit),
+			C.int(codec), C.int(videoFormat), C.int(width), C.int(height), C.int(fps), C.int(bit),
 			cKey, C.int(1), C.int(-1))
 
 		if int(ret) != 0 {

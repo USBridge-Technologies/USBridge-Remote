@@ -113,7 +113,9 @@
       "Bash(tailscale ping *)",
       "Bash(awk -F: '$1 > 518')",
       "Bash(echo \"exit:$?\")",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(awk '/^[[:space:]]*\\\\/\\\\*/{flag=1; start=NR; file=FILENAME} flag && /\\\\*\\\\//{print file\":\"start\"-\"NR\": Multi-line comment\"; flag=0}' internal/service/moonlight*.go)",
+      "Bash(awk -F: '{print $1, $3}')"
     ]
   }
 }

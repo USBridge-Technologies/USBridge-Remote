@@ -33,7 +33,6 @@ type VideoWidget struct {
 
 	// Состояние
 	isStreaming          bool
-	streamURL            string
 	isGStreamerConnected bool
 	isMouseConnected     bool // Флаг подключенной мыши
 	enableVSync          bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
@@ -93,7 +92,6 @@ type VideoWidget struct {
 	startDialog           *view.VideoStartDialog
 	parentWindow          fyne.Window
 	virtualKeyboard       *graphics.VirtualKeyboard
-	desktopKeyCapture     *desktopKeyboardCapture
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
 
