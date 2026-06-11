@@ -88,36 +88,13 @@ func (q *QRCameraScanner) Run() {
 		}
 	}
 
-	if runtime.GOOS == "windows" {
-		popup := q.showEmbeddedScanner(videoImg, closeScanner)
-		q.popup = popup
-		closeUI = func() {
-			popup.Hide()
-			q.popup = nil
-		}
-		popup.Show()
-	} else {
-		content := container.NewBorder(
-			nil, nil, nil, nil,
-			container.NewVBox(
-				videoImg,
-				widget.NewLabel(i18n.Current.PointCameraAtQR),
-				widget.NewButton(i18n.Current.Close, closeScanner),
-			),
-		)
-
-		scanWindow := fyne.CurrentApp().NewWindow(i18n.Current.QRScanning)
-		scanWindow.SetContent(content)
-		scanWindow.Resize(fyne.NewSize(680, 560))
-		scanWindow.CenterOnScreen()
-		scanWindow.SetOnClosed(func() {
-			q.Stop()
-		})
-		closeUI = func() {
-			scanWindow.Close()
-		}
-		scanWindow.Show()
+	popup := q.showEmbeddedScanner(videoImg, closeScanner)
+	q.popup = popup
+	closeUI = func() {
+		popup.Hide()
+		q.popup = nil
 	}
+	popup.Show()
 
 	qrReader := qrcode.NewQRCodeReader()
 	firstFrameLogged := false

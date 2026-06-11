@@ -122,12 +122,6 @@ func ParseVideoInfoData(data interface{}) (*VideoInfoData, error) {
 		return nil, fmt.Errorf("failed to parse video info data: %w", err)
 	}
 
-	if parsed.Mode == "" {
-		parsed.Mode = VideoModeH264
-	}
-	if parsed.Encoding == "" {
-		parsed.Encoding = "h264"
-	}
 	if parsed.Transport == "" {
 		parsed.Transport = "rtp"
 	}

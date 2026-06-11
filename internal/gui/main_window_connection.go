@@ -496,6 +496,11 @@ func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey str
 		// Not connected right now — next manual connect will pick up the saved Tailscale IP.
 		return
 	}
+	if mw.connectedProtocol == models.ConnectionProtocolTailscale {
+		// Already on Tailscale — no need to switch.
+		logrus.Infof("🛰️ [TS] Bridge in Tailscale but already connected via Tailscale — skipping reconnect")
+		return
+	}
 
 	capturedHost := host
 	capturedKey := masterKey
