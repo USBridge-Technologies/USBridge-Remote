@@ -104,7 +104,7 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
-	watchOverlayPopup(parent, popup)
+	watchOverlayPopupHooks(parent, popup, true)
 	return popup
 }
 
@@ -134,6 +134,10 @@ func ShowDimOverlay(parent fyne.Window, dimColor color.Color) *widget.PopUp {
 }
 
 func watchOverlayPopup(parent fyne.Window, popup *widget.PopUp) {
+	watchOverlayPopupHooks(parent, popup, false)
+}
+
+func watchOverlayPopupHooks(parent fyne.Window, popup *widget.PopUp, fireHooks bool) {
 	if parent == nil || popup == nil {
 		return
 	}
@@ -145,8 +149,16 @@ func watchOverlayPopup(parent fyne.Window, popup *widget.PopUp) {
 		for {
 			currentVisible := popup.Visible()
 			if currentVisible {
-				wasShown = true
+				if !wasShown {
+					wasShown = true
+					if fireHooks {
+						overlayShow()
+					}
+				}
 			} else if wasShown {
+				if fireHooks {
+					overlayHide()
+				}
 				return
 			}
 
