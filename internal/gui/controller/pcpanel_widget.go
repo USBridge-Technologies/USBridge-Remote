@@ -932,6 +932,17 @@ func (p *PCPanelWidget) showScriptsDialog() {
 
 		nameLabel := view.NewBrandText(name, 14, design.ColorTextLight, true)
 
+		var srcIconRes fyne.Resource
+		if strings.HasPrefix(s.Path, "/mnt/sdcard") || strings.HasPrefix(s.Path, "/mnt/sd/") {
+			srcIconRes = assets.SDCardIcon
+		} else {
+			srcIconRes = assets.MemoryChipIcon
+		}
+		srcIcon := canvas.NewImageFromResource(srcIconRes)
+		srcIcon.SetMinSize(fyne.NewSize(14, 14))
+		srcIcon.FillMode = canvas.ImageFillContain
+		nameRow := container.NewHBox(srcIcon, nameLabel)
+
 		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
 			if err := p.usbClient.RunScript(s.Path); err != nil {
 				view.ShowErrorDialog(err, p.window)
@@ -962,7 +973,7 @@ func (p *PCPanelWidget) showScriptsDialog() {
 
 		btns := container.NewHBox(runBtn, editBtn, deleteBtn)
 		return view.NewCompactSurfacePanel(
-			view.NewInset(container.NewBorder(nil, nil, nil, btns, nameLabel), 8, 12, 4, 4),
+			view.NewInset(container.NewBorder(nil, nil, nil, btns, nameRow), 8, 12, 4, 4),
 			design.ColorGray950,
 			design.RadiusMD,
 		)
@@ -1079,6 +1090,7 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 
 	var popup *widget.PopUp
 	var debounceTimer *time.Timer
+	var editorScroll *container.Scroll
 
 	closePopup := func() {
 		if debounceTimer != nil {
@@ -1092,17 +1104,16 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 		}
 	}
 
-	// Left pane — editable code
+	// Editable entry — handles input, rendered transparently over the highlight view
 	editor := widget.NewMultiLineEntry()
 	editor.SetText(content)
 	editor.TextStyle = fyne.TextStyle{Monospace: true}
 	editor.Wrapping = fyne.TextWrapOff
-	editorScroll := container.NewScroll(editor)
+	editor.Scroll = fyne.ScrollNone
 
-	// Right pane — live syntax-highlighted preview
+	// RichText — syntax-highlighted display layer (behind the entry)
 	richView := widget.NewRichText()
 	richView.Wrapping = fyne.TextWrapOff
-	richScroll := container.NewScroll(richView)
 
 	refreshHighlight := func(text string) {
 		richView.Segments = starlarkHighlight(text)
@@ -1119,8 +1130,30 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 		})
 	}
 
-	split := container.NewHSplit(editorScroll, richScroll)
-	split.Offset = 0.6
+	// Keep cursor visible when typing past the viewport
+	editor.OnCursorChanged = func() {
+		if editorScroll == nil {
+			return
+		}
+		th := fyne.CurrentApp().Settings().Theme()
+		textSize := th.Size(theme.SizeNameText)
+		lineHeight := fyne.MeasureText("M", textSize, fyne.TextStyle{Monospace: true}).Height +
+			th.Size(theme.SizeNameLineSpacing)
+		cursorTop := float32(editor.CursorRow) * lineHeight
+		cursorBot := cursorTop + lineHeight
+		off := editorScroll.Offset
+		viewH := editorScroll.Size().Height
+		if cursorTop < off.Y {
+			editorScroll.ScrollToOffset(fyne.NewPos(off.X, cursorTop))
+		} else if cursorBot > off.Y+viewH {
+			editorScroll.ScrollToOffset(fyne.NewPos(off.X, cursorBot-viewH))
+		}
+	}
+
+	// Overlay: transparent entry on top of syntax-highlighted RichText
+	overlayTheme := &transparentEntryTheme{fyne.CurrentApp().Settings().Theme()}
+	editorStack := container.NewStack(richView, container.NewThemeOverride(editor, overlayTheme))
+	editorScroll = container.NewScroll(editorStack)
 
 	// Header
 	titleLabel := view.NewBrandText("> "+displayName, 13, design.ColorAccent, true)
@@ -1140,7 +1173,7 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 	headerDivider.SetMinSize(fyne.NewSize(0, 1))
 	header := container.NewVBox(view.NewInset(headerContent, 0, 0, 8, 8), headerDivider)
 
-	// Footer
+	// Footer — Cancel | Save (save only) | OK (save + close) | Run (save + run)
 	cancelBtn := widget.NewButton("Cancel", func() {
 		if popup != nil {
 			popup.Hide()
@@ -1150,11 +1183,17 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 	saveBtn := widget.NewButton("Save", func() {
 		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
 			view.ShowErrorDialog(err, p.window)
+		}
+	})
+
+	okBtn := widget.NewButton("OK", func() {
+		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
+			view.ShowErrorDialog(err, p.window)
 		} else {
 			closePopup()
 		}
 	})
-	saveBtn.Importance = widget.HighImportance
+	okBtn.Importance = widget.HighImportance
 
 	runBtn := widget.NewButtonWithIcon("Run", theme.MediaPlayIcon(), func() {
 		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
@@ -1167,14 +1206,13 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 			closePopup()
 		}
 	})
-	runBtn.Importance = widget.HighImportance
 
 	footerDivider := canvas.NewRectangle(design.ColorBorder)
 	footerDivider.SetMinSize(fyne.NewSize(0, 1))
-	footerBtns := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, runBtn)
+	footerBtns := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, okBtn, runBtn)
 	footer := container.NewVBox(footerDivider, view.NewInset(footerBtns, 0, 0, 8, 8))
 
-	body := container.NewBorder(header, footer, nil, nil, split)
+	body := container.NewBorder(header, footer, nil, nil, editorScroll)
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = design.RadiusMD
@@ -1515,6 +1553,22 @@ var starlarkBuiltin = map[string]bool{
 	"len": true, "list": true, "max": true, "min": true, "print": true,
 	"range": true, "repr": true, "reversed": true, "set": true,
 	"sorted": true, "str": true, "tuple": true, "type": true, "zip": true,
+}
+
+// transparentEntryTheme wraps a theme to make Entry background and text
+// transparent, so only the cursor and selection remain visible.
+// Used for the syntax-highlighted editor overlay.
+type transparentEntryTheme struct {
+	fyne.Theme
+}
+
+func (t *transparentEntryTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameInputBackground, theme.ColorNameInputBorder,
+		theme.ColorNameForeground, theme.ColorNamePlaceHolder:
+		return color.Transparent
+	}
+	return t.Theme.Color(name, variant)
 }
 
 func starlarkHighlight(code string) []widget.RichTextSegment {
