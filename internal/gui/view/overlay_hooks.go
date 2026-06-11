@@ -28,3 +28,9 @@ func overlayHide() {
 		}
 	}
 }
+
+// OverlayActive returns true when at least one managed overlay is currently visible.
+// Use this after creating a native video layer to check whether it should start hidden.
+func OverlayActive() bool {
+	return overlayDepth.Load() > 0
+}

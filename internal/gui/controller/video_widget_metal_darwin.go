@@ -63,6 +63,11 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			logrus.Warn("🍎 [Metal] failed to create overlay — Fyne canvas path active")
 		} else {
 			logrus.Infof("🍎 [Metal] overlay active (fullscreen=%v)", fullscreen)
+			// If a Fyne overlay (popup/menu) is already visible when Metal starts,
+			// hide the Metal view immediately so the UI stays on top.
+			if view.OverlayActive() {
+				service.MetalVideoSetHidden(true)
+			}
 			// Clear the static Fyne canvas frame — Metal overlay now handles rendering.
 			// Also clear Translucency so the darkened pause frame doesn't bleed through.
 			// Running on main thread already (RunNative context).

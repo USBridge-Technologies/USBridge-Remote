@@ -31,8 +31,9 @@ static CVPixelBufferRef g_pendingBuf = NULL;
 
 static int64_t g_submitCount = 0;
 static int64_t g_renderCount = 0;
-static int64_t g_fpsFrames   = 0;
-static double  g_fpsStart    = 0.0;
+static int64_t g_fpsFrames      = 0;
+static double  g_fpsStart       = 0.0;
+static double  g_lastKnownFps   = 0.0; // last computed value, returned during reset gap
 static int     g_lastW = 0, g_lastH = 0;
 static int     g_fullWindow  = 0; // 1 when overlay covers the full contentView (fullscreen mode)
 
@@ -103,10 +104,11 @@ static void metal_render_main(void) {
         goMetalLog(msg, 0);
     }
     if (elapsed >= 2.0 && g_fpsFrames > 0) {
+        g_lastKnownFps = (double)g_fpsFrames / elapsed;
         char msg[192];
         snprintf(msg, sizeof(msg),
                  "fps=%.1f  rendered=%lld  submitted=%lld  size=%dx%d",
-                 (double)g_fpsFrames / elapsed,
+                 g_lastKnownFps,
                  (long long)g_renderCount, (long long)g_submitCount,
                  g_lastW, g_lastH);
         goMetalLog(msg, 0);
@@ -123,12 +125,17 @@ int metal_video_is_active(void) {
     return atomic_load(&g_active);
 }
 
-// Returns the instantaneous Metal render FPS measured over the last 2-second window.
-// Returns 0 if not enough data yet.
+// Returns the Metal render FPS from the current measurement window.
+// Falls back to the last known value during the brief reset gap so callers
+// never see a spurious zero while frames are still being rendered.
 double metal_video_last_fps(void) {
-    if (!atomic_load(&g_active) || g_fpsStart == 0.0 || g_fpsFrames == 0) return 0.0;
+    if (!atomic_load(&g_active)) return 0.0;
+    if (g_fpsStart == 0.0) return 0.0; // no frames at all yet
     double elapsed = mono_sec() - g_fpsStart;
-    if (elapsed < 0.5) return 0.0;
+    if (g_fpsFrames == 0 || elapsed < 0.5) {
+        // Just reset the window — return last known value to avoid a gap.
+        return g_lastKnownFps;
+    }
     return (double)g_fpsFrames / elapsed;
 }
 
@@ -196,7 +203,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         g_layer = vl;
 
         g_submitCount = 0; g_renderCount = 0;
-        g_fpsFrames = 0;   g_fpsStart = 0;
+        g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
         g_lastW = 0;       g_lastH = 0;
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
