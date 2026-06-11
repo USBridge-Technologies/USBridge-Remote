@@ -30,6 +30,15 @@ var (
 
 const RadiusMD float32 = 8
 
+const (
+	ColorNameCodeKeyword fyne.ThemeColorName = "code-keyword"
+	ColorNameCodeBuiltin fyne.ThemeColorName = "code-builtin"
+	ColorNameCodeString  fyne.ThemeColorName = "code-string"
+	ColorNameCodeComment fyne.ThemeColorName = "code-comment"
+	ColorNameCodeNumber  fyne.ThemeColorName = "code-number"
+	ColorNameCodeDefault fyne.ThemeColorName = "code-default"
+)
+
 // BrandTheme fixes the application to the current brand dark palette.
 // Until a separate light palette is defined, both theme variants use the same colors.
 type BrandTheme struct {
@@ -90,6 +99,18 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 		return ColorAccent
 	case fynetheme.ColorNameWarning:
 		return ColorAccentHover
+	case ColorNameCodeKeyword:
+		return color.NRGBA{R: 0x56, G: 0x9C, B: 0xD6, A: 0xFF} // blue
+	case ColorNameCodeBuiltin:
+		return color.NRGBA{R: 0x4E, G: 0xC9, B: 0xB0, A: 0xFF} // teal
+	case ColorNameCodeString:
+		return color.NRGBA{R: 0xCE, G: 0x91, B: 0x78, A: 0xFF} // orange
+	case ColorNameCodeComment:
+		return color.NRGBA{R: 0x6A, G: 0x99, B: 0x55, A: 0xFF} // green
+	case ColorNameCodeNumber:
+		return color.NRGBA{R: 0xB5, G: 0xCE, B: 0xA8, A: 0xFF} // light green
+	case ColorNameCodeDefault:
+		return color.NRGBA{R: 0xD4, G: 0xD4, B: 0xD4, A: 0xFF} // light gray
 	}
 
 	return t.fallback.Color(name, fynetheme.VariantDark)

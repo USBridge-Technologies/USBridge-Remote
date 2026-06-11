@@ -929,14 +929,8 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		if name == "" {
 			name = filepath.Base(s.Path)
 		}
-		description := s.Description
-		if description == "" {
-			description = s.Path
-		}
 
 		nameLabel := view.NewBrandText(name, 14, design.ColorTextLight, true)
-		descLabel := widget.NewLabel(description)
-		descLabel.Wrapping = fyne.TextWrapWord
 
 		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
 			if err := p.usbClient.RunScript(s.Path); err != nil {
@@ -967,9 +961,8 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		deleteBtn.Importance = widget.DangerImportance
 
 		btns := container.NewHBox(runBtn, editBtn, deleteBtn)
-		content := container.NewVBox(nameLabel, descLabel)
 		return view.NewCompactSurfacePanel(
-			view.NewInset(container.NewBorder(nil, nil, nil, btns, content), 12, 12, 8, 8),
+			view.NewInset(container.NewBorder(nil, nil, nil, btns, nameLabel), 8, 12, 4, 4),
 			design.ColorGray950,
 			design.RadiusMD,
 		)
@@ -1083,19 +1076,14 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 	if displayName == "" {
 		displayName = filepath.Base(path)
 	}
-	titleText := view.NewBrandText("Edit Script: "+displayName, 19, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
-
-	editor := widget.NewMultiLineEntry()
-	editor.SetText(content)
-	editor.TextStyle = fyne.TextStyle{Monospace: true}
-
-	scroll := container.NewScroll(editor)
-	scroll.SetMinSize(fyne.NewSize(500, 400))
 
 	var popup *widget.PopUp
+	var debounceTimer *time.Timer
 
 	closePopup := func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
 		if popup != nil {
 			popup.Hide()
 		}
@@ -1103,6 +1091,61 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 			onClose()
 		}
 	}
+
+	// Left pane — editable code
+	editor := widget.NewMultiLineEntry()
+	editor.SetText(content)
+	editor.TextStyle = fyne.TextStyle{Monospace: true}
+	editor.Wrapping = fyne.TextWrapOff
+	editorScroll := container.NewScroll(editor)
+
+	// Right pane — live syntax-highlighted preview
+	richView := widget.NewRichText()
+	richView.Wrapping = fyne.TextWrapOff
+	richScroll := container.NewScroll(richView)
+
+	refreshHighlight := func(text string) {
+		richView.Segments = starlarkHighlight(text)
+		richView.Refresh()
+	}
+	refreshHighlight(content)
+
+	editor.OnChanged = func(text string) {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
+			fyne.Do(func() { refreshHighlight(text) })
+		})
+	}
+
+	split := container.NewHSplit(editorScroll, richScroll)
+	split.Offset = 0.6
+
+	// Header
+	titleLabel := view.NewBrandText("> "+displayName, 13, design.ColorAccent, true)
+	pathLabel := widget.NewLabel(path)
+	pathLabel.TextStyle = fyne.TextStyle{Monospace: true}
+	pathLabel.Importance = widget.LowImportance
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	headerContent := container.NewBorder(nil, nil, nil, closeBtn,
+		container.NewVBox(titleLabel, pathLabel),
+	)
+	headerDivider := canvas.NewRectangle(design.ColorBorder)
+	headerDivider.SetMinSize(fyne.NewSize(0, 1))
+	header := container.NewVBox(view.NewInset(headerContent, 0, 0, 8, 8), headerDivider)
+
+	// Footer
+	cancelBtn := widget.NewButton("Cancel", func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
 
 	saveBtn := widget.NewButton("Save", func() {
 		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
@@ -1113,13 +1156,11 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 	})
 	saveBtn.Importance = widget.HighImportance
 
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if popup != nil {
-			popup.Hide()
+	runBtn := widget.NewButtonWithIcon("Run", theme.MediaPlayIcon(), func() {
+		if err := p.usbClient.SaveScript(path, editor.Text); err != nil {
+			view.ShowErrorDialog(err, p.window)
+			return
 		}
-	})
-
-	runBtn := widget.NewButton("Run", func() {
 		if err := p.usbClient.RunScript(path); err != nil {
 			view.ShowErrorDialog(err, p.window)
 		} else {
@@ -1128,39 +1169,31 @@ func (p *PCPanelWidget) showScriptEditorWithContent(path, name, content string, 
 	})
 	runBtn.Importance = widget.HighImportance
 
-	closeBtn := newPCPanelDialogCloseButton(func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	})
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
-	footer := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, runBtn)
+	footerDivider := canvas.NewRectangle(design.ColorBorder)
+	footerDivider.SetMinSize(fyne.NewSize(0, 1))
+	footerBtns := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, runBtn)
+	footer := container.NewVBox(footerDivider, view.NewInset(footerBtns, 0, 0, 8, 8))
 
-	body := container.NewBorder(titleBar, footer, nil, nil, view.NewInset(scroll, 0, 0, 16, 16))
+	body := container.NewBorder(header, footer, nil, nil, split)
 
-	bg := canvas.NewRectangle(design.ColorGray900)
+	bg := canvas.NewRectangle(design.ColorGray950)
 	bg.CornerRadius = design.RadiusMD
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
+	accent := canvas.NewRectangle(color.Transparent)
+	accent.CornerRadius = design.RadiusMD
+	accent.StrokeColor = design.ColorAccent
+	accent.StrokeWidth = 1
 	panel := container.NewStack(
 		bg,
-		view.NewInset(body, 18, 18, 16, 16),
-		border,
+		view.NewInset(body, 16, 16, 12, 12),
+		accent,
 	)
 
 	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
 		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := float32(24)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 600), maxWidth)
-			panelHeight := minFloat32(maxFloat32(panelMin.Height, 500), maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x88},
+		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			const margin float32 = 16
+			return fyne.NewSize(canvasSize.Width-margin*2, canvasSize.Height-margin*2)
 		},
 	})
 }
@@ -1463,4 +1496,152 @@ func (p *PCPanelWidget) showProtectedActionDialog(title, hint, expectedWord stri
 
 	d = dialog.NewCustomWithoutButtons(title, content, p.window)
 	d.Show()
+}
+
+// ── Starlark syntax highlighter ──────────────────────────────────────────────
+
+var starlarkKw = map[string]bool{
+	"and": true, "break": true, "continue": true, "def": true,
+	"elif": true, "else": true, "False": true, "for": true,
+	"if": true, "in": true, "lambda": true, "load": true,
+	"None": true, "not": true, "or": true, "pass": true,
+	"return": true, "True": true,
+}
+
+var starlarkBuiltin = map[string]bool{
+	"abs": true, "all": true, "any": true, "bool": true, "dict": true,
+	"dir": true, "enumerate": true, "fail": true, "float": true,
+	"getattr": true, "hasattr": true, "hash": true, "int": true,
+	"len": true, "list": true, "max": true, "min": true, "print": true,
+	"range": true, "repr": true, "reversed": true, "set": true,
+	"sorted": true, "str": true, "tuple": true, "type": true, "zip": true,
+}
+
+func starlarkHighlight(code string) []widget.RichTextSegment {
+	lines := strings.Split(code, "\n")
+	out := make([]widget.RichTextSegment, 0, len(lines)*4)
+	for i, line := range lines {
+		if i > 0 {
+			out = append(out, &widget.TextSegment{
+				Text:  "\n",
+				Style: widget.RichTextStyle{Inline: true, TextStyle: fyne.TextStyle{Monospace: true}},
+			})
+		}
+		out = append(out, tokenizeStarlarkLine(line)...)
+	}
+	return out
+}
+
+func codeSeg(text string, cname fyne.ThemeColorName) *widget.TextSegment {
+	return &widget.TextSegment{
+		Text: text,
+		Style: widget.RichTextStyle{
+			ColorName: cname,
+			Inline:    true,
+			TextStyle: fyne.TextStyle{Monospace: true},
+		},
+	}
+}
+
+func tokenizeStarlarkLine(line string) []widget.RichTextSegment {
+	out := make([]widget.RichTextSegment, 0, 8)
+	n := len(line)
+	i := 0
+
+	for i < n {
+		c := line[i]
+
+		// comment
+		if c == '#' {
+			out = append(out, codeSeg(line[i:], design.ColorNameCodeComment))
+			return out
+		}
+
+		// string literal (single or triple quoted)
+		if c == '"' || c == '\'' {
+			q := c
+			j := i + 1
+			if j+1 < n && line[j] == q && line[j+1] == q {
+				// triple-quoted
+				j += 2
+				for j+2 < n {
+					if line[j] == q && line[j+1] == q && line[j+2] == q {
+						j += 3
+						break
+					}
+					j++
+				}
+			} else {
+				for j < n && line[j] != q {
+					if line[j] == '\\' {
+						j++
+					}
+					j++
+				}
+				if j < n {
+					j++
+				}
+			}
+			out = append(out, codeSeg(line[i:j], design.ColorNameCodeString))
+			i = j
+			continue
+		}
+
+		// number
+		if c >= '0' && c <= '9' {
+			j := i + 1
+			if c == '0' && j < n && (line[j] == 'x' || line[j] == 'X') {
+				j++
+				for j < n && (line[j] >= '0' && line[j] <= '9' ||
+					line[j] >= 'a' && line[j] <= 'f' ||
+					line[j] >= 'A' && line[j] <= 'F') {
+					j++
+				}
+			} else {
+				for j < n && (line[j] >= '0' && line[j] <= '9' || line[j] == '.') {
+					j++
+				}
+			}
+			out = append(out, codeSeg(line[i:j], design.ColorNameCodeNumber))
+			i = j
+			continue
+		}
+
+		// identifier / keyword / builtin
+		if c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+			j := i + 1
+			for j < n && (line[j] == '_' || line[j] >= 'a' && line[j] <= 'z' ||
+				line[j] >= 'A' && line[j] <= 'Z' || line[j] >= '0' && line[j] <= '9') {
+				j++
+			}
+			word := line[i:j]
+			var cname fyne.ThemeColorName
+			switch {
+			case starlarkKw[word]:
+				cname = design.ColorNameCodeKeyword
+			case starlarkBuiltin[word]:
+				cname = design.ColorNameCodeBuiltin
+			default:
+				cname = design.ColorNameCodeDefault
+			}
+			out = append(out, codeSeg(word, cname))
+			i = j
+			continue
+		}
+
+		// operators, punctuation, whitespace — collect until next special boundary
+		j := i + 1
+		for j < n {
+			nc := line[j]
+			if nc == '#' || nc == '"' || nc == '\'' ||
+				nc >= '0' && nc <= '9' ||
+				nc == '_' || nc >= 'a' && nc <= 'z' || nc >= 'A' && nc <= 'Z' {
+				break
+			}
+			j++
+		}
+		out = append(out, codeSeg(line[i:j], design.ColorNameCodeDefault))
+		i = j
+	}
+	return out
 }

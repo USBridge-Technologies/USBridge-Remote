@@ -115,7 +115,9 @@
       "Bash(echo \"exit:$?\")",
       "Bash(awk '{print $1}')",
       "Bash(awk '/^[[:space:]]*\\\\/\\\\*/{flag=1; start=NR; file=FILENAME} flag && /\\\\*\\\\//{print file\":\"start\"-\"NR\": Multi-line comment\"; flag=0}' internal/service/moonlight*.go)",
-      "Bash(awk -F: '{print $1, $3}')"
+      "Bash(awk -F: '{print $1, $3}')",
+      "Bash(gofmt -e web/security.go)",
+      "Bash(gofmt -e /Users/amir/Projects/usbridge/usbridge_service/web/security.go)"
     ]
   }
 }
