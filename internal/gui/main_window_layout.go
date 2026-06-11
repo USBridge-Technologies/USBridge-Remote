@@ -1138,6 +1138,11 @@ func (mw *MainWindow) updateStatusBar() {
 	}
 
 	go func() {
+		client := mw.usbClient
+		if client == nil {
+			return
+		}
+
 		keyboardConnected := false
 		mouseConnected := false
 		rndisConnected := false
@@ -1146,7 +1151,7 @@ func (mw *MainWindow) updateStatusBar() {
 		snapshotConnected := false
 		gamepadConnected := false
 
-		deviceInfo, err := mw.usbClient.GetDeviceInfo()
+		deviceInfo, err := client.GetDeviceInfo()
 		if err == nil {
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" {
@@ -1176,7 +1181,7 @@ func (mw *MainWindow) updateStatusBar() {
 		}
 
 		if mw.backupWidget != nil && !snapshotConnected {
-			snapshotsResp, err := mw.usbClient.GetSnapshots()
+			snapshotsResp, err := client.GetSnapshots()
 			if err == nil {
 				for _, snapshot := range snapshotsResp.Snapshots {
 					if snapshot.Connected {
@@ -1189,15 +1194,13 @@ func (mw *MainWindow) updateStatusBar() {
 
 		videoStreaming := mw.videoWidget != nil && mw.videoWidget.IsStreaming()
 		audioStreaming := false
-		if mw.usbClient != nil {
-			if info, err := mw.usbClient.GetAudioInfo(); err == nil && info != nil {
-				audioStreaming = info.Streaming
-			}
+		if info, err := client.GetAudioInfo(); err == nil && info != nil {
+			audioStreaming = info.Streaming
 		}
 		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming)
 
 		// Fetch detailed storage status
-		storageStatus, err := mw.usbClient.GetStorageStatus()
+		storageStatus, err := client.GetStorageStatus()
 		if err == nil {
 			fyne.Do(func() {
 				mw.storageStatus = storageStatus
