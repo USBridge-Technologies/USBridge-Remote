@@ -2377,6 +2377,90 @@ func (c *USBClient) DeleteScript(path string) error {
 	return nil
 }
 
+// StopScript stops a running script
+func (c *USBClient) StopScript(path string) error {
+	request := models.ScriptRunRequest{Path: path}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to serialize request: %v", err)
+	}
+
+	resp, err := c.makeRequest("POST", "/api/scripts/stop", requestJSON)
+	if err != nil {
+		return err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return fmt.Errorf("failed to stop script: %s", apiResp.Message)
+	}
+
+	return nil
+}
+
+// GetScriptStatus returns status of all running/recently finished scripts
+func (c *USBClient) GetScriptStatus() ([]models.ScriptRunStatus, error) {
+	resp, err := c.makeRequest("GET", "/api/scripts/status", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to get script status: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-marshal data: %v", err)
+	}
+
+	var statuses []models.ScriptRunStatus
+	if err := json.Unmarshal(dataBytes, &statuses); err != nil {
+		return nil, fmt.Errorf("failed to parse statuses: %v", err)
+	}
+
+	return statuses, nil
+}
+
+// GetScriptLog returns print() output lines starting at offset
+func (c *USBClient) GetScriptLog(path string, offset int) (*models.ScriptLogResponse, error) {
+	endpoint := fmt.Sprintf("/api/scripts/log?path=%s&offset=%d", url.QueryEscape(path), offset)
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !apiResp.Success {
+		return nil, fmt.Errorf("failed to get script log: %s", apiResp.Message)
+	}
+
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-marshal data: %v", err)
+	}
+
+	var logResp models.ScriptLogResponse
+	if err := json.Unmarshal(dataBytes, &logResp); err != nil {
+		return nil, fmt.Errorf("failed to parse log response: %v", err)
+	}
+
+	return &logResp, nil
+}
+
 // SaveScript saves script content
 func (c *USBClient) SaveScript(path, content string) error {
 	request := models.ScriptSaveRequest{Path: path, Content: content}

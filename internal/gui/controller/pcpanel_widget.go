@@ -920,7 +920,13 @@ func (p *PCPanelWidget) showScriptsDialog() {
 	var popup *widget.PopUp
 	listContainer := container.NewVBox()
 	scroll := container.NewVScroll(listContainer)
-	scroll.SetMinSize(fyne.NewSize(400, 300))
+	scroll.SetMinSize(fyne.NewSize(420, 300))
+
+	stopPoll := make(chan struct{})
+
+	// Per-row status updater keyed by script path.
+	type rowUpdater func(running bool, errStr string)
+	rowUpdaters := make(map[string]rowUpdater)
 
 	var refreshList func()
 
@@ -941,16 +947,38 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		srcIcon := canvas.NewImageFromResource(srcIconRes)
 		srcIcon.SetMinSize(fyne.NewSize(14, 14))
 		srcIcon.FillMode = canvas.ImageFillContain
-		nameRow := container.NewHBox(srcIcon, nameLabel)
 
-		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
+		statusDot := canvas.NewCircle(color.Transparent)
+		statusDot.Move(fyne.NewPos(0, 0))
+		statusDot.Resize(fyne.NewSize(8, 8))
+
+		nameRow := container.NewHBox(srcIcon, nameLabel, statusDot)
+
+		// Run button — hidden when running; Stop button — shown when running.
+		runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), nil)
+		runBtn.Importance = widget.HighImportance
+
+		stopBtn := widget.NewButtonWithIcon("", theme.MediaStopIcon(), nil)
+		stopBtn.Importance = widget.DangerImportance
+		stopBtn.Hide()
+
+		runBtn.OnTapped = func() {
 			if err := p.usbClient.RunScript(s.Path); err != nil {
 				view.ShowErrorDialog(err, p.window)
-			} else if popup != nil {
-				popup.Hide()
 			}
+		}
+		stopBtn.OnTapped = func() {
+			if err := p.usbClient.StopScript(s.Path); err != nil {
+				view.ShowErrorDialog(err, p.window)
+			}
+		}
+
+		logBtn := widget.NewButtonWithIcon("", theme.ListIcon(), func() {
+			time.AfterFunc(40*time.Millisecond, func() {
+				fyne.Do(func() { p.showScriptLogDialog(s.Path, name) })
+			})
 		})
-		runBtn.Importance = widget.HighImportance
+		logBtn.Importance = widget.LowImportance
 
 		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 			p.showScriptEditor(s.Path, s.Name, refreshList)
@@ -971,7 +999,24 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		})
 		deleteBtn.Importance = widget.DangerImportance
 
-		btns := container.NewHBox(runBtn, editBtn, deleteBtn)
+		rowUpdaters[s.Path] = func(running bool, errStr string) {
+			if running {
+				statusDot.FillColor = color.NRGBA{R: 0x4c, G: 0xd9, B: 0x64, A: 0xff}
+				runBtn.Hide()
+				stopBtn.Show()
+			} else if errStr != "" {
+				statusDot.FillColor = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
+				runBtn.Show()
+				stopBtn.Hide()
+			} else {
+				statusDot.FillColor = color.Transparent
+				runBtn.Show()
+				stopBtn.Hide()
+			}
+			statusDot.Refresh()
+		}
+
+		btns := container.NewHBox(logBtn, runBtn, stopBtn, editBtn, deleteBtn)
 		return view.NewCompactSurfacePanel(
 			view.NewInset(container.NewBorder(nil, nil, nil, btns, nameRow), 8, 12, 4, 4),
 			design.ColorGray950,
@@ -985,6 +1030,7 @@ func (p *PCPanelWidget) showScriptsDialog() {
 			view.ShowErrorDialog(err, p.window)
 			return
 		}
+		clear(rowUpdaters)
 		rows := make([]fyne.CanvasObject, 0, len(scripts))
 		for _, s := range scripts {
 			rows = append(rows, buildScriptRow(s))
@@ -998,18 +1044,55 @@ func (p *PCPanelWidget) showScriptsDialog() {
 
 	refreshList()
 
-	newBtn := widget.NewButtonWithIcon("New Script", theme.ContentAddIcon(), func() {
-		p.showNewScriptDialog(refreshList)
+	// Background status polling — updates running indicators every 2 s.
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPoll:
+				return
+			case <-ticker.C:
+			}
+			statuses, err := p.usbClient.GetScriptStatus()
+			if err != nil {
+				continue
+			}
+			runMap := make(map[string]models.ScriptRunStatus, len(statuses))
+			for _, st := range statuses {
+				runMap[st.Path] = st
+			}
+			fyne.Do(func() {
+				for path, upd := range rowUpdaters {
+					st, ok := runMap[path]
+					if ok {
+						upd(st.Running, st.Error)
+					} else {
+						upd(false, "")
+					}
+				}
+			})
+		}
+	}()
+
+	newEmmcBtn := widget.NewButtonWithIcon("New (eMMC)", theme.ContentAddIcon(), func() {
+		p.showNewScriptDialog("/mnt/emmc/scripts/", refreshList)
 	})
-	newBtn.Importance = widget.MediumImportance
+	newEmmcBtn.Importance = widget.MediumImportance
+
+	newSDBtn := widget.NewButtonWithIcon("New (SD)", theme.ContentAddIcon(), func() {
+		p.showNewScriptDialog("/mnt/sdcard/scripts/", refreshList)
+	})
+	newSDBtn.Importance = widget.LowImportance
 
 	closeBtn := newPCPanelDialogCloseButton(func() {
+		close(stopPoll)
 		if popup != nil {
 			popup.Hide()
 		}
 	})
 	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
-	footer := container.NewHBox(newBtn, layout.NewSpacer())
+	footer := container.NewHBox(newEmmcBtn, newSDBtn, layout.NewSpacer())
 
 	body := container.NewBorder(titleBar, footer, nil, nil, view.NewInset(scroll, 0, 0, 8, 0))
 
@@ -1033,16 +1116,43 @@ func (p *PCPanelWidget) showScriptsDialog() {
 			maxWidth := canvasSize.Width - margin*2
 			maxHeight := canvasSize.Height - margin*2
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 460), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 420), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
+
+	// Stop the polling goroutine when the popup is dismissed without pressing X.
+	go func() {
+		for popup == nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+		for popup.Visible() {
+			time.Sleep(120 * time.Millisecond)
+		}
+		select {
+		case <-stopPoll:
+		default:
+			close(stopPoll)
+		}
+	}()
 }
 
-// showNewScriptDialog asks for a script name and opens the editor with empty content.
-// New scripts are saved to /mnt/emmc/scripts/ (internal eMMC).
-func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
+// scriptSafeName converts a raw name to a safe filename (only a-z A-Z 0-9 _ -).
+func scriptSafeName(raw string) string {
+	name := strings.TrimSuffix(strings.TrimSpace(raw), ".star")
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, name)
+}
+
+// showNewScriptDialog asks for name + description, then opens the editor.
+// dir should be "/mnt/emmc/scripts/" or "/mnt/sdcard/scripts/".
+func (p *PCPanelWidget) showNewScriptDialog(dir string, onCreated func()) {
 	if p.window == nil {
 		return
 	}
@@ -1050,33 +1160,54 @@ func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("my_script")
 
+	descEntry := widget.NewEntry()
+	descEntry.SetPlaceHolder("What does this script do?")
+
+	// Validation hint shown below the name field.
+	hintLabel := canvas.NewText("", design.ColorTextMuted)
+	hintLabel.TextSize = 11
+
+	var createBtn *widget.Button
 	var popup *widget.PopUp
 
-	createScript := func() {
-		raw := strings.TrimSpace(nameEntry.Text)
-		if raw == "" {
-			return
-		}
-		name := strings.TrimSuffix(raw, ".star")
-		safe := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-				(r >= '0' && r <= '9') || r == '_' || r == '-' {
-				return r
+	validateName := func(raw string) (safe string, ok bool) {
+		safe = scriptSafeName(raw)
+		if safe == "" || strings.Trim(safe, "_-") == "" {
+			hintLabel.Text = "Enter a valid name (letters, digits, _ -)"
+			hintLabel.Color = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
+			hintLabel.Refresh()
+			if createBtn != nil {
+				createBtn.Disable()
 			}
-			return '_'
-		}, name)
-		if safe == "" {
+			return "", false
+		}
+		hintLabel.Text = "→ will be saved as:  " + safe + ".star"
+		hintLabel.Color = design.ColorTextMuted
+		hintLabel.Refresh()
+		if createBtn != nil {
+			createBtn.Enable()
+		}
+		return safe, true
+	}
+
+	nameEntry.OnChanged = func(raw string) { validateName(raw) }
+
+	createScript := func() {
+		safe, ok := validateName(nameEntry.Text)
+		if !ok {
 			return
 		}
+		desc := strings.TrimSpace(descEntry.Text)
+		if desc == "" {
+			desc = "No description"
+		}
+		path := dir + safe + ".star"
+		tmpl := fmt.Sprintf("# name: %s\n# desc: %s\n\ndef main():\n    pass\n\nmain()\n", safe, desc)
 		if popup != nil {
 			popup.Hide()
 		}
-		path := "/mnt/emmc/scripts/" + safe + ".star"
-		// Defer so this popup is fully removed from the canvas before the editor opens.
 		time.AfterFunc(50*time.Millisecond, func() {
-			fyne.Do(func() {
-				p.showScriptEditorWithContent(path, safe, "# "+safe+"\n", onCreated)
-			})
+			fyne.Do(func() { p.showScriptEditorWithContent(path, safe, tmpl, onCreated) })
 		})
 	}
 
@@ -1085,17 +1216,18 @@ func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
 	titleText := view.NewBrandText("New Script", 17, design.ColorTextLight, true)
 	titleText.Alignment = fyne.TextAlignCenter
 
-	nameLabel := widget.NewLabel("Name (.star)")
-	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
+	// Initial validation run so createBtn state is set.
+	validateName("")
+
+	createBtn = widget.NewButton("Create & Edit", func() { createScript() })
+	createBtn.Importance = widget.HighImportance
+	createBtn.Disable()
 
 	cancelBtn := widget.NewButton("Cancel", func() {
 		if popup != nil {
 			popup.Hide()
 		}
 	})
-
-	createBtn := widget.NewButton("Create", func() { createScript() })
-	createBtn.Importance = widget.HighImportance
 
 	closeBtn := newPCPanelDialogCloseButton(func() {
 		if popup != nil {
@@ -1104,10 +1236,24 @@ func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
 	})
 	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
 
+	nameLbl := canvas.NewText("Name (.star)  *", design.ColorTextLight)
+	nameLbl.TextSize = 12
+	nameLbl.TextStyle = fyne.TextStyle{Bold: true}
+	descLbl := canvas.NewText("Description", design.ColorTextLight)
+	descLbl.TextSize = 12
+	descLbl.TextStyle = fyne.TextStyle{Bold: true}
+
 	body := container.NewVBox(
 		titleBar,
 		widget.NewSeparator(),
-		view.NewInset(container.NewVBox(nameLabel, nameEntry), 0, 0, 4, 4),
+		view.NewInset(container.NewVBox(
+			nameLbl,
+			nameEntry,
+			hintLabel,
+			widget.NewSeparator(),
+			descLbl,
+			descEntry,
+		), 0, 0, 8, 4),
 		widget.NewSeparator(),
 		container.NewHBox(layout.NewSpacer(), cancelBtn, createBtn),
 	)
@@ -1129,11 +1275,167 @@ func (p *PCPanelWidget) showNewScriptDialog(onCreated func()) {
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			panelMin := panel.MinSize()
-			w := minFloat32(maxFloat32(panelMin.Width, 320), canvasSize.Width-48)
+			w := minFloat32(maxFloat32(panelMin.Width, 360), canvasSize.Width-48)
 			h := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-48)
 			return fyne.NewSize(w, h)
 		},
 	})
+}
+
+// showScriptLogDialog opens a popup that streams print() output from a script.
+func (p *PCPanelWidget) showScriptLogDialog(path, displayName string) {
+	if p.window == nil || p.usbClient == nil {
+		return
+	}
+
+	titleText := view.NewBrandText("> "+displayName+" log", 15, design.ColorAccent, true)
+
+	logEntry := widget.NewMultiLineEntry()
+	logEntry.TextStyle = fyne.TextStyle{Monospace: true}
+	logEntry.Wrapping = fyne.TextWrapWord
+	logEntry.Disable()
+	logEntry.SetText("(waiting for output...)")
+
+	logScroll := container.NewVScroll(logEntry)
+	logScroll.SetMinSize(fyne.NewSize(400, 260))
+
+	statusLabel := canvas.NewText("", design.ColorTextMuted)
+	statusLabel.TextSize = 11
+
+	var popup *widget.PopUp
+	stopPoll := make(chan struct{})
+	var offset int
+
+	appendLines := func(lines []string) {
+		if len(lines) == 0 {
+			return
+		}
+		cur := logEntry.Text
+		if cur == "(waiting for output...)" {
+			cur = ""
+		}
+		for _, l := range lines {
+			cur += l + "\n"
+		}
+		logEntry.SetText(cur)
+		logScroll.ScrollToBottom()
+	}
+
+	updateStatus := func(statuses []models.ScriptRunStatus) {
+		for _, st := range statuses {
+			if st.Path == path {
+				if st.Running {
+					statusLabel.Text = "● Running"
+					statusLabel.Color = color.NRGBA{R: 0x4c, G: 0xd9, B: 0x64, A: 0xff}
+				} else if st.Error != "" {
+					statusLabel.Text = "✖ Error: " + st.Error
+					statusLabel.Color = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
+				} else {
+					statusLabel.Text = "✔ Finished"
+					statusLabel.Color = design.ColorTextMuted
+				}
+				statusLabel.Refresh()
+				return
+			}
+		}
+		statusLabel.Text = ""
+		statusLabel.Refresh()
+	}
+
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPoll:
+				return
+			case <-ticker.C:
+			}
+
+			logResp, err := p.usbClient.GetScriptLog(path, offset)
+			if err == nil && len(logResp.Lines) > 0 {
+				lines := logResp.Lines
+				newOffset := logResp.Total
+				fyne.Do(func() {
+					appendLines(lines)
+					offset = newOffset
+				})
+			}
+
+			statuses, err := p.usbClient.GetScriptStatus()
+			if err == nil {
+				fyne.Do(func() { updateStatus(statuses) })
+			}
+		}
+	}()
+
+	clearBtn := widget.NewButton("Clear", func() {
+		logEntry.SetText("")
+		offset = 0
+	})
+	clearBtn.Importance = widget.LowImportance
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		close(stopPoll)
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+
+	headerContent := container.NewBorder(nil, nil, nil, closeBtn,
+		container.NewVBox(titleText, statusLabel),
+	)
+	headerDivider := canvas.NewRectangle(design.ColorBorder)
+	headerDivider.SetMinSize(fyne.NewSize(0, 1))
+	header := container.NewVBox(view.NewInset(headerContent, 0, 0, 8, 8), headerDivider)
+
+	footerDivider := canvas.NewRectangle(design.ColorBorder)
+	footerDivider.SetMinSize(fyne.NewSize(0, 1))
+	footer := container.NewVBox(footerDivider, view.NewInset(
+		container.NewHBox(clearBtn, layout.NewSpacer()),
+		0, 0, 8, 8,
+	))
+
+	body := container.NewBorder(header, footer, nil, nil, logScroll)
+
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = design.RadiusMD
+	accent := canvas.NewRectangle(color.Transparent)
+	accent.CornerRadius = design.RadiusMD
+	accent.StrokeColor = design.ColorBorder
+	accent.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 16, 16, 12, 12),
+		accent,
+	)
+
+	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x88},
+		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			const margin float32 = 24
+			maxW := canvasSize.Width - margin*2
+			maxH := canvasSize.Height - margin*2
+			minW := minFloat32(500, maxW)
+			minH := minFloat32(400, maxH)
+			return fyne.NewSize(minW, minH)
+		},
+	})
+
+	go func() {
+		for popup == nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+		for popup.Visible() {
+			time.Sleep(120 * time.Millisecond)
+		}
+		select {
+		case <-stopPoll:
+		default:
+			close(stopPoll)
+		}
+	}()
 }
 
 func (p *PCPanelWidget) showScriptEditor(path, name string, onClose func()) {

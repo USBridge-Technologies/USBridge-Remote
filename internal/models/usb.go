@@ -604,3 +604,17 @@ type ScriptSaveRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
+
+// ScriptRunStatus status of a running or recently finished script
+type ScriptRunStatus struct {
+	Path      string `json:"path"`
+	Running   bool   `json:"running"`
+	StartedAt string `json:"started_at"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ScriptLogResponse output lines from a script
+type ScriptLogResponse struct {
+	Lines []string `json:"lines"`
+	Total int      `json:"total"`
+}
