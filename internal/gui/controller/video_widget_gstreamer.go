@@ -248,12 +248,19 @@ func (vw *VideoWidget) handleVideoStartWithParamsGStreamer(request *models.Video
 				}
 			}
 		}
-		// Dump system Tailscale peer table once so we can diagnose
-		// whether the correct direct endpoint is being used.
-		vw.tailscaleService.LogSystemTailscalePeers()
-		logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s",
-			request.TraceID, request.ClientHost, request.ClientPort,
-			vw.tailscaleService.VideoRelayDebugInfo(bridgeIP))
+		// Dump system Tailscale peer table asynchronously — pure diagnostics,
+		// must not block the video-start hot path (exec.Command can hang ~2s on Android).
+		capturedTraceID := request.TraceID
+		capturedClientHost := request.ClientHost
+		capturedClientPort := request.ClientPort
+		capturedBridgeIP := bridgeIP
+		capturedTS := vw.tailscaleService
+		go func() {
+			capturedTS.LogSystemTailscalePeers()
+			logrus.Infof("🎬 [VIDEO %s] tailscale transport target=%s:%d relay=%s",
+				capturedTraceID, capturedClientHost, capturedClientPort,
+				capturedTS.VideoRelayDebugInfo(capturedBridgeIP))
+		}()
 	}
 
 	logrus.Infof("🧭 [VideoRoute %s] client-request mode=%s device=%s capture_pixel_format=%q size=%dx%d fps=%d bitrate=%s transport=%s listen_bind=%s:%d send_target=%s:%d",

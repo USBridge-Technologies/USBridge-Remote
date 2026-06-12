@@ -25,7 +25,16 @@ type Identity struct {
 	CertPEM    []byte
 }
 
+// ConfigDirOverride lets platform-specific code (e.g. Android) inject a
+// persistent writable directory so the identity survives app restarts.
+var ConfigDirOverride string
+
 func GetConfigDir() (string, error) {
+	if ConfigDirOverride != "" {
+		if err := os.MkdirAll(ConfigDirOverride, 0700); err == nil {
+			return ConfigDirOverride, nil
+		}
+	}
 	// Try candidates in order; use the first one where MkdirAll succeeds.
 	candidates := []func() (string, error){
 		func() (string, error) {

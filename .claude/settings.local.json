@@ -120,7 +120,10 @@
       "Bash(gofmt -e /Users/amir/Projects/usbridge/usbridge_service/web/security.go)",
       "Bash(command -v qemu-nbd)",
       "Read(//usr/local/bin/**)",
-      "Bash(lsof -iTCP -sTCP:LISTEN -nP)"
+      "Bash(lsof -iTCP -sTCP:LISTEN -nP)",
+      "Bash(echo \"Build PID: $!\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(chmod +x *)"
     ]
   }
 }

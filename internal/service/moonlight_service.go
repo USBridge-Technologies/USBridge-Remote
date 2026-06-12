@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,9 +40,10 @@ type MoonlightService struct {
 	client        *moonlight.Client
 	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
 	lastAppId     int                  // app ID from the last Launch(); used to quit before reconnect
-	stopPlayerCh    chan struct{}         // closed to stop the active GStreamer player goroutines
-	activeWrapper   *MoonlightCgoWrapper // set while a stream is running, used for input routing
-	tailscaleSvc    *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
+	stopPlayerCh       chan struct{}         // closed to stop the active GStreamer player goroutines
+	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
+	tailscaleSvc       *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
+	stopMoonlightProxy func()               // non-nil when a tsnet proxy is active for internet streaming
 }
 
 // SetAPISecret stores the master secret used to HMAC-sign requests to the usbridge API.
@@ -58,6 +60,8 @@ func (m *MoonlightService) SetTailscaleService(ts *TailscaleService) {
 
 // NewMoonlightService creates a new MoonlightService.
 func NewMoonlightService(config *models.AppConfig) *MoonlightService {
+	// On Android, point identity storage at the persistent files dir before loading.
+	initMoonlightConfigDir()
 	// Initialize Moonlight Identity and Client
 	identity, err := moonlight.LoadOrGenerateIdentity()
 	if err != nil {
@@ -273,8 +277,6 @@ func (m *MoonlightService) ConnectToRTP() error {
 	// stack and can only reach LAN IPs via the kernel wlan0 route.
 	// If the Tailscale peer has a direct (non-100.x) endpoint on the same LAN,
 	// use that so LiStartConnection's RTSP/RTP go through the kernel directly.
-	// For remote peers (DERP only), warn and use the Tailscale IP — RTSP will
-	// likely stall; the user needs kernel Tailscale for cross-network Moonlight.
 	moonlightHost := m.client.Host
 	if m.tailscaleSvc != nil {
 		// C-level BSD sockets bypass tsnet and need a direct LAN route.
@@ -307,7 +309,25 @@ func (m *MoonlightService) ConnectToRTP() error {
 				logrus.Infof("🌕 [Moonlight/tsnet] RTSP via LAN: %s", sessionUrl)
 			}
 		} else {
-			logrus.Warn("🌕 [Moonlight/tsnet] no reachable LAN IP — C sockets will use Tailscale IP (needs system VPN)")
+			// DERP-only (internet): C-level BSD sockets have no kernel route to the
+			// Tailscale IP. Start a local TCP+UDP proxy so the C library connects to
+			// 127.0.0.1 while Go routes everything through tsnet.
+			rtspPort := 48010 // default; parse from sessionUrl for accuracy
+			if _, portStr, splitErr := net.SplitHostPort(sessionUrl); splitErr == nil {
+				if p, perr := strconv.Atoi(portStr); perr == nil && p > 0 {
+					rtspPort = p
+				}
+			}
+			stopProxy, localRTSPPort, proxyErr := startMoonlightProxy(m.tailscaleSvc, m.client.Host, rtspPort)
+			if proxyErr != nil {
+				logrus.Warnf("🌕 [Moonlight/tsnet] no reachable LAN IP and proxy failed (%v) — C sockets will use Tailscale IP (needs system VPN)", proxyErr)
+			} else {
+				moonlightHost = "127.0.0.1"
+				// Keep host:port format (no rtsp:// prefix; CGO wrapper handles that per-platform).
+				sessionUrl = fmt.Sprintf("127.0.0.1:%d", localRTSPPort)
+				m.stopMoonlightProxy = stopProxy
+				logrus.Infof("🌕 [Moonlight/Proxy] ✅ Internet proxy active: moonlightHost=127.0.0.1 rtspProxy=127.0.0.1:%d", localRTSPPort)
+			}
 		}
 	}
 	t3 := time.Now()
@@ -372,6 +392,10 @@ func (m *MoonlightService) Disconnect() error {
 	if m.stopPlayerCh != nil {
 		close(m.stopPlayerCh)
 		m.stopPlayerCh = nil
+	}
+	if m.stopMoonlightProxy != nil {
+		m.stopMoonlightProxy()
+		m.stopMoonlightProxy = nil
 	}
 	if m.onStateChanged != nil {
 		m.onStateChanged("disconnected")

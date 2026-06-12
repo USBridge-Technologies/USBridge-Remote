@@ -95,6 +95,14 @@ func (s *TailscaleService) IsSystemTailscaleAvailable() bool {
 // CheckSystemTailscaleStatus returns system Tailscale status without starting tsnet.
 // Returns nil if system Tailscale is unavailable or not in a connected state.
 func (s *TailscaleService) CheckSystemTailscaleStatus() *TailscaleStatus {
+	// In userspace (tsnet) mode there is no system Tailscale binary to query.
+	// Skip the exec.Command so we don't block for ~2s waiting for it to fail (Android).
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+	if userspace {
+		return nil
+	}
 	tsPath := getTailscaleBinaryPath()
 	if tsPath == "" {
 		return nil
