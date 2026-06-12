@@ -38,6 +38,7 @@ type MoonlightService struct {
 
 	client        *moonlight.Client
 	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
+	lastAppId     int                  // app ID from the last Launch(); used to quit before reconnect
 	stopPlayerCh    chan struct{}         // closed to stop the active GStreamer player goroutines
 	activeWrapper   *MoonlightCgoWrapper // set while a stream is running, used for input routing
 	tailscaleSvc    *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
@@ -177,6 +178,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.isRunning = false
 		return fmt.Errorf("failed to launch app: %v", err)
 	}
+	m.lastAppId = appId
 	logrus.Infof("🚀 Moonlight App Launched! RTSP Session URL: %s", sessionUrl)
 
 	// Stop any previous player.
@@ -443,6 +445,16 @@ func (m *MoonlightService) host() string {
 
 func (m *MoonlightService) Reconnect() error {
 	_ = m.Disconnect()
+	// Tell Sunshine to end the current session before reconnecting. This resets
+	// Sunshine's internal session state so the next Launch() gets a fresh session
+	// instead of resuming a potentially-corrupted one (which causes code=60 / ETIMEDOUT).
+	if m.lastAppId != 0 {
+		if err := m.client.Quit(m.lastAppId); err != nil {
+			logrus.Warnf("🌕 [Moonlight] /quit failed (non-fatal): %v", err)
+		} else {
+			logrus.Info("🌕 [Moonlight] /quit sent — Sunshine session reset")
+		}
+	}
 	return m.ConnectToRTP()
 }
 

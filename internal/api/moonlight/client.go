@@ -256,3 +256,20 @@ func (c *Client) doLaunchOrResume(path string, params map[string]string) (string
 	// Strip rtsp:// scheme — moonlight-common-c expects host:port only.
 	return strings.TrimPrefix(root.SessionUrl, "rtsp://"), nil
 }
+
+// Quit terminates the currently-running app on Sunshine, resetting its session state.
+// Call this before reconnecting after a failed connection so that the next Launch()
+// gets a fresh session instead of resuming a potentially-corrupted one.
+func (c *Client) Quit(appId int) error {
+	url := c.getURL(true, "/quit", map[string]string{
+		"appid": fmt.Sprintf("%d", appId),
+	})
+	resp, err := c.httpsClient.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	logrus.Infof("📩 [Moonlight] /quit HTTP %d raw: %s", resp.StatusCode, string(body))
+	return nil
+}

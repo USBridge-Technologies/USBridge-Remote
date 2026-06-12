@@ -50,6 +50,12 @@ func (mw *MainWindow) showConnectionManager() {
 		if mw.deviceButtonsPanel != nil {
 			mw.deviceButtonsPanel.Hide()
 		}
+		// Refresh the list before making it visible so newly-resolved
+		// Tailscale addresses (set by RememberResolvedTailscaleHost while
+		// the main content was shown) are not stuck showing "TS: none".
+		if mw.connectionManager != nil {
+			mw.connectionManager.RefreshList()
+		}
 		mw.window.SetContent(mw.connectionContent)
 		if content := mw.window.Content(); content != nil {
 			content.Refresh()

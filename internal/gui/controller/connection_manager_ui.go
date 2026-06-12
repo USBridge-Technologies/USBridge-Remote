@@ -138,6 +138,16 @@ func (cm *ConnectionManager) openHardwarePromo() {
 	cm.openExternalLink(promoURL, "hardware promo URL")
 }
 
+// RefreshList forces an immediate re-render of the connections list.
+// Call this whenever the connection manager becomes visible so stale
+// "TS: none" entries are replaced with the latest saved Tailscale addresses.
+func (cm *ConnectionManager) RefreshList() {
+	if cm == nil {
+		return
+	}
+	cm.refreshConnectionsList()
+}
+
 func (cm *ConnectionManager) refreshConnectionsList() {
 	if len(cm.connections) == 0 {
 		cm.ui.SetEmptyState()
