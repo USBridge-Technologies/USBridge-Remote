@@ -3,7 +3,10 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"net"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -39,12 +42,25 @@ type QemuNBDRunner struct {
 	format      string
 	readOnly    bool
 	bindHost    string
+	allowedIP   string        // if set, only this remote IP is forwarded through the proxy
 	port        int
 	cmd         *exec.Cmd
 	overlayPath string
 	readyChan   chan struct{}
 	running     bool
 	mu          sync.RWMutex
+	proxyCancel context.CancelFunc // cancels the IP-filter proxy goroutine
+}
+
+// SetAllowedIP restricts qemu-nbd connections to a single remote IP via a TCP proxy.
+// Must be called before Start().
+func (q *QemuNBDRunner) SetAllowedIP(ip string) {
+	q.mu.Lock()
+	q.allowedIP = ip
+	q.mu.Unlock()
+	if ip != "" {
+		logrus.Infof("🔒 [NBD-QEMU] Connection filter set: only %s is allowed", ip)
+	}
 }
 
 // qemuNbdFormat returns format for qemu-nbd -f by extension.
@@ -118,10 +134,16 @@ func (q *QemuNBDRunner) Start(port int) error {
 		return fmt.Errorf("qemu-nbd not found. Install QEMU (e.g.: apt install qemu-utils, brew install qemu)")
 	}
 
+	bindHost := q.getBindHost()
+	if q.allowedIP != "" && bindHost != "127.0.0.1" {
+		// IP-filter mode: qemu-nbd on loopback, filtering TCP proxy on the real bind address.
+		return q.startWithProxy(path, port, qemuNbd, bindHost)
+	}
+
 	args := []string{
 		"-f", q.format,
 		"-p", fmt.Sprintf("%d", port),
-		"-b", q.getBindHost(),
+		"-b", bindHost,
 	}
 	if q.readOnly {
 		args = append(args, "-r")
@@ -139,7 +161,7 @@ func (q *QemuNBDRunner) Start(port int) error {
 
 	q.port = port
 	q.running = true
-	logrus.Infof("✅ [NBD-QEMU] qemu-nbd started: bind=%s port=%d, format=%s, readOnly=%v, path=%s", q.getBindHost(), port, q.format, q.readOnly, path)
+	logrus.Infof("✅ [NBD-QEMU] qemu-nbd started: bind=%s port=%d, format=%s, readOnly=%v, path=%s", bindHost, port, q.format, q.readOnly, path)
 
 	// Readiness: give qemu-nbd time to open the port
 	go func() {
@@ -157,6 +179,120 @@ func (q *QemuNBDRunner) Start(port int) error {
 	return nil
 }
 
+// startWithProxy starts qemu-nbd on a loopback port and fronts it with a
+// TCP proxy on the real bind address that only forwards connections from allowedIP.
+func (q *QemuNBDRunner) startWithProxy(path string, port int, qemuNbd, bindHost string) error {
+	listenAddr := fmt.Sprintf("%s:%d", bindHost, port)
+
+	// Bind the proxy listener FIRST so we fail fast if the port is busy,
+	// without leaving a zombie qemu-nbd on loopback.
+	proxyLn, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		// Port is held by a stale qemu-nbd from a previous run — kill it and retry.
+		logrus.Warnf("⚠️ [NBD-QEMU] Port %s busy, killing stale qemu-nbd and retrying...", listenAddr)
+		exec.Command("pkill", "-f", fmt.Sprintf("qemu-nbd.*%d", port)).Run()
+		exec.Command("pkill", "-f", fmt.Sprintf("qemu-nbd.*-p %d", port)).Run()
+		time.Sleep(400 * time.Millisecond)
+		proxyLn, err = net.Listen("tcp", listenAddr)
+		if err != nil {
+			return fmt.Errorf("proxy listen %s: %w", listenAddr, err)
+		}
+	}
+
+	// Pick a free loopback port for qemu-nbd.
+	loopLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		proxyLn.Close()
+		return fmt.Errorf("allocating loopback port: %w", err)
+	}
+	loopPort := loopLn.Addr().(*net.TCPAddr).Port
+	loopLn.Close()
+
+	args := []string{"-f", q.format, "-p", fmt.Sprintf("%d", loopPort), "-b", "127.0.0.1"}
+	if q.readOnly {
+		args = append(args, "-r")
+	}
+	args = append(args, path)
+
+	q.cmd = exec.Command(qemuNbd, args...)
+	maybeHideWindow(q.cmd)
+	if err := q.cmd.Start(); err != nil {
+		proxyLn.Close()
+		q.cmd = nil
+		return fmt.Errorf("starting qemu-nbd: %w", err)
+	}
+
+	// Give qemu-nbd time to open its loopback port.
+	time.Sleep(400 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	q.proxyCancel = cancel
+	targetAddr := fmt.Sprintf("127.0.0.1:%d", loopPort)
+
+	go func() {
+		defer proxyLn.Close()
+		for {
+			conn, err := proxyLn.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+				default:
+					logrus.Warnf("⚠️ [NBD-QEMU-PROXY] Accept error: %v", err)
+				}
+				return
+			}
+			go q.proxyConn(ctx, conn, targetAddr)
+		}
+	}()
+
+	q.port = port
+	q.running = true
+	logrus.Infof("✅ [NBD-QEMU] started with IP-filter proxy: %s → 127.0.0.1:%d (allowed: %s), format=%s ro=%v",
+		listenAddr, loopPort, q.allowedIP, q.format, q.readOnly)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		q.mu.Lock()
+		ch := q.readyChan
+		q.mu.Unlock()
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}()
+
+	return nil
+}
+
+// proxyConn forwards a single connection to targetAddr after IP validation.
+func (q *QemuNBDRunner) proxyConn(ctx context.Context, conn net.Conn, targetAddr string) {
+	defer conn.Close()
+
+	remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	if remoteIP != q.allowedIP {
+		logrus.Warnf("🚫 [NBD-QEMU] Rejected connection from %s (only %s is allowed)", remoteIP, q.allowedIP)
+		return
+	}
+	logrus.Infof("📥 [NBD-QEMU] Forwarding connection from %s → %s", remoteIP, targetAddr)
+
+	target, err := net.Dial("tcp", targetAddr)
+	if err != nil {
+		logrus.Errorf("❌ [NBD-QEMU-PROXY] connect to qemu-nbd: %v", err)
+		return
+	}
+	defer target.Close()
+
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(target, conn); done <- struct{}{} }()
+	go func() { io.Copy(conn, target); done <- struct{}{} }()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
 func (q *QemuNBDRunner) getBindHost() string {
 	if strings.TrimSpace(q.bindHost) == "" {
 		return "127.0.0.1"
@@ -164,10 +300,15 @@ func (q *QemuNBDRunner) getBindHost() string {
 	return strings.TrimSpace(q.bindHost)
 }
 
-// Stop stops qemu-nbd and deletes the overlay if present.
+// Stop stops qemu-nbd (and the IP-filter proxy if running).
 func (q *QemuNBDRunner) Stop() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+
+	if q.proxyCancel != nil {
+		q.proxyCancel()
+		q.proxyCancel = nil
+	}
 
 	if q.cmd == nil || q.cmd.Process == nil {
 		return nil

@@ -37,6 +37,18 @@ type NBDServer struct {
 	stopHealth   chan bool
 	app          fyne.App      // Для доступа к SAF на Android
 	readyChan    chan struct{} // Канал для сигнала готовности сервера
+	allowedIP    string        // if non-empty, reject connections not from this IP
+}
+
+// SetAllowedIP restricts NBD connections to a single remote IP.
+// Call before Start(); safe to call concurrently.
+func (ns *NBDServer) SetAllowedIP(ip string) {
+	ns.mutex.Lock()
+	ns.allowedIP = ip
+	ns.mutex.Unlock()
+	if ip != "" {
+		logrus.Infof("🔒 [NBD] Connection filter set: only %s is allowed", ip)
+	}
 }
 
 // DiskExport экспорт устройства для NBD сервера
@@ -819,6 +831,18 @@ func (ns *NBDServer) handleClient(conn net.Conn) {
 
 	clientAddr := conn.RemoteAddr().String()
 	connStartTime := time.Now()
+
+	ns.mutex.RLock()
+	allowedIP := ns.allowedIP
+	ns.mutex.RUnlock()
+	if allowedIP != "" {
+		remoteIP, _, _ := net.SplitHostPort(clientAddr)
+		if remoteIP != allowedIP {
+			logrus.Warnf("🚫 [NBD] Rejected connection from %s (only %s is allowed)", remoteIP, allowedIP)
+			return
+		}
+	}
+
 	logrus.Infof("📥 [NBD-CLIENT-CONNECT] Новый NBD клиент подключен: %s", clientAddr)
 
 	// Включаем TCP KeepAlive — обнаруживаем разрыв быстрее, чем дефолтные 2 часа.

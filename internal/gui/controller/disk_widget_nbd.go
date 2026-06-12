@@ -61,6 +61,21 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 	return 0, fmt.Errorf("не удалось найти свободный порт в диапазоне %d-%d", basePort, basePort+maxAttempts-1)
 }
 
+// getDeviceIP returns the IP of the usbridge device we are connected to.
+// This is used to restrict NBD connections to that specific host only.
+func (dw *DiskWidget) getDeviceIP() string {
+	if dw.usbClient == nil {
+		return ""
+	}
+	baseURL := dw.usbClient.GetBaseURL()
+	host := strings.TrimPrefix(baseURL, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	return strings.TrimSpace(host)
+}
+
 // resolveNBDBindHost returns the address the NBD server should listen on.
 // FRP tunnel → 127.0.0.1; Tailscale → 100.x.x.x interface; default → 127.0.0.1.
 func (dw *DiskWidget) resolveNBDBindHost() string {
@@ -97,6 +112,9 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 	if useQemuNbd {
 		bindHost := dw.resolveNBDBindHost()
 		runner := service.NewQemuNBDRunner(diskInfo.Path, readOnly, bindHost)
+		if deviceIP := dw.getDeviceIP(); deviceIP != "" {
+			runner.SetAllowedIP(deviceIP)
+		}
 		if err := runner.EnsureQemuNbdForExport(); err != nil {
 			return nil, fmt.Errorf("образы VMDK/QCOW2/VDI требуют qemu-nbd: %w", err)
 		}
@@ -109,6 +127,9 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 
 	bindHost := dw.resolveNBDBindHost()
 	nbdServer := service.NewNBDServerWithApp(bindHost, dw.app)
+	if deviceIP := dw.getDeviceIP(); deviceIP != "" {
+		nbdServer.SetAllowedIP(deviceIP)
+	}
 	if err := nbdServer.Start(port); err != nil {
 		return nil, fmt.Errorf("ошибка запуска NBD сервера: %v", err)
 	}
