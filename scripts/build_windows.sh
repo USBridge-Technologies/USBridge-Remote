@@ -956,7 +956,7 @@ echo -e "\n${YELLOW}🛠️ Проверка обязательных библи
 FORCE_DLLS=(
     "libhwy.dll" "libogg-0.dll" "libbrotlienc.dll" "libjxl_cms.dll"
     "libsoxr.dll" "libsharpyuv-0.dll" "libshaderc_shared.dll" "liblcms2-2.dll"
-    "libgomp-1.dll" "libstdc++-6.dll"
+    "libgomp-1.dll" "libstdc++-6.dll" "libpng16-16.dll"
 )
 for _fdll in "${FORCE_DLLS[@]}"; do
     _existing="$(find "$DIST_WIN" -maxdepth 1 -iname "$_fdll" 2>/dev/null | head -1)"
