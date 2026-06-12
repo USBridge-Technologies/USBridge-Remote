@@ -43,10 +43,25 @@ func IsOverlayCapableExtension(ext string) bool {
 	}
 }
 
-// qemuImgPath looks for qemu-img in PATH.
+// lookQemuTool finds a QEMU binary by name. Checks PATH first, then common
+// installation prefixes (Homebrew on macOS, /usr/local on Linux) so the app
+// works even when launched outside a full shell environment.
+func lookQemuTool(name string) string {
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	for _, prefix := range []string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"} {
+		candidate := prefix + "/" + name
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// qemuImgPath looks for qemu-img in PATH and known prefixes.
 func qemuImgPath() string {
-	path, _ := exec.LookPath("qemu-img")
-	return path
+	return lookQemuTool("qemu-img")
 }
 
 // qemuImgVirtualSize returns the virtual size of the image in bytes (qemu-img info --output=json).

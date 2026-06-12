@@ -113,9 +113,9 @@ func (q *QemuNBDRunner) Start(port int) error {
 		path = q.overlayPath
 	}
 
-	qemuNbd, err := exec.LookPath("qemu-nbd")
-	if err != nil {
-		return fmt.Errorf("qemu-nbd not found in PATH. Install QEMU (e.g.: apt install qemu-utils, brew install qemu)")
+	qemuNbd := lookQemuTool("qemu-nbd")
+	if qemuNbd == "" {
+		return fmt.Errorf("qemu-nbd not found. Install QEMU (e.g.: apt install qemu-utils, brew install qemu)")
 	}
 
 	args := []string{
