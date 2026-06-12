@@ -2,9 +2,9 @@
 
 package service
 
-// NativeVideoOverlayIsActive reports whether the GDI child-window overlay is live.
+// NativeVideoOverlayIsActive reports whether the Vulkan (or fallback GDI) overlay is live.
 // When true, goVTFrame skips Go image allocation; the native render thread already
-// received the frame via gl_video_try_submit at the C level.
+// received the frame via vk_video_try_submit / gl_video_try_submit at the C level.
 func NativeVideoOverlayIsActive() bool {
-	return GLVideoIsActive()
+	return VKVideoIsActive() || GLVideoIsActive()
 }

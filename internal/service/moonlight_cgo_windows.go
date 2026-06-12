@@ -33,7 +33,11 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
-// Native GDI overlay fast path (defined in gl_video_impl_windows.c).
+// Native overlay fast paths.
+// Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
+extern int vk_video_is_active(void);
+extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+// GDI fallback (gl_video_impl_windows.c) — BGRA format.
 extern int gl_video_is_active(void);
 extern int gl_video_try_submit(uint8_t *bgra, int width, int height, int stride);
 
@@ -268,7 +272,9 @@ static void win_deliver_frame(AVFrame *frame) {
         frame = sw;
     }
     int w = frame->width, h = frame->height;
-    enum AVPixelFormat dst_fmt = gl_video_is_active() ? AV_PIX_FMT_BGRA : AV_PIX_FMT_RGBA;
+    // Vulkan and Fyne canvas both want RGBA; only GDI fallback needs BGRA.
+    enum AVPixelFormat dst_fmt = (!vk_video_is_active() && gl_video_is_active())
+                                 ? AV_PIX_FMT_BGRA : AV_PIX_FMT_RGBA;
     if (!g_sws || w != g_av_w || h != g_av_h || dst_fmt != g_av_dst_fmt) {
         if (g_sws) sws_freeContext(g_sws);
         g_sws = sws_getContext(w, h, (enum AVPixelFormat)frame->format,
@@ -283,8 +289,9 @@ static void win_deliver_frame(AVFrame *frame) {
             sws_scale(g_sws, (const uint8_t *const *)frame->data, frame->linesize,
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1) goVTLog((char*)"libavcodec/win: first video frame decoded");
-            // GDI overlay wants BGRA. Fyne fallback wants RGBA, so dst_fmt is chosen above.
-            gl_video_try_submit(pixels, w, h, w * 4);
+            // Submit to native overlay (Vulkan preferred, GDI fallback); no-op if inactive.
+            if (!vk_video_try_submit(pixels, w, h, w * 4))
+                gl_video_try_submit(pixels, w, h, w * 4);
             goVTFrame(pixels, w, h, w * 4);
             free(pixels);
         }

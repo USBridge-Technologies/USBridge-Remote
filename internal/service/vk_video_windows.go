@@ -1,0 +1,138 @@
+//go:build windows && cgo
+
+package service
+
+/*
+#cgo CFLAGS: -I/ucrt64/include
+#cgo LDFLAGS: -L/ucrt64/lib -lvulkan-1 -lgdi32 -luser32
+
+#include <stdint.h>
+
+// Implemented in vk_video_impl_windows.c.
+extern int  vk_video_is_active(void);
+extern int  vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+extern int  vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h);
+extern void vk_video_update_frame(int x, int y, int w, int h);
+extern void vk_video_destroy(void);
+extern void vk_video_get_stats(long long *rendered, long long *submitted,
+                               float *fps, int *fps_ready,
+                               int *first_frame, int *fw, int *fh,
+                               float *max_gap_ms);
+extern void vk_video_clear_pending_stats(void);
+extern void vk_video_get_diag(long long *hb, int *stage);
+extern void vk_video_set_hidden(int hidden);
+
+extern void goVKLog(char *msg, int level);
+*/
+import "C"
+
+import (
+	"unsafe"
+
+	"github.com/sirupsen/logrus"
+)
+
+//export goVKLog
+func goVKLog(msg *C.char, level C.int) {
+	text := C.GoString(msg)
+	switch int(level) {
+	case 1:
+		logrus.Warnf("[Vulkan/Win] %s", text)
+	case 2:
+		logrus.Errorf("[Vulkan/Win] %s", text)
+	default:
+		logrus.Infof("[Vulkan/Win] %s", text)
+	}
+}
+
+func VKVideoIsActive() bool {
+	return C.vk_video_is_active() != 0
+}
+
+// VKVideoTrySubmit submits an RGBA frame to the Vulkan render thread.
+func VKVideoTrySubmit(rgba []byte, width, height, stride int) bool {
+	if len(rgba) == 0 {
+		return false
+	}
+	return C.vk_video_try_submit(
+		(*C.uint8_t)(unsafe.Pointer(&rgba[0])),
+		C.int(width), C.int(height), C.int(stride),
+	) != 0
+}
+
+// VKVideoCreate initialises the Vulkan child-window renderer.
+// Returns false if Vulkan is unavailable; caller should fall back to GDI.
+func VKVideoCreate(hwnd uintptr, x, y, w, h int) bool {
+	return C.vk_video_create(C.uintptr_t(hwnd), C.int(x), C.int(y), C.int(w), C.int(h)) != 0
+}
+
+var vkOverlayLastX, vkOverlayLastY, vkOverlayLastW, vkOverlayLastH int
+
+// VKVideoUpdateFrame repositions the child HWND overlay.
+func VKVideoUpdateFrame(x, y, w, h int) {
+	if x == vkOverlayLastX && y == vkOverlayLastY && w == vkOverlayLastW && h == vkOverlayLastH {
+		return
+	}
+	vkOverlayLastX, vkOverlayLastY, vkOverlayLastW, vkOverlayLastH = x, y, w, h
+	C.vk_video_update_frame(C.int(x), C.int(y), C.int(w), C.int(h))
+}
+
+func VKVideoResetLastFrame() {
+	vkOverlayLastX, vkOverlayLastY, vkOverlayLastW, vkOverlayLastH = 0, 0, 0, 0
+}
+
+func VKVideoDestroy() {
+	C.vk_video_destroy()
+}
+
+// VKVideoStats mirrors GLVideoStats for the Vulkan render thread.
+type VKVideoStats struct {
+	Rendered   int64
+	Submitted  int64
+	FPS        float32
+	FPSReady   bool
+	FirstFrame bool
+	FW, FH     int
+	MaxGapMs   float32
+}
+
+func VKVideoGetStats() VKVideoStats {
+	var r, s C.longlong
+	var fp, mgap C.float
+	var fpsr, ff, fw, fh C.int
+	C.vk_video_get_stats(&r, &s, &fp, &fpsr, &ff, &fw, &fh, &mgap)
+	return VKVideoStats{
+		Rendered:   int64(r),
+		Submitted:  int64(s),
+		FPS:        float32(fp),
+		FPSReady:   fpsr != 0,
+		FirstFrame: ff != 0,
+		FW:         int(fw),
+		FH:         int(fh),
+		MaxGapMs:   float32(mgap),
+	}
+}
+
+func VKVideoClearPendingStats() {
+	C.vk_video_clear_pending_stats()
+}
+
+// VKVideoGetDiag returns the render-thread heartbeat counter and current stage code.
+// Stage codes: 0=idle 1=got-frame 2=staging 3=acquire 4=fence-wait 5=queue-submit 6=present 7=recreate
+func VKVideoGetDiag() (hb int64, stage int) {
+	var h C.longlong
+	var s C.int
+	C.vk_video_get_diag(&h, &s)
+	return int64(h), int(s)
+}
+
+// VKVideoSetHidden hides (hidden=true) or shows (hidden=false) the overlay without
+// destroying it. Called when a Fyne menu/popup opens or closes so the native overlay
+// doesn't paint over Fyne's own UI — mirrors macOS MetalVideoSetHidden.
+func VKVideoSetHidden(hidden bool) {
+	h := C.int(0)
+	if hidden {
+		h = 1
+	}
+	C.vk_video_set_hidden(h)
+}

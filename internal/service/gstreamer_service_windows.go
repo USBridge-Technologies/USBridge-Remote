@@ -583,6 +583,13 @@ func (gs *GStreamerService) processSample(sample *gst.Sample) {
 	// Release map
 	buffer.Unmap()
 
+	// Submit to native Vulkan/GDI overlay if active (fast path, bypasses Fyne canvas).
+	if NativeVideoOverlayIsActive() {
+		if !VKVideoTrySubmit(dataCopy, w, h, w*4) {
+			GLVideoTrySubmit(dataCopy, w, h, w*4)
+		}
+	}
+
 	// Convert to image.Image using copied data
 	img := gs.rgbaToImage(dataCopy, w, h)
 	if img != nil {
