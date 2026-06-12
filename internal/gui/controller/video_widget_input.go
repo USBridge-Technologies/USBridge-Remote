@@ -93,7 +93,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 		}
 	}
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
+		if vkCode := moonlightVKCode(event); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}
@@ -115,10 +115,22 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 		}
 	}
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		if vkCode := input.GetVKCode(event.Name); vkCode != 0 {
+		if vkCode := moonlightVKCode(event); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}
+}
+
+// moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
+// Primary: look up by Fyne key name (works for all layouts that produce ASCII names).
+// Fallback: use the hardware scan code — this handles non-Latin layouts (Russian,
+// Ukrainian, etc.) where GLFW returns KeyUnknown as the key name but still reports
+// the correct PS/2 scan code for the physical key position.
+func moonlightVKCode(event *fyne.KeyEvent) int16 {
+	if vk := input.GetVKCode(event.Name); vk != 0 {
+		return vk
+	}
+	return input.GetVKCodeFromScanCode(event.Physical.ScanCode)
 }
 
 // handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
