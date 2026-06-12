@@ -46,7 +46,9 @@
       "Bash(CGO_ENABLED=1 GOOS=windows GOARCH=amd64 GOCACHE=/c/Projects/usbridge/usbridge_client/.cache/go-build/windows-amd64 GOMODCACHE=/c/Projects/usbridge/usbridge_client/.cache/go-mod GOMAXPROCS=12 CGO_CFLAGS=-IC:/msys64/ucrt64/include CGO_LDFLAGS='-LC:/msys64/ucrt64/lib -lvulkan-1 -lgdi32 -luser32' go build -trimpath -ldflags=-H=console -o /c/Projects/usbridge/usbridge_client/.cache/build/windows-amd64/release/USBridge_Client_console.exe .)",
       "Bash(/c/Users/fatku/go/bin/fyne version *)",
       "Bash(CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_ENABLED=1 /c/Users/fatku/go/bin/fyne package --target windows --executable .cache/build/windows-amd64/release/USBridge_Client.exe --app-id com.usbridge.client --name 'USBridge Client' --app-version 1.0.0 --icon Icon.png --release -- -j 12)",
-      "Bash(echo \"FYNE_EXIT:$?\")"
+      "Bash(echo \"FYNE_EXIT:$?\")",
+      "Bash(xargs grep -l \"Win32\\\\|windows.h\\\\|GetKeyboardState\\\\|GetAsyncKeyState\")",
+      "Bash(grep *)"
     ]
   }
 }
