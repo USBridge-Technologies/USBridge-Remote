@@ -285,10 +285,6 @@ func (vw *VideoWidget) StopVideoSync() error {
 func (vw *VideoWidget) stopVideoInternal() {
 	logrus.Info("🛑 [VideoWidget] Internal stop starting...")
 
-	// Release any keys still held in the Moonlight session before tearing down the connection.
-	// If Fyne dropped a KeyUp event, the remote key would stay stuck without this.
-	vw.releaseAllMoonlightKeys()
-
 	fyne.Do(func() {
 		if vw.statusLabel != nil {
 			vw.statusLabel.SetText(i18n.Current.StoppingVideoCapture)
