@@ -317,6 +317,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			fd.exitFullscreen()
 			return
 		}
+		// handleKeyPress already guards against Moonlight-active path (where keys go via
+		// KeyDown/KeyUp instead). Canvas.SetOnTypedKey fires on every OS key-repeat, so
+		// without the guard we'd get turbo: this call is only meaningful for non-Moonlight.
 		fd.handleKeyPress(event)
 	})
 

@@ -97,6 +97,27 @@ func (vw *VideoWidget) moonlightTrackKeyUp(vkCode int16) {
 	delete(vw.moonlightHeldVKs, vkCode)
 }
 
+// releaseAllMoonlightKeys sends synthetic KeyUp for every key currently tracked as held,
+// then clears the held set and resets modifier state. Call on window focus loss or stream
+// stop to prevent stuck keys from continuing to repeat on the remote host.
+func (vw *VideoWidget) releaseAllMoonlightKeys() {
+	mi := vw.moonlightInput()
+	vw.moonlightKeyMu.Lock()
+	defer vw.moonlightKeyMu.Unlock()
+	if len(vw.moonlightHeldVKs) == 0 {
+		return
+	}
+	logrus.Infof("⌨️ [INPUT] releasing %d stuck held key(s) (focus lost or stream stopped)", len(vw.moonlightHeldVKs))
+	if mi != nil {
+		mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
+		for vkCode := range vw.moonlightHeldVKs {
+			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods)
+		}
+	}
+	vw.moonlightHeldVKs = nil
+	vw.keyboardModifierState.Store(0)
+}
+
 func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return

@@ -135,8 +135,13 @@ func (t *TouchpadWrapper) SetWindowFocusTarget(target fyne.Focusable) {
 // FocusGained реализация fyne.Focusable
 func (t *TouchpadWrapper) FocusGained() {}
 
-// FocusLost реализация fyne.Focusable
-func (t *TouchpadWrapper) FocusLost() {}
+// FocusLost реализация fyne.Focusable. Releases any Moonlight-held keys so the remote
+// host doesn't see a stuck key when the user alt-tabs or clicks outside the stream window.
+func (t *TouchpadWrapper) FocusLost() {
+	if t.videoWidget != nil {
+		t.videoWidget.releaseAllMoonlightKeys()
+	}
+}
 
 func (t *TouchpadWrapper) Cursor() desktop.Cursor { return desktop.DefaultCursor }
 

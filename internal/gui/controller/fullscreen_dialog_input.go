@@ -19,9 +19,15 @@ func (fd *FullscreenDialog) handleKeyDown(event *fyne.KeyEvent) {
 			next := current | mask
 			if fd.keyboardModifierState.CompareAndSwap(current, next) {
 				logrus.Infof("⌨️ [FS][INPUT][DOWN] modifiers=%d", next)
-				return
+				break
 			}
 		}
+	}
+	// Route through VideoWidget so the Moonlight-aware path (KeyDown/KeyUp → LiKeyActionDown/Up)
+	// is used when streaming. Without this, fullscreen keys go via TypedKey → USB API press+release,
+	// which fires on every OS key-repeat and causes turbo behavior.
+	if fd.videoWidget != nil {
+		fd.videoWidget.handlePhysicalKeyDown(event)
 	}
 }
 
@@ -36,9 +42,12 @@ func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {
 			next := current &^ mask
 			if fd.keyboardModifierState.CompareAndSwap(current, next) {
 				logrus.Infof("⌨️ [FS][INPUT][UP] modifiers=%d", next)
-				return
+				break
 			}
 		}
+	}
+	if fd.videoWidget != nil {
+		fd.videoWidget.handlePhysicalKeyUp(event)
 	}
 }
 
@@ -90,6 +99,14 @@ func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 		return
 	}
 
+	// When Moonlight is active, keys are handled via KeyDown/KeyUp → LiKeyActionDown/Up.
+	// TypedKey (this handler) fires on every OS key-repeat, so we must skip it here to
+	// prevent turbo: without this guard, each repeat would send an extra press+release.
+	if fd.videoWidget != nil && fd.videoWidget.moonlightInput() != nil {
+		logrus.Debugf("⌨️ [FS][INPUT][PRESS] skip — Moonlight active, using KeyDown/KeyUp path")
+		return
+	}
+
 	if input.IsPrintableKey(event.Name) {
 		if isDesktopPrintableKeyFallbackEnabled() && fd.sendKeyToRemote(event, int(fd.keyboardModifierState.Load())) {
 			fd.suppressRuneUntilNS.Store(time.Now().Add(desktopPrintableRuneSuppressWindow).UnixNano())
@@ -134,6 +151,12 @@ func (fd *FullscreenDialog) sendKeyToRemote(event *fyne.KeyEvent, modifiers int)
 // handleRunePress обрабатывает нажатие символов (буквы, цифры, знаки препинания)
 func (fd *FullscreenDialog) handleRunePress(r rune) {
 	logrus.Infof("⌨️ [FS][INPUT][RUNE] rune=%q code=%U", string(r), r)
+
+	// Moonlight path: rune events fire on repeat too — skip to avoid turbo.
+	if fd.videoWidget != nil && fd.videoWidget.moonlightInput() != nil {
+		logrus.Debugf("⌨️ [FS][INPUT][RUNE] skip — Moonlight active, using KeyDown/KeyUp path")
+		return
+	}
 
 	if !fd.keyboardEnabled || fd.usbClient == nil {
 		logrus.Warnf("⌨️ [FS][INPUT][RUNE] ignored keyboardEnabled=%v usb=%v", fd.keyboardEnabled, fd.usbClient != nil)
