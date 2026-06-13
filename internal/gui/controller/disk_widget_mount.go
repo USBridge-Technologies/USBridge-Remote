@@ -627,6 +627,13 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	logrus.Infof("✅ [UNMOUNT-SEL] Частичное размонтирование завершено")
 }
 
+// StopAllNBDServers stops all running NBD servers and clears the map.
+// Called from the main disconnect flow to release ports even when the disk widget
+// unmount button was not used.
+func (dw *DiskWidget) StopAllNBDServers() {
+	dw.stopNBDAndCleanup(nil, true)
+}
+
 // stopNBDAndCleanup останавливает NBD-серверы и освобождает ресурсы.
 func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 	dw.updateStatusAsync(i18n.Current.StoppingNBDServers)

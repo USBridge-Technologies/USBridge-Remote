@@ -821,6 +821,7 @@ func (mw *MainWindow) handleDisconnect() {
 	backup := mw.backupWidget
 	frp := mw.frpService
 	nbd := mw.nbdServer
+	diskWidget := mw.diskWidget
 
 	// Stop any running Tailscale registration poll goroutine.
 	if mw.tailscalePollCancel != nil {
@@ -919,6 +920,13 @@ func (mw *MainWindow) handleDisconnect() {
 		if nbd != nil && nbd.IsRunning() {
 			logrus.Info("🛑 [shutdown] Stopping NBD server...")
 			_ = nbd.Stop()
+		}
+
+		// Stop per-disk NBD servers created by the disk widget (these are separate from mw.nbdServer).
+		// Without this, ports remain occupied after a main-window disconnect and reconnection fails.
+		if diskWidget != nil {
+			logrus.Info("🛑 [shutdown] Stopping disk widget NBD servers...")
+			diskWidget.StopAllNBDServers()
 		}
 
 		if frp != nil && frp.IsRunning() {

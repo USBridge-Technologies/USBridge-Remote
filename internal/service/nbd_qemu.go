@@ -38,18 +38,19 @@ type NBDRunner interface {
 // QemuNBDRunner starts qemu-nbd for image (vmdk/qcow2/vdi/qcow) so that via NBD
 // a virtual disk is served (first bytes - MBR/GPT), not a container.
 type QemuNBDRunner struct {
-	filePath    string
-	format      string
-	readOnly    bool
-	bindHost    string
-	allowedIP   string        // if set, only this remote IP is forwarded through the proxy
-	port        int
-	cmd         *exec.Cmd
-	overlayPath string
-	readyChan   chan struct{}
-	running     bool
-	mu          sync.RWMutex
-	proxyCancel context.CancelFunc // cancels the IP-filter proxy goroutine
+	filePath      string
+	format        string
+	readOnly      bool
+	bindHost      string
+	allowedIP     string        // if set, only this remote IP is forwarded through the proxy
+	port          int
+	cmd           *exec.Cmd
+	overlayPath   string
+	readyChan     chan struct{}
+	running       bool
+	mu            sync.RWMutex
+	proxyCancel   context.CancelFunc // cancels the IP-filter proxy goroutine
+	proxyListener net.Listener       // proxy TCP listener; must be closed on Stop to release the port
 }
 
 // SetAllowedIP restricts qemu-nbd connections to a single remote IP via a TCP proxy.
@@ -227,6 +228,7 @@ func (q *QemuNBDRunner) startWithProxy(path string, port int, qemuNbd, bindHost 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	q.proxyCancel = cancel
+	q.proxyListener = proxyLn
 	targetAddr := fmt.Sprintf("127.0.0.1:%d", loopPort)
 
 	go func() {
@@ -308,6 +310,11 @@ func (q *QemuNBDRunner) Stop() error {
 	if q.proxyCancel != nil {
 		q.proxyCancel()
 		q.proxyCancel = nil
+	}
+	// Close the proxy listener so the Accept() goroutine unblocks and the port is released.
+	if q.proxyListener != nil {
+		q.proxyListener.Close()
+		q.proxyListener = nil
 	}
 
 	if q.cmd == nil || q.cmd.Process == nil {
