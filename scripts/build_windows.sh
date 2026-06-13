@@ -693,7 +693,7 @@ _walk_deps() {
             
             if [ -z "$_existing" ]; then
                 local copied
-                copied="$(_copy_dll "$dep" "$target_dir")"
+                copied="$(_copy_dll "$dep" "$target_dir")" || true
                 if [ -n "$copied" ]; then
                     echo -e "   ${GREEN}✓${NC} $copied (dep of $(basename "$file"))" >&2
                     visited_deps+=("${copied,,}")
@@ -938,7 +938,52 @@ if [ -n "$GST_ROOT" ]; then
     fi
 fi
 
-# 7c. Финальный dep walk — обходим все зависимости exe и всех DLL, чтобы не пропустить ни одну транзитивную зависимость
+# 7c. Копирование QEMU (qemu-nbd / qemu-img для работы с VMDK/QCOW2/VDI образами)
+echo -e "\n${YELLOW}📀 Копирование QEMU (qemu-nbd, qemu-img)...${NC}"
+
+QEMU_BIN_DIR=""
+for _qd in \
+    "/ucrt64/bin" \
+    "/mingw64/bin" \
+    "/c/msys64/ucrt64/bin" \
+    "/c/msys64/mingw64/bin" \
+    "C:/msys64/ucrt64/bin" \
+    "C:/msys64/mingw64/bin" \
+    "${QEMU_ROOT:-}/bin" \
+    "${QEMU_ROOT:-}"
+do
+    [ -z "$_qd" ] && continue
+    if [ -f "$_qd/qemu-nbd.exe" ]; then
+        QEMU_BIN_DIR="$_qd"
+        break
+    fi
+done
+
+if [ -n "$QEMU_BIN_DIR" ]; then
+    echo "=> QEMU found: $QEMU_BIN_DIR"
+    QEMU_COPIED=0
+    for _qtool in qemu-nbd.exe qemu-img.exe; do
+        if [ -f "$QEMU_BIN_DIR/$_qtool" ]; then
+            cp -L "$QEMU_BIN_DIR/$_qtool" "$DIST_WIN/"
+            echo -e "   ${GREEN}✓${NC} $_qtool"
+            QEMU_COPIED=$((QEMU_COPIED + 1))
+        else
+            echo -e "   ${YELLOW}⚠${NC} $_qtool не найден в $QEMU_BIN_DIR"
+        fi
+    done
+    # Добавляем QEMU_BIN_DIR в пул поиска DLL для _walk_deps
+    DLL_EXTRA_DIRS=("$QEMU_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
+    # Обходим зависимости скопированных QEMU-бинарников
+    mapfile -t _qemu_bins < <(find "$DIST_WIN" -maxdepth 1 \( -name "qemu-nbd.exe" -o -name "qemu-img.exe" \) 2>/dev/null)
+    [ "${#_qemu_bins[@]}" -gt 0 ] && _walk_deps "$DIST_WIN" "${_qemu_bins[@]}"
+    echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано"
+else
+    echo -e "${YELLOW}⚠${NC} QEMU не найден — qemu-nbd/qemu-img недоступны (VMDK/QCOW2/VDI образы работать не будут)"
+    echo "   Установите: pacman -S mingw-w64-ucrt-x86_64-qemu"
+    echo "   Или задайте QEMU_ROOT=/path/to/qemu"
+fi
+
+# 7d. Финальный dep walk — обходим все зависимости exe и всех DLL, чтобы не пропустить ни одну транзитивную зависимость
 echo -e "\n${YELLOW}🔍 Финальная проверка зависимостей...${NC}"
 if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
     # Начинаем с exe и всех уже скопированных DLL
@@ -951,7 +996,7 @@ else
     echo -e "${YELLOW}⚠${NC} objdump не найден — пропускаем финальную проверку зависимостей"
 fi
 
-# 7d. Sanity check for known problematic DLLs
+# 7e. Sanity check for known problematic DLLs
 echo -e "\n${YELLOW}🛠️ Проверка обязательных библиотек...${NC}"
 FORCE_DLLS=(
     "libhwy.dll" "libogg-0.dll" "libbrotlienc.dll" "libjxl_cms.dll"
