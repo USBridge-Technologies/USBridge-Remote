@@ -2,6 +2,7 @@ package controller
 
 import (
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/media"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -11,10 +12,10 @@ import (
 // NewVideoWidget создаёт VideoWidget с Moonlight-only путём видео и ввода.
 func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient service.VideoClient, updateStatus func()) *VideoWidget {
 	vw := &VideoWidget{
-		parentWindow: parent,
 		usbClient:    usbClient,
 		videoClient:  videoClient,
 		updateStatus: updateStatus,
+		frameDecoder: media.NewFrameDecoder(),
 	}
 
 	if videoClient != nil {
@@ -36,6 +37,9 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 	}
 
 	vw.createInterface()
+	if parent != nil {
+		vw.SetParentWindow(parent)
+	}
 	vw.startVideoOpsLoop()
 
 	return vw

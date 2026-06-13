@@ -246,6 +246,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	vw.isStreaming = true
 	vw.isVideoConnected = true
 	logrus.Info("✅ Moonlight stream started")
+	vw.ensureInputFocusAsync("stream-started", 300*time.Millisecond)
 }
 
 // handleStopVideo обрабатывает остановку видео.
