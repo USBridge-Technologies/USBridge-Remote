@@ -15,7 +15,6 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 		usbClient:    usbClient,
 		videoClient:  videoClient,
 		updateStatus: updateStatus,
-		videoOps:     make(chan videoOperation, 16),
 	}
 
 	if videoClient != nil {

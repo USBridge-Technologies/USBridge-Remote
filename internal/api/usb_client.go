@@ -73,31 +73,12 @@ type USBClient struct {
 	baseURL               string
 	httpClient            *http.Client
 	apiKey                string
-        apiSecret             []byte
+	apiSecret             []byte
 	transportErrorHandler func(error)
 	cursorUpdateHandler   func(models.CursorState)
-	keyboardQueue         chan keyboardRequestTask
 	transportErrorMu      sync.Mutex
 	transportErrorCount   int
 	lastTransportErrorAt  time.Time
-
-	// WebSocket for mouse control
-	mouseWS             *websocket.Conn
-	mouseWSMutex        sync.Mutex
-	mouseWSActive       bool
-	mouseWSIntended     bool         // true while we WANT a WS connection
-	mouseWSReconnectCh  chan struct{} // closed to stop the reconnect goroutine
-
-	// WebSocket for gamepad control
-	gamepadWS            *websocket.Conn
-	gamepadWSMutex       sync.Mutex
-	gamepadWSActive      bool
-	gamepadWSIntended    bool         // true while we WANT a WS connection
-	gamepadWSReconnectCh chan struct{} // closed to stop the reconnect goroutine
-}
-
-type keyboardRequestTask struct {
-	request models.KeyboardRequest
 }
 
 // NewUSBClient creates a new USB client
@@ -113,17 +94,12 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 			Timeout: time.Duration(timeout) * time.Second,
 		}
 	} else if timeout > 0 && httpClient.Timeout == 0 {
-		// Tsnet and other custom clients are passed without a timeout - applying it.
-		// Without this, the first request via tsnet on Android can hang infinitely.
 		httpClient.Timeout = time.Duration(timeout) * time.Second
 	}
-	client := &USBClient{
-		baseURL:       fmt.Sprintf("http://%s:%d", host, port),
-		httpClient:    httpClient,
-		keyboardQueue: make(chan keyboardRequestTask, 512),
+	return &USBClient{
+		baseURL:    fmt.Sprintf("http://%s:%d", host, port),
+		httpClient: httpClient,
 	}
-	go client.runKeyboardWorker()
-	return client
 }
 
 func (c *USBClient) SetOnTransportError(handler func(error)) {
@@ -664,6 +640,14 @@ func (c *USBClient) UpdateConfig(config *models.ConfigRequest) error {
 
 	logrus.Info("✅ USBridge 2 configuration updated")
 	return nil
+}
+
+// Disconnect closes idle HTTP connections and cleans up client resources.
+func (c *USBClient) Disconnect() {
+	if c.httpClient != nil {
+		c.httpClient.CloseIdleConnections()
+	}
+	logrus.Info("🔌 USBClient: connections closed")
 }
 
 // SendKey sends key
