@@ -48,7 +48,9 @@
       "Bash(CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_ENABLED=1 /c/Users/fatku/go/bin/fyne package --target windows --executable .cache/build/windows-amd64/release/USBridge_Client.exe --app-id com.usbridge.client --name 'USBridge Client' --app-version 1.0.0 --icon Icon.png --release -- -j 12)",
       "Bash(echo \"FYNE_EXIT:$?\")",
       "Bash(xargs grep -l \"Win32\\\\|windows.h\\\\|GetKeyboardState\\\\|GetAsyncKeyState\")",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "PowerShell($lines = \\(Get-Content \"C:\\\\Projects_USBridge\\\\usbridge_client\\\\dist\\\\windows\\\\logs\\\\app.log\" | Measure-Object -Line\\).Lines; Write-Host \"Total lines: $lines\")",
+      "PowerShell(\\(Get-Item \"C:\\\\Projects_USBridge\\\\usbridge_client\\\\dist\\\\windows\\\\usbridge-client.exe\"\\).LastWriteTime)"
     ]
   }
 }

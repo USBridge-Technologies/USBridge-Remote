@@ -92,7 +92,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
@@ -114,7 +114,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
+	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
@@ -135,8 +135,11 @@ func moonlightVKCode(event *fyne.KeyEvent) int16 {
 
 // handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		return // key press handled via down/up events in Moonlight mode
+	if mi := vw.moonlightInput(); mi != nil {
+		// Moonlight client is connected (stream may be active or reconnecting).
+		// Keys are handled via down/up events; don't also send via WS/HID to avoid
+		// HTTP 500s when the keyboard HID device is not set up (e.g. storage present).
+		return
 	}
 	if vw.usbClient == nil {
 		logrus.Warn("⌨️ [INPUT][PRESS] ignored: usb client is nil")
@@ -159,8 +162,10 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 
 // handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		return // rune input handled via TypedKey down/up events in Moonlight mode
+	if mi := vw.moonlightInput(); mi != nil {
+		// Moonlight client is connected (stream may be active or reconnecting).
+		// Don't send via WS/HID — avoids HTTP 500s when keyboard HID is not set up.
+		return
 	}
 	if vw.usbClient == nil {
 		logrus.Warnf("⌨️ [INPUT][RUNE] ignored: usb client is nil rune=%q", string(r))
