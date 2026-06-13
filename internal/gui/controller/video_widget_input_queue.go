@@ -3,66 +3,11 @@ package controller
 import (
 	"time"
 
-	"usbridge-client/internal/api"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
-
-const videoInputQueueSize = 256
-
-func (vw *VideoWidget) startInputWorker() {
-	if vw.inputQueue != nil {
-		return
-	}
-	vw.inputQueue = make(chan inputCommand, videoInputQueueSize)
-
-	go func(queue <-chan inputCommand) {
-		for cmd := range queue {
-			client := vw.usbClient
-			if client == nil || cmd.run == nil {
-				continue
-			}
-			if err := cmd.run(client); err != nil {
-				logrus.Debugf("video input command %s failed: %v", cmd.name, err)
-			}
-		}
-	}(vw.inputQueue)
-
-	vw.startMouseMoveWorker()
-}
-
-func (vw *VideoWidget) enqueueInputCommand(dropIfBusy bool, name string, run func(*api.USBClient) error) {
-	if run == nil {
-		return
-	}
-	if vw.inputQueue == nil {
-		vw.startInputWorker()
-	}
-
-	cmd := inputCommand{
-		dropIfBusy: dropIfBusy,
-		name:       name,
-		run:        run,
-	}
-
-	if dropIfBusy {
-		select {
-		case vw.inputQueue <- cmd:
-		default:
-		}
-		return
-	}
-
-	select {
-	case vw.inputQueue <- cmd:
-	default:
-		go func() {
-			vw.inputQueue <- cmd
-		}()
-	}
-}
 
 func (vw *VideoWidget) enqueueMouseMove(dx, dy int) {
 	if dx == 0 && dy == 0 {
@@ -83,17 +28,15 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 	vw.moveWorkerStarted = true
 	vw.moveQueueMu.Unlock()
 
-	// Periodic stats — every 30 s, mirrors the server-side [MouseBridge] log.
+	// Periodic stats — every 30 s.
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			relML := vw.statRelMoonlight.Swap(0)
-			relWS := vw.statRelWS.Swap(0)
 			absML := vw.statAbsMoonlight.Swap(0)
-			absWS := vw.statAbsWS.Swap(0)
-			logrus.Infof("🖱️ [Mouse] 30s | rel: moonlight=%d ws=%d | abs: moonlight=%d ws=%d | mode=%s",
-				relML, relWS, absML, absWS, vw.GetMouseInputMode())
+			logrus.Infof("🖱️ [Mouse] 30s | rel: moonlight=%d | abs: moonlight=%d | mode=%s",
+				relML, absML, vw.GetMouseInputMode())
 		}
 	}()
 
@@ -101,51 +44,23 @@ func (vw *VideoWidget) startMouseMoveWorker() {
 		ticker := time.NewTicker(vw.mouseMoveFlushInterval())
 		defer ticker.Stop()
 
-		var lastRelPath string // "moonlight" | "ws" | ""
-
 		for range ticker.C {
-			if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-				if lastRelPath != "moonlight" {
-					logrus.Infof("🖱️ [Mouse] relative path → Moonlight SendMoonlightMouseMove (was: %q)", lastRelPath)
-					lastRelPath = "moonlight"
-				}
-				for {
-					dx, dy := vw.takeMouseMoveChunk()
-					if dx == 0 && dy == 0 {
-						break
-					}
-					vw.statRelMoonlight.Add(1)
-					mi.SendMoonlightMouseMove(int16(dx), int16(dy))
-				}
+			mi := vw.moonlightInput()
+			if mi == nil || !mi.IsInputActive() {
+				// Discard pending moves when not connected.
+				vw.moveQueueMu.Lock()
+				vw.pendingMoveX = 0
+				vw.pendingMoveY = 0
+				vw.moveQueueMu.Unlock()
 				continue
 			}
-
-			if lastRelPath == "moonlight" {
-				logrus.Info("🖱️ [Mouse] relative path → WebSocket (Moonlight no longer active)")
-				lastRelPath = "ws"
-			}
-
-			client := vw.usbClient
-			if client == nil {
-				continue
-			}
-
-			if lastRelPath == "" {
-				logrus.Info("🖱️ [Mouse] relative path → WebSocket (initial)")
-				lastRelPath = "ws"
-			}
-
 			for {
 				dx, dy := vw.takeMouseMoveChunk()
 				if dx == 0 && dy == 0 {
 					break
 				}
-				vw.statRelWS.Add(1)
-				if err := client.SendMouseMove(dx, dy); err != nil {
-					logrus.Debugf("video input command mouse-move failed: %v", err)
-					vw.prependMouseMoveChunk(dx, dy)
-					break
-				}
+				vw.statRelMoonlight.Add(1)
+				mi.SendMoonlightMouseMove(int16(dx), int16(dy))
 			}
 		}
 	}()
@@ -192,64 +107,52 @@ func takeAxisChunk(pending *int) int {
 }
 
 func (vw *VideoWidget) enqueueMouseClick(button int) {
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		// Moonlight right button = 3; our right = 2.
-		moonlightBtn := button
-		if button == 2 {
-			moonlightBtn = 3
-		}
-		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
-		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+	mi := vw.moonlightInput()
+	if mi == nil || !mi.IsInputActive() {
 		return
 	}
-	vw.enqueueInputCommand(false, "mouse-click", func(client *api.USBClient) error {
-		return client.SendMouseClick(button)
-	})
+	moonlightBtn := button
+	if button == 2 {
+		moonlightBtn = service.LiMouseButtonRight
+	}
+	mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+	mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
 }
 
 func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		clicks := int8(clamp(scroll, -127, 127))
-		mi.SendMoonlightScroll(clicks)
+	mi := vw.moonlightInput()
+	if mi == nil || !mi.IsInputActive() {
 		return
 	}
-	vw.enqueueInputCommand(true, "mouse-scroll", func(client *api.USBClient) error {
-		return client.SendMouseScroll(scroll)
-	})
+	clicks := int8(clamp(scroll, -127, 127))
+	mi.SendMoonlightScroll(clicks)
 }
 
+// enqueueMouseAction — reset all buttons and state.
 func (vw *VideoWidget) enqueueMouseAction(dx, dy, buttons, wheel int) {
-	vw.enqueueInputCommand(true, "mouse-action", func(client *api.USBClient) error {
-		return client.SendMouseAction(dx, dy, buttons, wheel)
-	})
+	if dx == 0 && dy == 0 && buttons == 0 && wheel == 0 {
+		vw.ReleaseAllAbsoluteButtons(vw.lastAbsX, vw.lastAbsY)
+	}
 }
+
+// Touch functions: route through absolute Moonlight mouse path.
 
 func (vw *VideoWidget) enqueueTouch(x, y int, down bool) {
-	vw.enqueueInputCommand(!down, "touch", func(client *api.USBClient) error {
-		return client.SendTouch(x, y, down)
-	})
+	if down {
+		vw.PressAbsoluteButton(1, x, y)
+	} else {
+		vw.ReleaseAbsoluteButton(1, x, y)
+	}
 }
 
-func (vw *VideoWidget) enqueueTouchPositionOnly(x, y int, down bool) {
-	vw.enqueueInputCommand(!down, "touch-position", func(client *api.USBClient) error {
-		return client.SendTouchPositionOnly(x, y, down)
-	})
+func (vw *VideoWidget) enqueueTouchPositionOnly(x, y int, _ bool) {
+	vw.SendAbsolutePosition(x, y, true)
 }
 
 func (vw *VideoWidget) enqueueTouchTap(x, y int) {
-	vw.enqueueInputCommand(false, "touch-tap", func(client *api.USBClient) error {
-		if err := client.SendTouch(x, y, true); err != nil {
-			return err
-		}
-		return client.SendTouch(x, y, false)
-	})
+	vw.ClickAbsoluteButton(1, x, y)
 }
 
 func (vw *VideoWidget) enqueueSecondaryTouchTap(x, y int) {
-	vw.enqueueInputCommand(false, "touch-secondary-tap", func(client *api.USBClient) error {
-		if err := client.SendTouchPositionOnly(x, y, false); err != nil {
-			return err
-		}
-		return client.SendMouseClick(2)
-	})
+	vw.ClickAbsoluteButton(2, x, y)
 }

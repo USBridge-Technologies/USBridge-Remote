@@ -4,10 +4,10 @@ package controller
 
 import (
 	"fmt"
-	"usbridge-client/internal/api"
+	"usbridge-client/internal/service"
 )
 
-func newPlatformNativeFullscreenCapture(_ *api.USBClient, _ func()) nativeFullscreenCapture {
+func newPlatformNativeFullscreenCapture(_ func() service.MoonlightInputSender, _ func()) nativeFullscreenCapture {
 	return &noopNativeFullscreenCapture{}
 }
 

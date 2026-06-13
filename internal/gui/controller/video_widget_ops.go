@@ -115,7 +115,7 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 		} else if vw.isStreaming {
 			// Клиент уже ушёл (потеря соединения), очищаем только локальное состояние
 			vw.isStreaming = false
-			vw.isGStreamerConnected = false
+			vw.isVideoConnected = false
 			vw.isMouseConnected = false
 			vw.clearVideo()
 			fyne.Do(func() { vw.updateButtons() })

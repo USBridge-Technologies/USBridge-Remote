@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
@@ -24,8 +23,6 @@ type FullscreenDialog struct {
 	isFullscreen          bool
 	nativeFullscreen      bool
 	videoClient      service.VideoClient
-	usbClient             *api.USBClient
-	keyboardEnabled       bool
 	fullscreenWindow      fyne.Window
 	virtualKeyboard       *graphics.VirtualKeyboard
 	videoImage            *canvas.Image
@@ -56,53 +53,6 @@ func (fd *FullscreenDialog) SetVideoClient(videoClient service.VideoClient) {
 	fd.videoClient = videoClient
 }
 
-// SetUSBClient устанавливает ссылку на USB клиент
-func (fd *FullscreenDialog) SetUSBClient(usbClient *api.USBClient) {
-	fd.usbClient = usbClient
-	fd.checkKeyboardStatus()
-}
-
-// checkKeyboardStatus проверяет, подключена ли клавиатура
-func (fd *FullscreenDialog) checkKeyboardStatus() {
-	logrus.Infof("⌨️ checkKeyboardStatus: usbClient=%v", fd.usbClient != nil)
-
-	if fd.usbClient == nil {
-		fd.keyboardEnabled = false
-		logrus.Warn("⌨️ USB клиент не установлен")
-		return
-	}
-
-	deviceInfo, err := fd.usbClient.GetDeviceInfo()
-	if err != nil {
-		logrus.Warnf("⚠️ Ошибка получения информации об устройствах: %v", err)
-		fd.keyboardEnabled = false
-		return
-	}
-
-	logrus.Infof("⌨️ Получена информация об устройствах: %d устройств", len(deviceInfo.Devices))
-
-	fd.keyboardEnabled = false
-	for i, device := range deviceInfo.Devices {
-		logrus.Infof("⌨️ Устройство %d: type=%s, status=%s, name=%s, vendor=%s, product=%s",
-			i, device.Device, device.Status, device.ProductName, device.VendorID, device.ProductID)
-		if device.Device == "keyboard" && device.Status == "connected" {
-			fd.keyboardEnabled = true
-			logrus.Info("⌨️ Клавиатура HID подключена и готова к использованию")
-			break
-		}
-	}
-
-	if !fd.keyboardEnabled {
-		logrus.Warn("⌨️ Клавиатура не найдена в списке устройств, попробуем принудительно включить")
-		fd.keyboardEnabled = true
-		logrus.Info("⌨️ Клавиатура принудительно включена для тестирования")
-	}
-
-	if !fd.keyboardEnabled {
-		logrus.Warn("⌨️ Клавиатура HID не подключена")
-	}
-}
-
 // Show показывает полноэкранный режим сразу без диалога
 func (fd *FullscreenDialog) Show() {
 	if fd.isFullscreen {
@@ -129,7 +79,7 @@ func (fd *FullscreenDialog) enterFullscreen() {
 	if fd.videoClient != nil && fd.videoClient.SupportsNativeFullscreen() {
 		restartWindowPipeline = true
 		if err := fd.videoClient.StartNativeFullscreen(); err == nil {
-			fd.nativeCapture = newNativeFullscreenCapture(fd.usbClient, fd.exitFullscreen)
+			fd.nativeCapture = newNativeFullscreenCapture(fd.videoWidget.GetMoonlightInput, fd.exitFullscreen)
 			if fd.nativeCapture != nil {
 				if captureErr := fd.nativeCapture.Start(); captureErr != nil {
 					logrus.Warnf("⚠️ Native fullscreen input capture unavailable, stopping native fullscreen: %v", captureErr)

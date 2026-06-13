@@ -181,134 +181,24 @@ func moonlightVKCode(event *fyne.KeyEvent) int16 {
 	return input.GetVKCodeFromScanCode(event.Physical.ScanCode)
 }
 
-// handlePhysicalKeyPress обрабатывает нажатия физической клавиатуры.
+// handlePhysicalKeyPress обрабатывает TypedKey физической клавиатуры.
+// В Moonlight-only режиме клавиши идут через handlePhysicalKeyDown/Up.
+// TypedKey подавляется чтобы избежать turbo (OS repeat) — исключение: KeyF11 игнорируем.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
-	if mi := vw.moonlightInput(); mi != nil {
-		// Moonlight client is connected (stream may be active or reconnecting).
-		// Keys are handled via down/up events; don't also send via WS/HID to avoid
-		// HTTP 500s when the keyboard HID device is not set up (e.g. storage present).
-		return
-	}
-	if vw.usbClient == nil {
-		logrus.Warn("⌨️ [INPUT][PRESS] ignored: usb client is nil")
-		return
-	}
-	logrus.Infof("⌨️ [INPUT][PRESS] key=%q physical=%+v printable=%v modifiers=%d", event.Name, event.Physical, input.IsPrintableKey(event.Name), vw.currentHIDModifiers())
 	if event.Name == fyne.KeyF11 {
-		logrus.Info("⌨️ [INPUT][PRESS] ignored: F11 reserved locally")
 		return
 	}
-	if input.IsPrintableKey(event.Name) {
-		if isDesktopPrintableKeyFallbackEnabled() && vw.sendPhysicalKeyToRemote(event, vw.currentHIDModifiers()) {
-			vw.suppressRuneUntilNS.Store(time.Now().Add(desktopPrintableRuneSuppressWindow).UnixNano())
-			logrus.Info("⌨️ [INPUT][PRESS] printable key sent via TypedKey fallback")
-		}
-		return
-	}
-	vw.sendPhysicalKeyToRemote(event, 0)
-}
-
-// handlePhysicalRunePress обрабатывает ввод символов с физической клавиатуры.
-func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
 	if mi := vw.moonlightInput(); mi != nil {
-		// Moonlight client is connected (stream may be active or reconnecting).
-		// Don't send via WS/HID — avoids HTTP 500s when keyboard HID is not set up.
-		return
+		return // Moonlight: keys go via KeyDown/KeyUp, not TypedKey
 	}
-	if vw.usbClient == nil {
-		logrus.Warnf("⌨️ [INPUT][RUNE] ignored: usb client is nil rune=%q", string(r))
-		return
-	}
-	logrus.Infof("⌨️ [INPUT][RUNE] rune=%q code=%U", string(r), r)
-	if isDesktopPrintableKeyFallbackEnabled() && time.Now().UnixNano() <= vw.suppressRuneUntilNS.Load() {
-		logrus.Info("⌨️ [INPUT][RUNE] suppressed duplicate after TypedKey fallback")
-		return
-	}
-	vw.sendRuneToRemote(r)
 }
 
-// sendPhysicalKeyToRemote конвертирует fyne.KeyEvent в HID и отправляет.
-func (vw *VideoWidget) sendPhysicalKeyToRemote(event *fyne.KeyEvent, modifiers int) bool {
-	keyCode := input.GetKeyCodeFromPhysical(event.Physical)
-	if keyCode == 0 {
-		keyCode = input.GetKeyCode(event.Name)
-	}
-	if keyCode == 0 {
-		logrus.Warnf("⌨️ [INPUT][SEND-KEY] unresolved key=%q physical=%+v", event.Name, event.Physical)
-		return false
-	}
-	logrus.Infof("⌨️ [INPUT][SEND-KEY] key=%q hid=%d modifiers=%d physical=%+v", event.Name, keyCode, modifiers, event.Physical)
-	var err error
-	if modifiers != 0 {
-		err = vw.usbClient.SendCombo(modifiers, keyCode)
-	} else {
-		err = vw.usbClient.SendKey(keyCode)
-	}
-	if err != nil {
-		logrus.Errorf("⌨️ Failed to send key: %v", err)
-		return false
-	}
-	logrus.Infof("⌨️ [INPUT][SEND-KEY] delivered hid=%d modifiers=%d", keyCode, modifiers)
-	return true
-}
+// handlePhysicalRunePress — rune events не используются в Moonlight-only режиме.
+func (vw *VideoWidget) handlePhysicalRunePress(_ rune) {}
 
-// sendRuneToRemote отправляет символ на удалённую машину.
-func (vw *VideoWidget) sendRuneToRemote(r rune) {
-	if r == '\n' || r == '\r' {
-		logrus.Info("⌨️ [INPUT][SEND-RUNE] ignored newline")
-		return
-	}
-	keyCode, modifiers := input.GetRuneKeyCodeWithModifiers(r)
-	if keyCode == 0 {
-		logrus.Warnf("⌨️ [INPUT][SEND-RUNE] unresolved rune=%q code=%U", string(r), r)
-		return
-	}
-	logrus.Infof("⌨️ [INPUT][SEND-RUNE] rune=%q hid=%d modifiers=%d", string(r), keyCode, modifiers)
-	var err error
-	if modifiers > 0 {
-		err = vw.usbClient.SendCombo(modifiers, keyCode)
-	} else {
-		err = vw.usbClient.SendKey(keyCode)
-	}
-	if err != nil {
-		logrus.Errorf("⌨️ Failed to send rune: %v", err)
-		return
-	}
-	logrus.Infof("⌨️ [INPUT][SEND-RUNE] delivered hid=%d modifiers=%d rune=%q", keyCode, modifiers, string(r))
-}
-
-// handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры.
+// handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры через Moonlight.
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ Virtual keyboard: received key %d with modifiers %d", keyCode, modifiers)
-
-	if vw.usbClient == nil {
-		logrus.Warnf("⌨️ USB client is not connected, ignoring key: %d", keyCode)
-		return
-	}
-
-	logrus.Infof("⌨️ Sending key to remote machine: code=%d, modifiers=%d", keyCode, modifiers)
-	vw.sendKeyToRemote(keyCode, modifiers)
-}
-
-// sendKeyToRemote отправляет клавишу на удаленную машину через HID.
-func (vw *VideoWidget) sendKeyToRemote(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ sendKeyToRemote: sending key %d with modifiers %d", keyCode, modifiers)
-
-	var err error
-	if modifiers > 0 {
-		err = vw.usbClient.SendCombo(modifiers, keyCode)
-		logrus.Infof("⌨️ Combination sent: modifiers=%d, key=%d", modifiers, keyCode)
-	} else {
-		logrus.Infof("⌨️ Sending single key: %d", keyCode)
-		err = vw.usbClient.SendKey(keyCode)
-		logrus.Infof("⌨️ Key sent: %d, result=%v", keyCode, err)
-	}
-
-	if err != nil {
-		logrus.Errorf("⚠️ Failed to send key: %v", err)
-	} else {
-		logrus.Infof("✅ Key sent successfully: code=%d, modifiers=%d", keyCode, modifiers)
-	}
+	logrus.Infof("⌨️ Virtual keyboard: key=%d modifiers=%d (Moonlight only)", keyCode, modifiers)
 }
 
 // startDesktopMousePolling запускает горутину polling для плавного управления мышью.
@@ -542,9 +432,6 @@ func (vw *VideoWidget) logMouseModeState(reason string) {
 
 // SendAbsolutePosition отправляет абсолютную позицию с небольшим дебаунсом.
 func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
-	if vw.usbClient == nil {
-		return
-	}
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
 	const deadzone = 2
@@ -615,23 +502,10 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 		return // Moonlight is active — do NOT also send via WebSocket
 	}
 
-	// Fall back to WebSocket /dev/hid_t when Moonlight is not streaming.
-	if vw.usbClient == nil {
-		return
-	}
-	prev := vw.statAbsWS.Load()
-	vw.statAbsWS.Add(1)
-	if prev == 0 {
-		logrus.Info("🖱️ [Mouse] absolute path → WebSocket /dev/hid_t (started)")
-	}
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, scroll)
 }
 
 // SendAbsoluteEvent отправляет атомарное абсолютное событие.
 func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
-	if vw.usbClient == nil {
-		return
-	}
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
 	vw.sendAbsoluteEventLocked(x, y, scroll)
@@ -660,10 +534,6 @@ func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 		vw.lastAbsY = y
 		return
 	}
-	if vw.usbClient == nil {
-		return
-	}
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
@@ -677,10 +547,6 @@ func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
 		vw.lastAbsY = y
 		return
 	}
-	if vw.usbClient == nil {
-		return
-	}
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
@@ -703,10 +569,6 @@ func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
 		return
 	}
 	vw.absButtons = 0
-	if vw.usbClient == nil {
-		return
-	}
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, 0, 0)
 }
 
 func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
@@ -724,13 +586,6 @@ func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 		vw.lastAbsY = y
 		return
 	}
-	if vw.usbClient == nil {
-		return
-	}
-	vw.updateAbsoluteButtonLocked(button, true)
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
-	vw.updateAbsoluteButtonLocked(button, false)
-	_ = vw.usbClient.SendAbsoluteEvent(x, y, vw.absButtons, 0)
 }
 
 // CancelTouchDownDelay отменяет отложенную отправку touch(down).

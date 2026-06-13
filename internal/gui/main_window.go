@@ -128,13 +128,9 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
-	if cfg.VideoProtocol == models.VideoProtocolMoonlight {
-		ms := service.NewMoonlightService(cfg)
-		ms.SetTailscaleService(mw.tailscaleService)
-		mw.videoClient = ms
-	} else {
-		mw.videoClient = service.NewGStreamerService(cfg)
-	}
+	ms := service.NewMoonlightService(cfg)
+	ms.SetTailscaleService(mw.tailscaleService)
+	mw.videoClient = ms
 
 	// Initialize UI fields
 	mw.createInterface()
@@ -142,7 +138,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
-	mw.videoWidget = controller.NewVideoWidgetGStreamer(w, nil, mw.videoClient, mw.updateStatus)
+	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 	mw.diskWidget.SetMoonlightProvider(mw.videoWidget.GetMoonlightInput)

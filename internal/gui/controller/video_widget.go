@@ -33,7 +33,7 @@ type VideoWidget struct {
 
 	// Состояние
 	isStreaming          bool
-	isGStreamerConnected bool
+	isVideoConnected bool
 	isMouseConnected     bool // Флаг подключенной мыши
 	enableVSync          bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
 
@@ -50,7 +50,6 @@ type VideoWidget struct {
 	videoOpRunning      bool
 	desiredStreaming    bool
 	videoRestartPending bool
-	inputQueue          chan inputCommand
 	moveQueueMu         sync.Mutex
 	bottomInset         float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
 
@@ -162,12 +161,6 @@ func (vw *VideoWidget) Close() {
 	vw.isClosing.Store(true)
 }
 
-type inputCommand struct {
-	dropIfBusy bool
-	name       string
-	run        func(*api.USBClient) error
-}
-
 func (vw *VideoWidget) setDesiredStreaming(streaming bool) {
 	vw.videoOpMu.Lock()
 	vw.desiredStreaming = streaming
@@ -234,7 +227,7 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeGStreamerStats(), vw.safeRelayDebugInfo())
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeVideoStats(), vw.safeRelayDebugInfo())
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
 		default:
@@ -252,7 +245,7 @@ func (vw *VideoWidget) currentVideoTraceLabel() string {
 	return ""
 }
 
-func (vw *VideoWidget) safeGStreamerStats() map[string]interface{} {
+func (vw *VideoWidget) safeVideoStats() map[string]interface{} {
 	if vw.videoClient == nil {
 		return nil
 	}

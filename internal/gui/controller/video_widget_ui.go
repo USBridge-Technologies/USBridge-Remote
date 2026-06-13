@@ -25,7 +25,6 @@ import (
 
 // createInterface создает интерфейс виджета.
 func (vw *VideoWidget) createInterface() {
-	vw.startInputWorker()
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
 	vw.platformRegisterGestureTarget()
 	vw.ui = view.NewVideoWidgetUI(vw.touchpadWrapper, nil, vw.handleStartVideo, vw.handleStopVideo, vw.handleFullscreen)
@@ -218,14 +217,35 @@ func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequ
 
 func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRequest) {
 	if vw.videoClient == nil {
-		logrus.Warn("⚠️ GStreamer service is not initialized")
+		logrus.Warn("⚠️ Video client (Moonlight) is not initialized")
 		fyne.Do(func() {
 			vw.statusLabel.SetText(i18n.Current.VideoLaunchFailed)
 		})
 		return
 	}
 
-	vw.handleVideoStartWithParamsGStreamer(request)
+	if request != nil {
+		if request.VideoWidth > 0 && request.VideoHeight > 0 {
+			vw.videoClient.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
+		}
+		if request.VideoMode != "" {
+			vw.videoClient.SetVideoMode(request.VideoMode)
+		}
+	}
+
+	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
+	if err := vw.videoClient.ConnectToRTP(); err != nil {
+		logrus.Errorf("❌ Moonlight ConnectToRTP failed: %v", err)
+		fyne.Do(func() {
+			if vw.statusLabel != nil {
+				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
+			}
+		})
+		return
+	}
+	vw.isStreaming = true
+	vw.isVideoConnected = true
+	logrus.Info("✅ Moonlight stream started")
 }
 
 // handleStopVideo обрабатывает остановку видео.
@@ -253,7 +273,7 @@ func (vw *VideoWidget) StopVideoSync() error {
 			} else {
 				// Клиент уже ушёл — чистим только локальное состояние
 				vw.isStreaming = false
-				vw.isGStreamerConnected = false
+				vw.isVideoConnected = false
 				vw.isMouseConnected = false
 				vw.clearVideo()
 				fyne.Do(func() {
@@ -274,7 +294,7 @@ func (vw *VideoWidget) StopVideoSync() error {
 	case <-time.After(4 * time.Second):
 		logrus.Warn("⚠️ StopVideoSync timed out, forcing local cleanup")
 		vw.isStreaming = false
-		vw.isGStreamerConnected = false
+		vw.isVideoConnected = false
 		if vw.videoClient != nil {
 			_ = vw.videoClient.Disconnect()
 		}
@@ -293,7 +313,6 @@ func (vw *VideoWidget) stopVideoInternal() {
 	resetVideoInfoCache()
 
 	if vw.usbClient != nil {
-		vw.usbClient.DisconnectMouseWebSocket()
 		// Сначала говорим серверу СТОП, чтобы он перестал слать пакеты
 		if err := vw.usbClient.StopVideo(); err != nil {
 			logrus.Warnf("⚠️ Failed to stop video on the server: %v", err)
@@ -302,7 +321,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
-			logrus.Errorf("Failed to disconnect GStreamer: %v", err)
+			logrus.Errorf("Failed to disconnect Moonlight: %v", err)
 		}
 	}
 
@@ -313,7 +332,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 	}
 
 	vw.isStreaming = false
-	vw.isGStreamerConnected = false
+	vw.isVideoConnected = false
 	vw.isMouseConnected = false
 
 	vw.resetViewport()
@@ -546,9 +565,6 @@ func (vw *VideoWidget) Refresh() {
 		}
 	})
 
-	if vw.videoClient != nil {
-		vw.updateGStreamerStats()
-	}
 }
 
 // checkMouseConnected проверяет, подключена ли мышь.
@@ -591,26 +607,11 @@ func (vw *VideoWidget) checkMouseConnected() {
 	if vw.isMouseConnected != mouseConnected {
 		vw.isMouseConnected = mouseConnected
 		if mouseConnected {
-			logrus.Info("🖱️ Touchpad activated: pointer device connected")
-			// In Moonlight mode mouse events go via LiSendMousePositionEvent — WS is not needed.
-			isMoonlight := vw.videoClient != nil && vw.videoClient.GetConfig().VideoProtocol == models.VideoProtocolMoonlight
-			if !isMoonlight {
-				go func() {
-					if err := vw.usbClient.ConnectMouseWebSocket(); err != nil {
-						logrus.Warnf("⚠️ Failed to connect mouse WebSocket: %v (HTTP fallback will be used)", err)
-					} else {
-						logrus.Info("✅ Mouse WebSocket connected successfully")
-					}
-				}()
-				logrus.Info("🖱️ Pointer device connected (WebSocket)")
-			} else {
-				logrus.Info("🖱️ Pointer device connected (Moonlight mode — WS skipped)")
-			}
+			logrus.Info("🖱️ Touchpad activated: pointer device connected (Moonlight)")
 			vw.startDesktopMousePolling()
 		} else {
 			logrus.Info("🖱️ Touchpad deactivated: pointer device disconnected")
 			vw.stopDesktopMousePolling()
-			vw.usbClient.DisconnectMouseWebSocket()
 			fyne.Do(func() {
 				if vw.statusLabel != nil {
 					vw.statusLabel.SetText("")
@@ -740,9 +741,6 @@ func (vw *VideoWidget) ShowFullscreen() {
 		vw.fullscreenDialog = NewFullscreenDialog(vw.parentWindow)
 		vw.fullscreenDialog.SetVideoWidget(vw)
 		vw.fullscreenDialog.SetVideoClient(vw.videoClient)
-		if vw.usbClient != nil {
-			vw.fullscreenDialog.SetUSBClient(vw.usbClient)
-		}
 	}
 
 	vw.fullscreenDialog.Show()
@@ -820,9 +818,6 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 		vw.isClosing.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 	}
-	if vw.fullscreenDialog != nil {
-		vw.fullscreenDialog.SetUSBClient(usbClient)
-	}
 	vw.updateButtons()
 }
 
@@ -879,17 +874,14 @@ func (vw *VideoWidget) StopVideo() {
 func (vw *VideoWidget) HandleConnectionLost() {
 	resetVideoInfoCache()
 
-	if vw.usbClient != nil {
-		vw.usbClient.DisconnectMouseWebSocket()
-	}
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
-			logrus.Warnf("⚠️ Failed to disconnect GStreamer after transport loss: %v", err)
+			logrus.Warnf("⚠️ Failed to disconnect video client after transport loss: %v", err)
 		}
 	}
 
 	vw.isStreaming = false
-	vw.isGStreamerConnected = false
+	vw.isVideoConnected = false
 	vw.isMouseConnected = false
 	vw.clearVideo()
 
@@ -907,18 +899,15 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	resetVideoInfoCache()
 	logrus.Infof("🔄 [VideoTrace #%d] local control rebuild reset", vw.videoTraceID.Load())
 
-	if vw.usbClient != nil {
-		vw.usbClient.DisconnectMouseWebSocket()
-	}
 	vw.stopDesktopMousePolling()
 	if vw.videoClient != nil {
 		if err := vw.videoClient.Disconnect(); err != nil {
-			logrus.Warnf("⚠️ Failed to disconnect GStreamer after device rebuild: %v", err)
+			logrus.Warnf("⚠️ Failed to disconnect Moonlight after device rebuild: %v", err)
 		}
 	}
 
 	vw.isStreaming = false
-	vw.isGStreamerConnected = false
+	vw.isVideoConnected = false
 	vw.isMouseConnected = false
 	vw.clearVideo()
 

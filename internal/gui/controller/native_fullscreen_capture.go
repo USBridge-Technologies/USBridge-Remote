@@ -1,12 +1,12 @@
 package controller
 
-import "usbridge-client/internal/api"
+import "usbridge-client/internal/service"
 
 type nativeFullscreenCapture interface {
 	Start() error
 	Stop() error
 }
 
-func newNativeFullscreenCapture(usbClient *api.USBClient, onExit func()) nativeFullscreenCapture {
-	return newPlatformNativeFullscreenCapture(usbClient, onExit)
+func newNativeFullscreenCapture(miProvider func() service.MoonlightInputSender, onExit func()) nativeFullscreenCapture {
+	return newPlatformNativeFullscreenCapture(miProvider, onExit)
 }

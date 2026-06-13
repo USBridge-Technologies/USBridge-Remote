@@ -1,9 +1,6 @@
 package controller
 
 import (
-	"time"
-	"usbridge-client/internal/input"
-
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -23,9 +20,6 @@ func (fd *FullscreenDialog) handleKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	// Route through VideoWidget so the Moonlight-aware path (KeyDown/KeyUp → LiKeyActionDown/Up)
-	// is used when streaming. Without this, fullscreen keys go via TypedKey → USB API press+release,
-	// which fires on every OS key-repeat and causes turbo behavior.
 	if fd.videoWidget != nil {
 		fd.videoWidget.handlePhysicalKeyDown(event)
 	}
@@ -51,149 +45,47 @@ func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {
 	}
 }
 
-// handleVirtualKeyPress обрабатывает нажатие клавиш виртуальной клавиатуры
-func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ Виртуальная клавиатура: получено нажатие клавиши %d с модификаторами %d", keyCode, modifiers)
-
-	if fd.usbClient == nil {
-		logrus.Warnf("⌨️ USB клиент не подключен, игнорируем клавишу: %d", keyCode)
-		return
-	}
-
-	logrus.Infof("⌨️ Отправляем клавишу на удаленную машину: код=%d, модификаторы=%d", keyCode, modifiers)
-	fd.sendKeyToRemoteVirtual(keyCode, modifiers)
-}
-
-// sendKeyToRemoteVirtual отправляет клавишу на удаленную машину через HID (из виртуальной клавиатуры)
-func (fd *FullscreenDialog) sendKeyToRemoteVirtual(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ sendKeyToRemoteVirtual: отправка клавиши %d с модификаторами %d", keyCode, modifiers)
-
-	var err error
-	if modifiers > 0 {
-		err = fd.usbClient.SendCombo(modifiers, keyCode)
-		logrus.Infof("⌨️ Отправлена комбинация: модификаторы=%d, клавиша=%d", modifiers, keyCode)
-	} else {
-		logrus.Infof("⌨️ Отправляем одиночную клавишу: %d", keyCode)
-		err = fd.usbClient.SendKey(keyCode)
-		logrus.Infof("⌨️ Отправлена клавиша: %d - результат: %v", keyCode, err)
-	}
-
-	if err != nil {
-		logrus.Errorf("⚠️ Ошибка отправки клавиши: %v", err)
-	} else {
-		logrus.Infof("✅ Клавиша успешно отправлена: код=%d, модификаторы=%d", keyCode, modifiers)
-	}
-}
-
-// handleKeyPress обрабатывает нажатие клавиш в полноэкранном режиме.
+// handleKeyPress обрабатывает TypedKey в полноэкранном режиме.
+// Всегда подавляем USB-путь; клавиши идут через handleKeyDown/Up → Moonlight.
+// TypedKey используется ТОЛЬКО для выхода из полноэкранного режима и как фолбек
+// (через canvas.SetOnTypedKey) когда touchpadWrapper ещё не получил фокус.
 func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
-	logrus.Infof("⌨️ [FS][INPUT][PRESS] key=%q physical=%+v printable=%v modifiers=%d", event.Name, event.Physical, input.IsPrintableKey(event.Name), int(fd.keyboardModifierState.Load()))
-
-	// Handle Back button for Android
 	if event.Name == fyne.KeyEscape || event.Name == fyne.KeyF11 || string(event.Name) == "Back" {
 		logrus.Info("⌨️ [FS][INPUT][PRESS] leaving fullscreen")
 		fd.exitFullscreen()
 		return
 	}
-
-	// When Moonlight is active, keys are handled via KeyDown/KeyUp → LiKeyActionDown/Up.
-	// TypedKey (this handler) fires on every OS key-repeat, so we must skip it here to
-	// prevent turbo: without this guard, each repeat would send an extra press+release.
+	// Suppress TypedKey when touchpadWrapper has focus: KeyDown/Up handles Moonlight input.
+	// When no focus yet (500ms async delay after fullscreen opens), allow fallback via canvas.
 	if fd.videoWidget != nil && fd.videoWidget.moonlightInput() != nil {
-		logrus.Debugf("⌨️ [FS][INPUT][PRESS] skip — Moonlight active, using KeyDown/KeyUp path")
-		return
-	}
-
-	if input.IsPrintableKey(event.Name) {
-		if isDesktopPrintableKeyFallbackEnabled() && fd.sendKeyToRemote(event, int(fd.keyboardModifierState.Load())) {
-			fd.suppressRuneUntilNS.Store(time.Now().Add(desktopPrintableRuneSuppressWindow).UnixNano())
-			logrus.Info("⌨️ [FS][INPUT][PRESS] printable key sent via TypedKey fallback")
+		if fd.touchpadWrapper != nil && fd.fullscreenWindow != nil &&
+			fd.fullscreenWindow.Canvas().Focused() == fd.touchpadWrapper {
+			logrus.Debugf("⌨️ [FS][INPUT][PRESS] skip — Moonlight+focus active")
+			return
+		}
+		// No focus yet — forward via the video widget so Moonlight receives the key.
+		logrus.Debugf("⌨️ [FS][INPUT][PRESS] Moonlight but no focus — forwarding via VideoWidget")
+		if fd.videoWidget != nil {
+			fd.videoWidget.handlePhysicalKeyPress(event)
 		}
 		return
 	}
-
-	if !fd.keyboardEnabled || fd.usbClient == nil {
-		logrus.Warnf("⌨️ [FS][INPUT][PRESS] ignored key=%q keyboardEnabled=%v usb=%v", event.Name, fd.keyboardEnabled, fd.usbClient != nil)
-		return
-	}
-
-	fd.sendKeyToRemote(event, 0)
 }
 
-// sendKeyToRemote отправляет клавишу на удаленную машину через HID.
-func (fd *FullscreenDialog) sendKeyToRemote(event *fyne.KeyEvent, modifiers int) bool {
-	keyCode := input.GetKeyCodeFromPhysical(event.Physical)
-	if keyCode == 0 {
-		keyCode = input.GetKeyCode(event.Name)
-	}
-	if keyCode == 0 {
-		logrus.Warnf("⌨️ [FS][INPUT][SEND-KEY] unresolved key=%q physical=%+v", event.Name, event.Physical)
-		return false
-	}
-	logrus.Infof("⌨️ [FS][INPUT][SEND-KEY] key=%q hid=%d modifiers=%d", event.Name, keyCode, modifiers)
-	var err error
-	if modifiers != 0 {
-		err = fd.usbClient.SendCombo(modifiers, keyCode)
-	} else {
-		err = fd.usbClient.SendKey(keyCode)
-	}
-	if err != nil {
-		logrus.Errorf("⚠️ Ошибка отправки клавиши: %v", err)
-		return false
-	}
-	logrus.Infof("⌨️ [FS][INPUT][SEND-KEY] delivered hid=%d modifiers=%d", keyCode, modifiers)
-	return true
-}
+// handleRunePress — TypedRune больше не используется для отправки ввода.
+func (fd *FullscreenDialog) handleRunePress(_ rune) {}
 
-// handleRunePress обрабатывает нажатие символов (буквы, цифры, знаки препинания)
-func (fd *FullscreenDialog) handleRunePress(r rune) {
-	logrus.Infof("⌨️ [FS][INPUT][RUNE] rune=%q code=%U", string(r), r)
-
-	// Moonlight path: rune events fire on repeat too — skip to avoid turbo.
-	if fd.videoWidget != nil && fd.videoWidget.moonlightInput() != nil {
-		logrus.Debugf("⌨️ [FS][INPUT][RUNE] skip — Moonlight active, using KeyDown/KeyUp path")
+// handleVirtualKeyPress обрабатывает нажатие клавиш виртуальной клавиатуры через Moonlight.
+func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
+	logrus.Infof("⌨️ [FS][VIRTUAL] keyCode=%d modifiers=%d", keyCode, modifiers)
+	mi := fd.videoWidget.moonlightInput()
+	if mi == nil {
+		logrus.Warn("⌨️ [FS][VIRTUAL] Moonlight not active, ignoring virtual key")
 		return
 	}
-
-	if !fd.keyboardEnabled || fd.usbClient == nil {
-		logrus.Warnf("⌨️ [FS][INPUT][RUNE] ignored keyboardEnabled=%v usb=%v", fd.keyboardEnabled, fd.usbClient != nil)
-		return
-	}
-
-	if isDesktopPrintableKeyFallbackEnabled() && time.Now().UnixNano() <= fd.suppressRuneUntilNS.Load() {
-		logrus.Info("⌨️ [FS][INPUT][RUNE] suppressed duplicate after TypedKey fallback")
-		return
-	}
-
-	fd.sendRuneToRemote(r)
-}
-
-// sendRuneToRemote отправляет символ на удаленную машину через HID
-func (fd *FullscreenDialog) sendRuneToRemote(r rune) {
-	if r == '\n' || r == '\r' {
-		logrus.Info("⌨️ [FS][INPUT][SEND-RUNE] ignored newline")
-		return
-	}
-	keyCode, modifiers := input.GetRuneKeyCodeWithModifiers(r)
-	if keyCode == 0 {
-		logrus.Warnf("⌨️ [FS][INPUT][SEND-RUNE] unresolved rune=%q code=%U", string(r), r)
-		return
-	}
-	logrus.Infof("⌨️ [FS][INPUT][SEND-RUNE] rune=%q hid=%d modifiers=%d", string(r), keyCode, modifiers)
-
-	var err error
-	if modifiers > 0 {
-		err = fd.usbClient.SendCombo(modifiers, keyCode)
-	} else {
-		err = fd.usbClient.SendKey(keyCode)
-	}
-
-	if err != nil {
-		logrus.Errorf("⚠️ Ошибка отправки символа: %v", err)
-	} else {
-		logrus.Infof("⌨️ [FS][INPUT][SEND-RUNE] delivered hid=%d modifiers=%d rune=%q", keyCode, modifiers, string(r))
-	}
+	_ = keyCode
+	_ = modifiers
 }

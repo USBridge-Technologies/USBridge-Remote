@@ -84,5 +84,3 @@ const (
 	LiGamepadY         = uint16(0x8000)
 )
 
-// Ensure GStreamerService implements VideoClient
-var _ VideoClient = (*GStreamerService)(nil)

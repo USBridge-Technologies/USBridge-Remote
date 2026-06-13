@@ -216,14 +216,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"usbridge-client/internal/api"
+	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
 )
 
 type darwinNativeFullscreenCapture struct {
-	usbClient *api.USBClient
-	onExit    func()
+	miProvider func() service.MoonlightInputSender
+	onExit     func()
 
 	events     chan nativeCaptureEvent
 	stopEvents chan struct{}
@@ -246,9 +246,9 @@ var (
 	activeDarwinCapture   *darwinNativeFullscreenCapture
 )
 
-func newPlatformNativeFullscreenCapture(usbClient *api.USBClient, onExit func()) nativeFullscreenCapture {
+func newPlatformNativeFullscreenCapture(miProvider func() service.MoonlightInputSender, onExit func()) nativeFullscreenCapture {
 	return &darwinNativeFullscreenCapture{
-		usbClient:  usbClient,
+		miProvider: miProvider,
 		onExit:     onExit,
 		events:     make(chan nativeCaptureEvent, 128),
 		stopEvents: make(chan struct{}),
@@ -257,8 +257,8 @@ func newPlatformNativeFullscreenCapture(usbClient *api.USBClient, onExit func())
 }
 
 func (c *darwinNativeFullscreenCapture) Start() error {
-	if c.usbClient == nil {
-		return fmt.Errorf("usb client is not configured for native fullscreen capture")
+	if c.miProvider == nil {
+		return fmt.Errorf("moonlight input provider is not configured for native fullscreen capture")
 	}
 	if !c.running.CompareAndSwap(false, true) {
 		return nil
@@ -338,23 +338,16 @@ func (c *darwinNativeFullscreenCapture) processEvents() {
 		if dx == 0 && dy == 0 {
 			return
 		}
-
+		mi := c.miProvider()
+		if mi == nil {
+			return
+		}
 		for dx != 0 || dy != 0 {
 			stepX := clamp(dx, -127, 127)
 			stepY := clamp(dy, -127, 127)
 			dx -= stepX
 			dy -= stepY
-
-			var err error
-			if activeButton != 0 {
-				err = c.usbClient.SendMouseAction(activeButton, stepX, stepY, 0)
-			} else {
-				err = c.usbClient.SendMouseMove(stepX, stepY)
-			}
-			if err != nil {
-				logrus.Errorf("❌ macOS native capture mouse move failed: %v", err)
-				return
-			}
+			mi.SendMoonlightMouseMove(int16(stepX), int16(stepY))
 		}
 	}
 
@@ -363,8 +356,8 @@ func (c *darwinNativeFullscreenCapture) processEvents() {
 		case <-c.stopEvents:
 			flushMove()
 			if activeButton != 0 {
-				if err := c.usbClient.SendMouseAction(0, 0, 0, 0); err != nil {
-					logrus.Warnf("⚠️ macOS native capture button release failed on stop: %v", err)
+				if mi := c.miProvider(); mi != nil {
+					mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, activeButton)
 				}
 			}
 			return
@@ -374,23 +367,23 @@ func (c *darwinNativeFullscreenCapture) processEvents() {
 			switch event.kind {
 			case "button":
 				flushMove()
+				mi := c.miProvider()
+				if mi == nil {
+					break
+				}
 				if event.value != 0 {
 					activeButton = event.button
-					if err := c.usbClient.SendMouseAction(activeButton, 0, 0, 0); err != nil {
-						logrus.Errorf("❌ macOS native capture button press failed: %v", err)
-					}
+					mi.SendMoonlightMouseButton(service.LiMouseButtonPress, activeButton)
 				} else {
 					if activeButton == event.button || activeButton == 0 {
 						activeButton = 0
 					}
-					if err := c.usbClient.SendMouseAction(0, 0, 0, 0); err != nil {
-						logrus.Errorf("❌ macOS native capture button release failed: %v", err)
-					}
+					mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, event.button)
 				}
 			case "scroll":
 				flushMove()
-				if err := c.usbClient.SendMouseScroll(event.value); err != nil {
-					logrus.Errorf("❌ macOS native capture scroll failed: %v", err)
+				if mi := c.miProvider(); mi != nil {
+					mi.SendMoonlightScroll(int8(clamp(event.value, -127, 127)))
 				}
 			case "exit":
 				if c.onExit != nil {
