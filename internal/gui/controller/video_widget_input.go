@@ -77,6 +77,26 @@ func (vw *VideoWidget) currentHIDModifiers() int {
 	return int(vw.keyboardModifierState.Load())
 }
 
+// moonlightTrackKeyDown records vkCode as held. Returns true if the key was
+// already tracked as held — meaning Fyne dropped the preceding KeyUp event.
+func (vw *VideoWidget) moonlightTrackKeyDown(vkCode int16) (wasAlreadyHeld bool) {
+	vw.moonlightKeyMu.Lock()
+	defer vw.moonlightKeyMu.Unlock()
+	if vw.moonlightHeldVKs == nil {
+		vw.moonlightHeldVKs = make(map[int16]bool)
+	}
+	wasAlreadyHeld = vw.moonlightHeldVKs[vkCode]
+	vw.moonlightHeldVKs[vkCode] = true
+	return
+}
+
+// moonlightTrackKeyUp removes vkCode from the held set.
+func (vw *VideoWidget) moonlightTrackKeyUp(vkCode int16) {
+	vw.moonlightKeyMu.Lock()
+	defer vw.moonlightKeyMu.Unlock()
+	delete(vw.moonlightHeldVKs, vkCode)
+}
+
 func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
@@ -94,6 +114,12 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	}
 	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
+			if vw.moonlightTrackKeyDown(vkCode) {
+				// Fyne dropped the preceding KeyUp — key is stuck on the remote.
+				// Send a synthetic release so Sunshine/HID clears it before the new press.
+				logrus.Warnf("⌨️ [INPUT][DOWN] vk=0x%04X re-press without release — auto-releasing stuck key", uint16(vkCode))
+				mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
+			}
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}
@@ -116,6 +142,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 	}
 	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
+			vw.moonlightTrackKeyUp(vkCode)
 			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
 		}
 	}

@@ -94,6 +94,8 @@ type VideoWidget struct {
 	virtualKeyboard       *graphics.VirtualKeyboard
 	keyboardModifierState atomic.Int32
 	suppressRuneUntilNS   atomic.Int64
+	moonlightKeyMu        sync.Mutex
+	moonlightHeldVKs      map[int16]bool // tracks VK codes currently held in Moonlight session
 
 	// Мышь/тачпад
 	lastMouseX         float32
