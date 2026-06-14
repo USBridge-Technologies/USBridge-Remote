@@ -30,6 +30,10 @@ extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern int gl_video_is_active(void);
 extern int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride);
 
+// Vulkan overlay fast path (defined in vk_video_impl_linux.c).
+extern int vk_video_is_active(void);
+extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride);
+
 #include "moonlight_cgo_shared.h"
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,8 +202,12 @@ static void deliver_frame(AVFrame *frame) {
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1)
                 goVTLog((char*)"libavcodec: first RGBA frame decoded");
-            // GL overlay fast path: submit directly; still call goVTFrame for Go-level stats.
-            gl_video_try_submit(rgba, w, h, w * 4);
+            // Native overlay fast path: VK preferred, GL fallback.
+            // goVTFrame is still called so Go-side stats/callbacks run.
+            if (vk_video_is_active())
+                vk_video_try_submit(rgba, w, h, w * 4);
+            else if (gl_video_is_active())
+                gl_video_try_submit(rgba, w, h, w * 4);
             goVTFrame(rgba, w, h, w * 4);
             free(rgba);
         }

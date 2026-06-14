@@ -2,7 +2,7 @@
 
 package service
 
-// NativeVideoOverlayIsActive reports whether the GLX/X11 child-window overlay is live.
+// NativeVideoOverlayIsActive reports whether the Vulkan or GLX/X11 overlay is live.
 func NativeVideoOverlayIsActive() bool {
-	return GLVideoIsActive()
+	return VKVideoIsActive() || GLVideoIsActive()
 }

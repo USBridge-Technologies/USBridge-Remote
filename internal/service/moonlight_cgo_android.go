@@ -36,6 +36,11 @@ extern ANativeWindow *android_gl_init(int width, int height);
 extern uint8_t      *android_gl_get_frame(int width, int height);
 extern void          android_gl_release(void);
 
+// Declared in vk_video_impl_android.c
+extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
+extern int  android_vk_is_active(void);
+extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
+
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 #include <stdatomic.h>
@@ -189,7 +194,14 @@ static int dr_submit(PDECODE_UNIT du) {
     if (out_idx >= 0) {
         AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
         uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
-        if (rgba) goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+        if (rgba) {
+            if (android_vk_is_active()) {
+                // Vulkan overlay: present directly to SurfaceView, skip Fyne canvas.
+                android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+            } else {
+                goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+            }
+        }
     }
     return DR_OK;
 }
@@ -367,6 +379,7 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 		_ = driver.RunNative(func(ctx any) error {
 			if ac, ok := ctx.(*driver.AndroidContext); ok && ac.VM != 0 && ac.Ctx != 0 {
 				C.android_gl_set_jvm((*C.JavaVM)(unsafe.Pointer(ac.VM)), (C.jobject)(unsafe.Pointer(ac.Ctx)))
+				C.android_vk_set_jvm((*C.JavaVM)(unsafe.Pointer(ac.VM)), (C.jobject)(unsafe.Pointer(ac.Ctx)))
 				logrus.Info("🎬 [Moonlight/Android] JNI Initialized (VER: V4_FINAL_TRACE)")
 			}
 			return nil

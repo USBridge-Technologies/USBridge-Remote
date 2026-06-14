@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -10,17 +11,31 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (vw *VideoWidget) isNativeVideoActive() bool {
-	return service.GLVideoIsActive()
+func vkStageName(s int) string {
+	names := []string{"idle", "got-frame", "staging", "acquire", "fence-wait", "queue-submit", "present", "recreate-swapchain"}
+	if s >= 0 && s < len(names) {
+		return names[s]
+	}
+	return "unknown"
 }
 
+func (vw *VideoWidget) isNativeVideoActive() bool {
+	return service.VKVideoIsActive() || service.GLVideoIsActive()
+}
+
+// startMetalVideoOnWindow creates the Vulkan overlay on the X11 window.
+// Falls back to GLX overlay if Vulkan is unavailable.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
+	// Wire hide/show hooks for Fyne menus — mirrors macOS Metal / Windows Vulkan pattern.
+	view.OnOverlayShow = func() { service.VKVideoSetHidden(true) }
+	view.OnOverlayHide = func() { service.VKVideoSetHidden(false) }
+
 	if window == nil {
 		return
 	}
 	nw, ok := window.(driver.NativeWindow)
 	if !ok {
-		logrus.Warn("[GL/Linux] window does not implement driver.NativeWindow — GL skipped")
+		logrus.Warn("[VK/Linux] window does not implement NativeWindow — using Fyne canvas")
 		return
 	}
 	nw.RunNative(func(ctx any) {
@@ -29,11 +44,10 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		case *driver.X11WindowContext:
 			xwin = c.WindowHandle
 		case *driver.WaylandWindowContext:
-			// Wayland wl_subsurface support not yet implemented; fall back.
-			logrus.Info("[GL/Linux] Wayland detected — native GL overlay not yet supported, using Fyne canvas")
+			logrus.Info("[VK/Linux] Wayland detected — Vulkan/Xlib overlay not supported, using Fyne canvas")
 			return
 		default:
-			logrus.Warnf("[GL/Linux] unexpected native context type %T — GL skipped", ctx)
+			logrus.Warnf("[VK/Linux] unexpected native context type %T — skipped", ctx)
 			return
 		}
 
@@ -41,7 +55,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		if !fullscreen {
 			x, y, w, h := vw.videoCanvasFrame()
 			if w <= 0 || h <= 0 {
-				logrus.Warn("[GL/Linux] videoCanvas has zero size — GL skipped")
+				logrus.Warn("[VK/Linux] videoCanvas has zero size — skipped")
 				return
 			}
 			scale := float32(1)
@@ -53,60 +67,111 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			pw = int(w * scale)
 			ph = int(h * scale)
 		}
-		if !service.GLVideoCreate(xwin, px, py, pw, ph, vw.enableVSync) {
-			logrus.Warn("[GL/Linux] failed to create overlay — Fyne canvas path active")
-		} else {
-			if cb := vw.onNativeReady; cb != nil {
-				vw.onNativeReady = nil
-				cb()
+
+		// Try Vulkan first; fall back to GLX if unavailable.
+		service.VKVideoResetLastFrame()
+		if service.VKVideoCreate(xwin, px, py, pw, ph) {
+			logrus.Infof("[VK/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
+				fullscreen, px, py, pw, ph)
+			if view.OverlayActive() {
+				service.VKVideoSetHidden(true)
 			}
+		} else {
+			logrus.Warn("[VK/Linux] Vulkan init failed — trying GLX fallback")
+			view.OnOverlayShow = nil
+			view.OnOverlayHide = nil
+			if !service.GLVideoCreate(xwin, px, py, pw, ph, vw.enableVSync) {
+				logrus.Warn("[GLX/Linux] GLX overlay also failed — using Fyne canvas")
+				return
+			}
+			logrus.Infof("[GLX/Linux] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)",
+				fullscreen, px, py, pw, ph)
+		}
+
+		if vw.videoCanvas != nil {
+			vw.videoCanvas.Image = nil
+			vw.videoCanvas.Translucency = 0
+			vw.videoCanvas.Refresh()
+		}
+		if cb := vw.onNativeReady; cb != nil {
+			vw.onNativeReady = nil
+			cb()
 		}
 	})
 }
 
 func (vw *VideoWidget) stopMetalVideo() {
 	vw.onNativeReady = nil
+	view.OnOverlayShow = nil
+	view.OnOverlayHide = nil
+	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 }
 
 func (vw *VideoWidget) updateMetalVideoFrame() {
-	if !service.GLVideoIsActive() {
+	if service.VKVideoIsActive() {
+		st := service.VKVideoGetStats()
+
+		// Watchdog: render-thread heartbeat stuck.
+		// (Simplified version — full watchdog like Windows can be added here if needed.)
+		if st.FirstFrame || st.FPSReady {
+			service.VKVideoClearPendingStats()
+			if st.FirstFrame {
+				logrus.Infof("[VK/Linux] first frame — %dx%d", st.FW, st.FH)
+			}
+			if st.FPSReady {
+				logrus.Infof("[VK/Linux] fps=%.1f rendered=%d submitted=%d size=%dx%d",
+					st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
+			}
+		}
+
+		x, y, w, h := vw.videoCanvasFrame()
+		if w <= 0 || h <= 0 {
+			return
+		}
+		scale := float32(1)
+		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+			scale = vw.parentWindow.Canvas().Scale()
+		}
+		service.VKVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
 		return
 	}
 
-	// Read and log stats from the render thread (safe: runs on Fyne main goroutine).
-	st := service.GLVideoGetStats()
-	if st.FirstFrame || st.FPSReady {
-		service.GLVideoClearPendingStats()
-		if st.FirstFrame {
-			logrus.Infof("[GL/Linux] first frame rendered — %dx%d", st.FW, st.FH)
+	if service.GLVideoIsActive() {
+		st := service.GLVideoGetStats()
+		if st.FirstFrame || st.FPSReady {
+			service.GLVideoClearPendingStats()
+			if st.FirstFrame {
+				logrus.Infof("[GLX/Linux] first frame — %dx%d", st.FW, st.FH)
+			}
+			if st.FPSReady {
+				logrus.Infof("[GLX/Linux] fps=%.1f rendered=%d submitted=%d size=%dx%d",
+					st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
+			}
 		}
-		if st.FPSReady {
-			logrus.Infof("[GL/Linux] fps=%.1f  rendered=%d  submitted=%d  size=%dx%d",
-				st.FPS, st.Rendered, st.Submitted, st.FW, st.FH)
+		x, y, w, h := vw.videoCanvasFrame()
+		if w <= 0 || h <= 0 {
+			return
 		}
+		scale := float32(1)
+		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+			scale = vw.parentWindow.Canvas().Scale()
+		}
+		service.GLVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
 	}
-
-	x, y, w, h := vw.videoCanvasFrame()
-	if w <= 0 || h <= 0 {
-		return
-	}
-	scale := float32(1)
-	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
-		scale = vw.parentWindow.Canvas().Scale()
-	}
-	service.GLVideoUpdateFrame(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
 }
 
 func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
+	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
+	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
