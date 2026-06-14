@@ -166,26 +166,38 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	}
 }
 
+// vkFullscreenWindow tracks the window currently hosting the VK overlay in
+// fullscreen mode. nil means the overlay is on the main window.
+var vkFullscreenWindow fyne.Window
+
 func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
+	vkFullscreenWindow = fsWindow
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
+	vkFullscreenWindow = nil
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
 
 // videoCanvasFrame returns the video area rect in window-local dp coordinates.
-// vw.videoCanvas.Position() is always near (0,0) within its parent container,
-// so we derive the y-offset the same way as on Windows/macOS: the video container
-// fills everything below the toolbar, so y = canvasHeight - containerHeight.
+//
+// Fullscreen: the VK child window covers the entire fullscreen window → (0,0,W,H).
+//
+// Normal: vw.videoCanvas.Position() is always (0,0) within its parent container,
+// so y-offset = canvasHeight − containerHeight (height of the toolbar above video).
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
+	if fsWin := vkFullscreenWindow; fsWin != nil {
+		sz := fsWin.Canvas().Size()
+		return 0, 0, sz.Width, sz.Height
+	}
 	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
