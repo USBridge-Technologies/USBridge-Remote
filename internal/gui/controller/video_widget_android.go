@@ -14,6 +14,12 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.VKVideoAndroidIsActive()
 }
 
+// keepNativeVideoAliveForFullscreenTransition reports true on Android because
+// the Vulkan SurfaceView overlay is attached to the Activity, not to a Fyne
+// window. Destroying and recreating it on each fullscreen toggle is wrong —
+// the SurfaceView stays alive through window content changes.
+func (vw *VideoWidget) keepNativeVideoAliveForFullscreenTransition() bool { return true }
+
 // startMetalVideoOnWindow creates a Vulkan SurfaceView overlay for video.
 // Falls back to the Fyne canvas render-ticker if Vulkan is unavailable.
 func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
@@ -96,28 +102,36 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 }
 
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
-	// Fullscreen on Android: hide the overlay (Fyne takes fullscreen).
-	if service.VKVideoAndroidIsActive() {
-		service.VKVideoAndroidSetHidden(true)
-	}
+	// Vulkan stays VISIBLE in fullscreen — videoCanvasFrame() detects IsFullscreen()
+	// and returns the full-canvas rect so the SurfaceView expands to fill the screen.
+	vw.forceCanvasRefresh.Store(true)
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
-	if service.VKVideoAndroidIsActive() {
-		service.VKVideoAndroidSetHidden(false)
-	}
+	// Restore normal rect — videoCanvasFrame() will return to the video-area rect.
+	vw.forceCanvasRefresh.Store(true)
 }
 
-// videoCanvasFrame returns the video area rect in window-local dp coordinates.
-// When the keyboard panel (contentContainer) is visible, its height is subtracted
-// so the Vulkan SurfaceView only covers the video portion above the keyboard.
+// videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.
+//   - Fullscreen: full canvas (Vulkan expands to fill the screen).
+//   - Keyboard visible: video area above the keyboard panel.
+//   - Normal: full container area below the tab bar.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.container == nil || vw.parentWindow == nil {
+	if vw.parentWindow == nil {
+		return
+	}
+	cs := vw.parentWindow.Canvas().Size()
+
+	// In fullscreen mode the Vulkan SurfaceView covers the whole screen.
+	if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
+		return 0, 0, cs.Width, cs.Height
+	}
+
+	if vw.container == nil {
 		return
 	}
 	sz := vw.container.Size()
-	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - sz.Height
+	topOffset := cs.Height - sz.Height
 
 	videoH := sz.Height
 	if vw.contentContainer != nil && vw.contentContainer.Visible() {

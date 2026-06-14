@@ -404,8 +404,9 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.virtualKeyboard = nil
 	}
 
-	// Destroy fullscreen Metal overlay before the window closes.
-	if fd.videoWidget != nil {
+	// Destroy the native overlay before the window closes, unless the platform
+	// keeps a single overlay alive across fullscreen transitions (Android Vulkan).
+	if fd.videoWidget != nil && !fd.videoWidget.keepNativeVideoAliveForFullscreenTransition() {
 		fd.videoWidget.stopMetalVideo()
 	}
 

@@ -64,6 +64,7 @@ func (fd *FullscreenDialog) platformShow() {
 
 func (fd *FullscreenDialog) platformExit() {
 	logrus.Info("🔍 Mobile: восстанавливаем оригинальное содержимое основного окна")
+	fd.parent.SetFullScreen(false)
 	if fd.originalContent != nil {
 		fd.parent.SetContent(fd.originalContent)
 		fd.parent.SetTitle(fd.originalTitle)

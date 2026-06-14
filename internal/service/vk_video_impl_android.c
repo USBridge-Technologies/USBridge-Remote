@@ -252,10 +252,23 @@ static int vk_create_swapchain(int w, int h) {
         if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR) { pm = pms[i]; break; }
     free(pms);
 
-    g_swap_ext.width  = (uint32_t)(w > 0 ? w : (int)caps.currentExtent.width);
-    g_swap_ext.height = (uint32_t)(h > 0 ? h : (int)caps.currentExtent.height);
+    // 0xFFFFFFFF means the surface extent is flexible (caller picks any size within min/max).
+    // Use the known target rect from android_vk_update_rect; fall back to 1 if not set yet.
+    if (caps.currentExtent.width != 0xFFFFFFFFu) {
+        g_swap_ext.width  = w > 0 ? (uint32_t)w : caps.currentExtent.width;
+        g_swap_ext.height = h > 0 ? (uint32_t)h : caps.currentExtent.height;
+    } else {
+        int dw = atomic_load(&g_dst_w), dh = atomic_load(&g_dst_h);
+        g_swap_ext.width  = w > 0 ? (uint32_t)w : (dw > 0 ? (uint32_t)dw : 1u);
+        g_swap_ext.height = h > 0 ? (uint32_t)h : (dh > 0 ? (uint32_t)dh : 1u);
+    }
     if (g_swap_ext.width  == 0) g_swap_ext.width  = 1;
     if (g_swap_ext.height == 0) g_swap_ext.height = 1;
+    // Clamp to surface capability limits.
+    if (g_swap_ext.width  > caps.maxImageExtent.width)  g_swap_ext.width  = caps.maxImageExtent.width;
+    if (g_swap_ext.height > caps.maxImageExtent.height) g_swap_ext.height = caps.maxImageExtent.height;
+    if (g_swap_ext.width  < caps.minImageExtent.width)  g_swap_ext.width  = caps.minImageExtent.width;
+    if (g_swap_ext.height < caps.minImageExtent.height) g_swap_ext.height = caps.minImageExtent.height;
 
     uint32_t imgCount = caps.minImageCount + 1;
     if (caps.maxImageCount && imgCount > caps.maxImageCount) imgCount = caps.maxImageCount;

@@ -6,6 +6,7 @@ import (
 	"math"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"usbridge-client/internal/input"
@@ -14,6 +15,14 @@ import (
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
+)
+
+// vkeyMu / vkeyLastPress prevent virtual-keyboard turbo: if the same HID key
+// is sent again within 100 ms (OS key-repeat or widget duplicate events),
+// the repeat is silently dropped.
+var (
+	vkeyMu        sync.Mutex
+	vkeyLastPress = map[int]time.Time{}
 )
 
 const desktopPrintableRuneSuppressWindow = 75 * time.Millisecond
@@ -303,14 +312,29 @@ func hidKeyToVK(hid int) int16 {
 
 // handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры через Moonlight.
 // Virtual keyboard buttons use USB HID keycodes; convert to Windows VK codes first.
+// A 100 ms per-key cooldown prevents turbo from OS key-repeat or widget duplicate events.
+// KeyDown is held for 50 ms before sending KeyUp (server BIOS minimum hold requirement).
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
+	vkeyMu.Lock()
+	if time.Since(vkeyLastPress[keyCode]) < 100*time.Millisecond {
+		vkeyMu.Unlock()
+		return
+	}
+	vkeyLastPress[keyCode] = time.Now()
+	vkeyMu.Unlock()
+
 	vk := hidKeyToVK(keyCode)
 	logrus.Infof("⌨️ Virtual keyboard: hid=%d vk=0x%02X modifiers=%d (Moonlight only)", keyCode, uint16(vk), modifiers)
-	if mi := vw.moonlightInput(); mi != nil {
+	go func() {
+		mi := vw.moonlightInput()
+		if mi == nil {
+			return
+		}
 		moonlightMods := widgetToMoonlightModifiers(modifiers)
 		mi.SendMoonlightKey(vk, service.LiKeyActionDown, moonlightMods)
+		time.Sleep(50 * time.Millisecond)
 		mi.SendMoonlightKey(vk, service.LiKeyActionUp, moonlightMods)
-	}
+	}()
 }
 
 // startDesktopMousePolling запускает горутину polling для плавного управления мышью.
