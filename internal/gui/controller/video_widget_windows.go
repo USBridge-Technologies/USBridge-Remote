@@ -218,6 +218,14 @@ func (vw *VideoWidget) stopMetalVideo() {
 
 // updateMetalVideoFrame repositions the overlay and logs stats at 1 Hz.
 func (vw *VideoWidget) updateMetalVideoFrame() {
+	// When fullscreen is active the Vulkan child-window belongs to the fullscreen
+	// window. The main-window VideoWidget must not call VKVideoUpdateFrame or it
+	// would reposition the overlay to the smaller main-window rect, causing the
+	// swapchain to be recreated at the wrong size and the fullscreen to go black.
+	if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
+		return
+	}
+
 	if service.VKVideoIsActive() {
 		st := service.VKVideoGetStats()
 
