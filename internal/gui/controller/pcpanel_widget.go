@@ -1124,10 +1124,33 @@ func (p *PCPanelWidget) showScriptsDialog() {
 
 	// Stop the polling goroutine when the popup is dismissed without pressing X.
 	go func() {
-		for popup == nil {
+		for {
+			var isPopupNil bool
+			syncDone := make(chan struct{})
+			fyne.Do(func() {
+				isPopupNil = (popup == nil)
+				close(syncDone)
+			})
+			<-syncDone
+			if !isPopupNil {
+				break
+			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		for popup.Visible() {
+
+		for {
+			var isVisible bool
+			syncDone := make(chan struct{})
+			fyne.Do(func() {
+				if popup != nil {
+					isVisible = popup.Visible()
+				}
+				close(syncDone)
+			})
+			<-syncDone
+			if !isVisible {
+				break
+			}
 			time.Sleep(120 * time.Millisecond)
 		}
 		select {
@@ -1424,10 +1447,33 @@ func (p *PCPanelWidget) showScriptLogDialog(path, displayName string) {
 	})
 
 	go func() {
-		for popup == nil {
+		for {
+			var isPopupNil bool
+			syncDone := make(chan struct{})
+			fyne.Do(func() {
+				isPopupNil = (popup == nil)
+				close(syncDone)
+			})
+			<-syncDone
+			if !isPopupNil {
+				break
+			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		for popup.Visible() {
+
+		for {
+			var isVisible bool
+			syncDone := make(chan struct{})
+			fyne.Do(func() {
+				if popup != nil {
+					isVisible = popup.Visible()
+				}
+				close(syncDone)
+			})
+			<-syncDone
+			if !isVisible {
+				break
+			}
 			time.Sleep(120 * time.Millisecond)
 		}
 		select {

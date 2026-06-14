@@ -55,8 +55,10 @@ object VulkanOverlayBridge {
 
             val sv = SurfaceView(activity)
             sv.holder.addCallback(holderCallback)
-            // Render on top of (in front of) the Fyne GL surface.
-            sv.setZOrderMediaOverlay(true)
+            // Render on top of EVERYTHING. This ensures visibility even if the Fyne window is opaque.
+            // We use hooks in Go to hide this overlay when Fyne menus or dialogs are shown.
+            sv.setZOrderOnTop(true)
+            sv.holder.setFormat(android.graphics.PixelFormat.OPAQUE)
 
             val lp = FrameLayout.LayoutParams(
                 w.coerceAtLeast(1),

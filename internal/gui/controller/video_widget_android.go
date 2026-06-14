@@ -25,10 +25,29 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 	view.OnOverlayShow = func() { service.VKVideoAndroidSetHidden(true) }
 	view.OnOverlayHide = func() { service.VKVideoAndroidSetHidden(false) }
 
-	// Attempt to create the Vulkan overlay at the full video area.
-	// Coordinates (0,0,0,0) means "full screen" — setRect will refine later.
-	if service.VKVideoAndroidCreate(0, 0, 0, 0) {
-		logrus.Info("[Android/VK] Vulkan overlay created")
+	// Compute the actual pixel rect for the video area now, before creating
+	// the overlay.  Passing (0,0,0,0) would cause the SurfaceView to be
+	// created at 1×1, producing a 1×1 Vulkan swapchain.  All subsequent
+	// frames would be presented on that invisible 1×1 surface while the Fyne
+	// canvas stays frozen at the last pre-Vulkan frame.
+	var px, py, pw, ph int
+	done := make(chan struct{})
+	fyne.Do(func() {
+		x, y, w, h := vw.videoCanvasFrame()
+		scale := float32(1)
+		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+			scale = vw.parentWindow.Canvas().Scale()
+		}
+		px = int(x * scale)
+		py = int(y * scale)
+		pw = int(w * scale)
+		ph = int(h * scale)
+		close(done)
+	})
+	<-done
+
+	if service.VKVideoAndroidCreate(px, py, pw, ph) {
+		logrus.Infof("[Android/VK] Vulkan overlay created at (%d,%d) %dx%d px", px, py, pw, ph)
 		if view.OverlayActive() {
 			service.VKVideoAndroidSetHidden(true)
 		}
@@ -36,19 +55,21 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 			vw.onNativeReady = nil
 			cb()
 		}
-		return
+		// Fallthrough to startRenderTicker even with Vulkan — we need it to 
+		// call renderLatestFrame, which hides the Fyne canvas and tracks resizes.
+	} else {
+		// Fallback: Disable overlay hooks if Vulkan failed.
+		view.OnOverlayShow = nil
+		view.OnOverlayHide = nil
+		logrus.Infof("[Android] Vulkan unavailable — using Fyne canvas fallback")
 	}
 
-	// Fallback: Fyne canvas render ticker (no native overlay).
-	view.OnOverlayShow = nil
-	view.OnOverlayHide = nil
 	fps := 60
 	if vw.videoClient != nil {
 		if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoFPS > 0 {
 			fps = cfg.VideoFPS
 		}
 	}
-	logrus.Infof("[Android] Vulkan unavailable — render ticker → %d Hz (stream FPS)", fps)
 	vw.startRenderTicker(fps)
 }
 

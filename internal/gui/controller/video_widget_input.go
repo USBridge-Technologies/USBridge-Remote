@@ -352,7 +352,9 @@ func (vw *VideoWidget) SetShowMouseCursor(show bool) {
 func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {
 	vw.agentOS = strings.TrimSpace(agentOS)
 	vw.agentDisplay = strings.TrimSpace(agentDisplay)
-	vw.refreshCursorOverlay()
+	fyne.Do(func() {
+		vw.refreshCursorOverlay()
+	})
 }
 
 func (vw *VideoWidget) UsesWaylandCursorOverlay() bool {

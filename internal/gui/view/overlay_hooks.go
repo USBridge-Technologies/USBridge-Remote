@@ -1,6 +1,10 @@
 package view
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/sirupsen/logrus"
+)
 
 // OnOverlayShow is called when the first Fyne overlay (menu, dialog) becomes visible.
 // Register this to hide the Metal video overlay on macOS.
@@ -14,14 +18,17 @@ var overlayDepth atomic.Int32
 
 // overlayShow must be called whenever a managed overlay (dropdownPopup, VideoStartDialog) is shown.
 func overlayShow() {
-	if overlayDepth.Add(1) == 1 && OnOverlayShow != nil {
+	depth := overlayDepth.Add(1)
+	logrus.Infof("📌 [OVERLAY] show depth=%d", depth)
+	if depth == 1 && OnOverlayShow != nil {
 		OnOverlayShow()
 	}
 }
 
-// overlayHide must be called whenever a managed overlay is fully dismissed.
 func overlayHide() {
-	if overlayDepth.Add(-1) <= 0 {
+	depth := overlayDepth.Add(-1)
+	logrus.Infof("📌 [OVERLAY] hide depth=%d", depth)
+	if depth <= 0 {
 		overlayDepth.Store(0)
 		if OnOverlayHide != nil {
 			OnOverlayHide()
@@ -32,5 +39,7 @@ func overlayHide() {
 // OverlayActive returns true when at least one managed overlay is currently visible.
 // Use this after creating a native video layer to check whether it should start hidden.
 func OverlayActive() bool {
-	return overlayDepth.Load() > 0
+	active := overlayDepth.Load() > 0
+	logrus.Infof("📌 [OVERLAY] active check=%v (depth=%d)", active, overlayDepth.Load())
+	return active
 }

@@ -51,7 +51,8 @@
       "Bash(grep *)",
       "PowerShell($lines = \\(Get-Content \"C:\\\\Projects_USBridge\\\\usbridge_client\\\\dist\\\\windows\\\\logs\\\\app.log\" | Measure-Object -Line\\).Lines; Write-Host \"Total lines: $lines\")",
       "PowerShell(\\(Get-Item \"C:\\\\Projects_USBridge\\\\usbridge_client\\\\dist\\\\windows\\\\usbridge-client.exe\"\\).LastWriteTime)",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Bash(adb logcat *)"
     ]
   }
 }

@@ -143,11 +143,36 @@ func watchOverlayPopupHooks(parent fyne.Window, popup *widget.PopUp, fireHooks b
 	}
 
 	go func() {
-		lastSize := parent.Canvas().Size()
+		var lastSize fyne.Size
+		syncDone := make(chan struct{})
+		fyne.Do(func() {
+			if parent.Canvas() != nil {
+				lastSize = parent.Canvas().Size()
+			}
+			close(syncDone)
+		})
+		<-syncDone
+
 		wasShown := false
 
 		for {
-			currentVisible := popup.Visible()
+			var currentVisible bool
+			var currentSize fyne.Size
+			var hasCanvas bool
+
+			syncDone = make(chan struct{})
+			fyne.Do(func() {
+				if popup != nil {
+					currentVisible = popup.Visible()
+				}
+				if parent != nil && parent.Canvas() != nil {
+					currentSize = parent.Canvas().Size()
+					hasCanvas = true
+				}
+				close(syncDone)
+			})
+			<-syncDone
+
 			if currentVisible {
 				if !wasShown {
 					wasShown = true
@@ -162,8 +187,7 @@ func watchOverlayPopupHooks(parent fyne.Window, popup *widget.PopUp, fireHooks b
 				return
 			}
 
-			currentSize := parent.Canvas().Size()
-			if currentSize != lastSize {
+			if hasCanvas && currentSize != lastSize {
 				lastSize = currentSize
 				fyne.Do(func() {
 					if popup == nil || !popup.Visible() {

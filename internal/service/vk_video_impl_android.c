@@ -49,6 +49,71 @@ static JNIEnv *get_env(int *need_detach) {
 }
 static void detach_env(int nd) { if (nd && g_jvm) (*g_jvm)->DetachCurrentThread(g_jvm); }
 
+static int java_create_overlay(int x, int y, int w, int h) {
+    if (!g_cls_vob) { VLOGE("VulkanOverlayBridge class not cached"); return 0; }
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return 0;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "createOverlay", "(IIII)V");
+    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(nd); return 0; }
+    (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jint)x, (jint)y, (jint)w, (jint)h);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(nd);
+    return 1;
+}
+
+static ANativeWindow *java_get_pending_window(void) {
+    if (!g_cls_vob) return NULL;
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return NULL;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob,
+        "getPendingSurface", "()Landroid/view/Surface;");
+    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(nd); return NULL; }
+    jobject surf = (*env)->CallStaticObjectMethod(env, g_cls_vob, mid);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); surf = NULL; }
+    if (!surf) { detach_env(nd); return NULL; }
+
+    ANativeWindow *win = ANativeWindow_fromSurface(env, surf);
+
+    // Clear pending surface so we don't re-acquire it.
+    jmethodID mid_clear = (*env)->GetStaticMethodID(env, g_cls_vob, "clearPendingSurface", "()V");
+    if (mid_clear) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid_clear);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+
+    detach_env(nd);
+    VLOGI("ANativeWindow=%p", (void*)win);
+    return win;
+}
+
+static void java_set_rect(int x, int y, int w, int h) {
+    if (!g_cls_vob) return;
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "setRect", "(IIII)V");
+    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jint)x, (jint)y, (jint)w, (jint)h);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(nd);
+}
+
+static void java_destroy_overlay(void) {
+    if (!g_cls_vob) return;
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "destroy", "()V");
+    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(nd);
+}
+
+static void java_set_visible(int visible) {
+    if (!g_cls_vob) return;
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "setVisible", "(Z)V");
+    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jboolean)(visible ? 1 : 0));
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    detach_env(nd);
+}
+
 // ─── Vulkan state ─────────────────────────────────────────────────────────────
 
 static VkInstance               g_inst       = VK_NULL_HANDLE;
@@ -245,12 +310,32 @@ static void vk_destroy_swapchain(void) {
 }
 
 static int vk_recreate_swapchain(void) {
-    if (!g_dev || !g_surf) return 0;
+    if (!g_dev) return 0;
+    VLOGI("recreating swapchain and checking for new surface");
     vkDeviceWaitIdle(g_dev);
+
+    // Check if JNI has a new surface for us (e.g. after a destroy/create cycle).
+    ANativeWindow *win = java_get_pending_window();
+    if (win) {
+        VLOGI("found new surface, recreating VkSurfaceKHR");
+        vk_destroy_swapchain();
+        if (g_surf != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(g_inst, g_surf, NULL);
+            g_surf = VK_NULL_HANDLE;
+        }
+        VkAndroidSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
+        sci.window = win;
+        if (vkCreateAndroidSurfaceKHR(g_inst, &sci, NULL, &g_surf) != VK_SUCCESS) {
+            VLOGE("failed to recreate VkSurfaceKHR");
+            ANativeWindow_release(win); return 0;
+        }
+        ANativeWindow_release(win);
+    }
+
+    if (!g_surf) { VLOGE("no surface for swapchain recreation"); return 0; }
+
     vk_destroy_swapchain();
-    int w = atomic_load(&g_dst_w);
-    int h = atomic_load(&g_dst_h);
-    return vk_create_swapchain(w, h);
+    return vk_create_swapchain(0, 0);
 }
 
 static int vk_ensure_tex(int w, int h) {
@@ -338,6 +423,28 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
 static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (!g_dev || !g_swap) return 0;
 
+    // Proactively detect surface resize: query caps and compare to our swapchain.
+    // On Android, Vulkan may not always signal VK_SUBOPTIMAL/OUT_OF_DATE when the
+    // surface changes (driver-dependent), so we check explicitly each frame.
+    {
+        VkSurfaceCapabilitiesKHR caps;
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_pdev, g_surf, &caps) == VK_SUCCESS) {
+            uint32_t cw = caps.currentExtent.width;
+            uint32_t ch = caps.currentExtent.height;
+            if (cw != 0 && ch != 0 &&
+                (cw != g_swap_ext.width || ch != g_swap_ext.height)) {
+                VLOGI("surface resized %ux%u → %ux%u, recreating swapchain",
+                      g_swap_ext.width, g_swap_ext.height, cw, ch);
+                vk_recreate_swapchain();
+                return 0;
+            }
+        } else {
+            VLOGI("failed to query surface caps, attempting to find new surface");
+            vk_recreate_swapchain();
+            return 0;
+        }
+    }
+
     size_t frame_sz = (size_t)fh * (size_t)fs;
     if (!vk_ensure_staging(frame_sz)) return 0;
     if (!vk_ensure_tex(fw, fh))       return 0;
@@ -360,6 +467,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) return 0;
 
     if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+        VLOGE("vkWaitForFences timeout (2s)");
         vkResetFences(g_dev, 1, &g_fence); return 0;
     }
     vkResetFences(g_dev, 1, &g_fence);
@@ -439,15 +547,24 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     pi.pImageIndices      = &img_idx;
     res = vkQueuePresentKHR(g_queue, &pi);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        VLOGI("vkQueuePresentKHR out of date or suboptimal (%d), recreating swapchain", (int)res);
         vk_recreate_swapchain(); return 1;
     }
-    return (res == VK_SUCCESS) ? 1 : 0;
+    if (res != VK_SUCCESS) {
+        VLOGE("vkQueuePresentKHR failed: %d", (int)res);
+        return 0;
+    }
+    return 1;
 }
 
 // ─── render thread ────────────────────────────────────────────────────────────
 
 static void *vk_render_thread(void *unused) {
     (void)unused;
+    VLOGI("render thread started");
+    uint8_t *frame_buf = NULL;
+    size_t frame_buf_sz = 0;
+
     while (atomic_load(&g_active)) {
         struct timeval tv = {0, 8000};
         fd_set fds; FD_ZERO(&fds); FD_SET(g_pipe_r, &fds);
@@ -458,90 +575,37 @@ static void *vk_render_thread(void *unused) {
         if (!atomic_load(&g_active)) break;
         if (atomic_load(&g_hidden))  continue;
 
-        uint8_t *tmp = NULL;
         int fw = 0, fh = 0, fs = 0;
+        int got_frame = 0;
         pthread_mutex_lock(&g_mu);
         if (g_ready && g_buf) {
             fw = g_fw; fh = g_fh; fs = g_fs;
             size_t sz = (size_t)fh * (size_t)fs;
-            tmp = malloc(sz);
-            if (tmp) memcpy(tmp, g_buf, sz);
+            if (sz > frame_buf_sz) {
+                free(frame_buf);
+                frame_buf = malloc(sz);
+                frame_buf_sz = frame_buf ? sz : 0;
+            }
+            if (frame_buf) {
+                memcpy(frame_buf, g_buf, sz);
+                got_frame = 1;
+            }
             g_ready = 0;
         }
         pthread_mutex_unlock(&g_mu);
-        if (!tmp) continue;
 
-        if (vk_render_frame(tmp, fw, fh, fs)) g_rendered++;
-        free(tmp);
+        if (!got_frame) continue;
+
+        if (vk_render_frame(frame_buf, fw, fh, fs)) {
+            g_rendered++;
+            if (g_rendered % 300 == 0) {
+                VLOGI("rendered %lld frames, submitted %lld", (long long)g_rendered, (long long)g_submitted);
+            }
+        }
     }
+    free(frame_buf);
+    VLOGI("render thread exiting");
     return NULL;
-}
-
-// ─── JNI helpers for VulkanOverlayBridge ─────────────────────────────────────
-
-static int java_create_overlay(int x, int y, int w, int h) {
-    if (!g_cls_vob) { VLOGE("VulkanOverlayBridge class not cached"); return 0; }
-    int nd; JNIEnv *env = get_env(&nd);
-    if (!env) return 0;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "createOverlay", "(IIII)V");
-    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(nd); return 0; }
-    (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jint)x, (jint)y, (jint)w, (jint)h);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    detach_env(nd);
-    return 1;
-}
-
-static ANativeWindow *java_get_pending_window(void) {
-    if (!g_cls_vob) return NULL;
-    int nd; JNIEnv *env = get_env(&nd);
-    if (!env) return NULL;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob,
-        "getPendingSurface", "()Landroid/view/Surface;");
-    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(nd); return NULL; }
-    jobject surf = (*env)->CallStaticObjectMethod(env, g_cls_vob, mid);
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); surf = NULL; }
-    if (!surf) { detach_env(nd); return NULL; }
-
-    ANativeWindow *win = ANativeWindow_fromSurface(env, surf);
-
-    // Clear pending surface so we don't re-acquire it.
-    jmethodID mid_clear = (*env)->GetStaticMethodID(env, g_cls_vob, "clearPendingSurface", "()V");
-    if (mid_clear) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid_clear);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-
-    detach_env(nd);
-    VLOGI("ANativeWindow=%p", (void*)win);
-    return win;
-}
-
-static void java_set_rect(int x, int y, int w, int h) {
-    if (!g_cls_vob) return;
-    int nd; JNIEnv *env = get_env(&nd);
-    if (!env) return;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "setRect", "(IIII)V");
-    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jint)x, (jint)y, (jint)w, (jint)h);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    detach_env(nd);
-}
-
-static void java_destroy_overlay(void) {
-    if (!g_cls_vob) return;
-    int nd; JNIEnv *env = get_env(&nd);
-    if (!env) return;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "destroy", "()V");
-    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    detach_env(nd);
-}
-
-static void java_set_visible(int visible) {
-    if (!g_cls_vob) return;
-    int nd; JNIEnv *env = get_env(&nd);
-    if (!env) return;
-    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_vob, "setVisible", "(Z)V");
-    if (mid) (*env)->CallStaticVoidMethod(env, g_cls_vob, mid, (jboolean)(visible ? 1 : 0));
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    detach_env(nd);
 }
 
 // ─── cleanup ─────────────────────────────────────────────────────────────────
@@ -653,7 +717,8 @@ int android_vk_create(int x, int y, int w, int h) {
     ANativeWindow_release(win); win = NULL;
 
     atomic_store(&g_dst_w, w); atomic_store(&g_dst_h, h);
-    if (!vk_create_swapchain(w, h)) { VLOGE("swapchain creation failed"); goto fail; }
+    // Use 0,0 so vk_create_swapchain reads the actual surface size from caps.currentExtent.
+    if (!vk_create_swapchain(0, 0)) { VLOGE("swapchain creation failed"); goto fail; }
 
     {
         VkCommandPoolCreateInfo cpci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };

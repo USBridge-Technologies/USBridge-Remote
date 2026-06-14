@@ -958,9 +958,9 @@ func (vw *VideoWidget) clearVideo() {
 	vw.frameDecoder.Reset()
 	vw.pendingFrame.Store(nil)
 	vw.frameRenderScheduled.Store(false)
-	vw.UpdateCursorOverlayPointer(0, 0, false)
 
 	fyne.Do(func() {
+		vw.UpdateCursorOverlayPointer(0, 0, false)
 		if vw.videoCanvas != nil {
 			if lastFrame != nil {
 				// Show last frame darkened to indicate stream stopped.
@@ -1127,11 +1127,22 @@ func (vw *VideoWidget) renderLatestFrame() {
 	needsFullRefresh := vw.forceCanvasRefresh.Swap(false)
 	// Skip Fyne canvas rendering when the native GPU overlay (Metal/GL) is active —
 	// the video is already being composited by the native layer.
-	if mainWindowVisible && vw.videoCanvas != nil && !vw.isNativeVideoActive() {
+	if mainWindowVisible && vw.videoCanvas != nil {
+		if vw.isNativeVideoActive() {
+			if vw.videoCanvas.Translucency < 1.0 {
+				logrus.Infof("🕶️ [VIDEO] hardware overlay active, hiding Fyne canvas")
+				vw.videoCanvas.Translucency = 1.0
+				vw.videoCanvas.Refresh()
+			}
+			vw.updateMetalVideoFrame()
+			vw.frameRenderScheduled.Store(false)
+			return
+		}
+
 		if frameNum <= 5 || frameNum%300 == 0 {
 			logrus.Infof("🪟 [VIDEO] canvas render trace=%s frame=%d stats=%s", vw.currentVideoTraceLabel(), frameNum, summarizeImage(frame))
 		}
-		if vw.videoCanvas.Image != frame {
+		if vw.videoCanvas.Image != frame || vw.videoCanvas.Translucency != 0 {
 			vw.videoCanvas.Image = frame
 			vw.videoCanvas.Translucency = 0 // clear darkening from paused state
 		}

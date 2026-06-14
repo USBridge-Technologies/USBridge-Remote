@@ -967,7 +967,9 @@ func (mw *MainWindow) updateStatus() {
 		mw.isStreaming = false
 	}
 
-	mw.updateStatusBar()
+	fyne.Do(func() {
+		mw.updateStatusBar()
+	})
 }
 
 // resolveVideoBindHost returns the address on which GStreamer should listen for video.

@@ -818,14 +818,16 @@ func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.agentOS = ""
 	dw.audioAutoStarted.Store(false)
 	if usbClient == nil {
-		dw.localDrives = nil
-		dw.mountedDevices = nil
-		dw.audioDevices = nil
-		dw.sdSpaceInfo = nil
-		dw.updateSDStorageInfo()
-		dw.stopAllGamepadCaptures()
-		dw.combineDrives()
-		dw.requestDevicesRefresh()
+		fyne.Do(func() {
+			dw.localDrives = nil
+			dw.mountedDevices = nil
+			dw.audioDevices = nil
+			dw.sdSpaceInfo = nil
+			dw.updateSDStorageInfo()
+			dw.stopAllGamepadCaptures()
+			dw.combineDrives()
+			dw.requestDevicesRefresh()
+		})
 		return
 	}
 	dw.Refresh()
