@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
@@ -20,10 +21,17 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		return
 	}
 
+	// Wire overlay lifecycle hooks so menus/popups hide the VK SurfaceView.
+	view.OnOverlayShow = func() { service.VKVideoAndroidSetHidden(true) }
+	view.OnOverlayHide = func() { service.VKVideoAndroidSetHidden(false) }
+
 	// Attempt to create the Vulkan overlay at the full video area.
 	// Coordinates (0,0,0,0) means "full screen" — setRect will refine later.
 	if service.VKVideoAndroidCreate(0, 0, 0, 0) {
 		logrus.Info("[Android/VK] Vulkan overlay created")
+		if view.OverlayActive() {
+			service.VKVideoAndroidSetHidden(true)
+		}
 		if cb := vw.onNativeReady; cb != nil {
 			vw.onNativeReady = nil
 			cb()
@@ -31,7 +39,9 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		return
 	}
 
-	// Fallback: Fyne canvas render ticker.
+	// Fallback: Fyne canvas render ticker (no native overlay).
+	view.OnOverlayShow = nil
+	view.OnOverlayHide = nil
 	fps := 60
 	if vw.videoClient != nil {
 		if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoFPS > 0 {
@@ -44,6 +54,8 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 
 func (vw *VideoWidget) stopMetalVideo() {
 	vw.onNativeReady = nil
+	view.OnOverlayShow = nil
+	view.OnOverlayHide = nil
 	service.VKVideoAndroidDestroy()
 }
 
@@ -75,11 +87,14 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	}
 }
 
+// videoCanvasFrame returns the video area rect in window-local dp coordinates.
+// Uses same approach as Windows/macOS: y = canvasHeight - containerHeight.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.videoCanvas == nil {
+	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
-	pos := vw.videoCanvas.Position()
-	sz := vw.videoCanvas.Size()
-	return pos.X, pos.Y, sz.Width, sz.Height
+	sz := vw.container.Size()
+	canvasH := vw.parentWindow.Canvas().Size().Height
+	topOffset := canvasH - sz.Height
+	return 0, topOffset, sz.Width, sz.Height
 }

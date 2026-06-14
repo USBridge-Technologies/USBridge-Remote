@@ -670,9 +670,19 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     if (g_dpy) XFlush(g_dpy);
 }
 
+// Called from CGO thread — safe to call X11 immediately.
 void vk_video_set_hidden(int hidden) {
     atomic_store(&g_hidden, hidden ? 1 : 0);
-    // The actual XMapWindow/XUnmapWindow is applied in vk_video_update_frame (CGO thread).
+    if (!g_dpy || !g_win) return;
+    if (hidden && g_win_visible) {
+        XUnmapWindow(g_dpy, g_win);
+        XFlush(g_dpy);
+        g_win_visible = 0;
+    } else if (!hidden && !g_win_visible) {
+        XMapWindow(g_dpy, g_win);
+        XFlush(g_dpy);
+        g_win_visible = 1;
+    }
 }
 
 static void vk_full_cleanup(void) {
