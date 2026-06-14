@@ -206,13 +206,110 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 // handlePhysicalRunePress — rune events не используются в Moonlight-only режиме.
 func (vw *VideoWidget) handlePhysicalRunePress(_ rune) {}
 
+// hidKeyToVK converts a USB HID Usage Page 0x07 keycode (used by the virtual
+// keyboard layout) to a Windows Virtual Key code expected by LiSendKeyboardEvent.
+// Physical keyboards on desktop go through Fyne's KeyDown with proper VK codes;
+// this conversion is needed for virtual keyboard buttons on Android.
+func hidKeyToVK(hid int) int16 {
+	switch {
+	// Letters A-Z: HID 4-29 → VK 0x41-0x5A
+	case hid >= 4 && hid <= 29:
+		return int16(0x41 + (hid - 4))
+	// Digits 1-9: HID 30-38 → VK 0x31-0x39
+	case hid >= 30 && hid <= 38:
+		return int16(0x31 + (hid - 30))
+	// F1-F12: HID 58-69 → VK 0x70-0x7B
+	case hid >= 58 && hid <= 69:
+		return int16(0x70 + (hid - 58))
+	}
+	switch hid {
+	case 39:
+		return 0x30 // 0 → VK_0
+	case 40:
+		return 0x0D // Enter → VK_RETURN
+	case 41:
+		return 0x1B // Escape → VK_ESCAPE
+	case 42:
+		return 0x08 // Backspace → VK_BACK
+	case 43:
+		return 0x09 // Tab → VK_TAB
+	case 44:
+		return 0x20 // Space → VK_SPACE
+	case 45:
+		return 0xBD // - → VK_OEM_MINUS
+	case 46:
+		return 0xBB // = → VK_OEM_PLUS
+	case 47:
+		return 0xDB // [ → VK_OEM_4
+	case 48:
+		return 0xDD // ] → VK_OEM_6
+	case 49:
+		return 0xDC // \ → VK_OEM_5
+	case 51:
+		return 0xBA // ; → VK_OEM_1
+	case 52:
+		return 0xDE // ' → VK_OEM_7
+	case 53:
+		return 0xC0 // ` → VK_OEM_3
+	case 54:
+		return 0xBC // , → VK_OEM_COMMA
+	case 55:
+		return 0xBE // . → VK_OEM_PERIOD
+	case 56:
+		return 0xBF // / → VK_OEM_2
+	case 57:
+		return 0x14 // Caps Lock → VK_CAPITAL
+	case 74:
+		return 0x24 // Home → VK_HOME
+	case 75:
+		return 0x21 // Page Up → VK_PRIOR
+	case 76:
+		return 0x2E // Delete → VK_DELETE
+	case 77:
+		return 0x23 // End → VK_END
+	case 78:
+		return 0x22 // Page Down → VK_NEXT
+	case 79:
+		return 0x27 // → Right Arrow → VK_RIGHT
+	case 80:
+		return 0x25 // ← Left Arrow → VK_LEFT
+	case 81:
+		return 0x28 // ↓ Down Arrow → VK_DOWN
+	case 82:
+		return 0x26 // ↑ Up Arrow → VK_UP
+	// Modifiers
+	case 224:
+		return 0xA2 // Left Ctrl → VK_LCONTROL
+	case 225:
+		return 0xA0 // Left Shift → VK_LSHIFT
+	case 226:
+		return 0xA4 // Left Alt → VK_LMENU
+	case 227:
+		return 0x5B // Left GUI/Win → VK_LWIN
+	case 228:
+		return 0xA3 // Right Ctrl → VK_RCONTROL
+	case 229:
+		return 0xA1 // Right Shift → VK_RSHIFT
+	case 230:
+		return 0xA5 // Right Alt → VK_RMENU
+	case 231:
+		return 0x5C // Right GUI/Win → VK_RWIN
+	case 232:
+		return 0x5D // Application/Menu → VK_APPS
+	default:
+		return int16(hid)
+	}
+}
+
 // handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры через Moonlight.
+// Virtual keyboard buttons use USB HID keycodes; convert to Windows VK codes first.
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
-	logrus.Infof("⌨️ Virtual keyboard: key=%d modifiers=%d (Moonlight only)", keyCode, modifiers)
+	vk := hidKeyToVK(keyCode)
+	logrus.Infof("⌨️ Virtual keyboard: hid=%d vk=0x%02X modifiers=%d (Moonlight only)", keyCode, uint16(vk), modifiers)
 	if mi := vw.moonlightInput(); mi != nil {
 		moonlightMods := widgetToMoonlightModifiers(modifiers)
-		mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionDown, moonlightMods)
-		mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionUp, moonlightMods)
+		mi.SendMoonlightKey(vk, service.LiKeyActionDown, moonlightMods)
+		mi.SendMoonlightKey(vk, service.LiKeyActionUp, moonlightMods)
 	}
 }
 
