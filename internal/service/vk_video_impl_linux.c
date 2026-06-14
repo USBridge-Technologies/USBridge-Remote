@@ -804,7 +804,7 @@ int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
     }
 
     {
-        char msg[256];
+        char msg[512];
         VkPhysicalDeviceProperties pr;
         vkGetPhysicalDeviceProperties(g_pdev, &pr);
         snprintf(msg, sizeof(msg),

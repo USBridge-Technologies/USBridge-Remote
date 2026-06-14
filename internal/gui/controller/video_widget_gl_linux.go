@@ -43,7 +43,12 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		switch c := ctx.(type) {
 		case *driver.X11WindowContext:
 			xwin = c.WindowHandle
+		case driver.X11WindowContext:
+			xwin = c.WindowHandle
 		case *driver.WaylandWindowContext:
+			logrus.Info("[VK/Linux] Wayland detected — Vulkan/Xlib overlay not supported, using Fyne canvas")
+			return
+		case driver.WaylandWindowContext:
 			logrus.Info("[VK/Linux] Wayland detected — Vulkan/Xlib overlay not supported, using Fyne canvas")
 			return
 		default:
@@ -176,11 +181,16 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
 
+// videoCanvasFrame returns the video area rect in window-local dp coordinates.
+// vw.videoCanvas.Position() is always near (0,0) within its parent container,
+// so we derive the y-offset the same way as on Windows/macOS: the video container
+// fills everything below the toolbar, so y = canvasHeight - containerHeight.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.videoCanvas == nil {
+	if vw.container == nil || vw.parentWindow == nil {
 		return
 	}
-	pos := vw.videoCanvas.Position()
-	sz := vw.videoCanvas.Size()
-	return pos.X, pos.Y, sz.Width, sz.Height
+	sz := vw.container.Size()
+	canvasH := vw.parentWindow.Canvas().Size().Height
+	topOffset := canvasH - sz.Height
+	return 0, topOffset, sz.Width, sz.Height
 }
