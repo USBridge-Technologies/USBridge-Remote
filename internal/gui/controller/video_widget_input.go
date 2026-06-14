@@ -161,12 +161,22 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			}
 		}
 	}
-	if mi := vw.moonlightInput(); mi != nil {
-		if vkCode := moonlightVKCode(event); vkCode != 0 {
-			vw.moonlightTrackKeyUp(vkCode)
-			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
-		}
+	mi := vw.moonlightInput()
+	if mi == nil {
+		logrus.Warnf("⌨️ [INPUT][UP] MoonlightInputSender is nil! Not sending key.")
+		return
 	}
+	vkCode := moonlightVKCode(event)
+	if vkCode == 0 {
+		logrus.Warnf("⌨️ [INPUT][UP] vkCode resolved to 0 for key=%q! Not sending.", event.Name)
+		return
+	}
+	
+	mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
+	logrus.Infof("⌨️ [INPUT][UP] Moonlight sending vkCode=0x%04X, action=%d, mods=0x%02X", uint16(vkCode), service.LiKeyActionUp, uint8(mods))
+
+	vw.moonlightTrackKeyUp(vkCode)
+	mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods)
 }
 
 // moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
@@ -199,6 +209,11 @@ func (vw *VideoWidget) handlePhysicalRunePress(_ rune) {}
 // handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры через Moonlight.
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 	logrus.Infof("⌨️ Virtual keyboard: key=%d modifiers=%d (Moonlight only)", keyCode, modifiers)
+	if mi := vw.moonlightInput(); mi != nil {
+		moonlightMods := widgetToMoonlightModifiers(modifiers)
+		mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionDown, moonlightMods)
+		mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionUp, moonlightMods)
+	}
 }
 
 // startDesktopMousePolling запускает горутину polling для плавного управления мышью.

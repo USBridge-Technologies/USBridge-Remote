@@ -225,8 +225,10 @@ func (w *MoonlightCgoWrapper) GetAudioMuted() bool { return w.audioMuted }
 
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
 	if !liStartConnectionActive.Load() {
+		logrus.Warnf("🌕 [Moonlight/CGO] SendMoonlightKey failed: liStartConnectionActive is false")
 		return
 	}
+	logrus.Infof("🌕 [Moonlight/CGO] SendMoonlightKey vkCode=0x%04X action=%d modifiers=%d", uint16(vkCode), action, modifiers)
 	C.do_send_key(C.short(vkCode), C.char(action), C.char(modifiers))
 }
 

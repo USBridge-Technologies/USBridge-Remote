@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"usbridge-client/internal/service"
+
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -86,6 +88,7 @@ func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
 		logrus.Warn("⌨️ [FS][VIRTUAL] Moonlight not active, ignoring virtual key")
 		return
 	}
-	_ = keyCode
-	_ = modifiers
+	moonlightMods := widgetToMoonlightModifiers(modifiers)
+	mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionDown, moonlightMods)
+	mi.SendMoonlightKey(int16(keyCode), service.LiKeyActionUp, moonlightMods)
 }
