@@ -154,6 +154,20 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			y = int(fy * scale)
 			w = int(fw * scale)
 			h = int(fh * scale)
+		} else {
+			// Fullscreen: the overlay must cover the entire fullscreen window.
+			// Pass (0,0,fullW,fullH) so the Vulkan child-window fills the client area.
+			if window.Canvas() != nil {
+				cs := window.Canvas().Size()
+				scale := window.Canvas().Scale()
+				w = int(cs.Width * scale)
+				h = int(cs.Height * scale)
+			}
+			if w <= 0 || h <= 0 {
+				logrus.Warn("[Vulkan/Win] fullscreen canvas has zero size — using Fyne canvas")
+				vw.startRenderTicker()
+				return
+			}
 		}
 
 		// Try Vulkan first; fall back to GDI if unavailable.

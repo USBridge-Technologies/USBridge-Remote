@@ -86,6 +86,11 @@ func (vw *VideoWidget) stopMetalVideo() {
 	service.VKVideoAndroidDestroy()
 }
 
+// vkLastRenderedW/H track the last pixel size sent to the Vulkan overlay.
+// Any change (rotation, keyboard, fullscreen) triggers a forced swapchain recreation
+// so the render thread picks up the new surface dimensions immediately.
+var vkLastRenderedW, vkLastRenderedH int
+
 func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.VKVideoAndroidIsActive() {
 		return
@@ -98,7 +103,12 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
 		scale = vw.parentWindow.Canvas().Scale()
 	}
-	service.VKVideoAndroidUpdateRect(int(x*scale), int(y*scale), int(w*scale), int(h*scale))
+	pw, ph := int(w*scale), int(h*scale)
+	if pw != vkLastRenderedW || ph != vkLastRenderedH {
+		vkLastRenderedW, vkLastRenderedH = pw, ph
+		service.VKVideoAndroidForceRecreateSwapchain()
+	}
+	service.VKVideoAndroidUpdateRect(int(x*scale), int(y*scale), pw, ph)
 }
 
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
