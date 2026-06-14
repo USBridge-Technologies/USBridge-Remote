@@ -17,6 +17,7 @@ extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stri
 extern void android_vk_update_rect(int x, int y, int w, int h);
 extern void android_vk_set_hidden(int hidden);
 extern void android_vk_destroy(void);
+extern void android_vk_force_recreate_swapchain(void);
 */
 import "C"
 
@@ -75,4 +76,12 @@ func VKVideoAndroidSetHidden(hidden bool) {
 
 func VKVideoAndroidDestroy() {
 	C.android_vk_destroy()
+}
+
+// VKVideoAndroidForceRecreateSwapchain signals the Vulkan render thread to
+// recreate the swapchain on its next iteration. Use after fullscreen transitions
+// to pick up the updated surface dimensions without waiting for the proactive
+// size-change detection in vk_render_frame.
+func VKVideoAndroidForceRecreateSwapchain() {
+	C.android_vk_force_recreate_swapchain()
 }

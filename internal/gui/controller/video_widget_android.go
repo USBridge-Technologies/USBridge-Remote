@@ -104,12 +104,17 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
 	// Vulkan stays VISIBLE in fullscreen — videoCanvasFrame() detects IsFullscreen()
 	// and returns the full-canvas rect so the SurfaceView expands to fill the screen.
+	// Force swapchain recreation so the render thread picks up the new surface
+	// dimensions immediately (SetFullScreen may have resized the SurfaceView surface).
 	vw.forceCanvasRefresh.Store(true)
+	service.VKVideoAndroidForceRecreateSwapchain()
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
 	// Restore normal rect — videoCanvasFrame() will return to the video-area rect.
+	// Force swapchain recreation so the render thread picks up the restored size.
 	vw.forceCanvasRefresh.Store(true)
+	service.VKVideoAndroidForceRecreateSwapchain()
 }
 
 // videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.

@@ -147,6 +147,10 @@ static VkSemaphore              g_rnd_sem    = VK_NULL_HANDLE;
 // Overlay rect atomics (set from Go, read by render thread for swapchain recreation).
 static atomic_int g_dst_w, g_dst_h;
 
+// Set to 1 by android_vk_force_recreate_swapchain() to request an explicit
+// swapchain recreation on the next render-thread iteration (e.g. after fullscreen).
+static atomic_int g_force_recreate;
+
 // ─── Render thread state ──────────────────────────────────────────────────────
 
 static volatile atomic_int g_active;
@@ -434,7 +438,13 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
 // ─── render one frame ─────────────────────────────────────────────────────────
 
 static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
-    if (!g_dev || !g_swap) return 0;
+    if (!g_dev) return 0;
+    // Retry swapchain creation if a previous attempt failed (g_swap may be NULL
+    // after a failed vk_recreate_swapchain call or after explicit force-recreate).
+    if (!g_swap) {
+        vk_recreate_swapchain();
+        return 0;
+    }
 
     // Proactively detect surface resize: query caps and compare to our swapchain.
     // On Android, Vulkan may not always signal VK_SUBOPTIMAL/OUT_OF_DATE when the
@@ -588,6 +598,13 @@ static void *vk_render_thread(void *unused) {
         if (!atomic_load(&g_active)) break;
         if (atomic_load(&g_hidden))  continue;
 
+        // Explicit swapchain recreation requested (e.g. after fullscreen entry/exit).
+        if (atomic_exchange(&g_force_recreate, 0)) {
+            VLOGI("force swapchain recreate requested");
+            vk_recreate_swapchain();
+            continue;
+        }
+
         int fw = 0, fh = 0, fs = 0;
         int got_frame = 0;
         pthread_mutex_lock(&g_mu);
@@ -694,6 +711,16 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
 int android_vk_is_active(void)  { return atomic_load(&g_active); }
 int android_vk_is_hidden(void)  { return atomic_load(&g_hidden); }
 
+// android_vk_force_recreate_swapchain asks the render thread to recreate the
+// Vulkan swapchain on the next iteration. Call this after a fullscreen
+// transition to pick up the new surface dimensions immediately instead of
+// waiting for the proactive size-change detection in vk_render_frame.
+void android_vk_force_recreate_swapchain(void) {
+    if (!atomic_load(&g_active)) return;
+    atomic_store(&g_force_recreate, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+}
+
 // android_vk_create: request SurfaceView overlay from Kotlin, wait for surface,
 // then initialise Vulkan renderer. Returns 1 on success.
 int android_vk_create(int x, int y, int w, int h) {
@@ -761,6 +788,7 @@ int android_vk_create(int x, int y, int w, int h) {
     }
 
     atomic_store(&g_hidden, 0);
+    atomic_store(&g_force_recreate, 0);
     g_submitted = 0; g_rendered = 0; g_ready = 0;
     atomic_store(&g_active, 1);
 

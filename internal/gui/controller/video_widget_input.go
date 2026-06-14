@@ -18,7 +18,7 @@ import (
 )
 
 // vkeyMu / vkeyLastPress prevent virtual-keyboard turbo: if the same HID key
-// is sent again within 100 ms (OS key-repeat or widget duplicate events),
+// is sent again within 200 ms (OS key-repeat or widget duplicate events),
 // the repeat is silently dropped.
 var (
 	vkeyMu        sync.Mutex
@@ -316,7 +316,7 @@ func hidKeyToVK(hid int) int16 {
 // KeyDown is held for 50 ms before sending KeyUp (server BIOS minimum hold requirement).
 func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 	vkeyMu.Lock()
-	if time.Since(vkeyLastPress[keyCode]) < 100*time.Millisecond {
+	if time.Since(vkeyLastPress[keyCode]) < 200*time.Millisecond {
 		vkeyMu.Unlock()
 		return
 	}

@@ -31,13 +31,6 @@ object VulkanOverlayBridge {
         }
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.i(TAG, "surfaceChanged ${width}x${height}")
-            // Re-expose the surface so the C render thread can recreate the Vulkan
-            // swapchain at the correct dimensions on the next vk_recreate_swapchain call.
-            // This handles SetFullScreen() transitions where surfaceCreated fires with a
-            // 1x1 (or 0x0) surface and the real size arrives later via surfaceChanged.
-            if (width > 1 && height > 1) {
-                pendingSurface = holder.surface
-            }
         }
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             Log.i(TAG, "surfaceDestroyed")
