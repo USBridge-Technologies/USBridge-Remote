@@ -11,6 +11,7 @@ package service
 // Implemented in vk_video_impl_android.c.
 extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
 extern int  android_vk_is_active(void);
+extern int  android_vk_is_hidden(void);
 extern int  android_vk_create(int x, int y, int w, int h);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
 extern void android_vk_update_rect(int x, int y, int w, int h);
@@ -31,6 +32,10 @@ func VKVideoAndroidSetJVM(jvm uintptr, ctx uintptr) {
 
 func VKVideoAndroidIsActive() bool {
 	return C.android_vk_is_active() != 0
+}
+
+func VKVideoAndroidIsHidden() bool {
+	return C.android_vk_is_hidden() != 0
 }
 
 // VKVideoAndroidCreate requests a SurfaceView overlay from Kotlin, waits for

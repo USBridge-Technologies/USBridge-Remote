@@ -233,6 +233,13 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		}
 	}
 
+	// Run HID auto-connect in parallel with Moonlight stream setup — independent subsystems.
+	hidDone := make(chan error, 1)
+	go func() {
+		logrus.Debug("⌨️🖱️ [VIDEO] HID auto-connect running in parallel with Moonlight start...")
+		hidDone <- vw.ensureControlHIDDevices()
+	}()
+
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
 	if err := vw.videoClient.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ Moonlight ConnectToRTP failed: %v", err)
@@ -246,6 +253,12 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	vw.isStreaming = true
 	vw.isVideoConnected = true
 	logrus.Info("✅ Moonlight stream started")
+
+	// Wait for HID — non-fatal if it fails; checkMouseConnected() will retry.
+	if err := <-hidDone; err != nil {
+		logrus.Errorf("❌ [VIDEO] HID auto-connect failed: %v", err)
+	}
+
 	vw.updateStatus() // update header icon to show video-active state
 	vw.ensureInputFocusAsync("stream-started", 300*time.Millisecond)
 }

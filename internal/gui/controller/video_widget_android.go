@@ -109,7 +109,8 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 }
 
 // videoCanvasFrame returns the video area rect in window-local dp coordinates.
-// Uses same approach as Windows/macOS: y = canvasHeight - containerHeight.
+// When the keyboard panel (contentContainer) is visible, its height is subtracted
+// so the Vulkan SurfaceView only covers the video portion above the keyboard.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.container == nil || vw.parentWindow == nil {
 		return
@@ -117,5 +118,12 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	sz := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+
+	videoH := sz.Height
+	if vw.contentContainer != nil && vw.contentContainer.Visible() {
+		if kh := vw.contentContainer.Size().Height; kh > 0 {
+			videoH -= kh
+		}
+	}
+	return 0, topOffset, sz.Width, videoH
 }

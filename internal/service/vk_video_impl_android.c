@@ -678,7 +678,8 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
     detach_env(nd);
 }
 
-int android_vk_is_active(void) { return atomic_load(&g_active); }
+int android_vk_is_active(void)  { return atomic_load(&g_active); }
+int android_vk_is_hidden(void)  { return atomic_load(&g_hidden); }
 
 // android_vk_create: request SurfaceView overlay from Kotlin, wait for surface,
 // then initialise Vulkan renderer. Returns 1 on success.

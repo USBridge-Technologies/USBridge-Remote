@@ -108,7 +108,9 @@ object VulkanOverlayBridge {
         val sv = surfaceView ?: return
         val activity = MainActivity.getInstance() ?: return
         activity.runOnUiThread {
-            sv.visibility = if (visible) View.VISIBLE else View.GONE
+            // INVISIBLE keeps the surface alive (no surfaceDestroyed/surfaceCreated cycle).
+        // GONE would destroy the ANativeWindow and break the Vulkan swapchain.
+        sv.visibility = if (visible) View.VISIBLE else View.INVISIBLE
         }
     }
 

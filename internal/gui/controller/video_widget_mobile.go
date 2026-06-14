@@ -36,7 +36,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		// Используем handlePhysicalRunePress для мобилок, так как маппинг в нем теперь адаптивный
 		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, vw.handlePhysicalRunePress)
 		
-		// Когда Android IME открывается/закрывается, обновляем layout:
+		// Когда Android IME открывается/закрывается, обновляем layout и rect Vulkan.
 		vw.virtualKeyboard.SetOnIMEChanged(func(open bool) {
 			fyne.Do(func() {
 				kl := vw.virtualKeyboard.GetKeyboardLayout()
@@ -46,6 +46,8 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 				vw.contentContainer.Objects = []fyne.CanvasObject{kl}
 				vw.contentContainer.Resize(kl.Size())
 				vw.container.Refresh()
+				// Trigger Vulkan rect update to account for keyboard height change.
+				vw.forceCanvasRefresh.Store(true)
 			})
 		})
 	}
@@ -54,6 +56,8 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		vw.virtualKeyboard.Hide()
 		vw.contentContainer.Hide()
 		vw.container.Refresh()
+		// Vulkan rect will be restored on the next render tick via updateMetalVideoFrame.
+		vw.forceCanvasRefresh.Store(true)
 		logrus.Info("⌨️ Virtual keyboard hidden (Android mode)")
 	} else {
 		// Регистрируем как получателя нативных Android IME-событий
@@ -71,6 +75,8 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		vw.contentContainer.Resize(keyboardLayout.Size())
 		vw.contentContainer.Show()
 		vw.container.Refresh()
+		// Shrink Vulkan SurfaceView above the keyboard on the next render tick.
+		vw.forceCanvasRefresh.Store(true)
 		logrus.Info("⌨️ Virtual keyboard shown with Android IME")
 	}
 }

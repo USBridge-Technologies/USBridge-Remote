@@ -16,6 +16,14 @@ var OnOverlayHide func()
 
 var overlayDepth atomic.Int32
 
+// NotifyOverlayShow is the exported version of overlayShow for callers outside
+// the view package (e.g. the Android virtual-keyboard handler).
+func NotifyOverlayShow() { overlayShow() }
+
+// NotifyOverlayHide is the exported version of overlayHide for callers outside
+// the view package.
+func NotifyOverlayHide() { overlayHide() }
+
 // overlayShow must be called whenever a managed overlay (dropdownPopup, VideoStartDialog) is shown.
 func overlayShow() {
 	depth := overlayDepth.Add(1)
