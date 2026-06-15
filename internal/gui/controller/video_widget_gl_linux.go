@@ -260,9 +260,14 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 						if !service.VKVideoIsActive() {
 							return
 						}
-						// Re-read scale each call: handles HiDPI changes at runtime.
+						// Re-read scale each call: handles HiDPI changes and
+						// fullscreen vs windowed transitions at runtime.
 						s := scale
-						if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+						if fsWin := vkFullscreenWindow; fsWin != nil {
+							if fsWin.Canvas() != nil {
+								s = fsWin.Canvas().Scale()
+							}
+						} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
 							s = vw.parentWindow.Canvas().Scale()
 						}
 						x := float32(evX) / s
@@ -286,7 +291,13 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 // dispatchVKMouseEvent dispatches a forwarded X11 pointer event to TouchpadWrapper.
 // Must be called on the Fyne main goroutine (inside fyne.Do).
 func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
-	tw := vw.touchpadWrapper
+	// In fullscreen the active input target is the fullscreen dialog's wrapper.
+	var tw *TouchpadWrapper
+	if vkFullscreenWindow != nil && vw.fullscreenDialog != nil {
+		tw = vw.fullscreenDialog.touchpadWrapper
+	} else {
+		tw = vw.touchpadWrapper
+	}
 	if tw == nil {
 		logrus.Warn("[VK/Mouse] touchpadWrapper is nil — events dropped")
 		return
