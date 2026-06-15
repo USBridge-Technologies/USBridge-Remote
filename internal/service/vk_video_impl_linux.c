@@ -770,18 +770,9 @@ static void vk_full_cleanup(void) {
 int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
     *type_out = 0;
     if (!g_dpy || !atomic_load(&g_active)) return 0;
-    int pending = XPending(g_dpy);
-    if (pending > 0) {
-        char dbg[128];
-        snprintf(dbg, sizeof(dbg), "vk_video_next_event: XPending=%d", pending);
-        goVKLog(dbg, 0);
-    }
     while (XPending(g_dpy)) {
         XEvent ev;
         XNextEvent(g_dpy, &ev);
-        char dbg[128];
-        snprintf(dbg, sizeof(dbg), "vk_video_next_event: event type=%d", ev.type);
-        goVKLog(dbg, 0);
         switch (ev.type) {
         case MotionNotify:
             *type_out = 1;
@@ -794,11 +785,6 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
             *x_out    = ev.xbutton.x;
             *y_out    = ev.xbutton.y;
             *btn_out  = (int)ev.xbutton.button;
-            {
-                char msg[128];
-                snprintf(msg, sizeof(msg), "vk_video_next_event: ButtonPress btn=%d x=%d y=%d", (int)ev.xbutton.button, (int)ev.xbutton.x, (int)ev.xbutton.y);
-                goVKLog(msg, 0);
-            }
             return 1;
         case ButtonRelease:
             *type_out = 3;
@@ -807,8 +793,6 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
             *btn_out  = (int)ev.xbutton.button;
             return 1;
         default:
-            snprintf(dbg, sizeof(dbg), "vk_video_next_event: discarding event type=%d", ev.type);
-            goVKLog(dbg, 0);
             continue;
         }
     }

@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/gui/view"
@@ -232,6 +233,9 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 
 var vkMouseQuit chan struct{}
 
+// vkMouseCheckPending prevents multiple concurrent checkMouseConnected goroutines.
+var vkMouseCheckPending int32 // atomic
+
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
 	quit := make(chan struct{})
@@ -250,7 +254,6 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 					if !ok {
 						break
 					}
-					logrus.Infof("[VK/Mouse] raw event: type=%d x=%d y=%d btn=%d", typ, ex, ey, btn)
 					// Capture for closure — each iteration needs its own copy.
 					evTyp, evX, evY, evBtn := typ, ex, ey, btn
 					fyne.Do(func() {
@@ -264,7 +267,6 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 						}
 						x := float32(evX) / s
 						y := float32(evY) / s
-						logrus.Infof("[VK/Mouse] dispatch: type=%d x=%.1f y=%.1f btn=%d scale=%.2f", evTyp, x, y, evBtn, s)
 						vw.dispatchVKMouseEvent(evTyp, x, y, evBtn)
 					})
 				}
@@ -290,7 +292,14 @@ func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
 		return
 	}
 	if !vw.isMouseConnected {
-		logrus.Warnf("[VK/Mouse] isMouseConnected=false — event type=%d dropped", typ)
+		// The VK overlay may start before the periodic Refresh()->checkMouseConnected()
+		// poll runs. Trigger a single async refresh so subsequent events work.
+		if atomic.CompareAndSwapInt32(&vkMouseCheckPending, 0, 1) {
+			go func() {
+				vw.checkMouseConnected()
+				atomic.StoreInt32(&vkMouseCheckPending, 0)
+			}()
+		}
 		return
 	}
 	pos := fyne.NewPos(x, y)
