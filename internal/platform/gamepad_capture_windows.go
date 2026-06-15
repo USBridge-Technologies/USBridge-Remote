@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 	"unsafe"
+
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -97,6 +99,12 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 		return nil, fmt.Errorf("failed to get caps for winmm:%d: %w", joyID, err)
 	}
 
+	logrus.Infof("🎮 [WinMM] Starting capture for winmm:%d name=%q caps: x=[%d..%d] y=[%d..%d] z=[%d..%d] r=[%d..%d] u=[%d..%d] v=[%d..%d]",
+		joyID, winmmJoystickName(uintptr(joyID)),
+		caps.xMin, caps.xMax, caps.yMin, caps.yMax,
+		caps.zMin, caps.zMax, caps.rMin, caps.rMax,
+		caps.uMin, caps.uMax, caps.vMin, caps.vMax)
+
 	cap := &GamepadCapture{
 		joyID: joyID,
 		stop:  make(chan struct{}),
@@ -105,10 +113,12 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 
 	go func() {
 		defer close(cap.done)
+		defer logrus.Infof("🎮 [WinMM] Capture stopped for winmm:%d", joyID)
 
 		ticker := time.NewTicker(16 * time.Millisecond) // ~60 Hz
 		defer ticker.Stop()
 
+		var logSeq uint64
 		for {
 			select {
 			case <-cap.stop:
@@ -116,7 +126,18 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 			case <-ticker.C:
 				state, ok := pollWinMMState(joyID, caps)
 				if !ok {
-					return // device disconnected
+					logrus.Warnf("🎮 [WinMM] Device winmm:%d disconnected during capture", joyID)
+					return
+				}
+				logSeq++
+				hasInput := state.Buttons != 0 || state.LeftTrigger != 0 || state.RightTrigger != 0 ||
+					state.LeftX != 0 || state.LeftY != 0 || state.RightX != 0 || state.RightY != 0
+				if hasInput {
+					logrus.Infof("🎮 [WinMM] winmm:%d buttons=0x%04x lt=%d rt=%d lx=%d ly=%d rx=%d ry=%d",
+						joyID, state.Buttons, state.LeftTrigger, state.RightTrigger,
+						state.LeftX, state.LeftY, state.RightX, state.RightY)
+				} else if logSeq%300 == 1 {
+					logrus.Debugf("🎮 [WinMM] winmm:%d idle heartbeat #%d", joyID, logSeq)
 				}
 				onState(state)
 			}
@@ -135,9 +156,10 @@ func (c *GamepadCapture) Stop() {
 type winmmCaps struct {
 	xMin, xMax uint32
 	yMin, yMax uint32
-	zMin, zMax uint32
-	rMin, rMax uint32
-	uMin, uMax uint32
+	zMin, zMax uint32 // Z  = Left Trigger
+	rMin, rMax uint32 // R  = Right Stick X (Rx)
+	uMin, uMax uint32 // U  = Right Stick Y (Ry)
+	vMin, vMax uint32 // V  = Right Trigger (Rz)
 }
 
 func winmmGetCaps(joyID uint32) (winmmCaps, error) {
@@ -156,6 +178,7 @@ func winmmGetCaps(joyID uint32) (winmmCaps, error) {
 		zMin: raw.wZmin, zMax: raw.wZmax,
 		rMin: raw.wRmin, rMax: raw.wRmax,
 		uMin: raw.wUmin, uMax: raw.wUmax,
+		vMin: raw.wVmin, vMax: raw.wVmax,
 	}, nil
 }
 
@@ -177,35 +200,34 @@ func pollWinMMState(joyID uint32, caps winmmCaps) (GamepadCaptureState, bool) {
 		}
 	}
 
-	// POV hat to D-pad. dwPOV is in 100ths of a degree (0=North, 9000=East, 18000=South, 27000=West).
+	// POV hat → D-pad bits. dwPOV is in 100ths of a degree (0=North, 9000=East…).
 	if info.dwPOV != joyPOVCentered {
 		deg := info.dwPOV / 100
-		// Up sector: 315-360 or 0-45
 		if deg <= 45 || deg >= 315 {
 			buttons |= 0x0001 // DPAD_UP
 		}
-		// Right sector: 45-135
 		if deg >= 45 && deg <= 135 {
 			buttons |= 0x0008 // DPAD_RIGHT
 		}
-		// Down sector: 135-225
 		if deg >= 135 && deg <= 225 {
 			buttons |= 0x0002 // DPAD_DOWN
 		}
-		// Left sector: 225-315
 		if deg >= 225 && deg <= 315 {
 			buttons |= 0x0004 // DPAD_LEFT
 		}
 	}
 
+	// WinMM axis → Moonlight axis mapping for Xbox-layout controllers.
+	// WinMM / DirectInput axis order: X=LeftX, Y=LeftY, Z=LT, R=RightX, U=RightY, V=RT.
+	// Y axes are inverted: WinMM min=up, Moonlight positive=up, so negate both LY and RY.
 	return GamepadCaptureState{
 		Buttons:      buttons,
 		LeftX:        winmmScaleAxis(info.dwXpos, caps.xMin, caps.xMax),
-		LeftY:        winmmScaleAxis(info.dwYpos, caps.yMin, caps.yMax),
-		RightX:       winmmScaleAxis(info.dwZpos, caps.zMin, caps.zMax),
-		RightY:       winmmScaleAxis(info.dwRpos, caps.rMin, caps.rMax),
-		LeftTrigger:  winmmScaleTrigger(info.dwUpos, caps.uMin, caps.uMax),
-		RightTrigger: winmmScaleTrigger(info.dwVpos, caps.uMin, caps.uMax),
+		LeftY:        -winmmScaleAxis(info.dwYpos, caps.yMin, caps.yMax),
+		RightX:       winmmScaleAxis(info.dwRpos, caps.rMin, caps.rMax),
+		RightY:       -winmmScaleAxis(info.dwUpos, caps.uMin, caps.uMax),
+		LeftTrigger:  winmmScaleTrigger(info.dwZpos, caps.zMin, caps.zMax),
+		RightTrigger: winmmScaleTrigger(info.dwVpos, caps.vMin, caps.vMax),
 	}, true
 }
 

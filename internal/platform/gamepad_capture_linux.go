@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -74,28 +76,31 @@ func linuxEviocgabs(fd int, axis uint16) (linuxInputAbsinfo, bool) {
 type linuxAxisRange struct{ min, max int32 }
 
 type linuxState struct {
-	buttons      uint16
-	leftX, leftY int8
-	rightX, rightY int8
-	leftTrigger  uint8
-	rightTrigger uint8
-	hatX, hatY   int32
-	axes         map[uint16]linuxAxisRange
+	buttons        uint16
+	leftTrigger    uint8
+	rightTrigger   uint8
+	hatX, hatY     int32
+	axes           map[uint16]linuxAxisRange
+	// Raw int32 values from evdev for full 16-bit precision.
+	leftXRaw, leftYRaw   int32
+	rightXRaw, rightYRaw int32
 }
 
-func (s *linuxState) normalizeAxis(code uint16, raw int32) int8 {
+// rawAxisToInt16 maps raw evdev value to signed 16-bit [-32768..32767].
+func (s *linuxState) rawAxisToInt16(code uint16, raw int32) int16 {
 	r, ok := s.axes[code]
 	if !ok || r.max == r.min {
 		return 0
 	}
-	v := float64(raw-r.min)/float64(r.max-r.min)*254.0 - 127.0
-	if v > 127 {
-		return 127
+	v := (int64(raw-r.min) * 65535) / int64(r.max-r.min)
+	v -= 32768
+	if v > 32767 {
+		return 32767
 	}
-	if v < -127 {
-		return -127
+	if v < -32768 {
+		return -32768
 	}
-	return int8(v)
+	return int16(v)
 }
 
 func (s *linuxState) normalizeTrigger(code uint16, raw int32) uint8 {
@@ -116,21 +121,23 @@ func (s *linuxState) normalizeTrigger(code uint16, raw int32) uint8 {
 func (s *linuxState) toCapture() GamepadCaptureState {
 	buttons := s.buttons
 	if s.hatX < 0 {
-		buttons |= 0x0004
+		buttons |= 0x0004 // D-pad Left
 	} else if s.hatX > 0 {
-		buttons |= 0x0008
+		buttons |= 0x0008 // D-pad Right
 	}
 	if s.hatY < 0 {
-		buttons |= 0x0001
+		buttons |= 0x0001 // D-pad Up
 	} else if s.hatY > 0 {
-		buttons |= 0x0002
+		buttons |= 0x0002 // D-pad Down
 	}
+	// Negate Y axes: evdev convention is Y-positive=down, but Moonlight/XInput
+	// expects Y-positive=up. Both LY and RY must be inverted.
 	return GamepadCaptureState{
 		Buttons:      buttons,
-		LeftX:        int16(s.leftX) << 8,
-		LeftY:        int16(s.leftY) << 8,
-		RightX:       int16(s.rightX) << 8,
-		RightY:       int16(s.rightY) << 8,
+		LeftX:        s.rawAxisToInt16(linuxAbsX, s.leftXRaw),
+		LeftY:        -s.rawAxisToInt16(linuxAbsY, s.leftYRaw),
+		RightX:       s.rawAxisToInt16(linuxAbsRX, s.rightXRaw),
+		RightY:       -s.rawAxisToInt16(linuxAbsRY, s.rightYRaw),
 		LeftTrigger:  s.leftTrigger,
 		RightTrigger: s.rightTrigger,
 	}
@@ -167,16 +174,32 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 		defer func() {
 			syscall.Close(fd)
 			close(cap.done)
+			logrus.Infof("🎮 [LinuxCapture] Stopped: %s", deviceID)
 		}()
 
 		st := &linuxState{axes: make(map[uint16]linuxAxisRange)}
+		axisName := map[uint16]string{linuxAbsX: "LX", linuxAbsY: "LY", linuxAbsZ: "LT", linuxAbsRX: "RX", linuxAbsRY: "RY", linuxAbsRZ: "RT"}
 		for _, axis := range []uint16{linuxAbsX, linuxAbsY, linuxAbsZ, linuxAbsRX, linuxAbsRY, linuxAbsRZ} {
 			if info, ok := linuxEviocgabs(fd, axis); ok && info.Maximum > info.Minimum {
 				st.axes[axis] = linuxAxisRange{min: info.Minimum, max: info.Maximum}
+				logrus.Infof("🎮 [LinuxCapture] axis %s (code=%d) range=[%d..%d]",
+					axisName[axis], axis, info.Minimum, info.Maximum)
+			} else {
+				logrus.Warnf("🎮 [LinuxCapture] axis %s (code=%d) calibration failed", axisName[axis], axis)
 			}
 		}
+		logrus.Infof("🎮 [LinuxCapture] Ready: %s", deviceID)
 
 		buf := make([]byte, linuxEventSize)
+		var logSeq uint64
+
+		// Human-readable button names for logging
+		btnName := map[uint16]string{
+			linuxBtnA: "A", linuxBtnB: "B", linuxBtnX: "X", linuxBtnY: "Y",
+			linuxBtnTL: "LB", linuxBtnTR: "RB", linuxBtnSelect: "Back", linuxBtnStart: "Start",
+			linuxBtnMode: "Guide", linuxBtnThumbL: "L3", linuxBtnThumbR: "R3",
+			linuxBtnDpadUp: "DUp", linuxBtnDpadDown: "DDown", linuxBtnDpadLeft: "DLeft", linuxBtnDpadRight: "DRight",
+		}
 
 		for {
 			select {
@@ -193,6 +216,7 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 				continue
 			}
 			if err != nil {
+				logrus.Warnf("🎮 [LinuxCapture] select error: %v", err)
 				return
 			}
 
@@ -201,7 +225,8 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 				continue
 			}
 			if err != nil || n2 < linuxEventSize {
-				return // device gone
+				logrus.Warnf("🎮 [LinuxCapture] device gone: %v", err)
+				return
 			}
 
 			evType := binary.LittleEndian.Uint16(buf[16:18])
@@ -211,33 +236,66 @@ func StartGamepadCapture(deviceID string, onState func(GamepadCaptureState)) (*G
 			switch evType {
 			case linuxEvKey:
 				if bit, ok := linuxButtonMap[evCode]; ok {
+					prev := st.buttons
 					if evValue != 0 {
 						st.buttons |= bit
 					} else {
 						st.buttons &^= bit
 					}
+					if st.buttons != prev {
+						name := btnName[evCode]
+						if name == "" {
+							name = "?"
+						}
+						action := "RELEASE"
+						if evValue != 0 {
+							action = "PRESS"
+						}
+						logrus.Infof("🎮 [LinuxCapture] %s %s (code=0x%04x buttons=0x%04x)", name, action, evCode, st.buttons)
+					}
+				} else {
+					logrus.Debugf("🎮 [LinuxCapture] unknown KEY code=0x%04x val=%d", evCode, evValue)
 				}
 			case linuxEvAbs:
 				switch uint16(evCode) {
 				case linuxAbsX:
-					st.leftX = st.normalizeAxis(linuxAbsX, evValue)
+					st.leftXRaw = evValue
+					logrus.Debugf("🎮 [LinuxCapture] ABS LX raw=%d", evValue)
 				case linuxAbsY:
-					st.leftY = st.normalizeAxis(linuxAbsY, evValue)
+					st.leftYRaw = evValue
+					logrus.Debugf("🎮 [LinuxCapture] ABS LY raw=%d (will invert)", evValue)
 				case linuxAbsRX:
-					st.rightX = st.normalizeAxis(linuxAbsRX, evValue)
+					st.rightXRaw = evValue
+					logrus.Debugf("🎮 [LinuxCapture] ABS RX raw=%d", evValue)
 				case linuxAbsRY:
-					st.rightY = st.normalizeAxis(linuxAbsRY, evValue)
+					st.rightYRaw = evValue
+					logrus.Debugf("🎮 [LinuxCapture] ABS RY raw=%d (will invert)", evValue)
 				case linuxAbsZ:
 					st.leftTrigger = st.normalizeTrigger(linuxAbsZ, evValue)
+					logrus.Debugf("🎮 [LinuxCapture] ABS LT raw=%d → %d", evValue, st.leftTrigger)
 				case linuxAbsRZ:
 					st.rightTrigger = st.normalizeTrigger(linuxAbsRZ, evValue)
+					logrus.Debugf("🎮 [LinuxCapture] ABS RT raw=%d → %d", evValue, st.rightTrigger)
 				case linuxAbsHat0X:
 					st.hatX = evValue
+					logrus.Debugf("🎮 [LinuxCapture] HAT X=%d", evValue)
 				case linuxAbsHat0Y:
 					st.hatY = evValue
+					logrus.Debugf("🎮 [LinuxCapture] HAT Y=%d", evValue)
+				default:
+					logrus.Debugf("🎮 [LinuxCapture] unknown ABS code=%d val=%d", evCode, evValue)
 				}
 			case linuxEvSyn:
-				onState(st.toCapture())
+				state := st.toCapture()
+				logSeq++
+				hasInput := state.Buttons != 0 || state.LeftTrigger != 0 || state.RightTrigger != 0 ||
+					state.LeftX != 0 || state.LeftY != 0 || state.RightX != 0 || state.RightY != 0
+				if hasInput {
+					logrus.Infof("🎮 [LinuxCapture] SYN #%d buttons=0x%04x lt=%d rt=%d lx=%d ly=%d rx=%d ry=%d",
+						logSeq, state.Buttons, state.LeftTrigger, state.RightTrigger,
+						state.LeftX, state.LeftY, state.RightX, state.RightY)
+				}
+				onState(state)
 			}
 		}
 	}()
