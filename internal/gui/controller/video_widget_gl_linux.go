@@ -3,11 +3,14 @@
 package controller
 
 import (
+	"time"
+
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
+	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,13 +60,13 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 		}
 
 		var px, py, pw, ph int
+		var scale float32 = 1
 		if !fullscreen {
 			x, y, w, h := vw.videoCanvasFrame()
 			if w <= 0 || h <= 0 {
 				logrus.Warn("[VK/Linux] videoCanvas has zero size — skipped")
 				return
 			}
-			scale := float32(1)
 			if window.Canvas() != nil {
 				scale = window.Canvas().Scale()
 			}
@@ -71,6 +74,10 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			py = int(y * scale)
 			pw = int(w * scale)
 			ph = int(h * scale)
+		} else {
+			if window.Canvas() != nil {
+				scale = window.Canvas().Scale()
+			}
 		}
 
 		// Try Vulkan first; fall back to GLX if unavailable.
@@ -81,6 +88,11 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			if view.OverlayActive() {
 				service.VKVideoSetHidden(true)
 			}
+			// Forward mouse events from Vulkan window to TouchpadWrapper.
+			// GLFW stops delivering mouse events to Fyne when the cursor is over
+			// the native child window, so we read them directly from the X11
+			// connection and dispatch via fyne.Do.
+			vw.startVKMouseForwarding(scale)
 		} else {
 			logrus.Warn("[VK/Linux] Vulkan init failed — trying GLX fallback")
 			view.OnOverlayShow = nil
@@ -109,6 +121,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.onNativeReady = nil
 	view.OnOverlayShow = nil
 	view.OnOverlayHide = nil
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 }
@@ -175,6 +188,7 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 		return
 	}
 	vkFullscreenWindow = fsWindow
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(fsWindow, true)
@@ -182,6 +196,7 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
 	vkFullscreenWindow = nil
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
@@ -205,4 +220,122 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	topOffset := canvasH - sz.Height
 	return 0, topOffset, sz.Width, sz.Height
+}
+
+// ── Vulkan mouse event forwarding ─────────────────────────────────────────────
+//
+// When the Vulkan child window is mapped over the Fyne/GLFW window, the X server
+// delivers pointer events to it (registered via XSelectInput in vk_video_create).
+// GLFW receives LeaveNotify and stops dispatching mouse events to Fyne.
+// We compensate by polling vk_video_next_event and dispatching directly to
+// TouchpadWrapper on the Fyne main goroutine.
+
+var vkMouseQuit chan struct{}
+
+func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
+	vw.stopVKMouseForwarding()
+	quit := make(chan struct{})
+	vkMouseQuit = quit
+	logrus.Info("[VK/Linux] mouse forwarding started")
+	go func() {
+		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz poll
+		defer ticker.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-ticker.C:
+				for {
+					typ, ex, ey, btn, ok := service.VKVideoNextEvent()
+					if !ok {
+						break
+					}
+					logrus.Infof("[VK/Mouse] raw event: type=%d x=%d y=%d btn=%d", typ, ex, ey, btn)
+					// Capture for closure — each iteration needs its own copy.
+					evTyp, evX, evY, evBtn := typ, ex, ey, btn
+					fyne.Do(func() {
+						if !service.VKVideoIsActive() {
+							return
+						}
+						// Re-read scale each call: handles HiDPI changes at runtime.
+						s := scale
+						if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+							s = vw.parentWindow.Canvas().Scale()
+						}
+						x := float32(evX) / s
+						y := float32(evY) / s
+						logrus.Infof("[VK/Mouse] dispatch: type=%d x=%.1f y=%.1f btn=%d scale=%.2f", evTyp, x, y, evBtn, s)
+						vw.dispatchVKMouseEvent(evTyp, x, y, evBtn)
+					})
+				}
+			}
+		}
+	}()
+}
+
+func (vw *VideoWidget) stopVKMouseForwarding() {
+	if vkMouseQuit != nil {
+		close(vkMouseQuit)
+		vkMouseQuit = nil
+		logrus.Info("[VK/Linux] mouse forwarding stopped")
+	}
+}
+
+// dispatchVKMouseEvent dispatches a forwarded X11 pointer event to TouchpadWrapper.
+// Must be called on the Fyne main goroutine (inside fyne.Do).
+func (vw *VideoWidget) dispatchVKMouseEvent(typ int, x, y float32, button int) {
+	tw := vw.touchpadWrapper
+	if tw == nil {
+		logrus.Warn("[VK/Mouse] touchpadWrapper is nil — events dropped")
+		return
+	}
+	if !vw.isMouseConnected {
+		logrus.Warnf("[VK/Mouse] isMouseConnected=false — event type=%d dropped", typ)
+		return
+	}
+	pos := fyne.NewPos(x, y)
+	switch typ {
+	case 1: // MotionNotify
+		tw.MouseMoved(&desktop.MouseEvent{
+			PointEvent: fyne.PointEvent{Position: pos},
+		})
+	case 2: // ButtonPress
+		switch button {
+		case 4: // scroll wheel up
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: 10},
+			})
+		case 5: // scroll wheel down
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: -10},
+			})
+		default:
+			tw.MouseDown(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     vkX11ButtonToFyne(button),
+			})
+		}
+	case 3: // ButtonRelease — ignore scroll pseudo-buttons
+		if button != 4 && button != 5 {
+			tw.MouseUp(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     vkX11ButtonToFyne(button),
+			})
+		}
+	}
+}
+
+func vkX11ButtonToFyne(b int) desktop.MouseButton {
+	switch b {
+	case 1:
+		return desktop.MouseButtonPrimary
+	case 2:
+		return desktop.MouseButtonTertiary
+	case 3:
+		return desktop.MouseButtonSecondary
+	default:
+		return desktop.MouseButtonPrimary
+	}
 }

@@ -6,6 +6,7 @@
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #include <X11/Xlib.h>
+#include <X11/extensions/shape.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
 #include <pthread.h>
@@ -253,6 +254,9 @@ int gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h, int vsync
     Window child = XCreateWindow(dpy, parent, x, y, (unsigned)w, (unsigned)h,
                                  0, vi->depth, InputOutput, vi->visual, mask, &wa);
     XMapWindow(dpy, child);
+    // Make the overlay window input-transparent so the X server routes pointer
+    // events to the Fyne/GLFW parent instead of consuming them here.
+    XShapeCombineRectangles(dpy, child, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
     XFlush(dpy);
     XFree(vi);
 

@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo LDFLAGS: -lGL -lX11
+#cgo LDFLAGS: -lGL -lX11 -lXext
 
 #include <stdint.h>
 

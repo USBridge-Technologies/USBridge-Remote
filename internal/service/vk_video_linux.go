@@ -20,6 +20,7 @@ extern void vk_video_get_stats(long long *rendered, long long *submitted,
 extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
+extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 
 extern void goVKLog(char *msg, int level);
 */
@@ -124,4 +125,14 @@ func VKVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.vk_video_set_hidden(h)
+}
+
+// VKVideoNextEvent drains one pending pointer event from the Vulkan overlay window.
+// Returns (type, x, y, button, ok). Types: 1=motion 2=button-press 3=button-release.
+// Buttons: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down.
+// Safe to call from any goroutine (XInitThreads already active via GLFW).
+func VKVideoNextEvent() (typ, x, y, button int, ok bool) {
+	var t, ex, ey, btn C.int
+	r := C.vk_video_next_event(&t, &ex, &ey, &btn)
+	return int(t), int(ex), int(ey), int(btn), r != 0
 }

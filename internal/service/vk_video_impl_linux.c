@@ -44,6 +44,9 @@ static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
 static volatile atomic_int g_hidden;
 static int g_win_visible = 1; // tracks current XMapWindow / XUnmapWindow state
 
+// Swapchain uses BGRA byte order — input RGBA pixels need R/B swap before upload.
+static int g_tex_is_bgra = 0;
+
 // ─── Vulkan state ─────────────────────────────────────────────────────────────
 
 static VkInstance               g_inst         = VK_NULL_HANDLE;
@@ -202,11 +205,28 @@ static int vk_create_swapchain(int w, int h) {
     vkGetPhysicalDeviceSurfaceFormatsKHR(g_pdev, g_surf, &nfmt, fmts);
     g_swap_fmt = fmts[0].format;
     VkColorSpaceKHR csp = fmts[0].colorSpace;
+    // Prefer RGBA_UNORM (matches our RGBA input — no channel swap needed).
+    // Fall back to BGRA_UNORM (common on Linux/Mesa); BGRA_SRGB is last resort
+    // because it applies gamma correction which washes out the image.
+    int best = 0;
     for (uint32_t i = 0; i < nfmt; i++) {
-        if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
-            fmts[i].format == VK_FORMAT_B8G8R8A8_SRGB) {
-            g_swap_fmt = fmts[i].format; csp = fmts[i].colorSpace; break;
-        }
+        int rank = 0;
+        if (fmts[i].format == VK_FORMAT_R8G8B8A8_UNORM) rank = 3;
+        else if (fmts[i].format == VK_FORMAT_R8G8B8A8_SRGB) rank = 2;
+        else if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM) rank = 1;
+        if (rank > best) { best = rank; g_swap_fmt = fmts[i].format; csp = fmts[i].colorSpace; }
+    }
+    // BGRA_SRGB (rank 0) stays as fallback only if nothing better found.
+    g_tex_is_bgra = (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM ||
+                     g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB);
+    {
+        const char *fn = (g_swap_fmt == VK_FORMAT_R8G8B8A8_UNORM) ? "R8G8B8A8_UNORM"
+                       : (g_swap_fmt == VK_FORMAT_R8G8B8A8_SRGB)  ? "R8G8B8A8_SRGB"
+                       : (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM) ? "B8G8R8A8_UNORM"
+                       : (g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB)  ? "B8G8R8A8_SRGB"
+                       : "other";
+        char msg[96]; snprintf(msg, sizeof(msg), "swapchain format: %s bgra_swap=%d", fn, g_tex_is_bgra);
+        goVKLog(msg, 0);
     }
     free(fmts);
 
@@ -313,7 +333,8 @@ static int vk_ensure_tex(int w, int h) {
     }
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ici.imageType   = VK_IMAGE_TYPE_2D;
-    ici.format      = VK_FORMAT_R8G8B8A8_UNORM;
+    // Match texture format to swapchain channel order to avoid blit mis-interpretation.
+    ici.format      = g_tex_is_bgra ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
     ici.extent      = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
     ici.mipLevels   = 1;
     ici.arrayLayers = 1;
@@ -396,12 +417,28 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (!vk_ensure_tex(fw, fh))       { g_render_stage = 1; return 0; }
 
     size_t row = (size_t)fw * 4;
-    if ((size_t)fs == row) {
-        memcpy(g_stage_ptr, pixels, frame_sz);
+    if (!g_tex_is_bgra) {
+        // RGBA swapchain: simple copy, no channel reordering needed.
+        if ((size_t)fs == row) {
+            memcpy(g_stage_ptr, pixels, frame_sz);
+        } else {
+            uint8_t *dst = (uint8_t *)g_stage_ptr;
+            for (int y = 0; y < fh; y++)
+                memcpy(dst + (size_t)y * row, pixels + (size_t)y * (size_t)fs, row);
+        }
     } else {
+        // BGRA swapchain: swap R and B bytes so the blit produces correct colors.
         uint8_t *dst = (uint8_t *)g_stage_ptr;
-        for (int y = 0; y < fh; y++)
-            memcpy(dst + (size_t)y * row, pixels + (size_t)y * (size_t)fs, row);
+        for (int y = 0; y < fh; y++) {
+            const uint8_t *src = pixels + (size_t)y * (size_t)fs;
+            uint8_t *d = dst + (size_t)y * row;
+            for (int x = 0; x < fw; x++, src += 4, d += 4) {
+                d[0] = src[2]; // B ← R
+                d[1] = src[1]; // G ← G
+                d[2] = src[0]; // R ← B
+                d[3] = src[3]; // A ← A
+            }
+        }
     }
 
     uint32_t img_idx = 0;
@@ -725,6 +762,59 @@ static void vk_full_cleanup(void) {
     g_win_visible = 1;
 }
 
+// vk_video_next_event — drain one pending pointer event from g_dpy.
+// Returns 1 if an event was consumed; type values:
+//   1 = MotionNotify, 2 = ButtonPress, 3 = ButtonRelease
+// Scroll wheel: button 4 = wheel-up, 5 = wheel-down.
+// Thread-safe because XInitThreads() is called by GLFW before any Xlib use.
+int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
+    *type_out = 0;
+    if (!g_dpy || !atomic_load(&g_active)) return 0;
+    int pending = XPending(g_dpy);
+    if (pending > 0) {
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "vk_video_next_event: XPending=%d", pending);
+        goVKLog(dbg, 0);
+    }
+    while (XPending(g_dpy)) {
+        XEvent ev;
+        XNextEvent(g_dpy, &ev);
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "vk_video_next_event: event type=%d", ev.type);
+        goVKLog(dbg, 0);
+        switch (ev.type) {
+        case MotionNotify:
+            *type_out = 1;
+            *x_out    = ev.xmotion.x;
+            *y_out    = ev.xmotion.y;
+            *btn_out  = 0;
+            return 1;
+        case ButtonPress:
+            *type_out = 2;
+            *x_out    = ev.xbutton.x;
+            *y_out    = ev.xbutton.y;
+            *btn_out  = (int)ev.xbutton.button;
+            {
+                char msg[128];
+                snprintf(msg, sizeof(msg), "vk_video_next_event: ButtonPress btn=%d x=%d y=%d", (int)ev.xbutton.button, (int)ev.xbutton.x, (int)ev.xbutton.y);
+                goVKLog(msg, 0);
+            }
+            return 1;
+        case ButtonRelease:
+            *type_out = 3;
+            *x_out    = ev.xbutton.x;
+            *y_out    = ev.xbutton.y;
+            *btn_out  = (int)ev.xbutton.button;
+            return 1;
+        default:
+            snprintf(dbg, sizeof(dbg), "vk_video_next_event: discarding event type=%d", ev.type);
+            goVKLog(dbg, 0);
+            continue;
+        }
+    }
+    return 0;
+}
+
 int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
     if (atomic_load(&g_active)) vk_full_cleanup();
 
@@ -748,6 +838,13 @@ int vk_video_create(uintptr_t parent_xwin, int x, int y, int w, int h) {
                                   0, CopyFromParent, InputOutput, CopyFromParent,
                                   CWBackPixel | CWBorderPixel, &wa);
     XMapWindow(dpy, child);
+    // Subscribe to pointer events on the overlay window so we can forward them
+    // to Go. GLFW receives LeaveNotify when cursor enters this child window and
+    // stops delivering mouse events to Fyne — we compensate by reading events
+    // here and forwarding them via vk_video_next_event (see video_widget_gl_linux.go).
+    // XInitThreads() was already called by GLFW, so concurrent Xlib access is safe.
+    XSelectInput(dpy, child,
+        PointerMotionMask | ButtonPressMask | ButtonReleaseMask | ButtonMotionMask);
     XFlush(dpy);
     g_win = child;
     g_win_visible = 1;
