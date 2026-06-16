@@ -41,6 +41,10 @@ static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
 // Go polls via vk_video_next_event() and dispatches to TouchpadWrapper on the
 // Fyne main goroutine — mirroring the Linux XSelectInput + vk_video_next_event
 // mechanism. Thread-safe: wnd_proc (hwnd thread) writes; CGO goroutine reads.
+//
+// Movement is delivered via Raw Input (WM_INPUT + RIDEV_INPUTSINK) which fires
+// on every hardware sample with no coalescing — matching macOS NSTrackingArea
+// behaviour. WM_MOUSEMOVE is kept as a fallback if Raw Input registration fails.
 
 #define VK_EQ_CAP 512
 typedef struct { int type; int x, y, btn; } VkMouseEvt;
@@ -51,6 +55,7 @@ static VkMouseEvt    g_eq[VK_EQ_CAP];
 static volatile int  g_eq_head = 0, g_eq_tail = 0; // [tail, head)
 static CRITICAL_SECTION g_eq_cs;
 static int           g_eq_cs_init = 0;
+static volatile int  g_raw_mouse  = 0; // 1 = Raw Input registered; WM_MOUSEMOVE becomes no-op
 
 static void vk_eq_push(int type, int x, int y, int btn) {
     if (!g_eq_cs_init) return;
@@ -88,9 +93,45 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
     // Don't let the overlay steal keyboard focus on click.
     if (msg == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
-    // Mouse movement — queue for Go polling goroutine.
+    // Raw Input: fires on every hardware mouse sample (no WM_MOUSEMOVE coalescing).
+    // RIDEV_INPUTSINK delivers even when not foreground; we filter by foreground window
+    // so we don't intercept input from other applications.
+    if (msg == WM_INPUT) {
+        if (g_parent_hwnd && GetForegroundWindow() == g_parent_hwnd) {
+            UINT sz = 0;
+            GetRawInputData((HRAWINPUT)lp, RID_INPUT, NULL, &sz, sizeof(RAWINPUTHEADER));
+            if (sz > 0 && sz <= 256) {
+                BYTE buf[256];
+                if (GetRawInputData((HRAWINPUT)lp, RID_INPUT, buf, &sz, sizeof(RAWINPUTHEADER)) != (UINT)-1) {
+                    RAWINPUT *ri = (RAWINPUT*)buf;
+                    if (ri->header.dwType == RIM_TYPEMOUSE) {
+                        RAWMOUSE *rm = &ri->data.mouse;
+                        if (rm->lLastX != 0 || rm->lLastY != 0) {
+                            POINT cur;
+                            if (rm->usFlags & MOUSE_MOVE_ABSOLUTE) {
+                                // Absolute device: touchpad, RDP, VM, tablet
+                                BOOL vd = (rm->usFlags & MOUSE_VIRTUAL_DESKTOP) != 0;
+                                cur.x = MulDiv((int)rm->lLastX,
+                                    GetSystemMetrics(vd ? SM_CXVIRTUALSCREEN : SM_CXSCREEN), 65535);
+                                cur.y = MulDiv((int)rm->lLastY,
+                                    GetSystemMetrics(vd ? SM_CYVIRTUALSCREEN : SM_CYSCREEN), 65535);
+                            } else {
+                                // Relative device: hardware mouse — system tracks absolute pos
+                                GetCursorPos(&cur);
+                            }
+                            if (hw) ScreenToClient(hw, &cur);
+                            vk_eq_push(1, cur.x, cur.y, 0);
+                        }
+                    }
+                }
+            }
+        }
+        return DefWindowProcW(hw, msg, wp, lp);
+    }
+    // WM_MOUSEMOVE fallback: only used when Raw Input registration failed.
     if (msg == WM_MOUSEMOVE) {
-        vk_eq_push(1, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 0);
+        if (!g_raw_mouse)
+            vk_eq_push(1, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 0);
         return 0;
     }
     if (msg == WM_LBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
@@ -138,6 +179,19 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
 
     SetEvent(g_hwnd_ready);            // wake vk_video_create (with or without HWND)
     if (!g_child_hwnd) return 1;
+
+    // Register for Raw Mouse Input on this window.
+    // RIDEV_INPUTSINK: deliver WM_INPUT even when the window is not foreground.
+    // This gives us uncoalesced hardware mouse samples instead of the
+    // coalesced WM_MOUSEMOVE messages — same effect as NSTrackingArea on macOS.
+    {
+        RAWINPUTDEVICE rid = {0};
+        rid.usUsagePage = 0x01; // HID_USAGE_PAGE_GENERIC
+        rid.usUsage     = 0x02; // HID_USAGE_GENERIC_MOUSE
+        rid.dwFlags     = RIDEV_INPUTSINK;
+        rid.hwndTarget  = g_child_hwnd;
+        g_raw_mouse = RegisterRawInputDevices(&rid, 1, sizeof(rid)) ? 1 : 0;
+    }
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
@@ -905,6 +959,7 @@ static void vk_full_cleanup(void) {
     g_parent_hwnd = NULL;
     if (g_cs_init)    { DeleteCriticalSection(&g_cs); g_cs_init = 0; }
     if (g_eq_cs_init) { DeleteCriticalSection(&g_eq_cs); g_eq_cs_init = 0; g_eq_head = 0; g_eq_tail = 0; }
+    g_raw_mouse = 0;
     if (g_buf)        { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_has_frame = 0; g_ready = 0;
     g_rendered = 0; g_submitted = 0;
