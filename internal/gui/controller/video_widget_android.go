@@ -112,11 +112,16 @@ func getImeExpandHeightDp() float32 {
 // NavBar is ~20-50dp; real system keyboard is >150dp. Only expand for the real keyboard.
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
 	const minRealIMEDp = 100
-	if imeHeightDp > minRealIMEDp {
+	imeOpen := imeHeightDp > minRealIMEDp
+	if imeOpen {
 		setImeExpandHeightDp(imeHeightDp)
 	} else {
 		setImeExpandHeightDp(0)
 	}
+	// Bottom-align the fitted video rect in the Vulkan swapchain while the system
+	// IME is open: the SurfaceView expands upward into the tab-bar area, so
+	// center-fit would leave a black gap between the video and the keyboard panel.
+	service.VKVideoAndroidSetAlignBottom(imeOpen)
 	vw.forceCanvasRefresh.Store(true)
 }
 

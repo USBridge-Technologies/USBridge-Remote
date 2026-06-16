@@ -175,6 +175,11 @@ static atomic_int g_vp_v0_fp;
 static atomic_int g_vp_u1_fp = ATOMIC_VAR_INIT(65536);
 static atomic_int g_vp_v1_fp = ATOMIC_VAR_INIT(65536);
 
+// When 1, the fitted video rect is bottom-aligned in the swapchain (dy = sh - dh)
+// instead of centered (dy = (sh - dh) / 2). Set while the system IME is open so
+// the video sits flush against the keyboard panel with no black gap below.
+static atomic_int g_align_bottom;
+
 // ─── Virtual cursor ───────────────────────────────────────────────────────────
 static atomic_int g_cursor_visible;      // 0 = hidden
 static atomic_int g_cursor_uc_fp;       // cursor U in frame UV, 0..65536
@@ -715,7 +720,7 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     float fa = (float)(src_x1 - src_x0) / (float)(src_y1 - src_y0);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
-    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = atomic_load(&g_align_bottom) ? (sh - dh) : (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
 
     VkClearColorValue black = {0};
@@ -1087,6 +1092,12 @@ void android_vk_destroy(void) {
           (long long)g_rendered, (long long)g_submitted);
     vk_full_cleanup();
     java_destroy_overlay();
+}
+
+// android_vk_set_align_bottom controls vertical alignment of the fitted video rect.
+// 0 = center (default); 1 = bottom-align (use while system IME is open).
+void android_vk_set_align_bottom(int bottom) {
+    atomic_store(&g_align_bottom, bottom ? 1 : 0);
 }
 
 // android_vk_set_viewport sets the visible UV sub-rect of the frame (0..1 per axis).

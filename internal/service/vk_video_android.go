@@ -19,6 +19,7 @@ extern void android_vk_set_hidden(int hidden);
 extern void android_vk_destroy(void);
 extern void android_vk_force_recreate_swapchain(void);
 extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
+extern void android_vk_set_align_bottom(int bottom);
 extern void android_vk_set_cursor(float uc, float vc, int visible);
 extern void android_vk_set_cursor_scale(int scale);
 extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
@@ -88,6 +89,17 @@ func VKVideoAndroidDestroy() {
 // size-change detection in vk_render_frame.
 func VKVideoAndroidForceRecreateSwapchain() {
 	C.android_vk_force_recreate_swapchain()
+}
+
+// VKVideoAndroidSetAlignBottom switches the vertical alignment of the fitted
+// video rect inside the swapchain. Pass true while the system IME is open so
+// the video is flush against the keyboard panel (no black gap below).
+func VKVideoAndroidSetAlignBottom(bottom bool) {
+	b := C.int(0)
+	if bottom {
+		b = 1
+	}
+	C.android_vk_set_align_bottom(b)
 }
 
 // VKVideoAndroidSetViewport sets the visible UV sub-rect of the video frame.
