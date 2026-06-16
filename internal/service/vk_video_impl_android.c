@@ -222,6 +222,20 @@ static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
     return UINT32_MAX;
 }
 
+// vk_surface_extent returns the swapchain extent we should use.
+// When caps.currentExtent is 0xFFFFFFFF (flexible), falls back to g_dst_w/g_dst_h set by Go.
+// We always use VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR as preTransform (see vk_create_swapchain),
+// so caps.currentExtent is already in the app/display coordinate system — no axis swap needed.
+static VkExtent2D vk_surface_extent(const VkSurfaceCapabilitiesKHR *caps) {
+    if (caps->currentExtent.width != 0xFFFFFFFFu)
+        return caps->currentExtent;
+    VkExtent2D ext;
+    int dw = atomic_load(&g_dst_w), dh = atomic_load(&g_dst_h);
+    ext.width  = dw > 0 ? (uint32_t)dw : 1u;
+    ext.height = dh > 0 ? (uint32_t)dh : 1u;
+    return ext;
+}
+
 // ─── Cursor buffer management ─────────────────────────────────────────────────
 
 static void cursor_destroy(void) {
@@ -411,16 +425,10 @@ static int vk_create_swapchain(int w, int h) {
         if (pms[i] == VK_PRESENT_MODE_MAILBOX_KHR) { pm = pms[i]; break; }
     free(pms);
 
-    // 0xFFFFFFFF means the surface extent is flexible (caller picks any size within min/max).
-    // Use the known target rect from android_vk_update_rect; fall back to 1 if not set yet.
-    if (caps.currentExtent.width != 0xFFFFFFFFu) {
-        g_swap_ext.width  = w > 0 ? (uint32_t)w : caps.currentExtent.width;
-        g_swap_ext.height = h > 0 ? (uint32_t)h : caps.currentExtent.height;
-    } else {
-        int dw = atomic_load(&g_dst_w), dh = atomic_load(&g_dst_h);
-        g_swap_ext.width  = w > 0 ? (uint32_t)w : (dw > 0 ? (uint32_t)dw : 1u);
-        g_swap_ext.height = h > 0 ? (uint32_t)h : (dh > 0 ? (uint32_t)dh : 1u);
-    }
+    g_swap_ext = vk_surface_extent(&caps);
+    // Explicit override (only when caller passes non-zero w/h).
+    if (w > 0) g_swap_ext.width  = (uint32_t)w;
+    if (h > 0) g_swap_ext.height = (uint32_t)h;
     if (g_swap_ext.width  == 0) g_swap_ext.width  = 1;
     if (g_swap_ext.height == 0) g_swap_ext.height = 1;
     // Clamp to surface capability limits.
@@ -441,7 +449,12 @@ static int vk_create_swapchain(int w, int h) {
     sci.imageArrayLayers = 1;
     sci.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    sci.preTransform     = caps.currentTransform;
+    // Always use IDENTITY: we do NOT pre-rotate video pixels, so we let
+    // SurfaceFlinger (the compositor) apply the device rotation itself.
+    // Using caps.currentTransform here would tell SurfaceFlinger "already
+    // rotated, don't touch it" — but we haven't rotated, so the video would
+    // appear as a vertical column in landscape mode.
+    sci.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     sci.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     sci.presentMode      = pm;
     sci.clipped          = VK_TRUE;
@@ -607,12 +620,11 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     {
         VkSurfaceCapabilitiesKHR caps;
         if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_pdev, g_surf, &caps) == VK_SUCCESS) {
-            uint32_t cw = caps.currentExtent.width;
-            uint32_t ch = caps.currentExtent.height;
-            if (cw != 0 && ch != 0 &&
-                (cw != g_swap_ext.width || ch != g_swap_ext.height)) {
+            VkExtent2D cur = vk_surface_extent(&caps);
+            if (cur.width != 0 && cur.height != 0 &&
+                (cur.width != g_swap_ext.width || cur.height != g_swap_ext.height)) {
                 VLOGI("surface resized %ux%u → %ux%u, recreating swapchain",
-                      g_swap_ext.width, g_swap_ext.height, cw, ch);
+                      g_swap_ext.width, g_swap_ext.height, cur.width, cur.height);
                 vk_recreate_swapchain();
                 return 0;
             }
