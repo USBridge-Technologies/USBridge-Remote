@@ -448,6 +448,16 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
 	vw.resetRelativeMoveAccumulator()
+	if mode == mouseModeVirtualCursor {
+		// Centre the virtual cursor and set cursor scale for the current display.
+		vw.virtualCursorU = 0.5
+		vw.virtualCursorV = 0.5
+		s := vw.androidCursorScale()
+		if s > 0 {
+			vw.initAndroidCursorScale(s)
+		}
+	}
+	vw.updateNativeViewportAndCursor()
 	vw.logMouseModeState("desired-updated")
 }
 
@@ -1164,6 +1174,7 @@ func (vw *VideoWidget) resetViewport() {
 	vw.panOffsetX = 0
 	vw.panOffsetY = 0
 	vw.recalculateViewport()
+	vw.updateNativeViewportAndCursor()
 }
 
 func clampFloat(value, minValue, maxValue float32) float32 {

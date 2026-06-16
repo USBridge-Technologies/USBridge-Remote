@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"math"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
@@ -54,6 +55,8 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 
 	if service.VKVideoAndroidCreate(px, py, pw, ph) {
 		logrus.Infof("[Android/VK] Vulkan overlay created at (%d,%d) %dx%d px", px, py, pw, ph)
+		// Reinitialize cursor at the correct display density scale.
+		vw.initAndroidCursorScale(vw.androidCursorScale())
 		if view.OverlayActive() {
 			service.VKVideoAndroidSetHidden(true)
 		}
@@ -109,6 +112,7 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		service.VKVideoAndroidForceRecreateSwapchain()
 	}
 	service.VKVideoAndroidUpdateRect(int(x*scale), int(y*scale), pw, ph)
+	vw.updateNativeViewportAndCursor()
 }
 
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
@@ -125,6 +129,77 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	// Force swapchain recreation so the render thread picks up the restored size.
 	vw.forceCanvasRefresh.Store(true)
 	service.VKVideoAndroidForceRecreateSwapchain()
+}
+
+// updateNativeViewportAndCursor forwards the current Go viewport state (zoom/pan)
+// to the Vulkan renderer and updates the virtual cursor if in cursor mode.
+func (vw *VideoWidget) updateNativeViewportAndCursor() {
+	if !service.VKVideoAndroidIsActive() {
+		return
+	}
+	// Compute visible UV rect from Go viewport state.
+	cw, ch := vw.contentRectW, vw.contentRectH
+	if cw <= 0 || ch <= 0 {
+		service.VKVideoAndroidSetViewport(0, 0, 1, 1)
+	} else {
+		u0 := clampFloat(-vw.contentRectX/cw, 0, 1)
+		v0 := clampFloat(-vw.contentRectY/ch, 0, 1)
+		u1 := clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
+		v1 := clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
+		service.VKVideoAndroidSetViewport(u0, v0, u1, v1)
+	}
+
+	if vw.GetMouseInputMode() == mouseModeVirtualCursor {
+		service.VKVideoAndroidSetCursor(vw.virtualCursorU, vw.virtualCursorV, true)
+	} else {
+		service.VKVideoAndroidSetCursor(0, 0, false)
+	}
+}
+
+// centerViewportOnVirtualCursor pans the viewport so the virtual cursor is
+// centred on screen (RustDesk-style follow).  Only effective when zoom > 1.
+func (vw *VideoWidget) centerViewportOnVirtualCursor() {
+	if vw.zoomScale <= 1.001 {
+		return
+	}
+	cw := vw.baseContentRectW * vw.zoomScale
+	ch := vw.baseContentRectH * vw.zoomScale
+	// panOffsetX = cw*(0.5 - u) so cursor lands at touchpadSizeW/2
+	vw.panOffsetX = cw * (0.5 - vw.virtualCursorU)
+	// panOffsetY: with overflow ch > availH, baseY = availH-ch
+	availH := vw.touchpadSizeH - vw.bottomInset
+	if ch > availH {
+		// panOffsetY = availH/2 - (availH-ch) - vc*ch
+		vw.panOffsetY = availH/2 - (availH - ch) - vw.virtualCursorV*ch
+		if vw.panOffsetY < 0 {
+			vw.panOffsetY = 0
+		}
+	}
+	vw.recalculateViewport()
+}
+
+// initAndroidCursorScale reinitialises the Vulkan cursor pixel buffer at `scale`.
+func (vw *VideoWidget) initAndroidCursorScale(scale int) {
+	if service.VKVideoAndroidIsActive() {
+		service.VKVideoAndroidSetCursorScale(scale)
+	}
+}
+
+// androidCursorScale returns the integer cursor scale factor for the current
+// display density (1-4×).
+func (vw *VideoWidget) androidCursorScale() int {
+	if vw.parentWindow == nil {
+		return 2
+	}
+	scale := vw.parentWindow.Canvas().Scale()
+	s := int(math.Round(float64(scale)))
+	if s < 1 {
+		s = 1
+	}
+	if s > 4 {
+		s = 4
+	}
+	return s
 }
 
 // videoCanvasFrame returns the Vulkan SurfaceView rect in window-local dp coords.

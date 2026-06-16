@@ -692,6 +692,12 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.lastMouseX = ev.Position.X
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
+
+	if t.videoWidget.GetMouseInputMode() == mouseModeVirtualCursor {
+		// Virtual cursor mode: touch initiates cursor tracking.
+		// No initial position send; movement handled in TouchMove/Dragged.
+		return
+	}
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		if !t.videoWidget.TryRecordTouchDown(x, y) {
@@ -725,8 +731,24 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	dy := math.Abs(float64(ev.Position.Y - t.videoWidget.touchStartY))
 	duration := time.Since(t.videoWidget.touchStartTime)
 
+	mode := t.videoWidget.GetMouseInputMode()
+
+	// Virtual cursor: tap = left click; long-tap = right click.
+	if mode == mouseModeVirtualCursor {
+		if !t.videoWidget.isDragging && dx < 10 && dy < 10 {
+			if duration >= time.Second && dx < 20 && dy < 20 {
+				t.videoWidget.enqueueMouseClick(2) // right click
+			} else if duration < 300*time.Millisecond {
+				t.videoWidget.enqueueMouseClick(1) // left click
+			}
+		}
+		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
+		return
+	}
+
 	// Тачскрин: отпускание (tip=false)
-	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
+	if mode == "touchscreen" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.lastTouchX = x
 		t.videoWidget.lastTouchY = y
@@ -774,7 +796,9 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 
-	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
+	mode := t.videoWidget.GetMouseInputMode()
+
+	if mode == "touchscreen" {
 		if t.videoWidget.touchActive {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 			if x != t.videoWidget.lastTouchX || y != t.videoWidget.lastTouchY {
@@ -785,6 +809,11 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		}
 		t.videoWidget.lastMouseX = ev.Position.X
 		t.videoWidget.lastMouseY = ev.Position.Y
+		return
+	}
+
+	if mode == mouseModeVirtualCursor {
+		t.handleVirtualCursorMove(ev.Position.X, ev.Position.Y)
 		return
 	}
 
@@ -810,6 +839,39 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 	t.videoWidget.enqueueMouseMove(dx, dy)
+}
+
+// handleVirtualCursorMove moves the virtual cursor by the swipe delta and
+// forwards the new absolute position to Moonlight.
+func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
+	vw := t.videoWidget
+	rawDx := posX - vw.lastMouseX
+	rawDy := posY - vw.lastMouseY
+	vw.lastMouseX = posX
+	vw.lastMouseY = posY
+
+	cw := vw.contentRectW
+	ch := vw.contentRectH
+	if cw > 0 {
+		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, 0, 1)
+	}
+	if ch > 0 {
+		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, 0, 1)
+	}
+	vw.isDragging = true
+
+	// Send absolute position to host.
+	absX := int(math.Round(float64(vw.virtualCursorU * 32767)))
+	absY := int(math.Round(float64(vw.virtualCursorV * 32767)))
+	mi := vw.moonlightInput()
+	if mi != nil && mi.IsInputActive() {
+		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
+	}
+
+	// Pan the viewport so the cursor stays centred (only effective at zoom > 1).
+	vw.centerViewportOnVirtualCursor()
+	vw.updateNativeViewportAndCursor()
+	vw.refreshViewportViews()
 }
 
 // TouchCancel обрабатывает отмену касания (mobile)
@@ -845,7 +907,8 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 	isAndroid := fyne.CurrentDevice().IsMobile()
 
 	if isAndroid {
-		if t.videoWidget.GetMouseInputMode() == "touchscreen" {
+		mode := t.videoWidget.GetMouseInputMode()
+		if mode == "touchscreen" {
 			if t.videoWidget.touchActive {
 				x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 				if x != t.videoWidget.lastTouchX || y != t.videoWidget.lastTouchY {
@@ -854,6 +917,8 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 					t.videoWidget.enqueueTouch(x, y, true)
 				}
 			}
+		} else if mode == mouseModeVirtualCursor {
+			t.handleVirtualCursorMove(ev.Position.X, ev.Position.Y)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 			t.videoWidget.SendAbsolutePosition(x, y, false)

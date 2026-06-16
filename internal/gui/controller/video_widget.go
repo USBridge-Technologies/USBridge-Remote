@@ -149,6 +149,9 @@ type VideoWidget struct {
 	statRelWS         atomic.Int64 // relative events sent via WebSocket SendMouseMove
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
+	// Virtual cursor (Android "cursor" mouse mode): position in frame UV space (0..1).
+	virtualCursorU float32
+	virtualCursorV float32
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
 	// Tapped приходит при полном клике на виджет; MouseUp в Fyne приходит только виджету под курсором при отпускании.
 	touchDownDelayTimer *time.Timer

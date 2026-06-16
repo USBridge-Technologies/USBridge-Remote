@@ -18,6 +18,9 @@ extern void android_vk_update_rect(int x, int y, int w, int h);
 extern void android_vk_set_hidden(int hidden);
 extern void android_vk_destroy(void);
 extern void android_vk_force_recreate_swapchain(void);
+extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
+extern void android_vk_set_cursor(float uc, float vc, int visible);
+extern void android_vk_set_cursor_scale(int scale);
 */
 import "C"
 
@@ -84,4 +87,27 @@ func VKVideoAndroidDestroy() {
 // size-change detection in vk_render_frame.
 func VKVideoAndroidForceRecreateSwapchain() {
 	C.android_vk_force_recreate_swapchain()
+}
+
+// VKVideoAndroidSetViewport sets the visible UV sub-rect of the video frame.
+// u0,v0 = top-left corner; u1,v1 = bottom-right corner; all in [0,1].
+// Pass 0,0,1,1 for the full frame (default).
+func VKVideoAndroidSetViewport(u0, v0, u1, v1 float32) {
+	C.android_vk_set_viewport(C.float(u0), C.float(v0), C.float(u1), C.float(v1))
+}
+
+// VKVideoAndroidSetCursor sets the virtual cursor position (uc, vc in frame UV)
+// and whether to render it. The cursor appears on top of the video each frame.
+func VKVideoAndroidSetCursor(uc, vc float32, visible bool) {
+	vis := C.int(0)
+	if visible {
+		vis = 1
+	}
+	C.android_vk_set_cursor(C.float(uc), C.float(vc), vis)
+}
+
+// VKVideoAndroidSetCursorScale reinitialises the cursor bitmap at the given
+// integer pixel scale (1=18×24, 2=36×48, 3=54×72, 4=72×96 physical pixels).
+func VKVideoAndroidSetCursorScale(scale int) {
+	C.android_vk_set_cursor_scale(C.int(scale))
 }

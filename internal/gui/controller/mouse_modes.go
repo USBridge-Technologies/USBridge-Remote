@@ -9,13 +9,15 @@ import (
 )
 
 const (
-	mouseModeTouchPad    = "mouse"
-	mouseModeTouchScreen = "touchscreen"
-	mouseModeAbsolute    = "absolute"
+	mouseModeTouchPad      = "mouse"
+	mouseModeTouchScreen   = "touchscreen"
+	mouseModeAbsolute      = "absolute"
+	mouseModeVirtualCursor = "cursor" // Android-only: local cursor rendered in Vulkan
 
-	MouseModeTouchPad    = mouseModeTouchPad
-	MouseModeTouchScreen = mouseModeTouchScreen
-	MouseModeAbsolute    = mouseModeAbsolute
+	MouseModeTouchPad      = mouseModeTouchPad
+	MouseModeTouchScreen   = mouseModeTouchScreen
+	MouseModeAbsolute      = mouseModeAbsolute
+	MouseModeVirtualCursor = mouseModeVirtualCursor
 )
 
 func defaultMouseMode() string {
@@ -34,10 +36,12 @@ func parseMouseMode(mode string) (string, bool) {
 		return mouseModeTouchScreen, true
 	case strings.HasPrefix(mode, "absolute:"):
 		return mouseModeAbsolute, true
+	case strings.HasPrefix(mode, "cursor:"):
+		return mouseModeVirtualCursor, true
 	}
 
 	switch mode {
-	case mouseModeTouchPad, mouseModeTouchScreen, mouseModeAbsolute:
+	case mouseModeTouchPad, mouseModeTouchScreen, mouseModeAbsolute, mouseModeVirtualCursor:
 		return mode, true
 	case "double":
 		return mouseModeAbsolute, true
@@ -54,6 +58,10 @@ func normalizeMouseMode(mode string) string {
 		return normalized
 	}
 	return defaultMouseMode()
+}
+
+func isVirtualCursorMode(mode string) bool {
+	return normalizeMouseMode(mode) == mouseModeVirtualCursor
 }
 
 func mouseTransportType(mode string) string {
@@ -73,26 +81,22 @@ func mouseModeFromDeviceType(deviceType string) string {
 }
 
 func mouseConfigOptions() []string {
-	return []string{
+	opts := []string{
 		i18n.Current.DeviceTouchPad,
 		i18n.Current.DeviceAbsolute,
-		// i18n.Current.DeviceAbsoluteLeft2,
-		// i18n.Current.DeviceAbsoluteRight2,
 	}
+	if fyne.CurrentDevice().IsMobile() {
+		opts = append(opts, i18n.Current.DeviceVirtualCursor)
+	}
+	return opts
 }
 
 func mouseConfigToLabel(mode string, dispIdx, dispCnt int) string {
 	switch normalizeMouseMode(mode) {
 	case mouseModeAbsolute:
-		/* Disabled for now
-		if dispCnt >= 2 {
-			if dispIdx == 0 {
-				return i18n.Current.DeviceAbsoluteLeft2
-			}
-			return i18n.Current.DeviceAbsoluteRight2
-		}
-		*/
 		return i18n.Current.DeviceAbsolute
+	case mouseModeVirtualCursor:
+		return i18n.Current.DeviceVirtualCursor
 	default:
 		return i18n.Current.DeviceTouchPad
 	}
@@ -100,14 +104,10 @@ func mouseConfigToLabel(mode string, dispIdx, dispCnt int) string {
 
 func mouseLabelToConfig(s string) (mode string, dispIdx, dispCnt int) {
 	switch s {
-	/* Disabled for now
-	case i18n.Current.DeviceAbsoluteLeft2:
-		return mouseModeAbsolute, 0, 2
-	case i18n.Current.DeviceAbsoluteRight2:
-		return mouseModeAbsolute, 1, 2
-	*/
 	case i18n.Current.DeviceAbsolute:
 		return mouseModeAbsolute, 0, 1
+	case i18n.Current.DeviceVirtualCursor:
+		return mouseModeVirtualCursor, 0, 1
 	default:
 		return mouseModeTouchPad, 0, 1
 	}

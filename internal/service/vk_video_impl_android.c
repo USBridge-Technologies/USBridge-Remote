@@ -167,6 +167,55 @@ static int             g_pipe_r = -1, g_pipe_w = -1;
 
 static volatile long long g_submitted = 0, g_rendered = 0;
 
+// ─── Viewport (zoom / pan) ────────────────────────────────────────────────────
+// UV range of the video frame that is currently visible.
+// Fixed-point: 0..65536 = 0.0..1.0.  Default = full frame.
+static atomic_int g_vp_u0_fp;
+static atomic_int g_vp_v0_fp;
+static atomic_int g_vp_u1_fp = ATOMIC_VAR_INIT(65536);
+static atomic_int g_vp_v1_fp = ATOMIC_VAR_INIT(65536);
+
+// ─── Virtual cursor ───────────────────────────────────────────────────────────
+static atomic_int g_cursor_visible;      // 0 = hidden
+static atomic_int g_cursor_uc_fp;       // cursor U in frame UV, 0..65536
+static atomic_int g_cursor_vc_fp;       // cursor V in frame UV, 0..65536
+
+// Arrow cursor bitmap (18×24).  Same shape as the Go newOverlayCursorImage().
+static const char *CURSOR_ROWS[24] = {
+    "110000000000000000", "111000000000000000",
+    "111100000000000000", "111110000000000000",
+    "111111000000000000", "111111100000000000",
+    "111111110000000000", "111111111000000000",
+    "111111111100000000", "111111111110000000",
+    "111111111111000000", "111111111111100000",
+    "111111111111110000", "111111111111111000",
+    "111111111100000000", "111111011000000000",
+    "111100011000000000", "111000001100000000",
+    "110000001100000000", "100000000110000000",
+    "000000000110000000", "000000000011000000",
+    "000000000011000000", "000000000001000000",
+};
+#define CURSOR_BASE_W 18
+#define CURSOR_BASE_H 24
+
+static int cursor_is_opaque(int x, int y) {
+    if (x < 0 || x >= CURSOR_BASE_W || y < 0 || y >= CURSOR_BASE_H) return 0;
+    return CURSOR_ROWS[y][x] == '1';
+}
+static int cursor_is_border(int x, int y) {
+    return !cursor_is_opaque(x-1,y) || !cursor_is_opaque(x+1,y) ||
+           !cursor_is_opaque(x,y-1) || !cursor_is_opaque(x,y+1);
+}
+
+typedef struct { int rel_x, rel_y, width; uint32_t buf_off; } CursorSpan;
+#define MAX_CURSOR_SPANS 256
+static CursorSpan     g_cursor_spans[MAX_CURSOR_SPANS];
+static int            g_cursor_nspans = 0;
+static int            g_cursor_px_w   = 0, g_cursor_px_h = 0;
+static VkBuffer       g_cursor_vk_buf = VK_NULL_HANDLE;
+static VkDeviceMemory g_cursor_vk_mem = VK_NULL_HANDLE;
+static void          *g_cursor_vk_ptr = NULL;
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
@@ -175,6 +224,105 @@ static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
         if ((type_bits & (1u << i)) && (mp->memoryTypes[i].propertyFlags & props) == props)
             return i;
     return UINT32_MAX;
+}
+
+// ─── Cursor buffer management ─────────────────────────────────────────────────
+
+static void cursor_destroy(void) {
+    g_cursor_nspans = 0; g_cursor_px_w = 0; g_cursor_px_h = 0;
+    if (!g_dev) return;
+    if (g_cursor_vk_ptr) { vkUnmapMemory(g_dev, g_cursor_vk_mem); g_cursor_vk_ptr = NULL; }
+    if (g_cursor_vk_buf != VK_NULL_HANDLE) {
+        vkDestroyBuffer(g_dev, g_cursor_vk_buf, NULL); g_cursor_vk_buf = VK_NULL_HANDLE;
+    }
+    if (g_cursor_vk_mem != VK_NULL_HANDLE) {
+        vkFreeMemory(g_dev, g_cursor_vk_mem, NULL); g_cursor_vk_mem = VK_NULL_HANDLE;
+    }
+}
+
+static void cursor_init(int scale) {
+    if (!g_dev || !g_pdev || scale < 1 || scale > 4) return;
+    cursor_destroy();
+
+    int pw = CURSOR_BASE_W * scale;
+    int ph = CURSOR_BASE_H * scale;
+
+    // Count total opaque pixels to size the Vulkan buffer.
+    size_t total_pix = 0;
+    for (int oy = 0; oy < CURSOR_BASE_H; oy++)
+        for (int ox = 0; ox < CURSOR_BASE_W; ox++)
+            if (cursor_is_opaque(ox, oy)) total_pix += (size_t)(scale * scale);
+    if (!total_pix) return;
+
+    size_t buf_sz = total_pix * 4;
+    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bci.size = buf_sz;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer buf = VK_NULL_HANDLE;
+    if (vkCreateBuffer(g_dev, &bci, NULL, &buf) != VK_SUCCESS) return;
+
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(g_dev, buf, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (mi == UINT32_MAX) { vkDestroyBuffer(g_dev, buf, NULL); return; }
+
+    VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = mr.size;
+    mai.memoryTypeIndex = mi;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (vkAllocateMemory(g_dev, &mai, NULL, &mem) != VK_SUCCESS) {
+        vkDestroyBuffer(g_dev, buf, NULL); return;
+    }
+    vkBindBufferMemory(g_dev, buf, mem, 0);
+    void *ptr = NULL;
+    vkMapMemory(g_dev, mem, 0, VK_WHOLE_SIZE, 0, &ptr);
+    if (!ptr) { vkFreeMemory(g_dev, mem, NULL); vkDestroyBuffer(g_dev, buf, NULL); return; }
+
+    uint8_t *dst = (uint8_t *)ptr;
+    uint32_t buf_off = 0;
+    g_cursor_nspans = 0;
+
+    for (int sy = 0; sy < ph; sy++) {
+        int oy = sy / scale;
+        int run_start = -1;
+        for (int sx = 0; sx <= pw; sx++) {
+            int ox = sx / scale;
+            int op = (sx < pw) && cursor_is_opaque(ox < CURSOR_BASE_W ? ox : CURSOR_BASE_W-1, oy);
+            if (!op && run_start >= 0) {
+                int rw = sx - run_start;
+                if (g_cursor_nspans < MAX_CURSOR_SPANS) {
+                    g_cursor_spans[g_cursor_nspans].rel_x  = run_start;
+                    g_cursor_spans[g_cursor_nspans].rel_y  = sy;
+                    g_cursor_spans[g_cursor_nspans].width  = rw;
+                    g_cursor_spans[g_cursor_nspans].buf_off = buf_off;
+                    for (int px = run_start; px < sx; px++) {
+                        int pox = px / scale;
+                        if (pox >= CURSOR_BASE_W) pox = CURSOR_BASE_W - 1;
+                        uint8_t c = cursor_is_border(pox, oy) ? 0 : 255;
+                        dst[buf_off++] = c;
+                        dst[buf_off++] = c;
+                        dst[buf_off++] = c;
+                        dst[buf_off++] = 255;
+                    }
+                    g_cursor_nspans++;
+                }
+                run_start = -1;
+            } else if (op && run_start < 0) {
+                run_start = sx;
+            }
+        }
+    }
+
+    g_cursor_vk_buf = buf;
+    g_cursor_vk_mem = mem;
+    g_cursor_vk_ptr = ptr;
+    g_cursor_px_w   = pw;
+    g_cursor_px_h   = ph;
+    VLOGI("cursor init: scale=%d size=%dx%d spans=%d buf=%u bytes", scale, pw, ph, g_cursor_nspans, buf_off);
 }
 
 // ─── Vulkan init ──────────────────────────────────────────────────────────────
@@ -524,8 +672,28 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         0, VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    // Read viewport UV (which portion of the frame is currently visible).
+    float u0 = atomic_load(&g_vp_u0_fp) / 65536.0f;
+    float v0 = atomic_load(&g_vp_v0_fp) / 65536.0f;
+    float u1 = atomic_load(&g_vp_u1_fp) / 65536.0f;
+    float v1 = atomic_load(&g_vp_v1_fp) / 65536.0f;
+    if (u0 < 0.0f) u0 = 0.0f; if (u1 > 1.0f) u1 = 1.0f;
+    if (v0 < 0.0f) v0 = 0.0f; if (v1 > 1.0f) v1 = 1.0f;
+    if (u1 <= u0 + 0.001f) { u0 = 0.0f; u1 = 1.0f; }
+    if (v1 <= v0 + 0.001f) { v0 = 0.0f; v1 = 1.0f; }
+
+    int src_x0 = (int)(u0 * fw);
+    int src_y0 = (int)(v0 * fh);
+    int src_x1 = (int)(u1 * fw + 0.5f);
+    int src_y1 = (int)(v1 * fh + 0.5f);
+    if (src_x0 < 0) src_x0 = 0;
+    if (src_y0 < 0) src_y0 = 0;
+    if (src_x1 > fw) src_x1 = fw;
+    if (src_y1 > fh) src_y1 = fh;
+    if (src_x1 <= src_x0 || src_y1 <= src_y0) return 0;
+
     int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
-    float fa = (float)fw / (float)(fh ? fh : 1);
+    float fa = (float)(src_x1 - src_x0) / (float)(src_y1 - src_y0);
     float wa = (float)sw / (float)(sh ? sh : 1);
     int dx = 0, dy = 0, dw = sw, dh = sh;
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
@@ -539,7 +707,8 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     VkImageBlit blt = {0};
     blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blt.srcSubresource.layerCount = 1;
-    blt.srcOffsets[1] = (VkOffset3D){fw, fh, 1};
+    blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
+    blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
     blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blt.dstSubresource.layerCount = 1;
     blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
@@ -548,6 +717,52 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         g_tex,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
+
+    // Draw virtual cursor (if visible) on top of the video.
+    if (atomic_load(&g_cursor_visible) && g_cursor_nspans > 0 &&
+        g_cursor_vk_buf != VK_NULL_HANDLE) {
+        float uc = atomic_load(&g_cursor_uc_fp) / 65536.0f;
+        float vc = atomic_load(&g_cursor_vc_fp) / 65536.0f;
+        float span_u = u1 - u0, span_v = v1 - v0;
+        float tu = (span_u > 0.001f) ? (uc - u0) / span_u : 0.5f;
+        float tv = (span_v > 0.001f) ? (vc - v0) / span_v : 0.5f;
+        int csx = dx + (int)(tu * dw + 0.5f);
+        int csy = dy + (int)(tv * dh + 0.5f);
+
+        // Barrier: serialise blit write before cursor copy writes.
+        VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &mb, 0, NULL, 0, NULL);
+
+        VkBufferImageCopy regs[MAX_CURSOR_SPANS];
+        int nreg = 0;
+        for (int i = 0; i < g_cursor_nspans; i++) {
+            int ax0 = csx + g_cursor_spans[i].rel_x;
+            int ax1 = ax0 + g_cursor_spans[i].width;
+            int ay  = csy + g_cursor_spans[i].rel_y;
+            if (ay < 0 || ay >= sh || ax1 <= 0 || ax0 >= sw) continue;
+            int cx0 = ax0 < 0 ? 0 : ax0;
+            int cx1 = ax1 > sw ? sw : ax1;
+            if (cx1 <= cx0) continue;
+            regs[nreg].bufferOffset      = g_cursor_spans[i].buf_off + (uint32_t)(cx0-ax0)*4;
+            regs[nreg].bufferRowLength   = 0;
+            regs[nreg].bufferImageHeight = 0;
+            regs[nreg].imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            regs[nreg].imageSubresource.mipLevel       = 0;
+            regs[nreg].imageSubresource.baseArrayLayer = 0;
+            regs[nreg].imageSubresource.layerCount     = 1;
+            regs[nreg].imageOffset = (VkOffset3D){cx0, ay, 0};
+            regs[nreg].imageExtent = (VkExtent3D){(uint32_t)(cx1-cx0), 1, 1};
+            nreg++;
+        }
+        if (nreg > 0)
+            vkCmdCopyBufferToImage(g_cmdbuf, g_cursor_vk_buf,
+                g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                (uint32_t)nreg, regs);
+    }
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -649,6 +864,7 @@ static void vk_full_cleanup(void) {
 
     if (g_dev) {
         vkDeviceWaitIdle(g_dev);
+        cursor_destroy();
         if (g_stage_ptr && g_stage_mem) { vkUnmapMemory(g_dev, g_stage_mem); g_stage_ptr = NULL; }
         if (g_stage_buf) { vkDestroyBuffer(g_dev, g_stage_buf, NULL); g_stage_buf = VK_NULL_HANDLE; }
         if (g_stage_mem) { vkFreeMemory(g_dev, g_stage_mem, NULL);   g_stage_mem = VK_NULL_HANDLE; }
@@ -744,9 +960,16 @@ int android_vk_create(int x, int y, int w, int h) {
         return 0;
     }
 
+    // Reset viewport to full frame and hide cursor for the new session.
+    atomic_store(&g_vp_u0_fp, 0); atomic_store(&g_vp_v0_fp, 0);
+    atomic_store(&g_vp_u1_fp, 65536); atomic_store(&g_vp_v1_fp, 65536);
+    atomic_store(&g_cursor_visible, 0);
+    atomic_store(&g_cursor_uc_fp, 32768); atomic_store(&g_cursor_vc_fp, 32768);
+
     if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
     if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
     if (!vk_create_device())    { VLOGE("vkCreateDevice failed");    goto fail; }
+    cursor_init(2); // pre-render cursor at 2× scale; SetCursorScale() may override later
 
     {
         VkAndroidSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
@@ -844,6 +1067,38 @@ void android_vk_destroy(void) {
           (long long)g_rendered, (long long)g_submitted);
     vk_full_cleanup();
     java_destroy_overlay();
+}
+
+// android_vk_set_viewport sets the visible UV sub-rect of the frame (0..1 per axis).
+// u0=0,v0=0,u1=1,v1=1 shows the full frame (default).
+void android_vk_set_viewport(float u0, float v0, float u1, float v1) {
+    atomic_store(&g_vp_u0_fp, (int)(u0 * 65536));
+    atomic_store(&g_vp_v0_fp, (int)(v0 * 65536));
+    atomic_store(&g_vp_u1_fp, (int)(u1 * 65536));
+    atomic_store(&g_vp_v1_fp, (int)(v1 * 65536));
+}
+
+// android_vk_set_cursor sets the virtual cursor position (uc, vc in frame UV)
+// and visibility. The cursor is drawn on top of the video each frame.
+void android_vk_set_cursor(float uc, float vc, int visible) {
+    atomic_store(&g_cursor_uc_fp, (int)(uc * 65536));
+    atomic_store(&g_cursor_vc_fp, (int)(vc * 65536));
+    atomic_store(&g_cursor_visible, visible ? 1 : 0);
+}
+
+// android_vk_set_cursor_scale reinitialises the cursor pixel buffer at the given
+// integer scale factor (1=18×24 px, 2=36×48 px, 3=54×72 px, 4=72×96 px).
+// Safe to call while the render thread is running: waits for GPU idle first.
+void android_vk_set_cursor_scale(int scale) {
+    if (scale < 1) scale = 1;
+    if (scale > 4) scale = 4;
+    if (!g_dev || !atomic_load(&g_active)) return;
+    // Hide cursor and wait for GPU to finish any in-flight frame that might
+    // be using the current cursor buffer before we destroy/recreate it.
+    int was_visible = atomic_exchange(&g_cursor_visible, 0);
+    vkDeviceWaitIdle(g_dev);
+    cursor_init(scale);
+    atomic_store(&g_cursor_visible, was_visible);
 }
 
 #endif // __ANDROID__
