@@ -277,14 +277,19 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 
 	// When the Android system IME (letter keyboard) is open, expand the video upward
 	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom.
-	// y=0 covers the tabs; h stops where the keyboard panel begins.
+	// Use AbsolutePositionForObject so we read the exact canvas Y of the keyboard panel
+	// rather than re-deriving it from heights (which can disagree by a few dp due to
+	// Fyne border-layout rounding or imeSpacer timing).
 	if getImeExpandHeightDp() > 0 {
-		if vw.container == nil {
+		if vw.container == nil || vw.contentContainer == nil || !vw.contentContainer.Visible() {
 			return
 		}
 		sz := vw.container.Size()
-		videoH := cs.Height
-		if vw.contentContainer != nil && vw.contentContainer.Visible() {
+		absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
+		videoH := absPos.Y
+		if videoH <= 0 {
+			// Fallback: derive from sizes if position is not yet available.
+			videoH = cs.Height
 			if kh := vw.contentContainer.Size().Height; kh > 0 {
 				videoH -= kh
 			}
