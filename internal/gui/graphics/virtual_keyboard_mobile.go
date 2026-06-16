@@ -3,7 +3,6 @@
 package graphics
 
 import (
-	"image/color"
 	"strings"
 	"sync"
 	"time"
@@ -236,64 +235,35 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 
 	textHint.SetPlaceHolder(i18n.Current.VirtualKeyboardClickToType)
 
+	// keysSwitch swaps between the normal key panel and the F-key panel.
+	var showNormal, showFKeys func()
+	keysSwitch := container.NewStack()
+
+	// F-key panel: two rows of 12 keys each, replaces the normal panel in-place.
 	f1_12_Codes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
 	f1_12_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
 	f13_24_Codes := []int{104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115}
 	f13_24_Labels := []string{"F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"}
-	makeFColumn := func(labels []string, codes []int) *fyne.Container {
-		col := container.NewVBox()
+	makeRow := func(labels []string, codes []int) *fyne.Container {
+		row := container.NewGridWithColumns(len(labels))
 		for i, label := range labels {
 			code := codes[i]
 			btn := widget.NewButton(label, func() {
 				if vk.onKeyPress != nil {
 					vk.onKeyPress(code, 0)
 				}
+				showNormal()
 			})
-			col.Add(btn)
+			row.Add(btn)
 		}
-		return col
+		return row
 	}
-	fCol1 := makeFColumn(f1_12_Labels, f1_12_Codes)
-	fCol2 := makeFColumn(f13_24_Labels, f13_24_Codes)
-	fPopupBody := container.NewHBox(fCol1, fCol2)
-	fPopupBG := canvas.NewRectangle(design.ColorGray900)
-	fPopupBG.CornerRadius = design.RadiusMD
-	fPopupBorder := canvas.NewRectangle(color.Transparent)
-	fPopupBorder.CornerRadius = design.RadiusMD
-	fPopupBorder.StrokeColor = design.ColorBorder
-	fPopupBorder.StrokeWidth = 1
-	fPopupContent := container.NewThemeOverride(
-		container.NewStack(
-			fPopupBG,
-			view.NewInset(fPopupBody, 8, 8, 8, 8),
-			fPopupBorder,
-		),
-		design.NewBrandTheme(),
+	fPanel := container.NewVBox(
+		makeRow(f1_12_Labels, f1_12_Codes),
+		makeRow(f13_24_Labels, f13_24_Codes),
 	)
-	fBtn := widget.NewButton("Fx", nil)
-	fBtn.OnTapped = func() {
-		if vk.parentWindow == nil {
-			return
-		}
-		popup := widget.NewPopUp(fPopupContent, vk.parentWindow.Canvas())
-		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(fBtn)
-		contentH := fPopupContent.MinSize().Height
-		popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y-contentH))
-		
-		for _, colObj := range fPopupBody.Objects {
-			if col, ok := colObj.(*fyne.Container); ok {
-				for _, btnObj := range col.Objects {
-					if btn, ok := btnObj.(*widget.Button); ok {
-						oldOnTapped := btn.OnTapped
-						btn.OnTapped = func() {
-							oldOnTapped()
-							popup.Hide()
-						}
-					}
-				}
-			}
-		}
-	}
+
+	fBtn := widget.NewButton("Fx", func() { showFKeys() })
 
 	row1Keys := container.NewHBox(
 		vk.createKey("Esc", 41, 0),
@@ -334,7 +304,17 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		leftBtn, downBtn, rightBtn,
 	)
 
-	keysWithEnterAndDpad := container.NewBorder(nil, nil, leftKeys, dpad, enterBtn)
+	normalPanel := container.NewBorder(nil, nil, leftKeys, dpad, enterBtn)
+	keysSwitch.Objects = []fyne.CanvasObject{normalPanel}
+
+	showNormal = func() {
+		keysSwitch.Objects = []fyne.CanvasObject{normalPanel}
+		keysSwitch.Refresh()
+	}
+	showFKeys = func() {
+		keysSwitch.Objects = []fyne.CanvasObject{fPanel}
+		keysSwitch.Refresh()
+	}
 
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), func() {
 		suppress = true
@@ -357,7 +337,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	pasteBtn.Importance = widget.MediumImportance
 
 	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), textHint)
-	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
+	main := container.NewVBox(keysSwitch, inputRow)
 
 	background := canvas.NewRectangle(design.ColorGray950)
 	background.FillColor = design.ColorGray950
