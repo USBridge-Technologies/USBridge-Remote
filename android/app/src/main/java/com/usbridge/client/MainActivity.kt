@@ -53,15 +53,25 @@ class MainActivity : GoNativeActivity() {
     @Volatile
     private var vpnPermissionState: Int = 0
 
-    private var viewportGestureActive = false
-    private var lastViewportCentroidX = 0f
-    private var lastViewportCentroidY = 0f
-    private var lastViewportDistance = 0f
-
-    // Two fingers closer than this → scroll wheel; farther → zoom/pan.
-    // 320 dp ≈ 5 cm on a 480 dpi phone.
-    private val scrollFingerThresholdPx: Float by lazy {
-        resources.displayMetrics.density * 320f
+    // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL_ZOOM) is locked at gesture start.
+    // 320 dp ≈ 5 cm on a 480 dpi phone is the boundary between "fingers close" and "fingers far".
+    private val gestureTracker: TwoFingerGestureTracker by lazy {
+        TwoFingerGestureTracker(
+            panZoomThresholdPx = resources.displayMetrics.density * 320f,
+            onActiveChanged = { active ->
+                GestureBridge.onViewportGestureStateChanged(active)
+            },
+            onPanZoom = { scale, focusX, focusY, dx, dy ->
+                GestureBridge.onViewportGestureUpdate(scale, focusX, focusY, dx, dy)
+            },
+            onScrollZoom = { scrollDy, scale, focusX, focusY ->
+                // Scroll wheel and zoom are independent — both delivered every frame.
+                GestureBridge.onScrollGesture(scrollDy)
+                if (scale != 1f) {
+                    GestureBridge.onViewportGestureUpdate(scale, focusX, focusY, 0f, 0f)
+                }
+            },
+        )
     }
 
     private lateinit var connectivityManager: ConnectivityManager
@@ -237,14 +247,14 @@ class MainActivity : GoNativeActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unregister network callback", e)
         }
-        endViewportGesture()
+        gestureTracker.cancel()
         super.onDestroy()
         instance = null
         Log.i(TAG, "MainActivity destroyed")
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        handleViewportGesture(ev)
+        gestureTracker.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -409,114 +419,6 @@ class MainActivity : GoNativeActivity() {
 
     fun getCacheDirAbsolutePath(): String {
         return cacheDir.absolutePath
-    }
-
-    private fun handleViewportGesture(ev: MotionEvent) {
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                if (ev.pointerCount < 2) {
-                    endViewportGesture()
-                }
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                if (ev.pointerCount >= 2) {
-                    startViewportGesture(ev)
-                }
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (ev.pointerCount >= 2) {
-                    updateViewportGesture(ev)
-                } else {
-                    endViewportGesture()
-                }
-            }
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (ev.pointerCount <= 2) {
-                    endViewportGesture()
-                } else {
-                    startViewportGesture(ev)
-                }
-            }
-        }
-    }
-
-    private fun startViewportGesture(ev: MotionEvent) {
-        val currentDistance = distanceBetweenPointers(ev)
-        val currentCentroidX = centroidX(ev)
-        val currentCentroidY = centroidY(ev)
-        lastViewportDistance = currentDistance
-        lastViewportCentroidX = currentCentroidX
-        lastViewportCentroidY = currentCentroidY
-        if (!viewportGestureActive) {
-            viewportGestureActive = true
-            GestureBridge.onViewportGestureStateChanged(true)
-        }
-    }
-
-    private fun updateViewportGesture(ev: MotionEvent) {
-        if (!viewportGestureActive) {
-            startViewportGesture(ev)
-            return
-        }
-
-        val currentDistance = distanceBetweenPointers(ev)
-        val currentCentroidX = centroidX(ev)
-        val currentCentroidY = centroidY(ev)
-
-        val scaleFactor = if (lastViewportDistance > 0f && currentDistance > 0f) {
-            currentDistance / lastViewportDistance
-        } else {
-            1f
-        }
-        val panDx = currentCentroidX - lastViewportCentroidX
-        val panDy = currentCentroidY - lastViewportCentroidY
-
-        // Per-frame decision: scale change OR fingers far apart → zoom/pan; else → scroll.
-        val scaleSignificant = kotlin.math.abs(scaleFactor - 1f) > 0.04f
-        if (scaleSignificant || currentDistance >= scrollFingerThresholdPx) {
-            GestureBridge.onViewportGestureUpdate(
-                scaleFactor, currentCentroidX, currentCentroidY, panDx, panDy
-            )
-        } else if (panDy != 0f) {
-            GestureBridge.onScrollGesture(panDy)
-        }
-
-        lastViewportDistance = currentDistance
-        lastViewportCentroidX = currentCentroidX
-        lastViewportCentroidY = currentCentroidY
-    }
-
-    private fun endViewportGesture() {
-        lastViewportDistance = 0f
-        lastViewportCentroidX = 0f
-        lastViewportCentroidY = 0f
-        if (viewportGestureActive) {
-            viewportGestureActive = false
-            GestureBridge.onViewportGestureStateChanged(false)
-        }
-    }
-
-    private fun distanceBetweenPointers(ev: MotionEvent): Float {
-        if (ev.pointerCount < 2) {
-            return 0f
-        }
-        val dx = ev.getX(1) - ev.getX(0)
-        val dy = ev.getY(1) - ev.getY(0)
-        return kotlin.math.sqrt(dx * dx + dy * dy)
-    }
-
-    private fun centroidX(ev: MotionEvent): Float {
-        if (ev.pointerCount < 2) {
-            return ev.x
-        }
-        return (ev.getX(0) + ev.getX(1)) / 2f
-    }
-
-    private fun centroidY(ev: MotionEvent): Float {
-        if (ev.pointerCount < 2) {
-            return ev.y
-        }
-        return (ev.getY(0) + ev.getY(1)) / 2f
     }
 
     /**
