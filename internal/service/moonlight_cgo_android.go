@@ -324,6 +324,7 @@ void set_audio_pipe_fd(int fd)  { (void)fd; }
 // ── Input ─────────────────────────────────────────────────────────────────────
 
 void do_send_key(short code, char act, char mod) { LiSendKeyboardEvent(code, act, mod); }
+void do_send_utf8_text(const char *text, unsigned int len) { LiSendUtf8TextEvent(text, len); }
 void do_send_mouse_move(short dx, short dy) { LiSendMouseMoveEvent(dx, dy); }
 void do_send_mouse_position(short x, short y, short w, short h) { LiSendMousePositionEvent(x, y, w, h); }
 void do_send_mouse_button(char act, int btn) { LiSendMouseButtonEvent(act, btn); }
@@ -514,6 +515,15 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16,
 	if liStartConnectionActive.Load() {
 		C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.ushort(b), C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
 	}
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
+	if !liStartConnectionActive.Load() || len(text) == 0 {
+		return
+	}
+	cs := C.CString(text)
+	defer C.free(unsafe.Pointer(cs))
+	C.do_send_utf8_text(cs, C.uint(len(text)))
 }
 
 //export goMoonlightStage

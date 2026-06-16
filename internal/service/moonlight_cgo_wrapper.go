@@ -27,6 +27,7 @@ extern void do_send_multi_controller(
     unsigned char leftTrigger, unsigned char rightTrigger,
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY);
+extern void do_send_utf8_text(const char *text, unsigned int len);
 */
 import "C"
 
@@ -279,6 +280,15 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 
 func (w *MoonlightCgoWrapper) IsInputActive() bool {
 	return liStartConnectionActive.Load()
+}
+
+func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
+	if !liStartConnectionActive.Load() || len(text) == 0 {
+		return
+	}
+	cs := C.CString(text)
+	defer C.free(unsafe.Pointer(cs))
+	C.do_send_utf8_text(cs, C.uint(len(text)))
 }
 
 // ── CGO-exported Go callbacks ─────────────────────────────────────────────────

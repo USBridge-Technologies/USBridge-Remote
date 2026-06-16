@@ -51,6 +51,9 @@ type MoonlightInputSender interface {
 	SendMoonlightMouseButton(action int8, button int)
 	SendMoonlightScroll(clicks int8)
 	SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16)
+	// SendMoonlightUtf8Text sends a UTF-8 text event via LiSendUtf8TextEvent.
+	// Use for IME / soft-keyboard rune input where no VK code is available.
+	SendMoonlightUtf8Text(text string)
 	// IsInputActive returns true only when the underlying Moonlight stream is fully
 	// set up and LiSend* calls will actually transmit.
 	IsInputActive() bool

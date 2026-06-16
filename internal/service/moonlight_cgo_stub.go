@@ -40,3 +40,4 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 	cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,
 ) {
 }
+func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {}

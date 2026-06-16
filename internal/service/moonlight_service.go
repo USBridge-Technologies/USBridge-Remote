@@ -445,6 +445,12 @@ func (m *MoonlightService) IsInputActive() bool {
 	return m.activeWrapper != nil && m.activeWrapper.IsInputActive()
 }
 
+func (m *MoonlightService) SendMoonlightUtf8Text(text string) {
+	if m.activeWrapper != nil {
+		m.activeWrapper.SendMoonlightUtf8Text(text)
+	}
+}
+
 var _ MoonlightInputSender = (*MoonlightService)(nil)
 
 // ── Audio mute ────────────────────────────────────────────────────────────────
