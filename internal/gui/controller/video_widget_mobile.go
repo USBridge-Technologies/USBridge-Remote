@@ -53,8 +53,8 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 			mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods)
 		})
 		
-		// Когда Android IME открывается/закрывается, обновляем layout и rect Vulkan.
-		vw.virtualKeyboard.SetOnIMEChanged(func(open bool) {
+		// Когда Android IME открывается/закрывается, расширяем Vulkan вверх под вкладки.
+		vw.virtualKeyboard.SetOnIMEChanged(func(imeHeightDp float32) {
 			fyne.Do(func() {
 				kl := vw.virtualKeyboard.GetKeyboardLayout()
 				newH := kl.MinSize().Height
@@ -63,8 +63,8 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 				vw.contentContainer.Objects = []fyne.CanvasObject{kl}
 				vw.contentContainer.Resize(kl.Size())
 				vw.container.Refresh()
-				// Trigger Vulkan rect update to account for keyboard height change.
-				vw.forceCanvasRefresh.Store(true)
+				// Set expand flag AFTER layout so videoCanvasFrame reads the updated contentContainer size.
+				vw.onIMEHeightChanged(imeHeightDp)
 			})
 		})
 	}

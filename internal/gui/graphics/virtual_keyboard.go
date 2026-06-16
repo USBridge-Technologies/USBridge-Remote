@@ -41,7 +41,7 @@ type VirtualKeyboard struct {
 	// Dynamic bottom padding for mobile IME
 	imeSpacer     *imeSpacerLayout
 	imeSpacerCont *fyne.Container
-	onIMEChanged  func(open bool)
+	onIMEChanged  func(imeHeightDp float32) // 0 = IME closed
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.

@@ -14,3 +14,6 @@ func (vw *VideoWidget) androidCursorScale() int { return 1 }
 
 // initAndroidCursorScale is a no-op on non-Android platforms.
 func (vw *VideoWidget) initAndroidCursorScale(_ int) {}
+
+// onIMEHeightChanged is a no-op on non-Android platforms.
+func (vw *VideoWidget) onIMEHeightChanged(_ float32) {}

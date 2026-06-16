@@ -29,7 +29,7 @@ func (fd *FullscreenDialog) platformSetupUI() {
 	fd.virtualKeyboard.RegisterAsIMETarget()
 
 	// Когда Android IME открывается/закрывается, обновляем layout fullscreen окна.
-	fd.virtualKeyboard.SetOnIMEChanged(func(open bool) {
+	fd.virtualKeyboard.SetOnIMEChanged(func(imeHeightDp float32) {
 		fyne.Do(func() {
 			if fd.ui != nil {
 				// Вычисляем суммарный инсет: кнопки виртуальной клавиатуры + системный IME/NavBar
@@ -42,7 +42,7 @@ func (fd *FullscreenDialog) platformSetupUI() {
 					inset = graphics.GetLastIMEH()
 				}
 				
-				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f (open=%v)", inset, open)
+				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f (imeH=%.1f)", inset, imeHeightDp)
 				if fd.videoWidget != nil {
 					fd.videoWidget.SetBottomInset(inset)
 				}

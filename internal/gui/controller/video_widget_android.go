@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"image"
 	"math"
+	"sync/atomic"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -92,6 +93,31 @@ func (vw *VideoWidget) stopMetalVideo() {
 	view.OnOverlayShow = nil
 	view.OnOverlayHide = nil
 	service.VKVideoAndroidDestroy()
+}
+
+// imeExpandBits stores math.Float32bits(imeHeightDp) atomically.
+// Non-zero means the system IME is open and the Vulkan SurfaceView should expand
+// to cover everything above the IME (tabs, custom keyboard panel, etc.).
+var imeExpandBits atomic.Int32
+
+func setImeExpandHeightDp(h float32) {
+	imeExpandBits.Store(int32(math.Float32bits(h)))
+}
+
+func getImeExpandHeightDp() float32 {
+	return math.Float32frombits(uint32(imeExpandBits.Load()))
+}
+
+// onIMEHeightChanged is called when the Android system IME appears/disappears.
+// NavBar is ~20-50dp; real system keyboard is >150dp. Only expand for the real keyboard.
+func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
+	const minRealIMEDp = 100
+	if imeHeightDp > minRealIMEDp {
+		setImeExpandHeightDp(imeHeightDp)
+	} else {
+		setImeExpandHeightDp(0)
+	}
+	vw.forceCanvasRefresh.Store(true)
 }
 
 // vkLastRenderedW/H track the last pixel size sent to the Vulkan overlay.
@@ -247,6 +273,26 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// In fullscreen mode the Vulkan SurfaceView covers the whole screen.
 	if vw.fullscreenDialog != nil && vw.fullscreenDialog.IsFullscreen() {
 		return 0, 0, cs.Width, cs.Height
+	}
+
+	// When the Android system IME (letter keyboard) is open, expand the video upward
+	// to fill the tab-bar area. The custom keyboard panel stays visible at the bottom.
+	// y=0 covers the tabs; h stops where the keyboard panel begins.
+	if getImeExpandHeightDp() > 0 {
+		if vw.container == nil {
+			return
+		}
+		sz := vw.container.Size()
+		videoH := cs.Height
+		if vw.contentContainer != nil && vw.contentContainer.Visible() {
+			if kh := vw.contentContainer.Size().Height; kh > 0 {
+				videoH -= kh
+			}
+		}
+		if videoH <= 0 {
+			return
+		}
+		return 0, 0, sz.Width, videoH
 	}
 
 	if vw.container == nil {

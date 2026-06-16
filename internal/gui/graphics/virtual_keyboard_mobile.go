@@ -384,7 +384,7 @@ func (vk *VirtualKeyboard) BlurInput() {
 }
 
 // SetOnIMEChanged sets the callback
-func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(open bool)) {
+func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(imeHeightDp float32)) {
 	vk.onIMEChanged = fn
 }
 
@@ -403,7 +403,7 @@ func (vk *VirtualKeyboard) setIMEOffset(imeH float32) {
 		vk.keyboard.Refresh()
 	}
 	if vk.onIMEChanged != nil {
-		vk.onIMEChanged(imeH > 0)
+		vk.onIMEChanged(imeH)
 	}
 }
 
