@@ -180,23 +180,17 @@ static atomic_int g_cursor_visible;      // 0 = hidden
 static atomic_int g_cursor_uc_fp;       // cursor U in frame UV, 0..65536
 static atomic_int g_cursor_vc_fp;       // cursor V in frame UV, 0..65536
 
-// Arrow cursor bitmap (18×24).  Same shape as the Go newOverlayCursorImage().
-static const char *CURSOR_ROWS[24] = {
-    "110000000000000000", "111000000000000000",
-    "111100000000000000", "111110000000000000",
-    "111111000000000000", "111111100000000000",
-    "111111110000000000", "111111111000000000",
-    "111111111100000000", "111111111110000000",
-    "111111111111000000", "111111111111100000",
-    "111111111111110000", "111111111111111000",
-    "111111111100000000", "111111011000000000",
-    "111100011000000000", "111000001100000000",
-    "110000001100000000", "100000000110000000",
-    "000000000110000000", "000000000011000000",
-    "000000000011000000", "000000000001000000",
+// Arrow cursor bitmap (9×12). Tip at top-left (0,0).
+static const char *CURSOR_ROWS[12] = {
+    "100000000", "110000000",
+    "111000000", "111100000",
+    "111110000", "111111000",
+    "111111100", "111101100",
+    "110001100", "100001100",
+    "000001100", "000000100",
 };
-#define CURSOR_BASE_W 18
-#define CURSOR_BASE_H 24
+#define CURSOR_BASE_W 9
+#define CURSOR_BASE_H 12
 
 static int cursor_is_opaque(int x, int y) {
     if (x < 0 || x >= CURSOR_BASE_W || y < 0 || y >= CURSOR_BASE_H) return 0;
@@ -969,7 +963,7 @@ int android_vk_create(int x, int y, int w, int h) {
     if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
     if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
     if (!vk_create_device())    { VLOGE("vkCreateDevice failed");    goto fail; }
-    cursor_init(2); // pre-render cursor at 2× scale; SetCursorScale() may override later
+    cursor_init(2); // pre-render at 2× (18×24 px); SetCursorScale() may override later
 
     {
         VkAndroidSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };

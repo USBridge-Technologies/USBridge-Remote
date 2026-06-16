@@ -860,9 +860,22 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	}
 	vw.isDragging = true
 
-	// Send absolute position to host.
-	absX := int(math.Round(float64(vw.virtualCursorU * 32767)))
-	absY := int(math.Round(float64(vw.virtualCursorV * 32767)))
+	// Send absolute position to host, excluding letterbox/pillarbox black bars
+	// (same correction as PositionToAbsolute).
+	fX, fY, fW, fH := vw.getFrameContentRect()
+	var hostU, hostV float32
+	if fW > 0 {
+		hostU = clampFloat((vw.virtualCursorU-fX)/fW, 0, 1)
+	} else {
+		hostU = vw.virtualCursorU
+	}
+	if fH > 0 {
+		hostV = clampFloat((vw.virtualCursorV-fY)/fH, 0, 1)
+	} else {
+		hostV = vw.virtualCursorV
+	}
+	absX := int(math.Round(float64(hostU * 32767)))
+	absY := int(math.Round(float64(hostV * 32767)))
 	mi := vw.moonlightInput()
 	if mi != nil && mi.IsInputActive() {
 		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
