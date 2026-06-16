@@ -871,7 +871,11 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	// Pan the viewport so the cursor stays centred (only effective at zoom > 1).
 	vw.centerViewportOnVirtualCursor()
 	vw.updateNativeViewportAndCursor()
-	vw.refreshViewportViews()
+	// Skip Fyne canvas refresh when Vulkan renders directly — the viewport
+	// update was already forwarded via atomics in updateNativeViewportAndCursor.
+	if !vw.isNativeVideoActive() {
+		vw.refreshViewportViews()
+	}
 }
 
 // TouchCancel обрабатывает отмену касания (mobile)

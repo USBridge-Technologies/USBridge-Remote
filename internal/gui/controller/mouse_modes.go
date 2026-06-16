@@ -65,7 +65,14 @@ func isVirtualCursorMode(mode string) bool {
 }
 
 func mouseTransportType(mode string) string {
-	return normalizeMouseMode(mode)
+	normalized := normalizeMouseMode(mode)
+	// Virtual cursor is a client-only concept: the USB gadget and server bridge
+	// must be configured in absolute mode so LiSendMousePositionEvent is routed
+	// through bridgeAbsMouse → HID tablet on the host.
+	if normalized == mouseModeVirtualCursor {
+		return mouseModeAbsolute
+	}
+	return normalized
 }
 
 func isMouseDeviceType(deviceType string) bool {

@@ -196,8 +196,8 @@ func (vw *VideoWidget) androidCursorScale() int {
 	if s < 1 {
 		s = 1
 	}
-	if s > 4 {
-		s = 4
+	if s > 2 {
+		s = 2
 	}
 	return s
 }

@@ -1466,18 +1466,27 @@ func (mw *MainWindow) showMouseModeMenu() {
 				mw.diskWidget.SetMouseMode(controller.MouseModeAbsolute)
 			},
 		},
-		{
-			Label:    i18n.Current.ShowMouseCursor,
-			Selected: showMouse,
-			OnTap: func() {
-				next := !mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false)
-				mw.app.Preferences().SetBool("show_mouse_cursor", next)
-				if mw.videoWidget != nil {
-					mw.videoWidget.SetShowMouseCursor(next)
-				}
-			},
-		},
 	}
+	if fyne.CurrentDevice().IsMobile() {
+		items = append(items, view.StyledMenuItem{
+			Label:    i18n.Current.DeviceVirtualCursor,
+			Selected: currentMode == controller.MouseModeVirtualCursor,
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode(controller.MouseModeVirtualCursor)
+			},
+		})
+	}
+	items = append(items, view.StyledMenuItem{
+		Label:    i18n.Current.ShowMouseCursor,
+		Selected: showMouse,
+		OnTap: func() {
+			next := !mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false)
+			mw.app.Preferences().SetBool("show_mouse_cursor", next)
+			if mw.videoWidget != nil {
+				mw.videoWidget.SetShowMouseCursor(next)
+			}
+		},
+	})
 
 	view.ShowStyledMenu(mw.mouseIcon, items)
 }
