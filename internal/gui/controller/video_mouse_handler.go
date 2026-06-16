@@ -1006,8 +1006,17 @@ func (t *TouchpadWrapper) DragEnd() {
 		if t.endScrollbarDrag() {
 			return
 		}
-		logrus.Infof("🖱️ [DRAGGED] Android: DragEnd called, isDragging=%v", t.videoWidget.isDragging)
-		// На Android завершаем свайп
+		logrus.Infof("🖱️ [DRAGGED] Android: DragEnd called, isDragging=%v lmbHeld=%v", t.videoWidget.isDragging, t.videoWidget.lmbHeld)
+		// On Android, DragEnd fires when the finger is lifted after a drag — Fyne may
+		// not fire TouchUp in this case.  Release held LMB here so it doesn't stay stuck.
+		if t.videoWidget.lmbHeld {
+			t.videoWidget.lmbHeld = false
+			t.videoWidget.enqueueMouseButtonUp(1)
+			t.videoWidget.lastVirtualTapAt = time.Time{}
+			t.videoWidget.isDragging = false
+			t.videoWidget.resetRelativeMoveAccumulator()
+			return
+		}
 		if t.videoWidget.isDragging {
 			logrus.Info("🖱️ [DRAGGED] Android: Swipe completed")
 			t.videoWidget.isDragging = false

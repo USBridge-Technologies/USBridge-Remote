@@ -88,12 +88,22 @@ func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, pan
 			return
 		}
 
+		// Android MotionEvent coordinates are in physical pixels; Fyne works in dp.
+		// Divide by canvas scale to convert px → dp before any dp-space arithmetic.
+		scale := float32(1)
+		if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+			scale = vw.parentWindow.Canvas().Scale()
+		}
+		if scale <= 0 {
+			scale = 1
+		}
+
 		absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(wrapper)
-		localFocusX := float32(focusX) - absPos.X
-		localFocusY := float32(focusY) - absPos.Y
+		localFocusX := float32(focusX)/scale - absPos.X
+		localFocusY := float32(focusY)/scale - absPos.Y
 
 		vw.UpdateTouchpadAndContentRect(wrapperSize.Width, wrapperSize.Height, vw.GetCurrentFrame())
-		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx), float32(panDy))
+		vw.applyViewportGesture(float32(scaleFactor), localFocusX, localFocusY, float32(panDx)/scale, float32(panDy)/scale)
 		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	})

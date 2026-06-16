@@ -57,7 +57,7 @@ class MainActivity : GoNativeActivity() {
     // 320 dp ≈ 5 cm on a 480 dpi phone is the boundary between "fingers close" and "fingers far".
     private val gestureTracker: TwoFingerGestureTracker by lazy {
         TwoFingerGestureTracker(
-            panZoomThresholdPx = resources.displayMetrics.density * 320f,
+            panZoomThresholdPx = 100f,
             onActiveChanged = { active ->
                 GestureBridge.onViewportGestureStateChanged(active)
             },
