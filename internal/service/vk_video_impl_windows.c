@@ -88,8 +88,6 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
     // Don't let the overlay steal keyboard focus on click.
     if (msg == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
-    // Hide cursor: the Go layer renders a software cursor overlay.
-    if (msg == WM_SETCURSOR) { SetCursor(NULL); return TRUE; }
     // Mouse movement — queue for Go polling goroutine.
     if (msg == WM_MOUSEMOVE) {
         vk_eq_push(1, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 0);
@@ -928,6 +926,7 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
         wc.hInstance     = GetModuleHandleW(NULL);
         wc.lpszClassName = L"usbridgeVKVideo";
         wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW); // show arrow cursor over video area
         g_wndcls = RegisterClassExW(&wc);
         if (!g_wndcls) { goVKLog("vk_video_create: RegisterClass failed", 2); return 0; }
     }

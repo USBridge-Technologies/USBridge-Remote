@@ -4,14 +4,132 @@ package controller
 
 import (
 	"image"
+	"sync/atomic"
+	"time"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
+	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/sirupsen/logrus"
 )
+
+// ── Metal mouse event forwarding ──────────────────────────────────────────────
+//
+// USBridgeMetalView (ObjC) captures all pointer events from AppKit and queues
+// them. This goroutine polls metal_video_next_event at ~250 Hz and dispatches
+// to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
+
+var metalMouseQuit         chan struct{}
+var metalFullscreenWindow  fyne.Window
+var metalMouseCheckPending int32 // atomic
+
+func (vw *VideoWidget) startMetalMouseForwarding() {
+	vw.stopMetalMouseForwarding()
+	quit := make(chan struct{})
+	metalMouseQuit = quit
+	logrus.Info("[Metal/Mac] mouse forwarding started")
+	go func() {
+		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz
+		defer ticker.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-ticker.C:
+				for {
+					typ, btn, x, y, ok := service.MetalVideoNextEvent()
+					if !ok {
+						break
+					}
+					evTyp, evBtn, evX, evY := typ, btn, x, y
+					fyne.Do(func() {
+						if !service.MetalVideoIsActive() {
+							return
+						}
+						vw.dispatchMetalMouseEvent(evTyp, evX, evY, evBtn)
+					})
+				}
+			}
+		}
+	}()
+}
+
+func (vw *VideoWidget) stopMetalMouseForwarding() {
+	if metalMouseQuit != nil {
+		close(metalMouseQuit)
+		metalMouseQuit = nil
+		logrus.Info("[Metal/Mac] mouse forwarding stopped")
+	}
+}
+
+func (vw *VideoWidget) dispatchMetalMouseEvent(typ int, x, y float32, button int) {
+	var tw *TouchpadWrapper
+	if metalFullscreenWindow != nil && vw.fullscreenDialog != nil {
+		tw = vw.fullscreenDialog.touchpadWrapper
+	} else {
+		tw = vw.touchpadWrapper
+	}
+	if tw == nil {
+		return
+	}
+	if !vw.isMouseConnected {
+		if atomic.CompareAndSwapInt32(&metalMouseCheckPending, 0, 1) {
+			go func() {
+				vw.checkMouseConnected()
+				atomic.StoreInt32(&metalMouseCheckPending, 0)
+			}()
+		}
+		return
+	}
+	pos := fyne.NewPos(x, y)
+	switch typ {
+	case 1: // move
+		tw.MouseMoved(&desktop.MouseEvent{
+			PointEvent: fyne.PointEvent{Position: pos},
+		})
+	case 2: // press
+		switch button {
+		case 4: // wheel up
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: 10},
+			})
+		case 5: // wheel down
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: -10},
+			})
+		default:
+			tw.MouseDown(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     metalButtonToFyne(button),
+			})
+		}
+	case 3: // release
+		if button != 4 && button != 5 {
+			tw.MouseUp(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     metalButtonToFyne(button),
+			})
+		}
+	}
+}
+
+func metalButtonToFyne(b int) desktop.MouseButton {
+	switch b {
+	case 1:
+		return desktop.MouseButtonPrimary
+	case 2:
+		return desktop.MouseButtonTertiary
+	case 3:
+		return desktop.MouseButtonSecondary
+	default:
+		return desktop.MouseButtonPrimary
+	}
+}
 
 // startMetalVideoOnWindow creates (or replaces) the Metal overlay on window.
 // Set fullscreen=true to cover the entire contentView; otherwise the overlay
@@ -81,6 +199,10 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 				vw.onNativeReady = nil
 				cb()
 			}
+			// Forward mouse events from the Metal NSView to TouchpadWrapper.
+			// USBridgeMetalView captures all AppKit pointer events so they don't
+			// reach Fyne's GLFW view — we re-dispatch them manually via fyne.Do.
+			vw.startMetalMouseForwarding()
 		}
 	})
 }
@@ -88,6 +210,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 // stopMetalVideo destroys the Metal overlay and re-enables the Fyne canvas path.
 func (vw *VideoWidget) stopMetalVideo() {
 	vw.onNativeReady = nil // discard any pending fullscreen-ready callback
+	vw.stopMetalMouseForwarding()
 	service.MetalVideoDestroy()
 	vw.metalFPSWarned.Store(false)
 }
@@ -156,6 +279,8 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
+	metalFullscreenWindow = fsWindow
+	vw.stopMetalMouseForwarding()
 	service.MetalVideoDestroy() // release main-window overlay
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
@@ -164,6 +289,8 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 // main-window overlay at the video widget's current bounds.
 // Called by FullscreenDialog.exitFullscreen before the fullscreen window closes.
 func (vw *VideoWidget) metalVideoExitFullscreen() {
+	metalFullscreenWindow = nil
+	vw.stopMetalMouseForwarding()
 	service.MetalVideoDestroy() // release fullscreen overlay
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }

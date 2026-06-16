@@ -18,6 +18,7 @@ extern void metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void metal_video_set_hidden(int hidden);
 extern int  metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out);
+extern int  metal_video_next_event(int *type_out, float *x_out, float *y_out, int *btn_out);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
@@ -102,4 +103,16 @@ func MetalVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.metal_video_set_hidden(h)
+}
+
+// MetalVideoNextEvent drains one pending pointer event from the Metal overlay view.
+// Returns (type, button, x, y, ok). Types: 1=motion 2=button-press 3=button-release.
+// Buttons: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down.
+// Coordinates are in NSView points with top-left origin (matches Fyne dp directly).
+// Safe to call from any goroutine.
+func MetalVideoNextEvent() (typ, button int, x, y float32, ok bool) {
+	var t, btn C.int
+	var ex, ey C.float
+	r := C.metal_video_next_event(&t, &ex, &ey, &btn)
+	return int(t), int(btn), float32(ex), float32(ey), r != 0
 }
