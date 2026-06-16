@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -14,6 +15,11 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
+
+// touchMouseCheckPending prevents concurrent checkMouseConnected calls from touch events.
+// On mobile there is no overlay event dispatch to trigger checkMouseConnected automatically,
+// so TouchDown/Dragged do it on first touch when isMouseConnected is false.
+var touchMouseCheckPending int32
 
 // Проверяем что TouchpadWrapper реализует все необходимые интерфейсы
 var (
@@ -661,6 +667,14 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 // TouchDown обрабатывает начало касания (mobile)
 func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
+		// On mobile there is no overlay event dispatch to trigger checkMouseConnected.
+		// Retry it here on the first touch so the move worker starts promptly.
+		if atomic.CompareAndSwapInt32(&touchMouseCheckPending, 0, 1) {
+			go func() {
+				t.videoWidget.checkMouseConnected()
+				atomic.StoreInt32(&touchMouseCheckPending, 0)
+			}()
+		}
 		return
 	}
 	if t.videoWidget.shouldIgnoreTouchInput() {
@@ -809,6 +823,12 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 // На desktop — обновление позиции для polling. На Android — основной способ движения пальца.
 func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 	if !t.videoWidget.isMouseConnected {
+		if atomic.CompareAndSwapInt32(&touchMouseCheckPending, 0, 1) {
+			go func() {
+				t.videoWidget.checkMouseConnected()
+				atomic.StoreInt32(&touchMouseCheckPending, 0)
+			}()
+		}
 		return
 	}
 	if t.videoWidget.shouldIgnoreTouchInput() {

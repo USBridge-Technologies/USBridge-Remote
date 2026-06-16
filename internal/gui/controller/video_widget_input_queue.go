@@ -13,6 +13,9 @@ func (vw *VideoWidget) enqueueMouseMove(dx, dy int) {
 	if dx == 0 && dy == 0 {
 		return
 	}
+	// Lazy-start the flush worker on first use — guards against timing windows
+	// where startDesktopMousePolling hasn't been called yet (e.g. Android).
+	vw.startMouseMoveWorker()
 	vw.moveQueueMu.Lock()
 	vw.pendingMoveX += dx
 	vw.pendingMoveY += dy
