@@ -339,6 +339,7 @@ func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 func (vw *VideoWidget) startDesktopMousePolling() {
 	vw.stopDesktopMousePolling()
 	vw.mousePollingQuit = make(chan bool)
+	vw.startMouseMoveWorker() // ensure relative-move flush goroutine is running
 	logrus.Info("🖱️ Starting desktop mouse polling (60 FPS)")
 	go vw.processDesktopMousePolling()
 }
@@ -385,8 +386,16 @@ func (vw *VideoWidget) processMouseMovement() {
 	vw.lastMouseX = vw.currentMouseX
 	vw.lastMouseY = vw.currentMouseY
 	if !vw.isDragging {
-		vw.isDragging = true
-		logrus.Debugf("🖱️ ✨ Drag/swipe STARTED (desktop touchpad mode, polling)")
+		// Only promote to drag once cursor has moved > 5dp from the press point.
+		// Without this deadzone, 1-2px mouse jitter during a click sets isDragging,
+		// which suppresses MouseUp click detection — especially severe with Raw Input
+		// (Windows) or NSTrackingArea (Mac) that deliver every hardware sample.
+		ddx := vw.currentMouseX - vw.touchStartX
+		ddy := vw.currentMouseY - vw.touchStartY
+		if ddx*ddx+ddy*ddy >= 25 { // 5dp radius
+			vw.isDragging = true
+			logrus.Debugf("🖱️ ✨ Drag/swipe STARTED (desktop touchpad mode, polling)")
+		}
 	}
 	const desktopSensitivity = 1.0
 	dx, dy := vw.accumulateRelativeMove(rawDx, rawDy, desktopSensitivity)
