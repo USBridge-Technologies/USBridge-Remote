@@ -54,10 +54,10 @@ class MainActivity : GoNativeActivity() {
     private var vpnPermissionState: Int = 0
 
     // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL_ZOOM) is locked at gesture start.
-    // 320 dp ≈ 5 cm on a 480 dpi phone is the boundary between "fingers close" and "fingers far".
+    // 150 dp converted to physical pixels: fingers closer than this → scroll, farther → pan+zoom.
     private val gestureTracker: TwoFingerGestureTracker by lazy {
         TwoFingerGestureTracker(
-            panZoomThresholdPx = 100f,
+            panZoomThresholdPx = 150f * resources.displayMetrics.density,
             onActiveChanged = { active ->
                 GestureBridge.onViewportGestureStateChanged(active)
             },

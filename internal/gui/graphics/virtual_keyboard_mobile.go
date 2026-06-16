@@ -346,7 +346,17 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		suppress = false
 	})
 	clearBtn.Importance = widget.MediumImportance
-	inputRow := container.NewBorder(nil, nil, nil, clearBtn, textHint)
+
+	pasteBtn := widget.NewButtonWithIcon("", theme.MediaReplayIcon(), func() {
+		runes := []rune(textHint.Text)
+		if len(runes) == 0 {
+			return
+		}
+		netChan <- netTask{runes: runes}
+	})
+	pasteBtn.Importance = widget.MediumImportance
+
+	inputRow := container.NewBorder(nil, nil, nil, container.NewHBox(pasteBtn, clearBtn), textHint)
 	main := container.NewVBox(keysWithEnterAndDpad, inputRow)
 
 	background := canvas.NewRectangle(design.ColorGray950)
