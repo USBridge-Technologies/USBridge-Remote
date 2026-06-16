@@ -21,6 +21,7 @@ extern void android_vk_force_recreate_swapchain(void);
 extern void android_vk_set_viewport(float u0, float v0, float u1, float v1);
 extern void android_vk_set_cursor(float uc, float vc, int visible);
 extern void android_vk_set_cursor_scale(int scale);
+extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
 */
 import "C"
 
@@ -110,4 +111,16 @@ func VKVideoAndroidSetCursor(uc, vc float32, visible bool) {
 // integer pixel scale (1=18×24, 2=36×48, 3=54×72, 4=72×96 physical pixels).
 func VKVideoAndroidSetCursorScale(scale int) {
 	C.android_vk_set_cursor_scale(C.int(scale))
+}
+
+// VKVideoAndroidSetCursorPixels uploads a pre-rendered RGBA cursor image.
+// pixels must be packed RGBA, 4 bytes per pixel, row-major, w×h.
+func VKVideoAndroidSetCursorPixels(pixels []byte, w, h int) {
+	if len(pixels) == 0 {
+		return
+	}
+	C.android_vk_set_cursor_pixels(
+		(*C.uint8_t)(unsafe.Pointer(&pixels[0])),
+		C.int(w), C.int(h),
+	)
 }

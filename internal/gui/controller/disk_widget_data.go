@@ -221,7 +221,7 @@ func (dw *DiskWidget) combineDrives() {
 	selectedKeys := make(map[string]bool)
 	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
-	oldGamepadMode := gamepadModeDirectInput
+	oldGamepadMode := gamepadModeXInput
 	oldUSBAudioMode := "uac1"
 	for i, d := range dw.allDrives {
 		if d.IsMouse && d.MouseType != "" {

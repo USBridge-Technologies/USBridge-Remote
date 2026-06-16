@@ -181,13 +181,15 @@ static atomic_int g_cursor_uc_fp;       // cursor U in frame UV, 0..65536
 static atomic_int g_cursor_vc_fp;       // cursor V in frame UV, 0..65536
 
 // Arrow cursor bitmap (9×12). Tip at top-left (0,0).
+// Shaft (rows 7-11) is 3px wide (cols 5-7) so the middle pixel (col 6)
+// is interior (white) and the two edges are border (black).
 static const char *CURSOR_ROWS[12] = {
     "100000000", "110000000",
     "111000000", "111100000",
     "111110000", "111111000",
-    "111111100", "111101100",
-    "110001100", "100001100",
-    "000001100", "000000100",
+    "111111100", "111101110",
+    "110001110", "100001110",
+    "000001110", "000001110",
 };
 #define CURSOR_BASE_W 9
 #define CURSOR_BASE_H 12
@@ -293,14 +295,25 @@ static void cursor_init(int scale) {
                     g_cursor_spans[g_cursor_nspans].rel_y  = sy;
                     g_cursor_spans[g_cursor_nspans].width  = rw;
                     g_cursor_spans[g_cursor_nspans].buf_off = buf_off;
+                    // Determine byte order from swapchain format (RGBA vs BGRA).
+                    // Brand accent: R=0x93 G=0xc5 B=0x72.
+                    int is_bgra = (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM ||
+                                   g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB  ||
+                                   g_swap_fmt == VK_FORMAT_B8G8R8A8_SNORM);
                     for (int px = run_start; px < sx; px++) {
                         int pox = px / scale;
                         if (pox >= CURSOR_BASE_W) pox = CURSOR_BASE_W - 1;
-                        uint8_t c = cursor_is_border(pox, oy) ? 0 : 255;
-                        dst[buf_off++] = c;
-                        dst[buf_off++] = c;
-                        dst[buf_off++] = c;
-                        dst[buf_off++] = 255;
+                        if (cursor_is_border(pox, oy)) {
+                            dst[buf_off++] = 0;
+                            dst[buf_off++] = 0;
+                            dst[buf_off++] = 0;
+                            dst[buf_off++] = 255;
+                        } else {
+                            dst[buf_off++] = is_bgra ? 0x72 : 0x93; // ch0: B or R
+                            dst[buf_off++] = 0xc5;                   // ch1: G
+                            dst[buf_off++] = is_bgra ? 0x93 : 0x72; // ch2: R or B
+                            dst[buf_off++] = 0xff;
+                        }
                     }
                     g_cursor_nspans++;
                 }
@@ -963,7 +976,8 @@ int android_vk_create(int x, int y, int w, int h) {
     if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
     if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
     if (!vk_create_device())    { VLOGE("vkCreateDevice failed");    goto fail; }
-    cursor_init(2); // pre-render at 2× (18×24 px); SetCursorScale() may override later
+    // Cursor pixels are uploaded from Go via android_vk_set_cursor_pixels()
+    // after create returns, so no pre-render needed here.
 
     {
         VkAndroidSurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR };
@@ -1087,12 +1101,100 @@ void android_vk_set_cursor_scale(int scale) {
     if (scale < 1) scale = 1;
     if (scale > 4) scale = 4;
     if (!g_dev || !atomic_load(&g_active)) return;
-    // Hide cursor and wait for GPU to finish any in-flight frame that might
-    // be using the current cursor buffer before we destroy/recreate it.
     int was_visible = atomic_exchange(&g_cursor_visible, 0);
     vkDeviceWaitIdle(g_dev);
     cursor_init(scale);
     atomic_store(&g_cursor_visible, was_visible);
+}
+
+// android_vk_set_cursor_pixels uploads a pre-rendered RGBA cursor bitmap from
+// Go. Replaces the current cursor buffer. Thread-safe: waits for GPU idle.
+// src_rgba: packed RGBA bytes, 4 bytes/pixel, row-major, w×h pixels.
+void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
+    if (!g_dev || !g_pdev || !src_rgba || w <= 0 || h <= 0) return;
+
+    int was_visible = atomic_exchange(&g_cursor_visible, 0);
+    vkDeviceWaitIdle(g_dev);
+    cursor_destroy();
+
+    size_t total_pix = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+            if (src_rgba[(y * w + x) * 4 + 3] > 0) total_pix++;
+    if (!total_pix) { atomic_store(&g_cursor_visible, was_visible); return; }
+
+    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bci.size = total_pix * 4;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer buf = VK_NULL_HANDLE;
+    if (vkCreateBuffer(g_dev, &bci, NULL, &buf) != VK_SUCCESS) {
+        atomic_store(&g_cursor_visible, was_visible); return;
+    }
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(g_dev, buf, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (mi == UINT32_MAX) {
+        vkDestroyBuffer(g_dev, buf, NULL);
+        atomic_store(&g_cursor_visible, was_visible); return;
+    }
+    VkMemoryAllocateInfo mai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = mr.size; mai.memoryTypeIndex = mi;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (vkAllocateMemory(g_dev, &mai, NULL, &mem) != VK_SUCCESS) {
+        vkDestroyBuffer(g_dev, buf, NULL);
+        atomic_store(&g_cursor_visible, was_visible); return;
+    }
+    vkBindBufferMemory(g_dev, buf, mem, 0);
+    void *ptr = NULL;
+    vkMapMemory(g_dev, mem, 0, VK_WHOLE_SIZE, 0, &ptr);
+    if (!ptr) {
+        vkFreeMemory(g_dev, mem, NULL); vkDestroyBuffer(g_dev, buf, NULL);
+        atomic_store(&g_cursor_visible, was_visible); return;
+    }
+
+    uint8_t *dst = (uint8_t *)ptr;
+    uint32_t buf_off = 0;
+    int nspans = 0;
+    int is_bgra = (g_swap_fmt == VK_FORMAT_B8G8R8A8_UNORM ||
+                   g_swap_fmt == VK_FORMAT_B8G8R8A8_SRGB  ||
+                   g_swap_fmt == VK_FORMAT_B8G8R8A8_SNORM);
+
+    for (int y = 0; y < h && nspans < MAX_CURSOR_SPANS; y++) {
+        int run_start = -1;
+        for (int x = 0; x <= w; x++) {
+            int opaque = (x < w) && (src_rgba[(y * w + x) * 4 + 3] > 0);
+            if (!opaque && run_start >= 0) {
+                g_cursor_spans[nspans].rel_x   = run_start;
+                g_cursor_spans[nspans].rel_y   = y;
+                g_cursor_spans[nspans].width   = x - run_start;
+                g_cursor_spans[nspans].buf_off = buf_off;
+                for (int px = run_start; px < x; px++) {
+                    const uint8_t *p = src_rgba + (y * w + px) * 4;
+                    dst[buf_off++] = is_bgra ? p[2] : p[0]; // R or B
+                    dst[buf_off++] = p[1];                   // G
+                    dst[buf_off++] = is_bgra ? p[0] : p[2]; // B or R
+                    dst[buf_off++] = p[3];                   // A
+                }
+                nspans++;
+                run_start = -1;
+            } else if (opaque && run_start < 0) {
+                run_start = x;
+            }
+        }
+    }
+
+    g_cursor_vk_buf = buf;
+    g_cursor_vk_mem = mem;
+    g_cursor_vk_ptr = ptr;
+    g_cursor_px_w   = w;
+    g_cursor_px_h   = h;
+    g_cursor_nspans = nspans;
+    atomic_store(&g_cursor_visible, was_visible);
+    VLOGI("cursor pixels: %dx%d spans=%d buf=%u bytes", w, h, nspans, buf_off);
 }
 
 #endif // __ANDROID__

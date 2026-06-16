@@ -22,7 +22,7 @@ const (
 
 func defaultMouseMode() string {
 	if fyne.CurrentDevice().IsMobile() {
-		return mouseModeTouchPad
+		return mouseModeVirtualCursor
 	}
 	return mouseModeAbsolute
 }

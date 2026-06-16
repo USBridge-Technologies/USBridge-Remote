@@ -3,12 +3,17 @@
 package controller
 
 import (
+	"bytes"
+	"image"
 	"math"
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
+	"github.com/srwiley/oksvg"
+	"github.com/srwiley/rasterx"
 )
 
 func (vw *VideoWidget) isNativeVideoActive() bool {
@@ -178,11 +183,38 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor() {
 	vw.recalculateViewport()
 }
 
-// initAndroidCursorScale reinitialises the Vulkan cursor pixel buffer at `scale`.
+// initAndroidCursorScale rasterizes cursor-pointer.svg at the requested pixel
+// size and uploads the result to the Vulkan cursor buffer.
 func (vw *VideoWidget) initAndroidCursorScale(scale int) {
-	if service.VKVideoAndroidIsActive() {
-		service.VKVideoAndroidSetCursorScale(scale)
+	if !service.VKVideoAndroidIsActive() {
+		return
 	}
+	if scale < 1 {
+		scale = 1
+	}
+	// SVG viewBox is 18×24; scale that by the density factor.
+	w, h := 18*scale, 24*scale
+	img := rasterizeSVGToNRGBA(assets.CursorPointerSVG, w, h)
+	if img == nil {
+		logrus.Warn("[Android/VK] cursor SVG rasterization failed")
+		return
+	}
+	b := img.Bounds()
+	service.VKVideoAndroidSetCursorPixels(img.Pix, b.Dx(), b.Dy())
+}
+
+// rasterizeSVGToNRGBA renders SVG data to an NRGBA image at the given size.
+func rasterizeSVGToNRGBA(svgData []byte, w, h int) *image.NRGBA {
+	icon, err := oksvg.ReadIconStream(bytes.NewReader(svgData))
+	if err != nil {
+		return nil
+	}
+	icon.SetTarget(0, 0, float64(w), float64(h))
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	scanner := rasterx.NewScannerGV(w, h, img, img.Bounds())
+	raster := rasterx.NewDasher(w, h, scanner)
+	icon.Draw(raster, 1.0)
+	return img
 }
 
 // androidCursorScale returns the integer cursor scale factor for the current
