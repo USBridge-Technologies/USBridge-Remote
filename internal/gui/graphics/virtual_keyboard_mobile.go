@@ -258,9 +258,12 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		}
 		return row
 	}
-	fPanel := container.NewVBox(
-		makeRow(f1_12_Labels, f1_12_Codes),
-		makeRow(f13_24_Labels, f13_24_Codes),
+	fPanel := container.NewThemeOverride(
+		container.NewVBox(
+			makeRow(f1_12_Labels, f1_12_Codes),
+			makeRow(f13_24_Labels, f13_24_Codes),
+		),
+		design.NewBrandTheme(),
 	)
 
 	fBtn := widget.NewButton("Fx", func() { showFKeys() })
