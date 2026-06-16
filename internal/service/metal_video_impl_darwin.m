@@ -162,6 +162,19 @@ int metal_video_try_submit(CVImageBufferRef img) {
     return 1;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// USBridgeMetalView: an NSView subclass that is invisible to AppKit hit-testing.
+// By returning nil from hitTest:, all mouse events (mouseMoved:, mouseDown:, …)
+// fall through to the underlying Fyne/GLFW contentView, so the TouchpadWrapper
+// continues to receive events normally while Metal renders on top of it.
+// ─────────────────────────────────────────────────────────────────────────────
+@interface USBridgeMetalView : NSView
+@end
+@implementation USBridgeMetalView
+- (NSView *)hitTest:(NSPoint __unused)point { return nil; }
+- (BOOL)acceptsFirstMouse:(NSEvent __unused *)event { return NO; }
+@end
+
 static NSRect fyne_to_nsrect(CGFloat cvH, float x, float y, float w, float h) {
     return NSMakeRect((CGFloat)x, cvH - (CGFloat)y - (CGFloat)h,
                       (CGFloat)w, (CGFloat)h);
@@ -186,7 +199,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         NSRect frame = g_fullWindow ? cv.bounds
                                     : fyne_to_nsrect(cvH, x, y, w, h);
 
-        NSView *ov = [[NSView alloc] initWithFrame:frame];
+        USBridgeMetalView *ov = [[USBridgeMetalView alloc] initWithFrame:frame];
         ov.wantsLayer = YES;
         ov.layer.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
 

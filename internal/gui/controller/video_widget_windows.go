@@ -5,6 +5,7 @@ package controller
 import (
 	"image"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/gui/view"
@@ -12,8 +13,136 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
+	"fyne.io/fyne/v2/driver/desktop"
 	"github.com/sirupsen/logrus"
 )
+
+// ── Vulkan mouse event forwarding ────────────────────────────────────────────
+//
+// The Vulkan overlay window (WS_POPUP, no WS_EX_TRANSPARENT) captures all
+// pointer events so they never reach Fyne's GLFW window while the overlay is
+// visible. We compensate by polling vk_video_next_event and dispatching
+// directly to TouchpadWrapper on the Fyne main goroutine — same pattern as
+// the Linux X11 implementation (video_widget_gl_linux.go).
+
+var vkWinMouseQuit     chan struct{}
+var vkWinFullscreenWin fyne.Window
+var vkWinMouseCheckPending int32 // atomic
+
+func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
+	vw.stopVKMouseForwarding()
+	quit := make(chan struct{})
+	vkWinMouseQuit = quit
+	logrus.Info("[VK/Win] mouse forwarding started")
+	go func() {
+		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz poll
+		defer ticker.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-ticker.C:
+				for {
+					typ, ex, ey, btn, ok := service.VKVideoNextEvent()
+					if !ok {
+						break
+					}
+					evTyp, evX, evY, evBtn := typ, ex, ey, btn
+					fyne.Do(func() {
+						if !service.VKVideoIsActive() {
+							return
+						}
+						s := scale
+						if fsWin := vkWinFullscreenWin; fsWin != nil {
+							if fsWin.Canvas() != nil {
+								s = fsWin.Canvas().Scale()
+							}
+						} else if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+							s = vw.parentWindow.Canvas().Scale()
+						}
+						x := float32(evX) / s
+						y := float32(evY) / s
+						vw.dispatchVKWinMouseEvent(evTyp, x, y, evBtn)
+					})
+				}
+			}
+		}
+	}()
+}
+
+func (vw *VideoWidget) stopVKMouseForwarding() {
+	if vkWinMouseQuit != nil {
+		close(vkWinMouseQuit)
+		vkWinMouseQuit = nil
+		logrus.Info("[VK/Win] mouse forwarding stopped")
+	}
+}
+
+func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int) {
+	var tw *TouchpadWrapper
+	if vkWinFullscreenWin != nil && vw.fullscreenDialog != nil {
+		tw = vw.fullscreenDialog.touchpadWrapper
+	} else {
+		tw = vw.touchpadWrapper
+	}
+	if tw == nil {
+		return
+	}
+	if !vw.isMouseConnected {
+		if atomic.CompareAndSwapInt32(&vkWinMouseCheckPending, 0, 1) {
+			go func() {
+				vw.checkMouseConnected()
+				atomic.StoreInt32(&vkWinMouseCheckPending, 0)
+			}()
+		}
+		return
+	}
+	pos := fyne.NewPos(x, y)
+	switch typ {
+	case 1: // move
+		tw.MouseMoved(&desktop.MouseEvent{
+			PointEvent: fyne.PointEvent{Position: pos},
+		})
+	case 2: // button/scroll press
+		switch button {
+		case 4: // wheel up
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: 10},
+			})
+		case 5: // wheel down
+			tw.Scrolled(&fyne.ScrollEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Scrolled:   fyne.Delta{DX: 0, DY: -10},
+			})
+		default:
+			tw.MouseDown(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     vkWinButtonToFyne(button),
+			})
+		}
+	case 3: // button release — ignore scroll pseudo-buttons
+		if button != 4 && button != 5 {
+			tw.MouseUp(&desktop.MouseEvent{
+				PointEvent: fyne.PointEvent{Position: pos},
+				Button:     vkWinButtonToFyne(button),
+			})
+		}
+	}
+}
+
+func vkWinButtonToFyne(b int) desktop.MouseButton {
+	switch b {
+	case 1:
+		return desktop.MouseButtonPrimary
+	case 2:
+		return desktop.MouseButtonTertiary
+	case 3:
+		return desktop.MouseButtonSecondary
+	default:
+		return desktop.MouseButtonPrimary
+	}
+}
 
 // vkStageName translates the render-thread stage code into a human-readable label.
 func vkStageName(s int) string {
@@ -183,6 +312,15 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			if vw.parentWindow != nil {
 				startFyneWatchdog(fyne.CurrentApp())
 			}
+			// Forward mouse events from the Vulkan overlay window to TouchpadWrapper.
+			// The overlay (without WS_EX_TRANSPARENT) captures all pointer events so
+			// they never reach Fyne's GLFW window — we re-dispatch them manually via
+			// fyne.Do, mirroring the Linux X11 implementation.
+			scale := float32(1)
+			if window.Canvas() != nil {
+				scale = window.Canvas().Scale()
+			}
+			vw.startVKMouseForwarding(scale)
 		} else {
 			logrus.Warn("[Vulkan/Win] Vulkan init failed — trying GDI fallback")
 			service.GLVideoResetLastFrame()
@@ -212,6 +350,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.onNativeReady = nil
 	view.OnOverlayShow = nil
 	view.OnOverlayHide = nil
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 }
@@ -302,12 +441,16 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
+	vkWinFullscreenWin = fsWindow
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
+	vkWinFullscreenWin = nil
+	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)

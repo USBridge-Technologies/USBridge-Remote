@@ -36,6 +36,36 @@ extern void goVKLog(char *msg, int level);
 // Video rect atomics — declared early so vk_wnd_proc can read them.
 static atomic_int g_dst_x, g_dst_y, g_dst_w, g_dst_h;
 
+// ─── mouse event queue (ring buffer, capacity 512) ───────────────────────────
+// The overlay window captures all pointer events and queues them here.
+// Go polls via vk_video_next_event() and dispatches to TouchpadWrapper on the
+// Fyne main goroutine — mirroring the Linux XSelectInput + vk_video_next_event
+// mechanism. Thread-safe: wnd_proc (hwnd thread) writes; CGO goroutine reads.
+
+#define VK_EQ_CAP 512
+typedef struct { int type; int x, y, btn; } VkMouseEvt;
+// type: 1=move  2=button-press  3=button-release
+// btn for press/release: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down
+
+static VkMouseEvt    g_eq[VK_EQ_CAP];
+static volatile int  g_eq_head = 0, g_eq_tail = 0; // [tail, head)
+static CRITICAL_SECTION g_eq_cs;
+static int           g_eq_cs_init = 0;
+
+static void vk_eq_push(int type, int x, int y, int btn) {
+    if (!g_eq_cs_init) return;
+    EnterCriticalSection(&g_eq_cs);
+    int next = (g_eq_head + 1) % VK_EQ_CAP;
+    if (next != g_eq_tail) { // drop when full
+        g_eq[g_eq_head].type = type;
+        g_eq[g_eq_head].x    = x;
+        g_eq[g_eq_head].y    = y;
+        g_eq[g_eq_head].btn  = btn;
+        g_eq_head = next;
+    }
+    LeaveCriticalSection(&g_eq_cs);
+}
+
 // ─── overlay window class ─────────────────────────────────────────────────────
 
 static ATOM   g_wndcls      = 0;
@@ -56,9 +86,29 @@ static VkWndArgs g_hwnd_args;
 
 static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
-    // Pass all mouse hit-tests through to the Fyne window below so Moonlight
-    // input and Fyne UI remain usable while the overlay is on screen.
-    if (msg == WM_NCHITTEST) return HTTRANSPARENT;
+    // Don't let the overlay steal keyboard focus on click.
+    if (msg == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    // Hide cursor: the Go layer renders a software cursor overlay.
+    if (msg == WM_SETCURSOR) { SetCursor(NULL); return TRUE; }
+    // Mouse movement — queue for Go polling goroutine.
+    if (msg == WM_MOUSEMOVE) {
+        vk_eq_push(1, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 0);
+        return 0;
+    }
+    if (msg == WM_LBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
+    if (msg == WM_LBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 1); return 0; }
+    if (msg == WM_RBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
+    if (msg == WM_RBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 3); return 0; }
+    if (msg == WM_MBUTTONDOWN) { vk_eq_push(2, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
+    if (msg == WM_MBUTTONUP)   { vk_eq_push(3, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), 2); return 0; }
+    if (msg == WM_MOUSEWHEEL) {
+        // Encode scroll as button 4 (up) / 5 (down) — same convention as Linux X11.
+        int btn = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? 4 : 5;
+        POINT pt = { (int)(short)LOWORD(lp), (int)(short)HIWORD(lp) };
+        if (hw) ScreenToClient(hw, &pt);
+        vk_eq_push(2, pt.x, pt.y, btn);
+        return 0;
+    }
     // WM_USER+1/+2: hide/show requests posted by the render thread.
     if (msg == WM_USER+1) { ShowWindow(hw, SW_HIDE);           return 0; }
     if (msg == WM_USER+2) { ShowWindow(hw, SW_SHOWNOACTIVATE); return 0; }
@@ -75,11 +125,13 @@ static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
     int ch = g_hwnd_args.h > 0 ? g_hwnd_args.h : 1;
 
     // Create overlay on THIS thread — own message queue, independent DWM context.
-    // WS_EX_TOPMOST:    keeps overlay above the Fyne window without owner/owned z-order.
-    // WS_EX_TRANSPARENT: passes mouse hit-tests through to Fyne/Moonlight input below.
+    // WS_EX_TOPMOST keeps the overlay above Fyne without sharing its present queue.
+    // WS_EX_NOACTIVATE prevents stealing keyboard focus on click.
+    // Mouse events are captured by vk_wnd_proc (no WS_EX_TRANSPARENT) and queued
+    // for the Go polling goroutine — same pattern as the Linux X11 implementation.
     // No owner (NULL hwndParent) decouples from Fyne's present queue entirely.
     g_child_hwnd = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
+        WS_EX_NOACTIVATE | WS_EX_TOPMOST,
         L"usbridgeVKVideo", L"",
         WS_POPUP | WS_VISIBLE,
         pt.x, pt.y, cw, ch,
@@ -854,6 +906,7 @@ static void vk_full_cleanup(void) {
     if (g_hwnd_ready)  { CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL; }
     g_parent_hwnd = NULL;
     if (g_cs_init)    { DeleteCriticalSection(&g_cs); g_cs_init = 0; }
+    if (g_eq_cs_init) { DeleteCriticalSection(&g_eq_cs); g_eq_cs_init = 0; g_eq_head = 0; g_eq_tail = 0; }
     if (g_buf)        { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_has_frame = 0; g_ready = 0;
     g_rendered = 0; g_submitted = 0;
@@ -950,6 +1003,8 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
     atomic_store(&g_dst_h, h);
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
+    InitializeCriticalSection(&g_eq_cs); g_eq_cs_init = 1;
+    g_eq_head = 0; g_eq_tail = 0; // reset event queue
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) goto fail;
 
@@ -1018,6 +1073,28 @@ void vk_video_get_diag(long long *hb, int *stage) {
 // overlay doesn't paint over Fyne's own UI — mirrors macOS MetalVideoSetHidden.
 void vk_video_set_hidden(int hidden) {
     atomic_store(&g_hidden, hidden ? 1 : 0);
+}
+
+// vk_video_next_event — drain one pending pointer event from the overlay window.
+// Returns 1 if an event was consumed; type values:
+//   1 = mouse move  2 = button/scroll press  3 = button release
+// Buttons: 1=left 2=middle 3=right 4=wheel-up 5=wheel-down.
+// Thread-safe; called from the Go polling goroutine.
+int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
+    *type_out = 0;
+    if (!g_eq_cs_init || !atomic_load(&g_active)) return 0;
+    EnterCriticalSection(&g_eq_cs);
+    if (g_eq_tail == g_eq_head) {
+        LeaveCriticalSection(&g_eq_cs);
+        return 0;
+    }
+    *type_out = g_eq[g_eq_tail].type;
+    *x_out    = g_eq[g_eq_tail].x;
+    *y_out    = g_eq[g_eq_tail].y;
+    *btn_out  = g_eq[g_eq_tail].btn;
+    g_eq_tail = (g_eq_tail + 1) % VK_EQ_CAP;
+    LeaveCriticalSection(&g_eq_cs);
+    return 1;
 }
 
 #endif // _WIN32
