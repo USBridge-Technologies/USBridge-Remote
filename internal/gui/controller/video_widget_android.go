@@ -173,13 +173,27 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	if !service.VKVideoAndroidIsActive() {
 		return
 	}
+	// When the system IME is open, the Vulkan SurfaceView expands above the
+	// touchpad widget by topOffset dp (the tab-bar height). Subtract that extra
+	// distance from contentRectY so v0 reaches into the video content that sits
+	// above the original touchpad top — filling the expanded area with real video
+	// instead of leaving a black strip.
+	extraTopDp := float32(0)
+	if getImeExpandHeightDp() > 0 && vw.parentWindow != nil && vw.container != nil {
+		cs := vw.parentWindow.Canvas().Size()
+		topOffset := cs.Height - vw.container.Size().Height
+		if topOffset > 0 {
+			extraTopDp = topOffset
+		}
+	}
+
 	// Compute visible UV rect from Go viewport state.
 	cw, ch := vw.contentRectW, vw.contentRectH
 	if cw <= 0 || ch <= 0 {
 		service.VKVideoAndroidSetViewport(0, 0, 1, 1)
 	} else {
 		u0 := clampFloat(-vw.contentRectX/cw, 0, 1)
-		v0 := clampFloat(-vw.contentRectY/ch, 0, 1)
+		v0 := clampFloat(-(vw.contentRectY+extraTopDp)/ch, 0, 1)
 		u1 := clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
 		v1 := clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
 		service.VKVideoAndroidSetViewport(u0, v0, u1, v1)
