@@ -12,4 +12,7 @@ object GestureBridge {
         panDx: Float,
         panDy: Float,
     )
+
+    @JvmStatic
+    external fun onScrollGesture(dy: Float)
 }

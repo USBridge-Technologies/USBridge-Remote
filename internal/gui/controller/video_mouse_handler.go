@@ -694,8 +694,14 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.isDragging = false
 
 	if t.videoWidget.GetMouseInputMode() == mouseModeVirtualCursor {
-		// Virtual cursor mode: touch initiates cursor tracking.
-		// No initial position send; movement handled in TouchMove/Dragged.
+		// If a quick tap just fired and second finger comes down within 600ms → hold LMB.
+		if !t.videoWidget.lmbHeld &&
+			!t.videoWidget.lastVirtualTapAt.IsZero() &&
+			time.Since(t.videoWidget.lastVirtualTapAt) < 600*time.Millisecond {
+			t.videoWidget.lastVirtualTapAt = time.Time{}
+			t.videoWidget.lmbHeld = true
+			t.videoWidget.enqueueMouseButtonDown(1)
+		}
 		return
 	}
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
@@ -717,6 +723,16 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
+	// Release held LMB unconditionally — must not be blocked by shouldIgnoreTouchInput
+	// or any other early return, otherwise LMB gets stuck pressed.
+	if t.videoWidget.lmbHeld {
+		t.videoWidget.lmbHeld = false
+		t.videoWidget.enqueueMouseButtonUp(1)
+		t.videoWidget.lastVirtualTapAt = time.Time{}
+		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
+		return
+	}
 	if t.videoWidget.shouldIgnoreTouchInput() {
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
@@ -733,13 +749,18 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 
 	mode := t.videoWidget.GetMouseInputMode()
 
-	// Virtual cursor: tap = left click; long-tap = right click.
+	// Virtual cursor: tap = left click; long-tap = right click; tap-then-hold = LMB drag.
+	// Note: lmbHeld case is handled unconditionally above (before shouldIgnoreTouchInput).
 	if mode == mouseModeVirtualCursor {
-		if !t.videoWidget.isDragging && dx < 10 && dy < 10 {
-			if duration >= time.Second && dx < 20 && dy < 20 {
-				t.videoWidget.enqueueMouseClick(2) // right click
-			} else if duration < 300*time.Millisecond {
-				t.videoWidget.enqueueMouseClick(1) // left click
+		// Use physical distance from touch start only — don't check isDragging because
+		// Dragged sets it even on stationary touches (touch sensor noise).
+		if dx < 15 && dy < 15 {
+			if duration >= time.Second {
+				t.videoWidget.enqueueMouseClick(2) // right click (long press)
+			} else if duration < 500*time.Millisecond {
+				// Quick tap → left click, arm the drag window (600ms to place second finger).
+				t.videoWidget.enqueueMouseClick(1)
+				t.videoWidget.lastVirtualTapAt = time.Now()
 			}
 		}
 		t.videoWidget.isDragging = false
@@ -858,7 +879,11 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	if ch > 0 {
 		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, 0, 1)
 	}
-	vw.isDragging = true
+	// Only mark as dragging after significant movement so that touch noise
+	// doesn't prevent tap detection in TouchUp.
+	if math.Abs(float64(rawDx)) >= 3 || math.Abs(float64(rawDy)) >= 3 {
+		vw.isDragging = true
+	}
 
 	// Send absolute position to host, excluding letterbox/pillarbox black bars
 	// (same correction as PositionToAbsolute).
@@ -894,6 +919,10 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 // TouchCancel обрабатывает отмену касания (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	t.endScrollbarDrag()
+	if t.videoWidget.lmbHeld {
+		t.videoWidget.lmbHeld = false
+		t.videoWidget.enqueueMouseButtonUp(1)
+	}
 	t.videoWidget.isDragging = false
 	t.videoWidget.resetRelativeMoveAccumulator()
 }

@@ -122,6 +122,30 @@ func (vw *VideoWidget) enqueueMouseClick(button int) {
 	mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
 }
 
+func (vw *VideoWidget) enqueueMouseButtonDown(button int) {
+	mi := vw.moonlightInput()
+	if mi == nil || !mi.IsInputActive() {
+		return
+	}
+	moonlightBtn := button
+	if button == 2 {
+		moonlightBtn = service.LiMouseButtonRight
+	}
+	mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+}
+
+func (vw *VideoWidget) enqueueMouseButtonUp(button int) {
+	mi := vw.moonlightInput()
+	if mi == nil || !mi.IsInputActive() {
+		return
+	}
+	moonlightBtn := button
+	if button == 2 {
+		moonlightBtn = service.LiMouseButtonRight
+	}
+	mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+}
+
 func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
 	mi := vw.moonlightInput()
 	if mi == nil || !mi.IsInputActive() {

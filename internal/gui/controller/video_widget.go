@@ -157,7 +157,11 @@ type VideoWidget struct {
 	touchDownDelayTimer *time.Timer
 	touchDownDelayMu    sync.Mutex
 	touchActive         bool // touch(true) уже отправлен и ещё не отправлен touch(false); MouseMoved шлёт только при true
-	isClosing           atomic.Bool
+	// Tap-then-hold LMB drag for virtual cursor.
+	// lastVirtualTapAt is set when a quick tap completes; second TouchDown within 600ms holds LMB.
+	lastVirtualTapAt time.Time
+	lmbHeld          bool
+	isClosing       atomic.Bool
 }
 
 func (vw *VideoWidget) Close() {

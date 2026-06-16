@@ -30,6 +30,10 @@ func (vw *VideoWidget) cancelLocalTouchState() {
 	vw.dragButton = 0
 	vw.isDragging = false
 	vw.scrollDragAxis = ""
+	if vw.lmbHeld {
+		vw.lmbHeld = false
+		vw.enqueueMouseButtonUp(1)
+	}
 	vw.resetRelativeMoveAccumulator()
 }
 

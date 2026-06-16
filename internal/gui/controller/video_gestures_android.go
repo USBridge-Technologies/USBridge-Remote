@@ -10,6 +10,7 @@ package controller
 
 extern void deliverViewportGestureStateFromJNI(jboolean active);
 extern void deliverViewportGestureUpdateFromJNI(jfloat scaleFactor, jfloat focusX, jfloat focusY, jfloat panDx, jfloat panDy);
+extern void deliverScrollGestureFromJNI(jfloat dy);
 
 __attribute__((used))
 JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv *env, jclass clazz, jboolean active) {
@@ -21,11 +22,18 @@ JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onViewportGestureU
     deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, panDy);
 }
 
+__attribute__((used))
+JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onScrollGesture(JNIEnv *env, jclass clazz, jfloat dy) {
+    deliverScrollGestureFromJNI(dy);
+}
+
 void keepViewportGestureJNISymbolsReferenced(void) {
     extern void Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv*, jclass, jboolean);
     extern void Java_com_usbridge_client_GestureBridge_onViewportGestureUpdate(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat, jfloat);
+    extern void Java_com_usbridge_client_GestureBridge_onScrollGesture(JNIEnv*, jclass, jfloat);
     (void)Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged;
     (void)Java_com_usbridge_client_GestureBridge_onViewportGestureUpdate;
+    (void)Java_com_usbridge_client_GestureBridge_onScrollGesture;
 }
 */
 import "C"
@@ -35,6 +43,9 @@ import (
 
 	"fyne.io/fyne/v2"
 )
+
+// scrollAccumY accumulates sub-threshold centroid-Y deltas for two-finger scroll.
+var scrollAccumY float32
 
 func init() {
 	C.keepViewportGestureJNISymbolsReferenced()
@@ -54,6 +65,7 @@ func deliverViewportGestureStateFromJNI(active C.jboolean) {
 		vw.cancelLocalTouchState()
 		return
 	}
+	scrollAccumY = 0
 	vw.lastMultiTouchAt = time.Now()
 	vw.cancelLocalTouchState()
 }
@@ -85,4 +97,22 @@ func deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, pan
 		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	})
+}
+
+//export deliverScrollGestureFromJNI
+func deliverScrollGestureFromJNI(dy C.jfloat) {
+	vw := activeGestureVideoWidget()
+	if vw == nil {
+		return
+	}
+	// Accumulate centroid-Y delta (px). Negate: fingers move down → scroll up.
+	scrollAccumY += -float32(dy)
+	const pixelsPerTick = 20
+	ticks := int(scrollAccumY / pixelsPerTick)
+	if ticks == 0 {
+		return
+	}
+	scrollAccumY -= float32(ticks) * pixelsPerTick
+	ticks = clamp(ticks, -127, 127)
+	vw.enqueueMouseScroll(ticks)
 }

@@ -58,6 +58,12 @@ class MainActivity : GoNativeActivity() {
     private var lastViewportCentroidY = 0f
     private var lastViewportDistance = 0f
 
+    // Two fingers closer than this → scroll wheel; farther → zoom/pan.
+    // 320 dp ≈ 5 cm on a 480 dpi phone.
+    private val scrollFingerThresholdPx: Float by lazy {
+        resources.displayMetrics.density * 320f
+    }
+
     private lateinit var connectivityManager: ConnectivityManager
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
@@ -465,17 +471,19 @@ class MainActivity : GoNativeActivity() {
         val panDx = currentCentroidX - lastViewportCentroidX
         val panDy = currentCentroidY - lastViewportCentroidY
 
+        // Per-frame decision: scale change OR fingers far apart → zoom/pan; else → scroll.
+        val scaleSignificant = kotlin.math.abs(scaleFactor - 1f) > 0.04f
+        if (scaleSignificant || currentDistance >= scrollFingerThresholdPx) {
+            GestureBridge.onViewportGestureUpdate(
+                scaleFactor, currentCentroidX, currentCentroidY, panDx, panDy
+            )
+        } else if (panDy != 0f) {
+            GestureBridge.onScrollGesture(panDy)
+        }
+
         lastViewportDistance = currentDistance
         lastViewportCentroidX = currentCentroidX
         lastViewportCentroidY = currentCentroidY
-
-        GestureBridge.onViewportGestureUpdate(
-            scaleFactor,
-            currentCentroidX,
-            currentCentroidY,
-            panDx,
-            panDy,
-        )
     }
 
     private fun endViewportGesture() {
