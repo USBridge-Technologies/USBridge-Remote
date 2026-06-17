@@ -901,18 +901,17 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	}
 	absX := int(math.Round(float64(hostU * 32767)))
 	absY := int(math.Round(float64(hostV * 32767)))
+	// Update the local Vulkan cursor first so it feels instant regardless of network latency.
+	vw.centerViewportOnVirtualCursor()
+	vw.updateNativeViewportAndCursor()
+	if !vw.isNativeVideoActive() {
+		vw.refreshViewportViews()
+	}
+
+	// Send absolute position to host after the local render update.
 	mi := vw.moonlightInput()
 	if mi != nil && mi.IsInputActive() {
 		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
-	}
-
-	// Pan the viewport so the cursor stays centred (only effective at zoom > 1).
-	vw.centerViewportOnVirtualCursor()
-	vw.updateNativeViewportAndCursor()
-	// Skip Fyne canvas refresh when Vulkan renders directly — the viewport
-	// update was already forwarded via atomics in updateNativeViewportAndCursor.
-	if !vw.isNativeVideoActive() {
-		vw.refreshViewportViews()
 	}
 }
 
