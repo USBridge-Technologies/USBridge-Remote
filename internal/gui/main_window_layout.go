@@ -37,6 +37,8 @@ func protocolDropdownLabel(protocol string) string {
 		return "ts"
 	case models.ConnectionProtocolQUIC:
 		return models.ConnectionProtocolQUIC
+	case models.ConnectionProtocolDirect:
+		return "lan"
 	default:
 		return models.ConnectionProtocolAuto
 	}
@@ -48,6 +50,8 @@ func protocolDropdownValue(label string) string {
 		return models.ConnectionProtocolTailscale
 	case models.ConnectionProtocolQUIC:
 		return models.ConnectionProtocolQUIC
+	case "lan":
+		return models.ConnectionProtocolDirect
 	default:
 		return models.ConnectionProtocolAuto
 	}
@@ -123,6 +127,7 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolAuto,
 		models.ConnectionProtocolQUIC,
 		models.ConnectionProtocolTailscale,
+		models.ConnectionProtocolDirect,
 	}, nil)
 	mw.protocolSelect.OnChanged = func(value string) {
 		mw.persistConnectionDraft()
@@ -144,6 +149,7 @@ func (mw *MainWindow) createInterface() {
 		models.ConnectionProtocolAuto,
 		models.ConnectionProtocolQUIC,
 		"ts",
+		"lan",
 	}, protocolDropdownLabel(mw.config.ConnectionProtocol), func(value string) {
 		mw.protocolSelect.SetSelected(protocolDropdownValue(value))
 	})

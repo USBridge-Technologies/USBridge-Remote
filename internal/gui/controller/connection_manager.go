@@ -374,6 +374,11 @@ func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protoc
 			return strings.TrimSpace(conn.TailscaleHost)
 		}
 		return strings.TrimSpace(conn.InternalHost)
+	case models.ConnectionProtocolDirect:
+		if strings.TrimSpace(conn.InternalHost) != "" {
+			return strings.TrimSpace(conn.InternalHost)
+		}
+		return strings.TrimSpace(conn.TailscaleHost)
 	default:
 		if strings.TrimSpace(conn.InternalHost) != "" {
 			return strings.TrimSpace(conn.InternalHost)
@@ -388,6 +393,8 @@ func normalizeConnectionProtocol(protocol string) string {
 		return models.ConnectionProtocolQUIC
 	case models.ConnectionProtocolTailscale:
 		return models.ConnectionProtocolTailscale
+	case models.ConnectionProtocolDirect:
+		return models.ConnectionProtocolDirect
 	default:
 		return models.ConnectionProtocolAuto
 	}
@@ -541,6 +548,8 @@ func connectionProtocolBadge(protocol string) string {
 		return "QUIC"
 	case models.ConnectionProtocolTailscale:
 		return "TS"
+	case models.ConnectionProtocolDirect:
+		return "LAN"
 	default:
 		return "AUTO"
 	}
@@ -552,6 +561,8 @@ func connectionProtocolFromBadge(badge string) string {
 		return models.ConnectionProtocolQUIC
 	case "TS":
 		return models.ConnectionProtocolTailscale
+	case "LAN":
+		return models.ConnectionProtocolDirect
 	default:
 		return models.ConnectionProtocolAuto
 	}

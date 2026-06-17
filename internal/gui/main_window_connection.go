@@ -696,6 +696,15 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 				return fmt.Errorf("failed to establish connection in auto mode: %w", err)
 			}
 		}
+	case models.ConnectionProtocolDirect:
+		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+		if err := tempClient.TestConnectionWithContext(ctx); err != nil {
+			return err
+		}
+		mw.usbClient = mw.attachUSBClient(tempClient)
+		mw.videoClient.UpdateHost(host)
+		mw.connectedProtocol = models.ConnectionProtocolDirect
+		mw.videoWidget.SetTailscaleVideoEnabled(false)
 	default:
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
 		if err := tempClient.TestConnectionWithContext(ctx); err != nil {
@@ -706,9 +715,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if isLikelyTailscaleHost(host) {
 			mw.connectedProtocol = models.ConnectionProtocolTailscale
 		} else {
-			mw.connectedProtocol = "direct"
-			// In direct/LAN mode, disable Tailscale video routing so video UDP
-			// stays on LAN and doesn't travel through DERP relay.
+			mw.connectedProtocol = models.ConnectionProtocolDirect
 			mw.videoWidget.SetTailscaleVideoEnabled(false)
 		}
 	}

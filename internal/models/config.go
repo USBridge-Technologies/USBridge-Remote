@@ -14,6 +14,7 @@ const (
 	ConnectionProtocolAuto      = "auto"
 	ConnectionProtocolQUIC      = "quic"
 	ConnectionProtocolTailscale = "tailscale"
+	ConnectionProtocolDirect    = "direct"
 
 	VideoProtocolMoonlight = "moonlight"
 	VideoProtocolGStreamer = "gstreamer"
@@ -134,7 +135,7 @@ func DefaultConfig() *AppConfig {
 
 func modelsafeProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case ConnectionProtocolQUIC, ConnectionProtocolTailscale:
+	case ConnectionProtocolQUIC, ConnectionProtocolTailscale, ConnectionProtocolDirect:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	default:
 		return ConnectionProtocolAuto

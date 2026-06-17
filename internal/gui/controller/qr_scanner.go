@@ -256,11 +256,15 @@ func disabledPreviewEntry(value string) *widget.Entry {
 }
 
 func resolveScannedHost(protocol, internalHost, tailscaleHost string) string {
-	if strings.TrimSpace(protocol) == "tailscale" && strings.TrimSpace(tailscaleHost) != "" {
-		return strings.TrimSpace(tailscaleHost)
-	}
-	if strings.TrimSpace(protocol) == "quic" && strings.TrimSpace(internalHost) != "" {
-		return strings.TrimSpace(internalHost)
+	switch strings.TrimSpace(protocol) {
+	case "tailscale":
+		if strings.TrimSpace(tailscaleHost) != "" {
+			return strings.TrimSpace(tailscaleHost)
+		}
+	case "quic", "direct":
+		if strings.TrimSpace(internalHost) != "" {
+			return strings.TrimSpace(internalHost)
+		}
 	}
 	if strings.TrimSpace(tailscaleHost) != "" {
 		return strings.TrimSpace(tailscaleHost)
