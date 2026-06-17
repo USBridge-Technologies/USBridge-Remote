@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	usbapi "usbridge-client/internal/api"
@@ -28,6 +29,8 @@ type MoonlightService struct {
 	onStateChanged  func(string)
 	onError         func(error)
 
+	mu         sync.Mutex   // protects isRunning, stopPlayerCh, activeWrapper, abort
+	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToRTP
 	isRunning  bool
 	serverHost string
 	videoMode  string
@@ -37,9 +40,9 @@ type MoonlightService struct {
 
 	apiSecret []byte // master secret for HMAC-signed API requests
 
-	client        *moonlight.Client
-	pairingPIN    string               // retained across reconnects so the user only needs to enter one PIN
-	lastAppId     int                  // app ID from the last Launch(); used to quit before reconnect
+	client             *moonlight.Client
+	pairingPIN         string               // retained across reconnects so the user only needs to enter one PIN
+	lastAppId          int                  // app ID from the last Launch(); used to quit before reconnect
 	stopPlayerCh       chan struct{}         // closed to stop the active GStreamer player goroutines
 	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
 	tailscaleSvc       *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
@@ -78,7 +81,31 @@ func NewMoonlightService(config *models.AppConfig) *MoonlightService {
 }
 
 func (m *MoonlightService) ConnectToRTP() error {
+	// Create a fresh abort channel for this connection attempt so Disconnect()
+	// can interrupt any blocking HTTP call or post-connect setup.
+	abort := make(chan struct{})
+	m.mu.Lock()
 	m.isRunning = true
+	// Close any previous abort channel from a stale concurrent call.
+	if m.abort != nil {
+		select {
+		case <-m.abort: // already closed
+		default:
+			close(m.abort)
+		}
+	}
+	m.abort = abort
+	m.mu.Unlock()
+
+	aborted := func() bool {
+		select {
+		case <-abort:
+			return true
+		default:
+			return false
+		}
+	}
+
 	logrus.Info("🌕 Moonlight protocol: ConnectToRTP called")
 
 	// 1. Setup client with the correct host
@@ -138,9 +165,14 @@ func (m *MoonlightService) ConnectToRTP() error {
 			return errStr
 		}
 
+		if aborted() {
+			m.isRunning = false
+			return fmt.Errorf("connect aborted by disconnect (post-pair)")
+		}
+
 		m.pairingPIN = "" // clear after success so future disconnects get a fresh PIN
 		logrus.Info("✅ Moonlight pairing successful!")
-		
+
 		// Retry getting server info
 		serverInfo, err = m.client.GetServerInfo()
 		if err != nil {
@@ -148,7 +180,12 @@ func (m *MoonlightService) ConnectToRTP() error {
 			return fmt.Errorf("failed to get server info after pairing: %v", err)
 		}
 	}
-	
+
+	if aborted() {
+		m.isRunning = false
+		return fmt.Errorf("connect aborted by disconnect (post-serverinfo)")
+	}
+
 	logrus.Infof("🖥️ Sunshine Server Info: AppVersion=%s, GfeVersion=%s", serverInfo.AppVersion, serverInfo.GfeVersion)
 
 	// 3. Fetch App List to find 'Desktop'
@@ -158,6 +195,11 @@ func (m *MoonlightService) ConnectToRTP() error {
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("failed to get app list: %v", err)
+	}
+
+	if aborted() {
+		m.isRunning = false
+		return fmt.Errorf("connect aborted by disconnect (post-applist)")
 	}
 
 	appId := 0
@@ -182,15 +224,27 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.isRunning = false
 		return fmt.Errorf("failed to launch app: %v", err)
 	}
+
+	if aborted() {
+		m.isRunning = false
+		return fmt.Errorf("connect aborted by disconnect (post-launch)")
+	}
+
 	m.lastAppId = appId
 	logrus.Infof("🚀 Moonlight App Launched! RTSP Session URL: %s", sessionUrl)
 
-	// Stop any previous player.
-	if m.stopPlayerCh != nil {
-		close(m.stopPlayerCh)
+	// Stop any previous player goroutines before starting new ones.
+	// Protected by mu to prevent concurrent close from Disconnect().
+	m.mu.Lock()
+	prevStopCh := m.stopPlayerCh
+	newStopCh := make(chan struct{})
+	m.stopPlayerCh = newStopCh
+	m.mu.Unlock()
+
+	if prevStopCh != nil {
+		close(prevStopCh)
 	}
-	m.stopPlayerCh = make(chan struct{})
-	stopCh := m.stopPlayerCh // capture for closure
+	stopCh := newStopCh // capture for closures below
 
 	width, height := m.width, m.height
 	if width == 0 {
@@ -333,7 +387,11 @@ func (m *MoonlightService) ConnectToRTP() error {
 	t3 := time.Now()
 	wrapper := NewMoonlightCgoWrapper(moonlightHost)
 	wrapper.SetAudioMuted(m.audioMuted)
+
+	m.mu.Lock()
 	m.activeWrapper = wrapper
+	m.mu.Unlock()
+
 	if err := wrapper.StartStream(
 		sessionUrl, rikey,
 		serverInfo.AppVersion, serverInfo.GfeVersion,
@@ -351,7 +409,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 			// VideoToolbox path: no GStreamer subprocess to signal stream end,
 			// so we handle the state change here instead.
 			if vtPath {
+				m.mu.Lock()
 				m.isRunning = false
+				m.mu.Unlock()
 				if cgoErr == nil {
 					logrus.Info("🌕 [Moonlight/VT] stream stopped cleanly")
 				}
@@ -365,8 +425,24 @@ func (m *MoonlightService) ConnectToRTP() error {
 		if audioPipeWrite != nil {
 			_ = audioPipeWrite.Close()
 		}
+		m.mu.Lock()
+		m.activeWrapper = nil
 		m.isRunning = false
+		m.mu.Unlock()
 		return fmt.Errorf("failed to start LiStartConnection: %v", err)
+	}
+
+	// Final abort check: if Disconnect was called while StartStream was setting up,
+	// stop the stream now and return an error so the caller (VideoWidget) knows not
+	// to mark the session as active.
+	if aborted() {
+		logrus.Info("🌕 [Moonlight] connect was aborted during stream setup — stopping immediately")
+		wrapper.StopStream()
+		m.mu.Lock()
+		m.activeWrapper = nil
+		m.isRunning = false
+		m.mu.Unlock()
+		return fmt.Errorf("connect aborted by disconnect (post-start)")
 	}
 
 	logrus.Infof("⏱️ [Moonlight] LiStartConnection submitted: %.0fms (total %.0fms). Waiting for first frame...", float64(time.Since(t3).Milliseconds()), float64(time.Since(tConnect).Milliseconds()))
@@ -383,19 +459,46 @@ func (m *MoonlightService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 }
 
 func (m *MoonlightService) Disconnect() error {
-	m.isRunning = false
 	logrus.Info("🌕 Moonlight protocol: Disconnect called")
+
+	// Take a snapshot of everything we need to clean up under the lock,
+	// then do all blocking operations outside the lock.
+	m.mu.Lock()
+	m.isRunning = false
+
+	// Signal any in-progress ConnectToRTP to abort.
+	if m.abort != nil {
+		select {
+		case <-m.abort: // already closed
+		default:
+			close(m.abort)
+		}
+		m.abort = nil
+	}
+
+	activeWrapper := m.activeWrapper
+	m.activeWrapper = nil
+
+	stopCh := m.stopPlayerCh
+	m.stopPlayerCh = nil
+
+	stopProxy := m.stopMoonlightProxy
+	m.stopMoonlightProxy = nil
+	m.mu.Unlock()
+
 	// LiStopConnection interrupts the LiStartConnection goroutine, which closes
 	// pipeWrite → GStreamer gets EOF → frame reader goroutine exits.
-	NewMoonlightCgoWrapper(m.host()).StopStream()
-	m.activeWrapper = nil
-	if m.stopPlayerCh != nil {
-		close(m.stopPlayerCh)
-		m.stopPlayerCh = nil
+	if activeWrapper != nil {
+		activeWrapper.StopStream()
+	} else {
+		NewMoonlightCgoWrapper(m.host()).StopStream()
 	}
-	if m.stopMoonlightProxy != nil {
-		m.stopMoonlightProxy()
-		m.stopMoonlightProxy = nil
+
+	if stopCh != nil {
+		close(stopCh)
+	}
+	if stopProxy != nil {
+		stopProxy()
 	}
 	if m.onStateChanged != nil {
 		m.onStateChanged("disconnected")
@@ -554,6 +657,8 @@ func (m *MoonlightService) SetOnError(callback func(error)) {
 }
 
 func (m *MoonlightService) IsConnected() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.isRunning
 }
 

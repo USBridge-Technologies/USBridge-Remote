@@ -22,14 +22,16 @@ func (bw *BackupWidget) loadCurrentFlash() {
 	}
 	go func() {
 		defer bw.loadingCurrentFlash.Store(false)
-		if bw.isClosing.Load() || bw.usbClient == nil {
+		// Capture usbClient once — UpdateClient(nil) can race with this goroutine.
+		client := bw.usbClient
+		if bw.isClosing.Load() || client == nil {
 			logrus.Debug("USB клиент не инициализирован или закрытие, пропускаем загрузку актуальной флешки")
 			return
 		}
 
 		logrus.Debug("📱 Загрузка актуальной бэкап флешки...")
 
-		localDrives, err := bw.usbClient.GetLocalDrives()
+		localDrives, err := client.GetLocalDrives()
 		if err != nil {
 			logrus.Errorf(i18n.Current.ErrorLoadingLocalDevices, err)
 			return
@@ -44,7 +46,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 		}
 
 		bw.currentFlashConnected = false
-		deviceInfo, err := bw.usbClient.GetDeviceInfo()
+		deviceInfo, err := client.GetDeviceInfo()
 		if err == nil {
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" &&
@@ -67,10 +69,11 @@ func (bw *BackupWidget) loadCurrentFlash() {
 
 // loadISOSpace загружает информацию о месте на SD-карте
 func (bw *BackupWidget) loadISOSpace() {
-	if bw.usbClient == nil {
+	client := bw.usbClient
+	if client == nil {
 		return
 	}
-	spaceInfo, err := bw.usbClient.GetISOSpace()
+	spaceInfo, err := client.GetISOSpace()
 	if err != nil {
 		logrus.Debugf("Информация о месте на SD-карте недоступна: %v", err)
 		bw.updateUIAsync(func() {
@@ -117,7 +120,8 @@ func (bw *BackupWidget) loadSnapshots() {
 	}
 	go func() {
 		defer bw.loadingSnapshots.Store(false)
-		if bw.isClosing.Load() || bw.usbClient == nil {
+		client := bw.usbClient
+		if bw.isClosing.Load() || client == nil {
 			logrus.Debug("USB client not initialized or closing, skipping snapshots loading")
 			bw.updateUIAsync(func() {
 				if !bw.isClosing.Load() {
@@ -130,7 +134,7 @@ func (bw *BackupWidget) loadSnapshots() {
 		bw.updateStatusAsync(i18n.Current.LoadingSnapshots)
 		logrus.Debug("📦 Загрузка списка снапшотов...")
 
-		snapshotsResp, err := bw.usbClient.GetSnapshots()
+		snapshotsResp, err := client.GetSnapshots()
 		if err != nil {
 			if strings.Contains(err.Error(), "/mnt/sdcard/backup/") && strings.Contains(err.Error(), "no such file or directory") {
 				logrus.Debugf("Snapshots directory is absent on device: %v", err)

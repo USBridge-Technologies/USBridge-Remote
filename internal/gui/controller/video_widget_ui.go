@@ -243,11 +243,23 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
 	if err := vw.videoClient.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ Moonlight ConnectToRTP failed: %v", err)
+		go func() { <-hidDone }() // drain so the goroutine can exit
 		fyne.Do(func() {
 			if vw.statusLabel != nil {
 				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
 			}
 		})
+		return
+	}
+	// ConnectToRTP may have completed AFTER a disconnect was requested
+	// (e.g. StopVideoSync timed out and called Disconnect concurrently).
+	// If we're no longer supposed to be streaming, abort without marking
+	// the session active — this prevents the Vulkan/Metal overlay from
+	// appearing on the connection-manager screen.
+	if !vw.desiredStreamingState() {
+		logrus.Info("🛑 ConnectToRTP succeeded but streaming no longer desired — aborting session")
+		go func() { <-hidDone }() // drain so the goroutine can exit
+		go func() { _ = vw.videoClient.Disconnect() }()
 		return
 	}
 	vw.isStreaming = true
@@ -388,11 +400,15 @@ func isConnectedStorageDevice(device models.DeviceInfo) bool {
 }
 
 func (vw *VideoWidget) ensureControlHIDDevices() error {
-	if vw.usbClient == nil {
+	// Capture usbClient once. The field can be set to nil concurrently by
+	// UpdateClient(nil) during disconnect, so all subsequent uses must go
+	// through this local variable to avoid nil-pointer panics in the loop.
+	client := vw.usbClient
+	if client == nil {
 		return nil
 	}
 
-	deviceInfo, err := vw.usbClient.GetDeviceInfo()
+	deviceInfo, err := client.GetDeviceInfo()
 	if err != nil {
 		return fmt.Errorf("failed to get device info before HID auto-connect: %w", err)
 	}
@@ -456,7 +472,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	}
 
 	logrus.Infof("⌨️🖱️ Control HID auto-connect: starting %d missing HID device(s)", len(requests))
-	if _, err := executeDeviceBatch(vw.usbClient, vw.usbClient.StartDevicesBatchWithMerge, requests, true); err != nil {
+	if _, err := executeDeviceBatch(client, client.StartDevicesBatchWithMerge, requests, true); err != nil {
 		return fmt.Errorf("failed to auto-connect HID devices: %w", err)
 	}
 
@@ -471,7 +487,10 @@ hidWaitLoop:
 		case <-hidTimer.C:
 			return fmt.Errorf("timed out waiting for HID devices after auto-connect")
 		case <-hidTicker.C:
-			info, err := vw.usbClient.GetDeviceInfo()
+			if vw.isClosing.Load() || vw.usbClient == nil {
+				return fmt.Errorf("disconnected during HID wait")
+			}
+			info, err := client.GetDeviceInfo()
 			if err != nil {
 				continue hidWaitLoop
 			}
@@ -501,11 +520,12 @@ hidWaitLoop:
 }
 
 func (vw *VideoWidget) controlHIDReady() (bool, error) {
-	if vw.usbClient == nil {
+	client := vw.usbClient
+	if client == nil {
 		return false, nil
 	}
 
-	deviceInfo, err := vw.usbClient.GetDeviceInfo()
+	deviceInfo, err := client.GetDeviceInfo()
 	if err != nil {
 		return false, err
 	}
@@ -732,8 +752,12 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 		bounds := rgba.Bounds()
 		logrus.Infof("✅ [VIDEO] first frame reached client trace=%s frame=%d size=%dx%d", vw.currentVideoTraceLabel(), frameNum, bounds.Dx(), bounds.Dy())
 		vw.dumpFrameSnapshot(rgba, frameNum)
-		// Start native GPU overlay after first frame (window/canvas layout ready).
-		go vw.startMetalVideoOnWindow(vw.parentWindow, false)
+		// Start native GPU overlay only when we still want to be streaming.
+		// Frames can arrive from C callbacks even after LiStopConnection is called,
+		// so guard against starting the overlay on the connection-manager screen.
+		if !vw.isClosing.Load() && vw.isStreaming {
+			go vw.startMetalVideoOnWindow(vw.parentWindow, false)
+		}
 	}
 	if frameNum <= 5 || frameNum%300 == 0 {
 		bounds := rgba.Bounds()

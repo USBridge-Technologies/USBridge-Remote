@@ -28,6 +28,13 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 				vw.isVideoConnected = false
 				vw.scheduleVideoReconcile("state-" + state)
 			case "connected", "streaming":
+				// Ignore stale "connected" callbacks that arrive after the user
+				// disconnected — they would otherwise start the Metal/Vulkan overlay
+				// on top of the connection-manager screen.
+				if vw.isClosing.Load() || !vw.desiredStreamingState() {
+					logrus.Infof("🎬 [VideoWidget] ignoring stale state=%s (closing=%v desired=%v)", state, vw.isClosing.Load(), vw.desiredStreamingState())
+					return
+				}
 				vw.isVideoConnected = true
 			}
 		})

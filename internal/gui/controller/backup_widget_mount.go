@@ -452,8 +452,12 @@ func (bw *BackupWidget) handleDisconnectCurrentFlash() {
 
 		bw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		go func() {
+			client := bw.usbClient
+			if client == nil {
+				return
+			}
 			batchRequest := bw.buildDeviceBatchWithoutCurrentFlash()
-			if _, err := executeDeviceBatch(bw.usbClient, bw.usbClient.StartDevicesBatchWithMerge, batchRequest, false); err != nil {
+			if _, err := executeDeviceBatch(client, client.StartDevicesBatchWithMerge, batchRequest, false); err != nil {
 				logrus.Errorf("❌ Ошибка отключения backup flash: %v", err)
 				bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMounting, err))
 				return
