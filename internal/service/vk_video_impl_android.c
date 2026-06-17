@@ -184,6 +184,9 @@ static atomic_int g_align_bottom;
 static atomic_int g_cursor_visible;      // 0 = hidden
 static atomic_int g_cursor_uc_fp;       // cursor U in frame UV, 0..65536
 static atomic_int g_cursor_vc_fp;       // cursor V in frame UV, 0..65536
+// Set to 1 when cursor position changed; render thread re-renders last frame
+// immediately so cursor movement is decoupled from video frame arrival rate.
+static atomic_int g_cursor_dirty;
 
 // Arrow cursor bitmap (9×12). Tip at top-left (0,0).
 // Shaft (rows 7-11) is 3px wide (cols 5-7) so the middle pixel (col 6)
@@ -826,6 +829,8 @@ static void *vk_render_thread(void *unused) {
     VLOGI("render thread started");
     uint8_t *frame_buf = NULL;
     size_t frame_buf_sz = 0;
+    int last_fw = 0, last_fh = 0, last_fs = 0;
+    int has_last_frame = 0;
 
     while (atomic_load(&g_active)) {
         struct timeval tv = {0, 8000};
@@ -862,6 +867,18 @@ static void *vk_render_thread(void *unused) {
             g_ready = 0;
         }
         pthread_mutex_unlock(&g_mu);
+
+        int cursor_dirty = atomic_exchange(&g_cursor_dirty, 0);
+
+        if (got_frame) {
+            // Remember last frame dimensions for cursor-only redraws.
+            last_fw = fw; last_fh = fh; last_fs = fs;
+            has_last_frame = 1;
+        } else if (cursor_dirty && has_last_frame) {
+            // Cursor moved but no new video frame — redraw last frame with updated cursor.
+            fw = last_fw; fh = last_fh; fs = last_fs;
+            got_frame = 1;
+        }
 
         if (!got_frame) continue;
 
@@ -989,6 +1006,7 @@ int android_vk_create(int x, int y, int w, int h) {
     atomic_store(&g_vp_u1_fp, 65536); atomic_store(&g_vp_v1_fp, 65536);
     atomic_store(&g_cursor_visible, 0);
     atomic_store(&g_cursor_uc_fp, 32768); atomic_store(&g_cursor_vc_fp, 32768);
+    atomic_store(&g_cursor_dirty, 0);
 
     if (!vk_create_instance())  { VLOGE("vkCreateInstance failed");  goto fail; }
     if (!vk_select_device())    { VLOGE("no suitable GPU");          goto fail; }
@@ -1115,6 +1133,9 @@ void android_vk_set_cursor(float uc, float vc, int visible) {
     atomic_store(&g_cursor_uc_fp, (int)(uc * 65536));
     atomic_store(&g_cursor_vc_fp, (int)(vc * 65536));
     atomic_store(&g_cursor_visible, visible ? 1 : 0);
+    // Wake render thread to redraw cursor immediately without waiting for next video frame.
+    atomic_store(&g_cursor_dirty, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
 // android_vk_set_cursor_scale reinitialises the cursor pixel buffer at the given
