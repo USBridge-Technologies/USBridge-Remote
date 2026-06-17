@@ -28,6 +28,16 @@ var (
 
 // RegisterAsIMETarget registers in keyboard_ime_android.go
 
+// UnregisterAsIMETarget clears this VK from the active IME target if it is currently registered.
+// Call on fullscreen exit to prevent stale references receiving IME height events.
+func (vk *VirtualKeyboard) UnregisterAsIMETarget() {
+	activeIMEKeyboardMu.Lock()
+	if activeIMEKeyboardTarget == vk {
+		activeIMEKeyboardTarget = nil
+	}
+	activeIMEKeyboardMu.Unlock()
+}
+
 func activeIMEKeyboard() *VirtualKeyboard {
 	activeIMEKeyboardMu.RLock()
 	defer activeIMEKeyboardMu.RUnlock()
@@ -349,6 +359,8 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
 
 	textHint.onFocused = func() {
+		// Re-register so IME height events reach this VK even after a fullscreen session.
+		vk.RegisterAsIMETarget()
 		vk.adjustForIME(true)
 	}
 	// We do NOT reset the padding in onUnfocused (adjustForIME(false)),

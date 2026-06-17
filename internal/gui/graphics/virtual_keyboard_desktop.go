@@ -60,6 +60,7 @@ type imeSpacerLayout struct {
 
 // Dummy methods for desktop
 func (vk *VirtualKeyboard) RegisterAsIMETarget()               {}
+func (vk *VirtualKeyboard) UnregisterAsIMETarget()             {}
 func (vk *VirtualKeyboard) FocusInput()                        {}
 func (vk *VirtualKeyboard) BlurInput()                         {}
 func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(imeHeightDp float32)) {}

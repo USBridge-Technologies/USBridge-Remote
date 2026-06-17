@@ -14,10 +14,9 @@ func (fd *FullscreenDialog) platformInitWindow() {
 	fd.fullscreenWindow = fd.parent
 	fd.originalContent = fd.parent.Content().(*fyne.Container)
 	fd.originalTitle = fd.parent.Title()
-	
-	// На мобилках убираем заголовок и включаем настоящий полноэкранный режим
 	fd.fullscreenWindow.SetTitle("")
-	fd.fullscreenWindow.SetFullScreen(true)
+	// SetFullScreen вызывается в platformShow() после SetContent(), чтобы
+	// Android не мигал старым контентом (вкладки, панель) до перехода на Vulkan.
 }
 
 func (fd *FullscreenDialog) platformSetupUI() {
@@ -58,8 +57,10 @@ func (fd *FullscreenDialog) platformSetupUI() {
 }
 
 func (fd *FullscreenDialog) platformShow() {
+	// SetFullScreen здесь, а не в platformInitWindow — контент уже подменён,
+	// поэтому Android сразу рисует новый (прозрачный) контент без мигания старым UI.
+	fd.fullscreenWindow.SetFullScreen(true)
 	fd.fullscreenWindow.Show()
-	// На мобилках фокус на ввод обычно управляется через виртуальную клавиатуру
 }
 
 func (fd *FullscreenDialog) platformExit() {

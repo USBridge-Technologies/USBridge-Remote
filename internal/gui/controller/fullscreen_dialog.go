@@ -400,6 +400,7 @@ func (fd *FullscreenDialog) exitFullscreen() {
 	fd.ui = nil
 
 	if fd.virtualKeyboard != nil {
+		fd.virtualKeyboard.UnregisterAsIMETarget()
 		fd.virtualKeyboard.Hide()
 		fd.virtualKeyboard = nil
 	}
