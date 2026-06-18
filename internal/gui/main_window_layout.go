@@ -35,8 +35,6 @@ func protocolDropdownLabel(protocol string) string {
 	switch strings.TrimSpace(protocol) {
 	case models.ConnectionProtocolTailscale:
 		return "ts"
-	case models.ConnectionProtocolQUIC:
-		return models.ConnectionProtocolQUIC
 	case models.ConnectionProtocolDirect:
 		return "lan"
 	default:
@@ -48,8 +46,6 @@ func protocolDropdownValue(label string) string {
 	switch strings.TrimSpace(strings.ToLower(label)) {
 	case "ts":
 		return models.ConnectionProtocolTailscale
-	case models.ConnectionProtocolQUIC:
-		return models.ConnectionProtocolQUIC
 	case "lan":
 		return models.ConnectionProtocolDirect
 	default:
@@ -96,13 +92,11 @@ func (mw *MainWindow) createInterface() {
 	mw.hostEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			if mw.connectionManager.HandleFormEdited(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
-			) {
-				mw.pendingQUICPort = 0
-			}
+			)
 		}
 		mw.refreshConnectionControls()
 	}
@@ -113,32 +107,27 @@ func (mw *MainWindow) createInterface() {
 	mw.tokenEntry.OnChanged = func(string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			if mw.connectionManager.HandleFormEdited(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				mw.protocolSelect.Selected,
-			) {
-				mw.pendingQUICPort = 0
-			}
+			)
 		}
 	}
 
 	mw.protocolSelect = widget.NewSelect([]string{
 		models.ConnectionProtocolAuto,
-		models.ConnectionProtocolQUIC,
 		models.ConnectionProtocolTailscale,
 		models.ConnectionProtocolDirect,
 	}, nil)
 	mw.protocolSelect.OnChanged = func(value string) {
 		mw.persistConnectionDraft()
 		if mw.connectionManager != nil {
-			if mw.connectionManager.HandleFormEdited(
+			mw.connectionManager.HandleFormEdited(
 				mw.hostEntry.Text,
 				mw.tokenEntry.Text,
 				value,
-			) {
-				mw.pendingQUICPort = 0
-			}
+			)
 		}
 		if mw.protocolDropdown != nil {
 			mw.protocolDropdown.SetSelected(protocolDropdownLabel(value))
@@ -147,7 +136,6 @@ func (mw *MainWindow) createInterface() {
 
 	mw.protocolDropdown = view.NewHeaderDropdown([]string{
 		models.ConnectionProtocolAuto,
-		models.ConnectionProtocolQUIC,
 		"ts",
 		"lan",
 	}, protocolDropdownLabel(mw.config.ConnectionProtocol), func(value string) {
@@ -1540,9 +1528,7 @@ func (mw *MainWindow) showRNDISModeMenu() {
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
 	switch protocol {
 	case models.ConnectionProtocolTailscale:
-		return "tailscale", design.ColorProtocolQUIC, design.ColorBackground
-	case models.ConnectionProtocolQUIC:
-		return "quic", design.ColorProtocolQUIC, design.ColorBackground
+		return "tailscale", design.ColorAccent, design.ColorBackground
 	case "direct":
 		return "online", design.ColorSurfaceLight, design.ColorTextLight
 	case models.ConnectionProtocolAuto:

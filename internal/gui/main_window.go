@@ -59,7 +59,6 @@ type MainWindow struct {
 	activeFRPToken          string
 	pendingFRPToken         string // direct FRP token override from saved connection (skips sync)
 	pendingTailscaleRegister bool
-	pendingQUICPort         int
 	lastTailscaleAuthURL    string
 	tailscalePollCancel     context.CancelFunc
 	currentVideoFPS         float64

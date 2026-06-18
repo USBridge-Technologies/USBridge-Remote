@@ -190,7 +190,6 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 				connectionProtocolBadge(models.ConnectionProtocolDirect),
-				// QUIC/FRP tunnel mode is hidden — under development
 			},
 			RegisterChecked: conn.TailscaleRegister,
 			RegisterVisible: internalHost != "" && tailscaleHost == "",

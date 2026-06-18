@@ -51,7 +51,6 @@ func (mw *MainWindow) handleConnectionFromManager(host, masterKey, frpToken, pro
 	mw.tokenEntry.SetText(masterKey)
 	mw.pendingFRPToken = frpToken
 	mw.pendingTailscaleRegister = tailscaleRegister
-	mw.pendingQUICPort = quicPort
 	if protocol != "" {
 		mw.protocolSelect.SetSelected(protocol)
 	}
@@ -347,7 +346,7 @@ func getFreeVideoUDPPort() int {
 
 // doConnect выполняет блокирующую логику подключения (вызывается из горутины).
 // masterKey — API master secret (из QR кода): используется для sync и подписи API запросов.
-// frpToken  — прямой FRP/QUIC токен туннеля (из поля "quic token" в advanced): обходит sync.
+// frpToken  — прямой FRP токен туннеля (advanced, обходит sync).
 func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken string) error {
 	// Consume the pending FRP token (set by handleConnectionFromManager) before any async work.
 	if frpToken == "" {
@@ -522,67 +521,6 @@ func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey str
 }
 
 func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
-	connectQUICTo := func(ctx context.Context, quicHost, tokenParam string) error {
-		if !mw.config.FRPEnabled {
-			return fmt.Errorf("FRP disabled in config")
-		}
-
-		// Disconnect any existing FRP tunnel before creating a new one to avoid
-		// leaking goroutines and the "tunnel inside a tunnel" symptom in Auto mode.
-		if mw.frpService != nil {
-			_ = mw.frpService.Disconnect()
-			mw.frpService = nil
-		}
-
-		port := mw.config.FRPServerPort
-		if mw.pendingQUICPort > 0 {
-			port = mw.pendingQUICPort
-		}
-
-		logrus.Infof("🚇 [QUIC] creating FRP service host=%s port=%d token=%s", quicHost, port, maskSensitiveToken(tokenParam))
-		mw.frpService = service.NewFRPService(
-			quicHost,
-			port,
-			tokenParam,
-		)
-
-		if err := mw.frpService.Connect(mw.config.USBPort, mw.config.NBDPort, mw.config.VideoUDPPort); err != nil {
-			return err
-		}
-
-		logrus.Info("✅ [QUIC] tunnel established via FRP")
-
-		// Wait for stabilization or context cancel
-		select {
-		case <-time.After(2 * time.Second):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-
-		mw.hostEntry.Disable()
-		mw.tokenEntry.Disable()
-
-		httpPort, videoPort, _ := mw.frpService.GetServerPorts()
-		mw.usbClient = mw.attachUSBClient(api.NewUSBClient("127.0.0.1", httpPort, mw.config.APITimeout))
-
-		mw.videoClient.UpdateHost("127.0.0.1")
-		mw.videoClient.UpdateVideoPort(videoPort)
-		mw.videoClient.UpdateVideoUDPPort(videoPort)
-		mw.config.VideoBindHost = mw.resolveVideoBindHost()
-		mw.videoWidget.SetFRPService(mw.frpService)
-		mw.diskWidget.SetFRPService(mw.frpService)
-		mw.connectedProtocol = models.ConnectionProtocolQUIC
-
-		return nil
-	}
-
-	connectQUIC := func(ctx context.Context) error {
-		if err := connectQUICTo(ctx, host, token); err != nil {
-			return err
-		}
-		return nil
-	}
-
 	connectTailscale := func(ctx context.Context) error {
 		if !mw.config.TailscaleEnabled {
 			return fmt.Errorf("Tailscale disabled in config")
@@ -685,16 +623,17 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if err := connectTailscale(ctx); err != nil {
 			return err
 		}
-	case models.ConnectionProtocolQUIC:
-		if err := connectQUIC(ctx); err != nil {
-			return err
-		}
 	case models.ConnectionProtocolAuto:
 		if err := connectTailscale(ctx); err != nil {
-			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to QUIC: %v", err)
-			if err := connectQUIC(ctx); err != nil {
-				return fmt.Errorf("failed to establish connection in auto mode: %w", err)
+			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to direct: %v", err)
+			tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+			if err2 := tempClient.TestConnectionWithContext(ctx); err2 != nil {
+				return fmt.Errorf("failed to establish connection in auto mode: %w", err2)
 			}
+			mw.usbClient = mw.attachUSBClient(tempClient)
+			mw.videoClient.UpdateHost(host)
+			mw.connectedProtocol = models.ConnectionProtocolDirect
+			mw.videoWidget.SetTailscaleVideoEnabled(false)
 		}
 	case models.ConnectionProtocolDirect:
 		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
@@ -979,8 +918,7 @@ func (mw *MainWindow) updateStatus() {
 	})
 }
 
-// resolveVideoBindHost returns the address on which GStreamer should listen for video.
-// QUIC/FRP: FRP connects locally → 127.0.0.1.
+// resolveVideoBindHost returns the address on which the video client should listen.
 // Tailscale: Tailscale interface (100.x.x.x), otherwise 127.0.0.1.
 func (mw *MainWindow) resolveVideoBindHost() string {
 	if mw.frpService != nil {

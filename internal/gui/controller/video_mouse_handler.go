@@ -763,6 +763,8 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 				t.videoWidget.lastVirtualTapAt = time.Now()
 			}
 		}
+		// Finger lifted — flush final position regardless of rate limiter.
+		t.flushVirtualCursorPosition()
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
 		return
@@ -863,7 +865,8 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 }
 
 // handleVirtualCursorMove moves the virtual cursor by the swipe delta and
-// forwards the new absolute position to Moonlight.
+// forwards the absolute position to Moonlight at most every 8ms (same rate as
+// Mac absolute mode). The local Vulkan cursor is always updated immediately.
 func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	vw := t.videoWidget
 	rawDx := posX - vw.lastMouseX
@@ -885,8 +888,26 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 		vw.isDragging = true
 	}
 
-	// Send absolute position to host, excluding letterbox/pillarbox black bars
-	// (same correction as PositionToAbsolute).
+	// Update the local Vulkan cursor immediately — instant regardless of network.
+	vw.centerViewportOnVirtualCursor()
+	vw.updateNativeViewportAndCursor()
+	if !vw.isNativeVideoActive() {
+		vw.refreshViewportViews()
+	}
+
+	// Rate-limit network sends to 8ms so ENet doesn't pile up stale reliable
+	// packets faster than they can be ACKed. When the finger stops,
+	// flushVirtualCursorPosition() sends the final position unconditionally.
+	const minInterval = 8 * time.Millisecond
+	if !vw.lastVirtualCursorSentTime.IsZero() && time.Since(vw.lastVirtualCursorSentTime) < minInterval {
+		return
+	}
+	vw.sendVirtualCursorToHost()
+}
+
+// sendVirtualCursorToHost computes and sends the current virtualCursorU/V as an
+// absolute Moonlight position, accounting for letterbox/pillarbox black bars.
+func (vw *VideoWidget) sendVirtualCursorToHost() {
 	fX, fY, fW, fH := vw.getFrameContentRect()
 	var hostU, hostV float32
 	if fW > 0 {
@@ -901,18 +922,19 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	}
 	absX := int(math.Round(float64(hostU * 32767)))
 	absY := int(math.Round(float64(hostV * 32767)))
-	// Update the local Vulkan cursor first so it feels instant regardless of network latency.
-	vw.centerViewportOnVirtualCursor()
-	vw.updateNativeViewportAndCursor()
-	if !vw.isNativeVideoActive() {
-		vw.refreshViewportViews()
-	}
-
-	// Send absolute position to host after the local render update.
 	mi := vw.moonlightInput()
 	if mi != nil && mi.IsInputActive() {
 		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
+		vw.lastVirtualCursorSentTime = time.Now()
 	}
+
+}
+
+// flushVirtualCursorPosition sends the current cursor position to the host
+// unconditionally — call this when the finger lifts so the final position
+// is always delivered regardless of the rate limiter.
+func (t *TouchpadWrapper) flushVirtualCursorPosition() {
+	t.videoWidget.sendVirtualCursorToHost()
 }
 
 // TouchCancel обрабатывает отмену касания (mobile)
@@ -1018,6 +1040,9 @@ func (t *TouchpadWrapper) DragEnd() {
 		}
 		if t.videoWidget.isDragging {
 			logrus.Info("🖱️ [DRAGGED] Android: Swipe completed")
+			if t.videoWidget.GetMouseInputMode() == mouseModeVirtualCursor {
+				t.flushVirtualCursorPosition()
+			}
 			t.videoWidget.isDragging = false
 			t.videoWidget.resetRelativeMoveAccumulator()
 		}

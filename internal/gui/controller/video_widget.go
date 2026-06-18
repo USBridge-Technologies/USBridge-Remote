@@ -150,8 +150,9 @@ type VideoWidget struct {
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Virtual cursor (Android "cursor" mouse mode): position in frame UV space (0..1).
-	virtualCursorU float32
-	virtualCursorV float32
+	virtualCursorU              float32
+	virtualCursorV              float32
+	lastVirtualCursorSentTime   time.Time
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
 	// Tapped приходит при полном клике на виджет; MouseUp в Fyne приходит только виджету под курсором при отпускании.
 	touchDownDelayTimer *time.Timer
