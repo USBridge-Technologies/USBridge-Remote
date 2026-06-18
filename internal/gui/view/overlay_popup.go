@@ -13,6 +13,11 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// KeyboardHeight returns the current on-screen IME keyboard height in Fyne units.
+// Set this from platform-specific code (Android) to enable keyboard-aware popups.
+// Returns 0 if unset (desktop or no keyboard visible).
+var KeyboardHeight func() float32
+
 type OverlayPopupSpec struct {
 	Panel     fyne.CanvasObject
 	DimColor  color.Color
@@ -40,16 +45,29 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	dim.Move(fyne.NewPos(-innerPad/2, -innerPad/2))
 	dim.Resize(fyne.NewSize(size.Width+innerPad, size.Height+innerPad))
 
-	panelSize := defaultOverlayPanelSize(size, panel)
-	if l.panelSize != nil {
-		panelSize = l.panelSize(size, panel)
+	// Effective area excludes the on-screen keyboard (IME) if any.
+	// On Android the canvas size does not shrink when the IME opens (edge-to-edge),
+	// so we subtract the keyboard height explicitly.
+	effective := size
+	if KeyboardHeight != nil {
+		if kh := KeyboardHeight(); kh > 0 {
+			effective.Height -= kh
+			if effective.Height < 0 {
+				effective.Height = 0
+			}
+		}
 	}
 
-	if panelSize.Width > size.Width {
-		panelSize.Width = size.Width
+	panelSize := defaultOverlayPanelSize(effective, panel)
+	if l.panelSize != nil {
+		panelSize = l.panelSize(effective, panel)
 	}
-	if panelSize.Height > size.Height {
-		panelSize.Height = size.Height
+
+	if panelSize.Width > effective.Width {
+		panelSize.Width = effective.Width
+	}
+	if panelSize.Height > effective.Height {
+		panelSize.Height = effective.Height
 	}
 	if panelSize.Width < 0 {
 		panelSize.Width = 0
@@ -58,9 +76,9 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 		panelSize.Height = 0
 	}
 
-	panelPos := fyne.NewPos((size.Width-panelSize.Width)/2, (size.Height-panelSize.Height)/2)
+	panelPos := fyne.NewPos((effective.Width-panelSize.Width)/2, (effective.Height-panelSize.Height)/2)
 	if l.panelPos != nil {
-		panelPos = l.panelPos(size, panelSize)
+		panelPos = l.panelPos(effective, panelSize)
 	}
 	if panelPos.X < 0 {
 		panelPos.X = 0
@@ -68,8 +86,8 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	if panelPos.Y < 0 {
 		panelPos.Y = 0
 	}
-	maxX := size.Width - panelSize.Width
-	maxY := size.Height - panelSize.Height
+	maxX := effective.Width - panelSize.Width
+	maxY := effective.Height - panelSize.Height
 	if panelPos.X > maxX {
 		panelPos.X = maxX
 	}
@@ -144,6 +162,7 @@ func watchOverlayPopupHooks(parent fyne.Window, popup *widget.PopUp, fireHooks b
 
 	go func() {
 		var lastSize fyne.Size
+		var lastKeyboardH float32
 		syncDone := make(chan struct{})
 		fyne.Do(func() {
 			if parent.Canvas() != nil {
@@ -187,8 +206,14 @@ func watchOverlayPopupHooks(parent fyne.Window, popup *widget.PopUp, fireHooks b
 				return
 			}
 
-			if hasCanvas && currentSize != lastSize {
+			currentKeyboardH := float32(0)
+			if KeyboardHeight != nil {
+				currentKeyboardH = KeyboardHeight()
+			}
+
+			if hasCanvas && (currentSize != lastSize || currentKeyboardH != lastKeyboardH) {
 				lastSize = currentSize
+				lastKeyboardH = currentKeyboardH
 				fyne.Do(func() {
 					if popup == nil || !popup.Visible() {
 						return

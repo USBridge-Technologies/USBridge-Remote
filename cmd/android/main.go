@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"usbridge-client/internal/gui"
+	"usbridge-client/internal/gui/graphics"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 
@@ -40,6 +42,10 @@ func main() {
 
 	// Создаем конфигурацию по умолчанию для Android
 	config := models.DefaultConfig()
+
+	// Wire Android IME keyboard height into overlay popup layout so popups
+	// (e.g. connection editor dialog) reposition above the on-screen keyboard.
+	view.KeyboardHeight = graphics.GetLastIMEH
 
 	// Создаем главное окно
 	mainWindow := gui.NewMainWindow(config)

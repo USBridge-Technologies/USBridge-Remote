@@ -254,30 +254,39 @@ func (b *connectionDialogSecondaryButton) refreshVisuals() {
 }
 
 func newConnectionDialogField(label string, field fyne.CanvasObject) fyne.CanvasObject {
-	labelInsetTop := float32(10)
-	if fyne.CurrentDevice().IsMobile() {
-		labelInsetTop = 2 // Very compact on mobile
-	}
 	return container.NewVBox(
-		view.NewInset(newConnectionDialogLabel(label), labelInsetTop, 0, 0, 0),
+		view.NewInset(newConnectionDialogLabel(label), 10, 0, 0, 0),
 		view.NewInset(field, 0, 0, 0, 2),
 	)
 }
 
 func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, actions fyne.CanvasObject) fyne.CanvasObject {
-	labelInsetTop := float32(10)
-	if fyne.CurrentDevice().IsMobile() {
-		labelInsetTop = 2 // Very compact on mobile
-	}
 	labelRow := container.NewHBox(
 		newConnectionDialogLabel(label),
 		layout.NewSpacer(),
 		actions,
 	)
 	return container.NewVBox(
-		view.NewInset(labelRow, labelInsetTop, 0, 0, 0),
+		view.NewInset(labelRow, 10, 0, 0, 0),
 		view.NewInset(field, 0, 0, 0, 2),
 	)
+}
+
+// buildInlineField creates a horizontal [label | field] row for compact mobile layout.
+// A transparent rect enforces a consistent minimum label column width so all inputs align.
+func buildInlineField(label string, field fyne.CanvasObject, actions fyne.CanvasObject) fyne.CanvasObject {
+	lbl := newConnectionDialogLabel(label)
+	minW := canvas.NewRectangle(color.Transparent)
+	minW.SetMinSize(fyne.NewSize(84, 1))
+	// top=10 vertically centres the ~14 dp label text inside the ~36 dp entry row.
+	lblContainer := container.NewStack(minW, view.NewInset(lbl, 0, 6, 10, 0))
+	var row fyne.CanvasObject
+	if actions != nil {
+		row = container.NewBorder(nil, nil, lblContainer, actions, field)
+	} else {
+		row = container.NewBorder(nil, nil, lblContainer, nil, field)
+	}
+	return view.NewInset(row, 0, 0, 6, 0)
 }
 
 func createMasterKeyField(masterKeyEntry *connectionDialogEntry) fyne.CanvasObject {
@@ -312,12 +321,24 @@ func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, internalHostE
 }
 
 func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, frpTokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
+	masterKeyField := createMasterKeyField(masterKeyEntry)
+	masterKeyActions := newMasterKeyActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, window)
+
 	// Advanced section — hidden by default, revealed via toggle.
-	advancedBody := container.NewVBox(
-		newConnectionDialogField("frp token", frpTokenEntry),
-		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
-		tailscaleRegisterCheck,
-	)
+	var advancedBody *fyne.Container
+	if fyne.CurrentDevice().IsMobile() {
+		advancedBody = container.NewVBox(
+			buildInlineField("frp token", frpTokenEntry, nil),
+			buildInlineField(connectionDialogTailscaleHostLabel, tailscaleHostEntry, nil),
+			tailscaleRegisterCheck,
+		)
+	} else {
+		advancedBody = container.NewVBox(
+			newConnectionDialogField("frp token", frpTokenEntry),
+			newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+			tailscaleRegisterCheck,
+		)
+	}
 	advancedBody.Hide()
 
 	advancedToggle := widget.NewButton("▸ advanced", nil)
@@ -357,10 +378,25 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 		advancedToggle.SetText("▾ advanced")
 	}
 
+	var mainFields fyne.CanvasObject
+	if fyne.CurrentDevice().IsMobile() {
+		// Compact inline layout on mobile: [label | input] on a single row.
+		// Saves vertical space so the dialog fits above the IME keyboard.
+		mainFields = container.NewVBox(
+			buildInlineField(connectionDialogNameLabel, nameEntry, nil),
+			buildInlineField(connectionDialogInternalHostLabel, internalHostEntry, nil),
+			buildInlineField(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
+		)
+	} else {
+		mainFields = container.NewVBox(
+			newConnectionDialogField(connectionDialogNameLabel, nameEntry),
+			newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
+			newConnectionDialogFieldWithActions(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
+		)
+	}
+
 	return container.NewVBox(
-		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
-		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, createMasterKeyField(masterKeyEntry), newMasterKeyActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, window)),
+		mainFields,
 		advancedToggle,
 		advancedBody,
 	)
@@ -383,11 +419,6 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 
 	closeBtn := newConnectionDialogIconButton(theme.CancelIcon(), nil)
 	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
-
-	bodyObjects := make([]fyne.CanvasObject, 0, 3)
-	if feedback != nil {
-		bodyObjects = append(bodyObjects, container.NewCenter(feedback))
-	}
 
 	buttonItems := make([]fyne.CanvasObject, 0, 4)
 	if deleteBtn != nil && saveBtn != nil && connectBtn == nil {
@@ -420,14 +451,19 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 		buttons = container.NewGridWithColumns(columns, buttonItems...)
 	}
 
-	bodyObjects = append(
-		bodyObjects,
-		view.NewInset(form, 0, 0, 16, 14),
-		buttons,
-	)
-	body := container.NewVBox(bodyObjects...)
-	scroll := container.NewVScroll(body)
-	scroll.SetMinSize(body.MinSize())
+	// Scrollable area contains only the form (and optional feedback).
+	// Buttons are placed OUTSIDE the scroll so they stay visible when the
+	// keyboard is open and the scroll area is compressed.
+	scrollItems := make([]fyne.CanvasObject, 0, 2)
+	if feedback != nil {
+		scrollItems = append(scrollItems, container.NewCenter(feedback))
+	}
+	scrollItems = append(scrollItems, form)
+	scrollBody := container.NewVBox(scrollItems...)
+	scroll := container.NewVScroll(scrollBody)
+	// NOTE: scroll.SetMinSize is intentionally omitted — setting it to the body's
+	// min size would prevent the panel from shrinking when the Android IME keyboard
+	// opens and reduces the available canvas height.
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -437,9 +473,16 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
 
+	// Panel layout: title fixed at top, buttons fixed at bottom, scroll fills center.
+	inner := container.NewBorder(
+		view.NewInset(titleBar, 0, 0, 0, 10),   // title with gap below
+		view.NewInset(buttons, 0, 0, 10, 0),    // gap above buttons
+		nil, nil,
+		scroll,
+	)
 	panel := container.NewStack(
 		bg,
-		view.NewInset(container.NewBorder(titleBar, nil, nil, nil, scroll), 18, 18, 16, 16),
+		view.NewInset(inner, 18, 18, 16, 16),
 		border,
 	)
 
@@ -982,9 +1025,6 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 	maxWidth := canvasSize.Width - margin*2
 	maxHeight := canvasSize.Height - margin*2
 
-	// We don't dynamically change maxHeight on mobile anymore to avoid resizing jumps.
-	// The compact fields and top positioning handle the layout.
-
 	if maxWidth <= 0 {
 		maxWidth = canvasSize.Width
 	}
@@ -992,15 +1032,23 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 		maxHeight = canvasSize.Height
 	}
 
-	panelMin := panel.MinSize()
 	panelWidth := minFloat32(408, maxWidth)
 	if panelWidth < 0 {
 		panelWidth = 0
 	}
 
-	panelHeight := panelMin.Height
-	if panelHeight > maxHeight {
+	var panelHeight float32
+	if fyne.CurrentDevice().IsMobile() {
+		// Fill all available space on mobile. canvasSize is already reduced by the
+		// IME keyboard height (via overlayPopupLayout), so the panel shrinks/grows
+		// dynamically as the keyboard opens and closes.
 		panelHeight = maxHeight
+	} else {
+		panelMin := panel.MinSize()
+		panelHeight = panelMin.Height
+		if panelHeight > maxHeight {
+			panelHeight = maxHeight
+		}
 	}
 
 	return fyne.NewSize(panelWidth, panelHeight)
