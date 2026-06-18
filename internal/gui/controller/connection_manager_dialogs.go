@@ -272,7 +272,8 @@ func newConnectionDialogFieldWithActions(label string, field fyne.CanvasObject, 
 	)
 }
 
-// buildInlineField creates a horizontal [label | field] row for compact mobile layout.
+// buildInlineField creates a horizontal [label (actions) | field] row for compact mobile layout.
+// Actions are placed between the label and the input so they appear before the field.
 // A transparent rect enforces a consistent minimum label column width so all inputs align.
 func buildInlineField(label string, field fyne.CanvasObject, actions fyne.CanvasObject) fyne.CanvasObject {
 	lbl := newConnectionDialogLabel(label)
@@ -280,13 +281,14 @@ func buildInlineField(label string, field fyne.CanvasObject, actions fyne.Canvas
 	minW.SetMinSize(fyne.NewSize(84, 1))
 	// top=10 vertically centres the ~14 dp label text inside the ~36 dp entry row.
 	lblContainer := container.NewStack(minW, view.NewInset(lbl, 0, 6, 10, 0))
-	var row fyne.CanvasObject
+	var leftSide fyne.CanvasObject
 	if actions != nil {
-		row = container.NewBorder(nil, nil, lblContainer, actions, field)
+		// [label][actions] | [field] — actions sit between label and input field
+		leftSide = container.NewHBox(lblContainer, actions)
 	} else {
-		row = container.NewBorder(nil, nil, lblContainer, nil, field)
+		leftSide = lblContainer
 	}
-	return view.NewInset(row, 0, 0, 6, 0)
+	return view.NewInset(container.NewBorder(nil, nil, leftSide, nil, field), 0, 0, 6, 0)
 }
 
 func createMasterKeyField(masterKeyEntry *connectionDialogEntry) fyne.CanvasObject {
@@ -295,110 +297,34 @@ func createMasterKeyField(masterKeyEntry *connectionDialogEntry) fyne.CanvasObje
 	return masterKeyEntry
 }
 
-func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, internalHostEntry, tailscaleHostEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
-	copyBtn := newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
+func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+	return newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
 		txt := masterKeyEntry.Text
 		if txt != "" && window != nil {
 			window.Clipboard().SetContent(txt)
 		}
 	})
-	qrBtn := newCompactConnectionDialogIconButton(theme.VisibilityIcon(), func() {
-		masterKey := strings.TrimSpace(masterKeyEntry.Text)
-		if masterKey == "" {
-			logrus.Warn("cannot show quick QR: master key is empty")
-			return
-		}
-		internalHost := strings.TrimSpace(internalHostEntry.Text)
-		tailscaleHost := strings.TrimSpace(tailscaleHostEntry.Text)
-		if internalHost == "" && tailscaleHost == "" {
-			logrus.Warn("cannot show quick QR: both internal and tailscale addresses are empty")
-			return
-		}
-
-		showQuickConnectQRCode(window, internalHost, tailscaleHost, masterKey)
-	})
-	return container.NewHBox(copyBtn, qrBtn)
 }
 
-func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, frpTokenEntry *connectionDialogEntry, tailscaleRegisterCheck *widget.Check, window fyne.Window) fyne.CanvasObject {
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
 	masterKeyField := createMasterKeyField(masterKeyEntry)
-	masterKeyActions := newMasterKeyActionItem(masterKeyEntry, internalHostEntry, tailscaleHostEntry, window)
+	masterKeyActions := newMasterKeyActionItem(masterKeyEntry, window)
 
-	// Advanced section — hidden by default, revealed via toggle.
-	var advancedBody *fyne.Container
+	// Field order: Name → Internal IP → Tailscale IP → Master Key
 	if fyne.CurrentDevice().IsMobile() {
-		advancedBody = container.NewVBox(
-			buildInlineField("frp token", frpTokenEntry, nil),
-			buildInlineField(connectionDialogTailscaleHostLabel, tailscaleHostEntry, nil),
-			tailscaleRegisterCheck,
-		)
-	} else {
-		advancedBody = container.NewVBox(
-			newConnectionDialogField("frp token", frpTokenEntry),
-			newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
-			tailscaleRegisterCheck,
-		)
-	}
-	advancedBody.Hide()
-
-	advancedToggle := widget.NewButton("▸ advanced", nil)
-	advancedToggle.Importance = widget.LowImportance
-	advancedToggle.OnTapped = func() {
-		if advancedBody.Visible() {
-			advancedBody.Hide()
-			advancedToggle.SetText("▸ advanced")
-		} else {
-			advancedBody.Show()
-			advancedToggle.SetText("▾ advanced")
-		}
-	}
-
-	updateRegisterVisibility := func() {
-		hasInternal := strings.TrimSpace(internalHostEntry.Text) != ""
-		hasTailscale := strings.TrimSpace(tailscaleHostEntry.Text) != ""
-		if hasInternal && !hasTailscale {
-			// Auto-enable "register in Tailscale" when no TS address is saved yet.
-			if !tailscaleRegisterCheck.Checked {
-				tailscaleRegisterCheck.SetChecked(true)
-			}
-			tailscaleRegisterCheck.Show()
-		} else {
-			tailscaleRegisterCheck.Hide()
-		}
-	}
-	internalHostEntry.OnChanged = func(_ string) { updateRegisterVisibility() }
-	tailscaleHostEntry.OnChanged = func(_ string) { updateRegisterVisibility() }
-
-	// Initial state.
-	updateRegisterVisibility()
-
-	// Pre-populate advanced visibility when editing an existing connection.
-	if strings.TrimSpace(tailscaleHostEntry.Text) != "" || strings.TrimSpace(frpTokenEntry.Text) != "" || tailscaleRegisterCheck.Visible() {
-		advancedBody.Show()
-		advancedToggle.SetText("▾ advanced")
-	}
-
-	var mainFields fyne.CanvasObject
-	if fyne.CurrentDevice().IsMobile() {
-		// Compact inline layout on mobile: [label | input] on a single row.
-		// Saves vertical space so the dialog fits above the IME keyboard.
-		mainFields = container.NewVBox(
+		// Compact inline layout on mobile: [label (actions) | input] on a single row.
+		return container.NewVBox(
 			buildInlineField(connectionDialogNameLabel, nameEntry, nil),
 			buildInlineField(connectionDialogInternalHostLabel, internalHostEntry, nil),
+			buildInlineField(connectionDialogTailscaleHostLabel, tailscaleHostEntry, nil),
 			buildInlineField(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
 		)
-	} else {
-		mainFields = container.NewVBox(
-			newConnectionDialogField(connectionDialogNameLabel, nameEntry),
-			newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
-			newConnectionDialogFieldWithActions(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
-		)
 	}
-
 	return container.NewVBox(
-		mainFields,
-		advancedToggle,
-		advancedBody,
+		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
+		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
+		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
+		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
 	)
 }
 
@@ -461,9 +387,11 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	scrollItems = append(scrollItems, form)
 	scrollBody := container.NewVBox(scrollItems...)
 	scroll := container.NewVScroll(scrollBody)
-	// NOTE: scroll.SetMinSize is intentionally omitted — setting it to the body's
-	// min size would prevent the panel from shrinking when the Android IME keyboard
-	// opens and reduces the available canvas height.
+	// Set scroll min-height to the form content height so the panel reports the correct
+	// preferred size (compact, content-sized). The panel is still capped at maxHeight in
+	// connectionDialogPanelSize, so when the Android IME keyboard opens and maxHeight
+	// shrinks, the panel shrinks too and the scroll becomes scrollable.
+	scroll.SetMinSize(fyne.NewSize(0, scrollBody.MinSize().Height))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -512,10 +440,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
 	masterKeyEntry := newConnectionMasterKeyEntry(spec.masterKeyValue, nil)
-	frpTokenEntry := newConnectionMasterKeyEntry(spec.frpTokenValue, nil)
-	tailscaleRegisterCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
-	tailscaleRegisterCheck.Checked = spec.tailscaleRegisterValue
-	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, frpTokenEntry, tailscaleRegisterCheck, window)
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -547,7 +472,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, 0, tailscaleRegisterCheck.Checked) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
 				return
 			}
 			if d != nil {
@@ -558,7 +483,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, 0, tailscaleRegisterCheck.Checked) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
 			return
 		}
 		if d != nil {
@@ -570,7 +495,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, frpTokenEntry.Text, 0, tailscaleRegisterCheck.Checked) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
 				return
 			}
 			if d != nil {
@@ -1037,18 +962,13 @@ func connectionDialogPanelSize(panel fyne.CanvasObject, canvasSize fyne.Size) fy
 		panelWidth = 0
 	}
 
-	var panelHeight float32
-	if fyne.CurrentDevice().IsMobile() {
-		// Fill all available space on mobile. canvasSize is already reduced by the
-		// IME keyboard height (via overlayPopupLayout), so the panel shrinks/grows
-		// dynamically as the keyboard opens and closes.
+	panelMin := panel.MinSize()
+	panelHeight := panelMin.Height
+	if panelHeight > maxHeight {
+		// Cap at available space. On mobile, canvasSize is already reduced by the
+		// IME keyboard height (via overlayPopupLayout), so this cap shrinks the panel
+		// automatically when the keyboard opens.
 		panelHeight = maxHeight
-	} else {
-		panelMin := panel.MinSize()
-		panelHeight = panelMin.Height
-		if panelHeight > maxHeight {
-			panelHeight = maxHeight
-		}
 	}
 
 	return fyne.NewSize(panelWidth, panelHeight)
