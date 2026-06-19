@@ -52,8 +52,8 @@ void platform_ar_init(int channels, int sample_rate) {
     r = snd_pcm_set_params(pcm,
         SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED,
         (unsigned int)channels, (unsigned int)sample_rate,
-        1,      // allow sw resampling
-        40000); // 40 ms latency
+        1,       // allow sw resampling
+        300000); // 300 ms latency — large enough to absorb network/CPU jitter
     if (r < 0) {
         snd_pcm_close(pcm);
         goVTLog((char*)"ALSA: snd_pcm_set_params failed");
@@ -83,7 +83,12 @@ void platform_ar_decode(const opus_int16 *pcm_data, int byte_count, int samples)
     pthread_mutex_unlock(&g_alsa_mu);
     if (!pcm) return;
     snd_pcm_sframes_t r = snd_pcm_writei(pcm, pcm_data, (snd_pcm_uframes_t)samples);
-    if (r < 0) snd_pcm_recover(pcm, (int)r, 1);
+    if (r < 0) {
+        snd_pcm_recover(pcm, (int)r, 1);
+        // Retry after recovery: without this the frame is dropped and PCM stays
+        // in PREPARED state, requiring extra frames to hit the start threshold.
+        snd_pcm_writei(pcm, pcm_data, (snd_pcm_uframes_t)samples);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

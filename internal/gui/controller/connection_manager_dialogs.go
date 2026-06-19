@@ -306,26 +306,34 @@ func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, window fyne.W
 	})
 }
 
-func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, registerCheck fyne.CanvasObject, window fyne.Window) fyne.CanvasObject {
 	masterKeyField := createMasterKeyField(masterKeyEntry)
 	masterKeyActions := newMasterKeyActionItem(masterKeyEntry, window)
 
-	// Field order: Name → Internal IP → Tailscale IP → Master Key
+	// Field order: Name → Internal IP → Tailscale IP → Master Key → Register
 	if fyne.CurrentDevice().IsMobile() {
 		// Compact inline layout on mobile: [label (actions) | input] on a single row.
-		return container.NewVBox(
+		items := []fyne.CanvasObject{
 			buildInlineField(connectionDialogNameLabel, nameEntry, nil),
 			buildInlineField(connectionDialogInternalHostLabel, internalHostEntry, nil),
 			buildInlineField(connectionDialogTailscaleHostLabel, tailscaleHostEntry, nil),
 			buildInlineField(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
-		)
+		}
+		if registerCheck != nil {
+			items = append(items, view.NewInset(registerCheck, 0, 0, 6, 0))
+		}
+		return container.NewVBox(items...)
 	}
-	return container.NewVBox(
+	items := []fyne.CanvasObject{
 		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
 		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
 		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
 		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
-	)
+	}
+	if registerCheck != nil {
+		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
+	}
+	return container.NewVBox(items...)
 }
 
 func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObject {
@@ -440,7 +448,24 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	internalHostEntry := newConnectionHostEntry(spec.internalHostValue, nil)
 	tailscaleHostEntry := newConnectionTailscaleEntry(spec.tailscaleHostValue, nil)
 	masterKeyEntry := newConnectionMasterKeyEntry(spec.masterKeyValue, nil)
-	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, window)
+
+	registerCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
+	registerCheck.Checked = spec.tailscaleRegisterValue
+	registerCheckContainer := container.NewVBox(registerCheck)
+	updateRegisterVisibility := func(tsHost string) {
+		if strings.TrimSpace(tsHost) == "" {
+			registerCheckContainer.Show()
+		} else {
+			registerCheckContainer.Hide()
+		}
+		registerCheckContainer.Refresh()
+	}
+	updateRegisterVisibility(spec.tailscaleHostValue)
+	tailscaleHostEntry.OnChanged = func(text string) {
+		updateRegisterVisibility(text)
+	}
+
+	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, registerCheckContainer, window)
 
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
@@ -472,7 +497,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -483,7 +508,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
 			return
 		}
 		if d != nil {
@@ -495,7 +520,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, false) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -729,7 +754,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		quicPortValue:          quicPort,
 		masterKeyValue:         masterKey, // from QR scan or prefill — treated as master key
 		frpTokenValue:          "",
-		tailscaleRegisterValue: false,
+		tailscaleRegisterValue: strings.TrimSpace(tailscaleHost) == "",
 		feedbackText:           feedbackText,
 		feedbackColor:          design.ColorAccent,
 		onConnect: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
