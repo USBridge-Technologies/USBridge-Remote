@@ -95,12 +95,14 @@ func (s *TailscaleService) IsSystemTailscaleAvailable() bool {
 // CheckSystemTailscaleStatus returns system Tailscale status without starting tsnet.
 // Returns nil if system Tailscale is unavailable or not in a connected state.
 func (s *TailscaleService) CheckSystemTailscaleStatus() *TailscaleStatus {
-	// In userspace (tsnet) mode there is no system Tailscale binary to query.
-	// Skip the exec.Command so we don't block for ~2s waiting for it to fail (Android).
-	s.mu.Lock()
-	userspace := s.userspace
-	s.mu.Unlock()
-	if userspace {
+	// On Android there is no system Tailscale binary — skip the exec.Command to
+	// avoid blocking ~2s waiting for a non-existent binary.
+	// On macOS/Windows/Linux we always check the system binary, even when tsnet
+	// is configured as the preferred mode. This lets initTailscaleMode correctly
+	// detect a running system Tailscale daemon and switch to kernel mode so that
+	// tsnet is NOT started alongside system TS (two WireGuard stacks on the same
+	// machine disrupt macOS LAN routing, causing EHOSTUNREACH for LAN addresses).
+	if runtime.GOOS == "android" {
 		return nil
 	}
 	tsPath := getTailscaleBinaryPath()
@@ -174,6 +176,18 @@ func (s *TailscaleService) Stop() error {
 
 	if server != nil {
 		logrus.Info("🛰️ [Tailscale] Stopping tsnet server...")
+		// Attempt a clean logout before closing so the coordination server
+		// immediately deregisters this node instead of waiting for a timeout.
+		// This prevents the system Tailscale daemon from entering a confused
+		// state when tsnet ran on the same account.
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			lc, err := server.LocalClient()
+			if err == nil {
+				_ = lc.Logout(ctx)
+			}
+		}()
 		return server.Close()
 	}
 	return nil
@@ -385,12 +399,38 @@ func (s *TailscaleService) Logout(ctx context.Context) error {
 }
 
 func (s *TailscaleService) HTTPClient() (*http.Client, error) {
-	if !s.IsUserspace() && s.GetSystemTailscaleIP() != "" {
+	// When system Tailscale is running it handles 100.x routing in the kernel —
+	// use the plain OS dialer so Moonlight HTTP doesn't go through tsnet (which
+	// may not have established a WireGuard session with the peer yet).
+	if s.GetSystemTailscaleIP() != "" {
 		return &http.Client{Timeout: 10 * time.Second}, nil
 	}
+	// Android / no system Tailscale: all traffic must go through tsnet.
 	srv, err := s.serverInstance()
 	if err != nil { return nil, err }
 	return srv.HTTPClient(), nil
+}
+
+// WarmUpPeer proactively dials a Tailscale peer via tsnet to trigger the
+// WireGuard handshake before Moonlight tries to use it for HTTP.
+// No-op when system Tailscale is running (it handles routing transparently).
+func (s *TailscaleService) WarmUpPeer(tailscaleIP string) {
+	if s.GetSystemTailscaleIP() != "" {
+		return
+	}
+	srv, err := s.serverInstance()
+	if err != nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		conn, err := srv.Dial(ctx, "tcp", net.JoinHostPort(tailscaleIP, "47989"))
+		if err == nil {
+			conn.Close()
+		}
+		logrus.Debugf("🛰️ [tsnet] peer warmup %s:47989 done (err=%v)", tailscaleIP, err)
+	}()
 }
 
 // WaitUntilReady blocks until the tsnet node is online (Running state) or
@@ -842,7 +882,13 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
-		Ephemeral: false, // Set to false to persist authorization across restarts
+		// Ephemeral=true: the node is automatically removed from the Tailscale
+		// coordination server when it disconnects. This prevents zombie "offline"
+		// entries from accumulating in the peer list and causing system Tailscale
+		// to repeatedly retry failed WireGuard handshakes, which was disrupting
+		// LAN routing for bundle-launched apps on macOS. Auth credentials are
+		// preserved in the state directory and re-used on the next connection.
+		Ephemeral: true,
 	}
 
 	logrus.Info("🛰️ [Tailscale] Starting tsnet server...")

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -79,11 +80,75 @@ type USBClient struct {
 	lastTransportErrorAt  time.Time
 }
 
-// NewUSBClient creates a new USB client
+// NewUSBClient creates a new USB client using the default system transport.
 func NewUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	})
+}
+
+// NewDirectUSBClient creates a USB client whose TCP sockets bypass VPN/Tailscale
+// routing. On macOS it uses IP_BOUND_IF to pin the socket to the physical LAN
+// interface; on other platforms it binds to the LAN source IP. Both approaches
+// prevent EHOSTUNREACH that can occur when Tailscale's NEPacketTunnelProvider is
+// in a transitional state (NeedsLogin, restart) and intercepts bundle-launched
+// app traffic.
+func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
+	t := time.Duration(timeout) * time.Second
+	dialer := buildDirectDialer(host)
+	dialer.Timeout = t
+	transport := &http.Transport{
+		DialContext:         dialer.DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	client := &http.Client{Timeout: t, Transport: transport}
+	return NewUSBClientWithHTTPClient(host, port, timeout, client)
+}
+
+// findLANSourceIP returns a local IPv4 address that can reach destHost directly
+// (not via Tailscale or other VPN). Prefers addresses in the same subnet.
+func findLANSourceIP(destHost string) net.IP {
+	destIP := net.ParseIP(strings.Split(destHost, ":")[0])
+	if destIP == nil {
+		return nil
+	}
+	destIP = destIP.To4()
+	if destIP == nil {
+		return nil
+	}
+
+	tailscale := net.IPNet{IP: net.ParseIP("100.64.0.0").To4(), Mask: net.CIDRMask(10, 32)}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	var fallback net.IP
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipNet.IP.To4()
+			if ip == nil || tailscale.Contains(ip) || ip[0] == 169 {
+				continue
+			}
+			// Same subnet as destination — ideal match
+			if ipNet.Contains(destIP) {
+				return ip
+			}
+			if fallback == nil {
+				fallback = ip
+			}
+		}
+	}
+	return fallback
 }
 
 func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *http.Client) *USBClient {

@@ -28,14 +28,22 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 // handleConnectionFromDeepLink handles the deep-link connect callback.
 // tsMode optionally overrides the Tailscale mode before connecting.
 func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
-	// Apply ts_mode override if specified.
 	if mw.tailscaleService != nil {
 		switch tsMode {
 		case TailscaleModeUserspace:
 			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: userspace (tsnet)")
+			// Stop any running tsnet first (idempotent), then switch and start.
+			mw.tailscaleService.Stop()
 			mw.tailscaleService.SetUserspace(true)
+			go func() {
+				if err := mw.tailscaleService.Start(context.Background()); err != nil {
+					logrus.Warnf("⚠️ [DeepLink] tsnet start: %v", err)
+				}
+			}()
 		case TailscaleModeKernel:
 			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: kernel (system VPN)")
+			// Stop tsnet so it doesn't run alongside system Tailscale.
+			mw.tailscaleService.Stop()
 			mw.tailscaleService.SetUserspace(false)
 		default:
 			// TailscaleModeAuto: do not change current setting
@@ -329,6 +337,34 @@ func (mw *MainWindow) handleConnect() {
 	}
 }
 
+// testConnectionWithRetry wraps TestConnectionWithContext with retry logic for
+// transient "no route to host" errors. On macOS these can occur briefly when
+// the system network stack is reconfiguring (e.g. WiFi handoff, DNS change).
+func testConnectionWithRetry(ctx context.Context, client *api.USBClient, host string) error {
+	const maxAttempts = 4
+	const retryDelay = 700 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = client.TestConnectionWithContext(ctx)
+		if lastErr == nil {
+			return nil
+		}
+		if !api.IsConnectionLostError(lastErr) {
+			return lastErr
+		}
+		if attempt < maxAttempts {
+			logrus.Warnf("⚠️ [CONNECT] Direct connection to %s failed (attempt %d/%d): %v — retrying in %.0fs",
+				host, attempt, maxAttempts, lastErr, retryDelay.Seconds())
+			select {
+			case <-time.After(retryDelay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return lastErr
+}
+
 // getFreeVideoUDPPort finds an available UDP port dynamically
 func getFreeVideoUDPPort() int {
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -355,6 +391,18 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 	mw.pendingFRPToken = ""
 
 	mw.lastTailscaleAuthURL = ""
+
+	// On macOS, the tsnet (userspace Tailscale) WireGuard stack initialization
+	// briefly disrupts the OS network routing table, causing even LAN connections
+	// to fail with EHOSTUNREACH. Wait for tsnet to reach Running state before
+	// making any network calls. WaitUntilReady returns immediately when already Running.
+	if mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
+		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
+			logrus.Warnf("⚠️ [CONNECT] tsnet not yet ready: %v (proceeding anyway)", waitErr)
+		}
+		waitCancel()
+	}
 
 	if mw.videoWidget != nil {
 		_ = mw.videoWidget.StopVideoSync()
@@ -422,7 +470,16 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 			}
 		} else {
 			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
-			return fmt.Errorf("sync failed: %w", err)
+			// FRP protocol is removed, so the sync token is no longer needed for
+			// any connection type. For direct and auto protocols, sync failure is
+			// not fatal — mw.activeAPISecret was already set at the start of
+			// syncWithBridgeV2 (before the network call), so HMAC auth still
+			// works via attachUSBClient. Tailscale protocol still requires sync
+			// to resolve the Tailscale IP.
+			if protocol == models.ConnectionProtocolTailscale {
+				return fmt.Errorf("sync failed: %w", err)
+			}
+			logrus.Infof("🔗 [CONNECT] Sync failed but protocol=%s — proceeding without sync token", protocol)
 		}
 
 	default:
@@ -600,6 +657,11 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			mw.frpService = nil
 			mw.usbClient = mw.attachUSBClient(tsClient)
 			mw.videoClient.UpdateHost(target)
+			// Pre-warm the tsnet WireGuard session to the peer so it's established
+			// before Moonlight HTTP calls (pairing, serverinfo) happen a moment later.
+			if mw.tailscaleService != nil {
+				mw.tailscaleService.WarmUpPeer(target)
+			}
 			mw.connectedProtocol = models.ConnectionProtocolTailscale
 			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
 			mw.videoWidget.SetTailscaleVideoEnabled(true)
@@ -626,8 +688,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 	case models.ConnectionProtocolAuto:
 		if err := connectTailscale(ctx); err != nil {
 			logrus.Warnf("⚠️ Tailscale auto-connect failed, falling back to direct: %v", err)
-			tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
-			if err2 := tempClient.TestConnectionWithContext(ctx); err2 != nil {
+			tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+			if err2 := testConnectionWithRetry(ctx, tempClient, host); err2 != nil {
 				return fmt.Errorf("failed to establish connection in auto mode: %w", err2)
 			}
 			mw.usbClient = mw.attachUSBClient(tempClient)
@@ -636,8 +698,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			mw.videoWidget.SetTailscaleVideoEnabled(false)
 		}
 	case models.ConnectionProtocolDirect:
-		tempClient := api.NewUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
-		if err := tempClient.TestConnectionWithContext(ctx); err != nil {
+		tempClient := api.NewDirectUSBClient(host, mw.config.USBPort, mw.config.APITimeout)
+		if err := testConnectionWithRetry(ctx, tempClient, host); err != nil {
 			return err
 		}
 		mw.usbClient = mw.attachUSBClient(tempClient)
