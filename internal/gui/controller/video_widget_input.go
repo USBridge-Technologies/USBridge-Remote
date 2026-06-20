@@ -787,23 +787,16 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 	vw.lastAbsY = y
 	vw.lastAbsSentTime = time.Now()
 
-	// Forward via Moonlight (LiSendMousePositionEvent) when stream is active.
-	// This feeds /dev/hid_t via bridgeAbsMouse EV_ABS path on the server.
-	// Must not also write via WebSocket — two simultaneous writers to /dev/hid_t
-	// corrupt HID reports and Windows stops responding to the cursor.
-	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		prev := vw.statAbsMoonlight.Load()
-		vw.statAbsMoonlight.Add(1)
-		if prev == 0 {
-			logrus.Info("🖱️ [Mouse] absolute path → Moonlight LiSendMousePositionEvent (switched)")
+	if mi := vw.moonlightInput(); mi != nil {
+		cnt := vw.statAbsMoonlight.Add(1)
+		if cnt == 1 || cnt%100 == 0 {
+			logrus.Infof("🖱️ [Mouse] → LiSendMousePositionEvent cnt=%d x=%d y=%d active=%v", cnt, x, y, mi.IsInputActive())
 		}
 		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
 		if scroll != 0 {
 			mi.SendMoonlightScroll(int8(scroll))
 		}
-		return // Moonlight is active — do NOT also send via WebSocket
 	}
-
 }
 
 // SendAbsoluteEvent отправляет атомарное абсолютное событие.
