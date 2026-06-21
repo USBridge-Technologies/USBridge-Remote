@@ -42,7 +42,7 @@ static double mono_sec(void) {
 // CoreAudio AudioQueue — platform audio implementation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#define CA_NUM_BUFFERS 16
+#define CA_NUM_BUFFERS 32
 
 static AudioQueueRef        g_ca_queue    = NULL;
 static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];
@@ -62,7 +62,8 @@ static uint64_t g_ca_drop_count    = 0; // frames dropped due to empty free pool
 static uint64_t g_ca_restart_count = 0; // queue restarts (stall/interruption)
 static uint64_t g_ca_frame_count   = 0; // frames decoded successfully
 static double   g_ca_stats_start   = 0.0;
-static int      g_ca_was_dropping  = 0; // set while free pool is empty (drop burst)
+static int      g_ca_was_dropping     = 0; // set while free pool is empty (drop burst)
+static volatile int g_ca_force_restart = 0; // suppress listener during forced stop/start
 
 // Log the macOS default audio output device name.
 static void ca_log_device(void) {
@@ -93,7 +94,7 @@ static void ca_log_device(void) {
 // changes — restarts the queue immediately if it stalled or was interrupted.
 static void ca_running_listener(void *userData, AudioQueueRef aq, AudioQueuePropertyID prop) {
     (void)userData; (void)prop;
-    if (!g_ca_started) return;
+    if (!g_ca_started || g_ca_force_restart) return;
     UInt32 running = 0, sz = sizeof(running);
     if (AudioQueueGetProperty(aq, kAudioQueueProperty_IsRunning, &running, &sz) == noErr && !running) {
         g_ca_restart_count++;
@@ -194,8 +195,10 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
                 (unsigned long long)g_ca_drop_count);
             goVTLog(rmsg);
             ca_log_device();
+            g_ca_force_restart = 1;            // suppress listener during stop/start
             AudioQueueStop(g_ca_queue, true);  // synchronous: wait for current buf
             AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline
+            g_ca_force_restart = 0;
         }
         // Periodic audio health log every 5 seconds.
         {
