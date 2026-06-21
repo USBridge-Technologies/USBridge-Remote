@@ -20,6 +20,7 @@
 
 #include <Limelight.h>
 #include <opus_multistream.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -31,6 +32,11 @@ static volatile int g_audio_muted        = 0;
 static OpusMSDecoder *g_opus_ms_decoder  = NULL;
 static int g_audio_channels              = 2;
 static int g_audio_samples_per_frame     = 960;
+
+// Audio diagnostics counters (reset in ar_init, read by platform stats logger).
+static volatile uint64_t g_ar_plc_count   = 0; // Opus PLC frames (network packet loss)
+static volatile uint64_t g_ar_err_count   = 0; // opus_multistream_decode errors
+static volatile uint64_t g_ar_muted_count = 0; // frames silenced because muted
 
 // These functions are called from moonlight_cgo_wrapper.go's TU via extern declarations.
 // They must have external (non-static) linkage so the linker can resolve them
@@ -54,7 +60,14 @@ static void cl_stage_complete(int s)       { goMoonlightStage(s,  1, 0); }
 static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
 static void cl_connected(void)             { goMoonlightConnected(); }
 static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
-static void cl_log(const char *fmt, ...)   { (void)fmt; }
+static void cl_log(const char *fmt, ...) {
+    char buf[256];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    // strip trailing newline
+    int n = (int)strlen(buf);
+    if (n > 0 && buf[n-1] == '\n') buf[n-1] = '\0';
+    if (buf[0]) goVTLog(buf);
+}
 
 // ── Audio callbacks ────────────────────────────────────────────────────────────
 
@@ -62,6 +75,9 @@ static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, v
     (void)audioConfig; (void)ctx; (void)flags;
     g_audio_channels         = cfg->channelCount;
     g_audio_samples_per_frame = cfg->samplesPerFrame > 0 ? cfg->samplesPerFrame : 960;
+    g_ar_plc_count   = 0;
+    g_ar_err_count   = 0;
+    g_ar_muted_count = 0;
     if (g_opus_ms_decoder) {
         opus_multistream_decoder_destroy(g_opus_ms_decoder);
         g_opus_ms_decoder = NULL;
@@ -89,14 +105,27 @@ static void ar_cleanup(void) {
 
 static void ar_decode(char *data, int len) {
     if (!g_opus_ms_decoder) return;
+    if (data == NULL || len == 0) g_ar_plc_count++;
     opus_int16 pcm[5760 * 8];
     int samples = opus_multistream_decode(
         g_opus_ms_decoder,
         (const unsigned char *)data, len,
         pcm, 5760, 0);
-    if (samples <= 0) return;
+    if (samples <= 0) {
+        g_ar_err_count++;
+        if (g_ar_err_count <= 5 || g_ar_err_count % 100 == 0) {
+            char buf[80];
+            snprintf(buf, sizeof(buf), "Opus decode error: %d (total=%llu)",
+                     samples, (unsigned long long)g_ar_err_count);
+            goVTLog(buf);
+        }
+        return;
+    }
     int byte_count = samples * g_audio_channels * 2;
-    if (g_audio_muted) memset(pcm, 0, byte_count);
+    if (g_audio_muted) {
+        memset(pcm, 0, byte_count);
+        g_ar_muted_count++;
+    }
     platform_ar_decode(pcm, byte_count, samples);
 }
 

@@ -6,7 +6,7 @@ package service
 #cgo pkg-config: opus openssl
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
 #cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build -L${SRCDIR}/../../moonlight-common-c/build/enet -lmoonlight-common-c -lenet
-#cgo LDFLAGS: -framework VideoToolbox -framework CoreMedia -framework CoreFoundation -framework CoreVideo -framework AudioToolbox
+#cgo LDFLAGS: -framework VideoToolbox -framework CoreMedia -framework CoreFoundation -framework CoreVideo -framework AudioToolbox -framework CoreAudio
 
 #include <VideoToolbox/VideoToolbox.h>
 #include <CoreMedia/CoreMedia.h>
@@ -31,6 +31,13 @@ extern int metal_video_try_submit(CVImageBufferRef img);
 
 #include "moonlight_cgo_shared.h"
 
+// Shared monotonic clock — used by both audio and video subsystems.
+static double mono_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CoreAudio AudioQueue — platform audio implementation
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -51,6 +58,53 @@ static void ca_callback(void *userData, AudioQueueRef aq, AudioQueueBufferRef bu
     pthread_mutex_unlock(&g_ca_mu);
 }
 
+static uint64_t g_ca_drop_count    = 0; // frames dropped due to empty free pool
+static uint64_t g_ca_restart_count = 0; // queue restarts (stall/interruption)
+static uint64_t g_ca_frame_count   = 0; // frames decoded successfully
+static double   g_ca_stats_start   = 0.0;
+static int      g_ca_was_dropping  = 0; // set while free pool is empty (drop burst)
+
+// Log the macOS default audio output device name.
+static void ca_log_device(void) {
+    AudioObjectPropertyAddress addr = {
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    AudioDeviceID devID = kAudioObjectUnknown;
+    UInt32 sz = sizeof(devID);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &sz, &devID) != noErr)
+        return;
+    addr.mSelector = kAudioObjectPropertyName;
+    addr.mScope    = kAudioObjectPropertyScopeGlobal;
+    CFStringRef name = NULL;
+    sz = sizeof(name);
+    if (AudioObjectGetPropertyData(devID, &addr, 0, NULL, &sz, &name) != noErr)
+        return;
+    char buf[128] = {0};
+    CFStringGetCString(name, buf, sizeof(buf), kCFStringEncodingUTF8);
+    CFRelease(name);
+    char msg[180];
+    snprintf(msg, sizeof(msg), "CoreAudio: output device = \"%s\" (id=%u)", buf, (unsigned)devID);
+    goVTLog(msg);
+}
+
+// Fires on AudioQueue's internal thread whenever kAudioQueueProperty_IsRunning
+// changes — restarts the queue immediately if it stalled or was interrupted.
+static void ca_running_listener(void *userData, AudioQueueRef aq, AudioQueuePropertyID prop) {
+    (void)userData; (void)prop;
+    if (!g_ca_started) return;
+    UInt32 running = 0, sz = sizeof(running);
+    if (AudioQueueGetProperty(aq, kAudioQueueProperty_IsRunning, &running, &sz) == noErr && !running) {
+        g_ca_restart_count++;
+        char msg[128];
+        snprintf(msg, sizeof(msg), "CoreAudio: queue stalled — restart #%llu (drops=%llu)",
+                 (unsigned long long)g_ca_restart_count, (unsigned long long)g_ca_drop_count);
+        goVTLog(msg);
+        AudioQueueStart(aq, NULL);
+    }
+}
+
 void platform_ar_init(int channels, int sample_rate) {
     if (g_ca_queue) return;
     AudioStreamBasicDescription fmt = {
@@ -68,25 +122,40 @@ void platform_ar_init(int channels, int sample_rate) {
 
     UInt32 buf_sz = (UInt32)(sample_rate / 1000 * 120 * channels * 2);
     pthread_mutex_lock(&g_ca_mu);
-    g_ca_free_cnt = 0;
-    g_ca_started  = 0;
+    g_ca_free_cnt    = 0;
+    g_ca_started     = 0;
+    g_ca_drop_count    = 0;
+    g_ca_restart_count = 0;
+    g_ca_frame_count   = 0;
+    g_ca_stats_start   = 0.0;
+    g_ca_was_dropping  = 0;
     for (int i = 0; i < CA_NUM_BUFFERS; i++) {
         if (AudioQueueAllocateBuffer(g_ca_queue, buf_sz, &g_ca_free[i]) == noErr)
             g_ca_free[g_ca_free_cnt++] = g_ca_free[i];
     }
     pthread_mutex_unlock(&g_ca_mu);
+    // Restart queue automatically on any stop (underrun, OS interruption, etc.)
+    AudioQueueAddPropertyListener(g_ca_queue, kAudioQueueProperty_IsRunning, ca_running_listener, NULL);
     // AudioQueueStart is deferred to the first platform_ar_decode call so the
     // queue isn't started empty (it would stall before audio frames arrive).
 }
 
 void platform_ar_cleanup(void) {
     if (!g_ca_queue) return;
+    char msg[128];
+    snprintf(msg, sizeof(msg), "CoreAudio: AudioQueue disposing (restarts=%llu drops=%llu)",
+             (unsigned long long)g_ca_restart_count, (unsigned long long)g_ca_drop_count);
+    goVTLog(msg);
     AudioQueueStop(g_ca_queue, true);
     AudioQueueDispose(g_ca_queue, true);
-    g_ca_queue    = NULL;
-    g_ca_free_cnt = 0;
-    g_ca_started  = 0;
-    goVTLog((char*)"CoreAudio: AudioQueue disposed");
+    g_ca_queue         = NULL;
+    g_ca_free_cnt      = 0;
+    g_ca_started       = 0;
+    g_ca_drop_count    = 0;
+    g_ca_restart_count = 0;
+    g_ca_frame_count   = 0;
+    g_ca_stats_start   = 0.0;
+    g_ca_was_dropping  = 0;
 }
 
 void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
@@ -95,21 +164,66 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     pthread_mutex_lock(&g_ca_mu);
     AudioQueueBufferRef buf = (g_ca_free_cnt > 0) ? g_ca_free[--g_ca_free_cnt] : NULL;
     pthread_mutex_unlock(&g_ca_mu);
-    if (!buf) return;
+    if (!buf) {
+        g_ca_drop_count++;
+        g_ca_was_dropping = 1;
+        return;
+    }
     if (byte_count <= (int)buf->mAudioDataBytesCapacity) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
         AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
-        // Start lazily on first frame; also restart if queue stalled (ran dry).
-        UInt32 running = 0, propSz = sizeof(running);
-        if (AudioQueueGetProperty(g_ca_queue, kAudioQueueProperty_IsRunning, &running, &propSz) == noErr && !running) {
+        g_ca_frame_count++;
+        // Lazy start on first frame; property listener handles restarts after that.
+        if (!g_ca_started) {
+            g_ca_started = 1;
+            g_ca_stats_start = mono_sec();
             AudioQueueStart(g_ca_queue, NULL);
-            if (!g_ca_started) {
-                g_ca_started = 1;
-                goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
+            ca_log_device();
+            goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
+        } else if (g_ca_was_dropping) {
+            // Drop burst just ended — the queue drained while we were dropping.
+            // IsRunning stays 1 on macOS even when the queue plays silence after
+            // exhausting all buffers, so we must force stop+restart to get a fresh
+            // hardware timeline. Without this the queue plays silence indefinitely.
+            g_ca_was_dropping = 0;
+            g_ca_restart_count++;
+            char rmsg[160];
+            snprintf(rmsg, sizeof(rmsg),
+                "CoreAudio: drop burst ended (total_drops=%llu), forcing restart",
+                (unsigned long long)g_ca_drop_count);
+            goVTLog(rmsg);
+            ca_log_device();
+            AudioQueueStop(g_ca_queue, true);  // synchronous: wait for current buf
+            AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline
+        }
+        // Periodic audio health log every 5 seconds.
+        {
+            double now = mono_sec();
+            if (g_ca_stats_start > 0.0 && (now - g_ca_stats_start) >= 5.0) {
+                pthread_mutex_lock(&g_ca_mu);
+                int free_cnt = g_ca_free_cnt;
+                pthread_mutex_unlock(&g_ca_mu);
+                UInt32 running = 0, propSz2 = sizeof(running);
+                AudioQueueGetProperty(g_ca_queue, kAudioQueueProperty_IsRunning, &running, &propSz2);
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "CoreAudio: frames=%llu drops=%llu restarts=%llu free=%d/%d "
+                    "running=%u muted=%d plc=%llu opus_err=%llu",
+                    (unsigned long long)g_ca_frame_count,
+                    (unsigned long long)g_ca_drop_count,
+                    (unsigned long long)g_ca_restart_count,
+                    free_cnt, CA_NUM_BUFFERS,
+                    (unsigned)running,
+                    g_audio_muted,
+                    (unsigned long long)g_ar_plc_count,
+                    (unsigned long long)g_ar_err_count);
+                goVTLog(msg);
+                g_ca_stats_start = now;
             }
         }
     } else {
+        g_ca_drop_count++;
         pthread_mutex_lock(&g_ca_mu);
         if (g_ca_free_cnt < CA_NUM_BUFFERS) g_ca_free[g_ca_free_cnt++] = buf;
         pthread_mutex_unlock(&g_ca_mu);
@@ -140,12 +254,6 @@ void platform_set_video_format(int videoFormat) {
 static uint64_t g_vt_fps_frames = 0;
 static double   g_vt_fps_start  = 0.0;
 
-static double vt_mono_sec(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-}
-
 // Pre-allocated RGBA conversion buffer — avoids per-frame malloc.
 // Reallocated only on resolution changes; VT callbacks are serialised by VT's queue.
 static uint8_t *g_vt_rgba_buf      = NULL;
@@ -174,7 +282,7 @@ static void vt_callback(
 
     // ── VT FPS counter (runs before routing so it always counts) ─────────────
     {
-        double now = vt_mono_sec();
+        double now = mono_sec();
         if (g_vt_fps_start == 0.0) g_vt_fps_start = now;
         g_vt_fps_frames++;
         double elapsed = now - g_vt_fps_start;
