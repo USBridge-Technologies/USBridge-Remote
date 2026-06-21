@@ -18,6 +18,7 @@ package service
 #include <jni.h>
 #include <Limelight.h>
 #include <opus_multistream.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -220,7 +221,12 @@ static void dr_cleanup(void) {
 
 static void cl_connected(void)    { goMoonlightConnected(); }
 static void cl_terminated(int ec) { goMoonlightTerminated(ec); }
-static void cl_log(const char *fmt, ...) { (void)fmt; }
+static void cl_log(const char *fmt, ...) {
+    char buf[256];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    int n = (int)strlen(buf); if (n > 0 && buf[n-1] == '\n') buf[n-1] = '\0';
+    if (buf[0]) ALOGI("[Moonlight] %s", buf);
+}
 
 int do_li_start(const char *address, const char *appV, const char *gfeV, const char *rtsp,
                 int codec, int videoFmt, int w, int h, int fps, int bit,

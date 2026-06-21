@@ -11,6 +11,7 @@ package service
 
 #define COBJMACROS
 #define INITGUID
+#include <stdarg.h>
 #include <windows.h>
 #include <mfapi.h>
 #include <mmdeviceapi.h>
@@ -58,7 +59,12 @@ static void cl_stage_complete(int s)       { goMoonlightStage(s,  1, 0); }
 static void cl_stage_failed(int s, int ec) { goMoonlightStage(s, -1, ec); }
 static void cl_connected(void)             { goMoonlightConnected(); }
 static void cl_terminated(int ec)          { goMoonlightTerminated(ec); }
-static void cl_log(const char *fmt, ...)   { (void)fmt; }
+static void cl_log(const char *fmt, ...) {
+    char buf[256];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    int n = (int)strlen(buf); if (n > 0 && buf[n-1] == '\n') buf[n-1] = '\0';
+    if (buf[0]) goVTLog(buf);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // WASAPI audio output
