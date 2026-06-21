@@ -35,11 +35,12 @@ extern int metal_video_try_submit(CVImageBufferRef img);
 // CoreAudio AudioQueue — platform audio implementation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#define CA_NUM_BUFFERS 4
+#define CA_NUM_BUFFERS 16
 
 static AudioQueueRef        g_ca_queue    = NULL;
 static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];
 static int                  g_ca_free_cnt = 0;
+static int                  g_ca_started  = 0;
 static pthread_mutex_t      g_ca_mu       = PTHREAD_MUTEX_INITIALIZER;
 
 static void ca_callback(void *userData, AudioQueueRef aq, AudioQueueBufferRef buf) {
@@ -68,13 +69,14 @@ void platform_ar_init(int channels, int sample_rate) {
     UInt32 buf_sz = (UInt32)(sample_rate / 1000 * 120 * channels * 2);
     pthread_mutex_lock(&g_ca_mu);
     g_ca_free_cnt = 0;
+    g_ca_started  = 0;
     for (int i = 0; i < CA_NUM_BUFFERS; i++) {
         if (AudioQueueAllocateBuffer(g_ca_queue, buf_sz, &g_ca_free[i]) == noErr)
             g_ca_free[g_ca_free_cnt++] = g_ca_free[i];
     }
     pthread_mutex_unlock(&g_ca_mu);
-    AudioQueueStart(g_ca_queue, NULL);
-    goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
+    // AudioQueueStart is deferred to the first platform_ar_decode call so the
+    // queue isn't started empty (it would stall before audio frames arrive).
 }
 
 void platform_ar_cleanup(void) {
@@ -83,6 +85,7 @@ void platform_ar_cleanup(void) {
     AudioQueueDispose(g_ca_queue, true);
     g_ca_queue    = NULL;
     g_ca_free_cnt = 0;
+    g_ca_started  = 0;
     goVTLog((char*)"CoreAudio: AudioQueue disposed");
 }
 
@@ -97,6 +100,15 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
         AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
+        // Start lazily on first frame; also restart if queue stalled (ran dry).
+        UInt32 running = 0, propSz = sizeof(running);
+        if (AudioQueueGetProperty(g_ca_queue, kAudioQueueProperty_IsRunning, &running, &propSz) == noErr && !running) {
+            AudioQueueStart(g_ca_queue, NULL);
+            if (!g_ca_started) {
+                g_ca_started = 1;
+                goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
+            }
+        }
     } else {
         pthread_mutex_lock(&g_ca_mu);
         if (g_ca_free_cnt < CA_NUM_BUFFERS) g_ca_free[g_ca_free_cnt++] = buf;
