@@ -24,7 +24,11 @@ static NSView  *g_view   = nil;
 static CALayer *g_layer  = nil;
 
 static volatile atomic_int g_active           = 0;
-static volatile atomic_int g_pending_dispatch = 0;
+
+// Display link — drives rendering at the display refresh rate, decoupled from VT decode timing.
+// CADisplayLink (macOS 14+) fires on the main thread directly; no extra dispatch needed.
+// Stored as id to avoid pulling in CoreVideo/CVDisplayLink headers here.
+static CADisplayLink *g_display_link = nil;
 
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pendingBuf = NULL;
@@ -47,25 +51,16 @@ static double mono_sec(void) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Render — called on main thread; takes ownership of one pending frame.
+// Render — called on main thread; OWNS buf and always releases it.
 // ─────────────────────────────────────────────────────────────────────────────
-static void metal_render_main(void) {
-    if (!atomic_load(&g_active) || !g_layer) return;
-
-    pthread_mutex_lock(&g_mu);
-    CVPixelBufferRef buf = g_pendingBuf;
-    g_pendingBuf = NULL;
-    pthread_mutex_unlock(&g_mu);
-
-    if (!buf) return;
+static void metal_render_main_with_buf(CVPixelBufferRef buf) {
+    if (!atomic_load(&g_active) || !g_layer) {
+        CVPixelBufferRelease(buf);
+        return;
+    }
 
     int w = (int)CVPixelBufferGetWidth(buf);
     int h = (int)CVPixelBufferGetHeight(buf);
-
-    // Save a retained copy for the pause snapshot (one frame, cheap retain).
-    CVPixelBufferRetain(buf);
-    if (g_lastRenderedBuf) CVPixelBufferRelease(g_lastRenderedBuf);
-    g_lastRenderedBuf = buf;
 
     // IOSurface path: CALayer compositor reads GPU memory directly — zero CPU copy.
     IOSurfaceRef surf = CVPixelBufferGetIOSurface(buf);
@@ -75,6 +70,14 @@ static void metal_render_main(void) {
         g_layer.contents = (__bridge id)surf;
         [CATransaction commit];
     }
+
+    // Save a retained copy for the pause snapshot (cheap retain; releases old).
+    CVPixelBufferRetain(buf);
+    CVPixelBufferRef old_last = g_lastRenderedBuf;
+    g_lastRenderedBuf = buf;
+    if (old_last) CVPixelBufferRelease(old_last);
+
+    // Release the caller's ref (g_lastRenderedBuf holds its own).
     CVPixelBufferRelease(buf);
 
     // ── Logging ──────────────────────────────────────────────────────────────
@@ -118,6 +121,26 @@ static void metal_render_main(void) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CADisplayLink target — fires on the main thread at the display refresh rate.
+// Drains g_pendingBuf and renders directly; no extra dispatch needed.
+// ─────────────────────────────────────────────────────────────────────────────
+@interface MetalDisplayLinkTarget : NSObject
+- (void)displayLinkFired:(CADisplayLink *)link;
+@end
+@implementation MetalDisplayLinkTarget
+- (void)displayLinkFired:(CADisplayLink __unused *)link {
+    if (!atomic_load(&g_active)) return;
+    pthread_mutex_lock(&g_mu);
+    CVPixelBufferRef buf = g_pendingBuf;
+    g_pendingBuf = NULL;
+    pthread_mutex_unlock(&g_mu);
+    if (!buf) return;
+    metal_render_main_with_buf(buf); // already on main thread
+}
+@end
+static MetalDisplayLinkTarget *g_dl_target = nil;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public C API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -152,13 +175,7 @@ int metal_video_try_submit(CVImageBufferRef img) {
     pthread_mutex_unlock(&g_mu);
 
     if (old) CVPixelBufferRelease(old);
-
-    if (atomic_exchange(&g_pending_dispatch, 1) == 0) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            atomic_store(&g_pending_dispatch, 0);
-            metal_render_main();
-        });
-    }
+    // CVDisplayLink drains g_pendingBuf at the display refresh rate — no dispatch here.
     return 1;
 }
 
@@ -299,6 +316,16 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         if (old) CVPixelBufferRelease(old);
 
         atomic_store(&g_active, 1);
+
+        // Start a CADisplayLink that fires on the main thread at the display refresh
+        // rate (60/120 Hz). This decouples rendering from VT decode timing and gives
+        // vsync-aligned frames regardless of network or decode jitter.
+        if (!g_dl_target) g_dl_target = [MetalDisplayLinkTarget new];
+        g_display_link = [ov displayLinkWithTarget:g_dl_target
+                                          selector:@selector(displayLinkFired:)];
+        [g_display_link addToRunLoop:[NSRunLoop mainRunLoop]
+                             forMode:NSRunLoopCommonModes];
+
         ok = 1;
 
         char msg[192];
@@ -384,6 +411,14 @@ void metal_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
     g_fullWindow = 0;
+
+    // Invalidate the display link before teardown so no more callbacks fire.
+    // -invalidate is safe from any thread and is idempotent.
+    if (g_display_link) {
+        [g_display_link invalidate];
+        g_display_link = nil;
+    }
+
     // Flush the mouse event queue so the polling goroutine stops seeing stale events.
     pthread_mutex_lock(&g_meq_mu);
     g_meq_head = g_meq_tail = 0;
