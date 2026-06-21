@@ -231,6 +231,9 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		if request.VideoMode != "" {
 			vw.videoClient.SetVideoMode(request.VideoMode)
 		}
+		if request.VideoFPS > 0 {
+			vw.videoClient.SetFPS(request.VideoFPS)
+		}
 	}
 
 	// Run HID auto-connect in parallel with Moonlight stream setup — independent subsystems.

@@ -29,6 +29,7 @@ type VideoClient interface {
 
 	SetVideoMode(mode string)
 	SetExpectedVideoSize(width, height int)
+	SetFPS(fps int)
 
 	SupportsNativeFullscreen() bool
 	IsNativeFullscreenActive() bool
