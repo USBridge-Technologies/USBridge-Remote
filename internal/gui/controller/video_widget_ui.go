@@ -187,9 +187,35 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 				// Preserve current status (width/height/fps/streaming) but inject capture modes
 				lastInfo.CaptureModes = fallback.CaptureModes
 				lastInfo.SupportedModes = fallback.SupportedModes
-				return lastInfo
+			} else {
+				lastInfo = fallback
 			}
-			return fallback
+		}
+	}
+
+	// Ensure the server's current streaming resolution is present in CaptureModes so
+	// the dialog can pre-select it. For Sunshine the V4L2 fallback modes often only
+	// go up to 720p while Sunshine itself streams 1080p or higher.
+	if lastInfo != nil && lastInfo.Width > 0 && lastInfo.Height > 0 {
+		found := false
+		for _, cm := range lastInfo.CaptureModes {
+			if cm.Width == lastInfo.Width && cm.Height == lastInfo.Height {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fps := lastInfo.FPS
+			if fps <= 0 {
+				fps = 30
+			}
+			lastInfo.CaptureModes = append(lastInfo.CaptureModes, models.VideoCaptureMode{
+				Width:       lastInfo.Width,
+				Height:      lastInfo.Height,
+				FPS:         []int{fps},
+				PixelFormat: "MJPG",
+			})
+			logrus.Infof("ℹ️ Injected current resolution %dx%d@%dfps into capture modes for dialog pre-selection", lastInfo.Width, lastInfo.Height, fps)
 		}
 	}
 

@@ -197,11 +197,13 @@ static int dr_submit(PDECODE_UNIT du) {
         uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
         if (rgba) {
             if (android_vk_is_active()) {
-                // Vulkan overlay: present directly to SurfaceView, skip Fyne canvas.
+                // Vulkan overlay: present directly to SurfaceView.
                 android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
-            } else {
-                goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
             }
+            // Always notify Go for frame counting and FPS stats. goVTFrame detects
+            // NativeVideoOverlayIsActive() and delivers nil to the callback so no
+            // Go image allocation happens while Vulkan is rendering.
+            goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
         }
     }
     return DR_OK;

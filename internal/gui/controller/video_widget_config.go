@@ -449,36 +449,43 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 		cfg.DeviceName = device.Name
 
 		info := vw.fetchVideoInfoForStartDialog(device.Path)
-		if info != nil && info.Device == device.Path {
+		isDisplayDevice := strings.HasPrefix(device.Path, "display:")
+		// For display/Sunshine devices the server's "device" label may not exactly
+		// match the client path string (e.g. "display:0" vs a derived label), so we
+		// skip the device-match guard and always apply the server's current params.
+		if info != nil && (info.Device == device.Path || isDisplayDevice) {
 			cfg = mergeVideoConfigWithInfo(cfg, info)
-		} else if strings.HasPrefix(device.Path, "display:") {
-			// Try to parse resolution from name like "Display 0 (1920x1080)"
-			w, h := 1920, 1080
-			re := regexp.MustCompile(`\((\d+)x(\d+)\)`)
-			matches := re.FindStringSubmatch(device.Name)
-			if len(matches) == 3 {
-				if parsedW, err := strconv.Atoi(matches[1]); err == nil {
-					w = parsedW
+		}
+		if isDisplayDevice {
+			// Parse resolution from display name like "Display 0 (1920x1080)" as a
+			// fallback for when the server returned zero dimensions.
+			if cfg.VideoWidth <= 0 || cfg.VideoHeight <= 0 {
+				w, h := 1920, 1080
+				re := regexp.MustCompile(`\((\d+)x(\d+)\)`)
+				matches := re.FindStringSubmatch(device.Name)
+				if len(matches) == 3 {
+					if parsedW, err := strconv.Atoi(matches[1]); err == nil {
+						w = parsedW
+					}
+					if parsedH, err := strconv.Atoi(matches[2]); err == nil {
+						h = parsedH
+					}
 				}
-				if parsedH, err := strconv.Atoi(matches[2]); err == nil {
-					h = parsedH
-				}
+				cfg.VideoWidth = w
+				cfg.VideoHeight = h
 			}
-
+			if cfg.VideoFPS <= 0 {
+				cfg.VideoFPS = 30
+			}
 			if info == nil {
 				info = &models.VideoInfoData{
 					VideoStatus: models.VideoStatus{
 						Device: device.Path,
-						Width:  w,
-						Height: h,
-						FPS:    30,
+						Width:  cfg.VideoWidth,
+						Height: cfg.VideoHeight,
+						FPS:    cfg.VideoFPS,
 					},
 				}
-			}
-			// Update cfg if it was default
-			if cfg.VideoWidth <= 0 || cfg.VideoHeight <= 0 {
-				cfg.VideoWidth = w
-				cfg.VideoHeight = h
 			}
 		}
 
