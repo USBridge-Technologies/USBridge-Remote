@@ -457,6 +457,11 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 		return
 	}
 	vkWinFullscreenWin = fsWindow
+	// Prevent MouseDown from calling window.RequestFocus() (→ SetForegroundWindow),
+	// which would promote the Fyne TOPMOST window above the Vulkan TOPMOST overlay.
+	if vw.fullscreenDialog != nil && vw.fullscreenDialog.touchpadWrapper != nil {
+		vw.fullscreenDialog.touchpadWrapper.SetSkipWindowFocus(true)
+	}
 	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
@@ -465,6 +470,10 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
 	vkWinFullscreenWin = nil
+	// Restore normal focus behaviour on the main-window touchpad wrapper.
+	if vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.SetSkipWindowFocus(false)
+	}
 	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()

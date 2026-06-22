@@ -52,6 +52,10 @@ type TouchpadWrapper struct {
 	onKeyUp           func(*fyne.KeyEvent)
 	onKeyPress        func(*fyne.KeyEvent)
 	onRunePress       func(rune)
+
+	// skipWindowFocus: when set, requestFocus skips window.RequestFocus() to avoid
+	// disrupting the Win32 z-order when a native overlay (Vulkan) is the topmost window.
+	skipWindowFocus atomic.Bool
 }
 
 // NewTouchpadWrapper создает обертку для тачпада
@@ -136,6 +140,13 @@ func (t *TouchpadWrapper) SetWindowForFocus(w fyne.Window) {
 
 func (t *TouchpadWrapper) SetWindowFocusTarget(target fyne.Focusable) {
 	t.windowFocusTarget = target
+}
+
+// SetSkipWindowFocus controls whether requestFocus skips window.RequestFocus().
+// Set to true when a native overlay owns the z-order (e.g. Vulkan fullscreen on Windows)
+// so that MouseDown events don't trigger SetForegroundWindow and disrupt z-order.
+func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
+	t.skipWindowFocus.Store(skip)
 }
 
 // FocusGained реализация fyne.Focusable
@@ -1091,7 +1102,12 @@ func (t *TouchpadWrapper) requestFocus() {
 	if t.windowFocusTarget != nil {
 		target = t.windowFocusTarget
 	}
-	t.window.RequestFocus()
+	// Skip window.RequestFocus() when a native overlay owns the z-order — calling
+	// SetForegroundWindow via GLFW would promote the Fyne TOPMOST window above the
+	// Vulkan TOPMOST overlay. Canvas focus is still updated for Fyne's internal state.
+	if !t.skipWindowFocus.Load() {
+		t.window.RequestFocus()
+	}
 	t.window.Canvas().Focus(target)
 }
 
