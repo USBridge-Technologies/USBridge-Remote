@@ -1075,12 +1075,12 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	bottom := detectDarkInset(frame, bounds, false, false)
 
 	// Разрешаем crop только если рамка симметрична (±2px) и не слишком мала
-	// (шум) и не занимает больше 40% стороны (защита от полностью тёмного кадра).
-	// Реальные letterbox/pillarbox рамки — обычно 5–25% стороны и строго симметричны.
+	// (шум) и не занимает больше 48% стороны (защита от полностью тёмного кадра).
+	// Реальные letterbox/pillarbox рамки — обычно 5–45% стороны и строго симметричны.
 	const minMeaningfulCropInsetPx = 2
 	const maxCropAsymmetryPx = 2
-	maxHInset := frameW * 2 / 5
-	maxVInset := frameH * 2 / 5
+	maxHInset := frameW * 12 / 25 // 48%
+	maxVInset := frameH * 12 / 25 // 48%
 	if left > maxHInset || right > maxHInset || left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {
 		left, right = 0, 0
 	}
