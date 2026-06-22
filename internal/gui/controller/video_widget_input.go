@@ -1075,13 +1075,22 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	// defaults to touchpadSizeW, and display-level letterbox bars are never subtracted
 	// from absolute mouse coordinates. Sync the real frame dimensions here — where we
 	// always have the actual decoded frame — and recalculate the viewport if they changed.
+	// Use activeViewportWrapper so we always call UpdateTouchpadAndContentRect with
+	// the actual current size of whichever wrapper is active (fullscreen or main).
 	newFW, newFH := float32(frameW), float32(frameH)
 	fyne.Do(func() {
 		if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
 			vw.lastVideoImgW = newFW
 			vw.lastVideoImgH = newFH
-			if vw.touchpadSizeW > 0 && vw.touchpadSizeH > 0 {
-				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			if tw := vw.activeViewportWrapper(); tw != nil {
+				sz := tw.Size()
+				if sz.Width > 0 && sz.Height > 0 {
+					var frame image.Image
+					if tw.image != nil {
+						frame = tw.image.Image
+					}
+					vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, frame)
+				}
 			}
 		}
 	})
@@ -1130,9 +1139,9 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 }
 
 func detectDarkInset(img image.Image, bounds image.Rectangle, vertical bool, fromStart bool) int {
-	limit := bounds.Dx() / 3
+	limit := bounds.Dx() * 12 / 25 // 48% — matches maxHInset/maxVInset check in updateFrameContentRect
 	if !vertical {
-		limit = bounds.Dy() / 3
+		limit = bounds.Dy() * 12 / 25
 	}
 	if limit < 0 {
 		limit = 0
