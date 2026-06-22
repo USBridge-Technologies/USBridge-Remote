@@ -16,7 +16,7 @@ func main() {
 	// Prepend lib\ to PATH so the Windows PE loader finds all runtime DLLs.
 	os.Setenv("PATH", filepath.Join(dir, "lib")+";"+os.Getenv("PATH"))
 
-	cmd := exec.Command(filepath.Join(dir, "USBridge_Client_app.exe"), os.Args[1:]...)
+	cmd := exec.Command(filepath.Join(dir, "bin", "USBridge_Client_app.exe"), os.Args[1:]...)
 	cmd.Env = os.Environ()
 	cmd.Start() //nolint:errcheck // launcher exits immediately; app runs independently
 }

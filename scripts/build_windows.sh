@@ -33,6 +33,7 @@ fi
 OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
 DIST_WIN_DLLS="$DIST_WIN/lib"
+DIST_WIN_BIN="$DIST_WIN/bin"
 APP_EXE_NAME="USBridge_Client_app.exe"
 LAUNCHER_EXE_NAME="USBridge_Client.exe"
 BUILD_CACHE_ROOT="$REPO_ROOT/.cache/build/windows-amd64"
@@ -413,55 +414,45 @@ else
     echo -e "${GREEN}✓${NC} Используем готовый app exe из кэша: $BUILD_CACHE_APP_EXE"
 fi
 
-# 5b. Лаунчер (чистый Go, добавляет lib\ в PATH и запускает основной exe)
-#     fyne package встраивает иконку — именно этот exe видит пользователь
+# 5b. Лаунчер (чистый Go, встраиваем иконку через go-winres → .syso → go build)
 echo -e "${YELLOW}🧱 Сборка лаунчера с иконкой...${NC}"
-FYNE_CC="x86_64-w64-mingw32-gcc"
-FYNE_CXX="x86_64-w64-mingw32-g++"
-FYNE_PKG_CONFIG="${PKG_CONFIG:-x86_64-w64-mingw32-pkg-config}"
-LAUNCHER_PACKAGE_STAMP="$BUILD_CACHE_DIR/.fyne-launcher-package.stamp"
+LAUNCHER_SYSO="$REPO_ROOT/cmd/launcher/rsrc_windows_amd64.syso"
 
-# Raw launcher binary (pure Go, no CGo needed)
-go build -trimpath -ldflags="-H=windowsgui" \
-    -o "$BUILD_CACHE_LAUNCHER_RAW" \
-    "$REPO_ROOT/cmd/launcher"
-echo -e "${GREEN}✓${NC} Launcher raw binary: $BUILD_CACHE_LAUNCHER_RAW"
-
-# Wrap launcher with icon via fyne package (run from cmd/launcher so fyne finds the package)
-touch "$LAUNCHER_PACKAGE_STAMP"
-rm -f "$REPO_ROOT/cmd/launcher/USBridge_Client.exe" \
-      "$REPO_ROOT/cmd/launcher/USBridge Client.exe"
-cd "$REPO_ROOT/cmd/launcher"
-echo "--- Вывод fyne package (launcher) ---"
-if env \
-    CC="$FYNE_CC" \
-    CXX="$FYNE_CXX" \
-    PKG_CONFIG="$FYNE_PKG_CONFIG" \
-    CGO_ENABLED=1 \
-    "$FYNE_BIN" package \
-    --target windows \
-    --executable "$BUILD_CACHE_LAUNCHER_RAW" \
-    --app-id "com.usbridge.client" \
-    --name "USBridge Client" \
-    --app-version "1.0.0" \
-    --icon "$ICON_PATH" \
-    --release 2>&1; then
-    # Pick up the packaged launcher (fyne names it after --name)
-    for n in "USBridge_Client.exe" "USBridge Client.exe"; do
-        if [ -f "$n" ] && [ "$n" -nt "$LAUNCHER_PACKAGE_STAMP" ]; then
-            mv "$REPO_ROOT/cmd/launcher/$n" "$BUILD_CACHE_LAUNCHER_EXE"
-            echo -e "${GREEN}✓${NC} Launcher с иконкой: $BUILD_CACHE_LAUNCHER_EXE"
-            break
-        fi
+# Найти или установить go-winres (встраивает иконку без ImageMagick и fyne)
+GOWINRES_BIN=""
+for _n in go-winres go-winres.exe; do
+    if command -v "$_n" &>/dev/null; then GOWINRES_BIN="$_n"; break; fi
+    if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
+done
+if [ -z "$GOWINRES_BIN" ]; then
+    echo -e "${YELLOW}⚠${NC} go-winres не найден, устанавливаю..."
+    GOOS="" GOARCH="" go install github.com/tc-hib/go-winres/cmd/go-winres@latest
+    for _n in go-winres go-winres.exe; do
+        if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
     done
 fi
-echo "--- Конец вывода fyne (launcher) ---"
 
-# Fallback: если fyne package не создал launcher, используем raw binary
-if [ ! -f "$BUILD_CACHE_LAUNCHER_EXE" ] || [ "$BUILD_CACHE_LAUNCHER_EXE" -ot "$BUILD_CACHE_LAUNCHER_RAW" ]; then
-    echo -e "${YELLOW}⚠${NC} fyne package не создал launcher exe, используем raw binary (без иконки)"
-    cp "$BUILD_CACHE_LAUNCHER_RAW" "$BUILD_CACHE_LAUNCHER_EXE"
+ICON_EMBEDDED=0
+if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
+    # go-winres simply генерирует rsrc_windows_amd64.syso прямо из PNG
+    rm -f "$LAUNCHER_SYSO"
+    if (cd "$REPO_ROOT/cmd/launcher" && \
+        GOOS=windows GOARCH=amd64 \
+        "$GOWINRES_BIN" simply --icon "$ICON_PATH" 2>&1); then
+        if [ -f "$LAUNCHER_SYSO" ]; then
+            ICON_EMBEDDED=1
+            echo -e "${GREEN}✓${NC} Иконка встроена через go-winres: $LAUNCHER_SYSO"
+        fi
+    fi
 fi
+[ "$ICON_EMBEDDED" = "0" ] && echo -e "${YELLOW}⚠${NC} go-winres недоступен — лаунчер будет без иконки"
+
+# Собираем лаунчер обычным go build (.syso подхватывается автоматически)
+go build -trimpath -ldflags="-H=windowsgui" \
+    -o "$BUILD_CACHE_LAUNCHER_EXE" \
+    "$REPO_ROOT/cmd/launcher"
+rm -f "$LAUNCHER_SYSO"   # убираем из дерева исходников после сборки
+echo -e "${GREEN}✓${NC} Launcher: $BUILD_CACHE_LAUNCHER_EXE"
 
 cd "$REPO_ROOT/cmd"
 
@@ -557,10 +548,10 @@ if [ "$cleanup_failed" != "0" ]; then
     exit 1
 fi
 rm -f "$cleanup_err"
-mkdir -p "$DIST_WIN_DLLS"
+mkdir -p "$DIST_WIN_DLLS" "$DIST_WIN_BIN"
 
-cp "$BUILD_CACHE_APP_EXE" "$DIST_WIN/$APP_EXE_NAME"
-echo -e "${GREEN}✓${NC} $APP_EXE_NAME (основное приложение)"
+cp "$BUILD_CACHE_APP_EXE" "$DIST_WIN_BIN/$APP_EXE_NAME"
+echo -e "${GREEN}✓${NC} bin/$APP_EXE_NAME (основное приложение)"
 cp "$BUILD_CACHE_LAUNCHER_EXE" "$DIST_WIN/$LAUNCHER_EXE_NAME"
 echo -e "${GREEN}✓${NC} $LAUNCHER_EXE_NAME (лаунчер с иконкой)"
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
@@ -932,7 +923,7 @@ if [ -n "$GST_ROOT" ]; then
         fi
 
         for tool in gst-launch-1.0.exe gst-inspect-1.0.exe; do
-            [ -f "$GST_ROOT/bin/$tool" ] && cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN/"
+            [ -f "$GST_ROOT/bin/$tool" ] && cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN_BIN/"
         done
         find "$DIST_WIN_DLLS/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
         printf "%s\n" "$CURRENT_GST_RUNTIME_STAMP" > "$GST_RUNTIME_STAMP_PATH"
@@ -966,8 +957,8 @@ if [ -n "$QEMU_BIN_DIR" ]; then
     QEMU_COPIED=0
     for _qtool in qemu-nbd.exe qemu-img.exe; do
         if [ -f "$QEMU_BIN_DIR/$_qtool" ]; then
-            cp -L "$QEMU_BIN_DIR/$_qtool" "$DIST_WIN/"
-            echo -e "   ${GREEN}✓${NC} $_qtool"
+            cp -L "$QEMU_BIN_DIR/$_qtool" "$DIST_WIN_BIN/"
+            echo -e "   ${GREEN}✓${NC} bin/$_qtool"
             QEMU_COPIED=$((QEMU_COPIED + 1))
         else
             echo -e "   ${YELLOW}⚠${NC} $_qtool не найден в $QEMU_BIN_DIR"
@@ -976,7 +967,7 @@ if [ -n "$QEMU_BIN_DIR" ]; then
     # Добавляем QEMU_BIN_DIR в пул поиска DLL для _walk_deps
     DLL_EXTRA_DIRS=("$QEMU_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
     # Обходим зависимости скопированных QEMU-бинарников (DLL идут в lib/)
-    mapfile -t _qemu_bins < <(find "$DIST_WIN" -maxdepth 1 \( -name "qemu-nbd.exe" -o -name "qemu-img.exe" \) 2>/dev/null)
+    mapfile -t _qemu_bins < <(find "$DIST_WIN_BIN" -maxdepth 1 \( -name "qemu-nbd.exe" -o -name "qemu-img.exe" \) 2>/dev/null)
     [ "${#_qemu_bins[@]}" -gt 0 ] && _walk_deps "$DIST_WIN_DLLS" "${_qemu_bins[@]}"
     echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано"
 else
@@ -988,9 +979,10 @@ fi
 # 7d. Финальный dep walk — обходим все зависимости exe и всех DLL, чтобы не пропустить ни одну транзитивную зависимость
 echo -e "\n${YELLOW}🔍 Финальная проверка зависимостей...${NC}"
 if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
-    # Начинаем с exe-файлов в корне и всех DLL в lib/
+    # Начинаем с exe-файлов в корне и bin/, всех DLL в lib/
     mapfile -t _initial_queue < <(
         find "$DIST_WIN" -maxdepth 1 -name "*.exe" 2>/dev/null
+        find "$DIST_WIN_BIN" -maxdepth 1 -name "*.exe" 2>/dev/null
         find "$DIST_WIN_DLLS" -maxdepth 1 -name "*.dll" 2>/dev/null
     )
     if [ "${#_initial_queue[@]}" -gt 0 ]; then
@@ -1034,10 +1026,12 @@ USBridge Client for Windows
 Double-click USBridge_Client.exe to launch.
 
 Folder structure:
-  USBridge_Client.exe        — запускаемый файл (лаунчер с иконкой)
-  USBridge_Client_app.exe    — основное приложение (запускается автоматически)
-  lib\                       — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
-  lib\gstreamer-1.0\         — GStreamer plugins (if bundled)
+  USBridge_Client.exe          — запускаемый файл (лаунчер с иконкой)
+  bin\USBridge_Client_app.exe  — основное приложение (запускается автоматически)
+  bin\qemu-nbd.exe             — QEMU NBD (для работы с VMDK/QCOW2/VDI образами)
+  bin\qemu-img.exe             — QEMU image tool
+  lib\                         — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
+  lib\gstreamer-1.0\           — GStreamer plugins (if bundled)
 
 Video modes:
   Moonlight streaming — libavcodec (D3D11VA hardware decode) + WASAPI audio.
