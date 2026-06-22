@@ -735,6 +735,26 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 				}
 			}
 		}
+		// On native GPU paths frames never reach updateFrameContentRect, so
+		// lastVideoImgW/H is never updated from actual frame dimensions.
+		// Sync from config at stream start and periodically so that display-level
+		// letterbox/pillarbox bars are correctly subtracted from mouse coordinates.
+		if frameNum <= 5 || frameNum%120 == 0 {
+			if vw.videoClient != nil {
+				if cfg := vw.videoClient.GetConfig(); cfg != nil && cfg.VideoWidth > 0 {
+					newFW, newFH := float32(cfg.VideoWidth), float32(cfg.VideoHeight)
+					fyne.Do(func() {
+						if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
+							vw.lastVideoImgW = newFW
+							vw.lastVideoImgH = newFH
+							if vw.touchpadSizeW > 0 && vw.touchpadSizeH > 0 {
+								vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+							}
+						}
+					})
+				}
+			}
+		}
 		return
 	}
 
