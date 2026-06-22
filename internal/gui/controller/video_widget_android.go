@@ -21,6 +21,14 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.VKVideoAndroidIsActive()
 }
 
+// getNativeFPS returns the real Vulkan render-thread FPS from the last 2-second window.
+func (vw *VideoWidget) getNativeFPS() float64 {
+	return service.VKVideoAndroidGetFPS()
+}
+
+// getMetalLastFrame is a no-op on Android (no Metal overlay).
+func (vw *VideoWidget) getMetalLastFrame() *image.RGBA { return nil }
+
 // keepNativeVideoAliveForFullscreenTransition reports true on Android because
 // the Vulkan SurfaceView overlay is attached to the Activity, not to a Fyne
 // window. Destroying and recreating it on each fullscreen toggle is wrong —

@@ -559,6 +559,12 @@ var vtFramePool sync.Pool
 func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
 	vtFrameCallbackMu.Lock(); cb := vtFrameCallback; vtFrameCallbackMu.Unlock()
 	if cb == nil { return }
+	// When Vulkan overlay is active the frame is already presented — skip the
+	// expensive 8 MB RGBA copy and just notify Go to increment frame counters.
+	if C.android_vk_is_active() != 0 {
+		cb(nil)
+		return
+	}
 	n := int(w) * int(h) * 4
 	// Reuse or allocate image buffer.
 	img, _ := vtFramePool.Get().(*image.RGBA)

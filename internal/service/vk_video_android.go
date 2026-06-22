@@ -23,6 +23,8 @@ extern void android_vk_set_align_bottom(int bottom);
 extern void android_vk_set_cursor(float uc, float vc, int visible);
 extern void android_vk_set_cursor_scale(int scale);
 extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
+extern void android_vk_get_stats(float *fps, int *fps_ready,
+                                  long long *rendered, long long *submitted);
 */
 import "C"
 
@@ -123,6 +125,18 @@ func VKVideoAndroidSetCursor(uc, vc float32, visible bool) {
 // integer pixel scale (1=18×24, 2=36×48, 3=54×72, 4=72×96 physical pixels).
 func VKVideoAndroidSetCursorScale(scale int) {
 	C.android_vk_set_cursor_scale(C.int(scale))
+}
+
+// VKVideoAndroidGetFPS returns the Vulkan render-thread FPS from the last 2-second
+// window, or 0 if not enough frames have been rendered yet.
+func VKVideoAndroidGetFPS() float64 {
+	var fps C.float
+	var ready C.int
+	C.android_vk_get_stats(&fps, &ready, nil, nil)
+	if ready == 0 {
+		return 0
+	}
+	return float64(fps)
 }
 
 // VKVideoAndroidSetCursorPixels uploads a pre-rendered RGBA cursor image.

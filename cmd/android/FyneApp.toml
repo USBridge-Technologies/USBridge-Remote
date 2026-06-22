@@ -3,4 +3,4 @@ Icon = "../../Icon.png"
 Name = "USBridge Client"
 ID = "com.usbridge.client"
 Version = "1.0.0"
-Build = 732
+Build = 733

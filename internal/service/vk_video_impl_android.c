@@ -166,6 +166,11 @@ static pthread_t       g_thread = 0;
 static int             g_pipe_r = -1, g_pipe_w = -1;
 
 static volatile long long g_submitted = 0, g_rendered = 0;
+// FPS tracking (same pattern as vk_video_impl_linux.c).
+static volatile long long g_fps_n      = 0;
+static volatile double    g_fps_t0     = 0.0;
+static volatile float     g_stat_fps   = 0.0f;
+static volatile int       g_stat_ready = 0;
 
 // ─── Viewport (zoom / pan) ────────────────────────────────────────────────────
 // UV range of the video frame that is currently visible.
@@ -822,6 +827,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     return 1;
 }
 
+static double mono_sec_vk(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
 // ─── render thread ────────────────────────────────────────────────────────────
 
 static void *vk_render_thread(void *unused) {
@@ -884,8 +895,17 @@ static void *vk_render_thread(void *unused) {
 
         if (vk_render_frame(frame_buf, fw, fh, fs)) {
             g_rendered++;
+            g_fps_n++;
+            double now = mono_sec_vk();
+            if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
+            if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
+                g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
+                g_stat_ready = 1;
+                g_fps_t0 = now; g_fps_n = 0;
+            }
             if (g_rendered % 300 == 0) {
-                VLOGI("rendered %lld frames, submitted %lld", (long long)g_rendered, (long long)g_submitted);
+                VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
+                      (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
             }
         }
     }
@@ -929,6 +949,7 @@ static void vk_full_cleanup(void) {
 
     if (g_buf) { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_ready = 0; g_rendered = 0; g_submitted = 0;
+    g_fps_n = 0; g_fps_t0 = 0.0; g_stat_fps = 0.0f; g_stat_ready = 0;
 }
 
 // ─── Public C API ─────────────────────────────────────────────────────────────
@@ -1239,6 +1260,17 @@ void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h) {
     g_cursor_nspans = nspans;
     atomic_store(&g_cursor_visible, was_visible);
     VLOGI("cursor pixels: %dx%d spans=%d buf=%u bytes", w, h, nspans, buf_off);
+}
+
+// android_vk_get_stats returns the Vulkan render-thread FPS (2-second window),
+// plus cumulative rendered/submitted frame counts. fps_ready is 1 once the
+// first 2-second window completes.
+void android_vk_get_stats(float *fps, int *fps_ready,
+                           long long *rendered, long long *submitted) {
+    if (fps)       *fps       = g_stat_fps;
+    if (fps_ready) *fps_ready = g_stat_ready;
+    if (rendered)  *rendered  = g_rendered;
+    if (submitted) *submitted = g_submitted;
 }
 
 #endif // __ANDROID__
