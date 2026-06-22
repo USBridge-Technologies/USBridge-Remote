@@ -426,7 +426,7 @@ for _n in go-winres go-winres.exe; do
 done
 if [ -z "$GOWINRES_BIN" ]; then
     echo -e "${YELLOW}⚠${NC} go-winres не найден, устанавливаю..."
-    GOOS="" GOARCH="" go install github.com/tc-hib/go-winres/cmd/go-winres@latest
+    GOOS="" GOARCH="" go install github.com/tc-hib/go-winres@latest
     for _n in go-winres go-winres.exe; do
         if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
     done
