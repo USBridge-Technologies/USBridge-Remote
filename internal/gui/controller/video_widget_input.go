@@ -1069,6 +1069,23 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 		return
 	}
 
+	// On native GPU render paths (Vulkan/Metal) the canvas image is cleared to nil,
+	// so the touchpad wrapper passes frame=nil to UpdateTouchpadAndContentRect on
+	// resize events. lastVideoImgW/H then stays at zero/stale, baseContentRectW
+	// defaults to touchpadSizeW, and display-level letterbox bars are never subtracted
+	// from absolute mouse coordinates. Sync the real frame dimensions here — where we
+	// always have the actual decoded frame — and recalculate the viewport if they changed.
+	newFW, newFH := float32(frameW), float32(frameH)
+	fyne.Do(func() {
+		if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
+			vw.lastVideoImgW = newFW
+			vw.lastVideoImgH = newFH
+			if vw.touchpadSizeW > 0 && vw.touchpadSizeH > 0 {
+				vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+			}
+		}
+	})
+
 	left := detectDarkInset(frame, bounds, true, true)
 	right := detectDarkInset(frame, bounds, true, false)
 	top := detectDarkInset(frame, bounds, false, true)
