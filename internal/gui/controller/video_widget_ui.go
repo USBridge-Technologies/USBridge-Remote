@@ -98,7 +98,15 @@ func (vw *VideoWidget) handleStartVideo() {
 		defaultHeight := 600
 		defaultFPS := 30
 		defaultBitrate := "2M"
-		if cfg := vw.videoClient.GetConfig(); cfg != nil {
+		// Prefer saved per-device config over generic Moonlight AppConfig defaults.
+		if preferredErr == nil && preferredConfig.VideoWidth > 0 {
+			defaultWidth = preferredConfig.VideoWidth
+			defaultHeight = preferredConfig.VideoHeight
+			defaultFPS = preferredConfig.VideoFPS
+			if preferredConfig.VideoBitrate != "" {
+				defaultBitrate = preferredConfig.VideoBitrate
+			}
+		} else if cfg := vw.videoClient.GetConfig(); cfg != nil {
 			if cfg.VideoWidth > 0 {
 				defaultWidth = cfg.VideoWidth
 			}
@@ -112,7 +120,10 @@ func (vw *VideoWidget) handleStartVideo() {
 				defaultBitrate = fmt.Sprintf("%dK", cfg.VideoBitrate)
 			}
 		}
-		if videoInfo != nil {
+		// Override with live server params only when the server is actively streaming.
+		// Without this guard the server's hard-coded config defaults (1280x720 @ 30fps)
+		// would silently overwrite the saved per-device preferences when not streaming.
+		if videoInfo != nil && videoInfo.Streaming {
 			if videoInfo.Width > 0 {
 				defaultWidth = videoInfo.Width
 			}

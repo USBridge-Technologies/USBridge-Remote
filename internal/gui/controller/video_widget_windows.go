@@ -25,9 +25,10 @@ import (
 // directly to TouchpadWrapper on the Fyne main goroutine — same pattern as
 // the Linux X11 implementation (video_widget_gl_linux.go).
 
-var vkWinMouseQuit     chan struct{}
-var vkWinFullscreenWin fyne.Window
+var vkWinMouseQuit        chan struct{}
+var vkWinFullscreenWin    fyne.Window
 var vkWinMouseCheckPending int32 // atomic
+var vkWinPressOnButton    bool  // suppress matching release when press hit a UI button
 
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
@@ -79,6 +80,20 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 }
 
 func (vw *VideoWidget) dispatchVKWinMouseEvent(typ int, x, y float32, button int) {
+	// Forward button-press clicks to Fyne UI buttons (keyboard/audio toggles) in fullscreen.
+	if vkWinFullscreenWin != nil && vw.fullscreenDialog != nil {
+		if typ == 2 { // press
+			if vw.fullscreenDialog.HandleUIClick(x, y) {
+				vkWinPressOnButton = true
+				return
+			}
+			vkWinPressOnButton = false
+		} else if typ == 3 && vkWinPressOnButton { // release matching a button press
+			vkWinPressOnButton = false
+			return
+		}
+	}
+
 	var tw *TouchpadWrapper
 	if vkWinFullscreenWin != nil && vw.fullscreenDialog != nil {
 		tw = vw.fullscreenDialog.touchpadWrapper

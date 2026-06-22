@@ -74,6 +74,7 @@ type DiskWidget struct {
 	apiMountInProgress    atomic.Bool
 	audioAutoStarted      atomic.Bool
 	audioConnectGen       atomic.Uint64 // incremented on every manual audio connect to cancel in-flight auto-start
+	pendingAudioPath      atomic.Value  // string: effective audio path while switch is in-flight; cleared after onAudioConnect returns
 	imagePickerInFlight   atomic.Bool
 	// pendingCombine guards the scheduleCombine debounce timer.
 	pendingCombine atomic.Bool
@@ -454,6 +455,10 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 	}
 	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
 	go func() {
+		// Set pending path before fyne.Do to close the race window where combineDrives
+		// could fire between the optimistic UI update and the pending path being set,
+		// causing the inference block to re-select UAC from stale server state.
+		dw.pendingAudioPath.Store(device.Path)
 		usbAudioWasMounted := false
 		fyne.Do(func() {
 			for i := range dw.allDrives {
@@ -477,12 +482,15 @@ func (dw *DiskWidget) setPreferredAudioDevice(device models.SystemDevice) {
 		if dw.onAudioConnect != nil {
 			dw.onAudioConnect(device.Path)
 		}
+		dw.pendingAudioPath.Store("")
 	}()
 }
 
 func (dw *DiskWidget) selectUSBAudio(mode string) {
 	dw.audioConnectGen.Add(1) // cancel any in-flight auto-start goroutine
 	go func() {
+		// Set pending path before fyne.Do to close the race window (same as setPreferredAudioDevice).
+		dw.pendingAudioPath.Store("uac")
 		fyne.Do(func() {
 			for i := range dw.allDrives {
 				if dw.allDrives[i].IsAudio && dw.allDrives[i].AudioDevice != nil {
@@ -508,6 +516,7 @@ func (dw *DiskWidget) selectUSBAudio(mode string) {
 		if dw.onAudioConnect != nil {
 			dw.onAudioConnect("uac")
 		}
+		dw.pendingAudioPath.Store("")
 	}()
 }
 
@@ -534,6 +543,14 @@ func (dw *DiskWidget) disconnectUSBAudioGadget() {
 			continue
 		}
 		keepRequests = append(keepRequests, *req)
+	}
+	if len(keepRequests) == 0 {
+		// No other gadget devices remain — stop the gadget entirely instead of
+		// sending {"devices":null} which the server rejects with 400.
+		if err := dw.usbClient.StopAllDevices(); err != nil {
+			logrus.Errorf("⚠️ [USB-AUDIO-DISC] Failed to stop USB gadget: %v", err)
+		}
+		return
 	}
 	if _, err := dw.startDevicesWithRetry(models.DeviceStartBatchRequest(keepRequests), false); err != nil {
 		logrus.Errorf("⚠️ [USB-AUDIO-DISC] Failed to disconnect USB audio gadget: %v", err)

@@ -694,6 +694,14 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		req := newGamepadStartRequest(drive.GamepadMode, drive.GamepadVendorID, drive.GamepadProductID)
 		return &req, nil
 	}
+	if drive.Source == "usbaudio" {
+		mode := drive.USBAudioMode
+		if mode == "" {
+			mode = "uac1"
+		}
+		req := models.DeviceStartRequest{Device: "usbaudio", Type: mode}
+		return &req, nil
+	}
 	if drive.Source == "api" && drive.LocalDrive != nil {
 		if drive.LocalDrive.SourceType == "mtp" {
 			return &models.DeviceStartRequest{

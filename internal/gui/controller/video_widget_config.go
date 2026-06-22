@@ -450,10 +450,10 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 
 		info := vw.fetchVideoInfoForStartDialog(device.Path)
 		isDisplayDevice := strings.HasPrefix(device.Path, "display:")
-		// For display/Sunshine devices the server's "device" label may not exactly
-		// match the client path string (e.g. "display:0" vs a derived label), so we
-		// skip the device-match guard and always apply the server's current params.
-		if info != nil && (info.Device == device.Path || isDisplayDevice) {
+		// Only merge server params into the dialog defaults when the server is actively
+		// streaming. When not streaming, the server returns its hard-coded config defaults
+		// (1280x720 @ 30fps) which would silently overwrite the client's saved preferences.
+		if info != nil && info.Streaming && (info.Device == device.Path || isDisplayDevice) {
 			cfg = mergeVideoConfigWithInfo(cfg, info)
 		}
 		if isDisplayDevice {

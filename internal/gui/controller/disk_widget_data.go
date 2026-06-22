@@ -563,12 +563,21 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	}
 
 	var currentAudioPath string
+	var currentAudioName string
 	audioStreaming := false
 	if dw.usbClient != nil {
 		if info, err := dw.usbClient.GetAudioInfo(); err == nil && info != nil {
 			currentAudioPath = info.DevicePath
+			currentAudioName = info.DeviceName
 			audioStreaming = info.Streaming
 		}
+	}
+	// While user's audio switch is in-flight the server may still report the old device.
+	// Use the pending path to keep the UI stable and prevent combineDrives from reverting
+	// the optimistic selection the user just made.
+	if pending, _ := dw.pendingAudioPath.Load().(string); pending != "" {
+		currentAudioPath = pending
+		audioStreaming = true
 	}
 
 	drives := dw.allDrives
@@ -588,8 +597,14 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		}
 
 		if drive.IsAudio {
-			if drive.AudioDevice != nil && audioStreaming && drive.AudioDevice.Path == currentAudioPath {
-				isMounted = true
+			if drive.AudioDevice != nil && audioStreaming {
+				// Match by ALSA path (canonical) OR by device name (fallback for older server
+				// binaries that stored the PulseAudio source name as device_path).
+				pathMatch := drive.AudioDevice.Path == currentAudioPath
+				nameMatch := currentAudioName != "" && drive.AudioDevice.Name == currentAudioName
+				if pathMatch || nameMatch {
+					isMounted = true
+				}
 			}
 			drive.IsMounted = isMounted
 			logrus.Debugf("🔊 %s (%s): %v -> %v", drive.Name, drive.Source, oldStatus, drive.IsMounted)
@@ -751,7 +766,11 @@ func (dw *DiskWidget) updateDevicesStatus() {
 		for _, d := range drives {
 			if d.IsAudio && d.AudioDevice != nil {
 				hasAudioDrives = true
-				if d.AudioDevice.Path == currentAudioPath {
+				// Match by ALSA path OR by device name (handles older server binaries
+				// that returned a PulseAudio source name as device_path).
+				pathMatch := d.AudioDevice.Path == currentAudioPath
+				nameMatch := currentAudioName != "" && d.AudioDevice.Name == currentAudioName
+				if pathMatch || nameMatch {
 					foundInAudioDrive = true
 					break
 				}

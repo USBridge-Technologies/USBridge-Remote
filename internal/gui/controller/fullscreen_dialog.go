@@ -462,3 +462,28 @@ func (fd *FullscreenDialog) SetAudioMuted(muted bool) {
 	fd.audioMuted = muted
 	fd.updateAudioButtonIcon()
 }
+
+// HandleUIClick checks if (x, y) in Fyne dp coords hits a fullscreen UI button.
+// If so, it triggers the button and returns true — caller should suppress the event.
+func (fd *FullscreenDialog) HandleUIClick(x, y float32) bool {
+	if fd.ui == nil {
+		return false
+	}
+	if btn := fd.ui.KeyboardButton; btn != nil {
+		pos := btn.Position()
+		sz := btn.Size()
+		if x >= pos.X && x <= pos.X+sz.Width && y >= pos.Y && y <= pos.Y+sz.Height {
+			btn.Tapped(&fyne.PointEvent{Position: fyne.NewPos(x-pos.X, y-pos.Y)})
+			return true
+		}
+	}
+	if btn := fd.ui.AudioButton; btn != nil {
+		pos := btn.Position()
+		sz := btn.Size()
+		if x >= pos.X && x <= pos.X+sz.Width && y >= pos.Y && y <= pos.Y+sz.Height {
+			btn.Tapped(&fyne.PointEvent{Position: fyne.NewPos(x-pos.X, y-pos.Y)})
+			return true
+		}
+	}
+	return false
+}

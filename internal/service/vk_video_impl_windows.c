@@ -97,7 +97,8 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     // RIDEV_INPUTSINK delivers even when not foreground; we filter by foreground window
     // so we don't intercept input from other applications.
     if (msg == WM_INPUT) {
-        if (g_parent_hwnd && GetForegroundWindow() == g_parent_hwnd) {
+        HWND _fg = GetForegroundWindow();
+        if (g_parent_hwnd && (_fg == g_parent_hwnd || _fg == g_child_hwnd)) {
             UINT sz = 0;
             GetRawInputData((HRAWINPUT)lp, RID_INPUT, NULL, &sz, sizeof(RAWINPUTHEADER));
             if (sz > 0 && sz <= 256) {
@@ -792,7 +793,8 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             //   • Fyne window is not foreground (another app has focus)
             //   • Go requested hide: open menu/popup (same as macOS Metal SetHidden)
             int iconic     = IsIconic(g_parent_hwnd) ? 1 : 0;
-            int fg_hidden  = (GetForegroundWindow() != g_parent_hwnd) ? 1 : 0;
+            HWND _fg2 = GetForegroundWindow();
+            int fg_hidden  = (_fg2 != g_parent_hwnd && _fg2 != g_child_hwnd) ? 1 : 0;
             int want_hidden = iconic | fg_hidden | atomic_load(&g_hidden);
             if (want_hidden != last_want_hidden) {
                 last_want_hidden = want_hidden;
