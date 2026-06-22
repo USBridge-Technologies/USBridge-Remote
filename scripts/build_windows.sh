@@ -468,7 +468,7 @@ cd "$REPO_ROOT/cmd"
 # 6. Создание dist
 echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
 cd "$REPO_ROOT"
-mkdir -p "$DIST_WIN" "$DIST_WIN_DLLS"
+mkdir -p "$DIST_WIN"
 
 running_dist_processes=()
 while IFS= read -r proc; do
@@ -557,6 +557,7 @@ if [ "$cleanup_failed" != "0" ]; then
     exit 1
 fi
 rm -f "$cleanup_err"
+mkdir -p "$DIST_WIN_DLLS"
 
 cp "$BUILD_CACHE_APP_EXE" "$DIST_WIN/$APP_EXE_NAME"
 echo -e "${GREEN}✓${NC} $APP_EXE_NAME (основное приложение)"
