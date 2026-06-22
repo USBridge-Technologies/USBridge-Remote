@@ -264,6 +264,23 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	if request != nil {
 		if request.VideoWidth > 0 && request.VideoHeight > 0 {
 			vw.videoClient.SetExpectedVideoSize(request.VideoWidth, request.VideoHeight)
+			// Pre-set viewport dims from the requested resolution so absolute mouse mapping
+			// is correct immediately — without waiting for the first decoded frame.
+			// Needed when Vulkan/Metal is already active and frames arrive as nil, preventing
+			// updateFrameContentRect from ever running (and triggering the fyne.Do update).
+			newFW, newFH := float32(request.VideoWidth), float32(request.VideoHeight)
+			fyne.Do(func() {
+				if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
+					vw.lastVideoImgW = newFW
+					vw.lastVideoImgH = newFH
+					if tw := vw.activeViewportWrapper(); tw != nil {
+						sz := tw.Size()
+						if sz.Width > 0 && sz.Height > 0 {
+							vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+						}
+					}
+				}
+			})
 		}
 		if request.VideoMode != "" {
 			vw.videoClient.SetVideoMode(request.VideoMode)
