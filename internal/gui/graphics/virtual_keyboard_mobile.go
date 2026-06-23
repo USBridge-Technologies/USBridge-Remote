@@ -355,7 +355,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	background := canvas.NewRectangle(design.ColorGray950)
 	background.FillColor = design.ColorGray950
 
-	vk.imeSpacer = &imeSpacerLayout{height: 36}
+	vk.imeSpacer = &imeSpacerLayout{height: 0} // real value set by deliverIMEHeightFromJNI
 	vk.imeSpacerCont = container.New(vk.imeSpacer)
 
 	textHint.onFocused = func() {

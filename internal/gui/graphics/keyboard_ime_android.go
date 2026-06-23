@@ -35,6 +35,7 @@ void keepIMEBridgeSymbolsReferenced(void) {
 import "C"
 
 import (
+	"time"
 	"usbridge-client/internal/input"
 
 	"fyne.io/fyne/v2"
@@ -42,7 +43,9 @@ import (
 )
 
 var (
-	lastIMEH float32 // Cache the last margin value in Fyne units
+	lastIMEH        float32 // last nav-bar/IME margin in Fyne dp units
+	pendingIMEPx    int     // raw px value pending Fyne canvas initialization
+	pendingScreenPx int
 )
 
 // GetLastIMEH returns the last cached IME margin (including NavBar)
@@ -60,16 +63,13 @@ func (vk *VirtualKeyboard) RegisterAsIMETarget() {
 	activeIMEKeyboardTarget = vk
 	activeIMEKeyboardMu.Unlock()
 
-	// Immediately apply the last known margin so the layout falls into place before the first click
-	if lastIMEH > 0 {
-		fyne.Do(func() {
-			vk.setIMEOffset(lastIMEH)
-		})
-	} else {
-		fyne.Do(func() {
-			vk.setIMEOffset(36)
-		})
-	}
+	// Apply the last known nav-bar margin so the panel is correctly positioned.
+	// lastIMEH is 0 until deliverIMEHeightFromJNI fires; the retry in that function
+	// ensures the correct value arrives within ~300ms of app start — well before
+	// the user can reach the connected-device screen.
+	fyne.Do(func() {
+		vk.setIMEOffset(lastIMEH)
+	})
 }
 
 // deliverIMEHeightFromJNI is called from JNI (KeyboardBridge.onIMEHeightChanged).
@@ -80,37 +80,55 @@ func (vk *VirtualKeyboard) RegisterAsIMETarget() {
 func deliverIMEHeightFromJNI(imeHeightPx C.jint, screenHeightPx C.jint) {
 	imePx := int(imeHeightPx)
 	screenPx := int(screenHeightPx)
-
 	logrus.Infof("⌨️ [IME-JNI] imeHeightPx=%d screenHeightPx=%d", imePx, screenPx)
-
 	fyne.Do(func() {
-		vk := activeIMEKeyboard()
-		
-		if screenPx <= 0 {
-			return
-		}
-
-		canvasH := float32(0)
-		if vk != nil && vk.parentWindow != nil {
-			canvasH = vk.parentWindow.Canvas().Size().Height
-		} else if fyne.CurrentApp() != nil && len(fyne.CurrentApp().Driver().AllWindows()) > 0 {
-			// Try to find any window to get the scale
-			canvasH = fyne.CurrentApp().Driver().AllWindows()[0].Canvas().Size().Height
-		}
-
-		if canvasH <= 0 {
-			// If there are no windows yet, we cannot calculate Fyne units.
-			return
-		}
-
-		calculatedIMEH := float32(imePx) / float32(screenPx) * canvasH
-		lastIMEH = calculatedIMEH
-		logrus.Infof("⌨️ [IME-JNI] lastIMEH=%.0f canvasH=%.0f", lastIMEH, canvasH)
-
-		if vk != nil {
-			vk.setIMEOffset(calculatedIMEH)
-		}
+		applyIMEHeight(imePx, screenPx)
 	})
+}
+
+// applyIMEHeight converts raw pixel values to Fyne dp and updates the keyboard spacer.
+// Must be called on the Fyne main thread (inside fyne.Do).
+// If the canvas is not yet ready (app still starting up), stores the values and retries
+// after a short delay so the first-ever nav-bar height is never silently dropped.
+func applyIMEHeight(imePx, screenPx int) {
+	if screenPx <= 0 {
+		return
+	}
+
+	vk := activeIMEKeyboard()
+	canvasH := float32(0)
+	if vk != nil && vk.parentWindow != nil {
+		canvasH = vk.parentWindow.Canvas().Size().Height
+	} else if fyne.CurrentApp() != nil && len(fyne.CurrentApp().Driver().AllWindows()) > 0 {
+		canvasH = fyne.CurrentApp().Driver().AllWindows()[0].Canvas().Size().Height
+	}
+
+	if canvasH <= 0 {
+		// Fyne canvas not ready yet — store raw values and retry once the window exists.
+		pendingIMEPx = imePx
+		pendingScreenPx = screenPx
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			fyne.Do(func() {
+				if pendingIMEPx == 0 {
+					return
+				}
+				p, s := pendingIMEPx, pendingScreenPx
+				pendingIMEPx, pendingScreenPx = 0, 0
+				applyIMEHeight(p, s)
+			})
+		}()
+		return
+	}
+
+	pendingIMEPx, pendingScreenPx = 0, 0
+	calculatedIMEH := float32(imePx) / float32(screenPx) * canvasH
+	lastIMEH = calculatedIMEH
+	logrus.Infof("⌨️ [IME-JNI] lastIMEH=%.0f canvasH=%.0f", lastIMEH, canvasH)
+
+	if vk != nil {
+		vk.setIMEOffset(calculatedIMEH)
+	}
 }
 
 // deliverLanguageFromJNI is called from JNI (KeyboardBridge.onLanguageChanged).
