@@ -659,7 +659,7 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 		return
 	}
 
-	scroll := int(-ev.Scrolled.DY / 10)
+	scroll := int(ev.Scrolled.DY / 10)
 	scroll = clamp(scroll, -127, 127)
 	if scroll == 0 {
 		return

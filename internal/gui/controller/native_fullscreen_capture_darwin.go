@@ -442,7 +442,7 @@ func goNativeCaptureScroll(delta C.int) {
 	}
 	capture.enqueue(nativeCaptureEvent{
 		kind:  "scroll",
-		value: clamp(-int(delta), -127, 127),
+		value: clamp(int(delta), -127, 127),
 	})
 }
 

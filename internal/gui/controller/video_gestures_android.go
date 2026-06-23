@@ -115,8 +115,8 @@ func deliverScrollGestureFromJNI(dy C.jfloat) {
 	if vw == nil {
 		return
 	}
-	// Accumulate centroid-Y delta (px). Negate: fingers move down → scroll up.
-	scrollAccumY += -float32(dy)
+	// Accumulate centroid-Y delta (px).
+	scrollAccumY += float32(dy)
 	const pixelsPerTick = 20
 	ticks := int(scrollAccumY / pixelsPerTick)
 	if ticks == 0 {
