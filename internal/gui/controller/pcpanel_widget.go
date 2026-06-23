@@ -787,6 +787,7 @@ type PCPanelWidget struct {
 	powerOn   bool
 	hddOn     bool
 	window    fyne.Window
+	mcpProxy  api.MCPProxy
 }
 
 // NewPCPanelWidget creates a widget with a combined Power/Reset button.
@@ -891,6 +892,10 @@ func (p *PCPanelWidget) onActionClick() {
 		return
 	}
 
+	mcpLabel := "MCP Proxy"
+	if p.mcpProxy.Running() {
+		mcpLabel = "MCP Proxy ●"
+	}
 	items := []view.StyledMenuItem{
 		{
 			Label: "Power",
@@ -902,6 +907,12 @@ func (p *PCPanelWidget) onActionClick() {
 			Label: "Scripts",
 			OnTap: func() {
 				p.showScriptsDialog()
+			},
+		},
+		{
+			Label: mcpLabel,
+			OnTap: func() {
+				p.showMCPProxyDialog()
 			},
 		},
 	}
@@ -1159,6 +1170,101 @@ func (p *PCPanelWidget) showScriptsDialog() {
 			close(stopPoll)
 		}
 	}()
+}
+
+func (p *PCPanelWidget) showMCPProxyDialog() {
+	if p.window == nil {
+		return
+	}
+
+	titleText := view.NewBrandText("MCP Proxy", 19, design.ColorTextLight, true)
+	titleText.Alignment = fyne.TextAlignCenter
+
+	var popup *widget.PopUp
+	port := api.DefaultMCPProxyPort
+
+	statusLabel := canvas.NewText("", design.ColorTextMuted)
+	statusLabel.TextSize = 13
+	urlLabel := canvas.NewText("", design.ColorTextLight)
+	urlLabel.TextSize = 12
+
+	var toggleBtn *widget.Button
+
+	refreshStatus := func() {
+		if p.mcpProxy.Running() {
+			statusLabel.Text = "● Running"
+			statusLabel.Color = design.ColorAccent
+			urlLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", p.mcpProxy.Port())
+			toggleBtn.SetText("Stop")
+			toggleBtn.Importance = widget.DangerImportance
+		} else {
+			statusLabel.Text = "○ Stopped"
+			statusLabel.Color = design.ColorTextMuted
+			urlLabel.Text = fmt.Sprintf("Endpoint: http://127.0.0.1:%d/api/mcp", port)
+			toggleBtn.SetText("Start")
+			toggleBtn.Importance = widget.HighImportance
+		}
+		statusLabel.Refresh()
+		urlLabel.Refresh()
+		toggleBtn.Refresh()
+	}
+
+	toggleBtn = widget.NewButton("Start", func() {
+		if p.mcpProxy.Running() {
+			p.mcpProxy.Stop()
+		} else {
+			if err := p.mcpProxy.Start(port, p.usbClient); err != nil {
+				dialog.ShowError(err, p.window)
+				return
+			}
+		}
+		fyne.Do(refreshStatus)
+	})
+	toggleBtn.Importance = widget.HighImportance
+
+	descLabel := widget.NewLabel("Forwards /api/mcp to the device with signed\nrequests. Local AI tools connect unsigned.")
+	descLabel.Alignment = fyne.TextAlignCenter
+	descLabel.Wrapping = fyne.TextWrapWord
+
+	closeBtn := newPCPanelDialogCloseButton(func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+
+	body := container.NewVBox(
+		container.NewCenter(statusLabel),
+		container.NewCenter(urlLabel),
+		widget.NewSeparator(),
+		descLabel,
+		container.NewCenter(toggleBtn),
+	)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(
+			container.NewBorder(titleBar, nil, nil, nil, view.NewInset(body, 0, 0, 12, 0)),
+			18, 18, 16, 16,
+		),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
+		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
+			return fyne.NewSize(360, 240)
+		},
+	})
+
+	fyne.Do(refreshStatus)
 }
 
 // scriptSafeName converts a raw name to a safe filename (only a-z A-Z 0-9 _ -).

@@ -101,7 +101,12 @@
       "Bash(curl -sf --connect-timeout 5 \"http://192.168.1.110:47989/serverinfo\")",
       "Bash(python3 -c \"import test_api_full\")",
       "Bash(python3 -m py_compile /Users/amir/Projects/usbridge/usbridge_service/test_api_full.py)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(git rebase *)",
+      "Bash(GIT_EDITOR=true git rebase *)",
+      "Bash(EDITOR=true git rebase *)",
+      "Bash(git *)",
+      "Bash(GIT_EDITOR=: git commit *)"
     ]
   }
 }
