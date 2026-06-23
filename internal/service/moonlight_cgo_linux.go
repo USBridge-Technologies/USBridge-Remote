@@ -3,7 +3,7 @@
 package service
 
 /*
-#cgo pkg-config: opus openssl libavcodec libavutil libswscale alsa
+#cgo pkg-config: opus openssl libavcodec libavutil libswscale libpulse-simple
 #cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
 #cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build -L${SRCDIR}/../../moonlight-common-c/build/enet -lmoonlight-common-c -lenet
 #cgo LDFLAGS: -lpthread -lm -ldl
@@ -14,7 +14,8 @@ package service
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
-#include <alsa/asoundlib.h>
+#include <pulse/simple.h>
+#include <pulse/error.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,58 +38,64 @@ extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride)
 #include "moonlight_cgo_shared.h"
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ALSA audio output — platform audio implementation
+// PulseAudio simple API audio output — platform audio implementation
+// pa_simple handles clock drift, buffer management and PipeWire compat natively.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static snd_pcm_t      *g_alsa_pcm  = NULL;
-static pthread_mutex_t g_alsa_mu   = PTHREAD_MUTEX_INITIALIZER;
+static pa_simple      *g_pa_s   = NULL;
+static pthread_mutex_t g_pa_mu  = PTHREAD_MUTEX_INITIALIZER;
 
 void platform_ar_init(int channels, int sample_rate) {
-    if (g_alsa_pcm) return;
-    snd_pcm_t *pcm = NULL;
-    int r = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
-    if (r < 0) { goVTLog((char*)"ALSA: snd_pcm_open failed"); return; }
+    pthread_mutex_lock(&g_pa_mu);
+    if (g_pa_s) { pthread_mutex_unlock(&g_pa_mu); return; }
 
-    r = snd_pcm_set_params(pcm,
-        SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED,
-        (unsigned int)channels, (unsigned int)sample_rate,
-        1,       // allow sw resampling
-        300000); // 300 ms latency — large enough to absorb network/CPU jitter
-    if (r < 0) {
-        snd_pcm_close(pcm);
-        goVTLog((char*)"ALSA: snd_pcm_set_params failed");
+    pa_sample_spec ss = {
+        .format   = PA_SAMPLE_S16LE,
+        .rate     = (uint32_t)sample_rate,
+        .channels = (uint8_t)channels,
+    };
+    // 50 ms target latency: low enough for real-time feel, large enough to
+    // absorb per-frame jitter without underruns.
+    pa_buffer_attr attr = {
+        .maxlength = (uint32_t)-1,
+        .tlength   = (uint32_t)(sample_rate * channels * 2 / 20), // 50 ms
+        .prebuf    = (uint32_t)-1,
+        .minreq    = (uint32_t)-1,
+        .fragsize  = (uint32_t)-1,
+    };
+    int err = 0;
+    g_pa_s = pa_simple_new(NULL, "usbridge", PA_STREAM_PLAYBACK,
+                           NULL, "stream", &ss, NULL, &attr, &err);
+    pthread_mutex_unlock(&g_pa_mu);
+    if (!g_pa_s) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "PulseAudio: pa_simple_new failed: %s", pa_strerror(err));
+        goVTLog(msg);
         return;
     }
-    pthread_mutex_lock(&g_alsa_mu);
-    g_alsa_pcm = pcm;
-    pthread_mutex_unlock(&g_alsa_mu);
-    goVTLog((char*)"ALSA: audio device opened (S16LE native output)");
+    goVTLog((char*)"PulseAudio: audio stream opened (S16LE 50ms latency)");
 }
 
 void platform_ar_cleanup(void) {
-    pthread_mutex_lock(&g_alsa_mu);
-    snd_pcm_t *pcm = g_alsa_pcm;
-    g_alsa_pcm = NULL;
-    pthread_mutex_unlock(&g_alsa_mu);
-    if (!pcm) return;
-    snd_pcm_drain(pcm);
-    snd_pcm_close(pcm);
-    goVTLog((char*)"ALSA: audio device closed");
+    pthread_mutex_lock(&g_pa_mu);
+    pa_simple *s = g_pa_s;
+    g_pa_s = NULL;
+    pthread_mutex_unlock(&g_pa_mu);
+    if (!s) return;
+    int err = 0;
+    pa_simple_drain(s, &err);
+    pa_simple_free(s);
+    goVTLog((char*)"PulseAudio: audio stream closed");
 }
 
 void platform_ar_decode(const opus_int16 *pcm_data, int byte_count, int samples) {
-    (void)byte_count;
-    pthread_mutex_lock(&g_alsa_mu);
-    snd_pcm_t *pcm = g_alsa_pcm;
-    pthread_mutex_unlock(&g_alsa_mu);
-    if (!pcm) return;
-    snd_pcm_sframes_t r = snd_pcm_writei(pcm, pcm_data, (snd_pcm_uframes_t)samples);
-    if (r < 0) {
-        snd_pcm_recover(pcm, (int)r, 1);
-        // Retry after recovery: without this the frame is dropped and PCM stays
-        // in PREPARED state, requiring extra frames to hit the start threshold.
-        snd_pcm_writei(pcm, pcm_data, (snd_pcm_uframes_t)samples);
-    }
+    (void)samples;
+    pthread_mutex_lock(&g_pa_mu);
+    pa_simple *s = g_pa_s;
+    pthread_mutex_unlock(&g_pa_mu);
+    if (!s) return;
+    int err = 0;
+    pa_simple_write(s, pcm_data, (size_t)byte_count, &err);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -40,12 +40,15 @@ static double mono_sec(void) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CoreAudio AudioQueue — platform audio implementation
+// Each decoded Opus frame is written into one queue buffer and enqueued.
+// The completion callback recycles the buffer back to the free pool.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #define CA_NUM_BUFFERS 32
 
 static AudioQueueRef        g_ca_queue    = NULL;
-static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];
+static AudioQueueBufferRef  g_ca_bufs[CA_NUM_BUFFERS];  // all allocated buffers
+static AudioQueueBufferRef  g_ca_free[CA_NUM_BUFFERS];  // free-pool stack
 static int                  g_ca_free_cnt = 0;
 static int                  g_ca_started  = 0;
 static pthread_mutex_t      g_ca_mu       = PTHREAD_MUTEX_INITIALIZER;
@@ -107,7 +110,11 @@ static void ca_running_listener(void *userData, AudioQueueRef aq, AudioQueueProp
 }
 
 void platform_ar_init(int channels, int sample_rate) {
-    if (g_ca_queue) return;
+    pthread_mutex_lock(&g_ca_mu);
+    int already = (g_ca_queue != NULL);
+    pthread_mutex_unlock(&g_ca_mu);
+    if (already) return;
+
     AudioStreamBasicDescription fmt = {
         .mSampleRate       = (Float64)sample_rate,
         .mFormatID         = kAudioFormatLinearPCM,
@@ -118,10 +125,17 @@ void platform_ar_init(int channels, int sample_rate) {
         .mChannelsPerFrame = (UInt32)channels,
         .mBitsPerChannel   = 16,
     };
-    OSStatus s = AudioQueueNewOutput(&fmt, ca_callback, NULL, NULL, NULL, 0, &g_ca_queue);
-    if (s != noErr) { g_ca_queue = NULL; return; }
+    AudioQueueRef aq = NULL;
+    OSStatus s = AudioQueueNewOutput(&fmt, ca_callback, NULL, NULL, NULL, 0, &aq);
+    if (s != noErr) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "CoreAudio: AudioQueueNewOutput failed: %d", (int)s);
+        goVTLog(msg);
+        return;
+    }
 
-    UInt32 buf_sz = (UInt32)(sample_rate / 1000 * 120 * channels * 2);
+    // 20 ms per buffer — one Opus frame fits cleanly; 32 buffers = 640 ms pipeline.
+    UInt32 buf_sz = (UInt32)(sample_rate / 1000 * 20 * channels * 2);
     pthread_mutex_lock(&g_ca_mu);
     g_ca_free_cnt    = 0;
     g_ca_started     = 0;
@@ -131,9 +145,11 @@ void platform_ar_init(int channels, int sample_rate) {
     g_ca_stats_start   = 0.0;
     g_ca_was_dropping  = 0;
     for (int i = 0; i < CA_NUM_BUFFERS; i++) {
-        if (AudioQueueAllocateBuffer(g_ca_queue, buf_sz, &g_ca_free[i]) == noErr)
-            g_ca_free[g_ca_free_cnt++] = g_ca_free[i];
+        g_ca_bufs[i] = NULL;
+        if (AudioQueueAllocateBuffer(aq, buf_sz, &g_ca_bufs[i]) == noErr)
+            g_ca_free[g_ca_free_cnt++] = g_ca_bufs[i];
     }
+    g_ca_queue = aq;
     pthread_mutex_unlock(&g_ca_mu);
     // Restart queue automatically on any stop (underrun, OS interruption, etc.)
     AudioQueueAddPropertyListener(g_ca_queue, kAudioQueueProperty_IsRunning, ca_running_listener, NULL);
@@ -161,8 +177,8 @@ void platform_ar_cleanup(void) {
 
 void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     (void)samples;
-    if (!g_ca_queue) return;
     pthread_mutex_lock(&g_ca_mu);
+    AudioQueueRef aq = g_ca_queue;
     AudioQueueBufferRef buf = (g_ca_free_cnt > 0) ? g_ca_free[--g_ca_free_cnt] : NULL;
     pthread_mutex_unlock(&g_ca_mu);
     if (!buf) {

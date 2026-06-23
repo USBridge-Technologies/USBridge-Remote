@@ -3,11 +3,11 @@
 # Output: dist/linux/USBridgeClient.bin (+ config.yaml if present)
 #
 # Build deps (install before running this script):
-#   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libasound2-dev
+#   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
 #   Moonlight core:       opus openssl pkg-config cmake
 #   RTP video mode:       gstreamer1.0-* (optional, see install_gstreamer.sh in dist)
 #
-# One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev \
+# One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
 #              libopus-dev libssl-dev pkg-config cmake
 
 set -euo pipefail
@@ -35,10 +35,10 @@ mkdir -p "$OUT_DIR"
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 
 # Verify Moonlight HW decode build deps are present before spending time compiling.
-for pkg in libavcodec libavutil libswscale alsa; do
+for pkg in libavcodec libavutil libswscale libpulse-simple; do
     if ! pkg-config --exists "$pkg" 2>/dev/null; then
         echo "❌ Missing build dep: $pkg"
-        echo "   Install: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev"
+        echo "   Install: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev"
         exit 1
     fi
 done
@@ -57,14 +57,14 @@ echo "Installing Moonlight HW decode runtime dependencies..."
 if [ -f /etc/debian_version ]; then
     sudo apt-get update && sudo apt-get install -y \
         libavcodec60 libavutil58 libswscale7 \
-        libasound2 \
+        libpulse0 \
         libva2 libva-drm2  # VA-API for Intel/AMD GPU acceleration
 elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
-    sudo dnf install -y ffmpeg-libs alsa-lib libva
+    sudo dnf install -y ffmpeg-libs pulseaudio-libs libva
 else
-    echo "Install ffmpeg-libs (libavcodec), alsa-lib, and libva via your package manager."
+    echo "Install ffmpeg-libs (libavcodec), pulseaudio-libs, and libva via your package manager."
 fi
-echo "Done. Moonlight streaming uses libavcodec (VA-API/NVDEC/SW) + ALSA."
+echo "Done. Moonlight streaming uses libavcodec (VA-API/NVDEC/SW) + PulseAudio/PipeWire."
 EOF
 chmod +x "$OUT_DIR/install_moonlight_deps.sh"
 
@@ -99,8 +99,8 @@ Run:
   ./USBridgeClient.bin
 
 Video modes:
-  Moonlight streaming — libavcodec hardware decode (VA-API/NVDEC/software fallback) + ALSA audio.
-    Run ./install_moonlight_deps.sh to install runtime libraries (libavcodec, libasound2, libva).
+  Moonlight streaming — libavcodec hardware decode (VA-API/NVDEC/software fallback) + PulseAudio/PipeWire audio.
+    Run ./install_moonlight_deps.sh to install runtime libraries (libavcodec, libpulse0, libva).
 
   Legacy RTP mode — requires GStreamer.
     Run ./install_gstreamer.sh to install.
