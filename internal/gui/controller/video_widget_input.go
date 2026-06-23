@@ -1253,10 +1253,9 @@ func (vw *VideoWidget) recalculateViewport() {
 		//   panOffsetY < 0: видео идёт вверх (зазор между видео и клавиатурой)
 		//   panOffsetY > 0: видео идёт вниз (верхняя часть видео входит в поле зрения)
 		// Максимум вниз: верх видео на уровне верха экрана (contentY = 0)
+		// Максимум вверх: низ видео на уровне низа доступной области (panOffsetY = 0)
 		maxPanY := contentH - availableH
-		if vw.panOffsetY > maxPanY {
-			vw.panOffsetY = maxPanY
-		}
+		vw.panOffsetY = clampFloat(vw.panOffsetY, 0, maxPanY)
 		contentY += vw.panOffsetY
 	} else {
 		// Видео меньше доступной области - центрируем его в ней
