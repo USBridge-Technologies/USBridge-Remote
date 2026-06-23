@@ -881,10 +881,12 @@ static void *vk_render_thread(void *unused) {
 
         int cursor_dirty = atomic_exchange(&g_cursor_dirty, 0);
 
+        int is_video_frame = 0;
         if (got_frame) {
             // Remember last frame dimensions for cursor-only redraws.
             last_fw = fw; last_fh = fh; last_fs = fs;
             has_last_frame = 1;
+            is_video_frame = 1;
         } else if (cursor_dirty && has_last_frame) {
             // Cursor moved but no new video frame — redraw last frame with updated cursor.
             fw = last_fw; fh = last_fh; fs = last_fs;
@@ -895,13 +897,16 @@ static void *vk_render_thread(void *unused) {
 
         if (vk_render_frame(frame_buf, fw, fh, fs)) {
             g_rendered++;
-            g_fps_n++;
-            double now = mono_sec_vk();
-            if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
-            if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
-                g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
-                g_stat_ready = 1;
-                g_fps_t0 = now; g_fps_n = 0;
+            // Only count real video frames toward FPS — cursor-only redraws skew the counter.
+            if (is_video_frame) {
+                g_fps_n++;
+                double now = mono_sec_vk();
+                if (g_rendered == 1) { g_fps_t0 = now; g_fps_n = 0; }
+                if (now - g_fps_t0 >= 2.0 && g_fps_n > 0) {
+                    g_stat_fps   = (float)((double)g_fps_n / (now - g_fps_t0));
+                    g_stat_ready = 1;
+                    g_fps_t0 = now; g_fps_n = 0;
+                }
             }
             if (g_rendered % 300 == 0) {
                 VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
