@@ -382,6 +382,9 @@ func (vw *VideoWidget) StopVideoSync() error {
 		if vw.videoClient != nil {
 			_ = vw.videoClient.Disconnect()
 		}
+		// Destroy the native GPU overlay so it does not linger on the
+		// connection-manager screen or conflict with the next session.
+		vw.clearVideo()
 		return fmt.Errorf("stop video timeout")
 	}
 }
@@ -1184,7 +1187,14 @@ func (vw *VideoWidget) startRenderTicker(fps ...int) {
 				if vw.isClosing.Load() {
 					return
 				}
-				if vw.pendingFrame.Load() == nil && !vw.forceCanvasRefresh.Load() {
+				// When the native GPU overlay is active the decoder does not store
+				// frames in pendingFrame (C handles them directly). Always fire so
+				// that viewport and cursor updates reach the Vulkan layer once per
+				// display frame — preventing the cursor from appearing at two
+				// different positions in different swapchain images.
+				if !vw.isNativeVideoActive() &&
+					vw.pendingFrame.Load() == nil &&
+					!vw.forceCanvasRefresh.Load() {
 					continue
 				}
 				vw.scheduleFrameRender()

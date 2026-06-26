@@ -899,10 +899,16 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 		vw.isDragging = true
 	}
 
-	// Update the local Vulkan cursor immediately — instant regardless of network.
+	// Update Go viewport state for the next render tick.
 	vw.centerViewportOnVirtualCursor()
-	vw.updateNativeViewportAndCursor()
-	if !vw.isNativeVideoActive() {
+	if vw.isNativeVideoActive() {
+		// Do NOT push viewport/cursor directly to Vulkan here.
+		// The render ticker fires once per display frame (same rate as the swapchain)
+		// and calls updateNativeViewportAndCursor() there.  Calling it on every touch
+		// event (potentially hundreds/second) causes the cursor to be at two different
+		// positions in consecutive swapchain images → double cursor flicker on fast swipes.
+	} else {
+		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	}
 

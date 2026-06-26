@@ -110,16 +110,23 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 	logrus.Infof("🎬 video reconcile: reason=%s desired=%v streaming=%v restart=%v", reason, desiredStreaming, streaming, restartPending)
 
 	if !desiredStreaming {
-		if vw.usbClient != nil {
-			vw.stopVideoInternal()
-		} else if vw.isStreaming {
-			// Клиент уже ушёл (потеря соединения), очищаем только локальное состояние
-			vw.isStreaming = false
-			vw.isVideoConnected = false
-			vw.isMouseConnected = false
-			vw.clearVideo()
-			fyne.Do(func() { vw.updateButtons() })
-			vw.updateStatus()
+		// Only call stopVideoInternal when we actually think we are streaming.
+		// A stale reconcile triggered by a disconnect callback can arrive AFTER a
+		// new session has started (e.g. StopVideoSync timed out → Disconnect fired
+		// onStateChanged → new usbClient set → reconcile runs). Without this guard
+		// the reconcile would call StopVideo() / Disconnect() on the new client.
+		if streaming {
+			if vw.usbClient != nil {
+				vw.stopVideoInternal()
+			} else {
+				// Клиент уже ушёл (потеря соединения), очищаем только локальное состояние
+				vw.isStreaming = false
+				vw.isVideoConnected = false
+				vw.isMouseConnected = false
+				vw.clearVideo()
+				fyne.Do(func() { vw.updateButtons() })
+				vw.updateStatus()
+			}
 		}
 		// Clear restartPending: if we don't want streaming there's nothing to restart.
 		// Without this, videoReconcileNeeded() sees restartPending=true and re-schedules
