@@ -302,17 +302,52 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	if vw.usbClient != nil {
 		logrus.Info("🌕 startVideoWithParamsInternal: calling usbClient.StartVideo")
 		if err := vw.usbClient.StartVideo(request); err != nil {
-			logrus.Warnf("⚠️ Failed to start video on the server API: %v", err)
+			logrus.Errorf("❌ StartVideo API failed: %v", err)
+			go func() { <-hidDone }() // drain
+			fyne.Do(func() {
+				if vw.statusLabel != nil {
+					vw.statusLabel.SetText(fmt.Sprintf("❌ API: %v", err))
+				}
+			})
+			return
 		}
+
+		// Python test "standard": wait 0.4s after starting video before moonlight launch
+		logrus.Info("⏳ Waiting 0.5s for Sunshine to initialize (like test_api_full.py)")
+		time.Sleep(500 * time.Millisecond)
+
+		fyne.Do(func() {
+			if vw.statusLabel != nil {
+				vw.statusLabel.SetText("⏳ Starting Moonlight...")
+			}
+		})
 	}
 
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
-	if err := vw.videoClient.ConnectToRTP(); err != nil {
-		logrus.Errorf("❌ Moonlight ConnectToRTP failed: %v", err)
+	var connectErr error
+	for attempt := 1; attempt <= 20; attempt++ {
+		connectErr = vw.videoClient.ConnectToRTP()
+		if connectErr == nil {
+			break
+		}
+		logrus.Warnf("⚠️ Moonlight ConnectToRTP failed (attempt %d/20): %v", attempt, connectErr)
+		if attempt < 20 {
+			time.Sleep(500 * time.Millisecond) // Give Sunshine time to bind port 47989
+		}
+	}
+
+	if connectErr != nil {
+		logrus.Errorf("❌ Moonlight ConnectToRTP ultimately failed: %v", connectErr)
+		
+		// Stop trying to reconnect, otherwise the reconcile loop will spam the server
+		vw.videoOpMu.Lock()
+		vw.desiredStreaming = false
+		vw.videoOpMu.Unlock()
+
 		go func() { <-hidDone }() // drain so the goroutine can exit
 		fyne.Do(func() {
 			if vw.statusLabel != nil {
-				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", err))
+				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", connectErr))
 			}
 		})
 		return
@@ -467,6 +502,11 @@ func (vw *VideoWidget) stopVideoInternal() {
 	})
 
 	vw.updateStatus()
+
+	// Python test "standard": wait 0.8s after stopping video to let Sunshine clean up
+	logrus.Info("⏳ Waiting 0.8s for Sunshine to fully shut down (like test_api_full.py)")
+	time.Sleep(800 * time.Millisecond)
+
 	logrus.Info("✅ [VideoWidget] Internal stop complete")
 }
 

@@ -131,12 +131,13 @@ func (m *MoonlightService) ConnectToRTP() error {
 	// 2. Fetch Server Info
 	serverInfo, err := m.client.GetServerInfo()
 	logrus.Infof("⏱️ [Moonlight] serverinfo: %.0fms", float64(time.Since(tConnect).Milliseconds()))
-	if err != nil || serverInfo.PairStatus == 0 {
-		if err != nil {
-			logrus.Warnf("⚠️ Moonlight ServerInfo failed (Needs pairing?): %v", err)
-		} else {
-			logrus.Info("🔒 Moonlight Host is NOT PAIRED. Starting pairing flow...")
-		}
+	if err != nil {
+		m.isRunning = false
+		return fmt.Errorf("failed to fetch server info (Sunshine down?): %v", err)
+	}
+
+	if serverInfo.PairStatus == 0 {
+		logrus.Info("🔒 Moonlight Host is NOT PAIRED. Starting pairing flow...")
 
 		// Reuse the same PIN across reconnects so the user only needs to enter it once.
 		if m.pairingPIN == "" {

@@ -143,6 +143,18 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 		return
 	}
 
+	if streaming && restartPending {
+		logrus.Info("🎬 Restart pending: stopping current stream before restart")
+		if vw.usbClient != nil {
+			vw.stopVideoInternal()
+		} else {
+			vw.isStreaming = false
+			vw.isVideoConnected = false
+			vw.isMouseConnected = false
+			vw.clearVideo()
+		}
+	}
+
 	cfg, err := vw.resolvePreferredVideoConfig()
 	if err != nil {
 		logrus.Warnf("⚠️ cannot resolve preferred video config during reconcile (%s): %v", reason, err)
