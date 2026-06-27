@@ -429,15 +429,17 @@ LAUNCHER_SYSO="$REPO_ROOT/cmd/launcher/rsrc_windows_amd64.syso"
 # Найти или установить go-winres (встраивает иконку без ImageMagick и fyne)
 GOWINRES_BIN=""
 for _n in go-winres go-winres.exe; do
-    if command -v "$_n" &>/dev/null; then GOWINRES_BIN="$_n"; break; fi
+    _full="$(command -v "$_n" 2>/dev/null)"
+    if [ -n "$_full" ]; then GOWINRES_BIN="$_full"; break; fi
     if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
 done
 if [ -z "$GOWINRES_BIN" ]; then
     echo -e "${YELLOW}⚠${NC} go-winres не найден, устанавливаю..."
     GOOS="" GOARCH="" go install github.com/tc-hib/go-winres@latest
-    for _n in go-winres go-winres.exe; do
+    for _n in go-winres.exe go-winres; do
         if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
-        if command -v "$_n" &>/dev/null; then GOWINRES_BIN="$_n"; break; fi
+        _full="$(command -v "$_n" 2>/dev/null)"
+        if [ -n "$_full" ]; then GOWINRES_BIN="$_full"; break; fi
     done
 fi
 
@@ -603,7 +605,17 @@ is_system_dll() {
         rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|\
         msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|\
         d3dcompiler_47.dll|opengl32.dll|mf.dll|mfplat.dll|mfuuid.dll|\
-        uuid.dll|wininet.dll|netapi32.dll|iphlpapi.dll)
+        uuid.dll|wininet.dll|netapi32.dll|iphlpapi.dll|\
+        msimg32.dll|userenv.dll|bcryptprimitives.dll|ncrypt.dll|\
+        wsock32.dll|wldap32.dll|gdiplus.dll|dnsapi.dll|\
+        dwrite.dll|usp10.dll|cfgmgr32.dll|\
+        d3d12.dll|d2d1.dll|ksuser.dll|mfreadwrite.dll|\
+        mfmediaengine.dll|mfcore.dll|mfsensorgroup.dll|\
+        d3d9.dll|d3d10.dll|dxcore.dll|dcomp.dll|\
+        dbghelp.dll|psapi.dll|pdh.dll|wtsapi32.dll|\
+        authz.dll|wintrust.dll|aclui.dll|cabinet.dll|\
+        ndfapi.dll|devobj.dll|hid.dll|hidparse.dll|\
+        ksproxy.ax|avrt.dll|wmcodecdspuuid.dll)
             return 0 ;;
     esac
     return 1
@@ -904,6 +916,7 @@ if [ -n "$GST_ROOT" ]; then
                 "libgstautodetect.dll" "libgstwic.dll" "libgstqsv.dll" "libgstmsdk.dll"
                 "libgstnvcodec.dll" "libgstamfcodec.dll" "libgstvideoparsersbad.dll"
                 "libgstvideoparsers.dll" "libgstwinks.dll" "libgstmf.dll"
+                "libgstmediafoundation.dll"
             )
             CORE_DLLS=(
                 "libgobject-2.0-0.dll" "libglib-2.0-0.dll" "libgio-2.0-0.dll" "libgmodule-2.0-0.dll"
