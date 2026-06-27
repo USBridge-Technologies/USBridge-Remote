@@ -14,7 +14,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -174,7 +173,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 			bw.updateStatusAsync(msg)
 			if bw.window != nil {
 				bw.updateUIAsync(func() {
-					dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
+					view.ShowInfoDialog(i18n.Current.Information, msg, bw.window)
 				})
 			}
 			return
@@ -229,7 +228,7 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 			bw.updateStatusAsync(msg)
 			if bw.window != nil {
 				bw.updateUIAsync(func() {
-					dialog.ShowInformation(i18n.Current.Information, msg, bw.window)
+					view.ShowInfoDialog(i18n.Current.Information, msg, bw.window)
 				})
 			}
 			return

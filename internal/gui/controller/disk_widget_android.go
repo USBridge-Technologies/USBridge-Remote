@@ -195,7 +195,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			fyne.Do(func() {
 				fileInfoLabel.SetText(fmt.Sprintf(i18n.Current.NBDImageSelected,
 					displayName, size/1024/1024))
-				dialog.ShowInformation(i18n.Current.FileSelected,
+				view.ShowInfoDialog(i18n.Current.FileSelected,
 					fmt.Sprintf(i18n.Current.NBDImageSelectedGB, displayName, float64(size)/1024/1024/1024),
 					dw.window)
 			})
@@ -345,7 +345,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 
 	logrus.Info("✅ NBD server started")
 	fyne.Do(func() {
-		dialog.ShowInformation(
+		view.ShowInfoDialog(
 			i18n.Current.NBDStarted,
 			fmt.Sprintf(i18n.Current.NBDStartedInstructions, addr),
 			dw.window,
@@ -368,7 +368,7 @@ func (dw *DiskWidget) stopNbdService() {
 
 	logrus.Info("✅ NBD server stopped")
 	fyne.Do(func() {
-		dialog.ShowInformation(i18n.Current.NBDStopped, i18n.Current.NBDStoppedSuccess, dw.window)
+		view.ShowInfoDialog(i18n.Current.NBDStopped, i18n.Current.NBDStoppedSuccess, dw.window)
 	})
 }
 

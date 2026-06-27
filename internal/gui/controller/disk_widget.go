@@ -18,7 +18,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -818,7 +817,7 @@ func (dw *DiskWidget) showErrorAsync(err error) {
 func (dw *DiskWidget) showWarningAsync(title, message string) {
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
-			dialog.ShowInformation(title, message, dw.window)
+			view.ShowInfoDialog(title, message, dw.window)
 		}
 	})
 }

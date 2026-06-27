@@ -280,7 +280,7 @@ func ShowTestQRCode(parent fyne.Window) {
 
 	copyBtn := widget.NewButton(i18n.Current.CopyText, func() {
 		parent.Clipboard().SetContent(qrText)
-		dialog.ShowInformation(i18n.Current.Done, i18n.Current.TextCopiedToClipboard, parent)
+		view.ShowInfoDialog(i18n.Current.Done, i18n.Current.TextCopiedToClipboard, parent)
 	})
 
 	content := container.NewVBox(info, copyBtn)

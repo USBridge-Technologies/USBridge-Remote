@@ -153,5 +153,5 @@ func (vqd *VideoQualityDialog) handleApply() {
 	logrus.Infof("✅ Настройки качества видео применены: %dx%d, %d FPS, качество %d%%, битрейт %d kbps",
 		width, height, fps, quality, bitrate)
 
-	dialog.ShowInformation(i18n.Current.Success, i18n.Current.VideoSettingsApplied, vqd.parent)
+	ShowInfoDialog(i18n.Current.Success, i18n.Current.VideoSettingsApplied, vqd.parent)
 }

@@ -74,7 +74,7 @@ func (dw *DiskWidget) handleAddImage() {
 
 	if !dw.checkStoragePermission() {
 		fyne.Do(func() {
-			dialog.ShowInformation(
+			view.ShowInfoDialog(
 				i18n.Current.StoragePermissionRequired,
 				i18n.Current.StoragePermissionMessage+"\n\n"+i18n.Current.StoragePermissionSteps,
 				dw.window,
@@ -458,7 +458,7 @@ func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
 
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
-			dialog.ShowInformation(i18n.Current.Success, fmt.Sprintf(i18n.Current.ImageUploadedSuccess, drive.Name), dw.window)
+			view.ShowInfoDialog(i18n.Current.Success, fmt.Sprintf(i18n.Current.ImageUploadedSuccess, drive.Name), dw.window)
 		}
 	})
 
@@ -475,7 +475,7 @@ func (dw *DiskWidget) deleteImageFromDevice(filename string, displayName string)
 
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
-			dialog.ShowInformation(i18n.Current.Success, fmt.Sprintf(i18n.Current.ImageDeletedSuccess, displayName), dw.window)
+			view.ShowInfoDialog(i18n.Current.Success, fmt.Sprintf(i18n.Current.ImageDeletedSuccess, displayName), dw.window)
 		}
 	})
 

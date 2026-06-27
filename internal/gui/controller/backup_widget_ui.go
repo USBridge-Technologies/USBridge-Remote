@@ -8,7 +8,6 @@ import (
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 )
 
 // createInterface создает интерфейс виджета
@@ -65,7 +64,7 @@ func (bw *BackupWidget) createInterface() {
 			if bw.window == nil {
 				return
 			}
-			dialog.ShowInformation(i18n.Current.BackupFlashName, i18n.Current.CurrentFlashAndSnapshots, bw.window)
+			view.ShowInfoDialog(i18n.Current.BackupFlashName, i18n.Current.CurrentFlashAndSnapshots, bw.window)
 		},
 	)
 }

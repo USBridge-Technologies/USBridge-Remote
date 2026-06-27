@@ -14,7 +14,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 )
 
 func (dw *DiskWidget) buildDeviceCards() []fyne.CanvasObject {
@@ -425,7 +424,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				if dw.countSelectedGadgetItems() >= MaxDevicesToMount {
 					checkbox.SetChecked(false)
 					if dw.window != nil {
-						dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
+						view.ShowInfoDialog(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
 					}
 					return
 				}

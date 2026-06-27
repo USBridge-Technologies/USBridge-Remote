@@ -163,7 +163,7 @@ func (dw *DiskWidget) handleMount() {
 	}
 	if mountedGadgetCount+len(selectedDrives) > MaxDevicesToMount {
 		if dw.window != nil {
-			dialog.ShowInformation(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
+			view.ShowInfoDialog(i18n.Current.Information, i18n.Current.MaxDevicesReached, dw.window)
 		}
 		return
 	}
@@ -493,7 +493,7 @@ func (dw *DiskWidget) handleUnmount() {
 
 	if len(mountedDrives) == 0 && !videoMounted && !audioMounted {
 		if dw.window != nil {
-			dialog.ShowInformation(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
+			view.ShowInfoDialog(i18n.Current.Information, i18n.Current.NoMountedDevices, dw.window)
 		}
 		return
 	}

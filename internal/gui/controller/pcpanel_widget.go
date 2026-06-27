@@ -997,7 +997,7 @@ func (p *PCPanelWidget) showScriptsDialog() {
 		editBtn.Importance = widget.LowImportance
 
 		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
-			dialog.ShowConfirm("Delete Script", fmt.Sprintf("Delete \"%s\"?", name), func(ok bool) {
+			view.ShowConfirmYesLeftDanger("Delete Script", fmt.Sprintf("Delete \"%s\"?", name), func(ok bool) {
 				if !ok {
 					return
 				}
@@ -1214,7 +1214,7 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 			p.mcpProxy.Stop()
 		} else {
 			if err := p.mcpProxy.Start(port, p.usbClient); err != nil {
-				dialog.ShowError(err, p.window)
+				view.ShowErrorDialog(err, p.window)
 				return
 			}
 		}
