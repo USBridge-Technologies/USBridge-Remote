@@ -850,8 +850,13 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 
 	// When the native GPU overlay is already active, skip Fyne canvas update.
 	if !vw.isNativeVideoActive() {
-		// Atomic store — render ticker picks this up at next 60Hz tick.
-		vw.pendingFrame.Store(rgba)
+		// Delay Fyne canvas rendering by 30 frames (~0.5s) to allow the native 
+		// overlay (Vulkan/Metal) to initialize. This prevents a "double start" flash
+		// where Fyne draws the first few frames before the native window maps on top.
+		if frameNum > 30 {
+			// Atomic store — render ticker picks this up at next 60Hz tick.
+			vw.pendingFrame.Store(rgba)
+		}
 	}
 
 	if frameNum <= 10 || frameNum%120 == 0 {
