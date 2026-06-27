@@ -313,7 +313,15 @@ fi
 # 3. Проверка fyne
 echo -e "\n${YELLOW}📦 Проверка fyne...${NC}"
 FYNE_BIN=""
-GOPATH_BIN="$(go env GOPATH)/bin"
+# In MSYS2 (UCRT64/MinGW64) go env GOPATH returns a Windows-style path.
+# Normalise it to a POSIX path so bash [ -x ] checks work correctly.
+_raw_gopath="$(go env GOPATH)"
+if command -v cygpath >/dev/null 2>&1; then
+    GOPATH_BIN="$(cygpath -u "$_raw_gopath")/bin"
+else
+    # Fallback: convert C:\foo\bar → /c/foo/bar manually
+    GOPATH_BIN="$(printf '%s' "$_raw_gopath" | sed -e 's|\\|/|g' -e 's|^\([A-Za-z]\):|/\L\1|')/bin"
+fi
 for name in fyne fyne.exe; do
     if command -v "$name" &> /dev/null; then
         FYNE_BIN="$name"
@@ -429,6 +437,7 @@ if [ -z "$GOWINRES_BIN" ]; then
     GOOS="" GOARCH="" go install github.com/tc-hib/go-winres@latest
     for _n in go-winres go-winres.exe; do
         if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
+        if command -v "$_n" &>/dev/null; then GOWINRES_BIN="$_n"; break; fi
     done
 fi
 
@@ -894,7 +903,7 @@ if [ -n "$GST_ROOT" ]; then
                 "libgstd3d11.dll" "libgstjpeg.dll" "libgstjpegformat.dll" "libgstlibav.dll"
                 "libgstautodetect.dll" "libgstwic.dll" "libgstqsv.dll" "libgstmsdk.dll"
                 "libgstnvcodec.dll" "libgstamfcodec.dll" "libgstvideoparsersbad.dll"
-                "libgstvideoparsers.dll" "libgstwinks.dll"
+                "libgstvideoparsers.dll" "libgstwinks.dll" "libgstmf.dll"
             )
             CORE_DLLS=(
                 "libgobject-2.0-0.dll" "libglib-2.0-0.dll" "libgio-2.0-0.dll" "libgmodule-2.0-0.dll"

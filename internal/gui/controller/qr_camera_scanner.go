@@ -37,11 +37,12 @@ type QRCameraScanner struct {
 	popup *widget.PopUp
 }
 
-// Windows uses ksvideosrc. macOS uses avfvideosrc to trigger the native
-// camera permission flow reliably. Other desktop targets rely on autovideosrc.
+// Windows uses mfvideosrc (Media Foundation, GStreamer 1.18+). macOS uses
+// avfvideosrc to trigger the native camera permission flow reliably.
+// Other desktop targets rely on autovideosrc.
 func getCameraPipelineStr() string {
 	if runtime.GOOS == "windows" {
-		return "ksvideosrc ! videoconvert ! video/x-raw,format=RGBA,width=640,height=480 ! queue max-size-buffers=2 leaky=downstream ! appsink name=sink sync=false max-buffers=2 drop=true"
+		return "mfvideosrc ! videoconvert ! video/x-raw,format=RGBA,width=640,height=480 ! queue max-size-buffers=2 leaky=downstream ! appsink name=sink sync=false max-buffers=2 drop=true"
 	}
 	if runtime.GOOS == "darwin" {
 		return "avfvideosrc ! videoconvert ! video/x-raw,format=RGBA,width=640,height=480 ! appsink name=sink sync=false max-buffers=2 drop=true"
