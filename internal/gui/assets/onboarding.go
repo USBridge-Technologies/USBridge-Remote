@@ -86,10 +86,6 @@ var (
 	macosOSIcon []byte
 	//go:embed onboarding/Front_panel.png
 	onboardingStep01 []byte
-	//go:embed onboarding/Front_panel1.png
-	onboardingStep02 []byte
-	//go:embed onboarding/Front_panel2.png
-	onboardingStep03 []byte
 )
 
 var (
@@ -169,9 +165,7 @@ var (
 	LinuxOSIcon                = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
 	WindowsOSIcon              = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
 	MacOSIcon                  = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
-	OnboardingStep01           = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
-	OnboardingStep02           = fyne.NewStaticResource("Front_panel1.png", onboardingStep02)
-	OnboardingStep03           = fyne.NewStaticResource("Front_panel2.png", onboardingStep03)
+	OnboardingStep01 = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
 )
 
 func colorizeArrow(source []byte, fill string, mirror bool) []byte {
