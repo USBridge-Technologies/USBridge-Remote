@@ -7,6 +7,7 @@ import (
 	"image"
 	"math"
 	"sync/atomic"
+	"time"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -173,6 +174,23 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	// Force swapchain recreation so the render thread picks up the restored size.
 	vw.forceCanvasRefresh.Store(true)
 	service.VKVideoAndroidForceRecreateSwapchain()
+
+	// touchpadSizeW/H was set to the fullscreen canvas dimensions while in fullscreen.
+	// After exit the main window is smaller (has tab bar, etc.), so pan-limit
+	// calculations in recalculateViewport() would use the wrong (larger) size —
+	// allowing the user to drag video past the bottom boundary.
+	// Trigger a reset once the main-window layout has been recalculated.
+	go func() {
+		time.Sleep(120 * time.Millisecond)
+		fyne.Do(func() {
+			if vw.touchpadWrapper != nil {
+				sz := vw.touchpadWrapper.Size()
+				if sz.Width > 0 && sz.Height > 0 {
+					vw.UpdateTouchpadAndContentRect(sz.Width, sz.Height, nil)
+				}
+			}
+		})
+	}()
 }
 
 // updateNativeViewportAndCursor forwards the current Go viewport state (zoom/pan)

@@ -470,7 +470,14 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 		t.videoWidget.StartTouchDownDelay(x, y, btn)
 	}
 	// Absolute: синхронизируем позицию сразу при нажатии и атомарно обновляем кнопку.
+	// Only forward the press when the cursor is within the actual video content area —
+	// clicks in letterbox/pillarbox regions or outside the widget must not reach the
+	// remote, otherwise both the local OS and the remote system register the click.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
+		if !t.videoWidget.isPositionInContentRect(ev.Position.X, ev.Position.Y) {
+			t.videoWidget.dragButton = 0
+			return
+		}
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		logrus.Infof("🖱️ [Drag] MouseDown btn=%d pos=(%.0f,%.0f) abs=(%d,%d)", btn, ev.Position.X, ev.Position.Y, x, y)
 		t.videoWidget.PressAbsoluteButton(btn, x, y)
@@ -511,12 +518,16 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	}
 
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
-		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		button := t.videoWidget.dragButton
-		logrus.Infof("🖱️ [Drag] MouseUp btn=%d pos=(%.0f,%.0f) abs=(%d,%d) dx=%.0f dy=%.0f dur=%v", button, ev.Position.X, ev.Position.Y, x, y, dx, dy, duration)
 		t.videoWidget.dragButton = 0
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
+		if button == 0 {
+			// MouseDown was suppressed (click was outside content rect) — nothing to release.
+			return
+		}
+		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
+		logrus.Infof("🖱️ [Drag] MouseUp btn=%d pos=(%.0f,%.0f) abs=(%d,%d) dx=%.0f dy=%.0f dur=%v", button, ev.Position.X, ev.Position.Y, x, y, dx, dy, duration)
 		t.videoWidget.ReleaseAbsoluteButton(button, x, y)
 		return
 	}
@@ -887,6 +898,7 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 
 	cw := vw.contentRectW
 	ch := vw.contentRectH
+	prevU, prevV := vw.virtualCursorU, vw.virtualCursorV
 	if cw > 0 {
 		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, 0, 1)
 	}
@@ -898,6 +910,13 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 	if math.Abs(float64(rawDx)) >= 3 || math.Abs(float64(rawDy)) >= 3 {
 		vw.isDragging = true
 	}
+
+	logrus.Debugf("🖱️ [VirtualCursor] touch=(%.1f,%.1f) rawDelta=(%.1f,%.1f) contentRect=(%.0f,%.0f,%.0f,%.0f) uv=(%.4f,%.4f)→(%.4f,%.4f) pan=(%.1f,%.1f) zoom=%.2f native=%v",
+		posX, posY, rawDx, rawDy,
+		vw.contentRectX, vw.contentRectY, cw, ch,
+		prevU, prevV, vw.virtualCursorU, vw.virtualCursorV,
+		vw.panOffsetX, vw.panOffsetY, vw.zoomScale,
+		vw.isNativeVideoActive())
 
 	// Update Go viewport state for the next render tick.
 	vw.centerViewportOnVirtualCursor()
@@ -1004,10 +1023,17 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 		} else if mode == mouseModeVirtualCursor {
 			t.handleVirtualCursorMove(ev.Position.X, ev.Position.Y)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
-			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
-			t.videoWidget.SendAbsolutePosition(x, y, false)
-			t.videoWidget.lastMouseX = ev.Position.X
-			t.videoWidget.lastMouseY = ev.Position.Y
+			vw := t.videoWidget
+			px, py := ev.Position.X, ev.Position.Y
+			x, y := vw.PositionToAbsolute(px, py)
+			logrus.Debugf("🖱️ [AbsCursor] touch=(%.1f,%.1f) abs=(%d,%d) contentRect=(%.1f,%.1f,%.1f,%.1f) touchpad=(%.0f,%.0f) pan=(%.1f,%.1f) zoom=%.2f",
+				px, py, x, y,
+				vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH,
+				vw.touchpadSizeW, vw.touchpadSizeH,
+				vw.panOffsetX, vw.panOffsetY, vw.zoomScale)
+			vw.SendAbsolutePosition(x, y, false)
+			vw.lastMouseX = px
+			vw.lastMouseY = py
 		} else {
 			// Тачпад: относительное перемещение
 			rawDx := ev.Position.X - t.videoWidget.lastMouseX

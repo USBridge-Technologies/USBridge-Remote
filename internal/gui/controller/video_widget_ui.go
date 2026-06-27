@@ -1229,20 +1229,27 @@ func (vw *VideoWidget) renderLatestFrame() {
 
 	mainWindowVisible := vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen()
 	needsFullRefresh := vw.forceCanvasRefresh.Swap(false)
-	// Skip Fyne canvas rendering when the native GPU overlay (Metal/GL) is active —
-	// the video is already being composited by the native layer.
-	if mainWindowVisible && vw.videoCanvas != nil {
-		if vw.isNativeVideoActive() {
-			if vw.videoCanvas.Translucency < 1.0 {
-				logrus.Infof("🕶️ [VIDEO] hardware overlay active, hiding Fyne canvas")
-				vw.videoCanvas.Translucency = 1.0
-				vw.videoCanvas.Refresh()
-			}
-			vw.updateMetalVideoFrame()
-			vw.frameRenderScheduled.Store(false)
-			return
-		}
 
+	// Native GPU overlay path — update viewport and cursor every render tick
+	// regardless of whether the main window is visible. On Android the Vulkan
+	// SurfaceView persists through fullscreen transitions, so cursor and viewport
+	// state must reach the C layer even while the fullscreen dialog is showing.
+	// Without this, cursor positions set from touch events via updateNativeViewportAndCursor
+	// would never be applied in fullscreen (mainWindowVisible == false), causing the
+	// Vulkan cursor to appear frozen and then teleport on finger-lift.
+	if vw.isNativeVideoActive() {
+		if mainWindowVisible && vw.videoCanvas != nil && vw.videoCanvas.Translucency < 1.0 {
+			logrus.Infof("🕶️ [VIDEO] hardware overlay active, hiding Fyne canvas")
+			vw.videoCanvas.Translucency = 1.0
+			vw.videoCanvas.Refresh()
+		}
+		vw.updateMetalVideoFrame()
+		vw.frameRenderScheduled.Store(false)
+		return
+	}
+
+	// Non-native (Fyne canvas) path.
+	if mainWindowVisible && vw.videoCanvas != nil {
 		if frameNum <= 5 || frameNum%300 == 0 {
 			logrus.Infof("🪟 [VIDEO] canvas render trace=%s frame=%d stats=%s", vw.currentVideoTraceLabel(), frameNum, summarizeImage(frame))
 		}

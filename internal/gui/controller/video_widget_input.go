@@ -578,6 +578,17 @@ func (vw *VideoWidget) IsAbsoluteLikeInputMode() bool {
 	return vw.GetMouseInputMode() == mouseModeAbsolute
 }
 
+// isPositionInContentRect reports whether the local widget position (px, py) falls
+// within the actual video content area, accounting for letterbox/pillarbox black bars.
+// Returns true when the content rect is not yet established (allows clicks through).
+func (vw *VideoWidget) isPositionInContentRect(px, py float32) bool {
+	x, y, w, h := vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH
+	if w <= 0 || h <= 0 {
+		return true
+	}
+	return px >= x && px <= x+w && py >= y && py <= y+h
+}
+
 func (vw *VideoWidget) UsesRelativeMouseInput() bool {
 	return vw.GetMouseInputMode() == mouseModeTouchPad
 }
