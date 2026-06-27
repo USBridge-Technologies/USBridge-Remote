@@ -162,6 +162,17 @@ type VideoWidget struct {
 	// lastVirtualTapAt is set when a quick tap completes; second TouchDown within 600ms holds LMB.
 	lastVirtualTapAt time.Time
 	lmbHeld          bool
+	// Android LMB-hold gesture helpers:
+	// lmbTapAt records when Down1 was sent (used to compute guard from Down1).
+	// lmbUpTimer is non-nil while Up1 is pending (100ms cancel window after Down1).
+	// lmbPendingHold is set when second finger is down but we haven't decided hold vs double-click yet.
+	// lmbHoldTimer fires after 200ms of the second finger being held, committing to the hold.
+	// lmbPendingDoubleClick is set when second finger lifted quickly while lmbUpTimer still runs.
+	lmbTapAt             time.Time
+	lmbUpTimer           *time.Timer
+	lmbPendingHold       bool
+	lmbHoldTimer         *time.Timer
+	lmbPendingDoubleClick bool
 	isClosing       atomic.Bool
 }
 

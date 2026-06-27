@@ -107,7 +107,11 @@
       "Bash(EDITOR=true git rebase *)",
       "Bash(git *)",
       "Bash(GIT_EDITOR=: git commit *)",
-      "Bash(xargs cat)"
+      "Bash(xargs cat)",
+      "Bash(gofmt -e ./internal/gui/controller/video_mouse_handler.go)",
+      "Bash(gofmt -e ./internal/gui/controller/video_widget.go)",
+      "Bash(gh api *)",
+      "WebFetch(domain:api.github.com)"
     ]
   }
 }
