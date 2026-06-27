@@ -199,6 +199,17 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	if !service.VKVideoAndroidIsActive() {
 		return
 	}
+
+	if vw.GetMouseInputMode() == mouseModeVirtualCursor {
+		vw.vcMu.Lock()
+		targetU := vw.virtualCursorU
+		targetV := vw.virtualCursorV
+		vw.vcMu.Unlock()
+
+		// Center the viewport mathematically on the raw cursor with spring easing
+		vw.centerViewportOnVirtualCursor(targetU, targetV)
+	}
+
 	// When the system IME is open, the Vulkan SurfaceView expands above the
 	// touchpad widget by topOffset dp (the tab-bar height). Subtract that extra
 	// distance from contentRectY so v0 reaches into the video content that sits
@@ -226,33 +237,85 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	}
 
 	if vw.GetMouseInputMode() == mouseModeVirtualCursor {
-		service.VKVideoAndroidSetCursor(vw.virtualCursorU, vw.virtualCursorV, true)
+		vw.vcMu.Lock()
+		u, v := vw.virtualCursorU, vw.virtualCursorV
+		vw.vcMu.Unlock()
+		service.VKVideoAndroidSetCursor(u, v, true)
 	} else {
 		service.VKVideoAndroidSetCursor(0, 0, false)
 	}
 }
 
+// softClampEdgePan smoothly clamps a value between min and max.
+// Instead of a hard stop, it applies a parabolic deceleration zone of size 'zone'
+// near the boundaries, so the derivative smoothly goes to 0.
+func softClampEdgePan(val, min, max, zone float32) float32 {
+	if min >= max {
+		return min
+	}
+	center := (max + min) / 2
+	limit := (max - min) / 2
+	valC := val - center
+
+	if zone > limit {
+		zone = limit
+	}
+	if zone <= 0 {
+		return clampFloat(valC, -limit, limit) + center
+	}
+	if valC > limit-zone {
+		if valC >= limit+zone {
+			return max
+		}
+		x := valC - (limit - zone)
+		return limit - zone + x - (x*x)/(4*zone) + center
+	}
+	if valC < -limit+zone {
+		if valC <= -limit-zone {
+			return min
+		}
+		x := valC - (-limit + zone)
+		return -limit + zone + x + (x*x)/(4*zone) + center
+	}
+	return valC + center
+}
+
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor is
 // centred on screen (RustDesk-style follow).  Only effective when zoom > 1.
-func (vw *VideoWidget) centerViewportOnVirtualCursor() {
+func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	if vw.zoomScale <= 1.001 {
 		return
 	}
 	cw := vw.baseContentRectW * vw.zoomScale
 	ch := vw.baseContentRectH * vw.zoomScale
-	// panOffsetX = cw*(0.5 - u) so cursor lands at touchpadSizeW/2
-	vw.panOffsetX = cw * (0.5 - vw.virtualCursorU)
-	// panOffsetY: with overflow ch > availH, baseY = availH-ch
+
+	// X: cursor-centering pan.
+	if cw > vw.touchpadSizeW {
+		idealPanX := cw * (0.5 - u)
+		maxPanX := (cw - vw.touchpadSizeW) / 2
+		// 15% of the screen width as the smooth deceleration zone
+		zoneX := vw.touchpadSizeW * 0.15 
+		vw.panOffsetX = softClampEdgePan(idealPanX, -maxPanX, maxPanX, zoneX)
+	} else {
+		vw.panOffsetX = 0
+	}
+
+	// Y: cursor-centering pan (only when content taller than screen).
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		// panOffsetY = availH/2 - (availH-ch) - vc*ch
-		vw.panOffsetY = availH/2 - (availH - ch) - vw.virtualCursorV*ch
-		if vw.panOffsetY < 0 {
-			vw.panOffsetY = 0
-		}
+		idealPanY := availH/2 - (availH-ch) - v*ch
+		maxPanY := ch - availH
+		// 15% of the screen height as the smooth deceleration zone
+		zoneY := availH * 0.15
+		vw.panOffsetY = softClampEdgePan(idealPanY, 0, maxPanY, zoneY)
+	} else {
+		vw.panOffsetY = 0
 	}
+
 	vw.recalculateViewport()
 }
+
+
 
 // initAndroidCursorScale rasterizes cursor-pointer.svg at the requested pixel
 // size and uploads the result to the Vulkan cursor buffer.
