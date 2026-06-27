@@ -579,6 +579,21 @@ func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey str
 
 func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
 	connectTailscale := func(ctx context.Context) error {
+		resolvedHost := strings.TrimSpace(host)
+
+		// If the current host is not a Tailscale address (e.g. it's a LAN IP from QR scan),
+		// look up the Tailscale IP stored by a previous sync for this connection.
+		if !isLikelyTailscaleHost(resolvedHost) && mw.connectionManager != nil {
+			if tsHost := mw.connectionManager.ResolveTailscaleHost(resolvedHost); tsHost != "" {
+				logrus.Infof("🔍 [TS] Resolved tailscale host %s for internal %s", tsHost, resolvedHost)
+				resolvedHost = tsHost
+			}
+		}
+
+		if !isLikelyTailscaleHost(resolvedHost) {
+			return fmt.Errorf("no tailscale address available for bridge (do a fresh sync to register)")
+		}
+
 		if !mw.config.TailscaleEnabled {
 			return fmt.Errorf("Tailscale disabled in config")
 		}
@@ -592,17 +607,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 		if !status.LoggedIn {
 			return fmt.Errorf("tailscale is signed out, use Google login in Connection Manager first")
-		}
-
-		resolvedHost := strings.TrimSpace(host)
-
-		// If the current host is not a Tailscale address (e.g. it's a LAN IP from QR scan),
-		// look up the Tailscale IP stored by a previous sync for this connection.
-		if !isLikelyTailscaleHost(resolvedHost) && mw.connectionManager != nil {
-			if tsHost := mw.connectionManager.ResolveTailscaleHost(resolvedHost); tsHost != "" {
-				logrus.Infof("🔍 [TS] Resolved tailscale host %s for internal %s", tsHost, resolvedHost)
-				resolvedHost = tsHost
-			}
 		}
 
 		tryDirect := func(ctx context.Context, target string) error {
