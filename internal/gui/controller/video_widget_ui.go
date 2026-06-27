@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -297,6 +298,14 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		hidDone <- vw.ensureControlHIDDevices()
 	}()
 
+	// Tell the server to prepare the video stream
+	if vw.usbClient != nil {
+		logrus.Info("🌕 startVideoWithParamsInternal: calling usbClient.StartVideo")
+		if err := vw.usbClient.StartVideo(request); err != nil {
+			logrus.Warnf("⚠️ Failed to start video on the server API: %v", err)
+		}
+	}
+
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
 	if err := vw.videoClient.ConnectToRTP(); err != nil {
 		logrus.Errorf("❌ Moonlight ConnectToRTP failed: %v", err)
@@ -399,23 +408,48 @@ func (vw *VideoWidget) stopVideoInternal() {
 	})
 	resetVideoInfoCache()
 
+	var wg sync.WaitGroup
+
 	if vw.usbClient != nil {
-		// Сначала говорим серверу СТОП, чтобы он перестал слать пакеты
-		if err := vw.usbClient.StopVideo(); err != nil {
-			logrus.Warnf("⚠️ Failed to stop video on the server: %v", err)
-		}
+		wg.Add(1)
+		go func(client interface{ StopVideo() error }) {
+			defer wg.Done()
+			if err := client.StopVideo(); err != nil {
+				logrus.Warnf("⚠️ Failed to stop video on the server: %v", err)
+			}
+		}(vw.usbClient)
 	}
 
 	if vw.videoClient != nil {
-		if err := vw.videoClient.Disconnect(); err != nil {
-			logrus.Errorf("Failed to disconnect Moonlight: %v", err)
-		}
+		wg.Add(1)
+		go func(client interface{ Disconnect() error }) {
+			defer wg.Done()
+			if err := client.Disconnect(); err != nil {
+				logrus.Errorf("Failed to disconnect Moonlight: %v", err)
+			}
+		}(vw.videoClient)
 	}
 
 	if vw.tailscaleService != nil {
-		if err := vw.tailscaleService.StopVideoUDPRelay(); err != nil {
-			logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
-		}
+		wg.Add(1)
+		go func(svc interface{ StopVideoUDPRelay() error }) {
+			defer wg.Done()
+			if err := svc.StopVideoUDPRelay(); err != nil {
+				logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
+			}
+		}(vw.tailscaleService)
+	}
+
+	// Ожидаем завершения с небольшим таймаутом, чтобы не зависало окно видео
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(1500 * time.Millisecond):
+		logrus.Warn("⚠️ Stop video network ops timed out, proceeding to clear UI")
 	}
 
 	vw.isStreaming = false
