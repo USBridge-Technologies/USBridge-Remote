@@ -1464,3 +1464,8 @@ func (vw *VideoWidget) dumpFrameSnapshot(img image.Image, frameNum int64) {
 
 	logrus.Infof("📸 [VIDEO] frame snapshot saved trace=%s frame=%d path=%s stats=%s", trace, frameNum, path, summarizeImage(img))
 }
+
+// ShowVirtualKeyboardIfMobile показывает виртуальную клавиатуру, если мы на мобильной ОС
+func (vw *VideoWidget) ShowVirtualKeyboardIfMobile() {
+	vw.platformShowVirtualKeyboardIfMobile()
+}

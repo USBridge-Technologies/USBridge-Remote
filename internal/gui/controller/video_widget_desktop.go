@@ -29,3 +29,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		logrus.Info("⌨️ Virtual keyboard shown in a separate window (desktop mode)")
 	}
 }
+
+func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
+	// Not applicable for desktop, only show by default on mobile
+}

@@ -763,6 +763,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		}
 		mw.updateStatus()
 		mw.showMainContent()
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowVirtualKeyboardIfMobile()
+		}
 	})
 
 	logrus.Infof("✅ Connected to USBridge via %s", mw.connectedProtocol)

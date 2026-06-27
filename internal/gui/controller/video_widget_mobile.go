@@ -97,3 +97,9 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		logrus.Info("⌨️ Virtual keyboard shown with Android IME")
 	}
 }
+
+func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
+	if vw.virtualKeyboard == nil || !vw.virtualKeyboard.IsVisible() {
+		vw.platformHandleVirtualKeyboard()
+	}
+}
