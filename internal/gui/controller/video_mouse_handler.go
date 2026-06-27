@@ -815,14 +815,20 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 			// Up1 not yet sent (timer still running) — flag it to complete the double-click after Up1.
 			t.videoWidget.lmbPendingDoubleClick = true
 		} else if !t.videoWidget.lmbUp1Sent {
-			// lmbUpTimer fired but deferred Up1 (Down1 still held) — send Up1+Down2+Up2 now.
+			// lmbUpTimer fired but deferred Up1 (Down1 still held) — send Up1 then Down2+Up2 with gap.
 			t.videoWidget.lmbUp1Sent = true
 			t.videoWidget.enqueueMouseButtonUp(1)
 			t.videoWidget.lastVirtualTapAt = time.Time{}
-			t.videoWidget.enqueueMouseButtonDown(1)
-			t.videoWidget.enqueueMouseButtonUp(1)
+			vw := t.videoWidget
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				fyne.Do(func() {
+					vw.enqueueMouseButtonDown(1)
+					vw.enqueueMouseButtonUp(1)
+				})
+			}()
 		} else {
-			// Up1 already sent — send Down2+Up2 immediately.
+			// Up1 already sent — send Down2+Up2 immediately (Up1 was long ago, no merge risk).
 			t.videoWidget.lastVirtualTapAt = time.Time{}
 			t.videoWidget.enqueueMouseButtonDown(1)
 			t.videoWidget.enqueueMouseButtonUp(1)
@@ -882,11 +888,18 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 								vw.lmbUp1Sent = true
 								vw.enqueueMouseButtonUp(1)
 								// Second finger lifted quickly while Up1 was still pending → complete double-click.
+								// Delay Down2 by 50ms: without the gap Up1+Down2+Up2 arrive simultaneously
+								// and the OS merges them into a triple-click burst.
 								if vw.lmbPendingDoubleClick {
 									vw.lmbPendingDoubleClick = false
 									vw.lastVirtualTapAt = time.Time{}
-									vw.enqueueMouseButtonDown(1)
-									vw.enqueueMouseButtonUp(1)
+									go func() {
+										time.Sleep(50 * time.Millisecond)
+										fyne.Do(func() {
+											vw.enqueueMouseButtonDown(1)
+											vw.enqueueMouseButtonUp(1)
+										})
+									}()
 								}
 							}
 						})
