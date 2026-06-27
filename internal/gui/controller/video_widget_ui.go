@@ -1297,7 +1297,9 @@ func (vw *VideoWidget) renderLatestFrame() {
 	frameNum := vw.frameCount
 	vw.frameMutex.Unlock()
 
-	if frame == nil {
+	// If native GPU overlay is active, frame will be nil, but we still need to proceed 
+	// to hide the Fyne canvas and update viewport/cursor.
+	if frame == nil && !vw.isNativeVideoActive() {
 		return
 	}
 
