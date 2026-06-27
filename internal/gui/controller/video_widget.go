@@ -168,10 +168,11 @@ type VideoWidget struct {
 	// lmbPendingHold is set when second finger is down but we haven't decided hold vs double-click yet.
 	// lmbHoldTimer fires after 200ms of the second finger being held, committing to the hold.
 	// lmbPendingDoubleClick is set when second finger lifted quickly while lmbUpTimer still runs.
-	lmbTapAt             time.Time
-	lmbUpTimer           *time.Timer
-	lmbPendingHold       bool
-	lmbHoldTimer         *time.Timer
+	lmbTapAt              time.Time
+	lmbUp1Sent            bool        // true once Up1 has actually been sent
+	lmbUpTimer            *time.Timer
+	lmbPendingHold        bool
+	lmbHoldTimer          *time.Timer
 	lmbPendingDoubleClick bool
 	isClosing       atomic.Bool
 }

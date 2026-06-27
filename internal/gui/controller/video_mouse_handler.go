@@ -731,7 +731,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 					vw.lmbHoldTimer.Stop()
 				}
 				vw.lmbPendingHold = true
-				vw.lmbHoldTimer = time.AfterFunc(200*time.Millisecond, func() {
+				vw.lmbHoldTimer = time.AfterFunc(150*time.Millisecond, func() {
 					fyne.Do(func() {
 						if !vw.lmbPendingHold {
 							return
@@ -739,14 +739,28 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 						vw.lmbPendingHold = false
 						vw.lmbHeld = true
 						if vw.lmbUpTimer != nil {
-							// Up1 not yet sent — cancel it; Down1 stays held (instant hold, no double-click gap).
+							// Up1 not yet sent (timer still running) — cancel it; Down1 stays held.
 							vw.lmbUpTimer.Stop()
 							vw.lmbUpTimer = nil
+						} else if !vw.lmbUp1Sent {
+							// lmbUpTimer fired but deferred Up1 because lmbPendingHold was set.
+							// Down1 is still held — instant hold, nothing to do.
 						} else {
-							// Up1 already sent — send Down2. At least 300ms have elapsed since
-							// Down1 (100ms lmbUpTimer + 200ms lmbHoldTimer), safely past the
-							// typical OS double-click window.
-							vw.enqueueMouseButtonDown(1)
+							// Up1 already sent — send Down2.
+							// Guard against OS double-click window (≤ 50ms in practice: 300ms+150ms=450ms elapsed).
+							remaining := (500 * time.Millisecond) - time.Since(vw.lmbTapAt)
+							if remaining <= 0 {
+								vw.enqueueMouseButtonDown(1)
+							} else {
+								go func() {
+									time.Sleep(remaining)
+									fyne.Do(func() {
+										if vw.lmbHeld {
+											vw.enqueueMouseButtonDown(1)
+										}
+									})
+								}()
+							}
 						}
 					})
 				})
@@ -790,7 +804,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		t.videoWidget.resetRelativeMoveAccumulator()
 		return
 	}
-	// Pending hold: second finger lifted before 200ms — treat as double-click.
+	// Pending hold: second finger lifted quickly — treat as double-click.
 	if t.videoWidget.lmbPendingHold {
 		t.videoWidget.lmbPendingHold = false
 		if t.videoWidget.lmbHoldTimer != nil {
@@ -798,10 +812,17 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 			t.videoWidget.lmbHoldTimer = nil
 		}
 		if t.videoWidget.lmbUpTimer != nil {
-			// Up1 not yet sent — flag lmbUpTimer to complete the double-click after Up1.
+			// Up1 not yet sent (timer still running) — flag it to complete the double-click after Up1.
 			t.videoWidget.lmbPendingDoubleClick = true
+		} else if !t.videoWidget.lmbUp1Sent {
+			// lmbUpTimer fired but deferred Up1 (Down1 still held) — send Up1+Down2+Up2 now.
+			t.videoWidget.lmbUp1Sent = true
+			t.videoWidget.enqueueMouseButtonUp(1)
+			t.videoWidget.lastVirtualTapAt = time.Time{}
+			t.videoWidget.enqueueMouseButtonDown(1)
+			t.videoWidget.enqueueMouseButtonUp(1)
 		} else {
-			// Up1 already sent — send Down2+Up2 immediately (complete double-click).
+			// Up1 already sent — send Down2+Up2 immediately.
 			t.videoWidget.lastVirtualTapAt = time.Time{}
 			t.videoWidget.enqueueMouseButtonDown(1)
 			t.videoWidget.enqueueMouseButtonUp(1)
@@ -848,10 +869,17 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 						t.videoWidget.lmbUpTimer.Stop()
 					}
 					vw := t.videoWidget
-					t.videoWidget.lmbUpTimer = time.AfterFunc(100*time.Millisecond, func() {
+					t.videoWidget.lmbUp1Sent = false
+					t.videoWidget.lmbUpTimer = time.AfterFunc(300*time.Millisecond, func() {
 						fyne.Do(func() {
 							if vw.lmbUpTimer != nil {
 								vw.lmbUpTimer = nil
+								if vw.lmbPendingHold {
+									// Second finger is still down; lmbHoldTimer will decide hold vs double-click.
+									// Do NOT send Up1 — Down1 stays pressed. lmbUp1Sent stays false.
+									return
+								}
+								vw.lmbUp1Sent = true
 								vw.enqueueMouseButtonUp(1)
 								// Second finger lifted quickly while Up1 was still pending → complete double-click.
 								if vw.lmbPendingDoubleClick {
@@ -1002,9 +1030,12 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 			}
 			vw.lmbHeld = true
 			if vw.lmbUpTimer != nil {
-				// Up1 not yet sent — cancel it; Down1 stays held from first tap.
+				// Up1 not yet sent (timer still running) — cancel it; Down1 stays held.
 				vw.lmbUpTimer.Stop()
 				vw.lmbUpTimer = nil
+			} else if !vw.lmbUp1Sent {
+				// lmbUpTimer fired but deferred Up1 because lmbPendingHold was set.
+				// Down1 is still held — instant hold, nothing to do.
 			} else {
 				// Up1 already sent — send Down2 at current cursor position.
 				vw.enqueueMouseButtonDown(1)
@@ -1083,6 +1114,7 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	}
 	t.videoWidget.lmbPendingHold = false
 	t.videoWidget.lmbPendingDoubleClick = false
+	t.videoWidget.lmbUp1Sent = false
 	if t.videoWidget.lmbUpTimer != nil {
 		t.videoWidget.lmbUpTimer.Stop()
 		t.videoWidget.lmbUpTimer = nil
