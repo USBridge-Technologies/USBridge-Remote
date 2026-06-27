@@ -106,7 +106,8 @@
       "Bash(GIT_EDITOR=true git rebase *)",
       "Bash(EDITOR=true git rebase *)",
       "Bash(git *)",
-      "Bash(GIT_EDITOR=: git commit *)"
+      "Bash(GIT_EDITOR=: git commit *)",
+      "Bash(xargs cat)"
     ]
   }
 }

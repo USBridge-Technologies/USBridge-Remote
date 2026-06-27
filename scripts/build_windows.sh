@@ -411,21 +411,6 @@ elif ! diff -q "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT" >/dev/n
     REBUILD_WINDOWS_REASON="build inputs changed"
 fi
 
-# 5a. Основное приложение (CGo + Fyne UI, без иконки — пользователь его не запускает напрямую)
-if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
-    echo -e "${YELLOW}🧱 Сборка основного приложения (Go cache: $GOCACHE)...${NC}"
-    echo "   Reason: $REBUILD_WINDOWS_REASON"
-    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" .
-    mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
-else
-    rm -f "$BUILD_CACHE_FINGERPRINT_TMP"
-    echo -e "${GREEN}✓${NC} Используем готовый app exe из кэша: $BUILD_CACHE_APP_EXE"
-fi
-
-# 5b. Лаунчер (чистый Go, встраиваем иконку через go-winres → .syso → go build)
-echo -e "${YELLOW}🧱 Сборка лаунчера с иконкой...${NC}"
-LAUNCHER_SYSO="$REPO_ROOT/cmd/launcher/rsrc_windows_amd64.syso"
-
 # Найти или установить go-winres (встраивает иконку без ImageMagick и fyne)
 GOWINRES_BIN=""
 for _n in go-winres go-winres.exe; do
@@ -443,9 +428,35 @@ if [ -z "$GOWINRES_BIN" ]; then
     done
 fi
 
+# 5a. Основное приложение (CGo + Fyne UI, встраиваем иконку через go-winres)
+APP_SYSO="$REPO_ROOT/cmd/rsrc_windows_amd64.syso"
+if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
+    echo -e "${YELLOW}🧱 Сборка основного приложения (Go cache: $GOCACHE)...${NC}"
+    echo "   Reason: $REBUILD_WINDOWS_REASON"
+    if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
+        rm -f "$APP_SYSO"
+        if (cd "$REPO_ROOT/cmd" && \
+            GOOS=windows GOARCH=amd64 \
+            "$GOWINRES_BIN" simply --icon "$ICON_PATH" 2>&1); then
+            [ -f "$APP_SYSO" ] && echo -e "${GREEN}✓${NC} Иконка встроена в основное приложение: $APP_SYSO"
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} go-winres недоступен — основное приложение будет без иконки"
+    fi
+    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" .
+    rm -f "$APP_SYSO"
+    mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
+else
+    rm -f "$BUILD_CACHE_FINGERPRINT_TMP"
+    echo -e "${GREEN}✓${NC} Используем готовый app exe из кэша: $BUILD_CACHE_APP_EXE"
+fi
+
+# 5b. Лаунчер (чистый Go, встраиваем иконку через go-winres → .syso → go build)
+echo -e "${YELLOW}🧱 Сборка лаунчера с иконкой...${NC}"
+LAUNCHER_SYSO="$REPO_ROOT/cmd/launcher/rsrc_windows_amd64.syso"
+
 ICON_EMBEDDED=0
 if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
-    # go-winres simply генерирует rsrc_windows_amd64.syso прямо из PNG
     rm -f "$LAUNCHER_SYSO"
     if (cd "$REPO_ROOT/cmd/launcher" && \
         GOOS=windows GOARCH=amd64 \

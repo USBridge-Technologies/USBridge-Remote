@@ -15,7 +15,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
-	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
 
@@ -88,18 +87,11 @@ func (dw *DiskWidget) handleAddImage() {
 
 	if isDesktop {
 		dw.setUserOperationInFlight(true)
-		var busyPopup *widget.PopUp
-		if runtime.GOOS == "windows" {
-			busyPopup = view.ShowBusyDialog(i18n.Current.SelectDiskImage, "Use the system file dialog to choose a disk image.", dw.window)
-		}
 
 		go func() {
 			defer dw.imagePickerInFlight.Store(false)
 			selected, ok := dw.showPlatformNativeImagePicker()
 			fyne.Do(func() {
-				if busyPopup != nil {
-					busyPopup.Hide()
-				}
 				dw.setUserOperationInFlight(false)
 				if ok {
 					dw.handleSelectedImage(selected)

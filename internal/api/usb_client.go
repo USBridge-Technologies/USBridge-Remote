@@ -3,6 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1479,9 +1482,47 @@ func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader,
 	return lastErr
 }
 
+// computeUploadHMAC computes the HMAC signature for a streaming multipart upload.
+// It reads fileReader through the HMAC (without buffering) then seeks back to start.
+// Returns timestamp and hex signature, or empty strings if signing is not possible.
+func (c *USBClient) computeUploadHMAC(endpoint, fileName, boundary string, fileReader io.Reader) (timestamp, signature string) {
+	if len(c.apiSecret) == 0 {
+		return "", ""
+	}
+	seeker, ok := fileReader.(io.ReadSeeker)
+	if !ok {
+		return "", ""
+	}
+
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+
+	// Capture the exact multipart part-header bytes that will be sent
+	headerBuf := &bytes.Buffer{}
+	tmpW := multipart.NewWriter(headerBuf)
+	tmpW.SetBoundary(boundary) //nolint:errcheck
+	tmpW.CreateFormFile("file", fileName) //nolint:errcheck
+	partHeaderBytes := headerBuf.Bytes()
+	partFooterBytes := []byte(fmt.Sprintf("\r\n--%s--\r\n", boundary))
+
+	dk := sha256.Sum256(c.apiSecret)
+	mac := hmac.New(sha256.New, dk[:])
+	mac.Write([]byte("POST"))
+	mac.Write([]byte(endpoint))
+	mac.Write([]byte(ts))
+	mac.Write(partHeaderBytes)
+	io.Copy(mac, fileReader) //nolint:errcheck
+	mac.Write(partFooterBytes)
+
+	sig := hex.EncodeToString(mac.Sum(nil))
+	seeker.Seek(0, io.SeekStart) //nolint:errcheck
+
+	return ts, sig
+}
+
 // doUploadISOAttempt performs one ISO upload attempt.
 func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fileSize int64, progressCallback UploadProgressCallback) error {
 	url := c.baseURL + "/api/iso/upload"
+	endpoint := "/api/iso/upload"
 	fileName := filepath.Base(filePath)
 
 	if progressCallback != nil && fileSize > 0 {
@@ -1492,6 +1533,8 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	writer := multipart.NewWriter(pipeWriter)
 	contentType := writer.FormDataContentType()
 	boundary := writer.Boundary()
+
+	uploadTimestamp, uploadSignature := c.computeUploadHMAC(endpoint, fileName, boundary, fileReader)
 
 	var current int64
 
@@ -1549,7 +1592,10 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 		req.Header.Set("X-File-Size", strconv.FormatInt(fileSize, 10))
 	}
 	req.Header.Set("Expect", "100-continue")
-	if c.apiKey != "" {
+	if uploadSignature != "" {
+		req.Header.Set("X-Auth-Signature", uploadSignature)
+		req.Header.Set("X-Auth-Timestamp", uploadTimestamp)
+	} else if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
