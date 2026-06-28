@@ -17,3 +17,6 @@ func (vw *VideoWidget) initAndroidCursorScale(_ int) {}
 
 // onIMEHeightChanged is a no-op on non-Android platforms.
 func (vw *VideoWidget) onIMEHeightChanged(_ float32) {}
+
+// triggerRmbHaptic is a no-op on non-Android platforms.
+func triggerRmbHaptic() {}

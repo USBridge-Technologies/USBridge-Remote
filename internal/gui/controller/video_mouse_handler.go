@@ -746,21 +746,10 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 							// lmbUpTimer fired but deferred Up1 because lmbPendingHold was set.
 							// Down1 is still held — instant hold, nothing to do.
 						} else {
-							// Up1 already sent — send Down2.
-							// Guard against OS double-click window (≤ 50ms in practice: 300ms+150ms=450ms elapsed).
-							remaining := (500 * time.Millisecond) - time.Since(vw.lmbTapAt)
-							if remaining <= 0 {
-								vw.enqueueMouseButtonDown(1)
-							} else {
-								go func() {
-									time.Sleep(remaining)
-									fyne.Do(func() {
-										if vw.lmbHeld {
-											vw.enqueueMouseButtonDown(1)
-										}
-									})
-								}()
-							}
+							// Up1 already sent — the first tap is complete and the new
+							// touch is an independent gesture (e.g. cursor move). Cancel
+							// drag mode so the swipe doesn't trigger drag-select.
+							vw.lmbHeld = false
 						}
 					})
 				})
@@ -769,6 +758,25 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 				t.videoWidget.enqueueMouseButtonDown(1)
 			}
 		}
+		// Arm 1-second haptic timer: fires when long-press RMB threshold is reached,
+		// giving tactile confirmation that the finger can now be released for RMB.
+		vw := t.videoWidget
+		if vw.rmbHapticTimer != nil {
+			vw.rmbHapticTimer.Stop()
+		}
+		vw.rmbHapticTimer = time.AfterFunc(time.Second, func() {
+			fyne.Do(func() {
+				vw.rmbHapticTimer = nil
+				if !isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
+					return
+				}
+				// Only vibrate if the finger hasn't moved enough to disqualify long-press.
+				if vw.isDragging {
+					return
+				}
+				triggerRmbHaptic()
+			})
+		})
 		return
 	}
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
@@ -856,6 +864,11 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	// Virtual cursor: tap = left click; long-tap = right click; tap-then-hold = LMB drag.
 	// Note: lmbHeld case is handled unconditionally above (before shouldIgnoreTouchInput).
 	if isVirtualCursorLikeMode(mode) {
+		// Cancel the RMB haptic timer — touch ended so confirmation is no longer needed.
+		if t.videoWidget.rmbHapticTimer != nil {
+			t.videoWidget.rmbHapticTimer.Stop()
+			t.videoWidget.rmbHapticTimer = nil
+		}
 		// Use physical distance from touch start only — don't check isDragging because
 		// Dragged sets it even on stationary touches (touch sensor noise).
 		if dx < 15 && dy < 15 {
@@ -876,7 +889,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 					}
 					vw := t.videoWidget
 					t.videoWidget.lmbUp1Sent = false
-					t.videoWidget.lmbUpTimer = time.AfterFunc(300*time.Millisecond, func() {
+					t.videoWidget.lmbUpTimer = time.AfterFunc(150*time.Millisecond, func() {
 						fyne.Do(func() {
 							if vw.lmbUpTimer != nil {
 								vw.lmbUpTimer = nil
@@ -1054,9 +1067,22 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 				// lmbUpTimer fired but deferred Up1 because lmbPendingHold was set.
 				// Down1 is still held — instant hold, nothing to do.
 			} else {
-				// Up1 already sent — send Down2 at current cursor position.
-				vw.enqueueMouseButtonDown(1)
+				// Up1 already sent: tap is complete, movement is a new independent
+				// gesture. Cancel drag mode — do not send Down2.
+				vw.lmbHeld = false
+				if vw.lmbHoldTimer != nil {
+					vw.lmbHoldTimer.Stop()
+					vw.lmbHoldTimer = nil
+				}
 			}
+		} else if vw.lmbUpTimer != nil {
+			// User is swiping within the tap-capture window (no second finger).
+			// Release LMB immediately so the cursor moves without drag-selecting.
+			vw.lmbUpTimer.Stop()
+			vw.lmbUpTimer = nil
+			vw.lmbPendingDoubleClick = false
+			vw.lmbUp1Sent = true
+			vw.enqueueMouseButtonUp(1)
 		}
 	}
 
@@ -1121,6 +1147,10 @@ func (t *TouchpadWrapper) flushVirtualCursorPosition() {
 // TouchCancel обрабатывает отмену касания (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	t.endScrollbarDrag()
+	if t.videoWidget.rmbHapticTimer != nil {
+		t.videoWidget.rmbHapticTimer.Stop()
+		t.videoWidget.rmbHapticTimer = nil
+	}
 	if t.videoWidget.lmbHoldTimer != nil {
 		t.videoWidget.lmbHoldTimer.Stop()
 		t.videoWidget.lmbHoldTimer = nil
@@ -1227,6 +1257,11 @@ func (t *TouchpadWrapper) DragEnd() {
 			return
 		}
 		logrus.Infof("🖱️ [DRAGGED] Android: DragEnd called, isDragging=%v lmbHeld=%v", t.videoWidget.isDragging, t.videoWidget.lmbHeld)
+		// Cancel RMB haptic timer — finger lifted.
+		if t.videoWidget.rmbHapticTimer != nil {
+			t.videoWidget.rmbHapticTimer.Stop()
+			t.videoWidget.rmbHapticTimer = nil
+		}
 		// On Android, DragEnd fires when the finger is lifted after a drag — Fyne may
 		// not fire TouchUp in this case.  Release held LMB here so it doesn't stay stuck.
 		if t.videoWidget.lmbPendingHold {

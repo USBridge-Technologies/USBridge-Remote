@@ -38,6 +38,7 @@
 
 static JavaVM *g_jvm           = NULL;
 static jclass  g_cls_vob       = NULL; // com/usbridge/client/VulkanOverlayBridge
+static jclass  g_cls_haptic    = NULL; // com/usbridge/client/HapticBridge
 
 static JNIEnv *get_env(int *need_detach) {
     *need_detach = 0;
@@ -1001,6 +1002,34 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
         VLOGI("VulkanOverlayBridge class cached");
     } else {
         VLOGE("could not find VulkanOverlayBridge class");
+    }
+
+    // Cache HapticBridge for short-tap haptic feedback.
+    jclass hcls = (*env)->FindClass(env, "com/usbridge/client/HapticBridge");
+    if (hcls && !(*env)->ExceptionCheck(env)) {
+        g_cls_haptic = (jclass)(*env)->NewGlobalRef(env, hcls);
+        (*env)->DeleteLocalRef(env, hcls);
+        VLOGI("HapticBridge class cached");
+    } else {
+        (*env)->ExceptionClear(env);
+        VLOGE("could not find HapticBridge class");
+    }
+
+    detach_env(nd);
+}
+
+// android_haptic_short_tap calls HapticBridge.triggerShortTap() on the Kotlin side
+// to produce a brief vibration (~30 ms). Used to confirm the RMB long-press threshold.
+void android_haptic_short_tap(void) {
+    if (!g_cls_haptic) return;
+    int nd; JNIEnv *env = get_env(&nd);
+    if (!env) return;
+    jmethodID mid = (*env)->GetStaticMethodID(env, g_cls_haptic, "triggerShortTap", "()V");
+    if (mid && !(*env)->ExceptionCheck(env)) {
+        (*env)->CallStaticVoidMethod(env, g_cls_haptic, mid);
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    } else {
+        (*env)->ExceptionClear(env);
     }
     detach_env(nd);
 }

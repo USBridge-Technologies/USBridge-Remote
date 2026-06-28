@@ -175,6 +175,7 @@ type VideoWidget struct {
 	lmbPendingHold        bool
 	lmbHoldTimer          *time.Timer
 	lmbPendingDoubleClick bool
+	rmbHapticTimer        *time.Timer // fires at 1s hold to signal RMB long-press readiness
 	isClosing       atomic.Bool
 }
 

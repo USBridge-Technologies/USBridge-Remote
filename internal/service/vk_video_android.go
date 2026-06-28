@@ -10,6 +10,7 @@ package service
 
 // Implemented in vk_video_impl_android.c.
 extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
+extern void android_haptic_short_tap(void);
 extern int  android_vk_is_active(void);
 extern int  android_vk_is_hidden(void);
 extern int  android_vk_create(int x, int y, int w, int h);
@@ -151,6 +152,11 @@ func VKVideoAndroidGetFPS() float64 {
 		return 0
 	}
 	return float64(fps)
+}
+
+// VKVideoAndroidHapticShortTap triggers a brief haptic tap (~30 ms) via HapticBridge.kt.
+func VKVideoAndroidHapticShortTap() {
+	C.android_haptic_short_tap()
 }
 
 // VKVideoAndroidSetCursorPixels uploads a pre-rendered RGBA cursor image.
