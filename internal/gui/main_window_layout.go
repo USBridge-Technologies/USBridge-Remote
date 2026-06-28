@@ -1469,6 +1469,13 @@ func (mw *MainWindow) showMouseModeMenu() {
 				mw.diskWidget.SetMouseMode(controller.MouseModeVirtualCursor)
 			},
 		})
+		items = append(items, view.StyledMenuItem{
+			Label:    i18n.Current.DeviceGyroMouse,
+			Selected: currentMode == controller.MouseModeGyroMouse,
+			OnTap: func() {
+				mw.diskWidget.SetMouseMode(controller.MouseModeGyroMouse)
+			},
+		})
 	}
 	items = append(items, view.StyledMenuItem{
 		Label:    i18n.Current.ShowMouseCursor,

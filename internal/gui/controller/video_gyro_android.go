@@ -109,7 +109,7 @@ func deliverGyroEventFromJNI(rx, ry, _ C.jfloat, dtMs C.jfloat) {
 		// rx (rotation around X axis = pitch) → cursor Y
 		// ry (rotation around Y axis = yaw/roll) → cursor X (negated: tilt right → cursor right)
 		rawDx := -capturedRY * capturedDt * cw * gyroSensitivity
-		rawDy := capturedRX * capturedDt * ch * gyroSensitivity
+		rawDy := -capturedRX * capturedDt * ch * gyroSensitivity
 
 		tw := vw.activeViewportWrapper()
 		if tw != nil {
