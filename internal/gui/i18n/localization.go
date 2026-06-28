@@ -327,6 +327,8 @@ type LocalizedStrings struct {
 	DeviceUSBAudio    string // "USB Audio Codec"
 	AudioDeviceUAC1   string // "UAC1"
 	AudioDeviceUAC2   string // "UAC2"
+	DriveModeDisk     string // "USB Stick"
+	DriveModeCDROM    string // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -701,6 +703,8 @@ func EN() *LocalizedStrings {
 		DeviceUSBAudio:    "USB Audio Codec",
 		AudioDeviceUAC1:   "UAC1",
 		AudioDeviceUAC2:   "UAC2",
+		DriveModeDisk:     "USB Stick",
+		DriveModeCDROM:    "CD-ROM",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",

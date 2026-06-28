@@ -229,6 +229,7 @@ type DeviceStartRequest struct {
 	ExportName              string `json:"export_name,omitempty"`                // Export name for API
 	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"` // true = empty name in NBD handshake (qemu-nbd)
 	ReadOnly                bool   `json:"read_only"`                            // true = read-only
+	DriveMode               string `json:"drive_mode,omitempty"`                 // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
 	VendorID                string `json:"vendor_id"`                            // Vendor ID
 	ProductID               string `json:"product_id"`                           // Product ID
 	ProductName             string `json:"product_name"`                         // Product name

@@ -342,7 +342,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			}, "", nil
 		}
 		return &models.DeviceStartRequest{
-			Device: "drive", Server: sel.LocalDrive.Name,
+			Device: "drive", Server: sel.LocalDrive.Name, DriveMode: sel.DriveMode,
 		}, "", nil
 	case "local", "user":
 		if sel.DiskInfo == nil {
@@ -709,7 +709,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 			}, nil
 		}
 		return &models.DeviceStartRequest{
-			Device: "drive", Server: drive.LocalDrive.Name,
+			Device: "drive", Server: drive.LocalDrive.Name, DriveMode: drive.DriveMode,
 		}, nil
 	}
 	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingNBD {

@@ -245,7 +245,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	modeRowIconText.Hide()
 	modeTitleLabel.Hide()
 
-	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" {
+	isAPIISODrive := drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType != "mtp"
+	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" || isAPIISODrive {
 		modeSelect.Show()
 		modeSelect.SetDisabled(controlsLocked)
 		switch drive.Source {
@@ -261,6 +262,13 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				modeSelect.SetSelected(i18n.Current.AudioDeviceUAC2)
 			} else {
 				modeSelect.SetSelected(i18n.Current.AudioDeviceUAC1)
+			}
+		case "api": // ISO/disk drive mode
+			modeSelect.SetOptions([]string{i18n.Current.DriveModeDisk, i18n.Current.DriveModeCDROM})
+			if drive.DriveMode == "cdrom" {
+				modeSelect.SetSelected(i18n.Current.DriveModeCDROM)
+			} else {
+				modeSelect.SetSelected(i18n.Current.DriveModeDisk)
 			}
 		default: // mouse
 			mode := normalizeMouseMode(drive.MouseType)
@@ -478,6 +486,18 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 				mode = "uac2"
 			}
 			dw.allDrives[rowID].USBAudioMode = mode
+		}
+	} else if isAPIISODrive {
+		rowID := id
+		modeSelect.OnSelected = func(s string) {
+			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
+				return
+			}
+			mode := "disk"
+			if s == i18n.Current.DriveModeCDROM {
+				mode = "cdrom"
+			}
+			dw.allDrives[rowID].DriveMode = mode
 		}
 	}
 

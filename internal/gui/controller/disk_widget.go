@@ -172,6 +172,7 @@ type DriveItem struct {
 	AudioDevice    *models.SystemDevice
 	IsUSBAudio     bool
 	USBAudioMode   string // "uac1" or "uac2"
+	DriveMode      string // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
 	ReadOnly       bool
 	UploadProgress float64
 	UploadSpeed    float64
