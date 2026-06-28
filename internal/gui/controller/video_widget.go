@@ -150,6 +150,7 @@ type VideoWidget struct {
 	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Virtual cursor (Android "cursor" mouse mode): position in frame UV space (0..1).
+	vcMu                        sync.Mutex
 	virtualCursorU              float32
 	virtualCursorV              float32
 	lastVirtualCursorSentTime   time.Time

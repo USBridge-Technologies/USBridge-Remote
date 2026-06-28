@@ -226,58 +226,61 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 
 	// Compute visible UV rect from Go viewport state.
 	cw, ch := vw.contentRectW, vw.contentRectH
+	var u0, v0, u1, v1 float32
 	if cw <= 0 || ch <= 0 {
-		service.VKVideoAndroidSetViewport(0, 0, 1, 1)
+		u0, v0, u1, v1 = 0, 0, 1, 1
 	} else {
-		u0 := clampFloat(-vw.contentRectX/cw, 0, 1)
-		v0 := clampFloat(-(vw.contentRectY+extraTopDp)/ch, 0, 1)
-		u1 := clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
-		v1 := clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
-		service.VKVideoAndroidSetViewport(u0, v0, u1, v1)
+		u0 = clampFloat(-vw.contentRectX/cw, 0, 1)
+		v0 = clampFloat(-(vw.contentRectY+extraTopDp)/ch, 0, 1)
+		u1 = clampFloat((vw.touchpadSizeW-vw.contentRectX)/cw, 0, 1)
+		v1 = clampFloat((vw.touchpadSizeH-vw.contentRectY)/ch, 0, 1)
 	}
 
-	if vw.GetMouseInputMode() == mouseModeVirtualCursor {
+	// Write viewport + cursor in a single mutex-protected call so the C render
+	// thread always reads a consistent snapshot: never viewport from update N
+	// with cursor from update N+1, which would flash the cursor to a wrong position.
+	cursorVisible := vw.GetMouseInputMode() == mouseModeVirtualCursor
+	var uc, vc float32
+	if cursorVisible {
 		vw.vcMu.Lock()
-		u, v := vw.virtualCursorU, vw.virtualCursorV
+		uc, vc = vw.virtualCursorU, vw.virtualCursorV
 		vw.vcMu.Unlock()
-		service.VKVideoAndroidSetCursor(u, v, true)
-	} else {
-		service.VKVideoAndroidSetCursor(0, 0, false)
 	}
+	service.VKVideoAndroidSetViewportAndCursor(u0, v0, u1, v1, uc, vc, cursorVisible)
 }
 
-// softClampEdgePan smoothly clamps a value between min and max.
-// Instead of a hard stop, it applies a parabolic deceleration zone of size 'zone'
-// near the boundaries, so the derivative smoothly goes to 0.
-func softClampEdgePan(val, min, max, zone float32) float32 {
-	if min >= max {
-		return min
+// softClampEdgePan clamps val to [lo, hi] with a smoothstep blend zone of size
+// zone inside each limit. The blend zone runs from (lo) to (lo+zone) and from
+// (hi-zone) to (hi). Inside these zones the output is eased toward the limit
+// using a smoothstep curve whose derivative is ZERO at the hard limit — so tiny
+// oscillations of val around the boundary (touch noise ε) produce only ε²/zone
+// change in the output instead of ε, effectively eliminating viewport jitter.
+func softClampEdgePan(val, lo, hi, zone float32) float32 {
+	if val <= lo {
+		return lo
 	}
-	center := (max + min) / 2
-	limit := (max - min) / 2
-	valC := val - center
-
-	if zone > limit {
-		zone = limit
+	if val >= hi {
+		return hi
+	}
+	if halfRange := (hi - lo) / 2; zone > halfRange {
+		zone = halfRange
 	}
 	if zone <= 0 {
-		return clampFloat(valC, -limit, limit) + center
+		return val
 	}
-	if valC > limit-zone {
-		if valC >= limit+zone {
-			return max
-		}
-		x := valC - (limit - zone)
-		return limit - zone + x - (x*x)/(4*zone) + center
+	if val < lo+zone {
+		// Near lower limit: ease val toward lo.
+		t := (lo + zone - val) / zone // 1 at lo, 0 at lo+zone
+		t = t * t * (3 - 2*t)         // smoothstep — zero derivative at lo
+		return val*(1-t) + lo*t
 	}
-	if valC < -limit+zone {
-		if valC <= -limit-zone {
-			return min
-		}
-		x := valC - (-limit + zone)
-		return -limit + zone + x + (x*x)/(4*zone) + center
+	if val > hi-zone {
+		// Near upper limit: ease val toward hi.
+		t := (val - (hi - zone)) / zone // 0 at hi-zone, 1 at hi
+		t = t * t * (3 - 2*t)           // smoothstep — zero derivative at hi
+		return val*(1-t) + hi*t
 	}
-	return valC + center
+	return val
 }
 
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor is
@@ -290,11 +293,11 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	ch := vw.baseContentRectH * vw.zoomScale
 
 	// X: cursor-centering pan.
+	var idealPanX, maxPanX float32
 	if cw > vw.touchpadSizeW {
-		idealPanX := cw * (0.5 - u)
-		maxPanX := (cw - vw.touchpadSizeW) / 2
-		// 15% of the screen width as the smooth deceleration zone
-		zoneX := vw.touchpadSizeW * 0.15 
+		idealPanX = cw * (0.5 - u)
+		maxPanX = (cw - vw.touchpadSizeW) / 2
+		zoneX := vw.touchpadSizeW * 0.15
 		vw.panOffsetX = softClampEdgePan(idealPanX, -maxPanX, maxPanX, zoneX)
 	} else {
 		vw.panOffsetX = 0
@@ -305,7 +308,6 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	if ch > availH {
 		idealPanY := availH/2 - (availH-ch) - v*ch
 		maxPanY := ch - availH
-		// 15% of the screen height as the smooth deceleration zone
 		zoneY := availH * 0.15
 		vw.panOffsetY = softClampEdgePan(idealPanY, 0, maxPanY, zoneY)
 	} else {
@@ -313,6 +315,16 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	}
 
 	vw.recalculateViewport()
+
+	// Diagnostic: shows ideal vs actual pan and viewport mode on every cursor event.
+	// "EDGE" = cursor at content boundary, contentX should be stable near 0 or tw-cw.
+	// Rapid oscillation of contentX here is the jitter — compare with idealPanX vs maxPanX.
+	modeX := "centered"
+	if math.Abs(float64(idealPanX)) > float64(maxPanX) {
+		modeX = "EDGE"
+	}
+	logrus.Infof("🗺️ [VP] u=%.4f idealPanX=%+.1f maxPanX=%.1f → panX=%+.1f [%s] contentX=%+.1f",
+		u, idealPanX, maxPanX, vw.panOffsetX, modeX, vw.contentRectX)
 }
 
 

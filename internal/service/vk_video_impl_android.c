@@ -172,13 +172,19 @@ static volatile double    g_fps_t0     = 0.0;
 static volatile float     g_stat_fps   = 0.0f;
 static volatile int       g_stat_ready = 0;
 
-// ─── Viewport (zoom / pan) ────────────────────────────────────────────────────
+// ─── Viewport (zoom / pan) + cursor state ─────────────────────────────────────
 // UV range of the video frame that is currently visible.
 // Fixed-point: 0..65536 = 0.0..1.0.  Default = full frame.
 static atomic_int g_vp_u0_fp;
 static atomic_int g_vp_v0_fp;
 static atomic_int g_vp_u1_fp = ATOMIC_VAR_INIT(65536);
 static atomic_int g_vp_v1_fp = ATOMIC_VAR_INIT(65536);
+
+// Mutex that must be held while writing OR reading the six viewport+cursor
+// atomics as a group.  Without this, the render thread can read a viewport
+// written by one Go call and a cursor written by the next, producing a frame
+// where the cursor flies to a completely wrong screen position.
+static pthread_mutex_t g_state_mu = PTHREAD_MUTEX_INITIALIZER;
 
 // When 1, the fitted video rect is bottom-aligned in the swapchain (dy = sh - dh)
 // instead of centered (dy = (sh - dh) / 2). Set while the system IME is open so
@@ -704,11 +710,17 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         0, VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-    // Read viewport UV (which portion of the frame is currently visible).
+    // Snapshot viewport + cursor state atomically so the render always uses a
+    // consistent pair: viewport from call N with cursor from call N (not N+1).
+    pthread_mutex_lock(&g_state_mu);
     float u0 = atomic_load(&g_vp_u0_fp) / 65536.0f;
     float v0 = atomic_load(&g_vp_v0_fp) / 65536.0f;
     float u1 = atomic_load(&g_vp_u1_fp) / 65536.0f;
     float v1 = atomic_load(&g_vp_v1_fp) / 65536.0f;
+    float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
+    float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
+    int   snap_vis = atomic_load(&g_cursor_visible);
+    pthread_mutex_unlock(&g_state_mu);
     if (u0 < 0.0f) u0 = 0.0f; if (u1 > 1.0f) u1 = 1.0f;
     if (v0 < 0.0f) v0 = 0.0f; if (v1 > 1.0f) v1 = 1.0f;
     if (u1 <= u0 + 0.001f) { u0 = 0.0f; u1 = 1.0f; }
@@ -751,10 +763,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
         1, &blt, VK_FILTER_LINEAR);
 
     // Draw virtual cursor (if visible) on top of the video.
-    if (atomic_load(&g_cursor_visible) && g_cursor_nspans > 0 &&
+    // Use the state snapshot taken at the start of this function so that cursor
+    // and viewport are always from the same Go update — never a stale mix.
+    if (snap_vis && g_cursor_nspans > 0 &&
         g_cursor_vk_buf != VK_NULL_HANDLE) {
-        float uc = atomic_load(&g_cursor_uc_fp) / 65536.0f;
-        float vc = atomic_load(&g_cursor_vc_fp) / 65536.0f;
+        float uc = snap_uc;
+        float vc = snap_vc;
         float span_u = u1 - u0, span_v = v1 - v0;
         float tu = (span_u > 0.001f) ? (uc - u0) / span_u : 0.5f;
         float tv = (span_v > 0.001f) ? (vc - v0) / span_v : 0.5f;
@@ -1147,19 +1161,42 @@ void android_vk_set_align_bottom(int bottom) {
 // android_vk_set_viewport sets the visible UV sub-rect of the frame (0..1 per axis).
 // u0=0,v0=0,u1=1,v1=1 shows the full frame (default).
 void android_vk_set_viewport(float u0, float v0, float u1, float v1) {
+    pthread_mutex_lock(&g_state_mu);
     atomic_store(&g_vp_u0_fp, (int)(u0 * 65536));
     atomic_store(&g_vp_v0_fp, (int)(v0 * 65536));
     atomic_store(&g_vp_u1_fp, (int)(u1 * 65536));
     atomic_store(&g_vp_v1_fp, (int)(v1 * 65536));
+    pthread_mutex_unlock(&g_state_mu);
 }
 
 // android_vk_set_cursor sets the virtual cursor position (uc, vc in frame UV)
 // and visibility. The cursor is drawn on top of the video each frame.
 void android_vk_set_cursor(float uc, float vc, int visible) {
+    pthread_mutex_lock(&g_state_mu);
     atomic_store(&g_cursor_uc_fp, (int)(uc * 65536));
     atomic_store(&g_cursor_vc_fp, (int)(vc * 65536));
     atomic_store(&g_cursor_visible, visible ? 1 : 0);
+    pthread_mutex_unlock(&g_state_mu);
     // Wake render thread to redraw cursor immediately without waiting for next video frame.
+    atomic_store(&g_cursor_dirty, 1);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+}
+
+// android_vk_set_viewport_and_cursor updates viewport UV and cursor position in
+// a single mutex-protected write.  The render thread always reads both under the
+// same mutex, so it will never see viewport from update N paired with cursor from
+// update N+1 (which causes the cursor to flash at a wrong screen position).
+void android_vk_set_viewport_and_cursor(float u0, float v0, float u1, float v1,
+                                         float uc, float vc, int visible) {
+    pthread_mutex_lock(&g_state_mu);
+    atomic_store(&g_vp_u0_fp, (int)(u0 * 65536));
+    atomic_store(&g_vp_v0_fp, (int)(v0 * 65536));
+    atomic_store(&g_vp_u1_fp, (int)(u1 * 65536));
+    atomic_store(&g_vp_v1_fp, (int)(v1 * 65536));
+    atomic_store(&g_cursor_uc_fp, (int)(uc * 65536));
+    atomic_store(&g_cursor_vc_fp, (int)(vc * 65536));
+    atomic_store(&g_cursor_visible, visible ? 1 : 0);
+    pthread_mutex_unlock(&g_state_mu);
     atomic_store(&g_cursor_dirty, 1);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }

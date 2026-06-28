@@ -982,7 +982,11 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 	}
 
 	if mode == mouseModeVirtualCursor {
-		t.handleVirtualCursorMove(ev.Position.X, ev.Position.Y)
+		// Only track reference position here. Dragged handles the actual delta
+		// via ev.Dragged.DX/DY to avoid pointer-ID confusion when both TouchMove
+		// and Dragged fire for the same Android event with different positions.
+		t.videoWidget.lastMouseX = ev.Position.X
+		t.videoWidget.lastMouseY = ev.Position.Y
 		return
 	}
 
@@ -1010,25 +1014,25 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 	t.videoWidget.enqueueMouseMove(dx, dy)
 }
 
-// handleVirtualCursorMove moves the virtual cursor by the swipe delta and
+// handleVirtualCursorMove moves the virtual cursor by the given delta and
 // forwards the absolute position to Moonlight at most every 8ms (same rate as
 // Mac absolute mode). The local Vulkan cursor is always updated immediately.
-func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
+// rawDx/rawDy are already the relative delta — do NOT pass absolute positions.
+func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	vw := t.videoWidget
-	rawDx := posX - vw.lastMouseX
-	rawDy := posY - vw.lastMouseY
-	vw.lastMouseX = posX
-	vw.lastMouseY = posY
 
 	cw := vw.contentRectW
 	ch := vw.contentRectH
-	prevU, prevV := vw.virtualCursorU, vw.virtualCursorV
+	vw.vcMu.Lock()
+	prevU, _ := vw.virtualCursorU, vw.virtualCursorV
 	if cw > 0 {
 		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, 0, 1)
 	}
 	if ch > 0 {
 		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, 0, 1)
 	}
+	currU, _ := vw.virtualCursorU, vw.virtualCursorV
+	vw.vcMu.Unlock()
 	// Only mark as dragging after significant movement so that touch noise
 	// doesn't prevent tap detection in TouchUp.
 	if math.Abs(float64(rawDx)) >= 3 || math.Abs(float64(rawDy)) >= 3 {
@@ -1056,25 +1060,23 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 		}
 	}
 
-	logrus.Debugf("🖱️ [VirtualCursor] touch=(%.1f,%.1f) rawDelta=(%.1f,%.1f) contentRect=(%.0f,%.0f,%.0f,%.0f) uv=(%.4f,%.4f)→(%.4f,%.4f) pan=(%.1f,%.1f) zoom=%.2f native=%v",
-		posX, posY, rawDx, rawDy,
-		vw.contentRectX, vw.contentRectY, cw, ch,
-		prevU, prevV, vw.virtualCursorU, vw.virtualCursorV,
-		vw.panOffsetX, vw.panOffsetY, vw.zoomScale,
-		vw.isNativeVideoActive())
-
-	// Update Go viewport state for the next render tick.
-	vw.centerViewportOnVirtualCursor()
+	// Update viewport and cursor state immediately (before logging so the log
+	// shows the POST-update contentRectX — the actual value sent to Vulkan).
 	if vw.isNativeVideoActive() {
-		// Do NOT push viewport/cursor directly to Vulkan here.
-		// The render ticker fires once per display frame (same rate as the swapchain)
-		// and calls updateNativeViewportAndCursor() there.  Calling it on every touch
-		// event (potentially hundreds/second) causes the cursor to be at two different
-		// positions in consecutive swapchain images → double cursor flicker on fast swipes.
+		vw.updateNativeViewportAndCursor()
 	} else {
 		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	}
+
+	// Log AFTER the update so pan/contentRect reflect what was actually sent to Vulkan.
+	// Watch contentRectX for oscillation: stable = no jitter, ±N dp flip = jitter.
+	logrus.Infof("🖱️ [VC] swipe=(%+.1f,%+.1f)dp uv=(%.4f→%.4f) pan=(%+.1f,%+.1f) contentXY=(%+.1f,%+.1f) zoom=%.2fx",
+		rawDx, rawDy,
+		prevU, currU,
+		vw.panOffsetX, vw.panOffsetY,
+		vw.contentRectX, vw.contentRectY,
+		vw.zoomScale)
 
 	// Rate-limit network sends to 8ms so ENet doesn't pile up stale reliable
 	// packets faster than they can be ACKed. When the finger stops,
@@ -1087,20 +1089,19 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(posX, posY float32) {
 }
 
 // sendVirtualCursorToHost computes and sends the current virtualCursorU/V as an
-// absolute Moonlight position, accounting for letterbox/pillarbox black bars.
+// absolute Moonlight position.
 func (vw *VideoWidget) sendVirtualCursorToHost() {
-	fX, fY, fW, fH := vw.getFrameContentRect()
-	var hostU, hostV float32
-	if fW > 0 {
-		hostU = clampFloat((vw.virtualCursorU-fX)/fW, 0, 1)
-	} else {
-		hostU = vw.virtualCursorU
-	}
-	if fH > 0 {
-		hostV = clampFloat((vw.virtualCursorV-fY)/fH, 0, 1)
-	} else {
-		hostV = vw.virtualCursorV
-	}
+	vw.vcMu.Lock()
+	u := vw.virtualCursorU
+	v := vw.virtualCursorV
+	vw.vcMu.Unlock()
+
+	// virtualCursorU and V are already in the [0..1] coordinate space of the
+	// video content. They must be sent directly to Moonlight without any screen
+	// transformations.
+	hostU := clampFloat(u, 0, 1)
+	hostV := clampFloat(v, 0, 1)
+
 	absX := int(math.Round(float64(hostU * 32767)))
 	absY := int(math.Round(float64(hostV * 32767)))
 	mi := vw.moonlightInput()
@@ -1108,7 +1109,6 @@ func (vw *VideoWidget) sendVirtualCursorToHost() {
 		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
 		vw.lastVirtualCursorSentTime = time.Now()
 	}
-
 }
 
 // flushVirtualCursorPosition sends the current cursor position to the host
@@ -1177,7 +1177,7 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 				}
 			}
 		} else if mode == mouseModeVirtualCursor {
-			t.handleVirtualCursorMove(ev.Position.X, ev.Position.Y)
+			t.handleVirtualCursorMove(ev.Dragged.DX, ev.Dragged.DY)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			vw := t.videoWidget
 			px, py := ev.Position.X, ev.Position.Y

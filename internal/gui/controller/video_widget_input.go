@@ -608,8 +608,10 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	vw.resetRelativeMoveAccumulator()
 	if mode == mouseModeVirtualCursor {
 		// Centre the virtual cursor and set cursor scale for the current display.
+		vw.vcMu.Lock()
 		vw.virtualCursorU = 0.5
 		vw.virtualCursorV = 0.5
+		vw.vcMu.Unlock()
 		s := vw.androidCursorScale()
 		if s > 0 {
 			vw.initAndroidCursorScale(s)
