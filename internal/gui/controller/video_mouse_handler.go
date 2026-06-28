@@ -716,7 +716,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.lastMouseY = ev.Position.Y
 	t.videoWidget.isDragging = false
 
-	if t.videoWidget.GetMouseInputMode() == mouseModeVirtualCursor {
+	if isVirtualCursorLikeMode(t.videoWidget.GetMouseInputMode()) {
 		// If a quick tap just fired and second finger comes down within 600ms → potential LMB hold.
 		// On Android: arm a 200ms timer — if finger stays (hold) activate lmbHeld; if lifts quickly (double-click) send Down2+Up2.
 		if !t.videoWidget.lmbHeld &&
@@ -855,7 +855,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 
 	// Virtual cursor: tap = left click; long-tap = right click; tap-then-hold = LMB drag.
 	// Note: lmbHeld case is handled unconditionally above (before shouldIgnoreTouchInput).
-	if mode == mouseModeVirtualCursor {
+	if isVirtualCursorLikeMode(mode) {
 		// Use physical distance from touch start only — don't check isDragging because
 		// Dragged sets it even on stationary touches (touch sensor noise).
 		if dx < 15 && dy < 15 {
@@ -981,7 +981,7 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 
-	if mode == mouseModeVirtualCursor {
+	if isVirtualCursorLikeMode(mode) {
 		// Only track reference position here. Dragged handles the actual delta
 		// via ev.Dragged.DX/DY to avoid pointer-ID confusion when both TouchMove
 		// and Dragged fire for the same Android event with different positions.
@@ -1176,7 +1176,7 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 					t.videoWidget.enqueueTouch(x, y, true)
 				}
 			}
-		} else if mode == mouseModeVirtualCursor {
+		} else if isVirtualCursorLikeMode(mode) {
 			t.handleVirtualCursorMove(ev.Dragged.DX, ev.Dragged.DY)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			vw := t.videoWidget
@@ -1250,7 +1250,7 @@ func (t *TouchpadWrapper) DragEnd() {
 		}
 		if t.videoWidget.isDragging {
 			logrus.Info("🖱️ [DRAGGED] Android: Swipe completed")
-			if t.videoWidget.GetMouseInputMode() == mouseModeVirtualCursor {
+			if isVirtualCursorLikeMode(t.videoWidget.GetMouseInputMode()) {
 				t.flushVirtualCursorPosition()
 			}
 			t.videoWidget.isDragging = false

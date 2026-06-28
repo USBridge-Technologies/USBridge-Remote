@@ -200,7 +200,7 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 		return
 	}
 
-	if vw.GetMouseInputMode() == mouseModeVirtualCursor {
+	if isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
 		vw.vcMu.Lock()
 		targetU := vw.virtualCursorU
 		targetV := vw.virtualCursorV
@@ -239,7 +239,7 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 	// Write viewport + cursor in a single mutex-protected call so the C render
 	// thread always reads a consistent snapshot: never viewport from update N
 	// with cursor from update N+1, which would flash the cursor to a wrong position.
-	cursorVisible := vw.GetMouseInputMode() == mouseModeVirtualCursor
+	cursorVisible := isVirtualCursorLikeMode(vw.GetMouseInputMode())
 	var uc, vc float32
 	if cursorVisible {
 		vw.vcMu.Lock()

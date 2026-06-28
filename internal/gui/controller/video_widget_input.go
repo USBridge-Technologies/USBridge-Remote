@@ -606,7 +606,7 @@ func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
 	vw.resetRelativeMoveAccumulator()
-	if mode == mouseModeVirtualCursor {
+	if isVirtualCursorLikeMode(mode) {
 		// Centre the virtual cursor and set cursor scale for the current display.
 		vw.vcMu.Lock()
 		vw.virtualCursorU = 0.5

@@ -313,6 +313,7 @@ type LocalizedStrings struct {
 	DeviceAbsoluteLeft2    string // "Abs L/2" (absolute, left display of 2)
 	DeviceAbsoluteRight2   string // "Abs R/2" (absolute, right display of 2)
 	DeviceVirtualCursor    string // "Cursor" (virtual cursor mode, Android only)
+	DeviceGyroMouse        string // "GyroMouse" (gyroscope cursor mode, Android only)
 	DeviceNetworkCard string // "Network Card (RNDIS)"
 	DeviceGamepad               string // "Gamepad"
 	DeviceDirectInput           string // "DirectInput"
@@ -686,6 +687,7 @@ func EN() *LocalizedStrings {
 		DeviceAbsoluteLeft2:  "Abs L/2",
 		DeviceAbsoluteRight2: "Abs R/2",
 		DeviceVirtualCursor:  "Cursor",
+		DeviceGyroMouse:      "GyroMouse",
 		DeviceNetworkCard: "Network Card (RNDIS)",
 		DeviceGamepad:             "Gamepad",
 		DeviceDirectInput:         "DirectInput",
@@ -829,6 +831,7 @@ func ES() *LocalizedStrings {
 	locale.DeviceAbsolute = "Absoluto"
 	locale.DeviceAbsoluteLeft2 = "Abs I/2"
 	locale.DeviceVirtualCursor = "Cursor"
+	locale.DeviceGyroMouse = "GyroMouse"
 	locale.DeviceAbsoluteRight2 = "Abs D/2"
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
@@ -874,6 +877,7 @@ func UK() *LocalizedStrings {
 	locale.DeviceAbsoluteLeft2 = "Абс Л/2"
 	locale.DeviceAbsoluteRight2 = "Абс П/2"
 	locale.DeviceVirtualCursor = "Курсор"
+	locale.DeviceGyroMouse = "ГіроМиша"
 	locale.Close = "Закрити"
 	locale.Cancel = "Скасувати"
 	locale.Yes = "Так"
@@ -964,6 +968,7 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceAbsoluteLeft2 = "Абс Л/2"
 	locale.DeviceAbsoluteRight2 = "Абс П/2"
 	locale.DeviceVirtualCursor = "Курсор"
+	locale.DeviceGyroMouse = "ГіроМиша"
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.EnableVSync = "VSync"

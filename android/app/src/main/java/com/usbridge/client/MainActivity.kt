@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -52,6 +53,8 @@ class MainActivity : GoNativeActivity() {
 
     @Volatile
     private var vpnPermissionState: Int = 0
+
+    private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
     // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL_ZOOM) is locked at gesture start.
     // 150 dp converted to physical pixels: fingers closer than this → scroll, farther → pan+zoom.
@@ -111,12 +114,14 @@ class MainActivity : GoNativeActivity() {
         instance = this
         Log.i(TAG, "MainActivity created")
         setupIMEListener()
-        
+
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
 
         val filter = android.content.IntentFilter(Intent.ACTION_INPUT_METHOD_CHANGED)
         registerReceiver(inputMethodReceiver, filter)
+
+        gyroSensorManager.start()
     }
 
     private fun reportLanguage() {
@@ -247,10 +252,28 @@ class MainActivity : GoNativeActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unregister network callback", e)
         }
+        gyroSensorManager.stop()
         gestureTracker.cancel()
         super.onDestroy()
         instance = null
         Log.i(TAG, "MainActivity destroyed")
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // In GyroMouse mode intercept volume buttons as LMB/RMB instead of changing volume.
+        if (GyroBridge.isGyroMouseModeActive()) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    GyroBridge.onVolumeButton(1, event.action == KeyEvent.ACTION_DOWN)
+                    return true
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    GyroBridge.onVolumeButton(2, event.action == KeyEvent.ACTION_DOWN)
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
