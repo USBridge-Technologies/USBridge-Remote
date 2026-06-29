@@ -245,6 +245,9 @@ func (dw *DiskWidget) SetWindow(window fyne.Window) {
 				dw.loadMountedDevices()
 			})
 		}()
+	} else {
+		dw.loadUserImagesFromPreferences()
+		dw.scheduleCombine()
 	}
 }
 

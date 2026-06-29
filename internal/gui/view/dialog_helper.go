@@ -451,7 +451,7 @@ func ShowBusyDialog(title, message string, parent fyne.Window) *widget.PopUp {
 	})
 }
 
-func ShowDeleteImageConfirm(fileName string, callback func(bool), parent fyne.Window) {
+func ShowDeleteImageConfirm(fileName string, safeRemove bool, callback func(bool), parent fyne.Window) {
 	var popup *widget.PopUp
 	var once sync.Once
 	invokeCallback := func(ok bool) {
@@ -468,47 +468,65 @@ func ShowDeleteImageConfirm(fileName string, callback func(bool), parent fyne.Wi
 		}
 	}
 
-	titleText := NewBrandText("Delete image?", 19, design.ColorTextLight, true)
+	titleText := NewBrandText("Remove from list?", 19, design.ColorTextLight, true)
+	if !safeRemove {
+		titleText = NewBrandText("Delete image?", 19, design.ColorTextLight, true)
+	}
 	closeBtn := newConfirmDialogCloseButton(func() {
 		closePopup(false)
 	})
 	titleBar := container.New(&confirmDialogTitleLayout{}, titleText, closeBtn)
 
-	leadText := widget.NewLabel("Are you sure you want to delete:")
+	leadText := widget.NewLabel("Are you sure you want to remove:")
+	if !safeRemove {
+		leadText.SetText("Are you sure you want to delete:")
+	}
 	leadText.Wrapping = fyne.TextWrapWord
 
 	fileLabel := widget.NewLabel(fileName + "?")
 	fileLabel.Wrapping = fyne.TextWrapWord
 	fileLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-	warnIcon := canvas.NewImageFromResource(assets.WarningTriangleIcon)
-	warnIcon.FillMode = canvas.ImageFillContain
-	warnIcon.SetMinSize(fyne.NewSize(18, 18))
-
-	warnText := canvas.NewText("This action cannot be undone.", design.ColorTextLight)
-	warnText.TextSize = 13
-	warnText.TextStyle = fyne.TextStyle{Italic: true}
-
-	warningRow := container.NewHBox(
-		warnIcon,
-		NewInset(warnText, 8, 0, 0, 0),
-	)
+	var noteRow fyne.CanvasObject
+	if safeRemove {
+		checkIcon := widget.NewIcon(theme.ConfirmIcon())
+		noteText := canvas.NewText("Safe: the actual file on disk will not be deleted.", design.ColorTextMuted)
+		noteText.TextSize = 13
+		noteText.TextStyle = fyne.TextStyle{Italic: true}
+		noteRow = container.NewHBox(checkIcon, NewInset(noteText, 6, 0, 0, 0))
+	} else {
+		warnIcon := canvas.NewImageFromResource(assets.WarningTriangleIcon)
+		warnIcon.FillMode = canvas.ImageFillContain
+		warnIcon.SetMinSize(fyne.NewSize(18, 18))
+		warnText := canvas.NewText("This action cannot be undone.", design.ColorTextLight)
+		warnText.TextSize = 13
+		warnText.TextStyle = fyne.TextStyle{Italic: true}
+		noteRow = container.NewHBox(warnIcon, NewInset(warnText, 8, 0, 0, 0))
+	}
 
 	cancelBtn := widget.NewButton(i18n.Current.Cancel, func() {
 		closePopup(false)
 	})
 
-	deleteBtn := widget.NewButton("Delete", func() {
+	confirmLabel := "Delete"
+	if safeRemove {
+		confirmLabel = "Remove"
+	}
+	deleteBtn := widget.NewButton(confirmLabel, func() {
 		closePopup(true)
 	})
-	deleteBtn.Importance = widget.DangerImportance
+	if safeRemove {
+		deleteBtn.Importance = widget.MediumImportance
+	} else {
+		deleteBtn.Importance = widget.DangerImportance
+	}
 
 	buttons := container.New(&confirmDialogButtonsLayout{gap: 12}, cancelBtn, deleteBtn)
 	body := container.NewVBox(
 		titleBar,
 		NewInset(leadText, 0, 0, 14, 0),
 		NewInset(fileLabel, 0, 0, 0, 16),
-		NewInset(warningRow, 4, 0, 0, 18),
+		NewInset(noteRow, 4, 0, 0, 18),
 		buttons,
 	)
 
