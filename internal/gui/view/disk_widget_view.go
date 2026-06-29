@@ -741,7 +741,7 @@ func NewDiskRowTemplate() fyne.CanvasObject {
 	settingsBtn := NewDeviceActionButton("Config", assets.ConfigVerticalIcon, nil)
 	settingsBtn.Hide()
 
-	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, roRwBtn, modeSelect, uploadBtn, deleteBtn, settingsBtn, statusInfo)
+	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, roRwBtn, uploadBtn, modeSelect, deleteBtn, settingsBtn, statusInfo)
 	left := container.NewMax(container.NewCenter(checkboxWrap), container.NewCenter(captureSelector))
 
 	root := container.New(&DeviceRowLayout{Gap: 6}, left, center, right)

@@ -696,6 +696,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				if matchesDrive {
 					isMounted = true
 					usedMountedIdx[j] = true
+					if device.DriveMode != "" {
+						drive.DriveMode = device.DriveMode
+					}
 					logrus.Debugf("🌐 Найден подключенный NBD диск (по export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					break
 				}
@@ -706,6 +709,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				if device.Device == expectedDeviceKey || device.Name == driveName {
 					isMounted = true
 					usedMountedIdx[j] = true
+					if device.DriveMode != "" {
+						drive.DriveMode = device.DriveMode
+					}
 					if device.Type == "mtp" {
 						logrus.Debugf("📱 Найден подключенный MTP диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					} else {
@@ -718,6 +724,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			if device.Type == "nbd" && (strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name)) {
 				isMounted = true
 				usedMountedIdx[j] = true
+				if device.DriveMode != "" {
+					drive.DriveMode = device.DriveMode
+				}
 				logrus.Debugf("🌐 Найден подключенный NBD диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 				break
 			}
