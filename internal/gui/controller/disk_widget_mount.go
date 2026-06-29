@@ -363,7 +363,12 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			}
 			delete(dw.nbdServers, exportName)
 		}
-		nbdServer, err := dw.startNBDServer(sel.DiskInfo, nbdPort, exportName, sel.ReadOnly)
+		// cdrom mode is always read-only
+		readOnly := sel.ReadOnly
+		if sel.DriveMode == "cdrom" {
+			readOnly = true
+		}
+		nbdServer, err := dw.startNBDServer(sel.DiskInfo, nbdPort, exportName, readOnly)
 		if err != nil {
 			return nil, "", fmt.Errorf("ошибка запуска NBD сервера: %v", err)
 		}
@@ -374,7 +379,8 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			Port:                    nbdPort,
 			ExportName:              nbdServer.NBDExportNameForAPI(),
 			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
-			ReadOnly:                sel.ReadOnly,
+			ReadOnly:                readOnly,
+			DriveMode:               sel.DriveMode,
 		}, "", nil
 	}
 	return nil, "", fmt.Errorf("неизвестный тип устройства: %s (source=%s)", sel.Name, sel.Source)

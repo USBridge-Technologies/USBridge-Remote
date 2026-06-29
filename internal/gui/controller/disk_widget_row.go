@@ -246,7 +246,10 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	modeTitleLabel.Hide()
 
 	isAPIISODrive := drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType != "mtp"
-	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" || isAPIISODrive {
+	isNBDISODrive := (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil &&
+		isISOCompatibleExt(strings.ToLower(filepath.Ext(drive.DiskInfo.Path)))
+	isDriveModeSelect := isAPIISODrive || isNBDISODrive
+	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" || isDriveModeSelect {
 		modeSelect.Show()
 		modeSelect.SetDisabled(controlsLocked)
 		switch drive.Source {
@@ -263,7 +266,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			} else {
 				modeSelect.SetSelected(i18n.Current.AudioDeviceUAC1)
 			}
-		case "api": // ISO/disk drive mode
+		case "api", "local", "user": // ISO/disk drive mode
 			modeSelect.SetOptions([]string{i18n.Current.DriveModeDisk, i18n.Current.DriveModeCDROM})
 			if drive.DriveMode == "cdrom" {
 				modeSelect.SetSelected(i18n.Current.DriveModeCDROM)
@@ -487,7 +490,7 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			}
 			dw.allDrives[rowID].USBAudioMode = mode
 		}
-	} else if isAPIISODrive {
+	} else if isDriveModeSelect {
 		rowID := id
 		modeSelect.OnSelected = func(s string) {
 			if dw.controlsLocked() || rowID >= len(dw.allDrives) {
@@ -496,6 +499,8 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 			mode := "disk"
 			if s == i18n.Current.DriveModeCDROM {
 				mode = "cdrom"
+				// CD-ROM mode is always read-only (physical CD-ROMs cannot be written)
+				dw.allDrives[rowID].ReadOnly = true
 			}
 			dw.allDrives[rowID].DriveMode = mode
 		}
@@ -623,4 +628,13 @@ func formatVideoBusLabel(bus string) string {
 	default:
 		return ""
 	}
+}
+
+// isISOCompatibleExt returns true for extensions that can be mounted as CD-ROM or USB stick.
+func isISOCompatibleExt(ext string) bool {
+	switch ext {
+	case ".iso", ".img":
+		return true
+	}
+	return false
 }
