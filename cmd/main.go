@@ -1,6 +1,3 @@
-//go:debug http2client=0
-//go:debug http2server=0
-
 package main
 
 import (
