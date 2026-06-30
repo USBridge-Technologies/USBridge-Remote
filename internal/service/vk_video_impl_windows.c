@@ -794,7 +794,9 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             //   • Go requested hide: open menu/popup (same as macOS Metal SetHidden)
             int iconic     = IsIconic(g_parent_hwnd) ? 1 : 0;
             HWND _fg2 = GetForegroundWindow();
-            int fg_hidden  = (_fg2 != g_parent_hwnd && _fg2 != g_child_hwnd) ? 1 : 0;
+            DWORD fg_pid = 0;
+            if (_fg2) GetWindowThreadProcessId(_fg2, &fg_pid);
+            int fg_hidden  = (fg_pid != GetCurrentProcessId()) ? 1 : 0;
             int want_hidden = iconic | fg_hidden | atomic_load(&g_hidden);
             if (want_hidden != last_want_hidden) {
                 last_want_hidden = want_hidden;

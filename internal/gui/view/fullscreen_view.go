@@ -56,7 +56,8 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 			MainContainer:     mainContainer,
 		}
 	} else {
-		mainContainer = container.NewStack(videoContainer)
+		bg := canvas.NewRectangle(color.Black)
+		mainContainer = container.NewStack(bg, videoContainer)
 		return &FullscreenUI{
 			VideoImage:        videoImage,
 			VideoWithKeyboard: mainContainer,
