@@ -11,30 +11,19 @@ func almostEqual(a, b float32) bool {
 	return math.Abs(float64(a-b)) < 0.001
 }
 
-func TestDPIAwareWindowSizeUsesDesktopScale(t *testing.T) {
-	got := dpiAwareWindowSize(1200, 800, 1.5, fyne.NewSize(0, 0))
+func TestWindowSizeToLogicalRespectsContentMinimum(t *testing.T) {
+	got := windowSizeToLogical(1200, 800, fyne.NewSize(1500, 900))
 
-	if !almostEqual(got.Width, 800) {
-		t.Fatalf("width = %v, want 800", got.Width)
+	if !almostEqual(got.Width, 1500) {
+		t.Fatalf("width = %v, want 1500", got.Width)
 	}
-	if !almostEqual(got.Height, 533.3333) {
-		t.Fatalf("height = %v, want about 533.3333", got.Height)
-	}
-}
-
-func TestDPIAwareWindowSizeRespectsContentMinimum(t *testing.T) {
-	got := dpiAwareWindowSize(1200, 800, 1.5, fyne.NewSize(920, 700))
-
-	if !almostEqual(got.Width, 920) {
-		t.Fatalf("width = %v, want 920", got.Width)
-	}
-	if !almostEqual(got.Height, 700) {
-		t.Fatalf("height = %v, want 700", got.Height)
+	if !almostEqual(got.Height, 900) {
+		t.Fatalf("height = %v, want 900", got.Height)
 	}
 }
 
-func TestDPIAwareWindowSizeFallsBackToDefaultConfigSize(t *testing.T) {
-	got := dpiAwareWindowSize(100, 100, 0, fyne.NewSize(0, 0))
+func TestWindowSizeToLogicalFallsBackToDefaultConfigSize(t *testing.T) {
+	got := windowSizeToLogical(100, 100, fyne.NewSize(0, 0))
 
 	if !almostEqual(got.Width, defaultWindowWidth) {
 		t.Fatalf("width = %v, want %v", got.Width, defaultWindowWidth)

@@ -155,6 +155,9 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
+			Transport: &http.Transport{
+				Proxy: nil, // Отключаем прокси, чтобы избежать крашей WinHttpGetIEProxyConfigForCurrentUser на Windows
+			},
 		}
 	} else if timeout > 0 && httpClient.Timeout == 0 {
 		httpClient.Timeout = time.Duration(timeout) * time.Second
