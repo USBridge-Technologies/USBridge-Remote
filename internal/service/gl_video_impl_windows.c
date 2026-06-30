@@ -268,6 +268,7 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
             g_bmp_w=0; g_bmp_h=0; g_has_frame=0;
             LeaveCriticalSection(&g_cs);
         }
+    }
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goGLLog("gl_video_create: parent HWND is null", 2); return 0; }
