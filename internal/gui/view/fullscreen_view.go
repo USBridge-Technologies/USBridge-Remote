@@ -32,11 +32,11 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 	bg := canvas.NewRectangle(color.Black)
 
 	// Используем Stack, чтобы кнопки ГАРАНТИРОВАННО были поверх видео.
-	mainContent := container.NewStack(
-		bg,
-		videoContainer,
-		container.NewBorder(nil, themedKeyboard, nil, nil),
-	)
+	mainContentItems := []fyne.CanvasObject{bg, videoContainer}
+	if fyne.CurrentDevice().IsMobile() {
+		mainContentItems = append(mainContentItems, container.NewBorder(nil, themedKeyboard, nil, nil))
+	}
+	mainContent := container.NewStack(mainContentItems...)
 
 	keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
 	keyboardButton.Importance = widget.MediumImportance
@@ -46,9 +46,14 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 	audioButton.Importance = widget.MediumImportance
 	themedAudioButton := container.NewThemeOverride(audioButton, design.NewBrandTheme())
 
-	// Place buttons side by side at top-left (both in a WithoutLayout, positioned manually)
-	overlayContainer := container.NewWithoutLayout(themedKeyboardButton, themedAudioButton)
-	mainContainer := container.NewStack(mainContent, overlayContainer)
+	var mainContainer *fyne.Container
+	if fyne.CurrentDevice().IsMobile() {
+		// Place buttons side by side at top-left (both in a WithoutLayout, positioned manually)
+		overlayContainer := container.NewWithoutLayout(themedKeyboardButton, themedAudioButton)
+		mainContainer = container.NewStack(mainContent, overlayContainer)
+	} else {
+		mainContainer = container.NewStack(mainContent)
+	}
 
 	return &FullscreenUI{
 		VideoImage:        videoImage,
