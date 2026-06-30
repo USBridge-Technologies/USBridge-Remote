@@ -434,18 +434,19 @@ APP_SYSO="$REPO_ROOT/cmd/rsrc_windows_amd64.syso"
 if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
     echo -e "${YELLOW}🧱 Сборка основного приложения (Go cache: $GOCACHE)...${NC}"
     echo "   Reason: $REBUILD_WINDOWS_REASON"
+    APP_SYSO="$REPO_ROOT/cmd/rsrc_windows_amd64.syso"
     if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
-        rm -f "$REPO_ROOT/cmd"/rsrc_windows_*.syso
+        rm -f "$APP_SYSO"
         if (cd "$REPO_ROOT/cmd" && \
             GOOS=windows GOARCH=amd64 \
-            "$GOWINRES_BIN" simply --icon "$ICON_PATH" --manifest gui 2>&1); then
+            "$GOWINRES_BIN" simply --icon "$ICON_PATH" 2>&1); then
             [ -f "$APP_SYSO" ] && echo -e "${GREEN}✓${NC} Иконка встроена в основное приложение: $APP_SYSO"
         fi
     else
         echo -e "${YELLOW}⚠${NC} go-winres недоступен — основное приложение будет без иконки"
     fi
-    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" .
-    rm -f "$REPO_ROOT/cmd"/rsrc_windows_*.syso
+    go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" "$REPO_ROOT/cmd"
+    rm -f "$APP_SYSO"
     mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
 else
     rm -f "$BUILD_CACHE_FINGERPRINT_TMP"
