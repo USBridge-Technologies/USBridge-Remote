@@ -231,6 +231,10 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     size_t sz = (size_t)height * (size_t)stride;
     if (!g_cs_init) return 0;
     EnterCriticalSection(&g_cs);
+    if (!atomic_load(&g_active)) {
+        LeaveCriticalSection(&g_cs);
+        return 0;
+    }
     if (!g_buf || g_buf_sz < sz) {
         free(g_buf);
         g_buf    = (uint8_t*)malloc(sz);
@@ -258,10 +262,12 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
         if (g_hdc)     { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
         g_hwnd = NULL;
-        if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
-        if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
-        g_bmp_w=0; g_bmp_h=0; g_has_frame=0;
-    }
+        if (g_cs_init) {
+            EnterCriticalSection(&g_cs);
+            if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+            g_bmp_w=0; g_bmp_h=0; g_has_frame=0;
+            LeaveCriticalSection(&g_cs);
+        }
 
     HWND parent = (HWND)(uintptr_t)parent_hwnd;
     if (!parent) { goGLLog("gl_video_create: parent HWND is null", 2); return 0; }
@@ -281,7 +287,8 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
     if (!g_event) {
         goGLLog("gl_video_create: CreateEvent failed", 2);
         ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; g_hwnd=NULL;
-        DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
+        atomic_store(&g_active, 0);
+        return 0;
     }
 
     g_submitted=0; g_rendered=0; g_fps_n=0; g_fps_t0=0;
@@ -295,7 +302,8 @@ int gl_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h, int vsync
         atomic_store(&g_active, 0);
         CloseHandle(g_event); g_event=NULL;
         ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; g_hwnd=NULL;
-        DeleteCriticalSection(&g_cs); g_cs_init=0; return 0;
+        atomic_store(&g_active, 0);
+        return 0;
     }
 
     char m[256];
@@ -325,9 +333,12 @@ void gl_video_destroy(void) {
     if (g_bmp)     { DeleteObject(g_bmp); g_bmp=NULL; g_bmp_bits=NULL; }
     if (g_hdc)     { ReleaseDC(g_hwnd, g_hdc); g_hdc=NULL; }
     g_hwnd = NULL;
-    if (g_cs_init) { DeleteCriticalSection(&g_cs); g_cs_init=0; }
-    if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
-    g_bmp_w=0; g_bmp_h=0; g_has_frame=0;
+    if (g_cs_init) {
+        EnterCriticalSection(&g_cs);
+        if (g_buf)     { free(g_buf); g_buf=NULL; g_buf_sz=0; }
+        g_bmp_w=0; g_bmp_h=0; g_has_frame=0;
+        LeaveCriticalSection(&g_cs);
+    }
     char m[192];
     snprintf(m, sizeof(m), "GDI parent-DC renderer destroyed — rendered=%lld submitted=%lld",
              g_rendered, g_submitted);

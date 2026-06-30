@@ -668,6 +668,10 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!atomic_load(&g_active)) return 0;
     size_t sz = (size_t)height * (size_t)stride;
     pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
     if (!g_buf || g_buf_sz < sz) {
         free(g_buf);
         g_buf    = malloc(sz);
@@ -756,7 +760,10 @@ static void vk_full_cleanup(void) {
     if (g_dpy)           { XCloseDisplay(g_dpy);          g_dpy = NULL; }
     g_parent_win = 0;
 
+    pthread_mutex_lock(&g_mu);
     if (g_buf) { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
+    g_ready = 0;
+    pthread_mutex_unlock(&g_mu);
     g_ready = 0;
     g_rendered = 0; g_submitted = 0;
     g_win_visible = 1;

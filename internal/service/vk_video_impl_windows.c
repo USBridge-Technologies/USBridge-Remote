@@ -897,6 +897,10 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!g_cs_init) return 0;
     size_t sz = (size_t)height * (size_t)stride;
     EnterCriticalSection(&g_cs);
+    if (!atomic_load(&g_active)) {
+        LeaveCriticalSection(&g_cs);
+        return 0;
+    }
     if (!g_buf || g_buf_sz < sz) {
         free(g_buf);
         g_buf    = (uint8_t*)malloc(sz);
@@ -960,12 +964,19 @@ static void vk_full_cleanup(void) {
     if (g_child_hwnd) { PostMessageW(g_child_hwnd, WM_CLOSE, 0, 0); g_child_hwnd = NULL; }
     if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 3000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
     if (g_hwnd_ready)  { CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL; }
+    if (g_cs_init) {
+        EnterCriticalSection(&g_cs);
+        if (g_buf)        { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
+        g_has_frame = 0; g_ready = 0;
+        LeaveCriticalSection(&g_cs);
+    }
+    if (g_eq_cs_init) {
+        EnterCriticalSection(&g_eq_cs);
+        g_eq_head = 0; g_eq_tail = 0;
+        LeaveCriticalSection(&g_eq_cs);
+    }
     g_parent_hwnd = NULL;
-    if (g_cs_init)    { DeleteCriticalSection(&g_cs); g_cs_init = 0; }
-    if (g_eq_cs_init) { DeleteCriticalSection(&g_eq_cs); g_eq_cs_init = 0; g_eq_head = 0; g_eq_tail = 0; }
     g_raw_mouse = 0;
-    if (g_buf)        { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
-    g_has_frame = 0; g_ready = 0;
     g_rendered = 0; g_submitted = 0;
 }
 

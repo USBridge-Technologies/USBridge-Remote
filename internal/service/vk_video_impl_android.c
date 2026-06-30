@@ -967,8 +967,10 @@ static void vk_full_cleanup(void) {
     if (g_inst) { vkDestroyInstance(g_inst, NULL); g_inst = VK_NULL_HANDLE; }
     g_pdev = VK_NULL_HANDLE;
 
+    pthread_mutex_lock(&g_mu);
     if (g_buf) { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_ready = 0; g_rendered = 0; g_submitted = 0;
+    pthread_mutex_unlock(&g_mu);
     g_fps_n = 0; g_fps_t0 = 0.0; g_stat_fps = 0.0f; g_stat_ready = 0;
 }
 
@@ -1145,6 +1147,10 @@ int android_vk_try_submit(uint8_t *rgba, int width, int height, int stride) {
     if (!atomic_load(&g_active)) return 0;
     size_t sz = (size_t)height * (size_t)stride;
     pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
     if (!g_buf || g_buf_sz < sz) {
         free(g_buf);
         g_buf    = malloc(sz);
