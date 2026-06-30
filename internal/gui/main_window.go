@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -14,7 +15,6 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -111,8 +111,9 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	if i18n.Current == nil {
 		i18n.Init("en")
 	}
-	a := app.NewWithID("com.usbridge.client")
+	a := newFyneApp()
 	w := a.NewWindow("USBridge Client")
+	w.SetIcon(assets.AppIcon)
 	w.SetPadded(false)
 
 	mw := &MainWindow{

@@ -17,6 +17,14 @@ func ensureLogDir() string {
 	return fallbackDir
 }
 
+func getAppRootDir(exePath string) string {
+	dir := filepath.Dir(exePath)
+	if filepath.Base(dir) == "bin" {
+		return filepath.Dir(dir)
+	}
+	return dir
+}
+
 func resolveLogDir() string {
 	if logDir := os.Getenv("USBRIDGE_LOG_DIR"); logDir != "" {
 		return logDir
@@ -24,7 +32,7 @@ func resolveLogDir() string {
 
 	if runtime.GOOS == "windows" {
 		if exePath, err := os.Executable(); err == nil {
-			return filepath.Join(filepath.Dir(exePath), "logs")
+			return filepath.Join(getAppRootDir(exePath), "logs")
 		}
 		if wd, err := os.Getwd(); err == nil {
 			return filepath.Join(wd, "logs")
@@ -38,11 +46,11 @@ func resolveLogDir() string {
 		}
 	}
 
+	if exePath, err := os.Executable(); err == nil {
+		return filepath.Join(getAppRootDir(exePath), "logs")
+	}
 	if wd, err := os.Getwd(); err == nil {
 		return filepath.Join(wd, "logs")
-	}
-	if exePath, err := os.Executable(); err == nil {
-		return filepath.Join(filepath.Dir(exePath), "logs")
 	}
 	return filepath.Join(".", "logs")
 }

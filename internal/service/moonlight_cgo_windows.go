@@ -411,6 +411,10 @@ static void do_li_stop(void) {
     if (g_hw_dev_ctx) av_buffer_unref(&g_hw_dev_ctx);
 }
 
+static void do_li_interrupt(void) {
+    LiInterruptConnection();
+}
+
 // ── Input forwarders ──────────────────────────────────────────────────────────
 
 static void do_send_key(short vkCode, char action, char modifiers) {
@@ -462,6 +466,7 @@ var (
 // detect whether it is still the "current" stream before touching shared state.
 var (
 	liStreamMu  sync.Mutex
+	liStartMu   sync.Mutex // Ensures C.do_li_start is never executed concurrently
 	liStreamGen atomic.Uint64
 )
 
@@ -521,6 +526,14 @@ func (w *MoonlightCgoWrapper) StartStream(
 			defer C.free(unsafe.Pointer(cRikey))
 		}
 
+		liStartMu.Lock()
+		// If another StartStream or StopStream occurred while we waited for the lock, abort this stale attempt.
+		if liStreamGen.Load() != myGen {
+			liStartMu.Unlock()
+			logrus.Info("🌕 [Moonlight/CGO/Win] Aborting stale stream start")
+			return
+		}
+
 		logrus.Infof("🌕 [Moonlight/CGO/Win] LiStartConnection: host=%s %dx%d@%d bitrate=%d",
 			w.host, width, height, fps, bitrate)
 
@@ -530,6 +543,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 			C.int(width), C.int(height), C.int(fps), C.int(bitrate),
 			cRikey, C.int(1), C.uintptr_t(0),
 		)
+		liStartMu.Unlock()
 
 		if int(ret) != 0 {
 			logrus.Errorf("🌕 [Moonlight/CGO/Win] LiStartConnection FAILED: code=%d", int(ret))
@@ -576,6 +590,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	logrus.Info("🌕 [Moonlight/CGO/Win] StopStream: stopping")
+	C.do_li_interrupt()
 	liStreamMu.Lock()
 	C.do_li_stop()
 	liStreamMu.Unlock()
