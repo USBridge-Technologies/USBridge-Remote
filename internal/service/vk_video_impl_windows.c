@@ -477,8 +477,8 @@ static int vk_recreate_swapchain(void) {
     if (g_child_hwnd && g_parent_hwnd && w > 0 && h > 0) {
         POINT pt = {x, y};
         ClientToScreen(g_parent_hwnd, &pt);
-        SetWindowPos(g_child_hwnd, HWND_TOP, pt.x, pt.y, w, h,
-                     SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
+        SetWindowPos(g_child_hwnd, HWND_TOPMOST, pt.x, pt.y, w, h,
+                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     }
 
     if (w <= 0) w = 1;
@@ -927,8 +927,8 @@ void vk_video_update_frame(int x, int y, int w, int h) {
     if (g_child_hwnd && g_parent_hwnd && w > 0 && h > 0) {
         POINT pt = {x, y};
         ClientToScreen(g_parent_hwnd, &pt);
-        SetWindowPos(g_child_hwnd, HWND_TOP, pt.x, pt.y, w, h,
-                     SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
+        SetWindowPos(g_child_hwnd, HWND_TOPMOST, pt.x, pt.y, w, h,
+                     SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     }
 }
 
