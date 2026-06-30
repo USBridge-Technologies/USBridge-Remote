@@ -204,7 +204,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		if keyboardLayout.Visible() {
 			logrus.Info("⌨️ Клавиатура видима - скрываем")
 			fd.virtualKeyboard.Hide()
-			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
+			if fd.ui.KeyboardButton != nil {
+				fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
+			}
 			if fd.videoWidget != nil {
 				fd.videoWidget.SetBottomInset(graphics.GetLastIMEH())
 			}
@@ -212,7 +214,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			logrus.Info("⌨️ Клавиатура скрыта - показываем")
 			fd.virtualKeyboard.SetVisibleState(true)
 			fd.virtualKeyboard.FocusInput() // Принудительный фокус для Android
-			fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
+			if fd.ui.KeyboardButton != nil {
+				fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
+			}
 			if fd.videoWidget != nil {
 				h := keyboardLayout.MinSize().Height
 				if h < 50 { // Если размер еще не просчитан, используем разумное значение по умолчанию
@@ -244,10 +248,14 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		logrus.Infof("🔍 [DEBUG] updatePositions - Canvas Size: %v", canvasSize)
 
 		buttonSize := fyne.NewSize(50, 40)
-		fd.ui.KeyboardButton.Resize(buttonSize)
-		fd.ui.KeyboardButton.Move(fyne.NewPos(10, 10))
-		fd.ui.AudioButton.Resize(buttonSize)
-		fd.ui.AudioButton.Move(fyne.NewPos(65, 10))
+		if fd.ui.KeyboardButton != nil {
+			fd.ui.KeyboardButton.Resize(buttonSize)
+			fd.ui.KeyboardButton.Move(fyne.NewPos(10, 10))
+		}
+		if fd.ui.AudioButton != nil {
+			fd.ui.AudioButton.Resize(buttonSize)
+			fd.ui.AudioButton.Move(fyne.NewPos(65, 10))
+		}
 
 		keyboardHeight := float32(300)
 		keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
@@ -255,7 +263,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 		logrus.Infof("⌨️ [DEBUG] Позиции установлены:")
 		logrus.Infof("⌨️ [DEBUG]   Canvas Size: %v", canvasSize)
-		logrus.Infof("⌨️ [DEBUG]   Button Position: %v, Size: %v", fd.ui.KeyboardButton.Position(), fd.ui.KeyboardButton.Size())
+		if fd.ui.KeyboardButton != nil {
+			logrus.Infof("⌨️ [DEBUG]   Button Position: %v, Size: %v", fd.ui.KeyboardButton.Position(), fd.ui.KeyboardButton.Size())
+		}
 		logrus.Infof("⌨️ [DEBUG]   Keyboard Height: %v", keyboardHeight)
 		logrus.Infof("⌨️ [DEBUG]   Full Keyboard Height (with insets): %v", keyboardSize.Height)
 		logrus.Infof("⌨️ [DEBUG]   Keyboard Size: %v", keyboardLayout.Size())
