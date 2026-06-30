@@ -625,6 +625,11 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 		client := &http.Client{Timeout: 10 * time.Second}
 		if tsHTTPClient != nil {
 			client.Transport = tsHTTPClient.Transport
+		} else {
+			client.Transport = &http.Transport{
+				Proxy:        nil,
+				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+			}
 		}
 		resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 		if err != nil {

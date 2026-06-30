@@ -84,7 +84,8 @@ func NewUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 		Transport: &http.Transport{
-			Proxy: nil, // Disable proxy to prevent COM crashes on Windows
+			Proxy:        nil, // Disable proxy to prevent COM crashes on Windows
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 		},
 	})
 }
@@ -103,6 +104,7 @@ func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
 		DialContext:         dialer.DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 		Proxy:               nil, // Disable proxy to prevent COM crashes on Windows
+		TLSNextProto:        make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
 	client := &http.Client{Timeout: t, Transport: transport}
 	return NewUSBClientWithHTTPClient(host, port, timeout, client)
@@ -159,7 +161,8 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 			Transport: &http.Transport{
-				Proxy: nil, // Отключаем прокси, чтобы избежать крашей WinHttpGetIEProxyConfigForCurrentUser на Windows
+				Proxy:        nil, // Отключаем прокси, чтобы избежать крашей WinHttpGetIEProxyConfigForCurrentUser на Windows
+				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 			},
 		}
 	} else if timeout > 0 && httpClient.Timeout == 0 {

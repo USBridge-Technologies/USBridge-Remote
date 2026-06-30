@@ -29,38 +29,38 @@ func NewFullscreenUI(videoImage *canvas.Image, touchpad fyne.CanvasObject, keybo
 	// Оборачиваем keyboardLayout в ThemeOverride, чтобы кнопки гарантированно были в темной теме
 	themedKeyboard := container.NewThemeOverride(keyboardLayout, design.NewBrandTheme())
 
-	bg := canvas.NewRectangle(color.Black)
-
-	// Используем Stack, чтобы кнопки ГАРАНТИРОВАННО были поверх видео.
-	mainContentItems := []fyne.CanvasObject{bg, videoContainer}
-	if fyne.CurrentDevice().IsMobile() {
-		mainContentItems = append(mainContentItems, container.NewBorder(nil, themedKeyboard, nil, nil))
-	}
-	mainContent := container.NewStack(mainContentItems...)
-
-	keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
-	keyboardButton.Importance = widget.MediumImportance
-	themedKeyboardButton := container.NewThemeOverride(keyboardButton, design.NewBrandTheme())
-
-	audioButton := widget.NewButtonWithIcon("", assets.AudioIcon, onToggleAudio)
-	audioButton.Importance = widget.MediumImportance
-	themedAudioButton := container.NewThemeOverride(audioButton, design.NewBrandTheme())
-
 	var mainContainer *fyne.Container
 	if fyne.CurrentDevice().IsMobile() {
-		// Place buttons side by side at top-left (both in a WithoutLayout, positioned manually)
+		bg := canvas.NewRectangle(color.Black)
+		mainContentItems := []fyne.CanvasObject{bg, videoContainer}
+		mainContentItems = append(mainContentItems, container.NewBorder(nil, themedKeyboard, nil, nil))
+		mainContent := container.NewStack(mainContentItems...)
+
+		keyboardButton := widget.NewButtonWithIcon("", assets.KeyboardIconActive, onToggleKeyboard)
+		keyboardButton.Importance = widget.MediumImportance
+		themedKeyboardButton := container.NewThemeOverride(keyboardButton, design.NewBrandTheme())
+
+		audioButton := widget.NewButtonWithIcon("", assets.AudioIcon, onToggleAudio)
+		audioButton.Importance = widget.MediumImportance
+		themedAudioButton := container.NewThemeOverride(audioButton, design.NewBrandTheme())
+
 		overlayContainer := container.NewWithoutLayout(themedKeyboardButton, themedAudioButton)
 		mainContainer = container.NewStack(mainContent, overlayContainer)
-	} else {
-		mainContainer = container.NewStack(mainContent)
-	}
 
-	return &FullscreenUI{
-		VideoImage:        videoImage,
-		KeyboardButton:    keyboardButton,
-		AudioButton:       audioButton,
-		KeyboardLayout:    keyboardLayout,
-		VideoWithKeyboard: mainContent,
-		MainContainer:     mainContainer,
+		return &FullscreenUI{
+			VideoImage:        videoImage,
+			KeyboardButton:    keyboardButton,
+			AudioButton:       audioButton,
+			KeyboardLayout:    keyboardLayout,
+			VideoWithKeyboard: mainContent,
+			MainContainer:     mainContainer,
+		}
+	} else {
+		mainContainer = container.NewStack(videoContainer)
+		return &FullscreenUI{
+			VideoImage:        videoImage,
+			VideoWithKeyboard: mainContainer,
+			MainContainer:     mainContainer,
+		}
 	}
 }

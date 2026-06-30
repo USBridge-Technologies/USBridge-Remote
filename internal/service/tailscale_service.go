@@ -403,12 +403,24 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 	// use the plain OS dialer so Moonlight HTTP doesn't go through tsnet (which
 	// may not have established a WireGuard session with the peer yet).
 	if s.GetSystemTailscaleIP() != "" {
-		return &http.Client{Timeout: 10 * time.Second}, nil
+		return &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				Proxy:        nil,
+				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+			},
+		}, nil
 	}
 	// Android / no system Tailscale: all traffic must go through tsnet.
 	srv, err := s.serverInstance()
 	if err != nil { return nil, err }
-	return srv.HTTPClient(), nil
+	
+	client := srv.HTTPClient()
+	if t, ok := client.Transport.(*http.Transport); ok {
+		t.Proxy = nil
+		t.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	}
+	return client, nil
 }
 
 // WarmUpPeer proactively dials a Tailscale peer via tsnet to trigger the
