@@ -80,10 +80,12 @@ type USBClient struct {
 	lastTransportErrorAt  time.Time
 }
 
-// NewUSBClient creates a new USB client using the default system transport.
 func NewUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
+		Transport: &http.Transport{
+			Proxy: nil, // Disable proxy to prevent COM crashes on Windows
+		},
 	})
 }
 
@@ -100,6 +102,7 @@ func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
 	transport := &http.Transport{
 		DialContext:         dialer.DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
+		Proxy:               nil, // Disable proxy to prevent COM crashes on Windows
 	}
 	client := &http.Client{Timeout: t, Transport: transport}
 	return NewUSBClientWithHTTPClient(host, port, timeout, client)
