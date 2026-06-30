@@ -258,12 +258,16 @@ func (dw *DiskWidget) handleMount() {
 			return
 		}
 
+		dw.nbdServersMu.Lock()
+		hasNBD := len(dw.nbdServers) > 0
+		dw.nbdServersMu.Unlock()
+
 		// Проверяем FRP-туннель для NBD
-		if len(dw.nbdServers) > 0 && dw.frpService != nil && !dw.frpService.IsRunning() {
+		if hasNBD && dw.frpService != nil && !dw.frpService.IsRunning() {
 			dw.showErrorAsync(fmt.Errorf("FRP туннель не активен — переподключитесь перед монтированием NBD"))
 			return
 		}
-		if len(dw.nbdServers) > 0 {
+		if hasNBD {
 			logrus.Infof("⏱️ [MOUNT-NBD] Ожидание 1 с (стабилизация FRP/туннеля)")
 			time.Sleep(1 * time.Second)
 		}
@@ -357,12 +361,14 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			return nil, "", fmt.Errorf("ошибка получения свободного порта: %v", err)
 		}
 		exportName := sel.DiskInfo.Name
+		dw.nbdServersMu.Lock()
 		if existing, ok := dw.nbdServers[exportName]; ok {
 			if existing.IsRunning() {
 				_ = existing.Stop()
 			}
 			delete(dw.nbdServers, exportName)
 		}
+		dw.nbdServersMu.Unlock()
 		// cdrom mode is always read-only
 		readOnly := sel.ReadOnly
 		if sel.DriveMode == "cdrom" {
@@ -372,7 +378,9 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		if err != nil {
 			return nil, "", fmt.Errorf("ошибка запуска NBD сервера: %v", err)
 		}
+		dw.nbdServersMu.Lock()
 		dw.nbdServers[exportName] = nbdServer
+		dw.nbdServersMu.Unlock()
 		return &models.DeviceStartRequest{
 			Device:                  "drive",
 			Server:                  localIP,
@@ -393,6 +401,7 @@ func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartReq
 		if req.Device != "drive" || req.Port == 0 {
 			continue
 		}
+		dw.nbdServersMu.Lock()
 		for name, srv := range dw.nbdServers {
 			if !srv.IsRunning() {
 				continue
@@ -418,13 +427,16 @@ func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartReq
 				break
 			}
 		}
+		dw.nbdServersMu.Unlock()
 	}
 	return names
 }
 
 // waitForNBDServers сигнализирует NBD-серверам принимать соединения и ждёт их готовности.
 func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
+	dw.nbdServersMu.Lock()
 	if len(dw.nbdServers) == 0 {
+		dw.nbdServersMu.Unlock()
 		return nil
 	}
 
@@ -438,6 +450,7 @@ func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 	for k, v := range dw.nbdServers {
 		remaining[k] = v
 	}
+	dw.nbdServersMu.Unlock()
 
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -644,6 +657,7 @@ func (dw *DiskWidget) StopAllNBDServers() {
 func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 	dw.updateStatusAsync(i18n.Current.StoppingNBDServers)
 	toStop := make(map[string]bool)
+	dw.nbdServersMu.Lock()
 	if stopAll {
 		for exportName := range dw.nbdServers {
 			toStop[exportName] = true
@@ -658,18 +672,26 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 			}
 		}
 	}
+	dw.nbdServersMu.Unlock()
 	for exportName := range toStop {
-		if nbdServer, exists := dw.nbdServers[exportName]; exists {
+		dw.nbdServersMu.Lock()
+		nbdServer, exists := dw.nbdServers[exportName]
+		dw.nbdServersMu.Unlock()
+		if exists {
 			if nbdServer.IsRunning() {
 				if err := nbdServer.Stop(); err != nil {
 					logrus.Warnf("⚠️ Ошибка остановки NBD сервера %s: %v", exportName, err)
 				}
 			}
+			dw.nbdServersMu.Lock()
 			delete(dw.nbdServers, exportName)
+			dw.nbdServersMu.Unlock()
 		}
 	}
 	if stopAll {
+		dw.nbdServersMu.Lock()
 		dw.nbdServers = make(map[string]service.NBDRunner)
+		dw.nbdServersMu.Unlock()
 	}
 	if runtime.GOOS == "android" && dw.safHelper != nil {
 		for _, drive := range drives {
@@ -720,7 +742,9 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 	}
 	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingNBD {
 		exportName := drive.DiskInfo.Name
+		dw.nbdServersMu.Lock()
 		nbdServer, exists := dw.nbdServers[exportName]
+		dw.nbdServersMu.Unlock()
 		if !exists || !nbdServer.IsRunning() {
 			return nil, fmt.Errorf("NBD сервер для %s не найден или не запущен", exportName)
 		}

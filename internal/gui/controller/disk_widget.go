@@ -86,6 +86,7 @@ type DiskWidget struct {
 	cardsCache map[string]fyne.CanvasObject
 
 	// Сервисы
+	nbdServersMu sync.Mutex
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()

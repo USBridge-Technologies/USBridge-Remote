@@ -20,15 +20,11 @@ func normalizeConfiguredWindowPixels(width, height int) (int, int) {
 	return width, height
 }
 
-// dpiAwareWindowSize converts config pixels into Fyne logical units.
-// This keeps the physical startup size stable across 100/125/150% desktop scaling.
-func dpiAwareWindowSize(widthPx, heightPx int, scale float32, contentMin fyne.Size) fyne.Size {
-	widthPx, heightPx = normalizeConfiguredWindowPixels(widthPx, heightPx)
-	if scale <= 0 {
-		scale = 1
-	}
+// windowSizeToLogical converts configured sizes into Fyne logical units.
+func windowSizeToLogical(width, height int, contentMin fyne.Size) fyne.Size {
+	width, height = normalizeConfiguredWindowPixels(width, height)
 
-	size := fyne.NewSize(float32(widthPx)/scale, float32(heightPx)/scale)
+	size := fyne.NewSize(float32(width), float32(height))
 	if contentMin.Width > size.Width {
 		size.Width = contentMin.Width
 	}
@@ -71,10 +67,9 @@ func (mw *MainWindow) applyInitialWindowSize() {
 		contentMin = content.MinSize()
 	}
 
-	mw.window.Resize(dpiAwareWindowSize(
+	mw.window.Resize(windowSizeToLogical(
 		mw.config.WindowWidth,
 		mw.config.WindowHeight,
-		mw.app.Driver().Device().SystemScaleForWindow(mw.window),
 		contentMin,
 	))
 	mw.window.CenterOnScreen()

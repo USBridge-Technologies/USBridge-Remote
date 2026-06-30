@@ -546,6 +546,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	}
 
 	nbdExportToDriveName := make(map[string]string)
+	dw.nbdServersMu.Lock()
 	for name, srv := range dw.nbdServers {
 		if srv != nil && srv.IsRunning() {
 			apiName := srv.NBDExportNameForAPI()
@@ -554,6 +555,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			}
 		}
 	}
+	dw.nbdServersMu.Unlock()
 
 	var currentVideoPath string
 	videoStreaming := false

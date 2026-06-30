@@ -43,6 +43,7 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 	for i := 0; i < maxAttempts; i++ {
 		port := basePort + i
 		portInUse := false
+		dw.nbdServersMu.Lock()
 		for exportName, server := range dw.nbdServers {
 			if server.IsRunning() && server.GetServerStatus()["server_port"] == port {
 				logrus.Debugf("🔍 Порт %d занят NBD-сервером %s", port, exportName)
@@ -50,6 +51,7 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 				break
 			}
 		}
+		dw.nbdServersMu.Unlock()
 		if !portInUse {
 			if listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
 				listener.Close()
