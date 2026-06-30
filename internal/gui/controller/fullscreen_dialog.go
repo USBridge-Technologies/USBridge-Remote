@@ -332,6 +332,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fsWin := fd.fullscreenWindow
 		vw := fd.videoWidget
 		fsImg := fd.videoImage
+		
+		// Hide/destroy the old main-window overlay immediately so it doesn't float over the new fullscreen window.
+		// If we don't do this, it causes a 'picture -> black -> picture' triple blink during the 250ms delay.
+		vw.stopMetalVideo()
+
 		// Once the native overlay is live, clear the Fyne canvas so only Metal renders.
 		// Without this the Go canvas shows its last frame behind the overlay (PiP).
 		vw.onNativeReady = func() {
