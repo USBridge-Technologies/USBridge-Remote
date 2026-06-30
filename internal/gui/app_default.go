@@ -6,6 +6,7 @@ package gui
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 )
 
@@ -13,6 +14,7 @@ import (
 // чтобы работали предпочтения и прочее.
 func newFyneApp() fyne.App {
 	a := app.NewWithID("usbridge-client")
+	a.SetIcon(assets.AppIcon)
 	a.Settings().SetTheme(design.NewBrandTheme())
 	return a
 }

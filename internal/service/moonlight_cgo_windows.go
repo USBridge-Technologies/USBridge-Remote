@@ -144,6 +144,7 @@ static void wasapi_init(int channels, int sample_rate) {
 }
 
 static void wasapi_teardown(void) {
+    if (!g_wa_cs_init) return;
     EnterCriticalSection(&g_wa_cs);
     IAudioClient       *c = g_wa_client; g_wa_client = NULL;
     IAudioRenderClient *r = g_wa_render; g_wa_render = NULL;
