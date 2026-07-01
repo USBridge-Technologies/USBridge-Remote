@@ -14,10 +14,10 @@ echo " Building Moonlight Core (moonlight-common-c)  "
 echo "==============================================="
 
 if [ ! -d "${BUILD_DIR}/src" ]; then
-    echo "⬇️ Cloning moonlight-common-c..."
-    git clone --recursive https://github.com/moonlight-stream/moonlight-common-c.git "${BUILD_DIR}"
+    echo "⬇️ Initialising moonlight-common-c submodule (pinned commit)..."
+    git -C "${PROJECT_ROOT}" submodule update --init moonlight-common-c
 else
-    echo "✅ moonlight-common-c already cloned."
+    echo "✅ moonlight-common-c already present ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
