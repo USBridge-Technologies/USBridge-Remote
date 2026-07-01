@@ -120,6 +120,11 @@ type VideoWidget struct {
 	lastMouseModeDiag  string  // последняя диагностическая строка режима мыши, чтобы не спамить лог
 	touchpadSizeW      float32 // Ширина области ввода (для перевода в абсолютные координаты)
 	touchpadSizeH      float32 // Высота области ввода
+	// When > 0: standalone VK fullscreen is active and the touchpad logical size is
+	// fixed to the screen dp dimensions. updateFrameContentRect uses these instead of
+	// the (wrong) main-window widget size so absolute mouse mapping covers the full screen.
+	standaloneVKScreenDpW float32
+	standaloneVKScreenDpH float32
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
 	contentRectX      float32
 	contentRectY      float32

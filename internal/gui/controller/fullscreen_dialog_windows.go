@@ -43,13 +43,19 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	// Fix absolute mouse mode: PositionToAbsolute uses touchpadSizeW/H which is
 	// normally the video widget area in the main window. In standalone fullscreen
 	// the VK window covers the entire primary screen, so update the size to match.
+	// Store the screen dp size on VideoWidget so updateFrameContentRect (called on
+	// every decoded frame) re-applies it instead of overwriting with main-window size.
 	sw, sh := service.VKVideoGetDstSize() // physical screen pixels
 	scale := float32(1)
 	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
 		scale = vw.parentWindow.Canvas().Scale()
 	}
+	screenDpW := float32(sw) / scale
+	screenDpH := float32(sh) / scale
 	if sw > 0 && sh > 0 && scale > 0 {
-		vw.UpdateTouchpadAndContentRect(float32(sw)/scale, float32(sh)/scale, nil)
+		vw.standaloneVKScreenDpW = screenDpW
+		vw.standaloneVKScreenDpH = screenDpH
+		vw.UpdateTouchpadAndContentRect(screenDpW, screenDpH, nil)
 	}
 
 	// Fix touchpad-mode focus steal: TouchpadWrapper.MouseDown calls
@@ -67,7 +73,9 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	}
 
 	// Mouse events go through the existing VK event queue → vw.touchpadWrapper.
-	// Use the parent window canvas scale so physical pixel coords → correct dp.
+	// Use the parent window canvas scale so physical pixel coords → correct dp coords.
+	// (The scale is also re-read per-event inside dispatchVKWinMouseEvent, so this
+	//  initial value is just the starting default.)
 	vw.startVKMouseForwarding(scale)
 
 	// Keyboard events go through the key event queue → Moonlight input directly.
@@ -89,6 +97,10 @@ func (fd *FullscreenDialog) exitWindowlessVKFullscreen() {
 	if vw.touchpadWrapper != nil {
 		vw.touchpadWrapper.SetSkipWindowFocus(false)
 	}
+	// Clear the standalone screen size so updateFrameContentRect resumes using
+	// the main-window widget size for absolute position normalisation.
+	vw.standaloneVKScreenDpW = 0
+	vw.standaloneVKScreenDpH = 0
 
 	// stopMetalVideo destroys the VK window and stops mouse+key forwarding goroutines.
 	vw.stopMetalVideo()

@@ -1088,7 +1088,12 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 		if vw.lastVideoImgW != newFW || vw.lastVideoImgH != newFH {
 			vw.lastVideoImgW = newFW
 			vw.lastVideoImgH = newFH
-			if tw := vw.activeViewportWrapper(); tw != nil {
+			// In standalone VK fullscreen the touchpad is sized to the screen, not to
+			// the main-window widget. Use the stored screen dp size so PositionToAbsolute
+			// always normalises against the full screen, even as video frames arrive.
+			if vw.standaloneVKScreenDpW > 0 {
+				vw.UpdateTouchpadAndContentRect(vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH, nil)
+			} else if tw := vw.activeViewportWrapper(); tw != nil {
 				sz := tw.Size()
 				if sz.Width > 0 && sz.Height > 0 {
 					var frame image.Image
