@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"usbridge-client/internal/gui/i18n"
@@ -75,9 +76,10 @@ type ConnectionManager struct {
 	masterKeyEntry *widget.Entry
 	protocolSelect *widget.Select
 
-	qrScanner *QRScanner
-	ts        *service.TailscaleService
-	tsStatus  *service.TailscaleStatus
+	qrScanner              *QRScanner
+	ts                     *service.TailscaleService
+	tsStatus               *service.TailscaleStatus
+	tailscaleAuthInProgress atomic.Bool // guards against concurrent auth goroutines
 
 	onConnect                func(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool)
 	onSelect                 func(tailscaleRegister bool)
@@ -200,7 +202,12 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 	if cm.ts == nil {
 		return
 	}
+	if !cm.tailscaleAuthInProgress.CompareAndSwap(false, true) {
+		logrus.Info("tailscale client ui: auth action already in progress, ignoring duplicate click")
+		return
+	}
 	go func() {
+		defer cm.tailscaleAuthInProgress.Store(false)
 		status, err := cm.ts.Status(context.Background())
 		if err == nil && status != nil && status.LoggedIn {
 			logrus.Info("tailscale client ui: logout button pressed")

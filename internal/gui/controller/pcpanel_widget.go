@@ -882,9 +882,7 @@ func (p *PCPanelWidget) pollLeds() {
 				cancel() // always release resources
 
 				p.pollMu.Lock()
-				if p.pollCtxCancel == cancel {
-					p.pollCtxCancel = nil
-				}
+				p.pollCtxCancel = nil
 				p.pollMu.Unlock()
 
 				if err != nil {

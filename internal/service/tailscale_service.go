@@ -306,71 +306,131 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 	s.mu.Unlock()
 
 	if !userspace {
-		tsPath := getTailscaleBinaryPath()
-		if tsPath != "" {
-			logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
-			var cmd *exec.Cmd
-			if runtime.GOOS == "linux" {
-				cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
-			} else {
-				cmd = exec.Command(tsPath, "up", "--accept-dns=false")
-			}
-			maybeHideWindow(cmd)
-
-			stdout, _ := cmd.StdoutPipe()
-			stderr, _ := cmd.StderrPipe()
-			if err := cmd.Start(); err != nil {
-				if runtime.GOOS == "darwin" {
-					script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
-					cmd = exec.Command("osascript", "-e", script)
-					maybeHideWindow(cmd)
-					out, err2 := cmd.CombinedOutput()
-					if err2 == nil {
-						return s.extractURL(string(out)), nil
-					}
-				}
-				logrus.Warnf("⚠️ [Tailscale] System login failed: %v", err)
-			} else {
-				urlChan := make(chan string, 1)
-				scanFunc := func(r io.Reader) {
-					scanner := bufio.NewScanner(r)
-					for scanner.Scan() {
-						line := scanner.Text()
-						if url := s.extractURL(line); url != "" {
-							urlChan <- url
-							return
-						}
-					}
-				}
-				go scanFunc(stdout)
-				go scanFunc(stderr)
-				select {
-				case foundURL := <-urlChan:
-					return foundURL, nil
-				case <-time.After(15 * time.Second):
-					logrus.Warn("⚠️ [Tailscale] No link from system Tailscale in 15s")
-				}
-			}
-		}
+		return s.startSystemLogin(ctx)
 	}
 
+	// Userspace (tsnet) path.
 	refreshAndroidDefaultRouteInterface()
 	lc, err := s.localClient()
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	_ = lc.StartLoginInteractive(ctx)
 	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer watcher.Close()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		status, err := lc.Status(ctx)
 		if err == nil && status != nil {
-			if url := strings.TrimSpace(status.AuthURL); url != "" { return url, nil }
-			if strings.TrimSpace(status.BackendState) == "Running" { return "", nil }
+			if url := strings.TrimSpace(status.AuthURL); url != "" {
+				return url, nil
+			}
+			if strings.TrimSpace(status.BackendState) == "Running" {
+				return "", nil
+			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return "", fmt.Errorf("auth URL timeout")
+}
+
+// startSystemLogin handles login for system (non-tsnet) Tailscale.
+// On Windows it uses the local daemon API directly; on other platforms it
+// spawns the tailscale CLI with proper cleanup of the subprocess.
+func (s *TailscaleService) startSystemLogin(ctx context.Context) (string, error) {
+	// Windows: talk to the running system Tailscale daemon directly —
+	// faster than spawning a subprocess and avoids orphan processes.
+	if runtime.GOOS == "windows" {
+		syslc := &local.Client{}
+		if err := syslc.StartLoginInteractive(ctx); err != nil {
+			logrus.Warnf("⚠️ [Tailscale/Win] StartLoginInteractive: %v", err)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			status, err := syslc.Status(ctx)
+			if err == nil && status != nil {
+				if url := strings.TrimSpace(status.AuthURL); url != "" {
+					logrus.Infof("🔗 [Tailscale/Win] Auth URL via local API: %s", url)
+					return url, nil
+				}
+				if status.BackendState == "Running" {
+					return "", nil
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+		return "", fmt.Errorf("system Tailscale auth timeout")
+	}
+
+	// Linux / macOS: spawn tailscale CLI subprocess.
+	tsPath := getTailscaleBinaryPath()
+	if tsPath == "" {
+		return "", fmt.Errorf("tailscale binary not found")
+	}
+	logrus.Infof("🚀 [Tailscale] Starting system login via %s", tsPath)
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "linux" {
+		cmd = exec.Command("pkexec", tsPath, "up", "--accept-dns=false")
+	} else {
+		cmd = exec.Command(tsPath, "up", "--accept-dns=false")
+	}
+	maybeHideWindow(cmd)
+
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		if runtime.GOOS == "darwin" {
+			script := fmt.Sprintf("do shell script \"%s up --accept-dns=false\" with administrator privileges", tsPath)
+			cmd = exec.Command("osascript", "-e", script)
+			maybeHideWindow(cmd)
+			out, err2 := cmd.CombinedOutput()
+			if err2 == nil {
+				return s.extractURL(string(out)), nil
+			}
+		}
+		logrus.Warnf("⚠️ [Tailscale] System login failed: %v", err)
+		return "", fmt.Errorf("tailscale up: %w", err)
+	}
+
+	// Ensure the subprocess is cleaned up regardless of outcome.
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	urlChan := make(chan string, 1)
+	scanFunc := func(r io.Reader) {
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			if url := s.extractURL(scanner.Text()); url != "" {
+				select {
+				case urlChan <- url:
+				default:
+				}
+				return
+			}
+		}
+	}
+	go scanFunc(stdout)
+	go scanFunc(stderr)
+
+	select {
+	case foundURL := <-urlChan:
+		return foundURL, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(15 * time.Second):
+		logrus.Warn("⚠️ [Tailscale] No auth link from system Tailscale CLI in 15s")
+		return "", fmt.Errorf("tailscale auth URL timeout")
+	}
 }
 
 func (s *TailscaleService) Logout(ctx context.Context) error {
