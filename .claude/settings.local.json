@@ -124,7 +124,10 @@
       "Bash(cygpath -w \"$\\(pwd\\)/extracted3\")",
       "Bash(powershell -NoProfile -NonInteractive -Command ' *)",
       "Bash(echo \"exit=$?\")",
-      "Bash(bash -n /c/Projects_USBridge/usbridge_client/scripts/build_windows.sh)"
+      "Bash(bash -n /c/Projects_USBridge/usbridge_client/scripts/build_windows.sh)",
+      "Bash(gofmt -l C:/Projects_USBridge/usbridge_client/internal/gui/controller/video_widget_input.go)",
+      "Bash(echo \"gofmt exit=$?\")",
+      "Bash(gofmt -d C:/Projects_USBridge/usbridge_client/internal/gui/controller/video_widget_input.go)"
     ]
   }
 }

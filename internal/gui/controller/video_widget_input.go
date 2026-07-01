@@ -957,6 +957,14 @@ func (vw *VideoWidget) TryRecordTouchDown(x, y int) bool {
 
 // UpdateTouchpadAndContentRect обновляет размер области ввода и прямоугольник видео.
 func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Image) {
+	// While standalone VK fullscreen is active, the underlying Fyne video widget
+	// still exists (hidden behind the VK overlay) and keeps re-triggering this via
+	// its own Resize/Layout/input handlers (TouchpadWrapper.updateTouchpadSize,
+	// wrapperLayoutImage, etc.) with its own pre-fullscreen widget size. Force the
+	// screen size here so it wins no matter which call site fires.
+	if vw.standaloneVKScreenDpW > 0 && vw.standaloneVKScreenDpH > 0 {
+		w, h = vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH
+	}
 	if w <= 0 || h <= 0 {
 		return
 	}
