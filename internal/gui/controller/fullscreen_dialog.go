@@ -149,6 +149,13 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	}
 
 	fyne.Do(func() {
+		// Re-check nativeActive inside fyne.Do: if VK became active after we queued this
+		// callback but before the main thread ran it, skip the canvas update. Without this
+		// guard, a pending updateVideoFrame queued during the ~250ms transition window runs
+		// AFTER onNativeReady clears the canvas, restoring a frozen Go frame behind the overlay.
+		if fd.videoWidget != nil && fd.videoWidget.isNativeVideoActive() {
+			return
+		}
 		wasNil := videoImg.Image == nil
 		if videoImg.Image != frame {
 			videoImg.Image = frame
