@@ -27,9 +27,8 @@ var (
 
 const desktopPrintableRuneSuppressWindow = 75 * time.Millisecond
 
-// absLogCnt throttles PositionToAbsolute and updateFrameContentRect log spam.
-// Not atomic — small races just mean slightly more/fewer log lines, which is fine.
-var absLogCnt int64
+// absLogAt throttles PositionToAbsolute diagnostic output to once per 2 seconds.
+var absLogAt time.Time
 
 func modifierMaskForKeyName(keyName fyne.KeyName) int32 {
 	switch keyName {
@@ -1062,9 +1061,9 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if y > absolutePointerMax {
 		y = absolutePointerMax
 	}
-	// Log every ~60 calls so we can diagnose coordinate mapping without spamming.
-	absLogCnt++
-	if absLogCnt%60 == 1 {
+	// Log at most once per 2 seconds to diagnose coordinate mapping without spamming.
+	if now := time.Now(); now.Sub(absLogAt) >= 2*time.Second {
+		absLogAt = now
 		logrus.Infof("[ABS] PositionToAbsolute: in=(%.1f,%.1f) touchpad=(%.0f,%.0f) contentRect=(%.1f,%.1f,%.1f,%.1f) frameRect=(%.3f,%.3f,%.3f,%.3f) u=%.3f v=%.3f → out=(%d,%d)",
 			px, py,
 			vw.touchpadSizeW, vw.touchpadSizeH,
