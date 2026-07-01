@@ -421,10 +421,11 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
 	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
+	middleScroll := container.NewHScroll(middleGroup)
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		mw.pcpanelWidget.GetContainer(),
-		middleGroup,
+		middleScroll,
 		rightGroup,
 	)
 	return view.NewHeaderBand("", row)
@@ -669,7 +670,11 @@ func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	if centerMaxWidth < 0 {
 		centerMaxWidth = 0
 	}
-	centerWidth := minFloat32(centerMin.Width, centerMaxWidth)
+	centerPrefWidth := centerMin.Width
+	if sc, ok := center.(*container.Scroll); ok && sc.Content != nil {
+		centerPrefWidth = sc.Content.MinSize().Width
+	}
+	centerWidth := minFloat32(centerPrefWidth, centerMaxWidth)
 	centerMinX := leftMin.Width + l.edgeInset + l.sideGap
 	centerMaxX := rightX - l.sideGap - centerWidth
 	centerX := maxFloat32(centerMinX, (size.Width-centerWidth)/2)
