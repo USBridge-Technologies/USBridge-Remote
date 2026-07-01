@@ -298,7 +298,7 @@ func buildInlineField(label string, field fyne.CanvasObject, actions fyne.Canvas
 type noInputBgTheme struct{ fyne.Theme }
 
 func (t *noInputBgTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	if name == theme.ColorNameInputBackground || name == theme.ColorNameInputBorder {
+	if name == theme.ColorNameInputBackground || name == theme.ColorNameInputBorder || name == theme.ColorNameFocus {
 		return color.Transparent
 	}
 	return t.Theme.Color(name, variant)
@@ -360,24 +360,30 @@ func newConnectionDialogEntryAddon(iconRes fyne.Resource, onTapped func()) fyne.
 	return container.NewStack(bg, bdr, btn)
 }
 
+func newConnectionDialogCopyAction(entry *connectionDialogEntry, window fyne.Window) *connectionDialogIconButton {
+	btn := &connectionDialogIconButton{
+		resource: theme.ContentCopyIcon(),
+		onTapped: func() {
+			if window != nil && entry.Text != "" {
+				window.Clipboard().SetContent(entry.Text)
+			}
+		},
+		buttonSize: fyne.NewSize(28, 28),
+		iconSize:   fyne.NewSize(15, 15),
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
 func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, registerCheck fyne.CanvasObject, window fyne.Window) fyne.CanvasObject {
 	masterKeyEntry.ActionItem = nil
 	masterKeyEntry.Refresh()
 
-	// Master key: field on left, copy addon button on the right (visually connected).
-	masterField := newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, nil)
-	copyAddon := newConnectionDialogEntryAddon(theme.ContentCopyIcon(), func() {
-		if window != nil && masterKeyEntry.Text != "" {
-			window.Clipboard().SetContent(masterKeyEntry.Text)
-		}
-	})
-	masterRow := container.NewBorder(nil, nil, nil, view.NewInset(copyAddon, 4, 0, 0, 0), masterField)
-
 	items := []fyne.CanvasObject{
 		newConnectionDialogIconEntry(theme.AccountIcon(), nameEntry, nil),
-		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, nil),
-		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, nil),
-		masterRow,
+		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, newConnectionDialogCopyAction(internalHostEntry, window)),
+		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, newConnectionDialogCopyAction(tailscaleHostEntry, window)),
+		newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, newConnectionDialogCopyAction(masterKeyEntry, window)),
 	}
 	if registerCheck != nil {
 		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
@@ -623,8 +629,8 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
-			topMargin := clampFloat32(canvasSize.Height*0.025, 12, 22)
 			if fyne.CurrentDevice().IsMobile() {
+				topMargin := clampFloat32(canvasSize.Height*0.10, 80, 110)
 				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, topMargin)
 			}
 			centerY := (canvasSize.Height - panelSize.Height) / 2
