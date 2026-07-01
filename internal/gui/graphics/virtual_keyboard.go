@@ -42,6 +42,9 @@ type VirtualKeyboard struct {
 	imeSpacer     *imeSpacerLayout
 	imeSpacerCont *fyne.Container
 	onIMEChanged  func(imeHeightDp float32) // 0 = IME closed
+
+	// Called after keyboardWindow.Show() — platform code can use this to adjust Z-order.
+	onWindowShown func(fyne.Window)
 }
 
 // NewVirtualKeyboard creates a new virtual keyboard.
@@ -250,6 +253,12 @@ func (vk *VirtualKeyboard) Show() {
 	logrus.Info("⌨️ Virtual keyboard shown")
 }
 
+// SetOnWindowShown sets a callback invoked after keyboardWindow.Show().
+// Platform-specific code (e.g. Windows) can use this to adjust Z-order.
+func (vk *VirtualKeyboard) SetOnWindowShown(fn func(fyne.Window)) {
+	vk.onWindowShown = fn
+}
+
 // ShowInSeparateWindow shows the keyboard in a separate window
 func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 	if vk.isVisible {
@@ -272,6 +281,10 @@ func (vk *VirtualKeyboard) ShowInSeparateWindow() {
 	vk.isVisible = true
 	vk.keyboard.Show()
 	vk.keyboardWindow.Show()
+
+	if vk.onWindowShown != nil {
+		vk.onWindowShown(vk.keyboardWindow)
+	}
 
 	logrus.Info("⌨️ Virtual keyboard shown in a separate window")
 }
