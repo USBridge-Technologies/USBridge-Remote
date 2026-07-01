@@ -45,10 +45,9 @@ type ScriptsTabWidget struct {
 	stopPollCh chan struct{}
 
 	// MCP Proxy live UI elements.
-	mcpStatusLabel *canvas.Text
-	mcpURLLabel    *canvas.Text
-	mcpToggleBtn   *widget.Button
-	mcpCopyBtn     *widget.Button
+	mcpURLLabel  *canvas.Text
+	mcpToggleBtn *widget.Button
+	mcpCopyBtn   *widget.Button
 }
 
 // NewScriptsTabWidget creates the widget and builds the persistent UI tree.
@@ -118,10 +117,6 @@ func (w *ScriptsTabWidget) build() {
 }
 
 func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
-	w.mcpStatusLabel = canvas.NewText("○ Stopped", design.ColorTextMuted)
-	w.mcpStatusLabel.TextSize = 12
-	w.mcpStatusLabel.TextStyle.Bold = true
-
 	w.mcpURLLabel = canvas.NewText(
 		fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpPort),
 		design.ColorTextMuted,
@@ -151,7 +146,7 @@ func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
 		view.NewInset(w.mcpToggleBtn, 0, 0, 6, 0),
 	), 8, 8, 4, 4)
 
-	return w.buildSectionCard("MCP PROXY", w.mcpStatusLabel, body)
+	return w.buildSectionCard("", nil, body)
 }
 
 // buildSectionCard creates a labelled card matching the Snapshots tab visual style.
@@ -211,8 +206,6 @@ func (w *ScriptsTabWidget) refreshMCPStatus() {
 
 	running := w.mcpProxy.Running()
 	if running {
-		w.mcpStatusLabel.Text = "● Running"
-		w.mcpStatusLabel.Color = design.ColorAccent
 		w.mcpURLLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpProxy.Port())
 		w.mcpURLLabel.Color = design.ColorTextLight
 		w.mcpToggleBtn.SetText("Stop")
@@ -220,8 +213,6 @@ func (w *ScriptsTabWidget) refreshMCPStatus() {
 		w.mcpToggleBtn.Enable()
 		w.mcpCopyBtn.Enable()
 	} else {
-		w.mcpStatusLabel.Text = "○ Stopped"
-		w.mcpStatusLabel.Color = design.ColorTextMuted
 		w.mcpURLLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpPort)
 		w.mcpURLLabel.Color = design.ColorTextMuted
 		w.mcpToggleBtn.SetText("Start")
@@ -233,7 +224,6 @@ func (w *ScriptsTabWidget) refreshMCPStatus() {
 		}
 		w.mcpCopyBtn.Disable()
 	}
-	w.mcpStatusLabel.Refresh()
 	w.mcpURLLabel.Refresh()
 	w.mcpToggleBtn.Refresh()
 	w.mcpCopyBtn.Refresh()
