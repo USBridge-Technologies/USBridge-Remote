@@ -23,6 +23,8 @@ extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
 extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
+extern int  vk_video_create_standalone(void);
+extern int  vk_video_next_key_event(int *type_out, int *vk_out);
 
 extern void goVKLog(char *msg, int level);
 */
@@ -144,6 +146,22 @@ func VKVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.vk_video_set_hidden(h)
+}
+
+// VKVideoCreateStandalone creates a standalone fullscreen Vulkan window covering the
+// primary monitor. No parent HWND needed; the window captures keyboard focus directly.
+// Use this instead of VKVideoCreate when entering fullscreen without a Fyne window.
+func VKVideoCreateStandalone() bool {
+	return C.vk_video_create_standalone() != 0
+}
+
+// VKVideoNextKeyEvent drains one pending keyboard event from the standalone VK window.
+// Returns (type, vkCode, ok). type: 1=keydown, 2=keyup. vkCode is a Win32 Virtual Key.
+// Safe to call from any goroutine.
+func VKVideoNextKeyEvent() (typ, vkCode int, ok bool) {
+	var t, v C.int
+	r := C.vk_video_next_key_event(&t, &v)
+	return int(t), int(v), r != 0
 }
 
 // VKVideoNextEvent drains one pending pointer event from the Vulkan overlay window.

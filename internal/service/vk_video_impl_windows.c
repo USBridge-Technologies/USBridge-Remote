@@ -71,6 +71,34 @@ static void vk_eq_push(int type, int x, int y, int btn) {
     LeaveCriticalSection(&g_eq_cs);
 }
 
+// ─── keyboard event queue (standalone fullscreen mode only) ──────────────────
+// In standalone mode the VK window is the only window and receives keyboard focus.
+// WM_KEYDOWN/WM_KEYUP are pushed here; Go polls via vk_video_next_key_event().
+// type: 1=keydown, 2=keyup. vk_code = Win32 Virtual Key code (wParam).
+
+#define VK_KQ_CAP 256
+typedef struct { int type; int vk_code; } VkKeyEvt;
+
+static VkKeyEvt     g_kq[VK_KQ_CAP];
+static volatile int g_kq_head = 0, g_kq_tail = 0;
+static CRITICAL_SECTION g_kq_cs;
+static int          g_kq_cs_init = 0;
+
+static void vk_kq_push(int type, int vk_code) {
+    if (!g_kq_cs_init) return;
+    EnterCriticalSection(&g_kq_cs);
+    int next = (g_kq_head + 1) % VK_KQ_CAP;
+    if (next != g_kq_tail) {
+        g_kq[g_kq_head].type    = type;
+        g_kq[g_kq_head].vk_code = vk_code;
+        g_kq_head = next;
+    }
+    LeaveCriticalSection(&g_kq_cs);
+}
+
+// 1 = standalone fullscreen (no parent window, covers full screen, has keyboard focus)
+static int g_standalone = 0;
+
 // ─── overlay window class ─────────────────────────────────────────────────────
 
 static ATOM   g_wndcls      = 0;
@@ -86,19 +114,52 @@ static HWND   g_parent_hwnd = NULL;  // Fyne/GLFW HWND — used for ClientToScre
 static HANDLE g_hwnd_thread = NULL;
 static HANDLE g_hwnd_ready  = NULL; // signaled once g_child_hwnd is assigned
 
-typedef struct { HWND parent; int x, y, w, h; } VkWndArgs;
+typedef struct { HWND parent; int x, y, w, h; int standalone; } VkWndArgs;
 static VkWndArgs g_hwnd_args;
 
 static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
-    // Don't let the overlay steal keyboard focus on click.
-    if (msg == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    // In overlay mode: don't steal keyboard focus on click.
+    // In standalone mode: allow activation so keyboard works.
+    if (msg == WM_MOUSEACTIVATE) return g_standalone ? MA_ACTIVATE : MA_NOACTIVATE;
+
+    // Standalone mode keyboard: push raw Win32 VK codes into the key queue.
+    // Go polls via vk_video_next_key_event() and forwards to Moonlight directly.
+    if (g_standalone) {
+        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+            int vk = (int)wp;
+            // Map generic modifier VKs to left/right variants using scan code.
+            if (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU) {
+                UINT scan = (HIWORD(lp)) & 0xFF;
+                UINT mapped = MapVirtualKeyW(scan, MAPVK_VSC_TO_VK_EX);
+                if (mapped != 0) vk = (int)mapped;
+            }
+            vk_kq_push(1, vk);
+            return 0;
+        }
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) {
+            int vk = (int)wp;
+            if (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU) {
+                UINT scan = (HIWORD(lp)) & 0xFF;
+                UINT mapped = MapVirtualKeyW(scan, MAPVK_VSC_TO_VK_EX);
+                if (mapped != 0) vk = (int)mapped;
+            }
+            vk_kq_push(2, vk);
+            return 0;
+        }
+        // Suppress WM_CHAR — key routing goes through WM_KEYDOWN/UP only.
+        if (msg == WM_CHAR || msg == WM_SYSCHAR || msg == WM_DEADCHAR) {
+            return 0;
+        }
+    }
+
     // Raw Input: fires on every hardware mouse sample (no WM_MOUSEMOVE coalescing).
     // RIDEV_INPUTSINK delivers even when not foreground; we filter by foreground window
     // so we don't intercept input from other applications.
     if (msg == WM_INPUT) {
         HWND _fg = GetForegroundWindow();
-        if (g_parent_hwnd && (_fg == g_parent_hwnd || _fg == g_child_hwnd)) {
+        // In standalone mode g_parent_hwnd is NULL; check only g_child_hwnd.
+        if (_fg == g_child_hwnd || (g_parent_hwnd && _fg == g_parent_hwnd)) {
             UINT sz = 0;
             GetRawInputData((HRAWINPUT)lp, RID_INPUT, NULL, &sz, sizeof(RAWINPUTHEADER));
             if (sz > 0 && sz <= 256) {
@@ -169,27 +230,44 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
 
 static DWORD WINAPI vk_hwnd_thread(LPVOID unused) {
     (void)unused;
-    POINT pt = { g_hwnd_args.x, g_hwnd_args.y };
-    if (g_hwnd_args.parent) ClientToScreen(g_hwnd_args.parent, &pt);
-    int cw = g_hwnd_args.w > 0 ? g_hwnd_args.w : 1;
-    int ch = g_hwnd_args.h > 0 ? g_hwnd_args.h : 1;
+    int px, py, cw, ch;
+    DWORD ex_style;
 
-    // Create overlay on THIS thread — own message queue, independent DWM context.
-    // WS_EX_TOPMOST keeps the overlay above Fyne without sharing its present queue.
-    // WS_EX_NOACTIVATE prevents stealing keyboard focus on click.
-    // Mouse events are captured by vk_wnd_proc (no WS_EX_TRANSPARENT) and queued
-    // for the Go polling goroutine — same pattern as the Linux X11 implementation.
+    if (g_hwnd_args.standalone) {
+        // Standalone fullscreen: cover the entire primary display.
+        // No TOPMOST (only window on screen), no NOACTIVATE (needs keyboard focus).
+        px = 0; py = 0;
+        cw = GetSystemMetrics(SM_CXSCREEN);
+        ch = GetSystemMetrics(SM_CYSCREEN);
+        ex_style = 0;
+    } else {
+        POINT pt = { g_hwnd_args.x, g_hwnd_args.y };
+        if (g_hwnd_args.parent) ClientToScreen(g_hwnd_args.parent, &pt);
+        px = pt.x; py = pt.y;
+        cw = g_hwnd_args.w > 0 ? g_hwnd_args.w : 1;
+        ch = g_hwnd_args.h > 0 ? g_hwnd_args.h : 1;
+        // Overlay mode: TOPMOST keeps us above Fyne; NOACTIVATE prevents focus theft.
+        ex_style = WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+    }
+
+    // Create window on THIS thread — own message queue, independent DWM context.
     // No owner (NULL hwndParent) decouples from Fyne's present queue entirely.
     g_child_hwnd = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+        ex_style,
         L"usbridgeVKVideo", L"",
         WS_POPUP | WS_VISIBLE,
-        pt.x, pt.y, cw, ch,
+        px, py, cw, ch,
         NULL,                          // no owner — independent DWM context
         NULL, GetModuleHandleW(NULL), NULL);
 
     SetEvent(g_hwnd_ready);            // wake vk_video_create (with or without HWND)
     if (!g_child_hwnd) return 1;
+
+    // In standalone mode grab keyboard focus so WM_KEYDOWN/UP reach this window.
+    if (g_hwnd_args.standalone) {
+        SetForegroundWindow(g_child_hwnd);
+        SetFocus(g_child_hwnd);
+    }
 
     // Register for Raw Mouse Input on this window.
     // RIDEV_INPUTSINK: deliver WM_INPUT even when the window is not foreground.
@@ -935,6 +1013,8 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
 
 void vk_video_update_frame(int x, int y, int w, int h) {
     if (!atomic_load(&g_active)) return;
+    // In standalone mode the window IS the full screen — nothing to reposition.
+    if (g_standalone) return;
     atomic_store(&g_dst_x, x);
     atomic_store(&g_dst_y, y);
     atomic_store(&g_dst_w, w);
@@ -996,20 +1076,24 @@ static void vk_full_cleanup(void) {
         DeleteCriticalSection(&g_eq_cs);
         g_eq_cs_init = 0;
     }
+    if (g_kq_cs_init) {
+        EnterCriticalSection(&g_kq_cs);
+        g_kq_head = 0; g_kq_tail = 0;
+        LeaveCriticalSection(&g_kq_cs);
+        DeleteCriticalSection(&g_kq_cs);
+        g_kq_cs_init = 0;
+    }
     g_parent_hwnd = NULL;
     g_raw_mouse = 0;
+    g_standalone = 0;
     g_rendered = 0; g_submitted = 0;
 }
 
-// vk_video_create — initialise Vulkan renderer.
-// Returns 1 on success, 0 if Vulkan is unavailable (caller falls back to GDI).
-int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
-    if (atomic_load(&g_active)) vk_full_cleanup();
+// ─── Common Vulkan initialisation ─────────────────────────────────────────────
+// Shared by vk_video_create (overlay) and vk_video_create_standalone (fullscreen).
+// g_parent_hwnd, g_standalone, g_hwnd_args must be set before calling.
 
-    HWND parent = (HWND)(uintptr_t)parent_hwnd;
-    if (!parent) { goVKLog("vk_video_create: parent HWND is null", 2); return 0; }
-    g_parent_hwnd = parent;
-
+static int vk_video_init_common(int x, int y, int w, int h) {
     // Register overlay window class once.
     if (!g_wndcls) {
         WNDCLASSEXW wc = { sizeof(wc) };
@@ -1017,29 +1101,21 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
         wc.hInstance     = GetModuleHandleW(NULL);
         wc.lpszClassName = L"usbridgeVKVideo";
         wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-        wc.hCursor       = LoadCursor(NULL, IDC_ARROW); // show arrow cursor over video area
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
         g_wndcls = RegisterClassExW(&wc);
-        if (!g_wndcls) { goVKLog("vk_video_create: RegisterClass failed", 2); return 0; }
+        if (!g_wndcls) { goVKLog("vk_video: RegisterClass failed", 2); return 0; }
     }
 
-    // Create overlay HWND on a dedicated Win32 thread (vk_hwnd_thread).
-    // That thread runs its own GetMessage/DispatchMessage pump, giving the overlay
-    // a separate Windows input queue and independent DWM present context.
-    // This prevents DWM from serialising our vkQueuePresentKHR with Fyne's
-    // wglSwapBuffers — the root cause of the permanent Fyne-main-loop freeze on
-    // AMD iGPUs where OpenGL and Vulkan share a single hardware present queue.
+    // Spawn dedicated window thread — owns its message pump and DWM present context.
     g_hwnd_ready = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!g_hwnd_ready) { goVKLog("vk_video_create: CreateEvent failed", 2); return 0; }
-    g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
-    g_hwnd_args.w = w; g_hwnd_args.h = h;
+    if (!g_hwnd_ready) { goVKLog("vk_video: CreateEvent failed", 2); return 0; }
     g_hwnd_thread = CreateThread(NULL, 0, vk_hwnd_thread, NULL, 0, NULL);
     if (!g_hwnd_thread) {
         CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
-        goVKLog("vk_video_create: CreateThread(hwnd) failed", 2); return 0;
+        goVKLog("vk_video: CreateThread(hwnd) failed", 2); return 0;
     }
     if (WaitForSingleObject(g_hwnd_ready, 5000) != WAIT_OBJECT_0 || !g_child_hwnd) {
-        // Window thread failed to create the HWND within 5 s.
-        goVKLog("vk_video_create: overlay window creation failed/timeout", 2);
+        goVKLog("vk_video: overlay window creation failed/timeout", 2);
         CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
         if (g_hwnd_thread) { WaitForSingleObject(g_hwnd_thread, 1000); CloseHandle(g_hwnd_thread); g_hwnd_thread = NULL; }
         return 0;
@@ -1047,21 +1123,21 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
     CloseHandle(g_hwnd_ready); g_hwnd_ready = NULL;
 
     // Vulkan init
-    if (!vk_create_instance()) { goVKLog("vk_video_create: vkCreateInstance failed", 2); goto fail; }
-    if (!vk_select_device())   { goVKLog("vk_video_create: no suitable GPU found", 2);   goto fail; }
-    if (!vk_create_device())   { goVKLog("vk_video_create: vkCreateDevice failed", 2);   goto fail; }
+    if (!vk_create_instance()) { goVKLog("vk_video: vkCreateInstance failed", 2); goto fail; }
+    if (!vk_select_device())   { goVKLog("vk_video: no suitable GPU found", 2);   goto fail; }
+    if (!vk_create_device())   { goVKLog("vk_video: vkCreateDevice failed", 2);   goto fail; }
 
     {
         VkWin32SurfaceCreateInfoKHR sci = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
         sci.hinstance = GetModuleHandleW(NULL);
         sci.hwnd      = g_child_hwnd;
         if (vkCreateWin32SurfaceKHR(g_inst, &sci, NULL, &g_surf) != VK_SUCCESS) {
-            goVKLog("vk_video_create: vkCreateWin32SurfaceKHR failed", 2); goto fail;
+            goVKLog("vk_video: vkCreateWin32SurfaceKHR failed", 2); goto fail;
         }
     }
 
     if (!vk_create_swapchain(w > 0 ? w : 1, h > 0 ? h : 1)) {
-        goVKLog("vk_video_create: swapchain creation failed", 2); goto fail;
+        goVKLog("vk_video: swapchain creation failed", 2); goto fail;
     }
 
     // Command pool + buffer
@@ -1094,7 +1170,9 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
 
     InitializeCriticalSection(&g_cs); g_cs_init = 1;
     InitializeCriticalSection(&g_eq_cs); g_eq_cs_init = 1;
-    g_eq_head = 0; g_eq_tail = 0; // reset event queue
+    g_eq_head = 0; g_eq_tail = 0;
+    InitializeCriticalSection(&g_kq_cs); g_kq_cs_init = 1;
+    g_kq_head = 0; g_kq_tail = 0;
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     if (!g_event) goto fail;
 
@@ -1104,23 +1182,62 @@ int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
     atomic_store(&g_active, 1);
 
     g_thread = CreateThread(NULL, 0, vk_render_thread, NULL, 0, NULL);
-    if (!g_thread) {
-        atomic_store(&g_active, 0);
-        goto fail;
-    }
-
-    {
-        char m[256];
-        VkPhysicalDeviceProperties pr;
-        vkGetPhysicalDeviceProperties(g_pdev, &pr);
-        snprintf(m, sizeof(m), "Vulkan renderer created — GPU=%s rect=(%d,%d,%dx%d)", pr.deviceName, x, y, w, h);
-        goVKLog(m, 0);
-    }
+    if (!g_thread) { atomic_store(&g_active, 0); goto fail; }
     return 1;
 
 fail:
     vk_full_cleanup();
     return 0;
+}
+
+// vk_video_create — initialise Vulkan renderer as a child overlay over a Fyne window.
+// Returns 1 on success, 0 if Vulkan is unavailable (caller falls back to GDI).
+int vk_video_create(uintptr_t parent_hwnd, int x, int y, int w, int h) {
+    if (atomic_load(&g_active)) vk_full_cleanup();
+
+    HWND parent = (HWND)(uintptr_t)parent_hwnd;
+    if (!parent) { goVKLog("vk_video_create: parent HWND is null", 2); return 0; }
+    g_parent_hwnd = parent;
+    g_standalone = 0;
+    g_hwnd_args.parent = parent; g_hwnd_args.x = x; g_hwnd_args.y = y;
+    g_hwnd_args.w = w; g_hwnd_args.h = h; g_hwnd_args.standalone = 0;
+
+    if (!vk_video_init_common(x, y, w, h)) return 0;
+
+    {
+        char m[256];
+        VkPhysicalDeviceProperties pr;
+        vkGetPhysicalDeviceProperties(g_pdev, &pr);
+        snprintf(m, sizeof(m), "Vulkan overlay created — GPU=%s rect=(%d,%d,%dx%d)", pr.deviceName, x, y, w, h);
+        goVKLog(m, 0);
+    }
+    return 1;
+}
+
+// vk_video_create_standalone — initialise Vulkan renderer as a standalone fullscreen window.
+// No parent HWND required; the window covers the entire primary monitor.
+// The window has keyboard focus so WM_KEYDOWN/UP are delivered for input forwarding.
+// Returns 1 on success, 0 on failure.
+int vk_video_create_standalone(void) {
+    if (atomic_load(&g_active)) vk_full_cleanup();
+
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    g_parent_hwnd = NULL;
+    g_standalone = 1;
+    g_hwnd_args.parent = NULL; g_hwnd_args.x = 0; g_hwnd_args.y = 0;
+    g_hwnd_args.w = sw; g_hwnd_args.h = sh; g_hwnd_args.standalone = 1;
+
+    if (!vk_video_init_common(0, 0, sw, sh)) return 0;
+
+    {
+        char m[256];
+        VkPhysicalDeviceProperties pr;
+        vkGetPhysicalDeviceProperties(g_pdev, &pr);
+        snprintf(m, sizeof(m), "Vulkan standalone fullscreen created — GPU=%s %dx%d", pr.deviceName, sw, sh);
+        goVKLog(m, 0);
+    }
+    return 1;
 }
 
 void vk_video_destroy(void) {
@@ -1166,25 +1283,15 @@ void vk_video_set_hidden(int hidden) {
 }
 
 // vk_video_bring_to_top — re-assert HWND_TOPMOST on the overlay window.
-// On the 2nd+ fullscreen entry the Fyne GLFW window calls SetForegroundWindow /
-// BringWindowToTop (via glfwFocusWindow inside RequestFocus) ~500 ms after show,
-// which promotes it above our TOPMOST overlay and causes a black screen.
-// Calling this after RequestFocus brings the overlay back to the front.
+// Not needed in standalone mode (there's no competing Fyne window).
 void vk_video_bring_to_top(void) {
+    if (g_standalone) return;
     HWND hw = g_child_hwnd;
     if (hw) {
-        // Check whether Vulkan is fully active yet (g_active=1 is set after full VK init).
-        // We assert TOPMOST regardless: the HWND is valid as soon as the window thread
-        // creates it (well before g_active=1), and SetWindowPos is safe at any VK init
-        // stage. This fixes the race where the 500ms goroutine fires before VK init
-        // finishes: previously g_active=0 made this a no-op while RequestFocus had
-        // already promoted GLFW above our overlay → black screen.
         int active = (int)atomic_load(&g_active);
         char m[96];
         snprintf(m, sizeof(m), "vk_video_bring_to_top: re-asserting HWND_TOPMOST (sync, active=%d)", active);
         goVKLog(m, 0);
-        // Synchronous SetWindowPos (no SWP_ASYNCWINDOWPOS): blocks until vk_hwnd_thread
-        // processes the Z-order change, guaranteeing VK is on top when this returns.
         SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     } else {
@@ -1211,6 +1318,25 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
     *btn_out  = g_eq[g_eq_tail].btn;
     g_eq_tail = (g_eq_tail + 1) % VK_EQ_CAP;
     LeaveCriticalSection(&g_eq_cs);
+    return 1;
+}
+
+// vk_video_next_key_event — drain one pending keyboard event (standalone mode only).
+// Returns 1 if an event was consumed. type: 1=keydown, 2=keyup.
+// vk_out receives the Win32 Virtual Key code (same values Moonlight expects).
+// Thread-safe; called from the Go key-forwarding goroutine.
+int vk_video_next_key_event(int *type_out, int *vk_out) {
+    *type_out = 0; *vk_out = 0;
+    if (!g_kq_cs_init || !atomic_load(&g_active)) return 0;
+    EnterCriticalSection(&g_kq_cs);
+    if (g_kq_tail == g_kq_head) {
+        LeaveCriticalSection(&g_kq_cs);
+        return 0;
+    }
+    *type_out = g_kq[g_kq_tail].type;
+    *vk_out   = g_kq[g_kq_tail].vk_code;
+    g_kq_tail = (g_kq_tail + 1) % VK_KQ_CAP;
+    LeaveCriticalSection(&g_kq_cs);
     return 1;
 }
 

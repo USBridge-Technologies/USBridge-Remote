@@ -25,10 +25,11 @@ import (
 // directly to TouchpadWrapper on the Fyne main goroutine — same pattern as
 // the Linux X11 implementation (video_widget_gl_linux.go).
 
-var vkWinMouseQuit        chan struct{}
-var vkWinFullscreenWin    fyne.Window
+var vkWinMouseQuit         chan struct{}
+var vkWinKeyQuit           chan struct{}
+var vkWinFullscreenWin     fyne.Window
 var vkWinMouseCheckPending int32 // atomic
-var vkWinPressOnButton    bool  // suppress matching release when press hit a UI button
+var vkWinPressOnButton     bool  // suppress matching release when press hit a UI button
 
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
@@ -76,6 +77,96 @@ func (vw *VideoWidget) stopVKMouseForwarding() {
 		close(vkWinMouseQuit)
 		vkWinMouseQuit = nil
 		logrus.Info("[VK/Win] mouse forwarding stopped")
+	}
+}
+
+// startVKKeyForwarding polls the C key event queue (standalone fullscreen mode) and
+// routes Win32 Virtual Key codes directly to Moonlight input.  exitFn is called when
+// VK_ESCAPE is pressed, allowing the caller to exit fullscreen cleanly.
+func (vw *VideoWidget) startVKKeyForwarding(exitFn func()) {
+	vw.stopVKKeyForwarding()
+	quit := make(chan struct{})
+	vkWinKeyQuit = quit
+	logrus.Info("[VK/Win] key forwarding started")
+	go func() {
+		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz poll
+		defer ticker.Stop()
+		for {
+			select {
+			case <-quit:
+				return
+			case <-ticker.C:
+				for {
+					typ, vkCode, ok := service.VKVideoNextKeyEvent()
+					if !ok {
+						break
+					}
+					// VK_ESCAPE exits fullscreen
+					if typ == 1 && vkCode == 0x1B {
+						go exitFn()
+						return
+					}
+					mi := vw.moonlightInput()
+					if mi == nil {
+						continue
+					}
+					vkCode16 := int16(vkCode)
+					switch typ {
+					case 1: // keydown
+						vkWinUpdateModifiers(&vw.keyboardModifierState, vkCode, true)
+						mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
+						if vw.moonlightTrackKeyDown(vkCode16) {
+							mi.SendMoonlightKey(vkCode16, service.LiKeyActionUp, mods)
+						}
+						mi.SendMoonlightKey(vkCode16, service.LiKeyActionDown, mods)
+					case 2: // keyup
+						vkWinUpdateModifiers(&vw.keyboardModifierState, vkCode, false)
+						mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
+						vw.moonlightTrackKeyUp(vkCode16)
+						mi.SendMoonlightKey(vkCode16, service.LiKeyActionUp, mods)
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (vw *VideoWidget) stopVKKeyForwarding() {
+	if vkWinKeyQuit != nil {
+		close(vkWinKeyQuit)
+		vkWinKeyQuit = nil
+		logrus.Info("[VK/Win] key forwarding stopped")
+	}
+}
+
+// vkWinUpdateModifiers updates keyboardModifierState from a Win32 VK code.
+// Win32 uses 0xA0-0xA5 for left/right Shift/Ctrl/Alt, 0x5B/5C for Win keys.
+func vkWinUpdateModifiers(state *atomic.Int32, vkCode int, down bool) {
+	var mask int32
+	switch vkCode {
+	case 0xA0, 0xA1: // VK_LSHIFT, VK_RSHIFT
+		mask = 2
+	case 0xA2, 0xA3: // VK_LCONTROL, VK_RCONTROL
+		mask = 1
+	case 0xA4, 0xA5: // VK_LMENU, VK_RMENU (Alt)
+		mask = 4
+	case 0x5B, 0x5C: // VK_LWIN, VK_RWIN
+		mask = 8
+	}
+	if mask == 0 {
+		return
+	}
+	for {
+		cur := state.Load()
+		var next int32
+		if down {
+			next = cur | mask
+		} else {
+			next = cur &^ mask
+		}
+		if state.CompareAndSwap(cur, next) {
+			return
+		}
 	}
 }
 
@@ -371,6 +462,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	view.OnOverlayShow = nil
 	view.OnOverlayHide = nil
 	vw.stopVKMouseForwarding()
+	vw.stopVKKeyForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
 }

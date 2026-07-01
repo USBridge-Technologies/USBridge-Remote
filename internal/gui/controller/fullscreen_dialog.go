@@ -22,6 +22,7 @@ type FullscreenDialog struct {
 	videoWidget           *VideoWidget
 	isFullscreen          bool
 	nativeFullscreen      bool
+	windowlessVKFullscreen bool // Windows: VK standalone fullscreen (no Fyne window)
 	videoClient      service.VideoClient
 	fullscreenWindow      fyne.Window
 	virtualKeyboard       *graphics.VirtualKeyboard
@@ -74,6 +75,14 @@ func (fd *FullscreenDialog) Show() {
 // enterFullscreen переводит вывод в fullscreen с минимизацией лишних UI-перерисовок.
 func (fd *FullscreenDialog) enterFullscreen() {
 	logrus.Info("🔍 Вход в полноэкранный режим с GStreamer")
+
+	// On Windows, use a standalone VK fullscreen window instead of a Fyne window.
+	// This eliminates the Z-order race between the GLFW TOPMOST window and the VK
+	// TOPMOST overlay that caused a black screen in ~50% of fullscreen entries.
+	if fd.canWindowlessVKFullscreen() {
+		fd.enterWindowlessVKFullscreen()
+		return
+	}
 
 	restartWindowPipeline := false
 	if fd.videoClient != nil && fd.videoClient.SupportsNativeFullscreen() {
@@ -405,6 +414,12 @@ func (fd *FullscreenDialog) exitFullscreen() {
 	}
 
 	logrus.Info("🔍 Выход из полноэкранного режима")
+
+	// Windows standalone VK fullscreen path.
+	if fd.windowlessVKFullscreen {
+		fd.exitWindowlessVKFullscreen()
+		return
+	}
 
 	fd.isFullscreen = false
 	if fd.nativeFullscreen {
