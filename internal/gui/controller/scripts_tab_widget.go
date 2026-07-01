@@ -597,7 +597,6 @@ func (w *ScriptsTabWidget) showScriptLogDialog(path, displayName string) {
 	logEntry.SetText("(waiting for output...)")
 
 	logScroll := container.NewVScroll(logEntry)
-	logScroll.SetMinSize(fyne.NewSize(400, 260))
 
 	statusLabel := canvas.NewText("", design.ColorTextMuted)
 	statusLabel.TextSize = 11
@@ -710,10 +709,8 @@ func (w *ScriptsTabWidget) showScriptLogDialog(path, displayName string) {
 		Panel:    panel,
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
 		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
-			const margin float32 = 24
-			maxW := canvasSize.Width - margin*2
-			maxH := canvasSize.Height - margin*2
-			return fyne.NewSize(minFloat32(500, maxW), minFloat32(400, maxH))
+			const margin float32 = 16
+			return fyne.NewSize(canvasSize.Width-margin*2, canvasSize.Height-margin*2)
 		},
 	})
 
