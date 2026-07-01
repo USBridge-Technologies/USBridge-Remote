@@ -489,7 +489,7 @@ func (r *connectionDialogIconBlockRenderer) Objects() []fyne.CanvasObject {
 }
 func (r *connectionDialogIconBlockRenderer) Destroy() {}
 
-func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject, mobileExtra ...fyne.CanvasObject) *widget.PopUp {
+func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject, footer ...fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
 
@@ -552,17 +552,9 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	border.StrokeWidth = 1
 
 	// Panel layout: title fixed at top, buttons fixed at bottom, scroll fills center.
-	// On mobile, mobileExtra (e.g. icon blocks) is placed below action buttons.
-	var bottomSection fyne.CanvasObject = view.NewInset(buttons, 0, 0, 10, 0)
-	if len(mobileExtra) > 0 && mobileExtra[0] != nil {
-		bottomSection = container.NewVBox(
-			view.NewInset(buttons, 0, 0, 10, 0),
-			view.NewInset(mobileExtra[0], 0, 0, 10, 0),
-		)
-	}
 	inner := container.NewBorder(
 		view.NewInset(titleBar, 0, 0, 0, 10),
-		bottomSection,
+		view.NewInset(buttons, 0, 0, 10, 0),
 		nil, nil,
 		scroll,
 	)
@@ -572,8 +564,13 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 		border,
 	)
 
+	var specFooter fyne.CanvasObject
+	if len(footer) > 0 {
+		specFooter = footer[0]
+	}
 	popup := view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
 		Panel:    panel,
+		Footer:   specFooter,
 		DimColor: connectionDialogDimColor(),
 		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
 			return connectionDialogPanelSize(panel, canvasSize)
@@ -620,7 +617,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	var d *widget.PopUp
 
 	var formContent fyne.CanvasObject = form
-	var mobileIconExtra fyne.CanvasObject
+	var mobileFooter fyne.CanvasObject
 	if spec.onQR != nil {
 		qrBlock := newConnectionDialogIconBlock(assets.QRCodeAccent, "Scan QR", func() {
 			if d != nil {
@@ -635,12 +632,18 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 				masterKeyEntry.SetText(mk)
 			})
 		})
-		iconRow := container.NewGridWithColumns(2, qrBlock, linkBlock)
+
+		// Two fixed-size icon blocks centered with a gap between them.
+		gap := canvas.NewRectangle(color.Transparent)
+		gap.SetMinSize(fyne.NewSize(20, 1))
+		iconRow := container.NewCenter(container.NewHBox(qrBlock, gap, linkBlock))
+
 		if fyne.CurrentDevice().IsMobile() {
-			// On Android the icon row lives below action buttons (keyboard can cover it).
-			mobileIconExtra = iconRow
+			// On Android: icon row floats OUTSIDE the popup panel, below it.
+			// The panel itself stays compact and never moves when keyboard opens.
+			mobileFooter = iconRow
 		} else {
-			// On desktop add inside the scroll area, below the form fields.
+			// On desktop: add inside the scroll area, below the form fields.
 			sep := canvas.NewRectangle(design.ColorBorder)
 			sep.SetMinSize(fyne.NewSize(0, 1))
 			formContent = container.NewVBox(
@@ -725,7 +728,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, formContent, connectBtn, saveBtn, deleteBtn, mobileIconExtra)
+	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, formContent, connectBtn, saveBtn, deleteBtn, mobileFooter)
 	return d
 }
 

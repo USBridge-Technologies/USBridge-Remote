@@ -20,6 +20,7 @@ var KeyboardHeight func() float32
 
 type OverlayPopupSpec struct {
 	Panel     fyne.CanvasObject
+	Footer    fyne.CanvasObject // optional; placed below the panel, uses full canvas coords
 	DimColor  color.Color
 	PanelSize func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size
 	PanelPos  func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position
@@ -97,6 +98,16 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 
 	panel.Move(panelPos)
 	panel.Resize(panelSize)
+
+	// Footer: positioned immediately below the panel using full canvas coordinates
+	// (not keyboard-adjusted), so it stays fixed regardless of IME state.
+	if len(objects) >= 3 && objects[2] != nil {
+		footer := objects[2]
+		footerMin := footer.MinSize()
+		footerY := panelPos.Y + panelSize.Height + 10
+		footer.Move(fyne.NewPos(panelPos.X, footerY))
+		footer.Resize(fyne.NewSize(panelSize.Width, footerMin.Height))
+	}
 }
 
 func (l *overlayPopupLayout) MinSize([]fyne.CanvasObject) fyne.Size {
@@ -118,7 +129,11 @@ func NewOverlayPopup(parent fyne.Window, spec OverlayPopupSpec) *widget.PopUp {
 	// labels) reliably use BrandTheme inside the overlay on Android where the
 	// popup's rendering context may not propagate the app theme correctly.
 	themedPanel := container.NewThemeOverride(spec.Panel, design.NewBrandTheme())
-	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, dim, themedPanel)
+	contentObjs := []fyne.CanvasObject{dim, themedPanel}
+	if spec.Footer != nil {
+		contentObjs = append(contentObjs, spec.Footer)
+	}
+	content := container.New(&overlayPopupLayout{panelSize: spec.PanelSize, panelPos: spec.PanelPos}, contentObjs...)
 	popup := widget.NewPopUp(content, parent.Canvas())
 	popup.Move(fyne.NewPos(0, 0))
 	popup.Resize(parent.Canvas().Size())
