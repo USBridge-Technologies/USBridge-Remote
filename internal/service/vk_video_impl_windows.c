@@ -799,6 +799,11 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
             int fg_hidden  = (fg_pid != GetCurrentProcessId()) ? 1 : 0;
             int want_hidden = iconic | fg_hidden | atomic_load(&g_hidden);
             if (want_hidden != last_want_hidden) {
+                char vis[128];
+                snprintf(vis, sizeof(vis),
+                    "overlay visibility change: want_hidden=%d (iconic=%d fg_hidden=%d g_hidden=%d)",
+                    want_hidden, iconic, fg_hidden, (int)atomic_load(&g_hidden));
+                goVKLog(vis, want_hidden ? 1 : 0);
                 last_want_hidden = want_hidden;
                 // Post to window thread — ShowWindow cross-thread needs message pump.
                 PostMessageW(g_child_hwnd, want_hidden ? WM_USER+1 : WM_USER+2, 0, 0);
@@ -826,10 +831,12 @@ static DWORD WINAPI vk_render_thread(LPVOID unused) {
 
         // Periodic render-thread heartbeat visible in the log even if Go goroutines freeze.
         double hb_now = mono_sec();
-        if (hb_now - hb_log_t >= 10.0) {
-            char hbm[96];
-            snprintf(hbm, sizeof(hbm), "render thread alive hb=%lld rendered=%lld stage=%d",
-                     (long long)g_render_hb, (long long)g_rendered, g_render_stage);
+        if (hb_now - hb_log_t >= 5.0) {
+            char hbm[128];
+            snprintf(hbm, sizeof(hbm),
+                "render thread alive hb=%lld rendered=%lld submitted=%lld stage=%d hidden=%d",
+                (long long)g_render_hb, (long long)g_rendered, (long long)g_submitted,
+                g_render_stage, (int)atomic_load(&g_hidden));
             goVKLog(hbm, 0);
             hb_log_t = hb_now;
         }
@@ -1156,8 +1163,13 @@ void vk_video_set_hidden(int hidden) {
 void vk_video_bring_to_top(void) {
     HWND hw = g_child_hwnd;
     if (hw && atomic_load(&g_active)) {
+        goVKLog((char*)"vk_video_bring_to_top: re-asserting HWND_TOPMOST", 0);
         SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    } else {
+        char m[80];
+        snprintf(m, sizeof(m), "vk_video_bring_to_top: no-op (hw=%p active=%d)", hw, (int)atomic_load(&g_active));
+        goVKLog(m, 1);
     }
 }
 

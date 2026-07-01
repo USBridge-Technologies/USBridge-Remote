@@ -316,6 +316,8 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 
 		// Try Vulkan first; fall back to GDI if unavailable.
 		service.VKVideoResetLastFrame()
+		logrus.Infof("[Vulkan/Win] RunNative: hwnd=%x rect=(%d,%d,%dx%d) fullscreen=%v onNativeReadySet=%v",
+			hwnd, x, y, w, h, fullscreen, vw.onNativeReady != nil)
 		if service.VKVideoCreate(hwnd, x, y, w, h) {
 			logrus.Infof("[Vulkan/Win] overlay active (fullscreen=%v) rect=(%d,%d,%dx%d)", fullscreen, x, y, w, h)
 			// If a Fyne overlay (popup/menu) is already open when we start, hide immediately.
@@ -355,8 +357,11 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 			vw.videoCanvas.Refresh()
 		}
 		if cb := vw.onNativeReady; cb != nil {
+			logrus.Infof("[Vulkan/Win] calling onNativeReady (fullscreen=%v)", fullscreen)
 			vw.onNativeReady = nil
 			cb()
+		} else {
+			logrus.Warnf("[Vulkan/Win] onNativeReady is nil — canvas NOT cleared (fullscreen=%v)", fullscreen)
 		}
 	})
 }
@@ -456,6 +461,7 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	if fsWindow == nil {
 		return
 	}
+	logrus.Infof("[Vulkan/Win] metalVideoEnterFullscreen: onNativeReadySet=%v", vw.onNativeReady != nil)
 	vkWinFullscreenWin = fsWindow
 	// Prevent MouseDown from calling window.RequestFocus() (→ SetForegroundWindow),
 	// which would promote the Fyne TOPMOST window above the Vulkan TOPMOST overlay.
@@ -480,6 +486,8 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	cs := fsWindow.Canvas().Size()
+	logrus.Infof("[Vulkan/Win] metalVideoEnterFullscreen: canvas size after wait = %v, onNativeReadySet=%v", cs, vw.onNativeReady != nil)
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 
@@ -498,6 +506,8 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 // ensureNativeOverlayOnTop re-asserts the Vulkan overlay above the Fyne window.
 // Called after RequestFocus which can promote the GLFW window above the overlay.
 func (vw *VideoWidget) ensureNativeOverlayOnTop() {
+	logrus.Infof("[Vulkan/Win] ensureNativeOverlayOnTop: VKActive=%v GLActive=%v",
+		service.VKVideoIsActive(), service.GLVideoIsActive())
 	service.VKVideoBringToTop()
 }
 

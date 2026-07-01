@@ -145,12 +145,16 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	}
 
 	if frameCount%30 == 0 {
-		logrus.Infof("🖼️ Полноэкранный режим: обновление кадра %d", frameCount)
+		logrus.Infof("🖼️ Полноэкранный режим: обновление кадра %d (native inactive → canvas)", frameCount)
 	}
 
 	fyne.Do(func() {
+		wasNil := videoImg.Image == nil
 		if videoImg.Image != frame {
 			videoImg.Image = frame
+			if wasNil && frame != nil {
+				logrus.Infof("[Fullscreen] updateVideoFrame: fd.videoImage.Image nil→frame (native was inactive during transition)")
+			}
 		}
 		videoImg.Refresh()
 		if touchpad != nil {
@@ -339,7 +343,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 		// Once the native overlay is live, clear the Fyne canvas so only Metal renders.
 		// Without this the Go canvas shows its last frame behind the overlay (PiP).
+		logrus.Infof("[Fullscreen] setting onNativeReady; fd.videoImage.Image nil=%v", fsImg != nil && fsImg.Image == nil)
 		vw.onNativeReady = func() {
+			logrus.Infof("[Fullscreen] onNativeReady fired — clearing fd.videoImage.Image (was nil=%v)", fsImg == nil || fsImg.Image == nil)
 			if fsImg != nil {
 				fsImg.Image = nil
 				fsImg.Refresh()
@@ -361,6 +367,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			return
 		}
 		// На десктопе и на мобилках фокус на touchpad нужен для перехвата кнопки "Назад" без первого тапа.
+		logrus.Infof("[Fullscreen] 500ms goroutine: calling RequestFocus (nativeActive=%v, videoImage.Image nil=%v)",
+			fd.videoWidget != nil && fd.videoWidget.isNativeVideoActive(),
+			fd.videoImage == nil || fd.videoImage.Image == nil)
 		fyne.Do(func() {
 			fd.fullscreenWindow.RequestFocus()
 			fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
@@ -370,6 +379,8 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		// fullscreen entry is faster because the main thread is warmed up). Re-assert the
 		// overlay on top after the focus request completes.
 		if fd.videoWidget != nil {
+			logrus.Infof("[Fullscreen] 500ms goroutine: calling ensureNativeOverlayOnTop (nativeActive=%v)",
+				fd.videoWidget.isNativeVideoActive())
 			fd.videoWidget.ensureNativeOverlayOnTop()
 		}
 	}()
