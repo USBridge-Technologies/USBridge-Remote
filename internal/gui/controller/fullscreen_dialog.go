@@ -12,6 +12,7 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/canvas"
 	"github.com/sirupsen/logrus"
 )
@@ -355,7 +356,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		
 		// Hide/destroy the old main-window overlay immediately so it doesn't float over the new fullscreen window.
 		// If we don't do this, it causes a 'picture -> black -> picture' triple blink during the 250ms delay.
-		vw.stopMetalVideo()
+		if !vw.keepNativeVideoAliveForFullscreenTransition() {
+			vw.stopMetalVideo()
+		}
 
 		// Once the native overlay is live, clear the Fyne canvas so only Metal renders.
 		// Without this the Go canvas shows its last frame behind the overlay (PiP).
@@ -389,6 +392,11 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fyne.Do(func() {
 			fd.fullscreenWindow.RequestFocus()
 			fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
+
+			// Force hide system keyboard that might auto-open on Mobile
+			if md, ok := fyne.CurrentDevice().(mobile.Device); ok {
+				md.HideVirtualKeyboard()
+			}
 
 			// On Windows, RequestFocus calls glfwFocusWindow which can promote the Fyne GLFW
 			// window above the Vulkan TOPMOST overlay when Vulkan was created in <500ms (2nd+

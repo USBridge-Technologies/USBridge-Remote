@@ -173,8 +173,7 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
 }
 
 func (vw *VideoWidget) metalVideoExitFullscreen() {
-	// Restore normal rect — videoCanvasFrame() will return to the video-area rect.
-	// Force swapchain recreation so the render thread picks up the restored size.
+	// Restoring from fullscreen requires swapchain recreation for the same reason.
 	vw.forceCanvasRefresh.Store(true)
 	service.VKVideoAndroidForceRecreateSwapchain()
 
@@ -211,6 +210,12 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 
 		// Center the viewport mathematically on the raw cursor with spring easing
 		vw.centerViewportOnVirtualCursor(targetU, targetV)
+
+		// After updating tw.panX and tw.panY, we must refresh vw.contentRectX/Y
+		// so the viewport coordinates below reflect the new pan.
+		if tw := vw.activeViewportWrapper(); tw != nil {
+			vw.UpdateTouchpadAndContentRect(vw.touchpadSizeW, vw.touchpadSizeH, nil)
+		}
 	}
 
 	// When the system IME is open, the Vulkan SurfaceView expands above the

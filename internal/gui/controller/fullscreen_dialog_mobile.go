@@ -61,6 +61,10 @@ func (fd *FullscreenDialog) platformShow() {
 	// поэтому Android сразу рисует новый (прозрачный) контент без мигания старым UI.
 	fd.fullscreenWindow.SetFullScreen(true)
 	fd.fullscreenWindow.Show()
+	// Unfocus any widgets (e.g. TouchpadWrapper) that might trigger the IME keyboard automatically.
+	if canvas := fd.fullscreenWindow.Canvas(); canvas != nil {
+		canvas.Unfocus()
+	}
 }
 
 func (fd *FullscreenDialog) platformExit() {
