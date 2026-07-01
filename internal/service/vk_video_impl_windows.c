@@ -1162,18 +1162,23 @@ void vk_video_set_hidden(int hidden) {
 // Calling this after RequestFocus brings the overlay back to the front.
 void vk_video_bring_to_top(void) {
     HWND hw = g_child_hwnd;
-    if (hw && atomic_load(&g_active)) {
-        goVKLog((char*)"vk_video_bring_to_top: re-asserting HWND_TOPMOST (sync)", 0);
+    if (hw) {
+        // Check whether Vulkan is fully active yet (g_active=1 is set after full VK init).
+        // We assert TOPMOST regardless: the HWND is valid as soon as the window thread
+        // creates it (well before g_active=1), and SetWindowPos is safe at any VK init
+        // stage. This fixes the race where the 500ms goroutine fires before VK init
+        // finishes: previously g_active=0 made this a no-op while RequestFocus had
+        // already promoted GLFW above our overlay → black screen.
+        int active = (int)atomic_load(&g_active);
+        char m[96];
+        snprintf(m, sizeof(m), "vk_video_bring_to_top: re-asserting HWND_TOPMOST (sync, active=%d)", active);
+        goVKLog(m, 0);
         // Synchronous SetWindowPos (no SWP_ASYNCWINDOWPOS): blocks until vk_hwnd_thread
         // processes the Z-order change, guaranteeing VK is on top when this returns.
-        // The caller (ensureNativeOverlayOnTop from the 500ms goroutine) is not the main
-        // thread, so blocking briefly here does not stall Fyne's event loop.
         SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     } else {
-        char m[80];
-        snprintf(m, sizeof(m), "vk_video_bring_to_top: no-op (hw=%p active=%d)", hw, (int)atomic_load(&g_active));
-        goVKLog(m, 1);
+        goVKLog((char*)"vk_video_bring_to_top: no-op (hw=NULL)", 1);
     }
 }
 
