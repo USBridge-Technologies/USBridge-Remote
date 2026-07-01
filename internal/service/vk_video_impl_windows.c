@@ -1321,6 +1321,14 @@ int vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out) {
     return 1;
 }
 
+// vk_video_get_dst_size — return the current overlay/standalone window dimensions in pixels.
+// In standalone mode this equals the primary screen resolution.
+// In overlay mode this is the video rect passed to vk_video_create / vk_video_update_frame.
+void vk_video_get_dst_size(int *w, int *h) {
+    *w = atomic_load(&g_dst_w);
+    *h = atomic_load(&g_dst_h);
+}
+
 // vk_video_next_key_event — drain one pending keyboard event (standalone mode only).
 // Returns 1 if an event was consumed. type: 1=keydown, 2=keyup.
 // vk_out receives the Win32 Virtual Key code (same values Moonlight expects).

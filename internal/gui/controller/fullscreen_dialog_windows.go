@@ -40,6 +40,25 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 		return
 	}
 
+	// Fix absolute mouse mode: PositionToAbsolute uses touchpadSizeW/H which is
+	// normally the video widget area in the main window. In standalone fullscreen
+	// the VK window covers the entire primary screen, so update the size to match.
+	sw, sh := service.VKVideoGetDstSize() // physical screen pixels
+	scale := float32(1)
+	if vw.parentWindow != nil && vw.parentWindow.Canvas() != nil {
+		scale = vw.parentWindow.Canvas().Scale()
+	}
+	if sw > 0 && sh > 0 && scale > 0 {
+		vw.UpdateTouchpadAndContentRect(float32(sw)/scale, float32(sh)/scale, nil)
+	}
+
+	// Fix touchpad-mode focus steal: TouchpadWrapper.MouseDown calls
+	// window.RequestFocus() which activates the main Fyne window and covers the
+	// standalone VK window. Skip it while fullscreen is active.
+	if vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.SetSkipWindowFocus(true)
+	}
+
 	// Ensure frames keep being delivered to the video widget (for VKVideoTrySubmit).
 	if fd.videoClient != nil {
 		fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
@@ -48,13 +67,14 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	}
 
 	// Mouse events go through the existing VK event queue → vw.touchpadWrapper.
-	// Scale = 1: VK client coords are physical pixels; touchpadWrapper handles deltas.
-	vw.startVKMouseForwarding(1.0)
+	// Use the parent window canvas scale so physical pixel coords → correct dp.
+	vw.startVKMouseForwarding(scale)
 
 	// Keyboard events go through the key event queue → Moonlight input directly.
 	vw.startVKKeyForwarding(fd.exitFullscreen)
 
-	logrus.Info("[Win/FS] Standalone VK fullscreen active — no Fyne window")
+	logrus.Infof("[Win/FS] Standalone VK fullscreen active — screen=%dx%d scale=%.2f dp=%.0fx%.0f",
+		sw, sh, scale, float32(sw)/scale, float32(sh)/scale)
 }
 
 // exitWindowlessVKFullscreen tears down the standalone VK fullscreen and restores
@@ -64,6 +84,12 @@ func (fd *FullscreenDialog) exitWindowlessVKFullscreen() {
 	fd.windowlessVKFullscreen = false
 
 	vw := fd.videoWidget
+
+	// Restore normal focus behaviour on the main-window touchpad wrapper.
+	if vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.SetSkipWindowFocus(false)
+	}
+
 	// stopMetalVideo destroys the VK window and stops mouse+key forwarding goroutines.
 	vw.stopMetalVideo()
 

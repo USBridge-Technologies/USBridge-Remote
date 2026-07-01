@@ -25,6 +25,7 @@ extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 extern int  vk_video_create_standalone(void);
 extern int  vk_video_next_key_event(int *type_out, int *vk_out);
+extern void vk_video_get_dst_size(int *w, int *h);
 
 extern void goVKLog(char *msg, int level);
 */
@@ -162,6 +163,14 @@ func VKVideoNextKeyEvent() (typ, vkCode int, ok bool) {
 	var t, v C.int
 	r := C.vk_video_next_key_event(&t, &v)
 	return int(t), int(v), r != 0
+}
+
+// VKVideoGetDstSize returns the current VK window dimensions in physical pixels.
+// In standalone mode this equals the primary screen resolution.
+func VKVideoGetDstSize() (w, h int) {
+	var cw, ch C.int
+	C.vk_video_get_dst_size(&cw, &ch)
+	return int(cw), int(ch)
 }
 
 // VKVideoNextEvent drains one pending pointer event from the Vulkan overlay window.
