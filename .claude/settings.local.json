@@ -115,7 +115,19 @@
       "Bash(go list *)",
       "Bash(go env *)",
       "Bash(sed -n '700,720p')",
-      "Bash(awk 'NR>=700 && NR<=720' \"$\\(go env GOROOT\\)/src/net/http/transport.go\")"
+      "Bash(awk 'NR>=700 && NR<=720' \"$\\(go env GOROOT\\)/src/net/http/transport.go\")",
+      "Bash(otool -L /Users/amir/Projects/usbridge/usbridge_client/dist/macos/USBridgeClient.app/Contents/MacOS/USBridgeClient)",
+      "Bash(command -v dylibbundler)",
+      "Read(//opt/homebrew/Cellar/pcre2/10.47_1/lib/**)",
+      "Read(//opt/homebrew/Cellar/glib/2.88.1/lib/**)",
+      "Bash(/bin/bash --version)",
+      "Bash(chmod +x /Users/amir/Projects/usbridge/usbridge_client/scripts/build_macos.sh)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_macos.sh)",
+      "Bash(otool *)",
+      "Bash(codesign --verify --deep --strict dist/macos/USBridgeClient.app)",
+      "Bash(open *)",
+      "Bash(screencapture -x /tmp/usbridge_check.png)",
+      "Bash(bash -n scripts/build_macos.sh)"
     ]
   }
 }
