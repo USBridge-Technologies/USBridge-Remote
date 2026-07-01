@@ -1211,6 +1211,8 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 
 	var toggleBtn *widget.Button
 
+	var copyBtn *widget.Button
+
 	refreshStatus := func() {
 		if p.mcpProxy.Running() {
 			statusLabel.Text = "● Running"
@@ -1218,12 +1220,14 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 			urlLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", p.mcpProxy.Port())
 			toggleBtn.SetText("Stop")
 			toggleBtn.Importance = widget.DangerImportance
+			copyBtn.Enable()
 		} else {
 			statusLabel.Text = "○ Stopped"
 			statusLabel.Color = design.ColorTextMuted
-			urlLabel.Text = fmt.Sprintf("Endpoint: http://127.0.0.1:%d/api/mcp", port)
+			urlLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", port)
 			toggleBtn.SetText("Start")
 			toggleBtn.Importance = widget.HighImportance
+			copyBtn.Disable()
 		}
 		statusLabel.Refresh()
 		urlLabel.Refresh()
@@ -1243,6 +1247,12 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 	})
 	toggleBtn.Importance = widget.HighImportance
 
+	copyBtn = widget.NewButtonWithIcon("Copy Link", theme.ContentCopyIcon(), func() {
+		p.window.Clipboard().SetContent(urlLabel.Text)
+	})
+	copyBtn.Importance = widget.LowImportance
+	copyBtn.Disable()
+
 	descLabel := widget.NewLabel("Forwards /api/mcp to the device with signed\nrequests. Local AI tools connect unsigned.")
 	descLabel.Alignment = fyne.TextAlignCenter
 	descLabel.Wrapping = fyne.TextWrapWord
@@ -1257,6 +1267,7 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 	body := container.NewVBox(
 		container.NewCenter(statusLabel),
 		container.NewCenter(urlLabel),
+		container.NewCenter(copyBtn),
 		widget.NewSeparator(),
 		descLabel,
 		container.NewCenter(toggleBtn),
