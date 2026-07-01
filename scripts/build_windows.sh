@@ -98,6 +98,30 @@ extract_zip() {
     exit 1
 }
 
+extract_msi() {
+    local msi_path="$1"
+    local dest="$2"
+
+    mkdir -p "$dest"
+    if command -v msiexec.exe >/dev/null 2>&1 && command -v powershell >/dev/null 2>&1; then
+        local msi_win dest_win exit_code
+        msi_win="$(cygpath -w "$msi_path" 2>/dev/null || echo "$msi_path")"
+        dest_win="$(cygpath -w "$dest" 2>/dev/null || echo "$dest")"
+        # Administrative install (/a) unpacks the MSI payload without installing it.
+        # Routed through PowerShell Start-Process (quiet, hidden window) since invoking
+        # msiexec.exe directly from bash mangles the "TARGETDIR=..." argument quoting
+        # and pops up the usage dialog instead of running silently.
+        powershell -NoProfile -NonInteractive -Command \
+            "\$p = Start-Process msiexec.exe -ArgumentList '/a \"$msi_win\" /qn TARGETDIR=\"$dest_win\"' -Wait -PassThru -WindowStyle Hidden; exit \$p.ExitCode"
+        exit_code=$?
+        [ "$exit_code" = "0" ] && return 0
+        return 1
+    fi
+
+    echo -e "${RED}❌ Не найден msiexec/powershell для распаковки $msi_path${NC}"
+    return 1
+}
+
 hash_file_sha256() {
     local file="$1"
 
@@ -1099,30 +1123,36 @@ if [ -z "$TAILSCALE_BIN_DIR" ] && [ "${SKIP_TAILSCALE_DOWNLOAD:-0}" != "1" ]; th
             | grep '"tag_name"' | head -1 \
             | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')
     fi
-    [ -z "$TS_VERSION" ] && TS_VERSION="1.82.0"
+    [ -z "$TS_VERSION" ] && TS_VERSION="1.98.8"
     echo "   Tailscale version: $TS_VERSION"
 
-    TS_ZIP="$TAILSCALE_CACHE_DIR/tailscale_${TS_VERSION}_windows_amd64.zip"
-    TS_URL="https://pkgs.tailscale.com/stable/tailscale_${TS_VERSION}_windows_amd64.zip"
+    # pkgs.tailscale.com no longer publishes a raw windows_amd64.zip — only the
+    # NSIS installer exe and the MSI. The MSI can be unpacked without installing
+    # anything via an administrative install (msiexec /a), which yields the plain
+    # tailscale.exe / tailscaled.exe / wintun.dll payload.
+    TS_MSI="$TAILSCALE_CACHE_DIR/tailscale-setup-${TS_VERSION}-amd64.msi"
+    TS_URL="https://pkgs.tailscale.com/stable/tailscale-setup-${TS_VERSION}-amd64.msi"
 
     echo "   Downloading: $TS_URL"
-    if download_file "$TS_URL" "$TS_ZIP" 2>/dev/null; then
+    if download_file "$TS_URL" "$TS_MSI" 2>/dev/null; then
         TS_EXTRACT_DIR="$TAILSCALE_CACHE_DIR/extracted"
         rm -rf "$TS_EXTRACT_DIR"
-        extract_zip "$TS_ZIP" "$TS_EXTRACT_DIR"
-        # Zip may nest one directory level: tailscale_VERSION_windows_amd64/tailscale.exe
-        _ts_exe=$(find "$TS_EXTRACT_DIR" -name "tailscale.exe" 2>/dev/null | head -1)
-        if [ -n "$_ts_exe" ]; then
-            _ts_dir="$(dirname "$_ts_exe")"
-            # Flatten to cache root
-            for _f in tailscale.exe tailscaled.exe; do
-                _fp="$_ts_dir/$_f"
-                [ -f "$_fp" ] && cp -L "$_fp" "$TAILSCALE_CACHE_DIR/"
-            done
-            TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
-            echo -e "${GREEN}✓${NC} Tailscale downloaded and extracted to $TAILSCALE_CACHE_DIR"
+        if extract_msi "$TS_MSI" "$TS_EXTRACT_DIR"; then
+            _ts_exe=$(find "$TS_EXTRACT_DIR" -name "tailscale.exe" 2>/dev/null | head -1)
+            if [ -n "$_ts_exe" ]; then
+                _ts_dir="$(dirname "$_ts_exe")"
+                # Flatten to cache root
+                for _f in tailscale.exe tailscaled.exe wintun.dll; do
+                    _fp="$_ts_dir/$_f"
+                    [ -f "$_fp" ] && cp -L "$_fp" "$TAILSCALE_CACHE_DIR/"
+                done
+                TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
+                echo -e "${GREEN}✓${NC} Tailscale extracted from MSI to $TAILSCALE_CACHE_DIR"
+            else
+                echo -e "${RED}❌ tailscale.exe not found in extracted MSI${NC}"
+            fi
         else
-            echo -e "${RED}❌ tailscale.exe not found in downloaded zip${NC}"
+            echo -e "${RED}❌ Failed to extract MSI: $TS_MSI${NC}"
         fi
     else
         echo -e "${RED}❌ Download failed: $TS_URL${NC}"
@@ -1133,13 +1163,13 @@ fi
 
 if [ -n "$TAILSCALE_BIN_DIR" ]; then
     TS_COPIED=0
-    for _ts_bin in tailscale.exe tailscaled.exe; do
+    for _ts_bin in tailscale.exe tailscaled.exe wintun.dll; do
         _src="$TAILSCALE_BIN_DIR/$_ts_bin"
         if [ -f "$_src" ]; then
             cp -L "$_src" "$DIST_WIN_BIN/"
             echo -e "   ${GREEN}✓${NC} bin/$_ts_bin"
             TS_COPIED=$((TS_COPIED + 1))
-        else
+        elif [ "$_ts_bin" != "wintun.dll" ]; then
             echo -e "   ${YELLOW}⚠${NC} $_ts_bin not found in $TAILSCALE_BIN_DIR"
         fi
     done

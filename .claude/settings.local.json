@@ -111,7 +111,20 @@
       "Bash(gofmt -e ./internal/gui/controller/video_mouse_handler.go)",
       "Bash(gofmt -e ./internal/gui/controller/video_widget.go)",
       "Bash(gh api *)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl -sI \"https://pkgs.tailscale.com/stable/tailscale_1.98.8_windows_amd64.zip\")",
+      "Bash(curl -sI \"https://pkgs.tailscale.com/stable/?mode=json\")",
+      "Bash(curl -s \"https://pkgs.tailscale.com/stable/?mode=json\")",
+      "Bash(mkdir -p /tmp/ts_test)",
+      "Read(//tmp/**)",
+      "Bash(curl -fsSL -o ts.msi \"https://pkgs.tailscale.com/stable/tailscale-setup-1.98.8-amd64.msi\")",
+      "PowerShell(New-Item *)",
+      "Bash(rm -rf extracted3)",
+      "Bash(cygpath -w \"$\\(pwd\\)/ts.msi\")",
+      "Bash(cygpath -w \"$\\(pwd\\)/extracted3\")",
+      "Bash(powershell -NoProfile -NonInteractive -Command ' *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(bash -n /c/Projects_USBridge/usbridge_client/scripts/build_windows.sh)"
     ]
   }
 }
