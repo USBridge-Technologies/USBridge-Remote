@@ -307,7 +307,6 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		ButtonSize:  fyne.NewSize(connectionCompactActionSize, connectionCompactActionSize),
 		OnTapped:    onQR,
 	})
-	topQRBtn := newCompactActionWrap(connectionCompactActionSize, topQRButton)
 
 	topAddButton := newOutlinedActionButton(compactAddActionLabel(i18n.Current.AddConnectionTitle), onAdd)
 	topAddBtn := newCompactActionWrap(connectionCompactActionSize, topAddButton)
@@ -332,7 +331,7 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, 6, 6, 0, 0))
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
 
-	topActions := container.NewHBox(topAddBtn, centerSpacer(connectionCompactActionGap), topQRBtn)
+	topActions := container.NewHBox(topAddBtn)
 	var topHelpBtn fyne.CanvasObject
 	if onHelp != nil {
 		topHelpBtn = NewFooterIconButton(
@@ -383,7 +382,7 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
 
-	actions := container.New(newOnboardingActionsLayout(onboardingActionGap), ui.AddBtn, ui.QRBtn)
+	actions := container.NewCenter(ui.AddBtn)
 	emptyBlock := newEmptyStatePromoCard(ui.onPromo)
 
 	ui.contentArea.Objects = []fyne.CanvasObject{

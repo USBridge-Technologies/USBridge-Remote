@@ -1291,8 +1291,11 @@ func (p *PCPanelWidget) showMCPProxyDialog() {
 	popup = view.ShowOverlayPopup(p.window, view.OverlayPopupSpec{
 		Panel:    panel,
 		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
-			return fyne.NewSize(360, 240)
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			panelMin := panel.MinSize()
+			width := minFloat32(maxFloat32(panelMin.Width, 360), canvasSize.Width-24)
+			height := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-24)
+			return fyne.NewSize(width, height)
 		},
 	})
 

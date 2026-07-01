@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -49,6 +50,7 @@ type connectionDialogSpec struct {
 	onConnect          func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
 	onSave             func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
 	onDelete           func(close func())
+	onQR               func()
 }
 
 type connectionDialogSecondaryButton struct {
@@ -347,6 +349,22 @@ func connectionDialogDimColor() color.Color {
 	return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72}
 }
 
+func newConnectionDialogQRButton(label string, onTapped func()) *connectionDialogSecondaryButton {
+	btn := &connectionDialogSecondaryButton{
+		labelText:      label,
+		onTapped:       onTapped,
+		fillColor:      color.Transparent,
+		borderColor:    design.ColorAccent,
+		textColor:      design.ColorAccent,
+		hoverFillColor: design.ColorAccent,
+		hoverTextColor: design.ColorBackground,
+		iconRes:        assets.QRCodeAccent,
+		hoverIconRes:   assets.QRCodeBoldBlack,
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
 func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
@@ -467,6 +485,32 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	form := buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry, registerCheckContainer, window)
 
+	var d *widget.PopUp
+
+	var formContent fyne.CanvasObject = form
+	if spec.onQR != nil {
+		qrBtn := newConnectionDialogQRButton("Scan QR", func() {
+			if d != nil {
+				d.Hide()
+			}
+			spec.onQR()
+		})
+		linkBtn := newConnectionDialogSecondaryButton("Paste Link", func() {
+			showPasteLinkDialog(parent, func(ih, th, mk string) {
+				internalHostEntry.SetText(ih)
+				tailscaleHostEntry.SetText(th)
+				masterKeyEntry.SetText(mk)
+			})
+		})
+		sep := canvas.NewRectangle(design.ColorBorder)
+		sep.SetMinSize(fyne.NewSize(0, 1))
+		formContent = container.NewVBox(
+			form,
+			view.NewInset(sep, 0, 0, 10, 10),
+			container.NewGridWithColumns(2, qrBtn, linkBtn),
+		)
+	}
+
 	var feedback fyne.CanvasObject
 	if spec.feedbackText != "" {
 		fill := spec.feedbackColor
@@ -486,7 +530,6 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteLabel = i18n.Current.DeleteButton
 	}
 
-	var d *widget.PopUp
 	var connectBtn fyne.CanvasObject
 	var deleteBtn fyne.CanvasObject
 	var saveBtn fyne.CanvasObject
@@ -542,7 +585,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, form, connectBtn, saveBtn, deleteBtn)
+	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, formContent, connectBtn, saveBtn, deleteBtn)
 	return d
 }
 
@@ -809,6 +852,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			})
 			return true
 		},
+		onQR: cm.handleQRScan,
 	})
 }
 
@@ -1034,4 +1078,82 @@ func (cm *ConnectionManager) handleDeleteConnection(idx int, afterDelete func())
 func (cm *ConnectionManager) handleQRScan() {
 	logrus.Info("Opening QR scanner")
 	cm.qrScanner.ShowCameraScanner(cm.window)
+}
+
+// showPasteLinkDialog shows a small popup with a text entry for pasting a
+// usbridge:// deep link. On apply, it calls onApply with the parsed hosts.
+func showPasteLinkDialog(parent fyne.Window, onApply func(internalHost, tailscaleHost, masterKey string)) {
+	title := view.NewBrandText("Paste Link", 17, design.ColorTextLight, true)
+	title.Alignment = fyne.TextAlignCenter
+
+	entry := &connectionDialogEntry{}
+	entry.ExtendBaseWidget(entry)
+	entry.SetPlaceHolder("usbridge://connect?...")
+
+	errLabel := canvas.NewText("", color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff})
+	errLabel.TextSize = 11
+
+	var popup *widget.PopUp
+
+	applyFn := func() {
+		ih, th, mk, _, _, err := parseQRContents(entry.Text)
+		if err != nil {
+			errLabel.Text = "Invalid link format"
+			errLabel.Refresh()
+			return
+		}
+		if popup != nil {
+			popup.Hide()
+		}
+		onApply(ih, th, mk)
+	}
+	entry.onFocusChanged = nil
+	entry.OnChanged = func(_ string) {
+		if errLabel.Text != "" {
+			errLabel.Text = ""
+			errLabel.Refresh()
+		}
+	}
+
+	var closeBtn *connectionDialogIconButton
+	closeBtn = newConnectionDialogIconButton(theme.CancelIcon(), func() {
+		if popup != nil {
+			popup.Hide()
+		}
+	})
+	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
+
+	applyBtn := view.NewConnectionPrimaryButton("Apply", applyFn)
+	applyBtn.SetAccent(true)
+
+	body := container.NewVBox(
+		view.NewInset(titleBar, 0, 0, 0, 10),
+		widget.NewSeparator(),
+		view.NewInset(container.NewVBox(entry, errLabel), 0, 0, 8, 8),
+		widget.NewSeparator(),
+		view.NewInset(applyBtn, 0, 0, 8, 0),
+	)
+
+	bg := canvas.NewRectangle(design.ColorGray900)
+	bg.CornerRadius = design.RadiusMD
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = design.RadiusMD
+	border.StrokeColor = design.ColorBorder
+	border.StrokeWidth = 1
+	panel := container.NewStack(
+		bg,
+		view.NewInset(body, 18, 18, 16, 16),
+		border,
+	)
+
+	popup = view.ShowOverlayPopup(parent, view.OverlayPopupSpec{
+		Panel:    panel,
+		DimColor: connectionDialogDimColor(),
+		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			panelMin := panel.MinSize()
+			w := minFloat32(maxFloat32(panelMin.Width, 340), canvasSize.Width-48)
+			h := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-48)
+			return fyne.NewSize(w, h)
+		},
+	})
 }
