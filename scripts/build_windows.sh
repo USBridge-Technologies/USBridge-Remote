@@ -628,7 +628,8 @@ is_system_dll() {
         dbghelp.dll|psapi.dll|pdh.dll|wtsapi32.dll|\
         authz.dll|wintrust.dll|aclui.dll|cabinet.dll|\
         ndfapi.dll|devobj.dll|hid.dll|hidparse.dll|\
-        ksproxy.ax|avrt.dll|wmcodecdspuuid.dll)
+        ksproxy.ax|avrt.dll|wmcodecdspuuid.dll|\
+        vulkan-1.dll|wintun.dll|tap-windows6.dll)
             return 0 ;;
     esac
     return 1
@@ -1052,6 +1053,108 @@ for _fdll in "${FORCE_DLLS[@]}"; do
     fi
 done
 
+# 7f. Bundle Tailscale CLI (tailscale.exe + tailscaled.exe)
+# Enables system-level Tailscale routing so C sockets (Moonlight RTSP/RTP)
+# can reach Tailscale 100.x IPs without the Go tsnet proxy overhead.
+# The app also works without this via the built-in tsnet proxy, but having
+# tailscale.exe / tailscaled.exe in bin/ lets users run a system TS daemon.
+echo -e "\n${YELLOW}🔗 Bundling Tailscale CLI (tailscale.exe + tailscaled.exe)...${NC}"
+
+TAILSCALE_CACHE_DIR="$REPO_ROOT/.cache/tailscale-windows"
+TAILSCALE_BIN_DIR=""
+
+# 1. Check PATH / TAILSCALE_ROOT / MSYS2 prefixes
+for _ts_candidate in \
+    "${TAILSCALE_ROOT:-}" \
+    "${TAILSCALE_ROOT:-}/bin" \
+    "/ucrt64/bin" \
+    "/mingw64/bin" \
+    "/clang64/bin"
+do
+    [ -z "$_ts_candidate" ] && continue
+    if [ -f "$_ts_candidate/tailscale.exe" ] || [ -f "$_ts_candidate/tailscaled.exe" ]; then
+        TAILSCALE_BIN_DIR="$_ts_candidate"
+        echo -e "${GREEN}✓${NC} Tailscale found locally: $TAILSCALE_BIN_DIR"
+        break
+    fi
+done
+
+# 2. Check disk cache from a previous download
+if [ -z "$TAILSCALE_BIN_DIR" ] && [ -f "$TAILSCALE_CACHE_DIR/tailscale.exe" ]; then
+    TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
+    echo -e "${GREEN}✓${NC} Tailscale found in download cache: $TAILSCALE_CACHE_DIR"
+fi
+
+# 3. Download from pkgs.tailscale.com / GitHub releases
+if [ -z "$TAILSCALE_BIN_DIR" ] && [ "${SKIP_TAILSCALE_DOWNLOAD:-0}" != "1" ]; then
+    echo -e "${YELLOW}⚠${NC} Tailscale not found locally, downloading latest stable..."
+    mkdir -p "$TAILSCALE_CACHE_DIR"
+
+    # Resolve latest stable version tag
+    TS_VERSION=""
+    if command -v curl >/dev/null 2>&1; then
+        TS_VERSION=$(curl -fsSL \
+            "https://api.github.com/repos/tailscale/tailscale/releases/latest" \
+            2>/dev/null \
+            | grep '"tag_name"' | head -1 \
+            | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')
+    fi
+    [ -z "$TS_VERSION" ] && TS_VERSION="1.82.0"
+    echo "   Tailscale version: $TS_VERSION"
+
+    TS_ZIP="$TAILSCALE_CACHE_DIR/tailscale_${TS_VERSION}_windows_amd64.zip"
+    TS_URL="https://pkgs.tailscale.com/stable/tailscale_${TS_VERSION}_windows_amd64.zip"
+
+    echo "   Downloading: $TS_URL"
+    if download_file "$TS_URL" "$TS_ZIP" 2>/dev/null; then
+        TS_EXTRACT_DIR="$TAILSCALE_CACHE_DIR/extracted"
+        rm -rf "$TS_EXTRACT_DIR"
+        extract_zip "$TS_ZIP" "$TS_EXTRACT_DIR"
+        # Zip may nest one directory level: tailscale_VERSION_windows_amd64/tailscale.exe
+        _ts_exe=$(find "$TS_EXTRACT_DIR" -name "tailscale.exe" 2>/dev/null | head -1)
+        if [ -n "$_ts_exe" ]; then
+            _ts_dir="$(dirname "$_ts_exe")"
+            # Flatten to cache root
+            for _f in tailscale.exe tailscaled.exe; do
+                _fp="$_ts_dir/$_f"
+                [ -f "$_fp" ] && cp -L "$_fp" "$TAILSCALE_CACHE_DIR/"
+            done
+            TAILSCALE_BIN_DIR="$TAILSCALE_CACHE_DIR"
+            echo -e "${GREEN}✓${NC} Tailscale downloaded and extracted to $TAILSCALE_CACHE_DIR"
+        else
+            echo -e "${RED}❌ tailscale.exe not found in downloaded zip${NC}"
+        fi
+    else
+        echo -e "${RED}❌ Download failed: $TS_URL${NC}"
+        echo "   Set TAILSCALE_ROOT=/path/to/dir/with/tailscale.exe to provide it manually"
+        echo "   Or: set SKIP_TAILSCALE_DOWNLOAD=1 to skip bundling"
+    fi
+fi
+
+if [ -n "$TAILSCALE_BIN_DIR" ]; then
+    TS_COPIED=0
+    for _ts_bin in tailscale.exe tailscaled.exe; do
+        _src="$TAILSCALE_BIN_DIR/$_ts_bin"
+        if [ -f "$_src" ]; then
+            cp -L "$_src" "$DIST_WIN_BIN/"
+            echo -e "   ${GREEN}✓${NC} bin/$_ts_bin"
+            TS_COPIED=$((TS_COPIED + 1))
+        else
+            echo -e "   ${YELLOW}⚠${NC} $_ts_bin not found in $TAILSCALE_BIN_DIR"
+        fi
+    done
+    echo -e "${GREEN}✓${NC} Tailscale: $TS_COPIED бинарников скопировано"
+    # Walk DLL deps of tailscale binaries
+    mapfile -t _ts_bins < <(
+        find "$DIST_WIN_BIN" -maxdepth 1 \( -name "tailscale.exe" -o -name "tailscaled.exe" \) 2>/dev/null
+    )
+    [ "${#_ts_bins[@]}" -gt 0 ] && _walk_deps "$DIST_WIN_DLLS" "${_ts_bins[@]}"
+else
+    echo -e "${YELLOW}⚠${NC} Tailscale binaries not bundled"
+    echo "   Video still works via built-in tsnet proxy (no system Tailscale needed)"
+    echo "   To bundle: export TAILSCALE_ROOT=/path/to/tailscale && rebuild"
+fi
+
 # 8. README
 echo -e "\n${YELLOW}📝 Создание README...${NC}"
 
@@ -1063,10 +1166,25 @@ Double-click USBridge_Client.exe to launch.
 Folder structure:
   USBridge_Client.exe          — запускаемый файл (лаунчер с иконкой)
   bin\USBridge_Client_app.exe  — основное приложение (запускается автоматически)
+  bin\tailscale.exe            — Tailscale CLI (system VPN, for C-socket routing)
+  bin\tailscaled.exe           — Tailscale daemon (run as service for best performance)
   bin\qemu-nbd.exe             — QEMU NBD (для работы с VMDK/QCOW2/VDI образами)
   bin\qemu-img.exe             — QEMU image tool
   lib\                         — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
   lib\gstreamer-1.0\           — GStreamer plugins (if bundled)
+
+Tailscale / networking:
+  The app uses built-in (embedded) Tailscale for all Go-level connections.
+  Moonlight video/audio RTSP and RTP are automatically proxied via the embedded
+  tsnet stack — no system Tailscale installation required.
+
+  If you install system Tailscale (tailscaled.exe as a service or via the official
+  installer at https://tailscale.com/download/windows), the bundled bin\tailscale.exe
+  and bin\tailscaled.exe can be used to manage it from the command line.
+
+  To run the bundled daemon manually (one-time, no install):
+    bin\tailscaled.exe --state=tailscale.state
+    bin\tailscale.exe up
 
 Video modes:
   Moonlight streaming — libavcodec (D3D11VA hardware decode) + WASAPI audio.
