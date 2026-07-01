@@ -1153,7 +1153,7 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	// (шум) и не занимает больше 48% стороны (защита от полностью тёмного кадра).
 	// Реальные letterbox/pillarbox рамки — обычно 5–45% стороны и могут быть немного асимметричны.
 	const minMeaningfulCropInsetPx = 2
-	const maxCropAsymmetryPx = 20
+	const maxCropAsymmetryPx = 5
 	maxHInset := frameW * 12 / 25 // 48%
 	maxVInset := frameH * 12 / 25 // 48%
 	if left > maxHInset || right > maxHInset || left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {

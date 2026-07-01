@@ -1038,11 +1038,22 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	ch := vw.contentRectH
 	vw.vcMu.Lock()
 	prevU, _ := vw.virtualCursorU, vw.virtualCursorV
+	
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	minU, maxU := float32(0), float32(1)
+	minV, maxV := float32(0), float32(1)
+	if frameW > 0 && frameH > 0 {
+		minU = frameX
+		maxU = frameX + frameW
+		minV = frameY
+		maxV = frameY + frameH
+	}
+
 	if cw > 0 {
-		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, 0, 1)
+		vw.virtualCursorU = clampFloat(vw.virtualCursorU+rawDx/cw, minU, maxU)
 	}
 	if ch > 0 {
-		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, 0, 1)
+		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, minV, maxV)
 	}
 	currU, _ := vw.virtualCursorU, vw.virtualCursorV
 	vw.vcMu.Unlock()
@@ -1122,11 +1133,16 @@ func (vw *VideoWidget) sendVirtualCursorToHost() {
 	v := vw.virtualCursorV
 	vw.vcMu.Unlock()
 
-	// virtualCursorU and V are already in the [0..1] coordinate space of the
-	// video content. They must be sent directly to Moonlight without any screen
-	// transformations.
-	hostU := clampFloat(u, 0, 1)
-	hostV := clampFloat(v, 0, 1)
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	hostU := u
+	hostV := v
+	if frameW > 0 && frameH > 0 {
+		hostU = (u - frameX) / frameW
+		hostV = (v - frameY) / frameH
+	}
+
+	hostU = clampFloat(hostU, 0, 1)
+	hostV = clampFloat(hostV, 0, 1)
 
 	absX := int(math.Round(float64(hostU * 32767)))
 	absY := int(math.Round(float64(hostV * 32767)))
