@@ -380,16 +380,17 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fyne.Do(func() {
 			fd.fullscreenWindow.RequestFocus()
 			fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
+
+			// On Windows, RequestFocus calls glfwFocusWindow which can promote the Fyne GLFW
+			// window above the Vulkan TOPMOST overlay when Vulkan was created in <500ms (2nd+
+			// fullscreen entry is faster because the main thread is warmed up). Re-assert the
+			// overlay on top after the focus request completes.
+			if fd.videoWidget != nil {
+				logrus.Infof("[Fullscreen] 500ms goroutine: calling ensureNativeOverlayOnTop (nativeActive=%v)",
+					fd.videoWidget.isNativeVideoActive())
+				fd.videoWidget.ensureNativeOverlayOnTop()
+			}
 		})
-		// On Windows, RequestFocus calls glfwFocusWindow which can promote the Fyne GLFW
-		// window above the Vulkan TOPMOST overlay when Vulkan was created in <500ms (2nd+
-		// fullscreen entry is faster because the main thread is warmed up). Re-assert the
-		// overlay on top after the focus request completes.
-		if fd.videoWidget != nil {
-			logrus.Infof("[Fullscreen] 500ms goroutine: calling ensureNativeOverlayOnTop (nativeActive=%v)",
-				fd.videoWidget.isNativeVideoActive())
-			fd.videoWidget.ensureNativeOverlayOnTop()
-		}
 	}()
 }
 
