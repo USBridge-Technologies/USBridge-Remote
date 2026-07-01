@@ -1148,6 +1148,19 @@ void vk_video_set_hidden(int hidden) {
     atomic_store(&g_hidden, hidden ? 1 : 0);
 }
 
+// vk_video_bring_to_top — re-assert HWND_TOPMOST on the overlay window.
+// On the 2nd+ fullscreen entry the Fyne GLFW window calls SetForegroundWindow /
+// BringWindowToTop (via glfwFocusWindow inside RequestFocus) ~500 ms after show,
+// which promotes it above our TOPMOST overlay and causes a black screen.
+// Calling this after RequestFocus brings the overlay back to the front.
+void vk_video_bring_to_top(void) {
+    HWND hw = g_child_hwnd;
+    if (hw && atomic_load(&g_active)) {
+        SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    }
+}
+
 // vk_video_next_event — drain one pending pointer event from the overlay window.
 // Returns 1 if an event was consumed; type values:
 //   1 = mouse move  2 = button/scroll press  3 = button release

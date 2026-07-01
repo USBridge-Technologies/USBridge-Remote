@@ -30,6 +30,9 @@ func (vw *VideoWidget) getNativeFPS() float64 {
 // getMetalLastFrame is a no-op on Android (no Metal overlay).
 func (vw *VideoWidget) getMetalLastFrame() *image.RGBA { return nil }
 
+// ensureNativeOverlayOnTop is a no-op on Android (Vulkan SurfaceView managed by OS).
+func (vw *VideoWidget) ensureNativeOverlayOnTop() {}
+
 // keepNativeVideoAliveForFullscreenTransition reports true on Android because
 // the Vulkan SurfaceView overlay is attached to the Activity, not to a Fyne
 // window. Destroying and recreating it on each fullscreen toggle is wrong —

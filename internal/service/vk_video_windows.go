@@ -21,6 +21,7 @@ extern void vk_video_get_stats(long long *rendered, long long *submitted,
 extern void vk_video_clear_pending_stats(void);
 extern void vk_video_get_diag(long long *hb, int *stage);
 extern void vk_video_set_hidden(int hidden);
+extern void vk_video_bring_to_top(void);
 extern int  vk_video_next_event(int *type_out, int *x_out, int *y_out, int *btn_out);
 
 extern void goVKLog(char *msg, int level);
@@ -125,6 +126,13 @@ func VKVideoGetDiag() (hb int64, stage int) {
 	var s C.int
 	C.vk_video_get_diag(&h, &s)
 	return int64(h), int(s)
+}
+
+// VKVideoBringToTop re-asserts HWND_TOPMOST on the Vulkan overlay window.
+// Must be called after any RequestFocus/glfwFocusWindow that can promote the Fyne
+// window above the overlay inside the TOPMOST Z-order layer.
+func VKVideoBringToTop() {
+	C.vk_video_bring_to_top()
 }
 
 // VKVideoSetHidden hides (hidden=true) or shows (hidden=false) the overlay without

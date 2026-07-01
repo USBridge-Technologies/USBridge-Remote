@@ -365,6 +365,13 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 			fd.fullscreenWindow.RequestFocus()
 			fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)
 		})
+		// On Windows, RequestFocus calls glfwFocusWindow which can promote the Fyne GLFW
+		// window above the Vulkan TOPMOST overlay when Vulkan was created in <500ms (2nd+
+		// fullscreen entry is faster because the main thread is warmed up). Re-assert the
+		// overlay on top after the focus request completes.
+		if fd.videoWidget != nil {
+			fd.videoWidget.ensureNativeOverlayOnTop()
+		}
 	}()
 }
 

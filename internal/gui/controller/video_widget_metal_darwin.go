@@ -309,3 +309,6 @@ func (vw *VideoWidget) getNativeFPS() float64 {
 func (vw *VideoWidget) getMetalLastFrame() *image.RGBA {
 	return service.MetalVideoGetLastFrameRGBA()
 }
+
+// ensureNativeOverlayOnTop is a no-op on macOS (Metal uses CALayer, not a separate window).
+func (vw *VideoWidget) ensureNativeOverlayOnTop() {}

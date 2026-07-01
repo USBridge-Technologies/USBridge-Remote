@@ -495,6 +495,12 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }
 
+// ensureNativeOverlayOnTop re-asserts the Vulkan overlay above the Fyne window.
+// Called after RequestFocus which can promote the GLFW window above the overlay.
+func (vw *VideoWidget) ensureNativeOverlayOnTop() {
+	service.VKVideoBringToTop()
+}
+
 // getMetalLastFrame is a no-op on Windows — no zero-copy GPU frame capture.
 func (vw *VideoWidget) getMetalLastFrame() *image.RGBA { return nil }
 
