@@ -112,7 +112,10 @@
       "Bash(gofmt -e ./internal/gui/controller/video_widget.go)",
       "Bash(gh api *)",
       "WebFetch(domain:api.github.com)",
-      "Bash(go list *)"
+      "Bash(go list *)",
+      "Bash(go env *)",
+      "Bash(sed -n '700,720p')",
+      "Bash(awk 'NR>=700 && NR<=720' \"$\\(go env GOROOT\\)/src/net/http/transport.go\")"
     ]
   }
 }

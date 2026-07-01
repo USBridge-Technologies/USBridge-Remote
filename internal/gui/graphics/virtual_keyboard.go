@@ -106,7 +106,7 @@ func (vk *VirtualKeyboard) createKey(label string, keyCode int, modifiers int) *
 	}
 
 	// Make Backspace wider
-	if label == "⌫" {
+	if label == "Bksp" {
 		btn.Resize(fyne.NewSize(80, 35))
 	}
 

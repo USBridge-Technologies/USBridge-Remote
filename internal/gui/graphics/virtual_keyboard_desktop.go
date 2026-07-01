@@ -128,7 +128,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		vk.placeKey(grid, vk.createKey(pair.l, pair.c, 0), 1, col, 1)
 		col++
 	}
-	vk.placeKey(grid, vk.createKey("⌫", 42, 0), 1, col, 2)
+	vk.placeKey(grid, vk.createKey("Bksp", 42, 0), 1, col, 2)
 
 	// Row 2: Tab(1.5) Q W E R T Y U I O P [ ] \ 
 	col = 0

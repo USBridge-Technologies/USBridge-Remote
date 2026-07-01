@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"path/filepath"
@@ -779,15 +780,16 @@ func (l *pcpanelModeButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Siz
 
 // PCPanelWidget is a power button with activity indicator in the address bar
 type PCPanelWidget struct {
-	actionBtn *pcpanelActionButton
-	container *fyne.Container
-	usbClient *api.USBClient
-	stopPoll  chan struct{}
-	pollMu    sync.Mutex
-	powerOn   bool
-	hddOn     bool
-	window    fyne.Window
-	mcpProxy  api.MCPProxy
+	actionBtn      *pcpanelActionButton
+	container      *fyne.Container
+	usbClient      *api.USBClient
+	stopPoll       chan struct{}
+	pollMu         sync.Mutex
+	pollCtxCancel  context.CancelFunc // cancels any in-flight poll HTTP request
+	powerOn        bool
+	hddOn          bool
+	window         fyne.Window
+	mcpProxy       api.MCPProxy
 }
 
 // NewPCPanelWidget creates a widget with a combined Power/Reset button.
@@ -812,6 +814,12 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 	if p.stopPoll != nil {
 		close(p.stopPoll)
 		p.stopPoll = nil
+	}
+	// Cancel any in-flight HTTP request on the old client so it doesn't race
+	// with Disconnect() being called in the background cleanup goroutine.
+	if p.pollCtxCancel != nil {
+		p.pollCtxCancel()
+		p.pollCtxCancel = nil
 	}
 	p.usbClient = c
 	p.pollMu.Unlock()
@@ -863,7 +871,22 @@ func (p *PCPanelWidget) pollLeds() {
 				if c == nil {
 					return
 				}
-				resp, err := c.GetPCPanelLeds()
+				// Create a per-request context so SetClient can cancel it if
+				// Disconnect() is called while this request is in flight.
+				ctx, cancel := context.WithCancel(context.Background())
+				p.pollMu.Lock()
+				p.pollCtxCancel = cancel
+				p.pollMu.Unlock()
+
+				resp, err := c.GetPCPanelLedsWithContext(ctx)
+				cancel() // always release resources
+
+				p.pollMu.Lock()
+				if p.pollCtxCancel == cancel {
+					p.pollCtxCancel = nil
+				}
+				p.pollMu.Unlock()
+
 				if err != nil {
 					logrus.Debugf("PCPanel LEDs poll error: %v", err)
 					continue

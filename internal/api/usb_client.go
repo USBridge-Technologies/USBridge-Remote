@@ -1259,7 +1259,12 @@ func (c *USBClient) GetBaseURL() string {
 
 // GetPCPanelLeds gets POWER and HDD LEDs state of target computer
 func (c *USBClient) GetPCPanelLeds() (*models.PCPanelLedsResponse, error) {
-	resp, err := c.makeRequest("GET", "/api/pcpanel/leds", nil)
+	return c.GetPCPanelLedsWithContext(context.Background())
+}
+
+// GetPCPanelLedsWithContext gets POWER and HDD LEDs state with context cancellation.
+func (c *USBClient) GetPCPanelLedsWithContext(ctx context.Context) (*models.PCPanelLedsResponse, error) {
+	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/pcpanel/leds", nil, nil)
 	if err != nil {
 		return nil, err
 	}
