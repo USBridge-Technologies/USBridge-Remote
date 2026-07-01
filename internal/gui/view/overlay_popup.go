@@ -99,12 +99,17 @@ func (l *overlayPopupLayout) Layout(objects []fyne.CanvasObject, size fyne.Size)
 	panel.Move(panelPos)
 	panel.Resize(panelSize)
 
-	// Footer: positioned immediately below the panel using full canvas coordinates
-	// (not keyboard-adjusted), so it stays fixed regardless of IME state.
+	// Footer: centered in the free space below the panel using full canvas
+	// coordinates, so it stays fixed regardless of IME keyboard state.
 	if len(objects) >= 3 && objects[2] != nil {
 		footer := objects[2]
 		footerMin := footer.MinSize()
-		footerY := panelPos.Y + panelSize.Height + 10
+		panelBottom := panelPos.Y + panelSize.Height
+		spaceBelow := size.Height - panelBottom
+		footerY := panelBottom + (spaceBelow-footerMin.Height)/2
+		if footerY < panelBottom+14 {
+			footerY = panelBottom + 14
+		}
 		footer.Move(fyne.NewPos(panelPos.X, footerY))
 		footer.Resize(fyne.NewSize(panelSize.Width, footerMin.Height))
 	}

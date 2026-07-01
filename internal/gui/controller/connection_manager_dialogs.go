@@ -293,44 +293,91 @@ func buildInlineField(label string, field fyne.CanvasObject, actions fyne.Canvas
 	return view.NewInset(container.NewBorder(nil, nil, leftSide, nil, field), 0, 0, 6, 0)
 }
 
-func createMasterKeyField(masterKeyEntry *connectionDialogEntry) fyne.CanvasObject {
-	masterKeyEntry.ActionItem = nil
-	masterKeyEntry.Refresh()
-	return masterKeyEntry
+// noInputBgTheme makes a widget.Entry render without its own background/border
+// so that a custom styled container can provide the visual shell instead.
+type noInputBgTheme struct{ fyne.Theme }
+
+func (t *noInputBgTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNameInputBackground || name == theme.ColorNameInputBorder {
+		return color.Transparent
+	}
+	return t.Theme.Color(name, variant)
 }
 
-func newMasterKeyActionItem(masterKeyEntry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
-	return newCompactConnectionDialogIconButton(theme.ContentCopyIcon(), func() {
-		txt := masterKeyEntry.Text
-		if txt != "" && window != nil {
-			window.Clipboard().SetContent(txt)
+// newConnectionDialogIconEntry wraps an entry in a Bootstrap-style input-group:
+// a styled dark rounded container with a leading icon and optional trailing actions.
+func newConnectionDialogIconEntry(iconRes fyne.Resource, entry *connectionDialogEntry, trailingAction fyne.CanvasObject) fyne.CanvasObject {
+	iconImg := canvas.NewImageFromResource(iconRes)
+	iconImg.FillMode = canvas.ImageFillContain
+	iconImg.Translucency = 0.35
+
+	iconWrap := container.NewCenter(container.NewGridWrap(fyne.NewSize(16, 16), iconImg))
+	iconPad := view.NewInset(iconWrap, 10, 6, 0, 0)
+
+	bg := canvas.NewRectangle(design.ColorSurfaceLight)
+	bg.CornerRadius = design.RadiusMD
+	bdr := canvas.NewRectangle(color.Transparent)
+	bdr.CornerRadius = design.RadiusMD
+	bdr.StrokeColor = design.ColorBorder
+	bdr.StrokeWidth = 1
+
+	themedEntry := container.NewThemeOverride(entry, &noInputBgTheme{design.NewBrandTheme()})
+
+	entry.onFocusChanged = func(focused bool) {
+		if focused {
+			bdr.StrokeColor = design.ColorAccent
+		} else {
+			bdr.StrokeColor = design.ColorBorder
 		}
-	})
+		bdr.Refresh()
+	}
+
+	var inner fyne.CanvasObject
+	if trailingAction != nil {
+		inner = container.NewBorder(nil, nil, iconPad, view.NewInset(trailingAction, 6, 10, 0, 0), themedEntry)
+	} else {
+		inner = container.NewBorder(nil, nil, iconPad, nil, themedEntry)
+	}
+	return container.NewStack(bg, inner, bdr)
+}
+
+// newConnectionDialogEntryAddon creates a small icon button styled to match the
+// entry field height, intended as an attached addon button to the right of a field.
+func newConnectionDialogEntryAddon(iconRes fyne.Resource, onTapped func()) fyne.CanvasObject {
+	btn := &connectionDialogIconButton{
+		resource:   iconRes,
+		onTapped:   onTapped,
+		buttonSize: fyne.NewSize(36, 36),
+		iconSize:   fyne.NewSize(16, 16),
+	}
+	btn.ExtendBaseWidget(btn)
+	bg := canvas.NewRectangle(design.ColorSurfaceLight)
+	bg.CornerRadius = design.RadiusMD
+	bdr := canvas.NewRectangle(color.Transparent)
+	bdr.CornerRadius = design.RadiusMD
+	bdr.StrokeColor = design.ColorBorder
+	bdr.StrokeWidth = 1
+	return container.NewStack(bg, bdr, btn)
 }
 
 func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, registerCheck fyne.CanvasObject, window fyne.Window) fyne.CanvasObject {
-	masterKeyField := createMasterKeyField(masterKeyEntry)
-	masterKeyActions := newMasterKeyActionItem(masterKeyEntry, window)
+	masterKeyEntry.ActionItem = nil
+	masterKeyEntry.Refresh()
 
-	// Field order: Name → Internal IP → Tailscale IP → Master Key → Register
-	if fyne.CurrentDevice().IsMobile() {
-		// Compact inline layout on mobile: [label (actions) | input] on a single row.
-		items := []fyne.CanvasObject{
-			buildInlineField(connectionDialogNameLabel, nameEntry, nil),
-			buildInlineField(connectionDialogInternalHostLabel, internalHostEntry, nil),
-			buildInlineField(connectionDialogTailscaleHostLabel, tailscaleHostEntry, nil),
-			buildInlineField(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
+	// Master key: field on left, copy addon button on the right (visually connected).
+	masterField := newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, nil)
+	copyAddon := newConnectionDialogEntryAddon(theme.ContentCopyIcon(), func() {
+		if window != nil && masterKeyEntry.Text != "" {
+			window.Clipboard().SetContent(masterKeyEntry.Text)
 		}
-		if registerCheck != nil {
-			items = append(items, view.NewInset(registerCheck, 0, 0, 6, 0))
-		}
-		return container.NewVBox(items...)
-	}
+	})
+	masterRow := container.NewBorder(nil, nil, nil, view.NewInset(copyAddon, 4, 0, 0, 0), masterField)
+
 	items := []fyne.CanvasObject{
-		newConnectionDialogField(connectionDialogNameLabel, nameEntry),
-		newConnectionDialogField(connectionDialogInternalHostLabel, internalHostEntry),
-		newConnectionDialogField(connectionDialogTailscaleHostLabel, tailscaleHostEntry),
-		newConnectionDialogFieldWithActions(connectionDialogTokenLabel, masterKeyField, masterKeyActions),
+		newConnectionDialogIconEntry(theme.AccountIcon(), nameEntry, nil),
+		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, nil),
+		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, nil),
+		masterRow,
 	}
 	if registerCheck != nil {
 		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
@@ -736,7 +783,7 @@ func newConnectionNameEntry(value string, onFocusChanged func(bool)) *connection
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
-	entry.SetPlaceHolder("Enter device name...")
+	entry.SetPlaceHolder("Name")
 	return entry
 }
 
@@ -744,7 +791,7 @@ func newConnectionHostEntry(value string, onFocusChanged func(bool)) *connection
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
-	entry.SetPlaceHolder("xxx.xxx.x.x")
+	entry.SetPlaceHolder("Internal IP")
 	return entry
 }
 
@@ -752,16 +799,15 @@ func newConnectionTailscaleEntry(value string, onFocusChanged func(bool)) *conne
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
-	entry.SetPlaceHolder("tailscale-address")
+	entry.SetPlaceHolder("Tailscale Address")
 	return entry
 }
-
 
 func newConnectionMasterKeyEntry(value string, onFocusChanged func(bool)) *connectionDialogEntry {
 	entry := &connectionDialogEntry{onFocusChanged: onFocusChanged}
 	entry.ExtendBaseWidget(entry)
 	entry.Text = value
-	entry.SetPlaceHolder("")
+	entry.SetPlaceHolder("Master Key")
 	entry.Password = false
 	return entry
 }
