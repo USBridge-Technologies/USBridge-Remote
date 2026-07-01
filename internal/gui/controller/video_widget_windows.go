@@ -30,6 +30,7 @@ var vkWinKeyQuit           chan struct{}
 var vkWinFullscreenWin     fyne.Window
 var vkWinMouseCheckPending int32 // atomic
 var vkWinPressOnButton     bool  // suppress matching release when press hit a UI button
+var vkWinMouseLogCnt       int64 // throttle coordinate logging
 
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
@@ -64,6 +65,15 @@ func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 						}
 						x := float32(evX) / s
 						y := float32(evY) / s
+						// Log every 60 move events to diagnose coordinate mapping.
+						if evTyp == 1 {
+							vkWinMouseLogCnt++
+							if vkWinMouseLogCnt%60 == 1 {
+								standalone := vw.fullscreenDialog != nil && vw.fullscreenDialog.windowlessVKFullscreen
+								logrus.Infof("[ABS/Win] mouse: raw=(%d,%d) scale=%.3f dp=(%.1f,%.1f) standalone=%v fsWin=%v",
+									evX, evY, s, x, y, standalone, vkWinFullscreenWin != nil)
+							}
+						}
 						vw.dispatchVKWinMouseEvent(evTyp, x, y, evBtn)
 					})
 				}

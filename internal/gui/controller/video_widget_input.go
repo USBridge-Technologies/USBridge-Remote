@@ -27,6 +27,10 @@ var (
 
 const desktopPrintableRuneSuppressWindow = 75 * time.Millisecond
 
+// absLogCnt throttles PositionToAbsolute and updateFrameContentRect log spam.
+// Not atomic — small races just mean slightly more/fewer log lines, which is fine.
+var absLogCnt int64
+
 func modifierMaskForKeyName(keyName fyne.KeyName) int32 {
 	switch keyName {
 	case fyne.KeyName("LeftControl"), fyne.KeyName("RightControl"):
@@ -1000,6 +1004,10 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 		vw.baseContentRectH = h
 	}
 	vw.recalculateViewport()
+	logrus.Infof("[ABS] UpdateTouchpadAndContentRect: touchpad=%.0fx%.0f img=%.0fx%.0f base=%.0fx%.0f standalone=%.0fx%.0f → contentRect=(%.1f,%.1f,%.1f,%.1f)",
+		w, h, imgW, imgH, vw.baseContentRectW, vw.baseContentRectH,
+		vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH,
+		vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH)
 }
 
 // PositionToAbsolute переводит координаты из области ввода в абсолютные координаты
@@ -1054,6 +1062,16 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if y > absolutePointerMax {
 		y = absolutePointerMax
 	}
+	// Log every ~60 calls so we can diagnose coordinate mapping without spamming.
+	absLogCnt++
+	if absLogCnt%60 == 1 {
+		logrus.Infof("[ABS] PositionToAbsolute: in=(%.1f,%.1f) touchpad=(%.0f,%.0f) contentRect=(%.1f,%.1f,%.1f,%.1f) frameRect=(%.3f,%.3f,%.3f,%.3f) u=%.3f v=%.3f → out=(%d,%d)",
+			px, py,
+			vw.touchpadSizeW, vw.touchpadSizeH,
+			vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH,
+			frameX, frameY, frameW, frameH,
+			u, v, x, y)
+	}
 	return x, y
 }
 
@@ -1092,9 +1110,13 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 			// the main-window widget. Use the stored screen dp size so PositionToAbsolute
 			// always normalises against the full screen, even as video frames arrive.
 			if vw.standaloneVKScreenDpW > 0 {
+				logrus.Infof("[ABS] updateFrameContentRect: standalone → screen=%.0fx%.0f img=%.0fx%.0f",
+					vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH, newFW, newFH)
 				vw.UpdateTouchpadAndContentRect(vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH, nil)
 			} else if tw := vw.activeViewportWrapper(); tw != nil {
 				sz := tw.Size()
+				logrus.Infof("[ABS] updateFrameContentRect: widget → size=%.0fx%.0f img=%.0fx%.0f",
+					sz.Width, sz.Height, newFW, newFH)
 				if sz.Width > 0 && sz.Height > 0 {
 					var frame image.Image
 					if tw.image != nil {

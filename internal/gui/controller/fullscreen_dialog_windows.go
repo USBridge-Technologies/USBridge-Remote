@@ -81,8 +81,11 @@ func (fd *FullscreenDialog) enterWindowlessVKFullscreen() {
 	// Keyboard events go through the key event queue → Moonlight input directly.
 	vw.startVKKeyForwarding(fd.exitFullscreen)
 
-	logrus.Infof("[Win/FS] Standalone VK fullscreen active — screen=%dx%d scale=%.2f dp=%.0fx%.0f",
-		sw, sh, scale, float32(sw)/scale, float32(sh)/scale)
+	logrus.Infof("[Win/FS] Standalone VK fullscreen active — screen=%dx%d scale=%.3f dp=%.1fx%.1f standaloneField=%.1fx%.1f touchpadSize=%.1fx%.1f contentRect=(%.1f,%.1f,%.1f,%.1f)",
+		sw, sh, scale, screenDpW, screenDpH,
+		vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH,
+		vw.touchpadSizeW, vw.touchpadSizeH,
+		vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH)
 }
 
 // exitWindowlessVKFullscreen tears down the standalone VK fullscreen and restores
