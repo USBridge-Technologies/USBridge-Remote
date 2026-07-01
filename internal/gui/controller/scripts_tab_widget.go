@@ -107,7 +107,7 @@ func (w *ScriptsTabWidget) build() {
 	newSDBtn.Importance = widget.LowImportance
 
 	scriptsActions := container.NewHBox(newEmmcBtn, newSDBtn)
-	scriptsCard := w.buildSectionCard("AUTOMATION SCRIPTS", scriptsActions, w.scriptsBodyContainer)
+	scriptsCard := w.buildSectionCard("", scriptsActions, w.scriptsBodyContainer)
 
 	content := container.NewVBox(
 		view.NewInset(mcpCard, 12, 12, 8, 0),
@@ -156,22 +156,30 @@ func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
 
 // buildSectionCard creates a labelled card matching the Snapshots tab visual style.
 func (w *ScriptsTabWidget) buildSectionCard(eyebrow string, trailingAction fyne.CanvasObject, body fyne.CanvasObject) fyne.CanvasObject {
-	eyebrowText := view.NewBrandText(strings.ToUpper(eyebrow), 11, design.ColorTextMuted, true)
-
 	var header fyne.CanvasObject
-	if trailingAction != nil {
+	if eyebrow != "" && trailingAction != nil {
+		eyebrowText := view.NewBrandText(strings.ToUpper(eyebrow), 11, design.ColorTextMuted, true)
 		header = view.NewInset(
 			container.NewBorder(nil, nil, eyebrowText, trailingAction, nil),
 			4, 4, 0, 6,
 		)
-	} else {
+	} else if eyebrow != "" {
+		eyebrowText := view.NewBrandText(strings.ToUpper(eyebrow), 11, design.ColorTextMuted, true)
 		header = view.NewInset(eyebrowText, 6, 6, 0, 6)
+	} else if trailingAction != nil {
+		header = view.NewInset(
+			container.NewBorder(nil, nil, nil, trailingAction, nil),
+			4, 4, 0, 6,
+		)
 	}
 
 	card := view.NewInset(
 		view.NewCompactSurfacePanel(body, design.ColorSurface, design.RadiusMD+2),
 		0, 0, 0, 3,
 	)
+	if header == nil {
+		return card
+	}
 	return container.NewVBox(header, card)
 }
 
