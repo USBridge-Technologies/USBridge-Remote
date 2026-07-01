@@ -140,16 +140,14 @@ func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
 	w.mcpToggleBtn.Importance = widget.HighImportance
 	w.mcpToggleBtn.Disable()
 
-	descText := canvas.NewText(
-		"Forwards /api/mcp to the device with signed requests. Local AI tools connect unsigned.",
-		design.ColorTextMuted,
-	)
-	descText.TextSize = 11
+	descLabel := widget.NewLabel("Forwards /api/mcp to the device with signed requests. Local AI tools connect unsigned.")
+	descLabel.Wrapping = fyne.TextWrapWord
+	descLabel.Importance = widget.LowImportance
 
 	urlRow := container.NewBorder(nil, nil, nil, w.mcpCopyBtn, w.mcpURLLabel)
 	body := view.NewInset(container.NewVBox(
 		view.NewInset(urlRow, 0, 0, 6, 0),
-		view.NewInset(descText, 0, 0, 6, 0),
+		view.NewInset(descLabel, 0, 0, 6, 0),
 		view.NewInset(w.mcpToggleBtn, 0, 0, 6, 0),
 	), 8, 8, 4, 4)
 
