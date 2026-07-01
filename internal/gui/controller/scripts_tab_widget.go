@@ -207,7 +207,7 @@ func (w *ScriptsTabWidget) refreshMCPStatus() {
 	running := w.mcpProxy.Running()
 	if running {
 		w.mcpURLLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpProxy.Port())
-		w.mcpURLLabel.Color = design.ColorTextLight
+		w.mcpURLLabel.Color = design.ColorAccent
 		w.mcpToggleBtn.SetText("Stop")
 		w.mcpToggleBtn.Importance = widget.DangerImportance
 		w.mcpToggleBtn.Enable()
