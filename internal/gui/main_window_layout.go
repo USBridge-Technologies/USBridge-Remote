@@ -316,11 +316,13 @@ func (mw *MainWindow) recreateContainers() {
 	devicesTabTitle := "Devices"
 	controlTabTitle := "Control"
 	snapshotsTabTitle := "Snapshots"
+	scriptsTabTitle := "Scripts"
 
 	mw.tabs = container.NewAppTabs(
 		container.NewTabItem(controlTabTitle, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
 		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(mw.diskWidget.GetContainer(), design.NewBrandTheme())),
 		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
+		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(mw.scriptsWidget.GetContainer(), design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
@@ -1441,6 +1443,10 @@ func (mw *MainWindow) devicesTabIndex() int {
 
 func (mw *MainWindow) snapshotsTabIndex() int {
 	return 2
+}
+
+func (mw *MainWindow) scriptsTabIndex() int {
+	return 3
 }
 
 func (mw *MainWindow) showMouseModeMenu() {

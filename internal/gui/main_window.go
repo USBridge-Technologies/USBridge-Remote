@@ -75,6 +75,9 @@ type MainWindow struct {
 	// PC Panel (Power/Reset LED buttons)
 	pcpanelWidget *controller.PCPanelWidget
 
+	// Scripts tab (MCP Proxy + Automation Scripts)
+	scriptsWidget *controller.ScriptsTabWidget
+
 	// Address bar
 	hostEntry         *widget.Entry
 	tokenEntry        *widget.Entry
@@ -145,6 +148,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.backupWidget.SetWindow(w)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(w)
+	mw.scriptsWidget = controller.NewScriptsTabWidget(w)
 
 	// Initialize connection manager
 	mw.connectionManager = controller.NewConnectionManager(

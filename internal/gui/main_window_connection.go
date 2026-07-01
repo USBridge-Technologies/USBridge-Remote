@@ -761,6 +761,9 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 		if mw.pcpanelWidget != nil {
 			mw.pcpanelWidget.SetClient(mw.usbClient)
 		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetClient(mw.usbClient)
+		}
 		mw.updateStatus()
 		mw.showMainContent()
 		if mw.videoWidget != nil {
@@ -889,6 +892,9 @@ func (mw *MainWindow) handleDisconnect() {
 
 		if mw.pcpanelWidget != nil {
 			mw.pcpanelWidget.SetClient(nil)
+		}
+		if mw.scriptsWidget != nil {
+			mw.scriptsWidget.SetClient(nil)
 		}
 
 		mw.updateStatus()

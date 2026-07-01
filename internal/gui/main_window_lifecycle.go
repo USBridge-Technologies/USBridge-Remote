@@ -200,6 +200,7 @@ func (mw *MainWindow) reloadUI() {
 	mw.videoWidget.SetShowMouseCursor(mw.app.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.backupWidget = controller.NewBackupWidget(mw.usbClient, mw.hostEntry, mw.updateStatus)
 	mw.pcpanelWidget = controller.NewPCPanelWidget(mw.window)
+	mw.scriptsWidget = controller.NewScriptsTabWidget(mw.window)
 
 	// Re-initialize connection manager
 	mw.connectionManager = controller.NewConnectionManager(
@@ -217,6 +218,9 @@ func (mw *MainWindow) reloadUI() {
 	if wasConnected {
 		if mw.pcpanelWidget != nil && mw.usbClient != nil {
 			mw.pcpanelWidget.SetClient(mw.usbClient)
+		}
+		if mw.scriptsWidget != nil && mw.usbClient != nil {
+			mw.scriptsWidget.SetClient(mw.usbClient)
 		}
 		mw.showMainContent()
 	} else {
