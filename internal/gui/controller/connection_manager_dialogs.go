@@ -365,7 +365,131 @@ func newConnectionDialogQRButton(label string, onTapped func()) *connectionDialo
 	return btn
 }
 
-func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject) *widget.PopUp {
+// connectionDialogIconBlock is a large square icon button with a text label below,
+// used for QR scan and link paste actions.
+type connectionDialogIconBlock struct {
+	widget.BaseWidget
+
+	iconRes  fyne.Resource
+	label    string
+	onTap    func()
+	hovered  bool
+
+	bg  *canvas.Rectangle
+	bdr *canvas.Rectangle
+	img *canvas.Image
+	lbl *canvas.Text
+}
+
+func newConnectionDialogIconBlock(iconRes fyne.Resource, label string, onTap func()) *connectionDialogIconBlock {
+	b := &connectionDialogIconBlock{iconRes: iconRes, label: label, onTap: onTap}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *connectionDialogIconBlock) Tapped(*fyne.PointEvent) {
+	if b.onTap != nil {
+		b.onTap()
+	}
+}
+func (b *connectionDialogIconBlock) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *connectionDialogIconBlock) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+func (b *connectionDialogIconBlock) MouseMoved(*desktop.MouseEvent) {}
+func (b *connectionDialogIconBlock) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+func (b *connectionDialogIconBlock) Cursor() desktop.Cursor { return desktop.PointerCursor }
+
+const iconBlockSquare = float32(64)
+const iconBlockIconSz = float32(28)
+const iconBlockLabelH = float32(14)
+const iconBlockGap = float32(5)
+
+func (b *connectionDialogIconBlock) MinSize() fyne.Size {
+	return fyne.NewSize(iconBlockSquare, iconBlockSquare+iconBlockGap+iconBlockLabelH)
+}
+
+func (b *connectionDialogIconBlock) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(design.ColorSurfaceLight)
+	b.bg.CornerRadius = design.RadiusMD
+
+	b.bdr = canvas.NewRectangle(color.Transparent)
+	b.bdr.CornerRadius = design.RadiusMD
+	b.bdr.StrokeColor = design.ColorBorder
+	b.bdr.StrokeWidth = 1
+
+	b.img = canvas.NewImageFromResource(b.iconRes)
+	b.img.FillMode = canvas.ImageFillContain
+
+	b.lbl = canvas.NewText(b.label, design.ColorTextMuted)
+	b.lbl.TextSize = 11
+	b.lbl.Alignment = fyne.TextAlignCenter
+
+	b.refreshVisuals()
+	return &connectionDialogIconBlockRenderer{b: b}
+}
+
+func (b *connectionDialogIconBlock) refreshVisuals() {
+	if b.bg == nil {
+		return
+	}
+	if b.hovered {
+		b.bg.FillColor = design.ColorBorder
+	} else {
+		b.bg.FillColor = design.ColorSurfaceLight
+	}
+	b.bg.Refresh()
+	if b.bdr != nil {
+		b.bdr.Refresh()
+	}
+	if b.img != nil {
+		b.img.Refresh()
+	}
+	if b.lbl != nil {
+		b.lbl.Refresh()
+	}
+}
+
+type connectionDialogIconBlockRenderer struct{ b *connectionDialogIconBlock }
+
+func (r *connectionDialogIconBlockRenderer) Layout(size fyne.Size) {
+	sqW := minFloat32(iconBlockSquare, size.Width)
+	sqX := (size.Width - sqW) / 2
+	if sqX < 0 {
+		sqX = 0
+	}
+	r.b.bg.Move(fyne.NewPos(sqX, 0))
+	r.b.bg.Resize(fyne.NewSize(sqW, sqW))
+	r.b.bdr.Move(fyne.NewPos(sqX, 0))
+	r.b.bdr.Resize(fyne.NewSize(sqW, sqW))
+
+	imgX := sqX + (sqW-iconBlockIconSz)/2
+	imgY := (sqW - iconBlockIconSz) / 2
+	r.b.img.Move(fyne.NewPos(imgX, imgY))
+	r.b.img.Resize(fyne.NewSize(iconBlockIconSz, iconBlockIconSz))
+
+	r.b.lbl.Move(fyne.NewPos(0, sqW+iconBlockGap))
+	r.b.lbl.Resize(fyne.NewSize(size.Width, iconBlockLabelH))
+}
+
+func (r *connectionDialogIconBlockRenderer) MinSize() fyne.Size          { return r.b.MinSize() }
+func (r *connectionDialogIconBlockRenderer) Refresh() {
+	r.b.refreshVisuals()
+	r.Layout(r.b.Size())
+	canvas.Refresh(r.b)
+}
+func (r *connectionDialogIconBlockRenderer) BackgroundColor() color.Color { return color.Transparent }
+func (r *connectionDialogIconBlockRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.b.bg, r.b.bdr, r.b.img, r.b.lbl}
+}
+func (r *connectionDialogIconBlockRenderer) Destroy() {}
+
+func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedback fyne.CanvasObject, form fyne.CanvasObject, connectBtn, saveBtn, deleteBtn fyne.CanvasObject, mobileExtra ...fyne.CanvasObject) *widget.PopUp {
 	title := view.NewBrandText(dialogTitle, 19, design.ColorTextLight, true)
 	title.Alignment = fyne.TextAlignCenter
 
@@ -428,9 +552,17 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 	border.StrokeWidth = 1
 
 	// Panel layout: title fixed at top, buttons fixed at bottom, scroll fills center.
+	// On mobile, mobileExtra (e.g. icon blocks) is placed below action buttons.
+	var bottomSection fyne.CanvasObject = view.NewInset(buttons, 0, 0, 10, 0)
+	if len(mobileExtra) > 0 && mobileExtra[0] != nil {
+		bottomSection = container.NewVBox(
+			view.NewInset(buttons, 0, 0, 10, 0),
+			view.NewInset(mobileExtra[0], 0, 0, 10, 0),
+		)
+	}
 	inner := container.NewBorder(
-		view.NewInset(titleBar, 0, 0, 0, 10),   // title with gap below
-		view.NewInset(buttons, 0, 0, 10, 0),    // gap above buttons
+		view.NewInset(titleBar, 0, 0, 0, 10),
+		bottomSection,
 		nil, nil,
 		scroll,
 	)
@@ -488,27 +620,35 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	var d *widget.PopUp
 
 	var formContent fyne.CanvasObject = form
+	var mobileIconExtra fyne.CanvasObject
 	if spec.onQR != nil {
-		qrBtn := newConnectionDialogQRButton("Scan QR", func() {
+		qrBlock := newConnectionDialogIconBlock(assets.QRCodeAccent, "Scan QR", func() {
 			if d != nil {
 				d.Hide()
 			}
 			spec.onQR()
 		})
-		linkBtn := newConnectionDialogSecondaryButton("Paste Link", func() {
+		linkBlock := newConnectionDialogIconBlock(assets.ConnectionStatusAccent, "Paste Link", func() {
 			showPasteLinkDialog(parent, func(ih, th, mk string) {
 				internalHostEntry.SetText(ih)
 				tailscaleHostEntry.SetText(th)
 				masterKeyEntry.SetText(mk)
 			})
 		})
-		sep := canvas.NewRectangle(design.ColorBorder)
-		sep.SetMinSize(fyne.NewSize(0, 1))
-		formContent = container.NewVBox(
-			form,
-			view.NewInset(sep, 0, 0, 10, 10),
-			container.NewGridWithColumns(2, qrBtn, linkBtn),
-		)
+		iconRow := container.NewGridWithColumns(2, qrBlock, linkBlock)
+		if fyne.CurrentDevice().IsMobile() {
+			// On Android the icon row lives below action buttons (keyboard can cover it).
+			mobileIconExtra = iconRow
+		} else {
+			// On desktop add inside the scroll area, below the form fields.
+			sep := canvas.NewRectangle(design.ColorBorder)
+			sep.SetMinSize(fyne.NewSize(0, 1))
+			formContent = container.NewVBox(
+				form,
+				view.NewInset(sep, 0, 0, 10, 10),
+				iconRow,
+			)
+		}
 	}
 
 	var feedback fyne.CanvasObject
@@ -585,7 +725,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		deleteBtn = btn
 	}
 
-	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, formContent, connectBtn, saveBtn, deleteBtn)
+	d = showAdaptiveConnectionDialog(parent, spec.title, feedback, formContent, connectBtn, saveBtn, deleteBtn, mobileIconExtra)
 	return d
 }
 

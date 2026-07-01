@@ -150,6 +150,7 @@ var (
 	ConfigVerticalIcon         = fyne.NewStaticResource("configuration-vertical-options-svgrepo-com.svg", recolorFillIcon(configVerticalIcon, "#F5F5F5"))
 	ConnectionStatusIcon       = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com.svg", recolorFillIcon(connectionStatusIcon, "#C9C9C9"))
 	ConnectionStatusIconActive = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-active.svg", recolorFillIcon(connectionStatusIcon, "#93C572"))
+	ConnectionStatusAccent    = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-accent.svg", recolorFillIcon(connectionStatusIcon, "#b6ea93"))
 	ConnectIcon                = fyne.NewStaticResource("connect-svgrepo-com.svg", recolorFillIcon(connectIcon, "#93C572"))
 	ConnectIconBoldBlack       = fyne.NewStaticResource("connect-svgrepo-com-black.svg", recolorFillIcon(connectIcon, "#111111"))
 	ConnectIconMuted           = fyne.NewStaticResource("connect-svgrepo-com-muted.svg", recolorFillIcon(connectIcon, "#8E8E8E"))
