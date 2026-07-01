@@ -368,12 +368,20 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 
 	// When the native GPU overlay (Metal/GL) is active it already received this
 	// frame at the C level via metal_video_try_submit / gl_video_try_submit.
-	// Skip the 3.5 MB Go image allocation — only the Go-level frame count above
-	// is needed for stats, which we already incremented.
+	// Skip the 3.5 MB Go image allocation most of the time — only the Go-level
+	// frame count is needed for stats. However, pass a real frame on the first
+	// 10 frames and every 120th frame so that handleVideoFrame can run
+	// updateFrameContentRect → detectDarkInset to detect letterbox/pillarbox
+	// bars embedded in the video stream (e.g. Sunshine pillarboxing 4:3 content
+	// into a 16:9 stream). Without this, frameContentX/Y stays 0 and
+	// PositionToAbsolute never adjusts for in-stream black bars.
 	if NativeVideoOverlayIsActive() {
-		// Deliver a nil frame to let handleVideoFrame update its own counter.
-		cb(nil)
-		return
+		if cnt > 10 && cnt%120 != 0 {
+			// Deliver a nil frame to let handleVideoFrame update its own counter.
+			cb(nil)
+			return
+		}
+		// Fall through to create a real image for black-bar detection.
 	}
 
 	w, h, s := int(width), int(height), int(stride)

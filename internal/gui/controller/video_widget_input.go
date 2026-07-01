@@ -589,6 +589,15 @@ func (vw *VideoWidget) isPositionInContentRect(px, py float32) bool {
 	if w <= 0 || h <= 0 {
 		return true
 	}
+	
+	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
+	if frameW > 0 && frameH > 0 {
+		x += w * frameX
+		y += h * frameY
+		w *= frameW
+		h *= frameH
+	}
+	
 	return px >= x && px <= x+w && py >= y && py <= y+h
 }
 
@@ -1140,11 +1149,11 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	top := detectDarkInset(frame, bounds, false, true)
 	bottom := detectDarkInset(frame, bounds, false, false)
 
-	// Разрешаем crop только если рамка симметрична (±2px) и не слишком мала
+	// Разрешаем crop только если рамка симметрична (±20px) и не слишком мала
 	// (шум) и не занимает больше 48% стороны (защита от полностью тёмного кадра).
-	// Реальные letterbox/pillarbox рамки — обычно 5–45% стороны и строго симметричны.
+	// Реальные letterbox/pillarbox рамки — обычно 5–45% стороны и могут быть немного асимметричны.
 	const minMeaningfulCropInsetPx = 2
-	const maxCropAsymmetryPx = 2
+	const maxCropAsymmetryPx = 20
 	maxHInset := frameW * 12 / 25 // 48%
 	maxVInset := frameH * 12 / 25 // 48%
 	if left > maxHInset || right > maxHInset || left < minMeaningfulCropInsetPx || right < minMeaningfulCropInsetPx || absInt(left-right) > maxCropAsymmetryPx {
