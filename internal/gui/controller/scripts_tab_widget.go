@@ -109,7 +109,7 @@ func (w *ScriptsTabWidget) build() {
 	scriptsActions := container.NewHBox(newEmmcBtn, newSDBtn)
 	scriptsCard := w.buildSectionCard("", scriptsActions, w.scriptsBodyContainer)
 
-	content := container.NewVBox(
+	content := container.New(&fillWidthVBoxLayout{gap: 0},
 		view.NewInset(mcpCard, 12, 12, 8, 0),
 		view.NewInset(scriptsCard, 12, 12, 0, 8),
 	)
@@ -936,4 +936,38 @@ func (w *ScriptsTabWidget) showScriptEditorWithContent(path, name, content strin
 			return fyne.NewSize(canvasSize.Width-margin*2, canvasSize.Height-margin*2)
 		},
 	})
+}
+
+// fillWidthVBoxLayout stacks objects vertically like container.NewVBox but
+// always reports MinSize.Width = 0. This prevents any child's minimum width
+// from causing horizontal overflow inside a VScroll on narrow screens.
+type fillWidthVBoxLayout struct{ gap float32 }
+
+func (l *fillWidthVBoxLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	y := float32(0)
+	for _, o := range objects {
+		if !o.Visible() {
+			continue
+		}
+		h := o.MinSize().Height
+		o.Move(fyne.NewPos(0, y))
+		o.Resize(fyne.NewSize(size.Width, h))
+		y += h + l.gap
+	}
+}
+
+func (l *fillWidthVBoxLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	h := float32(0)
+	visible := 0
+	for _, o := range objects {
+		if !o.Visible() {
+			continue
+		}
+		h += o.MinSize().Height
+		visible++
+	}
+	if visible > 1 {
+		h += l.gap * float32(visible-1)
+	}
+	return fyne.NewSize(0, h)
 }
