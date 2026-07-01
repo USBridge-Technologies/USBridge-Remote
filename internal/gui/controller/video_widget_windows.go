@@ -465,6 +465,21 @@ func (vw *VideoWidget) metalVideoEnterFullscreen(fsWindow fyne.Window) {
 	vw.stopVKMouseForwarding()
 	service.VKVideoDestroy()
 	service.GLVideoDestroy()
+
+	// Wait for the fullscreen window canvas to report a valid (non-zero) size before
+	// creating the Vulkan overlay. On Windows, Canvas().Size() can return 0 for a
+	// brief period after Show()+SetFullScreen() while the OS completes the window
+	// transition. Without this wait, VKVideoCreate receives w=0/h=0, creates a 1×1
+	// overlay, and the screen appears black (native overlay active but invisible,
+	// Fyne canvas also suppressed).
+	for i := 0; i < 20; i++ {
+		if cs := fsWindow.Canvas().Size(); cs.Width > 0 && cs.Height > 0 {
+			break
+		}
+		logrus.Debugf("[Vulkan/Win] fullscreen canvas size still 0 — waiting (attempt %d/20)", i+1)
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	vw.startMetalVideoOnWindow(fsWindow, true)
 }
 

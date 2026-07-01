@@ -85,7 +85,7 @@ func NewUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 		Transport: &http.Transport{
-			Proxy:        nil, // Disable proxy to prevent COM crashes on Windows
+			Proxy:        http.ProxyURL(nil), // Explicitly disable proxy — nil field uses ProxyFromEnvironment which calls WinHTTP COM on Windows and crashes
 			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 		},
 	})
@@ -104,7 +104,7 @@ func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
 	transport := &http.Transport{
 		DialContext:         dialer.DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
-		Proxy:               nil, // Disable proxy to prevent COM crashes on Windows
+		Proxy:               http.ProxyURL(nil), // Explicitly disable proxy — nil field uses ProxyFromEnvironment which calls WinHTTP COM on Windows and crashes
 		TLSNextProto:        make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
 	client := &http.Client{Timeout: t, Transport: transport}
@@ -162,7 +162,7 @@ func NewUSBClientWithHTTPClient(host string, port int, timeout int, httpClient *
 		httpClient = &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 			Transport: &http.Transport{
-				Proxy:        nil, // Отключаем прокси, чтобы избежать крашей WinHttpGetIEProxyConfigForCurrentUser на Windows
+				Proxy:        http.ProxyURL(nil), // Explicitly disable proxy — nil field uses ProxyFromEnvironment which calls WinHTTP COM on Windows and crashes
 				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 			},
 		}

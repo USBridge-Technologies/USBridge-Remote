@@ -969,11 +969,15 @@ static void vk_full_cleanup(void) {
         if (g_buf)        { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
         g_has_frame = 0; g_ready = 0;
         LeaveCriticalSection(&g_cs);
+        DeleteCriticalSection(&g_cs);
+        g_cs_init = 0;
     }
     if (g_eq_cs_init) {
         EnterCriticalSection(&g_eq_cs);
         g_eq_head = 0; g_eq_tail = 0;
         LeaveCriticalSection(&g_eq_cs);
+        DeleteCriticalSection(&g_eq_cs);
+        g_eq_cs_init = 0;
     }
     g_parent_hwnd = NULL;
     g_raw_mouse = 0;
