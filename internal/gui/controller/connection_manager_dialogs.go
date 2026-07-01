@@ -1087,8 +1087,11 @@ func showPasteLinkDialog(parent fyne.Window, onApply func(internalHost, tailscal
 	title.Alignment = fyne.TextAlignCenter
 
 	entry := &connectionDialogEntry{}
+	entry.MultiLine = true
+	entry.Wrapping = fyne.TextWrapWord
 	entry.ExtendBaseWidget(entry)
 	entry.SetPlaceHolder("usbridge://connect?...")
+	entry.SetMinRowsVisible(4)
 
 	errLabel := canvas.NewText("", color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff})
 	errLabel.TextSize = 11
