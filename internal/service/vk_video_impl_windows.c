@@ -150,8 +150,18 @@ static LRESULT CALLBACK vk_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     // WM_USER+1/+2: hide/show requests posted by the render thread.
-    if (msg == WM_USER+1) { ShowWindow(hw, SW_HIDE);           return 0; }
-    if (msg == WM_USER+2) { ShowWindow(hw, SW_SHOWNOACTIVATE); return 0; }
+    if (msg == WM_USER+1) { ShowWindow(hw, SW_HIDE); return 0; }
+    if (msg == WM_USER+2) {
+        // Re-assert HWND_TOPMOST synchronously on the window thread before making
+        // the overlay visible. Between vk_video_bring_to_top (called from Go) and
+        // this ShowWindow, the GLFW fullscreen window may have raised itself back to
+        // the top of the TOPMOST Z-order (via its WM_ACTIVATE / WM_SETFOCUS handler).
+        // By re-asserting here we guarantee VK appears on top in the single operation
+        // that transitions the window from hidden to visible.
+        SetWindowPos(hw, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        ShowWindow(hw, SW_SHOWNOACTIVATE);
+        return 0;
+    }
     if (msg == WM_CLOSE)   { DestroyWindow(hw); return 0; }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
     return DefWindowProcW(hw, msg, wp, lp);

@@ -1600,6 +1600,7 @@ func (c *USBClient) doUploadISOAttempt(filePath string, fileReader io.Reader, fi
 	uploadClient := &http.Client{
 		Timeout: 3600 * time.Second,
 		Transport: &http.Transport{
+			Proxy:                 http.ProxyURL(nil),
 			ExpectContinueTimeout: 10 * time.Second,
 		},
 	}

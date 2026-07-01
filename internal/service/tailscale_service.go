@@ -407,7 +407,7 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 		return &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
-				Proxy:        nil,
+				Proxy:        http.ProxyURL(nil),
 				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 			},
 		}, nil
@@ -418,7 +418,7 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 	
 	client := srv.HTTPClient()
 	if t, ok := client.Transport.(*http.Transport); ok {
-		t.Proxy = nil
+		t.Proxy = http.ProxyURL(nil)
 		t.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
 	}
 	return client, nil

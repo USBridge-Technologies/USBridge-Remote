@@ -628,7 +628,7 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 			client.Transport = tsHTTPClient.Transport
 		} else {
 			client.Transport = &http.Transport{
-				Proxy:        nil,
+				Proxy:        http.ProxyURL(nil),
 				TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 			}
 		}

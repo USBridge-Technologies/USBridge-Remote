@@ -58,11 +58,17 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 	clientID := hex.EncodeToString(hash[:16])
 
 	// Unauthenticated HTTP client
-	httpClient := &http.Client{Timeout: 5 * time.Second}
+	httpClient := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{Proxy: http.ProxyURL(nil)},
+	}
 
 	// Pairing HTTP client — Sunshine holds the /pair connection open until the host user enters the PIN,
 	// so we need a much longer timeout to avoid timing out before the user can respond.
-	pairingHTTPClient := &http.Client{Timeout: 120 * time.Second}
+	pairingHTTPClient := &http.Client{
+		Timeout:   120 * time.Second,
+		Transport: &http.Transport{Proxy: http.ProxyURL(nil)},
+	}
 
 	// Authenticated HTTPS client
 	tlsConfig := &tls.Config{
@@ -70,7 +76,7 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 		InsecureSkipVerify: true, // We don't verify the server's cert authority because it's self-signed
 	}
 	httpsClient := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: tlsConfig},
+		Transport: &http.Transport{Proxy: http.ProxyURL(nil), TLSClientConfig: tlsConfig},
 		Timeout:   10 * time.Second,
 	}
 
@@ -91,12 +97,12 @@ func NewClient(host string, port, httpsPort int, identity *Identity) *Client {
 // (Android) so connections to Tailscale IPs go through the Tailscale netstack
 // instead of the default OS dialer which can't reach them.
 func (c *Client) SetDialTransport(dialCtx func(ctx context.Context, network, addr string) (net.Conn, error)) {
-	base := &http.Transport{DialContext: dialCtx}
+	base := &http.Transport{Proxy: http.ProxyURL(nil), DialContext: dialCtx}
 	tlsCfg := &tls.Config{
 		Certificates:       []tls.Certificate{{Certificate: [][]byte{c.Identity.Cert.Raw}, PrivateKey: c.Identity.PrivateKey}},
 		InsecureSkipVerify: true,
 	}
-	tlsBase := &http.Transport{DialContext: dialCtx, TLSClientConfig: tlsCfg}
+	tlsBase := &http.Transport{Proxy: http.ProxyURL(nil), DialContext: dialCtx, TLSClientConfig: tlsCfg}
 
 	c.httpClient = &http.Client{Transport: base, Timeout: 10 * time.Second}
 	c.httpsClient = &http.Client{Transport: tlsBase, Timeout: 10 * time.Second}
