@@ -8,9 +8,9 @@ import (
 
 func GetCommonModes() []api.VideoCaptureMode {
 	return []api.VideoCaptureMode{
-		{Width: 1920, Height: 1080, FPS: []int{30, 60}},
-		{Width: 1280, Height: 720, FPS: []int{30, 60}},
-		{Width: 640, Height: 480, FPS: []int{30, 60}},
+		{Width: 1920, Height: 1080, FPS: []int{30, 60, 120}},
+		{Width: 1280, Height: 720, FPS: []int{30, 60, 120, 144, 165, 240}},
+		{Width: 640, Height: 480, FPS: []int{30, 60, 120, 144, 165, 240}},
 	}
 }
 
@@ -40,7 +40,7 @@ func GetDisplayModes(index int) []api.VideoCaptureMode {
 		nativeMode := api.VideoCaptureMode{
 			Width:       bounds.Dx(),
 			Height:      bounds.Dy(),
-			FPS:         []int{30, 60},
+			FPS:         []int{30, 60, 120, 144, 165, 240},
 			PixelFormat: "BGRA",
 		}
 		// Check if native resolution is already in common modes
