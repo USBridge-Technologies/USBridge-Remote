@@ -57,13 +57,16 @@ type Window struct {
 	// UI components
 	accessLabel *widget.Label
 	accessBtn   *widget.Button
-	screenLabel *widget.Label
-	screenBtn   *widget.Button
 	permInfo    *widget.Label
 
-	captureModeSelect *widget.Select
-	captureModeLabel  *widget.Label
-	captureRequestBtn *widget.Button
+	// Screen Capture: a single unified control for how video gets captured.
+	// On Linux this is Sunshine's capture backend (Portal vs. KMS/root); on
+	// other platforms it's just the OS screen-recording permission. The
+	// status label and request button always reflect whichever method is
+	// currently selected — there is only ever one active method at a time.
+	screenCaptureLabel  *widget.Label
+	screenCaptureSelect *widget.Select
+	screenCaptureBtn    *widget.Button
 
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
@@ -76,7 +79,6 @@ type Window struct {
 type uiStatus struct {
 	tsStatus      *tailscale.Status
 	accessGranted bool
-	screenGranted bool
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
@@ -90,8 +92,8 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 }
 
 var captureModeLabels = map[string]string{
-	"":       "Auto (Portal)",
-	"portal": "Auto (Portal)",
+	"":       "Portal",
+	"portal": "Portal",
 	"kms":    "KMS (root)",
 }
 
@@ -100,6 +102,13 @@ func captureModeFromLabel(label string) string {
 		return "kms"
 	}
 	return "portal"
+}
+
+// linuxCaptureUIEnabled reports whether the Screen Capture row should show
+// the Linux method dropdown (Sunshine capture backend) rather than the
+// simple OS screen-recording permission toggle used on other platforms.
+func (w *Window) linuxCaptureUIEnabled() bool {
+	return runtime.GOOS == "linux" && w.token != nil
 }
 
 func (w *Window) applyCaptureMode(label string) {
@@ -112,18 +121,68 @@ func (w *Window) applyCaptureMode(label string) {
 		return
 	}
 	logrus.Infof("🎥 [UI] Sunshine capture mode changed to %s (restart Sunshine to apply)", mode)
-	w.refreshCaptureModeUI()
+	w.refreshScreenCaptureUI()
 }
 
-func (w *Window) refreshCaptureModeUI() {
-	if w.token == nil || w.captureRequestBtn == nil {
+// refreshScreenCaptureUI updates the status label and shows/hides the
+// request button based on whichever capture method is currently selected —
+// never both at once, so there's no ambiguity about which grant a click
+// affects.
+func (w *Window) refreshScreenCaptureUI() {
+	if w.screenCaptureLabel == nil {
 		return
 	}
-	mode := w.token.SunshineCaptureMode()
-	if mode == "kms" && !w.token.KMSCaptureGranted() {
-		w.captureRequestBtn.Show()
+
+	if w.linuxCaptureUIEnabled() {
+		mode := w.token.SunshineCaptureMode()
+		if mode == "kms" {
+			if w.token.KMSCaptureGranted() {
+				w.screenCaptureLabel.SetText("Screen Capture: ✅")
+				if w.screenCaptureBtn != nil {
+					w.screenCaptureBtn.Hide()
+				}
+			} else {
+				w.screenCaptureLabel.SetText("Screen Capture: ❌")
+				if w.screenCaptureBtn != nil {
+					w.screenCaptureBtn.Show()
+				}
+			}
+			return
+		}
+
+		// Portal capture needs no root, but on Wayland the portal permission
+		// can (and should) be pre-approved ahead of time — same
+		// InitPortalSession() flow used before Sunshine existed — so the
+		// system dialog doesn't surprise the user on first capture.
+		granted := w.perms != nil && w.perms.ScreenRecordingGranted()
+		if granted {
+			w.screenCaptureLabel.SetText("Screen Capture: ✅")
+		} else {
+			w.screenCaptureLabel.SetText("Screen Capture: ❌")
+		}
+		if w.screenCaptureBtn != nil {
+			if !granted && capture.GetLinuxEnv() == "Wayland" {
+				w.screenCaptureBtn.Show()
+			} else {
+				w.screenCaptureBtn.Hide()
+			}
+		}
+		return
+	}
+
+	if w.perms == nil {
+		return
+	}
+	if w.perms.ScreenRecordingGranted() {
+		w.screenCaptureLabel.SetText("Screen Capture: ✅")
+		if w.screenCaptureBtn != nil {
+			w.screenCaptureBtn.Hide()
+		}
 	} else {
-		w.captureRequestBtn.Hide()
+		w.screenCaptureLabel.SetText("Screen Capture: ❌")
+		if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.screenCaptureBtn != nil {
+			w.screenCaptureBtn.Show()
+		}
 	}
 }
 
@@ -194,67 +253,70 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	w.accessBtn.Importance = widget.HighImportance
 
-	w.screenLabel = widget.NewLabel("Screen Recording")
-	w.screenBtn = widget.NewButton("Request", func() {
-		if w.perms != nil {
-			_ = w.perms.RequestScreenRecording()
-			w.performRefresh()
-		}
+	// Screen Capture: single row covering however the video actually gets
+	// captured. On Linux that's Sunshine's backend (Portal, no root vs. KMS,
+	// root); elsewhere it's just the OS screen-recording permission.
+	w.screenCaptureLabel = widget.NewLabel("Screen Capture")
+	w.screenCaptureBtn = widget.NewButton("Request", func() {
+		w.screenCaptureBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.screenCaptureBtn != nil {
+					w.screenCaptureBtn.Enable()
+				}
+			})
+			if w.linuxCaptureUIEnabled() && w.token.SunshineCaptureMode() == "kms" {
+				w.token.RequestKMSCapture()
+			} else if w.perms != nil {
+				_ = w.perms.RequestScreenRecording()
+			}
+			fyne.Do(w.refreshScreenCaptureUI)
+		}()
 	})
-	w.screenBtn.Importance = widget.HighImportance
+	w.screenCaptureBtn.Importance = widget.HighImportance
 	w.permInfo = widget.NewLabel("")
 	w.permInfo.Wrapping = fyne.TextWrapWord
 
-	// Adjust for OS
+	// Adjust for OS. Linux always gets the interactive Screen Capture row
+	// (the method dropdown and its request button are meaningful regardless
+	// of X11/Wayland — KMS bypasses the display server entirely); other
+	// platforms only show request buttons where the permission is actually
+	// requestable (macOS, or Wayland's portal flow).
 	showButtons := runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")
+	linuxCapture := w.linuxCaptureUIEnabled()
 
-	if !showButtons {
+	if !showButtons && !linuxCapture {
 		w.accessBtn.Hide()
-		w.screenBtn.Hide()
+		w.screenCaptureBtn.Hide()
 	} else {
 		w.accessBtn.Resize(fyne.NewSize(80, 24))
-		w.screenBtn.Resize(fyne.NewSize(80, 24))
-		w.accessBtn.Show()
-		w.screenBtn.Show()
+		w.screenCaptureBtn.Resize(fyne.NewSize(80, 24))
+		if showButtons {
+			w.accessBtn.Show()
+		} else {
+			w.accessBtn.Hide()
+		}
 	}
 
-	permRows := []fyne.CanvasObject{
-		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
-		container.NewHBox(w.screenLabel, layout.NewSpacer(), w.screenBtn),
-	}
-	if !showButtons {
-		permRows = []fyne.CanvasObject{w.permInfo}
-	}
-
-	if runtime.GOOS == "linux" && w.token != nil {
-		w.captureModeLabel = widget.NewLabel("Capture Mode")
+	screenCaptureRow := container.NewHBox(w.screenCaptureLabel, layout.NewSpacer())
+	if linuxCapture {
 		// Build without OnChanged so the initial SetSelected below (which Fyne
 		// fires through OnChanged like any other selection) doesn't trigger an
 		// unwanted sunshine.conf write on every app start.
-		w.captureModeSelect = widget.NewSelect([]string{"Auto (Portal)", "KMS (root)"}, nil)
-		w.captureModeSelect.SetSelected(captureModeLabels[w.token.SunshineCaptureMode()])
-		w.captureModeSelect.OnChanged = w.applyCaptureMode
-		w.captureModeSelect.Resize(fyne.NewSize(140, 24))
+		w.screenCaptureSelect = widget.NewSelect([]string{"Portal", "KMS (root)"}, nil)
+		w.screenCaptureSelect.SetSelected(captureModeLabels[w.token.SunshineCaptureMode()])
+		w.screenCaptureSelect.OnChanged = w.applyCaptureMode
+		w.screenCaptureSelect.Resize(fyne.NewSize(120, 24))
+		screenCaptureRow.Add(w.screenCaptureSelect)
+	}
+	screenCaptureRow.Add(w.screenCaptureBtn)
 
-		w.captureRequestBtn = widget.NewButton("Request", func() {
-			if w.token == nil {
-				return
-			}
-			w.captureRequestBtn.Disable()
-			go func() {
-				defer fyne.Do(func() {
-					if w.captureRequestBtn != nil {
-						w.captureRequestBtn.Enable()
-					}
-				})
-				w.token.RequestKMSCapture()
-				fyne.Do(w.refreshCaptureModeUI)
-			}()
-		})
-		w.captureRequestBtn.Importance = widget.HighImportance
-		w.captureRequestBtn.Resize(fyne.NewSize(80, 24))
-
-		permRows = append(permRows, container.NewHBox(w.captureModeLabel, layout.NewSpacer(), w.captureModeSelect, w.captureRequestBtn))
+	permRows := []fyne.CanvasObject{
+		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
+		screenCaptureRow,
+	}
+	if !showButtons && !linuxCapture {
+		permRows = []fyne.CanvasObject{w.permInfo}
 	}
 
 	permContent := newTightVBox(permRows...)
@@ -371,7 +433,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// Initial refresh
 	w.performRefresh()
-	w.refreshCaptureModeUI()
+	w.refreshScreenCaptureUI()
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -406,7 +468,6 @@ func (w *Window) performRefresh() {
 		}
 		if w.perms != nil {
 			status.accessGranted = w.perms.AccessibilityGranted()
-			status.screenGranted = w.perms.ScreenRecordingGranted()
 		}
 
 		fyne.Do(func() {
@@ -427,21 +488,9 @@ func (w *Window) performRefresh() {
 					}
 				}
 			}
-			if w.screenLabel != nil {
-				if status.screenGranted {
-					w.screenLabel.SetText("Screen Recording: ✅")
-					if w.screenBtn != nil {
-						w.screenBtn.Hide()
-					}
-				} else {
-					w.screenLabel.SetText("Screen Recording: ❌")
-					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.screenBtn != nil {
-						w.screenBtn.Show()
-					}
-				}
-			}
-			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenLabel != nil {
-				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenLabel.Text))
+			w.refreshScreenCaptureUI()
+			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenCaptureLabel != nil {
+				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenCaptureLabel.Text))
 			}
 			w.refreshTailscaleWithStatus(status.tsStatus)
 		})

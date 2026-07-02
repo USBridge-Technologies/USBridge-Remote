@@ -268,6 +268,12 @@ func (a *App) SunshineCaptureMode() string {
 // agent config and Sunshine's own sunshine.conf, then restarts the bundled
 // Sunshine instance so the change actually takes effect — a config edit
 // alone is silently ignored by an already-running Sunshine process.
+//
+// Switching to "kms" without the capability granted yet is deliberately NOT
+// restarted here: Sunshine would immediately fail KMS and fall back to
+// portal, popping its portal permission dialog right after the user picked
+// KMS — confusing, and pointless since RequestKMSCapture already restarts
+// once the capability is actually granted.
 func (a *App) SetSunshineCaptureMode(mode string) error {
 	if err := sunshine.SetCaptureMode(mode); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
@@ -276,6 +282,9 @@ func (a *App) SetSunshineCaptureMode(mode string) error {
 	next.SunshineCaptureMode = mode
 	if err := a.SaveConfig(next); err != nil {
 		return err
+	}
+	if mode == "kms" && !a.KMSCaptureGranted() {
+		return nil
 	}
 	if err := a.RestartSunshine(); err != nil {
 		log.Printf("[app] failed to restart Sunshine after capture mode change: %v", err)
