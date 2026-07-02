@@ -169,6 +169,13 @@ fetch_sunshine_windows() {
     python -m zipfile -e "$tmp_zip" "$dest"
     rm -f "$tmp_zip"
 
+    # The portable zip places everything under a top-level Sunshine/ subdirectory.
+    # Flatten it so sunshine.exe lives directly under $dest (matching BinaryPath in Go).
+    if [[ -f "$dest/Sunshine/sunshine.exe" ]]; then
+        mv "$dest/Sunshine/"* "$dest/"
+        rmdir "$dest/Sunshine" 2>/dev/null || true
+    fi
+
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest"
 }
 
