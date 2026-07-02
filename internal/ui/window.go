@@ -323,28 +323,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 	permBlock := newPanel("Permissions", permContent)
 
 	// Column 2: Stats & Tailscale
-	displayCapture := w.cfg.VideoCapture
-	if runtime.GOOS == "linux" {
-		mode := strings.ToLower(strings.TrimSpace(displayCapture))
-		if mode == "" || mode == "auto" || mode == "dxgi" || (mode == "x11grab" && capture.GetLinuxEnv() == "Wayland") {
-			if capture.GetLinuxEnv() == "Wayland" {
-				displayCapture = "pipewire (auto)"
-			} else {
-				displayCapture = "x11grab (auto)"
-			}
-		}
-	}
-
 	sunshinePort := w.cfg.SunshinePort
 	if sunshinePort == 0 {
 		sunshinePort = 47990
 	}
 	w.statusInfo = widget.NewLabel(fmt.Sprintf(
-		"OS: %s\nHTTP Port: %d\nSunshine Port: %d\nCapture: %s",
+		"OS: %s\nHTTP Port: %d\nSunshine Port: %d",
 		capture.GetOSInfo(),
 		w.cfg.HTTPPort,
 		sunshinePort,
-		displayCapture,
 	))
 	w.statusInfo.Wrapping = fyne.TextWrapWord
 

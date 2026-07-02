@@ -34,13 +34,6 @@ type Application interface {
 	Screen() interface {
 		Snapshot() (*ScreenSnapshot, error)
 	}
-	Video() interface {
-		Start(VideoStartRequest) error
-		Stop() error
-		Info() map[string]interface{}
-	}
-	VideoDevices() []VideoDeviceInfo
-	PortalPipeWire() (uint32, int)
 	TailscaleStatus() *TailscaleStatusInfo
 	RegisterTailscale(ctx context.Context, authKey, hostname string) (*TailscaleStatusInfo, error)
 }
@@ -48,7 +41,6 @@ type Application interface {
 type Server struct {
 	app          Application
 	upgrader     websocket.Upgrader
-	cursor       cursorTracker
 	masterKey    []byte
 	sunshinePort int
 	sec          *SecurityMiddleware
@@ -200,7 +192,6 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serviceStop(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[api] service_stop")
-	_ = s.app.Video().Stop()
 	_ = s.app.ClearDevices()
 	s.ok(w, "service_stopped", nil)
 }
@@ -212,7 +203,6 @@ func (s *Server) serviceStart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serviceRestart(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[api] service_restart")
-	_ = s.app.Video().Stop()
 	_ = s.app.ClearDevices()
 	s.ok(w, "service_restarted", nil)
 }
@@ -413,7 +403,7 @@ func (s *Server) mouse(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, "mouse_failed", err)
 		return
 	}
-	s.ok(w, "mouse_ok", MouseResponseData{Cursor: s.cursor.apply(req)})
+	s.ok(w, "mouse_ok", MouseResponseData{})
 }
 
 const (
@@ -450,18 +440,13 @@ func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
 		return conn.WriteJSON(v)
 	}
 
-	// Proactive cursor updates + keepalive ping pusher
+	// Keepalive ping pusher
 	stopPush := make(chan struct{})
 	defer close(stopPush)
 
 	go func() {
-		cursorTicker := time.NewTicker(33 * time.Millisecond) // ~30 FPS for cursor
 		pingTicker := time.NewTicker(wsPingInterval)
-		defer cursorTicker.Stop()
 		defer pingTicker.Stop()
-		var lastCursor *CursorState
-		var lastLog time.Time
-		log.Printf("[api] mouse_ws cursor pusher started for %s", conn.RemoteAddr().String())
 
 		for {
 			select {
@@ -471,46 +456,6 @@ func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
 				if err := safePing(); err != nil {
 					log.Printf("[api] mouse_ws ping failed, closing: %v", err)
 					conn.Close()
-					return
-				}
-			case <-cursorTicker.C:
-				current := s.cursor.snapshot()
-
-				if current == nil {
-					if time.Since(lastLog) > 3*time.Second {
-						log.Printf("[api] mouse_ws cursor_pusher alive, but cursor is nil (watcher enabled: %v)", s.cursor.enabled)
-						lastLog = time.Now()
-					}
-					continue
-				}
-
-				// Only send if it changed (basic check)
-				if lastCursor != nil &&
-					lastCursor.X == current.X &&
-					lastCursor.Y == current.Y &&
-					lastCursor.Visible == current.Visible {
-
-					if time.Since(lastLog) > 3*time.Second {
-						log.Printf("[api] mouse_ws cursor_push (static): x=%.1f y=%.1f vis=%v", current.X, current.Y, current.Visible)
-						lastLog = time.Now()
-					}
-					continue
-				}
-				lastCursor = current
-
-				if time.Since(lastLog) > 500*time.Millisecond {
-					log.Printf("[api] mouse_ws cursor_push (active): x=%.1f y=%.1f vis=%v size=%dx%d",
-						current.X, current.Y, current.Visible, current.Width, current.Height)
-					lastLog = time.Now()
-				}
-
-				err := safeWriteJSON(APIResponse{
-					Success: true,
-					Message: "cursor_update",
-					Data:    MouseResponseData{Cursor: current},
-				})
-				if err != nil {
-					log.Printf("[api] mouse_ws pusher exit due to write error: %v", err)
 					return
 				}
 			}
@@ -530,7 +475,7 @@ func (s *Server) mouseWS(w http.ResponseWriter, r *http.Request) {
 			_ = safeWriteJSON(APIResponse{Success: false, Error: "mouse_failed", Details: err.Error()})
 			continue
 		}
-		_ = safeWriteJSON(APIResponse{Success: true, Message: "ok", Data: MouseResponseData{Cursor: s.cursor.apply(req)}})
+		_ = safeWriteJSON(APIResponse{Success: true, Message: "ok", Data: MouseResponseData{}})
 	}
 }
 
@@ -551,38 +496,24 @@ func (s *Server) applyMouse(req MouseRequest) error {
 	}
 }
 
+// videoInfo/videoStart/videoStop/videoDevices are stubs kept for wire
+// compatibility with usbridge_client, which still polls them — the actual
+// video/input path is Moonlight/Sunshine (GameStream ports 47984/47989),
+// not this REST API. The agent's own former FFmpeg+XDG-portal capture
+// pipeline was removed: it ran redundantly alongside Sunshine and triggered
+// its own independent portal permission prompt after a Moonlight session
+// had already connected successfully.
 func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
-	info := enrichVideoInfo(s.app.Video().Info(), s.app.VideoDevices(), r.URL.Query().Get("device"))
-	log.Printf("[api] video_info device=%s modes=%d transports=%d streaming=%v", asString(info["device"]), len(asCaptureModes(info["capture_modes"])), len(asTransportModes(info["supported_modes"])), asBool(info["streaming"]))
-	s.ok(w, "video_info", info)
+	s.ok(w, "video_info", map[string]any{
+		"streaming": false,
+		"transport": "moonlight",
+		"encoding":  "h264",
+		"mode":      "moonlight",
+	})
 }
 
 func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
-	var req VideoStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-		log.Printf("[api] video_start invalid_json: %v", err)
-		s.fail(w, http.StatusBadRequest, "invalid_json", err)
-		return
-	}
-	req.TraceID = strings.TrimSpace(r.Header.Get("X-USBridge-Video-Trace"))
-
-	clientIP := strings.TrimSpace(req.ClientHost)
-	if net.ParseIP(clientIP) == nil {
-		clientIP = getClientIP(r)
-	}
-	req.ClientHost = clientIP
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		host = strings.TrimSpace(host)
-		log.Printf("[api] video_start trace=%s peer=%s requested_client=%s:%d", req.TraceID, host, req.ClientHost, req.ClientPort)
-	}
-	log.Printf("[api] video_start width=%d height=%d fps=%d bitrate=%s mode=%s", req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.VideoMode)
-	if err := s.app.Video().Start(req); err != nil {
-		log.Printf("[api] video_start failed: %v", err)
-		s.fail(w, http.StatusInternalServerError, "video_start_failed", err)
-		return
-	}
-	nodeID, fd := s.app.PortalPipeWire()
-	s.cursor.configure(req.ShowMouse, nodeID, fd, req.VideoWidth, req.VideoHeight)
+	log.Printf("[api] video_start (no-op — video is served via Sunshine/Moonlight)")
 	s.ok(w, "video_started", nil)
 }
 
@@ -618,22 +549,14 @@ func isLoopbackHost(host string) bool {
 }
 
 func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[api] video_stop")
-	if err := s.app.Video().Stop(); err != nil {
-		log.Printf("[api] video_stop failed: %v", err)
-		s.fail(w, http.StatusInternalServerError, "video_stop_failed", err)
-		return
-	}
-	s.cursor.clear()
+	log.Printf("[api] video_stop (no-op — video is served via Sunshine/Moonlight)")
 	s.ok(w, "video_stopped", nil)
 }
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
-	devices := s.app.VideoDevices()
-	log.Printf("[api] video_devices count=%d", len(devices))
 	s.ok(w, "video_devices", map[string]any{
-		"devices": devices,
-		"count":   len(devices),
+		"devices": []any{},
+		"count":   0,
 	})
 }
 
@@ -741,132 +664,4 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 		out = append(out, device)
 	}
 	return out
-}
-
-func enrichVideoInfo(info map[string]interface{}, devices []VideoDeviceInfo, requestedDevice string) map[string]interface{} {
-	if info == nil {
-		info = make(map[string]interface{})
-	}
-
-	devicePath := strings.TrimSpace(requestedDevice)
-	if devicePath == "" && len(devices) > 0 {
-		devicePath = devices[0].Path
-	}
-
-	width, _ := info["width"].(int)
-	height, _ := info["height"].(int)
-	fps, _ := info["fps"].(int)
-	if width <= 0 {
-		width = 1280
-	}
-	if height <= 0 {
-		height = 720
-	}
-	if fps <= 0 {
-		fps = 30
-	}
-
-	info["device"] = devicePath
-	info["mode"] = firstNonEmptyString(asString(info["mode"]), "h264")
-	info["transport"] = firstNonEmptyString(asString(info["transport"]), "rtp")
-	info["encoding"] = firstNonEmptyString(asString(info["encoding"]), "h264")
-	info["source_format"] = firstNonEmptyString(asString(info["source_format"]), "BGRA")
-	info["server_decodes_jpeg"] = true
-	info["udp_port"] = firstPositiveInt(info["udp_port"], 55000)
-	info["udp_listener_ready"] = true
-	info["stream_url"] = fmt.Sprintf("rtp://127.0.0.1:%d", firstPositiveInt(info["udp_port"], 55000))
-	info["available_devices"] = devices
-
-	captureModes := []VideoCaptureMode{
-		{Width: 640, Height: 480, FPS: []int{15, 30}, PixelFormat: "BGRA"},
-		{Width: 1280, Height: 720, FPS: []int{15, 30, 60}, PixelFormat: "BGRA"},
-		{Width: 1920, Height: 1080, FPS: []int{15, 30, 60}, PixelFormat: "BGRA"},
-	}
-
-	for _, d := range devices {
-		if d.Path == devicePath && len(d.SupportedModes) > 0 {
-			captureModes = d.SupportedModes
-			break
-		}
-	}
-	info["capture_modes"] = captureModes
-
-	if width <= 0 && len(captureModes) > 0 {
-		width = captureModes[0].Width
-	}
-	if height <= 0 && len(captureModes) > 0 {
-		height = captureModes[0].Height
-	}
-
-	if width <= 0 {
-		width = 1280
-	}
-	if height <= 0 {
-		height = 720
-	}
-	if fps <= 0 {
-		fps = 30
-	}
-
-	info["supported_modes"] = []VideoTransportMode{
-		{
-			ID:                "h264",
-			Name:              "H.264",
-			Description:       "Desktop capture -> H.264 encode -> RTP/UDP",
-			Transport:         "rtp",
-			Encoding:          "h264",
-			ServerDecodesJPEG: false,
-		},
-	}
-
-	if _, ok := info["width"]; !ok {
-		info["width"] = width
-	}
-	if _, ok := info["height"]; !ok {
-		info["height"] = height
-	}
-	if _, ok := info["fps"]; !ok {
-		info["fps"] = fps
-	}
-
-	return info
-}
-
-func asString(v interface{}) string {
-	s, _ := v.(string)
-	return s
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstPositiveInt(value interface{}, fallback int) int {
-	if v, ok := value.(int); ok && v > 0 {
-		return v
-	}
-	if v, ok := value.(float64); ok && v > 0 {
-		return int(v)
-	}
-	return fallback
-}
-
-func asCaptureModes(value interface{}) []VideoCaptureMode {
-	modes, _ := value.([]VideoCaptureMode)
-	return modes
-}
-
-func asTransportModes(value interface{}) []VideoTransportMode {
-	modes, _ := value.([]VideoTransportMode)
-	return modes
-}
-
-func asBool(value interface{}) bool {
-	v, _ := value.(bool)
-	return v
 }

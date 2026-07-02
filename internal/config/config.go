@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -60,14 +59,6 @@ type Config struct {
 	HTTPPort         int           `yaml:"http_port"`
 	TailscaleEnabled bool          `yaml:"tailscale_enabled"`
 	TailscaleMode    TailscaleMode `yaml:"tailscale_mode"`
-	VideoUDPPort     int           `yaml:"video_udp_port"`
-	FFmpegPath       string        `yaml:"ffmpeg_path"`
-	VideoFPS         int           `yaml:"video_fps"`
-	VideoWidth       int           `yaml:"video_width"`
-	VideoHeight      int           `yaml:"video_height"`
-	VideoBitrate     string        `yaml:"video_bitrate"`
-	VideoCodec       string        `yaml:"video_codec"`
-	VideoCapture     string        `yaml:"video_capture"`
 	NBDMountCommand  string        `yaml:"nbd_mount_command"`
 	StateDir         string        `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
@@ -80,30 +71,14 @@ type Config struct {
 }
 
 func Default() Config {
-	stateDir := defaultStateDir()
-	videoCapture := "dxgi"
-	videoCodec := "auto"
-	if runtime.GOOS == "darwin" {
-		videoCapture = "avfoundation"
-	} else if runtime.GOOS == "linux" {
-		videoCapture = "auto"
-	}
 	return Config{
 		AppName:          "USBridge Agent",
 		ListenHost:       "0.0.0.0",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
 		TailscaleMode:    TailscaleModeSystem,
-		VideoUDPPort:     55000,
-		FFmpegPath:       "ffmpeg",
-		VideoFPS:         30,
-		VideoWidth:       1280,
-		VideoHeight:      720,
-		VideoBitrate:     "4M",
-		VideoCodec:       videoCodec,
-		VideoCapture:     videoCapture,
 		NBDMountCommand:  "",
-		StateDir:         stateDir,
+		StateDir:         defaultStateDir(),
 		SunshinePort:     47990,
 	}
 }
@@ -188,37 +163,5 @@ func resolvePaths(cfg Config, cfgPath string) Config {
 }
 
 func finalize(cfg Config, cfgPath string) (Config, error) {
-	cfg = resolvePaths(cfg, cfgPath)
-	cfg.FFmpegPath = resolveFFmpegPath(cfg.FFmpegPath)
-	return cfg, nil
-}
-
-func resolveFFmpegPath(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		value = "ffmpeg"
-	}
-
-	if filepath.IsAbs(value) {
-		return value
-	}
-
-	if strings.ContainsRune(value, filepath.Separator) {
-		return filepath.Clean(value)
-	}
-
-	if path, err := exec.LookPath(value); err == nil {
-		return path
-	}
-
-	if runtime.GOOS == "darwin" {
-		for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
-			candidate := filepath.Join(dir, value)
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-				return candidate
-			}
-		}
-	}
-
-	return value
+	return resolvePaths(cfg, cfgPath), nil
 }

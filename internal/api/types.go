@@ -111,34 +111,11 @@ type MouseRequest struct {
 	ButtonState *uint8 `json:"button_state,omitempty"`
 }
 
-type VideoStartRequest struct {
-	VideoDevice  string `json:"video_device,omitempty"`
-	VideoWidth   int    `json:"video_width"`
-	VideoHeight  int    `json:"video_height"`
-	VideoFPS     int    `json:"video_fps"`
-	VideoQuality int    `json:"video_quality"`
-	VideoBitrate string `json:"video_bitrate"`
-	VideoMode    string `json:"video_mode,omitempty"`
-	ClientHost   string `json:"client_host,omitempty"`
-	ClientPort   int    `json:"client_port,omitempty"`
-	ShowMouse    bool   `json:"show_mouse,omitempty"`
-	TraceID      string `json:"-"`
-}
-
 type VideoCaptureMode struct {
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
 	FPS         []int  `json:"fps"`
 	PixelFormat string `json:"pixel_format"`
-}
-
-type VideoTransportMode struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Transport         string `json:"transport"`
-	Encoding          string `json:"encoding"`
-	ServerDecodesJPEG bool   `json:"server_decodes_jpeg"`
 }
 
 type VideoDeviceInfo struct {

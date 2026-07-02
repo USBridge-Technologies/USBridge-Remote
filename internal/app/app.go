@@ -30,7 +30,6 @@ import (
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
-	"usbridge_agent/internal/video"
 )
 
 type deviceState struct {
@@ -48,7 +47,6 @@ type App struct {
 	state    *deviceState
 	input    *input.Controller
 	screen   *capture.Service
-	video    *video.Manager
 	perms    *permissions.Service
 	ts       *tailscale.Service
 	sunshine *sunshine.Process
@@ -96,7 +94,6 @@ func New() (*App, error) {
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.fyneApp.SetIcon(assets.AppIcon)
-	instance.video = video.New(cfg, instance.ts)
 	instance.sunshine = sunshine.NewProcess(sunshine.LaunchPath(resolveExeDir()), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.server = &http.Server{
@@ -144,20 +141,7 @@ func (a *App) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	captureMode := a.cfg.VideoCapture
-	if runtime.GOOS == "linux" {
-		mode := strings.ToLower(strings.TrimSpace(captureMode))
-		if mode == "" || mode == "auto" || mode == "dxgi" || (mode == "x11grab" && capture.GetLinuxEnv() == "Wayland") {
-			if capture.GetLinuxEnv() == "Wayland" {
-				captureMode = "pipewire (auto)"
-			} else {
-				captureMode = "x11grab (auto)"
-			}
-		}
-	}
-
-	log.Printf("[app] starting http=%s:%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.VideoUDPPort, captureMode)
-	log.Printf("[app] ffmpeg path=%s", a.cfg.FFmpegPath)
+	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 	if a.sunshine != nil {
 		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 			log.Printf("[app] failed to start Sunshine: %v", err)
@@ -216,7 +200,6 @@ func (a *App) Run() error {
 			_ = a.tsHTTP.Shutdown(context.Background())
 		}
 		_ = a.ts.Close()
-		_ = a.video.Close()
 		if a.sunshine != nil {
 			_ = a.sunshine.Stop()
 		}
@@ -454,10 +437,6 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return nil
 }
 
-func (a *App) PortalPipeWire() (uint32, int) {
-	return capture.GetPortalPipeWireNodeID(), capture.GetPortalPipeWireFD()
-}
-
 func (a *App) Status() api.SystemStatus {
 	return api.SystemStatus{
 		Service: api.ServiceStatus{
@@ -573,16 +552,4 @@ func (a *App) Screen() interface {
 	Snapshot() (*api.ScreenSnapshot, error)
 } {
 	return a.screen
-}
-
-func (a *App) Video() interface {
-	Start(api.VideoStartRequest) error
-	Stop() error
-	Info() map[string]interface{}
-} {
-	return a.video
-}
-
-func (a *App) VideoDevices() []api.VideoDeviceInfo {
-	return a.screen.Devices()
 }
