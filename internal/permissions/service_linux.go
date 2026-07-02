@@ -87,8 +87,9 @@ func (s *Service) RequestScreenRecording() bool {
 	return true
 }
 
-func (s *Service) RequestMissing()            {}
-func (s *Service) OpenPrivacySettings() error { return nil }
+func (s *Service) RequestMissing()                      {}
+func (s *Service) OpenPrivacySettings() error           { return nil }
+func (s *Service) OpenScreenRecordingSettings() error   { return nil }
 
 // KMSCaptureGranted reports whether the bundled Sunshine binary has the
 // CAP_SYS_ADMIN capability needed for direct KMS screen capture (root-level,

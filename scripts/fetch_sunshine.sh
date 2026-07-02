@@ -218,5 +218,8 @@ fetch_sunshine_macos() {
     hdiutil detach -quiet "$mount_point"
     rm -f "$tmp_dmg"
 
+    # Remove quarantine so macOS allows Sunshine to request TCC permissions
+    xattr -dr com.apple.quarantine "$dest/Sunshine.app" 2>/dev/null || true
+
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest/Sunshine.app"
 }

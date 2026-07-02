@@ -90,18 +90,28 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
+
+# Bundle Sunshine before signing — adding files after signing breaks the seal.
+source "$SCRIPT_DIR/fetch_sunshine.sh"
+fetch_sunshine_macos "$APP_MACOS/sunshine"
+
+# Auto-detect Developer ID if not explicitly set
+if [ -z "$CODESIGN_IDENTITY" ] && command -v security >/dev/null 2>&1; then
+    CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep "Developer ID Application" | head -1 \
+        | awk '{print $2}')
+fi
+
 if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     echo -e "${YELLOW}Signing app bundle with identity: $CODESIGN_IDENTITY${NC}"
     codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE"
 else
-    rm -rf "$APP_CONTENTS/_CodeSignature"
-    echo -e "${YELLOW}Skipping codesign for dev build (stable TCC is expected via fixed install path).${NC}"
+    # Go linker embeds an adhoc linker-signed signature which macOS rejects as
+    # "damaged" unless we replace it with a proper codesign call. Use ad-hoc (-).
+    echo -e "${YELLOW}No Developer ID found — signing ad-hoc to strip linker-signed flag${NC}"
+    codesign --force --deep --sign - "$APP_BUNDLE"
 fi
-
-cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
-
-source "$SCRIPT_DIR/fetch_sunshine.sh"
-fetch_sunshine_macos "$DIST_DIR/sunshine"
 
 cat > "$DIST_DIR/README.txt" <<'README'
 USBridgeAgent for macOS
@@ -111,11 +121,11 @@ Run:
   ./scripts/install_macos.sh
   open "$HOME/Applications/USBridgeAgent.app"
 
-Video/input: Sunshine (Moonlight GameStream host) is bundled in ./sunshine/ and
-is started automatically by the agent (Sunshine.app), including a one-time
-admin credential bootstrap. The agent itself is not in the video/input path;
-it only pairs with and relays PINs to Sunshine's local API (port 47990) on
-behalf of usbridge_client.
+Video/input: Sunshine (Moonlight GameStream host) is bundled inside the app at
+USBridgeAgent.app/Contents/MacOS/sunshine/Sunshine.app and is started
+automatically by the agent, including a one-time admin credential bootstrap.
+The agent itself is not in the video/input path; it only pairs with and relays
+PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
 
 Requirements:
   - Accessibility permission for mouse/keyboard injection

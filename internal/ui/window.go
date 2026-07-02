@@ -39,6 +39,7 @@ type Window struct {
 		SetSunshineCaptureMode(mode string) error
 		KMSCaptureGranted() bool
 		RequestKMSCapture() bool
+		RestartSunshine() error
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -46,6 +47,7 @@ type Window struct {
 		RequestAccessibility() bool
 		RequestScreenRecording() bool
 		OpenPrivacySettings() error
+		OpenScreenRecordingSettings() error
 	}
 	ts interface {
 		Status(context.Context) (*tailscale.Status, error)
@@ -87,6 +89,7 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	RestartSunshine() error
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -257,7 +260,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// captured. On Linux that's Sunshine's backend (Portal, no root vs. KMS,
 	// root); elsewhere it's just the OS screen-recording permission.
 	w.screenCaptureLabel = widget.NewLabel("Screen Capture")
-	w.screenCaptureBtn = widget.NewButton("Request", func() {
+	screenCaptureBtnLabel := "Request"
+	if runtime.GOOS == "darwin" {
+		screenCaptureBtnLabel = "Open Settings"
+	}
+	w.screenCaptureBtn = widget.NewButton(screenCaptureBtnLabel, func() {
 		w.screenCaptureBtn.Disable()
 		go func() {
 			defer fyne.Do(func() {
@@ -267,6 +274,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 			})
 			if w.linuxCaptureUIEnabled() && w.token.SunshineCaptureMode() == "kms" {
 				w.token.RequestKMSCapture()
+			} else if runtime.GOOS == "darwin" && w.perms != nil {
+				// On macOS, screen recording must be granted to Sunshine
+				// (a separate process) via System Preferences — we can't
+				// request it on Sunshine's behalf. Open the Settings pane
+				// so the user can enable it, then restart Sunshine to pick
+				// up the new permission.
+				_ = w.perms.OpenScreenRecordingSettings()
+				if w.token != nil {
+					_ = w.token.RestartSunshine()
+				}
 			} else if w.perms != nil {
 				_ = w.perms.RequestScreenRecording()
 			}
