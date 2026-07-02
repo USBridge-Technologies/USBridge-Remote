@@ -22,6 +22,7 @@ import (
 
 	"usbridge_agent/assets"
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/audio"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/input"
@@ -552,4 +553,35 @@ func (a *App) Screen() interface {
 	Snapshot() (*api.ScreenSnapshot, error)
 } {
 	return a.screen
+}
+
+// VideoDevices reports real display metadata (native resolution, supported
+// FPS modes) — descriptive only, no capture process is spawned here.
+// Sunshine does the actual capturing/encoding.
+func (a *App) VideoDevices() []api.VideoDeviceInfo {
+	return a.screen.Devices()
+}
+
+// AudioSinks enumerates real system audio output devices the client can
+// choose for Sunshine to capture from.
+func (a *App) AudioSinks() ([]api.AudioSink, error) {
+	return audio.ListSinks()
+}
+
+// CurrentAudioSink returns the sink Sunshine is configured to use, falling
+// back to the system default sink if Sunshine has no explicit override.
+func (a *App) CurrentAudioSink() (string, error) {
+	if sink := sunshine.AudioSink(); sink != "" {
+		return sink, nil
+	}
+	return audio.DefaultSink()
+}
+
+// SetAudioSink points Sunshine at the given audio device (sunshine.conf's
+// audio_sink) and restarts it so the change takes effect.
+func (a *App) SetAudioSink(sink string) error {
+	if err := sunshine.SetAudioSink(sink); err != nil {
+		return fmt.Errorf("write sunshine.conf: %w", err)
+	}
+	return a.RestartSunshine()
 }

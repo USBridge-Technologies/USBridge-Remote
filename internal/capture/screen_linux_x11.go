@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/kbinani/screenshot"
-	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/api"
 )
 
@@ -49,44 +48,15 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	}, nil
 }
 
+// Devices reports real display metadata (native resolution, supported FPS)
+// for descriptive purposes only — it never touches the XDG desktop portal.
+// Sunshine does the actual capturing (and requests its own portal session
+// if/when it needs one); triggering a second, independent portal session
+// here just to describe available displays caused a confusing extra
+// permission prompt after Sunshine had already connected successfully.
+// screenshot.NumActiveDisplays/GetDisplayBounds work under Wayland too via
+// XWayland, so this needs no Wayland-specific branch.
 func (s *Service) Devices() []api.VideoDeviceInfo {
-	env := GetLinuxEnv()
-	resStr := GetDisplayResString(0)
-
-	if env == "Wayland" {
-		portal := GetPortal()
-		nodeID := portal.NodeID()
-		
-		if nodeID == 0 {
-			go func() {
-				if err := portal.Init(); err != nil {
-					logrus.Errorf("[capture] failed to auto-init portal: %v", err)
-				}
-			}()
-			
-			return []api.VideoDeviceInfo{
-				{
-					Path:      "pipewire:auto",
-					Name:      "Wayland Screen" + resStr + " (Portal not yet active)",
-					Bus:       "wayland",
-					Index:     0,
-					Connected: false,
-				},
-			}
-		}
-
-		return []api.VideoDeviceInfo{
-			{
-				Path:           fmt.Sprintf("pipewire:%d", nodeID),
-				Name:           fmt.Sprintf("Wayland Shared Screen%s (Node %d)", resStr, nodeID),
-				Bus:            "wayland",
-				Index:          0,
-				Connected:      true,
-				SupportedModes: GetDisplayModes(0),
-			},
-		}
-	}
-
 	num := screenshot.NumActiveDisplays()
 	out := make([]api.VideoDeviceInfo, 0, num)
 	for i := 0; i < num; i++ {

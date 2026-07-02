@@ -34,6 +34,13 @@ type Application interface {
 	Screen() interface {
 		Snapshot() (*ScreenSnapshot, error)
 	}
+	// VideoDevices reports real display metadata (native resolution, supported
+	// FPS) — descriptive only. Actual capture/encoding is Sunshine's job; the
+	// agent never spawns ffmpeg or any other capture process itself.
+	VideoDevices() []VideoDeviceInfo
+	AudioSinks() ([]AudioSink, error)
+	CurrentAudioSink() (string, error)
+	SetAudioSink(sink string) error
 	TailscaleStatus() *TailscaleStatusInfo
 	RegisterTailscale(ctx context.Context, authKey, hostname string) (*TailscaleStatusInfo, error)
 }
@@ -95,11 +102,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/drives/local", sec.LimitPolling(s.localDrives))
 	mux.HandleFunc("/api/iso/space", sec.LimitPolling(s.isoSpace))
 	mux.HandleFunc("/api/backup/get_snapshots", sec.LimitPolling(s.backupGetSnapshots))
-	// Hardware-only features (SD/eMMC storage, on-device scripts, ALSA audio capture)
-	// that this software agent doesn't implement — stubbed as "nothing here" rather
-	// than 404 so client polling doesn't treat them as protocol errors.
+	// Audio device selection: real sinks (pactl), applied to Sunshine's own
+	// audio_sink config — the agent never captures audio itself.
 	mux.HandleFunc("/api/audio/info", sec.LimitPolling(s.audioInfo))
 	mux.HandleFunc("/api/audio/devices", sec.LimitPolling(s.audioDevices))
+	mux.HandleFunc("/api/audio/start", sec.LimitPolling(s.audioStart))
+	mux.HandleFunc("/api/audio/stop", sec.LimitPolling(s.audioStop))
+	// Hardware-only features (SD/eMMC storage, on-device scripts) that this
+	// software agent doesn't implement — stubbed as "nothing here" rather
+	// than 404 so client polling doesn't treat them as protocol errors.
 	mux.HandleFunc("/api/storage/status", sec.LimitPolling(s.storageStatus))
 	mux.HandleFunc("/api/scripts/list", sec.LimitPolling(s.scriptsList))
 	mux.HandleFunc("/api/scripts/status", sec.LimitPolling(s.scriptsStatus))
@@ -287,19 +298,75 @@ func (s *Server) backupGetSnapshots(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) audioInfo(w http.ResponseWriter, r *http.Request) {
+	sink, err := s.app.CurrentAudioSink()
+	if err != nil {
+		s.ok(w, "audio_info", map[string]any{"streaming": false, "device_path": "", "device_name": "", "muted": false})
+		return
+	}
+
+	deviceName := sink
+	if sinks, err := s.app.AudioSinks(); err == nil {
+		for _, sk := range sinks {
+			if sk.Name == sink {
+				deviceName = sk.Description
+				break
+			}
+		}
+	}
+
 	s.ok(w, "audio_info", map[string]any{
 		"streaming":   false,
-		"device_path": "",
-		"device_name": "",
+		"device_path": sink,
+		"device_name": deviceName,
 		"muted":       false,
 	})
 }
 
 func (s *Server) audioDevices(w http.ResponseWriter, r *http.Request) {
-	s.ok(w, "audio_devices", map[string]any{
-		"devices": []any{},
-		"count":   0,
-	})
+	sinks, err := s.app.AudioSinks()
+	if err != nil {
+		log.Printf("[api] audio_devices: %v", err)
+		s.ok(w, "audio_devices", map[string]any{"devices": []any{}, "count": 0})
+		return
+	}
+	devices := make([]map[string]any, 0, len(sinks))
+	for _, sk := range sinks {
+		devices = append(devices, map[string]any{
+			"name":        sk.Description,
+			"path":        sk.Name,
+			"connected":   true,
+			"description": sk.Description,
+		})
+	}
+	s.ok(w, "audio_devices", map[string]any{"devices": devices, "count": len(devices)})
+}
+
+func (s *Server) audioStart(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DevicePath string `json:"device_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[api] audio_start invalid_json: %v", err)
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	log.Printf("[api] audio_start device=%s", req.DevicePath)
+	if err := s.app.SetAudioSink(req.DevicePath); err != nil {
+		log.Printf("[api] audio_start failed: %v", err)
+		s.fail(w, http.StatusInternalServerError, "audio_start_failed", err)
+		return
+	}
+	s.ok(w, "audio_started", nil)
+}
+
+func (s *Server) audioStop(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[api] audio_stop (reset to system default sink)")
+	if err := s.app.SetAudioSink(""); err != nil {
+		log.Printf("[api] audio_stop failed: %v", err)
+		s.fail(w, http.StatusInternalServerError, "audio_stop_failed", err)
+		return
+	}
+	s.ok(w, "audio_stopped", nil)
 }
 
 func (s *Server) storageStatus(w http.ResponseWriter, r *http.Request) {
@@ -504,11 +571,45 @@ func (s *Server) applyMouse(req MouseRequest) error {
 // its own independent portal permission prompt after a Moonlight session
 // had already connected successfully.
 func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
+	devices := s.app.VideoDevices()
+	requested := strings.TrimSpace(r.URL.Query().Get("device"))
+
+	var selected *VideoDeviceInfo
+	for i := range devices {
+		if devices[i].Path == requested {
+			selected = &devices[i]
+			break
+		}
+	}
+	if selected == nil && len(devices) > 0 {
+		selected = &devices[0]
+	}
+
+	devicePath := "desktop"
+	width, height, fps := 1920, 1080, 60
+	var modes []VideoCaptureMode
+	if selected != nil {
+		devicePath = selected.Path
+		modes = selected.SupportedModes
+		if len(modes) > 0 {
+			width, height = modes[0].Width, modes[0].Height
+			if n := len(modes[0].FPS); n > 0 {
+				fps = modes[0].FPS[n-1]
+			}
+		}
+	}
+
 	s.ok(w, "video_info", map[string]any{
-		"streaming": false,
-		"transport": "moonlight",
-		"encoding":  "h264",
-		"mode":      "moonlight",
+		"device":            devicePath,
+		"width":             width,
+		"height":            height,
+		"fps":               fps,
+		"mode":              "moonlight",
+		"transport":         "moonlight",
+		"encoding":          "h264",
+		"streaming":         false,
+		"capture_modes":     modes,
+		"available_devices": devices,
 	})
 }
 
@@ -554,18 +655,15 @@ func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
-	// usbridge_client's device-resolution flow (resolvePreferredVideoConfig)
-	// errors out and refuses to proceed to Moonlight if this list is empty —
-	// even though video is actually served by Sunshine, not through this
-	// legacy device-enumeration path. One synthetic "desktop" entry keeps
-	// that client-side gate satisfied.
-	devices := []map[string]any{
-		{
-			"name":        "Desktop (Sunshine)",
-			"path":        "desktop",
-			"connected":   true,
-			"description": "Full desktop capture via Sunshine/Moonlight",
-		},
+	devices := s.app.VideoDevices()
+	if len(devices) == 0 {
+		// usbridge_client's device-resolution flow (resolvePreferredVideoConfig)
+		// errors out and refuses to proceed to Moonlight if this list is
+		// empty — even though video is actually served by Sunshine, not
+		// through this legacy device-enumeration path. Fall back to one
+		// synthetic entry so that client-side gate is satisfied even if
+		// display enumeration genuinely found nothing.
+		devices = []VideoDeviceInfo{{Path: "desktop", Name: "Desktop (Sunshine)", Connected: true}}
 	}
 	s.ok(w, "video_devices", map[string]any{
 		"devices": devices,

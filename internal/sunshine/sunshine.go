@@ -220,10 +220,11 @@ func ConfigPath() string {
 	}
 }
 
-// SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
-// removes the key (Sunshine auto-detects: portal on Wayland, x11 on X11).
-// The file is created if missing; other keys/values are preserved verbatim.
-func SetCaptureMode(mode string) error {
+// setConfigKey upserts a single "key = value" line in sunshine.conf. An
+// empty value removes the key (falling back to Sunshine's own default/auto
+// behavior). The file is created if missing; other keys/values are
+// preserved verbatim.
+func setConfigKey(key, value string) error {
 	path := ConfigPath()
 	if path == "" {
 		return os.ErrNotExist
@@ -237,8 +238,12 @@ func SetCaptureMode(mode string) error {
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		for scanner.Scan() {
 			line := scanner.Text()
-			if strings.HasPrefix(strings.TrimSpace(line), "capture") && strings.Contains(line, "=") {
-				continue // drop existing capture line, re-added below if needed
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, key) && strings.Contains(trimmed, "=") {
+				parts := strings.SplitN(trimmed, "=", 2)
+				if strings.TrimSpace(parts[0]) == key {
+					continue // drop existing line, re-added below if needed
+				}
 			}
 			lines = append(lines, line)
 		}
@@ -246,9 +251,9 @@ func SetCaptureMode(mode string) error {
 		return err
 	}
 
-	mode = strings.TrimSpace(mode)
-	if mode != "" {
-		lines = append(lines, "capture = "+mode)
+	value = strings.TrimSpace(value)
+	if value != "" {
+		lines = append(lines, key+" = "+value)
 	}
 
 	content := strings.Join(lines, "\n")
@@ -258,9 +263,9 @@ func SetCaptureMode(mode string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-// CaptureMode reads the current "capture" value from sunshine.conf, or ""
-// if unset (auto-detect).
-func CaptureMode() string {
+// configKey reads the current value of a "key = value" line from
+// sunshine.conf, or "" if unset.
+func configKey(key string) string {
 	path := ConfigPath()
 	if path == "" {
 		return ""
@@ -272,13 +277,38 @@ func CaptureMode() string {
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "capture") {
+		if !strings.HasPrefix(line, key) {
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 && strings.TrimSpace(parts[0]) == "capture" {
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
 			return strings.TrimSpace(parts[1])
 		}
 	}
 	return ""
+}
+
+// SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
+// removes the key (Sunshine auto-detects: portal on Wayland, x11 on X11).
+func SetCaptureMode(mode string) error {
+	return setConfigKey("capture", mode)
+}
+
+// CaptureMode reads the current "capture" value from sunshine.conf, or ""
+// if unset (auto-detect).
+func CaptureMode() string {
+	return configKey("capture")
+}
+
+// SetAudioSink upserts the "audio_sink" key in sunshine.conf — which system
+// audio output device Sunshine captures from for GameStream. An empty sink
+// removes the key (Sunshine falls back to the system default sink).
+func SetAudioSink(sink string) error {
+	return setConfigKey("audio_sink", sink)
+}
+
+// AudioSink reads the current "audio_sink" value from sunshine.conf, or ""
+// if unset (system default).
+func AudioSink() string {
+	return configKey("audio_sink")
 }

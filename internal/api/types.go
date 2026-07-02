@@ -25,6 +25,14 @@ type MouseResponseData struct {
 	Cursor *CursorState `json:"cursor,omitempty"`
 }
 
+// AudioSink describes a real system audio output device Sunshine can be
+// pointed at (its "audio_sink" setting) — enumerated live, not a stub.
+type AudioSink struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Default     bool   `json:"default"`
+}
+
 type DeviceRequest struct {
 	Device                  string `json:"device"`
 	Type                    string `json:"type,omitempty"`
