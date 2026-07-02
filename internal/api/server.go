@@ -554,9 +554,22 @@ func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
+	// usbridge_client's device-resolution flow (resolvePreferredVideoConfig)
+	// errors out and refuses to proceed to Moonlight if this list is empty —
+	// even though video is actually served by Sunshine, not through this
+	// legacy device-enumeration path. One synthetic "desktop" entry keeps
+	// that client-side gate satisfied.
+	devices := []map[string]any{
+		{
+			"name":        "Desktop (Sunshine)",
+			"path":        "desktop",
+			"connected":   true,
+			"description": "Full desktop capture via Sunshine/Moonlight",
+		},
+	}
 	s.ok(w, "video_devices", map[string]any{
-		"devices": []any{},
-		"count":   0,
+		"devices": devices,
+		"count":   len(devices),
 	})
 }
 
