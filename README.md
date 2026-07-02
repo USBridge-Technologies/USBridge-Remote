@@ -37,8 +37,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 | Architecture | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
-| **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v1.0.0-alpha/USBridgeAgent-1.0.0-windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) |
-| **ARM64** | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v1.0.0-alpha/USBridgeAgent-1.0.0-macOS-arm64.zip) | 🚧 |
+| **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v2.0.1/USBridge_agent_windows_amd64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_agent_linux_amd64-2.0.1.tar.gz) |
+| **ARM64** | — | 🚧 | 🚧 |
 
 ---
 
