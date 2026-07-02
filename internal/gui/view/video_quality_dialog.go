@@ -133,7 +133,7 @@ func (vqd *VideoQualityDialog) handleApply() {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.HeightRange), vqd.parent)
 		return
 	}
-	if fps < 1 || fps > 60 {
+	if fps < 1 || fps > 240 {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.FPSRange), vqd.parent)
 		return
 	}
@@ -141,7 +141,7 @@ func (vqd *VideoQualityDialog) handleApply() {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.QualityRange), vqd.parent)
 		return
 	}
-	if bitrate < 100 || bitrate > 10000 {
+	if bitrate < 100 || bitrate > 150000 {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.BitrateRange), vqd.parent)
 		return
 	}

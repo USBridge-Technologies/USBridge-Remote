@@ -351,7 +351,7 @@ cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
     <key>CFBundleExecutable</key>
     <string>USBridgeClient</string>
     <key>CFBundleIdentifier</key>
-    <string>com.usbridge.client</string>
+    <string>io.usbridge.client</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -383,11 +383,12 @@ fi
 # codesign --deep does NOT sign flat .dylib files, only nested .framework bundles.
 # After install_name_tool modifies the copied dylibs their original signatures are
 # invalid, so we must explicitly sign each .dylib before signing the bundle.
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-Developer ID Application: Amir Fatkulin (AJVY97F5QT)}"
 if command -v codesign >/dev/null 2>&1; then
     find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f | while IFS= read -r dylib; do
-        codesign --force --sign - "$dylib" 2>/dev/null || true
+        codesign --force --sign "$SIGN_IDENTITY" "$dylib" 2>/dev/null || true
     done
-    codesign --force --deep --sign - "$DIST_DIR/$APP_BUNDLE_NAME" >/dev/null 2>&1 || true
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$DIST_DIR/$APP_BUNDLE_NAME" >/dev/null 2>&1 || true
 fi
 touch "$DIST_DIR/$APP_BUNDLE_NAME"
 

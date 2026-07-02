@@ -308,7 +308,7 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 		cfg.VideoQuality = 100
 	}
 	if cfg.VideoBitrate == "" {
-		cfg.VideoBitrate = "10000K"
+		cfg.VideoBitrate = "20000K"
 	}
 	if cfg.VideoMode == "" {
 		cfg.VideoMode = models.VideoModeH264

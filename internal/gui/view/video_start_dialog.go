@@ -495,9 +495,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.fpsMeta.TextSize = 11
 	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.bitrateSlider = widget.NewSlider(1000, 12000)
-	vsd.bitrateSlider.Step = 500
-	vsd.bitrateSlider.Value = 2000
+	vsd.bitrateSlider = widget.NewSlider(1000, 150000)
+	vsd.bitrateSlider.Step = 1000
+	vsd.bitrateSlider.Value = 20000
 	vsd.bitrateValueLabel = widget.NewLabel("")
 	vsd.bitrateSlider.OnChanged = func(value float64) {
 		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
@@ -715,7 +715,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	if bitrate, ok := parseBitrate(defaultBitrate); ok {
 		vsd.bitrateSlider.SetValue(float64(bitrate))
 	} else {
-		vsd.bitrateSlider.SetValue(2000)
+		vsd.bitrateSlider.SetValue(20000)
 	}
 
 	vsd.refreshFPSOptions()

@@ -445,7 +445,7 @@ if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
     "$FYNE_BIN" package \
         --target android/arm64 \
         --tags "$FYNE_TAGS" \
-        --app-id com.usbridge.client \
+        --app-id io.usbridge.client \
         --name "USBridge Client" \
         --app-version "1.0.0" \
         --icon "$REPO_ROOT/Icon.png" \

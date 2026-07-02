@@ -26,7 +26,7 @@ func defaultVideoDeviceConfig(devicePath, deviceName string) models.VideoDeviceC
 		VideoHeight:   720,
 		VideoFPS:      60,
 		VideoQuality:  100,
-		VideoBitrate:  "10000K",
+		VideoBitrate:  "20000K",
 		VideoMode:     models.VideoModeH264,
 		LastAppliedAt: time.Now().Unix(),
 	}
@@ -99,7 +99,7 @@ func loadSavedVideoDeviceConfig(devicePath, deviceName string) models.VideoDevic
 			cfg.VideoQuality = 100
 		}
 		if cfg.VideoBitrate == "" {
-			cfg.VideoBitrate = "2000K"
+			cfg.VideoBitrate = "20000K"
 		}
 		if cfg.VideoMode == "" {
 			cfg.VideoMode = models.VideoModeH264

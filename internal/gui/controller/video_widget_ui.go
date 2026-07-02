@@ -98,7 +98,7 @@ func (vw *VideoWidget) handleStartVideo() {
 		defaultWidth := 800
 		defaultHeight := 600
 		defaultFPS := 30
-		defaultBitrate := "2M"
+		defaultBitrate := "20M"
 		// Prefer saved per-device config over generic Moonlight AppConfig defaults.
 		if preferredErr == nil && preferredConfig.VideoWidth > 0 {
 			defaultWidth = preferredConfig.VideoWidth
