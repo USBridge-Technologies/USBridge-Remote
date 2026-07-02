@@ -265,15 +265,33 @@ func (a *App) SunshineCaptureMode() string {
 }
 
 // SetSunshineCaptureMode persists the capture backend choice into both the
-// agent config and Sunshine's own sunshine.conf (Sunshine must be restarted
-// to pick up the change).
+// agent config and Sunshine's own sunshine.conf, then restarts the bundled
+// Sunshine instance so the change actually takes effect — a config edit
+// alone is silently ignored by an already-running Sunshine process.
 func (a *App) SetSunshineCaptureMode(mode string) error {
 	if err := sunshine.SetCaptureMode(mode); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
 	next := a.cfg
 	next.SunshineCaptureMode = mode
-	return a.SaveConfig(next)
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] failed to restart Sunshine after capture mode change: %v", err)
+	}
+	return nil
+}
+
+// RestartSunshine stops and relaunches the bundled Sunshine instance (if the
+// agent owns its lifecycle) so a config or capability change takes effect.
+func (a *App) RestartSunshine() error {
+	if a.sunshine == nil {
+		return nil
+	}
+	_ = a.sunshine.Stop()
+	time.Sleep(time.Second)
+	return a.sunshine.Start(a.cfg.SunshinePort)
 }
 
 // KMSCaptureGranted reports whether the bundled Sunshine binary has the
@@ -286,12 +304,20 @@ func (a *App) KMSCaptureGranted() bool {
 }
 
 // RequestKMSCapture grants CAP_SYS_ADMIN to the bundled Sunshine binary
-// (prompts for elevation via pkexec).
+// (prompts for elevation via pkexec), then restarts Sunshine so the
+// newly-granted capability is actually picked up — an already-running
+// process doesn't gain capabilities retroactively.
 func (a *App) RequestKMSCapture() bool {
 	if a.perms == nil {
 		return false
 	}
-	return a.perms.RequestKMSCapture(a.SunshineBinaryPath())
+	granted := a.perms.RequestKMSCapture(a.SunshineBinaryPath())
+	if granted {
+		if err := a.RestartSunshine(); err != nil {
+			log.Printf("[app] failed to restart Sunshine after granting KMS capability: %v", err)
+		}
+	}
+	return granted
 }
 
 // TailscaleStatus returns the current Tailscale status in the format expected by /api/auth/sync.

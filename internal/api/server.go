@@ -103,6 +103,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/drives/local", sec.LimitPolling(s.localDrives))
 	mux.HandleFunc("/api/iso/space", sec.LimitPolling(s.isoSpace))
 	mux.HandleFunc("/api/backup/get_snapshots", sec.LimitPolling(s.backupGetSnapshots))
+	// Hardware-only features (SD/eMMC storage, on-device scripts, ALSA audio capture)
+	// that this software agent doesn't implement — stubbed as "nothing here" rather
+	// than 404 so client polling doesn't treat them as protocol errors.
+	mux.HandleFunc("/api/audio/info", sec.LimitPolling(s.audioInfo))
+	mux.HandleFunc("/api/audio/devices", sec.LimitPolling(s.audioDevices))
+	mux.HandleFunc("/api/storage/status", sec.LimitPolling(s.storageStatus))
+	mux.HandleFunc("/api/scripts/list", sec.LimitPolling(s.scriptsList))
+	mux.HandleFunc("/api/scripts/status", sec.LimitPolling(s.scriptsStatus))
 	mux.HandleFunc("/api/auth/tailscale/status", sec.LimitPolling(s.tailscaleStatus))
 	mux.HandleFunc("/api/auth/tailscale/register", sec.LimitPolling(s.tailscaleRegister))
 	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))
@@ -286,6 +294,39 @@ func (s *Server) backupGetSnapshots(w http.ResponseWriter, r *http.Request) {
 		"total":     0,
 		"snapshots": []any{},
 	})
+}
+
+func (s *Server) audioInfo(w http.ResponseWriter, r *http.Request) {
+	s.ok(w, "audio_info", map[string]any{
+		"streaming":   false,
+		"device_path": "",
+		"device_name": "",
+		"muted":       false,
+	})
+}
+
+func (s *Server) audioDevices(w http.ResponseWriter, r *http.Request) {
+	s.ok(w, "audio_devices", map[string]any{
+		"devices": []any{},
+		"count":   0,
+	})
+}
+
+func (s *Server) storageStatus(w http.ResponseWriter, r *http.Request) {
+	empty := map[string]any{
+		"total": 0, "used": 0, "free": 0, "percent": 0,
+		"total_human": "0", "used_human": "0", "free_human": "0",
+		"mounted": false,
+	}
+	s.ok(w, "storage_status", map[string]any{"sdcard": empty, "emmc": empty})
+}
+
+func (s *Server) scriptsList(w http.ResponseWriter, r *http.Request) {
+	s.ok(w, "scripts", []any{})
+}
+
+func (s *Server) scriptsStatus(w http.ResponseWriter, r *http.Request) {
+	s.ok(w, "script_status", []any{})
 }
 
 func (s *Server) tailscaleStatus(w http.ResponseWriter, r *http.Request) {

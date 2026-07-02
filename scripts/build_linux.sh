@@ -51,7 +51,7 @@ if [[ -f "$REPO_ROOT/config.yaml" ]]; then
 fi
 
 source "$SCRIPT_DIR/fetch_sunshine.sh"
-fetch_sunshine_linux "$DIST_DIR/sunshine"
+build_sunshine_linux
 
 cat > "$DIST_DIR/README.txt" <<'README'
 USBridgeAgent for Linux
@@ -60,11 +60,15 @@ USBridgeAgent for Linux
 Run:
   ./usbridge-agent
 
-Video/input: Sunshine (Moonlight GameStream host) is bundled in ./sunshine/ and
-is started automatically by the agent (./sunshine/AppRun), including a
-one-time admin credential bootstrap. The agent itself is not in the
-video/input path; it only pairs with and relays PINs to Sunshine's local API
-(port 47990) on behalf of usbridge_client.
+Video/input: Sunshine (Moonlight GameStream host) is built from source and
+installed system-wide (via a real .deb — its web-UI assets are compiled
+with an absolute /usr path, so unlike Windows/macOS it can't be bundled
+alongside the agent) during the build. The agent starts it automatically at
+launch, including a one-time admin credential bootstrap. It's a native
+build (not AppImage/Flatpak), so the KMS root capture mode actually works,
+and the package's postinst already grants CAP_SYS_ADMIN on install. The
+agent itself is not in the video/input path; it only pairs with and relays
+PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
 
 Requirements:
   - libgtk-3-0, libgl1, and X11/Wayland libraries

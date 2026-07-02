@@ -160,7 +160,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showTokenDialog(win)
 	})
 	// Уменьшаем отступ между иконкой и текстом через локальную тему
-	closeBtn := newDangerButton("CLOSE", func() { win.Close() })
+	// Routes through the same shutdown path as the OS window-close button
+	// (SetCloseIntercept below) so Sunshine/ffmpeg/etc. actually get stopped
+	// instead of being orphaned when the user clicks this button directly.
+	closeBtn := newDangerButton("CLOSE", func() {
+		if onClose != nil {
+			onClose()
+		}
+		win.Close()
+	})
 	header := newHeaderBar(tokenBtn, closeBtn)
 
 	// Column 1: Permissions

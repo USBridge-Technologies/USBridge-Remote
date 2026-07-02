@@ -1,7 +1,12 @@
 // Package sunshine locates the Sunshine (Moonlight GameStream host) binary
-// bundled next to the agent and manages the small subset of its own
-// sunshine.conf that the agent needs to control — currently just the Linux
-// capture backend (portal vs. KMS/root).
+// and manages the small subset of its own sunshine.conf that the agent needs
+// to control — currently just the Linux capture backend (portal vs.
+// KMS/root). On Windows/macOS, Sunshine is bundled next to the agent
+// executable. On Linux it's built from source and installed system-wide by
+// the build script (see scripts/fetch_sunshine.sh) — its web-UI assets are
+// compiled in with an absolute /usr path, so it can't be kept self-contained
+// like the other platforms, and a non-AppImage build is required for KMS
+// capture to work at all.
 package sunshine
 
 import (
@@ -30,14 +35,18 @@ const (
 	AdminPassword = "sunshine"
 )
 
-// BinaryPath returns the path to the bundled sunshine binary next to the
-// agent executable, or "" if it isn't present (not bundled, or unsupported OS).
-// This is the raw ELF/exe — used for capability checks (e.g. setcap), not for
-// launching (see LaunchPath).
+// BinaryPath returns the path to the sunshine binary, or "" if it can't be
+// found (not installed/bundled, or unsupported OS). This is the raw ELF/exe
+// — used for capability checks (e.g. setcap) as well as launching; unlike
+// Windows/macOS, Linux has no separate AppImage wrapper to distinguish here
+// since Sunshine is a normal system install there.
 func BinaryPath(exeDir string) string {
 	switch runtime.GOOS {
 	case "linux":
-		return filepath.Join(exeDir, "sunshine", "usr", "bin", "sunshine")
+		if path, err := exec.LookPath("sunshine"); err == nil {
+			return path
+		}
+		return ""
 	case "windows":
 		return filepath.Join(exeDir, "sunshine", "sunshine.exe")
 	case "darwin":
@@ -47,16 +56,11 @@ func BinaryPath(exeDir string) string {
 	}
 }
 
-// LaunchPath returns the entry point to actually start Sunshine. On Linux
-// this is the AppImage's AppRun wrapper (sets up library paths/GTK env)
-// rather than the raw binary from BinaryPath.
+// LaunchPath returns the entry point to actually start Sunshine. Identical
+// to BinaryPath on every platform now that Linux installs Sunshine
+// system-wide rather than bundling an AppImage.
 func LaunchPath(exeDir string) string {
-	switch runtime.GOOS {
-	case "linux":
-		return filepath.Join(exeDir, "sunshine", "AppRun")
-	default:
-		return BinaryPath(exeDir)
-	}
+	return BinaryPath(exeDir)
 }
 
 // Process manages the lifecycle of a bundled Sunshine instance launched by
@@ -104,8 +108,13 @@ func (p *Process) Start(adminPort int) error {
 	}
 
 	cmd := exec.Command(p.launchPath)
+	configureProcess(cmd)
 	if p.logPath != "" {
-		if f, err := os.OpenFile(p.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		if err := os.MkdirAll(filepath.Dir(p.logPath), 0o755); err != nil {
+			log.Printf("[sunshine] failed to create log dir for %s: %v", p.logPath, err)
+		} else if f, err := os.OpenFile(p.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
+			log.Printf("[sunshine] failed to open log file %s: %v", p.logPath, err)
+		} else {
 			cmd.Stdout = f
 			cmd.Stderr = f
 		}
