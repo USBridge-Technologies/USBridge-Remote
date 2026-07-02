@@ -137,6 +137,9 @@ fi
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_windows "$DIST_DIR/sunshine"
 
+source "$SCRIPT_DIR/fetch_tailscale_windows.sh"
+fetch_tailscale_windows "$DIST_DIR"
+
 cat > "$DIST_DIR/README.txt" <<'README'
 USBridgeAgent for Windows
 =========================
@@ -151,6 +154,11 @@ is started automatically by the agent (.\sunshine\sunshine.exe), including a
 one-time admin credential bootstrap. The agent itself is not in the
 video/input path; it only pairs with and relays PINs to Sunshine's local API
 (port 47990) on behalf of usbridge_client.
+
+Networking: wintun.dll enables a proper WireGuard kernel-mode TUN adapter for
+the embedded Tailscale (tsnet). Without it tsnet falls back to slower userspace
+networking. tailscale.exe / tailscaled.exe are included for optional system-level
+Tailscale management from the command line.
 
 Configuration:
   config.yaml next to the executable, or %USERPROFILE%\.config\usbridge-agent\config.yaml
