@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -66,10 +67,11 @@ func LaunchPath(exeDir string) string {
 // Process manages the lifecycle of a bundled Sunshine instance launched by
 // the agent.
 type Process struct {
-	mu         sync.Mutex
-	launchPath string
-	logPath    string
-	cmd        *exec.Cmd
+	mu              sync.Mutex
+	launchPath      string
+	logPath         string
+	cmd             *exec.Cmd
+	elevatedHandle  uintptr // HANDLE from ShellExecuteExW (Windows elevated launch); 0 if unused
 }
 
 // NewProcess creates a Process for the given launch entry point. logPath, if
@@ -79,11 +81,15 @@ func NewProcess(launchPath, logPath string) *Process {
 	return &Process{launchPath: launchPath, logPath: logPath}
 }
 
-// Running reports whether this Process's Sunshine instance is currently alive.
+// Running reports whether this Process's Sunshine instance is currently alive
+// (either via a normal exec.Cmd or an elevated ShellExecuteEx handle on Windows).
 func (p *Process) Running() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.cmd != nil && p.cmd.Process != nil
+	if p.cmd != nil && p.cmd.Process != nil {
+		return true
+	}
+	return elevatedRunning(p.elevatedHandle)
 }
 
 // Start launches Sunshine if it isn't already running (by this Process, or
@@ -182,13 +188,65 @@ func bootstrapAdminCredentials(adminPort int) {
 func (p *Process) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.cmd == nil || p.cmd.Process == nil {
+	var err error
+	if p.cmd != nil && p.cmd.Process != nil {
+		log.Printf("[sunshine] stopping pid=%d", p.cmd.Process.Pid)
+		err = p.cmd.Process.Kill()
+		p.cmd = nil
+	}
+	if p.elevatedHandle != 0 {
+		log.Printf("[sunshine] stopping elevated process")
+		terminateElevated(p.elevatedHandle)
+		p.elevatedHandle = 0
+	}
+	return err
+}
+
+// StartElevated launches Sunshine with a UAC elevation prompt (Windows only).
+// On other platforms it is a no-op. Stops any currently running instance first.
+func (p *Process) StartElevated(adminPort int) error {
+	p.mu.Lock()
+	// Stop existing instances
+	if p.cmd != nil && p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+		p.cmd = nil
+	}
+	if p.elevatedHandle != 0 {
+		terminateElevated(p.elevatedHandle)
+		p.elevatedHandle = 0
+	}
+	path := p.launchPath
+	logPath := p.logPath
+	p.mu.Unlock()
+
+	if path == "" {
 		return nil
 	}
-	log.Printf("[sunshine] stopping pid=%d", p.cmd.Process.Pid)
-	err := p.cmd.Process.Kill()
-	p.cmd = nil
-	return err
+	if _, err := os.Stat(path); err != nil {
+		log.Printf("[sunshine] launch path not found, cannot elevate: %s", path)
+		return err
+	}
+	_ = logPath // elevated process stdout goes to its own window; we can't redirect it via ShellExecuteEx
+	log.Printf("[sunshine] requesting elevated launch via UAC: %s", path)
+	handle, err := launchElevated(path)
+	if err != nil {
+		return fmt.Errorf("elevated launch: %w", err)
+	}
+	p.mu.Lock()
+	p.elevatedHandle = handle
+	p.mu.Unlock()
+	log.Printf("[sunshine] elevated process started")
+	waitElevatedAsync(handle, func() {
+		p.mu.Lock()
+		if p.elevatedHandle == handle {
+			p.elevatedHandle = 0
+		}
+		p.mu.Unlock()
+	})
+	if adminPort > 0 {
+		go bootstrapAdminCredentials(adminPort)
+	}
+	return nil
 }
 
 func portReachable(port int, timeout time.Duration) bool {

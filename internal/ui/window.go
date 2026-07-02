@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"log"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -40,6 +41,8 @@ type Window struct {
 		KMSCaptureGranted() bool
 		RequestKMSCapture() bool
 		RestartSunshine() error
+		SunshineRunning() bool
+		RestartSunshineElevated() error
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -70,6 +73,11 @@ type Window struct {
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
 
+	// sunshineLabel / sunshineBtn are Windows-only: show Sunshine status and
+	// offer a UAC-elevation launch button when Sunshine isn't running.
+	sunshineLabel *widget.Label
+	sunshineBtn   *widget.Button
+
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
@@ -90,6 +98,8 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
 	RestartSunshine() error
+	SunshineRunning() bool
+	RestartSunshineElevated() error
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -336,6 +346,30 @@ func (w *Window) ShowAndRun(onClose func()) {
 		permRows = []fyne.CanvasObject{w.permInfo}
 	}
 
+	// Windows: Sunshine elevation row
+	if runtime.GOOS == "windows" {
+		w.sunshineLabel = widget.NewLabel("Sunshine")
+		w.sunshineBtn = widget.NewButton("Launch (Admin)", func() {
+			w.sunshineBtn.Disable()
+			go func() {
+				defer fyne.Do(func() {
+					if w.sunshineBtn != nil {
+						w.sunshineBtn.Enable()
+					}
+				})
+				if w.token != nil {
+					if err := w.token.RestartSunshineElevated(); err != nil {
+						log.Printf("[ui] elevated sunshine launch: %v", err)
+					}
+				}
+				w.performRefresh()
+			}()
+		})
+		w.sunshineBtn.Importance = widget.HighImportance
+		sunshineRow := container.NewHBox(w.sunshineLabel, layout.NewSpacer(), w.sunshineBtn)
+		permRows = append(permRows, sunshineRow)
+	}
+
 	permContent := newTightVBox(permRows...)
 	permBlock := newPanel("Permissions", permContent)
 
@@ -473,6 +507,10 @@ func (w *Window) performRefresh() {
 		if w.perms != nil {
 			status.accessGranted = w.perms.AccessibilityGranted()
 		}
+		var sunshineRunning bool
+		if runtime.GOOS == "windows" && w.token != nil {
+			sunshineRunning = w.token.SunshineRunning()
+		}
 
 		fyne.Do(func() {
 			if w.accessLabel != nil {
@@ -490,6 +528,13 @@ func (w *Window) performRefresh() {
 					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.accessBtn != nil {
 						w.accessBtn.Show()
 					}
+				}
+			}
+			if runtime.GOOS == "windows" && w.sunshineLabel != nil {
+				if sunshineRunning {
+					w.sunshineLabel.SetText("Sunshine: ✅")
+				} else {
+					w.sunshineLabel.SetText("Sunshine: ❌")
 				}
 			}
 			w.refreshScreenCaptureUI()
