@@ -28,8 +28,8 @@ The Client is the control interface — installed on your workstation or laptop.
 
 | | Windows | macOS | Linux | Android |
 |:---|:---:|:---:|:---:|:---:|
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.0/USBridge_client_windows_amd64-2.0.1.zip) | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.0/USBridge_client_linux_amd64-2.0.1.tar.gz) | |
-| **ARM64** | | *In progress (signing)* | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.0/USBridge_client_android_arm64-2.0.1.apk) |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_windows_amd64-2.0.1.zip) | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) | |
+| **ARM64** | | *In progress (signing)* | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_android_arm64-2.0.1.apk) |
 
 ## Agent
 
@@ -37,7 +37,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 | Architecture | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
-| **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v1.0.0-alpha/USBridgeAgent-1.0.0-windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.0/USBridge_client_linux_amd64-2.0.1.tar.gz) |
+| **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v1.0.0-alpha/USBridgeAgent-1.0.0-windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) |
 | **ARM64** | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v1.0.0-alpha/USBridgeAgent-1.0.0-macOS-arm64.zip) | 🚧 |
 
 ---
