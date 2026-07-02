@@ -1232,7 +1232,7 @@ func detectDarkInset(img image.Image, bounds image.Rectangle, vertical bool, fro
 		}
 
 		darkRatio := float32(darkSamples) / float32(totalSamples)
-		if darkRatio < 0.98 {
+		if darkRatio < 0.90 {
 			return offset
 		}
 	}
@@ -1240,12 +1240,22 @@ func detectDarkInset(img image.Image, bounds image.Rectangle, vertical bool, fro
 	return limit
 }
 
+// isNearBlack tolerates software-encoder quantization noise in otherwise
+// solid letterbox bars. A hardware KVM's bars decode essentially pure black
+// (RGB ~0), but a software-encoded stream over a bandwidth-constrained link
+// (e.g. a Tailscale DERP relay) can leave visible macroblock noise in flat
+// dark regions — individual samples several times brighter than pure black
+// even though the row is still clearly a letterbox bar, not video content.
+// A too-strict cutoff here (and detectDarkInset's old 98% dark-ratio
+// requirement) made detection silently fail on those streams, so the bars
+// got treated as part of the clickable video field and absolute-mouse
+// coordinates drifted increasingly off target toward the edges.
 func isNearBlack(c color.Color) bool {
 	r, g, b, a := c.RGBA()
 	if a < 0x2000 {
 		return true
 	}
-	const maxDark = 24 << 8
+	const maxDark = 40 << 8
 	return r <= maxDark && g <= maxDark && b <= maxDark
 }
 
