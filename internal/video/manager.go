@@ -28,7 +28,6 @@ type runningProcess struct {
 
 type Manager struct {
 	cfg config.Config
-	frp interface{ UpdateVideoVisitor(int) error }
 	ts  interface {
 		TailnetIPv4(context.Context) (string, error)
 		IsUserspace(context.Context) (bool, error)
@@ -44,14 +43,13 @@ type Manager struct {
 	cancel        context.CancelFunc
 }
 
-func New(cfg config.Config, frp interface{ UpdateVideoVisitor(int) error }, ts interface {
+func New(cfg config.Config, ts interface {
 	TailnetIPv4(context.Context) (string, error)
 	IsUserspace(context.Context) (bool, error)
 }) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
 		cfg:    cfg,
-		frp:    frp,
 		ts:     ts,
 		ctx:    ctx,
 		cancel: cancel,
@@ -113,14 +111,6 @@ func (m *Manager) Start(req api.VideoStartRequest) error {
 		return err
 	}
 	m.traceStep(traceID, startedAt, "normalized-request", "device=%s size=%dx%d fps=%d bitrate=%s host=%s port=%d", req.VideoDevice, req.VideoWidth, req.VideoHeight, req.VideoFPS, req.VideoBitrate, req.ClientHost, req.ClientPort)
-	if m.frp != nil {
-		m.traceStep(traceID, startedAt, "update-frp-visitor-begin", "client_port=%d", req.ClientPort)
-		if err := m.frp.UpdateVideoVisitor(req.ClientPort); err != nil {
-			m.traceStep(traceID, startedAt, "update-frp-visitor-failed", "err=%v", err)
-			return fmt.Errorf("update video visitor port: %w", err)
-		}
-		m.traceStep(traceID, startedAt, "update-frp-visitor-ok", "client_port=%d", req.ClientPort)
-	}
 
 	mode := captureModeForPlatform(m.cfg.VideoCapture)
 	codecs := m.resolveCodecList()

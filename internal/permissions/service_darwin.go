@@ -91,3 +91,8 @@ func (s *Service) OpenPrivacySettings() error {
 	}
 	return nil
 }
+
+// KMSCaptureGranted and RequestKMSCapture are Linux-only (direct KMS
+// capture); not applicable on macOS.
+func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
+func (s *Service) RequestKMSCapture(binPath string) bool { return false }

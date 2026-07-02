@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,9 +24,9 @@ import (
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
-	"usbridge_agent/internal/frp"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/permissions"
+	"usbridge_agent/internal/sunshine"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
@@ -42,16 +45,16 @@ type App struct {
 	cfgPath string
 	cfg     config.Config
 
-	state   *deviceState
-	input   *input.Controller
-	screen  *capture.Service
-	video   *video.Manager
-	perms   *permissions.Service
-	ts      *tailscale.Service
-	frp     *frp.Manager
-	server  *http.Server
-	tsHTTP  *http.Server
-	fyneApp fyne.App
+	state    *deviceState
+	input    *input.Controller
+	screen   *capture.Service
+	video    *video.Manager
+	perms    *permissions.Service
+	ts       *tailscale.Service
+	sunshine *sunshine.Process
+	server   *http.Server
+	tsHTTP   *http.Server
+	fyneApp  fyne.App
 }
 
 func New() (*App, error) {
@@ -63,6 +66,24 @@ func New() (*App, error) {
 	if err := cfg.EnsureState(); err != nil {
 		return nil, err
 	}
+
+	// Generate master key on first run.
+	if strings.TrimSpace(cfg.MasterKey) == "" {
+		key, err := api.GenerateMasterKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate master key: %w", err)
+		}
+		cfg.MasterKey = key
+		if err := config.Save(cfgPath, cfg); err != nil {
+			log.Printf("[app] warning: failed to persist master key: %v", err)
+		}
+	}
+
+	// The master key is used as an opaque secret string (never hex-decoded) —
+	// this must match usbridge_client and the canonical usbridge server, which
+	// both derive the HMAC/AES key via SHA256(rawMasterKeyBytes).
+	masterKeyBytes := []byte(cfg.MasterKey)
+
 	instance := &App{
 		cfgPath: cfgPath,
 		cfg:     cfg,
@@ -75,18 +96,26 @@ func New() (*App, error) {
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.fyneApp.SetIcon(assets.AppIcon)
-	instance.frp = frp.New(cfg, cfg.HTTPPort, cfg.VideoUDPPort)
-	instance.video = video.New(cfg, instance.frp, instance.ts)
+	instance.video = video.New(cfg, instance.ts)
+	instance.sunshine = sunshine.NewProcess(sunshine.LaunchPath(resolveExeDir()), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort),
-		Handler:           api.NewServer(instance).Routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	instance.tsHTTP = &http.Server{
-		Handler:           instance.server.Handler,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return instance, nil
+}
+
+func resolveExeDir() string {
+	if exePath, err := os.Executable(); err == nil {
+		return filepath.Dir(exePath)
+	}
+	return "."
 }
 
 func resolveConfigPath() string {
@@ -127,10 +156,12 @@ func (a *App) Run() error {
 		}
 	}
 
-	log.Printf("[app] starting http=%s:%d frp_bind=%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.FRPBindPort, a.cfg.VideoUDPPort, captureMode)
+	log.Printf("[app] starting http=%s:%d video_udp=%d capture=%s", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, a.cfg.VideoUDPPort, captureMode)
 	log.Printf("[app] ffmpeg path=%s", a.cfg.FFmpegPath)
-	if err := a.frp.Start(ctx); err != nil {
-		return err
+	if a.sunshine != nil {
+		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
+			log.Printf("[app] failed to start Sunshine: %v", err)
+		}
 	}
 	go func() { _ = a.server.ListenAndServe() }()
 	// Initialize Tailscale
@@ -185,8 +216,10 @@ func (a *App) Run() error {
 			_ = a.tsHTTP.Shutdown(context.Background())
 		}
 		_ = a.ts.Close()
-		_ = a.frp.Stop()
 		_ = a.video.Close()
+		if a.sunshine != nil {
+			_ = a.sunshine.Stop()
+		}
 		fyne.Do(func() {
 			a.fyneApp.Quit()
 		})
@@ -195,23 +228,187 @@ func (a *App) Run() error {
 	return nil
 }
 
-func (a *App) RegenerateFRPToken() (config.Config, error) {
-	token, err := config.GenerateSecureToken()
+func (a *App) RegenerateMasterKey() (config.Config, error) {
+	key, err := api.GenerateMasterKey()
 	if err != nil {
-		return a.cfg, fmt.Errorf("generate secure token: %w", err)
+		return a.cfg, fmt.Errorf("generate master key: %w", err)
 	}
-
 	next := a.cfg
-	next.FRPToken = token
+	next.MasterKey = key
 	if err := a.SaveConfig(next); err != nil {
 		return a.cfg, fmt.Errorf("save config: %w", err)
 	}
-	if a.frp != nil {
-		if err := a.frp.UpdateToken(token); err != nil {
-			return a.cfg, fmt.Errorf("reload frp token: %w", err)
+	return a.cfg, nil
+}
+
+// SunshineBinaryPath returns the path to the bundled Sunshine binary, or ""
+// if it isn't present (not bundled, or unsupported OS).
+func (a *App) SunshineBinaryPath() string {
+	path := sunshine.BinaryPath(resolveExeDir())
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// SunshineCaptureMode returns the configured Linux capture backend ("",
+// "portal", or "kms"), read from sunshine.conf if present, falling back to
+// the persisted agent config.
+func (a *App) SunshineCaptureMode() string {
+	if mode := sunshine.CaptureMode(); mode != "" {
+		return mode
+	}
+	return a.cfg.SunshineCaptureMode
+}
+
+// SetSunshineCaptureMode persists the capture backend choice into both the
+// agent config and Sunshine's own sunshine.conf (Sunshine must be restarted
+// to pick up the change).
+func (a *App) SetSunshineCaptureMode(mode string) error {
+	if err := sunshine.SetCaptureMode(mode); err != nil {
+		return fmt.Errorf("write sunshine.conf: %w", err)
+	}
+	next := a.cfg
+	next.SunshineCaptureMode = mode
+	return a.SaveConfig(next)
+}
+
+// KMSCaptureGranted reports whether the bundled Sunshine binary has the
+// CAP_SYS_ADMIN capability needed for KMS capture.
+func (a *App) KMSCaptureGranted() bool {
+	if a.perms == nil {
+		return false
+	}
+	return a.perms.KMSCaptureGranted(a.SunshineBinaryPath())
+}
+
+// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled Sunshine binary
+// (prompts for elevation via pkexec).
+func (a *App) RequestKMSCapture() bool {
+	if a.perms == nil {
+		return false
+	}
+	return a.perms.RequestKMSCapture(a.SunshineBinaryPath())
+}
+
+// TailscaleStatus returns the current Tailscale status in the format expected by /api/auth/sync.
+func (a *App) TailscaleStatus() *api.TailscaleStatusInfo {
+	if a.ts == nil {
+		return nil
+	}
+	status, err := a.ts.Status(context.Background())
+	if err != nil || status == nil {
+		return nil
+	}
+	return toTailscaleStatusInfo(status)
+}
+
+// RegisterTailscale authorizes this node on the tailnet, used by /api/auth/sync
+// and /api/auth/tailscale/register. An empty authKey triggers interactive login
+// and returns an AuthURL for the caller to open in a browser.
+func (a *App) RegisterTailscale(ctx context.Context, authKey, hostname string) (*api.TailscaleStatusInfo, error) {
+	if a.ts == nil {
+		return nil, fmt.Errorf("tailscale service unavailable")
+	}
+	status, err := a.ts.Register(ctx, authKey, hostname)
+	if err != nil {
+		return nil, err
+	}
+	return toTailscaleStatusInfo(status), nil
+}
+
+func toTailscaleStatusInfo(status *tailscale.Status) *api.TailscaleStatusInfo {
+	if status == nil {
+		return nil
+	}
+	return &api.TailscaleStatusInfo{
+		Running:  status.Running,
+		LoggedIn: status.LoggedIn,
+		Backend:  status.Backend,
+		DNSName:  status.Self.DNSName,
+		HostName: status.Self.HostName,
+		IP4:      status.Self.IP4,
+		AuthURL:  status.AuthURL,
+	}
+}
+
+// QRLink returns the quick-connect deep link and the master key for the /api/auth/qr/link endpoint.
+func (a *App) QRLink() (string, string) {
+	masterKey := strings.TrimSpace(a.cfg.MasterKey)
+	if masterKey == "" {
+		return "", ""
+	}
+	internalHost := localIPv4()
+	tailscaleHost := ""
+	if a.ts != nil {
+		if status, err := a.ts.Status(context.Background()); err == nil && status != nil && status.LoggedIn {
+			switch {
+			case strings.TrimSpace(status.Self.IP4) != "":
+				tailscaleHost = strings.TrimSpace(status.Self.IP4)
+			case strings.TrimSpace(status.Self.DNSName) != "":
+				tailscaleHost = strings.TrimSpace(status.Self.DNSName)
+			}
 		}
 	}
-	return a.cfg, nil
+	link := buildQRLink(internalHost, tailscaleHost, masterKey)
+	return link, masterKey
+}
+
+func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
+	if masterKey == "" {
+		return ""
+	}
+	if internalHost == "" && tailscaleHost == "" {
+		return ""
+	}
+	values := url.Values{}
+	if internalHost != "" {
+		values.Set("internal_host", internalHost)
+	}
+	if tailscaleHost != "" {
+		values.Set("tailscale_host", tailscaleHost)
+	}
+	values.Set("master_key", masterKey)
+	return "usbridge://connect?" + values.Encode()
+}
+
+func localIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	type candidate struct{ name, ip string }
+	var candidates []candidate
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil || ip == nil {
+				continue
+			}
+			ip4 := ip.To4()
+			if ip4 == nil || ip4.IsLoopback() || (ip4[0] == 169 && ip4[1] == 254) {
+				continue
+			}
+			candidates = append(candidates, candidate{iface.Name, ip4.String()})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].name != candidates[j].name {
+			return candidates[i].name < candidates[j].name
+		}
+		return candidates[i].ip < candidates[j].ip
+	})
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0].ip
 }
 
 func (a *App) SaveConfig(cfg config.Config) error {
@@ -256,7 +453,6 @@ func (a *App) DeviceInfo() api.DeviceInfoResponse {
 func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 	now := time.Now()
 	devices := make([]api.DeviceInfo, 0, len(reqs))
-	nbdPorts := make([]int, 0, len(reqs))
 	for _, req := range reqs {
 		if req.Device == "rndis" {
 			continue
@@ -284,14 +480,8 @@ func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 			Type:         deviceType,
 			Name:         deviceName,
 		})
-		if req.Device == "drive" && req.Port > 0 {
-			nbdPorts = append(nbdPorts, req.Port)
-		}
 	}
-	log.Printf("[app] devices active=%d nbd_visitors=%d", len(devices), len(nbdPorts))
-	if err := a.frp.UpdateNBDVisitors(nbdPorts); err != nil {
-		return err
-	}
+	log.Printf("[app] devices active=%d", len(devices))
 	a.state.mu.Lock()
 	a.state.devices = devices
 	a.state.mu.Unlock()
@@ -323,9 +513,6 @@ func normalizeDeviceType(req api.DeviceRequest) string {
 }
 
 func (a *App) ClearDevices() error {
-	if err := a.frp.UpdateNBDVisitors(nil); err != nil {
-		return err
-	}
 	a.state.mu.Lock()
 	a.state.devices = nil
 	a.state.mountInProgress = false

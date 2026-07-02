@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"tailscale.com/client/local"
+	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -29,6 +30,7 @@ type Status struct {
 	LoggedIn  bool
 	Backend   string
 	Userspace bool
+	AuthURL   string
 	Self      Peer
 	Peers     []Peer
 }
@@ -97,12 +99,12 @@ func (s *Service) monitorLoop() {
 				if !p.Online {
 					continue
 				}
-				
+
 				connType := "Direct"
 				if p.Relay != "" {
 					connType = fmt.Sprintf("Relay (%s)", p.Relay)
 				}
-				
+
 				// Identify connection change for ACTIVE peers
 				if p.Active {
 					prevType, exists := lastPeers[p.IP4]
@@ -113,7 +115,7 @@ func (s *Service) monitorLoop() {
 							logrus.Infof("🎯 [Tailscale] Connection to %s (%s) is DIRECT (NAT punch successful!)", p.HostName, p.IP4)
 						}
 					}
-					
+
 					if p.CurAddr != "" {
 						// Optionally log the current endpoint address
 						// logrus.Debugf("📡 [Tailscale] Peer %s endpoint: %s", p.HostName, p.CurAddr)
@@ -200,6 +202,7 @@ func (s *Service) statusUserspace(ctx context.Context) (*Status, error) {
 		LoggedIn:  state.BackendState != "" && state.BackendState != "NeedsLogin" && state.BackendState != "NoState",
 		Backend:   strings.TrimSpace(state.BackendState),
 		Userspace: true,
+		AuthURL:   strings.TrimSpace(state.AuthURL),
 	}
 
 	if state.Self != nil {
@@ -248,6 +251,7 @@ func (s *Service) statusSystem(ctx context.Context) (*Status, error) {
 		LoggedIn:  loggedIn,
 		Backend:   raw.BackendState,
 		Userspace: !raw.TUN,
+		AuthURL:   strings.TrimSpace(raw.AuthURL),
 	}
 
 	if raw.Self != nil {
@@ -432,6 +436,87 @@ func (s *Service) startLoginSystem(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("login URL not found in tailscale output")
 }
 
+// Register authorizes this node on the tailnet. With a non-empty authKey it
+// registers unattended (no browser approval needed) — used when the sync
+// payload carries a pre-issued auth key. With an empty authKey it behaves
+// like StartLogin, triggering an interactive login and returning the AuthURL
+// for the caller to open in a browser.
+func (s *Service) Register(ctx context.Context, authKey, hostname string) (*Status, error) {
+	s.mu.Lock()
+	userspace := s.userspace
+	s.mu.Unlock()
+
+	if userspace {
+		return s.registerUserspace(ctx, authKey, hostname)
+	}
+	return s.registerSystem(ctx, authKey, hostname)
+}
+
+func (s *Service) registerUserspace(ctx context.Context, authKey, hostname string) (*Status, error) {
+	srv, err := s.Server()
+	if err != nil {
+		return nil, err
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname != "" {
+		srv.Hostname = hostname
+	}
+
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return nil, err
+	}
+
+	opts := ipn.Options{AuthKey: strings.TrimSpace(authKey)}
+	if hostname != "" {
+		opts.UpdatePrefs = &ipn.Prefs{Hostname: hostname, WantRunning: true}
+	}
+	if err := lc.Start(ctx, opts); err != nil {
+		return nil, fmt.Errorf("tsnet start: %w", err)
+	}
+
+	if strings.TrimSpace(authKey) == "" {
+		// No auth key: fall back to interactive login so the caller gets an AuthURL.
+		if _, err := s.startLoginUserspace(ctx); err != nil {
+			logrus.Warnf("⚠️ [Tailscale] userspace register: interactive login failed: %v", err)
+		}
+	}
+
+	return s.statusUserspace(ctx)
+}
+
+func (s *Service) registerSystem(ctx context.Context, authKey, hostname string) (*Status, error) {
+	authKey = strings.TrimSpace(authKey)
+	if authKey == "" {
+		// No auth key: same as StartLogin — trigger interactive login and
+		// surface the AuthURL via subsequent Status() polling.
+		if _, err := s.startLoginSystem(ctx); err != nil {
+			logrus.Warnf("⚠️ [Tailscale] system register: interactive login failed: %v", err)
+		}
+		return s.Status(ctx)
+	}
+
+	tsPath := s.getTailscalePath()
+	if tsPath == "" {
+		return nil, fmt.Errorf("tailscale binary not found")
+	}
+
+	args := append([]string{}, s.upArgs()...)
+	args = append(args, "--authkey="+authKey)
+	if strings.TrimSpace(hostname) != "" {
+		args = append(args, "--hostname="+strings.TrimSpace(hostname))
+	}
+
+	logrus.Infof("🔑 [Tailscale] Registering with auth key via %s", tsPath)
+	cmd := s.prepareUpCommand(tsPath, args)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("tailscale up --authkey failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return s.Status(ctx)
+}
+
 func (s *Service) extractURL(text string) string {
 	text = strings.TrimSpace(text)
 	if strings.Contains(text, "https://login.tailscale.com") {
@@ -561,4 +646,3 @@ func (s *Service) GetSystemTailscaleIP() string {
 	}
 	return ""
 }
-

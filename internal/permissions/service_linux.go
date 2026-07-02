@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -88,3 +89,36 @@ func (s *Service) RequestScreenRecording() bool {
 
 func (s *Service) RequestMissing()            {}
 func (s *Service) OpenPrivacySettings() error { return nil }
+
+// KMSCaptureGranted reports whether the bundled Sunshine binary has the
+// CAP_SYS_ADMIN capability needed for direct KMS screen capture (root-level,
+// no compositor/portal involved).
+func (s *Service) KMSCaptureGranted(binPath string) bool {
+	if strings.TrimSpace(binPath) == "" {
+		return false
+	}
+	out, err := exec.Command("getcap", binPath).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "cap_sys_admin")
+}
+
+// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled Sunshine binary via
+// pkexec setcap, so Sunshine can use its KMS capture backend without running
+// as root outright.
+func (s *Service) RequestKMSCapture(binPath string) bool {
+	if strings.TrimSpace(binPath) == "" {
+		return false
+	}
+	if s.KMSCaptureGranted(binPath) {
+		return true
+	}
+	cmd := exec.Command("pkexec", "setcap", "cap_sys_admin+ep", binPath)
+	out, err := cmd.CombinedOutput()
+	log.Printf("[permissions] setcap pkexec exit=%v output=%q", err, string(out))
+	if err != nil {
+		return false
+	}
+	return s.KMSCaptureGranted(binPath)
+}

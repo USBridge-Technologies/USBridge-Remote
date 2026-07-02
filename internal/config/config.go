@@ -1,20 +1,14 @@
 package config
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/pem"
 	"errors"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -66,11 +60,6 @@ type Config struct {
 	HTTPPort         int           `yaml:"http_port"`
 	TailscaleEnabled bool          `yaml:"tailscale_enabled"`
 	TailscaleMode    TailscaleMode `yaml:"tailscale_mode"`
-	FRPBindHost      string        `yaml:"frp_bind_host"`
-	FRPBindPort      int           `yaml:"frp_bind_port"`
-	FRPToken         string        `yaml:"frp_token"`
-	FRPTLSCertFile   string        `yaml:"frp_tls_cert_file"`
-	FRPTLSKeyFile    string        `yaml:"frp_tls_key_file"`
 	VideoUDPPort     int           `yaml:"video_udp_port"`
 	FFmpegPath       string        `yaml:"ffmpeg_path"`
 	VideoFPS         int           `yaml:"video_fps"`
@@ -81,6 +70,13 @@ type Config struct {
 	VideoCapture     string        `yaml:"video_capture"`
 	NBDMountCommand  string        `yaml:"nbd_mount_command"`
 	StateDir         string        `yaml:"state_dir"`
+	// Moonlight/Sunshine protocol
+	MasterKey    string `yaml:"master_key"`
+	SunshinePort int    `yaml:"sunshine_port"`
+	// SunshineCaptureMode selects Sunshine's Linux capture backend: "" (auto,
+	// portal-based, no root), "portal" (explicit XDG desktop portal, no root),
+	// or "kms" (direct KMS capture, requires CAP_SYS_ADMIN on the sunshine binary).
+	SunshineCaptureMode string `yaml:"sunshine_capture_mode"`
 }
 
 func Default() Config {
@@ -94,15 +90,10 @@ func Default() Config {
 	}
 	return Config{
 		AppName:          "USBridge Agent",
-		ListenHost:       "127.0.0.1",
+		ListenHost:       "0.0.0.0",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
 		TailscaleMode:    TailscaleModeSystem,
-		FRPBindHost:      "0.0.0.0",
-		FRPBindPort:      8443,
-		FRPToken:         "usbridge-secret-token",
-		FRPTLSCertFile:   filepath.Join(stateDir, "frp.crt"),
-		FRPTLSKeyFile:    filepath.Join(stateDir, "frp.key"),
 		VideoUDPPort:     55000,
 		FFmpegPath:       "ffmpeg",
 		VideoFPS:         30,
@@ -113,6 +104,7 @@ func Default() Config {
 		VideoCapture:     videoCapture,
 		NBDMountCommand:  "",
 		StateDir:         stateDir,
+		SunshinePort:     47990,
 	}
 }
 
@@ -163,57 +155,7 @@ func GenerateSecureToken() (string, error) {
 }
 
 func (c Config) EnsureState() error {
-	if err := os.MkdirAll(c.StateDir, 0o755); err != nil {
-		return err
-	}
-	return ensureSelfSignedPair(c.FRPTLSCertFile, c.FRPTLSKeyFile)
-}
-
-func ensureSelfSignedPair(certPath, keyPath string) error {
-	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
-		return err
-	}
-	if _, err := os.Stat(certPath); err == nil {
-		if _, err := os.Stat(keyPath); err == nil {
-			return nil
-		}
-	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	tpl := &x509.Certificate{
-		SerialNumber:          newSerial(),
-		Subject:               pkix.Name{CommonName: "usbridge-agent"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().AddDate(5, 0, 0),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		DNSNames:              []string{"localhost", "usbridge-agent"},
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, tpl, tpl, pub, priv)
-	if err != nil {
-		return err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		return err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
-		return err
-	}
-	return os.WriteFile(keyPath, keyPEM, 0o600)
-}
-
-func newSerial() *big.Int {
-	n, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 62))
-	return n
+	return os.MkdirAll(c.StateDir, 0o755)
 }
 
 func defaultStateDir() string {
@@ -240,18 +182,6 @@ func resolvePaths(cfg Config, cfgPath string) Config {
 		cfg.StateDir = defaults.StateDir
 	} else if !filepath.IsAbs(cfg.StateDir) {
 		cfg.StateDir = filepath.Clean(filepath.Join(configDir, cfg.StateDir))
-	}
-
-	if strings.TrimSpace(cfg.FRPTLSCertFile) == "" || cfg.FRPTLSCertFile == "./var/frp.crt" {
-		cfg.FRPTLSCertFile = filepath.Join(cfg.StateDir, "frp.crt")
-	} else if !filepath.IsAbs(cfg.FRPTLSCertFile) {
-		cfg.FRPTLSCertFile = filepath.Clean(filepath.Join(configDir, cfg.FRPTLSCertFile))
-	}
-
-	if strings.TrimSpace(cfg.FRPTLSKeyFile) == "" || cfg.FRPTLSKeyFile == "./var/frp.key" {
-		cfg.FRPTLSKeyFile = filepath.Join(cfg.StateDir, "frp.key")
-	} else if !filepath.IsAbs(cfg.FRPTLSKeyFile) {
-		cfg.FRPTLSKeyFile = filepath.Clean(filepath.Join(configDir, cfg.FRPTLSKeyFile))
 	}
 
 	return cfg

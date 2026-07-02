@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,12 +41,17 @@ type Application interface {
 	}
 	VideoDevices() []VideoDeviceInfo
 	PortalPipeWire() (uint32, int)
+	TailscaleStatus() *TailscaleStatusInfo
+	RegisterTailscale(ctx context.Context, authKey, hostname string) (*TailscaleStatusInfo, error)
 }
 
 type Server struct {
-	app      Application
-	upgrader websocket.Upgrader
-	cursor   cursorTracker
+	app          Application
+	upgrader     websocket.Upgrader
+	cursor       cursorTracker
+	masterKey    []byte
+	sunshinePort int
+	sec          *SecurityMiddleware
 }
 
 type loggingResponseWriter struct {
@@ -54,35 +60,63 @@ type loggingResponseWriter struct {
 }
 
 func NewServer(app Application) *Server {
-	return &Server{app: app, upgrader: websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}}
+	return NewServerWithAuth(app, nil, 0)
+}
+
+func NewServerWithAuth(app Application, masterKey []byte, sunshinePort int) *Server {
+	if sunshinePort == 0 {
+		sunshinePort = 47990
+	}
+	return &Server{
+		app:          app,
+		upgrader:     websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
+		masterKey:    masterKey,
+		sunshinePort: sunshinePort,
+		sec:          NewSecurityMiddleware(masterKey),
+	}
 }
 
 func (s *Server) Routes() http.Handler {
+	sec := s.sec
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/healthz", s.health)
-	mux.HandleFunc("/api/status", s.status)
-	mux.HandleFunc("/api/service/status", s.status)
-	mux.HandleFunc("/api/service/stop", s.serviceStop)
-	mux.HandleFunc("/api/service/start", s.serviceStart)
-	mux.HandleFunc("/api/service/restart", s.serviceRestart)
-	mux.HandleFunc("/api/device/start", s.deviceStart)
-	mux.HandleFunc("/api/device/stop", s.deviceStop)
-	mux.HandleFunc("/api/device/info", s.deviceInfo)
-	mux.HandleFunc("/api/device/status", s.deviceStatus)
-	mux.HandleFunc("/api/device/local_drives", s.localDrives)
-	mux.HandleFunc("/api/iso/space", s.isoSpace)
-	mux.HandleFunc("/api/backup/get_snapshots", s.backupGetSnapshots)
-	mux.HandleFunc("/api/keyboard", s.keyboard)
-	mux.HandleFunc("/api/mouse", s.mouse)
-	mux.HandleFunc("/api/mouse/ws", s.mouseWS)
-	mux.HandleFunc("/api/video/info", s.videoInfo)
-	mux.HandleFunc("/api/video/start", s.videoStart)
-	mux.HandleFunc("/api/video/stop", s.videoStop)
-	mux.HandleFunc("/api/video/devices", s.videoDevices)
-	mux.HandleFunc("/api/screen", s.screen)
-	mux.HandleFunc("/api/devices", s.devicesLegacy)
-	mux.HandleFunc("/api/pcpanel/leds", s.leds)
-	mux.HandleFunc("/api/pcpanel/button", s.button)
+
+	// --- Public endpoints (no HMAC required) ---
+	mux.HandleFunc("/api/healthz", sec.Public(s.health))
+	mux.HandleFunc("/api/auth/qr/link", sec.Public(s.AuthQRLink))
+
+	// --- HMAC verified when present, allowed unsigned pre-pair ---
+	mux.HandleFunc("/api/moonlight/pin", sec.OptionalVerify(s.MoonlightPIN))
+
+	// --- AES-GCM auth only (no HMAC, rate-limited) ---
+	mux.HandleFunc("/api/auth/sync", sec.LimitSync(s.Sync))
+
+	// --- HMAC-authenticated endpoints ---
+	mux.HandleFunc("/api/status", sec.LimitPolling(s.status))
+	mux.HandleFunc("/api/service/status", sec.LimitPolling(s.status))
+	mux.HandleFunc("/api/service/stop", sec.LimitPolling(s.serviceStop))
+	mux.HandleFunc("/api/service/start", sec.LimitPolling(s.serviceStart))
+	mux.HandleFunc("/api/service/restart", sec.LimitPolling(s.serviceRestart))
+	mux.HandleFunc("/api/device/start", sec.LimitPolling(s.deviceStart))
+	mux.HandleFunc("/api/device/stop", sec.LimitPolling(s.deviceStop))
+	mux.HandleFunc("/api/device/info", sec.LimitPolling(s.deviceInfo))
+	mux.HandleFunc("/api/device/status", sec.LimitPolling(s.deviceStatus))
+	mux.HandleFunc("/api/drives/local", sec.LimitPolling(s.localDrives))
+	mux.HandleFunc("/api/iso/space", sec.LimitPolling(s.isoSpace))
+	mux.HandleFunc("/api/backup/get_snapshots", sec.LimitPolling(s.backupGetSnapshots))
+	mux.HandleFunc("/api/auth/tailscale/status", sec.LimitPolling(s.tailscaleStatus))
+	mux.HandleFunc("/api/auth/tailscale/register", sec.LimitPolling(s.tailscaleRegister))
+	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))
+	mux.HandleFunc("/api/mouse", sec.LimitRealtime(s.mouse))
+	mux.HandleFunc("/api/mouse/ws", sec.LimitRealtime(s.mouseWS))
+	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
+	mux.HandleFunc("/api/video/start", sec.LimitPolling(s.videoStart))
+	mux.HandleFunc("/api/video/stop", sec.LimitPolling(s.videoStop))
+	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
+	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
+	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
+	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
+	mux.HandleFunc("/api/pcpanel/button", sec.LimitPolling(s.button))
+
 	return s.withLogging(s.withRecovery(mux))
 }
 
@@ -254,6 +288,34 @@ func (s *Server) backupGetSnapshots(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) tailscaleStatus(w http.ResponseWriter, r *http.Request) {
+	status := s.app.TailscaleStatus()
+	if status == nil {
+		status = &TailscaleStatusInfo{Backend: "unavailable"}
+	}
+	s.ok(w, "tailscale_status", status)
+}
+
+func (s *Server) tailscaleRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AuthKey  string `json:"auth_key"`
+		Hostname string `json:"hostname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[api] tailscale_register invalid_json: %v", err)
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	log.Printf("[api] tailscale_register hostname=%s auth_key_present=%v", req.Hostname, req.AuthKey != "")
+	status, err := s.app.RegisterTailscale(r.Context(), req.AuthKey, req.Hostname)
+	if err != nil {
+		log.Printf("[api] tailscale_register failed: %v", err)
+		s.fail(w, http.StatusInternalServerError, "tailscale_register_failed", err)
+		return
+	}
+	s.ok(w, "tailscale_registered", status)
+}
+
 func (s *Server) keyboard(w http.ResponseWriter, r *http.Request) {
 	var req KeyboardRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -314,7 +376,7 @@ func (s *Server) mouse(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	wsReadTimeout = 90 * time.Second
+	wsReadTimeout  = 90 * time.Second
 	wsPingInterval = 25 * time.Second
 )
 

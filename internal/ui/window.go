@@ -23,8 +23,8 @@ import (
 	"github.com/sirupsen/logrus"
 	qrcode "github.com/skip2/go-qrcode"
 
-	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/capture"
+	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
@@ -34,7 +34,11 @@ type Window struct {
 	app   fyne.App
 	cfg   config.Config
 	token interface {
-		RegenerateFRPToken() (config.Config, error)
+		RegenerateMasterKey() (config.Config, error)
+		SunshineCaptureMode() string
+		SetSunshineCaptureMode(mode string) error
+		KMSCaptureGranted() bool
+		RequestKMSCapture() bool
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -57,6 +61,10 @@ type Window struct {
 	screenBtn   *widget.Button
 	permInfo    *widget.Label
 
+	captureModeSelect *widget.Select
+	captureModeLabel  *widget.Label
+	captureRequestBtn *widget.Button
+
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
@@ -72,9 +80,51 @@ type uiStatus struct {
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
-	RegenerateFRPToken() (config.Config, error)
+	RegenerateMasterKey() (config.Config, error)
+	SunshineCaptureMode() string
+	SetSunshineCaptureMode(mode string) error
+	KMSCaptureGranted() bool
+	RequestKMSCapture() bool
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
+}
+
+var captureModeLabels = map[string]string{
+	"":       "Auto (Portal)",
+	"portal": "Auto (Portal)",
+	"kms":    "KMS (root)",
+}
+
+func captureModeFromLabel(label string) string {
+	if label == "KMS (root)" {
+		return "kms"
+	}
+	return "portal"
+}
+
+func (w *Window) applyCaptureMode(label string) {
+	if w.token == nil {
+		return
+	}
+	mode := captureModeFromLabel(label)
+	if err := w.token.SetSunshineCaptureMode(mode); err != nil {
+		logrus.Errorf("🎥 [UI] Failed to set Sunshine capture mode: %v", err)
+		return
+	}
+	logrus.Infof("🎥 [UI] Sunshine capture mode changed to %s (restart Sunshine to apply)", mode)
+	w.refreshCaptureModeUI()
+}
+
+func (w *Window) refreshCaptureModeUI() {
+	if w.token == nil || w.captureRequestBtn == nil {
+		return
+	}
+	mode := w.token.SunshineCaptureMode()
+	if mode == "kms" && !w.token.KMSCaptureGranted() {
+		w.captureRequestBtn.Show()
+	} else {
+		w.captureRequestBtn.Hide()
+	}
 }
 
 func (w *Window) applyTailscaleMode(mode string) {
@@ -160,13 +210,46 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.screenBtn.Show()
 	}
 
-	permContent := newTightVBox(
+	permRows := []fyne.CanvasObject{
 		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 		container.NewHBox(w.screenLabel, layout.NewSpacer(), w.screenBtn),
-	)
-	if !showButtons {
-		permContent = w.permInfo
 	}
+	if !showButtons {
+		permRows = []fyne.CanvasObject{w.permInfo}
+	}
+
+	if runtime.GOOS == "linux" && w.token != nil {
+		w.captureModeLabel = widget.NewLabel("Capture Mode")
+		// Build without OnChanged so the initial SetSelected below (which Fyne
+		// fires through OnChanged like any other selection) doesn't trigger an
+		// unwanted sunshine.conf write on every app start.
+		w.captureModeSelect = widget.NewSelect([]string{"Auto (Portal)", "KMS (root)"}, nil)
+		w.captureModeSelect.SetSelected(captureModeLabels[w.token.SunshineCaptureMode()])
+		w.captureModeSelect.OnChanged = w.applyCaptureMode
+		w.captureModeSelect.Resize(fyne.NewSize(140, 24))
+
+		w.captureRequestBtn = widget.NewButton("Request", func() {
+			if w.token == nil {
+				return
+			}
+			w.captureRequestBtn.Disable()
+			go func() {
+				defer fyne.Do(func() {
+					if w.captureRequestBtn != nil {
+						w.captureRequestBtn.Enable()
+					}
+				})
+				w.token.RequestKMSCapture()
+				fyne.Do(w.refreshCaptureModeUI)
+			}()
+		})
+		w.captureRequestBtn.Importance = widget.HighImportance
+		w.captureRequestBtn.Resize(fyne.NewSize(80, 24))
+
+		permRows = append(permRows, container.NewHBox(w.captureModeLabel, layout.NewSpacer(), w.captureModeSelect, w.captureRequestBtn))
+	}
+
+	permContent := newTightVBox(permRows...)
 	permBlock := newPanel("Permissions", permContent)
 
 	// Column 2: Stats & Tailscale
@@ -182,11 +265,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}
 	}
 
+	sunshinePort := w.cfg.SunshinePort
+	if sunshinePort == 0 {
+		sunshinePort = 47990
+	}
 	w.statusInfo = widget.NewLabel(fmt.Sprintf(
-		"OS: %s\nHTTP Port: %d\nVideo UDP Port: %d\nCapture: %s",
+		"OS: %s\nHTTP Port: %d\nSunshine Port: %d\nCapture: %s",
 		capture.GetOSInfo(),
 		w.cfg.HTTPPort,
-		w.cfg.VideoUDPPort,
+		sunshinePort,
 		displayCapture,
 	))
 	w.statusInfo.Wrapping = fyne.TextWrapWord
@@ -276,6 +363,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// Initial refresh
 	w.performRefresh()
+	w.refreshCaptureModeUI()
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -467,14 +555,14 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	qrPanelBody := container.NewVBox(qrContent, qrMessage)
 
 	copyLinkBtn := newIconActionButton("Copy Link", theme.ContentCopyIcon(), func() {
-		token := strings.TrimSpace(w.cfg.FRPToken)
+		masterKey := strings.TrimSpace(w.cfg.MasterKey)
 		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, token, protocol)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
 		if link != "" {
 			parent.Clipboard().SetContent(link)
 		}
 	})
-	regenerateBtn := newIconActionButton("Regenerate Token", theme.ViewRefreshIcon(), nil)
+	regenerateBtn := newIconActionButton("Regenerate Key", theme.ViewRefreshIcon(), nil)
 
 	topGap := spacerSize(1, 8)
 	linkGap := spacerSize(1, 2)
@@ -530,12 +618,12 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	tokenDialog.Resize(parent.Canvas().Size())
 
 	refreshDialogContent := func() {
-		token := strings.TrimSpace(w.cfg.FRPToken)
-		if token == "" {
-			token = "unavailable"
+		masterKey := strings.TrimSpace(w.cfg.MasterKey)
+		if masterKey == "" {
+			masterKey = "unavailable"
 		}
 		internalHost, tailscaleHost, protocol := w.quickConnectTargets()
-		link := buildQuickConnectLink(internalHost, tailscaleHost, token, protocol)
+		link := buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol)
 
 		linkLabel.SetText(link)
 		if link == "" {
@@ -572,7 +660,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		if w.token == nil {
 			return
 		}
-		cfg, err := w.token.RegenerateFRPToken()
+		cfg, err := w.token.RegenerateMasterKey()
 		if err != nil {
 			dialog.ShowError(err, parent)
 			return
@@ -585,9 +673,9 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	tokenDialog.Show()
 }
 
-func buildQuickConnectLink(internalHost, tailscaleHost, token, protocol string) string {
-	token = strings.TrimSpace(token)
-	if token == "" || token == "unavailable" {
+func buildQuickConnectLink(internalHost, tailscaleHost, masterKey, protocol string) string {
+	masterKey = strings.TrimSpace(masterKey)
+	if masterKey == "" || masterKey == "unavailable" {
 		return ""
 	}
 	if strings.TrimSpace(internalHost) == "" && strings.TrimSpace(tailscaleHost) == "" {
@@ -601,7 +689,7 @@ func buildQuickConnectLink(internalHost, tailscaleHost, token, protocol string) 
 	if strings.TrimSpace(tailscaleHost) != "" {
 		values.Set("tailscale_host", strings.TrimSpace(tailscaleHost))
 	}
-	values.Set("token", token)
+	values.Set("master_key", masterKey)
 	if strings.TrimSpace(protocol) != "" {
 		values.Set("protocol", strings.TrimSpace(protocol))
 	}

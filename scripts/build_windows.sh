@@ -134,6 +134,9 @@ if [[ -f "$REPO_ROOT/config.yaml" ]]; then
     cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
 fi
 
+source "$SCRIPT_DIR/fetch_sunshine.sh"
+fetch_sunshine_windows "$DIST_DIR/sunshine"
+
 cat > "$DIST_DIR/README.txt" <<'README'
 USBridgeAgent for Windows
 =========================
@@ -143,8 +146,11 @@ Built from MSYS2 UCRT64.
 Run:
   USBridgeAgent.exe
 
-Requirements:
-  - ffmpeg.exe must be installed and available in PATH, or configured via config.yaml
+Video/input: Sunshine (Moonlight GameStream host) is bundled in .\sunshine\ and
+is started automatically by the agent (.\sunshine\sunshine.exe), including a
+one-time admin credential bootstrap. The agent itself is not in the
+video/input path; it only pairs with and relays PINs to Sunshine's local API
+(port 47990) on behalf of usbridge_client.
 
 Configuration:
   config.yaml next to the executable, or %USERPROFILE%\.config\usbridge-agent\config.yaml
