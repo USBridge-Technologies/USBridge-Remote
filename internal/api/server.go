@@ -38,6 +38,11 @@ type Application interface {
 	// FPS) — descriptive only. Actual capture/encoding is Sunshine's job; the
 	// agent never spawns ffmpeg or any other capture process itself.
 	VideoDevices() []VideoDeviceInfo
+	// SunshineStreamHost returns the IP Sunshine advertises to Moonlight clients
+	// (external_ip from sunshine.conf, or "" if auto-detect).
+	SunshineStreamHost() string
+	// SunshineAdminPort returns the Sunshine web admin / NvHTTP port (default 47990).
+	SunshineAdminPort() int
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -599,6 +604,8 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	moonlightHost := s.app.SunshineStreamHost()
+	sunshinePort := s.app.SunshineAdminPort()
 	s.ok(w, "video_info", map[string]any{
 		"device":            devicePath,
 		"width":             width,
@@ -610,12 +617,19 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"streaming":         false,
 		"capture_modes":     modes,
 		"available_devices": devices,
+		"moonlight_host":    moonlightHost,
+		"sunshine_port":     sunshinePort,
 	})
 }
 
 func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[api] video_start (no-op — video is served via Sunshine/Moonlight)")
-	s.ok(w, "video_started", nil)
+	moonlightHost := s.app.SunshineStreamHost()
+	sunshinePort := s.app.SunshineAdminPort()
+	log.Printf("[api] video_start moonlight_host=%s sunshine_port=%d", moonlightHost, sunshinePort)
+	s.ok(w, "video_started", map[string]any{
+		"moonlight_host": moonlightHost,
+		"sunshine_port":  sunshinePort,
+	})
 }
 
 func getClientIP(r *http.Request) string {

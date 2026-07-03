@@ -616,6 +616,23 @@ func (a *App) CurrentAudioSink() (string, error) {
 	return audio.DefaultSink()
 }
 
+// SunshineStreamHost returns the IP Sunshine advertises to Moonlight clients
+// (external_ip from sunshine.conf, or Tailscale IP if not explicitly set).
+func (a *App) SunshineStreamHost() string {
+	if ip := sunshine.ExternalIP(); ip != "" && ip != "0.0.0.0" {
+		return ip
+	}
+	return ""
+}
+
+// SunshineAdminPort returns the Sunshine web admin / NvHTTP base port.
+func (a *App) SunshineAdminPort() int {
+	if a.cfg.SunshinePort > 0 {
+		return a.cfg.SunshinePort
+	}
+	return 47990
+}
+
 // ListSunshineClients returns Moonlight clients currently paired with the
 // bundled Sunshine instance.
 func (a *App) ListSunshineClients() ([]sunshine.Client, error) {
