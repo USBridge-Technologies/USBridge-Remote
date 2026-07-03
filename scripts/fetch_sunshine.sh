@@ -54,14 +54,18 @@ _sunshine_asset_url() {
     else
         api_url="https://api.github.com/repos/${_sunshine_repo}/releases/tags/${version}"
     fi
-    curl -fsSL "$api_url" | python3 -c "
+    # Use || true so a 404 (no release yet) returns empty string instead of aborting.
+    curl -fsSL "$api_url" 2>/dev/null | python3 -c "
 import sys, json
-data = json.load(sys.stdin)
-for a in data.get('assets', []):
-    if a['name'] == '${asset_name}':
-        print(a['browser_download_url'])
-        break
-"
+try:
+    data = json.load(sys.stdin)
+    for a in data.get('assets', []):
+        if a['name'] == '${asset_name}':
+            print(a['browser_download_url'])
+            break
+except Exception:
+    pass
+" 2>/dev/null || true
 }
 
 _sunshine_resolve_tag() {
