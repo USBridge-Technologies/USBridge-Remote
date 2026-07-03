@@ -121,18 +121,26 @@ func resolveExeDir() string {
 
 func resolveConfigPath() string {
 	candidates := make([]string, 0, 8)
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "config.yaml"),
-			filepath.Clean(filepath.Join(exeDir, "..", "..", "..", "config.yaml")),
-		)
+	// Under an AppImage, exeDir is the AppImage's read-only squashfs mount
+	// (a fresh, ephemeral path each launch) — never usable as a config
+	// location, so it's excluded both from the search and from the fallback
+	// below (which would otherwise pick it and every later config.Save would
+	// fail with "read-only file system").
+	skipExeDir := runtime.GOOS == "linux" && os.Getenv("APPIMAGE") != ""
+	if !skipExeDir {
+		if exePath, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exePath)
+			candidates = append(candidates,
+				filepath.Join(exeDir, "config.yaml"),
+				filepath.Clean(filepath.Join(exeDir, "..", "..", "..", "config.yaml")),
+			)
+		}
 	}
 	candidates = append(candidates, filepath.Join(".", "config.yaml"))
+	var homeCandidate string
 	if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
-		candidates = append(candidates,
-			filepath.Join(homeDir, ".config", "usbridge-agent", "config.yaml"),
-		)
+		homeCandidate = filepath.Join(homeDir, ".config", "usbridge-agent", "config.yaml")
+		candidates = append(candidates, homeCandidate)
 		if runtime.GOOS == "darwin" {
 			// macOS: the UI saves via StateDir which defaults to ~/Library/Application Support/
 			candidates = append(candidates,
@@ -145,6 +153,9 @@ func resolveConfigPath() string {
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
+	}
+	if skipExeDir && homeCandidate != "" {
+		return homeCandidate
 	}
 	return candidates[0]
 }
