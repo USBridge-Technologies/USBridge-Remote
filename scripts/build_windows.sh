@@ -130,10 +130,6 @@ LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui}"
 echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
-if [[ -f "$REPO_ROOT/config.yaml" ]]; then
-    cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
-fi
-
 # ── Sunshine (Moonlight GameStream host) ──────────────────────────────────────
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_windows "$DIST_DIR/sunshine"
@@ -282,6 +278,12 @@ Logs:
   logs\app.log next to the executable
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
+
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-amd64.zip"
+rm -f "$ARCHIVE"
+echo -e "${YELLOW}Creating archive...${NC}"
+(cd "$DIST_DIR" && zip -r "$ARCHIVE" .)
+echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
 
 echo -e "${GREEN}Done.${NC}"
 echo "Binary: $OUTPUT_PATH"

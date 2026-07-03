@@ -597,6 +597,26 @@ func (a *App) CurrentAudioSink() (string, error) {
 	return audio.DefaultSink()
 }
 
+// ListSunshineClients returns Moonlight clients currently paired with the
+// bundled Sunshine instance.
+func (a *App) ListSunshineClients() ([]sunshine.Client, error) {
+	port := a.cfg.SunshinePort
+	if port == 0 {
+		port = 47990
+	}
+	return sunshine.ListClients(port)
+}
+
+// UnpairSunshineClient removes the Moonlight client with the given UUID from
+// Sunshine's authorized client list.
+func (a *App) UnpairSunshineClient(uniqueID string) error {
+	port := a.cfg.SunshinePort
+	if port == 0 {
+		port = 47990
+	}
+	return sunshine.UnpairClient(port, uniqueID)
+}
+
 // SetAudioSink points Sunshine at the given audio device (sunshine.conf's
 // audio_sink) and restarts it so the change takes effect.
 func (a *App) SetAudioSink(sink string) error {

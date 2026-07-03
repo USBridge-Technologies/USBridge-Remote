@@ -27,6 +27,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/permissions"
+	"usbridge_agent/internal/sunshine"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 )
@@ -43,6 +44,8 @@ type Window struct {
 		RestartSunshine() error
 		SunshineRunning() bool
 		RestartSunshineElevated() error
+		ListSunshineClients() ([]sunshine.Client, error)
+		UnpairSunshineClient(uniqueID string) error
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -100,6 +103,8 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	RestartSunshine() error
 	SunshineRunning() bool
 	RestartSunshineElevated() error
+	ListSunshineClients() ([]sunshine.Client, error)
+	UnpairSunshineClient(uniqueID string) error
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -369,6 +374,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 		sunshineRow := container.NewHBox(w.sunshineLabel, layout.NewSpacer(), w.sunshineBtn)
 		permRows = append(permRows, sunshineRow)
 	}
+
+	// Moonlight Clients — show paired remote devices and allow removal
+	moonlightClientsBtn := widget.NewButton("View Clients", func() {
+		w.showMoonlightClientsDialog(win)
+	})
+	permRows = append(permRows, container.NewHBox(
+		widget.NewLabel("Moonlight Clients"),
+		layout.NewSpacer(),
+		moonlightClientsBtn,
+	))
 
 	permContent := newTightVBox(permRows...)
 	permBlock := newPanel("Permissions", permContent)
@@ -870,6 +885,78 @@ func localQuickConnectIPv4() string {
 		return ""
 	}
 	return candidates[0].ip
+}
+
+func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
+	if w.token == nil || parent == nil {
+		return
+	}
+
+	listBox := container.NewVBox()
+	var dlg *widget.PopUp
+	var refreshList func()
+
+	refreshList = func() {
+		go func() {
+			clients, err := w.token.ListSunshineClients()
+			fyne.Do(func() {
+				listBox.RemoveAll()
+				if err != nil {
+					listBox.Add(widget.NewLabel("Error: " + err.Error()))
+					listBox.Refresh()
+					return
+				}
+				if len(clients) == 0 {
+					listBox.Add(widget.NewLabel("No paired clients"))
+				} else {
+					for _, c := range clients {
+						c := c
+						nameLabel := widget.NewLabel(c.Name)
+						removeBtn := widget.NewButton("Remove", func() {
+							go func() {
+								if err := w.token.UnpairSunshineClient(c.UniqueID); err != nil {
+									log.Printf("[ui] unpair moonlight client: %v", err)
+								}
+								refreshList()
+							}()
+						})
+						removeBtn.Importance = widget.DangerImportance
+						listBox.Add(container.NewHBox(nameLabel, layout.NewSpacer(), removeBtn))
+					}
+				}
+				listBox.Refresh()
+			})
+		}()
+	}
+
+	closeBtn := widget.NewButton("Close", func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(340, 1))
+
+	titleLabel := canvas.NewText("MOONLIGHT CLIENTS", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+
+	content := container.NewVBox(
+		titleLabel,
+		minWidth,
+		widget.NewSeparator(),
+		listBox,
+		widget.NewSeparator(),
+		container.NewCenter(closeBtn),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	refreshList()
+	dlg.Show()
 }
 
 func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {

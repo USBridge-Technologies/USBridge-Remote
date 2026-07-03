@@ -249,6 +249,70 @@ func (p *Process) StartElevated(adminPort int) error {
 	return nil
 }
 
+// Client is a Moonlight client that has been paired with Sunshine.
+type Client struct {
+	Name     string `json:"name"`
+	UniqueID string `json:"uuid"`
+}
+
+// ListClients returns the Moonlight clients currently paired with the Sunshine
+// instance running on adminPort. Requires valid admin credentials to have been
+// bootstrapped first.
+func ListClients(adminPort int) ([]Client, error) {
+	url := fmt.Sprintf("https://127.0.0.1:%d/api/clients/list", adminPort)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(AdminUser, AdminPassword)
+	c := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		NamedCerts []Client `json:"named_certs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.NamedCerts, nil
+}
+
+// UnpairClient removes the Moonlight client with the given uniqueID from
+// Sunshine's authorized client list via the admin API on adminPort.
+func UnpairClient(adminPort int, uniqueID string) error {
+	body, _ := json.Marshal(map[string]string{"uuid": uniqueID})
+	url := fmt.Sprintf("https://127.0.0.1:%d/api/clients/unpair", adminPort)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(AdminUser, AdminPassword)
+	c := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unpair failed: %s", resp.Status)
+	}
+	return nil
+}
+
 func portReachable(port int, timeout time.Duration) bool {
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), timeout)
 	if err != nil {

@@ -46,10 +46,6 @@ echo -e "${YELLOW}Compiling...${NC}"
 # -ldflags "-s -w" to reduce binary size
 go build -trimpath -ldflags "-s -w" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
-if [[ -f "$REPO_ROOT/config.yaml" ]]; then
-    cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
-fi
-
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 build_sunshine_linux
 
@@ -93,6 +89,12 @@ Logs:
 README
 
 chmod +x "$OUTPUT_PATH"
+
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Linux-amd64.tar.gz"
+rm -f "$ARCHIVE"
+echo -e "${YELLOW}Creating archive...${NC}"
+tar -czf "$ARCHIVE" -C "$DIST_DIR" "usbridge-agent" "README.txt"
+echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
 
 echo -e "${GREEN}Done.${NC}"
 echo "Binary: $OUTPUT_PATH"

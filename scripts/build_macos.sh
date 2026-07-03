@@ -90,8 +90,6 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-cp "$REPO_ROOT/config.yaml" "$DIST_DIR/config.yaml"
-
 # Bundle Sunshine before signing — adding files after signing breaks the seal.
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_macos "$APP_MACOS/sunshine"
@@ -145,6 +143,12 @@ Application log:
   ~/Library/Logs/USBridgeAgent/app.log
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
+
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS.zip"
+rm -f "$ARCHIVE"
+echo -e "${YELLOW}Creating archive...${NC}"
+(cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
+echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
 
 echo -e "${GREEN}Done.${NC}"
 echo "Bundle: $APP_BUNDLE"

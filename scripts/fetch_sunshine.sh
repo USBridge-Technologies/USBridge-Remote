@@ -27,6 +27,21 @@ _sunshine_require() {
     fi
 }
 
+# _sunshine_clean_creds <dir>
+# Removes Sunshine credential/state files that may have been written by a
+# previous run of Sunshine from the dist directory. These files contain device
+# pairing keys and admin password hashes that must never be shipped in a
+# distribution archive.
+_sunshine_clean_creds() {
+    local dir="$1"
+    for _f in sunshine_state.json credentials.json creds.json; do
+        if [[ -f "$dir/$_f" ]]; then
+            rm -f "$dir/$_f"
+            echo -e "  ${YELLOW}Removed Sunshine credential file: $_f${NC}"
+        fi
+    done
+}
+
 _sunshine_asset_url() {
     local asset_name="$1"
     local version="${USBRIDGE_SUNSHINE_VERSION:-latest}"
@@ -145,6 +160,7 @@ fetch_sunshine_windows() {
     fi
     if [[ -f "$dest/sunshine.exe" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
         echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping download"
+        _sunshine_clean_creds "$dest"
         return 0
     fi
 
@@ -176,6 +192,7 @@ fetch_sunshine_windows() {
         rmdir "$dest/Sunshine" 2>/dev/null || true
     fi
 
+    _sunshine_clean_creds "$dest"
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest"
 }
 
@@ -188,6 +205,7 @@ fetch_sunshine_macos() {
     fi
     if [[ -d "$dest/Sunshine.app" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
         echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping download"
+        _sunshine_clean_creds "$dest"
         return 0
     fi
 
@@ -228,5 +246,6 @@ fetch_sunshine_macos() {
     # Remove quarantine so macOS allows Sunshine to request TCC permissions
     xattr -dr com.apple.quarantine "$dest/Sunshine.app" 2>/dev/null || true
 
+    _sunshine_clean_creds "$dest"
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest/Sunshine.app"
 }
