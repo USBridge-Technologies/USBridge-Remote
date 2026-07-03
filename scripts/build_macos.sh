@@ -43,6 +43,7 @@ APP_CONTENTS_DIR="$DIST_DIR/$APP_BUNDLE_NAME/Contents"
 APP_MACOS_DIR="$APP_CONTENTS_DIR/MacOS"
 APP_RESOURCES_DIR="$APP_CONTENTS_DIR/Resources"
 APP_FRAMEWORKS_DIR="$APP_CONTENTS_DIR/Frameworks"
+APP_PLUGINS_DIR="$APP_CONTENTS_DIR/PlugIns"
 BINARY_NAME="$OUTPUT_NAME"
 
 # Colors
@@ -229,7 +230,7 @@ export CGO_LDFLAGS="-L${HOMEBREW_PREFIX}/lib ${CGO_LDFLAGS:-}"
 export CGO_CPPFLAGS="-I${HOMEBREW_PREFIX}/include ${CGO_CPPFLAGS:-}"
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 rm -rf "$DIST_DIR"
-mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR" "$APP_FRAMEWORKS_DIR"
+mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR" "$APP_FRAMEWORKS_DIR" "$APP_PLUGINS_DIR"
 APP_BINARY_PATH="$APP_MACOS_DIR/$BINARY_NAME"
 go build -ldflags="-s -w" -o "$APP_BINARY_PATH" ./cmd
 
@@ -253,8 +254,11 @@ for d in \
 done
 
 if [ -n "$GST_PLUGIN_SRC" ]; then
-    echo -e "\n${YELLOW}🔌 Bundling GStreamer plugins (RTP mode) → Contents/Frameworks/gstreamer-1.0/...${NC}"
-    GST_PLUGIN_DEST="$APP_FRAMEWORKS_DIR/gstreamer-1.0"
+    # GStreamer plugins go directly into Contents/Frameworks/ as flat dylibs.
+    # codesign rejects any subdirectory inside Frameworks/ or PlugIns/ that lacks
+    # proper bundle structure (Info.plist etc). Flattening avoids that.
+    echo -e "\n${YELLOW}🔌 Bundling GStreamer plugins (RTP mode) → Contents/Frameworks/...${NC}"
+    GST_PLUGIN_DEST="$APP_FRAMEWORKS_DIR"
     mkdir -p "$GST_PLUGIN_DEST"
     GST_PLUGINS=(
         libgstcoreelements.dylib
@@ -282,7 +286,7 @@ if [ -n "$GST_PLUGIN_SRC" ]; then
         if [ -f "$GST_PLUGIN_SRC/$plugin" ]; then
             cp -L "$GST_PLUGIN_SRC/$plugin" "$GST_PLUGIN_DEST/"
             chmod 755 "$GST_PLUGIN_DEST/$plugin"
-            install_name_tool -id "@rpath/gstreamer-1.0/$plugin" "$GST_PLUGIN_DEST/$plugin" 2>/dev/null || true
+            install_name_tool -id "@rpath/$plugin" "$GST_PLUGIN_DEST/$plugin" 2>/dev/null || true
             # Fix all Homebrew references inside the plugin
             while IFS= read -r dep; do
                 [ -z "$dep" ] && continue
@@ -290,12 +294,12 @@ if [ -n "$GST_PLUGIN_SRC" ]; then
                 dep_name="$(basename "$dep")"
                 install_name_tool -change "$dep" "@rpath/$dep_name" "$GST_PLUGIN_DEST/$plugin" 2>/dev/null || true
             done < <(otool -L "$GST_PLUGIN_SRC/$plugin" 2>/dev/null | awk 'NR>1 {print $1}')
-            echo -e "   ${GREEN}✓${NC} gstreamer-1.0/$plugin"
+            echo -e "   ${GREEN}✓${NC} $plugin"
             GST_PLUGIN_COUNT=$((GST_PLUGIN_COUNT + 1))
         fi
     done
-    echo -e "${GREEN}✓${NC} GStreamer plugins: $GST_PLUGIN_COUNT bundled"
-    echo "   (set GST_PLUGIN_PATH=\$BUNDLE/Contents/Frameworks/gstreamer-1.0 to use them)"
+    echo -e "${GREEN}✓${NC} GStreamer plugins: $GST_PLUGIN_COUNT bundled (flat in Contents/Frameworks/)"
+    echo "   (set GST_PLUGIN_PATH=\$BUNDLE/Contents/Frameworks to use them)"
 fi
 
 # 5. Bundle QEMU (qemu-nbd, qemu-img — for VMDK/QCOW2/VDI image support)
@@ -324,7 +328,26 @@ for _qtool in qemu-nbd qemu-img; do
 done
 [ "$QEMU_COPIED" -gt 0 ] && echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано" || true
 
-# 5b. Bundle Tailscale (Go binary — statically linked, no dylib deps)
+# 5b. Bundle FFmpeg (used by h264_decoder.go for legacy RTP H.264 decoding)
+# findFFmpeg() checks the executable's own directory first, so placing ffmpeg in
+# Contents/MacOS/ means it is found without Homebrew or PATH manipulation.
+echo -e "\n${YELLOW}🎬 Bundling FFmpeg...${NC}"
+_ff_src=""
+for _d in /opt/homebrew/bin /usr/local/bin; do
+    [ -f "$_d/ffmpeg" ] && _ff_src="$_d/ffmpeg" && break
+done
+if [ -n "$_ff_src" ]; then
+    _ff_dest="$APP_MACOS_DIR/ffmpeg"
+    cp -L "$_ff_src" "$_ff_dest"
+    chmod 755 "$_ff_dest"
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$_ff_dest" 2>/dev/null || true
+    bundle_homebrew_dylibs "$_ff_dest" "$APP_FRAMEWORKS_DIR"
+    echo -e "${GREEN}✓${NC} MacOS/ffmpeg"
+else
+    echo -e "${YELLOW}⚠${NC} ffmpeg не найден — установите: brew install ffmpeg"
+fi
+
+# 5c. Bundle Tailscale (Go binary — statically linked, no dylib deps)
 echo -e "\n${YELLOW}🔗 Bundling Tailscale...${NC}"
 _ts_src=""
 for _d in /opt/homebrew/bin /usr/local/bin; do
@@ -379,16 +402,50 @@ if [ -f "$REPO_ROOT/Icon.png" ]; then
     fi
 fi
 
-# 6. Sign — must run after all dylibs are copied into Frameworks/.
-# codesign --deep does NOT sign flat .dylib files, only nested .framework bundles.
-# After install_name_tool modifies the copied dylibs their original signatures are
-# invalid, so we must explicitly sign each .dylib before signing the bundle.
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-Developer ID Application: Amir Fatkulin (AJVY97F5QT)}"
-if command -v codesign >/dev/null 2>&1; then
-    find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f | while IFS= read -r dylib; do
-        codesign --force --sign "$SIGN_IDENTITY" "$dylib" 2>/dev/null || true
+# 6. Sign — must run AFTER all binaries/dylibs are bundled.
+# Signing order: inner dylibs → MacOS/ executables → outer bundle with --deep.
+# --options runtime is required for notarization (Hardened Runtime).
+CODESIGN_IDENTITY="${USBRIDGE_CODESIGN_IDENTITY:-}"
+if [ -z "$CODESIGN_IDENTITY" ] && command -v security >/dev/null 2>&1; then
+    CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep "Developer ID Application" | head -1 \
+        | awk '{print $2}')
+fi
+
+ENTITLEMENTS="$SCRIPTS_DIR/entitlements-macos.plist"
+
+if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
+    echo -e "${YELLOW}Signing with identity: $CODESIGN_IDENTITY${NC}"
+    # Sign each dylib individually (install_name_tool invalidated original signatures)
+    find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null | while IFS= read -r dylib; do
+        codesign --force --sign "$CODESIGN_IDENTITY" \
+            --options runtime --entitlements "$ENTITLEMENTS" "$dylib" 2>/dev/null || true
     done
-    codesign --force --deep --sign "$SIGN_IDENTITY" "$DIST_DIR/$APP_BUNDLE_NAME" >/dev/null 2>&1 || true
+    # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale)
+    find "$APP_MACOS_DIR" -type f -perm +111 ! -name "$BINARY_NAME" | while IFS= read -r exe; do
+        codesign --force --sign "$CODESIGN_IDENTITY" \
+            --options runtime --entitlements "$ENTITLEMENTS" "$exe" 2>/dev/null || true
+    done
+    # Sign the main binary explicitly before sealing the bundle
+    codesign --force --sign "$CODESIGN_IDENTITY" \
+        --options runtime --entitlements "$ENTITLEMENTS" \
+        "$APP_MACOS_DIR/$BINARY_NAME"
+    # Sign the outer bundle WITHOUT --deep: all inner components are already signed above.
+    # --deep recurses into plain directories (e.g. gstreamer-1.0/) and fails treating them
+    # as bundles; signing everything explicitly first avoids that error.
+    codesign --force --sign "$CODESIGN_IDENTITY" \
+        --options runtime --entitlements "$ENTITLEMENTS" \
+        "$DIST_DIR/$APP_BUNDLE_NAME"
+else
+    # Go linker embeds an ad-hoc signature; replace it so macOS doesn't reject as "damaged"
+    echo -e "${YELLOW}No Developer ID found — signing ad-hoc${NC}"
+    find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null | while IFS= read -r dylib; do
+        codesign --force --sign - "$dylib" 2>/dev/null || true
+    done
+    find "$APP_MACOS_DIR" -type f -perm +111 | while IFS= read -r exe; do
+        codesign --force --sign - "$exe" 2>/dev/null || true
+    done
+    codesign --force --sign - "$DIST_DIR/$APP_BUNDLE_NAME"
 fi
 touch "$DIST_DIR/$APP_BUNDLE_NAME"
 
@@ -408,11 +465,11 @@ Run:
 
 Bundle layout:
   Contents/MacOS/USBridgeClient    — main binary
+  Contents/MacOS/ffmpeg            — FFmpeg (H.264 RTP legacy decode)
   Contents/MacOS/qemu-nbd          — QEMU NBD (VMDK/QCOW2/VDI image support)
   Contents/MacOS/qemu-img          — QEMU image tool
   Contents/MacOS/tailscale         — Tailscale CLI
-  Contents/Frameworks/             — bundled dylibs (opus, openssl, glib, gstreamer, gnutls…)
-  Contents/Frameworks/gstreamer-1.0/  — GStreamer plugins (if bundled)
+  Contents/Frameworks/             — bundled dylibs (opus, openssl, glib, gstreamer, ffmpeg libs, gnutls…) + GStreamer plugins
 
 Video modes:
   Moonlight streaming — VideoToolbox (GPU hardware decode) + CoreAudio audio.
@@ -420,7 +477,7 @@ Video modes:
 
   Legacy RTP mode — requires GStreamer plugins.
     If GStreamer was installed at build time its plugins are bundled above.
-    To activate: export GST_PLUGIN_PATH="$BUNDLE/Contents/Frameworks/gstreamer-1.0"
+    To activate: export GST_PLUGIN_PATH="$BUNDLE/Contents/Frameworks"
     Or install GStreamer via Homebrew: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
 
 Requirements:
@@ -434,13 +491,67 @@ Application log:
 README
 
 echo -e "\n${YELLOW}📦 Создание архива...${NC}"
-cd "$DIST_DIR"
-zip -rq "../USBridgeClient-macOS.zip" ./*
-cd "$REPO_ROOT"
+ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS.zip"
+rm -f "$ARCHIVE"
+(cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt config.yaml 2>/dev/null || \
+ zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt)
+
+# ── Notarization (optional) ───────────────────────────────────────────────────
+# Requires credentials stored in Keychain once via:
+#   xcrun notarytool store-credentials "usbridge-notarytool" \
+#       --apple-id "..." --team-id "..." --password "xxxx-xxxx-xxxx-xxxx"
+# Skip with: USBRIDGE_SKIP_NOTARIZE=1
+NOTARIZE_PROFILE="${USBRIDGE_NOTARIZE_PROFILE:-usbridge-notarytool}"
+if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>&1; then
+    if xcrun notarytool history --keychain-profile "$NOTARIZE_PROFILE" >/dev/null 2>&1; then
+        echo -e "${YELLOW}Notarizing (this takes 1-3 minutes)...${NC}"
+        xcrun notarytool submit "$ARCHIVE" \
+            --keychain-profile "$NOTARIZE_PROFILE" \
+            --wait
+        echo -e "${YELLOW}Stapling notarization ticket...${NC}"
+        xcrun stapler staple "$DIST_DIR/$APP_BUNDLE_NAME"
+        rm -f "$ARCHIVE"
+        (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt config.yaml 2>/dev/null || \
+         zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt)
+        echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
+    else
+        echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"
+        echo "  Run once to enable: xcrun notarytool store-credentials \"$NOTARIZE_PROFILE\" --apple-id ... --team-id ... --password ..."
+    fi
+fi
+
+# ── Signature validation ─────────────────────────────────────────────────────
+echo -e "${YELLOW}Validating code signatures...${NC}"
+sig_ok=true
+
+if codesign --verify --deep --strict "$DIST_DIR/$APP_BUNDLE_NAME" 2>&1; then
+    echo -e "  ${GREEN}✓${NC} codesign --verify --deep --strict: OK"
+else
+    echo -e "  ${RED}✗${NC} codesign deep verify FAILED"
+    sig_ok=false
+fi
+
+while IFS= read -r -d '' bin; do
+    if codesign --verify --strict "$bin" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} signed: ${bin#$DIST_DIR/$APP_BUNDLE_NAME/}"
+    else
+        echo -e "  ${RED}✗${NC} unsigned: ${bin#$DIST_DIR/$APP_BUNDLE_NAME/}"
+        sig_ok=false
+    fi
+done < <(find "$DIST_DIR/$APP_BUNDLE_NAME/Contents/MacOS" -type f -perm +111 -print0 2>/dev/null)
+
+gk_result=$(spctl --assess -v "$DIST_DIR/$APP_BUNDLE_NAME" 2>&1 || true)
+if echo "$gk_result" | grep -q "accepted"; then
+    echo -e "  ${GREEN}✓${NC} Gatekeeper: accepted (notarized)"
+elif echo "$gk_result" | grep -q "CSSMERR_TP_NOT_TRUSTED\|rejected"; then
+    echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: not accepted (ad-hoc signed / not notarized)"
+else
+    echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: $gk_result"
+fi
 
 echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
 echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
-echo -e "   Архив:     dist/USBridgeClient-macOS.zip"
+echo -e "   Архив:     $ARCHIVE"
 echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
 echo -e "   Лог app:   ~/Library/Logs/USBridgeClient/app.log"
 echo ""

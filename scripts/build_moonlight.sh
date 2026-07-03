@@ -207,7 +207,14 @@ cd "${HOST_BUILD}"
 rm -f ./*.dylib ./*.so ./*.dll
 
 echo "⚙️ Configuring CMake (host)..."
-cmake "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+# Detect Homebrew OpenSSL so cmake can find the include directory
+OPENSSL_ROOT=""
+for _d in /opt/homebrew/opt/openssl@3 /usr/local/opt/openssl@3 \
+           /opt/homebrew/opt/openssl   /usr/local/opt/openssl; do
+    [ -d "$_d" ] && OPENSSL_ROOT="$_d" && break
+done
+cmake "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+    ${OPENSSL_ROOT:+-DOPENSSL_ROOT_DIR="$OPENSSL_ROOT"}
 
 echo "🔨 Compiling moonlight-common-c (host)..."
 cmake --build . --config Release -j"${NCPU}"
