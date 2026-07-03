@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Shared helper: obtain the official Sunshine (LizardByte/Sunshine) build and
-# stage it next to the agent binary. Sunshine is the Moonlight GameStream
-# host — it owns all video/audio/input capture for the Moonlight/Sunshine
-# protocol; usbridge_agent only pairs with it and relays PINs.
+# Shared helper: obtain the usbridge fork of Sunshine and stage it next to the
+# agent binary. Sunshine is the Moonlight GameStream host — it owns all
+# video/audio/input capture for the Moonlight/Sunshine protocol; usbridge_agent
+# pairs with it and relays PINs.
 #
-# Linux is built from source (not the prebuilt AppImage): Sunshine's AppImage
-# and Flatpak builds intentionally refuse KMS capture at runtime
-# (-DSUNSHINE_BUILD_APPIMAGE=ON gates it), which breaks the agent's root/KMS
-# capture-mode option. A native build has no such restriction. Windows/macOS
-# use the official prebuilt release — DXGI/ScreenCaptureKit have no AppImage-
-# style packaging restriction, so there's nothing to gain from compiling.
+# We use our own fork (itsme228/Sunshine) instead of the upstream LizardByte
+# release because it adds web_bind_address: a config key that lets the HTTPS
+# admin UI bind to a separate address (127.0.0.1) while streaming ports stay
+# bound to the VPN/LAN interface via bind_address.
+#
+# macOS and Linux are built from source (the fork's master branch).
+# Windows still uses a prebuilt release from upstream (the feature is not
+# strictly needed on Windows where Moonlight normally connects over LAN).
 #
 # Env overrides:
 #   USBRIDGE_SKIP_SUNSHINE=1     skip bundling Sunshine entirely (offline/dev builds)
@@ -17,7 +19,8 @@
 #   USBRIDGE_SUNSHINE_VERSION=x  pin a release tag instead of "latest"
 #   USBRIDGE_SUNSHINE_CUDA=1     (Linux only) build with Nvidia CUDA/NVENC support
 
-_sunshine_repo="LizardByte/Sunshine"
+_sunshine_repo="itsme228/Sunshine"
+_sunshine_upstream_repo="LizardByte/Sunshine"
 
 _sunshine_require() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -72,17 +75,9 @@ _sunshine_resolve_tag() {
 }
 
 # build_sunshine_linux
-# Clones LizardByte/Sunshine and builds+installs it natively (system-wide,
-# via a real .deb) using its own scripts/linux_build.sh — deliberately
-# WITHOUT --appimage-build, since that flag compiles in a runtime check that
-# refuses KMS capture, AND bakes the web-UI assets path in as relative to the
-# AppImage bundle. A non-AppImage build compiles the assets path in as the
-# *absolute* install prefix (/usr/share/sunshine), so — unlike the other
-# platforms — this can't be kept self-contained under dist/: Sunshine must
-# actually be installed at that path. We build a .deb and install it with
-# apt so dependency resolution and the postinst (which sets CAP_SYS_ADMIN
-# for KMS and reloads udev rules for /dev/uinput /dev/uhid) both run
-# normally, matching how Sunshine expects to be deployed.
+# Clones itsme228/Sunshine (our fork with web_bind_address) and builds+installs
+# it natively (system-wide, via a real .deb) using its own scripts/linux_build.sh
+# WITHOUT --appimage-build, so KMS capture works and assets path is absolute.
 build_sunshine_linux() {
     if [[ "${USBRIDGE_SKIP_SUNSHINE:-0}" == "1" ]]; then
         echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine build${NC}"
@@ -99,17 +94,10 @@ build_sunshine_linux() {
     _sunshine_require python3 "Install with: sudo apt install python3"
     _sunshine_require sudo "linux_build.sh needs sudo to install build deps and the resulting package"
 
-    local tag
-    tag="$(_sunshine_resolve_tag)"
-    if [[ -z "$tag" ]]; then
-        echo -e "${RED}Failed to resolve Sunshine version to build${NC}"
-        exit 1
-    fi
-
     local src_dir
     src_dir="$(mktemp -d)"
-    echo -e "${YELLOW}Cloning LizardByte/Sunshine @ ${tag}...${NC}"
-    git clone --depth 1 --branch "$tag" --recurse-submodules --shallow-submodules \
+    echo -e "${YELLOW}Cloning itsme228/Sunshine (fork with web_bind_address)...${NC}"
+    git clone --depth 1 --recurse-submodules --shallow-submodules \
         "https://github.com/${_sunshine_repo}.git" "$src_dir"
 
     local build_args=(
@@ -167,9 +155,17 @@ fetch_sunshine_windows() {
     _sunshine_require curl "Install with: pacman -S --needed curl"
     _sunshine_require python "Install with: pacman -S --needed mingw-w64-ucrt-x86_64-python"
 
-    echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host)...${NC}"
+    echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host, usbridge fork)...${NC}"
     local url
+    # Try our fork first (has web_bind_address patch); fall back to upstream LizardByte.
     url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
+    if [[ -z "$url" ]]; then
+        echo -e "${YELLOW}Fork has no Windows release yet; falling back to upstream LizardByte...${NC}"
+        local _saved_repo="$_sunshine_repo"
+        _sunshine_repo="$_sunshine_upstream_repo"
+        url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
+        _sunshine_repo="$_saved_repo"
+    fi
     if [[ -z "$url" ]]; then
         echo -e "${RED}Failed to resolve Sunshine Windows download URL${NC}"
         exit 1
@@ -196,58 +192,84 @@ fetch_sunshine_windows() {
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest"
 }
 
-# fetch_sunshine_macos <dest_dir>
-fetch_sunshine_macos() {
+# build_sunshine_macos <dest_dir>
+# Clones itsme228/Sunshine (our fork with web_bind_address patch) and builds
+# a Sunshine.app bundle from source using CMake + Homebrew dependencies.
+# The resulting Sunshine.app is staged under <dest_dir>/Sunshine.app.
+build_sunshine_macos() {
     local dest="$1"
     if [[ "${USBRIDGE_SKIP_SUNSHINE:-0}" == "1" ]]; then
-        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine bundling${NC}"
+        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine build${NC}"
         return 0
     fi
     if [[ -d "$dest/Sunshine.app" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
-        echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping download"
+        echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping build"
         _sunshine_clean_creds "$dest"
         return 0
     fi
 
-    _sunshine_require curl "Install Xcode Command Line Tools: xcode-select --install"
+    _sunshine_require cmake "Install with: brew install cmake"
+    _sunshine_require git "Install Xcode Command Line Tools: xcode-select --install"
+    _sunshine_require brew "Install Homebrew: https://brew.sh"
     _sunshine_require python3 "Install Xcode Command Line Tools: xcode-select --install"
+    _sunshine_require node "Install with: brew install node"
 
-    local arch
-    arch="$(uname -m)"
-    local asset_name="Sunshine-macOS-x86_64.dmg"
-    if [[ "$arch" == "arm64" ]]; then
-        asset_name="Sunshine-macOS-arm64.dmg"
-    fi
+    echo -e "${YELLOW}Installing Sunshine build dependencies via Homebrew...${NC}"
+    brew install --quiet \
+        cmake \
+        node \
+        pkgconf \
+        "icu4c@78" \
+        miniupnpc \
+        "openssl@3" \
+        opus 2>&1 | grep -v "already installed" || true
 
-    echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host)...${NC}"
-    local url
-    url="$(_sunshine_asset_url "$asset_name")"
-    if [[ -z "$url" ]]; then
-        echo -e "${RED}Failed to resolve Sunshine macOS download URL${NC}"
+    local src_dir
+    src_dir="$(mktemp -d)"
+    echo -e "${YELLOW}Cloning itsme228/Sunshine (fork with web_bind_address)...${NC}"
+    git clone --depth 1 --recurse-submodules --shallow-submodules \
+        "https://github.com/${_sunshine_repo}.git" "$src_dir"
+
+    echo -e "${YELLOW}Configuring Sunshine with CMake...${NC}"
+    cmake \
+        -B "$src_dir/build" \
+        -S "$src_dir" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DICU_ROOT="$(brew --prefix "icu4c@78" 2>/dev/null)" \
+        -DOPENSSL_ROOT_DIR="$(brew --prefix "openssl@3" 2>/dev/null)" \
+        -DOpus_ROOT_DIR="$(brew --prefix opus 2>/dev/null)" \
+        -DSUNSHINE_PUBLISHER_NAME="usbridge_agent" \
+        -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/itsme228/usbridge_agent" \
+        -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/itsme228/usbridge_agent/issues"
+
+    echo -e "${YELLOW}Building Sunshine (this takes 10-30 minutes)...${NC}"
+    cmake --build "$src_dir/build" -j "$(sysctl -n hw.ncpu)"
+
+    echo -e "${YELLOW}Packaging Sunshine.app (cpack DragNDrop)...${NC}"
+    (cd "$src_dir/build" && cpack -G DragNDrop --config CPackConfig.cmake)
+
+    local dmg_file
+    dmg_file="$(find "$src_dir/build" -name "*.dmg" | head -1)"
+    if [[ -z "$dmg_file" ]]; then
+        rm -rf "$src_dir"
+        echo -e "${RED}Sunshine build succeeded but no .dmg was produced${NC}"
         exit 1
     fi
 
-    local tmp_dmg
-    tmp_dmg="$(mktemp).dmg"
-    echo "Downloading: $url"
-    curl -fL --progress-bar -o "$tmp_dmg" "$url"
-
     local mount_point
     mount_point="$(mktemp -d)"
-    # The Sunshine DMG embeds a GPL EULA; pipe "y" to accept non-interactively.
-    # -quiet suppresses stdin so we redirect stdout instead to hide the license text.
-    echo "y" | hdiutil attach -nobrowse -mountpoint "$mount_point" "$tmp_dmg" >/dev/null
+    echo "y" | hdiutil attach -nobrowse -mountpoint "$mount_point" "$dmg_file" >/dev/null
 
     rm -rf "$dest"
     mkdir -p "$dest"
     cp -R "$mount_point"/*.app "$dest/Sunshine.app"
 
     hdiutil detach -quiet "$mount_point"
-    rm -f "$tmp_dmg"
+    rm -rf "$src_dir"
 
     # Remove quarantine so macOS allows Sunshine to request TCC permissions
     xattr -dr com.apple.quarantine "$dest/Sunshine.app" 2>/dev/null || true
 
     _sunshine_clean_creds "$dest"
-    echo -e "${GREEN}✓${NC} Sunshine staged at $dest/Sunshine.app"
+    echo -e "${GREEN}✓${NC} Sunshine (fork) staged at $dest/Sunshine.app"
 }

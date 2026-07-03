@@ -17,7 +17,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -69,10 +68,13 @@ func adminPassFile() string {
 }
 
 // generatePassword creates a cryptographically-random 20-character hex password.
+// crypto/rand.Read never fails on supported OS (macOS/Linux/Windows all provide
+// a reliable entropy source), so no fallback to a known string is needed.
 func generatePassword() string {
 	b := make([]byte, 10)
 	if _, err := rand.Read(b); err != nil {
-		return "sunshine" // last-resort fallback
+		// Should be unreachable: OS-level RNG failure is fatal.
+		log.Panicf("[sunshine] crypto/rand unavailable: %v", err)
 	}
 	return hex.EncodeToString(b)
 }
@@ -154,6 +156,13 @@ func (p *Process) Start(adminPort int) error {
 		return nil
 	}
 
+	// Pin web_bind_address to 127.0.0.1 so the HTTPS admin UI is only reachable
+	// on localhost, independently of bind_address (which restricts streaming ports
+	// to the VPN/LAN interface). Requires our itsme228/Sunshine fork.
+	if err := setConfigKey("web_bind_address", "127.0.0.1"); err != nil {
+		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
+	}
+
 	// Set a fresh random admin password before starting Sunshine so the
 	// process always starts with credentials we generated (not a stale or
 	// default password). --creds writes directly to sunshine_state.json.
@@ -191,48 +200,7 @@ func (p *Process) Start(adminPort int) error {
 		log.Printf("[sunshine] process exited: %v", err)
 	}()
 
-	// If bind_address restricts Sunshine to a specific IP, start a local TCP
-	// proxy so the admin web UI is also reachable on 127.0.0.1.
-	if bindAddr := GetBindAddress(); bindAddr != "" && bindAddr != "0.0.0.0" && bindAddr != "127.0.0.1" {
-		go startAdminProxy(bindAddr, adminPort)
-	}
-
 	return nil
-}
-
-// startAdminProxy listens on 127.0.0.1:adminPort and transparently forwards
-// TCP connections to remoteHost:adminPort so the Sunshine admin web UI is
-// reachable on localhost even when bind_address restricts it to another IP.
-// Safe to call multiple times — skips silently if the port is already taken.
-func startAdminProxy(remoteHost string, adminPort int) {
-	localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(adminPort))
-	remoteAddr := net.JoinHostPort(remoteHost, strconv.Itoa(adminPort))
-
-	ln, err := net.Listen("tcp", localAddr)
-	if err != nil {
-		// Port already taken (proxy already running from a previous restart).
-		return
-	}
-	log.Printf("[sunshine] admin proxy: %s → %s", localAddr, remoteAddr)
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		go func(c net.Conn) {
-			defer c.Close()
-			remote, err := net.DialTimeout("tcp", remoteAddr, 5*time.Second)
-			if err != nil {
-				return
-			}
-			defer remote.Close()
-			done := make(chan struct{}, 2)
-			go func() { io.Copy(remote, c); done <- struct{}{} }()
-			go func() { io.Copy(c, remote); done <- struct{}{} }()
-			<-done
-		}(conn)
-	}
 }
 
 // Stop terminates a Sunshine instance started by this Process. No-op if not
@@ -523,11 +491,9 @@ func GetBindAddress() string {
 	return configKey("bind_address")
 }
 
-// adminHost returns the host to use for Sunshine admin API calls.
-// When bind_address is set to a specific IP, Sunshine only listens there —
-// so we must call that same IP. Falls back to 127.0.0.1 when unset.
-// adminHost returns 127.0.0.1 — all agent admin API calls go through the
-// local TCP proxy (startAdminProxy) which forwards to the actual bind address.
+// adminHost returns the host for Sunshine admin API calls.
+// web_bind_address is always set to 127.0.0.1 before Sunshine starts,
+// so the admin HTTPS server only listens on localhost.
 func adminHost() string { return "127.0.0.1" }
 
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
