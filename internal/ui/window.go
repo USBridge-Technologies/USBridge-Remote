@@ -1122,7 +1122,11 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		return
 	}
 
-	sunshineURL := fmt.Sprintf("https://127.0.0.1:%d", port)
+	sunshineHost := sunshine.GetBindAddress()
+	if sunshineHost == "" || sunshineHost == "0.0.0.0" {
+		sunshineHost = "127.0.0.1"
+	}
+	sunshineURL := fmt.Sprintf("https://%s:%d", sunshineHost, port)
 
 	var dlg *widget.PopUp
 
