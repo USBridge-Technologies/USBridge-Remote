@@ -54,10 +54,10 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 func (s *Service) Devices() []api.VideoDeviceInfo {
 	out := make([]api.VideoDeviceInfo, 0, screenshot.NumActiveDisplays())
 	for i := 0; i < screenshot.NumActiveDisplays(); i++ {
-		bounds := screenshot.GetDisplayBounds(i)
+		w, h := physicalDisplaySize(i)
 		out = append(out, api.VideoDeviceInfo{
 			Path:           fmt.Sprintf("display:%d", i),
-			Name:           fmt.Sprintf("Display %d (%dx%d)", i, bounds.Dx(), bounds.Dy()),
+			Name:           fmt.Sprintf("Display %d (%dx%d)", i, w, h),
 			Bus:            "screen",
 			Index:          i,
 			Connected:      true,
