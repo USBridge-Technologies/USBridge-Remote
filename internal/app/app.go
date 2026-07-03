@@ -690,28 +690,31 @@ func (a *App) restartMainHTTP() {
 
 // UpdateSunshinePort updates the Sunshine admin API port in agent config and
 // in sunshine.conf, then restarts Sunshine so the change takes effect.
+// port is the admin/web port (e.g. 47990); sunshine.conf receives port-1 (NvHTTP base).
 func (a *App) UpdateSunshinePort(port int) (config.Config, error) {
 	a.cfg.SunshinePort = port
 	if err := config.Save(a.cfgPath, a.cfg); err != nil {
 		return a.cfg, err
 	}
-	_ = sunshine.SetConfigKey("port", strconv.Itoa(port))
+	// Sunshine's `port` key is the NvHTTP base port; admin is at base+1.
+	// SunshinePort is the admin port, so write base = SunshinePort - 1.
+	_ = sunshine.SetConfigKey("port", strconv.Itoa(port-1))
 	_ = a.RestartSunshine()
 	return a.cfg, nil
 }
 
 // UpdateSunshineStreamAddr sets the IP Sunshine advertises to Moonlight clients
-// (external_ip in sunshine.conf) and the streaming port (stored as web port =
-// streamPort+1 in both config and sunshine.conf), then restarts Sunshine.
+// (external_ip in sunshine.conf) and the streaming port, then restarts Sunshine.
 func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error) {
-	webPort := streamPort + 1
+	webPort := streamPort + 1 // admin port = NvHTTP base + 1
 	a.cfg.SunshinePort = webPort
 	if err := config.Save(a.cfgPath, a.cfg); err != nil {
 		return a.cfg, err
 	}
 	_ = sunshine.SetExternalIP(host)
 	_ = sunshine.SetBindAddress(host) // keep bind_address in sync with external_ip
-	_ = sunshine.SetConfigKey("port", strconv.Itoa(webPort))
+	// Write streamPort (NvHTTP base) to sunshine.conf, not webPort (admin port).
+	_ = sunshine.SetConfigKey("port", strconv.Itoa(streamPort))
 	_ = a.RestartSunshine()
 	return a.cfg, nil
 }
