@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,8 @@ type Window struct {
 		ListSunshineClients() ([]sunshine.Client, error)
 		UnpairSunshineClient(uniqueID string) error
 		SubmitMoonlightPIN(pin string) error
+		UpdateListenAddr(host string, port int) (config.Config, error)
+		UpdateSunshinePort(port int) (config.Config, error)
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -89,8 +92,6 @@ type Window struct {
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
 	tsMode    *widget.Select
-
-	statusInfo *widget.Label
 }
 
 type uiStatus struct {
@@ -111,6 +112,8 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	ListSunshineClients() ([]sunshine.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
+	UpdateListenAddr(host string, port int) (config.Config, error)
+	UpdateSunshinePort(port int) (config.Config, error)
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -423,24 +426,43 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if sunshinePort == 0 {
 		sunshinePort = 47990
 	}
-	w.statusInfo = widget.NewLabel(fmt.Sprintf(
-		"OS: %s\nHTTP: %s:%d\nSunshine: 0.0.0.0:%d",
-		capture.GetOSInfo(),
-		w.cfg.EffectiveListenHost(), w.cfg.HTTPPort,
-		sunshinePort,
-	))
-	w.statusInfo.Wrapping = fyne.TextWrapWord
 
-	sunshineWebBtn := widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
-		w.showSunshineWebDialog(win, sunshinePort)
+	isAllIfaces := func(host string) bool { return host == "0.0.0.0" || host == "" }
+
+	osLabel := widget.NewLabel("OS: " + capture.GetOSInfo())
+	osLabel.Wrapping = fyne.TextWrapWord
+
+	// HTTP listen row
+	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
+	httpWarn := makeWarningBadge()
+	if !isAllIfaces(w.cfg.EffectiveListenHost()) {
+		httpWarn.Hide()
+	}
+	httpEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+		w.showEditHTTPAddrDialog(win, httpVal, httpWarn)
 	})
-	sunshineWebRow := container.NewHBox(
-		widget.NewLabel("Sunshine Web"),
-		layout.NewSpacer(),
-		sunshineWebBtn,
-	)
+	httpRow := container.NewBorder(nil, nil,
+		container.NewHBox(makeStatusLabel("HTTP:"), httpVal, httpWarn),
+		httpEditBtn, nil)
 
-	statsBlock := newPanel("Status", newTightVBox(w.statusInfo, sunshineWebRow))
+	// Sunshine web / admin API row
+	sunWebVal := widget.NewLabel(fmt.Sprintf("0.0.0.0:%d", sunshinePort))
+	sunWebWarn := makeWarningBadge()
+	sunWebEyeBtn := widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
+		port := w.cfg.SunshinePort
+		if port == 0 {
+			port = 47990
+		}
+		w.showSunshineWebDialog(win, port)
+	})
+	sunWebEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+		w.showEditSunPortDialog(win, sunWebVal)
+	})
+	sunWebRow := container.NewBorder(nil, nil,
+		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal, sunWebWarn),
+		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
+
+	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunWebRow))
 
 	w.tsMode = widget.NewSelect([]string{"Userspace", "System"}, func(mode string) {
 		w.applyTailscaleMode(mode)
@@ -1093,23 +1115,20 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 
 	sunshineURL := fmt.Sprintf("https://127.0.0.1:%d", port)
 
-	makeRow := func(labelText, valueText string) fyne.CanvasObject {
+	var dlg *widget.PopUp
+
+	copyRow := func(labelText, valueText string) fyne.CanvasObject {
 		lbl := canvas.NewText(labelText, design.ColorTextMuted)
 		lbl.TextSize = 11
 		lbl.TextStyle.Bold = true
-		lblBox := container.NewGridWrap(fyne.NewSize(60, 16), lbl)
-
+		lblBox := container.NewGridWrap(fyne.NewSize(52, 16), lbl)
 		val := widget.NewLabel(valueText)
 		val.Truncation = fyne.TextTruncateEllipsis
-
 		copyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
 			parent.Clipboard().SetContent(valueText)
 		})
-
 		return container.NewBorder(nil, nil, lblBox, copyBtn, val)
 	}
-
-	var dlg *widget.PopUp
 
 	openBtn := widget.NewButtonWithIcon("Open in Browser", theme.ComputerIcon(), func() {
 		if parsed, err := url.Parse(sunshineURL); err == nil {
@@ -1117,28 +1136,253 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		}
 	})
 
-	closeBtn := widget.NewButton("Close", func() {
+	titleLabel := canvas.NewText("SUNSHINE WEB UI", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+
+	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
 		if dlg != nil {
 			dlg.Hide()
 		}
 	})
-
-	titleLabel := canvas.NewText("SUNSHINE WEB UI", design.ColorTextMuted)
-	titleLabel.TextSize = 11
-	titleLabel.TextStyle.Bold = true
+	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
 
 	minWidth := canvas.NewRectangle(color.Transparent)
 	minWidth.SetMinSize(fyne.NewSize(360, 1))
 
 	content := container.NewVBox(
-		titleLabel,
+		titleRow,
 		minWidth,
 		widget.NewSeparator(),
-		makeRow("URL:", sunshineURL),
-		makeRow("Login:", sunshine.AdminUser),
-		makeRow("Pass:", sunshine.AdminPassword),
+		copyRow("URL:", sunshineURL),
+		copyRow("Login:", sunshine.AdminUser),
+		copyRow("Pass:", sunshine.AdminPassword),
 		widget.NewSeparator(),
-		container.NewCenter(container.NewHBox(openBtn, closeBtn)),
+		container.NewCenter(openBtn),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	dlg.Show()
+}
+
+// makeWarningBadge returns a yellow ⚠ badge for rows that listen on 0.0.0.0.
+func makeWarningBadge() *canvas.Text {
+	t := canvas.NewText("⚠", color.RGBA{R: 255, G: 185, B: 0, A: 255})
+	t.TextSize = 13
+	return t
+}
+
+// makeStatusLabel returns a small bold muted text node for status row labels.
+func makeStatusLabel(text string) fyne.CanvasObject {
+	t := canvas.NewText(text, design.ColorTextMuted)
+	t.TextSize = 12
+	t.TextStyle.Bold = true
+	return t
+}
+
+// localIPs returns a de-duplicated list of addresses useful for a host-binding
+// dropdown: always starts with "0.0.0.0" and "127.0.0.1", then adds every
+// IPv4 address currently assigned to an active non-loopback interface.
+func localIPs() []string {
+	ips := []string{"0.0.0.0", "127.0.0.1"}
+	seen := map[string]bool{"0.0.0.0": true, "127.0.0.1": true}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil || ip.To4() == nil {
+				continue
+			}
+			s := ip.String()
+			if !seen[s] {
+				seen[s] = true
+				ips = append(ips, s)
+			}
+		}
+	}
+	return ips
+}
+
+// showEditHTTPAddrDialog opens a modal to change the agent's HTTP listen
+// host and port. Updates valLabel and warnBadge immediately after save.
+// The HTTP server itself is NOT hot-reloaded — the user must restart the app.
+func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Label, warnBadge *canvas.Text) {
+	if parent == nil {
+		return
+	}
+
+	var dlg *widget.PopUp
+
+	hostSelect := widget.NewSelect(localIPs(), nil)
+	hostSelect.SetSelected(w.cfg.EffectiveListenHost())
+
+	portEntry := widget.NewEntry()
+	portEntry.SetText(strconv.Itoa(w.cfg.HTTPPort))
+
+	errLabel := widget.NewLabel("")
+	errLabel.Alignment = fyne.TextAlignCenter
+	errLabel.Hide()
+
+	var saveBtn *widget.Button
+	saveBtn = widget.NewButton("Save", func() {
+		host := hostSelect.Selected
+		if host == "" {
+			host = "0.0.0.0"
+		}
+		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
+		if err != nil || port < 1 || port > 65535 {
+			errLabel.SetText("Invalid port (1–65535)")
+			errLabel.Show()
+			return
+		}
+		saveBtn.Disable()
+		go func() {
+			if w.token == nil {
+				fyne.Do(func() { saveBtn.Enable() })
+				return
+			}
+			cfg, err := w.token.UpdateListenAddr(host, port)
+			fyne.Do(func() {
+				if err != nil {
+					errLabel.SetText("Error: " + err.Error())
+					errLabel.Show()
+					saveBtn.Enable()
+					return
+				}
+				w.cfg = cfg
+				valLabel.SetText(fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort))
+				if cfg.EffectiveListenHost() == "0.0.0.0" || cfg.EffectiveListenHost() == "" {
+					warnBadge.Show()
+					warnBadge.Refresh()
+				} else {
+					warnBadge.Hide()
+					warnBadge.Refresh()
+				}
+				if dlg != nil {
+					dlg.Hide()
+				}
+			})
+		}()
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+	titleLabel := canvas.NewText("HTTP LISTEN ADDRESS", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
+
+	noteLabel := canvas.NewText("Restart the app to apply HTTP changes", design.ColorTextMuted)
+	noteLabel.TextSize = 11
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(300, 1))
+
+	content := container.NewVBox(
+		titleRow, minWidth,
+		widget.NewSeparator(),
+		widget.NewLabel("Host:"), hostSelect,
+		widget.NewLabel("Port:"), portEntry,
+		noteLabel, errLabel,
+		widget.NewSeparator(),
+		container.NewCenter(saveBtn),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	dlg.Show()
+}
+
+// showEditSunPortDialog opens a modal to change the Sunshine admin API port.
+// Updates valLabel immediately; also writes sunshine.conf and restarts Sunshine.
+func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *widget.Label) {
+	if parent == nil {
+		return
+	}
+
+	var dlg *widget.PopUp
+
+	currentPort := w.cfg.SunshinePort
+	if currentPort == 0 {
+		currentPort = 47990
+	}
+
+	portEntry := widget.NewEntry()
+	portEntry.SetText(strconv.Itoa(currentPort))
+
+	errLabel := widget.NewLabel("")
+	errLabel.Alignment = fyne.TextAlignCenter
+	errLabel.Hide()
+
+	var saveBtn *widget.Button
+	saveBtn = widget.NewButton("Save", func() {
+		port, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
+		if err != nil || port < 1 || port > 65535 {
+			errLabel.SetText("Invalid port (1–65535)")
+			errLabel.Show()
+			return
+		}
+		saveBtn.Disable()
+		go func() {
+			if w.token == nil {
+				fyne.Do(func() { saveBtn.Enable() })
+				return
+			}
+			cfg, err := w.token.UpdateSunshinePort(port)
+			fyne.Do(func() {
+				if err != nil {
+					errLabel.SetText("Error: " + err.Error())
+					errLabel.Show()
+					saveBtn.Enable()
+					return
+				}
+				w.cfg = cfg
+				valLabel.SetText(fmt.Sprintf("0.0.0.0:%d", port))
+				if dlg != nil {
+					dlg.Hide()
+				}
+			})
+		}()
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+	titleLabel := canvas.NewText("SUNSHINE ADMIN PORT", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
+
+	noteLabel := canvas.NewText("Restarts Sunshine to apply", design.ColorTextMuted)
+	noteLabel.TextSize = 11
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(280, 1))
+
+	content := container.NewVBox(
+		titleRow, minWidth,
+		widget.NewSeparator(),
+		widget.NewLabel("Port:"), portEntry,
+		noteLabel, errLabel,
+		widget.NewSeparator(),
+		container.NewCenter(saveBtn),
 	)
 
 	cardBG := canvas.NewRectangle(design.ColorPanel)

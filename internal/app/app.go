@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -615,6 +616,30 @@ func (a *App) UnpairSunshineClient(uniqueID string) error {
 		port = 47990
 	}
 	return sunshine.UnpairClient(port, uniqueID)
+}
+
+// UpdateListenAddr updates the agent's HTTP listen host and port, persists the
+// config, and returns the new config. The running HTTP server is NOT restarted
+// here — the caller should inform the user to restart.
+func (a *App) UpdateListenAddr(host string, port int) (config.Config, error) {
+	a.cfg.ListenHost = host
+	a.cfg.HTTPPort = port
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	return a.cfg, nil
+}
+
+// UpdateSunshinePort updates the Sunshine admin API port in agent config and
+// in sunshine.conf, then restarts Sunshine so the change takes effect.
+func (a *App) UpdateSunshinePort(port int) (config.Config, error) {
+	a.cfg.SunshinePort = port
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	_ = sunshine.SetConfigKey("port", strconv.Itoa(port))
+	_ = a.RestartSunshine()
+	return a.cfg, nil
 }
 
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine

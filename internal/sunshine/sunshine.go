@@ -370,6 +370,10 @@ func ConfigPath() string {
 	}
 }
 
+// SetConfigKey upserts a single "key = value" line in sunshine.conf.
+// An empty value removes the key (falling back to Sunshine's own default).
+func SetConfigKey(key, value string) error { return setConfigKey(key, value) }
+
 // setConfigKey upserts a single "key = value" line in sunshine.conf. An
 // empty value removes the key (falling back to Sunshine's own default/auto
 // behavior). The file is created if missing; other keys/values are
