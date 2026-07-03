@@ -81,6 +81,9 @@ type Window struct {
 	sunshineLabel *widget.Label
 	sunshineBtn   *widget.Button
 
+	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
+	moonlightBtn *widget.Button
+
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
@@ -90,8 +93,9 @@ type Window struct {
 }
 
 type uiStatus struct {
-	tsStatus      *tailscale.Status
-	accessGranted bool
+	tsStatus       *tailscale.Status
+	accessGranted  bool
+	moonlightCount int
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
@@ -375,14 +379,39 @@ func (w *Window) ShowAndRun(onClose func()) {
 		permRows = append(permRows, sunshineRow)
 	}
 
-	// Moonlight Clients — show paired remote devices and allow removal
-	moonlightClientsBtn := widget.NewButton("View Clients", func() {
+	// Moonlight Clients — icon+count button opens the dialog; Delete All removes all.
+	w.moonlightBtn = widget.NewButtonWithIcon("0", theme.AccountIcon(), func() {
 		w.showMoonlightClientsDialog(win)
 	})
+	moonlightDeleteAllBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+		dialog.ShowConfirm("Remove All Clients",
+			"Remove all paired Moonlight devices?",
+			func(yes bool) {
+				if !yes || w.token == nil {
+					return
+				}
+				go func() {
+					clients, err := w.token.ListSunshineClients()
+					if err != nil {
+						return
+					}
+					for _, c := range clients {
+						_ = w.token.UnpairSunshineClient(c.UniqueID)
+					}
+					fyne.Do(func() {
+						if w.moonlightBtn != nil {
+							w.moonlightBtn.SetText("0")
+						}
+					})
+				}()
+			}, win)
+	})
+	moonlightDeleteAllBtn.Importance = widget.DangerImportance
 	permRows = append(permRows, container.NewHBox(
 		widget.NewLabel("Moonlight Clients"),
 		layout.NewSpacer(),
-		moonlightClientsBtn,
+		w.moonlightBtn,
+		moonlightDeleteAllBtn,
 	))
 
 	permContent := newTightVBox(permRows...)
@@ -522,6 +551,11 @@ func (w *Window) performRefresh() {
 		if w.perms != nil {
 			status.accessGranted = w.perms.AccessibilityGranted()
 		}
+		if w.token != nil {
+			if clients, err := w.token.ListSunshineClients(); err == nil {
+				status.moonlightCount = len(clients)
+			}
+		}
 		var sunshineRunning bool
 		if runtime.GOOS == "windows" && w.token != nil {
 			sunshineRunning = w.token.SunshineRunning()
@@ -551,6 +585,9 @@ func (w *Window) performRefresh() {
 				} else {
 					w.sunshineLabel.SetText("Sunshine: ❌")
 				}
+			}
+			if w.moonlightBtn != nil {
+				w.moonlightBtn.SetText(fmt.Sprintf("%d", status.moonlightCount))
 			}
 			w.refreshScreenCaptureUI()
 			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenCaptureLabel != nil {
@@ -907,12 +944,20 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 					return
 				}
 				if len(clients) == 0 {
-					listBox.Add(widget.NewLabel("No paired clients"))
+					emptyLabel := widget.NewLabel("No paired clients")
+					emptyLabel.Alignment = fyne.TextAlignCenter
+					listBox.Add(emptyLabel)
 				} else {
 					for _, c := range clients {
 						c := c
-						nameLabel := widget.NewLabel(c.Name)
-						removeBtn := widget.NewButton("Remove", func() {
+						displayName := strings.TrimSpace(c.Name)
+						if displayName == "" {
+							// Sunshine often leaves the name blank — show the UUID instead
+							displayName = c.UniqueID
+						}
+						nameLabel := widget.NewLabel(displayName)
+						nameLabel.Truncation = fyne.TextTruncateEllipsis
+						removeBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
 							go func() {
 								if err := w.token.UnpairSunshineClient(c.UniqueID); err != nil {
 									log.Printf("[ui] unpair moonlight client: %v", err)
@@ -921,7 +966,8 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 							}()
 						})
 						removeBtn.Importance = widget.DangerImportance
-						listBox.Add(container.NewHBox(nameLabel, layout.NewSpacer(), removeBtn))
+						row := container.NewBorder(nil, nil, nil, removeBtn, nameLabel)
+						listBox.Add(row)
 					}
 				}
 				listBox.Refresh()
