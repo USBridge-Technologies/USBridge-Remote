@@ -101,13 +101,26 @@ if [ -z "$CODESIGN_IDENTITY" ] && command -v security >/dev/null 2>&1; then
         | awk '{print $2}')
 fi
 
+ENTITLEMENTS="$SCRIPT_DIR/entitlements-macos.plist"
+
 if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     echo -e "${YELLOW}Signing app bundle with identity: $CODESIGN_IDENTITY${NC}"
-    codesign --force --deep --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE"
+    # Sign inner Sunshine.app first (--deep doesn't reach bundles nested in MacOS/)
+    SUNSHINE_APP="$APP_MACOS/sunshine/Sunshine.app"
+    if [ -d "$SUNSHINE_APP" ]; then
+        codesign --force --deep --sign "$CODESIGN_IDENTITY" \
+            --options runtime --entitlements "$ENTITLEMENTS" "$SUNSHINE_APP"
+    fi
+    codesign --force --deep --sign "$CODESIGN_IDENTITY" \
+        --options runtime --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 else
     # Go linker embeds an adhoc linker-signed signature which macOS rejects as
     # "damaged" unless we replace it with a proper codesign call. Use ad-hoc (-).
     echo -e "${YELLOW}No Developer ID found — signing ad-hoc to strip linker-signed flag${NC}"
+    SUNSHINE_APP="$APP_MACOS/sunshine/Sunshine.app"
+    if [ -d "$SUNSHINE_APP" ]; then
+        codesign --force --deep --sign - "$SUNSHINE_APP"
+    fi
     codesign --force --deep --sign - "$APP_BUNDLE"
 fi
 
@@ -149,6 +162,31 @@ rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating archive...${NC}"
 (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
 echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
+
+# ── Notarization (optional) ───────────────────────────────────────────────────
+# Requires credentials stored in Keychain once via:
+#   xcrun notarytool store-credentials "usbridge-notarytool" \
+#       --apple-id "..." --team-id "..." --password "xxxx-xxxx-xxxx-xxxx"
+# Skip with: USBRIDGE_SKIP_NOTARIZE=1
+NOTARIZE_PROFILE="${USBRIDGE_NOTARIZE_PROFILE:-usbridge-notarytool}"
+if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>&1; then
+    # Check that the keychain profile actually exists before trying
+    if xcrun notarytool history --keychain-profile "$NOTARIZE_PROFILE" >/dev/null 2>&1; then
+        echo -e "${YELLOW}Notarizing (this takes 1-3 minutes)...${NC}"
+        xcrun notarytool submit "$ARCHIVE" \
+            --keychain-profile "$NOTARIZE_PROFILE" \
+            --wait
+        echo -e "${YELLOW}Stapling notarization ticket...${NC}"
+        xcrun stapler staple "$APP_BUNDLE"
+        # Rebuild zip so it includes the stapled ticket
+        rm -f "$ARCHIVE"
+        (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
+        echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
+    else
+        echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"
+        echo "  Run once to enable: xcrun notarytool store-credentials \"$NOTARIZE_PROFILE\" --apple-id ... --team-id ... --password ..."
+    fi
+fi
 
 echo -e "${GREEN}Done.${NC}"
 echo "Bundle: $APP_BUNDLE"

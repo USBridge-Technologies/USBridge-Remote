@@ -234,7 +234,9 @@ fetch_sunshine_macos() {
 
     local mount_point
     mount_point="$(mktemp -d)"
-    hdiutil attach -nobrowse -quiet -mountpoint "$mount_point" "$tmp_dmg"
+    # The Sunshine DMG embeds a GPL EULA; pipe "y" to accept non-interactively.
+    # -quiet suppresses stdin so we redirect stdout instead to hide the license text.
+    echo "y" | hdiutil attach -nobrowse -mountpoint "$mount_point" "$tmp_dmg" >/dev/null
 
     rm -rf "$dest"
     mkdir -p "$dest"
