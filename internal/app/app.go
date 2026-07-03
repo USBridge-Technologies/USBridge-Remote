@@ -155,13 +155,14 @@ func (a *App) Run() error {
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 	if a.sunshine != nil {
-		// Restrict Sunshine to the configured external_ip (usually the Tailscale IP)
-		// so it doesn't listen on all interfaces. Both the web admin and streaming
-		// ports use bind_address — agent API calls go to the same IP via adminHost().
-		// Falls back to 0.0.0.0 on first run before a Tailscale IP is configured.
-		tsIP := sunshine.ExternalIP()
-		if err := sunshine.SetBindAddress(tsIP); err != nil {
-			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
+		// Sync bind_address with external_ip so Sunshine only listens on the
+		// configured IP. Only update when external_ip is explicitly set — if it's
+		// absent the user hasn't configured a target IP yet, and we leave whatever
+		// bind_address is already in the conf rather than clearing it to 0.0.0.0.
+		if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" {
+			if err := sunshine.SetBindAddress(tsIP); err != nil {
+				log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
+			}
 		}
 		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 			log.Printf("[app] failed to start Sunshine: %v", err)
