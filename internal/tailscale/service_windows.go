@@ -11,7 +11,14 @@ import (
 )
 
 func (s *Service) getTailscalePath() string {
-	// 1. Program Files
+	// 1. Next to the executable (bundled distribution)
+	if exePath, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exePath), "tailscale.exe")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	// 2. Program Files
 	progFiles := os.Getenv("ProgramFiles")
 	if progFiles != "" {
 		p := filepath.Join(progFiles, "Tailscale", "tailscale.exe")
@@ -19,7 +26,7 @@ func (s *Service) getTailscalePath() string {
 			return p
 		}
 	}
-	// 2. Program Files (x86)
+	// 3. Program Files (x86)
 	progFilesX86 := os.Getenv("ProgramFiles(x86)")
 	if progFilesX86 != "" {
 		p := filepath.Join(progFilesX86, "Tailscale", "tailscale.exe")
@@ -27,7 +34,7 @@ func (s *Service) getTailscalePath() string {
 			return p
 		}
 	}
-	// 3. Local AppData (some users install there)
+	// 4. Local AppData (some users install there)
 	localAppData := os.Getenv("LocalAppData")
 	if localAppData != "" {
 		p := filepath.Join(localAppData, "Tailscale", "tailscale.exe")
@@ -35,7 +42,7 @@ func (s *Service) getTailscalePath() string {
 			return p
 		}
 	}
-	// 4. PATH
+	// 5. PATH
 	if path, err := exec.LookPath("tailscale.exe"); err == nil {
 		return path
 	}

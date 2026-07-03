@@ -130,6 +130,128 @@ LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui}"
 echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
+# ── DLL utilities ─────────────────────────────────────────────────────────────
+OBJDUMP_BIN="${OBJDUMP_BIN:-}"
+for _od in \
+    "/ucrt64/bin/objdump.exe" \
+    "/mingw64/bin/objdump.exe" \
+    "/c/msys64/ucrt64/bin/objdump.exe"
+do
+    if [[ -x "$_od" ]]; then OBJDUMP_BIN="$_od"; break; fi
+done
+if [[ -z "$OBJDUMP_BIN" ]] && command -v objdump >/dev/null 2>&1; then
+    OBJDUMP_BIN="$(command -v objdump)"
+fi
+
+# Directories to search for DLLs
+DLL_SEARCH_DIRS=()
+for _pfx in "/ucrt64/bin" "/mingw64/bin" "/clang64/bin" \
+             "/c/msys64/ucrt64/bin" "/c/msys64/mingw64/bin" \
+             "C:/msys64/ucrt64/bin" "C:/msys64/mingw64/bin"; do
+    [[ -d "$_pfx" ]] && DLL_SEARCH_DIRS+=("$_pfx")
+done
+
+is_system_dll() {
+    local name="${1,,}"
+    case "$name" in
+        api-ms-win-*.dll|ext-ms-win-*.dll|\
+        kernel32.dll|user32.dll|gdi32.dll|advapi32.dll|shell32.dll|\
+        ole32.dll|oleaut32.dll|comdlg32.dll|comctl32.dll|imm32.dll|\
+        setupapi.dll|version.dll|winmm.dll|ws2_32.dll|secur32.dll|\
+        rpcrt4.dll|crypt32.dll|bcrypt.dll|ntdll.dll|shlwapi.dll|\
+        msvcrt.dll|ucrtbase.dll|dwmapi.dll|dxgi.dll|d3d11.dll|\
+        d3dcompiler_47.dll|opengl32.dll|gdi32full.dll|\
+        uuid.dll|wininet.dll|netapi32.dll|iphlpapi.dll|\
+        msimg32.dll|userenv.dll|bcryptprimitives.dll|ncrypt.dll|\
+        wsock32.dll|wldap32.dll|gdiplus.dll|dnsapi.dll|\
+        dwrite.dll|usp10.dll|cfgmgr32.dll|wintrust.dll|\
+        dbghelp.dll|psapi.dll|pdh.dll|wtsapi32.dll|\
+        uxtheme.dll|ndfapi.dll|devobj.dll|hid.dll|\
+        tap-windows6.dll|vulkan-1.dll)
+            return 0 ;;
+    esac
+    return 1
+}
+
+_resolve_dll() {
+    local name="$1"
+    for _d in "${DLL_SEARCH_DIRS[@]}"; do
+        [[ -f "$_d/$name" ]] && { printf "%s\n" "$_d/$name"; return; }
+        local _fi
+        _fi="$(find "$_d" -maxdepth 1 -iname "$name" 2>/dev/null | head -1)"
+        [[ -n "$_fi" ]] && { printf "%s\n" "$_fi"; return; }
+    done
+}
+
+_walk_deps() {
+    local target_dir="$1"; shift
+    [[ -n "$OBJDUMP_BIN" ]] || return 0
+    local queue=("$@")
+    local idx=0
+    local visited=()
+    for f in "${queue[@]}"; do visited+=("$(basename "$f" | tr '[:upper:]' '[:lower:]')"); done
+
+    while [[ $idx -lt ${#queue[@]} ]]; do
+        local file="${queue[$idx]}"; idx=$((idx+1))
+        [[ -f "$file" ]] || continue
+        while IFS= read -r dep; do
+            [[ -z "$dep" ]] && continue
+            is_system_dll "$dep" && continue
+            local dep_lower="${dep,,}"
+            local already=0
+            for v in "${visited[@]}"; do [[ "$v" == "$dep_lower" ]] && { already=1; break; }; done
+            [[ "$already" == "1" ]] && continue
+            visited+=("$dep_lower")
+            local _existing
+            _existing="$(find "$target_dir" -maxdepth 1 -iname "$dep" 2>/dev/null | head -1)"
+            if [[ -z "$_existing" ]]; then
+                local resolved
+                resolved="$(_resolve_dll "$dep")"
+                if [[ -n "$resolved" && -f "$resolved" ]]; then
+                    cp -L "$resolved" "$target_dir/"
+                    echo -e "   ${GREEN}✓${NC} $(basename "$resolved") (dep of $(basename "$file"))"
+                    queue+=("$target_dir/$(basename "$resolved")")
+                else
+                    echo -e "   ${YELLOW}⚠${NC} $dep not found (dep of $(basename "$file"))"
+                fi
+            else
+                queue+=("$_existing")
+            fi
+        done < <("$OBJDUMP_BIN" -p "$file" 2>/dev/null | grep -i 'DLL Name:' | awk '{print $NF}' | tr -d '\r')
+    done
+}
+
+# ── MinGW / UCRT64 runtime DLLs ──────────────────────────────────────────────
+# The agent uses CGO (Fyne requires it for OpenGL on Windows). On a clean
+# machine without MSYS2 these runtime DLLs are missing → silent crash on launch.
+echo -e "\n${YELLOW}Bundling MinGW runtime DLLs...${NC}"
+_runtime_copied=0
+for _dll in \
+    "libgcc_s_seh-1.dll" \
+    "libwinpthread-1.dll" \
+    "libstdc++-6.dll"
+do
+    _src="$(_resolve_dll "$_dll")"
+    if [[ -n "$_src" && -f "$_src" ]]; then
+        cp -L "$_src" "$DIST_DIR/"
+        echo -e "   ${GREEN}✓${NC} $_dll"
+        _runtime_copied=$(( _runtime_copied + 1 ))
+    else
+        echo -e "   ${YELLOW}⚠${NC} $_dll not found (may be statically linked or not needed)"
+    fi
+done
+echo -e "${GREEN}✓${NC} MinGW runtime: $_runtime_copied DLL(s) staged"
+
+# Walk transitive deps of the agent exe to catch anything we missed
+if [[ -n "$OBJDUMP_BIN" ]]; then
+    echo -e "${YELLOW}Walking exe dependencies...${NC}"
+    _walk_deps "$DIST_DIR" "$OUTPUT_PATH"
+    echo -e "${GREEN}✓${NC} Dep walk complete"
+else
+    echo -e "${YELLOW}⚠${NC} objdump not found — skipping dep walk"
+    echo "   Install: pacman -S --needed mingw-w64-ucrt-x86_64-binutils"
+fi
+
 # ── Sunshine (Moonlight GameStream host) ──────────────────────────────────────
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_windows "$DIST_DIR/sunshine"
@@ -247,6 +369,18 @@ else
             fi
         done
         echo -e "${GREEN}✓${NC} Tailscale: $_ts_copied file(s) staged"
+    fi
+
+    # Walk deps of tailscale binaries (they may need DLLs beyond wintun.dll)
+    if [[ -n "$OBJDUMP_BIN" ]]; then
+        _ts_bins=()
+        for _f in tailscale.exe tailscaled.exe; do
+            [[ -f "$DIST_DIR/$_f" ]] && _ts_bins+=("$DIST_DIR/$_f")
+        done
+        if [[ ${#_ts_bins[@]} -gt 0 ]]; then
+            echo -e "${YELLOW}Walking Tailscale binary deps...${NC}"
+            _walk_deps "$DIST_DIR" "${_ts_bins[@]}"
+        fi
     fi
 fi
 
