@@ -445,9 +445,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(makeStatusLabel("HTTP:"), httpVal, httpWarn),
 		httpEditBtn, nil)
 
-	// Sunshine web / admin API row
-	sunWebVal := widget.NewLabel(fmt.Sprintf("0.0.0.0:%d", sunshinePort))
-	sunWebWarn := makeWarningBadge()
+	// Sunshine GameStream row — Moonlight clients connect here (port = web-1)
+	sunStreamPort := sunshinePort - 1
+	sunStreamVal := widget.NewLabel(fmt.Sprintf("0.0.0.0:%d", sunStreamPort))
+	sunStreamWarn := makeWarningBadge()
+	sunStreamRow := container.NewBorder(nil, nil,
+		container.NewHBox(makeStatusLabel("Sunshine:"), sunStreamVal, sunStreamWarn),
+		nil, nil)
+
+	// Sun web / admin API row — always localhost; port editable
+	sunWebVal := widget.NewLabel(fmt.Sprintf("127.0.0.1:%d", sunshinePort))
 	sunWebEyeBtn := widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
 		port := w.cfg.SunshinePort
 		if port == 0 {
@@ -456,13 +463,13 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showSunshineWebDialog(win, port)
 	})
 	sunWebEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
-		w.showEditSunPortDialog(win, sunWebVal)
+		w.showEditSunPortDialog(win, sunWebVal, sunStreamVal)
 	})
 	sunWebRow := container.NewBorder(nil, nil,
-		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal, sunWebWarn),
+		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal),
 		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
 
-	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunWebRow))
+	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow))
 
 	w.tsMode = widget.NewSelect([]string{"Userspace", "System"}, func(mode string) {
 		w.applyTailscaleMode(mode)
@@ -1308,8 +1315,9 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 }
 
 // showEditSunPortDialog opens a modal to change the Sunshine admin API port.
-// Updates valLabel immediately; also writes sunshine.conf and restarts Sunshine.
-func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *widget.Label) {
+// Updates valLabel (Sun web) and streamLabel (Sunshine GameStream) immediately;
+// also writes sunshine.conf and restarts Sunshine.
+func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *widget.Label, streamLabel *widget.Label) {
 	if parent == nil {
 		return
 	}
@@ -1351,7 +1359,10 @@ func (w *Window) showEditSunPortDialog(parent fyne.Window, valLabel *widget.Labe
 					return
 				}
 				w.cfg = cfg
-				valLabel.SetText(fmt.Sprintf("0.0.0.0:%d", port))
+				valLabel.SetText(fmt.Sprintf("127.0.0.1:%d", port))
+				if streamLabel != nil {
+					streamLabel.SetText(fmt.Sprintf("0.0.0.0:%d", port-1))
+				}
 				if dlg != nil {
 					dlg.Hide()
 				}

@@ -442,6 +442,13 @@ func configKey(key string) string {
 	return ""
 }
 
+// SetWebLocalOnly locks the Sunshine web UI to 127.0.0.1 in sunshine.conf so
+// the admin API is never reachable from the network (streaming ports are on a
+// separate binding and are unaffected by this setting).
+func SetWebLocalOnly() error {
+	return setConfigKey("address", "127.0.0.1")
+}
+
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
 // removes the key (Sunshine auto-detects: portal on Wayland, x11 on X11).
 func SetCaptureMode(mode string) error {

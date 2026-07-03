@@ -145,6 +145,11 @@ func (a *App) Run() error {
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 	if a.sunshine != nil {
+		// Lock the Sunshine web UI to localhost before starting so the admin
+		// API is never reachable from the network (streaming ports unaffected).
+		if err := sunshine.SetWebLocalOnly(); err != nil {
+			log.Printf("[app] warning: could not lock Sunshine web to localhost: %v", err)
+		}
 		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 			log.Printf("[app] failed to start Sunshine: %v", err)
 		}
