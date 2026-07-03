@@ -41,7 +41,21 @@ var activeAdminPassword string
 func adminPass() string { return activeAdminPassword }
 
 // AdminPass returns the current session admin password for use by other packages.
-func AdminPass() string { return activeAdminPassword }
+// Falls back to the persisted file from the previous session if bootstrap is
+// still in progress (it waits up to 20 s for Sunshine to start).
+func AdminPass() string {
+	if activeAdminPassword != "" {
+		return activeAdminPassword
+	}
+	if pf := adminPassFile(); pf != "" {
+		if data, err := os.ReadFile(pf); err == nil {
+			if p := strings.TrimSpace(string(data)); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
+}
 
 // adminPassFile returns the path where the current admin password is persisted
 // so the next launch can use it to rotate to a new one.

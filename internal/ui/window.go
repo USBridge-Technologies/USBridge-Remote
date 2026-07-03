@@ -1159,13 +1159,38 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 	minWidth := canvas.NewRectangle(color.Transparent)
 	minWidth.SetMinSize(fyne.NewSize(360, 1))
 
+	// Password row: built dynamically so it reflects the value set by the
+	// async bootstrap goroutine even if the dialog opens before it completes.
+	passLabel := widget.NewLabel(sunshine.AdminPass())
+	passLabel.Truncation = fyne.TextTruncateEllipsis
+	passLbl := canvas.NewText("Pass:", design.ColorTextMuted)
+	passLbl.TextSize = 11
+	passLbl.TextStyle.Bold = true
+	passLblBox := container.NewGridWrap(fyne.NewSize(52, 16), passLbl)
+	passCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+		parent.Clipboard().SetContent(sunshine.AdminPass())
+	})
+	passRow := container.NewBorder(nil, nil, passLblBox, passCopyBtn, passLabel)
+	// If password is not yet available (bootstrap still running), poll until ready.
+	if passLabel.Text == "" {
+		go func() {
+			for i := 0; i < 40; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if p := sunshine.AdminPass(); p != "" {
+					fyne.Do(func() { passLabel.SetText(p) })
+					return
+				}
+			}
+		}()
+	}
+
 	content := container.NewVBox(
 		titleRow,
 		minWidth,
 		widget.NewSeparator(),
 		copyRow("URL:", sunshineURL),
 		copyRow("Login:", sunshine.AdminUser),
-		copyRow("Pass:", sunshine.AdminPass()),
+		passRow,
 		widget.NewSeparator(),
 		container.NewCenter(openBtn),
 	)
