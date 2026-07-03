@@ -46,6 +46,7 @@ type Window struct {
 		RestartSunshineElevated() error
 		ListSunshineClients() ([]sunshine.Client, error)
 		UnpairSunshineClient(uniqueID string) error
+		SubmitMoonlightPIN(pin string) error
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -109,6 +110,7 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	RestartSunshineElevated() error
 	ListSunshineClients() ([]sunshine.Client, error)
 	UnpairSunshineClient(uniqueID string) error
+	SubmitMoonlightPIN(pin string) error
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -375,7 +377,10 @@ func (w *Window) ShowAndRun(onClose func()) {
 		permRows = append(permRows, sunshineRow)
 	}
 
-	// Moonlight Clients — icon+count button opens the dialog; Delete All removes all.
+	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
+	moonlightAddBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
+		w.showMoonlightPINDialog(win)
+	})
 	w.moonlightBtn = widget.NewButtonWithIcon("0", theme.AccountIcon(), func() {
 		w.showMoonlightClientsDialog(win)
 	})
@@ -405,6 +410,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	permRows = append(permRows, container.NewHBox(
 		widget.NewLabel("Moonlight Clients"),
 		layout.NewSpacer(),
+		moonlightAddBtn,
 		w.moonlightBtn,
 		moonlightDeleteAllBtn,
 	))
@@ -418,14 +424,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 		sunshinePort = 47990
 	}
 	w.statusInfo = widget.NewLabel(fmt.Sprintf(
-		"OS: %s\nHTTP Port: %d\nSunshine Port: %d",
+		"OS: %s\nHTTP: %s:%d\nSunshine: 0.0.0.0:%d",
 		capture.GetOSInfo(),
-		w.cfg.HTTPPort,
+		w.cfg.EffectiveListenHost(), w.cfg.HTTPPort,
 		sunshinePort,
 	))
 	w.statusInfo.Wrapping = fyne.TextWrapWord
 
-	statsBlock := newPanel("Status", w.statusInfo)
+	sunshineWebBtn := widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
+		w.showSunshineWebDialog(win, sunshinePort)
+	})
+	sunshineWebRow := container.NewHBox(
+		widget.NewLabel("Sunshine Web"),
+		layout.NewSpacer(),
+		sunshineWebBtn,
+	)
+
+	statsBlock := newPanel("Status", newTightVBox(w.statusInfo, sunshineWebRow))
 
 	w.tsMode = widget.NewSelect([]string{"Userspace", "System"}, func(mode string) {
 		w.applyTailscaleMode(mode)
@@ -492,7 +507,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 
 	tsPanel := newPanel("Tailscale", newTightVBox(
-		container.NewBorder(nil, nil, nil, container.NewVBox(w.tsAuthBtn), container.NewVBox(w.tsMode, w.tsInfo)),
+		container.NewBorder(nil, nil, nil, container.NewVBox(w.tsAuthBtn),
+			container.NewVBox(container.NewHBox(w.tsMode), w.tsInfo),
+		),
 		w.tsPeers,
 	))
 
@@ -996,6 +1013,137 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 
 	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
 	refreshList()
+	dlg.Show()
+}
+
+func (w *Window) showMoonlightPINDialog(parent fyne.Window) {
+	if w.token == nil || parent == nil {
+		return
+	}
+
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("4-digit PIN from Moonlight")
+
+	statusLabel := widget.NewLabel("")
+	statusLabel.Alignment = fyne.TextAlignCenter
+	statusLabel.Hide()
+
+	var dlg *widget.PopUp
+
+	var submitBtn *widget.Button
+	submitBtn = widget.NewButton("Submit", func() {
+		pin := strings.TrimSpace(entry.Text)
+		if len(pin) == 0 {
+			statusLabel.SetText("Enter the PIN shown in Moonlight")
+			statusLabel.Show()
+			return
+		}
+		submitBtn.Disable()
+		go func() {
+			err := w.token.SubmitMoonlightPIN(pin)
+			fyne.Do(func() {
+				if err != nil {
+					statusLabel.SetText("Error: " + err.Error())
+					statusLabel.Show()
+					submitBtn.Enable()
+				} else {
+					if dlg != nil {
+						dlg.Hide()
+					}
+				}
+			})
+		}()
+	})
+	submitBtn.Importance = widget.HighImportance
+
+	cancelBtn := widget.NewButton("Cancel", func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+
+	titleLabel := canvas.NewText("PAIR MOONLIGHT CLIENT", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(320, 1))
+
+	content := container.NewVBox(
+		titleLabel,
+		minWidth,
+		widget.NewSeparator(),
+		widget.NewLabel("Open Moonlight → Add PC → enter PIN shown here:"),
+		entry,
+		statusLabel,
+		widget.NewSeparator(),
+		container.NewCenter(container.NewHBox(submitBtn, cancelBtn)),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	dlg.Show()
+}
+
+func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
+	if parent == nil {
+		return
+	}
+
+	sunshineURL := fmt.Sprintf("https://127.0.0.1:%d", port)
+
+	makeRow := func(labelText, valueText string) fyne.CanvasObject {
+		lbl := canvas.NewText(labelText, design.ColorTextMuted)
+		lbl.TextSize = 11
+		lbl.TextStyle.Bold = true
+		lblBox := container.NewGridWrap(fyne.NewSize(60, 16), lbl)
+
+		val := widget.NewLabel(valueText)
+		val.Truncation = fyne.TextTruncateEllipsis
+
+		copyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+			parent.Clipboard().SetContent(valueText)
+		})
+
+		return container.NewBorder(nil, nil, lblBox, copyBtn, val)
+	}
+
+	var dlg *widget.PopUp
+
+	openBtn := widget.NewButtonWithIcon("Open in Browser", theme.ComputerIcon(), func() {
+		if parsed, err := url.Parse(sunshineURL); err == nil {
+			_ = w.app.OpenURL(parsed)
+		}
+	})
+
+	closeBtn := widget.NewButton("Close", func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+
+	titleLabel := canvas.NewText("SUNSHINE WEB UI", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(360, 1))
+
+	content := container.NewVBox(
+		titleLabel,
+		minWidth,
+		widget.NewSeparator(),
+		makeRow("URL:", sunshineURL),
+		makeRow("Login:", sunshine.AdminUser),
+		makeRow("Pass:", sunshine.AdminPassword),
+		widget.NewSeparator(),
+		container.NewCenter(container.NewHBox(openBtn, closeBtn)),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
 	dlg.Show()
 }
 

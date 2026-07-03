@@ -617,6 +617,16 @@ func (a *App) UnpairSunshineClient(uniqueID string) error {
 	return sunshine.UnpairClient(port, uniqueID)
 }
 
+// SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine
+// to complete the pairing handshake.
+func (a *App) SubmitMoonlightPIN(pin string) error {
+	port := a.cfg.SunshinePort
+	if port == 0 {
+		port = 47990
+	}
+	return sunshine.SubmitPIN(port, pin)
+}
+
 // SetAudioSink points Sunshine at the given audio device (sunshine.conf's
 // audio_sink) and restarts it so the change takes effect.
 func (a *App) SetAudioSink(sink string) error {

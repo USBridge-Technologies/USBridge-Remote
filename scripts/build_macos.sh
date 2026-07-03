@@ -188,6 +188,44 @@ if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>
     fi
 fi
 
+# ── Signature validation ─────────────────────────────────────────────────────
+echo -e "${YELLOW}Validating code signatures...${NC}"
+sig_ok=true
+
+# codesign deep verify
+if codesign --verify --deep --strict "$APP_BUNDLE" 2>&1; then
+    echo -e "  ${GREEN}✓${NC} codesign --verify --deep --strict: OK"
+else
+    echo -e "  ${RED}✗${NC} codesign deep verify FAILED"
+    sig_ok=false
+fi
+
+# Check all binaries inside MacOS/ are signed
+while IFS= read -r -d '' bin; do
+    if codesign --verify --strict "$bin" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} signed: ${bin#$APP_BUNDLE/}"
+    else
+        echo -e "  ${RED}✗${NC} unsigned or invalid: ${bin#$APP_BUNDLE/}"
+        sig_ok=false
+    fi
+done < <(find "$APP_BUNDLE/Contents/MacOS" -type f -perm +111 -print0 2>/dev/null)
+
+# Gatekeeper assessment (informational — fails for ad-hoc / unnotarized)
+gk_result=$(spctl --assess -v "$APP_BUNDLE" 2>&1 || true)
+if echo "$gk_result" | grep -q "accepted"; then
+    echo -e "  ${GREEN}✓${NC} Gatekeeper: accepted (notarized)"
+elif echo "$gk_result" | grep -q "CSSMERR_TP_NOT_TRUSTED\|rejected"; then
+    echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: not accepted (ad-hoc signed / not notarized)"
+else
+    echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: $gk_result"
+fi
+
+if $sig_ok; then
+    echo -e "${GREEN}✓${NC} Signature validation passed"
+else
+    echo -e "${RED}✗${NC} Signature validation found issues — check output above"
+fi
+
 echo -e "${GREEN}Done.${NC}"
 echo "Bundle: $APP_BUNDLE"
 echo "Install/update for stable permissions: $REPO_ROOT/scripts/install_macos.sh"
