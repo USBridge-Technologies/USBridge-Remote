@@ -306,26 +306,6 @@ func (a *App) RestartSunshine() error {
 	return a.sunshine.Start(a.cfg.SunshinePort)
 }
 
-// SunshineRunning reports whether Sunshine is currently reachable on its admin port.
-func (a *App) SunshineRunning() bool {
-	if a.sunshine == nil {
-		return false
-	}
-	return a.sunshine.Running()
-}
-
-// RestartSunshineElevated stops the current Sunshine instance and relaunches
-// it via UAC elevation (Windows only). On other platforms it falls back to a
-// normal restart.
-func (a *App) RestartSunshineElevated() error {
-	if a.sunshine == nil {
-		return nil
-	}
-	_ = a.sunshine.Stop()
-	time.Sleep(500 * time.Millisecond)
-	return a.sunshine.StartElevated(a.cfg.SunshinePort)
-}
-
 // KMSCaptureGranted reports whether the bundled Sunshine binary has the
 // CAP_SYS_ADMIN capability needed for KMS capture.
 func (a *App) KMSCaptureGranted() bool {

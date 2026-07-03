@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(grep -v \"^usbridge_agent/internal/permissions$\")",
+      "Bash(go env *)",
+      "Bash(git stash *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(powershell -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\\\"Name='sunshine.exe'\\\\\" | Select-Object ProcessId,CommandLine,ExecutablePath | Format-List\")",
+      "Read(//c/Users/bogom/AppData/Local/Sunshine/**)",
+      "Read(//c/Users/bogom/AppData/Local/CrashDumps//**)",
+      "Read(//c/Users/bogom/AppData/Local/Sunshine/config/**)",
+      "Read(//c/Windows/System32/**)",
+      "Read(//c/Windows/SysWOW64/**)",
+      "Bash(objdump -p /c/Projects_USBridge/usbridge_agent/dist/windows/sunshine/sunshine.exe)",
+      "Bash(./scripts/build_windows.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(echo \"vet exit=$?\")",
+      "Bash(curl -fsSL \"https://api.github.com/repos/itsme228/Sunshine/releases/tags/v2026.703.usbridge\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -fsSL \"https://api.github.com/repos/itsme228/Sunshine/releases/latest\")",
+      "Bash(USBRIDGE_SUNSHINE_FORCE=1 bash -c ' *)",
+      "Bash(/c/Projects_USBridge/usbridge_agent/dist/windows/sunshine/sunshine.exe --version)",
+      "Bash(powershell -NoProfile -Command \"Get-Process sunshine -ErrorAction SilentlyContinue | Select-Object Id,Path\")",
+      "Bash(timeout 5 ./sunshine.exe)",
+      "Bash(powershell -NoProfile -Command \"Get-Process sunshine -ErrorAction SilentlyContinue | Select-Object Id\")"
+    ]
+  }
+}

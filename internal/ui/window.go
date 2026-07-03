@@ -43,8 +43,6 @@ type Window struct {
 		KMSCaptureGranted() bool
 		RequestKMSCapture() bool
 		RestartSunshine() error
-		SunshineRunning() bool
-		RestartSunshineElevated() error
 		ListSunshineClients() ([]sunshine.Client, error)
 		UnpairSunshineClient(uniqueID string) error
 		SubmitMoonlightPIN(pin string) error
@@ -81,11 +79,6 @@ type Window struct {
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
 
-	// sunshineLabel / sunshineBtn are Windows-only: show Sunshine status and
-	// offer a UAC-elevation launch button when Sunshine isn't running.
-	sunshineLabel *widget.Label
-	sunshineBtn   *widget.Button
-
 	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
 	moonlightBtn *widget.Button
 
@@ -109,8 +102,6 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
 	RestartSunshine() error
-	SunshineRunning() bool
-	RestartSunshineElevated() error
 	ListSunshineClients() ([]sunshine.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
@@ -349,30 +340,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 		permRows = []fyne.CanvasObject{w.permInfo}
 	}
 
-	// Windows: Sunshine elevation row
-	if runtime.GOOS == "windows" {
-		w.sunshineLabel = widget.NewLabel("Sunshine")
-		w.sunshineBtn = widget.NewButton("Launch (Admin)", func() {
-			w.sunshineBtn.Disable()
-			go func() {
-				defer fyne.Do(func() {
-					if w.sunshineBtn != nil {
-						w.sunshineBtn.Enable()
-					}
-				})
-				if w.token != nil {
-					if err := w.token.RestartSunshineElevated(); err != nil {
-						log.Printf("[ui] elevated sunshine launch: %v", err)
-					}
-				}
-				w.performRefresh()
-			}()
-		})
-		w.sunshineBtn.Importance = widget.HighImportance
-		sunshineRow := container.NewHBox(w.sunshineLabel, layout.NewSpacer(), w.sunshineBtn)
-		permRows = append(permRows, sunshineRow)
-	}
-
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
 	moonlightAddBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
 		w.showMoonlightPINDialog(win)
@@ -599,11 +566,6 @@ func (w *Window) performRefresh() {
 				status.moonlightCount = len(clients)
 			}
 		}
-		var sunshineRunning bool
-		if runtime.GOOS == "windows" && w.token != nil {
-			sunshineRunning = w.token.SunshineRunning()
-		}
-
 		fyne.Do(func() {
 			if w.accessLabel != nil {
 				accessName := "Accessibility"
@@ -620,13 +582,6 @@ func (w *Window) performRefresh() {
 					if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.accessBtn != nil {
 						w.accessBtn.Show()
 					}
-				}
-			}
-			if runtime.GOOS == "windows" && w.sunshineLabel != nil {
-				if sunshineRunning {
-					w.sunshineLabel.SetText("Sunshine: ✅")
-				} else {
-					w.sunshineLabel.SetText("Sunshine: ❌")
 				}
 			}
 			if w.moonlightBtn != nil {

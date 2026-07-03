@@ -34,6 +34,13 @@ const AdminUser = "sunshine"
 // Set in Start() via --creds before Sunshine launches.
 var activeAdminPassword string
 
+// windowsSunshineDir holds the directory containing sunshine.exe, set by
+// NewProcess. The Windows portable build resolves its default config path
+// (like assets/) relative to itself — ./config/sunshine.conf next to the
+// exe — not the traditional %LOCALAPPDATA%\Sunshine\config used by an
+// installed build, so ConfigPath must match that on Windows.
+var windowsSunshineDir string
+
 // adminPass returns the in-memory admin password set this session (internal).
 func adminPass() string { return activeAdminPassword }
 
@@ -115,29 +122,27 @@ func LaunchPath(exeDir string) string {
 // Process manages the lifecycle of a bundled Sunshine instance launched by
 // the agent.
 type Process struct {
-	mu              sync.Mutex
-	launchPath      string
-	logPath         string
-	cmd             *exec.Cmd
-	elevatedHandle  uintptr // HANDLE from ShellExecuteExW (Windows elevated launch); 0 if unused
+	mu         sync.Mutex
+	launchPath string
+	logPath    string
+	cmd        *exec.Cmd
 }
 
 // NewProcess creates a Process for the given launch entry point. logPath, if
 // non-empty, captures Sunshine's stdout/stderr (its own structured logging
 // still goes to sunshine.conf's log_path, independent of this).
 func NewProcess(launchPath, logPath string) *Process {
+	if runtime.GOOS == "windows" && launchPath != "" {
+		windowsSunshineDir = filepath.Dir(launchPath)
+	}
 	return &Process{launchPath: launchPath, logPath: logPath}
 }
 
-// Running reports whether this Process's Sunshine instance is currently alive
-// (either via a normal exec.Cmd or an elevated ShellExecuteEx handle on Windows).
+// Running reports whether this Process's Sunshine instance is currently alive.
 func (p *Process) Running() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.cmd != nil && p.cmd.Process != nil {
-		return true
-	}
-	return elevatedRunning(p.elevatedHandle)
+	return p.cmd != nil && p.cmd.Process != nil
 }
 
 // Start launches Sunshine if it isn't already running (by this Process, or
@@ -173,6 +178,7 @@ func (p *Process) Start(adminPort int) error {
 	// default password). --creds writes directly to sunshine_state.json.
 	newPass := generatePassword()
 	credsCmd := exec.Command(p.launchPath, "--creds", AdminUser, newPass)
+	configureProcess(credsCmd)
 	if out, err := credsCmd.CombinedOutput(); err != nil {
 		log.Printf("[sunshine] --creds failed: %v: %s", err, out)
 	} else {
@@ -185,13 +191,23 @@ func (p *Process) Start(adminPort int) error {
 
 	cmd := exec.Command(p.launchPath)
 	configureProcess(cmd)
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		// Sunshine built with SUNSHINE_BUILD_APPIMAGE=ON uses ./usr/share/sunshine
 		// relative to cwd. Set cwd to the root of the install tree (3 dirs up from
 		// usr/bin/sunshine), which is either the AppImage $APPDIR or the staging dir.
 		sunshineRoot := filepath.Dir(filepath.Dir(filepath.Dir(p.launchPath)))
 		if sunshineRoot != "" && sunshineRoot != "." {
 			cmd.Dir = sunshineRoot
+		}
+	default:
+		// Windows (and macOS) Sunshine resolves assets/ relative to its process
+		// cwd, not its own exe path. Without this, launching from the agent
+		// (whose own cwd may differ) breaks shader/asset lookup with
+		// ERROR_PATH_NOT_FOUND while double-clicking sunshine.exe directly
+		// works by accident (Explorer sets cwd to the exe's own folder).
+		if dir := filepath.Dir(p.launchPath); dir != "" && dir != "." {
+			cmd.Dir = dir
 		}
 	}
 	if p.logPath != "" {
@@ -228,56 +244,7 @@ func (p *Process) Stop() error {
 		err = p.cmd.Process.Kill()
 		p.cmd = nil
 	}
-	if p.elevatedHandle != 0 {
-		log.Printf("[sunshine] stopping elevated process")
-		terminateElevated(p.elevatedHandle)
-		p.elevatedHandle = 0
-	}
 	return err
-}
-
-// StartElevated launches Sunshine with a UAC elevation prompt (Windows only).
-// On other platforms it is a no-op. Stops any currently running instance first.
-func (p *Process) StartElevated(adminPort int) error {
-	p.mu.Lock()
-	// Stop existing instances
-	if p.cmd != nil && p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-		p.cmd = nil
-	}
-	if p.elevatedHandle != 0 {
-		terminateElevated(p.elevatedHandle)
-		p.elevatedHandle = 0
-	}
-	path := p.launchPath
-	logPath := p.logPath
-	p.mu.Unlock()
-
-	if path == "" {
-		return nil
-	}
-	if _, err := os.Stat(path); err != nil {
-		log.Printf("[sunshine] launch path not found, cannot elevate: %s", path)
-		return err
-	}
-	_ = logPath // elevated process stdout goes to its own window; we can't redirect it via ShellExecuteEx
-	log.Printf("[sunshine] requesting elevated launch via UAC: %s", path)
-	handle, err := launchElevated(path)
-	if err != nil {
-		return fmt.Errorf("elevated launch: %w", err)
-	}
-	p.mu.Lock()
-	p.elevatedHandle = handle
-	p.mu.Unlock()
-	log.Printf("[sunshine] elevated process started")
-	waitElevatedAsync(handle, func() {
-		p.mu.Lock()
-		if p.elevatedHandle == handle {
-			p.elevatedHandle = 0
-		}
-		p.mu.Unlock()
-	})
-	return nil
 }
 
 // Client is a Moonlight client that has been paired with Sunshine.
@@ -385,6 +352,12 @@ func portReachable(port int, timeout time.Duration) bool {
 // launched without an explicit config argument (matches Sunshine's own
 // platf::appdata() resolution: $HOME/.config/sunshine/sunshine.conf on Linux).
 func ConfigPath() string {
+	if runtime.GOOS == "windows" {
+		if windowsSunshineDir == "" {
+			return ""
+		}
+		return filepath.Join(windowsSunshineDir, "config", "sunshine.conf")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		return ""
@@ -394,8 +367,6 @@ func ConfigPath() string {
 		return filepath.Join(home, ".config", "sunshine", "sunshine.conf")
 	case "darwin":
 		return filepath.Join(home, ".config", "sunshine", "sunshine.conf")
-	case "windows":
-		return filepath.Join(home, "AppData", "Local", "Sunshine", "config", "sunshine.conf")
 	default:
 		return ""
 	}

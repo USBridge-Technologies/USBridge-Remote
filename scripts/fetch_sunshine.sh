@@ -178,7 +178,7 @@ fetch_sunshine_windows() {
     echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host, usbridge fork)...${NC}"
     local url
     # Try our fork first (has web_bind_address patch); fall back to upstream LizardByte.
-    url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
+    url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
     if [[ -z "$url" ]]; then
         echo -e "${YELLOW}Fork has no Windows release yet; falling back to upstream LizardByte...${NC}"
         local _saved_repo="$_sunshine_repo"
