@@ -1346,7 +1346,7 @@ func annotateIP(ipStr string) string {
 	case isTailscaleIP(p):
 		return ipStr + "  (Tailscale)"
 	case isPrivateLANIP(p):
-		return ipStr + "  (LAN)"
+		return ipStr + "  (LAN+TS)"
 	default:
 		return ipStr
 	}
