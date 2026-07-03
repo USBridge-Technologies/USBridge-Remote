@@ -230,7 +230,7 @@ func (s *Server) submitPinToSunshine(pin string) error {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(sunshine.AdminUser, sunshine.AdminPassword)
+	req.SetBasicAuth(sunshine.AdminUser, sunshine.AdminPass())
 
 	resp, err := client.Do(req)
 	if err != nil {

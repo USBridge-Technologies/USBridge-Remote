@@ -1165,7 +1165,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		widget.NewSeparator(),
 		copyRow("URL:", sunshineURL),
 		copyRow("Login:", sunshine.AdminUser),
-		copyRow("Pass:", sunshine.AdminPassword),
+		copyRow("Pass:", sunshine.AdminPass()),
 		widget.NewSeparator(),
 		container.NewCenter(openBtn),
 	)

@@ -12,7 +12,9 @@ package sunshine
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -28,13 +30,37 @@ import (
 	"time"
 )
 
-// AdminUser and AdminPassword are the Sunshine web-UI credentials the agent
-// bootstraps on first launch and uses to relay Moonlight pairing PINs
-// (matches the canonical usbridge hardware image's provisioning).
-const (
-	AdminUser     = "sunshine"
-	AdminPassword = "sunshine"
-)
+// AdminUser is the fixed Sunshine web-UI username.
+const AdminUser = "sunshine"
+
+// activeAdminPassword holds the per-session randomly generated admin password.
+// Set by bootstrapAdminCredentials on each agent launch; never written to disk.
+var activeAdminPassword string
+
+// adminPass returns the in-memory admin password set this session (internal).
+func adminPass() string { return activeAdminPassword }
+
+// AdminPass returns the current session admin password for use by other packages.
+func AdminPass() string { return activeAdminPassword }
+
+// adminPassFile returns the path where the current admin password is persisted
+// so the next launch can use it to rotate to a new one.
+func adminPassFile() string {
+	cp := ConfigPath()
+	if cp == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(cp), "usbridge_admin_pass")
+}
+
+// generatePassword creates a cryptographically-random 20-character hex password.
+func generatePassword() string {
+	b := make([]byte, 10)
+	if _, err := rand.Read(b); err != nil {
+		return "sunshine" // last-resort fallback
+	}
+	return hex.EncodeToString(b)
+}
 
 // BinaryPath returns the path to the sunshine binary, or "" if it can't be
 // found (not installed/bundled, or unsupported OS). This is the raw ELF/exe
@@ -140,10 +166,12 @@ func (p *Process) Start(adminPort int) error {
 	return nil
 }
 
-// bootstrapAdminCredentials waits for a freshly launched Sunshine's admin API
-// to come up and creates the sunshine/sunshine web-UI account the agent uses
-// to relay Moonlight pairing PINs. A no-op (Sunshine rejects it) if an admin
-// account already exists — safe to call on every launch.
+// bootstrapAdminCredentials waits for the Sunshine admin API to come up, then
+// rotates the admin password to a fresh random value. On first launch (no
+// account yet) it calls the unauthenticated bootstrap endpoint; on subsequent
+// launches it authenticates with the previously-stored password and changes it.
+// The new password is kept in memory (activeAdminPassword) for this session
+// and persisted to adminPassFile() so the next launch can rotate it.
 func bootstrapAdminCredentials(adminPort int) {
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
@@ -153,34 +181,76 @@ func bootstrapAdminCredentials(adminPort int) {
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	body, _ := json.Marshal(map[string]string{
-		"currentUsername":    "",
-		"currentPassword":    "",
-		"newUsername":        AdminUser,
-		"newPassword":        AdminPassword,
-		"confirmNewPassword": AdminPassword,
-	})
-	url := "https://" + adminHost() + ":" + strconv.Itoa(adminPort) + "/api/password"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{
+	newPass := generatePassword()
+
+	tlsClient := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Sunshine uses a self-signed cert on localhost
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[sunshine] admin credential bootstrap failed: %v", err)
+	apiURL := "https://" + adminHost() + ":" + strconv.Itoa(adminPort) + "/api/password"
+
+	// Read the password that was active in the previous session (if any).
+	oldPass := ""
+	if pf := adminPassFile(); pf != "" {
+		if data, err := os.ReadFile(pf); err == nil {
+			oldPass = strings.TrimSpace(string(data))
+		}
+	}
+
+	// Try to change the password. First attempt uses the stored old password;
+	// second attempt falls back to an empty-credentials bootstrap call for
+	// first-ever launch (when Sunshine has no account yet).
+	trySet := func(currentUser, currentPass string) bool {
+		payload := map[string]string{
+			"currentUsername":    currentUser,
+			"currentPassword":    currentPass,
+			"newUsername":        AdminUser,
+			"newPassword":        newPass,
+			"confirmNewPassword": newPass,
+		}
+		body, _ := json.Marshal(payload)
+		req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
+		if err != nil {
+			return false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if currentUser != "" {
+			req.SetBasicAuth(currentUser, currentPass)
+		}
+		resp, err := tlsClient.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}
+
+	ok := false
+	if oldPass != "" {
+		ok = trySet(AdminUser, oldPass)
+	}
+	if !ok {
+		// Bootstrap: Sunshine has no account yet (empty current credentials).
+		ok = trySet("", "")
+	}
+
+	if !ok {
+		log.Printf("[sunshine] admin credential rotation failed — keeping old password")
+		// Keep old password active so API calls still work.
+		if oldPass != "" {
+			activeAdminPassword = oldPass
+		}
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		log.Printf("[sunshine] admin credentials provisioned (user=%s)", AdminUser)
+
+	activeAdminPassword = newPass
+	// Persist so the next launch can rotate.
+	if pf := adminPassFile(); pf != "" {
+		_ = os.WriteFile(pf, []byte(newPass), 0600)
 	}
+	log.Printf("[sunshine] admin password rotated (user=%s)", AdminUser)
 }
 
 // Stop terminates a Sunshine instance started by this Process. No-op if not
@@ -264,7 +334,7 @@ func ListClients(adminPort int) ([]Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(AdminUser, AdminPassword)
+	req.SetBasicAuth(AdminUser, adminPass())
 	c := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -295,7 +365,7 @@ func SubmitPIN(adminPort int, pin string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(AdminUser, AdminPassword)
+	req.SetBasicAuth(AdminUser, adminPass())
 	c := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -323,7 +393,7 @@ func UnpairClient(adminPort int, uniqueID string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(AdminUser, AdminPassword)
+	req.SetBasicAuth(AdminUser, adminPass())
 	c := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
