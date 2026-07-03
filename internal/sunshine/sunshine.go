@@ -160,7 +160,7 @@ func bootstrapAdminCredentials(adminPort int) {
 		"newPassword":        AdminPassword,
 		"confirmNewPassword": AdminPassword,
 	})
-	url := "https://127.0.0.1:" + strconv.Itoa(adminPort) + "/api/password"
+	url := "https://" + adminHost() + ":" + strconv.Itoa(adminPort) + "/api/password"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return
@@ -259,7 +259,7 @@ type Client struct {
 // instance running on adminPort. Requires valid admin credentials to have been
 // bootstrapped first.
 func ListClients(adminPort int) ([]Client, error) {
-	url := fmt.Sprintf("https://127.0.0.1:%d/api/clients/list", adminPort)
+	url := fmt.Sprintf("https://%s:%d/api/clients/list", adminHost(), adminPort)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -289,7 +289,7 @@ func ListClients(adminPort int) ([]Client, error) {
 // The PIN is the 4-digit code shown by the Moonlight client during pairing.
 func SubmitPIN(adminPort int, pin string) error {
 	body, _ := json.Marshal(map[string]string{"pin": pin})
-	url := fmt.Sprintf("https://127.0.0.1:%d/api/pin", adminPort)
+	url := fmt.Sprintf("https://%s:%d/api/pin", adminHost(), adminPort)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -317,7 +317,7 @@ func SubmitPIN(adminPort int, pin string) error {
 // Sunshine's authorized client list via the admin API on adminPort.
 func UnpairClient(adminPort int, uniqueID string) error {
 	body, _ := json.Marshal(map[string]string{"uuid": uniqueID})
-	url := fmt.Sprintf("https://127.0.0.1:%d/api/clients/unpair", adminPort)
+	url := fmt.Sprintf("https://%s:%d/api/clients/unpair", adminHost(), adminPort)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -342,7 +342,7 @@ func UnpairClient(adminPort int, uniqueID string) error {
 }
 
 func portReachable(port int, timeout time.Duration) bool {
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), timeout)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(adminHost(), strconv.Itoa(port)), timeout)
 	if err != nil {
 		return false
 	}
@@ -458,11 +458,30 @@ func ExternalIP() string {
 	return configKey("external_ip")
 }
 
-// SetWebLocalOnly locks the Sunshine web UI to 127.0.0.1 in sunshine.conf so
-// the admin API is never reachable from the network (streaming ports are on a
-// separate binding and are unaffected by this setting).
-func SetWebLocalOnly() error {
-	return setConfigKey("address", "127.0.0.1")
+// SetBindAddress sets (or removes) the bind_address key in sunshine.conf,
+// restricting ALL Sunshine servers (web admin + streaming) to the given IP.
+// Pass "" or "0.0.0.0" to remove the restriction (bind on all interfaces).
+func SetBindAddress(ip string) error {
+	if ip == "" || ip == "0.0.0.0" {
+		return setConfigKey("bind_address", "")
+	}
+	return setConfigKey("bind_address", ip)
+}
+
+// GetBindAddress reads the current bind_address from sunshine.conf, or ""
+// if unset (Sunshine defaults to all interfaces).
+func GetBindAddress() string {
+	return configKey("bind_address")
+}
+
+// adminHost returns the host to use for Sunshine admin API calls.
+// When bind_address is set to a specific IP, Sunshine only listens there —
+// so we must call that same IP. Falls back to 127.0.0.1 when unset.
+func adminHost() string {
+	if addr := configKey("bind_address"); addr != "" && addr != "0.0.0.0" {
+		return addr
+	}
+	return "127.0.0.1"
 }
 
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode

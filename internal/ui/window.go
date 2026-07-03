@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/url"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -38,6 +37,7 @@ type Window struct {
 	cfg   config.Config
 	token interface {
 		RegenerateMasterKey() (config.Config, error)
+		SaveConfig(config.Config) error
 		SunshineCaptureMode() string
 		SetSunshineCaptureMode(mode string) error
 		KMSCaptureGranted() bool
@@ -103,6 +103,7 @@ type uiStatus struct {
 
 func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
 	RegenerateMasterKey() (config.Config, error)
+	SaveConfig(config.Config) error
 	SunshineCaptureMode() string
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
@@ -226,9 +227,9 @@ func (w *Window) applyTailscaleMode(mode string) {
 	}
 
 	w.cfg.TailscaleMode = newMode
-	// Save config
-	configPath := filepath.Join(w.cfg.StateDir, "config.yaml")
-	_ = config.Save(configPath, w.cfg)
+	if w.token != nil {
+		_ = w.token.SaveConfig(w.cfg)
+	}
 
 	if w.ts != nil {
 		_ = w.ts.ApplyConfig(newMode == config.TailscaleModeUserspace, w.cfg.StateDir)
@@ -247,17 +248,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	tokenBtn := newIconActionButton("TOKEN", theme.SettingsIcon(), func() {
 		w.showTokenDialog(win)
 	})
-	// Уменьшаем отступ между иконкой и текстом через локальную тему
-	// Routes through the same shutdown path as the OS window-close button
-	// (SetCloseIntercept below) so Sunshine/ffmpeg/etc. actually get stopped
-	// instead of being orphaned when the user clicks this button directly.
-	closeBtn := newDangerButton("CLOSE", func() {
-		if onClose != nil {
-			onClose()
-		}
-		win.Close()
-	})
-	header := newHeaderBar(tokenBtn, closeBtn)
+	header := newHeaderBar(nil, tokenBtn)
 
 	// Column 1: Permissions
 	accessLabelBase := "Accessibility"
@@ -429,14 +420,12 @@ func (w *Window) ShowAndRun(onClose func()) {
 		sunshinePort = 47990
 	}
 
-	isAllIfaces := func(host string) bool { return host == "0.0.0.0" || host == "" }
-
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
 	httpWarn := makeWarningBadge()
-	if !isAllIfaces(w.cfg.EffectiveListenHost()) {
+	if !needsWarnBadge(w.cfg.EffectiveListenHost()) {
 		httpWarn.Hide()
 	}
 	httpEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
@@ -457,7 +446,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	sunStreamVal := widget.NewLabel(fmt.Sprintf("%s:%d", sunStreamIP, sunStreamPort))
 	sunStreamWarn := makeWarningBadge()
-	if sunStreamIP != "0.0.0.0" {
+	if !needsWarnBadge(sunStreamIP) {
 		sunStreamWarn.Hide()
 	}
 	sunStreamEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
@@ -1246,7 +1235,7 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *widget
 				}
 				w.cfg = cfg
 				streamLabel.SetText(fmt.Sprintf("%s:%d", host, streamPort))
-				if host == "0.0.0.0" {
+				if needsWarnBadge(host) {
 					streamWarn.Show()
 					streamWarn.Refresh()
 				} else {
@@ -1292,6 +1281,22 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *widget
 	card := container.NewStack(cardBG, container.NewPadded(content))
 	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
 	dlg.Show()
+}
+
+// needsWarnBadge reports whether a host binding warrants a ⚠ warning.
+// Warns for all-interfaces (0.0.0.0/"") and LAN IPs — not for Tailscale or loopback.
+func needsWarnBadge(host string) bool {
+	if host == "" || host == "0.0.0.0" {
+		return true
+	}
+	p := net.ParseIP(host)
+	if p == nil {
+		return false
+	}
+	if p.IsLoopback() || isTailscaleIP(p) {
+		return false
+	}
+	return true // LAN, public, or unknown — show warning
 }
 
 // makeWarningBadge returns a yellow ⚠ badge for rows that listen on 0.0.0.0.
@@ -1446,7 +1451,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 				}
 				w.cfg = cfg
 				valLabel.SetText(fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort))
-				if cfg.EffectiveListenHost() == "0.0.0.0" || cfg.EffectiveListenHost() == "" {
+				if needsWarnBadge(cfg.EffectiveListenHost()) {
 					warnBadge.Show()
 					warnBadge.Refresh()
 				} else {
@@ -1471,9 +1476,6 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 	titleLabel.TextStyle.Bold = true
 	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
 
-	noteLabel := canvas.NewText("Restart the app to apply HTTP changes", design.ColorTextMuted)
-	noteLabel.TextSize = 11
-
 	minWidth := canvas.NewRectangle(color.Transparent)
 	minWidth.SetMinSize(fyne.NewSize(300, 1))
 
@@ -1482,7 +1484,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 		widget.NewSeparator(),
 		widget.NewLabel("Host:"), hostSelect,
 		widget.NewLabel("Port:"), portEntry,
-		noteLabel, errLabel,
+		errLabel,
 		widget.NewSeparator(),
 		container.NewCenter(saveBtn),
 	)

@@ -54,6 +54,7 @@ type App struct {
 	sunshine *sunshine.Process
 	server   *http.Server
 	tsHTTP   *http.Server
+	handler  http.Handler
 	fyneApp  fyne.App
 }
 
@@ -98,6 +99,7 @@ func New() (*App, error) {
 	instance.fyneApp.SetIcon(assets.AppIcon)
 	instance.sunshine = sunshine.NewProcess(sunshine.LaunchPath(resolveExeDir()), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
+	instance.handler = handler
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort),
 		Handler:           handler,
@@ -118,7 +120,7 @@ func resolveExeDir() string {
 }
 
 func resolveConfigPath() string {
-	candidates := make([]string, 0, 6)
+	candidates := make([]string, 0, 8)
 	if exePath, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exePath)
 		candidates = append(candidates,
@@ -128,7 +130,15 @@ func resolveConfigPath() string {
 	}
 	candidates = append(candidates, filepath.Join(".", "config.yaml"))
 	if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
-		candidates = append(candidates, filepath.Join(homeDir, ".config", "usbridge-agent", "config.yaml"))
+		candidates = append(candidates,
+			filepath.Join(homeDir, ".config", "usbridge-agent", "config.yaml"),
+		)
+		if runtime.GOOS == "darwin" {
+			// macOS: the UI saves via StateDir which defaults to ~/Library/Application Support/
+			candidates = append(candidates,
+				filepath.Join(homeDir, "Library", "Application Support", "usbridge-agent", "config.yaml"),
+			)
+		}
 	}
 
 	for _, candidate := range candidates {
@@ -145,10 +155,13 @@ func (a *App) Run() error {
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 	if a.sunshine != nil {
-		// Lock the Sunshine web UI to localhost before starting so the admin
-		// API is never reachable from the network (streaming ports unaffected).
-		if err := sunshine.SetWebLocalOnly(); err != nil {
-			log.Printf("[app] warning: could not lock Sunshine web to localhost: %v", err)
+		// Restrict Sunshine to the configured external_ip (usually the Tailscale IP)
+		// so it doesn't listen on all interfaces. Both the web admin and streaming
+		// ports use bind_address — agent API calls go to the same IP via adminHost().
+		// Falls back to 0.0.0.0 on first run before a Tailscale IP is configured.
+		tsIP := sunshine.ExternalIP()
+		if err := sunshine.SetBindAddress(tsIP); err != nil {
+			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
 		}
 		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 			log.Printf("[app] failed to start Sunshine: %v", err)
@@ -624,15 +637,37 @@ func (a *App) UnpairSunshineClient(uniqueID string) error {
 }
 
 // UpdateListenAddr updates the agent's HTTP listen host and port, persists the
-// config, and returns the new config. The running HTTP server is NOT restarted
-// here — the caller should inform the user to restart.
+// config, and hot-restarts the main HTTP server so the change takes effect immediately.
 func (a *App) UpdateListenAddr(host string, port int) (config.Config, error) {
 	a.cfg.ListenHost = host
 	a.cfg.HTTPPort = port
 	if err := config.Save(a.cfgPath, a.cfg); err != nil {
 		return a.cfg, err
 	}
+	go a.restartMainHTTP()
 	return a.cfg, nil
+}
+
+// restartMainHTTP shuts down the current main HTTP server and starts a new one
+// on the address currently in a.cfg. Used for hot-apply of listen address changes.
+func (a *App) restartMainHTTP() {
+	old := a.server
+	if old != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = old.Shutdown(ctx)
+	}
+	addr := fmt.Sprintf("%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
+	next := &http.Server{
+		Addr:              addr,
+		Handler:           a.handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	a.server = next
+	log.Printf("[app] http restarted on %s", addr)
+	if err := next.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("[app] http server error: %v", err)
+	}
 }
 
 // UpdateSunshinePort updates the Sunshine admin API port in agent config and
@@ -657,6 +692,7 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 		return a.cfg, err
 	}
 	_ = sunshine.SetExternalIP(host)
+	_ = sunshine.SetBindAddress(host) // keep bind_address in sync with external_ip
 	_ = sunshine.SetConfigKey("port", strconv.Itoa(webPort))
 	_ = a.RestartSunshine()
 	return a.cfg, nil
