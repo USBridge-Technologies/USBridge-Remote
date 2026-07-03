@@ -155,10 +155,9 @@ func (a *App) Run() error {
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 	if a.sunshine != nil {
-		// Sync bind_address with external_ip so Sunshine only listens on the
-		// configured IP. Only update when external_ip is explicitly set — if it's
-		// absent the user hasn't configured a target IP yet, and we leave whatever
-		// bind_address is already in the conf rather than clearing it to 0.0.0.0.
+		// Sync bind_address with external_ip so Sunshine only binds streaming
+		// ports to the configured IP. The local TCP admin proxy (startAdminProxy)
+		// makes the admin web UI reachable on 127.0.0.1 regardless.
 		if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" {
 			if err := sunshine.SetBindAddress(tsIP); err != nil {
 				log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
@@ -712,7 +711,7 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 		return a.cfg, err
 	}
 	_ = sunshine.SetExternalIP(host)
-	_ = sunshine.SetBindAddress(host) // keep bind_address in sync with external_ip
+	_ = sunshine.SetBindAddress(host) // restrict streaming ports to this IP; admin proxy handles localhost
 	// Write streamPort (NvHTTP base) to sunshine.conf, not webPort (admin port).
 	_ = sunshine.SetConfigKey("port", strconv.Itoa(streamPort))
 	_ = a.RestartSunshine()

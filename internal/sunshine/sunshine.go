@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -189,9 +190,50 @@ func (p *Process) Start(adminPort int) error {
 		err := cmd.Wait()
 		log.Printf("[sunshine] process exited: %v", err)
 	}()
+
+	// If bind_address restricts Sunshine to a specific IP, start a local TCP
+	// proxy so the admin web UI is also reachable on 127.0.0.1.
+	if bindAddr := GetBindAddress(); bindAddr != "" && bindAddr != "0.0.0.0" && bindAddr != "127.0.0.1" {
+		go startAdminProxy(bindAddr, adminPort)
+	}
+
 	return nil
 }
 
+// startAdminProxy listens on 127.0.0.1:adminPort and transparently forwards
+// TCP connections to remoteHost:adminPort so the Sunshine admin web UI is
+// reachable on localhost even when bind_address restricts it to another IP.
+// Safe to call multiple times — skips silently if the port is already taken.
+func startAdminProxy(remoteHost string, adminPort int) {
+	localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(adminPort))
+	remoteAddr := net.JoinHostPort(remoteHost, strconv.Itoa(adminPort))
+
+	ln, err := net.Listen("tcp", localAddr)
+	if err != nil {
+		// Port already taken (proxy already running from a previous restart).
+		return
+	}
+	log.Printf("[sunshine] admin proxy: %s → %s", localAddr, remoteAddr)
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			remote, err := net.DialTimeout("tcp", remoteAddr, 5*time.Second)
+			if err != nil {
+				return
+			}
+			defer remote.Close()
+			done := make(chan struct{}, 2)
+			go func() { io.Copy(remote, c); done <- struct{}{} }()
+			go func() { io.Copy(c, remote); done <- struct{}{} }()
+			<-done
+		}(conn)
+	}
+}
 
 // Stop terminates a Sunshine instance started by this Process. No-op if not
 // running or if Sunshine wasn't launched by us (e.g. system service).
@@ -484,12 +526,9 @@ func GetBindAddress() string {
 // adminHost returns the host to use for Sunshine admin API calls.
 // When bind_address is set to a specific IP, Sunshine only listens there —
 // so we must call that same IP. Falls back to 127.0.0.1 when unset.
-func adminHost() string {
-	if addr := configKey("bind_address"); addr != "" && addr != "0.0.0.0" {
-		return addr
-	}
-	return "127.0.0.1"
-}
+// adminHost returns 127.0.0.1 — all agent admin API calls go through the
+// local TCP proxy (startAdminProxy) which forwards to the actual bind address.
+func adminHost() string { return "127.0.0.1" }
 
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
 // removes the key (Sunshine auto-detects: portal on Wayland, x11 on X11).
