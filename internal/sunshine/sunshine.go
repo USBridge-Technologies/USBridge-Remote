@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -117,6 +118,110 @@ func BinaryPath(exeDir string) string {
 // Identical to BinaryPath on all platforms.
 func LaunchPath(exeDir string) string {
 	return BinaryPath(exeDir)
+}
+
+// RuntimeBinaryPath returns the path Sunshine should actually be launched
+// from, and the path `setcap` should target for KMS capture. On Linux, when
+// running from inside an AppImage, the bundled binary lives on the
+// squashfs/FUSE mount that the AppImage runtime sets up — which is read-only,
+// so `pkexec setcap` on it always fails silently (the pkexec prompt succeeds,
+// but the capability is never actually written). To fix that, the bundled
+// Sunshine tree is copied once into stateDir, which is a normal writable
+// directory, and that copy is used instead.
+func RuntimeBinaryPath(exeDir, stateDir string) string {
+	src := BinaryPath(exeDir)
+	if runtime.GOOS != "linux" || src == "" || stateDir == "" {
+		return src
+	}
+	if os.Getenv("APPIMAGE") == "" {
+		// Not running from an AppImage mount — the bundled path is already
+		// on a normal writable filesystem.
+		return src
+	}
+	dst, err := stageSunshineRuntime(src, stateDir)
+	if err != nil {
+		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
+		return src
+	}
+	return dst
+}
+
+// stageSunshineRuntime copies the bundled Sunshine binary and its
+// usr/share/sunshine assets from src's read-only AppImage mount into
+// stateDir/sunshine-runtime, skipping the copy if a matching one is already
+// there (compared by size + mtime).
+func stageSunshineRuntime(src, stateDir string) (string, error) {
+	root := filepath.Join(stateDir, "sunshine-runtime")
+	dstBin := filepath.Join(root, "usr", "bin", "sunshine")
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return "", err
+	}
+	if dstInfo, err := os.Stat(dstBin); err == nil &&
+		dstInfo.Size() == srcInfo.Size() && dstInfo.ModTime().Equal(srcInfo.ModTime()) {
+		return dstBin, nil
+	}
+
+	if err := os.RemoveAll(root); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(dstBin), 0o755); err != nil {
+		return "", err
+	}
+	if err := copyFile(src, dstBin, srcInfo.Mode()); err != nil {
+		return "", err
+	}
+	if err := os.Chtimes(dstBin, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
+		return "", err
+	}
+
+	// usr/share/sunshine sits 3 dirs up from usr/bin/sunshine in the source
+	// tree (see Start()'s cwd handling, which relies on the same layout).
+	srcShare := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(src))), "usr", "share", "sunshine")
+	if info, err := os.Stat(srcShare); err == nil && info.IsDir() {
+		if err := copyDir(srcShare, filepath.Join(root, "usr", "share", "sunshine")); err != nil {
+			return "", err
+		}
+	}
+
+	return dstBin, nil
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return copyFile(path, target, info.Mode())
+	})
 }
 
 // Process manages the lifecycle of a bundled Sunshine instance launched by

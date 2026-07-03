@@ -97,7 +97,7 @@ func New() (*App, error) {
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.fyneApp.SetIcon(assets.AppIcon)
-	instance.sunshine = sunshine.NewProcess(sunshine.LaunchPath(resolveExeDir()), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.sunshine = sunshine.NewProcess(sunshine.RuntimeBinaryPath(resolveExeDir(), cfg.StateDir), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.handler = handler
 	instance.server = &http.Server{
@@ -247,7 +247,7 @@ func (a *App) RegenerateMasterKey() (config.Config, error) {
 // SunshineBinaryPath returns the path to the bundled Sunshine binary, or ""
 // if it isn't present (not bundled, or unsupported OS).
 func (a *App) SunshineBinaryPath() string {
-	path := sunshine.BinaryPath(resolveExeDir())
+	path := sunshine.RuntimeBinaryPath(resolveExeDir(), a.cfg.StateDir)
 	if path == "" {
 		return ""
 	}
