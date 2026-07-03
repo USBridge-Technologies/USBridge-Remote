@@ -173,6 +173,15 @@ func (p *Process) Start(adminPort int) error {
 		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
 	}
 
+	// On Windows the portable build expects sunshine_state.json to already
+	// exist before --creds can write into it; create an empty-but-valid
+	// template so the file is there when --creds runs.
+	if runtime.GOOS == "windows" {
+		if err := ensureSunshineStateFile(); err != nil {
+			log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
+		}
+	}
+
 	// Set a fresh random admin password before starting Sunshine so the
 	// process always starts with credentials we generated (not a stale or
 	// default password). --creds writes directly to sunshine_state.json.
@@ -480,6 +489,34 @@ func GetBindAddress() string {
 // web_bind_address is always set to 127.0.0.1 before Sunshine starts,
 // so the admin HTTPS server only listens on localhost.
 func adminHost() string { return "127.0.0.1" }
+
+// ensureSunshineStateFile creates sunshine_state.json with an empty valid
+// template if it does not already exist. On Windows the portable Sunshine
+// build will not create this file itself — --creds only updates it, so the
+// file must pre-exist or credential bootstrap silently fails.
+func ensureSunshineStateFile() error {
+	if windowsSunshineDir == "" {
+		return nil
+	}
+	stateFile := filepath.Join(windowsSunshineDir, "config", "sunshine_state.json")
+	if _, err := os.Stat(stateFile); err == nil {
+		return nil // already exists
+	}
+	if err := os.MkdirAll(filepath.Dir(stateFile), 0o755); err != nil {
+		return err
+	}
+	const empty = `{
+    "username": "sunshine",
+    "salt": "",
+    "password": "",
+    "root": {
+        "uniqueid": "",
+        "named_devices": []
+    }
+}
+`
+	return os.WriteFile(stateFile, []byte(empty), 0o644)
+}
 
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
 // removes the key (Sunshine auto-detects: portal on Wayland, x11 on X11).
