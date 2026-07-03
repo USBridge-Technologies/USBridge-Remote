@@ -279,11 +279,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// captured. On Linux that's Sunshine's backend (Portal, no root vs. KMS,
 	// root); elsewhere it's just the OS screen-recording permission.
 	w.screenCaptureLabel = widget.NewLabel("Screen Capture")
-	screenCaptureBtnLabel := "Request"
-	if runtime.GOOS == "darwin" {
-		screenCaptureBtnLabel = "Open Settings"
-	}
-	w.screenCaptureBtn = widget.NewButton(screenCaptureBtnLabel, func() {
+	w.screenCaptureBtn = widget.NewButton("Request", func() {
 		w.screenCaptureBtn.Disable()
 		go func() {
 			defer fyne.Do(func() {
@@ -383,7 +379,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.moonlightBtn = widget.NewButtonWithIcon("0", theme.AccountIcon(), func() {
 		w.showMoonlightClientsDialog(win)
 	})
-	moonlightDeleteAllBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+	moonlightDeleteAllBtn := newDangerGlyphButton(func() {
 		dialog.ShowConfirm("Remove All Clients",
 			"Remove all paired Moonlight devices?",
 			func(yes bool) {
@@ -406,7 +402,6 @@ func (w *Window) ShowAndRun(onClose func()) {
 				}()
 			}, win)
 	})
-	moonlightDeleteAllBtn.Importance = widget.DangerImportance
 	permRows = append(permRows, container.NewHBox(
 		widget.NewLabel("Moonlight Clients"),
 		layout.NewSpacer(),
@@ -957,7 +952,7 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 						}
 						nameLabel := widget.NewLabel(displayName)
 						nameLabel.Truncation = fyne.TextTruncateEllipsis
-						removeBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+						removeBtn := newDangerGlyphButton(func() {
 							go func() {
 								if err := w.token.UnpairSunshineClient(c.UniqueID); err != nil {
 									log.Printf("[ui] unpair moonlight client: %v", err)
@@ -965,7 +960,6 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 								refreshList()
 							}()
 						})
-						removeBtn.Importance = widget.DangerImportance
 						row := container.NewBorder(nil, nil, nil, removeBtn, nameLabel)
 						listBox.Add(row)
 					}
@@ -1185,6 +1179,26 @@ func (t *headerButtonTheme) Size(name fyne.ThemeSizeName) float32 {
 		return t.padding
 	}
 	return t.Theme.Size(name)
+}
+
+// redGlyphTheme overrides the foreground colour to the error/red colour so that
+// icons and text inside the themed container appear red while the background
+// remains the standard button colour (no DangerImportance red fill).
+type redGlyphTheme struct{ fyne.Theme }
+
+func (t *redGlyphTheme) Color(name fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNameForeground {
+		return design.ColorError
+	}
+	return t.Theme.Color(name, v)
+}
+
+// newDangerGlyphButton returns a cancel-icon (✕) button with a red glyph on a
+// normal (non-red) background — use instead of DangerImportance when only the
+// icon should be red, not the whole button background.
+func newDangerGlyphButton(tapped func()) fyne.CanvasObject {
+	btn := widget.NewButtonWithIcon("", theme.CancelIcon(), tapped)
+	return container.NewThemeOverride(btn, &redGlyphTheme{design.NewBrandTheme()})
 }
 
 type iconActionButton struct {
