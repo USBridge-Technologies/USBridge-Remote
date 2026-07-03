@@ -78,29 +78,58 @@ _sunshine_resolve_tag() {
         | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'])"
 }
 
-# build_sunshine_linux
-# Clones itsme228/Sunshine (our fork with web_bind_address) and builds+installs
-# it natively (system-wide, via a real .deb) using its own scripts/linux_build.sh
-# WITHOUT --appimage-build, so KMS capture works and assets path is absolute.
+# fetch_sunshine_linux / build_sunshine_linux <dest_dir>
+# Stages itsme228/Sunshine (our fork with web_bind_address patch) as a
+# self-contained AppImage at $dest_dir/sunshine.AppImage.  No system-wide
+# install — the agent binary is responsible for launching it from that path.
+# Fast path: download pre-built AppImage from fork's GitHub Releases.
+# Slow path (fallback): clone fork and build from source with --appimage-build.
+fetch_sunshine_linux() { build_sunshine_linux "$@"; }
 build_sunshine_linux() {
+    local dest="$1"
     if [[ "${USBRIDGE_SKIP_SUNSHINE:-0}" == "1" ]]; then
-        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine build${NC}"
+        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine bundling${NC}"
         return 0
     fi
-    if command -v sunshine >/dev/null 2>&1 && [[ "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
-        echo -e "${GREEN}✓${NC} sunshine already installed ($(command -v sunshine)), skipping build"
+    if [[ -f "$dest/sunshine.AppImage" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
+        echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping"
+        _sunshine_clean_creds "$dest"
         return 0
     fi
 
-    _sunshine_require git "Install with: sudo apt install git"
-    _sunshine_require cmake "Install with: sudo apt install cmake"
     _sunshine_require curl "Install with: sudo apt install curl"
     _sunshine_require python3 "Install with: sudo apt install python3"
-    _sunshine_require sudo "linux_build.sh needs sudo to install build deps and the resulting package"
+
+    local arch
+    arch="$(uname -m)"
+    local asset_name="Sunshine-Linux-x86_64.AppImage"
+    [[ "$arch" == "aarch64" ]] && asset_name="Sunshine-Linux-aarch64.AppImage"
+
+    # Fast path: download pre-built AppImage from our fork's releases.
+    echo -e "${YELLOW}Fetching Sunshine fork (itsme228/Sunshine, web_bind_address patch)...${NC}"
+    local url
+    url="$(_sunshine_asset_url "$asset_name")"
+
+    if [[ -n "$url" ]]; then
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        echo "Downloading: $url"
+        curl -fL --progress-bar -o "$dest/sunshine.AppImage" "$url"
+        chmod +x "$dest/sunshine.AppImage"
+        xattr -dr com.apple.quarantine "$dest/sunshine.AppImage" 2>/dev/null || true
+        _sunshine_clean_creds "$dest"
+        echo -e "${GREEN}✓${NC} Sunshine (fork release) staged at $dest/sunshine.AppImage"
+        return 0
+    fi
+
+    # Slow path: no release yet — build from source.
+    echo -e "${YELLOW}No fork release found — building Sunshine AppImage from source (15-60+ min)...${NC}"
+    _sunshine_require git "Install with: sudo apt install git"
+    _sunshine_require cmake "Install with: sudo apt install cmake"
+    _sunshine_require sudo "linux_build.sh needs sudo to install build dependencies"
 
     local src_dir
     src_dir="$(mktemp -d)"
-    echo -e "${YELLOW}Cloning itsme228/Sunshine (fork with web_bind_address)...${NC}"
     git clone --depth 1 --recurse-submodules --shallow-submodules \
         "https://github.com/${_sunshine_repo}.git" "$src_dir"
 
@@ -109,38 +138,36 @@ build_sunshine_linux() {
         --publisher-website='https://github.com/itsme228/usbridge_agent'
         --publisher-issue-url='https://github.com/itsme228/usbridge_agent/issues'
         --skip-cleanup
+        --appimage-build
     )
     if [[ "${USBRIDGE_SUNSHINE_CUDA:-0}" != "1" ]]; then
         build_args+=(--skip-cuda)
     fi
 
-    echo -e "${YELLOW}Building Sunshine from source (native, KMS-capable).${NC}"
-    echo -e "${YELLOW}This installs build dependencies via sudo and can take 15-60+ minutes.${NC}"
     (cd "$src_dir" && chmod +x scripts/linux_build.sh && ./scripts/linux_build.sh "${build_args[@]}")
     local build_status=$?
     if [[ $build_status -ne 0 ]]; then
         rm -rf "$src_dir"
-        echo -e "${RED}Sunshine build failed${NC}"
+        echo -e "${RED}Sunshine AppImage build failed${NC}"
         exit 1
     fi
 
-    local deb_file
-    deb_file="$(find "$src_dir" -name '*.deb' | head -1)"
-    if [[ -z "$deb_file" ]]; then
+    local appimage_file
+    appimage_file="$(find "$src_dir" -name '*.AppImage' | head -1)"
+    if [[ -z "$appimage_file" ]]; then
         rm -rf "$src_dir"
-        echo -e "${RED}Sunshine build succeeded but no .deb package was produced${NC}"
+        echo -e "${RED}Sunshine build succeeded but no .AppImage was produced${NC}"
         exit 1
     fi
 
-    echo -e "${YELLOW}Installing $(basename "$deb_file")...${NC}"
-    sudo apt-get install -y "$deb_file"
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    cp "$appimage_file" "$dest/sunshine.AppImage"
+    chmod +x "$dest/sunshine.AppImage"
     rm -rf "$src_dir"
 
-    if ! command -v sunshine >/dev/null 2>&1; then
-        echo -e "${RED}Sunshine package installed but 'sunshine' not found on PATH${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓${NC} Sunshine installed at $(command -v sunshine)"
+    _sunshine_clean_creds "$dest"
+    echo -e "${GREEN}✓${NC} Sunshine (fork source build) staged at $dest/sunshine.AppImage"
 }
 
 # fetch_sunshine_windows <dest_dir>

@@ -1,12 +1,9 @@
 // Package sunshine locates the Sunshine (Moonlight GameStream host) binary
-// and manages the small subset of its own sunshine.conf that the agent needs
-// to control — currently just the Linux capture backend (portal vs.
-// KMS/root). On Windows/macOS, Sunshine is bundled next to the agent
-// executable. On Linux it's built from source and installed system-wide by
-// the build script (see scripts/fetch_sunshine.sh) — its web-UI assets are
-// compiled in with an absolute /usr path, so it can't be kept self-contained
-// like the other platforms, and a non-AppImage build is required for KMS
-// capture to work at all.
+// and manages the subset of sunshine.conf that the agent controls. On all
+// platforms Sunshine is bundled locally next to the agent binary: as
+// Sunshine.app on macOS, sunshine.exe on Windows, and sunshine.AppImage on
+// Linux. The agent sets web_bind_address=127.0.0.1 before each start so the
+// HTTPS admin UI only listens on localhost (requires itsme228/Sunshine fork).
 package sunshine
 
 import (
@@ -80,13 +77,16 @@ func generatePassword() string {
 }
 
 // BinaryPath returns the path to the sunshine binary, or "" if it can't be
-// found (not installed/bundled, or unsupported OS). This is the raw ELF/exe
-// — used for capability checks (e.g. setcap) as well as launching; unlike
-// Windows/macOS, Linux has no separate AppImage wrapper to distinguish here
-// since Sunshine is a normal system install there.
+// found (not installed/bundled, or unsupported OS).
 func BinaryPath(exeDir string) string {
 	switch runtime.GOOS {
 	case "linux":
+		// Prefer the locally-bundled AppImage (our fork with web_bind_address).
+		local := filepath.Join(exeDir, "sunshine", "sunshine.AppImage")
+		if _, err := os.Stat(local); err == nil {
+			return local
+		}
+		// Fall back to a system-installed sunshine on PATH.
 		if path, err := exec.LookPath("sunshine"); err == nil {
 			return path
 		}
@@ -100,9 +100,8 @@ func BinaryPath(exeDir string) string {
 	}
 }
 
-// LaunchPath returns the entry point to actually start Sunshine. Identical
-// to BinaryPath on every platform now that Linux installs Sunshine
-// system-wide rather than bundling an AppImage.
+// LaunchPath returns the entry point to actually start Sunshine.
+// Identical to BinaryPath on all platforms.
 func LaunchPath(exeDir string) string {
 	return BinaryPath(exeDir)
 }

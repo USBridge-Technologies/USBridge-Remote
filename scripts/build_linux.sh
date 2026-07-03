@@ -47,7 +47,7 @@ echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "-s -w" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
 source "$SCRIPT_DIR/fetch_sunshine.sh"
-build_sunshine_linux
+fetch_sunshine_linux "$DIST_DIR/sunshine"
 
 cat > "$DIST_DIR/README.txt" <<'README'
 USBridgeAgent for Linux
@@ -56,15 +56,14 @@ USBridgeAgent for Linux
 Run:
   ./usbridge-agent
 
-Video/input: Sunshine (Moonlight GameStream host) is built from source and
-installed system-wide (via a real .deb — its web-UI assets are compiled
-with an absolute /usr path, so unlike Windows/macOS it can't be bundled
-alongside the agent) during the build. The agent starts it automatically at
-launch, including a one-time admin credential bootstrap. It's a native
-build (not AppImage/Flatpak), so the KMS root capture mode actually works,
-and the package's postinst already grants CAP_SYS_ADMIN on install. The
-agent itself is not in the video/input path; it only pairs with and relays
-PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
+Video/input: Sunshine (Moonlight GameStream host) is bundled as an AppImage
+at sunshine/sunshine.AppImage next to the agent binary. No system-wide
+install — the agent starts it automatically at launch with a random admin
+password and web_bind_address=127.0.0.1 (admin UI is localhost-only).
+The agent itself is not in the video/input path; it only pairs with and
+relays PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
+Note: requires libfuse2 (sudo apt install libfuse2) or FUSE support to run
+the AppImage. Set APPIMAGE_EXTRACT_AND_RUN=1 if FUSE is unavailable.
 
 Requirements:
   - libgtk-3-0, libgl1, and X11/Wayland libraries
@@ -93,7 +92,7 @@ chmod +x "$OUTPUT_PATH"
 ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Linux-amd64.tar.gz"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating archive...${NC}"
-tar -czf "$ARCHIVE" -C "$DIST_DIR" "usbridge-agent" "README.txt"
+tar -czf "$ARCHIVE" -C "$DIST_DIR" "usbridge-agent" "sunshine" "README.txt"
 echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
 
 echo -e "${GREEN}Done.${NC}"
