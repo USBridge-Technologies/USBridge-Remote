@@ -227,6 +227,7 @@ func bootstrapAdminCredentials(adminPort int) {
 		body, _ := json.Marshal(payload)
 		req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
 		if err != nil {
+			log.Printf("[sunshine] bootstrap: build request: %v", err)
 			return false
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -235,10 +236,15 @@ func bootstrapAdminCredentials(adminPort int) {
 		}
 		resp, err := tlsClient.Do(req)
 		if err != nil {
+			log.Printf("[sunshine] bootstrap: POST %s user=%q: %v", apiURL, currentUser, err)
 			return false
 		}
 		defer resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("[sunshine] bootstrap: POST %s user=%q status=%d", apiURL, currentUser, resp.StatusCode)
+			return false
+		}
+		return true
 	}
 
 	ok := false
@@ -246,7 +252,11 @@ func bootstrapAdminCredentials(adminPort int) {
 		ok = trySet(AdminUser, oldPass)
 	}
 	if !ok {
-		// Bootstrap: Sunshine has no account yet (empty current credentials).
+		// Fallback: first launch after upgrading from the old hardcoded-password build.
+		ok = trySet(AdminUser, "sunshine")
+	}
+	if !ok {
+		// Bootstrap: Sunshine has no account yet (completely fresh install).
 		ok = trySet("", "")
 	}
 
