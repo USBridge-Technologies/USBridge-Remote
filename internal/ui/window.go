@@ -429,8 +429,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	isAllIfaces := func(host string) bool { return host == "0.0.0.0" || host == "" }
 
-	osLabel := widget.NewLabel("OS: " + capture.GetOSInfo())
-	osLabel.Wrapping = fyne.TextWrapWord
+	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
