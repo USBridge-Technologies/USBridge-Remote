@@ -188,6 +188,14 @@ func (p *Process) Start(adminPort int) error {
 	newPass := generatePassword()
 	credsCmd := exec.Command(p.launchPath, "--creds", AdminUser, newPass)
 	configureProcess(credsCmd)
+	// Sunshine resolves config paths (including sunshine_state.json) relative
+	// to its process CWD on Windows, not its exe path. Without setting Dir,
+	// --creds runs from the agent's CWD and writes to the wrong location while
+	// the main Sunshine process (which has Dir set below) reads from a different
+	// path — the credentials never match.
+	if sunshineDir := filepath.Dir(p.launchPath); sunshineDir != "" && sunshineDir != "." {
+		credsCmd.Dir = sunshineDir
+	}
 	if out, err := credsCmd.CombinedOutput(); err != nil {
 		log.Printf("[sunshine] --creds failed: %v: %s", err, out)
 	} else {
@@ -490,10 +498,14 @@ func GetBindAddress() string {
 // so the admin HTTPS server only listens on localhost.
 func adminHost() string { return "127.0.0.1" }
 
-// ensureSunshineStateFile creates sunshine_state.json with an empty valid
-// template if it does not already exist. On Windows the portable Sunshine
-// build will not create this file itself — --creds only updates it, so the
-// file must pre-exist or credential bootstrap silently fails.
+// ensureSunshineStateFile creates sunshine_state.json with a valid template
+// if it does not already exist. On Windows the portable Sunshine build will
+// not create this file itself — --creds only updates it, so the file must
+// pre-exist or credential bootstrap silently fails.
+//
+// uniqueid must be a non-empty UUID: Sunshine treats an empty uniqueid as
+// "first run" and regenerates the entire file on startup, wiping any
+// credentials that --creds wrote before the main process started.
 func ensureSunshineStateFile() error {
 	if windowsSunshineDir == "" {
 		return nil
@@ -505,17 +517,33 @@ func ensureSunshineStateFile() error {
 	if err := os.MkdirAll(filepath.Dir(stateFile), 0o755); err != nil {
 		return err
 	}
-	const empty = `{
+	uid, err := randomUUID()
+	if err != nil {
+		return err
+	}
+	content := `{
     "username": "sunshine",
     "salt": "",
     "password": "",
     "root": {
-        "uniqueid": "",
+        "uniqueid": "` + uid + `",
         "named_devices": []
     }
 }
 `
-	return os.WriteFile(stateFile, []byte(empty), 0o644)
+	return os.WriteFile(stateFile, []byte(content), 0o644)
+}
+
+// randomUUID returns a random UUID v4 string (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
+func randomUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // SetCaptureMode upserts the "capture" key in sunshine.conf. An empty mode
