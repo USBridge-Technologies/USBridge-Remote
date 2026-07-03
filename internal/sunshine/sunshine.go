@@ -34,7 +34,7 @@ import (
 const AdminUser = "sunshine"
 
 // activeAdminPassword holds the per-session randomly generated admin password.
-// Set by bootstrapAdminCredentials on each agent launch; never written to disk.
+// Set in Start() via --creds before Sunshine launches.
 var activeAdminPassword string
 
 // adminPass returns the in-memory admin password set this session (internal).
@@ -153,6 +153,21 @@ func (p *Process) Start(adminPort int) error {
 		return nil
 	}
 
+	// Set a fresh random admin password before starting Sunshine so the
+	// process always starts with credentials we generated (not a stale or
+	// default password). --creds writes directly to sunshine_state.json.
+	newPass := generatePassword()
+	credsCmd := exec.Command(p.launchPath, "--creds", AdminUser, newPass)
+	if out, err := credsCmd.CombinedOutput(); err != nil {
+		log.Printf("[sunshine] --creds failed: %v: %s", err, out)
+	} else {
+		activeAdminPassword = newPass
+		if pf := adminPassFile(); pf != "" {
+			_ = os.WriteFile(pf, []byte(newPass), 0600)
+		}
+		log.Printf("[sunshine] admin password set (user=%s)", AdminUser)
+	}
+
 	cmd := exec.Command(p.launchPath)
 	configureProcess(cmd)
 	if p.logPath != "" {
@@ -174,108 +189,9 @@ func (p *Process) Start(adminPort int) error {
 		err := cmd.Wait()
 		log.Printf("[sunshine] process exited: %v", err)
 	}()
-	if adminPort > 0 {
-		go bootstrapAdminCredentials(adminPort)
-	}
 	return nil
 }
 
-// bootstrapAdminCredentials waits for the Sunshine admin API to come up, then
-// rotates the admin password to a fresh random value. On first launch (no
-// account yet) it calls the unauthenticated bootstrap endpoint; on subsequent
-// launches it authenticates with the previously-stored password and changes it.
-// The new password is kept in memory (activeAdminPassword) for this session
-// and persisted to adminPassFile() so the next launch can rotate it.
-func bootstrapAdminCredentials(adminPort int) {
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		if portReachable(adminPort, 500*time.Millisecond) {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	newPass := generatePassword()
-
-	tlsClient := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	apiURL := "https://" + adminHost() + ":" + strconv.Itoa(adminPort) + "/api/password"
-
-	// Read the password that was active in the previous session (if any).
-	oldPass := ""
-	if pf := adminPassFile(); pf != "" {
-		if data, err := os.ReadFile(pf); err == nil {
-			oldPass = strings.TrimSpace(string(data))
-		}
-	}
-
-	// Try to change the password. First attempt uses the stored old password;
-	// second attempt falls back to an empty-credentials bootstrap call for
-	// first-ever launch (when Sunshine has no account yet).
-	trySet := func(currentUser, currentPass string) bool {
-		payload := map[string]string{
-			"currentUsername":    currentUser,
-			"currentPassword":    currentPass,
-			"newUsername":        AdminUser,
-			"newPassword":        newPass,
-			"confirmNewPassword": newPass,
-		}
-		body, _ := json.Marshal(payload)
-		req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
-		if err != nil {
-			log.Printf("[sunshine] bootstrap: build request: %v", err)
-			return false
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if currentUser != "" {
-			req.SetBasicAuth(currentUser, currentPass)
-		}
-		resp, err := tlsClient.Do(req)
-		if err != nil {
-			log.Printf("[sunshine] bootstrap: POST %s user=%q: %v", apiURL, currentUser, err)
-			return false
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("[sunshine] bootstrap: POST %s user=%q status=%d", apiURL, currentUser, resp.StatusCode)
-			return false
-		}
-		return true
-	}
-
-	ok := false
-	if oldPass != "" {
-		ok = trySet(AdminUser, oldPass)
-	}
-	if !ok {
-		// Fallback: first launch after upgrading from the old hardcoded-password build.
-		ok = trySet(AdminUser, "sunshine")
-	}
-	if !ok {
-		// Bootstrap: Sunshine has no account yet (completely fresh install).
-		ok = trySet("", "")
-	}
-
-	if !ok {
-		log.Printf("[sunshine] admin credential rotation failed — keeping old password")
-		// Keep old password active so API calls still work.
-		if oldPass != "" {
-			activeAdminPassword = oldPass
-		}
-		return
-	}
-
-	activeAdminPassword = newPass
-	// Persist so the next launch can rotate.
-	if pf := adminPassFile(); pf != "" {
-		_ = os.WriteFile(pf, []byte(newPass), 0600)
-	}
-	log.Printf("[sunshine] admin password rotated (user=%s)", AdminUser)
-}
 
 // Stop terminates a Sunshine instance started by this Process. No-op if not
 // running or if Sunshine wasn't launched by us (e.g. system service).
@@ -337,9 +253,6 @@ func (p *Process) StartElevated(adminPort int) error {
 		}
 		p.mu.Unlock()
 	})
-	if adminPort > 0 {
-		go bootstrapAdminCredentials(adminPort)
-	}
 	return nil
 }
 
