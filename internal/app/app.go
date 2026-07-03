@@ -647,6 +647,21 @@ func (a *App) UpdateSunshinePort(port int) (config.Config, error) {
 	return a.cfg, nil
 }
 
+// UpdateSunshineStreamAddr sets the IP Sunshine advertises to Moonlight clients
+// (external_ip in sunshine.conf) and the streaming port (stored as web port =
+// streamPort+1 in both config and sunshine.conf), then restarts Sunshine.
+func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error) {
+	webPort := streamPort + 1
+	a.cfg.SunshinePort = webPort
+	if err := config.Save(a.cfgPath, a.cfg); err != nil {
+		return a.cfg, err
+	}
+	_ = sunshine.SetExternalIP(host)
+	_ = sunshine.SetConfigKey("port", strconv.Itoa(webPort))
+	_ = a.RestartSunshine()
+	return a.cfg, nil
+}
+
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine
 // to complete the pairing handshake.
 func (a *App) SubmitMoonlightPIN(pin string) error {

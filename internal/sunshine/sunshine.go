@@ -442,6 +442,22 @@ func configKey(key string) string {
 	return ""
 }
 
+// SetExternalIP sets the IP address Sunshine advertises to Moonlight clients
+// via the external_ip key in sunshine.conf. Pass "" or "0.0.0.0" to remove
+// the override (Sunshine auto-detects).
+func SetExternalIP(ip string) error {
+	if ip == "" || ip == "0.0.0.0" {
+		return setConfigKey("external_ip", "")
+	}
+	return setConfigKey("external_ip", ip)
+}
+
+// ExternalIP reads the current external_ip value from sunshine.conf, or ""
+// if unset (auto-detect / all interfaces).
+func ExternalIP() string {
+	return configKey("external_ip")
+}
+
 // SetWebLocalOnly locks the Sunshine web UI to 127.0.0.1 in sunshine.conf so
 // the admin API is never reachable from the network (streaming ports are on a
 // separate binding and are unaffected by this setting).

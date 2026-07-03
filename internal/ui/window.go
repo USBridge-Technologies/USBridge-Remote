@@ -50,6 +50,7 @@ type Window struct {
 		SubmitMoonlightPIN(pin string) error
 		UpdateListenAddr(host string, port int) (config.Config, error)
 		UpdateSunshinePort(port int) (config.Config, error)
+		UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
 	}
 	perms interface {
 		AccessibilityGranted() bool
@@ -114,6 +115,7 @@ func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
+	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
 }) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -444,16 +446,28 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(makeStatusLabel("HTTP:"), httpVal, httpWarn),
 		httpEditBtn, nil)
 
+	// Declare sunWebVal first so sunStreamEditBtn closure can capture it
+	sunWebVal := widget.NewLabel(fmt.Sprintf("127.0.0.1:%d", sunshinePort))
+
 	// Sunshine GameStream row — Moonlight clients connect here (port = web-1)
 	sunStreamPort := sunshinePort - 1
-	sunStreamVal := widget.NewLabel(fmt.Sprintf("0.0.0.0:%d", sunStreamPort))
+	sunStreamIP := sunshine.ExternalIP()
+	if sunStreamIP == "" {
+		sunStreamIP = "0.0.0.0"
+	}
+	sunStreamVal := widget.NewLabel(fmt.Sprintf("%s:%d", sunStreamIP, sunStreamPort))
 	sunStreamWarn := makeWarningBadge()
+	if sunStreamIP != "0.0.0.0" {
+		sunStreamWarn.Hide()
+	}
+	sunStreamEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+		w.showEditSunStreamDialog(win, sunStreamVal, sunStreamWarn, sunWebVal)
+	})
 	sunStreamRow := container.NewBorder(nil, nil,
 		container.NewHBox(makeStatusLabel("Sunshine:"), sunStreamVal, sunStreamWarn),
-		nil, nil)
+		sunStreamEditBtn, nil)
 
-	// Sun web / admin API row — always localhost; port editable
-	sunWebVal := widget.NewLabel(fmt.Sprintf("127.0.0.1:%d", sunshinePort))
+	// Sun web / admin API row — always localhost; port editable (remove initial decl moved above)
 	sunWebEyeBtn := widget.NewButtonWithIcon("", theme.VisibilityIcon(), func() {
 		port := w.cfg.SunshinePort
 		if port == 0 {
@@ -1173,6 +1187,113 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 	dlg.Show()
 }
 
+// showEditSunStreamDialog lets the user change the IP Sunshine advertises to
+// Moonlight clients (external_ip in sunshine.conf) and the streaming port.
+// The web/admin port is always streamPort+1. Changes are applied by restarting
+// Sunshine immediately.
+func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *widget.Label, streamWarn *canvas.Text, webLabel *widget.Label) {
+	if parent == nil {
+		return
+	}
+
+	var dlg *widget.PopUp
+
+	currentStreamPort := w.cfg.SunshinePort - 1
+	if currentStreamPort <= 0 {
+		currentStreamPort = 47989
+	}
+	currentIP := sunshine.ExternalIP()
+	if currentIP == "" {
+		currentIP = "0.0.0.0"
+	}
+
+	displays, valueFor, currentDisplay := ipSelectOptions(currentIP)
+	hostSelect := widget.NewSelect(displays, nil)
+	hostSelect.SetSelected(currentDisplay)
+
+	portEntry := widget.NewEntry()
+	portEntry.SetText(strconv.Itoa(currentStreamPort))
+
+	errLabel := widget.NewLabel("")
+	errLabel.Alignment = fyne.TextAlignCenter
+	errLabel.Hide()
+
+	var saveBtn *widget.Button
+	saveBtn = widget.NewButton("Save", func() {
+		host := valueFor[hostSelect.Selected]
+		if host == "" {
+			host = "0.0.0.0"
+		}
+		streamPort, err := strconv.Atoi(strings.TrimSpace(portEntry.Text))
+		if err != nil || streamPort < 1 || streamPort > 65534 {
+			errLabel.SetText("Invalid port (1–65534)")
+			errLabel.Show()
+			return
+		}
+		saveBtn.Disable()
+		go func() {
+			if w.token == nil {
+				fyne.Do(func() { saveBtn.Enable() })
+				return
+			}
+			cfg, err := w.token.UpdateSunshineStreamAddr(host, streamPort)
+			fyne.Do(func() {
+				if err != nil {
+					errLabel.SetText("Error: " + err.Error())
+					errLabel.Show()
+					saveBtn.Enable()
+					return
+				}
+				w.cfg = cfg
+				streamLabel.SetText(fmt.Sprintf("%s:%d", host, streamPort))
+				if host == "0.0.0.0" {
+					streamWarn.Show()
+					streamWarn.Refresh()
+				} else {
+					streamWarn.Hide()
+					streamWarn.Refresh()
+				}
+				webLabel.SetText(fmt.Sprintf("127.0.0.1:%d", streamPort+1))
+				if dlg != nil {
+					dlg.Hide()
+				}
+			})
+		}()
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		if dlg != nil {
+			dlg.Hide()
+		}
+	})
+	titleLabel := canvas.NewText("SUNSHINE STREAMING", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
+
+	noteLabel := canvas.NewText("Sets external_ip + port in sunshine.conf · restarts Sunshine", design.ColorTextMuted)
+	noteLabel.TextSize = 10
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(340, 1))
+
+	content := container.NewVBox(
+		titleRow, minWidth,
+		widget.NewSeparator(),
+		widget.NewLabel("IP (advertised to Moonlight clients):"), hostSelect,
+		widget.NewLabel("Streaming port:"), portEntry,
+		noteLabel, errLabel,
+		widget.NewSeparator(),
+		container.NewCenter(saveBtn),
+	)
+
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	dlg.Show()
+}
+
 // makeWarningBadge returns a yellow ⚠ badge for rows that listen on 0.0.0.0.
 func makeWarningBadge() *canvas.Text {
 	t := canvas.NewText("⚠", color.RGBA{R: 255, G: 185, B: 0, A: 255})
@@ -1188,34 +1309,92 @@ func makeStatusLabel(text string) fyne.CanvasObject {
 	return t
 }
 
-// localIPs returns a de-duplicated list of addresses useful for a host-binding
-// dropdown: always starts with "0.0.0.0" and "127.0.0.1", then adds every
-// IPv4 address currently assigned to an active non-loopback interface.
-func localIPs() []string {
-	ips := []string{"0.0.0.0", "127.0.0.1"}
-	seen := map[string]bool{"0.0.0.0": true, "127.0.0.1": true}
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ips
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
+// ipOption pairs a display string (annotated) with the actual IP value.
+type ipOption struct{ display, value string }
+
+func isTailscaleIP(ip net.IP) bool {
+	_, cidr, _ := net.ParseCIDR("100.64.0.0/10")
+	return cidr != nil && cidr.Contains(ip)
+}
+
+func isPrivateLANIP(ip net.IP) bool {
+	for _, s := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"} {
+		_, lan, _ := net.ParseCIDR(s)
+		if lan != nil && lan.Contains(ip) {
+			return true
 		}
-		addrs, _ := iface.Addrs()
-		for _, addr := range addrs {
-			ip, _, err := net.ParseCIDR(addr.String())
-			if err != nil || ip.To4() == nil {
+	}
+	return false
+}
+
+func annotateIP(ipStr string) string {
+	if ipStr == "0.0.0.0" {
+		return "0.0.0.0  (all interfaces)"
+	}
+	p := net.ParseIP(ipStr)
+	if p == nil {
+		return ipStr
+	}
+	switch {
+	case p.IsLoopback():
+		return ipStr + "  (loopback)"
+	case isTailscaleIP(p):
+		return ipStr + "  (Tailscale)"
+	case isPrivateLANIP(p):
+		return ipStr + "  (LAN)"
+	default:
+		return ipStr
+	}
+}
+
+// localIPOptions returns annotated IP options for host-binding dropdowns.
+// Always includes 0.0.0.0 and 127.0.0.1 first, then active interface IPs.
+func localIPOptions() []ipOption {
+	raw := []string{"0.0.0.0", "127.0.0.1"}
+	seen := map[string]bool{"0.0.0.0": true, "127.0.0.1": true}
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 				continue
 			}
-			s := ip.String()
-			if !seen[s] {
-				seen[s] = true
-				ips = append(ips, s)
+			addrs, _ := iface.Addrs()
+			for _, addr := range addrs {
+				ip, _, err := net.ParseCIDR(addr.String())
+				if err != nil || ip.To4() == nil {
+					continue
+				}
+				s := ip.String()
+				if !seen[s] {
+					seen[s] = true
+					raw = append(raw, s)
+				}
 			}
 		}
 	}
-	return ips
+	opts := make([]ipOption, 0, len(raw))
+	for _, ip := range raw {
+		opts = append(opts, ipOption{display: annotateIP(ip), value: ip})
+	}
+	return opts
+}
+
+// ipSelectOptions builds display list + value lookup for a widget.Select,
+// and finds the display string matching currentVal.
+func ipSelectOptions(currentVal string) (displays []string, valueFor map[string]string, currentDisplay string) {
+	opts := localIPOptions()
+	displays = make([]string, len(opts))
+	valueFor = make(map[string]string, len(opts))
+	for i, o := range opts {
+		displays[i] = o.display
+		valueFor[o.display] = o.value
+		if o.value == currentVal {
+			currentDisplay = o.display
+		}
+	}
+	if currentDisplay == "" {
+		currentDisplay = currentVal
+	}
+	return
 }
 
 // showEditHTTPAddrDialog opens a modal to change the agent's HTTP listen
@@ -1228,8 +1407,9 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 
 	var dlg *widget.PopUp
 
-	hostSelect := widget.NewSelect(localIPs(), nil)
-	hostSelect.SetSelected(w.cfg.EffectiveListenHost())
+	displays, valueFor, currentDisplay := ipSelectOptions(w.cfg.EffectiveListenHost())
+	hostSelect := widget.NewSelect(displays, nil)
+	hostSelect.SetSelected(currentDisplay)
 
 	portEntry := widget.NewEntry()
 	portEntry.SetText(strconv.Itoa(w.cfg.HTTPPort))
@@ -1240,7 +1420,7 @@ func (w *Window) showEditHTTPAddrDialog(parent fyne.Window, valLabel *widget.Lab
 
 	var saveBtn *widget.Button
 	saveBtn = widget.NewButton("Save", func() {
-		host := hostSelect.Selected
+		host := valueFor[hostSelect.Selected]
 		if host == "" {
 			host = "0.0.0.0"
 		}
