@@ -192,49 +192,78 @@ fetch_sunshine_windows() {
     echo -e "${GREEN}✓${NC} Sunshine staged at $dest"
 }
 
-# build_sunshine_macos <dest_dir>
-# Clones itsme228/Sunshine (our fork with web_bind_address patch) and builds
-# a Sunshine.app bundle from source using CMake + Homebrew dependencies.
-# The resulting Sunshine.app is staged under <dest_dir>/Sunshine.app.
+# fetch_sunshine_macos / build_sunshine_macos <dest_dir>
+# Stages itsme228/Sunshine (our fork with web_bind_address patch).
+# Fast path: download pre-built DMG from fork's GitHub Releases.
+# Slow path (fallback): clone fork and build from source via CMake.
+fetch_sunshine_macos() { build_sunshine_macos "$@"; }
 build_sunshine_macos() {
     local dest="$1"
     if [[ "${USBRIDGE_SKIP_SUNSHINE:-0}" == "1" ]]; then
-        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine build${NC}"
+        echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine bundling${NC}"
         return 0
     fi
     if [[ -d "$dest/Sunshine.app" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
-        echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping build"
+        echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping"
         _sunshine_clean_creds "$dest"
         return 0
     fi
 
+    _sunshine_require curl "Install Xcode Command Line Tools: xcode-select --install"
+    _sunshine_require python3 "Install Xcode Command Line Tools: xcode-select --install"
+
+    local arch
+    arch="$(uname -m)"
+    local asset_name="Sunshine-macOS-arm64.dmg"
+    [[ "$arch" != "arm64" ]] && asset_name="Sunshine-macOS-x86_64.dmg"
+
+    # Fast path: download pre-built DMG from our fork's releases.
+    echo -e "${YELLOW}Fetching Sunshine fork (itsme228/Sunshine, web_bind_address patch)...${NC}"
+    local url
+    url="$(_sunshine_asset_url "$asset_name")"
+
+    if [[ -n "$url" ]]; then
+        local tmp_dmg
+        tmp_dmg="$(mktemp).dmg"
+        echo "Downloading: $url"
+        curl -fL --progress-bar -o "$tmp_dmg" "$url"
+
+        local mount_point
+        mount_point="$(mktemp -d)"
+        echo "y" | hdiutil attach -nobrowse -mountpoint "$mount_point" "$tmp_dmg" >/dev/null
+
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        cp -R "$mount_point"/*.app "$dest/Sunshine.app"
+
+        hdiutil detach -quiet "$mount_point"
+        rm -f "$tmp_dmg"
+
+        xattr -dr com.apple.quarantine "$dest/Sunshine.app" 2>/dev/null || true
+        _sunshine_clean_creds "$dest"
+        echo -e "${GREEN}✓${NC} Sunshine (fork release) staged at $dest/Sunshine.app"
+        return 0
+    fi
+
+    # Slow path: no release yet — build from source.
+    echo -e "${YELLOW}No fork release found — building Sunshine from source (10-30 min)...${NC}"
     _sunshine_require cmake "Install with: brew install cmake"
     _sunshine_require git "Install Xcode Command Line Tools: xcode-select --install"
     _sunshine_require brew "Install Homebrew: https://brew.sh"
-    _sunshine_require python3 "Install Xcode Command Line Tools: xcode-select --install"
     _sunshine_require node "Install with: brew install node"
 
-    echo -e "${YELLOW}Installing Sunshine build dependencies via Homebrew...${NC}"
-    brew install --quiet \
-        cmake \
-        node \
-        pkgconf \
-        "icu4c@78" \
-        miniupnpc \
-        "openssl@3" \
-        opus 2>&1 | grep -v "already installed" || true
+    brew install --quiet cmake node pkgconf "icu4c@78" miniupnpc "openssl@3" opus \
+        2>&1 | grep -v "already installed" || true
 
     local src_dir
     src_dir="$(mktemp -d)"
-    echo -e "${YELLOW}Cloning itsme228/Sunshine (fork with web_bind_address)...${NC}"
     git clone --depth 1 --recurse-submodules --shallow-submodules \
         "https://github.com/${_sunshine_repo}.git" "$src_dir"
 
-    echo -e "${YELLOW}Configuring Sunshine with CMake...${NC}"
     cmake \
-        -B "$src_dir/build" \
-        -S "$src_dir" \
+        -B "$src_dir/build" -S "$src_dir" \
         -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_DOCS=OFF \
         -DICU_ROOT="$(brew --prefix "icu4c@78" 2>/dev/null)" \
         -DOPENSSL_ROOT_DIR="$(brew --prefix "openssl@3" 2>/dev/null)" \
         -DOpus_ROOT_DIR="$(brew --prefix opus 2>/dev/null)" \
@@ -242,17 +271,14 @@ build_sunshine_macos() {
         -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/itsme228/usbridge_agent" \
         -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/itsme228/usbridge_agent/issues"
 
-    echo -e "${YELLOW}Building Sunshine (this takes 10-30 minutes)...${NC}"
     cmake --build "$src_dir/build" -j "$(sysctl -n hw.ncpu)"
-
-    echo -e "${YELLOW}Packaging Sunshine.app (cpack DragNDrop)...${NC}"
     (cd "$src_dir/build" && cpack -G DragNDrop --config CPackConfig.cmake)
 
     local dmg_file
     dmg_file="$(find "$src_dir/build" -name "*.dmg" | head -1)"
     if [[ -z "$dmg_file" ]]; then
         rm -rf "$src_dir"
-        echo -e "${RED}Sunshine build succeeded but no .dmg was produced${NC}"
+        echo -e "${RED}Sunshine source build failed — no .dmg produced${NC}"
         exit 1
     fi
 
@@ -267,9 +293,7 @@ build_sunshine_macos() {
     hdiutil detach -quiet "$mount_point"
     rm -rf "$src_dir"
 
-    # Remove quarantine so macOS allows Sunshine to request TCC permissions
     xattr -dr com.apple.quarantine "$dest/Sunshine.app" 2>/dev/null || true
-
     _sunshine_clean_creds "$dest"
-    echo -e "${GREEN}✓${NC} Sunshine (fork) staged at $dest/Sunshine.app"
+    echo -e "${GREEN}✓${NC} Sunshine (fork source build) staged at $dest/Sunshine.app"
 }
