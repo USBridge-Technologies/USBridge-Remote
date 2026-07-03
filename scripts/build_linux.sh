@@ -18,21 +18,8 @@ NC='\033[0m'
 echo -e "${GREEN}Building usbridge_agent for Linux${NC}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-    echo -e "${YELLOW}Warning: This script is intended to run on Linux. Cross-compilation may require additional setup.${NC}"
+    echo -e "${YELLOW}Warning: This script is intended to run on Linux.${NC}"
 fi
-
-# Check for required dependencies (common for Fyne apps on Linux)
-check_dep() {
-    if ! pkg-config --exists "$1"; then
-        echo -e "${RED}Missing dependency: $1${NC}"
-        echo "Please install development headers (e.g., on Ubuntu: sudo apt install libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev libasound2-dev libgtk-3-dev)"
-        # exit 1 # Don't exit, maybe user knows what they're doing or cross-compiling
-    fi
-}
-
-check_dep "x11"
-check_dep "gl"
-check_dep "gtk+-3.0"
 
 mkdir -p "$DIST_DIR"
 rm -f "$OUTPUT_PATH"
@@ -41,59 +28,88 @@ export CGO_ENABLED=1
 export GOOS=linux
 export GOARCH=amd64
 
-echo -e "${YELLOW}Compiling...${NC}"
-# -trimpath for reproducible builds
-# -ldflags "-s -w" to reduce binary size
+echo -e "${YELLOW}Compiling agent...${NC}"
 go build -trimpath -ldflags "-s -w" -o "$OUTPUT_PATH" "$BUILD_PKG"
+chmod +x "$OUTPUT_PATH"
 
+# Fetch/build Sunshine (staged as dist/linux/sunshine/usr/bin/sunshine + assets)
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_linux "$DIST_DIR/sunshine"
 
-cat > "$DIST_DIR/README.txt" <<'README'
-USBridgeAgent for Linux
-=======================
+# ── Build AppImage ─────────────────────────────────────────────────────────────
+# The AppImage bundles the agent + Sunshine into a single relocatable package.
+# Sunshine is built with SUNSHINE_BUILD_APPIMAGE=ON so it looks for its assets
+# at ./usr/share/sunshine relative to cwd; the agent sets cwd = $APPDIR on
+# launch, making this resolve to $APPDIR/usr/share/sunshine inside the AppImage.
 
-Run:
-  ./usbridge-agent
+APPDIR="$DIST_DIR/AppDir"
+rm -rf "$APPDIR"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-Video/input: Sunshine (Moonlight GameStream host) is bundled as an AppImage
-at sunshine/sunshine.AppImage next to the agent binary. No system-wide
-install — the agent starts it automatically at launch with a random admin
-password and web_bind_address=127.0.0.1 (admin UI is localhost-only).
-The agent itself is not in the video/input path; it only pairs with and
-relays PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
-Note: requires libfuse2 (sudo apt install libfuse2) or FUSE support to run
-the AppImage. Set APPIMAGE_EXTRACT_AND_RUN=1 if FUSE is unavailable.
+# Agent binary
+cp "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"
 
-Requirements:
-  - libgtk-3-0, libgl1, and X11/Wayland libraries
-  - For Wayland: xdg-desktop-portal and xdg-desktop-portal-wlr/gnome/kde (needed by Sunshine's capture backend)
-  - Tailscale (optional): system daemon or use "Userspace" mode in app settings
+# Sunshine binary + assets (from cmake install tree under dist/linux/sunshine/)
+SUNSHINE_STAGING="$DIST_DIR/sunshine"
+if [[ -f "$SUNSHINE_STAGING/usr/bin/sunshine" ]]; then
+    cp "$SUNSHINE_STAGING/usr/bin/sunshine" "$APPDIR/usr/bin/sunshine"
+    if [[ -d "$SUNSHINE_STAGING/usr/share/sunshine" ]]; then
+        cp -R "$SUNSHINE_STAGING/usr/share/sunshine" "$APPDIR/usr/share/sunshine"
+    fi
+    echo -e "${GREEN}✓${NC} Sunshine bundled into AppDir"
+else
+    echo -e "${YELLOW}Warning: Sunshine binary not found at $SUNSHINE_STAGING/usr/bin/sunshine — AppImage will not include Sunshine${NC}"
+fi
 
-Privileged Ports (e.g., 443):
-  If you need to use port 443, run:
-  sudo setcap 'cap_net_bind_service=+ep' ./usbridge-agent
+# Icon
+ICON_SRC="$REPO_ROOT/assets/icons/appicon-256.png"
+if [[ -f "$ICON_SRC" ]]; then
+    cp "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$EXE_NAME.png"
+    cp "$ICON_SRC" "$APPDIR/$EXE_NAME.png"
+fi
 
-Wayland Permissions (The "Tricky Way"):
-  In Wayland, you can click "Request" under Screen Recording in the app UI
-  BEFORE connecting. This will open a system dialog to approve a Remote Desktop
-  session that will be reused for capture and input.
+# Desktop entry
+cat > "$APPDIR/usr/share/applications/$EXE_NAME.desktop" <<DESKTOP
+[Desktop Entry]
+Name=USBridgeAgent
+Exec=usbridge-agent
+Icon=usbridge-agent
+Type=Application
+Categories=Utility;Network;
+Comment=USBridge streaming agent (Sunshine host + pairing relay)
+DESKTOP
+cp "$APPDIR/usr/share/applications/$EXE_NAME.desktop" "$APPDIR/$EXE_NAME.desktop"
 
-Configuration:
-  config.yaml next to the executable, or ~/.config/usbridge-agent/config.yaml
+# Download linuxdeploy if not cached
+LINUXDEPLOY="$DIST_DIR/linuxdeploy-x86_64.AppImage"
+if [[ ! -f "$LINUXDEPLOY" ]]; then
+    echo -e "${YELLOW}Downloading linuxdeploy...${NC}"
+    curl -fL --progress-bar -o "$LINUXDEPLOY" \
+        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+    chmod +x "$LINUXDEPLOY"
+fi
 
-Logs:
-  ~/.config/usbridge-agent/logs/app.log (default)
-  If USBRIDGE_LOG_DIR is set, logs are written there instead.
-README
+# Build AppImage
+echo -e "${YELLOW}Packaging AppImage...${NC}"
+OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeAgent-Linux-x86_64.AppImage"
+rm -f "$OUTPUT_APPIMAGE"
 
-chmod +x "$OUTPUT_PATH"
+ARCH=x86_64 "$LINUXDEPLOY" \
+    --appdir "$APPDIR" \
+    --executable "$APPDIR/usr/bin/$EXE_NAME" \
+    --executable "$APPDIR/usr/bin/sunshine" \
+    --desktop-file "$APPDIR/$EXE_NAME.desktop" \
+    --icon-file "$APPDIR/$EXE_NAME.png" \
+    --output appimage 2>&1
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Linux-amd64.tar.gz"
-rm -f "$ARCHIVE"
-echo -e "${YELLOW}Creating archive...${NC}"
-tar -czf "$ARCHIVE" -C "$DIST_DIR" "usbridge-agent" "sunshine" "README.txt"
-echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
+# linuxdeploy writes the AppImage to cwd — move it to dist/
+PRODUCED="$(find "$REPO_ROOT" -maxdepth 2 -name 'USBridgeAgent*.AppImage' ! -path '*/AppDir/*' | head -1)"
+if [[ -z "$PRODUCED" ]]; then
+    PRODUCED="$(find . -maxdepth 2 -name '*.AppImage' ! -path '*/AppDir/*' | head -1)"
+fi
+if [[ -n "$PRODUCED" && "$PRODUCED" != "$OUTPUT_APPIMAGE" ]]; then
+    mv "$PRODUCED" "$OUTPUT_APPIMAGE"
+fi
 
-echo -e "${GREEN}Done.${NC}"
+echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
 echo "Binary: $OUTPUT_PATH"

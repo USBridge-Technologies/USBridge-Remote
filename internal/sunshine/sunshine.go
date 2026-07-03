@@ -81,12 +81,18 @@ func generatePassword() string {
 func BinaryPath(exeDir string) string {
 	switch runtime.GOOS {
 	case "linux":
-		// Prefer the locally-bundled AppImage (our fork with web_bind_address).
-		local := filepath.Join(exeDir, "sunshine", "sunshine.AppImage")
+		// Bundled alongside agent (cmake install tree: sunshine/usr/bin/sunshine).
+		// Built with SUNSHINE_BUILD_APPIMAGE=ON — assets are relative to cwd.
+		local := filepath.Join(exeDir, "sunshine", "usr", "bin", "sunshine")
 		if _, err := os.Stat(local); err == nil {
 			return local
 		}
-		// Fall back to a system-installed sunshine on PATH.
+		// Inside our AppImage: both binaries share usr/bin/ under $APPDIR.
+		inBin := filepath.Join(exeDir, "sunshine")
+		if info, err := os.Stat(inBin); err == nil && !info.IsDir() {
+			return inBin
+		}
+		// Fall back to system PATH.
 		if path, err := exec.LookPath("sunshine"); err == nil {
 			return path
 		}
@@ -179,6 +185,15 @@ func (p *Process) Start(adminPort int) error {
 
 	cmd := exec.Command(p.launchPath)
 	configureProcess(cmd)
+	if runtime.GOOS == "linux" {
+		// Sunshine built with SUNSHINE_BUILD_APPIMAGE=ON uses ./usr/share/sunshine
+		// relative to cwd. Set cwd to the root of the install tree (3 dirs up from
+		// usr/bin/sunshine), which is either the AppImage $APPDIR or the staging dir.
+		sunshineRoot := filepath.Dir(filepath.Dir(filepath.Dir(p.launchPath)))
+		if sunshineRoot != "" && sunshineRoot != "." {
+			cmd.Dir = sunshineRoot
+		}
+	}
 	if p.logPath != "" {
 		if err := os.MkdirAll(filepath.Dir(p.logPath), 0o755); err != nil {
 			log.Printf("[sunshine] failed to create log dir for %s: %v", p.logPath, err)

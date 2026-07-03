@@ -79,11 +79,14 @@ _sunshine_resolve_tag() {
 }
 
 # fetch_sunshine_linux / build_sunshine_linux <dest_dir>
-# Stages itsme228/Sunshine (our fork with web_bind_address patch) as a
-# self-contained AppImage at $dest_dir/sunshine.AppImage.  No system-wide
-# install — the agent binary is responsible for launching it from that path.
-# Fast path: download pre-built AppImage from fork's GitHub Releases.
-# Slow path (fallback): clone fork and build from source with --appimage-build.
+# Stages itsme228/Sunshine (our fork with web_bind_address patch) under
+# $dest_dir as a cmake install tree: $dest_dir/usr/bin/sunshine and
+# $dest_dir/usr/share/sunshine/. Built with SUNSHINE_BUILD_APPIMAGE=ON so
+# the binary uses relative asset paths (./usr/share/sunshine relative to cwd),
+# making it relocatable and compatible with being bundled in the agent AppImage.
+# No system-wide install — the agent binary is responsible for launching it.
+# Fast path: download pre-built tarball from fork's GitHub Releases.
+# Slow path (fallback): clone fork and build from source with cmake.
 fetch_sunshine_linux() { build_sunshine_linux "$@"; }
 build_sunshine_linux() {
     local dest="$1"
@@ -91,7 +94,7 @@ build_sunshine_linux() {
         echo -e "${YELLOW}USBRIDGE_SKIP_SUNSHINE=1 — skipping Sunshine bundling${NC}"
         return 0
     fi
-    if [[ -f "$dest/sunshine.AppImage" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
+    if [[ -f "$dest/usr/bin/sunshine" && "${USBRIDGE_SUNSHINE_FORCE:-0}" != "1" ]]; then
         echo -e "${GREEN}✓${NC} Sunshine already staged at $dest, skipping"
         _sunshine_clean_creds "$dest"
         return 0
@@ -102,72 +105,58 @@ build_sunshine_linux() {
 
     local arch
     arch="$(uname -m)"
-    local asset_name="Sunshine-Linux-x86_64.AppImage"
-    [[ "$arch" == "aarch64" ]] && asset_name="Sunshine-Linux-aarch64.AppImage"
+    local asset_name="Sunshine-Linux-x86_64.tar.gz"
+    [[ "$arch" == "aarch64" ]] && asset_name="Sunshine-Linux-aarch64.tar.gz"
 
-    # Fast path: download pre-built AppImage from our fork's releases.
+    # Fast path: download pre-built tarball from our fork's releases.
     echo -e "${YELLOW}Fetching Sunshine fork (itsme228/Sunshine, web_bind_address patch)...${NC}"
     local url
     url="$(_sunshine_asset_url "$asset_name")"
 
     if [[ -n "$url" ]]; then
+        local tmp_tgz
+        tmp_tgz="$(mktemp).tar.gz"
+        echo "Downloading: $url"
+        curl -fL --progress-bar -o "$tmp_tgz" "$url"
         rm -rf "$dest"
         mkdir -p "$dest"
-        echo "Downloading: $url"
-        curl -fL --progress-bar -o "$dest/sunshine.AppImage" "$url"
-        chmod +x "$dest/sunshine.AppImage"
-        xattr -dr com.apple.quarantine "$dest/sunshine.AppImage" 2>/dev/null || true
+        tar -xzf "$tmp_tgz" -C "$dest"
+        rm -f "$tmp_tgz"
+        chmod +x "$dest/usr/bin/sunshine" 2>/dev/null || true
         _sunshine_clean_creds "$dest"
-        echo -e "${GREEN}✓${NC} Sunshine (fork release) staged at $dest/sunshine.AppImage"
+        echo -e "${GREEN}✓${NC} Sunshine (fork release) staged at $dest"
         return 0
     fi
 
     # Slow path: no release yet — build from source.
-    echo -e "${YELLOW}No fork release found — building Sunshine AppImage from source (15-60+ min)...${NC}"
+    echo -e "${YELLOW}No fork release found — building Sunshine from source (15-60+ min)...${NC}"
     _sunshine_require git "Install with: sudo apt install git"
     _sunshine_require cmake "Install with: sudo apt install cmake"
-    _sunshine_require sudo "linux_build.sh needs sudo to install build dependencies"
+    _sunshine_require sudo "cmake install needs sudo for build deps"
 
     local src_dir
     src_dir="$(mktemp -d)"
     git clone --depth 1 --recurse-submodules --shallow-submodules \
         "https://github.com/${_sunshine_repo}.git" "$src_dir"
 
-    local build_args=(
-        --publisher-name='usbridge_agent'
-        --publisher-website='https://github.com/itsme228/usbridge_agent'
-        --publisher-issue-url='https://github.com/itsme228/usbridge_agent/issues'
-        --skip-cleanup
-        --appimage-build
-    )
-    if [[ "${USBRIDGE_SUNSHINE_CUDA:-0}" != "1" ]]; then
-        build_args+=(--skip-cuda)
-    fi
+    cmake \
+        -B "$src_dir/build" -S "$src_dir" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_DOCS=OFF \
+        -DSUNSHINE_BUILD_APPIMAGE=ON \
+        -DSUNSHINE_PUBLISHER_NAME="usbridge_agent" \
+        -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/itsme228/usbridge_agent" \
+        -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/itsme228/usbridge_agent/issues"
 
-    (cd "$src_dir" && chmod +x scripts/linux_build.sh && ./scripts/linux_build.sh "${build_args[@]}")
-    local build_status=$?
-    if [[ $build_status -ne 0 ]]; then
-        rm -rf "$src_dir"
-        echo -e "${RED}Sunshine AppImage build failed${NC}"
-        exit 1
-    fi
-
-    local appimage_file
-    appimage_file="$(find "$src_dir" -name '*.AppImage' | head -1)"
-    if [[ -z "$appimage_file" ]]; then
-        rm -rf "$src_dir"
-        echo -e "${RED}Sunshine build succeeded but no .AppImage was produced${NC}"
-        exit 1
-    fi
+    cmake --build "$src_dir/build" -j "$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
 
     rm -rf "$dest"
-    mkdir -p "$dest"
-    cp "$appimage_file" "$dest/sunshine.AppImage"
-    chmod +x "$dest/sunshine.AppImage"
+    DESTDIR="$dest" cmake --install "$src_dir/build" --prefix /usr
     rm -rf "$src_dir"
+    chmod +x "$dest/usr/bin/sunshine" 2>/dev/null || true
 
     _sunshine_clean_creds "$dest"
-    echo -e "${GREEN}✓${NC} Sunshine (fork source build) staged at $dest/sunshine.AppImage"
+    echo -e "${GREEN}✓${NC} Sunshine (fork source build) staged at $dest"
 }
 
 # fetch_sunshine_windows <dest_dir>
@@ -189,12 +178,12 @@ fetch_sunshine_windows() {
     echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host, usbridge fork)...${NC}"
     local url
     # Try our fork first (has web_bind_address patch); fall back to upstream LizardByte.
-    url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
+    url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
     if [[ -z "$url" ]]; then
         echo -e "${YELLOW}Fork has no Windows release yet; falling back to upstream LizardByte...${NC}"
         local _saved_repo="$_sunshine_repo"
         _sunshine_repo="$_sunshine_upstream_repo"
-        url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
+        url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
         _sunshine_repo="$_saved_repo"
     fi
     if [[ -z "$url" ]]; then
