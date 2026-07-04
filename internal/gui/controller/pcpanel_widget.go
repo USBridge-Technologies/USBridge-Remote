@@ -908,17 +908,7 @@ func (p *PCPanelWidget) onActionClick() {
 	if p.usbClient == nil {
 		return
 	}
-
-	items := []view.StyledMenuItem{
-		{
-			Label: "Power",
-			OnTap: func() {
-				p.showPowerActionDialog()
-			},
-		},
-	}
-
-	view.ShowStyledMenu(p.actionBtn, items)
+	p.showPowerActionDialog()
 }
 
 func (p *PCPanelWidget) showPowerActionDialog() {
