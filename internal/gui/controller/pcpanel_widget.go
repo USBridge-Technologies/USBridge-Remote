@@ -985,23 +985,28 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	var popup *widget.PopUp
 	holdButton = newPCPanelHoldButton("Hold to Confirm", 2*time.Second, pcpanelPowerColor, func() {
 		client := p.usbClient
-		if client != nil {
+		if client == nil {
+			return
+		}
+		// Close popup immediately so the UI doesn't freeze waiting for the HTTP response.
+		if popup != nil {
+			popup.Hide()
+		}
+		action := currentAction
+		holdVal := int(holdSlider.Value)
+		go func() {
 			var err error
-			switch currentAction {
+			switch action {
 			case "power":
-				err = client.PressPCPanelButton("power", int(holdSlider.Value))
+				err = client.PressPCPanelButton("power", holdVal)
 			case "reset":
 				err = client.PressPCPanelButton("reset", 0)
 			}
 			if err != nil {
-				logrus.Errorf("PCPanel %s error: %v", actionTitles[currentAction], err)
-				view.ShowErrorDialog(err, p.window)
-				return
+				logrus.Errorf("PCPanel %s error: %v", actionTitles[action], err)
+				fyne.Do(func() { view.ShowErrorDialog(err, p.window) })
 			}
-		}
-		if popup != nil {
-			popup.Hide()
-		}
+		}()
 	})
 
 	noBtn := widget.NewButton(i18n.Current.Cancel, func() {
@@ -1107,12 +1112,16 @@ func (p *PCPanelWidget) showPowerDialog() {
 		extra,
 		func() {
 			client := p.usbClient
-			if client != nil {
-				if err := client.PressPCPanelButton("power", int(holdSlider.Value)); err != nil {
-					logrus.Errorf("PCPanel Power error: %v", err)
-					view.ShowErrorDialog(err, p.window)
-				}
+			if client == nil {
+				return
 			}
+			holdVal := int(holdSlider.Value)
+			go func() {
+				if err := client.PressPCPanelButton("power", holdVal); err != nil {
+					logrus.Errorf("PCPanel Power error: %v", err)
+					fyne.Do(func() { view.ShowErrorDialog(err, p.window) })
+				}
+			}()
 		},
 	)
 }
@@ -1128,12 +1137,15 @@ func (p *PCPanelWidget) showResetDialog() {
 		label,
 		func() {
 			client := p.usbClient
-			if client != nil {
+			if client == nil {
+				return
+			}
+			go func() {
 				if err := client.PressPCPanelButton("reset", 0); err != nil {
 					logrus.Errorf("PCPanel Reset error: %v", err)
-					view.ShowErrorDialog(err, p.window)
+					fyne.Do(func() { view.ShowErrorDialog(err, p.window) })
 				}
-			}
+			}()
 		},
 	)
 }
