@@ -26,10 +26,10 @@
 ### Client
 The Client is the control interface — installed on your workstation or laptop. It manages connections, live remote desktop, virtual device passthrough, and snapshot registry.
 
-| | Windows | macOS | Linux | Android |
-|:---|:---:|:---:|:---:|:---:|
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_windows_amd64-2.0.1.zip) | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) | |
-| **ARM64** | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_macOS_arm64-2.0.1.zip) | | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_android_arm64-2.0.1.apk) |
+| Architecture | Windows | macOS | Linux | Android | iOS (iPhone) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_windows_amd64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) | — | — |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_macOS_arm64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_android_arm64-2.0.1.apk) | 🚧 |
 
 ## Agent
 
@@ -38,7 +38,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
 | Architecture | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
 | **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v2.0.2/USBridge_agent_windows_amd64-2.0.2.zip) | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v2.0.2/USBridge_agent-linux-x86_64-2.0.2.tar.gz) |
-| **ARM64** | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v2.0.1/USBridge_agent_macOS_amd64-2.0.1.zip) | 🚧 |
+| **ARM64** | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/v2.0.1/USBridge_agent_macOS_amd64-2.0.1.zip) | — |
 
 ---
 
