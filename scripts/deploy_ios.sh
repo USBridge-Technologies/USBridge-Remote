@@ -93,19 +93,22 @@ if [ -z "$DEVICE_ID" ]; then
 fi
 echo -e "   ${GREEN}✓${NC} Устройство: ${DEVICE_NAME} ($DEVICE_ID)"
 
-# 3. Build Moonlight Core
-echo -e "\n${YELLOW}📦 Сборка Moonlight Core...${NC}"
-"$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
+# 3. Build Moonlight Core (iOS + host)
+echo -e "\n${YELLOW}📦 Сборка Moonlight Core (iOS)...${NC}"
+MOONLIGHT_IOS_TARGET=1 MOONLIGHT_SKIP_HOST=1 \
+    "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
 
 # 4. fyne package (development build — no --release)
 echo -e "\n${YELLOW}🔨 fyne package --target ios (development)...${NC}"
-find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || true
+find "$REPO_ROOT" -maxdepth 2 -name "*.app" -exec rm -rf {} + 2>/dev/null || true
 
 # Force iOS 16 deployment target so app runs on older devices
 export CGO_CFLAGS="${CGO_CFLAGS:-} -target arm64-apple-ios16.0"
 export CGO_LDFLAGS="${CGO_LDFLAGS:-} -target arm64-apple-ios16.0"
 export IPHONEOS_DEPLOYMENT_TARGET=16.0
 
+# Run fyne from cmd/ so it builds the correct main package (not repo root)
+cd "$REPO_ROOT/cmd"
 "$FYNE_BIN" package \
     --target ios \
     --app-id "$APP_ID" \
@@ -113,8 +116,12 @@ export IPHONEOS_DEPLOYMENT_TARGET=16.0
     --icon "$REPO_ROOT/Icon.png" \
     --certificate "$DEV_CERT" \
     --profile "$DEV_PROFILE"
+cd "$REPO_ROOT"
 
-APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+APP_BUNDLE=$(find "$REPO_ROOT/cmd" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+fi
 if [ -z "$APP_BUNDLE" ]; then
     echo -e "${RED}❌ .app не найден после fyne package${NC}"; exit 1
 fi
@@ -160,7 +167,12 @@ security cms -D -i "$APP_BUNDLE/embedded.mobileprovision" > /tmp/provision_decod
 /usr/libexec/PlistBuddy -x -c "Print Entitlements" /tmp/provision_decoded.plist > "$ENTITLEMENTS_PLIST" 2>/dev/null
 rm -f /tmp/provision_decoded.plist
 
-codesign --force --deep \
+# Sign main binary first, then the bundle — required when new files were added (LaunchScreen).
+codesign --force \
+    --sign "$DEV_CERT" \
+    "$APP_BUNDLE/main" 2>&1 | grep -v "replacing existing" || true
+
+codesign --force \
     --sign "$DEV_CERT" \
     --entitlements "$ENTITLEMENTS_PLIST" \
     "$APP_BUNDLE" 2>&1 | grep -v "replacing existing" || true

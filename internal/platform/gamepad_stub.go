@@ -1,4 +1,4 @@
-//go:build !darwin && !(linux && !android) && !windows
+//go:build ios || (!darwin && !(linux && !android) && !windows)
 
 package platform
 

@@ -181,6 +181,129 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# iOS arm64 build (MOONLIGHT_IOS_TARGET=1)
+# ────────────────────────────────────────────────────────────────────────────
+if [ "${MOONLIGHT_IOS_TARGET:-0}" = "1" ]; then
+    IOS_DEPLOY_TARGET="16.0"
+    IOS_OUT="${BUILD_DIR}/build/ios"
+    IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+    IOS_CLANG="$(xcrun --sdk iphoneos -f clang)"
+    IOS_AR="$(xcrun --sdk iphoneos -f ar)"
+    IOS_RANLIB="$(xcrun --sdk iphoneos -f ranlib)"
+
+    mkdir -p "${IOS_OUT}"
+
+    echo ""
+    echo "=== iOS arm64 (deployment target ${IOS_DEPLOY_TARGET}) ==="
+
+    # ── OpenSSL для iOS ───────────────────────────────────────────────────────
+    IOS_OPENSSL_OUT="${IOS_OUT}/openssl"
+    if [ -f "${IOS_OPENSSL_OUT}/lib/libssl.a" ]; then
+        echo "⚡ OpenSSL уже собран для iOS (${IOS_OPENSSL_OUT})"
+    else
+        OPENSSL_VERSION="3.3.2"
+        OPENSSL_SRC="${BUILD_DIR}/openssl-${OPENSSL_VERSION}"
+        if [ ! -d "${OPENSSL_SRC}" ]; then
+            TARBALL="${BUILD_DIR}/openssl-${OPENSSL_VERSION}.tar.gz"
+            if [ ! -f "${TARBALL}" ]; then
+                echo "  Downloading OpenSSL ${OPENSSL_VERSION}..."
+                curl -fsSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" -o "${TARBALL}"
+            fi
+            tar xzf "${TARBALL}" -C "${BUILD_DIR}"
+        fi
+
+        echo "📦 Building OpenSSL ${OPENSSL_VERSION} for iOS arm64..."
+        mkdir -p "${IOS_OPENSSL_OUT}"
+        cd "${OPENSSL_SRC}"
+        IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOY_TARGET}" \
+            ./Configure ios64-xcrun \
+                --prefix="${IOS_OPENSSL_OUT}" \
+                --openssldir="${IOS_OPENSSL_OUT}" \
+                no-shared no-tests no-apps \
+                -fPIC
+        IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOY_TARGET}" \
+            make -j"${NCPU}"
+        IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOY_TARGET}" \
+            make install_dev
+        cd "${BUILD_DIR}"
+        echo "✅ OpenSSL built for iOS"
+    fi
+
+    # ── Opus для iOS ──────────────────────────────────────────────────────────
+    IOS_OPUS_OUT="${IOS_OUT}/opus"
+    if [ -f "${IOS_OPUS_OUT}/lib/libopus.a" ]; then
+        echo "⚡ Opus уже собран для iOS (${IOS_OPUS_OUT})"
+    else
+        OPUS_VERSION="1.5.2"
+        OPUS_SRC="${BUILD_DIR}/opus-${OPUS_VERSION}"
+        if [ ! -d "${OPUS_SRC}" ]; then
+            OPUS_TARBALL="${BUILD_DIR}/opus-${OPUS_VERSION}.tar.gz"
+            if [ ! -f "${OPUS_TARBALL}" ]; then
+                echo "  Downloading Opus ${OPUS_VERSION}..."
+                curl -fsSL "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" -o "${OPUS_TARBALL}"
+            fi
+            tar xzf "${OPUS_TARBALL}" -C "${BUILD_DIR}"
+        fi
+
+        echo "📦 Building Opus ${OPUS_VERSION} for iOS arm64..."
+        IOS_OPUS_BUILD="${BUILD_DIR}/opus-ios-build"
+        mkdir -p "${IOS_OPUS_BUILD}"
+        cmake "${OPUS_SRC}" \
+            -B "${IOS_OPUS_BUILD}" \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="${IOS_SDK}" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOY_TARGET}" \
+            -DCMAKE_C_COMPILER="${IOS_CLANG}" \
+            -DCMAKE_AR="${IOS_AR}" \
+            -DCMAKE_RANLIB="${IOS_RANLIB}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPUS_BUILD_TESTING=OFF \
+            -DOPUS_BUILD_PROGRAMS=OFF \
+            -DCMAKE_INSTALL_PREFIX="${IOS_OPUS_OUT}" \
+            -DCMAKE_C_COMPILER_WORKS=TRUE
+        cmake --build "${IOS_OPUS_BUILD}" -j"${NCPU}"
+        cmake --install "${IOS_OPUS_BUILD}"
+        echo "✅ Opus built for iOS"
+    fi
+
+    # ── moonlight-common-c для iOS ────────────────────────────────────────────
+    if [ -f "${IOS_OUT}/libmoonlight-common-c.a" ]; then
+        echo "⚡ moonlight-common-c уже собран для iOS"
+    else
+        echo "⚙️ Cross-compiling moonlight-common-c for iOS arm64..."
+        IOS_MC_BUILD="${IOS_OUT}/cmake-build"
+        mkdir -p "${IOS_MC_BUILD}"
+        cmake "${BUILD_DIR}" \
+            -B "${IOS_MC_BUILD}" \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="${IOS_SDK}" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${IOS_DEPLOY_TARGET}" \
+            -DCMAKE_C_COMPILER="${IOS_CLANG}" \
+            -DCMAKE_AR="${IOS_AR}" \
+            -DCMAKE_RANLIB="${IOS_RANLIB}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_WORKS=TRUE \
+            -DOPENSSL_ROOT_DIR="${IOS_OPENSSL_OUT}" \
+            -DOPENSSL_INCLUDE_DIR="${IOS_OPENSSL_OUT}/include" \
+            -DOPENSSL_CRYPTO_LIBRARY="${IOS_OPENSSL_OUT}/lib/libcrypto.a" \
+            -DOPENSSL_SSL_LIBRARY="${IOS_OPENSSL_OUT}/lib/libssl.a"
+        cmake --build "${IOS_MC_BUILD}" -j"${NCPU}"
+
+        cp "${IOS_MC_BUILD}/libmoonlight-common-c.a" "${IOS_OUT}/"
+        cp "${IOS_MC_BUILD}/enet/libenet.a"           "${IOS_OUT}/"
+        cp "${IOS_OPENSSL_OUT}/lib/libssl.a"          "${IOS_OUT}/"
+        cp "${IOS_OPENSSL_OUT}/lib/libcrypto.a"       "${IOS_OUT}/"
+        cp "${IOS_OPUS_OUT}/lib/libopus.a"            "${IOS_OUT}/"
+        echo "✅ moonlight-common-c built for iOS"
+        echo "   Outputs: ${IOS_OUT}/"
+    fi
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 # Host build (пропускается при MOONLIGHT_SKIP_HOST=1)
 # ────────────────────────────────────────────────────────────────────────────
 if [ "${MOONLIGHT_SKIP_HOST:-0}" = "1" ]; then

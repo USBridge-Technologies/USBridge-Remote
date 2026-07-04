@@ -47,15 +47,18 @@ if [ ! -x "$FYNE_BIN" ]; then
 fi
 echo -e "   ${GREEN}✓${NC} fyne: $FYNE_BIN"
 
-# 2. Build Moonlight Core
-echo -e "\n${YELLOW}📦 Сборка Moonlight Core...${NC}"
-"$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
+# 2. Build Moonlight Core (iOS + skip host)
+echo -e "\n${YELLOW}📦 Сборка Moonlight Core (iOS)...${NC}"
+MOONLIGHT_IOS_TARGET=1 MOONLIGHT_SKIP_HOST=1 \
+    "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
 
 # 3. fyne package → produces signed .app bundle
 echo -e "\n${YELLOW}🔨 fyne package --target ios...${NC}"
 # Remove previously generated .app
 find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || true
 
+# Run fyne from cmd/ so it builds the correct main package (not repo root)
+cd "$REPO_ROOT/cmd"
 "$FYNE_BIN" package \
     --target ios \
     --app-id "$APP_ID" \
@@ -64,9 +67,13 @@ find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || tru
     --certificate "$SIGN_CERT" \
     --profile "$PROVISIONING_PROFILE" \
     --release
+cd "$REPO_ROOT"
 
 # Find the generated .app
-APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+APP_BUNDLE=$(find "$REPO_ROOT/cmd" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+fi
 if [ -z "$APP_BUNDLE" ]; then
     echo -e "${RED}❌ .app не найден после fyne package${NC}"; exit 1
 fi

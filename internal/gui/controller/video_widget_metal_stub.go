@@ -1,4 +1,4 @@
-//go:build !darwin && !windows && !linux && !android
+//go:build (!darwin && !windows && !linux && !android) || ios
 
 package controller
 

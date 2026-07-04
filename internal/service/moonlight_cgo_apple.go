@@ -3,11 +3,6 @@
 package service
 
 /*
-#cgo pkg-config: opus openssl
-#cgo CFLAGS: -I${SRCDIR}/../../moonlight-common-c/src -I${SRCDIR}/../../moonlight-common-c/enet/include
-#cgo LDFLAGS: -L${SRCDIR}/../../moonlight-common-c/build -L${SRCDIR}/../../moonlight-common-c/build/enet -lmoonlight-common-c -lenet
-#cgo LDFLAGS: -framework VideoToolbox -framework CoreMedia -framework CoreFoundation -framework CoreVideo -framework AudioToolbox -framework CoreAudio
-
 #include <VideoToolbox/VideoToolbox.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
@@ -68,7 +63,8 @@ static double   g_ca_stats_start   = 0.0;
 static int      g_ca_was_dropping     = 0; // set while free pool is empty (drop burst)
 static volatile int g_ca_force_restart = 0; // suppress listener during forced stop/start
 
-// Log the macOS default audio output device name.
+// Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
 static void ca_log_device(void) {
     AudioObjectPropertyAddress addr = {
         kAudioHardwarePropertyDefaultOutputDevice,
@@ -92,6 +88,7 @@ static void ca_log_device(void) {
     snprintf(msg, sizeof(msg), "CoreAudio: output device = \"%s\" (id=%u)", buf, (unsigned)devID);
     goVTLog(msg);
 }
+#endif
 
 // Fires on AudioQueue's internal thread whenever kAudioQueueProperty_IsRunning
 // changes — restarts the queue immediately if it stalled or was interrupted.
@@ -196,7 +193,9 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             g_ca_started = 1;
             g_ca_stats_start = mono_sec();
             AudioQueueStart(g_ca_queue, NULL);
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
             ca_log_device();
+#endif
             goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
         } else if (g_ca_was_dropping) {
             // Drop burst just ended — the queue drained while we were dropping.
@@ -210,7 +209,9 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
                 "CoreAudio: drop burst ended (total_drops=%llu), forcing restart",
                 (unsigned long long)g_ca_drop_count);
             goVTLog(rmsg);
+#if TARGET_OS_MAC && !TARGET_OS_IPHONE
             ca_log_device();
+#endif
             g_ca_force_restart = 1;            // suppress listener during stop/start
             AudioQueueStop(g_ca_queue, true);  // synchronous: wait for current buf
             AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline

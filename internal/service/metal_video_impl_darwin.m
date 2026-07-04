@@ -2,6 +2,8 @@
 // CGO picks up .m files automatically; keeping implementation here avoids
 // duplicate-symbol errors that occur when C code is inlined in multiple
 // Go files that all do `import "C"` in the same package.
+#include <TargetConditionals.h>
+#if !TARGET_OS_IPHONE
 
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
@@ -471,3 +473,4 @@ int metal_video_next_event(int *type_out, float *x_out, float *y_out, int *btn_o
     pthread_mutex_unlock(&g_meq_mu);
     return 1;
 }
+#endif // !TARGET_OS_IPHONE
