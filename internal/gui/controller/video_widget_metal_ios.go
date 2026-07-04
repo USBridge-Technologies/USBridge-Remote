@@ -134,20 +134,11 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	topOffset := canvasH - szMain.Height
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
-	if getImeExpandHeightDp() > 0 {
-		if vw.contentContainer != nil && vw.contentContainer.Visible() {
-			absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
-			videoH := absPos.Y
-			if videoH <= 0 {
-				videoH = canvasH
-				if kh := vw.contentContainer.Size().Height; kh > 0 {
-					videoH -= kh
-				}
-			}
-			if videoH > 0 {
-				// Expand clip rect to cover the top interface (tabs area) while IME is open.
-				return 0, 0, szMain.Width, videoH
-			}
+	if ime := getImeExpandHeightDp(); ime > 0 {
+		// When keyboard is open, expand the clip to cover the full area above the keyboard
+		// (including tab bar). canvasH - ime is reliable; AbsolutePositionForObject is not.
+		if videoH := canvasH - ime; videoH > 0 {
+			return 0, 0, szMain.Width, videoH
 		}
 	}
 
@@ -320,7 +311,15 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	topOffset := canvasH - szMain.Height
-	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
+	// When the keyboard is open, Fyne shrinks szMain by ~keyboardHeight, so topOffset
+	// grows to tabBarH + keyboardH. Subtract the IME height to recover the real tab bar Y.
+	if ime := getImeExpandHeightDp(); ime > 0 {
+		topOffset -= ime
+		if topOffset < 0 {
+			topOffset = 0
+		}
+	}
+	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,ime=%.0f,tO=%.0f", canvasH, szMain.Height, getImeExpandHeightDp(), topOffset))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
