@@ -26,7 +26,17 @@
       "Bash(/c/Projects_USBridge/usbridge_agent/dist/windows/sunshine/sunshine.exe --version)",
       "Bash(powershell -NoProfile -Command \"Get-Process sunshine -ErrorAction SilentlyContinue | Select-Object Id,Path\")",
       "Bash(timeout 5 ./sunshine.exe)",
-      "Bash(powershell -NoProfile -Command \"Get-Process sunshine -ErrorAction SilentlyContinue | Select-Object Id\")"
+      "Bash(powershell -NoProfile -Command \"Get-Process sunshine -ErrorAction SilentlyContinue | Select-Object Id\")",
+      "Bash(find / -iname \"CMakeLists.txt\" -path \"*third-party/tray*\")",
+      "Bash(find / -maxdepth 6 -iname \"*Sunshine*\" -type d)",
+      "Bash(USBRIDGE_SUNSHINE_FORCE=1 ./scripts/build_linux.sh)",
+      "Bash(kill %1)",
+      "Bash(pkill -f build_linux.sh)",
+      "Bash(pkill -f fetch_sunshine.sh)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(ldd dist/linux/sunshine/usr/bin/sunshine)",
+      "Bash(ldd dist/linux/AppDir/usr/bin/sunshine)",
+      "Bash(nm -D dist/linux/AppDir/usr/bin/sunshine)"
     ]
   }
 }

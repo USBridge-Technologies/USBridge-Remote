@@ -139,11 +139,16 @@ build_sunshine_linux() {
     git clone --depth 1 --recurse-submodules --shallow-submodules \
         "https://github.com/${_sunshine_repo}.git" "$src_dir"
 
+    local cuda_flag="OFF"
+    [[ "${USBRIDGE_SUNSHINE_CUDA:-0}" == "1" ]] && cuda_flag="ON"
+
     cmake \
         -B "$src_dir/build" -S "$src_dir" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_DOCS=OFF \
         -DSUNSHINE_BUILD_APPIMAGE=ON \
+        -DSUNSHINE_ENABLE_TRAY=OFF \
+        -DSUNSHINE_ENABLE_CUDA="$cuda_flag" \
         -DSUNSHINE_PUBLISHER_NAME="usbridge_agent" \
         -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/itsme228/usbridge_agent" \
         -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/itsme228/usbridge_agent/issues"
