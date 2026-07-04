@@ -100,6 +100,11 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.metalFPSWarned.Store(false)
 }
 
+var (
+	lastMetalFrameX, lastMetalFrameY float32
+	lastMetalFrameW, lastMetalFrameH float32
+)
+
 // updateMetalVideoFrame repositions the Metal overlay to track videoCanvas.
 func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.MetalVideoIsActive() {
@@ -109,6 +114,10 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if w <= 0 || h <= 0 {
 		return
 	}
+	if x == lastMetalFrameX && y == lastMetalFrameY && w == lastMetalFrameW && h == lastMetalFrameH {
+		return // Do not spam CGO / iOS main queue 60 times a second if bounds haven't changed.
+	}
+	lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = x, y, w, h
 	service.MetalVideoUpdateFrame(x, y, w, h)
 }
 

@@ -170,7 +170,31 @@
       "Bash(codesign -d --entitlements :- /Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app)",
       "Bash(kill %1)",
       "Bash(xcrun --sdk iphoneos --show-sdk-version)",
-      "Bash(nm -u /Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app/main)"
+      "Bash(nm -u /Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app/main)",
+      "Bash(codesign -dv \"/Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app\")",
+      "Bash(vtool *)",
+      "Bash(xcrun *)",
+      "Bash(/usr/libexec/PlistBuddy -c \"Print\" \"/Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app/Info.plist\")",
+      "Bash(cmake --version)",
+      "Bash(gofmt *)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_moonlight.sh)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/deploy_ios.sh)",
+      "Bash(bash -n /Users/amir/Projects/usbridge/usbridge_client/scripts/build_ios.sh)",
+      "Bash(ios-deploy --bundle /Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app --no-wifi --id 68a641ed5b9d24a8d79a4e0cd188ebff199276ce --debug --args '')",
+      "Bash(security cms *)",
+      "Bash(codesign -d --entitlements - \"/Users/amir/Projects/usbridge/usbridge_client/USBridge-Client.app\")",
+      "Bash(codesign *)",
+      "Bash(command -v idevicesyslog)",
+      "Bash(command -v ideviceinfo)",
+      "Bash(command -v idevicecrashreport)",
+      "Bash(awk -v target=0x391f0 ' *)",
+      "Bash(idevicecrashreport /tmp/crash_reports)",
+      "Bash(idevicecrashreport -e)",
+      "Bash(ideviceinstaller -l)",
+      "Bash(xargs -I{} sh -c 'echo \"{}:\"; head -3 \"{}\"')",
+      "Bash(bash scripts/deploy_ios.sh 2>&1)",
+      "Bash(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 CGO_CFLAGS='-target arm64-apple-ios16.0 -isysroot __CMDSUB_OUTPUT__' CGO_LDFLAGS='-target arm64-apple-ios16.0 -isysroot __CMDSUB_OUTPUT__' IPHONEOS_DEPLOYMENT_TARGET=16.0 go build -tags ios -o /tmp/test_ios_binary ./cmd)",
+      "Bash(scripts/deploy_ios.sh)"
     ]
   }
 }

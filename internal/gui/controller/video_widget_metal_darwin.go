@@ -215,6 +215,11 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.metalFPSWarned.Store(false)
 }
 
+var (
+	lastMetalFrameX, lastMetalFrameY float32
+	lastMetalFrameW, lastMetalFrameH float32
+)
+
 // updateMetalVideoFrame repositions the Metal overlay to track videoCanvas.
 // Called from updateStats() at 1 Hz to follow window resizes.
 // Also emits a one-shot FPS mismatch warning when Metal FPS < 75% of configured.
@@ -226,7 +231,10 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	service.MetalVideoUpdateFrame(x, y, w, h)
+	if x != lastMetalFrameX || y != lastMetalFrameY || w != lastMetalFrameW || h != lastMetalFrameH {
+		lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = x, y, w, h
+		service.MetalVideoUpdateFrame(x, y, w, h)
+	}
 
 	if vw.metalFPSWarned.Load() || vw.videoClient == nil {
 		return
