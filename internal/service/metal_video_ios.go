@@ -14,6 +14,9 @@ extern int    metal_video_is_active(void);
 extern int    metal_video_try_submit(CVImageBufferRef img);
 extern int    metal_video_create(uintptr_t unused, float x, float y, float w, float h);
 extern void   metal_video_update_frame(float x, float y, float w, float h);
+extern void   metal_video_update_layout(float clip_x, float clip_y, float clip_w, float clip_h,
+                                         float content_x, float content_y, float content_w, float content_h);
+extern float  metal_video_get_keyboard_height(void);
 extern void   metal_video_update_cursor(float x, float y, int visible);
 extern void   metal_video_set_cursor_image(uint8_t *pixels, int w, int h);
 extern void   metal_video_destroy(void);
@@ -54,8 +57,27 @@ func MetalVideoCreate(_ uintptr, x, y, w, h float32) bool {
 }
 
 // MetalVideoUpdateFrame repositions the Metal overlay to track the Fyne video widget.
+// Legacy: uses the same rect for both the clip container and video content.
+// Prefer MetalVideoUpdateLayout when clip != content (e.g., zoomed viewport).
 func MetalVideoUpdateFrame(x, y, w, h float32) {
 	C.metal_video_update_frame(C.float(x), C.float(y), C.float(w), C.float(h))
+}
+
+// MetalVideoUpdateLayout sets both the clip container (widget/visible bounds) and the
+// video content rect (may be larger than clip when zoomed/panned).
+// clip_*    : widget bounds in window coordinates — defines the clipping area.
+// content_* : video content rect in window coordinates — may extend outside clip.
+func MetalVideoUpdateLayout(clipX, clipY, clipW, clipH, contentX, contentY, contentW, contentH float32) {
+	C.metal_video_update_layout(
+		C.float(clipX), C.float(clipY), C.float(clipW), C.float(clipH),
+		C.float(contentX), C.float(contentY), C.float(contentW), C.float(contentH))
+}
+
+// MetalVideoGetKeyboardHeight returns the current on-screen software keyboard height
+// in UIKit points (same coordinate space as Fyne dp on iOS).
+// Returns 0 when no keyboard is visible.
+func MetalVideoGetKeyboardHeight() float32 {
+	return float32(C.metal_video_get_keyboard_height())
 }
 
 // MetalVideoUpdateCursor updates the position and visibility of the Metal overlay cursor.

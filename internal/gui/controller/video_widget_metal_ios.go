@@ -110,28 +110,68 @@ func (vw *VideoWidget) stopMetalVideo() {
 }
 
 var (
-	lastMetalFrameX, lastMetalFrameY float32
-	lastMetalFrameW, lastMetalFrameH float32
-	lastMetalCursorVis               bool
+	// Clip rect = widget (touchpad) bounds. Content rect = zoomed/panned video rect.
+	lastMetalClipX, lastMetalClipY     float32
+	lastMetalClipW, lastMetalClipH     float32
+	lastMetalFrameX, lastMetalFrameY   float32
+	lastMetalFrameW, lastMetalFrameH   float32
+	lastMetalCursorVis                 bool
 	lastMetalCursorX, lastMetalCursorY float32
 )
 
-// updateMetalVideoFrame repositions the Metal overlay to track videoCanvas and
-// forwards the virtual cursor position (computed from persistent UV state so the
-// cursor does not teleport back between swipes).
+// videoWidgetFrame returns the touchpad widget bounds in window-local dp coordinates.
+// This is the visible area the Metal overlay must not overflow.
+func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
+	if vw.container == nil || vw.touchpadWrapper == nil || vw.parentWindow == nil {
+		return
+	}
+	szMain := vw.container.Size()
+	canvasH := vw.parentWindow.Canvas().Size().Height
+	topOffset := canvasH - szMain.Height
+	szVideo := vw.touchpadWrapper.Size()
+	return 0, topOffset, szVideo.Width, szVideo.Height
+}
+
+// updateMetalVideoFrame repositions the Metal overlay:
+//   clip rect   = widget (touchpad) bounds — constrains the visible area.
+//   content rect = zoomed/panned video content — may extend outside clip when zoomed.
+// The Metal C layer uses clipsToBounds on the clip container so the video never
+// bleeds over the toolbar or button panel regardless of zoom level.
 func (vw *VideoWidget) updateMetalVideoFrame() {
 	if !service.MetalVideoIsActive() {
 		return
 	}
-	x, y, w, h := vw.videoCanvasFrame()
-	if w <= 0 || h <= 0 {
+
+	// Clip rect = widget bounds (never changes with zoom/pan).
+	clipX, clipY, clipW, clipH := vw.videoWidgetFrame()
+	if clipW <= 0 || clipH <= 0 {
 		return
+	}
+
+	// When the software keyboard is visible, cap the clip height so the overlay
+	// stays above the keyboard. Keyboard height is tracked via UIKeyboardNotification
+	// in the C layer and is in UIKit points (= Fyne dp on iOS).
+	kbH := service.MetalVideoGetKeyboardHeight()
+	if kbH > 100 { // ignore nav-bar insets (<100 pt); real keyboard is >100 pt
+		canvasH := vw.parentWindow.Canvas().Size().Height
+		maxH := canvasH - kbH - clipY
+		if maxH < 0 {
+			maxH = 0
+		}
+		if clipH > maxH {
+			clipH = maxH
+		}
+	}
+
+	// Content rect = zoomed/panned video position (may be outside clip bounds).
+	contentX, contentY, contentW, contentH := vw.videoCanvasFrame()
+	if contentW <= 0 || contentH <= 0 {
+		// Fallback: content = clip.
+		contentX, contentY, contentW, contentH = clipX, clipY, clipW, clipH
 	}
 
 	// Cursor position: use virtualCursorU/V (persistent across touch events) so
 	// the arrow stays where the user left it rather than jumping to the finger tip.
-	// The Metal layer is already positioned at (x,y) = videoCanvasFrame origin, so
-	// the cursor offset within the layer is simply u*cw (no extra contentRectX).
 	cursorVisible := isVirtualCursorLikeMode(vw.GetMouseInputMode())
 	var uc, vc float32
 	if cursorVisible {
@@ -142,28 +182,29 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			u := vw.virtualCursorU
 			v := vw.virtualCursorV
 			vw.vcMu.Unlock()
-			// Map UV → offset within the Metal layer (layer origin = contentRectX/Y).
 			uc = u * cw
 			vc = v * ch
 		} else {
-			uc = w / 2
-			vc = h / 2
+			uc = contentW / 2
+			vc = contentH / 2
 		}
-		// Clamp to visible layer area.
-		uc = clampFloat(uc, 0, w)
-		vc = clampFloat(vc, 0, h)
+		// Clamp to content rect dimensions.
+		uc = clampFloat(uc, 0, contentW)
+		vc = clampFloat(vc, 0, contentH)
 	}
 
-	if x == lastMetalFrameX && y == lastMetalFrameY && w == lastMetalFrameW && h == lastMetalFrameH &&
+	if clipX == lastMetalClipX && clipY == lastMetalClipY && clipW == lastMetalClipW && clipH == lastMetalClipH &&
+		contentX == lastMetalFrameX && contentY == lastMetalFrameY && contentW == lastMetalFrameW && contentH == lastMetalFrameH &&
 		cursorVisible == lastMetalCursorVis && uc == lastMetalCursorX && vc == lastMetalCursorY {
-		return // Do not spam CGO / iOS main queue 60 times a second if nothing changed.
+		return // Nothing changed — avoid spamming the CGO/main-queue 60×/s.
 	}
-	lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = x, y, w, h
+	lastMetalClipX, lastMetalClipY, lastMetalClipW, lastMetalClipH = clipX, clipY, clipW, clipH
+	lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = contentX, contentY, contentW, contentH
 	lastMetalCursorVis, lastMetalCursorX, lastMetalCursorY = cursorVisible, uc, vc
 
-	service.MetalVideoUpdateFrame(x, y, w, h)
-	// Pass window-absolute coordinates: Metal cursor layer is on win.layer.
-	service.MetalVideoUpdateCursor(x+uc, y+vc, cursorVisible)
+	service.MetalVideoUpdateLayout(clipX, clipY, clipW, clipH, contentX, contentY, contentW, contentH)
+	// Cursor is on win.layer (window-absolute coords): content origin + UV offset.
+	service.MetalVideoUpdateCursor(contentX+uc, contentY+vc, cursorVisible)
 }
 
 // updateNativeViewportAndCursor implements the iOS equivalent of Android's
@@ -286,10 +327,18 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 // Stubs for Android-specific APIs (no-ops on iOS).
 // ─────────────────────────────────────────────────────────────────────────────
 
-func (vw *VideoWidget) androidCursorScale() int      { return 1 }
-func (vw *VideoWidget) initAndroidCursorScale(_ int)  {}
-func (vw *VideoWidget) onIMEHeightChanged(_ float32)  {}
-func triggerRmbHaptic()                               {}
+func (vw *VideoWidget) androidCursorScale() int     { return 1 }
+func (vw *VideoWidget) initAndroidCursorScale(_ int) {}
+func triggerRmbHaptic()                              {}
+
+// onIMEHeightChanged is called when the iOS software keyboard appears/disappears.
+// Keyboard height is also tracked directly in C (UIKeyboardWillChangeFrameNotification)
+// and queried each frame via MetalVideoGetKeyboardHeight, so the next updateMetalVideoFrame
+// call will automatically pick up the change.  We only need to invalidate the
+// last-frame cache here so the update happens in the very next tick (not next change).
+func (vw *VideoWidget) onIMEHeightChanged(_ float32) {
+	lastMetalClipH = 0 // force cache miss → immediate layout update
+}
 
 // iosCursorImagePixels rasterizes cursor-pointer.svg at 3× (54×72 px) —
 // the same green arrow used by Android/Vulkan, displayed at 18×24 dp.

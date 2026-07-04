@@ -23,8 +23,10 @@ extern void goMetalLog(char *msg, int level);
 // All UIView/CALayer access happens exclusively on the main thread.
 // CVPixelBufferRef pending frame is protected by g_mu.
 // ─────────────────────────────────────────────────────────────────────────────
-static UIView    *g_view  = nil;
-static CALayer   *g_layer = nil;
+static UIView    *g_view      = nil;
+static UIView    *g_clip_view = nil;   // clips video to the touchpad widget bounds
+static CALayer   *g_layer     = nil;
+static float      g_keyboard_height_pt = 0.0f;  // current on-screen keyboard height in points
 
 static volatile atomic_int g_active = 0;
 static CADisplayLink *g_display_link = nil;
@@ -110,8 +112,12 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CADisplayLink target — fires on the main thread at the display refresh rate.
 // ─────────────────────────────────────────────────────────────────────────────
+// Forward declaration — defined later in this file.
+static UIWindow *_find_key_window(void);
+
 @interface IOSMetalDisplayLinkTarget : NSObject
 - (void)displayLinkFired:(CADisplayLink *)link;
+- (void)keyboardWillChangeFrame:(NSNotification *)notification;
 @end
 @implementation IOSMetalDisplayLinkTarget
 - (void)displayLinkFired:(CADisplayLink __unused *)link {
@@ -123,8 +129,22 @@ static void metal_render_main_with_buf(CVPixelBufferRef buf) {
     if (!buf) return;
     metal_render_main_with_buf(buf);
 }
+// Track keyboard frame so Go can query height each render frame.
+- (void)keyboardWillChangeFrame:(NSNotification *)notification {
+    CGRect endFrame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    UIWindow *win = _find_key_window();
+    float kbH = 0.0f;
+    if (win) {
+        float winH = (float)win.frame.size.height;
+        float kbTop = (float)endFrame.origin.y;
+        kbH = winH - kbTop;
+        if (kbH < 0.0f || kbH > winH) kbH = 0.0f;
+    }
+    g_keyboard_height_pt = kbH;
+}
 @end
 static IOSMetalDisplayLinkTarget *g_dl_target = nil;
+static BOOL g_keyboard_observed = NO;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public C API
@@ -207,8 +227,9 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
             return;
         }
 
-        if (g_view) {
-            [g_view removeFromSuperview];
+        if (g_clip_view) {
+            [g_clip_view removeFromSuperview];
+            g_clip_view = nil;
             g_view  = nil;
             g_layer = nil;
         }
@@ -216,18 +237,37 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         // w=0,h=0 signals full-window mode.
         CGRect frame = (w > 0 && h > 0) ? CGRectMake(x, y, w, h) : win.bounds;
 
-        // Overlay view: pass-through for touches so Fyne keeps receiving them.
-        // Use the view's own CALayer directly — no sublayer, no autoresizing needed
-        // (UIView.layer always fills the view's bounds automatically).
-        UIView *ov = [[UIView alloc] initWithFrame:frame];
+        // Clip container: constrain video to the assigned widget area.
+        // clipsToBounds = YES prevents zoomed/panned video from bleeding over
+        // the toolbar, bottom button panel, or other UI elements.
+        UIView *clip = [[UIView alloc] initWithFrame:frame];
+        clip.clipsToBounds = YES;
+        clip.backgroundColor = [UIColor blackColor];
+        clip.userInteractionEnabled = NO;
+        [win addSubview:clip];
+        g_clip_view = clip;
+
+        // Video view sits inside clip, initially at the same size.
+        // metal_video_update_layout repositions it for zoom/pan.
+        UIView *ov = [[UIView alloc] initWithFrame:clip.bounds];
         ov.userInteractionEnabled = NO;
         ov.layer.contentsGravity = kCAGravityResizeAspect;
         ov.layer.backgroundColor = [UIColor blackColor].CGColor;
         ov.layer.contentsScale   = [UIScreen mainScreen].scale;
-        [win addSubview:ov];
+        [clip addSubview:ov];
 
         g_view  = ov;
         g_layer = ov.layer;
+
+        // Subscribe to keyboard frame changes (once per process lifetime).
+        if (!g_keyboard_observed) {
+            g_keyboard_observed = YES;
+            [[NSNotificationCenter defaultCenter]
+                addObserver:g_dl_target
+                   selector:@selector(keyboardWillChangeFrame:)
+                       name:UIKeyboardWillChangeFrameNotification
+                     object:nil];
+        }
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames   = 0; g_fpsStart = 0.0; g_lastKnownFps = 0.0;
@@ -376,18 +416,42 @@ void metal_video_update_cursor(float x, float y, int visible) {
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
 
-void metal_video_update_frame(float x, float y, float w, float h) {
-    if (!atomic_load(&g_active) || !g_view) return;
+// metal_video_update_layout — update both the clip container (widget bounds) and the
+// video content view (zoomed/panned content rect) in one atomic CATransaction.
+//   clip_*   : widget bounds in window coordinates (defines what area is visible)
+//   content_*: video content rect in window coordinates (may be larger than clip when zoomed)
+void metal_video_update_layout(float clip_x, float clip_y, float clip_w, float clip_h,
+                                float content_x, float content_y, float content_w, float content_h) {
+    if (!atomic_load(&g_active) || !g_clip_view) return;
+    float cx=clip_x, cy=clip_y, cw=clip_w, ch=clip_h;
+    float vx=content_x, vy=content_y, vw=content_w, vh=content_h;
     dispatch_block_t blk = ^{
-        if (g_view) g_view.frame = CGRectMake(x, y, w, h);
+        if (!g_clip_view || !g_view) return;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        g_clip_view.frame = CGRectMake(cx, cy, cw, ch);
+        // Position video view relative to the clip view's coordinate space.
+        g_view.frame = CGRectMake(vx - cx, vy - cy, vw, vh);
+        [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+// metal_video_update_frame — legacy API: clip = content (no zoom clipping).
+// Kept for startup / fullscreen path where clip and content are the same rect.
+void metal_video_update_frame(float x, float y, float w, float h) {
+    metal_video_update_layout(x, y, w, h, x, y, w, h);
+}
+
+float metal_video_get_keyboard_height(void) {
+    return g_keyboard_height_pt;
 }
 
 void metal_video_set_hidden(int hidden) {
     if (!atomic_load(&g_active)) return;
     dispatch_block_t blk = ^{
-        if (g_view) g_view.hidden = (hidden != 0);
+        // Hide the clip container — hides both clip and video views together.
+        if (g_clip_view) g_clip_view.hidden = (hidden != 0);
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
 }
@@ -408,11 +472,13 @@ void metal_video_destroy(void) {
         }
         // Keep g_cursor_image — it's reused on next overlay creation so the
         // arrow appears immediately without waiting for Go to re-upload it.
-        if (g_view) {
-            [g_view removeFromSuperview];
-            g_view  = nil;
-            g_layer = nil;
+        if (g_clip_view) {
+            // Removing the clip container also removes the video subview.
+            [g_clip_view removeFromSuperview];
+            g_clip_view = nil;
         }
+        g_view  = nil;
+        g_layer = nil;
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;
         g_pendingBuf = NULL;
