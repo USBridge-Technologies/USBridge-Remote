@@ -127,6 +127,15 @@ if [ -z "$APP_BUNDLE" ]; then
 fi
 echo -e "${GREEN}✓${NC} App bundle: $APP_BUNDLE"
 
+# 5a. Inject privacy usage descriptions into Info.plist (required for camera access)
+echo -e "\n${YELLOW}📋 Добавляем NSCameraUsageDescription в Info.plist...${NC}"
+INFO_PLIST="$APP_BUNDLE/Info.plist"
+if [ -f "$INFO_PLIST" ]; then
+    /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
+    echo -e "   ${GREEN}✓${NC} NSCameraUsageDescription добавлен"
+fi
+
 # 5. Inject LaunchScreen.storyboardc (fyne doesn't generate it, iOS needs it)
 echo -e "\n${YELLOW}📋 Компиляция LaunchScreen.storyboard...${NC}"
 STORYBOARD_SRC="$(mktemp /tmp/LaunchScreen.XXXXXX.storyboard)"
