@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+
 func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.MetalVideoIsActive()
 }
@@ -129,6 +130,8 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 
 	// Cursor position: use virtualCursorU/V (persistent across touch events) so
 	// the arrow stays where the user left it rather than jumping to the finger tip.
+	// The Metal layer is already positioned at (x,y) = videoCanvasFrame origin, so
+	// the cursor offset within the layer is simply u*cw (no extra contentRectX).
 	cursorVisible := isVirtualCursorLikeMode(vw.GetMouseInputMode())
 	var uc, vc float32
 	if cursorVisible {
@@ -139,14 +142,14 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 			u := vw.virtualCursorU
 			v := vw.virtualCursorV
 			vw.vcMu.Unlock()
-			// Map UV → widget-local dp: U=0 → contentRectX, U=1 → contentRectX+contentRectW.
-			uc = u*cw + vw.contentRectX
-			vc = v*ch + vw.contentRectY
+			// Map UV → offset within the Metal layer (layer origin = contentRectX/Y).
+			uc = u * cw
+			vc = v * ch
 		} else {
 			uc = w / 2
 			vc = h / 2
 		}
-		// Clamp to visible widget area so the cursor never appears outside the video.
+		// Clamp to visible layer area.
 		uc = clampFloat(uc, 0, w)
 		vc = clampFloat(vc, 0, h)
 	}
@@ -288,32 +291,8 @@ func (vw *VideoWidget) initAndroidCursorScale(_ int)  {}
 func (vw *VideoWidget) onIMEHeightChanged(_ float32)  {}
 func triggerRmbHaptic()                               {}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// iosCursorImagePixels returns the arrow cursor bitmap scaled 3× for retina.
-// The result is 54×72 NRGBA pixels displayed at 18×24 dp (contentsScale=3).
-// ─────────────────────────────────────────────────────────────────────────────
+// iosCursorImagePixels rasterizes cursor-pointer.svg at 3× (54×72 px) —
+// the same green arrow used by Android/Vulkan, displayed at 18×24 dp.
 func iosCursorImagePixels() ([]byte, int, int) {
-	src := newOverlayCursorImage()
-	nrgba, ok := src.(*image.NRGBA)
-	if !ok {
-		return nil, 0, 0
-	}
-	srcW := nrgba.Bounds().Dx()
-	srcH := nrgba.Bounds().Dy()
-	const scale = 3
-	w, h := srcW*scale, srcH*scale
-	out := make([]byte, w*h*4)
-	for sy := 0; sy < srcH; sy++ {
-		for sx := 0; sx < srcW; sx++ {
-			base := sy*nrgba.Stride + sx*4
-			p := nrgba.Pix[base : base+4 : base+4]
-			for dy := 0; dy < scale; dy++ {
-				for dx := 0; dx < scale; dx++ {
-					d := ((sy*scale+dy)*w + sx*scale+dx) * 4
-					copy(out[d:d+4:d+4], p)
-				}
-			}
-		}
-	}
-	return out, w, h
+	return cursorSVGPixels(3)
 }

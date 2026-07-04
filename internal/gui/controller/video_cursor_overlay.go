@@ -1,8 +1,14 @@
 package controller
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+
+	"usbridge-client/internal/gui/assets"
+
+	"github.com/srwiley/oksvg"
+	"github.com/srwiley/rasterx"
 )
 
 func newOverlayCursorImage() image.Image {
@@ -59,4 +65,33 @@ func newOverlayCursorImage() image.Image {
 	}
 
 	return img
+}
+
+// rasterizeSVGToNRGBA renders SVG data to an NRGBA image at the given size.
+// Used on Android (Vulkan cursor upload) and iOS (Metal cursor layer).
+func rasterizeSVGToNRGBA(svgData []byte, w, h int) *image.NRGBA {
+	icon, err := oksvg.ReadIconStream(bytes.NewReader(svgData))
+	if err != nil {
+		return nil
+	}
+	icon.SetTarget(0, 0, float64(w), float64(h))
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	scanner := rasterx.NewScannerGV(w, h, img, img.Bounds())
+	raster := rasterx.NewDasher(w, h, scanner)
+	icon.Draw(raster, 1.0)
+	return img
+}
+
+// cursorSVGPixels rasterizes cursor-pointer.svg at scale×(18×24) and returns
+// raw NRGBA bytes plus dimensions. Used by iOS Metal cursor upload.
+func cursorSVGPixels(scale int) ([]byte, int, int) {
+	if scale < 1 {
+		scale = 1
+	}
+	w, h := 18*scale, 24*scale
+	img := rasterizeSVGToNRGBA(assets.CursorPointerSVG, w, h)
+	if img == nil {
+		return nil, 0, 0
+	}
+	return img.Pix, w, h
 }

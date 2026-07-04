@@ -3,7 +3,6 @@
 package controller
 
 import (
-	"bytes"
 	"image"
 	"math"
 	"sync/atomic"
@@ -14,8 +13,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
-	"github.com/srwiley/oksvg"
-	"github.com/srwiley/rasterx"
 )
 
 func (vw *VideoWidget) isNativeVideoActive() bool {
@@ -357,19 +354,6 @@ func (vw *VideoWidget) initAndroidCursorScale(scale int) {
 	service.VKVideoAndroidSetCursorPixels(img.Pix, b.Dx(), b.Dy())
 }
 
-// rasterizeSVGToNRGBA renders SVG data to an NRGBA image at the given size.
-func rasterizeSVGToNRGBA(svgData []byte, w, h int) *image.NRGBA {
-	icon, err := oksvg.ReadIconStream(bytes.NewReader(svgData))
-	if err != nil {
-		return nil
-	}
-	icon.SetTarget(0, 0, float64(w), float64(h))
-	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	scanner := rasterx.NewScannerGV(w, h, img, img.Bounds())
-	raster := rasterx.NewDasher(w, h, scanner)
-	icon.Draw(raster, 1.0)
-	return img
-}
 
 // androidCursorScale returns the integer cursor scale factor for the current
 // display density (1-4×).
