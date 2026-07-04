@@ -264,20 +264,19 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 
 // videoCanvasFrame returns the video widget's bounds in window-local dp coordinates
 // (top-left origin, same as macOS points).
-//
-// Fyne positions are relative to parent, so vw.container.Position() is always (0,0)
-// within the tab content — it does not reflect the window-absolute offset.
-// We derive the y-offset indirectly: the video container fills everything below
-// the address bar + tab bar, so  y = canvasHeight − containerHeight.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.container == nil || vw.parentWindow == nil {
+	if vw.container == nil || vw.touchpadWrapper == nil || vw.parentWindow == nil {
 		return
 	}
-	sz := vw.container.Size()
+	
+	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases, 
+	// and we match the robust iOS math here for consistency.
+	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	// Everything above the video area (address bar + tab bar) = canvasH - sz.Height
-	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+	topOffset := canvasH - szMain.Height
+	
+	szVideo := vw.touchpadWrapper.Size()
+	return 0, topOffset, szVideo.Width, szVideo.Height
 }
 
 // metalVideoEnterFullscreen tears down the main-window overlay and creates a

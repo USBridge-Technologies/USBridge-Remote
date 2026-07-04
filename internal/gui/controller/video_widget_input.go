@@ -1367,10 +1367,12 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 	if nextZoom < 1 {
 		nextZoom = 1
 	}
-	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < 0.02 {
+	// On 60fps gesture updates (like iOS), per-frame scale is very close to 1.0.
+	// Lower the deadzone threshold so we don't swallow smooth pinch gestures.
+	if scaleFactor <= 0 || math.Abs(float64(scaleFactor-1)) < 0.001 {
 		scaleFactor = 1
 	}
-	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
+	if scaleFactor > 0 && scaleFactor != 1 {
 		nextZoom *= scaleFactor
 	}
 	nextZoom = clampFloat(nextZoom, 1, 6)

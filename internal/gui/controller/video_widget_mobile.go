@@ -82,7 +82,6 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 
 		keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()
 		vw.virtualKeyboard.SetVisibleState(true)
-		vw.virtualKeyboard.FocusInput() // Принудительный фокус для Android
 
 		canvasSize := vw.parentWindow.Canvas().Size()
 		keyboardLayout.Resize(fyne.NewSize(canvasSize.Width, keyboardLayout.MinSize().Height))

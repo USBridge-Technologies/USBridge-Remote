@@ -94,6 +94,8 @@ void ios_qr_clear(void) {
     [self.view addSubview:cancelBtn];
     [cancelBtn addTarget:self action:@selector(doCancel) forControlEvents:UIControlEventTouchUpInside];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
     [NSLayoutConstraint activateConstraints:@[
         [hint.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24],
         [hint.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
@@ -102,6 +104,7 @@ void ios_qr_clear(void) {
         [cancelBtn.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-32],
         [cancelBtn.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
     ]];
+#pragma clang diagnostic pop
 }
 
 - (void)captureOutput:(AVCaptureOutput *)output

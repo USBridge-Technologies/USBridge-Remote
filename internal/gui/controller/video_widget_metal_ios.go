@@ -134,13 +134,20 @@ func (vw *VideoWidget) metalVideoExitFullscreen() {
 }
 
 // videoCanvasFrame returns the video container bounds in window-local dp coordinates.
-// The video container fills everything below the tab/address bar.
 func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
-	if vw.container == nil || vw.parentWindow == nil {
+	if vw.container == nil || vw.touchpadWrapper == nil || vw.parentWindow == nil {
 		return
 	}
-	sz := vw.container.Size()
+	
+	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases.
+	// We calculate Y manually: mainContainer is placed below the header.
+	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := canvasH - sz.Height
-	return 0, topOffset, sz.Width, sz.Height
+	topOffset := canvasH - szMain.Height
+	
+	// The video container (touchpadWrapper) size dynamically shrinks when the virtual
+	// keyboard panel appears at the bottom.
+	szVideo := vw.touchpadWrapper.Size()
+	
+	return 0, topOffset, szVideo.Width, szVideo.Height
 }
