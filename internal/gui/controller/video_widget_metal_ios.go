@@ -135,9 +135,16 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	if ime := getImeExpandHeightDp(); ime > 0 {
-		// When keyboard is open, expand the clip to cover the full area above the keyboard
-		// (including tab bar). canvasH - ime is reliable; AbsolutePositionForObject is not.
-		if videoH := canvasH - ime; videoH > 0 {
+		// Clip = area above the button panel (ESC/Tab/etc.), which sits between the
+		// video and the system keyboard. canvasH - ime = full area above keyboard;
+		// subtract the button panel height so the overlay doesn't cover it.
+		videoH := canvasH - ime
+		if vw.contentContainer != nil && vw.contentContainer.Visible() {
+			if kh := vw.contentContainer.Size().Height; kh > 0 {
+				videoH -= kh
+			}
+		}
+		if videoH > 0 {
 			return 0, 0, szMain.Width, videoH
 		}
 	}
