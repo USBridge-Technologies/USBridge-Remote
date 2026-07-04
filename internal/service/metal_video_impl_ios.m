@@ -284,6 +284,16 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
         if (!g_dl_target) g_dl_target = [IOSMetalDisplayLinkTarget new];
         g_display_link = [CADisplayLink displayLinkWithTarget:g_dl_target
                                                      selector:@selector(displayLinkFired:)];
+        // Lock minimum rate to 60fps so iOS adaptive-refresh (ProMotion) doesn't
+        // drop the display link below the video frame rate when content looks "static"
+        // (no Fyne animations). Without this, 120Hz iPhones can throttle to 30fps or
+        // lower during idle, causing slideshow even though the decoder is keeping up.
+        if (@available(iOS 15.0, *)) {
+            g_display_link.preferredFrameRateRange =
+                CAFrameRateRangeMake(60, 120, 60);
+        } else {
+            g_display_link.preferredFramesPerSecond = 60;
+        }
         [g_display_link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
         ok = 1;
