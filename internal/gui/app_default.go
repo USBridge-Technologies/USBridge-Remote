@@ -13,6 +13,9 @@ import (
 // newFyneApp создаёт приложение Fyne с постоянным ID ( desktop / mobile ),
 // чтобы работали предпочтения и прочее.
 func newFyneApp() fyne.App {
+	if a := fyne.CurrentApp(); a != nil {
+		return a
+	}
 	a := app.NewWithID("usbridge-client")
 	a.SetIcon(assets.AppIcon)
 	a.Settings().SetTheme(design.NewBrandTheme())
