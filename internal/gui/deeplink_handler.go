@@ -30,7 +30,7 @@ const (
 // DeepLinkHandler обработчик deep links
 type DeepLinkHandler struct {
 	onConnect func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) // Подключиться
-	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool)   // Только сохранить без подключения
+	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool)  // Только сохранить без подключения
 	lastURI   string                                                                                                     // Последний обработанный URI (чтобы не обрабатывать дважды)
 }
 

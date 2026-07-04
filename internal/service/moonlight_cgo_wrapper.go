@@ -390,7 +390,7 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	if s == rowBytes {
 		copy(img.Pix, (*[1 << 30]byte)(unsafe.Pointer(rgba))[:w*h*4:w*h*4])
 	} else {
-		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[:h*s : h*s]
+		src := (*[1 << 30]byte)(unsafe.Pointer(rgba))[: h*s : h*s]
 		for y := 0; y < h; y++ {
 			copy(img.Pix[y*rowBytes:], src[y*s:y*s+rowBytes])
 		}

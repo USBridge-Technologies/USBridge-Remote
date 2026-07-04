@@ -12,11 +12,11 @@ import (
 )
 
 type PairResponse struct {
-	Paired              int    `xml:"paired"`
-	PlainCert           string `xml:"plaincert"`
-	ChallengeResponse   string `xml:"challengeresponse"`
-	PairingSecret       string `xml:"pairingsecret"`
-	StatusMessage       string `xml:"statusmessage"`
+	Paired            int    `xml:"paired"`
+	PlainCert         string `xml:"plaincert"`
+	ChallengeResponse string `xml:"challengeresponse"`
+	PairingSecret     string `xml:"pairingsecret"`
+	StatusMessage     string `xml:"statusmessage"`
 }
 
 func (c *Client) getPairStatus(phrase string, params map[string]string, secure bool) (*PairResponse, error) {
@@ -71,9 +71,9 @@ func (c *Client) Pair(pin string) error {
 	// send here and re-loads them at stage 4 to verify our RSA signature.
 	plainCertHex := hex.EncodeToString(c.Identity.CertPEM)
 	saltHex := hex.EncodeToString(salt)
-	
+
 	resp, err := c.getPairStatus("getservercert", map[string]string{
-		"salt": saltHex,
+		"salt":       saltHex,
 		"clientcert": plainCertHex,
 	}, false)
 	if err != nil {
@@ -84,7 +84,7 @@ func (c *Client) Pair(pin string) error {
 	if err != nil || len(serverCertBytes) == 0 {
 		return fmt.Errorf("invalid server cert format")
 	}
-	
+
 	// Stage 2: Client challenge
 	randomChallenge := GenerateSalt() // 16 random bytes
 	encryptedChallenge, err := AES128ECBEncrypt(aesKey, randomChallenge)
@@ -103,7 +103,7 @@ func (c *Client) Pair(pin string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	decryptedChallengeResp, err := AES128ECBDecrypt(aesKey, challengeResponseData)
 	if err != nil || len(decryptedChallengeResp) < 48 { // 32 hash + 16 challenge
 		return fmt.Errorf("invalid challenge response length")
@@ -118,9 +118,9 @@ func (c *Client) Pair(pin string) error {
 
 	challengeRespBuffer := append(serverChallenge, clientCertSignature...)
 	challengeRespBuffer = append(challengeRespBuffer, clientSecretData...)
-	
+
 	challengeRespHash := sha256.Sum256(challengeRespBuffer)
-	
+
 	encryptedHash, err := AES128ECBEncrypt(aesKey, challengeRespHash[:])
 	if err != nil {
 		return err
@@ -141,7 +141,7 @@ func (c *Client) Pair(pin string) error {
 	}
 
 	clientPairingSecret := append(clientSecretData, clientSignature...)
-	
+
 	resp, err = c.getPairStatus("clientpairingsecret", map[string]string{
 		"clientpairingsecret": hex.EncodeToString(clientPairingSecret),
 	}, false)

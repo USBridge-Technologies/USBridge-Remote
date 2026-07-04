@@ -14,7 +14,8 @@ func usesVideoToolbox() bool { return true }
 
 // startMoonlightGStreamer on iOS registers the VideoToolbox frame callback.
 // VT decode runs inside platform_dr_submit (moonlight_cgo_apple.go):
-//   dr_submit → VTDecompressionSession → vt_callback → goVTFrame → vtFrameCallback
+//
+//	dr_submit → VTDecompressionSession → vt_callback → goVTFrame → vtFrameCallback
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

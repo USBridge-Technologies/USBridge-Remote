@@ -80,7 +80,7 @@ static int jni_openExternalUrl(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const c
 
 	jstring jUrl = (*env)->NewStringUTF(env, url);
 	jboolean result = (*env)->CallBooleanMethod(env, activity, method, jUrl);
-	
+
 	if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 	(*env)->DeleteLocalRef(env, jUrl);
 	(*env)->DeleteLocalRef(env, activityClass);

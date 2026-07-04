@@ -50,7 +50,7 @@ type joyCapsW struct {
 	wNumAxes    uint32
 	wMaxButtons uint32
 	szRegKey    [32]uint16  // MAXPNAMELEN=32 WCHARs
-	szOEMVxD   [260]uint16 // MAX_JOYSTICK_OEM_VXDNAME=260 WCHARs
+	szOEMVxD    [260]uint16 // MAX_JOYSTICK_OEM_VXDNAME=260 WCHARs
 }
 
 const (

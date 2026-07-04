@@ -59,7 +59,7 @@ func (cm *ConnectionManager) initTailscaleMode() {
 		}
 		cm.ts.SetUserspace(userspace)
 	}
-	
+
 	if cm.config.TailscaleEnabled {
 		go func() {
 			if err := cm.ts.Start(context.Background()); err != nil {
@@ -183,9 +183,9 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 
 	return view.NewConnectionRow(
 		view.ConnectionRowData{
-			Name:            conn.Name,
-			AddressSummary:  formatConnectionAddressSummary(internalHost, tailscaleHost),
-			ProtocolBadge:   connectionProtocolBadge(conn.Protocol),
+			Name:           conn.Name,
+			AddressSummary: formatConnectionAddressSummary(internalHost, tailscaleHost),
+			ProtocolBadge:  connectionProtocolBadge(conn.Protocol),
 			ProtocolOptions: []string{
 				connectionProtocolBadge(models.ConnectionProtocolAuto),
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),

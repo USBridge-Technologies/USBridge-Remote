@@ -33,24 +33,24 @@ const (
 )
 
 type connectionDialogSpec struct {
-	title              string
-	connectLabel       string
-	connectIcon        fyne.Resource
-	saveLabel          string
-	deleteLabel        string
-	nameValue          string
-	internalHostValue  string
-	tailscaleHostValue string
-	quicPortValue      int
-	masterKeyValue     string // master key (API secret from QR)
-	frpTokenValue      string // direct FRP/QUIC tunnel token (advanced)
+	title                  string
+	connectLabel           string
+	connectIcon            fyne.Resource
+	saveLabel              string
+	deleteLabel            string
+	nameValue              string
+	internalHostValue      string
+	tailscaleHostValue     string
+	quicPortValue          int
+	masterKeyValue         string // master key (API secret from QR)
+	frpTokenValue          string // direct FRP/QUIC tunnel token (advanced)
 	tailscaleRegisterValue bool
-	feedbackText       string
-	feedbackColor      color.Color
-	onConnect          func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
-	onSave             func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
-	onDelete           func(close func())
-	onQR               func()
+	feedbackText           string
+	feedbackColor          color.Color
+	onConnect              func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
+	onSave                 func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
+	onDelete               func(close func())
+	onQR                   func()
 }
 
 type connectionDialogSecondaryButton struct {
@@ -423,10 +423,10 @@ func newConnectionDialogQRButton(label string, onTapped func()) *connectionDialo
 type connectionDialogIconBlock struct {
 	widget.BaseWidget
 
-	iconRes  fyne.Resource
-	label    string
-	onTap    func()
-	hovered  bool
+	iconRes fyne.Resource
+	label   string
+	onTap   func()
+	hovered bool
 
 	bg  *canvas.Rectangle
 	bdr *canvas.Rectangle
@@ -530,7 +530,7 @@ func (r *connectionDialogIconBlockRenderer) Layout(size fyne.Size) {
 	r.b.lbl.Resize(fyne.NewSize(size.Width, iconBlockLabelH))
 }
 
-func (r *connectionDialogIconBlockRenderer) MinSize() fyne.Size          { return r.b.MinSize() }
+func (r *connectionDialogIconBlockRenderer) MinSize() fyne.Size { return r.b.MinSize() }
 func (r *connectionDialogIconBlockRenderer) Refresh() {
 	r.b.refreshVisuals()
 	r.Layout(r.b.Size())

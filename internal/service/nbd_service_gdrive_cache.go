@@ -37,8 +37,8 @@ func WaitForGDriveCache(file *os.File, expectedSize int64, maxWaitTime time.Dura
 	// Verification parameters
 	previousSize := expectedSize
 	stableSizeCount := 0
-	const requiredStableChecks = 3    // Requires 3 checks with same size in a row
-	const minReadSpeedMBps = 10.0     // Minimum speed for local cache (MB/s)
+	const requiredStableChecks = 3 // Requires 3 checks with same size in a row
+	const minReadSpeedMBps = 10.0  // Minimum speed for local cache (MB/s)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Step 1: Check current file size

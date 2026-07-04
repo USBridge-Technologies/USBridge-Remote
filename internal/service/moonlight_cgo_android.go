@@ -163,7 +163,7 @@ static void amc_init(int width, int height) {
             ALOGI("AMediaCodec started");
         } else { ALOGE("AMediaCodec_start failed"); }
     } else { ALOGE("AMediaCodec configure failed"); }
-    
+
     AMediaFormat_delete(fmt);
     if (nwin) ANativeWindow_release(nwin);
 }
@@ -514,11 +514,31 @@ func (w *MoonlightCgoWrapper) SetAudioMuted(m bool) {
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool { return w.audioMuted }
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
-func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) { if liStartConnectionActive.Load() { C.do_send_key(C.short(c), C.char(a), C.char(m)) } }
-func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) { if liStartConnectionActive.Load() { C.do_send_mouse_move(C.short(dx), C.short(dy)) } }
-func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, rw, rh int16) { if liStartConnectionActive.Load() { C.do_send_mouse_position(C.short(x), C.short(y), C.short(rw), C.short(rh)) } }
-func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(a int8, b int) { if liStartConnectionActive.Load() { C.do_send_mouse_button(C.char(a), C.int(b)) } }
-func (w *MoonlightCgoWrapper) SendMoonlightScroll(c int8) { if liStartConnectionActive.Load() { C.do_send_scroll(C.schar(c)) } }
+func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) {
+	if liStartConnectionActive.Load() {
+		C.do_send_key(C.short(c), C.char(a), C.char(m))
+	}
+}
+func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16) {
+	if liStartConnectionActive.Load() {
+		C.do_send_mouse_move(C.short(dx), C.short(dy))
+	}
+}
+func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, rw, rh int16) {
+	if liStartConnectionActive.Load() {
+		C.do_send_mouse_position(C.short(x), C.short(y), C.short(rw), C.short(rh))
+	}
+}
+func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(a int8, b int) {
+	if liStartConnectionActive.Load() {
+		C.do_send_mouse_button(C.char(a), C.int(b))
+	}
+}
+func (w *MoonlightCgoWrapper) SendMoonlightScroll(c int8) {
+	if liStartConnectionActive.Load() {
+		C.do_send_scroll(C.schar(c))
+	}
+}
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16) {
 	if liStartConnectionActive.Load() {
 		C.do_send_multi_controller(C.ushort(cn), C.ushort(am), C.ushort(b), C.uchar(lt), C.uchar(rt), C.short(lx), C.short(ly), C.short(rx), C.short(ry))
@@ -537,11 +557,22 @@ func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
 //export goMoonlightStage
 func goMoonlightStage(s, r, e C.int) {
 	stages := []string{"none", "platform-init", "name-resolution", "audio-stream-init", "rtsp-handshake", "control-stream-init", "video-stream-init", "input-stream-init", "control-stream-start", "video-stream-start", "audio-stream-start", "input-stream-start"}
-	name := "unknown"; if int(s) < len(stages) { name = stages[s] }
-	if r == 0 { logrus.Infof("🌕 [Moonlight] ► %s …", name) } else if r == 1 { logrus.Infof("🌕 [Moonlight] ✅ %s", name) } else { logrus.Errorf("🌕 [Moonlight] ❌ %s failed (%d)", name, int(e)) }
+	name := "unknown"
+	if int(s) < len(stages) {
+		name = stages[s]
+	}
+	if r == 0 {
+		logrus.Infof("🌕 [Moonlight] ► %s …", name)
+	} else if r == 1 {
+		logrus.Infof("🌕 [Moonlight] ✅ %s", name)
+	} else {
+		logrus.Errorf("🌕 [Moonlight] ❌ %s failed (%d)", name, int(e))
+	}
 }
+
 //export goMoonlightConnected
 func goMoonlightConnected() { logrus.Info("🌕 [Moonlight] connected ✅") }
+
 //export goMoonlightTerminated
 func goMoonlightTerminated(e C.int) {
 	logrus.Errorf("🌕 [Moonlight/Android] ❌ terminated: code=%d active=%v", int(e), liStartConnectionActive.Load())
@@ -550,15 +581,21 @@ func goMoonlightTerminated(e C.int) {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })
 	}
 }
+
 //export goVTLog
 func goVTLog(m *C.char) { logrus.Infof("🎬 [Moonlight/CGO] %s", C.GoString(m)) }
+
 // vtFramePool reuses image.RGBA buffers to avoid per-frame allocation.
 var vtFramePool sync.Pool
 
 //export goVTFrame
 func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
-	vtFrameCallbackMu.Lock(); cb := vtFrameCallback; vtFrameCallbackMu.Unlock()
-	if cb == nil { return }
+	vtFrameCallbackMu.Lock()
+	cb := vtFrameCallback
+	vtFrameCallbackMu.Unlock()
+	if cb == nil {
+		return
+	}
 	// When Vulkan overlay is active the frame is already presented — skip the
 	// expensive 8 MB RGBA copy and just notify Go to increment frame counters.
 	if C.android_vk_is_active() != 0 {
@@ -581,4 +618,8 @@ func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
 	cb(img)
 	vtFramePool.Put(img)
 }
-func SetVTFrameCallback(cb func(image.Image)) { vtFrameCallbackMu.Lock(); vtFrameCallback = cb; vtFrameCallbackMu.Unlock() }
+func SetVTFrameCallback(cb func(image.Image)) {
+	vtFrameCallbackMu.Lock()
+	vtFrameCallback = cb
+	vtFrameCallbackMu.Unlock()
+}

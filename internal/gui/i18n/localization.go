@@ -305,30 +305,30 @@ type LocalizedStrings struct {
 	VirtualKeyboard string // "Virtual keyboard"
 
 	// Device names
-	DeviceKeyboard    string // "Keyboard"
-	DeviceTouchPad    string // "TouchPad" (relative touchpad mode)
-	DeviceMouse       string // "Mouse" (USB pointer device name)
-	DeviceTouch       string // "Touch" (touchscreen mode)
-	DeviceAbsolute         string // "Absolute" (absolute pointing mode)
-	DeviceAbsoluteLeft2    string // "Abs L/2" (absolute, left display of 2)
-	DeviceAbsoluteRight2   string // "Abs R/2" (absolute, right display of 2)
-	DeviceVirtualCursor    string // "Cursor" (virtual cursor mode, Android only)
-	DeviceGyroMouse        string // "GyroMouse" (gyroscope cursor mode, Android only)
-	DeviceNetworkCard string // "Network Card (RNDIS)"
-	DeviceGamepad               string // "Gamepad"
-	DeviceDirectInput           string // "DirectInput"
-	DeviceXInput                string // "XInput"
-	XInputIncompatibleWithHID   string // error: XInput + keyboard/mouse
-	ShowMouseCursor   string // "Show Mouse" (show cursor in captured video)
-	EnableVSync       string // "VSync" (enable vsync for capture card)
-	MuteAudio         string // "Mute Audio"
-	UnmuteAudio       string // "Unmute Audio"
-	DeviceAudio       string // "Audio"
-	DeviceUSBAudio    string // "USB Audio Codec"
-	AudioDeviceUAC1   string // "UAC1"
-	AudioDeviceUAC2   string // "UAC2"
-	DriveModeDisk     string // "USB Stick"
-	DriveModeCDROM    string // "CD-ROM"
+	DeviceKeyboard            string // "Keyboard"
+	DeviceTouchPad            string // "TouchPad" (relative touchpad mode)
+	DeviceMouse               string // "Mouse" (USB pointer device name)
+	DeviceTouch               string // "Touch" (touchscreen mode)
+	DeviceAbsolute            string // "Absolute" (absolute pointing mode)
+	DeviceAbsoluteLeft2       string // "Abs L/2" (absolute, left display of 2)
+	DeviceAbsoluteRight2      string // "Abs R/2" (absolute, right display of 2)
+	DeviceVirtualCursor       string // "Cursor" (virtual cursor mode, Android only)
+	DeviceGyroMouse           string // "GyroMouse" (gyroscope cursor mode, Android only)
+	DeviceNetworkCard         string // "Network Card (RNDIS)"
+	DeviceGamepad             string // "Gamepad"
+	DeviceDirectInput         string // "DirectInput"
+	DeviceXInput              string // "XInput"
+	XInputIncompatibleWithHID string // error: XInput + keyboard/mouse
+	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
+	EnableVSync               string // "VSync" (enable vsync for capture card)
+	MuteAudio                 string // "Mute Audio"
+	UnmuteAudio               string // "Unmute Audio"
+	DeviceAudio               string // "Audio"
+	DeviceUSBAudio            string // "USB Audio Codec"
+	AudioDeviceUAC1           string // "UAC1"
+	AudioDeviceUAC2           string // "UAC2"
+	DriveModeDisk             string // "USB Stick"
+	DriveModeCDROM            string // "CD-ROM"
 
 	// Deep link handler
 	DeepLinkServerAddress string // "Server address:"
@@ -681,30 +681,30 @@ func EN() *LocalizedStrings {
 		VirtualKeyboard: "Virtual keyboard",
 
 		// Device names
-		DeviceKeyboard:    "Keyboard",
-		DeviceTouchPad:    "TouchPad",
-		DeviceMouse:       "Mouse",
-		DeviceTouch:       "TouchScreen",
-		DeviceAbsolute:       "Absolute",
-		DeviceAbsoluteLeft2:  "Abs L/2",
-		DeviceAbsoluteRight2: "Abs R/2",
-		DeviceVirtualCursor:  "Cursor",
-		DeviceGyroMouse:      "GyroMouse",
-		DeviceNetworkCard: "Network Card (RNDIS)",
+		DeviceKeyboard:            "Keyboard",
+		DeviceTouchPad:            "TouchPad",
+		DeviceMouse:               "Mouse",
+		DeviceTouch:               "TouchScreen",
+		DeviceAbsolute:            "Absolute",
+		DeviceAbsoluteLeft2:       "Abs L/2",
+		DeviceAbsoluteRight2:      "Abs R/2",
+		DeviceVirtualCursor:       "Cursor",
+		DeviceGyroMouse:           "GyroMouse",
+		DeviceNetworkCard:         "Network Card (RNDIS)",
 		DeviceGamepad:             "Gamepad",
 		DeviceDirectInput:         "DirectInput",
 		DeviceXInput:              "XInput",
 		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
-		ShowMouseCursor:   "Show Mouse",
-		EnableVSync:       "VSync",
-		MuteAudio:         "Mute Audio",
-		UnmuteAudio:       "Unmute Audio",
-		DeviceAudio:       "Audio",
-		DeviceUSBAudio:    "USB Audio Codec",
-		AudioDeviceUAC1:   "UAC1",
-		AudioDeviceUAC2:   "UAC2",
-		DriveModeDisk:     "USB Stick",
-		DriveModeCDROM:    "CD-ROM",
+		ShowMouseCursor:           "Show Mouse",
+		EnableVSync:               "VSync",
+		MuteAudio:                 "Mute Audio",
+		UnmuteAudio:               "Unmute Audio",
+		DeviceAudio:               "Audio",
+		DeviceUSBAudio:            "USB Audio Codec",
+		AudioDeviceUAC1:           "UAC1",
+		AudioDeviceUAC2:           "UAC2",
+		DriveModeDisk:             "USB Stick",
+		DriveModeCDROM:            "CD-ROM",
 
 		// Deep link handler
 		DeepLinkServerAddress: "Server address:",

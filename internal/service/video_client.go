@@ -87,4 +87,3 @@ const (
 	LiGamepadX         = uint16(0x4000)
 	LiGamepadY         = uint16(0x8000)
 )
-

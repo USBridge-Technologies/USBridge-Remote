@@ -22,8 +22,8 @@ func openExternalURL(app fyne.App, uri *url.URL) error {
 		cmd := exec.Command("xdg-open", uri.String())
 		_ = cmd.Start()
 	}()
-	
-	// Also trigger Fyne's built-in opener as it might have better integration 
+
+	// Also trigger Fyne's built-in opener as it might have better integration
 	// with some desktop environments.
 	return app.OpenURL(uri)
 }

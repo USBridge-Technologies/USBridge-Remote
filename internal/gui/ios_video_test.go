@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"usbridge-client/internal/models"
 	"fyne.io/fyne/v2/test"
+	"usbridge-client/internal/models"
 )
 
 func TestIOSVideoStreamingLaunch(t *testing.T) {
@@ -32,13 +32,13 @@ func TestIOSVideoStreamingLaunch(t *testing.T) {
 
 	// According to the requirement: the interface should load and video stream should be shown,
 	// but since it's a dummy host (or video is broken on iOS), it should fail.
-	
+
 	if mw.isStreaming {
 		t.Error("Test failed: isStreaming is true, but video should not be working (or we connected to a dummy host)")
 	} else {
 		t.Log("Test passed: Caught the fact that video is NOT streaming.")
 	}
-	
+
 	if mw.videoWidget == nil {
 		t.Error("Test failed: videoWidget is nil, interface did not load properly")
 	} else {

@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	modUser32    = windows.NewLazySystemDLL("user32.dll")
+	modUser32     = windows.NewLazySystemDLL("user32.dll")
 	procSetWinPos = modUser32.NewProc("SetWindowPos")
 )
 
@@ -35,9 +35,9 @@ func platformSetupKeyboardWindow(vk *graphics.VirtualKeyboard) {
 				return
 			}
 			const (
-				hwndTopmost  = ^uintptr(0) // HWND_TOPMOST = (HWND)-1
-				swpNoMove    = 0x0002
-				swpNoSize    = 0x0001
+				hwndTopmost   = ^uintptr(0) // HWND_TOPMOST = (HWND)-1
+				swpNoMove     = 0x0002
+				swpNoSize     = 0x0001
 				swpNoActivate = 0x0010
 			)
 			procSetWinPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate)

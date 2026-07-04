@@ -15,7 +15,8 @@ func usesVideoToolbox() bool { return true }
 
 // startMoonlightGStreamer on Android registers the AMediaCodec frame callback.
 // AMediaCodec decode runs inside dr_submit (moonlight_cgo_android.go):
-//   dr_submit → AMediaCodec → goVTFrame → vtFrameCallback
+//
+//	dr_submit → AMediaCodec → goVTFrame → vtFrameCallback
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

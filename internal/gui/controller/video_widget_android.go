@@ -79,7 +79,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 			vw.onNativeReady = nil
 			cb()
 		}
-		// Fallthrough to startRenderTicker even with Vulkan — we need it to 
+		// Fallthrough to startRenderTicker even with Vulkan — we need it to
 		// call renderLatestFrame, which hides the Fyne canvas and tracks resizes.
 	} else {
 		// Fallback: Disable overlay hooks if Vulkan failed.
@@ -298,7 +298,7 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	// Y: cursor-centering pan (only when content taller than screen).
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := availH/2 - (availH-ch) - v*ch
+		idealPanY := availH/2 - (availH - ch) - v*ch
 		maxPanY := ch - availH
 		zoneY := availH * 0.15
 		vw.panOffsetY = softClampEdgePan(idealPanY, 0, maxPanY, zoneY)
@@ -319,8 +319,6 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 		u, idealPanX, maxPanX, vw.panOffsetX, modeX, vw.contentRectX)
 }
 
-
-
 // initAndroidCursorScale rasterizes cursor-pointer.svg at the requested pixel
 // size and uploads the result to the Vulkan cursor buffer.
 func (vw *VideoWidget) initAndroidCursorScale(scale int) {
@@ -340,7 +338,6 @@ func (vw *VideoWidget) initAndroidCursorScale(scale int) {
 	b := img.Bounds()
 	service.VKVideoAndroidSetCursorPixels(img.Pix, b.Dx(), b.Dy())
 }
-
 
 // androidCursorScale returns the integer cursor scale factor for the current
 // display density (1-4×).

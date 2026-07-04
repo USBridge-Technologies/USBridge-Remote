@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -184,7 +183,7 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 		logrus.Warnf("⌨️ [INPUT][UP] vkCode resolved to 0 for key=%q! Not sending.", event.Name)
 		return
 	}
-	
+
 	mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
 	logrus.Infof("⌨️ [INPUT][UP] Moonlight sending vkCode=0x%04X, action=%d, mods=0x%02X", uint16(vkCode), service.LiKeyActionUp, uint8(mods))
 
@@ -590,7 +589,7 @@ func (vw *VideoWidget) isPositionInContentRect(px, py float32) bool {
 	if w <= 0 || h <= 0 {
 		return true
 	}
-	
+
 	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
 	if frameW > 0 && frameH > 0 {
 		x += w * frameX
@@ -598,7 +597,7 @@ func (vw *VideoWidget) isPositionInContentRect(px, py float32) bool {
 		w *= frameW
 		h *= frameH
 	}
-	
+
 	return px >= x && px <= x+w && py >= y && py <= y+h
 }
 
@@ -1171,7 +1170,7 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 		top, bottom = 0, 0
 	}
 
-	service.Syslog(fmt.Sprintf("Inset: L=%d R=%d T=%d B=%d (w=%d, h=%d)", left, right, top, bottom, frameW, frameH))
+	logrus.Debugf("Inset: L=%d R=%d T=%d B=%d (w=%d, h=%d)", left, right, top, bottom, frameW, frameH)
 
 	contentX := float32(left) / float32(frameW)
 	contentY := float32(top) / float32(frameH)

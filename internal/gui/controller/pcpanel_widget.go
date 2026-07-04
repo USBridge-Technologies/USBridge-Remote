@@ -777,15 +777,15 @@ func (l *pcpanelModeButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Siz
 
 // PCPanelWidget is a power button with activity indicator in the address bar
 type PCPanelWidget struct {
-	actionBtn      *pcpanelActionButton
-	container      *fyne.Container
-	usbClient      *api.USBClient
-	stopPoll       chan struct{}
-	pollMu         sync.Mutex
-	pollCtxCancel  context.CancelFunc // cancels any in-flight poll HTTP request
-	powerOn        bool
-	hddOn          bool
-	window         fyne.Window
+	actionBtn     *pcpanelActionButton
+	container     *fyne.Container
+	usbClient     *api.USBClient
+	stopPoll      chan struct{}
+	pollMu        sync.Mutex
+	pollCtxCancel context.CancelFunc // cancels any in-flight poll HTTP request
+	powerOn       bool
+	hddOn         bool
+	window        fyne.Window
 }
 
 // NewPCPanelWidget creates a widget with a combined Power/Reset button.

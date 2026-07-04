@@ -59,14 +59,14 @@ type imeSpacerLayout struct {
 }
 
 // Dummy methods for desktop
-func (vk *VirtualKeyboard) RegisterAsIMETarget()               {}
-func (vk *VirtualKeyboard) UnregisterAsIMETarget()             {}
-func (vk *VirtualKeyboard) FocusInput()                        {}
-func (vk *VirtualKeyboard) BlurInput()                         {}
+func (vk *VirtualKeyboard) RegisterAsIMETarget()                         {}
+func (vk *VirtualKeyboard) UnregisterAsIMETarget()                       {}
+func (vk *VirtualKeyboard) FocusInput()                                  {}
+func (vk *VirtualKeyboard) BlurInput()                                   {}
 func (vk *VirtualKeyboard) SetOnIMEChanged(fn func(imeHeightDp float32)) {}
-func (vk *VirtualKeyboard) setIMEOffset(imeH float32)          {}
-func (vk *VirtualKeyboard) adjustForIME(open bool)             {}
-func (vk *VirtualKeyboard) ResetIMEState()                     {}
+func (vk *VirtualKeyboard) setIMEOffset(imeH float32)                    {}
+func (vk *VirtualKeyboard) adjustForIME(open bool)                       {}
+func (vk *VirtualKeyboard) ResetIMEState()                               {}
 
 // placeKey places a button in the grid: row/col in key "units", widthUnits is the width in units (1 = normal key).
 func (vk *VirtualKeyboard) placeKey(grid *fyne.Container, btn *widget.Button, row int, col float32, widthUnits float32) {
@@ -130,7 +130,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	vk.placeKey(grid, vk.createKey("Bksp", 42, 0), 1, col, 2)
 
-	// Row 2: Tab(1.5) Q W E R T Y U I O P [ ] \ 
+	// Row 2: Tab(1.5) Q W E R T Y U I O P [ ] \
 	col = 0
 	vk.placeKey(grid, vk.createKey("Tab", 43, 0), 2, col, 1.5)
 	col += 1.5

@@ -30,7 +30,7 @@ type MoonlightService struct {
 	onStateChanged  func(string)
 	onError         func(error)
 
-	mu         sync.Mutex   // protects isRunning, stopPlayerCh, activeWrapper, abort
+	mu         sync.Mutex    // protects isRunning, stopPlayerCh, activeWrapper, abort
 	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToRTP
 	isRunning  bool
 	serverHost string
@@ -45,7 +45,7 @@ type MoonlightService struct {
 	client             *moonlight.Client
 	pairingPIN         string               // retained across reconnects so the user only needs to enter one PIN
 	lastAppId          int                  // app ID from the last Launch(); used to quit before reconnect
-	stopPlayerCh       chan struct{}         // closed to stop the active GStreamer player goroutines
+	stopPlayerCh       chan struct{}        // closed to stop the active GStreamer player goroutines
 	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
 	tailscaleSvc       *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
 	stopMoonlightProxy func()               // non-nil when a tsnet proxy is active for internet streaming
@@ -677,7 +677,6 @@ func (m *MoonlightService) GetStats() map[string]interface{} {
 		"protocol": "moonlight (stub)",
 	}
 }
-
 
 func (m *MoonlightService) GetConfig() *models.AppConfig {
 	return m.config

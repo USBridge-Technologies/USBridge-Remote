@@ -8,7 +8,7 @@ package platform
 
 #include <stdlib.h>
 
-// Объявления C функций из saf_jni.c
+// C function declarations from saf_jni.c
 int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString);
 int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString, const char *mode);
 void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_ptr);
@@ -34,11 +34,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// SAFHelper помощник для работы с Android Storage Access Framework
+// SAFHelper helps working with Android Storage Access Framework
 type SAFHelper struct {
-	app      fyne.App
-	mu       sync.Mutex
-	fdCache  map[string]int    // кэш URI -> FD
+	app       fyne.App
+	mu        sync.Mutex
+	fdCache   map[string]int      // кэш URI -> FD
 	fileCache map[string]*os.File // кэш URI -> *os.File
 }
 
@@ -52,15 +52,15 @@ func GetSAFHelper(app fyne.App) *SAFHelper {
 	safHelperOnce.Do(func() {
 		logrus.Info("🔧 [SAF] Инициализация SAFHelper singleton")
 		safHelper = &SAFHelper{
-			app:      app,
-			fdCache:  make(map[string]int),
+			app:       app,
+			fdCache:   make(map[string]int),
 			fileCache: make(map[string]*os.File),
 		}
 	})
 	return safHelper
 }
 
-// TakePersistableUriPermission сохраняет постоянный доступ к URI
+// TakePersistableUriPermission saves persistent access to URI
 func (sh *SAFHelper) TakePersistableUriPermission(uriString string) error {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
@@ -109,10 +109,10 @@ func (sh *SAFHelper) TakePersistableUriPermission(uriString string) error {
 
 		logrus.Infof("📍 [SAF-STEP-5] Контекст получен, попытка вызова JNI метода")
 
-		// TODO: Реальный JNI вызов:
-		// 1. Получить ContentResolver через context.getContentResolver()
-		// 2. Парсим URI через Uri.parse(uriString)
-		// 3. Вызываем contentResolver.takePersistableUriPermission(uri,
+		// TODO: Actual JNI implementation needed
+		// 1. Get ContentResolver via context.getContentResolver()
+		// 2. Parse URI via Uri.parse(uriString)
+		// 3. Call contentResolver.takePersistableUriPermission(uri,
 		//    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
 
 		err := sh.jniTakePersistableUriPermission(ctx, uriString)
@@ -192,7 +192,7 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 
 		logrus.Infof("📍 [SAF-OPENFD-4] Попытка вызова JNI для openFileDescriptor")
 
-		// TODO: Реальный JNI вызов:
+		// TODO: Actual JNI implementation needed:
 		// 1. Получить ContentResolver через context.getContentResolver()
 		// 2. Парсим URI через Uri.parse(uriString)
 		// 3. ParcelFileDescriptor pfd = contentResolver.openFileDescriptor(uri, mode)

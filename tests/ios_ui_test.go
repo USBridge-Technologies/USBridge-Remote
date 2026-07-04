@@ -15,7 +15,7 @@ func TestIOSMainWindowInitialization(t *testing.T) {
 
 	// Создаем базовый конфиг
 	cfg := models.DefaultConfig()
-	
+
 	t.Log("Starting MainWindow initialization for iOS test...")
 
 	// Попытка инициализировать главное окно

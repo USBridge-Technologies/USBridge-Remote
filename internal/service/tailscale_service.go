@@ -455,7 +455,9 @@ func (s *TailscaleService) Logout(ctx context.Context) error {
 	}
 
 	lc, err := s.localClient()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return lc.Logout(ctx)
 }
 
@@ -474,8 +476,10 @@ func (s *TailscaleService) HTTPClient() (*http.Client, error) {
 	}
 	// Android / no system Tailscale: all traffic must go through tsnet.
 	srv, err := s.serverInstance()
-	if err != nil { return nil, err }
-	
+	if err != nil {
+		return nil, err
+	}
+
 	client := srv.HTTPClient()
 	if t, ok := client.Transport.(*http.Transport); ok {
 		t.Proxy = http.ProxyURL(nil)
@@ -537,17 +541,23 @@ func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err erro
 	}
 
 	lc, err := s.localClient()
-	if err != nil { return "", err }
-	if ctx == nil { ctx = context.Background() }
+	if err != nil {
+		return "", err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	st, err := lc.Status(ctx)
-	if err != nil || st.Self == nil { return "", fmt.Errorf("status failed") }
+	if err != nil || st.Self == nil {
+		return "", fmt.Errorf("status failed")
+	}
 	return firstAddr(st.Self.TailscaleIPs), nil
 }
 
 func (s *TailscaleService) RefreshNetwork() {
 	logrus.Info("🛰️ [Tailscale] Refreshing network state...")
 	refreshAndroidDefaultRouteInterface()
-	
+
 	s.mu.Lock()
 	srv := s.server
 	s.mu.Unlock()
@@ -569,9 +579,13 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 	_ = s.StopVideoUDPRelay()
 
 	srv, err := s.serverInstance()
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 	tailIP, err := s.TailnetIPv4(context.Background())
-	if err != nil { return 0, err }
+	if err != nil {
+		return 0, err
+	}
 
 	var pc net.PacketConn
 	tailAddr := net.JoinHostPort(tailIP, fmt.Sprintf("%d", port))
@@ -608,7 +622,9 @@ func (s *TailscaleService) EnsureVideoUDPRelay(port int) (int, error) {
 }
 
 func (s *TailscaleService) SetVideoRelayTraceID(traceID string) {
-	s.mu.Lock(); defer s.mu.Unlock(); s.videoRelayTraceID = traceID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.videoRelayTraceID = traceID
 }
 
 // VideoRelayDebugInfo returns a human-readable string describing how video
@@ -709,7 +725,7 @@ func (s *TailscaleService) PunchVideoHole(targetHost string, port int) {
 			if peer.IP4 == host || strings.Contains(peer.DNSName, host) || peer.HostName == host {
 				foundPeer = true
 				logrus.Infof("🎯 [%s] Found Tailscale peer %s (online=%v, active=%v, relay=%s)", traceID, peer.HostName, peer.Online, peer.Active, peer.Relay)
-				
+
 				if peer.CurAddr != "" {
 					if ra, err := net.ResolveUDPAddr("udp4", peer.CurAddr); err == nil {
 						videoAddr := &net.UDPAddr{IP: ra.IP, Port: port}
@@ -894,8 +910,12 @@ func (s *TailscaleService) StopVideoUDPRelay() error {
 	cancel, pc := s.videoRelayCancel, s.videoRelayConn
 	s.videoRelayCancel, s.videoRelayConn = nil, nil
 	s.mu.Unlock()
-	if cancel != nil { cancel() }
-	if pc != nil { pc.Close() }
+	if cancel != nil {
+		cancel()
+	}
+	if pc != nil {
+		pc.Close()
+	}
 	return nil
 }
 
@@ -936,7 +956,9 @@ func (s *TailscaleService) GetBindHost() string { return "0.0.0.0" }
 func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.server != nil { return s.server, nil }
+	if s.server != nil {
+		return s.server, nil
+	}
 
 	initAndroidTailscaleUserspace()
 
@@ -975,18 +997,26 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 
 func (s *TailscaleService) localClient() (*tsnetLocalClient, error) {
 	srv, err := s.serverInstance()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	lc, err := srv.LocalClient()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return &tsnetLocalClient{Client: lc}, nil
 }
 
-type tsnetLocalClient struct { *local.Client }
+type tsnetLocalClient struct{ *local.Client }
 
 func (s *TailscaleService) handleUserLogf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	if strings.Contains(msg, "https://login.tailscale.com") {
-		for _, p := range strings.Fields(msg) { if strings.HasPrefix(p, "https://") { s.setLatestAuthURL(p) } }
+		for _, p := range strings.Fields(msg) {
+			if strings.HasPrefix(p, "https://") {
+				s.setLatestAuthURL(p)
+			}
+		}
 	}
 	logrus.Infof("📡 [Tailscale/User] %s", msg)
 }
@@ -1012,7 +1042,9 @@ func (s *TailscaleService) setLatestAuthURL(u string) {
 }
 
 func (s *TailscaleService) getLatestAuthURL() string {
-	s.mu.Lock(); defer s.mu.Unlock(); return s.latestAuthURL
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.latestAuthURL
 }
 
 func tailscaleStateDir(appName string) string {
@@ -1027,15 +1059,23 @@ func tailscaleStateDir(appName string) string {
 	return filepath.Join(base, appName, "tailscale")
 }
 func firstAddr(values []netip.Addr) string {
-	for _, v := range values { if v.Is4() { return v.String() } }
+	for _, v := range values {
+		if v.Is4() {
+			return v.String()
+		}
+	}
 	return ""
 }
 
 func trimDotSuffix(v string) string { return strings.TrimSuffix(v, ".") }
 
 func userLogin(st *ipnstate.Status, id tailcfg.UserID) string {
-	if st == nil || st.User == nil { return "" }
-	if u, ok := st.User[id]; ok { return u.LoginName }
+	if st == nil || st.User == nil {
+		return ""
+	}
+	if u, ok := st.User[id]; ok {
+		return u.LoginName
+	}
 	return ""
 }
 
@@ -1050,7 +1090,9 @@ func (s *TailscaleService) GetSystemTailscaleIP() string {
 		for _, addr := range addrs {
 			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 				ip := ipnet.IP.To4()
-				if ip != nil && ip[0] == 100 { return ip.String() }
+				if ip != nil && ip[0] == 100 {
+					return ip.String()
+				}
 			}
 		}
 	}
@@ -1093,7 +1135,7 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 		default:
 			_ = pc.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			n, remoteAddr, err := pc.ReadFrom(buf)
-			
+
 			if err != nil {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 					if time.Since(lastPacketTime) > 2*time.Second {
@@ -1111,14 +1153,14 @@ func (s *TailscaleService) runVideoUDPRelay(ctx context.Context, pc net.PacketCo
 				if packetCount == 0 {
 					logrus.Infof("📡 [%s] FIRST PACKET received at relay from %v (%d bytes)", traceID, remoteAddr, n)
 				}
-				
+
 				packetCount++
 				s.mu.Lock()
 				s.videoRelayPackets = packetCount
 				s.videoRelayLastAt = now
 				s.videoRelayLastFrom = remoteAddr.String()
 				s.mu.Unlock()
-				
+
 				if time.Since(lastPacketTime) > 1*time.Second && packetCount > 1 {
 					logrus.Infof("📡 [%s] Relay RESUMED: packets started flowing again after %.1fs", traceID, time.Since(lastPacketTime).Seconds())
 				}

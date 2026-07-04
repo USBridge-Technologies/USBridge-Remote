@@ -150,7 +150,7 @@ var (
 	ConfigVerticalIcon         = fyne.NewStaticResource("configuration-vertical-options-svgrepo-com.svg", recolorFillIcon(configVerticalIcon, "#F5F5F5"))
 	ConnectionStatusIcon       = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com.svg", recolorFillIcon(connectionStatusIcon, "#C9C9C9"))
 	ConnectionStatusIconActive = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-active.svg", recolorFillIcon(connectionStatusIcon, "#93C572"))
-	ConnectionStatusAccent    = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-accent.svg", recolorFillIcon(connectionStatusIcon, "#b6ea93"))
+	ConnectionStatusAccent     = fyne.NewStaticResource("connection-internet-network-web-data-storage-svgrepo-com-accent.svg", recolorFillIcon(connectionStatusIcon, "#b6ea93"))
 	ConnectIcon                = fyne.NewStaticResource("connect-svgrepo-com.svg", recolorFillIcon(connectIcon, "#93C572"))
 	ConnectIconBoldBlack       = fyne.NewStaticResource("connect-svgrepo-com-black.svg", recolorFillIcon(connectIcon, "#111111"))
 	ConnectIconMuted           = fyne.NewStaticResource("connect-svgrepo-com-muted.svg", recolorFillIcon(connectIcon, "#8E8E8E"))
@@ -166,7 +166,7 @@ var (
 	LinuxOSIcon                = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
 	WindowsOSIcon              = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
 	MacOSIcon                  = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))
-	OnboardingStep01 = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
+	OnboardingStep01           = fyne.NewStaticResource("Front_panel.png", onboardingStep01)
 )
 
 func colorizeArrow(source []byte, fill string, mirror bool) []byte {

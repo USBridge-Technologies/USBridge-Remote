@@ -17,10 +17,10 @@ func (dw *DiskWidget) showPlatformNativeImagePicker() (selectedImage, bool) {
 	for _, ext := range dw.supportedTypes {
 		filters = append(filters, "*"+ext)
 	}
-	
+
 	// Zenity filter format is usually "--file-filter=Title | *.iso *.img"
 	zenityFilter := "Disk Images | " + strings.Join(filters, " ")
-	
+
 	cmd := exec.Command("zenity", "--file-selection", "--title="+dw.pickerTitle(), "--file-filter="+zenityFilter)
 	out, err := cmd.Output()
 	if err == nil {

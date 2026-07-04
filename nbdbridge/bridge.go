@@ -188,7 +188,7 @@ func StartNBD(fd int, size int64, addr string, readOnly bool) error {
 
 	// NBD options: handshake advertises read-only so client (e.g. loop) allows writes when false
 	options := &nbd.Options{
-		ReadOnly:        readOnly,
+		ReadOnly:         readOnly,
 		MinimumBlockSize: 4096,
 	}
 

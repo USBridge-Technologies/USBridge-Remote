@@ -19,9 +19,9 @@ import (
 
 var (
 	onNetworkChangedCallback func()
-	lastNotificationTime    time.Time
-	notificationMu          sync.Mutex
-	appReadyFlag            atomic.Bool
+	lastNotificationTime     time.Time
+	notificationMu           sync.Mutex
+	appReadyFlag             atomic.Bool
 )
 
 // SetAppReady marks the app as fully initialized so network change callbacks are processed.

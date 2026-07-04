@@ -23,9 +23,9 @@ type MasterSyncPayloadV2 struct {
 }
 
 type MasterSyncResponseV2 struct {
-	FRPToken        string                `json:"frp_token"`
+	FRPToken        string                  `json:"frp_token"`
 	TailscaleStatus *models.TailscaleStatus `json:"tailscale_status,omitempty"`
-	SunshineStatus  string                `json:"sunshine_status"`
+	SunshineStatus  string                  `json:"sunshine_status"`
 }
 
 func (c *USBClient) MasterSyncV2(ctx context.Context, payload MasterSyncPayloadV2) (*MasterSyncResponseV2, error) {

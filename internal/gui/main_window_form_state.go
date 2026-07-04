@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	connectionDraftHostPrefKey            = "connection_draft_host"
-	connectionDraftMasterKeyPrefKey       = "connection_draft_quic_token"
-	connectionDraftProtocolPrefKey        = "connection_draft_protocol"
+	connectionDraftHostPrefKey      = "connection_draft_host"
+	connectionDraftMasterKeyPrefKey = "connection_draft_quic_token"
+	connectionDraftProtocolPrefKey  = "connection_draft_protocol"
 )
 
 func (mw *MainWindow) persistConnectionDraft() {
@@ -57,7 +57,7 @@ func (mw *MainWindow) restoreConnectionDraft() {
 
 	host := strings.TrimSpace(prefs.StringWithFallback(connectionDraftHostPrefKey, ""))
 	masterKey := prefs.StringWithFallback(connectionDraftMasterKeyPrefKey, "")
-	
+
 	// Legacy fallback
 	if masterKey == "" {
 		masterKey = prefs.StringWithFallback("connection_draft_token", "")

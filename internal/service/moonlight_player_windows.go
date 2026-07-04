@@ -15,7 +15,8 @@ func usesVideoToolbox() bool { return true }
 
 // startMoonlightGStreamer on Windows registers the libavcodec frame callback.
 // D3D11VA decode runs inside dr_submit (moonlight_cgo_windows.go):
-//   dr_submit → libavcodec (D3D11VA) → goVTFrame → vtFrameCallback
+//
+//	dr_submit → libavcodec (D3D11VA) → goVTFrame → vtFrameCallback
 func startMoonlightGStreamer(
 	pipeRead *os.File,
 	width, height int,

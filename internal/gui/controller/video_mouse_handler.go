@@ -1038,7 +1038,7 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	ch := vw.contentRectH
 	vw.vcMu.Lock()
 	prevU, _ := vw.virtualCursorU, vw.virtualCursorV
-	
+
 	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
 	minU, maxU := float32(0), float32(1)
 	minV, maxV := float32(0), float32(1)

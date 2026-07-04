@@ -112,7 +112,7 @@ func (dw *DiskWidget) pickImageForDiskList() {
 
 			// Начинаем поллинг результата из Java (т.к. коллбэки Go могут не сработать из-за gomobile bind)
 			logrus.Info("⏳ [SAF-POLL] Starting result polling from Java...")
-			
+
 			// Ограничиваем время поллинга (например, 2 минуты)
 			timeout := time.After(2 * time.Minute)
 			ticker := time.NewTicker(500 * time.Millisecond)
@@ -256,7 +256,6 @@ func (dw *DiskWidget) showNbdDialog() {
 			logrus.Error("❌ SAFHelper is nil, cannot trigger picker")
 		}
 	})
-
 
 	// Start button
 	startBtn := widget.NewButton(i18n.Current.NBDStartServer, func() {

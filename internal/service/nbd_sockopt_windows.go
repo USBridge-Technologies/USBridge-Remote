@@ -4,7 +4,7 @@ package service
 
 import (
 	"syscall"
-	
+
 	"golang.org/x/sys/windows"
 )
 
@@ -22,4 +22,3 @@ func setSocketReuseAddr(c syscall.RawConn) error {
 	}
 	return opErr
 }
-

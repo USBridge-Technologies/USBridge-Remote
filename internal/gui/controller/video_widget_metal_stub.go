@@ -8,7 +8,7 @@ import "fyne.io/fyne/v2"
 // (Android, iOS, and other non-desktop targets).
 // The 60 Hz render ticker + pendingFrame atomic path is still active.
 
-func (vw *VideoWidget) isNativeVideoActive() bool               { return false }
+func (vw *VideoWidget) isNativeVideoActive() bool                     { return false }
 func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, _ bool) {}
 func (vw *VideoWidget) stopMetalVideo()                               {}
 func (vw *VideoWidget) updateMetalVideoFrame()                        {}

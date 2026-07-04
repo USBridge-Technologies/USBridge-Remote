@@ -39,7 +39,7 @@ type AppConfig struct {
 	TailscaleUserspace bool `json:"tailscale_userspace" mapstructure:"tailscale_userspace"`
 
 	// NBD сервер (как сервер)
-	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"` // Порт NBD сервера (10809)
+	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // Порт NBD сервера (10809)
 	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Максимум NBD клиентов
 	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Пути для сканирования устройств
 	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Поддерживаемые типы файлов
@@ -85,12 +85,12 @@ func DefaultConfig() *AppConfig {
 		APITimeout: 15,
 
 		// FRP
-		FRPServerPort:          443,
-		FRPEnabled:             true,
-		FRPTLSCert:             "./certs/server.crt",
-		FRPTLSKey:              "./certs/server.key",
-		FRPTLSCa:               "./certs/ca.crt",
-		ConnectionProtocol:     modelsafeProtocol(ConnectionProtocolAuto),
+		FRPServerPort:      443,
+		FRPEnabled:         true,
+		FRPTLSCert:         "./certs/server.crt",
+		FRPTLSKey:          "./certs/server.key",
+		FRPTLSCa:           "./certs/ca.crt",
+		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),
 
 		TailscaleEnabled:   true,
 		TailscaleUserspace: true,
@@ -108,7 +108,6 @@ func DefaultConfig() *AppConfig {
 		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
 		VideoUDPPort:  DefaultVideoUDPPort,
 		VideoBindHost: "0.0.0.0",
-
 
 		// Видео
 		VideoBitrate:   10000,

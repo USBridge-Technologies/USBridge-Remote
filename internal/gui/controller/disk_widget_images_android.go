@@ -13,7 +13,7 @@ import (
 // checkStoragePermission checks for storage access on Android.
 func (dw *DiskWidget) checkStoragePermission() bool {
 	// SAF doesn't need legacy storage permissions
-	return true 
+	return true
 }
 
 // checkFileExists checks if a file exists using SAF for content URIs or os.Stat for regular paths.
@@ -33,7 +33,7 @@ func (dw *DiskWidget) checkFileExists(path string) bool {
 		}
 		return false
 	}
-	
+
 	_, err := os.Stat(path)
 	return err == nil
 }

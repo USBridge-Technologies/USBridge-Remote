@@ -42,7 +42,7 @@ type QemuNBDRunner struct {
 	format        string
 	readOnly      bool
 	bindHost      string
-	allowedIP     string        // if set, only this remote IP is forwarded through the proxy
+	allowedIP     string // if set, only this remote IP is forwarded through the proxy
 	port          int
 	cmd           *exec.Cmd
 	overlayPath   string

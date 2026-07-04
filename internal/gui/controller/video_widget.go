@@ -32,26 +32,26 @@ type VideoWidget struct {
 	statsTickerStop  chan struct{}
 
 	// Состояние
-	isStreaming          bool
+	isStreaming      bool
 	isVideoConnected bool
-	isMouseConnected     bool // Флаг подключенной мыши
-	enableVSync          bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
+	isMouseConnected bool // Флаг подключенной мыши
+	enableVSync      bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
 
 	// Сервисы
-	usbClient           *api.USBClient
-	videoClient    service.VideoClient
-	frpService              *service.FRPService // для проверки режима FRP
-	tailscaleService        *service.TailscaleService
-	tailscaleVideoEnabled   bool   // false when connected via direct/LAN (disables Tailscale UDP routing for video)
-	bridgeInternalHost      string // LAN/internal IP of bridge; used to detect same-subnet direct path
-	updateStatus        func()
-	onFPSChanged        func(float64)
-	videoOpMu           sync.Mutex
-	videoOpRunning      bool
-	desiredStreaming    bool
-	videoRestartPending bool
-	moveQueueMu         sync.Mutex
-	bottomInset         float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
+	usbClient             *api.USBClient
+	videoClient           service.VideoClient
+	frpService            *service.FRPService // для проверки режима FRP
+	tailscaleService      *service.TailscaleService
+	tailscaleVideoEnabled bool   // false when connected via direct/LAN (disables Tailscale UDP routing for video)
+	bridgeInternalHost    string // LAN/internal IP of bridge; used to detect same-subnet direct path
+	updateStatus          func()
+	onFPSChanged          func(float64)
+	videoOpMu             sync.Mutex
+	videoOpRunning        bool
+	desiredStreaming      bool
+	videoRestartPending   bool
+	moveQueueMu           sync.Mutex
+	bottomInset           float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
 
 	pendingMoveX          int
 	pendingMoveY          int
@@ -81,10 +81,10 @@ type VideoWidget struct {
 	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
 	lastVideoImgW        float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
 	lastVideoImgH        float32      // pixel height of the last decoded video frame
-	frameContentX        float32 // нормализованная активная область кадра по X без black bars
-	frameContentY        float32 // нормализованная активная область кадра по Y без black bars
-	frameContentW        float32 // нормализованная ширина активной области кадра
-	frameContentH        float32 // нормализованная высота активной области кадра
+	frameContentX        float32      // нормализованная активная область кадра по X без black bars
+	frameContentY        float32      // нормализованная активная область кадра по Y без black bars
+	frameContentW        float32      // нормализованная ширина активной области кадра
+	frameContentH        float32      // нормализованная высота активной области кадра
 
 	// Диалоги
 	fullscreenDialog      *FullscreenDialog
@@ -126,39 +126,39 @@ type VideoWidget struct {
 	standaloneVKScreenDpW float32
 	standaloneVKScreenDpH float32
 	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
-	contentRectX      float32
-	contentRectY      float32
-	contentRectW      float32
-	contentRectH      float32
-	baseContentRectW  float32
-	baseContentRectH  float32
-	zoomScale         float32
-	panOffsetX        float32
-	panOffsetY        float32
-	multiTouchActive  bool
-	lastMultiTouchAt  time.Time
-	scrollDragAxis    string
-	scrollDragLastX   float32
-	scrollDragLastY   float32
-	lastTouchX        int // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
-	lastTouchY        int
-	lastAbsX          int // последние отправленные координаты absolute (touch_position) чтобы не спамить
-	lastAbsY          int
-	lastAbsSentTime   time.Time // время последней отправки absolute (для дебаунса)
-	absSendMu         sync.Mutex
-	absButtons        uint8     // битмаска кнопок для absolute режима
+	contentRectX     float32
+	contentRectY     float32
+	contentRectW     float32
+	contentRectH     float32
+	baseContentRectW float32
+	baseContentRectH float32
+	zoomScale        float32
+	panOffsetX       float32
+	panOffsetY       float32
+	multiTouchActive bool
+	lastMultiTouchAt time.Time
+	scrollDragAxis   string
+	scrollDragLastX  float32
+	scrollDragLastY  float32
+	lastTouchX       int // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
+	lastTouchY       int
+	lastAbsX         int // последние отправленные координаты absolute (touch_position) чтобы не спамить
+	lastAbsY         int
+	lastAbsSentTime  time.Time // время последней отправки absolute (для дебаунса)
+	absSendMu        sync.Mutex
+	absButtons       uint8 // битмаска кнопок для absolute режима
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket
 	statRelMoonlight  atomic.Int64 // relative events sent via Moonlight SendMoonlightMouseMove
 	statRelWS         atomic.Int64 // relative events sent via WebSocket SendMouseMove
-	lastTouchDownTime time.Time // время последнего SendTouch(_, _, true) — для дедупликации
+	lastTouchDownTime time.Time    // время последнего SendTouch(_, _, true) — для дедупликации
 	touchDedupMu      sync.Mutex
 	// Virtual cursor (Android "cursor" mouse mode): position in frame UV space (0..1).
-	vcMu                        sync.Mutex
-	virtualCursorU              float32
-	virtualCursorV              float32
-	lastVirtualCursorSentTime   time.Time
+	vcMu                      sync.Mutex
+	virtualCursorU            float32
+	virtualCursorV            float32
+	lastVirtualCursorSentTime time.Time
 	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
 	// Tapped приходит при полном клике на виджет; MouseUp в Fyne приходит только виджету под курсором при отпускании.
 	touchDownDelayTimer *time.Timer
@@ -175,13 +175,13 @@ type VideoWidget struct {
 	// lmbHoldTimer fires after 200ms of the second finger being held, committing to the hold.
 	// lmbPendingDoubleClick is set when second finger lifted quickly while lmbUpTimer still runs.
 	lmbTapAt              time.Time
-	lmbUp1Sent            bool        // true once Up1 has actually been sent
+	lmbUp1Sent            bool // true once Up1 has actually been sent
 	lmbUpTimer            *time.Timer
 	lmbPendingHold        bool
 	lmbHoldTimer          *time.Timer
 	lmbPendingDoubleClick bool
 	rmbHapticTimer        *time.Timer // fires at 1s hold to signal RMB long-press readiness
-	isClosing       atomic.Bool
+	isClosing             atomic.Bool
 }
 
 func (vw *VideoWidget) Close() {

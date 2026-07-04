@@ -67,7 +67,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 			mi.SendMoonlightKey(vk, service.LiKeyActionDown, mods)
 			mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods)
 		})
-		
+
 		// Когда Android IME открывается/закрывается, расширяем Vulkan вверх под вкладки.
 		vw.virtualKeyboard.SetOnIMEChanged(func(imeHeightDp float32) {
 			fyne.Do(func() {

@@ -20,8 +20,8 @@ func getTailscaleBinaryPath() string {
 	// Explicit well-known paths first — GUI app bundles launched from Finder/Dock
 	// do NOT inherit the shell PATH, so exec.LookPath misses Homebrew binaries.
 	for _, p := range []string{
-		"/opt/homebrew/bin/tailscale",  // Homebrew on Apple Silicon
-		"/usr/local/bin/tailscale",     // Homebrew on Intel Mac
+		"/opt/homebrew/bin/tailscale", // Homebrew on Apple Silicon
+		"/usr/local/bin/tailscale",    // Homebrew on Intel Mac
 		"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 	} {
 		if _, err := os.Stat(p); err == nil {

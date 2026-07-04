@@ -27,14 +27,14 @@ func (w *MoonlightCgoWrapper) StartStream(
 	return fmt.Errorf("moonlight-common-c not built for this platform")
 }
 
-func (w *MoonlightCgoWrapper) StopStream()                    {}
-func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool)       { w.audioMuted = muted }
-func (w *MoonlightCgoWrapper) GetAudioMuted() bool            { return w.audioMuted }
-func (w *MoonlightCgoWrapper) IsInputActive() bool            { return false }
+func (w *MoonlightCgoWrapper) StopStream()                                                {}
+func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool)                                   { w.audioMuted = muted }
+func (w *MoonlightCgoWrapper) GetAudioMuted() bool                                        { return w.audioMuted }
+func (w *MoonlightCgoWrapper) IsInputActive() bool                                        { return false }
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {}
 func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16)                        {}
 func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16)          {}
-func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)            {}
+func (w *MoonlightCgoWrapper) SendMoonlightMouseButton(action int8, button int)           {}
 func (w *MoonlightCgoWrapper) SendMoonlightScroll(clicks int8)                            {}
 func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 	cn uint16, am uint16, b uint16, lt uint8, rt uint8, lx int16, ly int16, rx int16, ry int16,

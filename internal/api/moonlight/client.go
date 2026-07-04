@@ -138,7 +138,7 @@ func (c *Client) GetServerInfo() (*ServerInfo, error) {
 	// Normally GameStream returns 401 on HTTPS if unpaired.
 	url := c.getURL(true, "/serverinfo", nil)
 	resp, err := c.httpsClient.Get(url)
-	
+
 	if err != nil || resp.StatusCode == 401 {
 		url = c.getURL(false, "/serverinfo", nil)
 		resp, err = c.httpClient.Get(url)
@@ -205,14 +205,14 @@ func (c *Client) Launch(appId int, codecFormat string, width, height, fps, bitra
 	rikey := hex.EncodeToString(rikeyBytes)
 
 	sessionParams := map[string]string{
-		"mode":               fmt.Sprintf("%dx%dx%d", width, height, fps),
+		"mode":                  fmt.Sprintf("%dx%dx%d", width, height, fps),
 		"additionalContentType": "1",
-		"sops":               "0",
-		"rikey":              rikey,
-		"rikeyid":            "1",
-		"gc":                 "1",
-		"localAudioPlayMode": "2",
-		"surroundAudioInfo":  "196610",
+		"sops":                  "0",
+		"rikey":                 rikey,
+		"rikeyid":               "1",
+		"gc":                    "1",
+		"localAudioPlayMode":    "2",
+		"surroundAudioInfo":     "196610",
 	}
 
 	// Try /launch first; fall back to /resume if an app is already running.

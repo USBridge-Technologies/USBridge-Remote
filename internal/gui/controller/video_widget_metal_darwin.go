@@ -22,8 +22,8 @@ import (
 // them. This goroutine polls metal_video_next_event at ~250 Hz and dispatches
 // to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
 
-var metalMouseQuit         chan struct{}
-var metalFullscreenWindow  fyne.Window
+var metalMouseQuit chan struct{}
+var metalFullscreenWindow fyne.Window
 var metalMouseCheckPending int32 // atomic
 
 func (vw *VideoWidget) startMetalMouseForwarding() {
@@ -268,13 +268,13 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.container == nil || vw.touchpadWrapper == nil || vw.parentWindow == nil {
 		return
 	}
-	
-	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases, 
+
+	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases,
 	// and we match the robust iOS math here for consistency.
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	topOffset := canvasH - szMain.Height
-	
+
 	szVideo := vw.touchpadWrapper.Size()
 	return 0, topOffset, szVideo.Width, szVideo.Height
 }

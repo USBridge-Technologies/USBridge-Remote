@@ -51,17 +51,17 @@ const (
 // winmmButtonToMoonlight maps WinMM button bit positions to Moonlight controller flags.
 // This follows the standard XInput/Xbox button layout used by most modern gamepads.
 var winmmButtonToMoonlight = [16]uint16{
-	0x1000, // btn 0 (A)
-	0x2000, // btn 1 (B)
-	0x4000, // btn 2 (X)
-	0x8000, // btn 3 (Y)
-	0x0100, // btn 4 (LB)
-	0x0200, // btn 5 (RB)
-	0x0020, // btn 6 (Back/Select)
-	0x0010, // btn 7 (Start)
-	0x0040, // btn 8 (Left Thumb)
-	0x0080, // btn 9 (Right Thumb)
-	0x0400, // btn 10 (Guide)
+	0x1000,        // btn 0 (A)
+	0x2000,        // btn 1 (B)
+	0x4000,        // btn 2 (X)
+	0x8000,        // btn 3 (Y)
+	0x0100,        // btn 4 (LB)
+	0x0200,        // btn 5 (RB)
+	0x0020,        // btn 6 (Back/Select)
+	0x0010,        // btn 7 (Start)
+	0x0040,        // btn 8 (Left Thumb)
+	0x0080,        // btn 9 (Right Thumb)
+	0x0400,        // btn 10 (Guide)
 	0, 0, 0, 0, 0, // btn 11-15 unmapped
 }
 
@@ -241,7 +241,7 @@ func winmmScaleAxis(val, min, max uint32) int16 {
 	if half == 0 {
 		return 0
 	}
-	scaled := (int64(val)-mid)*32767/half
+	scaled := (int64(val) - mid) * 32767 / half
 	if scaled > 32767 {
 		return 32767
 	}
@@ -256,7 +256,7 @@ func winmmScaleTrigger(val, min, max uint32) uint8 {
 	if max <= min {
 		return 0
 	}
-	scaled := (int64(val)-int64(min))*255 / (int64(max) - int64(min))
+	scaled := (int64(val) - int64(min)) * 255 / (int64(max) - int64(min))
 	if scaled < 0 {
 		return 0
 	}

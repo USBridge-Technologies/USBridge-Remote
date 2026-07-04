@@ -12,32 +12,32 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/driver/mobile"
 	"github.com/sirupsen/logrus"
 )
 
 // FullscreenDialog диалог полноэкранного режима
 type FullscreenDialog struct {
-	parent                fyne.Window
-	videoWidget           *VideoWidget
-	isFullscreen          bool
-	nativeFullscreen      bool
+	parent                 fyne.Window
+	videoWidget            *VideoWidget
+	isFullscreen           bool
+	nativeFullscreen       bool
 	windowlessVKFullscreen bool // Windows: VK standalone fullscreen (no Fyne window)
-	videoClient      service.VideoClient
-	fullscreenWindow      fyne.Window
-	virtualKeyboard       *graphics.VirtualKeyboard
-	videoImage            *canvas.Image
-	touchpadWrapper       *TouchpadWrapper
-	nativeCapture         nativeFullscreenCapture
-	lastFrame             image.Image
-	frameMutex            sync.RWMutex
-	originalContent       *fyne.Container
-	originalTitle         string
-	ui                    *view.FullscreenUI
-	keyboardModifierState atomic.Int32
-	suppressRuneUntilNS   atomic.Int64
-	audioMuted            bool
+	videoClient            service.VideoClient
+	fullscreenWindow       fyne.Window
+	virtualKeyboard        *graphics.VirtualKeyboard
+	videoImage             *canvas.Image
+	touchpadWrapper        *TouchpadWrapper
+	nativeCapture          nativeFullscreenCapture
+	lastFrame              image.Image
+	frameMutex             sync.RWMutex
+	originalContent        *fyne.Container
+	originalTitle          string
+	ui                     *view.FullscreenUI
+	keyboardModifierState  atomic.Int32
+	suppressRuneUntilNS    atomic.Int64
+	audioMuted             bool
 }
 
 // NewFullscreenDialog создает новый диалог полноэкранного режима
@@ -353,7 +353,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		fsWin := fd.fullscreenWindow
 		vw := fd.videoWidget
 		fsImg := fd.videoImage
-		
+
 		// Hide/destroy the old main-window overlay immediately so it doesn't float over the new fullscreen window.
 		// If we don't do this, it causes a 'picture -> black -> picture' triple blink during the 250ms delay.
 		if !vw.keepNativeVideoAliveForFullscreenTransition() {

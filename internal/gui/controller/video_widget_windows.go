@@ -25,12 +25,12 @@ import (
 // directly to TouchpadWrapper on the Fyne main goroutine — same pattern as
 // the Linux X11 implementation (video_widget_gl_linux.go).
 
-var vkWinMouseQuit         chan struct{}
-var vkWinKeyQuit           chan struct{}
-var vkWinFullscreenWin     fyne.Window
+var vkWinMouseQuit chan struct{}
+var vkWinKeyQuit chan struct{}
+var vkWinFullscreenWin fyne.Window
 var vkWinMouseCheckPending int32 // atomic
-var vkWinPressOnButton     bool  // suppress matching release when press hit a UI button
-var vkWinMouseLogAt time.Time // throttle coordinate logging to once per 2s
+var vkWinPressOnButton bool      // suppress matching release when press hit a UI button
+var vkWinMouseLogAt time.Time    // throttle coordinate logging to once per 2s
 
 func (vw *VideoWidget) startVKMouseForwarding(scale float32) {
 	vw.stopVKMouseForwarding()
@@ -276,9 +276,9 @@ var (
 	vkWatchStuckLogged bool
 
 	// Frame-stall watchdog: detects when frames are delivered to Go but Vulkan stops rendering.
-	vkWatchLastRendered    int64
+	vkWatchLastRendered     int64
 	vkWatchLastRenderedTime time.Time
-	vkWatchRenderLogged    bool
+	vkWatchRenderLogged     bool
 
 	// Fyne main-loop watchdog: a goroutine pings fyne.Do every second; if the
 	// ping takes >2 s the main loop is frozen and we log the cause immediately.

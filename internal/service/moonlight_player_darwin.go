@@ -18,7 +18,8 @@ func usesVideoToolbox() bool { return true }
 // and returns immediately — no subprocess is launched.
 //
 // The VT decode path is driven by vt_dr_submit in moonlight_cgo.go:
-//   dr_submit → VTDecompressionSession → vt_callback → goVTFrame → vtFrameCallback → onFrame
+//
+//	dr_submit → VTDecompressionSession → vt_callback → goVTFrame → vtFrameCallback → onFrame
 //
 // pipeRead is closed immediately because VT writes directly to the Go callback;
 // the pipe created by moonlight_service.go is not used for video on this platform.

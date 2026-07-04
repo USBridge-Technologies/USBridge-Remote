@@ -23,7 +23,7 @@ func (fd *FullscreenDialog) platformSetupUI() {
 	if fd.virtualKeyboard == nil {
 		return
 	}
-	
+
 	// Регистрируем как получателя нативных Android IME-событий (KeyboardBridge → JNI → Go)
 	fd.virtualKeyboard.RegisterAsIMETarget()
 
@@ -40,7 +40,7 @@ func (fd *FullscreenDialog) platformSetupUI() {
 					// Если скрыта — оставляем только системный отступ (например, NavBar)
 					inset = graphics.GetLastIMEH()
 				}
-				
+
 				logrus.Infof("⌨️ [IME] Change detected. Setting bottom inset to %.1f (imeH=%.1f)", inset, imeHeightDp)
 				if fd.videoWidget != nil {
 					fd.videoWidget.SetBottomInset(inset)

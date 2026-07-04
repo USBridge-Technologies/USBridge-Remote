@@ -27,14 +27,14 @@ func ternary(condition bool, a, b string) string {
 }
 
 type SavedConnection struct {
-	Name              string `json:"name"`
-	InternalHost      string `json:"internal_host,omitempty"`
-	TailscaleHost     string `json:"tailscale_host,omitempty"`
-	QUICPort          int    `json:"quic_port,omitempty"`
-	Host              string `json:"host,omitempty"`
+	Name          string `json:"name"`
+	InternalHost  string `json:"internal_host,omitempty"`
+	TailscaleHost string `json:"tailscale_host,omitempty"`
+	QUICPort      int    `json:"quic_port,omitempty"`
+	Host          string `json:"host,omitempty"`
 	// MasterKey holds the API master secret (obtained by scanning the device QR code).
 	// It is used to sign requests and perform the initial sync that returns the FRP tunnel token.
-	MasterKey         string `json:"master_key"`
+	MasterKey string `json:"master_key"`
 	// FRPToken is an explicit FRP/QUIC tunnel token used to bypass the sync flow.
 	// Leave empty when MasterKey (API secret) is set.
 	FRPToken          string `json:"frp_token,omitempty"`
@@ -76,9 +76,9 @@ type ConnectionManager struct {
 	masterKeyEntry *widget.Entry
 	protocolSelect *widget.Select
 
-	qrScanner              *QRScanner
-	ts                     *service.TailscaleService
-	tsStatus               *service.TailscaleStatus
+	qrScanner               *QRScanner
+	ts                      *service.TailscaleService
+	tsStatus                *service.TailscaleStatus
 	tailscaleAuthInProgress atomic.Bool // guards against concurrent auth goroutines
 
 	onConnect                func(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool)

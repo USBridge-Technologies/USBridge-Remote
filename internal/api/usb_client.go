@@ -723,7 +723,6 @@ func (c *USBClient) Disconnect() {
 	logrus.Info("🔌 USBClient: connections closed")
 }
 
-
 // GetVideoInfo gets video information
 func (c *USBClient) GetVideoInfo() (*models.APIResponse, error) {
 	return c.GetVideoInfoForDevice("")
@@ -1079,13 +1078,12 @@ func (c *USBClient) makeRequestWithContext(ctx context.Context, method, endpoint
 		return nil, fmt.Errorf("request creation failed: %v", err)
 	}
 
-
-        if len(c.apiSecret) > 0 && endpoint != "/api/healthz" && !strings.HasPrefix(endpoint, "/api/auth/qr") {
-                timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-                signature := CalculateHMACV2(method, endpoint, timestamp, string(body), c.apiSecret)
-                req.Header.Set("X-Auth-Signature", signature)
-                req.Header.Set("X-Auth-Timestamp", timestamp)
-        }
+	if len(c.apiSecret) > 0 && endpoint != "/api/healthz" && !strings.HasPrefix(endpoint, "/api/auth/qr") {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		signature := CalculateHMACV2(method, endpoint, timestamp, string(body), c.apiSecret)
+		req.Header.Set("X-Auth-Signature", signature)
+		req.Header.Set("X-Auth-Timestamp", timestamp)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)

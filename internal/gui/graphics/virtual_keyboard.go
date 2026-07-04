@@ -33,7 +33,7 @@ type VirtualKeyboard struct {
 	shiftBtn    *widget.Button
 	capsLockBtn *widget.Button
 	winBtn      *widget.Button
-	
+
 	// Platform-dependent fields: dummy types are used on desktop (defined in _desktop.go),
 	// real implementations on mobile (defined in _mobile.go)
 	mobileInput *backspaceEntry

@@ -425,7 +425,7 @@ func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
 	} else {
 		fileReader, err = os.Open(drive.DiskInfo.Path)
 	}
-	
+
 	if err != nil {
 		dw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorOpeningFileForUpload, err))
 		return

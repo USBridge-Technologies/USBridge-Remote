@@ -489,7 +489,6 @@ func (dw *DiskWidget) combineDrives() {
 		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
 }
 
-
 // loadGamepadDevices обновляет список геймпадов из ОС и перестраивает список устройств.
 func (dw *DiskWidget) loadGamepadDevices() {
 	gamepads := platform.EnumerateGamepads()

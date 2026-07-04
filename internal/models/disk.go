@@ -11,7 +11,7 @@ import (
 type DiskInfo struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
-	URI         string `json:"uri"`  // Android content:// URI (если применимо)
+	URI         string `json:"uri"` // Android content:// URI (если применимо)
 	Size        int64  `json:"size"`
 	Type        string `json:"type"` // iso, img, device
 	Description string `json:"description"`

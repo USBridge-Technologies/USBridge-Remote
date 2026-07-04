@@ -253,10 +253,10 @@ import (
 
 // GamepadCaptureState holds the current decoded state of a gamepad.
 type GamepadCaptureState struct {
-	Buttons                    uint16
-	LeftX, LeftY               int16
-	RightX, RightY             int16
-	LeftTrigger, RightTrigger  uint8
+	Buttons                   uint16
+	LeftX, LeftY              int16
+	RightX, RightY            int16
+	LeftTrigger, RightTrigger uint8
 }
 
 // GamepadCapture manages an active IOKit HID capture for one gamepad.

@@ -21,7 +21,6 @@ const (
 )
 
 func main() {
-	writeStartupTrace("main: entered")
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			writeStartupPanicTrace(recovered)
@@ -36,40 +35,30 @@ func main() {
 		showVersion = flag.Bool("version", false, "Show version")
 	)
 	flag.Parse()
-	writeStartupTrace("main: flags parsed config=%q logLevel=%q version=%v", *configFile, *logLevel, *showVersion)
 
 	if *showVersion {
-		writeStartupTrace("main: version requested")
 		fmt.Printf("%s version %s\n", appName, version)
 		os.Exit(0)
 	}
 
-	writeStartupTrace("main: setupLogging start")
 	setupLogging(*logLevel)
-	writeStartupTrace("main: setupLogging done")
 
 	logrus.Infof("Starting %s version %s", appName, version)
 
 	i18n.Init("en")
 
-	writeStartupTrace("main: loadConfig start")
 	config, err := loadConfig(*configFile)
 	if err != nil {
-		writeStartupTrace("main: loadConfig failed: %v", err)
 		logrus.Fatalf("Failed to load configuration: %v", err)
 	}
-	writeStartupTrace("main: loadConfig done nbd_port=%d window=%dx%d", config.NBDPort, config.WindowWidth, config.WindowHeight)
 
 	logrus.Infof("Configuration loaded")
 	logrus.Infof("NBD port: %d", config.NBDPort)
 
-	writeStartupTrace("main: NewMainWindow start")
 	gui.SetAppVersion(version)
 	mainWindow := gui.NewMainWindow(config)
-	writeStartupTrace("main: NewMainWindow done")
 
 	logrus.Info("Starting GUI")
-	writeStartupTrace("main: Show start")
 	mainWindow.Show()
 }
 

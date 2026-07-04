@@ -338,7 +338,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 	if connectErr != nil {
 		logrus.Errorf("❌ Moonlight ConnectToRTP ultimately failed: %v", connectErr)
-		
+
 		// Stop trying to reconnect, otherwise the reconcile loop will spam the server
 		vw.videoOpMu.Lock()
 		vw.desiredStreaming = false
@@ -850,7 +850,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 
 	// When the native GPU overlay is already active, skip Fyne canvas update.
 	if !vw.isNativeVideoActive() {
-		// Delay Fyne canvas rendering by 30 frames (~0.5s) to allow the native 
+		// Delay Fyne canvas rendering by 30 frames (~0.5s) to allow the native
 		// overlay (Vulkan/Metal) to initialize. This prevents a "double start" flash
 		// where Fyne draws the first few frames before the native window maps on top.
 		if frameNum > 30 {
@@ -1302,7 +1302,7 @@ func (vw *VideoWidget) renderLatestFrame() {
 	frameNum := vw.frameCount
 	vw.frameMutex.Unlock()
 
-	// If native GPU overlay is active, frame will be nil, but we still need to proceed 
+	// If native GPU overlay is active, frame will be nil, but we still need to proceed
 	// to hide the Fyne canvas and update viewport/cursor.
 	if frame == nil && !vw.isNativeVideoActive() {
 		return

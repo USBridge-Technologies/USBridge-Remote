@@ -14,7 +14,7 @@ func (fd *FullscreenDialog) platformInitWindow() {
 	fd.fullscreenWindow = fyne.CurrentApp().NewWindow("")
 	fd.fullscreenWindow.SetTitle(i18n.Current.FullscreenWindowTitle)
 	fd.fullscreenWindow.SetFullScreen(true)
-	
+
 	fd.fullscreenWindow.SetCloseIntercept(func() {
 		logrus.Info("🔍 Перехвачена попытка закрытия окна - выход из полноэкранного режима")
 		fd.exitFullscreen()
@@ -31,7 +31,7 @@ func (fd *FullscreenDialog) platformSetupUI() {
 func (fd *FullscreenDialog) platformShow() {
 	fd.fullscreenWindow.Show()
 	fd.fullscreenWindow.RequestFocus()
-	
+
 	// Фокусируемся на тачпаде для захвата клавиш
 	if fd.touchpadWrapper != nil {
 		fd.fullscreenWindow.Canvas().Focus(fd.touchpadWrapper)

@@ -198,13 +198,13 @@ func AES128ECBEncrypt(key, data []byte) ([]byte, error) {
 		return nil, err
 	}
 	mode := newECB(block)
-	
+
 	// GameStream uses zero padding if not multiple of 16
 	paddingSize := 16 - (len(data) % 16)
 	if paddingSize != 16 {
 		data = append(data, bytes.Repeat([]byte{0}, paddingSize)...)
 	}
-	
+
 	dst := make([]byte, len(data))
 	mode.CryptBlocks(dst, data)
 	return dst, nil

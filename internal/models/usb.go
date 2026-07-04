@@ -263,8 +263,8 @@ type DeviceInfo struct {
 	ProductName  string    `json:"product_name"`
 	Manufacturer string    `json:"manufacturer"`
 	CreatedAt    time.Time `json:"created_at"`
-	Type         string    `json:"type"`      // nbd, local, keyboard
-	Name         string    `json:"name"`      // Device/file name
+	Type         string    `json:"type"`                 // nbd, local, keyboard
+	Name         string    `json:"name"`                 // Device/file name
 	DriveMode    string    `json:"drive_mode,omitempty"` // "cdrom" or "disk"
 }
 

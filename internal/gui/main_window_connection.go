@@ -871,7 +871,7 @@ func (mw *MainWindow) handleDisconnect() {
 				IconSize:    fyne.NewSize(24, 24),
 			})
 		}
-		
+
 		if mw.diskWidget != nil {
 			mw.diskWidget.UpdateClient(nil)
 			mw.diskWidget.SetFRPService(nil)
@@ -905,7 +905,7 @@ func (mw *MainWindow) handleDisconnect() {
 			mw.tokenEntry.Enable()
 			mw.protocolSelect.Enable()
 		}
-		
+
 		mw.updateStatusBar()
 	})
 
@@ -923,7 +923,7 @@ func (mw *MainWindow) handleDisconnect() {
 		if video != nil {
 			logrus.Info("🛑 [shutdown] Stopping video...")
 			_ = video.StopVideoSync()
-			video.Close() 
+			video.Close()
 		}
 
 		if backup != nil {

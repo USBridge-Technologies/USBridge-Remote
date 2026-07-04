@@ -48,15 +48,15 @@ type DiskWidget struct {
 	activeCaptures    map[string]*platform.GamepadCapture
 	moonlightProvider moonlightProvider
 
-	onStorageInfoUpdate func(usedPct float64, available, total int64)
-	userImages          []*models.DiskInfo
-	allDrives           []DriveItem
-	mountedDevices      []*models.DeviceInfo
-	selectedDrive       *DriveItem
-	selectedItems       map[int]bool
-	selectedItemsMu     sync.RWMutex
-	devicesTraceBudget  int
-	lastDrivesTraceSig  string
+	onStorageInfoUpdate   func(usedPct float64, available, total int64)
+	userImages            []*models.DiskInfo
+	allDrives             []DriveItem
+	mountedDevices        []*models.DeviceInfo
+	selectedDrive         *DriveItem
+	selectedItems         map[int]bool
+	selectedItemsMu       sync.RWMutex
+	devicesTraceBudget    int
+	lastDrivesTraceSig    string
 	preferredMouseMode    string
 	observedMouseMode     string
 	preferredDisplayIndex int // 0-based display index for absolute mouse (0 = first)
@@ -151,34 +151,34 @@ func normalizeRNDISMode(mode string) string {
 
 // DriveItem объединяет локальные устройства из API, локальные файлы и клавиатуру
 type DriveItem struct {
-	Name           string
-	Size           string
-	Source         string // "api", "local", "user", "keyboard", "mouse", "rndis", "gamepad", "video", "audio", "usbaudio"
-	IsMounted      bool
-	LocalDrive     *models.LocalDrive
-	DiskInfo       *models.DiskInfo
-	IsKeyboard     bool
-	IsMouse        bool
-	MouseType      string
-	IsRNDIS        bool
-	RNDISMode      string
-	IsVideo        bool
-	VideoDevice    *models.SystemDevice
+	Name             string
+	Size             string
+	Source           string // "api", "local", "user", "keyboard", "mouse", "rndis", "gamepad", "video", "audio", "usbaudio"
+	IsMounted        bool
+	LocalDrive       *models.LocalDrive
+	DiskInfo         *models.DiskInfo
+	IsKeyboard       bool
+	IsMouse          bool
+	MouseType        string
+	IsRNDIS          bool
+	RNDISMode        string
+	IsVideo          bool
+	VideoDevice      *models.SystemDevice
 	IsGamepad        bool
 	GamepadID        string
 	GamepadMode      string
 	GamepadVendorID  string
 	GamepadProductID string
-	IsAudio        bool
-	AudioDevice    *models.SystemDevice
-	IsUSBAudio     bool
-	USBAudioMode   string // "uac1" or "uac2"
-	DriveMode      string // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
-	ReadOnly       bool
-	UploadProgress float64
-	UploadSpeed    float64
-	IsUploading    bool
-	IsMounting     bool
+	IsAudio          bool
+	AudioDevice      *models.SystemDevice
+	IsUSBAudio       bool
+	USBAudioMode     string // "uac1" or "uac2"
+	DriveMode        string // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
+	ReadOnly         bool
+	UploadProgress   float64
+	UploadSpeed      float64
+	IsUploading      bool
+	IsMounting       bool
 }
 
 // NewDiskWidget создает новый виджет устройств
@@ -194,27 +194,27 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		}
 	}
 	dw := &DiskWidget{
-		nbdServers:         make(map[string]service.NBDRunner),
-		usbClient:          usbClient,
-		updateStatus:       updateStatus,
-		app:                app,
-		config:             config,
-		localDrives:        make([]*models.LocalDrive, 0),
-		localFiles:         make([]*models.DiskInfo, 0),
-		videoDevices:       make([]models.SystemDevice, 0),
-		audioDevices:       make([]models.SystemDevice, 0),
-		userImages:         make([]*models.DiskInfo, 0),
-		allDrives:          make([]DriveItem, 0),
-		mountedDevices:     make([]*models.DeviceInfo, 0),
-		selectedItems:      make(map[int]bool),
-		devicesTraceBudget: 20,
-		preferredMouseMode:   defaultMouseMode(),
+		nbdServers:            make(map[string]service.NBDRunner),
+		usbClient:             usbClient,
+		updateStatus:          updateStatus,
+		app:                   app,
+		config:                config,
+		localDrives:           make([]*models.LocalDrive, 0),
+		localFiles:            make([]*models.DiskInfo, 0),
+		videoDevices:          make([]models.SystemDevice, 0),
+		audioDevices:          make([]models.SystemDevice, 0),
+		userImages:            make([]*models.DiskInfo, 0),
+		allDrives:             make([]DriveItem, 0),
+		mountedDevices:        make([]*models.DeviceInfo, 0),
+		selectedItems:         make(map[int]bool),
+		devicesTraceBudget:    20,
+		preferredMouseMode:    defaultMouseMode(),
 		preferredDisplayCount: 1,
-		scanPaths:          scanPaths,
-		supportedTypes:     supportedTypes,
-		safHelper:          platform.GetSAFHelper(app),
-		rowsCache:          make(map[string]fyne.CanvasObject),
-		cardsCache:         make(map[string]fyne.CanvasObject),
+		scanPaths:             scanPaths,
+		supportedTypes:        supportedTypes,
+		safHelper:             platform.GetSAFHelper(app),
+		rowsCache:             make(map[string]fyne.CanvasObject),
+		cardsCache:            make(map[string]fyne.CanvasObject),
 	}
 
 	if runtime.GOOS == "android" && dw.safHelper != nil {

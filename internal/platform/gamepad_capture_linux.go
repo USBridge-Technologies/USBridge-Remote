@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	linuxEvKey    = 1
-	linuxEvAbs    = 3
-	linuxEvSyn    = 0
+	linuxEvKey     = 1
+	linuxEvAbs     = 3
+	linuxEvSyn     = 0
 	linuxEventSize = 24 // struct input_event on 64-bit Linux
 
 	linuxAbsX     = 0
@@ -27,17 +27,17 @@ const (
 	linuxAbsHat0X = 16
 	linuxAbsHat0Y = 17
 
-	linuxBtnA       = 0x130
-	linuxBtnB       = 0x131
-	linuxBtnX       = 0x133
-	linuxBtnY       = 0x134
-	linuxBtnTL      = 0x136
-	linuxBtnTR      = 0x137
-	linuxBtnSelect  = 0x13A
-	linuxBtnStart   = 0x13B
-	linuxBtnMode    = 0x13C
-	linuxBtnThumbL  = 0x13D
-	linuxBtnThumbR  = 0x13E
+	linuxBtnA         = 0x130
+	linuxBtnB         = 0x131
+	linuxBtnX         = 0x133
+	linuxBtnY         = 0x134
+	linuxBtnTL        = 0x136
+	linuxBtnTR        = 0x137
+	linuxBtnSelect    = 0x13A
+	linuxBtnStart     = 0x13B
+	linuxBtnMode      = 0x13C
+	linuxBtnThumbL    = 0x13D
+	linuxBtnThumbR    = 0x13E
 	linuxBtnDpadUp    = 0x220
 	linuxBtnDpadDown  = 0x221
 	linuxBtnDpadLeft  = 0x222
@@ -76,11 +76,11 @@ func linuxEviocgabs(fd int, axis uint16) (linuxInputAbsinfo, bool) {
 type linuxAxisRange struct{ min, max int32 }
 
 type linuxState struct {
-	buttons        uint16
-	leftTrigger    uint8
-	rightTrigger   uint8
-	hatX, hatY     int32
-	axes           map[uint16]linuxAxisRange
+	buttons      uint16
+	leftTrigger  uint8
+	rightTrigger uint8
+	hatX, hatY   int32
+	axes         map[uint16]linuxAxisRange
 	// Raw int32 values from evdev for full 16-bit precision.
 	leftXRaw, leftYRaw   int32
 	rightXRaw, rightYRaw int32

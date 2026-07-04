@@ -1209,10 +1209,10 @@ func (mw *MainWindow) updateStatusBar() {
 				if storageStatus.SDCard.Total > 0 {
 					mw.currentStorageTotal = storageStatus.SDCard.Total
 					mw.currentStorageAvailable = storageStatus.SDCard.Free
-					
+
 					used := storageStatus.SDCard.Used
 					usedPct := storageStatus.SDCard.Percent / 100 // view.ProgressBar expects 0..1
-					
+
 					if mw.sdStorageProgress != nil {
 						mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
 						mw.sdStorageProgress.SetValue(usedPct)

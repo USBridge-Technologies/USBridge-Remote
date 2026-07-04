@@ -16,12 +16,12 @@ import (
 )
 
 const (
-	mbrPart1StartLBA = 0x1C6   // offset in MBR: start LBA of the first partition (4 bytes LE)
-	ext4MagicOffset  = 0x38    // in ext4 superblock: signature 0xEF53
-	ext4LabelOffset  = 0x278   // in ext4 superblock: volume name, 16 bytes
-	gptNameOffset    = 0x48    // in GPT header (LBA 1): disk name, 72 bytes UTF-16LE
-	superblockSize   = 1024   // ext4 superblock starts at offset 1024 from the beginning of the partition
-	readSectors      = 32768  // 16MB - covers partition alignment up to 8MB (16384 sectors)
+	mbrPart1StartLBA = 0x1C6 // offset in MBR: start LBA of the first partition (4 bytes LE)
+	ext4MagicOffset  = 0x38  // in ext4 superblock: signature 0xEF53
+	ext4LabelOffset  = 0x278 // in ext4 superblock: volume name, 16 bytes
+	gptNameOffset    = 0x48  // in GPT header (LBA 1): disk name, 72 bytes UTF-16LE
+	superblockSize   = 1024  // ext4 superblock starts at offset 1024 from the beginning of the partition
+	readSectors      = 32768 // 16MB - covers partition alignment up to 8MB (16384 sectors)
 )
 
 // GetVolumeLabelFromImage reads the volume label from the image (ext4 - from the superblock of the first partition).

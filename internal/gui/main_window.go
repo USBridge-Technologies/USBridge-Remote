@@ -42,30 +42,30 @@ type MainWindow struct {
 
 	// Services
 	nbdServer        *service.NBDServer
-	videoClient service.VideoClient
+	videoClient      service.VideoClient
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
 	tailscaleService *service.TailscaleService
 
 	// State
-	config                  *models.AppConfig
-	appState                *models.AppState
-	isConnected             bool
-	isStreaming             bool
-        activeAPISecret         []byte
-	isConnectionPending     atomic.Bool
-	isConnectionLoading     bool
-	connectedProtocol       string
-	activeFRPToken          string
-	pendingFRPToken         string // direct FRP token override from saved connection (skips sync)
+	config                   *models.AppConfig
+	appState                 *models.AppState
+	isConnected              bool
+	isStreaming              bool
+	activeAPISecret          []byte
+	isConnectionPending      atomic.Bool
+	isConnectionLoading      bool
+	connectedProtocol        string
+	activeFRPToken           string
+	pendingFRPToken          string // direct FRP token override from saved connection (skips sync)
 	pendingTailscaleRegister bool
-	lastTailscaleAuthURL    string
-	tailscalePollCancel     context.CancelFunc
-	currentVideoFPS         float64
-	currentStorageDir       string
-	currentStorageTotal     int64
-	currentStorageAvailable int64
-	storageStatus           *models.StorageStatusData
+	lastTailscaleAuthURL     string
+	tailscalePollCancel      context.CancelFunc
+	currentVideoFPS          float64
+	currentStorageDir        string
+	currentStorageTotal      int64
+	currentStorageAvailable  int64
+	storageStatus            *models.StorageStatusData
 
 	// Connection/Disconnection button
 	connectionBtn    *view.HeaderActionButton
@@ -79,14 +79,14 @@ type MainWindow struct {
 	scriptsWidget *controller.ScriptsTabWidget
 
 	// Address bar
-	hostEntry         *widget.Entry
-	tokenEntry        *widget.Entry
-	sdStorageProgress *view.StorageProgressBar
-	deepLinkHandler        *DeepLinkHandler
-	deepLinkMonitorStop    chan struct{}
+	hostEntry           *widget.Entry
+	tokenEntry          *widget.Entry
+	sdStorageProgress   *view.StorageProgressBar
+	deepLinkHandler     *DeepLinkHandler
+	deepLinkMonitorStop chan struct{}
 
-	lifecycleMu              sync.Mutex
-	lifecycleOps             chan func()
+	lifecycleMu  sync.Mutex
+	lifecycleOps chan func()
 
 	// Status icons
 	connectionIcon *widget.Button

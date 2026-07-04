@@ -77,8 +77,8 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	for i := range cm.connections {
 		conn := cm.connections[i]
 		savedInternal, savedTailscale := classifyConnectionHosts(conn)
-		
-		logrus.Debugf("🔍 [TS] Checking match: current=%q savedHost=%q savedInternal=%q savedTailscale=%q", 
+
+		logrus.Debugf("🔍 [TS] Checking match: current=%q savedHost=%q savedInternal=%q savedTailscale=%q",
 			currentHost, strings.TrimSpace(conn.Host), savedInternal, savedTailscale)
 
 		if currentHost != "" && (strings.TrimSpace(conn.Host) == currentHost || savedInternal == currentHost || savedTailscale == currentHost) {
@@ -214,4 +214,3 @@ func (cm *ConnectionManager) loadConnections() {
 		cm.saveConnections()
 	}
 }
-

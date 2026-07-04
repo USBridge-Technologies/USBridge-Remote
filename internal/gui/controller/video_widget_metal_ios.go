@@ -14,7 +14,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-
 func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.MetalVideoIsActive()
 }
@@ -162,8 +161,10 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 }
 
 // updateMetalVideoFrame repositions the Metal overlay:
-//   clip rect   = widget (touchpad) bounds — constrains the visible area.
-//   content rect = zoomed/panned video content — may extend outside clip when zoomed.
+//
+//	clip rect   = widget (touchpad) bounds — constrains the visible area.
+//	content rect = zoomed/panned video content — may extend outside clip when zoomed.
+//
 // The Metal C layer uses clipsToBounds on the clip container so the video never
 // bleeds over the toolbar or button panel regardless of zoom level.
 func (vw *VideoWidget) updateMetalVideoFrame() {
@@ -267,7 +268,7 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	// Y: cursor-centering pan.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := availH/2 - (availH-ch) - v*ch
+		idealPanY := availH/2 - (availH - ch) - v*ch
 		maxPanY := ch - availH
 		zoneY := availH * 0.15
 		vw.panOffsetY = iosSoftClamp(idealPanY, 0, maxPanY, zoneY)
@@ -352,7 +353,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 // Stubs for Android-specific APIs (no-ops on iOS).
 // ─────────────────────────────────────────────────────────────────────────────
 
-func (vw *VideoWidget) androidCursorScale() int     { return 1 }
+func (vw *VideoWidget) androidCursorScale() int      { return 1 }
 func (vw *VideoWidget) initAndroidCursorScale(_ int) {}
 func triggerRmbHaptic()                              {}
 
