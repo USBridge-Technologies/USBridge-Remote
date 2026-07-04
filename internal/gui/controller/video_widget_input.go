@@ -1170,6 +1170,8 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 		top, bottom = 0, 0
 	}
 
+	logrus.Infof("[ABS] detectDarkInset (frame %dx%d): left=%v, right=%v, top=%v, bottom=%v", frameW, frameH, left, right, top, bottom)
+
 	contentX := float32(left) / float32(frameW)
 	contentY := float32(top) / float32(frameH)
 	contentW := float32(frameW-left-right) / float32(frameW)

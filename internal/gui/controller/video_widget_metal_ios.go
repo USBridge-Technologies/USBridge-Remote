@@ -127,10 +127,14 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
+	absY := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
+	topOffset := absY
+	fallbackY := canvasH - szMain.Height
 	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
-		topOffset = canvasH - szMain.Height
+		topOffset = fallbackY
 	}
+	logrus.Infof("[METAL] videoWidgetFrame: canvasH=%v, szMain.H=%v, absY=%v, fallbackY=%v, final topOffset=%v", canvasH, szMain.Height, absY, fallbackY, topOffset)
+
 	if getImeExpandHeightDp() > 0 {
 		if vw.contentContainer != nil && vw.contentContainer.Visible() {
 			absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
@@ -318,10 +322,14 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// We calculate Y manually: mainContainer is placed below the header.
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	topOffset := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
+	absY := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
+	topOffset := absY
+	fallbackY := canvasH - szMain.Height
 	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
-		topOffset = canvasH - szMain.Height
+		topOffset = fallbackY
 	}
+	logrus.Infof("[METAL] videoCanvasFrame: canvasH=%v, szMain.H=%v, absY=%v, fallbackY=%v, final topOffset=%v", canvasH, szMain.Height, absY, fallbackY, topOffset)
+
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
 	if vw.contentRectW > 0 && vw.contentRectH > 0 {
