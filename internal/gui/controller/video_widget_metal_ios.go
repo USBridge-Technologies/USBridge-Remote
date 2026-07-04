@@ -33,8 +33,14 @@ func (vw *VideoWidget) ensureNativeOverlayOnTop() {}
 // startMetalVideoOnWindow creates the Metal CALayer overlay on the key UIWindow.
 // On iOS the UIWindow is found internally in C code — no RunNative needed.
 func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bool) {
-	view.OnOverlayShow = func() { service.MetalVideoSetHidden(true) }
-	view.OnOverlayHide = func() { service.MetalVideoSetHidden(false) }
+	view.OnOverlayShow = func() {
+		service.MetalVideoSetHidden(true)
+		service.MetalVideoUpdateCursor(0, 0, false) // hide cursor above popups/menus
+	}
+	view.OnOverlayHide = func() {
+		service.MetalVideoSetHidden(false)
+		lastMetalCursorVis = false // force cache miss so cursor re-appears on next tick
+	}
 
 	var x, y, w, h float32
 	if !fullscreen {
