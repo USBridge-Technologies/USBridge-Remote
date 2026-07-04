@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"

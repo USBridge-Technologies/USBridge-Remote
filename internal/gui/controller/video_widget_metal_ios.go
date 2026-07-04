@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"fmt"
 	"image"
 	"time"
 
@@ -127,13 +128,11 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	}
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	absY := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
-	topOffset := absY
-	fallbackY := canvasH - szMain.Height
-	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
-		topOffset = fallbackY
-	}
-	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,aY=%.0f,fY=%.0f,tO=%.0f", canvasH, szMain.Height, absY, fallbackY, topOffset))
+	// AbsolutePositionForObject is unreliable on iOS (may return wrong positive values
+	// before layout settles). Use canvasH - szMain.Height directly — it equals the
+	// combined height of the tab bar + safe area and is always correct.
+	topOffset := canvasH - szMain.Height
+	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	if getImeExpandHeightDp() > 0 {
 		if vw.contentContainer != nil && vw.contentContainer.Visible() {
@@ -318,17 +317,10 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if vw.container == nil || vw.touchpadWrapper == nil || vw.parentWindow == nil {
 		return
 	}
-	// Fyne's AbsolutePositionForObject is unreliable on mobile canvases.
-	// We calculate Y manually: mainContainer is placed below the header.
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
-	absY := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.container).Y
-	topOffset := absY
-	fallbackY := canvasH - szMain.Height
-	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
-		topOffset = fallbackY
-	}
-	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,aY=%.0f,fY=%.0f,tO=%.0f", canvasH, szMain.Height, absY, fallbackY, topOffset))
+	topOffset := canvasH - szMain.Height
+	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,tO=%.0f", canvasH, szMain.Height, topOffset))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
