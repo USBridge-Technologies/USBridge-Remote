@@ -81,6 +81,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(window fyne.Window, fullscreen bo
 	}
 
 	logrus.Info("📱 [Metal/iOS] overlay active")
+	service.SetStreamingActive(true) // keep CPU at full performance while streaming
 	if view.OverlayActive() {
 		service.MetalVideoSetHidden(true)
 	}
@@ -113,6 +114,7 @@ func (vw *VideoWidget) stopMetalVideo() {
 	view.OnOverlayShow = nil
 	view.OnOverlayHide = nil
 	service.MetalVideoDestroy()
+	service.SetStreamingActive(false) // restore idle timer
 	vw.metalFPSWarned.Store(false)
 }
 

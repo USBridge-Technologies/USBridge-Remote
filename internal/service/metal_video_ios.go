@@ -24,6 +24,7 @@ extern void   metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void   metal_video_set_hidden(int hidden);
 extern void   usbridge_syslog(const char* msg);
+extern void   set_streaming_active(int active);
 
 // Forward declaration matching the CGO-generated export signature.
 extern void goMetalLog(char *msg, int level);
@@ -131,4 +132,15 @@ func Syslog(msg string) {
 	cmsg := C.CString(msg)
 	C.usbridge_syslog(cmsg)
 	C.free(unsafe.Pointer(cmsg))
+}
+
+// SetStreamingActive disables/restores the iOS idle timer while streaming.
+// With the timer disabled iOS keeps CPU in high-performance mode, preventing
+// the decoder thread from being throttled to slideshow FPS when the user is idle.
+func SetStreamingActive(active bool) {
+	v := C.int(0)
+	if active {
+		v = 1
+	}
+	C.set_streaming_active(v)
 }

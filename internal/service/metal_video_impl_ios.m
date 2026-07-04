@@ -500,3 +500,15 @@ void metal_video_destroy(void) {
 
 #endif // TARGET_OS_IPHONE
 void usbridge_syslog(const char* msg) { NSLog(@"[USBridge] %s", msg); }
+
+// Disable the idle timer while streaming so iOS keeps the CPU in high-performance
+// mode. Without this, the decoder thread gets throttled when the user is idle,
+// causing the video to drop to slideshow FPS.
+void set_streaming_active(int active) {
+#if TARGET_OS_IPHONE
+    dispatch_block_t blk = ^{
+        [UIApplication sharedApplication].idleTimerDisabled = (active != 0) ? YES : NO;
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+#endif
+}
