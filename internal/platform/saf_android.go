@@ -50,7 +50,7 @@ var (
 // GetSAFHelper возвращает singleton instance SAFHelper
 func GetSAFHelper(app fyne.App) *SAFHelper {
 	safHelperOnce.Do(func() {
-		logrus.Info("🔧 [SAF] Инициализация SAFHelper singleton")
+		logrus.Info("🔧 [SAF] Initializing SAFHelper singleton")
 		safHelper = &SAFHelper{
 			app:       app,
 			fdCache:   make(map[string]int),
@@ -65,37 +65,37 @@ func (sh *SAFHelper) TakePersistableUriPermission(uriString string) error {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
-	logrus.Infof("📍 [SAF-STEP-1] TakePersistableUriPermission вызван для URI: %s", uriString)
+	logrus.Infof("📍 [SAF-STEP-1] TakePersistableUriPermission called for URI: %s", uriString)
 	logrus.Infof("📍 [SAF-STEP-1] Runtime GOOS: %s, GOARCH: %s", runtime.GOOS, runtime.GOARCH)
 
 	if sh.app == nil {
-		err := fmt.Errorf("SAFHelper: app не инициализирован")
+		err := fmt.Errorf("SAFHelper: app is not initialized")
 		logrus.Errorf("❌ [SAF-STEP-1-ERROR] %v", err)
 		return err
 	}
 
-	logrus.Infof("✅ [SAF-STEP-1] App объект доступен: %T", sh.app)
+	logrus.Infof("✅ [SAF-STEP-1] App object is available: %T", sh.app)
 
 	// Канал для получения результата из нативного кода
 	resultChan := make(chan error, 1)
 
-	logrus.Infof("📍 [SAF-STEP-2] Подготовка к вызову driver.RunNative для takePersistableUriPermission")
+	logrus.Infof("📍 [SAF-STEP-2] Preparing to call driver.RunNative for takePersistableUriPermission")
 
 	// Вызываем Android JNI через driver.RunNative
 	driver.RunNative(func(ctx any) error {
-		logrus.Infof("📍 [SAF-STEP-3] Внутри RunNative callback, контекст: %T", ctx)
+		logrus.Infof("📍 [SAF-STEP-3] Inside RunNative callback, context: %T", ctx)
 
 		// ctx должен быть android.app.Activity или Context
 		defer func() {
 			if r := recover(); r != nil {
-				err := fmt.Errorf("panic в RunNative: %v", r)
+				err := fmt.Errorf("panic in RunNative: %v", r)
 				logrus.Errorf("❌ [SAF-STEP-3-PANIC] %v", err)
 				resultChan <- err
 			}
 		}()
 
 		// Попытка получить Activity через рефлексию/JNI
-		logrus.Infof("📍 [SAF-STEP-4] Попытка вызова JNI для takePersistableUriPermission")
+		logrus.Infof("📍 [SAF-STEP-4] Attempting to call JNI for takePersistableUriPermission")
 
 		// ЗДЕСЬ НУЖНА РЕАЛЬНАЯ JNI РЕАЛИЗАЦИЯ
 		// Для демонстрации используем заглушку с подробным логированием
@@ -107,7 +107,7 @@ func (sh *SAFHelper) TakePersistableUriPermission(uriString string) error {
 			return err
 		}
 
-		logrus.Infof("📍 [SAF-STEP-5] Контекст получен, попытка вызова JNI метода")
+		logrus.Infof("📍 [SAF-STEP-5] Context obtained, attempting to call JNI method")
 
 		// TODO: Actual JNI implementation needed
 		// 1. Get ContentResolver via context.getContentResolver()
@@ -117,24 +117,24 @@ func (sh *SAFHelper) TakePersistableUriPermission(uriString string) error {
 
 		err := sh.jniTakePersistableUriPermission(ctx, uriString)
 		if err != nil {
-			logrus.Errorf("❌ [SAF-STEP-5-ERROR] JNI вызов завершился с ошибкой: %v", err)
+			logrus.Errorf("❌ [SAF-STEP-5-ERROR] JNI call failed with error: %v", err)
 			resultChan <- err
 		} else {
-			logrus.Infof("✅ [SAF-STEP-5-SUCCESS] JNI вызов успешен")
+			logrus.Infof("✅ [SAF-STEP-5-SUCCESS] JNI call successful")
 			resultChan <- nil
 		}
 		return err
 	})
 
-	logrus.Infof("📍 [SAF-STEP-6] Ожидание результата из RunNative...")
+	logrus.Infof("📍 [SAF-STEP-6] Waiting for result from RunNative...")
 	err := <-resultChan
 
 	if err != nil {
-		logrus.Errorf("❌ [SAF-STEP-6-ERROR] TakePersistableUriPermission завершился с ошибкой: %v", err)
-		return fmt.Errorf("не удалось сохранить разрешение для URI %s: %v", uriString, err)
+		logrus.Errorf("❌ [SAF-STEP-6-ERROR] TakePersistableUriPermission failed with error: %v", err)
+		return fmt.Errorf("failed to save permission for URI %s: %v", uriString, err)
 	}
 
-	logrus.Infof("✅ [SAF-STEP-6-SUCCESS] Разрешение для URI %s успешно сохранено", uriString)
+	logrus.Infof("✅ [SAF-STEP-6-SUCCESS] Permission for URI %s successfully saved", uriString)
 	return nil
 }
 
@@ -143,29 +143,29 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
-	logrus.Infof("📍 [SAF-OPENFD-1] OpenFileDescriptor вызван для URI: %s, mode: %s", uriString, mode)
+	logrus.Infof("📍 [SAF-OPENFD-1] OpenFileDescriptor called for URI: %s, mode: %s", uriString, mode)
 
 	// Проверяем кэш
 	if cachedFile, exists := sh.fileCache[uriString]; exists {
 		// Проверяем что файл все еще валиден
 		if _, err := cachedFile.Stat(); err == nil {
-			logrus.Infof("✅ [SAF-OPENFD-CACHE] Возвращаем закэшированный *os.File для URI: %s", uriString)
+			logrus.Infof("✅ [SAF-OPENFD-CACHE] Returning cached *os.File for URI: %s", uriString)
 			return cachedFile, nil
 		} else {
 			// Файл закрыт или невалиден, удаляем из кэша
-			logrus.Warnf("⚠️ [SAF-OPENFD-CACHE-INVALID] Закэшированный файл невалиден (%v), удаляем из кэша и переоткрываем", err)
+			logrus.Warnf("⚠️ [SAF-OPENFD-CACHE-INVALID] Cached file is invalid (%v), removing from cache and reopening", err)
 			delete(sh.fileCache, uriString)
 			delete(sh.fdCache, uriString)
 		}
 	}
 
 	if sh.app == nil {
-		err := fmt.Errorf("SAFHelper: app не инициализирован")
+		err := fmt.Errorf("SAFHelper: app is not initialized")
 		logrus.Errorf("❌ [SAF-OPENFD-1-ERROR] %v", err)
 		return nil, err
 	}
 
-	logrus.Infof("📍 [SAF-OPENFD-2] Подготовка к вызову driver.RunNative для openFileDescriptor")
+	logrus.Infof("📍 [SAF-OPENFD-2] Preparing to call driver.RunNative for openFileDescriptor")
 
 	// Канал для получения FD из нативного кода
 	fdChan := make(chan int, 1)
@@ -173,11 +173,11 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 
 	// Вызываем Android JNI через driver.RunNative
 	driver.RunNative(func(ctx any) error {
-		logrus.Infof("📍 [SAF-OPENFD-3] Внутри RunNative callback для openFileDescriptor")
+		logrus.Infof("📍 [SAF-OPENFD-3] Inside RunNative callback for openFileDescriptor")
 
 		defer func() {
 			if r := recover(); r != nil {
-				err := fmt.Errorf("panic в RunNative: %v", r)
+				err := fmt.Errorf("panic in RunNative: %v", r)
 				logrus.Errorf("❌ [SAF-OPENFD-3-PANIC] %v", err)
 				errChan <- err
 			}
@@ -190,7 +190,7 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 			return err
 		}
 
-		logrus.Infof("📍 [SAF-OPENFD-4] Попытка вызова JNI для openFileDescriptor")
+		logrus.Infof("📍 [SAF-OPENFD-4] Attempting to call JNI for openFileDescriptor")
 
 		// TODO: Actual JNI implementation needed:
 		// 1. Получить ContentResolver через context.getContentResolver()
@@ -201,31 +201,31 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 
 		fd, err := sh.jniOpenFileDescriptor(ctx, uriString, mode)
 		if err != nil {
-			logrus.Errorf("❌ [SAF-OPENFD-4-ERROR] JNI вызов завершился с ошибкой: %v", err)
+			logrus.Errorf("❌ [SAF-OPENFD-4-ERROR] JNI call failed with error: %v", err)
 			errChan <- err
 			return err
 		}
 
-		logrus.Infof("✅ [SAF-OPENFD-4-SUCCESS] Получен FD: %d", fd)
+		logrus.Infof("✅ [SAF-OPENFD-4-SUCCESS] Obtained FD: %d", fd)
 		fdChan <- fd
 		return nil
 	})
 
-	logrus.Infof("📍 [SAF-OPENFD-5] Ожидание результата из RunNative...")
+	logrus.Infof("📍 [SAF-OPENFD-5] Waiting for result from RunNative...")
 
 	// Ждем результат
 	select {
 	case fd := <-fdChan:
-		logrus.Infof("✅ [SAF-OPENFD-5] Получен файловый дескриптор: %d", fd)
+		logrus.Infof("✅ [SAF-OPENFD-5] Obtained file descriptor: %d", fd)
 
 		// Кэшируем FD
 		sh.fdCache[uriString] = fd
 
 		// Преобразуем FD в *os.File
-		logrus.Infof("📍 [SAF-OPENFD-6] Преобразование FD %d в *os.File", fd)
+		logrus.Infof("📍 [SAF-OPENFD-6] Converting FD %d to *os.File", fd)
 		file := os.NewFile(uintptr(fd), fmt.Sprintf("saf:%s", uriString))
 		if file == nil {
-			err := fmt.Errorf("не удалось создать *os.File из FD %d", fd)
+			err := fmt.Errorf("failed to create *os.File from FD %d", fd)
 			logrus.Errorf("❌ [SAF-OPENFD-6-ERROR] %v", err)
 			return nil, err
 		}
@@ -233,12 +233,12 @@ func (sh *SAFHelper) OpenFileDescriptor(uriString string, mode string) (*os.File
 		// Кэшируем File
 		sh.fileCache[uriString] = file
 
-		logrus.Infof("✅ [SAF-OPENFD-6-SUCCESS] *os.File создан успешно для URI: %s", uriString)
+		logrus.Infof("✅ [SAF-OPENFD-6-SUCCESS] *os.File successfully created for URI: %s", uriString)
 		return file, nil
 
 	case err := <-errChan:
-		logrus.Errorf("❌ [SAF-OPENFD-5-ERROR] Ошибка при открытии FD: %v", err)
-		return nil, fmt.Errorf("не удалось открыть файловый дескриптор для URI %s: %v", uriString, err)
+		logrus.Errorf("❌ [SAF-OPENFD-5-ERROR] Error opening FD: %v", err)
+		return nil, fmt.Errorf("failed to open file descriptor for URI %s: %v", uriString, err)
 	}
 }
 
@@ -247,24 +247,24 @@ func (sh *SAFHelper) CloseFD(uriString string) error {
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
-	logrus.Infof("📍 [SAF-CLOSE-1] CloseFD вызван для URI: %s", uriString)
+	logrus.Infof("📍 [SAF-CLOSE-1] CloseFD called for URI: %s", uriString)
 
 	// Закрываем File если есть
 	if file, exists := sh.fileCache[uriString]; exists {
-		logrus.Infof("📍 [SAF-CLOSE-2] Закрытие *os.File для URI: %s", uriString)
+		logrus.Infof("📍 [SAF-CLOSE-2] Closing *os.File for URI: %s", uriString)
 		if err := file.Close(); err != nil {
-			logrus.Warnf("⚠️ [SAF-CLOSE-2-WARN] Ошибка закрытия файла (файл уже закрыт?): %v", err)
+			logrus.Warnf("⚠️ [SAF-CLOSE-2-WARN] Error closing file (already closed?): %v", err)
 			// Не возвращаем ошибку - продолжаем очистку кэша
 		}
 		// Удаляем из кэша в любом случае (даже если файл уже был закрыт)
 		delete(sh.fileCache, uriString)
-		logrus.Infof("✅ [SAF-CLOSE-2-SUCCESS] Файл удален из кэша")
+		logrus.Infof("✅ [SAF-CLOSE-2-SUCCESS] File removed from cache")
 	}
 
 	// Удаляем FD из кэша
 	if _, exists := sh.fdCache[uriString]; exists {
 		delete(sh.fdCache, uriString)
-		logrus.Infof("✅ [SAF-CLOSE-3] FD удален из кэша")
+		logrus.Infof("✅ [SAF-CLOSE-3] FD removed from cache")
 	}
 
 	return nil
@@ -277,24 +277,24 @@ func (sh *SAFHelper) GetCachedFile(uriString string) (*os.File, bool) {
 
 	file, exists := sh.fileCache[uriString]
 	if exists {
-		logrus.Infof("📍 [SAF-CACHE-HIT] Найден закэшированный файл для URI: %s", uriString)
+		logrus.Infof("📍 [SAF-CACHE-HIT] Found cached file for URI: %s", uriString)
 	} else {
-		logrus.Infof("📍 [SAF-CACHE-MISS] Нет закэшированного файла для URI: %s", uriString)
+		logrus.Infof("📍 [SAF-CACHE-MISS] No cached file for URI: %s", uriString)
 	}
 	return file, exists
 }
 
 // jniTakePersistableUriPermission - вызов JNI через CGO
 func (sh *SAFHelper) jniTakePersistableUriPermission(ctx any, uriString string) error {
-	logrus.Infof("📍 [SAF-JNI-CALL] Вызов C функции jni_takePersistableUriPermission")
+	logrus.Infof("📍 [SAF-JNI-CALL] Calling C function jni_takePersistableUriPermission")
 
 	// Приводим ctx к *driver.AndroidContext
 	androidCtx, ok := ctx.(*driver.AndroidContext)
 	if !ok {
-		return fmt.Errorf("контекст не является *driver.AndroidContext")
+		return fmt.Errorf("context is not *driver.AndroidContext")
 	}
 
-	logrus.Infof("📍 [SAF-JNI-CALL] AndroidContext получен: VM=%v, Env=%v, Ctx=%v",
+	logrus.Infof("📍 [SAF-JNI-CALL] AndroidContext obtained: VM=%v, Env=%v, Ctx=%v",
 		androidCtx.VM, androidCtx.Env, androidCtx.Ctx)
 
 	// Конвертируем строку в C string
@@ -309,24 +309,24 @@ func (sh *SAFHelper) jniTakePersistableUriPermission(ctx any, uriString string) 
 	)
 
 	if result != 0 {
-		return fmt.Errorf("JNI вызов вернул код ошибки: %d", result)
+		return fmt.Errorf("JNI call returned error code: %d", result)
 	}
 
-	logrus.Infof("✅ [SAF-JNI-CALL] C функция выполнена успешно")
+	logrus.Infof("✅ [SAF-JNI-CALL] C function executed successfully")
 	return nil
 }
 
 // jniOpenFileDescriptor - вызов JNI через CGO
 func (sh *SAFHelper) jniOpenFileDescriptor(ctx any, uriString string, mode string) (int, error) {
-	logrus.Infof("📍 [SAF-JNI-CALL] Вызов C функции jni_openFileDescriptor")
+	logrus.Infof("📍 [SAF-JNI-CALL] Calling C function jni_openFileDescriptor")
 
 	// Приводим ctx к *driver.AndroidContext
 	androidCtx, ok := ctx.(*driver.AndroidContext)
 	if !ok {
-		return -1, fmt.Errorf("контекст не является *driver.AndroidContext")
+		return -1, fmt.Errorf("context is not *driver.AndroidContext")
 	}
 
-	logrus.Infof("📍 [SAF-JNI-CALL] AndroidContext получен: VM=%v, Env=%v, Ctx=%v",
+	logrus.Infof("📍 [SAF-JNI-CALL] AndroidContext obtained: VM=%v, Env=%v, Ctx=%v",
 		androidCtx.VM, androidCtx.Env, androidCtx.Ctx)
 
 	// Конвертируем строки в C strings
@@ -345,10 +345,10 @@ func (sh *SAFHelper) jniOpenFileDescriptor(ctx any, uriString string, mode strin
 	)
 
 	if fd < 0 {
-		return -1, fmt.Errorf("JNI вызов вернул неверный FD: %d", fd)
+		return -1, fmt.Errorf("JNI call returned invalid FD: %d", fd)
 	}
 
-	logrus.Infof("✅ [SAF-JNI-CALL] C функция выполнена успешно, FD=%d", fd)
+	logrus.Infof("✅ [SAF-JNI-CALL] C function executed successfully, FD=%d", fd)
 	return int(fd), nil
 }
 
@@ -406,7 +406,7 @@ func (sh *SAFHelper) TriggerSAFPicker() error {
 	logrus.Info("🚀 [SAF-PLATFORM] TriggerSAFPicker ENTER")
 
 	if sh.app == nil {
-		return fmt.Errorf("SAFHelper: app не инициализирован")
+		return fmt.Errorf("SAFHelper: app is not initialized")
 	}
 
 	res := C.jni_startSAFPicker()
