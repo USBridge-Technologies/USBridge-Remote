@@ -18,10 +18,10 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 
-// Metal overlay fast path (defined in metal_video_darwin.go, macOS only).
+// Metal overlay fast path (macOS: metal_video_darwin.go, iOS: metal_video_ios.go).
+extern int metal_video_try_submit(CVImageBufferRef img);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
 extern int metal_video_is_active(void);
-extern int metal_video_try_submit(CVImageBufferRef img);
 #endif
 
 #include "moonlight_cgo_shared.h"
@@ -318,10 +318,8 @@ static void vt_callback(
         }
     }
 
-    // ── Metal fast path (zero CPU copy via IOSurface) ─────────────────────────
-#if TARGET_OS_MAC && !TARGET_OS_IPHONE
+    // ── Metal fast path (zero CPU copy via IOSurface, macOS and iOS) ─────────
     if (metal_video_try_submit(img)) return;
-#endif
 
     // ── CPU fallback: BGRA→RGBA conversion into pre-allocated buffer ──────────
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
