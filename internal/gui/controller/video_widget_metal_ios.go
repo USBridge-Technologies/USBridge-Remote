@@ -321,7 +321,25 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.
 	if vw.contentRectW > 0 && vw.contentRectH > 0 {
-		return vw.contentRectX, topOffset + vw.contentRectY, vw.contentRectW, vw.contentRectH
+		cy := topOffset + vw.contentRectY
+		if getImeExpandHeightDp() > 0 {
+			// Emulate Android's VKVideoAndroidSetAlignBottom: align the video quad to the
+			// bottom of the expanded SurfaceView so there is no black gap above the keyboard panel.
+			if vw.contentContainer != nil && vw.contentContainer.Visible() {
+				absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
+				videoH := absPos.Y
+				if videoH <= 0 {
+					videoH = canvasH
+					if kh := vw.contentContainer.Size().Height; kh > 0 {
+						videoH -= kh
+					}
+				}
+				if videoH > 0 {
+					cy = videoH - vw.contentRectH
+				}
+			}
+		}
+		return vw.contentRectX, cy, vw.contentRectW, vw.contentRectH
 	}
 
 	// The video container (touchpadWrapper) size dynamically shrinks when the virtual
