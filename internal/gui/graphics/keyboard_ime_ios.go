@@ -92,6 +92,15 @@ func applyIMEHeight(imePx, screenPx int) {
 	logrus.Infof("⌨️ [IME-ObjC] lastIMEH=%.0f canvasH=%.0f", lastIMEH, canvasH)
 
 	if vk != nil {
-		vk.setIMEOffset(calculatedIMEH)
+		// Fyne already shrinks the canvas on iOS to accommodate the keyboard.
+		// If we set the spacer height to >0, Fyne pushes the contentContainer
+		// up by that much extra padding, causing it to fly off the top.
+		vk.setIMEOffset(0)
+
+		// But we MUST notify the video widget that the keyboard is open with its real height
+		// so that the Metal overlay expands upward to cover the tabs.
+		if vk.onIMEChanged != nil {
+			vk.onIMEChanged(calculatedIMEH)
+		}
 	}
 }

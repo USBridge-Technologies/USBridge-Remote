@@ -104,19 +104,6 @@ func (vw *VideoWidget) stopMetalVideo() {
 	service.VKVideoAndroidDestroy()
 }
 
-// imeExpandBits stores math.Float32bits(imeHeightDp) atomically.
-// Non-zero means the system IME is open and the Vulkan SurfaceView should expand
-// to cover everything above the IME (tabs, custom keyboard panel, etc.).
-var imeExpandBits atomic.Int32
-
-func setImeExpandHeightDp(h float32) {
-	imeExpandBits.Store(int32(math.Float32bits(h)))
-}
-
-func getImeExpandHeightDp() float32 {
-	return math.Float32frombits(uint32(imeExpandBits.Load()))
-}
-
 // onIMEHeightChanged is called when the Android system IME appears/disappears.
 // NavBar is ~20-50dp; real system keyboard is >150dp. Only expand for the real keyboard.
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {

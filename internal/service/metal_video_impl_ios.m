@@ -425,13 +425,17 @@ void metal_video_update_layout(float clip_x, float clip_y, float clip_w, float c
     if (!atomic_load(&g_active) || !g_clip_view) return;
     float cx=clip_x, cy=clip_y, cw=clip_w, ch=clip_h;
     float vx=content_x, vy=content_y, vw=content_w, vh=content_h;
+    float kbH = g_keyboard_height_pt;
     dispatch_block_t blk = ^{
         if (!g_clip_view || !g_view) return;
+
+        float fcx=cx, fcy=cy, fcw=cw, fch=ch;
+
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
-        g_clip_view.frame = CGRectMake(cx, cy, cw, ch);
+        g_clip_view.frame = CGRectMake(fcx, fcy, fcw, fch);
         // Position video view relative to the clip view's coordinate space.
-        g_view.frame = CGRectMake(vx - cx, vy - cy, vw, vh);
+        g_view.frame = CGRectMake(vx - fcx, vy - fcy, vw, vh);
         [CATransaction commit];
     };
     if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);

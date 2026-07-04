@@ -128,6 +128,24 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	szMain := vw.container.Size()
 	canvasH := vw.parentWindow.Canvas().Size().Height
 	topOffset := canvasH - szMain.Height
+
+	if getImeExpandHeightDp() > 0 {
+		if vw.contentContainer != nil && vw.contentContainer.Visible() {
+			absPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(vw.contentContainer)
+			videoH := absPos.Y
+			if videoH <= 0 {
+				videoH = canvasH
+				if kh := vw.contentContainer.Size().Height; kh > 0 {
+					videoH -= kh
+				}
+			}
+			if videoH > 0 {
+				// Expand clip rect to cover the top interface (tabs area) while IME is open.
+				return 0, 0, szMain.Width, videoH
+			}
+		}
+	}
+
 	szVideo := vw.touchpadWrapper.Size()
 	return 0, topOffset, szVideo.Width, szVideo.Height
 }
@@ -148,20 +166,9 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		return
 	}
 
-	// When the software keyboard is visible, cap the clip height so the overlay
-	// stays above the keyboard. Keyboard height is tracked via UIKeyboardNotification
-	// in the C layer and is in UIKit points (= Fyne dp on iOS).
-	kbH := service.MetalVideoGetKeyboardHeight()
-	if kbH > 100 { // ignore nav-bar insets (<100 pt); real keyboard is >100 pt
-		canvasH := vw.parentWindow.Canvas().Size().Height
-		maxH := canvasH - kbH - clipY
-		if maxH < 0 {
-			maxH = 0
-		}
-		if clipH > maxH {
-			clipH = maxH
-		}
-	}
+	// Note: keyboard-height capping is handled in C (metal_video_update_layout) using
+	// direct UIKit window coordinates. Go-side Fyne coordinates are unreliable during
+	// keyboard transitions on iOS, so we let C override the clip rect when kbH > 100pt.
 
 	// Content rect = zoomed/panned video position (may be outside clip bounds).
 	contentX, contentY, contentW, contentH := vw.videoCanvasFrame()
@@ -336,8 +343,16 @@ func triggerRmbHaptic()                              {}
 // and queried each frame via MetalVideoGetKeyboardHeight, so the next updateMetalVideoFrame
 // call will automatically pick up the change.  We only need to invalidate the
 // last-frame cache here so the update happens in the very next tick (not next change).
-func (vw *VideoWidget) onIMEHeightChanged(_ float32) {
+func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {
+	const minRealIMEDp = 100
+	imeOpen := imeHeightDp > minRealIMEDp
+	if imeOpen {
+		setImeExpandHeightDp(imeHeightDp)
+	} else {
+		setImeExpandHeightDp(0)
+	}
 	lastMetalClipH = 0 // force cache miss → immediate layout update
+	vw.forceCanvasRefresh.Store(true)
 }
 
 // iosCursorImagePixels rasterizes cursor-pointer.svg at 3× (54×72 px) —

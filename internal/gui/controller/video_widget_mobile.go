@@ -3,7 +3,9 @@
 package controller
 
 import (
+	"math"
 	"sync"
+	"sync/atomic"
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/service"
 
@@ -14,7 +16,20 @@ import (
 var (
 	activeMobileGestureTargetMu sync.RWMutex
 	activeMobileGestureTarget   *VideoWidget
+
+	// imeExpandBits stores math.Float32bits(imeHeightDp) atomically.
+	// Non-zero means the system IME is open and the video should expand
+	// to cover everything above the IME (tabs, custom keyboard panel, etc.).
+	imeExpandBits atomic.Int32
 )
+
+func setImeExpandHeightDp(h float32) {
+	imeExpandBits.Store(int32(math.Float32bits(h)))
+}
+
+func getImeExpandHeightDp() float32 {
+	return math.Float32frombits(uint32(imeExpandBits.Load()))
+}
 
 func activeGestureVideoWidget() *VideoWidget {
 	activeMobileGestureTargetMu.RLock()
