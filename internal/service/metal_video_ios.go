@@ -14,6 +14,8 @@ extern int    metal_video_is_active(void);
 extern int    metal_video_try_submit(CVImageBufferRef img);
 extern int    metal_video_create(uintptr_t unused, float x, float y, float w, float h);
 extern void   metal_video_update_frame(float x, float y, float w, float h);
+extern void   metal_video_update_cursor(float x, float y, int visible);
+extern void   metal_video_set_cursor_image(uint8_t *pixels, int w, int h);
 extern void   metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void   metal_video_set_hidden(int hidden);
@@ -23,7 +25,11 @@ extern void goMetalLog(char *msg, int level);
 */
 import "C"
 
-import "github.com/sirupsen/logrus"
+import (
+	"unsafe"
+
+	"github.com/sirupsen/logrus"
+)
 
 // goMetalLog is called from C (metal_video_impl_ios.m) to log via logrus.
 //
@@ -50,6 +56,26 @@ func MetalVideoCreate(_ uintptr, x, y, w, h float32) bool {
 // MetalVideoUpdateFrame repositions the Metal overlay to track the Fyne video widget.
 func MetalVideoUpdateFrame(x, y, w, h float32) {
 	C.metal_video_update_frame(C.float(x), C.float(y), C.float(w), C.float(h))
+}
+
+// MetalVideoUpdateCursor updates the position and visibility of the Metal overlay cursor.
+func MetalVideoUpdateCursor(x, y float32, visible bool) {
+	vis := C.int(0)
+	if visible {
+		vis = 1
+	}
+	C.metal_video_update_cursor(C.float(x), C.float(y), vis)
+}
+
+// MetalVideoSetCursorImage uploads raw NRGBA pixels (R,G,B,A per pixel) to the Metal
+// cursor layer. Call this once after creating the overlay to replace the default circle
+// with a proper arrow cursor. The C function copies the bytes immediately so the Go
+// slice may be GC'd after this call returns.
+func MetalVideoSetCursorImage(pix []byte, w, h int) {
+	if len(pix) == 0 || w <= 0 || h <= 0 {
+		return
+	}
+	C.metal_video_set_cursor_image((*C.uint8_t)(unsafe.Pointer(&pix[0])), C.int(w), C.int(h))
 }
 
 // MetalVideoDestroy removes the overlay and disables the Metal decode path.

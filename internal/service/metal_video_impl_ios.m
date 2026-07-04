@@ -8,10 +8,12 @@
 #import <UIKit/UIKit.h>
 #import <CoreVideo/CoreVideo.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreGraphics/CoreGraphics.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <time.h>
+#include <stdlib.h>
 
 // Forward declaration — CGO generates this export from metal_video_ios.go.
 extern void goMetalLog(char *msg, int level);
@@ -262,6 +264,118 @@ int metal_video_create(uintptr_t unused, float x, float y, float w, float h) {
     return ok;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cursor layer — arrow cursor overlaid on the video (above g_view).
+// g_cursor_image is set once by metal_video_set_cursor_image and held for the
+// lifetime of the process so the CGImage inside it remains valid.
+// ─────────────────────────────────────────────────────────────────────────────
+static CALayer  *g_cursor_layer = nil;
+static UIImage  *g_cursor_image = nil;   // ARC-retained arrow bitmap
+static CGFloat   g_cursor_pt_w  = 18.0;
+static CGFloat   g_cursor_pt_h  = 24.0;
+
+// Apply the stored arrow image (or a green-circle fallback) to layer.
+// Must be called on the main thread.
+static void _apply_cursor_image_to_layer(CALayer *layer) {
+    if (!layer) return;
+    if (g_cursor_image) {
+        layer.contents       = (__bridge id)g_cursor_image.CGImage;
+        layer.bounds         = CGRectMake(0, 0, g_cursor_pt_w, g_cursor_pt_h);
+        layer.contentsScale  = 3.0;
+        layer.cornerRadius   = 0;
+        layer.backgroundColor = nil;
+        layer.borderWidth    = 0;
+    } else {
+        // Fallback visible circle until Go uploads the arrow bitmap.
+        layer.contents       = nil;
+        layer.bounds         = CGRectMake(0, 0, 16, 16);
+        layer.cornerRadius   = 8.0;
+        layer.backgroundColor = [UIColor greenColor].CGColor;
+        layer.borderWidth    = 2.0;
+        layer.borderColor    = [UIColor whiteColor].CGColor;
+    }
+}
+
+// metal_video_set_cursor_image — upload NRGBA pixel data for the cursor arrow.
+// pixels must be valid for the duration of this call; the function copies immediately.
+// w × h are pixel dimensions; the layer is displayed at w/3 × h/3 points.
+void metal_video_set_cursor_image(uint8_t *pixels, int w, int h) {
+    if (!pixels || w <= 0 || h <= 0) return;
+
+    // Copy bytes into NSData before dispatching (Go GC may free pixels after return).
+    NSData *data = [NSData dataWithBytes:pixels length:(NSUInteger)(w * h * 4)];
+    int capturedW = w, capturedH = h;
+
+    dispatch_block_t blk = ^{
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGDataProviderRef dp = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
+        CGImageRef cgImg = CGImageCreate(
+            (size_t)capturedW, (size_t)capturedH,
+            8, 32, (size_t)(capturedW * 4),
+            cs,
+            kCGBitmapByteOrderDefault | kCGImageAlphaLast,
+            dp, NULL, false, kCGRenderingIntentDefault);
+        CGColorSpaceRelease(cs);
+        CGDataProviderRelease(dp);
+        if (!cgImg) return;
+
+        g_cursor_pt_w = capturedW / 3.0;
+        g_cursor_pt_h = capturedH / 3.0;
+        // Store as UIImage so ARC keeps the CGImage alive.
+        g_cursor_image = [UIImage imageWithCGImage:cgImg
+                                             scale:3.0
+                                       orientation:UIImageOrientationUp];
+        CGImageRelease(cgImg);
+
+        // Update layer immediately if it already exists.
+        if (g_cursor_layer) {
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            _apply_cursor_image_to_layer(g_cursor_layer);
+            [CATransaction commit];
+        }
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+void metal_video_update_cursor(float x, float y, int visible) {
+    if (!g_view && !g_layer) return;
+    float cx = x, cy = y;
+    int   cv = visible;
+    dispatch_block_t blk = ^{
+        if (cv && !g_cursor_layer) {
+            g_cursor_layer = [CALayer layer];
+            // Anchor at top-left so position = cursor hotspot (tip of arrow).
+            g_cursor_layer.anchorPoint = CGPointMake(0, 0);
+            g_cursor_layer.masksToBounds = YES;
+            // High zPosition ensures the cursor stays above the Metal video overlay
+            // and any Fyne views (keyboard panel, popups) added later.
+            g_cursor_layer.zPosition = 1000.0;
+            // Apply stored image or fallback circle.
+            _apply_cursor_image_to_layer(g_cursor_layer);
+            UIWindow *win = _find_key_window();
+            if (win) [win.layer addSublayer:g_cursor_layer];
+        }
+        if (g_cursor_layer) {
+            g_cursor_layer.hidden = !cv;
+            if (cv) {
+                [CATransaction begin];
+                [CATransaction setDisableActions:YES];
+                UIWindow *win = _find_key_window();
+                if (win && g_cursor_layer.superlayer != win.layer) {
+                    [g_cursor_layer removeFromSuperlayer];
+                    g_cursor_layer.zPosition = 1000.0;
+                    [win.layer addSublayer:g_cursor_layer];
+                }
+                g_cursor_layer.position = CGPointMake(cx, cy);
+                [CATransaction commit];
+            }
+        }
+    };
+    // dispatch_async: 1-frame latency is imperceptible; avoids blocking Fyne goroutine.
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
 void metal_video_update_frame(float x, float y, float w, float h) {
     if (!atomic_load(&g_active) || !g_view) return;
     dispatch_block_t blk = ^{
@@ -288,6 +402,12 @@ void metal_video_destroy(void) {
     }
 
     dispatch_block_t blk = ^{
+        if (g_cursor_layer) {
+            [g_cursor_layer removeFromSuperlayer];
+            g_cursor_layer = nil;
+        }
+        // Keep g_cursor_image — it's reused on next overlay creation so the
+        // arrow appears immediately without waiting for Go to re-upload it.
         if (g_view) {
             [g_view removeFromSuperview];
             g_view  = nil;

@@ -1,10 +1,12 @@
-//go:build !android
+//go:build !android && !ios
 
 package controller
 
-// updateNativeViewportAndCursor is a no-op on non-Android platforms.
-// On Android it forwards zoom/pan state and virtual cursor to the Vulkan renderer.
-func (vw *VideoWidget) updateNativeViewportAndCursor() {}
+// updateNativeViewportAndCursor is a no-op on most platforms, but for Metal (iOS/macOS)
+// we forward the new viewport to update the overlay frame.
+func (vw *VideoWidget) updateNativeViewportAndCursor() {
+	vw.updateMetalVideoFrame()
+}
 
 // centerViewportOnVirtualCursor is a no-op on non-Android platforms.
 func (vw *VideoWidget) centerViewportOnVirtualCursor() {}
