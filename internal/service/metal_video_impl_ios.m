@@ -499,3 +499,4 @@ void metal_video_destroy(void) {
 }
 
 #endif // TARGET_OS_IPHONE
+void usbridge_syslog(const char* msg) { NSLog(@"[USBridge] %s", msg); }

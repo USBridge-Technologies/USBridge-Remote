@@ -133,7 +133,7 @@ func (vw *VideoWidget) videoWidgetFrame() (x, y, w, h float32) {
 	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
 		topOffset = fallbackY
 	}
-	logrus.Infof("[METAL] videoWidgetFrame: canvasH=%v, szMain.H=%v, absY=%v, fallbackY=%v, final topOffset=%v", canvasH, szMain.Height, absY, fallbackY, topOffset)
+	service.Syslog(fmt.Sprintf("M:cH=%.0f,sH=%.0f,aY=%.0f,fY=%.0f,tO=%.0f", canvasH, szMain.Height, absY, fallbackY, topOffset))
 
 	if getImeExpandHeightDp() > 0 {
 		if vw.contentContainer != nil && vw.contentContainer.Visible() {
@@ -328,7 +328,7 @@ func (vw *VideoWidget) videoCanvasFrame() (x, y, w, h float32) {
 	if topOffset <= 0 && getImeExpandHeightDp() == 0 {
 		topOffset = fallbackY
 	}
-	logrus.Infof("[METAL] videoCanvasFrame: canvasH=%v, szMain.H=%v, absY=%v, fallbackY=%v, final topOffset=%v", canvasH, szMain.Height, absY, fallbackY, topOffset)
+	service.Syslog(fmt.Sprintf("MC:cH=%.0f,sH=%.0f,aY=%.0f,fY=%.0f,tO=%.0f", canvasH, szMain.Height, absY, fallbackY, topOffset))
 
 	// Apply zoom and pan coordinates directly to the native overlay frame!
 	// This naturally zooms and crops the CALayer.

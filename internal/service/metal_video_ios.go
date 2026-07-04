@@ -7,6 +7,7 @@ package service
 #cgo LDFLAGS: -framework UIKit -framework CoreVideo -framework QuartzCore -framework CoreFoundation
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <CoreVideo/CoreVideo.h>
 
 // Implemented in metal_video_impl_ios.m (compiled as a separate translation unit).
@@ -22,6 +23,7 @@ extern void   metal_video_set_cursor_image(uint8_t *pixels, int w, int h);
 extern void   metal_video_destroy(void);
 extern double metal_video_last_fps(void);
 extern void   metal_video_set_hidden(int hidden);
+extern void   usbridge_syslog(const char* msg);
 
 // Forward declaration matching the CGO-generated export signature.
 extern void goMetalLog(char *msg, int level);
@@ -123,4 +125,10 @@ func MetalVideoSetHidden(hidden bool) {
 		h = 1
 	}
 	C.metal_video_set_hidden(h)
+}
+
+func Syslog(msg string) {
+	cmsg := C.CString(msg)
+	C.usbridge_syslog(cmsg)
+	C.free(unsafe.Pointer(cmsg))
 }
