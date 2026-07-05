@@ -29,7 +29,7 @@ The Client is the control interface — installed on your workstation or laptop.
 | Architecture | Windows | macOS | Linux | Android | iOS (iPhone) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_windows_amd64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_linux_amd64-2.0.1.tar.gz) | — | — |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_macOS_arm64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_android_arm64-2.0.1.apk) | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_ios_arm64-2.0.1.ipa) |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_macOS_arm64-2.0.1.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.1/USBridge_client_android_arm64-2.0.1.apk) | In progress |
 
 ## Agent
 
