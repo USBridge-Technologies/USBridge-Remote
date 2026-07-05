@@ -172,21 +172,40 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 		return
 	}
 
-	// Clip rect = widget bounds (never changes with zoom/pan).
-	clipX, clipY, clipW, clipH := vw.videoWidgetFrame()
-	if clipW <= 0 || clipH <= 0 {
-		return
-	}
+	var clipX, clipY, clipW, clipH float32
+	var contentX, contentY, contentW, contentH float32
 
-	// Note: keyboard-height capping is handled in C (metal_video_update_layout) using
-	// direct UIKit window coordinates. Go-side Fyne coordinates are unreliable during
-	// keyboard transitions on iOS, so we let C override the clip rect when kbH > 100pt.
-
-	// Content rect = zoomed/panned video position (may be outside clip bounds).
-	contentX, contentY, contentW, contentH := vw.videoCanvasFrame()
-	if contentW <= 0 || contentH <= 0 {
-		// Fallback: content = clip.
-		contentX, contentY, contentW, contentH = clipX, clipY, clipW, clipH
+	if vw.isMetalFullscreen.Load() {
+		// Fullscreen: clip = entire canvas; content = zoom/pan rect or full canvas.
+		// Do NOT use videoWidgetFrame() — it adds a topOffset for the tab bar which
+		// shifts the video down and breaks landscape rotation.
+		if vw.parentWindow == nil {
+			return
+		}
+		cs := vw.parentWindow.Canvas().Size()
+		clipW, clipH = cs.Width, cs.Height
+		if clipW <= 0 || clipH <= 0 {
+			return
+		}
+		if vw.contentRectW > 0 && vw.contentRectH > 0 {
+			// Zoom/pan active: apply content rect without any topOffset.
+			contentX, contentY = vw.contentRectX, vw.contentRectY
+			contentW, contentH = vw.contentRectW, vw.contentRectH
+		} else {
+			contentX, contentY, contentW, contentH = 0, 0, clipW, clipH
+		}
+	} else {
+		// Normal mode: clip = widget bounds, content = zoomed/panned rect.
+		// Note: keyboard-height capping is handled in C (metal_video_update_layout)
+		// using direct UIKit window coordinates.
+		clipX, clipY, clipW, clipH = vw.videoWidgetFrame()
+		if clipW <= 0 || clipH <= 0 {
+			return
+		}
+		contentX, contentY, contentW, contentH = vw.videoCanvasFrame()
+		if contentW <= 0 || contentH <= 0 {
+			contentX, contentY, contentW, contentH = clipX, clipY, clipW, clipH
+		}
 	}
 
 	// Cursor position: use virtualCursorU/V (persistent across touch events) so
@@ -309,12 +328,19 @@ func iosSoftClamp(val, lo, hi, zone float32) float32 {
 
 // metalVideoEnterFullscreen recreates the overlay in full-window mode.
 func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {
+	vw.isMetalFullscreen.Store(true)
+	// Reset cached frame so updateMetalVideoFrame sends a fresh layout immediately.
+	lastMetalClipX, lastMetalClipY, lastMetalClipW, lastMetalClipH = -1, -1, -1, -1
+	lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = -1, -1, -1, -1
 	service.MetalVideoDestroy()
 	vw.startMetalVideoOnWindow(nil, true)
 }
 
 // metalVideoExitFullscreen restores the overlay at the video widget bounds.
 func (vw *VideoWidget) metalVideoExitFullscreen() {
+	vw.isMetalFullscreen.Store(false)
+	lastMetalClipX, lastMetalClipY, lastMetalClipW, lastMetalClipH = -1, -1, -1, -1
+	lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = -1, -1, -1, -1
 	service.MetalVideoDestroy()
 	vw.startMetalVideoOnWindow(vw.parentWindow, false)
 }

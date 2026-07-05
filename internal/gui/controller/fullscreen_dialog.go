@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/graphics"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/service"
@@ -217,79 +216,15 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	logrus.Infof("⌨️ [DEBUG] keyboardLayout получен: %v, MinSize: %v", keyboardLayout != nil, keyboardLayout.MinSize())
 	keyboardLayout.Hide()
 	logrus.Infof("⌨️ [DEBUG] keyboardLayout.Hide() вызван, Visible: %v", keyboardLayout.Visible())
-	logrus.Info("⌨️ [DEBUG] Создание overlay layout для размещения клавиатуры поверх видео")
+	fd.ui = view.NewFullscreenUI(fd.videoImage, fd.touchpadWrapper, keyboardLayout)
 
-	fd.ui = view.NewFullscreenUI(fd.videoImage, fd.touchpadWrapper, keyboardLayout, func() {
-		logrus.Info("⌨️ ========== НАЖАТА КНОПКА КЛАВИАТУРЫ В ПОЛНОЭКРАННОМ РЕЖИМЕ ==========")
-
-		if keyboardLayout.Visible() {
-			logrus.Info("⌨️ Клавиатура видима - скрываем")
-			fd.virtualKeyboard.Hide()
-			if fd.ui.KeyboardButton != nil {
-				fd.ui.KeyboardButton.SetIcon(assets.KeyboardIconActive)
-			}
-			if fd.videoWidget != nil {
-				fd.videoWidget.SetBottomInset(graphics.GetLastIMEH())
-			}
-		} else {
-			logrus.Info("⌨️ Клавиатура скрыта - показываем")
-			fd.virtualKeyboard.SetVisibleState(true)
-			fd.virtualKeyboard.FocusInput() // Принудительный фокус для Android
-			if fd.ui.KeyboardButton != nil {
-				fd.ui.KeyboardButton.SetIcon(assets.KeyboardIcon)
-			}
-			if fd.videoWidget != nil {
-				h := keyboardLayout.MinSize().Height
-				if h < 50 { // Если размер еще не просчитан, используем разумное значение по умолчанию
-					h = 145
-				}
-				fd.videoWidget.SetBottomInset(h)
-			}
-		}
-
-		// Resize принудительно пересчитывает BorderLayout (Refresh только перерисовывает без layout-прохода)
-		fd.ui.VideoWithKeyboard.Resize(fd.ui.VideoWithKeyboard.Size())
-		fd.ui.VideoWithKeyboard.Refresh()
-		fd.fullscreenWindow.Canvas().Refresh(fd.fullscreenWindow.Content())
-		logrus.Infof("⌨️ После переключения - Visible: %v, Size: %v, Position: %v",
-			keyboardLayout.Visible(), keyboardLayout.Size(), keyboardLayout.Position())
-	}, func() {
-		logrus.Info("🔊 ========== НАЖАТА КНОПКА АУДИО В ПОЛНОЭКРАННОМ РЕЖИМЕ ==========")
-		fd.toggleAudioMuted()
-	})
-
-	logrus.Info("⌨️ [DEBUG] Stack контейнер создан с overlay элементами")
 	fd.fullscreenWindow.SetContent(fd.ui.MainContainer)
-
-	// Установить начальный вид иконки аудио
-	fd.updateAudioButtonIcon()
 
 	updatePositions := func() {
 		canvasSize := fd.fullscreenWindow.Canvas().Size()
-		logrus.Infof("🔍 [DEBUG] updatePositions - Canvas Size: %v", canvasSize)
-
-		buttonSize := fyne.NewSize(50, 40)
-		if fd.ui.KeyboardButton != nil {
-			fd.ui.KeyboardButton.Resize(buttonSize)
-			fd.ui.KeyboardButton.Move(fyne.NewPos(10, 10))
-		}
-		if fd.ui.AudioButton != nil {
-			fd.ui.AudioButton.Resize(buttonSize)
-			fd.ui.AudioButton.Move(fyne.NewPos(65, 10))
-		}
-
 		keyboardHeight := float32(300)
 		keyboardSize := fyne.NewSize(canvasSize.Width, view.MobileFooterBottomInset(keyboardHeight))
 		keyboardLayout.Resize(keyboardSize)
-
-		logrus.Infof("⌨️ [DEBUG] Позиции установлены:")
-		logrus.Infof("⌨️ [DEBUG]   Canvas Size: %v", canvasSize)
-		if fd.ui.KeyboardButton != nil {
-			logrus.Infof("⌨️ [DEBUG]   Button Position: %v, Size: %v", fd.ui.KeyboardButton.Position(), fd.ui.KeyboardButton.Size())
-		}
-		logrus.Infof("⌨️ [DEBUG]   Keyboard Height: %v", keyboardHeight)
-		logrus.Infof("⌨️ [DEBUG]   Full Keyboard Height (with insets): %v", keyboardSize.Height)
-		logrus.Infof("⌨️ [DEBUG]   Keyboard Size: %v", keyboardLayout.Size())
 	}
 
 	fd.fullscreenWindow.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
@@ -506,48 +441,12 @@ func (fd *FullscreenDialog) toggleAudioMuted() {
 		ms.SetAudioMuted(fd.audioMuted)
 		logrus.Infof("🔊 Audio muted=%v", fd.audioMuted)
 	}
-	fd.updateAudioButtonIcon()
-}
-
-// updateAudioButtonIcon обновляет иконку кнопки аудио в соответствии с состоянием
-func (fd *FullscreenDialog) updateAudioButtonIcon() {
-	if fd.ui == nil || fd.ui.AudioButton == nil {
-		return
-	}
-	if fd.audioMuted {
-		fd.ui.AudioButton.SetIcon(assets.AudioMuteIconActive)
-	} else {
-		fd.ui.AudioButton.SetIcon(assets.AudioIcon)
-	}
 }
 
 // SetAudioMuted устанавливает состояние звука
 func (fd *FullscreenDialog) SetAudioMuted(muted bool) {
 	fd.audioMuted = muted
-	fd.updateAudioButtonIcon()
 }
 
-// HandleUIClick checks if (x, y) in Fyne dp coords hits a fullscreen UI button.
-// If so, it triggers the button and returns true — caller should suppress the event.
-func (fd *FullscreenDialog) HandleUIClick(x, y float32) bool {
-	if fd.ui == nil {
-		return false
-	}
-	if btn := fd.ui.KeyboardButton; btn != nil {
-		pos := btn.Position()
-		sz := btn.Size()
-		if x >= pos.X && x <= pos.X+sz.Width && y >= pos.Y && y <= pos.Y+sz.Height {
-			btn.Tapped(&fyne.PointEvent{Position: fyne.NewPos(x-pos.X, y-pos.Y)})
-			return true
-		}
-	}
-	if btn := fd.ui.AudioButton; btn != nil {
-		pos := btn.Position()
-		sz := btn.Size()
-		if x >= pos.X && x <= pos.X+sz.Width && y >= pos.Y && y <= pos.Y+sz.Height {
-			btn.Tapped(&fyne.PointEvent{Position: fyne.NewPos(x-pos.X, y-pos.Y)})
-			return true
-		}
-	}
-	return false
-}
+// HandleUIClick is kept for API compatibility with Windows VK overlay caller.
+func (fd *FullscreenDialog) HandleUIClick(_, _ float32) bool { return false }
