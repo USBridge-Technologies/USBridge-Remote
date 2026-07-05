@@ -5,7 +5,6 @@ package controller
 import (
 	"image"
 	"math"
-	"sync/atomic"
 	"time"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/view"

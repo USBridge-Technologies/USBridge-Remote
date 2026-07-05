@@ -45,17 +45,17 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
     else
         # Check well-known pre-built locations (sibling project, etc.)
         OPENSSL_PREBUILT=""
-        for candidate in \
-            "${OPENSSL_PREBUILT_DIR:-}" \
-            "${PROJECT_ROOT}/../usbridge_client_new_2/gstreamer-android/arm64" \
-            "${HOME}/Projects/usbridge_client_new_2/gstreamer-android/arm64"
-        do
-            [ -z "$candidate" ] && continue
-            if [ -f "${candidate}/lib/libssl.a" ] && [ -f "${candidate}/include/openssl/ssl.h" ]; then
-                OPENSSL_PREBUILT="$candidate"
-                break
-            fi
-        done
+#        for candidate in \
+#            "${OPENSSL_PREBUILT_DIR:-}" \
+#            "${PROJECT_ROOT}/../usbridge_client_new_2/gstreamer-android/arm64" \
+#            "${HOME}/Projects/usbridge_client_new_2/gstreamer-android/arm64"
+#        do
+#            [ -z "$candidate" ] && continue
+#            if [ -f "${candidate}/lib/libssl.a" ] && [ -f "${candidate}/include/openssl/ssl.h" ]; then
+#                OPENSSL_PREBUILT="$candidate"
+#                break
+#            fi
+#        done
 
         if [ -n "${OPENSSL_PREBUILT}" ]; then
             echo "📦 Using pre-built OpenSSL from ${OPENSSL_PREBUILT}"
@@ -94,6 +94,9 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
                     --openssldir="${OPENSSL_OUT}" \
                     no-shared no-tests no-apps \
                     -fPIC
+            ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}" \
+            PATH="${NDK_PREBUILT}/bin:${PATH}" \
+                make clean || true
             ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}" \
             PATH="${NDK_PREBUILT}/bin:${PATH}" \
                 make -j"${NCPU}" build_libs

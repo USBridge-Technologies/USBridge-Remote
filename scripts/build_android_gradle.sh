@@ -350,6 +350,7 @@ if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     exit 1
 fi
 export ANDROID_NDK_HOME
+export CGO_LDFLAGS_ALLOW=".*"
 export CGO_ENABLED=1
 export GO111MODULE=on
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
