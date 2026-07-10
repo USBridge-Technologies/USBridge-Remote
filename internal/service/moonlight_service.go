@@ -8,6 +8,7 @@ import (
 	"image"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -116,9 +117,13 @@ func (m *MoonlightService) ConnectToRTP() error {
 		m.client.Host = "127.0.0.1" // Default to localhost if unbound
 	}
 
-	// 1b. Use the tsnet-aware dialer for all Moonlight HTTP (serverinfo, launch, etc.).
-	// tsnet is always running on Android — use it regardless of userspace/kernel mode setting.
-	if m.tailscaleSvc != nil {
+	// 1b. Use the tsnet-aware dialer for Moonlight HTTP only when the target host is
+	// actually a Tailscale peer. tsnet's userspace netstack does not route plain LAN
+	// addresses (e.g. a "protocol=direct" 192.168.x.x host) reliably — when tsnet has
+	// no login/tailnet session, dialing such a host through it hangs indefinitely
+	// (srv.HTTPClient() has no request timeout), which looked like a silent black
+	// screen: GetServerInfo() below never returned and never logged an error.
+	if m.tailscaleSvc != nil && isLikelyTailnetHost(m.client.Host) {
 		if tsHTTP, err := m.tailscaleSvc.HTTPClient(); err == nil && tsHTTP.Transport != nil {
 			if tr, ok := tsHTTP.Transport.(*http.Transport); ok && tr.DialContext != nil {
 				m.client.SetDialTransport(tr.DialContext)
@@ -337,9 +342,13 @@ func (m *MoonlightService) ConnectToRTP() error {
 	// If the Tailscale peer has a direct (non-100.x) endpoint on the same LAN,
 	// use that so LiStartConnection's RTSP/RTP go through the kernel directly.
 	moonlightHost := m.client.Host
-	if m.tailscaleSvc != nil {
+	if m.tailscaleSvc != nil && isLikelyTailnetHost(m.client.Host) {
 		// C-level BSD sockets bypass tsnet and need a direct LAN route.
 		// Ask Tailscale for a known direct endpoint and probe it.
+		// Gated to actual tailnet hosts: GetPeerDirectIP falls through to
+		// tsnet Status(), which lazily starts/authenticates tsnet as a side
+		// effect — for a plain LAN/direct host this used to trigger an
+		// unwanted tsnet login (auth browser popup) on every connect attempt.
 		lanIP := ""
 		if candidate := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); candidate != "" {
 			if conn, err := net.DialTimeout("tcp", net.JoinHostPort(candidate, "47989"), 400*time.Millisecond); err == nil {
@@ -610,10 +619,13 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 
 	body, _ := json.Marshal(map[string]string{"pin": pin})
 
-	// On userspace Tailscale (Android tsnet), both plain and signed requests
-	// must go through the tsnet dialer — the OS dialer can't reach Tailscale IPs.
+	// On userspace Tailscale (Android tsnet), signed requests to an actual Tailscale
+	// peer must go through the tsnet dialer — the OS dialer can't reach Tailscale IPs.
+	// But for a plain LAN host (protocol=direct), tsnet's netstack can't route there
+	// either (when unauthenticated it black-holes the connection), so this must only
+	// apply when the target is actually a tailnet address — see isLikelyTailnetHost.
 	tsHTTPClient := (*http.Client)(nil)
-	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() {
+	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() && isLikelyTailnetHost(host) {
 		if c, err := m.tailscaleSvc.HTTPClient(); err == nil {
 			tsHTTPClient = c
 		}
@@ -746,4 +758,22 @@ func (m *MoonlightService) SetAutoReconnect(enabled bool) {
 }
 
 func (m *MoonlightService) SetMaxReconnectAttempts(max int) {
+}
+
+// isLikelyTailnetHost reports whether host is a Tailscale address (100.64.0.0/10
+// CGNAT range or a *.ts.net MagicDNS name), mirroring the same check the deep
+// link handler uses to pick internal_host vs tailscale_host.
+func isLikelyTailnetHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.HasSuffix(strings.ToLower(host), ".ts.net") {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return netip.MustParsePrefix("100.64.0.0/10").Contains(addr)
 }

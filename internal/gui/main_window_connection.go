@@ -392,11 +392,21 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 
 	mw.lastTailscaleAuthURL = ""
 
+	selectedProtocol := mw.protocolSelect.Selected
+
 	// On macOS, the tsnet (userspace Tailscale) WireGuard stack initialization
 	// briefly disrupts the OS network routing table, causing even LAN connections
 	// to fail with EHOSTUNREACH. Wait for tsnet to reach Running state before
 	// making any network calls. WaitUntilReady returns immediately when already Running.
-	if mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() {
+	//
+	// Only do this when the target actually needs Tailscale (a tailnet-looking
+	// host, or the user explicitly picked the "tailscale" protocol). Otherwise,
+	// on Android IsUserspace() is always true, so an unqualified call here would
+	// call tsnet's Up() on every direct/LAN connect attempt — including before
+	// the user has ever pressed the Tailscale button — which triggers an
+	// unauthenticated tsnet login and pops an auth browser window on top of the app.
+	if mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() &&
+		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
 		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
 			logrus.Warnf("⚠️ [CONNECT] tsnet not yet ready: %v (proceeding anyway)", waitErr)

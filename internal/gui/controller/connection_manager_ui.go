@@ -60,17 +60,15 @@ func (cm *ConnectionManager) initTailscaleMode() {
 		cm.ts.SetUserspace(userspace)
 	}
 
-	if cm.config.TailscaleEnabled {
-		go func() {
-			if err := cm.ts.Start(context.Background()); err != nil {
-				logrus.Errorf("Failed to auto-start Tailscale: %v", err)
-			}
-			cm.refreshTailscaleStatus()
-		}()
-	} else {
-		// Status() will not start tsnet if server hasn't been explicitly started
-		cm.refreshTailscaleStatus()
-	}
+	// Do NOT eagerly start tsnet here just because TailscaleEnabled defaults to
+	// true. Starting tsnet while unauthenticated triggers StartLoginInteractive,
+	// which pops an auth browser window on top of the app on every launch/connect
+	// — even for a plain LAN/direct connection the user never asked to route via
+	// Tailscale. tsnet is started lazily instead: by the explicit "Sign In With
+	// Google" button (startTailscaleAuthAction) or by a connection attempt that
+	// actually targets a tailnet host. Status() will not auto-start tsnet if the
+	// server hasn't been explicitly started yet.
+	cm.refreshTailscaleStatus()
 }
 
 func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {
