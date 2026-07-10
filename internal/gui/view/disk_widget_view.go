@@ -402,10 +402,8 @@ func (b *DeviceActionButton) Disable() {
 }
 
 func (b *DeviceActionButton) Refresh() {
-	fyne.Do(func() {
-		b.refreshVisuals()
-		b.BaseWidget.Refresh()
-	})
+	b.refreshVisuals()
+	b.BaseWidget.Refresh()
 }
 
 func (b *DeviceActionButton) refreshVisuals() {
@@ -583,43 +581,41 @@ func (v *DevicesListView) Refresh() {
 		return
 	}
 
-	fyne.Do(func() {
-		v.mu.Lock()
-		rows := v.buildRows()
-		v.mu.Unlock()
+	v.mu.Lock()
+	rows := v.buildRows()
+	v.mu.Unlock()
 
-		var objects []fyne.CanvasObject
-		if v.buildIntro != nil {
-			if intro := v.buildIntro(); intro != nil {
-				objects = append([]fyne.CanvasObject{intro}, rows...)
-			} else {
-				objects = rows
-			}
+	var objects []fyne.CanvasObject
+	if v.buildIntro != nil {
+		if intro := v.buildIntro(); intro != nil {
+			objects = append([]fyne.CanvasObject{intro}, rows...)
 		} else {
 			objects = rows
 		}
+	} else {
+		objects = rows
+	}
 
-		// Only release registry entries for cards/rows that are genuinely removed.
-		// Reused objects (same pointer, different data) must keep their entries so
-		// that ResolveDiskRowWidgets still works on the next configureDriveRow call.
-		if len(v.content.Objects) > 0 {
-			newSet := make(map[fyne.CanvasObject]bool, len(objects))
-			for _, obj := range objects {
-				newSet[obj] = true
-			}
-			removed := make([]fyne.CanvasObject, 0)
-			for _, obj := range v.content.Objects {
-				if !newSet[obj] {
-					removed = append(removed, obj)
-				}
-			}
-			forgetDiskRowWidgets(removed)
+	// Only release registry entries for cards/rows that are genuinely removed.
+	// Reused objects (same pointer, different data) must keep their entries so
+	// that ResolveDiskRowWidgets still works on the next configureDriveRow call.
+	if len(v.content.Objects) > 0 {
+		newSet := make(map[fyne.CanvasObject]bool, len(objects))
+		for _, obj := range objects {
+			newSet[obj] = true
 		}
-		v.content.Objects = objects
+		removed := make([]fyne.CanvasObject, 0)
+		for _, obj := range v.content.Objects {
+			if !newSet[obj] {
+				removed = append(removed, obj)
+			}
+		}
+		forgetDiskRowWidgets(removed)
+	}
+	v.content.Objects = objects
 
-		v.content.Refresh()
-		v.Scroll.Refresh()
-	})
+	v.content.Refresh()
+	v.Scroll.Refresh()
 }
 
 func (v *DevicesListView) RefreshItem(_ int) {

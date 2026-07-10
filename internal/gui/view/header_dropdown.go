@@ -349,17 +349,15 @@ func (d *HeaderDropdown) refreshVisuals() {
 		fill = design.ColorSurfaceLight
 	}
 
-	fyne.Do(func() {
-		d.bg.FillColor = fill
-		d.label.Text = d.Selected
-		d.label.Color = textColor
-		d.icon.Resource = iconResource
-		d.icon.Translucency = iconTranslucency
-		d.bg.Refresh()
-		d.border.Refresh()
-		d.label.Refresh()
-		d.icon.Refresh()
-	})
+	d.bg.FillColor = fill
+	d.label.Text = d.Selected
+	d.label.Color = textColor
+	d.icon.Resource = iconResource
+	d.icon.Translucency = iconTranslucency
+	d.bg.Refresh()
+	d.border.Refresh()
+	d.label.Refresh()
+	d.icon.Refresh()
 }
 
 func (d *HeaderDropdown) controlHeight() float32 {
@@ -527,12 +525,10 @@ func (i *dropdownItem) refreshVisuals() {
 		fill = design.ColorSurfaceLight
 	}
 
-	fyne.Do(func() {
-		i.bg.FillColor = fill
-		i.bg.Refresh()
-		i.label.Refresh()
-		i.secondaryLabel.Refresh()
-	})
+	i.bg.FillColor = fill
+	i.bg.Refresh()
+	i.label.Refresh()
+	i.secondaryLabel.Refresh()
 }
 
 type headerDropdownRenderer struct {
@@ -571,11 +567,9 @@ func (r *headerDropdownRenderer) MinSize() fyne.Size {
 }
 
 func (r *headerDropdownRenderer) Refresh() {
-	fyne.Do(func() {
-		r.dropdown.refreshVisuals()
-		r.Layout(r.dropdown.Size())
-		canvas.Refresh(r.dropdown)
-	})
+	r.dropdown.refreshVisuals()
+	r.Layout(r.dropdown.Size())
+	canvas.Refresh(r.dropdown)
 }
 
 func (r *headerDropdownRenderer) BackgroundColor() color.Color {
@@ -884,11 +878,9 @@ func (r *dropdownItemRenderer) MinSize() fyne.Size {
 }
 
 func (r *dropdownItemRenderer) Refresh() {
-	fyne.Do(func() {
-		r.item.refreshVisuals()
-		r.Layout(r.item.Size())
-		canvas.Refresh(r.item)
-	})
+	r.item.refreshVisuals()
+	r.Layout(r.item.Size())
+	canvas.Refresh(r.item)
 }
 
 func (r *dropdownItemRenderer) BackgroundColor() color.Color {

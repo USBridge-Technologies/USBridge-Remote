@@ -68,7 +68,11 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	// Google" button (startTailscaleAuthAction) or by a connection attempt that
 	// actually targets a tailnet host. Status() will not auto-start tsnet if the
 	// server hasn't been explicitly started yet.
-	cm.refreshTailscaleStatus()
+	//
+	// Run off the main goroutine: this runs during startup before the Fyne
+	// event loop is pumping, and refreshTailscaleStatus ends up calling
+	// fyne.Do, which errors if invoked directly from the main goroutine.
+	go cm.refreshTailscaleStatus()
 }
 
 func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {
