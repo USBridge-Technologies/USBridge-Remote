@@ -51,6 +51,7 @@ static _Atomic int    g_li_active      = 0;
 static volatile int   g_audio_muted    = 0;
 static AAudioStream  *g_aa_stream      = NULL;
 static int            g_audio_channels = 2;
+static int            g_samples_per_frame = 240; // 5ms @ 48kHz default, overwritten by ar_init
 static OpusMSDecoder *g_opus_decoder   = NULL;
 static AMediaCodec   *g_amc            = NULL;
 static int            g_amc_w          = 0;
@@ -101,6 +102,7 @@ static int ar_init(int audioConfig, const POPUS_MULTISTREAM_CONFIGURATION cfg, v
     ALOGI("ar_init: ch=%d rate=%d streams=%d coupled=%d",
           cfg->channelCount, cfg->sampleRate, cfg->streams, cfg->coupledStreams);
     g_audio_channels = cfg->channelCount;
+    g_samples_per_frame = cfg->samplesPerFrame > 0 ? cfg->samplesPerFrame : 240;
     if (g_opus_decoder) { opus_multistream_decoder_destroy(g_opus_decoder); g_opus_decoder = NULL; }
     int err = OPUS_OK;
     g_opus_decoder = opus_multistream_decoder_create(
@@ -128,8 +130,15 @@ static void ar_stop(void)  {}
 static void ar_decode(char *data, int len) {
     if (!g_opus_decoder || !g_aa_stream) return;
     opus_int16 pcm[5760 * 8];
+    // frame_size must match the host's configured samplesPerFrame, not the max
+    // buffer capacity: for real packets opus infers the actual sample count from
+    // the data itself, but for concealment (data==NULL, on packet loss) opus has
+    // no other way to know how much audio to synthesize and will generate exactly
+    // frame_size samples. Passing the 5760 buffer cap here made every lost packet
+    // produce ~120ms of concealment audio instead of the real ~5-10ms frame,
+    // throwing off AAudio's timeline and causing periodic crackling on lossy networks.
     int samples = opus_multistream_decode(g_opus_decoder,
-        (const unsigned char *)data, len, pcm, 5760, 0);
+        (const unsigned char *)data, len, pcm, g_samples_per_frame, 0);
     if (samples <= 0) return;
     if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
     AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL);
