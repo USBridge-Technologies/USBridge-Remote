@@ -517,6 +517,28 @@ func (m *MoonlightService) Disconnect() error {
 	if m.onStateChanged != nil {
 		m.onStateChanged("disconnected")
 	}
+
+	// Tell Sunshine to end the app session on every disconnect, not just before
+	// a Reconnect(). Without this, Sunshine keeps reporting "an app is already
+	// running" on the *next* connect (even a clean one, e.g. a plain
+	// disconnect+reconnect from the Control tab), forcing that connect down the
+	// /resume path instead of /launch. Measured cost of that: ~5s HTTP round
+	// trip before the Moonlight handshake even starts (tests/test_android_video_launch.sh),
+	// vs the handshake itself completing in ~450ms once /resume returns.
+	// Fired async and best-effort — the local session is already torn down
+	// above, so a slow or failed /quit here must never block or fail Disconnect().
+	if m.lastAppId != 0 {
+		appID := m.lastAppId
+		client := m.client
+		go func() {
+			if err := client.Quit(appID); err != nil {
+				logrus.Warnf("🌕 [Moonlight] /cancel on disconnect failed (non-fatal): %v", err)
+			} else {
+				logrus.Info("🌕 [Moonlight] /cancel sent on disconnect — Sunshine session reset for next connect")
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -597,9 +619,9 @@ func (m *MoonlightService) Reconnect() error {
 	// instead of resuming a potentially-corrupted one (which causes code=60 / ETIMEDOUT).
 	if m.lastAppId != 0 {
 		if err := m.client.Quit(m.lastAppId); err != nil {
-			logrus.Warnf("🌕 [Moonlight] /quit failed (non-fatal): %v", err)
+			logrus.Warnf("🌕 [Moonlight] /cancel failed (non-fatal): %v", err)
 		} else {
-			logrus.Info("🌕 [Moonlight] /quit sent — Sunshine session reset")
+			logrus.Info("🌕 [Moonlight] /cancel sent — Sunshine session reset")
 		}
 	}
 	return m.ConnectToRTP()

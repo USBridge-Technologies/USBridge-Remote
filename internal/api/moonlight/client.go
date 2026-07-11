@@ -266,8 +266,15 @@ func (c *Client) doLaunchOrResume(path string, params map[string]string) (string
 // Quit terminates the currently-running app on Sunshine, resetting its session state.
 // Call this before reconnecting after a failed connection so that the next Launch()
 // gets a fresh session instead of resuming a potentially-corrupted one.
+//
+// The real endpoint is "/cancel", not "/quit" — confirmed against Sunshine's own
+// source (nvhttp.cpp: https_server.resource["^/cancel$"]["GET"] = cancel). This
+// had always been hitting "/quit" (a nonexistent route, 404) until Disconnect()
+// started calling it too; cancel() ignores query params entirely (it just
+// unconditionally terminates the running session), so appId is passed only for
+// logging/back-compat, not because Sunshine reads it.
 func (c *Client) Quit(appId int) error {
-	url := c.getURL(true, "/quit", map[string]string{
+	url := c.getURL(true, "/cancel", map[string]string{
 		"appid": fmt.Sprintf("%d", appId),
 	})
 	resp, err := c.httpsClient.Get(url)
@@ -276,6 +283,6 @@ func (c *Client) Quit(appId int) error {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	logrus.Infof("📩 [Moonlight] /quit HTTP %d raw: %s", resp.StatusCode, string(body))
+	logrus.Infof("📩 [Moonlight] /cancel HTTP %d raw: %s", resp.StatusCode, string(body))
 	return nil
 }

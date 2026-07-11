@@ -43,7 +43,25 @@ VIDEO_REGION="0 250 1080 1800" # x y w h, in 1080x2400 reference coords — the 
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
+EXIT_ICON="984 63"
+
+# Exit gracefully through the app's own exit icon (if it's running and
+# connected) before force-stopping. force-stop alone kills the process
+# outright and skips MoonlightService.Disconnect() entirely — which now
+# fires an async /quit to Sunshine so the *next* connect gets the fast
+# /launch path instead of /resume. Skipping this graceful exit would make
+# every cycle look artificially slow regardless of the fix.
+graceful_exit_if_running() {
+    local pid
+    pid=$($ADB shell pidof "$PKG" 2>/dev/null | tr -d '\r\n')
+    if [ -n "$pid" ]; then
+        $ADB shell input tap $EXIT_ICON >/dev/null 2>&1
+        sleep 1.5
+    fi
+}
+
 launch_fresh() {
+    graceful_exit_if_running
     $ADB shell am force-stop "$PKG"
     sleep 1
     $ADB shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
