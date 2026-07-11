@@ -175,6 +175,7 @@ void platform_ar_cleanup(void) {
 void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     (void)samples;
     pthread_mutex_lock(&g_ca_mu);
+    int was_empty = (g_ca_free_cnt == CA_NUM_BUFFERS);
     AudioQueueRef aq = g_ca_queue;
     AudioQueueBufferRef buf = (g_ca_free_cnt > 0) ? g_ca_free[--g_ca_free_cnt] : NULL;
     pthread_mutex_unlock(&g_ca_mu);
@@ -197,8 +198,8 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             ca_log_device();
 #endif
             goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
-        } else if (g_ca_was_dropping) {
-            // Drop burst just ended — the queue drained while we were dropping.
+        } else if (g_ca_was_dropping || was_empty) {
+            // Drop burst ended OR queue completely starved (underflow).
             // IsRunning stays 1 on macOS even when the queue plays silence after
             // exhausting all buffers, so we must force stop+restart to get a fresh
             // hardware timeline. Without this the queue plays silence indefinitely.
@@ -206,7 +207,8 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             g_ca_restart_count++;
             char rmsg[160];
             snprintf(rmsg, sizeof(rmsg),
-                "CoreAudio: drop burst ended (total_drops=%llu), forcing restart",
+                "CoreAudio: %s (total_drops=%llu), forcing restart",
+                was_empty ? "queue starved" : "drop burst ended",
                 (unsigned long long)g_ca_drop_count);
             goVTLog(rmsg);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
