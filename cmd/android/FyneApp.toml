@@ -1,6 +1,0 @@
-[Details]
-Icon = "../../Icon.png"
-Name = "USBridge Client"
-ID = "io.usbridge.client"
-Version = "1.0.0"
-Build = 830
