@@ -157,12 +157,28 @@ static void ar_decode(char *data, int len) {
         return;
     }
     if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
-    aaudio_result_t wret = AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL);
-    if (wret < 0 || wret < samples) {
+    // A single AAudioStream_write() call can return fewer frames than requested
+    // (or 0) if the audio pipeline is briefly backed up (buffer momentarily
+    // full) — this is normal on some devices/chipsets and does not mean the
+    // frames were rejected forever, just that they didn't fit in this attempt.
+    // The old code treated a short write as "done" and silently dropped the
+    // remainder, which is audible as a stutter/skip. Retry the remaining
+    // frames (advancing the buffer pointer by whole interleaved samples) until
+    // everything is written or we give up after a few attempts.
+    int written = 0;
+    int attempts = 0;
+    while (written < samples && attempts < 8) {
+        aaudio_result_t wret = AAudioStream_write(g_aa_stream,
+            pcm + (size_t)written * g_audio_channels, samples - written, 5000000LL);
+        attempts++;
+        if (wret <= 0) continue;
+        written += (int)wret;
+    }
+    if (written < samples) {
         s_write_errs++;
         if (s_write_errs <= 5 || (s_write_errs % 200) == 0) {
-            ALOGE("ar_decode: AAudioStream_write short/failed ret=%d requested=%d (call #%d, %d failures so far)",
-                  (int)wret, samples, s_decode_calls, s_write_errs);
+            ALOGE("ar_decode: AAudioStream_write short after retries: wrote=%d requested=%d attempts=%d (call #%d, %d failures so far)",
+                  written, samples, attempts, s_decode_calls, s_write_errs);
         }
     }
     if ((s_decode_calls % 500) == 0) {
