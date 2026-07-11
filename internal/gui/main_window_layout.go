@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
@@ -326,17 +327,24 @@ func (mw *MainWindow) recreateContainers() {
 	)
 	mw.applyTabVisualState(0)
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
+		tabSwitchStart := time.Now()
+		tabName := "?"
+		if tab != nil {
+			tabName = tab.Text
+		}
 		mw.applyTabVisualState(mw.tabs.SelectedIndex())
 		mw.updateDeviceButtonsVisibility()
 		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil {
 				mw.videoWidget.BootstrapControlSessionAsync()
 			}
+			logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
 			return
 		}
 		if mw.videoWidget != nil {
 			mw.videoWidget.RequestStreaming(false)
 		}
+		logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
 	}
 
 	deviceFooterOverlay := container.NewBorder(nil, mainFooter, nil, nil, nil)

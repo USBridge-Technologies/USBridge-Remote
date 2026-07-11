@@ -81,3 +81,6 @@ linux_crosscompile/go_cache/
 linux_crosscompile/sdk_cache/
 linux_crosscompile/sdk_extract/
 linux_crosscompile/linux_crosscompile/
+
+# test run artifacts (screenshots/xml/logcat from test_android_ui_stress.sh)
+tests/android_ui_stress_output/

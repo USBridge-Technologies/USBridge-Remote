@@ -364,6 +364,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"fyne.io/fyne/v2/driver"
@@ -384,6 +385,30 @@ var (
 	// detect whether it is still the "current" stream before touching shared state.
 	liStreamMu  sync.Mutex
 	liStreamGen atomic.Uint64
+
+	// liStartCallMu serializes entry into C.do_li_start (LiStartConnection).
+	// moonlight-common-c keeps its RTSP encryption/decryption crypto contexts
+	// (RtspConnection.c: `static PPLT_CRYPTO_CONTEXT encryptionCtx/decryptionCtx`)
+	// as process-global statics with no internal locking — the library assumes
+	// exactly one LiStartConnection call is in flight at a time.
+	//
+	// liConnected only flips true once do_li_start() *returns* successfully, so
+	// it cannot detect "a previous do_li_start() call is still mid-handshake".
+	// A rapid reconnect (StartStream called again before the first call reaches
+	// liConnected.Store(true)) used to slip past the liConnected guard and run
+	// a second do_li_start() concurrently with the first — both racing on the
+	// same static crypto contexts. Confirmed by device testing
+	// (tests/test_android_ui_stress.sh, aggressive connect/disconnect hammering):
+	// SIGSEGV null-deref in PltDestroyCryptoContext called from
+	// performRtspHandshake, plus a handful of JNI CallVoidMethod SIGABRTs from
+	// the resulting doubled-up native render/JNI threads.
+	//
+	// liStartCallMu wraps only the do_li_start() call itself (not the whole
+	// connected session) so it cannot deadlock with do_li_force_stop(): a
+	// concurrent LiStopConnection() call is designed to interrupt an in-flight
+	// LiStartConnection() from another thread, making the first call return
+	// promptly and release the lock for the next one.
+	liStartCallMu sync.Mutex
 
 	// liConnected tracks whether LiStartConnection succeeded and LiStopConnection
 	// has NOT yet been called.  Unlike C's g_li_active (which is mysteriously
@@ -454,9 +479,25 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 
 		logrus.Infof("🌕 [Moonlight/CGO/Android] CALLING_C_LI_START: host=%s rtsp=%s codec=%d videoFmt=%d %dx%d@%d",
 			w.host, url, codec, videoFormat, width, height, fps)
+
+		// See liStartCallMu's doc comment: only one do_li_start (LiStartConnection)
+		// call may run at a time — moonlight-common-c's crypto contexts are
+		// unsynchronized process-global statics. Lock wait time is logged because
+		// a nonzero wait here means a previous connect attempt was still tearing
+		// down when this one arrived (expected under rapid reconnects, not a bug
+		// by itself — the bug was letting both calls run at once).
+		lockWaitStart := time.Now()
+		liStartCallMu.Lock()
+		if waited := time.Since(lockWaitStart); waited > 5*time.Millisecond {
+			logrus.Infof("🌕 [Moonlight/CGO/Android] do_li_start waited %v for previous call to release liStartCallMu", waited)
+		}
+		callStart := time.Now()
 		ret := C.do_li_start(cHost, cAppV, cGfeV, cRtsp,
 			C.int(codec), C.int(videoFormat), C.int(width), C.int(height), C.int(fps), C.int(bit),
 			cKey, C.int(1), C.int(-1))
+		callDur := time.Since(callStart)
+		liStartCallMu.Unlock()
+		logrus.Infof("🌕 [Moonlight/CGO/Android] do_li_start returned ret=%d in %v", int(ret), callDur)
 
 		if int(ret) != 0 {
 			logrus.Errorf("🌕 [Moonlight/CGO/Android] LI_START_ERROR_CODE: %d", int(ret))
