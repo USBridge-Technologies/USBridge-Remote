@@ -130,18 +130,45 @@ static void ar_stop(void)  {}
 static void ar_decode(char *data, int len) {
     if (!g_opus_decoder || !g_aa_stream) return;
     opus_int16 pcm[5760 * 8];
-    // frame_size must match the host's configured samplesPerFrame, not the max
-    // buffer capacity: for real packets opus infers the actual sample count from
-    // the data itself, but for concealment (data==NULL, on packet loss) opus has
-    // no other way to know how much audio to synthesize and will generate exactly
-    // frame_size samples. Passing the 5760 buffer cap here made every lost packet
-    // produce ~120ms of concealment audio instead of the real ~5-10ms frame,
-    // throwing off AAudio's timeline and causing periodic crackling on lossy networks.
+    // For a real packet, frame_size is just the max output buffer capacity —
+    // opus infers the actual decoded sample count from the packet itself, so
+    // keep this generous (the full buffer) to avoid OPUS_BUFFER_TOO_SMALL (and
+    // therefore total silence) if a packet ever encodes more than one nominal
+    // frame's worth of audio.
+    // For concealment (data==NULL, on packet loss) opus has no packet to infer
+    // length from and will generate exactly frame_size samples, so that case
+    // must use the host's real samplesPerFrame — passing the 5760 buffer cap
+    // there made every lost packet produce ~120ms of concealment audio instead
+    // of the real ~5-10ms frame, throwing off AAudio's timeline and causing
+    // periodic crackling on lossy networks.
+    int frameSize = data ? 5760 : g_samples_per_frame;
     int samples = opus_multistream_decode(g_opus_decoder,
-        (const unsigned char *)data, len, pcm, g_samples_per_frame, 0);
-    if (samples <= 0) return;
+        (const unsigned char *)data, len, pcm, frameSize, 0);
+    static int s_decode_calls = 0;
+    static int s_decode_errs  = 0;
+    static int s_write_errs   = 0;
+    s_decode_calls++;
+    if (samples <= 0) {
+        s_decode_errs++;
+        if (s_decode_errs <= 5 || (s_decode_errs % 200) == 0) {
+            ALOGE("ar_decode: opus decode failed ret=%d (call #%d, %d failures so far, muted=%d)",
+                  samples, s_decode_calls, s_decode_errs, g_audio_muted);
+        }
+        return;
+    }
     if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
-    AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL);
+    aaudio_result_t wret = AAudioStream_write(g_aa_stream, pcm, samples, 10000000LL);
+    if (wret < 0 || wret < samples) {
+        s_write_errs++;
+        if (s_write_errs <= 5 || (s_write_errs % 200) == 0) {
+            ALOGE("ar_decode: AAudioStream_write short/failed ret=%d requested=%d (call #%d, %d failures so far)",
+                  (int)wret, samples, s_decode_calls, s_write_errs);
+        }
+    }
+    if ((s_decode_calls % 500) == 0) {
+        ALOGI("ar_decode: heartbeat calls=%d decode_errs=%d write_errs=%d muted=%d",
+              s_decode_calls, s_decode_errs, s_write_errs, g_audio_muted);
+    }
 }
 
 // ── Video implementation (AMediaCodec) ──────────────────────────────────────

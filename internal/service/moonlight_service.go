@@ -39,6 +39,7 @@ type MoonlightService struct {
 	width      int
 	height     int
 	fps        int // overrides config.VideoFPS when > 0; set via SetFPS before ConnectToRTP
+	bitrate    int // kbps; overrides the 10 Mbps default when > 0; set via SetBitrate before ConnectToRTP
 	audioMuted bool
 
 	apiSecret []byte // master secret for HMAC-signed API requests
@@ -225,7 +226,10 @@ func (m *MoonlightService) ConnectToRTP() error {
 	} else if m.config.VideoFPS > 0 {
 		fps = m.config.VideoFPS
 	}
-	bitrate := 10000 // 10 Mbps default
+	bitrate := 10000 // 10 Mbps default, overridden by SetBitrate (wired to the video-start dialog's slider)
+	if m.bitrate > 0 {
+		bitrate = m.bitrate
+	}
 
 	t2 := time.Now()
 	sessionUrl, rikey, err := m.client.Launch(appId, m.videoMode, m.width, m.height, fps, bitrate)
@@ -755,6 +759,10 @@ func (m *MoonlightService) SetExpectedVideoSize(width, height int) {
 
 func (m *MoonlightService) SetFPS(fps int) {
 	m.fps = fps
+}
+
+func (m *MoonlightService) SetBitrate(kbps int) {
+	m.bitrate = kbps
 }
 
 func (m *MoonlightService) SupportsNativeFullscreen() bool {

@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -288,6 +289,9 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		}
 		if request.VideoFPS > 0 {
 			vw.videoClient.SetFPS(request.VideoFPS)
+		}
+		if kbps, ok := parseBitrateKbps(request.VideoBitrate); ok && kbps > 0 {
+			vw.videoClient.SetBitrate(kbps)
 		}
 	}
 
@@ -1471,4 +1475,33 @@ func (vw *VideoWidget) dumpFrameSnapshot(img image.Image, frameNum int64) {
 // ShowVirtualKeyboardIfMobile показывает виртуальную клавиатуру, если мы на мобильной ОС
 func (vw *VideoWidget) ShowVirtualKeyboardIfMobile() {
 	vw.platformShowVirtualKeyboardIfMobile()
+}
+
+// parseBitrateKbps parses a bitrate string in the "<n>K"/"<n>M"/"<n>" format
+// (as produced by the video-start dialog's bitrate slider) into kbps.
+func parseBitrateKbps(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	last := value[len(value)-1]
+	switch last {
+	case 'M':
+		v, err := strconv.ParseFloat(value[:len(value)-1], 64)
+		if err != nil {
+			return 0, false
+		}
+		return int(v * 1000), true
+	case 'K':
+		v, err := strconv.ParseFloat(value[:len(value)-1], 64)
+		if err != nil {
+			return 0, false
+		}
+		return int(v), true
+	default:
+		v, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, false
+		}
+		return v, true
+	}
 }
