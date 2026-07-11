@@ -185,7 +185,13 @@ static void ar_decode(char *data, int len) {
         aaudio_result_t wret = AAudioStream_write(g_aa_stream,
             pcm + (size_t)written * g_audio_channels, samples - written, 5000000LL);
         attempts++;
-        if (wret <= 0) continue;
+        if (wret < 0) {
+            ALOGE("ar_decode: AAudioStream_write fatal error %d, reopening stream", (int)wret);
+            int rate = AAudioStream_getSampleRate(g_aa_stream);
+            aaudio_open(g_audio_channels, rate);
+            break;
+        }
+        if (wret == 0) continue;
         written += (int)wret;
     }
     if (written < samples) {
