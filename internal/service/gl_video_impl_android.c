@@ -274,6 +274,38 @@ static void java_update_tex(void) {
     detach_env(detach);
 }
 
+// Returns 1 if a fresh decoded frame has actually reached the SurfaceTexture's
+// BufferQueue (VideoSurfaceBridge's onFrameAvailable fired), 0 otherwise.
+static int java_consume_frame_available(void) {
+    if (!g_cls_vsb) return 0;
+    int detach;
+    JNIEnv *env = get_env(&detach);
+    if (!env) return 0;
+    jclass cls = g_cls_vsb;
+    jmethodID mid = (*env)->GetStaticMethodID(env, cls, "consumeFrameAvailable", "()Z");
+    if (!mid || (*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); detach_env(detach); return 0; }
+    jboolean ret = (*env)->CallStaticBooleanMethod(env, cls, mid);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); ret = 0; }
+    detach_env(detach);
+    return ret ? 1 : 0;
+}
+
+// Wait (briefly) until the decoded buffer we just released has actually
+// reached the SurfaceTexture consumer side. Calling updateTexImage() before
+// that happens re-latches the PREVIOUS frame instead of the new one — a
+// documented SurfaceTexture race that shows up as ghosting/smearing, worse
+// against encoders with jittery per-frame completion timing (e.g. Allwinner
+// VE2 h264_omx). Bounded to avoid stalling the decoder thread indefinitely if
+// something upstream never signals.
+static void wait_for_frame_available(void) {
+    for (int i = 0; i < 40; i++) { // up to ~20ms
+        if (java_consume_frame_available()) return;
+        struct timespec ts = {0, 500000}; // 0.5ms
+        nanosleep(&ts, NULL);
+    }
+    VLOGE("wait_for_frame_available: timed out — latching whatever is current");
+}
+
 static void java_get_transform(float mtx[16]) {
     // identity fallback
     memset(mtx, 0, 16 * sizeof(float));
@@ -356,7 +388,9 @@ static uint8_t *render_and_readback(int w, int h) {
         return NULL;
     }
 
-    // Latch the latest decoded frame onto the OES texture.
+    // Latch the latest decoded frame onto the OES texture — but only after
+    // confirming the buffer we released actually arrived at the consumer.
+    wait_for_frame_available();
     java_update_tex();
 
     float mtx[16];

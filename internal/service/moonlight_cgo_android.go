@@ -175,21 +175,36 @@ static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
 }
 
 static int dr_submit(PDECODE_UNIT du) {
-    if (!g_amc) return DR_OK;
-    ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 1000);
-    if (idx >= 0) {
-        size_t sz = 0;
-        uint8_t *buf = AMediaCodec_getInputBuffer(g_amc, idx, &sz);
-        if (buf) {
-            size_t written = 0;
-            for (PLENTRY e = du->bufferList; e && written < sz; e = e->next) {
-                size_t n = (e->length < sz - written) ? e->length : sz - written;
-                memcpy(buf + written, e->data, n);
-                written += n;
-            }
-            AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts += 33333, 0);
-        }
+    if (!g_amc) return DR_NEED_IDR;
+
+    // Never silently drop a decode unit: if the codec has no free input buffer
+    // (e.g. momentarily backed up), returning DR_OK here would discard this
+    // frame's bitstream data with no recovery. Since H.264 P-frames predict off
+    // prior frames, a silently dropped frame corrupts every subsequent frame
+    // until the next IDR — which never comes because nothing signaled loss.
+    // DR_NEED_IDR tells moonlight-common-c to ask the host for a fresh IDR so
+    // the stream self-heals, matching what the other platform backends
+    // (apple/windows/linux, all using ffmpeg/VideoToolbox) already do on
+    // decode failure.
+    ssize_t idx = AMediaCodec_dequeueInputBuffer(g_amc, 10000);
+    if (idx < 0) {
+        ALOGE("dr_submit: no input buffer available (idx=%zd) — requesting IDR", idx);
+        return DR_NEED_IDR;
     }
+    size_t sz = 0;
+    uint8_t *buf = AMediaCodec_getInputBuffer(g_amc, idx, &sz);
+    if (!buf) {
+        ALOGE("dr_submit: getInputBuffer failed — requesting IDR");
+        return DR_NEED_IDR;
+    }
+    size_t written = 0;
+    for (PLENTRY e = du->bufferList; e && written < sz; e = e->next) {
+        size_t n = (e->length < sz - written) ? e->length : sz - written;
+        memcpy(buf + written, e->data, n);
+        written += n;
+    }
+    AMediaCodec_queueInputBuffer(g_amc, idx, 0, written, g_amc_pts += 33333, 0);
+
     AMediaCodecBufferInfo info;
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {

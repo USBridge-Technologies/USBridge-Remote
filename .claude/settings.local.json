@@ -195,7 +195,28 @@
       "Bash(bash scripts/deploy_ios.sh 2>&1)",
       "Bash(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 CGO_CFLAGS='-target arm64-apple-ios16.0 -isysroot __CMDSUB_OUTPUT__' CGO_LDFLAGS='-target arm64-apple-ios16.0 -isysroot __CMDSUB_OUTPUT__' IPHONEOS_DEPLOYMENT_TARGET=16.0 go build -tags ios -o /tmp/test_ios_binary ./cmd)",
       "Bash(scripts/deploy_ios.sh)",
-      "Bash(awk '{print $5, $9}')"
+      "Bash(awk '{print $5, $9}')",
+      "Bash(xargs -I{} sh -c 'file \"{}\"')",
+      "Bash(timeout 5 ./USBridgeClient.bin)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(ldd /media/amir/kubuntu_2510/home/amir/Projects/usbridge_client/dist/linux/USBridgeClient.bin)",
+      "Bash(glxinfo -B)",
+      "Bash(eglinfo)",
+      "Bash(xargs -I{} sh -c 'echo \"=={}==\"; head -3 \"{}\"')",
+      "Bash(ln -s /media/amir/kubuntu_2510/home/amir/Projects/usbridge_client/moonlight-common-c moonlight-common-c)",
+      "Bash(rmdir moonlight-common-c *)",
+      "Bash(rm -rf moonlight-common-c)",
+      "Bash(export CGO_CFLAGS=\"-Wno-format-security\")",
+      "Bash(journalctl --user -b --since \"5 minutes ago\")",
+      "Bash(dmesg)",
+      "Read(//home/amir/.config/**)",
+      "Bash(journalctl --user -b --since \"20 minutes ago\")",
+      "Bash(timeout 3 /tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/patched_client)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh a5d88a2 *)",
+      "Bash(sed -i 's/set -e//' /tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh)",
+      "Bash(sed -i 's/git -C \"\\\\$REPO\" worktree add \"\\\\$WT\" \"\\\\$SHA\" >\\\\/tmp\\\\/wt_out.log 2>&1/git -C \"$REPO\" worktree add \"$WT\" \"$SHA\" >\\\\/tmp\\\\/wt_out.log 2>\\\\&1 || { echo WORKTREE_FAIL; cat \\\\/tmp\\\\/wt_out.log; exit 3; }/' /tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh)",
+      "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh 01a5d39 *)"
     ]
   }
 }

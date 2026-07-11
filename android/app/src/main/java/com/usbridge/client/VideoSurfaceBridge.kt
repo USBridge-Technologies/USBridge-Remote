@@ -3,6 +3,7 @@ package com.usbridge.client
 import android.graphics.SurfaceTexture
 import android.util.Log
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * JNI bridge for GPU-accelerated video decoding via SurfaceTexture.
@@ -23,6 +24,17 @@ object VideoSurfaceBridge {
     @Volatile private var surfaceTexture: SurfaceTexture? = null
     @Volatile private var surface: Surface? = null
 
+    // Set by SurfaceTexture's onFrameAvailable callback (fires on an arbitrary
+    // binder/GL thread), consumed by the native decoder thread right before it
+    // calls updateTexImage(). Without this, updateTexImage() can be called
+    // before the newly-decoded buffer has actually reached the SurfaceTexture's
+    // BufferQueue, silently re-latching the previous frame instead — a classic
+    // SurfaceTexture race that Android's own docs warn against. This shows up
+    // as ghosting/smearing (stale macroblocks mixed with fresh ones), and is
+    // far more likely to trigger against an encoder with jittery per-frame
+    // timing (e.g. Allwinner VE2 h264_omx) than a consistent one.
+    private val frameAvailable = AtomicBoolean(false)
+
     /**
      * Create a SurfaceTexture bound to the given OpenGL ES texture name.
      * The texture must already exist and the EGL context that owns it must be
@@ -33,6 +45,7 @@ object VideoSurfaceBridge {
         release()
         return try {
             val st = SurfaceTexture(texName)
+            st.setOnFrameAvailableListener { frameAvailable.set(true) }
             val s = Surface(st)
             surfaceTexture = st
             surface = s
@@ -43,6 +56,13 @@ object VideoSurfaceBridge {
             null
         }
     }
+
+    /**
+     * Consume the pending frame-available flag. Returns true if a new frame
+     * has arrived since the last call (and clears the flag), false otherwise.
+     */
+    @JvmStatic
+    fun consumeFrameAvailable(): Boolean = frameAvailable.getAndSet(false)
 
     @JvmStatic
     fun setDefaultBufferSize(width: Int, height: Int) {
@@ -77,6 +97,7 @@ object VideoSurfaceBridge {
         surfaceTexture?.release()
         surface = null
         surfaceTexture = null
+        frameAvailable.set(false)
         Log.i(TAG, "release")
     }
 }
