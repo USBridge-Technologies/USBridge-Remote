@@ -23,6 +23,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -282,6 +283,7 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 	// client → server (pings + control data)
 	go func() {
 		buf := make([]byte, 65536)
+		c2sCount := 0
 		for {
 			ln.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			n, addr, readErr := ln.ReadFromUDP(buf)
@@ -300,6 +302,10 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				clientMu.Lock()
 				clientAddr = addr
 				clientMu.Unlock()
+				c2sCount++
+				if c2sCount <= 3 || c2sCount%200 == 0 {
+					logrus.Infof("🌕 [Moonlight/Proxy] c→s serverPort=%d pkt#%d %d bytes from %s", serverPort, c2sCount, n, addr)
+				}
 				tsConn.Write(buf[:n]) //nolint:errcheck
 			}
 		}
@@ -308,6 +314,9 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 	// server → client (video/audio RTP frames)
 	go func() {
 		buf := make([]byte, 65536)
+		s2cCount := 0
+		s2cDropped := 0
+		s2cErrs := 0
 		for {
 			tsConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			n, readErr := tsConn.Read(buf)
@@ -319,7 +328,29 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 					if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
 						continue
 					}
-					return
+					if errors.Is(readErr, net.ErrClosed) {
+						// The proxy (or the whole session) is shutting down —
+						// this fd is really gone, no point retrying.
+						return
+					}
+					// Anything else (observed: ECONNREFUSED, from an ICMP
+					// port-unreachable when the host's own audio/video RTP
+					// socket for this session hasn't finished binding yet —
+					// a startup race, not a permanent failure) used to be
+					// treated as fatal and returned here, permanently killing
+					// this port's relay for the rest of the session even
+					// though the host's socket becomes reachable moments
+					// later. That silently broke audio (and would have
+					// intermittently broken video too) specifically when
+					// streaming through this tsnet relay — the direct-LAN
+					// path never engages this code at all, which is why it
+					// only showed up over Tailscale/DERP. Log and keep
+					// retrying instead.
+					s2cErrs++
+					if s2cErrs <= 5 || s2cErrs%200 == 0 {
+						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d tsConn.Read error (retrying) #%d: %v", serverPort, s2cErrs, readErr)
+					}
+					continue
 				}
 			}
 			if n > 0 {
@@ -327,7 +358,16 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				ca := clientAddr
 				clientMu.Unlock()
 				if ca != nil {
+					s2cCount++
+					if s2cCount <= 3 || s2cCount%200 == 0 {
+						logrus.Infof("🌕 [Moonlight/Proxy] s→c serverPort=%d pkt#%d %d bytes → %s", serverPort, s2cCount, n, ca)
+					}
 					ln.WriteToUDP(buf[:n], ca) //nolint:errcheck
+				} else {
+					s2cDropped++
+					if s2cDropped <= 3 || s2cDropped%200 == 0 {
+						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d DROPPED #%d (%d bytes) — no client addr known yet (client never sent a packet on this proxy)", serverPort, s2cDropped, n)
+					}
 				}
 			}
 		}

@@ -76,7 +76,21 @@ static void cl_stage_failed(int s, int ec) {
 // ── Audio: Opus → AAudio ─────────────────────────────────────────────────────
 
 static void aaudio_open(int channels, int sample_rate) {
-    if (g_aa_stream) return;
+    if (g_aa_stream) {
+        // A stream from a previous session is still around — this happens when
+        // ar_init fires again before that session's ar_cleanup ran (overlapping
+        // reconnects, a second client racing the first, etc). Reusing it here
+        // used to be a silent no-op: opus keeps decoding fine and
+        // AAudioStream_write keeps returning success into a stream that may not
+        // match this session's channel count/rate (or may just be a dead/
+        // orphaned handle), so playback goes silent with zero errors anywhere
+        // in the pipeline. Always tear down and rebuild fresh instead of trusting
+        // a stream we didn't just create.
+        ALOGI("aaudio_open: closing stale stream from a previous session before opening a fresh one");
+        AAudioStream_requestStop(g_aa_stream);
+        AAudioStream_close(g_aa_stream);
+        g_aa_stream = NULL;
+    }
     AAudioStreamBuilder *builder = NULL;
     AAudio_createStreamBuilder(&builder);
     AAudioStreamBuilder_setDirection(builder,       AAUDIO_DIRECTION_OUTPUT);
