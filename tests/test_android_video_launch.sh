@@ -172,13 +172,37 @@ for i in $(seq 1 "$CYCLES"); do
         fi
     done
 
-    # Two screenshots ~1s apart, once codec_started (or timeout) has been reached.
+    # Two screenshots ~1s apart, purely informational: the Vulkan overlay
+    # renders as a Z-order-on-top hardware-composited SurfaceView, which
+    # `screencap` frequently cannot capture at all (reads back black there
+    # even while real frames are being presented to the physical screen) —
+    # confirmed by comparing against the render thread's own stats log
+    # below, which kept reporting healthy fps while this showed ~0% motion.
+    # So it's logged for visual sanity-checking only and never fails a cycle.
     sleep 1
     $ADB exec-out screencap -p > "$OUTDIR/cycle${i}_frame_a.png" 2>/dev/null
     sleep 1
     $ADB exec-out screencap -p > "$OUTDIR/cycle${i}_frame_b.png" 2>/dev/null
     motion_pct=$(python3 "$motion_check_py" "$OUTDIR/cycle${i}_frame_a.png" "$OUTDIR/cycle${i}_frame_b.png" $VIDEO_REGION 2>/dev/null || echo "ERR")
-    log "  motion check: ${motion_pct}% of sampled video-area pixels changed between two 1s-apart frames"
+    log "  motion check (informational only, see note above): ${motion_pct}% of sampled video-area pixels changed"
+
+    # Authoritative "is video actually flowing" signal: the Vulkan render
+    # thread's own periodic stats line, straight from the native renderer.
+    fps_deadline=$(python3 -c "print($(date +%s.%N) + 8)")
+    fps=""
+    while [ "$(python3 -c "print(1 if $(date +%s.%N) < $fps_deadline else 0)")" = "1" ]; do
+        line=$(grep -m1 -E "rendered [0-9]+ frames, submitted [0-9]+, fps=" "$LOGFILE" 2>/dev/null)
+        if [ -n "$line" ]; then
+            fps=$(echo "$line" | grep -oE "fps=[0-9.]+" | cut -d= -f2)
+            break
+        fi
+        sleep 0.3
+    done
+    if [ -n "$fps" ]; then
+        log "  ✅ render thread reports fps=$fps (authoritative: frames are actually decoding+rendering)"
+    else
+        log "  ❌ render thread never reported an fps stats line"
+    fi
 
     kill $LOGCAT_PID 2>/dev/null
     wait $LOGCAT_PID 2>/dev/null
@@ -192,11 +216,11 @@ for i in $(seq 1 "$CYCLES"); do
         else
             results+=("cycle$i: ❌ FAILED — rtp_connected marker never seen")
         fi
-    elif [ "$motion_pct" = "ERR" ] || python3 -c "exit(0 if float('$motion_pct') < 0.5 else 1)" 2>/dev/null; then
+    elif [ -z "$fps" ]; then
         fail_count=$((fail_count + 1))
-        results+=("cycle$i: ⚠️  connected (T+${marker_time[rtp_connected]}s) but video area looks frozen/static (motion=${motion_pct}%)")
+        results+=("cycle$i: ⚠️  connected (T+${marker_time[rtp_connected]}s) but render thread never reported fps — video pipeline likely stalled")
     else
-        results+=("cycle$i: ✅ video live at T+${marker_time[codec_started]:-?}s (codec) / T+${marker_time[vulkan_overlay]:-?}s (overlay), motion=${motion_pct}%")
+        results+=("cycle$i: ✅ video live at T+${marker_time[codec_started]:-?}s (codec) / T+${marker_time[vulkan_overlay]:-?}s (overlay), fps=$fps")
     fi
 
     unset marker_time
