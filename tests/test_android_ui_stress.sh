@@ -425,19 +425,31 @@ validate "$f" connections "hammer:end"
 check_no_leak "hammer:end"
 
 # ── Phase 4: back-button disconnect (suspected leak path) ───────────────────
+#
+# The system back button routes through Fyne's finishActivity() JNI call,
+# which finishes the whole Activity — i.e. it exits the app to the home
+# screen, it does not return to an in-app connections screen (confirmed by
+# manual probing; this is also what happens if you back out of the app by
+# hand). So each cycle here must relaunch fresh afterwards rather than assume
+# it can keep tapping in-app coordinates.
 
 echo ""
 echo "=== PHASE 4: back-button disconnect cycles ($BACK_CYCLES x) ==="
 for i in $(seq 1 "$BACK_CYCLES"); do
-    pid_before=$(get_pid)
     connect_saved
     sleep "$(python3 -c 'import random;print(round(random.uniform(0.3,1.5),2))')"
     back_key
     sleep 1
-    f=$(screenshot "back${i}")
-    validate "$f" connections "back$i"
+    fg=$(foreground_pkg)
+    if [ "$fg" = "$PKG" ]; then
+        fail=$((fail + 1))
+        log "  ❌ [back$i] app still in foreground after back-press (fg=$fg) — expected it to exit"
+    else
+        pass=$((pass + 1))
+        log "  ✅ [back$i] back-press exited the app (foreground now: $fg)"
+    fi
     check_no_leak "back$i"
-    check_alive "back$i" "$pid_before"
+    launch_fresh
 done
 
 # ── Phase 5: randomized chaos ────────────────────────────────────────────────
@@ -455,16 +467,29 @@ for i in $(seq 1 "$CHAOS_CYCLES"); do
     if [ $((RANDOM % 2)) -eq 0 ]; then
         disconnect_via_button "0.$((RANDOM % 8 + 2))"
         method="button"
+        sleep 1
+        f=$(screenshot "chaos${i}_${method}")
+        validate "$f" connections "chaos$i:$method"
+        check_no_leak "chaos$i:$method"
+        check_alive "chaos$i:$method" "$pid_before"
     else
+        # back exits the whole app (see Phase 4 comment) — check foreground
+        # directly instead of the tab-pixel classifier, then relaunch fresh.
         sleep "0.$((RANDOM % 8 + 1))"
         back_key
         method="back"
+        sleep 1
+        fg=$(foreground_pkg)
+        if [ "$fg" = "$PKG" ]; then
+            fail=$((fail + 1))
+            log "  ❌ [chaos$i:$method] app still in foreground after back-press (fg=$fg)"
+        else
+            pass=$((pass + 1))
+            log "  ✅ [chaos$i:$method] back-press exited the app (foreground now: $fg)"
+        fi
+        check_no_leak "chaos$i:$method"
+        launch_fresh
     fi
-    sleep 1
-    f=$(screenshot "chaos${i}_${method}")
-    validate "$f" connections "chaos$i:$method"
-    check_no_leak "chaos$i:$method"
-    check_alive "chaos$i:$method" "$pid_before"
 done
 
 # ── summary ──────────────────────────────────────────────────────────────────

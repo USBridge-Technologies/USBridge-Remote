@@ -45,6 +45,77 @@ class MainActivity : GoNativeActivity() {
 
         @JvmStatic
         fun getInstance(): MainActivity? = instance
+
+        /**
+         * Called by Fyne's Android driver via JNI to open a file picker.
+         * Fyne resolves this with GetStaticMethodID (see android.c in
+         * fyne.io/fyne/v2/internal/driver/mobile/app) and aborts the whole
+         * process the first time it invokes a method it couldn't resolve —
+         * so this MUST be a static method matching that signature exactly,
+         * not an instance method. Confirmed by device testing
+         * (tests/test_android_ui_stress.sh): as an instance method the JNI
+         * lookup failed silently at startup ("cannot find method showFileOpen
+         * (Ljava/lang/String;)V"), which is otherwise invisible until
+         * something actually triggers the file picker.
+         */
+        @JvmStatic
+        fun showFileOpen(mimeType: String) {
+            val activity = instance ?: return
+            Log.i(TAG, "showFileOpen: mimeType=$mimeType")
+            activity.runOnUiThread {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType.ifEmpty { "*/*" }
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                        "application/octet-stream",
+                        "application/x-iso9660-image",
+                        "application/x-raw-disk-image",
+                        "application/x-cd-image"
+                    ))
+                }
+                try {
+                    activity.startActivityForResult(intent, FYNE_FILE_OPEN_REQUEST_CODE)
+                } catch (e: Exception) {
+                    Log.e(TAG, "showFileOpen: failed to start picker", e)
+                    NbdBridge.onSAFPickerError("File picker unavailable: ${e.message}")
+                }
+            }
+        }
+
+        /** Same static-binding requirement as showFileOpen above. */
+        @JvmStatic
+        fun showFileSave(mimeType: String, filename: String) {
+            val activity = instance ?: return
+            Log.i(TAG, "showFileSave: mimeType=$mimeType, filename=$filename")
+            activity.runOnUiThread {
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType.ifEmpty { "*/*" }
+                    putExtra(Intent.EXTRA_TITLE, filename)
+                }
+                try {
+                    activity.startActivityForResult(intent, FYNE_FILE_SAVE_REQUEST_CODE)
+                } catch (e: Exception) {
+                    Log.e(TAG, "showFileSave: failed to start saver", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Called by Fyne's Android driver via JNI (instance GetMethodID) when it
+     * needs to terminate the activity — e.g. the system back button routes
+     * through Fyne's native code, which calls this to close the window.
+     * This method did not exist at all before this fix: Fyne's JNI lookup
+     * failed silently at startup ("cannot find method finishActivity ()V")
+     * and the first time anything actually invoked it (reproduced 100% of
+     * the time on the first back-button press in
+     * tests/test_android_ui_stress.sh, phase 4) the JNI runtime aborted the
+     * whole process with "mid == null" — a hard native crash, not a graceful
+     * exit.
+     */
+    fun finishActivity() {
+        finish()
     }
 
     // Camera capture result
@@ -444,52 +515,6 @@ class MainActivity : GoNativeActivity() {
         return cacheDir.absolutePath
     }
 
-    /**
-     * Called by Fyne's Android driver via JNI to open a file picker.
-     * Fyne caches this method ID at startup and aborts if not found.
-     * We launch a real SAF intent; the result is routed through NbdBridge.
-     */
-    fun showFileOpen(mimeType: String) {
-        Log.i(TAG, "showFileOpen: mimeType=$mimeType")
-        runOnUiThread {
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = mimeType.ifEmpty { "*/*" }
-                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                    "application/octet-stream",
-                    "application/x-iso9660-image",
-                    "application/x-raw-disk-image",
-                    "application/x-cd-image"
-                ))
-            }
-            try {
-                startActivityForResult(intent, FYNE_FILE_OPEN_REQUEST_CODE)
-            } catch (e: Exception) {
-                Log.e(TAG, "showFileOpen: failed to start picker", e)
-                NbdBridge.onSAFPickerError("File picker unavailable: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Called by Fyne's Android driver via JNI to open a file save dialog.
-     * Fyne caches this method ID at startup and aborts if not found.
-     */
-    fun showFileSave(mimeType: String, filename: String) {
-        Log.i(TAG, "showFileSave: mimeType=$mimeType, filename=$filename")
-        runOnUiThread {
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = mimeType.ifEmpty { "*/*" }
-                putExtra(Intent.EXTRA_TITLE, filename)
-            }
-            try {
-                startActivityForResult(intent, FYNE_FILE_SAVE_REQUEST_CODE)
-            } catch (e: Exception) {
-                Log.e(TAG, "showFileSave: failed to start saver", e)
-            }
-        }
-    }
 
     /**
      * Start SAF file picker
