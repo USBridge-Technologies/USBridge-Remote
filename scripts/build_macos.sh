@@ -419,22 +419,22 @@ if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     # Sign each dylib individually (install_name_tool invalidated original signatures)
     find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null | while IFS= read -r dylib; do
         codesign --force --sign "$CODESIGN_IDENTITY" \
-            --options runtime --entitlements "$ENTITLEMENTS" "$dylib" 2>/dev/null || true
+            --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$dylib" 2>/dev/null || true
     done
     # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale)
     find "$APP_MACOS_DIR" -type f -perm +111 ! -name "$BINARY_NAME" | while IFS= read -r exe; do
         codesign --force --sign "$CODESIGN_IDENTITY" \
-            --options runtime --entitlements "$ENTITLEMENTS" "$exe" 2>/dev/null || true
+            --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$exe" 2>/dev/null || true
     done
     # Sign the main binary explicitly before sealing the bundle
     codesign --force --sign "$CODESIGN_IDENTITY" \
-        --options runtime --entitlements "$ENTITLEMENTS" \
+        --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$APP_MACOS_DIR/$BINARY_NAME"
     # Sign the outer bundle WITHOUT --deep: all inner components are already signed above.
     # --deep recurses into plain directories (e.g. gstreamer-1.0/) and fails treating them
     # as bundles; signing everything explicitly first avoids that error.
     codesign --force --sign "$CODESIGN_IDENTITY" \
-        --options runtime --entitlements "$ENTITLEMENTS" \
+        --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$DIST_DIR/$APP_BUNDLE_NAME"
 else
     # Go linker embeds an ad-hoc signature; replace it so macOS doesn't reject as "damaged"

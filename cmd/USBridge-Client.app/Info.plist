@@ -30,6 +30,7 @@
 			<array>
 				<string>AppIcon60x60</string>
 				<string>AppIcon76x76</string>
+				<string>AppIcon83.5x83.5</string>
 			</array>
 			<key>CFBundleIconName</key>
 			<string>AppIcon</string>
@@ -52,7 +53,7 @@
 		<string>iPhoneOS</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>32</string>
+	<string>40</string>
 	<key>DTCompiler</key>
 	<string>com.apple.compilers.llvm.clang.1_0</string>
 	<key>DTPlatformBuild</key>
