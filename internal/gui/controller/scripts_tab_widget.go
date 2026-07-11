@@ -132,7 +132,7 @@ func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
 	w.mcpCopyBtn.Disable()
 
 	w.mcpToggleBtn = widget.NewButton("Start", w.toggleMCPProxy)
-	w.mcpToggleBtn.Importance = widget.HighImportance
+	w.mcpToggleBtn.Importance = widget.MediumImportance
 	w.mcpToggleBtn.Disable()
 
 	descLabel := widget.NewLabel("Forwards /api/mcp to the device with signed requests. Local AI tools connect unsigned.")
@@ -209,14 +209,14 @@ func (w *ScriptsTabWidget) refreshMCPStatus() {
 		w.mcpURLLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpProxy.Port())
 		w.mcpURLLabel.Color = design.ColorAccent
 		w.mcpToggleBtn.SetText("Stop")
-		w.mcpToggleBtn.Importance = widget.DangerImportance
+		w.mcpToggleBtn.Importance = widget.MediumImportance
 		w.mcpToggleBtn.Enable()
 		w.mcpCopyBtn.Enable()
 	} else {
 		w.mcpURLLabel.Text = fmt.Sprintf("http://127.0.0.1:%d/api/mcp", w.mcpPort)
 		w.mcpURLLabel.Color = design.ColorTextMuted
 		w.mcpToggleBtn.SetText("Start")
-		w.mcpToggleBtn.Importance = widget.HighImportance
+		w.mcpToggleBtn.Importance = widget.MediumImportance
 		if client != nil {
 			w.mcpToggleBtn.Enable()
 		} else {
@@ -302,10 +302,10 @@ func (w *ScriptsTabWidget) buildScriptRow(s models.ScriptInfo) fyne.CanvasObject
 	nameRow := container.NewHBox(srcIcon, nameLabel, statusDot)
 
 	runBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), nil)
-	runBtn.Importance = widget.HighImportance
+	runBtn.Importance = widget.LowImportance
 
 	stopBtn := widget.NewButtonWithIcon("", theme.MediaStopIcon(), nil)
-	stopBtn.Importance = widget.DangerImportance
+	stopBtn.Importance = widget.LowImportance
 	stopBtn.Hide()
 
 	runBtn.OnTapped = func() {
@@ -361,7 +361,7 @@ func (w *ScriptsTabWidget) buildScriptRow(s models.ScriptInfo) fyne.CanvasObject
 			}
 		}, w.window)
 	})
-	deleteBtn.Importance = widget.DangerImportance
+	deleteBtn.Importance = widget.LowImportance
 
 	w.rowUpdaters[s.Path] = func(running bool, errStr string) {
 		if running {
