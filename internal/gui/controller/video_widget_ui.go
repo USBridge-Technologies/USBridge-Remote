@@ -1108,6 +1108,9 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 
 // clearVideo очищает видео.
 func (vw *VideoWidget) clearVideo() {
+	vw.clearVideoMu.Lock()
+	defer vw.clearVideoMu.Unlock()
+
 	vw.frameMutex.Lock()
 	lastFrame := vw.currentFrame // saved for darkened pause display (Fyne canvas path)
 	vw.currentFrame = nil

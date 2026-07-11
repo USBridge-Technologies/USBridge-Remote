@@ -31,6 +31,18 @@ type VideoWidget struct {
 	ui               *view.VideoWidgetUI
 	statsTickerStop  chan struct{}
 
+	// clearVideoMu serializes clearVideo() (and therefore stopMetalVideo() /
+	// the native overlay teardown). Needed because the native Android destroy
+	// path (android_vk_destroy in vk_video_impl_android.c) only guards against
+	// being called again *after* a prior call finished — it checks g_active
+	// then acts, non-atomically — so two concurrent callers can both pass the
+	// check and both run the teardown, double-freeing Vulkan/EGL resources.
+	// This was hit in practice: the unexpected-termination handler (video_widget_ctor.go)
+	// spawns clearVideo() in its own goroutine, which can race with a
+	// concurrent explicit disconnect's synchronous clearVideo() call in
+	// stopVideoInternal(), producing a SIGSEGV.
+	clearVideoMu sync.Mutex
+
 	// Состояние
 	isStreaming      bool
 	isVideoConnected bool
