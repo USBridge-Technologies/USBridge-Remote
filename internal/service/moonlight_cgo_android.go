@@ -102,8 +102,14 @@ static void aaudio_open(int channels, int sample_rate) {
     aaudio_result_t status = AAudioStreamBuilder_openStream(builder, &g_aa_stream);
     AAudioStreamBuilder_delete(builder);
     if (status == AAUDIO_OK) {
+        int32_t burst = AAudioStream_getFramesPerBurst(g_aa_stream);
+        // Set a larger initial buffer (e.g. 4x burst size) to prevent crackling
+        // (XRuns) during the first few seconds of connection before Android's 
+        // internal adaptive buffer algorithm kicks in.
+        AAudioStream_setBufferSizeInFrames(g_aa_stream, burst * 4);
+        
         AAudioStream_requestStart(g_aa_stream);
-        ALOGI("AAudio stream started: ch=%d rate=%d", channels, sample_rate);
+        ALOGI("AAudio stream started: ch=%d rate=%d burst=%d", channels, sample_rate, burst);
     } else {
         ALOGE("AAudio openStream failed: %d", (int)status);
         g_aa_stream = NULL;
