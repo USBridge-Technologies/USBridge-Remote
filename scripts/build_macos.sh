@@ -232,7 +232,8 @@ export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 rm -rf "$DIST_DIR"
 mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR" "$APP_FRAMEWORKS_DIR" "$APP_PLUGINS_DIR"
 APP_BINARY_PATH="$APP_MACOS_DIR/$BINARY_NAME"
-go build -ldflags="-s -w" -o "$APP_BINARY_PATH" ./cmd
+VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+go build -ldflags="-s -w -X main.version=$VERSION" -o "$APP_BINARY_PATH" ./cmd
 
 # Tell the dynamic linker to look in Contents/Frameworks/ for bundled dylibs.
 # This must come before bundle_homebrew_dylibs rewrites the load commands.
@@ -382,9 +383,9 @@ cat > "$APP_CONTENTS_DIR/Info.plist" << 'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSCameraUsageDescription</key>

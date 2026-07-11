@@ -58,11 +58,13 @@ echo -e "\n${YELLOW}🔨 fyne package --target ios...${NC}"
 find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || true
 
 # Run fyne from cmd/ so it builds the correct main package (not repo root)
+VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
 cd "$REPO_ROOT/cmd"
 "$FYNE_BIN" package \
     --target ios \
     --app-id "$APP_ID" \
     --name "$APP_NAME" \
+    --app-version "$VERSION" \
     --icon "$REPO_ROOT/Icon.png" \
     --certificate "$SIGN_CERT" \
     --profile "$PROVISIONING_PROFILE" \

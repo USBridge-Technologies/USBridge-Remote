@@ -387,10 +387,11 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
 mkdir -p "$GOCACHE" "$GOMODCACHE"
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
-BUILD_LDFLAGS="-H=windowsgui"
+VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+BUILD_LDFLAGS="-H=windowsgui -X main.version=$VERSION"
 BUILD_VARIANT="release"
 if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
-    BUILD_LDFLAGS="-H=console"
+    BUILD_LDFLAGS="-H=console -X main.version=$VERSION"
     BUILD_VARIANT="console"
     echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: собираем консольную версию"
 fi

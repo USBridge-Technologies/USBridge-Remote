@@ -43,7 +43,8 @@ for pkg in libavcodec libavutil libswscale libpulse-simple; do
     fi
 done
 
-go build -o "$OUT_DIR/USBridgeClient.bin" ./cmd
+VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+go build -ldflags "-X main.version=$VERSION" -o "$OUT_DIR/USBridgeClient.bin" ./cmd
 
 [ -f "$REPO_ROOT/config.yaml" ] && cp -f "$REPO_ROOT/config.yaml" "$OUT_DIR/"
 

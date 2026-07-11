@@ -442,13 +442,14 @@ if [ "$NEED_FYNE_BUILD" -eq 0 ] && path_is_newer_than "$FYNE_APK" \
 fi
 
 if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
+    VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
     cd "$ANDROID_SRC"
     "$FYNE_BIN" package \
         --target android/arm64 \
         --tags "$FYNE_TAGS" \
         --app-id io.usbridge.client \
         --name "USBridge Client" \
-        --app-version "1.0.0" \
+        --app-version "$VERSION" \
         --icon "$REPO_ROOT/Icon.png" \
         --release
     cd "$REPO_ROOT"

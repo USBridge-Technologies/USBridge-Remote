@@ -17,6 +17,9 @@ import (
 
 const (
 	appName = "usbridge-client"
+)
+
+var (
 	version = "1.0.0"
 )
 
