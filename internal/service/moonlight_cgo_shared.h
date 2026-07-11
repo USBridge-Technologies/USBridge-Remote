@@ -131,8 +131,16 @@ static void ar_decode(char *data, int len) {
 
 // ── Video callbacks ───────────────────────────────────────────────────────────
 
+// platform_set_video_format lets the platform decoder know which codec was negotiated.
+// Implemented in each platform CGO file (apple: sets g_codec_type; others: no-op).
+extern void platform_set_video_format(int videoFormat);
+
 static int  dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
-    (void)fmt; (void)w; (void)h; (void)rate; (void)ctx; (void)flags;
+    (void)ctx; (void)flags;
+    platform_set_video_format(fmt);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "dr_setup: negotiated fmt=0x%04X, %dx%d@%d", fmt, w, h, rate);
+    goVTLog(buf);
     return 0;
 }
 static void dr_start(void)   {}
@@ -144,10 +152,6 @@ static int dr_submit(PDECODE_UNIT du) { return platform_dr_submit(du); }
 // ── LiStartConnection entrypoint ──────────────────────────────────────────────
 //
 // pipeFd is ignored — all platforms decode natively without a pipe.
-
-// platform_set_video_format lets the platform decoder know which codec was negotiated.
-// Implemented in each platform CGO file (apple: sets g_codec_type; others: no-op).
-extern void platform_set_video_format(int videoFormat);
 
 int do_li_start(
     const char *address,
@@ -163,7 +167,6 @@ int do_li_start(
 ) {
     (void)pipeFd;
     if (videoFormat == 0) videoFormat = VIDEO_FORMAT_H264; // default
-    platform_set_video_format(videoFormat);
     printf("DEBUG: do_li_start(addr=%s, codec_fmt=%d, %dx%d@%d, bit=%d)\n",
            address, videoFormat, width, height, fps, bitrate);
 

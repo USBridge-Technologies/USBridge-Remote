@@ -25,6 +25,7 @@ extern int metal_video_is_active(void);
 #endif
 
 #include "moonlight_cgo_shared.h"
+#include "h264_stream.h"
 
 // Shared monotonic clock — used by both audio and video subsystems.
 static double mono_sec(void) {
@@ -387,12 +388,40 @@ static int vt_create_session(void) {
             goVTLog((char*)"VT[H264]: waiting for SPS/PPS");
             return -1;
         }
+
+        // Apple's VideoToolbox is extremely strict about the SPS Level IDC.
+        // NVIDIA Gamestream often sends Level 1.0 (0x0A) regardless of the actual resolution (e.g., 1080p).
+        // This causes CMVideoFormatDescriptionCreateFromH264ParameterSets to fail with -12710 (InvalidParameter).
+        // We patch the Level IDC to 4.2 (0x2A) if it's too low, to satisfy VideoToolbox for 1080p60.
+        if (g_sps_len >= 4 && (g_sps_data[0] & 0x1F) == 7) {
+            if (g_sps_data[3] < 0x2A) {
+                goVTLog((char*)"VT: Patching H.264 SPS Level IDC to 4.2");
+                g_sps_data[3] = 0x2A; // Level 4.2
+            }
+        }
+
         const uint8_t *params[2] = { g_sps_data, g_pps_data };
         size_t         sizes[2]  = { g_sps_len,  g_pps_len  };
         s = CMVideoFormatDescriptionCreateFromH264ParameterSets(
             kCFAllocatorDefault, 2, params, sizes, 4, &g_vt_fmt_desc);
     }
-    if (s != noErr) { goVTLog((char*)"VT: CMVideoFormatDescription FAILED"); return -1; }
+    if (s != noErr) {
+        char errBuf[256];
+        snprintf(errBuf, sizeof(errBuf), "VT: CMVideoFormatDescription FAILED (err=%d, isHEVC=%d, spsLen=%zu, ppsLen=%zu)", (int)s, isHEVC, g_sps_len, g_pps_len);
+        goVTLog(errBuf);
+        
+        char hexDump[512] = "SPS: ";
+        for (size_t i = 0; i < (g_sps_len < 16 ? g_sps_len : 16); i++) {
+            snprintf(hexDump + strlen(hexDump), sizeof(hexDump) - strlen(hexDump), "%02X ", g_sps_data[i]);
+        }
+        strcat(hexDump, "| PPS: ");
+        for (size_t i = 0; i < (g_pps_len < 16 ? g_pps_len : 16); i++) {
+            snprintf(hexDump + strlen(hexDump), sizeof(hexDump) - strlen(hexDump), "%02X ", g_pps_data[i]);
+        }
+        goVTLog(hexDump);
+        
+        return -1;
+    }
 
     int32_t fmt = kCVPixelFormatType_32BGRA;
     CFNumberRef cfFmt = CFNumberCreate(NULL, kCFNumberSInt32Type, &fmt);
@@ -480,9 +509,35 @@ static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
         // H.264: NAL type = nal[0] & 0x1F
         int nal_type = nal[0] & 0x1F;
         if (nal_type == 7) { // SPS
-            if (len <= (int)sizeof(g_sps_data) &&
-                (g_sps_len != (size_t)len || memcmp(g_sps_data, nal, len) != 0)) {
-                memcpy(g_sps_data, nal, len); g_sps_len = len; ctx->new_params = 1;
+            if (len <= (int)sizeof(g_sps_data)) {
+                // Apply Moonlight SPS Fixup for VideoToolbox compatibility
+                h264_stream_t* stream = h264_new();
+                read_nal_unit(stream, (uint8_t*)nal, len);
+                
+                stream->sps->num_ref_frames = 1;
+                stream->sps->vui.max_dec_frame_buffering = 1;
+                if (!stream->sps->vui.bitstream_restriction_flag) {
+                    stream->sps->vui.bitstream_restriction_flag = 1;
+                    stream->sps->vui.motion_vectors_over_pic_boundaries_flag = 1;
+                    stream->sps->vui.max_bytes_per_pic_denom = 2;
+                    stream->sps->vui.max_bits_per_mb_denom = 1;
+                    stream->sps->vui.log2_max_mv_length_horizontal = 16;
+                    stream->sps->vui.log2_max_mv_length_vertical = 16;
+                    stream->sps->vui.num_reorder_frames = 0;
+                }
+                
+                uint8_t out[1024];
+                int out_len = write_nal_unit(stream, out, sizeof(out));
+                if (out_len > 1 && out_len - 1 <= (int)sizeof(g_sps_data)) {
+                    int final_len = out_len - 1;
+                    uint8_t *final_sps = out + 1;
+                    if (g_sps_len != (size_t)final_len || memcmp(g_sps_data, final_sps, final_len) != 0) {
+                        memcpy(g_sps_data, final_sps, final_len); 
+                        g_sps_len = final_len; 
+                        ctx->new_params = 1;
+                    }
+                }
+                h264_free(stream);
             }
             return;
         }
