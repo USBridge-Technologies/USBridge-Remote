@@ -937,6 +937,9 @@ func (vsd *VideoStartDialog) updateResolutionMeta(hasMultipleFormats bool) {
 }
 
 func formatResolutionBaseLabel(mode models.VideoCaptureMode) string {
+	if mode.PixelFormat != "" {
+		return fmt.Sprintf("%d x %d (%s)", mode.Width, mode.Height, mode.PixelFormat)
+	}
 	return fmt.Sprintf("%d x %d", mode.Width, mode.Height)
 }
 
