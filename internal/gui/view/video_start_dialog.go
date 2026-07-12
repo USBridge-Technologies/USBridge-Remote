@@ -894,6 +894,10 @@ func videoCodecButtonLabel(modeID string) string {
 		return "RAW"
 	case models.VideoModeJPEGRTP:
 		return "JPEG"
+	case models.VideoModeH265:
+		return "H.265"
+	case models.VideoModeAV1:
+		return "AV1"
 	default:
 		return "H.264"
 	}
