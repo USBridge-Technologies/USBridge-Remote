@@ -1091,17 +1091,23 @@ func allowedModesForPixelFormat(format string) map[string]bool {
 	case "MJPG", "MJPEG", "JPEG":
 		return map[string]bool{
 			models.VideoModeH264:    true,
+			models.VideoModeH265:    true,
+			models.VideoModeAV1:     true,
 			models.VideoModeJPEGRTP: true,
 		}
 	case "YUYV", "YUYV422", "YUY2":
 		return map[string]bool{
 			models.VideoModeH264:    true,
+			models.VideoModeH265:    true,
+			models.VideoModeAV1:     true,
 			models.VideoModeJPEGRTP: true,
 			models.VideoModeRawYUYV: true,
 		}
 	default:
 		return map[string]bool{
 			models.VideoModeH264: true,
+			models.VideoModeH265: true,
+			models.VideoModeAV1:  true,
 		}
 	}
 }
