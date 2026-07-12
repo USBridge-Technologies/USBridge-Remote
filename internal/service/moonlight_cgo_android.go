@@ -215,8 +215,8 @@ static void ar_decode(char *data, int len) {
 
 // ── Video implementation (AMediaCodec) ──────────────────────────────────────
 
-static void amc_init(int width, int height) {
-    ALOGI("amc_init: %dx%d", width, height);
+static void amc_init(int fmt_codec, int width, int height) {
+    ALOGI("amc_init: fmt=0x%x %dx%d", fmt_codec, width, height);
     // Safety: clean up stale codec and EGL if dr_cleanup wasn't called.
     if (g_amc) {
         ALOGE("amc_init: stale g_amc found — cleaning up");
@@ -230,17 +230,24 @@ static void amc_init(int width, int height) {
     ANativeWindow *nwin = android_gl_init(width, height);
     if (!nwin) { ALOGE("amc_init: no native window"); return; }
 
+    const char *mime = "video/avc";
+    if (fmt_codec & 0x0F00) { // VIDEO_FORMAT_MASK_H265
+        mime = "video/hevc";
+    } else if (fmt_codec & 0xF000) { // VIDEO_FORMAT_MASK_AV1
+        mime = "video/av01";
+    }
+
     AMediaFormat *fmt = AMediaFormat_new();
-    AMediaFormat_setString(fmt, "mime", "video/avc");
+    AMediaFormat_setString(fmt, "mime", mime);
     AMediaFormat_setInt32(fmt,  "width",  width);
     AMediaFormat_setInt32(fmt,  "height", height);
 
-    g_amc = AMediaCodec_createDecoderByType("video/avc");
+    g_amc = AMediaCodec_createDecoderByType(mime);
     if (g_amc && AMediaCodec_configure(g_amc, fmt, nwin, NULL, 0) == AMEDIA_OK) {
         if (AMediaCodec_start(g_amc) == AMEDIA_OK) {
-            ALOGI("AMediaCodec started");
-        } else { ALOGE("AMediaCodec_start failed"); }
-    } else { ALOGE("AMediaCodec configure failed"); }
+            ALOGI("AMediaCodec started (%s)", mime);
+        } else { ALOGE("AMediaCodec_start failed (%s)", mime); }
+    } else { ALOGE("AMediaCodec configure failed (%s)", mime); }
 
     AMediaFormat_delete(fmt);
     if (nwin) ANativeWindow_release(nwin);
@@ -248,7 +255,7 @@ static void amc_init(int width, int height) {
 
 static int dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     ALOGI("dr_setup: %dx%d@%d", w, h, rate);
-    amc_init(w, h);
+    amc_init(fmt, w, h);
     return 0;
 }
 
