@@ -518,6 +518,12 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
 
+    // Sync clear before blit (Write-After-Write hazard in TRANSFER stage)
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
     VkImageBlit blt = {0};
     blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blt.srcSubresource.layerCount = 1;

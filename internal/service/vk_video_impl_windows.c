@@ -790,15 +790,16 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = (sh - dh) / 2; }
     else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
 
-    // Clear black bars via vkCmdClearColorImage before blit.
-    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkClearColorValue black = {0};
     VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
     vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
+
+    // Sync clear before blit (Write-After-Write hazard in TRANSFER stage)
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkImageBlit blt = {0};
     blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
