@@ -326,6 +326,7 @@ func (mw *MainWindow) recreateContainers() {
 		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(mw.scriptsWidget.GetContainer(), design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
+	videoWasPaused := false
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
 		tabSwitchStart := time.Now()
 		tabName := "?"
@@ -338,22 +339,19 @@ func (mw *MainWindow) recreateContainers() {
 			if mw.videoWidget != nil {
 				mw.videoWidget.BootstrapControlSessionAsync()
 			}
+			if videoWasPaused {
+				view.NotifyOverlayHide()
+				videoWasPaused = false
+			}
 			logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
 			return
 		}
-		// NOTE: tried pausing (NotifyOverlayShow/Hide, reusing the existing
-		// dialog-hide hooks) instead of a full stop here, to avoid the ~12-20s
-		// full-reconnect cost measured by tests/test_android_tab_switch_video.sh.
-		// Reverted: confirmed via dumpsys (SurfaceView genuinely visible, not a
-		// screencap artifact) that the native render thread never resumes
-		// producing frames after being hidden for more than a couple of
-		// seconds — worse than the reconnect cost, since it leaves video
-		// permanently black until a manual reconnect. That hide/show path was
-		// only ever exercised before for brief Fyne dialog/menu overlays; a
-		// real fix needs to find why decode stalls under sustained hide,
-		// not just re-wire this call site.
+		
 		if mw.videoWidget != nil {
-			mw.videoWidget.RequestStreaming(false)
+			if !videoWasPaused {
+				view.NotifyOverlayShow()
+				videoWasPaused = true
+			}
 		}
 		logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
 	}
