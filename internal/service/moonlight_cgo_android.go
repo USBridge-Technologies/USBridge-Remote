@@ -177,6 +177,23 @@ static void ar_decode(char *data, int len) {
         return;
     }
     if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
+
+    // Adaptive buffer size to prevent crackling (XRuns) during Wi-Fi lag
+    static int32_t s_previous_xruns = 0;
+    int32_t xruns = AAudioStream_getXRunCount(g_aa_stream);
+    if (xruns > s_previous_xruns) {
+        s_previous_xruns = xruns;
+        int32_t current_size = AAudioStream_getBufferSizeInFrames(g_aa_stream);
+        int32_t burst = AAudioStream_getFramesPerBurst(g_aa_stream);
+        int32_t capacity = AAudioStream_getBufferCapacityInFrames(g_aa_stream);
+        int32_t new_size = current_size + burst * 2; // Increase aggressively
+        if (new_size > capacity) new_size = capacity;
+        if (new_size > current_size) {
+            AAudioStream_setBufferSizeInFrames(g_aa_stream, new_size);
+            ALOGI("ar_decode: XRun detected (%d total), increased buffer to %d frames to prevent crackling", xruns, new_size);
+        }
+    }
+
     // A single AAudioStream_write() call can return fewer frames than requested
     // (or 0) if the audio pipeline is briefly backed up (buffer momentarily
     // full) — this is normal on some devices/chipsets and does not mean the
@@ -195,18 +212,32 @@ static void ar_decode(char *data, int len) {
             ALOGE("ar_decode: AAudioStream_write fatal error %d, reopening stream", (int)wret);
             int rate = AAudioStream_getSampleRate(g_aa_stream);
             aaudio_open(g_audio_channels, rate);
-            break;
+            break; // Will retry writing on the next audio packet
         }
         if (wret == 0) continue;
         written += (int)wret;
     }
+
+    static int s_consec_short_writes = 0;
     if (written < samples) {
+        s_consec_short_writes++;
         s_write_errs++;
         if (s_write_errs <= 5 || (s_write_errs % 200) == 0) {
             ALOGE("ar_decode: AAudioStream_write short after retries: wrote=%d requested=%d attempts=%d (call #%d, %d failures so far)",
                   written, samples, attempts, s_decode_calls, s_write_errs);
         }
+        // If the stream is completely stuck (buffer full and never draining), restart it
+        if (s_consec_short_writes > 10) {
+            ALOGE("ar_decode: Stream is stuck (10 short writes), forcing restart to recover audio");
+            int rate = AAudioStream_getSampleRate(g_aa_stream);
+            aaudio_open(g_audio_channels, rate);
+            s_consec_short_writes = 0; // reset to avoid infinite restart loop
+            s_previous_xruns = 0; // reset xrun tracker for the new stream
+        }
+    } else {
+        s_consec_short_writes = 0;
     }
+
     if ((s_decode_calls % 500) == 0) {
         ALOGI("ar_decode: heartbeat calls=%d decode_errs=%d write_errs=%d muted=%d",
               s_decode_calls, s_decode_errs, s_write_errs, g_audio_muted);
