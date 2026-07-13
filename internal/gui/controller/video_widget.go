@@ -223,13 +223,7 @@ func (vw *VideoWidget) desiredStreamingState() bool {
 func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 	go func() {
 		vw.handleDeviceRebuildLocally()
-		if vw.usbClient != nil {
-			if err := vw.usbClient.StopVideo(); err != nil {
-				logrus.Warnf("⚠️ Control rebuild restart: failed to stop server video before reconcile: %v", err)
-			} else {
-				logrus.Info("🛑 Control rebuild restart: server video stopped before reconcile")
-			}
-		}
+
 		vw.videoOpMu.Lock()
 		vw.videoRestartPending = true
 		vw.videoOpMu.Unlock()

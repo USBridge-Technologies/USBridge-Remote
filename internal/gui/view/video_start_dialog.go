@@ -659,8 +659,12 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		vsd.captureModes = append(vsd.captureModes, info.CaptureModes...)
 	}
 	if len(vsd.captureModes) == 0 {
+		defaultFmt := "YUYV"
+		if info != nil && info.DefaultPixelFormat != "" {
+			defaultFmt = info.DefaultPixelFormat
+		}
 		vsd.captureModes = []models.VideoCaptureMode{
-			{Width: defaultWidth, Height: defaultHeight, FPS: []int{defaultFPS}, PixelFormat: "MJPG"},
+			{Width: defaultWidth, Height: defaultHeight, FPS: []int{defaultFPS}, PixelFormat: defaultFmt},
 		}
 	}
 
@@ -693,6 +697,9 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 			activeFormat := ""
 			if info != nil {
 				activeFormat = normalizePixelFormat(info.SourceFormat)
+				if activeFormat == "" {
+					activeFormat = normalizePixelFormat(info.DefaultPixelFormat)
+				}
 			}
 			modeFormat := normalizePixelFormat(captureMode.PixelFormat)
 			if defaultResolutionLabel == "" || (activeFormat != "" && modeFormat == activeFormat) {

@@ -747,6 +747,22 @@ func (c *USBClient) GetVideoInfoForDevice(devicePath string) (*models.APIRespons
 	return &apiResp, nil
 }
 
+func (c *USBClient) SetVideoDevice(device, pixelFormat string) error {
+	payloadBytes, _ := json.Marshal(map[string]string{"device": device, "pixel_format": pixelFormat})
+	resp, err := c.makeRequest("POST", "/api/video/set_device", payloadBytes)
+	if err != nil {
+		return err
+	}
+	var apiResp models.APIResponse
+	if err := json.Unmarshal(resp, &apiResp); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+	if !apiResp.Success {
+		return fmt.Errorf("failed to set video device: %s", apiResp.Message)
+	}
+	return nil
+}
+
 func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
 	resp, err := c.makeRequest("GET", "/api/video/devices", nil)
 	if err != nil {
@@ -776,189 +792,7 @@ func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
 	return payload.Devices, nil
 }
 
-// StartVideo starts video streaming with parameters (new API)
-func (c *USBClient) StartVideo(request *models.VideoStartRequest) error {
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("failed to serialize request: %v", err)
-	}
 
-	mode := request.VideoMode
-	if mode == "" {
-		mode = models.VideoModeH264
-	}
-	logrus.Infof("🎥 [VideoHTTP %s] POST %s/api/video/start device=%s mode=%s size=%dx%d fps=%d bitrate=%s client=%s:%d",
-		request.TraceID, c.baseURL, request.VideoDevice, mode, request.VideoWidth, request.VideoHeight, request.VideoFPS, request.VideoBitrate, request.ClientHost, request.ClientPort)
-	logrus.Infof("🎥 [VideoHTTP %s] body=%s", request.TraceID, string(requestJSON))
-
-	headers := map[string]string{}
-	if strings.TrimSpace(request.TraceID) != "" {
-		headers["X-USBridge-Video-Trace"] = request.TraceID
-	}
-	resp, err := c.makeRequestWithHeaders("POST", "/api/video/start", requestJSON, headers)
-	if err != nil {
-		return err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	if !apiResp.Success {
-		// Check if the error is a message that video is already running
-		if apiResp.Message != "" &&
-			(strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "already started") ||
-				strings.Contains(apiResp.Message, "already started")) {
-			logrus.Info("🎥 Video streaming is already running")
-			return nil
-		}
-		return fmt.Errorf("failed to start video: %s", apiResp.Message)
-	}
-
-	logrus.Info("✅ Video streaming started")
-	return nil
-}
-
-func (c *USBClient) GetTailscaleStatus() (*models.TailscaleStatus, error) {
-	return c.GetTailscaleStatusWithContext(context.Background())
-}
-
-func (c *USBClient) GetTailscaleStatusWithContext(ctx context.Context) (*models.TailscaleStatus, error) {
-	logrus.Infof("🛰️ [API-TS] GET %s/api/auth/tailscale/status", c.baseURL)
-	resp, err := c.makeRequestWithContext(ctx, "GET", "/api/auth/tailscale/status", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %v", err)
-	}
-	if !apiResp.Success {
-		return nil, fmt.Errorf("tailscale status failed: %s", apiResp.Message)
-	}
-
-	raw, err := json.Marshal(apiResp.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to re-marshal tailscale status: %v", err)
-	}
-	var parsed models.TailscaleStatus
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse tailscale status payload: %v", err)
-	}
-	logrus.Infof("🛰️ [API-TS] status backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
-	return &parsed, nil
-}
-
-func (c *USBClient) RegisterTailscale(request *models.TailscaleRegistrationRequest) (*models.TailscaleStatus, error) {
-	return c.RegisterTailscaleWithContext(context.Background(), request)
-}
-
-func (c *USBClient) RegisterTailscaleWithContext(ctx context.Context, request *models.TailscaleRegistrationRequest) (*models.TailscaleStatus, error) {
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal tailscale registration request: %v", err)
-	}
-	logrus.Infof("🛰️ [API-TS] POST %s/api/auth/tailscale/register hostname=%s device_token_len=%d auth_key_len=%d", c.baseURL, request.Hostname, len(strings.TrimSpace(request.DeviceToken)), len(strings.TrimSpace(request.AuthKey)))
-
-	resp, err := c.makeRequestWithContext(ctx, "POST", "/api/auth/tailscale/register", requestJSON, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %v", err)
-	}
-	if !apiResp.Success {
-		return nil, fmt.Errorf("tailscale registration failed: %s", apiResp.Message)
-	}
-
-	raw, err := json.Marshal(apiResp.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to re-marshal tailscale registration data: %v", err)
-	}
-	var parsed models.TailscaleStatus
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse tailscale registration payload: %v", err)
-	}
-	logrus.Infof("🛰️ [API-TS] register backend=%s logged_in=%v dns=%s ip=%s auth_url=%t", parsed.Backend, parsed.LoggedIn, parsed.DNSName, parsed.IP4, strings.TrimSpace(parsed.AuthURL) != "")
-	return &parsed, nil
-}
-
-// StartVideoLegacy starts video streaming (legacy API for compatibility)
-func (c *USBClient) StartVideoLegacy() error {
-	resp, err := c.makeRequest("POST", "/api/video/start", nil)
-	if err != nil {
-		return err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	if !apiResp.Success {
-		// Check if the error is a message that video is already running
-		if apiResp.Message != "" &&
-			(strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "already running") ||
-				strings.Contains(apiResp.Message, "already started") ||
-				strings.Contains(apiResp.Message, "already started")) {
-			logrus.Info("🎥 Video streaming is already running")
-			return nil
-		}
-		return fmt.Errorf("failed to start video: %s", apiResp.Message)
-	}
-
-	logrus.Info("🎥 Video streaming started")
-	return nil
-}
-
-// StopVideo stops video streaming (new API)
-func (c *USBClient) StopVideo() error {
-	logrus.Info("🛑 Stopping video streaming...")
-
-	resp, err := c.makeRequest("POST", "/api/video/stop", nil)
-	if err != nil {
-		return err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	if !apiResp.Success {
-		return fmt.Errorf("failed to stop video: %s", apiResp.Message)
-	}
-
-	logrus.Info("✅ Video streaming stopped")
-	return nil
-}
-
-// StopVideoLegacy stops video streaming (legacy API for compatibility)
-func (c *USBClient) StopVideoLegacy() error {
-	resp, err := c.makeRequest("POST", "/api/video/stop", nil)
-	if err != nil {
-		return err
-	}
-
-	var apiResp models.APIResponse
-	if err := json.Unmarshal(resp, &apiResp); err != nil {
-		return fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	if !apiResp.Success {
-		return fmt.Errorf("failed to stop video: %s", apiResp.Message)
-	}
-
-	logrus.Info("🛑 Video streaming stopped")
-	return nil
-}
 
 // GetAudioDevices returns available ALSA audio capture devices.
 func (c *USBClient) GetAudioDevices() ([]models.SystemDevice, error) {

@@ -314,6 +314,12 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 		cfg.VideoMode = models.VideoModeH264
 	}
 
+	if vw.usbClient != nil {
+		if err := vw.usbClient.SetVideoDevice(cfg.DevicePath, cfg.CapturePixelFormat); err != nil {
+			logrus.Warnf("⚠️ failed to set video device on server: %v", err)
+		}
+	}
+
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
 

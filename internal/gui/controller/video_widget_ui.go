@@ -226,7 +226,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 				Width:       lastInfo.Width,
 				Height:      lastInfo.Height,
 				FPS:         []int{fps},
-				PixelFormat: "MJPG",
+				PixelFormat: "YUYV",
 			})
 			logrus.Infof("ℹ️ Injected current resolution %dx%d@%dfps into capture modes for dialog pre-selection", lastInfo.Width, lastInfo.Height, fps)
 		}
@@ -303,24 +303,8 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		hidDone <- vw.ensureControlHIDDevices()
 	}()
 
-	// Tell the server to prepare the video stream
+	// The stream will be started via Moonlight's /launch API inside ConnectToRTP.
 	if vw.usbClient != nil {
-		logrus.Info("🌕 startVideoWithParamsInternal: calling usbClient.StartVideo")
-		if err := vw.usbClient.StartVideo(request); err != nil {
-			logrus.Errorf("❌ StartVideo API failed: %v", err)
-			go func() { <-hidDone }() // drain
-			fyne.Do(func() {
-				if vw.statusLabel != nil {
-					vw.statusLabel.SetText(fmt.Sprintf("❌ API: %v", err))
-				}
-			})
-			return
-		}
-
-		// Python test "standard": wait 0.4s after starting video before moonlight launch
-		logrus.Info("⏳ Waiting 0.5s for Sunshine to initialize (like test_api_full.py)")
-		time.Sleep(500 * time.Millisecond)
-
 		fyne.Do(func() {
 			if vw.statusLabel != nil {
 				vw.statusLabel.SetText("⏳ Starting Moonlight...")
@@ -450,15 +434,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 
 	var wg sync.WaitGroup
 
-	if vw.usbClient != nil {
-		wg.Add(1)
-		go func(client interface{ StopVideo() error }) {
-			defer wg.Done()
-			if err := client.StopVideo(); err != nil {
-				logrus.Warnf("⚠️ Failed to stop video on the server: %v", err)
-			}
-		}(vw.usbClient)
-	}
+	// Sunshine stops video streaming when the Moonlight session ends via /cancel (Quit).
 
 	if vw.videoClient != nil {
 		wg.Add(1)

@@ -72,6 +72,7 @@ type VideoStatus struct {
 	Transport         string               `json:"transport"`
 	Encoding          string               `json:"encoding"`
 	SourceFormat      string               `json:"source_format"`
+	DefaultPixelFormat string              `json:"default_pixel_format,omitempty"`
 	ServerDecodesJPEG bool                 `json:"server_decodes_jpeg"`
 	CaptureModes      []VideoCaptureMode   `json:"capture_modes,omitempty"`
 	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`

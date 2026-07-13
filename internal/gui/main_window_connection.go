@@ -503,13 +503,13 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		strings.TrimSpace(host), protocol, maskSensitiveToken(tunnelToken), mw.config.APITimeout)
 
 	if mw.pendingTailscaleRegister {
-		mw.pollTailscaleRegistration(host, masterKey)
+		mw.pollTailscaleRegistration(host, masterKey, protocol)
 	}
 
 	return mw.doConnectWithProtocol(ctx, host, tunnelToken, protocol)
 }
 
-func (mw *MainWindow) pollTailscaleRegistration(host, masterKey string) {
+func (mw *MainWindow) pollTailscaleRegistration(host, masterKey, protocol string) {
 	// Cancel any previous poll goroutine before starting a new one.
 	if mw.tailscalePollCancel != nil {
 		mw.tailscalePollCancel()
@@ -538,8 +538,13 @@ func (mw *MainWindow) pollTailscaleRegistration(host, masterKey string) {
 			syncCancel()
 
 			if err == nil && tsReady {
-				logrus.Infof("🛰️ [TS] Bridge registered in Tailscale for host=%s — reconnecting via Tailscale", host)
-				mw.reconnectViaTailscaleAfterRegistration(host, masterKey)
+				logrus.Infof("🛰️ [TS] Bridge registered in Tailscale for host=%s", host)
+				if protocol != models.ConnectionProtocolDirect {
+					logrus.Infof("🛰️ [TS] Reconnecting via Tailscale")
+					mw.reconnectViaTailscaleAfterRegistration(host, masterKey)
+				} else {
+					logrus.Infof("🛰️ [TS] LAN protocol selected, skipping Tailscale reconnect")
+				}
 				return
 			}
 
