@@ -658,13 +658,31 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	if info != nil && len(info.CaptureModes) > 0 {
 		vsd.captureModes = append(vsd.captureModes, info.CaptureModes...)
 	}
-	if len(vsd.captureModes) == 0 {
-		defaultFmt := "YUYV"
-		if info != nil && info.DefaultPixelFormat != "" {
-			defaultFmt = info.DefaultPixelFormat
+
+	// Filter out duplicate resolutions by only keeping the "actual" pixel format.
+	// If a stream is active, use its SourceFormat. Otherwise, use DefaultPixelFormat.
+	actualFormat := "YUYV"
+	if info != nil {
+		if info.SourceFormat != "" {
+			actualFormat = normalizePixelFormat(info.SourceFormat)
+		} else if info.DefaultPixelFormat != "" {
+			actualFormat = normalizePixelFormat(info.DefaultPixelFormat)
 		}
+	}
+
+	filteredModes := make([]models.VideoCaptureMode, 0, len(vsd.captureModes))
+	for _, mode := range vsd.captureModes {
+		if normalizePixelFormat(mode.PixelFormat) == actualFormat {
+			filteredModes = append(filteredModes, mode)
+		}
+	}
+	if len(filteredModes) > 0 {
+		vsd.captureModes = filteredModes
+	}
+
+	if len(vsd.captureModes) == 0 {
 		vsd.captureModes = []models.VideoCaptureMode{
-			{Width: defaultWidth, Height: defaultHeight, FPS: []int{defaultFPS}, PixelFormat: defaultFmt},
+			{Width: defaultWidth, Height: defaultHeight, FPS: []int{defaultFPS}, PixelFormat: actualFormat},
 		}
 	}
 
