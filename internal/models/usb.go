@@ -336,10 +336,11 @@ type VideoDeviceConfig struct {
 	VideoFPS      int    `json:"video_fps"`
 	VideoQuality  int    `json:"video_quality"`
 	VideoBitrate  string `json:"video_bitrate"`
-	VideoMode     string `json:"video_mode"`
-	ShowMouse     bool   `json:"show_mouse,omitempty"`
-	EnableVSync   bool   `json:"enable_vsync,omitempty"`
-	LastAppliedAt int64  `json:"last_applied_at,omitempty"`
+	VideoMode          string `json:"video_mode"`
+	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
+	ShowMouse          bool   `json:"show_mouse,omitempty"`
+	EnableVSync        bool   `json:"enable_vsync,omitempty"`
+	LastAppliedAt      int64  `json:"last_applied_at,omitempty"`
 }
 
 func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
@@ -349,10 +350,11 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 		VideoHeight:  c.VideoHeight,
 		VideoFPS:     c.VideoFPS,
 		VideoQuality: c.VideoQuality,
-		VideoBitrate: c.VideoBitrate,
-		VideoMode:    c.VideoMode,
-		ShowMouse:    c.ShowMouse,
-		EnableVSync:  c.EnableVSync,
+		VideoBitrate:       c.VideoBitrate,
+		VideoMode:          c.VideoMode,
+		CapturePixelFormat: c.CapturePixelFormat,
+		ShowMouse:          c.ShowMouse,
+		EnableVSync:        c.EnableVSync,
 	}
 }
 

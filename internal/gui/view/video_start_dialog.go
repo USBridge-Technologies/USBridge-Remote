@@ -688,7 +688,16 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		vsd.resolutionHints[label] = resolutionDescriptor(captureMode.Width, captureMode.Height)
 		resolutionOptions = append(resolutionOptions, label)
 		if captureMode.Width == defaultWidth && captureMode.Height == defaultHeight {
-			defaultResolutionLabel = label
+			// Prefer the entry that matches the currently active capture format on the server.
+			// This ensures the selected item in the list reflects reality, not a random duplicate.
+			activeFormat := ""
+			if info != nil {
+				activeFormat = normalizePixelFormat(info.SourceFormat)
+			}
+			modeFormat := normalizePixelFormat(captureMode.PixelFormat)
+			if defaultResolutionLabel == "" || (activeFormat != "" && modeFormat == activeFormat) {
+				defaultResolutionLabel = label
+			}
 		}
 	}
 	vsd.resolutionSelect.SetOptions(resolutionOptions)
@@ -1120,7 +1129,18 @@ func allowedModesForPixelFormat(format string) map[string]bool {
 }
 
 func normalizePixelFormat(format string) string {
-	return strings.TrimSpace(strings.ToUpper(format))
+	f := strings.TrimSpace(strings.ToUpper(format))
+	// The server reports source_format as "mjpeg" while capture_modes use "MJPG".
+	// Normalize both to the same canonical form for comparison.
+	switch f {
+	case "MJPEG":
+		return "MJPG"
+	case "YUYV422":
+		return "YUYV"
+	case "UYVY422":
+		return "UYVY"
+	}
+	return f
 }
 
 func parseBitrate(value string) (int, bool) {

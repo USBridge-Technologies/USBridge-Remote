@@ -503,14 +503,15 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
 				applied := models.VideoDeviceConfig{
-					DevicePath:   device.Path,
-					DeviceName:   device.Name,
-					VideoWidth:   request.VideoWidth,
-					VideoHeight:  request.VideoHeight,
-					VideoFPS:     request.VideoFPS,
-					VideoQuality: request.VideoQuality,
-					VideoBitrate: request.VideoBitrate,
-					VideoMode:    request.VideoMode,
+					DevicePath:         device.Path,
+					DeviceName:         device.Name,
+					VideoWidth:         request.VideoWidth,
+					VideoHeight:        request.VideoHeight,
+					VideoFPS:           request.VideoFPS,
+					VideoQuality:       request.VideoQuality,
+					VideoBitrate:       request.VideoBitrate,
+					VideoMode:          request.VideoMode,
+					CapturePixelFormat: request.CapturePixelFormat,
 				}
 				logrus.Infof("💾 applying video settings for %s: %dx%d @ %d fps", device.Path, applied.VideoWidth, applied.VideoHeight, applied.VideoFPS)
 				if err := vw.applyVideoDeviceConfig(applied, restartOnApply); err != nil {

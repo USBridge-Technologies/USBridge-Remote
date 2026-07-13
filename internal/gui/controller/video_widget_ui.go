@@ -241,10 +241,11 @@ func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequ
 		DevicePath:   request.VideoDevice,
 		VideoWidth:   request.VideoWidth,
 		VideoHeight:  request.VideoHeight,
-		VideoFPS:     request.VideoFPS,
-		VideoQuality: request.VideoQuality,
-		VideoBitrate: request.VideoBitrate,
-		VideoMode:    request.VideoMode,
+		VideoFPS:           request.VideoFPS,
+		VideoQuality:       request.VideoQuality,
+		VideoBitrate:       request.VideoBitrate,
+		VideoMode:          request.VideoMode,
+		CapturePixelFormat: request.CapturePixelFormat,
 	}
 	if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {
 		logrus.Warnf("⚠️ cannot start video from request: %v", err)
