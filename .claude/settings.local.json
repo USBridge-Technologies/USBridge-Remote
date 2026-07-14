@@ -219,7 +219,8 @@
       "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh 01a5d39 *)",
       "Bash(unzip -l /Users/amir/Projects/usbridge/usbridge_client/dist/USBridgeClient-macOS.zip)",
       "Bash(unzip -q /Users/amir/Projects/usbridge/usbridge_client/dist/USBridgeClient-macOS.zip USBridgeClient.app/Contents/MacOS/USBridgeClient USBridgeClient.app/Contents/Frameworks/libvmaf.3.dylib)",
-      "Bash(USBRIDGE_SKIP_NOTARIZE=1 ./scripts/build_macos.sh)"
+      "Bash(USBRIDGE_SKIP_NOTARIZE=1 ./scripts/build_macos.sh)",
+      "Bash(xargs -I{} grep -ln \"scroll\\\\|pinch\\\\|Distance\\\\|gesture\" {})"
     ]
   }
 }
