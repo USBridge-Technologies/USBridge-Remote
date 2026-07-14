@@ -52,20 +52,6 @@ type DeviceStartBatchRequest struct {
 	Devices []DeviceRequest `json:"devices"`
 }
 
-type LegacyDeviceStartRequest struct {
-	Device                  string `json:"device"`
-	Type                    string `json:"type,omitempty"`
-	Server                  string `json:"server,omitempty"`
-	Port                    int    `json:"port,omitempty"`
-	ExportName              string `json:"export_name,omitempty"`
-	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"`
-	ReadOnly                bool   `json:"read_only,omitempty"`
-	VendorID                string `json:"vendor_id,omitempty"`
-	ProductID               string `json:"product_id,omitempty"`
-	ProductName             string `json:"product_name,omitempty"`
-	Manufacturer            string `json:"manufacturer,omitempty"`
-	RNDISMode               string `json:"rndis_mode,omitempty"`
-}
 
 type DeviceInfo struct {
 	ID           int       `json:"id"`

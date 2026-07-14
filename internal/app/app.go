@@ -165,81 +165,98 @@ func (a *App) Run() error {
 	defer cancel()
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
-	if a.sunshine != nil {
-		// Sync bind_address with external_ip so Sunshine only binds streaming
-		// ports to the configured IP. The local TCP admin proxy (startAdminProxy)
-		// makes the admin web UI reachable on 127.0.0.1 regardless.
-		if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" {
-			if err := sunshine.SetBindAddress(tsIP); err != nil {
-				log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
-			}
-		}
-		if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
-			log.Printf("[app] failed to start Sunshine: %v", err)
-		}
-	}
+	
+	a.startSunshine()
 	go func() { _ = a.server.ListenAndServe() }()
-	// Initialize Tailscale
-	if a.ts != nil {
-		err := a.ts.ApplyConfig(a.cfg.TailscaleMode == config.TailscaleModeUserspace, a.cfg.StateDir)
-		if err != nil {
-			log.Printf("[app] failed to apply tailscale config: %v", err)
-		}
-	}
+	
+	a.initTailscale(ctx)
+	go a.handleShutdown(ctx, cancel)
 
-	if a.cfg.TailscaleEnabled && a.ts != nil {
-		go func() {
-			if a.cfg.TailscaleMode == config.TailscaleModeUserspace {
-				tsSrv, _ := a.ts.Server()
-				if tsSrv != nil {
-					ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort))
-					if err != nil {
-						log.Printf("[app] tsnet listen error: %v", err)
-						return
-					}
-					log.Printf("[app] tsnet http listening on :%d", a.cfg.HTTPPort)
-					if err := a.tsHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
-						log.Printf("[app] tsnet http server error: %v", err)
-					}
-					return
-				}
-			}
-
-			// Poll for tailscale IP more aggressively at start
-			for i := 0; i < 30; i++ {
-				if ctx.Err() != nil {
-					return
-				}
-				if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
-					tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
-					a.tsHTTP.Addr = tsAddr
-					log.Printf("[app] tailscale http listening on %s", tsAddr)
-					if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-						log.Printf("[app] tailscale http server error: %v", err)
-					}
-					return
-				}
-				time.Sleep(1 * time.Second)
-			}
-			log.Printf("[app] tailscale enabled but tailnet IP could not be found after 30s")
-		}()
-	}
-	go func() {
-		<-ctx.Done()
-		_ = a.server.Shutdown(context.Background())
-		if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
-			_ = a.tsHTTP.Shutdown(context.Background())
-		}
-		_ = a.ts.Close()
-		if a.sunshine != nil {
-			_ = a.sunshine.Stop()
-		}
-		fyne.Do(func() {
-			a.fyneApp.Quit()
-		})
-	}()
 	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
+}
+
+func (a *App) startSunshine() {
+	if a.sunshine == nil {
+		return
+	}
+	// Sync bind_address with external_ip so Sunshine only binds streaming
+	// ports to the configured IP. The local TCP admin proxy (startAdminProxy)
+	// makes the admin web UI reachable on 127.0.0.1 regardless.
+	if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" {
+		if err := sunshine.SetBindAddress(tsIP); err != nil {
+			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
+		}
+	}
+	if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
+		log.Printf("[app] failed to start Sunshine: %v", err)
+	}
+}
+
+func (a *App) initTailscale(ctx context.Context) {
+	if a.ts == nil {
+		return
+	}
+	if err := a.ts.ApplyConfig(a.cfg.TailscaleMode == config.TailscaleModeUserspace, a.cfg.StateDir); err != nil {
+		log.Printf("[app] failed to apply tailscale config: %v", err)
+	}
+
+	if a.cfg.TailscaleEnabled {
+		go a.startTailscaleHTTP(ctx)
+	}
+}
+
+func (a *App) startTailscaleHTTP(ctx context.Context) {
+	if a.cfg.TailscaleMode == config.TailscaleModeUserspace {
+		tsSrv, _ := a.ts.Server()
+		if tsSrv != nil {
+			ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort))
+			if err != nil {
+				log.Printf("[app] tsnet listen error: %v", err)
+				return
+			}
+			log.Printf("[app] tsnet http listening on :%d", a.cfg.HTTPPort)
+			if err := a.tsHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
+				log.Printf("[app] tsnet http server error: %v", err)
+			}
+			return
+		}
+	}
+
+	// Poll for tailscale IP more aggressively at start
+	for i := 0; i < 30; i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
+			tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
+			a.tsHTTP.Addr = tsAddr
+			log.Printf("[app] tailscale http listening on %s", tsAddr)
+			if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("[app] tailscale http server error: %v", err)
+			}
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+	log.Printf("[app] tailscale enabled but tailnet IP could not be found after 30s")
+}
+
+func (a *App) handleShutdown(ctx context.Context, cancel context.CancelFunc) {
+	<-ctx.Done()
+	_ = a.server.Shutdown(context.Background())
+	if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
+		_ = a.tsHTTP.Shutdown(context.Background())
+	}
+	if a.ts != nil {
+		_ = a.ts.Close()
+	}
+	if a.sunshine != nil {
+		_ = a.sunshine.Stop()
+	}
+	fyne.Do(func() {
+		a.fyneApp.Quit()
+	})
 }
 
 func (a *App) RegenerateMasterKey() (config.Config, error) {

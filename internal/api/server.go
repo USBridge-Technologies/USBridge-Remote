@@ -688,28 +688,6 @@ func decodeDeviceStart(r *http.Request) ([]DeviceRequest, error) {
 		return devices, nil
 	}
 
-	var legacy []LegacyDeviceStartRequest
-	if err := json.Unmarshal(data, &legacy); err == nil {
-		out := make([]DeviceRequest, 0, len(legacy))
-		for _, item := range legacy {
-			out = append(out, DeviceRequest{
-				Device:                  item.Device,
-				Type:                    item.Type,
-				Server:                  item.Server,
-				Port:                    item.Port,
-				ExportName:              item.ExportName,
-				NBDHandshakeEmptyExport: item.NBDHandshakeEmptyExport,
-				ReadOnly:                item.ReadOnly,
-				VendorID:                item.VendorID,
-				ProductID:               item.ProductID,
-				ProductName:             item.ProductName,
-				Manufacturer:            item.Manufacturer,
-				RNDISMode:               item.RNDISMode,
-			})
-		}
-		return out, nil
-	}
-
 	return nil, json.Unmarshal(data, &batch)
 }
 
