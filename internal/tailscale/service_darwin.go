@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,11 +20,19 @@ const (
 )
 
 func (s *Service) getTailscalePath() string {
-	candidates := []string{
+	candidates := []string{}
+
+	// Bundled distribution: tailscale CLI next to the agent binary, i.e.
+	// USBridgeAgent.app/Contents/MacOS/tailscale (see scripts/build_macos.sh).
+	if exePath, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exePath), "tailscale"))
+	}
+
+	candidates = append(candidates,
 		"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 		"/opt/homebrew/bin/tailscale",
 		"/usr/local/bin/tailscale",
-	}
+	)
 
 	if path, err := exec.LookPath("tailscale"); err == nil {
 		candidates = append(candidates, path)
@@ -56,12 +65,13 @@ func (s *Service) getTailscalePath() string {
 func (s *Service) upArgs() []string {
 	// Use --reset to force URL generation if flags changed
 	args := []string{"up", "--accept-dns=false", "--reset"}
-	
-	tsPath := s.getTailscalePath()
-	if strings.Contains(tsPath, "homebrew") || strings.Contains(tsPath, "/usr/local/bin") {
-		if _, err := os.Stat(homebrewSocket); err == nil {
-			args = append([]string{"--socket", homebrewSocket}, args...)
-		}
+
+	// The socket file's presence is the authoritative signal that a
+	// Homebrew-flavored tailscaled is running, regardless of which copy of
+	// the CLI we're invoking (system Homebrew install or the one bundled
+	// next to the agent binary — both need --socket to reach it).
+	if _, err := os.Stat(homebrewSocket); err == nil {
+		args = append([]string{"--socket", homebrewSocket}, args...)
 	}
 	return args
 }
@@ -109,10 +119,8 @@ func (s *Service) handleUpStartError(tsPath string, args []string, err error) (s
 
 func (s *Service) runLogoutCommand(tsPath string) error {
 	args := []string{"logout"}
-	if strings.Contains(tsPath, "homebrew") || strings.Contains(tsPath, "/usr/local/bin") {
-		if _, err := os.Stat(homebrewSocket); err == nil {
-			args = append([]string{"--socket", homebrewSocket}, args...)
-		}
+	if _, err := os.Stat(homebrewSocket); err == nil {
+		args = append([]string{"--socket", homebrewSocket}, args...)
 	}
 	return exec.Command(tsPath, args...).Run()
 }

@@ -36,7 +36,16 @@
       "Bash(xargs -I{} echo {})",
       "Bash(ldd dist/linux/sunshine/usr/bin/sunshine)",
       "Bash(ldd dist/linux/AppDir/usr/bin/sunshine)",
-      "Bash(nm -D dist/linux/AppDir/usr/bin/sunshine)"
+      "Bash(nm -D dist/linux/AppDir/usr/bin/sunshine)",
+      "Bash(xargs ls -la)",
+      "Bash(git pull *)",
+      "Bash(grep -iE 'sunshine|state|session|credential|secret|token|\\\\.ya?ml$|\\\\.json$|\\\\.conf$')",
+      "Bash(echo \"---exit $?---\")",
+      "Bash(brew list *)",
+      "Bash(mdfind \"kMDItemFSName == 'Tailscale.app'\")",
+      "Bash(command -v tailscale)",
+      "Bash(command -v tailscaled)",
+      "Read(//opt/homebrew/Cellar/**)"
     ]
   }
 }

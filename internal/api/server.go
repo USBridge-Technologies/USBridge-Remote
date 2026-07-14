@@ -34,9 +34,6 @@ type Application interface {
 	Screen() interface {
 		Snapshot() (*ScreenSnapshot, error)
 	}
-	// VideoDevices reports real display metadata (native resolution, supported
-	// FPS) — descriptive only. Actual capture/encoding is Sunshine's job; the
-	// agent never spawns ffmpeg or any other capture process itself.
 	VideoDevices() []VideoDeviceInfo
 	// SunshineStreamHost returns the IP Sunshine advertises to Moonlight clients
 	// (external_ip from sunshine.conf, or "" if auto-detect).
@@ -125,9 +122,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/mouse", sec.LimitRealtime(s.mouse))
 	mux.HandleFunc("/api/mouse/ws", sec.LimitRealtime(s.mouseWS))
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
-	mux.HandleFunc("/api/video/start", sec.LimitPolling(s.videoStart))
-	mux.HandleFunc("/api/video/stop", sec.LimitPolling(s.videoStop))
-	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
@@ -568,13 +562,6 @@ func (s *Server) applyMouse(req MouseRequest) error {
 	}
 }
 
-// videoInfo/videoStart/videoStop/videoDevices are stubs kept for wire
-// compatibility with usbridge_client, which still polls them — the actual
-// video/input path is Moonlight/Sunshine (GameStream ports 47984/47989),
-// not this REST API. The agent's own former FFmpeg+XDG-portal capture
-// pipeline was removed: it ran redundantly alongside Sunshine and triggered
-// its own independent portal permission prompt after a Moonlight session
-// had already connected successfully.
 func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	devices := s.app.VideoDevices()
 	requested := strings.TrimSpace(r.URL.Query().Get("device"))
@@ -622,38 +609,6 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) videoStart(w http.ResponseWriter, r *http.Request) {
-	moonlightHost := s.app.SunshineStreamHost()
-	sunshinePort := s.app.SunshineAdminPort()
-	log.Printf("[api] video_start moonlight_host=%s sunshine_port=%d", moonlightHost, sunshinePort)
-	s.ok(w, "video_started", map[string]any{
-		"moonlight_host": moonlightHost,
-		"sunshine_port":  sunshinePort,
-	})
-}
-
-func getClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			ip := strings.TrimSpace(ips[0])
-			if net.ParseIP(ip) != nil {
-				return ip
-			}
-		}
-	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		if net.ParseIP(xrip) != nil {
-			return xrip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return strings.Trim(r.RemoteAddr, "[]")
-	}
-	return host
-}
-
 func isLoopbackHost(host string) bool {
 
 	if host == "localhost" {
@@ -661,28 +616,6 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func (s *Server) videoStop(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[api] video_stop (no-op — video is served via Sunshine/Moonlight)")
-	s.ok(w, "video_stopped", nil)
-}
-
-func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
-	devices := s.app.VideoDevices()
-	if len(devices) == 0 {
-		// usbridge_client's device-resolution flow (resolvePreferredVideoConfig)
-		// errors out and refuses to proceed to Moonlight if this list is
-		// empty — even though video is actually served by Sunshine, not
-		// through this legacy device-enumeration path. Fall back to one
-		// synthetic entry so that client-side gate is satisfied even if
-		// display enumeration genuinely found nothing.
-		devices = []VideoDeviceInfo{{Path: "desktop", Name: "Desktop (Sunshine)", Connected: true}}
-	}
-	s.ok(w, "video_devices", map[string]any{
-		"devices": devices,
-		"count":   len(devices),
-	})
 }
 
 func (s *Server) screen(w http.ResponseWriter, r *http.Request) {

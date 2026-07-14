@@ -78,6 +78,7 @@ type SecurityMiddleware struct {
 	realtimeLimiter *ipRateLimiter
 	pollingLimiter  *ipRateLimiter
 	authLimiter     *ipRateLimiter
+	pinLimiter      *ipRateLimiter
 	masterKey       []byte
 }
 
@@ -87,6 +88,7 @@ func NewSecurityMiddleware(masterKey []byte) *SecurityMiddleware {
 		realtimeLimiter: newIPRateLimiter(rate.Limit(100), 200),
 		pollingLimiter:  newIPRateLimiter(rate.Limit(20), 40),
 		authLimiter:     newIPRateLimiter(rate.Limit(3), 5),
+		pinLimiter:      newIPRateLimiter(rate.Limit(0.5), 3),
 		masterKey:       masterKey,
 	}
 }
@@ -217,13 +219,13 @@ func (m *SecurityMiddleware) Public(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// OptionalVerify rate-limits like Public, but verifies the HMAC signature when
+// OptionalVerify rate-limits specifically for PIN entry, and verifies the HMAC signature when
 // present. usbridge_client submits the Moonlight pairing PIN unsigned before it
 // has received the master key (pre-pair), and signed afterwards (post-pair) —
 // this accepts both while still rejecting a forged signature.
 func (m *SecurityMiddleware) OptionalVerify(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !m.pollingLimiter.get(m.clientIP(r)).Allow() {
+		if !m.pinLimiter.get(m.clientIP(r)).Allow() {
 			writeRateLimitJSON(w)
 			return
 		}

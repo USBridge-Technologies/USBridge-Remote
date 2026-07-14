@@ -94,6 +94,23 @@ PLIST
 source "$SCRIPT_DIR/fetch_sunshine.sh"
 fetch_sunshine_macos "$APP_MACOS/sunshine"
 
+# Bundle Tailscale CLI (statically linked Go binary — no dylib deps to walk).
+# The daemon itself is not bundled: on macOS we rely on a system-installed
+# Tailscale (Tailscale.app or `brew install tailscale` + tailscaled service),
+# same as internal/tailscale/service_darwin.go already assumes.
+echo -e "${YELLOW}Bundling Tailscale CLI...${NC}"
+TS_SRC=""
+for _d in /opt/homebrew/bin /usr/local/bin; do
+    [ -f "$_d/tailscale" ] && TS_SRC="$_d/tailscale" && break
+done
+if [ -n "$TS_SRC" ]; then
+    cp -L "$TS_SRC" "$APP_MACOS/tailscale"
+    chmod 755 "$APP_MACOS/tailscale"
+    echo -e "${GREEN}✓${NC} MacOS/tailscale"
+else
+    echo -e "${YELLOW}⚠${NC} tailscale не найден в /opt/homebrew/bin или /usr/local/bin — установите: brew install tailscale"
+fi
+
 # Auto-detect Developer ID if not explicitly set
 if [ -z "$CODESIGN_IDENTITY" ] && command -v security >/dev/null 2>&1; then
     CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
@@ -137,6 +154,11 @@ USBridgeAgent.app/Contents/MacOS/sunshine/Sunshine.app and is started
 automatically by the agent, including a one-time admin credential bootstrap.
 The agent itself is not in the video/input path; it only pairs with and relays
 PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
+
+Tailscale: USBridgeAgent.app/Contents/MacOS/tailscale is the bundled CLI. It
+still requires a system-installed tailscaled (Tailscale.app or
+`brew install tailscale`, started via `brew services`) — the daemon itself
+is not bundled on macOS.
 
 Requirements:
   - Accessibility permission for mouse/keyboard injection
