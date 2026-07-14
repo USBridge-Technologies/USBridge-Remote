@@ -77,26 +77,6 @@ USBRIDGE_SUNSHINE_VERSION=<tag> pin a specific Sunshine release
 > Dev builds aren't ad-hoc signed, so re-signing on every rebuild looks like a
 > new app to macOS and both prompts come back.
 
-## Config
-
-`config.yaml` next to the binary, or `~/.config/usbridge-agent/`.
-Log: `~/Library/Logs/USBridgeAgent/app.log` (`USBRIDGE_LOG_DIR` to override).
-
-```yaml
-http_port: 8080          # agent's own API port
-tailscale_enabled: true
-tailscale_mode: system   # or "userspace" — no system Tailscale install needed
-sunshine_port: 47990     # Sunshine's local admin API
-master_key: ""           # set during pairing; signs every request
-```
-
-## Known gaps
-
-- `nbd-iSCSI` disk mount is wired up end-to-end, but the Windows mount command
-  still needs environment-specific tuning.
-- A legacy FFmpeg `/api/video/*` capture path still exists as a fallback and
-  isn't exercised by the normal Moonlight/Sunshine flow.
-
 ## License
 
 GPLv3 — see [`LICENSE`](LICENSE). Bundles [Sunshine](https://github.com/LizardByte/Sunshine) (GPLv3).
