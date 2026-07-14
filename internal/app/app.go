@@ -651,6 +651,15 @@ func (a *App) ListSunshineClients() ([]sunshine.Client, error) {
 	return sunshine.ListClients(port)
 }
 
+// CurrentVideoCodec returns the codec negotiated by the most recent stream,
+// defaulting to "h264" if unable to determine.
+func (a *App) CurrentVideoCodec() string {
+	if a.sunshine != nil {
+		return a.sunshine.CurrentVideoCodec()
+	}
+	return "h264"
+}
+
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {

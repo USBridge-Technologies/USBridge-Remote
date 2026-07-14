@@ -40,6 +40,7 @@ type Application interface {
 	SunshineStreamHost() string
 	// SunshineAdminPort returns the Sunshine web admin / NvHTTP port (default 47990).
 	SunshineAdminPort() int
+	CurrentVideoCodec() string
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -122,6 +123,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/mouse", sec.LimitRealtime(s.mouse))
 	mux.HandleFunc("/api/mouse/ws", sec.LimitRealtime(s.mouseWS))
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
+	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
@@ -600,9 +602,14 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"fps":               fps,
 		"mode":              "moonlight",
 		"transport":         "moonlight",
-		"encoding":          "h264",
+		"encoding":          s.app.CurrentVideoCodec(),
 		"streaming":         false,
 		"capture_modes":     modes,
+		"supported_modes": []map[string]string{
+			{"id": "h264", "name": "H.264", "description": "H.264 (AVC) Hardware Encoding", "transport": "rtp", "encoding": "h264"},
+			{"id": "h265", "name": "H.265", "description": "H.265 (HEVC) Hardware Encoding", "transport": "rtp", "encoding": "h265"},
+			{"id": "av1", "name": "AV1", "description": "AV1 Hardware Encoding", "transport": "rtp", "encoding": "av1"},
+		},
 		"available_devices": devices,
 		"moonlight_host":    moonlightHost,
 		"sunshine_port":     sunshinePort,
@@ -700,4 +707,9 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 		out = append(out, device)
 	}
 	return out
+}
+
+func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
+	devices := s.app.VideoDevices()
+	s.ok(w, "video devices list", devices)
 }

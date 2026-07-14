@@ -250,6 +250,56 @@ func (p *Process) Running() bool {
 	return p.cmd != nil && p.cmd.Process != nil
 }
 
+// CurrentVideoCodec returns the codec negotiated by the most recent stream,
+// defaulting to "h264" if unable to determine.
+func (p *Process) CurrentVideoCodec() string {
+	p.mu.Lock()
+	logFile := p.logPath
+	p.mu.Unlock()
+
+	if logFile == "" {
+		return "h264"
+	}
+	f, err := os.Open(logFile)
+	if err != nil {
+		return "h264"
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		return "h264"
+	}
+	size := stat.Size()
+	if size == 0 {
+		return "h264"
+	}
+	readSize := int64(8192)
+	if size < readSize {
+		readSize = size
+	}
+	f.Seek(-readSize, 2)
+	buf := make([]byte, readSize)
+	f.Read(buf)
+
+	lines := strings.Split(string(buf), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.ToLower(lines[i])
+		if strings.Contains(line, "codec") || strings.Contains(line, "encoder") {
+			if strings.Contains(line, "hevc") || strings.Contains(line, "h.265") || strings.Contains(line, "h265") {
+				return "h265"
+			}
+			if strings.Contains(line, "av1") {
+				return "av1"
+			}
+			if strings.Contains(line, "h.264") || strings.Contains(line, "h264") {
+				return "h264"
+			}
+		}
+	}
+	return "h264"
+}
+
 // Start launches Sunshine if it isn't already running (by this Process, or
 // reachable on adminPort — e.g. a system-installed Sunshine service). No-op
 // if the launch path doesn't exist.
