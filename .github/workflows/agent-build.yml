@@ -1,0 +1,45 @@
+name: agent-build
+
+on:
+  push:
+    paths:
+      - "agent/**"
+      - ".github/workflows/agent-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+
+      - name: Install Linux build deps (Fyne/X11)
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Install MinGW (Windows CGO toolchain)
+        if: matrix.name == 'windows'
+        uses: egor-tensin/setup-mingw@v2
+
+      - name: Build
+        run: go build -v ./cmd/usbridge_agent
+
+      - name: Vet
+        run: go vet ./...
