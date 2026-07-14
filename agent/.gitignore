@@ -1,0 +1,17 @@
+*.exe
+var/
+.cache/
+.gocache/
+config.yaml
+dist/
+.claude/settings.local.json
+.DS_Store
+*.log
+*.pid
+/usbridge_agent
+/usbridge_agent.bin
+logs/
+test_logs/
+test_out.txt
+test_screen.png
+test_x11grab.mp4
