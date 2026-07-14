@@ -216,7 +216,10 @@
       "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh a5d88a2 *)",
       "Bash(sed -i 's/set -e//' /tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh)",
       "Bash(sed -i 's/git -C \"\\\\$REPO\" worktree add \"\\\\$WT\" \"\\\\$SHA\" >\\\\/tmp\\\\/wt_out.log 2>&1/git -C \"$REPO\" worktree add \"$WT\" \"$SHA\" >\\\\/tmp\\\\/wt_out.log 2>\\\\&1 || { echo WORKTREE_FAIL; cat \\\\/tmp\\\\/wt_out.log; exit 3; }/' /tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh)",
-      "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh 01a5d39 *)"
+      "Bash(/tmp/claude-1000/-media-amir-kubuntu-2510-home-amir-Projects-usbridge-client/0a2df3e8-db86-478f-bc2d-31f4ae1a326b/scratchpad/bisect_test.sh 01a5d39 *)",
+      "Bash(unzip -l /Users/amir/Projects/usbridge/usbridge_client/dist/USBridgeClient-macOS.zip)",
+      "Bash(unzip -q /Users/amir/Projects/usbridge/usbridge_client/dist/USBridgeClient-macOS.zip USBridgeClient.app/Contents/MacOS/USBridgeClient USBridgeClient.app/Contents/Frameworks/libvmaf.3.dylib)",
+      "Bash(USBRIDGE_SKIP_NOTARIZE=1 ./scripts/build_macos.sh)"
     ]
   }
 }
