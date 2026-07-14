@@ -417,16 +417,18 @@ ENTITLEMENTS="$SCRIPTS_DIR/entitlements-macos.plist"
 
 if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     echo -e "${YELLOW}Signing with identity: $CODESIGN_IDENTITY${NC}"
-    # Sign each dylib individually (install_name_tool invalidated original signatures)
-    find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null | while IFS= read -r dylib; do
+    # Sign each dylib individually (install_name_tool invalidated original signatures).
+    # Dylibs don't take entitlements — only --options runtime + --timestamp for notarization.
+    # Errors are NOT suppressed: a silent ad-hoc fallback causes Apple notarization rejection.
+    while IFS= read -r dylib; do
         codesign --force --sign "$CODESIGN_IDENTITY" \
-            --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$dylib" 2>/dev/null || true
-    done
-    # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale)
-    find "$APP_MACOS_DIR" -type f -perm +111 ! -name "$BINARY_NAME" | while IFS= read -r exe; do
+            --options runtime --timestamp "$dylib"
+    done < <(find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null)
+    # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale, ffmpeg)
+    while IFS= read -r exe; do
         codesign --force --sign "$CODESIGN_IDENTITY" \
-            --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$exe" 2>/dev/null || true
-    done
+            --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$exe"
+    done < <(find "$APP_MACOS_DIR" -type f -perm +111 ! -name "$BINARY_NAME" 2>/dev/null)
     # Sign the main binary explicitly before sealing the bundle
     codesign --force --sign "$CODESIGN_IDENTITY" \
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
@@ -437,6 +439,18 @@ if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     codesign --force --sign "$CODESIGN_IDENTITY" \
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$DIST_DIR/$APP_BUNDLE_NAME"
+    # Verify every dylib got a real Developer ID (not ad-hoc) — catch silent failures early.
+    _adhoc_count=0
+    while IFS= read -r dylib; do
+        if codesign -dv "$dylib" 2>&1 | grep -q "Signature=adhoc\|flags=0x2(adhoc)"; then
+            echo -e "  ${RED}✗${NC} ad-hoc (signing failed): ${dylib##*/}"
+            _adhoc_count=$((_adhoc_count + 1))
+        fi
+    done < <(find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null)
+    if [ "$_adhoc_count" -gt 0 ]; then
+        echo -e "${RED}❌ $_adhoc_count dylib(s) did not get Developer ID — aborting (Apple will reject)${NC}"
+        exit 1
+    fi
 else
     # Go linker embeds an ad-hoc signature; replace it so macOS doesn't reject as "damaged"
     echo -e "${YELLOW}No Developer ID found — signing ad-hoc${NC}"
@@ -506,9 +520,25 @@ NOTARIZE_PROFILE="${USBRIDGE_NOTARIZE_PROFILE:-usbridge-notarytool}"
 if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>&1; then
     if xcrun notarytool history --keychain-profile "$NOTARIZE_PROFILE" >/dev/null 2>&1; then
         echo -e "${YELLOW}Notarizing (this takes 1-3 minutes)...${NC}"
-        xcrun notarytool submit "$ARCHIVE" \
+        _notarize_out=$(xcrun notarytool submit "$ARCHIVE" \
             --keychain-profile "$NOTARIZE_PROFILE" \
-            --wait
+            --wait 2>&1)
+        echo "$_notarize_out"
+        if echo "$_notarize_out" | grep -q "status: Invalid\|status: Rejected"; then
+            _sub_id=$(echo "$_notarize_out" | grep "^ *id:" | head -1 | awk '{print $2}')
+            echo -e "${RED}❌ Notarization rejected by Apple${NC}"
+            if [ -n "$_sub_id" ]; then
+                echo "   Fetching rejection log..."
+                xcrun notarytool log "$_sub_id" --keychain-profile "$NOTARIZE_PROFILE" 2>/dev/null \
+                    | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for i in d.get('issues',[]):
+    print(f\"  [{i['severity']}] {i['path'].split('/')[-1]}: {i['message']}\")
+" 2>/dev/null || true
+            fi
+            exit 1
+        fi
         echo -e "${YELLOW}Stapling notarization ticket...${NC}"
         xcrun stapler staple "$DIST_DIR/$APP_BUNDLE_NAME"
         rm -f "$ARCHIVE"
