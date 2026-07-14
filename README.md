@@ -1,92 +1,88 @@
-# usbridge_agent
+# USBridge Agent
 
-Software KVM backend for `usbridge_client`, compatible with the same
-Moonlight/Sunshine protocol as the `usbridge` hardware implementation.
+![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)
+![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue)
 
-Implemented now:
+**USBridge Agent** is the software counterpart to the [USBridge](https://github.com/itsme228/usbridge_client) KVM hardware: a small, fully cross-platform background service — one codebase, native builds for **Windows, macOS, and Linux** — that you install on the machine you want to control remotely, no dongle required. It bundles [Sunshine](https://github.com/LizardByte/Sunshine) for GameStream-grade capture/encode and speaks the exact same protocol as `usbridge_client` and the physical USBridge device, so one client app controls all three.
 
-- compatible core HTTP API (`/api/device/*`, `/api/keyboard`, `/api/mouse`, `/api/video/*`, `/api/screen`,
-  `/api/drives/local`, `/api/auth/tailscale/*`)
-- every request except `/api/healthz`, `/api/auth/qr*`, and `/api/auth/sync` is HMAC-SHA256 signed
-  (`X-Auth-Signature` / `X-Auth-Timestamp`, ±60s window) using the master key as the raw secret
-  (`SHA256(masterKey)`, never hex-decoded) — matches `usbridge_client` and the canonical `usbridge` server
-- `/api/auth/sync` is AES-256-GCM encrypted with the same derived key (pairing/Tailscale/Sunshine-PIN bootstrap)
-- Sunshine (Moonlight GameStream host) does all video/audio/input capture and streaming; the agent is not in
-  the video path — it only pairs with Sunshine's local admin API (port 47990) and relays Moonlight PINs
-- the agent launches the bundled Sunshine binary itself on startup (skipped if an instance is already
-  reachable on the admin port) and bootstraps its `sunshine`/`sunshine` web-UI admin account on first run
-- two connection modes only, matching `usbridge_client`: **direct** (plain LAN socket to
-  `internal_host:http_port`) and **tailscale** (plain socket over the Tailscale interface) — no tunnel/proxy
-  layer (FRP was removed; neither the client nor the canonical `usbridge` server route traffic through it
-  anymore)
-- Windows HID input via `SendInput`
-- macOS HID input via Quartz / `CGEvent`
-- Tailscale integration: interactive login, or unattended auth-key registration via `/api/auth/sync` /
-  `/api/auth/tailscale/register`
-- Fyne desktop control window, including a Linux-only Sunshine capture-mode selector (Portal vs. KMS/root,
-  with a "Request" button that grants `CAP_SYS_ADMIN` to the bundled Sunshine binary via `pkexec`)
-- build scripts (`scripts/build_*.sh`) download and bundle the matching official Sunshine release next to
-  the agent binary automatically (see `scripts/fetch_sunshine.sh`)
+![USBridge Agent](docs/assets/screenshot_agent.png)
 
-Current limitation:
+## What it does
 
-- disk mount through `nbd-iSCSI` is prepared at transport/API level, but concrete Windows mount command still needs environment-specific tuning
-- the legacy FFmpeg-based `/api/video/*` capture pipeline is still present as a fallback but is not exercised
-  by the Moonlight/Sunshine flow
+- **Runs Sunshine for you.** On startup the agent launches a bundled Sunshine binary (skipped if one's already reachable), bootstraps its admin account, and relays Moonlight pairing PINs — you never touch Sunshine's own UI.
+- **Tailscale is built in.** No FRP, no relay server, no port forwarding to set up. The agent can run its own userspace Tailscale node or ride on a system Tailscale install, and registers itself over the tailnet automatically.
+- **Two ways in: direct or Tailscale.** LAN socket to `host:8080`, or the same socket over your tailnet — you pick per connection, nothing routes through a third-party relay.
+- **Every request is signed.** All API calls (except the initial pairing handshake) carry an HMAC-SHA256 signature derived from your master key, with a ±60s replay window. Pairing itself is AES-256-GCM encrypted.
+- **Native input injection.** `SendInput` on Windows, Quartz/`CGEvent` on macOS, matching backends on Linux.
+- **A real control window**, not just a tray icon — shows your LAN/Tailscale addresses, permission status (Accessibility/Screen Recording), Sunshine health, and a Tailscale sign-in/sign-out button. On Linux it also lets you switch Sunshine's capture backend (desktop portal vs. root/KMS) with one click.
+- **No repeated Wayland prompts.** Switch to the root/KMS capture backend once — a single `pkexec` grant sets a persistent `CAP_SYS_ADMIN` capability on the bundled Sunshine binary — and capture keeps working with no portal permission dialog popping up on every new connection or after every reboot, unlike the default XDG desktop-portal capture path.
 
-Start:
+## Quick start
 
-```powershell
-go run ./cmd/usbridge_agent
-```
+1. **Install the agent** on the machine you want to control. Launch it — the window shows a pairing token and your network addresses (LAN + Tailscale, once signed in).
+2. **Install [usbridge_client](https://github.com/itsme228/usbridge_client)** on the device you'll control *from*.
+3. **Pair once** — scan the QR / enter the token in the client, pick direct or Tailscale, and connect.
 
-Build for macOS from macOS:
+## Building from source
 
 ```bash
+# macOS (run on macOS)
 ./scripts/build_macos.sh
 ./scripts/install_macos.sh
 open "$HOME/Applications/USBridgeAgent.app"
-```
 
-For stable macOS TCC permissions, always launch the same installed app path.
-Recommended path: `~/Applications/USBridgeAgent.app`.
-Development builds are intentionally not ad-hoc signed by default, because re-signing on each rebuild can cause macOS to treat the app as a different client for Accessibility/Screen Recording.
-
-Build for Windows from Windows/MSYS2 UCRT64:
-
-```bash
+# Windows (MSYS2 UCRT64 shell)
 ./scripts/build_windows.sh
-```
 
-The script expects the `UCRT64` shell and builds `dist/windows/USBridgeAgent.exe`.
-
-Build for Linux:
-
-```bash
+# Linux
 ./scripts/build_linux.sh
 ```
 
-All three build scripts fetch and stage the matching official Sunshine release automatically
-(`scripts/fetch_sunshine.sh`). Env overrides:
+All three scripts download and stage the matching official Sunshine release automatically (`scripts/fetch_sunshine.sh`). Useful overrides:
 
-- `USBRIDGE_SKIP_SUNSHINE=1` — skip bundling Sunshine (offline/dev builds)
-- `USBRIDGE_SUNSHINE_FORCE=1` — re-download even if already staged
-- `USBRIDGE_SUNSHINE_VERSION=<tag>` — pin a specific Sunshine release instead of latest
+| Variable | Effect |
+| --- | --- |
+| `USBRIDGE_SKIP_SUNSHINE=1` | Skip bundling Sunshine (offline/dev builds) |
+| `USBRIDGE_SUNSHINE_FORCE=1` | Re-download Sunshine even if already staged |
+| `USBRIDGE_SUNSHINE_VERSION=<tag>` | Pin a specific Sunshine release |
 
-macOS permissions:
+> **macOS note:** always launch the same installed app path (`~/Applications/USBridgeAgent.app` recommended). Dev builds aren't ad-hoc signed by default — re-signing on every rebuild makes macOS treat each build as a new app and re-prompt for Accessibility/Screen Recording.
 
-- Screen Recording is required for video/screen capture
-- Accessibility is required for mouse and keyboard injection
+Run without building a bundle:
 
-Configuration:
+```bash
+go run ./cmd/usbridge_agent
+```
 
-`config.yaml` next to the app, or `~/.config/usbridge-agent/`
+## macOS permissions
 
-Application log:
+| Permission | Needed for |
+| --- | --- |
+| Screen Recording | video/screen capture |
+| Accessibility | mouse and keyboard injection |
 
-`~/Library/Logs/USBridgeAgent/app.log`
-If `USBRIDGE_LOG_DIR` is set, logs are written there instead.
+## Configuration & logs
+
+- Config: `config.yaml` next to the binary, or `~/.config/usbridge-agent/`
+- Log: `~/Library/Logs/USBridgeAgent/app.log` (override with `USBRIDGE_LOG_DIR`)
+
+Key `config.yaml` fields:
+
+```yaml
+http_port: 8080          # agent's own API port
+tailscale_enabled: true
+tailscale_mode: system   # or "userspace" — no system Tailscale install needed
+sunshine_port: 47990     # Sunshine's local admin API
+master_key: ""           # set during pairing; signs every request
+```
+
+## Known limitations
+
+- Disk mount via `nbd-iSCSI` is wired up at the transport/API level, but the concrete Windows mount command still needs environment-specific tuning.
+- A legacy FFmpeg-based `/api/video/*` capture path still exists as a fallback but isn't exercised by the normal Moonlight/Sunshine flow.
 
 ## License
 
-GPLv3 (see `LICENSE`). This project bundles Sunshine (LizardByte/Sunshine, GPLv3).
+GPLv3 — see [`LICENSE`](LICENSE). Bundles [Sunshine](https://github.com/LizardByte/Sunshine) (GPLv3).
