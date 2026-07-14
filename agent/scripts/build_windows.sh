@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+VERSION="$(tr -d ' \t\n\r' < "$REPO_ROOT/VERSION" 2>/dev/null || echo "0.0.0")"
+
 DIST_DIR="$REPO_ROOT/dist/windows"
 EXE_NAME="USBridgeAgent.exe"
 OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
@@ -413,7 +415,7 @@ Logs:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-amd64.zip"
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-amd64-${VERSION}.zip"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating archive...${NC}"
 (cd "$DIST_DIR" && zip -r "$ARCHIVE" .)

@@ -1,0 +1,100 @@
+name: agent-release
+
+on:
+  push:
+    tags:
+      - "agent-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      USBRIDGE_SKIP_NOTARIZE: "1"
+      USBRIDGE_SKIP_TAILSCALE: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        if: matrix.name != 'windows'
+        with:
+          go-version-file: agent/go.mod
+
+      - name: Install Linux build deps (Fyne/X11)
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Setup MSYS2 UCRT64 (Windows toolchain)
+        if: matrix.name == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-python
+            zip
+            python
+
+      - name: Build (Linux)
+        if: matrix.name == 'linux'
+        working-directory: agent
+        run: ./scripts/build_linux.sh
+
+      - name: Build (macOS)
+        if: matrix.name == 'macos'
+        working-directory: agent
+        run: ./scripts/build_macos.sh
+
+      - name: Build (Windows, MSYS2 UCRT64)
+        if: matrix.name == 'windows'
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows.sh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.name }}
+          path: |
+            agent/dist/*.zip
+            agent/dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          ls -la out
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          name: USBridge Agent ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false

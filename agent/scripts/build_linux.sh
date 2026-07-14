@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+VERSION="$(tr -d ' \t\n\r' < "$REPO_ROOT/VERSION" 2>/dev/null || echo "0.0.0")"
+
 DIST_DIR="$REPO_ROOT/dist/linux"
 EXE_NAME="usbridge-agent"
 OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
@@ -91,7 +93,7 @@ fi
 
 # Build AppImage
 echo -e "${YELLOW}Packaging AppImage...${NC}"
-OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeAgent-Linux-x86_64.AppImage"
+OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeAgent-Linux-x86_64-${VERSION}.AppImage"
 rm -f "$OUTPUT_APPIMAGE"
 
 ARCH=x86_64 "$LINUXDEPLOY" \

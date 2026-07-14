@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+VERSION="$(tr -d ' \t\n\r' < "$REPO_ROOT/VERSION" 2>/dev/null || echo "0.0.0")"
+
 OUTPUT_NAME="USBridgeAgent"
 DIST_DIR="$REPO_ROOT/dist/macos"
 APP_BUNDLE="$DIST_DIR/${OUTPUT_NAME}.app"
@@ -79,9 +81,9 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>__VERSION__</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>__VERSION__</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.3</string>
     <key>NSHighResolutionCapable</key>
@@ -89,6 +91,7 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+sed -i '' "s/__VERSION__/$VERSION/g" "$APP_CONTENTS/Info.plist"
 
 # Bundle Sunshine before signing — adding files after signing breaks the seal.
 source "$SCRIPT_DIR/fetch_sunshine.sh"
@@ -179,7 +182,7 @@ Application log:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS.zip"
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-${VERSION}.zip"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating archive...${NC}"
 (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
