@@ -28,8 +28,8 @@ The Client is the control interface — installed on your workstation or laptop.
 
 | Architecture | Windows | macOS | Linux | Android | iOS |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.3/USBridge_client_windows_amd64-2.0.3.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.3/USBridge_client_linux_amd64-2.0.3.tar.gz) | — | — |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.3/USBridge_client_macOS_arm64-2.0.3.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.3/USBridge_client_android_arm64-2.0.3.apk) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_windows_amd64-2.0.4.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_linux_amd64-2.0.4.tar.gz) | — | — |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_macOS_arm64-2.0.4.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_android_arm64-2.0.4.apk) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
 
 ## Agent
 
