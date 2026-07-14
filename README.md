@@ -26,8 +26,9 @@ controls it exactly like it would a real USBridge device.
 - Sunshine does the capture/encode, bundled and auto-launched. The agent never
   touches a video frame — it pairs with Sunshine's admin API and relays
   Moonlight PINs.
-- Every request is HMAC-SHA256 signed over the master key, ±60s replay window.
-  Pairing itself is AES-256-GCM. Same scheme as the client and the hardware unit.
+- API requests are HMAC-SHA256 signed over the master key, ±60s replay window
+  (pairing/health/QR endpoints are the only exceptions). The pairing handshake
+  itself is AES-256-GCM encrypted. Same scheme as the client and the hardware unit.
 - Native input injection: `SendInput` on Windows, `CGEvent`/Quartz on macOS,
   direct injection on Linux.
 - On Linux, flipping Sunshine to KMS capture only needs one `pkexec` grant —
