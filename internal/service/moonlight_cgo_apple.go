@@ -63,6 +63,7 @@ static uint64_t g_ca_frame_count   = 0; // frames decoded successfully
 static double   g_ca_stats_start   = 0.0;
 static int      g_ca_was_dropping     = 0; // set while free pool is empty (drop burst)
 static volatile int g_ca_force_restart = 0; // suppress listener during forced stop/start
+static double   g_ca_last_decode_ts   = 0.0; // wall-clock time of the previous decode call
 
 // Log the macOS default audio output device name (macOS HAL APIs, not available on iOS).
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
@@ -175,6 +176,15 @@ void platform_ar_cleanup(void) {
 
 void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     (void)samples;
+    double now = mono_sec();
+    // A long gap since the previous decode call means the network/decoder
+    // stalled long enough to drain playback entirely, even if a buffer or two
+    // was still technically outstanding when it happened (which would hide
+    // from the was_empty check below). Treat that as starvation too.
+    int long_gap = g_ca_started && g_ca_last_decode_ts > 0.0 &&
+                   (now - g_ca_last_decode_ts) > 0.25;
+    g_ca_last_decode_ts = now;
+
     pthread_mutex_lock(&g_ca_mu);
     int was_empty = (g_ca_free_cnt == CA_NUM_BUFFERS);
     AudioQueueRef aq = g_ca_queue;
@@ -199,8 +209,9 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             ca_log_device();
 #endif
             goVTLog((char*)"CoreAudio: AudioQueue started (S16LE native output)");
-        } else if (g_ca_was_dropping || was_empty) {
-            // Drop burst ended OR queue completely starved (underflow).
+        } else if (g_ca_was_dropping || was_empty || long_gap) {
+            // Drop burst ended OR queue completely starved (underflow) OR a
+            // long real-time gap passed since the last frame (network stall).
             // IsRunning stays 1 on macOS even when the queue plays silence after
             // exhausting all buffers, so we must force stop+restart to get a fresh
             // hardware timeline. Without this the queue plays silence indefinitely.
@@ -209,7 +220,7 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             char rmsg[160];
             snprintf(rmsg, sizeof(rmsg),
                 "CoreAudio: %s (total_drops=%llu), forcing restart",
-                was_empty ? "queue starved" : "drop burst ended",
+                was_empty ? "queue starved" : (long_gap ? "long stall detected" : "drop burst ended"),
                 (unsigned long long)g_ca_drop_count);
             goVTLog(rmsg);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE

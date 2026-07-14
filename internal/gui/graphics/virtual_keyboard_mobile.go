@@ -249,11 +249,9 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	var showNormal, showFKeys func()
 	keysSwitch := container.NewStack()
 
-	// F-key panel: two rows of 12 keys each, replaces the normal panel in-place.
+	// F-key panel: one row of F1-F12, replaces the normal panel in-place.
 	f1_12_Codes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
 	f1_12_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
-	f13_24_Codes := []int{104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115}
-	f13_24_Labels := []string{"F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24"}
 	makeRow := func(labels []string, codes []int) *fyne.Container {
 		row := container.NewGridWithColumns(len(labels))
 		for i, label := range labels {
@@ -262,16 +260,16 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 				if vk.onKeyPress != nil {
 					vk.onKeyPress(code, 0)
 				}
-				showNormal()
 			})
 			row.Add(btn)
 		}
 		return row
 	}
+	backBtn := widget.NewButton("Back", func() { showNormal() })
 	fPanel := container.NewThemeOverride(
 		container.NewVBox(
 			makeRow(f1_12_Labels, f1_12_Codes),
-			makeRow(f13_24_Labels, f13_24_Codes),
+			backBtn,
 		),
 		design.NewBrandTheme(),
 	)

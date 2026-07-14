@@ -127,23 +127,22 @@ class MainActivity : GoNativeActivity() {
 
     private val gyroSensorManager: GyroSensorManager by lazy { GyroSensorManager(this) }
 
-    // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL_ZOOM) is locked at gesture start.
-    // 150 dp converted to physical pixels: fingers closer than this → scroll, farther → pan+zoom.
+    // Two-finger gesture tracker — mode (PAN_ZOOM vs SCROLL) is locked at gesture start.
+    // Threshold is 30% of the smaller screen dimension: fingers closer than this → scroll
+    // wheel only, farther apart → pan+zoom (resize) only. The two never fire together.
     private val gestureTracker: TwoFingerGestureTracker by lazy {
+        val dm = resources.displayMetrics
+        val minDimensionPx = minOf(dm.widthPixels, dm.heightPixels)
         TwoFingerGestureTracker(
-            panZoomThresholdPx = 150f * resources.displayMetrics.density,
+            panZoomThresholdPx = minDimensionPx * 0.30f,
             onActiveChanged = { active ->
                 GestureBridge.onViewportGestureStateChanged(active)
             },
             onPanZoom = { scale, focusX, focusY, dx, dy ->
                 GestureBridge.onViewportGestureUpdate(scale, focusX, focusY, dx, dy)
             },
-            onScrollZoom = { scrollDy, scale, focusX, focusY ->
-                // Scroll wheel and zoom are independent — both delivered every frame.
+            onScroll = { scrollDy ->
                 GestureBridge.onScrollGesture(scrollDy)
-                if (scale != 1f) {
-                    GestureBridge.onViewportGestureUpdate(scale, focusX, focusY, 0f, 0f)
-                }
             },
         )
     }

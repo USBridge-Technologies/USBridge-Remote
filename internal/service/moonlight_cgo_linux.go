@@ -42,10 +42,14 @@ extern int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride)
 // pa_simple handles clock drift, buffer management and PipeWire compat natively.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static pa_simple      *g_pa_s   = NULL;
-static pthread_mutex_t g_pa_mu  = PTHREAD_MUTEX_INITIALIZER;
+static pa_simple      *g_pa_s        = NULL;
+static pthread_mutex_t g_pa_mu       = PTHREAD_MUTEX_INITIALIZER;
+static int             g_pa_channels = 2;
+static int             g_pa_rate     = 48000;
 
 void platform_ar_init(int channels, int sample_rate) {
+    g_pa_channels = channels;
+    g_pa_rate     = sample_rate;
     pthread_mutex_lock(&g_pa_mu);
     if (g_pa_s) { pthread_mutex_unlock(&g_pa_mu); return; }
 
@@ -95,7 +99,23 @@ void platform_ar_decode(const opus_int16 *pcm_data, int byte_count, int samples)
     pthread_mutex_unlock(&g_pa_mu);
     if (!s) return;
     int err = 0;
-    pa_simple_write(s, pcm_data, (size_t)byte_count, &err);
+    if (pa_simple_write(s, pcm_data, (size_t)byte_count, &err) < 0) {
+        // The PulseAudio stream can end up in a broken/corked state after a
+        // prolonged network stall drains it; pa_simple never recovers on its
+        // own, so every subsequent write would silently no-op forever and
+        // audio would stay dead even after the network (and video) recover.
+        // Recreate the stream from scratch to get a fresh playback timeline.
+        char msg[128];
+        snprintf(msg, sizeof(msg), "PulseAudio: write failed (%s), reopening stream", pa_strerror(err));
+        goVTLog(msg);
+        pthread_mutex_lock(&g_pa_mu);
+        if (g_pa_s == s) {
+            g_pa_s = NULL;
+        }
+        pthread_mutex_unlock(&g_pa_mu);
+        pa_simple_free(s);
+        platform_ar_init(g_pa_channels, g_pa_rate);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

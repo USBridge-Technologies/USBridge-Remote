@@ -70,13 +70,17 @@ static void cl_log(const char *fmt, ...) {
 // WASAPI audio output
 // ═══════════════════════════════════════════════════════════════════════════════
 
-static IAudioClient       *g_wa_client  = NULL;
-static IAudioRenderClient *g_wa_render  = NULL;
-static UINT32              g_wa_frames  = 0;
+static IAudioClient       *g_wa_client     = NULL;
+static IAudioRenderClient *g_wa_render     = NULL;
+static UINT32              g_wa_frames     = 0;
 static CRITICAL_SECTION    g_wa_cs;
-static int                 g_wa_cs_init = 0;
+static int                 g_wa_cs_init    = 0;
+static int                 g_wa_rate       = 48000;
+static int                 g_wa_fail_count = 0;
+static ULONGLONG           g_wa_last_write_ms = 0;
 
 static void wasapi_init(int channels, int sample_rate) {
+    g_wa_rate = sample_rate;
     if (!g_wa_cs_init) { InitializeCriticalSection(&g_wa_cs); g_wa_cs_init = 1; }
     if (g_wa_client) return;
 
@@ -140,6 +144,8 @@ static void wasapi_init(int channels, int sample_rate) {
     g_wa_client = pClient;
     g_wa_render = pRender;
     LeaveCriticalSection(&g_wa_cs);
+    g_wa_fail_count    = 0;
+    g_wa_last_write_ms = 0;
     goVTLog((char*)"WASAPI: audio client started (S16LE native output)");
 }
 
@@ -154,6 +160,19 @@ static void wasapi_teardown(void) {
     goVTLog((char*)"WASAPI: audio client stopped");
 }
 
+// Repeated WASAPI failures (bad HRESULTs from a client that's fallen into an
+// unrecoverable state) never self-heal — recreate the client from scratch so
+// audio can resume instead of staying silent for the rest of the session.
+static void wasapi_handle_failure(const char *where) {
+    if (++g_wa_fail_count < 5) return;
+    g_wa_fail_count = 0;
+    char msg[128];
+    snprintf(msg, sizeof(msg), "WASAPI: %s failing repeatedly, reinitializing audio client", where);
+    goVTLog(msg);
+    wasapi_teardown();
+    wasapi_init(g_audio_channels, g_wa_rate);
+}
+
 static void wasapi_write(const opus_int16 *pcm, int samples) {
     EnterCriticalSection(&g_wa_cs);
     IAudioClient       *c = g_wa_client;
@@ -161,15 +180,32 @@ static void wasapi_write(const opus_int16 *pcm, int samples) {
     LeaveCriticalSection(&g_wa_cs);
     if (!c || !r) return;
 
+    ULONGLONG now = GetTickCount64();
+    // A long gap since the last successful write (network stall drained the
+    // buffer) can leave the shared-mode client stuck rendering silence even
+    // after new frames arrive; force a fresh clock so playback actually resumes.
+    if (g_wa_last_write_ms != 0 && (now - g_wa_last_write_ms) > 250) {
+        goVTLog((char*)"WASAPI: resuming after stall, restarting audio client");
+        IAudioClient_Stop(c);
+        IAudioClient_Reset(c);
+        IAudioClient_Start(c);
+    }
+
     UINT32 padding = 0;
-    IAudioClient_GetCurrentPadding(c, &padding);
+    HRESULT hr = IAudioClient_GetCurrentPadding(c, &padding);
+    if (FAILED(hr)) { wasapi_handle_failure("GetCurrentPadding"); return; }
     UINT32 avail = g_wa_frames - padding;
-    if ((UINT32)samples > avail) return; // buffer full — drop frame
+    if ((UINT32)samples > avail) return; // buffer full — drop frame, not an error
 
     BYTE *buf = NULL;
-    if (FAILED(IAudioRenderClient_GetBuffer(r, (UINT32)samples, &buf)) || !buf) return;
+    hr = IAudioRenderClient_GetBuffer(r, (UINT32)samples, &buf);
+    if (FAILED(hr) || !buf) { wasapi_handle_failure("GetBuffer"); return; }
     memcpy(buf, pcm, (size_t)samples * (size_t)g_audio_channels * 2);
-    IAudioRenderClient_ReleaseBuffer(r, (UINT32)samples, 0);
+    hr = IAudioRenderClient_ReleaseBuffer(r, (UINT32)samples, 0);
+    if (FAILED(hr)) { wasapi_handle_failure("ReleaseBuffer"); return; }
+
+    g_wa_fail_count    = 0;
+    g_wa_last_write_ms = now;
 }
 
 // ── Audio callbacks ───────────────────────────────────────────────────────────
