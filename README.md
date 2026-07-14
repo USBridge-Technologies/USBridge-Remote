@@ -86,3 +86,7 @@ Application log:
 
 `~/Library/Logs/USBridgeAgent/app.log`
 If `USBRIDGE_LOG_DIR` is set, logs are written there instead.
+
+## License
+
+GPLv3 (see `LICENSE`). This project bundles Sunshine (LizardByte/Sunshine, GPLv3).
