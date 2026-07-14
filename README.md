@@ -50,8 +50,7 @@ That's the whole setup.
 
 ```bash
 # macOS
-./scripts/build_macos.sh && ./scripts/install_macos.sh
-open "$HOME/Applications/USBridgeAgent.app"
+./scripts/build_macos.sh
 
 # Windows — MSYS2 UCRT64
 ./scripts/build_windows.sh
