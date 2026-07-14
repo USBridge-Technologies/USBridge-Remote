@@ -59,12 +59,18 @@ find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || tru
 
 # Run fyne from cmd/ so it builds the correct main package (not repo root)
 VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+# CFBundleVersion (build number) must strictly increase across App Store Connect
+# uploads of the same CFBundleShortVersionString. Without --app-build, fyne falls
+# back to the hardcoded "Build" value in cmd/FyneApp.toml, which never changes and
+# gets every re-upload rejected. Git commit count is a simple monotonic counter.
+BUILD_NUMBER=$(git -C "$REPO_ROOT" rev-list --count HEAD 2>/dev/null || echo 1)
 cd "$REPO_ROOT/cmd"
 "$FYNE_BIN" package \
     --target ios \
     --app-id "$APP_ID" \
     --name "$APP_NAME" \
     --app-version "$VERSION" \
+    --app-build "$BUILD_NUMBER" \
     --icon "$REPO_ROOT/Icon.png" \
     --certificate "$SIGN_CERT" \
     --profile "$PROVISIONING_PROFILE" \

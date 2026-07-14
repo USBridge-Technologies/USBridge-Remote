@@ -66,6 +66,7 @@ android/local.properties
 
 *.log
 cmd/android/FyneApp.toml
+cmd/*.app
 old
 USBridge Client.exe
 USBridgeClient.bin

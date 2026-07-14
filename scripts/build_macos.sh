@@ -415,28 +415,47 @@ fi
 
 ENTITLEMENTS="$SCRIPTS_DIR/entitlements-macos.plist"
 
+# codesign can transiently fail with "Operation not permitted" right after a file
+# is rewritten by install_name_tool — macOS's Gatekeeper/AMFI validation daemon
+# (syspolicyd) occasionally hasn't caught up with the just-modified file yet.
+# This is not a real permissions problem: retrying immediately succeeds. Retry
+# a few times with a short backoff instead of aborting the whole build.
+codesign_retry() {
+    local attempt=1
+    local max_attempts=5
+    until codesign "$@"; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            echo -e "${RED}✗${NC} codesign failed after $max_attempts attempts: $*" >&2
+            return 1
+        fi
+        echo -e "${YELLOW}⚠${NC}  codesign transient failure (attempt $attempt/$max_attempts), retrying..." >&2
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+}
+
 if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
     echo -e "${YELLOW}Signing with identity: $CODESIGN_IDENTITY${NC}"
     # Sign each dylib individually (install_name_tool invalidated original signatures).
     # Dylibs don't take entitlements — only --options runtime + --timestamp for notarization.
     # Errors are NOT suppressed: a silent ad-hoc fallback causes Apple notarization rejection.
     while IFS= read -r dylib; do
-        codesign --force --sign "$CODESIGN_IDENTITY" \
+        codesign_retry --force --sign "$CODESIGN_IDENTITY" \
             --options runtime --timestamp "$dylib"
     done < <(find "$APP_FRAMEWORKS_DIR" -name "*.dylib" -type f 2>/dev/null)
     # Sign standalone executables in MacOS/ (qemu-nbd, qemu-img, tailscale, ffmpeg)
     while IFS= read -r exe; do
-        codesign --force --sign "$CODESIGN_IDENTITY" \
+        codesign_retry --force --sign "$CODESIGN_IDENTITY" \
             --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$exe"
     done < <(find "$APP_MACOS_DIR" -type f -perm +111 ! -name "$BINARY_NAME" 2>/dev/null)
     # Sign the main binary explicitly before sealing the bundle
-    codesign --force --sign "$CODESIGN_IDENTITY" \
+    codesign_retry --force --sign "$CODESIGN_IDENTITY" \
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$APP_MACOS_DIR/$BINARY_NAME"
     # Sign the outer bundle WITHOUT --deep: all inner components are already signed above.
     # --deep recurses into plain directories (e.g. gstreamer-1.0/) and fails treating them
     # as bundles; signing everything explicitly first avoids that error.
-    codesign --force --sign "$CODESIGN_IDENTITY" \
+    codesign_retry --force --sign "$CODESIGN_IDENTITY" \
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$DIST_DIR/$APP_BUNDLE_NAME"
     # Verify every dylib got a real Developer ID (not ad-hoc) — catch silent failures early.

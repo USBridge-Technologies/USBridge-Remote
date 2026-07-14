@@ -24,6 +24,27 @@ val detectedNdkVersion = ndkDirFromEnv
     ?.substringAfter('=')
     ?.trim()
 
+// versionName mirrors the repo-wide VERSION file (single source of truth shared
+// with macOS/Linux/Windows/iOS builds); versionCode is the git commit count, a
+// simple monotonically increasing counter Google Play requires per upload.
+val appVersionName = rootProject.file("../VERSION")
+    .takeIf { it.exists() }
+    ?.readText()
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "1.0.0"
+
+val appVersionCode = try {
+    val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    if (process.waitFor() == 0) output.toIntOrNull() ?: 1 else 1
+} catch (e: Exception) {
+    1
+}
+
 android {
     namespace = "com.usbridge.client"
     compileSdk = 34
@@ -35,8 +56,8 @@ android {
         applicationId = "com.usbridge.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     buildTypes {
