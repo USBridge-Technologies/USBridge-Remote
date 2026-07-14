@@ -11,7 +11,7 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST="${1:-192.168.1.110}"
-MASTER_KEY="${2:-YOUR_QUIC_TOKEN}"
+MASTER_KEY="${2:?master_key required (see USBridge Master QR Sync)}"
 PROTOCOL="${3:-direct}"
 TIMEOUT="${4:-20}"
 

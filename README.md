@@ -49,4 +49,4 @@
 
 ## Лицензия
 
-Проект для внутреннего использования.
+GPLv3 (см. `LICENSE`). Проект использует moonlight-common-c (GPLv3) и GStreamer (LGPL).

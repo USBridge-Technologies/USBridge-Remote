@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 INTERNAL_HOST="${1:-192.168.1.110}"
 TAILSCALE_HOST="${2:-100.71.26.121}"
-MASTER_KEY="${3:-YOUR_QUIC_TOKEN}"
+MASTER_KEY="${3:?master_key required (see USBridge Master QR Sync)}"
 TIMEOUT="${4:-30}"
 APP_BINARY="$REPO_ROOT/dist/macos/USBridgeClient.app/Contents/MacOS/USBridgeClient"
 LOG_FILE="$HOME/Library/Logs/USBridgeClient/app.log"
