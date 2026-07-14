@@ -20,22 +20,21 @@ controls it exactly like it would a real USBridge device.
 
 ## Why
 
-- **No relay, no port forwarding.** Tailscale is built in — system or userspace,
-  agent registers itself on the tailnet on boot. Connect direct on LAN or
-  over Tailscale, nothing else in between.
-- **Sunshine does the heavy lifting.** GameStream-grade hardware capture/encode,
-  bundled and auto-launched. The agent never touches a video frame — it pairs
-  with Sunshine's admin API, relays Moonlight PINs, gets out of the way.
-- **Every request signed.** HMAC-SHA256 over the master key, ±60s replay window.
+- Tailscale is built in — system or userspace, agent registers itself on the
+  tailnet on boot. Connect direct on LAN or over Tailscale, nothing else in
+  between.
+- Sunshine does the capture/encode, bundled and auto-launched. The agent never
+  touches a video frame — it pairs with Sunshine's admin API and relays
+  Moonlight PINs.
+- Every request is HMAC-SHA256 signed over the master key, ±60s replay window.
   Pairing itself is AES-256-GCM. Same scheme as the client and the hardware unit.
-- **Native input, not a shim.** `SendInput` on Windows, `CGEvent`/Quartz on
-  macOS, direct injection on Linux.
-- **No Wayland nag screen.** Flip Sunshine to KMS capture once — a single
-  `pkexec` grant sets `CAP_SYS_ADMIN` on the binary, persists across reboots —
-  and the portal permission dialog never comes back.
-- **A control window that tells you something.** LAN/Tailscale addresses,
-  Sunshine health, permission status, Tailscale sign-in — all in one place,
-  not buried in a tray icon.
+- Native input injection: `SendInput` on Windows, `CGEvent`/Quartz on macOS,
+  direct injection on Linux.
+- On Linux, flipping Sunshine to KMS capture only needs one `pkexec` grant —
+  it sets `CAP_SYS_ADMIN` on the binary, persists across reboots, and the
+  portal permission dialog doesn't come back.
+- Control window shows LAN/Tailscale addresses, Sunshine health, permission
+  status, and Tailscale sign-in in one place.
 
 ## Quick start
 
