@@ -1,9 +1,0 @@
---- scripts/build_moonlight.sh
-+++ scripts/build_moonlight.sh
-@@ -64,3 +64,5 @@
-             PATH="${NDK_PREBUILT}/bin:${PATH}" \
--            make clean || true
-+                make clean || true
-+            ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}" \
-+            PATH="${NDK_PREBUILT}/bin:${PATH}" \
-                 make -j"${NCPU}" build_libs

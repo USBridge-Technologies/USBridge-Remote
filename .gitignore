@@ -7,6 +7,10 @@
 .gocache
 .cache
 .build-cache/
+.claude/settings.local.json
+/bin/
+fix.patch
+window_dump.xml
 **/.DS_Store
 untitled
 usbridge-client
