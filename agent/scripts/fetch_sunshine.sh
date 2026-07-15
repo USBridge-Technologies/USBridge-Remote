@@ -190,10 +190,15 @@ fetch_sunshine_windows() {
     url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
     if [[ -z "$url" ]]; then
         echo -e "${YELLOW}Fork has no Windows release yet; falling back to upstream LizardByte...${NC}"
+        # The fork's pinned USBRIDGE_SUNSHINE_VERSION tag (e.g. v2026.714.2.usbridge)
+        # doesn't exist upstream, so this lookup must use upstream's latest release.
         local _saved_repo="$_sunshine_repo"
+        local _saved_version="${USBRIDGE_SUNSHINE_VERSION:-}"
         _sunshine_repo="$_sunshine_upstream_repo"
+        USBRIDGE_SUNSHINE_VERSION="latest"
         url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
         _sunshine_repo="$_saved_repo"
+        USBRIDGE_SUNSHINE_VERSION="$_saved_version"
     fi
     if [[ -z "$url" ]]; then
         echo -e "${RED}Failed to resolve Sunshine Windows download URL${NC}"
