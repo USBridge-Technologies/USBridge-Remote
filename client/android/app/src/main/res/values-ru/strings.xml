@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">USBridge Client</string>
+    <string name="btn_close">Закрыть</string>
+    <string name="point_camera_at_qr">Наведите камеру на QR-код</string>
+</resources>

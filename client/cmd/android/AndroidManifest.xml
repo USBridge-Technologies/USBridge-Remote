@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.usbridge.client">
+
+    <!-- Разрешения -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Camera feature -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application>
+        <!-- Главная активность с полноэкранным режимом -->
+        <activity
+            android:name="org.golang.app.GoNativeActivity"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <!-- Meta-data для Go библиотеки -->
+            <meta-data android:name="android.app.lib_name" android:value="USBridge_Client" />
+
+            <!-- Intent filter для отображения в списке приложений -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Intent filter для deep links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- Кастомная схема usbridge:// -->
+                <data android:scheme="usbridge" android:host="connect" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

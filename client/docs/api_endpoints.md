@@ -1,0 +1,135 @@
+# USBridge 2 API Documentation (Master QR Sync Protocol)
+
+## Authentication & Security (v2)
+
+All API requests (except `/api/healthz`) require a cryptographic signature. The root of trust is the **API Secret**, which is shared via a physical QR code on the device's screen.
+
+### 1. Mandatory Headers
+Every request must include:
+- `X-Auth-Timestamp`: Current Unix timestamp (seconds). Requests older than 60s are rejected.
+- `X-Auth-Signature`: HMAC-SHA256 hash of the request.
+
+### 2. Signature Calculation
+`HMAC_SHA256(API_SECRET, METHOD + PATH + TIMESTAMP + BODY)`
+- `METHOD`: HTTP method in uppercase (e.g., "POST").
+- `PATH`: Full URI path starting with `/` (e.g., `/api/mouse`).
+- `TIMESTAMP`: The same string used in the `X-Auth-Timestamp` header.
+- `BODY`: Raw request body string (empty string if no body).
+
+---
+
+## Initialization & Sync
+
+### Master Sync
+```http
+POST /api/auth/sync
+```
+**Description**: Unified endpoint for pairing and initial synchronization. Securely transmits sensitive data (PINs, keys) using AES-256-GCM encryption.
+
+**Request Body**:
+```json
+{
+  "payload": "AES_GCM_ENCRYPTED_BASE64",
+  "iv": "IV_BASE64",
+  "timestamp": 1717760000
+}
+```
+
+**Decrypted Payload Content**:
+```json
+{
+  "moonlight_pin": "1234",
+  "tailscale_key": "tskey-auth-...",
+  "hostname": "my-device",
+  "client_id": "uuid-..."
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "frp_token": "tunnel_token_here",
+    "tailscale_status": { ... },
+    "sunshine_status": "paired"
+  }
+}
+```
+
+---
+
+## Device Control
+
+### Device Start (Mounting)
+```http
+POST /api/device/start
+```
+**Description**: Starts USB gadgets (Drive, Keyboard, Mouse, RNDIS).
+**Request Body**: Array of device objects.
+
+### Device Stop
+```http
+POST /api/device/stop
+```
+**Description**: Stops all active USB gadgets.
+
+---
+
+## Input Control
+
+### Keyboard
+```http
+POST /api/keyboard
+```
+**Actions**: `key`, `combo`, `text`.
+
+### Mouse
+```http
+POST /api/mouse
+```
+**Actions**: `move`, `click`, `scroll`, `touch`, `touch_position`.
+
+---
+
+## Video & Audio
+
+### Video Info
+```http
+GET /api/video/info
+```
+
+### Video Start
+```http
+POST /api/video/start
+```
+
+### Audio Info
+```http
+GET /api/audio/info
+```
+
+---
+
+## Storage & ISO
+
+### Storage Status
+```http
+GET /api/storage/status
+```
+
+### ISO Upload
+```http
+POST /api/iso/upload
+```
+**Note**: Large files (up to 50GB) supported.
+
+---
+
+## Public Endpoints
+
+### Health Check
+```http
+GET /api/healthz
+```
+**Description**: Only endpoint that does **not** require a signature. Returns 200 OK if service is alive.
