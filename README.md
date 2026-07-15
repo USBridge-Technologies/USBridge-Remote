@@ -42,6 +42,16 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 ---
 
+## Demo
+
+<div align="center">
+  <a href="https://youtu.be/1pV9PJeBr7M">
+    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote Demo" style="max-width: 100%; border-radius: 8px;">
+  </a>
+</div>
+
+---
+
 ## Features
 
 ![USBridge Remote — Remote Desktop](assets/screenshot_USBridge_client.png)
@@ -55,6 +65,14 @@ The Agent runs on the target machine — the server or PC you want to access rem
 **Tailscale integration** — Built-in encrypted P2P tunneling. Connect to any machine globally without messing with port forwarding or firewall rules. It works on LAN and over the internet automatically.
 
 ![USBridge Remote — Agent](assets/screenshot_USBridge_agent.png)
+
+---
+
+## Wayland Support (No Prompts)
+
+Most remote desktop agents on Linux struggle with Wayland or constantly spam you with permission prompts and confirmation popups every time a session starts. 
+
+I designed the USBridge Agent to support Wayland natively. It handles full screen capture and input injection out-of-the-box **without any annoying permission prompts** or manual confirmations. It just works.
 
 ---
 
