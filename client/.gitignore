@@ -91,3 +91,8 @@ linux_crosscompile/linux_crosscompile/
 tests/android_ui_stress_output/
 tests/android_video_launch_output/
 tests/android_tab_switch_output/
+
+# editor backups and local crash dumps — never useful in the repo
+*.bak
+*.orig
+tests/crashlogs/
