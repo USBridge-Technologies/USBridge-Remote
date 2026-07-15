@@ -31,9 +31,16 @@ type ScriptsTabWidget struct {
 	usbClient *api.USBClient
 	mcpProxy  api.MCPProxy
 	mcpPort   int
+	agentOS   string // OS reported by the connected agent (empty/"usbridge" = real hardware)
 
 	// Root container returned by GetContainer.
 	outerContainer *fyne.Container
+
+	// normalContent is the regular MCP+Scripts UI; lockedContent is shown
+	// instead when connected to a non-USBridge OS agent (Windows/Linux/macOS),
+	// since script management is a USBridge-hardware-only feature.
+	normalContent fyne.CanvasObject
+	lockedContent fyne.CanvasObject
 
 	// Scripts section body — VBox of script rows, rebuilt on client change.
 	scriptsBodyContainer *fyne.Container
@@ -73,18 +80,60 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 
 	w.mu.Lock()
 	w.usbClient = c
+	w.agentOS = ""
 	w.mu.Unlock()
 
 	fyne.Do(func() {
 		w.refreshMCPStatus()
 	})
 
-	if c != nil {
+	if c == nil {
+		fyne.Do(func() {
+			w.showNormalState()
+			w.showEmptyScriptsState()
+		})
+		return
+	}
+
+	go func() {
+		agentOS := ""
+		if info, err := c.GetDeviceInfo(); err == nil && info != nil {
+			agentOS = info.AgentOS
+		}
+
+		w.mu.Lock()
+		stillCurrent := w.usbClient == c
+		if stillCurrent {
+			w.agentOS = agentOS
+		}
+		w.mu.Unlock()
+		if !stillCurrent {
+			return // superseded by a newer SetClient call
+		}
+
+		if !isUSBridgeAgentOS(agentOS) {
+			fyne.Do(func() { w.showLockedState() })
+			return
+		}
+
+		fyne.Do(func() { w.showNormalState() })
 		w.refreshScriptsList()
 		w.startStatusPoll()
-	} else {
-		fyne.Do(func() { w.showEmptyScriptsState() })
-	}
+	}()
+}
+
+// showLockedState replaces the whole tab body with a wait notice — Scripts
+// management (running/editing .star scripts on SD/eMMC) only applies to
+// real USBridge hardware, not plain OS agents.
+func (w *ScriptsTabWidget) showLockedState() {
+	w.outerContainer.Objects = []fyne.CanvasObject{w.lockedContent}
+	w.outerContainer.Refresh()
+}
+
+// showNormalState restores the regular MCP+Scripts UI tree.
+func (w *ScriptsTabWidget) showNormalState() {
+	w.outerContainer.Objects = []fyne.CanvasObject{w.normalContent}
+	w.outerContainer.Refresh()
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────────
@@ -112,8 +161,14 @@ func (w *ScriptsTabWidget) build() {
 		view.NewInset(mcpCard, 12, 12, 8, 0),
 		view.NewInset(scriptsCard, 12, 12, 0, 8),
 	)
-	scroll := container.NewVScroll(content)
-	w.outerContainer = container.NewStack(scroll)
+	w.normalContent = container.NewVScroll(content)
+
+	lockedMsg := canvas.NewText("Please wait — Scripts are available on USBridge hardware only.", design.ColorTextMuted)
+	lockedMsg.TextSize = 13
+	lockedMsg.Alignment = fyne.TextAlignCenter
+	w.lockedContent = container.NewCenter(view.NewInset(lockedMsg, 24, 24, 24, 24))
+
+	w.outerContainer = container.NewStack(w.normalContent)
 }
 
 func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {

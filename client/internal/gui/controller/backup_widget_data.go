@@ -48,6 +48,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 		bw.currentFlashConnected = false
 		deviceInfo, err := client.GetDeviceInfo()
 		if err == nil {
+			bw.agentOS = deviceInfo.AgentOS
 			for _, device := range deviceInfo.Devices {
 				if device.Status == "connected" &&
 					device.Type == "mtp" &&

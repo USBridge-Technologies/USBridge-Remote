@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/url"
 	"sync/atomic"
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/view"
@@ -8,6 +9,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
+	"github.com/sirupsen/logrus"
 )
 
 // BackupWidget виджет для отображения списка снапшотов
@@ -21,6 +23,7 @@ type BackupWidget struct {
 	sdSpaceInfo           *models.ISOSpaceInfo // Информация о месте на SD-карте (iso/data/backup)
 	currentFlash          *models.LocalDrive   // Актуальная бэкап флешка
 	currentFlashConnected bool                 // Подключена ли бэкап-флешка (mtp:data)
+	agentOS               string               // OS reported by the connected agent (empty/"usbridge" = real hardware)
 	loadingCurrentFlash   atomic.Bool
 	loadingSnapshots      atomic.Bool
 	isMounting            atomic.Bool
@@ -106,4 +109,28 @@ func (bw *BackupWidget) updateStatusAsync(status string) {
 	bw.updateUIAsync(func() {
 		bw.ui.StatusLabel.SetText(status)
 	})
+}
+
+// openHardwarePromo opens the USBridge KVM hardware page, used by the
+// Snapshots empty-state placeholder shown for non-USBridge agents.
+func (bw *BackupWidget) openHardwarePromo() {
+	const promoURL = "https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"
+
+	uri, err := url.Parse(promoURL)
+	if err != nil {
+		logrus.Errorf("failed to parse hardware promo URL %q: %v", promoURL, err)
+		return
+	}
+
+	fyneApp := fyne.CurrentApp()
+	if fyneApp == nil {
+		logrus.Errorf("failed to open hardware promo URL: fyne app is nil")
+		return
+	}
+
+	go func() {
+		if err := fyneApp.OpenURL(uri); err != nil {
+			logrus.Errorf("failed to open hardware promo URL %q: %v", promoURL, err)
+		}
+	}()
 }

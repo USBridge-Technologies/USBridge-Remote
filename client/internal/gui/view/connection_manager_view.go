@@ -383,7 +383,7 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 	ui.ConnectionsBox.RemoveAll()
 
 	actions := container.NewCenter(ui.AddBtn)
-	emptyBlock := newEmptyStatePromoCard(ui.onPromo)
+	emptyBlock := NewEmptyStatePromoCard(ui.onPromo)
 
 	ui.contentArea.Objects = []fyne.CanvasObject{
 		container.NewVBox(
@@ -395,7 +395,10 @@ func (ui *ConnectionManagerUI) SetEmptyState() {
 	ui.contentArea.Refresh()
 }
 
-func newEmptyStatePromoCard(onLearnMore func()) fyne.CanvasObject {
+// NewEmptyStatePromoCard builds the "no saved connections" hardware promo
+// card. Exported so other screens (e.g. Snapshots) can show the identical
+// placeholder when their feature set doesn't apply to the connected agent.
+func NewEmptyStatePromoCard(onLearnMore func()) fyne.CanvasObject {
 	bgImage := canvas.NewImageFromResource(assets.OnboardingStep01)
 	bgImage.FillMode = canvas.ImageFillContain
 

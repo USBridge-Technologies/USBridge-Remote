@@ -83,10 +83,11 @@ type pcpanelActionButton struct {
 type pcpanelModeButton struct {
 	widget.BaseWidget
 
-	text    string
-	active  bool
-	hovered bool
-	onTap   func()
+	text     string
+	active   bool
+	hovered  bool
+	disabled bool
+	onTap    func()
 
 	bg    *canvas.Rectangle
 	label *canvas.Text
@@ -100,6 +101,7 @@ type pcpanelHoldButton struct {
 	holdDuration time.Duration
 	activeColor  color.Color
 	hovered      bool
+	disabled     bool
 	pressing     bool
 	progress     float64
 	progressMu   sync.Mutex
@@ -459,7 +461,24 @@ func (b *pcpanelHoldButton) Dragged(*fyne.DragEvent) {
 func (b *pcpanelHoldButton) DragEnd() {
 	b.cancelHold()
 }
+
+// SetDisabled locks the hold-to-confirm button so pressing/dragging it has
+// no effect, and renders it in a muted "inactive" style.
+func (b *pcpanelHoldButton) SetDisabled(disabled bool) {
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	if disabled {
+		b.cancelHold()
+	}
+	b.refreshVisuals()
+}
+
 func (b *pcpanelHoldButton) startHold() {
+	if b.disabled {
+		return
+	}
 	if b.holdDuration <= 0 {
 		b.holdDuration = 2 * time.Second
 	}
@@ -543,6 +562,21 @@ func (b *pcpanelHoldButton) cancelHold() {
 
 func (b *pcpanelHoldButton) refreshVisuals() {
 	if b.track == nil || b.fill == nil || b.border == nil || b.label == nil {
+		return
+	}
+
+	if b.disabled {
+		b.track.FillColor = design.ColorSurfaceLight
+		b.fill.FillColor = color.Transparent
+		b.bg.FillColor = color.Transparent
+		b.border.StrokeColor = color.Transparent
+		b.border.StrokeWidth = 0
+		b.label.Color = design.ColorTextMuted
+		b.track.Refresh()
+		b.fill.Refresh()
+		b.bg.Refresh()
+		b.border.Refresh()
+		b.label.Refresh()
 		return
 	}
 
@@ -632,10 +666,21 @@ func (b *pcpanelModeButton) SetActive(active bool) {
 	b.refreshVisuals()
 }
 
-func (b *pcpanelModeButton) Tapped(*fyne.PointEvent) {
-	if b.onTap != nil {
-		b.onTap()
+// SetDisabled locks the button so it can no longer be tapped or hovered,
+// and renders it in a muted "inactive" style.
+func (b *pcpanelModeButton) SetDisabled(disabled bool) {
+	if b.disabled == disabled {
+		return
 	}
+	b.disabled = disabled
+	b.refreshVisuals()
+}
+
+func (b *pcpanelModeButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.onTap == nil {
+		return
+	}
+	b.onTap()
 }
 
 func (b *pcpanelModeButton) TappedSecondary(*fyne.PointEvent) {}
@@ -676,6 +721,15 @@ func (b *pcpanelModeButton) CreateRenderer() fyne.WidgetRenderer {
 
 func (b *pcpanelModeButton) refreshVisuals() {
 	if b.bg == nil || b.label == nil {
+		return
+	}
+
+	if b.disabled {
+		b.bg.FillColor = design.ColorSurfaceLight
+		b.bg.StrokeColor = design.ColorBorder
+		b.label.Color = design.ColorTextMuted
+		b.bg.Refresh()
+		b.label.Refresh()
 		return
 	}
 
@@ -786,6 +840,7 @@ type PCPanelWidget struct {
 	powerOn       bool
 	hddOn         bool
 	window        fyne.Window
+	agentOS       string // OS reported by the connected agent (empty/"usbridge" = real hardware); guarded by pollMu
 }
 
 // NewPCPanelWidget creates a widget with a combined Power/Reset button.
@@ -818,6 +873,7 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 		p.pollCtxCancel = nil
 	}
 	p.usbClient = c
+	p.agentOS = ""
 	p.pollMu.Unlock()
 
 	if c == nil {
@@ -840,6 +896,27 @@ func (p *PCPanelWidget) SetClient(c *api.USBClient) {
 			p.updateLEDIcons(resp.Data.Power, resp.Data.HDD)
 		})
 	}()
+
+	// Fetch the agent OS once so the power/reset popup can be locked down for
+	// plain OS agents (Windows/Linux/macOS), for which it doesn't apply.
+	go func() {
+		info, err := c.GetDeviceInfo()
+		if err != nil || info == nil {
+			return
+		}
+		p.pollMu.Lock()
+		if p.usbClient == c {
+			p.agentOS = info.AgentOS
+		}
+		p.pollMu.Unlock()
+	}()
+}
+
+// getAgentOS returns the last known agent OS string, guarded by pollMu.
+func (p *PCPanelWidget) getAgentOS() string {
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
+	return p.agentOS
 }
 
 // pollLeds periodically polls LEDs state
@@ -916,6 +993,10 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		return
 	}
 
+	// Power/Reset simulate physically pressing the target machine's front
+	// panel buttons via USBridge hardware — meaningless for a plain OS agent.
+	locked := !isUSBridgeAgentOS(p.getAgentOS())
+
 	actionTitles := map[string]string{
 		"power": "Power Off",
 		"reset": "Reset",
@@ -957,7 +1038,11 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 	var holdButton *pcpanelHoldButton
 	updateDetails := func(action string) {
 		currentAction = action
-		actionInfoLabel.SetText(i18n.Current.PCPanelActionConfirm)
+		if locked {
+			actionInfoLabel.SetText("Power controls are available on USBridge hardware only.")
+		} else {
+			actionInfoLabel.SetText(i18n.Current.PCPanelActionConfirm)
+		}
 
 		if action == "power" {
 			detailsContainer.Objects = []fyne.CanvasObject{powerOptions}
@@ -1032,6 +1117,14 @@ func (p *PCPanelWidget) showPowerActionDialog() {
 		}
 	})
 	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
+
+	if locked {
+		powerBtn.SetDisabled(true)
+		resetBtn.SetDisabled(true)
+		holdSlider.Disable()
+		noBtn.Disable()
+		holdButton.SetDisabled(true)
+	}
 
 	bodyContent := container.NewVBox(
 		titleBar,

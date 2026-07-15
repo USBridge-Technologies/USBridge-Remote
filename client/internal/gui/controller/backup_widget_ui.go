@@ -14,6 +14,10 @@ import (
 func (bw *BackupWidget) createInterface() {
 	bw.ui = view.NewBackupWidgetUI(
 		func() []fyne.CanvasObject {
+			if !isUSBridgeAgentOS(bw.agentOS) {
+				return []fyne.CanvasObject{view.NewEmptyStatePromoCard(bw.openHardwarePromo)}
+			}
+
 			rows := make([]fyne.CanvasObject, 0, len(bw.snapshots)+1)
 			mounting := bw.isMounting.Load()
 
