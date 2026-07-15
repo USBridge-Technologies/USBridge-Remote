@@ -20,7 +20,6 @@
 #   USBRIDGE_SUNSHINE_CUDA=1     (Linux only) build with Nvidia CUDA/NVENC support
 
 _sunshine_repo="itsme228/Sunshine"
-_sunshine_upstream_repo="LizardByte/Sunshine"
 
 # Принудительно устанавливаем нужную версию и заставляем скрипт обновлять бинарники
 export USBRIDGE_SUNSHINE_VERSION="${USBRIDGE_SUNSHINE_VERSION:-v2026.714.2.usbridge}"
@@ -184,22 +183,9 @@ fetch_sunshine_windows() {
     _sunshine_require curl "Install with: pacman -S --needed curl"
     _sunshine_require python "Install with: pacman -S --needed mingw-w64-ucrt-x86_64-python"
 
-    echo -e "${YELLOW}Fetching Sunshine (Moonlight GameStream host, usbridge fork)...${NC}"
+    echo -e "${YELLOW}Fetching Sunshine fork (itsme228/Sunshine, web_bind_address patch)...${NC}"
     local url
-    # Try our fork first (has web_bind_address patch); fall back to upstream LizardByte.
-    url="$(_sunshine_asset_url "Sunshine-Windows-AMD64-portable.zip")"
-    if [[ -z "$url" ]]; then
-        echo -e "${YELLOW}Fork has no Windows release yet; falling back to upstream LizardByte...${NC}"
-        # The fork's pinned USBRIDGE_SUNSHINE_VERSION tag (e.g. v2026.714.2.usbridge)
-        # doesn't exist upstream, so this lookup must use upstream's latest release.
-        local _saved_repo="$_sunshine_repo"
-        local _saved_version="${USBRIDGE_SUNSHINE_VERSION:-}"
-        _sunshine_repo="$_sunshine_upstream_repo"
-        USBRIDGE_SUNSHINE_VERSION="latest"
-        url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
-        _sunshine_repo="$_saved_repo"
-        USBRIDGE_SUNSHINE_VERSION="$_saved_version"
-    fi
+    url="$(_sunshine_asset_url "Sunshine-Windows-x86_64-portable.zip")"
     if [[ -z "$url" ]]; then
         echo -e "${RED}Failed to resolve Sunshine Windows download URL${NC}"
         exit 1
