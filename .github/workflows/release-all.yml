@@ -149,8 +149,14 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          install: mingw-w64-ucrt-x86_64-go mingw-w64-ucrt-x86_64-gcc
-      - name: Build + Vet (Windows, MSYS2 UCRT64)
+          install: >-
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-python
+            zip
+            python
+      - name: Build (Windows, MSYS2 UCRT64)
         shell: msys2 {0}
         working-directory: agent
         run: ./scripts/build_windows.sh
@@ -220,6 +226,9 @@ jobs:
         env:
           PKG_CONFIG_LIBDIR: ${{ env.MINGW_SYSROOT }}/lib/pkgconfig
         run: ./scripts/build_windows.sh
+      - name: Dump build log on failure
+        if: failure()
+        run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-windows
@@ -240,6 +249,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Build Moonlight Core for Android
+        # build_android_gradle.sh does not build moonlight-common-c/opus itself
+        # (unlike build_ios.sh) — it expects this to already be cached from a
+        # prior local run. Do it explicitly here, same env vars build_ios.sh
+        # uses for its own platform.
+        working-directory: client
+        run: |
+          set -euo pipefail
+          NDK_DIR="$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+          [ -z "$NDK_DIR" ] && { echo "::error::No Android NDK found under \$ANDROID_HOME/ndk"; exit 1; }
+          export ANDROID_NDK_HOME="$NDK_DIR"
+          echo "Using NDK: $ANDROID_NDK_HOME"
+          MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
       - name: Build (Android, Moonlight-only, self-signed debug keystore)
         working-directory: client
         run: ./scripts/build_android_gradle.sh
