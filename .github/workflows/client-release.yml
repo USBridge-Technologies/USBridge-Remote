@@ -48,6 +48,8 @@ jobs:
       USBRIDGE_SKIP_NOTARIZE: "1" # notarization is done explicitly below
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-go@v5
         with:
@@ -189,6 +191,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-go@v5
         with:

@@ -1,0 +1,3 @@
+[submodule "client/moonlight-common-c"]
+	path = client/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git
