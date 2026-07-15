@@ -1,0 +1,480 @@
+name: release-all
+
+# Single button (workflow_dispatch) that builds BOTH the agent (Linux/macOS/
+# Windows) and the client (macOS/iOS/Linux/Windows/Android), signs and
+# notarizes/submits where applicable, and publishes everything under ONE
+# GitHub Release. Tag-triggered per-project releases (agent-v*/client-v*)
+# still go through agent-release.yml/client-release.yml unchanged.
+#
+# Repository Secrets required (Settings > Secrets and variables > Actions):
+#   APPLE_ID, APPLE_TEAM_ID, NOTARIZATION_PASSWORD
+#   BUILD_CERTIFICATE_BASE64 / P12_PASSWORD           - Developer ID Application
+#                                                        (agent + client macOS)
+#   IOS_BUILD_CERTIFICATE_BASE64                       - Apple Distribution
+#                                                        (client iOS). Encrypted
+#                                                        with the same P12_PASSWORD.
+#   IOS_PROVISIONING_PROFILE_BASE64                    - client iOS distribution profile
+# Android is self-signed with an on-the-fly debug keystore (build_android_gradle.sh
+# auto-generates ~/.android/debug.keystore) — no secret required.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag/name for the combined release (e.g. release-2026.07.15)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Agent ────────────────────────────────────────────────────────────────
+
+  agent-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - name: Install Linux build deps (Fyne/X11 + Sunshine runtime libs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
+            libminiupnpc-dev libva2 libva-drm2 libvdpau1 \
+            libpulse0 libopus0 libcap2 libdrm2 libevdev2 \
+            libxtst6 libxrandr2 libxfixes3 libnuma1 libcurl4 \
+            libayatana-appindicator3-1 libssl3 \
+            libpipewire-0.3-0 libwayland-client0 libwayland-egl1
+      - name: Build (Linux)
+        working-directory: agent
+        run: ./scripts/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-agent-linux
+          path: |
+            agent/dist/*.zip
+            agent/dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  agent-macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
+      USBRIDGE_SKIP_NOTARIZE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+
+      - name: Import signing certificate into a temporary keychain
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/agent-macos-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build (macOS)
+        working-directory: agent
+        run: ./scripts/build_macos.sh
+
+      - name: Notarize macOS app archive
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.zip)"
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
+
+      - name: Staple notarization ticket
+        run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
+
+      - name: Rebuild archive with the stapled ticket
+        run: |
+          set -euo pipefail
+          rm -f "$ARCHIVE"
+          (cd agent/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeAgent.app" "README.txt")
+
+      - name: Verify Developer ID signature & notarization
+        run: |
+          set -euo pipefail
+          APP="agent/dist/macos/USBridgeAgent.app"
+          CODESIGN_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)" || { echo "$CODESIGN_INFO"; echo "::error::codesign -dv failed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
+          echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
+          echo "✓ agent macOS ready to distribute"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-agent-macos
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+
+  agent-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-go mingw-w64-ucrt-x86_64-gcc
+      - name: Build + Vet (Windows, MSYS2 UCRT64)
+        shell: msys2 {0}
+        working-directory: agent
+        run: ./scripts/build_windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-agent-windows
+          path: agent/dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Client ───────────────────────────────────────────────────────────────
+
+  client-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
+            libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
+            libopus-dev libssl-dev pkg-config cmake \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - name: Build (Linux)
+        working-directory: client
+        run: ./scripts/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-linux
+          path: client/dist/linux/**
+          if-no-files-found: error
+          retention-days: 7
+
+  client-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+      - name: Install mingw-w64 cross toolchain
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 zstd
+      - name: Fetch opus/openssl mingw-w64 dev packages (MSYS2 mirror)
+        run: |
+          set -euo pipefail
+          SYSROOT="$RUNNER_TEMP/mingw-sysroot"
+          mkdir -p "$SYSROOT"
+          MIRROR="https://mirror.msys2.org/mingw/ucrt64"
+          for pkgprefix in mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-openssl; do
+            FILE="$(curl -fsSL "$MIRROR/" | grep -oE "${pkgprefix}-[0-9][^\"]*\.pkg\.tar\.zst" | sort -V | tail -1)"
+            echo "Fetching $FILE"
+            curl -fsSL "$MIRROR/$FILE" -o "$RUNNER_TEMP/pkg.tar.zst"
+            tar --use-compress-program=unzstd -xf "$RUNNER_TEMP/pkg.tar.zst" -C "$SYSROOT"
+            rm -f "$RUNNER_TEMP/pkg.tar.zst"
+          done
+          echo "MINGW_SYSROOT=$SYSROOT/ucrt64" >> "$GITHUB_ENV"
+      - name: Build (Windows cross-compile)
+        working-directory: client
+        env:
+          PKG_CONFIG_LIBDIR: ${{ env.MINGW_SYSROOT }}/lib/pkgconfig
+        run: ./scripts/build_windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-windows
+          path: client/dist/windows/**
+          if-no-files-found: error
+          retention-days: 7
+
+  client-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build (Android, Moonlight-only, self-signed debug keystore)
+        working-directory: client
+        run: ./scripts/build_android_gradle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-android
+          path: client/dist/android/**
+          if-no-files-found: error
+          retention-days: 7
+
+  client-macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
+      USBRIDGE_SKIP_NOTARIZE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+
+      - name: Import signing certificate into a temporary keychain
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/client-macos-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Install macOS build dependencies
+        run: |
+          brew list opus &>/dev/null || brew install opus
+          brew list gstreamer &>/dev/null || brew install gstreamer
+
+      - name: Build & sign macOS app bundle
+        working-directory: client
+        run: ./scripts/build_macos.sh
+
+      - name: Notarize macOS app archive
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.zip)"
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
+
+      - name: Staple notarization ticket
+        run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
+
+      - name: Rebuild archive with the stapled ticket
+        run: |
+          set -euo pipefail
+          rm -f "$ARCHIVE"
+          # shellcheck disable=SC2015
+          (cd client/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" \
+            "USBridgeClient.app" README.txt config.yaml 2>/dev/null || \
+           zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeClient.app" README.txt)
+
+      - name: Verify Developer ID signature & notarization
+        run: |
+          set -euo pipefail
+          APP="client/dist/macos/USBridgeClient.app"
+          CODESIGN_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)" || { echo "$CODESIGN_INFO"; echo "::error::codesign -dv failed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application" || { echo "::error::wrong cert"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP" || { echo "::error::ticket not stapled"; exit 1; }
+          SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || { echo "$SPCTL_OUTPUT"; echo "::error::spctl rejected"; exit 1; }
+          echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID" || { echo "::error::not notarized"; exit 1; }
+          echo "✓ client macOS ready to distribute"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-macos
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+
+  client-ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select latest available Xcode
+        run: |
+          set -euo pipefail
+          LATEST_XCODE="$(find /Applications -maxdepth 1 -name 'Xcode_*.app' 2>/dev/null | sort -V | tail -1)"
+          [ -n "$LATEST_XCODE" ] && sudo xcode-select -s "$LATEST_XCODE"
+          xcodebuild -version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+
+      - name: Import signing certificate into a temporary keychain
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/client-ios-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Install iOS provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          PROFILE_PATH="$RUNNER_TEMP/USBridgeClient.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/USBridgeClient.mobileprovision.plist"
+          echo -n "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID="$(xmllint --xpath '//key[.="UUID"]/following-sibling::string[1]/text()' "$PROFILE_PLIST")"
+          [ -z "$PROFILE_UUID" ] && { echo "::error::Could not extract UUID"; exit 1; }
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          cp "$PROFILE_PATH" "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+          rm -f "$PROFILE_PATH" "$PROFILE_PLIST"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Install fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@v1.7.2
+
+      - name: Build & sign iOS .ipa
+        working-directory: client
+        run: ./scripts/build_ios.sh
+
+      - name: Verify Apple Distribution signature
+        run: |
+          set -euo pipefail
+          IPA="$(ls client/dist/ios/*.ipa)"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          EXTRACT_DIR="$RUNNER_TEMP/ipa-verify"
+          rm -rf "$EXTRACT_DIR"; mkdir -p "$EXTRACT_DIR"
+          unzip -q "$IPA" -d "$EXTRACT_DIR"
+          APP="$(find "$EXTRACT_DIR/Payload" -maxdepth 1 -name "*.app" | head -1)"
+          [ -z "$APP" ] && { echo "::error::no .app in ipa"; exit 1; }
+          [ -f "$APP/embedded.mobileprovision" ] || { echo "::error::no embedded profile"; exit 1; }
+          CODESIGN_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)" || { echo "$CODESIGN_INFO"; echo "::error::codesign -dv failed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc" && { echo "::error::ad-hoc signed"; exit 1; }
+          echo "$CODESIGN_INFO" | grep -q "Authority=Apple Distribution" || { echo "::error::wrong cert"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          rm -rf "$EXTRACT_DIR"
+          echo "✓ client iOS ready to submit"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-ios
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to App Store Connect
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app --type ios -f "$IPA" -u "$APPLE_ID" -p "$APPLE_NOTARIZATION_PASSWORD" --team-id "$APPLE_TEAM_ID"
+
+      - name: Remove temporary keychain & provisioning profile
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+          [ -n "${PROFILE_UUID:-}" ] && rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" || true
+
+  # ── Combined release ────────────────────────────────────────────────────
+
+  release:
+    needs:
+      - agent-linux
+      - agent-macos
+      - agent-windows
+      - client-linux
+      - client-windows
+      - client-android
+      - client-macos
+      - client-ios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.zip' -o -name '*.AppImage' -o -name '*.ipa' -o -name '*.apk' -o -name '*.bin' -o -name '*.exe' \) -exec cp {} out/ \;
+          ls -la out
+
+      - name: Create combined GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: out/*
+          name: USBridge ${{ inputs.release_tag }}
+          generate_release_notes: true
+          draft: false
