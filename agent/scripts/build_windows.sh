@@ -17,7 +17,6 @@ ICON_PNG_256="$REPO_ROOT/assets/icons/appicon-256.png"
 ICON_ICO="$REPO_ROOT/cmd/usbridge_agent/appicon.ico"
 ICON_RC="$REPO_ROOT/cmd/usbridge_agent/appicon.rc"
 ICON_SYSO="$REPO_ROOT/cmd/usbridge_agent/appicon_windows_amd64.syso"
-WINDRES_BIN="/c/msys64/ucrt64/bin/windres.exe"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -99,8 +98,16 @@ if [[ -f "$ICON_PNG_16" && -f "$ICON_PNG_32" && -f "$ICON_PNG_256" ]]; then
         echo -e "${RED}python not found in PATH, cannot generate .ico from appicon PNG files${NC}"
         exit 1
     fi
-    if [[ ! -x "$WINDRES_BIN" ]]; then
-        echo -e "${RED}windres not found at $WINDRES_BIN${NC}"
+
+    WINDRES_BIN=""
+    if command -v x86_64-w64-mingw32-windres >/dev/null 2>&1; then
+        WINDRES_BIN="$(command -v x86_64-w64-mingw32-windres)"
+    elif command -v windres >/dev/null 2>&1 && [[ "$(command -v windres)" == /ucrt64/bin/* ]]; then
+        WINDRES_BIN="$(command -v windres)"
+    elif [[ -x "/c/msys64/ucrt64/bin/windres.exe" ]]; then
+        WINDRES_BIN="/c/msys64/ucrt64/bin/windres.exe"
+    else
+        echo -e "${RED}windres not found (looked in PATH and /c/msys64/ucrt64/bin)${NC}"
         exit 1
     fi
     python "$REPO_ROOT/scripts/generate_windows_ico.py" "$ICON_ICO" "$ICON_PNG_16" "$ICON_PNG_32" "$ICON_PNG_256"
