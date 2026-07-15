@@ -119,7 +119,45 @@ jobs:
           set -euo pipefail
           ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
-          xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
+
+          # `notarytool submit --wait` can hang indefinitely if Apple's
+          # queue stalls, with only the job's blunt overall timeout-minutes
+          # to eventually kill it and no visibility into why. Poll manually
+          # with a bounded timeout per attempt and one retry instead.
+          notarize_with_retry() {
+            local archive="$1" attempt id status submit_json elapsed max_wait interval
+            for attempt in 1 2; do
+              echo "Notarization attempt $attempt/2..."
+              submit_json="$(xcrun notarytool submit "$archive" \
+                --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_NOTARIZATION_PASSWORD" --output-format json)"
+              id="$(echo "$submit_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+              echo "Submission ID: $id"
+
+              elapsed=0; max_wait=900; interval=20
+              while [ "$elapsed" -lt "$max_wait" ]; do
+                status="$(xcrun notarytool info "$id" \
+                  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_NOTARIZATION_PASSWORD" --output-format json \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+                echo "  [${elapsed}s] status: $status"
+                case "$status" in
+                  Accepted) return 0 ;;
+                  Invalid|Rejected)
+                    echo "::error::Notarization rejected (submission $id)"
+                    xcrun notarytool log "$id" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" 2>/dev/null || true
+                    return 1
+                    ;;
+                esac
+                sleep "$interval"
+                elapsed=$((elapsed + interval))
+              done
+              echo "::warning::Submission $id still '$status' after ${max_wait}s — retrying with a fresh submission"
+            done
+            echo "::error::Notarization did not complete after 2 attempts"
+            return 1
+          }
+          notarize_with_retry "$ARCHIVE"
 
       - name: Staple notarization ticket
         # Staple the .app itself, not just the .dmg — if the ticket only
@@ -385,7 +423,45 @@ jobs:
           set -euo pipefail
           ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
-          xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
+
+          # `notarytool submit --wait` can hang indefinitely if Apple's
+          # queue stalls, with only the job's blunt overall timeout-minutes
+          # to eventually kill it and no visibility into why. Poll manually
+          # with a bounded timeout per attempt and one retry instead.
+          notarize_with_retry() {
+            local archive="$1" attempt id status submit_json elapsed max_wait interval
+            for attempt in 1 2; do
+              echo "Notarization attempt $attempt/2..."
+              submit_json="$(xcrun notarytool submit "$archive" \
+                --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_NOTARIZATION_PASSWORD" --output-format json)"
+              id="$(echo "$submit_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+              echo "Submission ID: $id"
+
+              elapsed=0; max_wait=900; interval=20
+              while [ "$elapsed" -lt "$max_wait" ]; do
+                status="$(xcrun notarytool info "$id" \
+                  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_NOTARIZATION_PASSWORD" --output-format json \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+                echo "  [${elapsed}s] status: $status"
+                case "$status" in
+                  Accepted) return 0 ;;
+                  Invalid|Rejected)
+                    echo "::error::Notarization rejected (submission $id)"
+                    xcrun notarytool log "$id" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" 2>/dev/null || true
+                    return 1
+                    ;;
+                esac
+                sleep "$interval"
+                elapsed=$((elapsed + interval))
+              done
+              echo "::warning::Submission $id still '$status' after ${max_wait}s — retrying with a fresh submission"
+            done
+            echo "::error::Notarization did not complete after 2 attempts"
+            return 1
+          }
+          notarize_with_retry "$ARCHIVE"
 
       - name: Staple notarization ticket
         # Staple the .app itself, not just the .dmg — if the ticket only
