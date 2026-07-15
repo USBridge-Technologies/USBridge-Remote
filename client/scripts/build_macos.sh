@@ -524,11 +524,10 @@ Application log:
   ~/Library/Logs/USBridgeClient/app.log
 README
 
-echo -e "\n${YELLOW}📦 Создание архива...${NC}"
-ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS.zip"
+echo -e "\n${YELLOW}📦 Создание disk image...${NC}"
+ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS.dmg"
 rm -f "$ARCHIVE"
-(cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt config.yaml 2>/dev/null || \
- zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt)
+hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
 
 # ── Notarization (optional) ───────────────────────────────────────────────────
 # Requires credentials stored in Keychain once via:
@@ -559,10 +558,12 @@ for i in d.get('issues',[]):
             exit 1
         fi
         echo -e "${YELLOW}Stapling notarization ticket...${NC}"
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         xcrun stapler staple "$DIST_DIR/$APP_BUNDLE_NAME"
         rm -f "$ARCHIVE"
-        (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt config.yaml 2>/dev/null || \
-         zip -r --symlinks "$ARCHIVE" "$APP_BUNDLE_NAME" README.txt)
+        hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
         echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
     else
         echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"

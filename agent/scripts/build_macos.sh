@@ -182,11 +182,11 @@ Application log:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-${VERSION}.zip"
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-${VERSION}.dmg"
 rm -f "$ARCHIVE"
-echo -e "${YELLOW}Creating archive...${NC}"
-(cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
-echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
+echo -e "${YELLOW}Creating disk image...${NC}"
+hdiutil create -volname "USBridgeAgent" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+echo -e "${GREEN}✓${NC} Disk image: $ARCHIVE"
 
 # ── Notarization (optional) ───────────────────────────────────────────────────
 # Requires credentials stored in Keychain once via:
@@ -202,10 +202,12 @@ if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>
             --keychain-profile "$NOTARIZE_PROFILE" \
             --wait
         echo -e "${YELLOW}Stapling notarization ticket...${NC}"
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         xcrun stapler staple "$APP_BUNDLE"
-        # Rebuild zip so it includes the stapled ticket
         rm -f "$ARCHIVE"
-        (cd "$DIST_DIR" && zip -r --symlinks "$ARCHIVE" "USBridgeAgent.app" "README.txt")
+        hdiutil create -volname "USBridgeAgent" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
         echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
     else
         echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"

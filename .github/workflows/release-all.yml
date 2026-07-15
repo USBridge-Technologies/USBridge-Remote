@@ -117,18 +117,21 @@ jobs:
           APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
         run: |
           set -euo pipefail
-          ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.zip)"
+          ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
 
       - name: Staple notarization ticket
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
 
-      - name: Rebuild archive with the stapled ticket
+      - name: Rebuild disk image with the stapled app
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          (cd agent/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeAgent.app" "README.txt")
+          hdiutil create -volname "USBridgeAgent" -srcfolder "agent/dist/macos" -ov -format UDZO "$ARCHIVE"
 
       - name: Verify Developer ID signature & notarization
         run: |
@@ -206,10 +209,16 @@ jobs:
       - name: Build (Linux)
         working-directory: client
         run: ./scripts/build_linux.sh
+      - name: Package into a single archive
+        # dist/linux/ holds the binary alongside a helper script and config —
+        # zip it as one file so the release doesn't end up with those loose
+        # (the binary itself is fully self-contained; nothing external to
+        # bundle here, unlike Windows).
+        run: (cd client/dist/linux && zip -r ../USBridgeClient-Linux-x86_64.zip .)
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-linux
-          path: client/dist/linux/**
+          path: client/dist/USBridgeClient-Linux-x86_64.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -266,10 +275,17 @@ jobs:
         if: failure()
         shell: msys2 {0}
         run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
+      - name: Package into a single archive
+        # dist/windows/ is a portable app folder (exe + launcher + all DLLs
+        # + bundled GStreamer/Tailscale runtime alongside) — that's correct,
+        # it's meant to run standalone with no external deps. Zip the whole
+        # folder as one file so those don't end up as loose release assets.
+        shell: msys2 {0}
+        run: (cd client/dist/windows && zip -r ../USBridgeClient-Windows-x86_64.zip .)
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-windows
-          path: client/dist/windows/**
+          path: client/dist/USBridgeClient-Windows-x86_64.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -305,7 +321,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-android
-          path: client/dist/android/**
+          # The APK is fully self-contained (no loose deps to bundle
+          # alongside), so upload it directly rather than the whole dir.
+          path: client/dist/android/USBridge_Client_gradle.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -359,21 +377,21 @@ jobs:
           APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
         run: |
           set -euo pipefail
-          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.zip)"
+          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           xcrun notarytool submit "$ARCHIVE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARIZATION_PASSWORD" --wait
 
       - name: Staple notarization ticket
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
 
-      - name: Rebuild archive with the stapled ticket
+      - name: Rebuild disk image with the stapled app
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          # shellcheck disable=SC2015
-          (cd client/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" \
-            "USBridgeClient.app" README.txt config.yaml 2>/dev/null || \
-           zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeClient.app" README.txt)
+          hdiutil create -volname "USBridgeClient" -srcfolder "client/dist/macos" -ov -format UDZO "$ARCHIVE"
 
       - name: Verify Developer ID signature & notarization
         run: |
@@ -524,9 +542,13 @@ jobs:
           path: artifacts
 
       - name: Flatten artifacts
+        # Each release-* artifact now contains exactly one packaged file
+        # (built by the corresponding job's own "Package into a single
+        # archive" step, or a single .dmg/.ipa/.apk) — no extension
+        # filtering needed, and nothing else can sneak in as a loose file.
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.AppImage' -o -name '*.ipa' -o -name '*.apk' -o -name '*.bin' -o -name '*.exe' \) -exec cp {} out/ \;
+          find artifacts -mindepth 2 -maxdepth 2 -type f -exec cp {} out/ \;
           ls -la out
 
       - name: Create combined GitHub Release

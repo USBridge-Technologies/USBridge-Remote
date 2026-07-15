@@ -123,9 +123,9 @@ jobs:
           set -euo pipefail
 
           # build_macos.sh называет архив с версией из ./VERSION
-          # (USBridgeAgent-macOS-<version>.zip) — находим его вместо того,
+          # (USBridgeAgent-macOS-<version>.dmg) — находим его вместо того,
           # чтобы жёстко зашивать имя файла.
-          ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.zip)"
+          ARCHIVE="$(ls agent/dist/USBridgeAgent-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
           xcrun notarytool submit "$ARCHIVE" \
@@ -136,14 +136,17 @@ jobs:
 
       - name: Staple notarization ticket to the app bundle
         if: matrix.name == 'macos'
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
 
-      - name: Rebuild archive with the stapled ticket
+      - name: Rebuild disk image with the stapled app
         if: matrix.name == 'macos'
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          (cd agent/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeAgent.app" "README.txt")
+          hdiutil create -volname "USBridgeAgent" -srcfolder "agent/dist/macos" -ov -format UDZO "$ARCHIVE"
 
       # Жёсткий гейт перед публикацией: билд не должен попасть в релиз, если
       # подпись отсутствует, невалидна, ad-hoc, либо тикет нотаризации не
@@ -213,6 +216,7 @@ jobs:
           name: agent-${{ matrix.name }}
           path: |
             agent/dist/*.zip
+            agent/dist/*.dmg
             agent/dist/*.AppImage
           if-no-files-found: error
           retention-days: 14
@@ -236,7 +240,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          find artifacts -type f \( -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} out/ \;
           ls -la out
 
       - name: Derive release version

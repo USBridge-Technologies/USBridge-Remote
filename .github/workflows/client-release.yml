@@ -105,9 +105,9 @@ jobs:
           set -euo pipefail
 
           # build_macos.sh currently names the archive without a version
-          # suffix (USBridgeClient-macOS.zip); glob it anyway so this keeps
+          # suffix (USBridgeClient-macOS.dmg); glob it anyway so this keeps
           # working if that ever changes.
-          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.zip)"
+          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
           xcrun notarytool submit "$ARCHIVE" \
@@ -117,19 +117,16 @@ jobs:
             --wait
 
       - name: Staple notarization ticket to the app bundle
+        # Staple the .app itself, not just the .dmg — if the ticket only
+        # lives on the disk image, an app dragged out of it to /Applications
+        # has no local ticket (Gatekeeper falls back to an online check).
         run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
 
-      - name: Rebuild archive with the stapled ticket
+      - name: Rebuild disk image with the stapled app
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          # Intentional fallback: config.yaml is optional, retry without it
-          # if the first zip (which lists it explicitly) fails. Mirrors
-          # build_macos.sh's own archive step.
-          # shellcheck disable=SC2015
-          (cd client/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" \
-            "USBridgeClient.app" README.txt config.yaml 2>/dev/null || \
-           zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeClient.app" README.txt)
+          hdiutil create -volname "USBridgeClient" -srcfolder "client/dist/macos" -ov -format UDZO "$ARCHIVE"
 
       # Hard gate before publishing: fail the job outright if the signature
       # is missing, invalid, ad-hoc, or the notarization ticket didn't stick —
