@@ -48,6 +48,17 @@ _sunshine_clean_creds() {
     done
 }
 
+# GitHub's unauthenticated API rate limit (60/hour/IP) is easy to exhaust on
+# shared Actions runner IP ranges, especially with several jobs querying it
+# in the same workflow run. Authenticate with GITHUB_TOKEN/GH_TOKEN (already
+# available in every Actions job) when present to get the 5000/hour limit
+# instead — a silent rate-limit failure here looks identical to "no release
+# asset yet" and falls through to a 10-60 min source build.
+_sunshine_curl_auth=()
+if [[ -n "${GITHUB_TOKEN:-${GH_TOKEN:-}}" ]]; then
+    _sunshine_curl_auth=(-H "Authorization: Bearer ${GITHUB_TOKEN:-$GH_TOKEN}")
+fi
+
 _sunshine_asset_url() {
     local asset_name="$1"
     local version="${USBRIDGE_SUNSHINE_VERSION:-latest}"
@@ -58,7 +69,7 @@ _sunshine_asset_url() {
         api_url="https://api.github.com/repos/${_sunshine_repo}/releases/tags/${version}"
     fi
     # Use || true so a 404 (no release yet) returns empty string instead of aborting.
-    curl -fsSL "$api_url" 2>/dev/null | python3 -c "
+    curl -fsSL "${_sunshine_curl_auth[@]}" "$api_url" 2>/dev/null | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -77,7 +88,7 @@ _sunshine_resolve_tag() {
         echo "$version"
         return 0
     fi
-    curl -fsSL "https://api.github.com/repos/${_sunshine_repo}/releases/latest" \
+    curl -fsSL "${_sunshine_curl_auth[@]}" "https://api.github.com/repos/${_sunshine_repo}/releases/latest" \
         | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'])"
 }
 

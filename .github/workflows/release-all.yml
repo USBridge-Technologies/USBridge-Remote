@@ -49,6 +49,8 @@ jobs:
             libpipewire-0.3-0 libwayland-client0 libwayland-egl1
       - name: Build (Linux)
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_linux.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -60,13 +62,24 @@ jobs:
           retention-days: 7
 
   agent-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
       USBRIDGE_SKIP_NOTARIZE: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select latest available Xcode
+        # The bundled Sunshine fork is built from source and occasionally
+        # picks up C++20 features (e.g. std::jthread) that need a newer
+        # libc++ than macos-14's default Xcode ships.
+        run: |
+          set -euo pipefail
+          LATEST_XCODE="$(find /Applications -maxdepth 1 -name 'Xcode_*.app' 2>/dev/null | sort -V | tail -1)"
+          [ -n "$LATEST_XCODE" ] && sudo xcode-select -s "$LATEST_XCODE"
+          xcodebuild -version
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: agent/go.mod
@@ -93,6 +106,8 @@ jobs:
 
       - name: Build (macOS)
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_macos.sh
 
       - name: Notarize macOS app archive
@@ -159,6 +174,8 @@ jobs:
       - name: Build (Windows, MSYS2 UCRT64)
         shell: msys2 {0}
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_windows.sh
       - uses: actions/upload-artifact@v4
         with:

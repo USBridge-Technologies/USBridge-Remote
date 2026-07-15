@@ -88,6 +88,8 @@ jobs:
 
       - name: Build & sign macOS app bundle
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_macos.sh
 
       - name: Notarize app archive

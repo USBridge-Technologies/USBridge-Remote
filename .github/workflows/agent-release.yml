@@ -102,11 +102,15 @@ jobs:
       - name: Build (Linux)
         if: matrix.name == 'linux'
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_linux.sh
 
       - name: Build (macOS)
         if: matrix.name == 'macos'
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_macos.sh
 
       - name: Notarize macOS app archive
@@ -199,6 +203,8 @@ jobs:
         if: matrix.name == 'windows'
         shell: msys2 {0}
         working-directory: agent
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build_windows.sh
 
       - name: Upload build artifact
