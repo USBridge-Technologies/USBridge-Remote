@@ -83,6 +83,9 @@ jobs:
           rm -f "$CERT_PATH"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
+      - name: Install macOS build dependencies
+        run: brew list opus &>/dev/null || brew install opus
+
       - name: Build & sign macOS app bundle
         working-directory: client
         run: ./scripts/build_macos.sh
@@ -261,7 +264,11 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
 
       - name: Install fyne CLI
-        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+        # The fyne CLI now lives in the separate fyne.io/tools module (the
+        # old fyne.io/fyne/v2/cmd/fyne is deprecated and dropped the
+        # --app-id/--app-version/--app-build aliases build_ios.sh relies on).
+        # Pinned to the exact version verified locally via `go version -m`.
+        run: go install fyne.io/tools/cmd/fyne@v1.7.2
 
       - name: Build & sign iOS .ipa
         working-directory: client
