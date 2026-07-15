@@ -33,9 +33,9 @@ jobs:
         with:
           go-version-file: agent/go.mod
 
-      - name: Install Linux build deps (Fyne/X11)
+      - name: Install Linux build deps (Fyne/X11 + Sunshine runtime libs)
         if: matrix.name == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libminiupnpc-dev
 
       - name: Setup MSYS2 UCRT64 (Windows toolchain)
         if: matrix.name == 'windows'
