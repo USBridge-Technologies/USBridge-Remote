@@ -194,12 +194,25 @@ jobs:
 
   build-ios:
     name: iOS (build, sign, submit to App Store Connect)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Select latest available Xcode
+        # App Store Connect rejects uploads built with an SDK older than the
+        # current requirement ("This app was built with the iOS 17.5 SDK...").
+        # Pick whichever Xcode the runner image ships as newest rather than
+        # trusting the default symlink to stay current.
+        run: |
+          set -euo pipefail
+          LATEST_XCODE="$(find /Applications -maxdepth 1 -name 'Xcode_*.app' 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$LATEST_XCODE" ]; then
+            sudo xcode-select -s "$LATEST_XCODE"
+          fi
+          xcodebuild -version
 
       - uses: actions/setup-go@v5
         with:
