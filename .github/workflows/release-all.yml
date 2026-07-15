@@ -223,7 +223,14 @@ jobs:
         with:
           go-version-file: client/go.mod
       - name: Install mingw-w64 cross toolchain
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64 zstd
+        run: |
+          sudo apt-get update && sudo apt-get install -y mingw-w64 zstd
+          # Ubuntu's mingw-w64 ships both -win32 and -posix threading model
+          # variants selectable via update-alternatives; the posix one
+          # rejects -mthreads (which Go's cross-compile toolchain passes
+          # unconditionally) with "unrecognized command-line option".
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-win32
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-win32
       - name: Fetch opus/openssl mingw-w64 dev packages (MSYS2 mirror)
         run: |
           set -euo pipefail
