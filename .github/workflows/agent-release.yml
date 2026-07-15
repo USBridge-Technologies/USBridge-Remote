@@ -35,7 +35,14 @@ jobs:
 
       - name: Install Linux build deps (Fyne/X11 + Sunshine runtime libs)
         if: matrix.name == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libminiupnpc-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
+            libminiupnpc-dev libva2 libva-drm2 libvdpau1 \
+            libpulse0 libopus0 libcap2 libdrm2 libevdev2 \
+            libxtst6 libxrandr2 libxfixes3 libnuma1 libcurl4 \
+            libayatana-appindicator3-1 libssl3
 
       - name: Setup MSYS2 UCRT64 (Windows toolchain)
         if: matrix.name == 'windows'
