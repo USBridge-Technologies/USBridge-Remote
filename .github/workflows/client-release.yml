@@ -416,6 +416,18 @@ jobs:
           name: client-macos
           path: out
 
+      - name: Rename to a stable, version-free asset name
+        # The version already lives on the release itself (tag + title), and
+        # GitHub release assets have no alias/symlink mechanism, so a stable
+        # name is what makes /releases/latest/download/<name> keep working
+        # release after release instead of changing every time.
+        run: |
+          for f in out/*; do
+            stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+(\.[A-Za-z0-9]+)$/\1/')"
+            [ "$f" != "$stable" ] && mv "$f" "$stable"
+          done
+          ls -la out
+
       - name: Derive release version
         id: version
         # Tag "client-v2.0.5" -> "v2.0.5", so the release isn't titled

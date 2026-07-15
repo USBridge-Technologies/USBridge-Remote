@@ -628,9 +628,20 @@ jobs:
         # (built by the corresponding job's own "Package into a single
         # archive" step, or a single .dmg/.ipa/.apk) — no extension
         # filtering needed, and nothing else can sneak in as a loose file.
+        #
+        # Strip the "-X.Y.Z" version segment from the published asset name:
+        # the version already lives on the release itself (tag + title), and
+        # GitHub release assets are physical uploads with no alias/symlink
+        # mechanism — keeping the name stable means /releases/latest/download/
+        # <name> always points at the newest build without ever changing,
+        # instead of needing a second duplicate upload per platform.
         run: |
           mkdir -p out
           find artifacts -mindepth 2 -maxdepth 2 -type f -exec cp {} out/ \;
+          for f in out/*; do
+            stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+(\.[A-Za-z0-9]+)$/\1/')"
+            [ "$f" != "$stable" ] && mv "$f" "$stable"
+          done
           ls -la out
 
       - name: Create combined GitHub Release

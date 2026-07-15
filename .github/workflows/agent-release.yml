@@ -271,9 +271,18 @@ jobs:
           path: artifacts
 
       - name: Flatten artifacts
+        # Strip the "-X.Y.Z" version segment from the published asset name —
+        # the version already lives on the release itself (tag + title), and
+        # GitHub release assets have no alias/symlink mechanism, so a stable
+        # name is what makes /releases/latest/download/<name> keep working
+        # release after release instead of changing every time.
         run: |
           mkdir -p out
           find artifacts -type f \( -name '*.zip' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          for f in out/*; do
+            stable="$(echo "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+(\.[A-Za-z0-9]+)$/\1/')"
+            [ "$f" != "$stable" ] && mv "$f" "$stable"
+          done
           ls -la out
 
       - name: Derive release version

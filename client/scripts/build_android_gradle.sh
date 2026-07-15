@@ -593,7 +593,7 @@ if [ -f "$APK_OUT" ]; then
     fi
 
     APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-    FINAL_APK="$DIST_DIR/USBridgeClient-Android-${APK_VERSION}.apk"
+    FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-${APK_VERSION}.apk"
     # Ищем apksigner: сначала в ANDROID_HOME (Linux), затем в стандартном пути macOS
     APKSIGNER=""
     if [ -n "$ANDROID_HOME" ]; then

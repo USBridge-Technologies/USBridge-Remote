@@ -525,7 +525,7 @@ Application log:
 README
 
 echo -e "\n${YELLOW}📦 Создание disk image...${NC}"
-ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").dmg"
+ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS-arm64-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").dmg"
 rm -f "$ARCHIVE"
 hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
 

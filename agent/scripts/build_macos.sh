@@ -182,7 +182,7 @@ Application log:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-${VERSION}.dmg"
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-arm64-${VERSION}.dmg"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating disk image...${NC}"
 hdiutil create -volname "USBridgeAgent" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
