@@ -1,0 +1,372 @@
+name: client-release
+
+# Builds, signs, notarizes (macOS) and signs+submits (iOS) the USBridge
+# Client, then publishes a GitHub Release with the macOS build attached.
+#
+# Repository Secrets required (Settings > Secrets and variables > Actions):
+#   APPLE_ID                        - Apple ID e-mail of the developer account
+#   APPLE_TEAM_ID                   - 10-char Apple Developer Team ID
+#   BUILD_CERTIFICATE_BASE64        - signing cert (.p12) in Base64. Same secret
+#                                      already used by agent-release.yml for the
+#                                      macOS "Developer ID Application" cert. If
+#                                      it is a single universal "Apple Distribution"
+#                                      cert it will also work for the iOS job; if
+#                                      not, the iOS job's codesign step will fail
+#                                      with a clear "identity not found" error —
+#                                      in that case add a second cert secret and
+#                                      point the iOS import step at it.
+#   P12_PASSWORD                    - password for the .p12 above
+#   NOTARIZATION_PASSWORD           - App-Specific Password used both for
+#                                      `notarytool` (macOS) and `altool`
+#                                      (iOS App Store Connect upload)
+#   IOS_PROVISIONING_PROFILE_BASE64 - .mobileprovision (App Store distribution
+#                                      profile named "USBridge Client iOS
+#                                      Distribution", see scripts/build_ios.sh),
+#                                      in Base64
+#
+# client/scripts/build_ios.sh hardcodes the signing identity name
+# ("Apple Distribution: Amir Fatkulin (AJVY97F5QT)") and the provisioning
+# profile name ("USBridge Client iOS Distribution") — the imported
+# certificate/profile must match those exactly.
+
+on:
+  push:
+    tags:
+      - "client-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: macOS (build, sign, notarize)
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
+      USBRIDGE_SKIP_NOTARIZE: "1" # notarization is done explicitly below
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+
+      - name: Import signing certificate into a temporary keychain
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/client-macos-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build & sign macOS app bundle
+        working-directory: client
+        run: ./scripts/build_macos.sh
+
+      - name: Notarize macOS app archive
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # build_macos.sh currently names the archive without a version
+          # suffix (USBridgeClient-macOS.zip); glob it anyway so this keeps
+          # working if that ever changes.
+          ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.zip)"
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+          xcrun notarytool submit "$ARCHIVE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARIZATION_PASSWORD" \
+            --wait
+
+      - name: Staple notarization ticket to the app bundle
+        run: xcrun stapler staple "client/dist/macos/USBridgeClient.app"
+
+      - name: Rebuild archive with the stapled ticket
+        run: |
+          set -euo pipefail
+          rm -f "$ARCHIVE"
+          # Intentional fallback: config.yaml is optional, retry without it
+          # if the first zip (which lists it explicitly) fails. Mirrors
+          # build_macos.sh's own archive step.
+          # shellcheck disable=SC2015
+          (cd client/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" \
+            "USBridgeClient.app" README.txt config.yaml 2>/dev/null || \
+           zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeClient.app" README.txt)
+
+      # Hard gate before publishing: fail the job outright if the signature
+      # is missing, invalid, ad-hoc, or the notarization ticket didn't stick —
+      # matching tool exit codes alone isn't enough since codesign/spctl can
+      # exit 0 for an ad-hoc signature too.
+      - name: Verify Developer ID signature & notarization (fail if ad-hoc/unsigned/not notarized)
+        run: |
+          set -euo pipefail
+          APP="client/dist/macos/USBridgeClient.app"
+
+          echo "== codesign -dv =="
+          if ! CODESIGN_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)"; then
+            echo "$CODESIGN_INFO"
+            echo "::error::App is unsigned or the signature is invalid (codesign -dv failed)"
+            exit 1
+          fi
+          echo "$CODESIGN_INFO"
+
+          if echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc"; then
+            echo "::error::App is ad-hoc signed — not distributable. Check BUILD_CERTIFICATE_BASE64/P12_PASSWORD and USBRIDGE_CODESIGN_IDENTITY."
+            exit 1
+          fi
+          if ! echo "$CODESIGN_INFO" | grep -q "Authority=Developer ID Application"; then
+            echo "::error::Signature is not from a Developer ID Application certificate — wrong cert imported"
+            exit 1
+          fi
+
+          echo "== codesign --verify --deep --strict =="
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          echo "== stapler validate =="
+          if ! xcrun stapler validate "$APP"; then
+            echo "::error::Notarization ticket is not stapled (stapler validate failed)"
+            exit 1
+          fi
+
+          echo "== spctl --assess =="
+          SPCTL_OUTPUT="$(spctl --assess --type execute -vv "$APP" 2>&1)" || {
+            echo "$SPCTL_OUTPUT"
+            echo "::error::Gatekeeper rejects the app (spctl --assess failed)"
+            exit 1
+          }
+          echo "$SPCTL_OUTPUT"
+          if ! echo "$SPCTL_OUTPUT" | grep -q "source=Notarized Developer ID"; then
+            echo "::error::Gatekeeper does not report a notarized Developer ID signature — not ready for distribution"
+            exit 1
+          fi
+
+          echo "✓ Developer ID signature confirmed, app notarized and stapled — ready to distribute."
+
+      - name: Upload signed & notarized macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-macos
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+
+  build-ios:
+    name: iOS (build, sign, submit to App Store Connect)
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+
+      - name: Import signing certificate into a temporary keychain
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/client-ios-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Install iOS provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          PROFILE_PATH="$RUNNER_TEMP/USBridgeClient.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/USBridgeClient.mobileprovision.plist"
+          echo -n "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
+
+          # The profile body is a CMS/PKCS#7 blob wrapping a plist — decode it,
+          # then pull UUID/Name out with xmllint rather than assuming a fixed
+          # byte offset.
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+
+          PROFILE_UUID="$(xmllint --xpath '//key[.="UUID"]/following-sibling::string[1]/text()' "$PROFILE_PLIST")"
+          PROFILE_NAME="$(xmllint --xpath '//key[.="Name"]/following-sibling::string[1]/text()' "$PROFILE_PLIST")"
+
+          if [ -z "$PROFILE_UUID" ]; then
+            echo "::error::Could not extract UUID from the provisioning profile"
+            exit 1
+          fi
+          echo "Profile: $PROFILE_NAME ($PROFILE_UUID)"
+          if [ "$PROFILE_NAME" != "USBridge Client iOS Distribution" ]; then
+            echo "::warning::Profile name '$PROFILE_NAME' does not match the name build_ios.sh expects ('USBridge Client iOS Distribution') — fyne package will fail to find it by name."
+          fi
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          cp "$PROFILE_PATH" "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+
+          rm -f "$PROFILE_PATH" "$PROFILE_PLIST"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Build & sign iOS .ipa
+        working-directory: client
+        run: ./scripts/build_ios.sh
+
+      # Same hard gate as macOS, adapted for an .ipa: unzip the embedded .app,
+      # require an "Apple Distribution" signature (never ad-hoc/Development),
+      # and require the App Store distribution provisioning profile to be
+      # embedded before this ever reaches App Store Connect.
+      - name: Verify Apple Distribution signature (fail if ad-hoc/dev/unsigned)
+        run: |
+          set -euo pipefail
+          IPA="$(ls client/dist/ios/*.ipa)"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+          EXTRACT_DIR="$RUNNER_TEMP/ipa-verify"
+          rm -rf "$EXTRACT_DIR"
+          mkdir -p "$EXTRACT_DIR"
+          unzip -q "$IPA" -d "$EXTRACT_DIR"
+          APP="$(find "$EXTRACT_DIR/Payload" -maxdepth 1 -name "*.app" | head -1)"
+          if [ -z "$APP" ]; then
+            echo "::error::No .app bundle found inside the .ipa Payload/"
+            exit 1
+          fi
+
+          if [ ! -f "$APP/embedded.mobileprovision" ]; then
+            echo "::error::embedded.mobileprovision missing from the app bundle — not signed for distribution"
+            exit 1
+          fi
+
+          echo "== codesign -dv =="
+          if ! CODESIGN_INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)"; then
+            echo "$CODESIGN_INFO"
+            echo "::error::App is unsigned or the signature is invalid (codesign -dv failed)"
+            exit 1
+          fi
+          echo "$CODESIGN_INFO"
+
+          if echo "$CODESIGN_INFO" | grep -q "^Signature=adhoc"; then
+            echo "::error::App is ad-hoc signed — cannot be submitted to App Store Connect"
+            exit 1
+          fi
+          if ! echo "$CODESIGN_INFO" | grep -q "Authority=Apple Distribution"; then
+            echo "::error::Signature is not from an Apple Distribution certificate (found Development/other) — App Store Connect will reject this build"
+            exit 1
+          fi
+
+          echo "== codesign --verify --deep --strict =="
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          rm -rf "$EXTRACT_DIR"
+          echo "✓ Apple Distribution signature confirmed, App Store provisioning profile embedded — ready to submit."
+
+      - name: Upload signed .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-ios
+          path: ${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Real submission to App Store Connect. This is the only step in this
+      # workflow that talks to Apple's *review* pipeline rather than just
+      # Gatekeeper notarization — once accepted, the build shows up in App
+      # Store Connect / TestFlight for real. `notarytool` is Gatekeeper-only
+      # and cannot do this; `altool --upload-app` is Apple ID + app-specific
+      # password based, matching the secrets we have (no App Store Connect
+      # API key configured). If Apple retires Apple-ID-based altool auth,
+      # this step needs to move to an API-key (issuer ID / key ID / .p8).
+      - name: Upload to App Store Connect
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app \
+            --type ios \
+            -f "$IPA" \
+            -u "$APPLE_ID" \
+            -p "$APPLE_NOTARIZATION_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+
+      - name: Remove temporary keychain & provisioning profile
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/build_certificate.p12"
+          [ -n "${PROFILE_UUID:-}" ] && rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" || true
+
+  release:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-macos
+          path: out
+
+      - name: Derive release version
+        id: version
+        # Tag "client-v2.0.5" -> "v2.0.5", so the release isn't titled
+        # "USBridge Client client-v2.0.5".
+        run: echo "version=${GITHUB_REF_NAME#client-}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          name: USBridge Client ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          draft: false

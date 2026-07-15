@@ -5,9 +5,8 @@ name: agent-release
 #   BUILD_CERTIFICATE_BASE64  - .p12 сертификат Developer ID Application, в Base64
 #   P12_PASSWORD              - пароль, которым зашифрован .p12
 #   NOTARIZATION_PASSWORD     - App-Specific Password Apple ID для notarytool
-# Требуемые Repository Variables (та же секция, вкладка Variables):
-#   APPLE_ID       - Apple ID разработчика (e-mail)
-#   APPLE_TEAM_ID  - Team ID из Apple Developer аккаунта
+#   APPLE_ID                  - Apple ID разработчика (e-mail)
+#   APPLE_TEAM_ID             - Team ID из Apple Developer аккаунта
 
 on:
   push:
@@ -113,8 +112,8 @@ jobs:
       - name: Notarize macOS app archive
         if: matrix.name == 'macos'
         env:
-          APPLE_ID: ${{ vars.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
         run: |
           set -euo pipefail

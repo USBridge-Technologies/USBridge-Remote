@@ -10,10 +10,8 @@ name: build
 #                               (получить: base64 -i Certificate.p12 | pbcopy)
 #   P12_PASSWORD              - пароль, которым зашифрован .p12
 #   NOTARIZATION_PASSWORD     - App-Specific Password Apple ID для notarytool
-#
-# Требуемые Repository Variables (не секретные, тот же раздел, вкладка Variables):
-#   APPLE_ID       - Apple ID разработчика (e-mail), см. account.apple.com
-#   APPLE_TEAM_ID  - Team ID из Apple Developer аккаунта (developer.apple.com/account)
+#   APPLE_ID                  - Apple ID разработчика (e-mail), см. account.apple.com
+#   APPLE_TEAM_ID             - Team ID из Apple Developer аккаунта (developer.apple.com/account)
 
 on:
   workflow_dispatch: {}
@@ -94,8 +92,8 @@ jobs:
 
       - name: Notarize app archive
         env:
-          APPLE_ID: ${{ vars.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
         run: |
           set -euo pipefail
