@@ -1,50 +1,55 @@
-name: agent-release
+name: build
 
-# Требуемые Repository Secrets для подписи/нотаризации macOS-сборки
-# (Settings > Secrets and variables > Actions):
+# Ручной прогон сборки/подписи/нотаризации macOS-приложения USBridgeAgent —
+# для проверки credentials и pipeline без создания реального релиза.
+# Автоматический релиз по тегу agent-v* делает agent-release.yml (там та же
+# логика подписи/нотаризации встроена в macOS-джобу matrix'а).
+#
+# Требуемые Repository Secrets (Settings > Secrets and variables > Actions):
 #   BUILD_CERTIFICATE_BASE64  - .p12 сертификат Developer ID Application, в Base64
+#                               (получить: base64 -i Certificate.p12 | pbcopy)
 #   P12_PASSWORD              - пароль, которым зашифрован .p12
 #   NOTARIZATION_PASSWORD     - App-Specific Password Apple ID для notarytool
-# Требуемые Repository Variables (та же секция, вкладка Variables):
-#   APPLE_ID       - Apple ID разработчика (e-mail)
-#   APPLE_TEAM_ID  - Team ID из Apple Developer аккаунта
+#
+# Требуемые Repository Variables (не секретные, тот же раздел, вкладка Variables):
+#   APPLE_ID       - Apple ID разработчика (e-mail), см. account.apple.com
+#   APPLE_TEAM_ID  - Team ID из Apple Developer аккаунта (developer.apple.com/account)
 
 on:
-  push:
-    tags:
-      - "agent-v*"
   workflow_dispatch: {}
 
+# Токен по умолчанию используется только для checkout — write-доступ не нужен.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux
-          - os: macos-latest
-            name: macos
-          - os: windows-latest
-            name: windows
-    runs-on: ${{ matrix.os }}
-    env:
-      USBRIDGE_SKIP_NOTARIZE: "1" # нотаризацию macOS проводим отдельными шагами ниже
-      USBRIDGE_SKIP_TAILSCALE: "0"
-      USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
-    steps:
-      - uses: actions/checkout@v4
+  build-macos:
+    name: Build, sign & notarize (macOS)
+    # macos-14 = Apple Silicon (arm64). Возьмите macos-latest, если архитектура
+    # раннера не важна для сборки.
+    runs-on: macos-14
+    timeout-minutes: 30
 
-      - uses: actions/setup-go@v5
-        if: matrix.name != 'windows'
+    env:
+      # Подписываем сборку сертификатом, который импортируем ниже во временный
+      # keychain. Строка достаточна, т.к. в keychain будет ровно один
+      # сертификат с классом "Developer ID Application".
+      USBRIDGE_CODESIGN_IDENTITY: "Developer ID Application"
+      # Нотаризацию проводим отдельным шагом ниже (через notarytool submit
+      # напрямую), поэтому встроенный в скрипт keychain-profile flow пропускаем.
+      USBRIDGE_SKIP_NOTARIZE: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
+          # go.mod фиксирует актуальную версию тулчейна (>= 1.21 по требованиям проекта).
           go-version-file: agent/go.mod
 
-      - name: Import macOS signing certificate into a temporary keychain
-        if: matrix.name == 'macos'
+      - name: Import signing certificate into a temporary keychain
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -53,11 +58,14 @@ jobs:
 
           CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          # Случайный пароль keychain нужен только на время job — наружу он не идёт.
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
 
+          # Декодируем сертификат во временный файл в $RUNNER_TEMP (стирается
+          # раннером после job'а; дополнительно удаляем его сами ниже).
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
 
-          # Отдельный keychain, чтобы не трогать системный login.keychain
+          # Создаём отдельный keychain, чтобы не трогать системный login.keychain
           # раннера и не оставлять секреты между запусками.
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -65,53 +73,26 @@ jobs:
 
           security import "$CERT_PATH" -P "$P12_PASSWORD" -A \
             -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          # Разрешаем codesign/xcrun использовать импортированный ключ без
+          # интерактивного подтверждения доступа.
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
+          # Делаем наш keychain видимым для codesign в текущей сессии.
           security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security default-keychain -s "$KEYCHAIN_PATH"
 
+          # Сертификат нам больше не нужен в виде файла — сразу удаляем.
           rm -f "$CERT_PATH"
+
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
-      - name: Install Linux build deps (Fyne/X11 + Sunshine runtime libs)
-        if: matrix.name == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgl1-mesa-dev xorg-dev libxkbcommon-dev \
-            libminiupnpc-dev libva2 libva-drm2 libvdpau1 \
-            libpulse0 libopus0 libcap2 libdrm2 libevdev2 \
-            libxtst6 libxrandr2 libxfixes3 libnuma1 libcurl4 \
-            libayatana-appindicator3-1 libssl3 \
-            libpipewire-0.3-0 libwayland-client0 libwayland-egl1
-
-      - name: Setup MSYS2 UCRT64 (Windows toolchain)
-        if: matrix.name == 'windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-go
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-binutils
-            mingw-w64-ucrt-x86_64-python
-            zip
-            python
-
-      - name: Build (Linux)
-        if: matrix.name == 'linux'
-        working-directory: agent
-        run: ./scripts/build_linux.sh
-
-      - name: Build (macOS)
-        if: matrix.name == 'macos'
+      - name: Build & sign macOS app bundle
         working-directory: agent
         run: ./scripts/build_macos.sh
 
-      - name: Notarize macOS app archive
-        if: matrix.name == 'macos'
+      - name: Notarize app archive
         env:
           APPLE_ID: ${{ vars.APPLE_ID }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -132,24 +113,21 @@ jobs:
             --wait
 
       - name: Staple notarization ticket to the app bundle
-        if: matrix.name == 'macos'
         run: xcrun stapler staple "agent/dist/macos/USBridgeAgent.app"
 
       - name: Rebuild archive with the stapled ticket
-        if: matrix.name == 'macos'
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
           (cd agent/dist/macos && zip -r --symlinks "../$(basename "$ARCHIVE")" "USBridgeAgent.app" "README.txt")
 
-      # Жёсткий гейт перед публикацией: билд не должен попасть в релиз, если
+      # Жёсткий гейт перед публикацией артефакта: билд не должен пройти, если
       # подпись отсутствует, невалидна, ad-hoc, либо тикет нотаризации не
       # приклеился. Каждая проверка ниже явно проваливает job (exit 1) в
       # соответствующем случае — полагаться только на коды возврата
       # инструментов недостаточно, т.к. codesign/spctl могут завершаться
       # успешно и для ad-hoc подписи.
       - name: Verify Developer ID signature & notarization (fail if ad-hoc/unsigned/not notarized)
-        if: matrix.name == 'macos'
         run: |
           set -euo pipefail
           APP="agent/dist/macos/USBridgeAgent.app"
@@ -196,54 +174,18 @@ jobs:
 
           echo "✓ Подпись Developer ID подтверждена, приложение нотаризовано и тикет приклеен — готово к распространению."
 
-      - name: Build (Windows, MSYS2 UCRT64)
-        if: matrix.name == 'windows'
-        shell: msys2 {0}
-        working-directory: agent
-        run: ./scripts/build_windows.sh
-
-      - name: Upload build artifact
+      - name: Upload signed & notarized artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.name }}
-          path: |
-            agent/dist/*.zip
-            agent/dist/*.AppImage
+          name: USBridgeAgent-macOS
+          path: ${{ env.ARCHIVE }}
           if-no-files-found: error
           retention-days: 14
 
       # Гарантированно чистим временный keychain и сертификат даже при
       # падении предыдущих шагов, чтобы ничего не оставалось на раннере.
       - name: Remove temporary keychain
-        if: always() && matrix.name == 'macos'
+        if: always()
         run: |
-          [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/build_certificate.p12"
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Flatten artifacts
-        run: |
-          mkdir -p out
-          find artifacts -type f \( -name '*.zip' -o -name '*.AppImage' \) -exec cp {} out/ \;
-          ls -la out
-
-      - name: Derive release version
-        id: version
-        # Тег вида "agent-v2.0.5" -> "v2.0.5", чтобы не дублировать "agent"
-        # в имени релиза ("USBridge Agent agent-v2.0.5").
-        run: echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: out/*
-          name: USBridge Agent ${{ steps.version.outputs.version }}
-          generate_release_notes: true
-          draft: false

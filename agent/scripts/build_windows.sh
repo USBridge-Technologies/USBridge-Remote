@@ -422,7 +422,7 @@ Logs:
   If USBRIDGE_LOG_DIR is set, logs are written there instead.
 README
 
-ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-amd64-${VERSION}.zip"
+ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-x86_64-${VERSION}.zip"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating archive...${NC}"
 (cd "$DIST_DIR" && zip -r "$ARCHIVE" .)
