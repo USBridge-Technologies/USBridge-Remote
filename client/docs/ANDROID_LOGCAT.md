@@ -1,34 +1,34 @@
-# Логи на Android
+# Logs on Android
 
-## Просмотр логов
+## Viewing logs
 
-На Android логи приложения пишутся в **logcat**. Подключите устройство по USB и выполните:
+On Android, app logs are written to **logcat**. Connect the device via USB and run:
 
 ```bash
-# Все логи приложения (теги USBridge и GStreamer-Static)
+# All app logs (USBridge and GStreamer-Static tags)
 adb logcat USBridge:* GStreamer-Static:* *:S
 
-# Только логи приложения USBridge (logrus)
+# Only USBridge app logs (logrus)
 adb logcat -s USBridge
 
-# С очисткой буфера перед просмотром
+# Clear the buffer before viewing
 adb logcat -c && adb logcat USBridge:* GStreamer-Static:*
 ```
 
-## Теги
+## Tags
 
-| Тег | Описание |
+| Tag | Description |
 |-----|----------|
-| `USBridge` | Логи из Go (logrus) — API, UI, видео, FRP |
-| `GStreamer-Static` | Логи GStreamer — pipeline, RTP, декодер |
+| `USBridge` | Logs from Go (logrus) — API, UI, video, FRP |
+| `GStreamer-Static` | GStreamer logs — pipeline, RTP, decoder |
 
-## Пример: отладка видео
+## Example: debugging video
 
 ```bash
-adb logcat -c && adb logcat USBridge:* GStreamer-Static:* | grep -E "RTP|Кадр|GStreamer|video"
+adb logcat -c && adb logcat USBridge:* GStreamer-Static:* | grep -E "RTP|Frame|GStreamer|video"
 ```
 
-Ищите в логах:
-- `📨 RTP: первый пакет получен!` — RTP доходит до pipeline
-- `📊 Android: Кадр #1 обработан` — декодер выдал кадр
-- `✅ [VIDEO] Шаг 7: Кадр отображён в UI` — кадр показан
+Look for these in the logs:
+- `📨 RTP: first packet received!` — RTP is reaching the pipeline
+- `📊 Android: Frame #1 processed` — the decoder produced a frame
+- `✅ [VIDEO] Step 7: Frame displayed in UI` — the frame was shown
