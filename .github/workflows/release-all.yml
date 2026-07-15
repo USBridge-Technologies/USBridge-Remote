@@ -214,44 +214,51 @@ jobs:
           retention-days: 7
 
   client-windows:
-    runs-on: ubuntu-latest
+    # Ubuntu's mingw-w64 apt package rejects -mthreads (which Go's cgo
+    # toolchain passes unconditionally when cross-compiling runtime/cgo for
+    # windows/amd64), in both its -win32 and -posix gcc variants. MSYS2's
+    # mingw-w64-ucrt-x86_64-gcc — the same toolchain agent-windows already
+    # builds with successfully — does not have this problem, so build
+    # natively there instead of cross-compiling from Linux.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/setup-go@v5
+      - uses: msys2/setup-msys2@v2
         with:
-          go-version-file: client/go.mod
-      - name: Install mingw-w64 cross toolchain
-        run: |
-          sudo apt-get update && sudo apt-get install -y mingw-w64 zstd
-          # Ubuntu's mingw-w64 ships both -win32 and -posix threading model
-          # variants selectable via update-alternatives; the posix one
-          # rejects -mthreads (which Go's cross-compile toolchain passes
-          # unconditionally) with "unrecognized command-line option".
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-win32
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-win32
-      - name: Fetch opus/openssl mingw-w64 dev packages (MSYS2 mirror)
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-cmake
+            zip
+      - name: Shim cross-compiler binary names
+        # build_windows.sh looks for x86_64-w64-mingw32-{gcc,g++,pkg-config}
+        # (the Debian/Ubuntu cross-compiler naming convention). Under MSYS2
+        # UCRT64 there's no separate host-vs-target toolchain — the native
+        # gcc/g++/pkg-config already target Windows — so just alias them.
+        shell: msys2 {0}
         run: |
           set -euo pipefail
-          SYSROOT="$RUNNER_TEMP/mingw-sysroot"
-          mkdir -p "$SYSROOT"
-          MIRROR="https://mirror.msys2.org/mingw/ucrt64"
-          for pkgprefix in mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-openssl; do
-            FILE="$(curl -fsSL "$MIRROR/" | grep -oE "${pkgprefix}-[0-9][^\"]*\.pkg\.tar\.zst" | sort -V | tail -1)"
-            echo "Fetching $FILE"
-            curl -fsSL "$MIRROR/$FILE" -o "$RUNNER_TEMP/pkg.tar.zst"
-            tar --use-compress-program=unzstd -xf "$RUNNER_TEMP/pkg.tar.zst" -C "$SYSROOT"
-            rm -f "$RUNNER_TEMP/pkg.tar.zst"
+          BIN_DIR="$HOME/bin-shim"
+          mkdir -p "$BIN_DIR"
+          for pair in gcc:x86_64-w64-mingw32-gcc g++:x86_64-w64-mingw32-g++ pkg-config:x86_64-w64-mingw32-pkg-config; do
+            real="${pair%%:*}"; shim="${pair##*:}"
+            printf '#!/bin/bash\nexec %s "$@"\n' "$real" > "$BIN_DIR/$shim"
+            chmod +x "$BIN_DIR/$shim"
           done
-          echo "MINGW_SYSROOT=$SYSROOT/ucrt64" >> "$GITHUB_ENV"
-      - name: Build (Windows cross-compile)
+          echo "$BIN_DIR" >> "$GITHUB_PATH"
+      - name: Build (Windows, MSYS2 UCRT64)
+        shell: msys2 {0}
         working-directory: client
-        env:
-          PKG_CONFIG_LIBDIR: ${{ env.MINGW_SYSROOT }}/lib/pkgconfig
         run: ./scripts/build_windows.sh
       - name: Dump build log on failure
         if: failure()
+        shell: msys2 {0}
         run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
       - uses: actions/upload-artifact@v4
         with:
