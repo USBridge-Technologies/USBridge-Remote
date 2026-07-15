@@ -117,7 +117,7 @@ fi
 # Auto-detect Developer ID if not explicitly set
 if [ -z "$CODESIGN_IDENTITY" ] && command -v security >/dev/null 2>&1; then
     CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Developer ID Application" | head -1 \
+        | { grep "Developer ID Application" || true; } | head -1 \
         | awk '{print $2}')
 fi
 
