@@ -1,222 +1,222 @@
-# NBD для Android - Руководство пользователя
+# NBD for Android - User Guide
 
-## Обзор
+## Overview
 
-USBridge Client для Android теперь поддерживает **NBD (Network Block Device)** сервер для стриминга образов дисков (.iso, .img) с microSD карты по сети.
+USBridge Client for Android now supports an **NBD (Network Block Device)** server for streaming disk images (.iso, .img) from the microSD card over the network.
 
-### Возможности
+### Features
 
-- ✅ Выбор образов через **Storage Access Framework (SAF)**
-- ✅ Работа с файлами на microSD карте (Android 10+)
-- ✅ **Foreground Service** для работы в фоне
-- ✅ **Read-only** экспорт (безопасность)
-- ✅ **Wake Lock** - работает даже при выключенном экране
-- ✅ Поддержка больших файлов (многогигабайтные образы)
+- ✅ Image selection via the **Storage Access Framework (SAF)**
+- ✅ Working with files on the microSD card (Android 10+)
+- ✅ **Foreground Service** for background operation
+- ✅ **Read-only** export (safety)
+- ✅ **Wake Lock** - keeps working even with the screen off
+- ✅ Support for large files (multi-gigabyte images)
 
 ---
 
-## Как использовать
+## How to use
 
-### 1. Открыть NBD диалог
+### 1. Open the NBD dialog
 
-1. Запустите приложение **USBridge Client**
-2. Перейдите в раздел **"Устройства"**
-3. Нажмите кнопку **"Добавить образ"** (на Android откроется NBD диалог)
+1. Launch the **USBridge Client** app
+2. Go to the **"Devices"** section
+3. Tap **"Add image"** (on Android this opens the NBD dialog)
 
-### 2. Выбрать образ
+### 2. Select an image
 
-1. В NBD диалоге нажмите **"Выбрать образ (.iso/.img)"**
-2. Откроется **SAF пикер** (стандартный Android селектор файлов)
-3. Выберите файл образа на microSD карте
-4. Приложение получит **persistable** доступ к файлу
+1. In the NBD dialog, tap **"Select image (.iso/.img)"**
+2. The **SAF picker** opens (the standard Android file selector)
+3. Select the image file on the microSD card
+4. The app is granted **persistable** access to the file
 
-> **Примечание:** В текущей версии SAF интеграция через JNI еще не завершена. Альтернатива - использовать файлы из `/sdcard/isos/`
+> **Note:** In the current version, SAF integration via JNI is not yet complete. Alternative: use files from `/sdcard/isos/`
 
-### 3. Настроить адрес
+### 3. Configure the address
 
-**По умолчанию:** `127.0.0.1:10809` (локальный доступ)
+**Default:** `127.0.0.1:10809` (local access only)
 
-Для доступа из сети:
-- Установите чекбокс **"Разрешить доступ из LAN (0.0.0.0)"**
-- Адрес изменится на `0.0.0.0:10809`
+For network access:
+- Check **"Allow LAN access (0.0.0.0)"**
+- The address changes to `0.0.0.0:10809`
 
-⚠️ **Предупреждение:** При включении LAN режима образ будет доступен из сети. Используйте только в доверенных сетях!
+⚠️ **Warning:** With LAN mode enabled, the image becomes accessible from the network. Only use on trusted networks!
 
-### 4. Запустить сервер
+### 4. Start the server
 
-1. Нажмите **"Запустить NBD сервер"**
-2. Сервер запустится в **Foreground Service**
-3. В уведомлениях появится **"NBD Server - serving on port 10809 (read-only)"**
-4. Статус в диалоге покажет: **"🟢 Статус: Работает на 0.0.0.0:10809"**
+1. Tap **"Start NBD server"**
+2. The server starts inside a **Foreground Service**
+3. A notification appears: **"NBD Server - serving on port 10809 (read-only)"**
+4. The dialog status shows: **"🟢 Status: Running on 0.0.0.0:10809"**
 
-### 5. Подключиться с компьютера
+### 5. Connect from a computer
 
-На **Linux** компьютере:
+On a **Linux** machine:
 
 ```bash
-# Узнайте IP телефона (Settings → Network → Wi-Fi → Advanced)
-PHONE_IP="192.168.1.100"  # Замените на реальный IP
+# Find the phone's IP (Settings → Network → Wi-Fi → Advanced)
+PHONE_IP="192.168.1.100"  # Replace with the actual IP
 
-# Подключите NBD устройство
+# Connect the NBD device
 sudo nbd-client $PHONE_IP 10809 /dev/nbd0 -read-only
 
-# Проверьте
+# Check
 lsblk | grep nbd0
 
-# Смонтируйте (если есть файловая система)
+# Mount (if there's a filesystem)
 sudo mount -o ro /dev/nbd0 /mnt
 
-# Или с разделами
+# Or with partitions
 sudo partprobe /dev/nbd0
 sudo mount -o ro /dev/nbd0p1 /mnt
 ```
 
-### 6. Отключиться
+### 6. Disconnect
 
-На компьютере:
+On the computer:
 
 ```bash
 sudo umount /mnt
 sudo nbd-client -d /dev/nbd0
 ```
 
-В приложении:
-- Нажмите **"Остановить NBD сервер"**
-- Или просто закройте приложение (сервис остановится автоматически)
+In the app:
+- Tap **"Stop NBD server"**
+- Or simply close the app (the service stops automatically)
 
 ---
 
-## Безопасность
+## Security
 
-### Read-Only режим
+### Read-Only mode
 
-Все образы экспортируются **только для чтения**. Изменение данных невозможно.
+All images are exported **read-only**. Data modification is not possible.
 
-### Локальный доступ (по умолчанию)
+### Local access (default)
 
-По умолчанию сервер слушает `127.0.0.1:10809` - доступ только с самого телефона (для отладки через ADB forward).
+By default the server listens on `127.0.0.1:10809` - accessible only from the phone itself (for debugging via ADB forward).
 
-### LAN режим
+### LAN mode
 
-При включении чекбокса "Разрешить доступ из LAN":
-- Сервер слушает `0.0.0.0:10809`
-- Доступен из любого устройства в сети
-- ⚠️ Используйте только в доверенных сетях!
+When the "Allow LAN access" checkbox is enabled:
+- The server listens on `0.0.0.0:10809`
+- Accessible from any device on the network
+- ⚠️ Only use on trusted networks!
 
-### Авторизация
+### Authorization
 
-В текущей версии авторизация не реализована. Планируется в будущих версиях:
-- Токен в NBD handshake
-- TLS шифрование
-
----
-
-## Производительность
-
-### Настройки
-
-**Block size:** 4096 байт (по умолчанию)
-- Оптимально для большинства случаев
-- Можно изменить в коде (`nbdbridge/bridge.go`)
-
-### Оптимизации
-
-- Используется `ReadAt` для произвольного доступа
-- Foreground Service предотвращает убийство процесса
-- Wake Lock держит CPU активным
-- Работает в фоне даже при выключенном экране
-
-### Скорость
-
-Зависит от:
-- Скорости microSD карты
-- Скорости Wi-Fi/USB сети
-- Нагрузки на систему
-
-Типичная скорость чтения: **10-50 МБ/с** через Wi-Fi.
+Authorization is not implemented in the current version. Planned for future versions:
+- Token in the NBD handshake
+- TLS encryption
 
 ---
 
-## Устранение проблем
+## Performance
 
-### Не удается выбрать файл
+### Settings
 
-**Проблема:** SAF пикер не открывается или файл не выбирается.
+**Block size:** 4096 bytes (default)
+- Optimal for most cases
+- Can be changed in code (`nbdbridge/bridge.go`)
 
-**Решение:**
-1. Убедитесь, что приложение имеет разрешения на доступ к хранилищу
-2. Попробуйте использовать файлы из `/sdcard/isos/`
-3. Проверьте логи: `adb logcat | grep NBD`
+### Optimizations
 
-### Не удалось определить размер файла
+- Uses `ReadAt` for random access
+- Foreground Service prevents the process from being killed
+- Wake Lock keeps the CPU active
+- Works in the background even with the screen off
 
-**Проблема:** После выбора файла появляется ошибка "Не удалось определить размер образа".
+### Speed
 
-**Причины:**
-- Файл на виртуальном пути (cloud storage)
-- Файл удален после выбора
-- Недостаточно прав доступа
+Depends on:
+- microSD card speed
+- Wi-Fi/USB network speed
+- System load
 
-**Решение:**
-- Используйте файлы напрямую с microSD
-- Проверьте, что файл существует
-- Перезапустите приложение
+Typical read speed: **10-50 MB/s** over Wi-Fi.
 
-### NBD уже запущен
+---
 
-**Проблема:** При попытке старта появляется "NBD server already running".
+## Troubleshooting
 
-**Решение:**
-1. Нажмите "Остановить NBD сервер"
-2. Подождите 2-3 секунды
-3. Попробуйте снова
+### Can't select a file
 
-### Не могу подключиться с компьютера
+**Problem:** The SAF picker doesn't open, or the file isn't selected.
 
-**Проблема:** `nbd-client` выдает ошибку подключения.
+**Solution:**
+1. Make sure the app has storage access permissions
+2. Try using files from `/sdcard/isos/`
+3. Check the logs: `adb logcat | grep NBD`
 
-**Проверки:**
-1. Телефон и компьютер в одной сети?
-2. IP адрес правильный? (`ip a` на телефоне)
-3. Включен ли LAN режим в приложении?
-4. Нет ли firewall на телефоне?
-5. NBD сервер запущен? (проверьте статус в диалоге)
+### Couldn't determine file size
 
-**Отладка:**
+**Problem:** After selecting the file, "Couldn't determine image size" appears.
+
+**Causes:**
+- The file is on a virtual path (cloud storage)
+- The file was deleted after selection
+- Insufficient access permissions
+
+**Solution:**
+- Use files directly from the microSD card
+- Verify that the file exists
+- Restart the app
+
+### NBD already running
+
+**Problem:** "NBD server already running" appears when trying to start.
+
+**Solution:**
+1. Tap "Stop NBD server"
+2. Wait 2-3 seconds
+3. Try again
+
+### Can't connect from a computer
+
+**Problem:** `nbd-client` returns a connection error.
+
+**Checks:**
+1. Are the phone and computer on the same network?
+2. Is the IP address correct? (`ip a` on the phone)
+3. Is LAN mode enabled in the app?
+4. Is there a firewall on the phone?
+5. Is the NBD server running? (check the status in the dialog)
+
+**Debugging:**
 ```bash
-# На компьютере
+# On the computer
 ping $PHONE_IP
 nc -zv $PHONE_IP 10809
 
-# Логи на телефоне
+# Logs on the phone
 adb logcat | grep -i nbd
 ```
 
-### Прерывается соединение
+### Connection drops
 
-**Проблема:** NBD отключается через несколько минут.
+**Problem:** NBD disconnects after a few minutes.
 
-**Причины:**
-- Система убивает Foreground Service
-- Wi-Fi переходит в спящий режим
-- Недостаточно памяти
+**Causes:**
+- The system kills the Foreground Service
+- Wi-Fi goes to sleep
+- Insufficient memory
 
-**Решение:**
-1. Проверьте, что Foreground Service работает (уведомление должно быть видно)
-2. Отключите battery optimization для приложения
-3. Используйте USB tethering вместо Wi-Fi
+**Solution:**
+1. Make sure the Foreground Service is running (the notification should be visible)
+2. Disable battery optimization for the app
+3. Use USB tethering instead of Wi-Fi
 
 ---
 
-## Архитектура
+## Architecture
 
 ```
 ┌─────────────────┐
-│  Fyne UI (Go)   │  ← Кнопки управления, статус
+│  Fyne UI (Go)   │  ← Control buttons, status
 └────────┬────────┘
          │
 ┌────────▼────────────────┐
-│  disk_widget_android.go │  ← Android-специфичный UI
+│  disk_widget_android.go │  ← Android-specific UI
 └────────┬────────────────┘
          │
 ┌────────▼────────┐
@@ -225,94 +225,94 @@ adb logcat | grep -i nbd
 └────────┬────────┘
          │
     ┌────▼────┐
-    │ *os.File│  ← fd из SAF
+    │ *os.File│  ← fd from SAF
     └─────────┘
 
 ┌──────────────────┐
-│  NbdBridge.kt    │  ← SAF picker (будущая интеграция)
+│  NbdBridge.kt    │  ← SAF picker (future integration)
 │  (JNI/Kotlin)    │     pickImageFile()
 └──────────────────┘     takePersistableUriPermission()
 
 ┌──────────────────────┐
 │ NbdForegroundService │  ← Foreground Service
-│ .kt                  │     Wake Lock, уведомление
+│ .kt                  │     Wake Lock, notification
 └──────────────────────┘
 ```
 
 ---
 
-## Файлы проекта
+## Project files
 
 ```
 usbridge_client/
 ├── nbdbridge/
 │   └── bridge.go                    # Go NBD backend
 ├── internal/ui/
-│   └── disk_widget_android.go       # Android UI интеграция
+│   └── disk_widget_android.go       # Android UI integration
 ├── android/app/src/main/
 │   ├── java/com/usbridge/client/
 │   │   ├── NbdBridge.kt            # SAF bridge (Kotlin)
 │   │   └── NbdForegroundService.kt # Foreground service
 │   └── AndroidManifest.xml          # Permissions + service
 └── docs/
-    └── NBD_ANDROID_USAGE.md         # Эта документация
+    └── NBD_ANDROID_USAGE.md         # This documentation
 ```
 
 ---
 
-## Следующие шаги (TODO)
+## Next steps (TODO)
 
-### Высокий приоритет
+### High priority
 
-- [ ] Завершить JNI интеграцию для SAF пикера
-- [ ] Добавить Activity обёртку для NbdBridge
-- [ ] Интеграция Foreground Service через JNI
+- [ ] Finish the JNI integration for the SAF picker
+- [ ] Add an Activity wrapper for NbdBridge
+- [ ] Integrate the Foreground Service via JNI
 
-### Средний приоритет
+### Medium priority
 
-- [ ] UI для изменения block size
-- [ ] Статистика (скорость, переданные данные)
-- [ ] Поддержка нескольких экспортов одновременно
+- [ ] UI for changing the block size
+- [ ] Statistics (speed, bytes transferred)
+- [ ] Support for multiple exports at once
 
-### Низкий приоритет
+### Low priority
 
-- [ ] Токен авторизация
-- [ ] TLS шифрование
-- [ ] Read-ahead буферизация
+- [ ] Token authorization
+- [ ] TLS encryption
+- [ ] Read-ahead buffering
 
 ---
 
-## Известные ограничения
+## Known limitations
 
-1. **SAF JNI интеграция не завершена**
-   - В текущей версии SAF пикер показывает информационное сообщение
-   - Альтернатива: использовать файлы из `/sdcard/isos/`
+1. **SAF JNI integration is not complete**
+   - In the current version, the SAF picker shows an informational message
+   - Alternative: use files from `/sdcard/isos/`
 
-2. **Только один экспорт за раз**
-   - Можно экспортировать только один образ
-   - Для смены образа нужно остановить текущий сервер
+2. **Only one export at a time**
+   - Only one image can be exported
+   - Stop the current server to switch images
 
-3. **Нет авторизации**
-   - Любой клиент в сети может подключиться
-   - Используйте только в доверенных сетях
+3. **No authorization**
+   - Any client on the network can connect
+   - Only use on trusted networks
 
 4. **Android 10+**
-   - Требуется Android 10 или выше для SAF
-   - На более старых версиях используйте прямой доступ к `/sdcard/`
+   - Requires Android 10 or higher for SAF
+   - On older versions, use direct access to `/sdcard/`
 
 ---
 
-## Поддержка
+## Support
 
-**Вопросы и баги:** Создайте issue в репозитории
+**Questions and bugs:** Open an issue in the repository
 
-**Логи для отладки:**
+**Debug logs:**
 ```bash
 adb logcat | grep -E '(NBD|NbdBridge|NbdForeground)'
 ```
 
 ---
 
-## Лицензия
+## License
 
-См. LICENSE файл в корне проекта.
+See the LICENSE file at the project root.

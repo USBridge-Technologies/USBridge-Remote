@@ -1,43 +1,43 @@
-# Виртуальная клавиатура для полноэкранного режима
+# Virtual keyboard for fullscreen mode
 
-## Обзор изменений
+## Overview of changes
 
-Старый неработающий захват клавиш в полноэкранном режиме был заменен на виртуальную клавиатуру, которая работает в отдельном окне.
+The old, broken key capture in fullscreen mode has been replaced with a virtual keyboard that runs in a separate window.
 
-## Новые возможности
+## New features
 
-### 1. Видимая кнопка в полноэкранном режиме
-- В правом нижнем углу полноэкранного окна всегда видна кнопка ⌨
-- Кнопка имеет высокий приоритет отображения (HighImportance)
-- Размер кнопки: 50x50 пикселей
+### 1. Visible button in fullscreen mode
+- A ⌨ button is always visible in the bottom-right corner of the fullscreen window
+- The button has a high display priority (HighImportance)
+- Button size: 50x50 pixels
 
-### 2. Отдельное окно для клавиатуры
-- При нажатии на кнопку ⌨ открывается отдельное окно с виртуальной клавиатурой
-- Размер окна клавиатуры: 800x400 пикселей
-- Окно центрируется на экране
-- Окно можно закрыть нажатием на крестик
+### 2. Separate window for the keyboard
+- Tapping the ⌨ button opens a separate window with the virtual keyboard
+- Keyboard window size: 800x400 pixels
+- The window is centered on screen
+- The window can be closed by clicking the close button
 
-### 3. Полная раскладка клавиатуры
-- Все основные клавиши: буквы, цифры, символы
-- Функциональные клавиши: F1-F12
-- Стрелки: ↑, ↓, ←, →
-- Дополнительные клавиши: Insert, Home, End, Page Up, Page Down, Delete
-- Специальные клавиши: Enter, Backspace, Tab, Space, Caps Lock
-- Модификаторы с переключением: Shift, Ctrl, Alt (включаются/выключаются при нажатии)
+### 3. Full keyboard layout
+- All main keys: letters, digits, symbols
+- Function keys: F1-F12
+- Arrows: ↑, ↓, ←, →
+- Additional keys: Insert, Home, End, Page Up, Page Down, Delete
+- Special keys: Enter, Backspace, Tab, Space, Caps Lock
+- Toggleable modifiers: Shift, Ctrl, Alt (turn on/off when clicked)
 
-### 4. Отправка на хост
-- Все нажатия клавиш виртуальной клавиатуры отправляются на удаленную машину
-- Поддержка одиночных клавиш и комбинаций с модификаторами
-- Автоматическое определение HID кодов и модификаторов
-- Логирование всех отправляемых команд
+### 4. Sending to the host
+- All virtual keyboard keypresses are sent to the remote machine
+- Support for single keys and modifier combinations
+- Automatic HID code and modifier detection
+- Logging of all sent commands
 
-## Технические детали
+## Technical details
 
-### Файлы
-- `internal/ui/virtual_keyboard.go` - новый файл с виртуальной клавиатурой
-- `internal/ui/video_dialogs.go` - обновлен для интеграции с виртуальной клавиатурой
+### Files
+- `internal/ui/virtual_keyboard.go` - new file implementing the virtual keyboard
+- `internal/ui/video_dialogs.go` - updated to integrate with the virtual keyboard
 
-### Структуры данных
+### Data structures
 ```go
 type VirtualKeyboard struct {
     container       *fyne.Container
@@ -50,35 +50,35 @@ type VirtualKeyboard struct {
 }
 ```
 
-### Основные методы
-- `NewVirtualKeyboard()` - создание новой клавиатуры
-- `ShowInSeparateWindow()` - показ в отдельном окне
-- `Hide()` - скрытие клавиатуры
-- `handleKeyPress()` - обработка нажатий
-- `toggleModifier()` - переключение модификаторов
-- `updateModifierButton()` - обновление внешнего вида кнопок модификаторов
-- `sendKeyToRemoteVirtual()` - отправка на удаленную машину
+### Main methods
+- `NewVirtualKeyboard()` - creates a new keyboard
+- `ShowInSeparateWindow()` - shows it in a separate window
+- `Hide()` - hides the keyboard
+- `handleKeyPress()` - handles keypresses
+- `toggleModifier()` - toggles modifiers
+- `updateModifierButton()` - updates modifier button appearance
+- `sendKeyToRemoteVirtual()` - sends to the remote machine
 
-## Использование
+## Usage
 
-1. Запустите приложение
-2. Подключитесь к USBridge
-3. Запустите видео стриминг
-4. Нажмите "Полный экран"
-5. Нажмите кнопку "⌨️ Клавиатура" рядом с кнопками видео
-6. Используйте виртуальную клавиатуру для ввода на удаленной машине:
-   - Нажмите на модификаторы (Ctrl, Alt, Shift) для включения/выключения
-   - Используйте функциональные клавиши F1-F12
-   - Используйте стрелки для навигации
-   - Все нажатия отправляются на удаленную машину
-7. Закройте окно клавиатуры нажатием на крестик
+1. Launch the app
+2. Connect to USBridge
+3. Start video streaming
+4. Tap "Fullscreen"
+5. Tap the "⌨️ Keyboard" button next to the video controls
+6. Use the virtual keyboard to type on the remote machine:
+   - Tap modifiers (Ctrl, Alt, Shift) to toggle them on/off
+   - Use function keys F1-F12
+   - Use arrows to navigate
+   - All keypresses are sent to the remote machine
+7. Close the keyboard window by clicking the close button
 
-## Преимущества
+## Advantages
 
-- ✅ Доступна из основного окна приложения
-- ✅ Полная раскладка клавиатуры с F1-F12 и стрелками
-- ✅ Модификаторы с визуальным переключением
-- ✅ Всегда отправляет нажатия на хост
-- ✅ Удобный интерфейс в отдельном окне
-- ✅ Логирование для отладки
-- ✅ Поддержка комбинаций клавиш
+- ✅ Available from the main app window
+- ✅ Full keyboard layout with F1-F12 and arrows
+- ✅ Modifiers with visual toggling
+- ✅ Always sends keypresses to the host
+- ✅ Convenient interface in a separate window
+- ✅ Logging for debugging
+- ✅ Support for key combinations

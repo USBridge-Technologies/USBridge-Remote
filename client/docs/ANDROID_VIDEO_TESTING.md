@@ -1,39 +1,39 @@
-# Тестирование видео на Android
+# Testing video on Android
 
-Для обеспечения стабильной работы видеопотока Moonlight на Android используется цикл автоматизированной сборки, деплоя и верификации.
+An automated build-deploy-verify loop is used to ensure stable Moonlight video streaming on Android.
 
-## Автоматизированный цикл тестирования
+## Automated test loop
 
-Создан скрипт `scripts/test_android_video.sh`, который выполняет следующие действия:
-1.  **Принудительная пересборка:** Использует `FORCE_FYNE=1` для гарантии того, что все изменения в Go и C коде попали в новый билд.
-2.  **Чистая установка:** Удаляет старую версию приложения с устройства (`adb uninstall`) и устанавливает новую.
-3.  **Автоматическое подключение:** Запускает приложение через Android DeepLink с параметром `immediate=true`, что заставляет приложение пропустить диалоги подтверждения и начать подключение мгновенно.
-4.  **Мониторинг логов:** Запускает `adb logcat` на 10 секунд с фильтрацией по ключевым тегам (`Moonlight`, `VideoGL`, `AMediaCodec`), позволяя увидеть результат подключения и первые кадры видео.
+The `scripts/test_android_video.sh` script was created, which performs the following steps:
+1.  **Forced rebuild:** Uses `FORCE_FYNE=1` to guarantee that all Go and C code changes make it into the new build.
+2.  **Clean install:** Removes the old app version from the device (`adb uninstall`) and installs the new one.
+3.  **Automatic connect:** Launches the app via an Android DeepLink with the `immediate=true` parameter, which makes the app skip confirmation dialogs and start connecting instantly.
+4.  **Log monitoring:** Runs `adb logcat` for 10 seconds, filtered by key tags (`Moonlight`, `VideoGL`, `AMediaCodec`), to show the connection result and the first video frames.
 
-### Как запустить тест
+### How to run the test
 ```bash
-# Выполнить полный цикл (сборка + деплой + 10с логов)
+# Run the full cycle (build + deploy + 10s of logs)
 ./scripts/test_android_video.sh
 ```
 
-## Стратегии обеспечения работы видео
+## Strategies for ensuring video works
 
-### 1. Обход ограничений Tailscale (Userspace)
-На Android используется Tailscale в userspace-режиме (`tsnet`). Нативный C-код Moonlight (библиотека `Limelight`) не может использовать сетевой стек Go-библиотеки и пытается работать через системные сокеты, которые не видят `100.x.x.x`.
-- **Решение:** Мы реализовали поиск "прямого" LAN IP (`192.168.x.x`) пира через API Tailscale. Если телефон и сервер в одной сети, Moonlight подключается напрямую по локальному IP, минуя VPN-туннель для самого видеопотока.
+### 1. Working around Tailscale (userspace) limitations
+On Android, Tailscale runs in userspace mode (`tsnet`). Moonlight's native C code (the `Limelight` library) cannot use the Go library's network stack and instead tries to work through system sockets, which cannot see `100.x.x.x`.
+- **Solution:** We implemented discovery of the peer's "direct" LAN IP (`192.168.x.x`) via the Tailscale API. If the phone and server are on the same network, Moonlight connects directly over the local IP, bypassing the VPN tunnel for the video stream itself.
 
-### 2. Оптимизация JNI и UI-потока
-Частые вызовы JNI функций из разных потоков могут блокировать главный UI-поток Android, вызывая фризы интерфейса.
-- **Решение:** Инициализация JavaVM и кэширование необходимых Java-классов (`VideoSurfaceBridge`) происходит **ровно один раз** при первом запуске видео. Мы используем `sync.Once` в Go, чтобы предотвратить повторные блокирующие вызовы `driver.RunNative`.
+### 2. JNI and UI-thread optimization
+Frequent JNI calls from different threads can block Android's main UI thread, causing interface freezes.
+- **Solution:** JavaVM initialization and caching of the required Java classes (`VideoSurfaceBridge`) happens **exactly once**, on the first video start. We use `sync.Once` in Go to prevent repeated blocking `driver.RunNative` calls.
 
-### 3. Глубокое логирование (Deep Trace)
-Для отладки нативного кода в `internal/service/moonlight_cgo_android.go` добавлены макросы `ALOGI` и `ALOGE`.
-- Они выводят логи напрямую в системный `logcat` Android.
-- Логируются все стадии: `do_li_start`, инициализация `AMediaCodec`, создание `ANativeWindow` и привязка `EGL` контекста.
+### 3. Deep tracing
+`ALOGI` and `ALOGE` macros were added to `internal/service/moonlight_cgo_android.go` for debugging native code.
+- They print logs directly to the Android system `logcat`.
+- All stages are logged: `do_li_start`, `AMediaCodec` initialization, `ANativeWindow` creation, and `EGL` context binding.
 
-## Ожидаемый результат в логах
-При успешном запуске видео в логах должны присутствовать следующие отметки:
-1. `🎬 [Moonlight/Android] JNI Initialized (VER: V4_...)` — JNI успешно привязан.
-2. `Moonlight/CGO: do_li_start: STARTING addr=192.168.1.125 ...` — начало нативного подключения.
-3. `Moonlight/CGO: AMediaCodec started successfully` — аппаратный декодер инициализирован.
-4. `🎬 [Moonlight/HW/Android] ✅ first RGBA frame — 640x480` — первый кадр успешно декодирован и прочитан из GPU в Go.
+## Expected result in the logs
+On a successful video start, the following markers should appear in the logs:
+1. `🎬 [Moonlight/Android] JNI Initialized (VER: V4_...)` — JNI bound successfully.
+2. `Moonlight/CGO: do_li_start: STARTING addr=192.168.1.125 ...` — native connection starting.
+3. `Moonlight/CGO: AMediaCodec started successfully` — hardware decoder initialized.
+4. `🎬 [Moonlight/HW/Android] ✅ first RGBA frame — 640x480` — first frame successfully decoded and read from the GPU into Go.

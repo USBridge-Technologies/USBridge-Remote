@@ -6,16 +6,15 @@ name: client-release
 # Repository Secrets required (Settings > Secrets and variables > Actions):
 #   APPLE_ID                        - Apple ID e-mail of the developer account
 #   APPLE_TEAM_ID                   - 10-char Apple Developer Team ID
-#   BUILD_CERTIFICATE_BASE64        - signing cert (.p12) in Base64. Same secret
-#                                      already used by agent-release.yml for the
-#                                      macOS "Developer ID Application" cert. If
-#                                      it is a single universal "Apple Distribution"
-#                                      cert it will also work for the iOS job; if
-#                                      not, the iOS job's codesign step will fail
-#                                      with a clear "identity not found" error —
-#                                      in that case add a second cert secret and
-#                                      point the iOS import step at it.
-#   P12_PASSWORD                    - password for the .p12 above
+#   BUILD_CERTIFICATE_BASE64        - "Developer ID Application" cert (.p12) in
+#                                      Base64, for the macOS job. Same secret
+#                                      already used by agent-release.yml.
+#   P12_PASSWORD                    - password for BUILD_CERTIFICATE_BASE64
+#   IOS_BUILD_CERTIFICATE_BASE64    - "Apple Distribution" cert (.p12) in
+#                                      Base64, for the iOS job — a distinct
+#                                      identity from BUILD_CERTIFICATE_BASE64,
+#                                      required for App Store signing/submission
+#   IOS_P12_PASSWORD                - password for IOS_BUILD_CERTIFICATE_BASE64
 #   NOTARIZATION_PASSWORD           - App-Specific Password used both for
 #                                      `notarytool` (macOS) and `altool`
 #                                      (iOS App Store Connect upload)
@@ -84,7 +83,12 @@ jobs:
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Install macOS build dependencies
-        run: brew list opus &>/dev/null || brew install opus
+        run: |
+          brew list opus &>/dev/null || brew install opus
+          # go-gst (legacy RTP video path) carries a #cgo pkg-config:
+          # gstreamer-1.0 directive that's evaluated at compile time even
+          # though the feature is optional at runtime.
+          brew list gstreamer &>/dev/null || brew install gstreamer
 
       - name: Build & sign macOS app bundle
         working-directory: client
@@ -203,8 +207,8 @@ jobs:
 
       - name: Import signing certificate into a temporary keychain
         env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
         run: |
           set -euo pipefail
 

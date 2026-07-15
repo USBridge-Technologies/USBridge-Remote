@@ -1,14 +1,14 @@
 # JNI Implementation Guide for SAF (Storage Access Framework)
 
-Этот файл содержит инструкции по реализации JNI методов для работы с Android SAF.
+This file contains instructions for implementing JNI methods to work with Android SAF.
 
-## Необходимо реализовать
+## Needs to be implemented
 
 ### 1. TakePersistableUriPermission
 
-**Цель:** Сохранить постоянное разрешение на доступ к content:// URI
+**Goal:** Persist permanent access permission to a content:// URI
 
-**Java/Kotlin код (добавить в MainActivity или FyneActivity):**
+**Java/Kotlin code (add to MainActivity or FyneActivity):**
 
 ```java
 import android.content.Intent;
@@ -32,7 +32,7 @@ public class SAFHelper {
 }
 ```
 
-**CGO обертка (добавить в saf_android.go):**
+**CGO wrapper (add to saf_android.go):**
 
 ```go
 /*
@@ -42,26 +42,26 @@ public class SAFHelper {
 #include <android/log.h>
 #include <stdlib.h>
 
-// Вызов Java метода takePersistableUriPermission через JNI
+// Calls the Java takePersistableUriPermission method via JNI
 int jni_takePersistableUriPermission(JNIEnv *env, jobject activity, const char *uriString) {
     __android_log_print(ANDROID_LOG_INFO, "SAF_JNI", "takePersistableUriPermission: %s", uriString);
 
-    // Получаем класс Activity
+    // Get the Activity class
     jclass activityClass = (*env)->GetObjectClass(env, activity);
 
-    // Получаем ContentResolver
+    // Get the ContentResolver
     jmethodID getContentResolver = (*env)->GetMethodID(env, activityClass,
         "getContentResolver", "()Landroid/content/ContentResolver;");
     jobject contentResolver = (*env)->CallObjectMethod(env, activity, getContentResolver);
 
-    // Парсим URI
+    // Parse the URI
     jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
     jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass,
         "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
     jstring jUriString = (*env)->NewStringUTF(env, uriString);
     jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
 
-    // Получаем флаги
+    // Get the flags
     jclass intentClass = (*env)->FindClass(env, "android/content/Intent");
     jfieldID readFlag = (*env)->GetStaticFieldID(env, intentClass,
         "FLAG_GRANT_READ_URI_PERMISSION", "I");
@@ -70,13 +70,13 @@ int jni_takePersistableUriPermission(JNIEnv *env, jobject activity, const char *
     jint flags = (*env)->GetStaticIntField(env, intentClass, readFlag)
                | (*env)->GetStaticIntField(env, intentClass, writeFlag);
 
-    // Вызываем takePersistableUriPermission
+    // Call takePersistableUriPermission
     jclass resolverClass = (*env)->GetObjectClass(env, contentResolver);
     jmethodID takePermMethod = (*env)->GetMethodID(env, resolverClass,
         "takePersistableUriPermission", "(Landroid/net/Uri;I)V");
     (*env)->CallVoidMethod(env, contentResolver, takePermMethod, uri, flags);
 
-    // Проверяем ошибки
+    // Check for errors
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionDescribe(env);
         (*env)->ExceptionClear(env);
@@ -92,9 +92,9 @@ import "C"
 
 ### 2. OpenFileDescriptor
 
-**Цель:** Открыть файловый дескриптор через SAF для прямого доступа
+**Goal:** Open a file descriptor via SAF for direct access
 
-**Java/Kotlin код:**
+**Java/Kotlin code:**
 
 ```java
 import android.os.ParcelFileDescriptor;
@@ -110,7 +110,7 @@ public class SAFHelper {
             throw new Exception("Failed to open file descriptor");
         }
 
-        // Отсоединяем FD чтобы Go мог им управлять
+        // Detach the FD so Go can manage it
         int fd = pfd.detachFd();
 
         return fd;
@@ -118,27 +118,27 @@ public class SAFHelper {
 }
 ```
 
-**CGO обертка:**
+**CGO wrapper:**
 
 ```go
 /*
 int jni_openFileDescriptor(JNIEnv *env, jobject activity, const char *uriString, const char *mode) {
     __android_log_print(ANDROID_LOG_INFO, "SAF_JNI", "openFileDescriptor: %s, mode: %s", uriString, mode);
 
-    // Получаем ContentResolver
+    // Get the ContentResolver
     jclass activityClass = (*env)->GetObjectClass(env, activity);
     jmethodID getContentResolver = (*env)->GetMethodID(env, activityClass,
         "getContentResolver", "()Landroid/content/ContentResolver;");
     jobject contentResolver = (*env)->CallObjectMethod(env, activity, getContentResolver);
 
-    // Парсим URI
+    // Parse the URI
     jclass uriClass = (*env)->FindClass(env, "android/net/Uri");
     jmethodID parseMethod = (*env)->GetStaticMethodID(env, uriClass,
         "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
     jstring jUriString = (*env)->NewStringUTF(env, uriString);
     jobject uri = (*env)->CallStaticObjectMethod(env, uriClass, parseMethod, jUriString);
 
-    // Открываем ParcelFileDescriptor
+    // Open the ParcelFileDescriptor
     jclass resolverClass = (*env)->GetObjectClass(env, contentResolver);
     jmethodID openFdMethod = (*env)->GetMethodID(env, resolverClass,
         "openFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;)Landroid/os/ParcelFileDescriptor;");
@@ -150,12 +150,12 @@ int jni_openFileDescriptor(JNIEnv *env, jobject activity, const char *uriString,
         return -1;
     }
 
-    // Получаем detachFd()
+    // Get detachFd()
     jclass pfdClass = (*env)->GetObjectClass(env, pfd);
     jmethodID detachFdMethod = (*env)->GetMethodID(env, pfdClass, "detachFd", "()I");
     jint fd = (*env)->CallIntMethod(env, pfd, detachFdMethod);
 
-    // Проверяем ошибки
+    // Check for errors
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionDescribe(env);
         (*env)->ExceptionClear(env);
@@ -169,20 +169,20 @@ int jni_openFileDescriptor(JNIEnv *env, jobject activity, const char *uriString,
 import "C"
 ```
 
-## Интеграция с Fyne
+## Integration with Fyne
 
-Fyne предоставляет доступ к Android context через `app.Driver().RunNative()`:
+Fyne provides access to the Android context via `app.Driver().RunNative()`:
 
 ```go
 app.Driver().RunNative(func(ctx any) {
-    // ctx это android.app.Activity или android.content.Context
-    // Здесь можно вызывать JNI функции
+    // ctx is the android.app.Activity or android.content.Context
+    // JNI functions can be called here
 })
 ```
 
-## Альтернативный подход: Использование gomobile
+## Alternative approach: using gomobile
 
-Если CGO/JNI слишком сложно, можно использовать gomobile bind:
+If CGO/JNI is too complex, gomobile bind can be used instead:
 
 ```go
 // saf_gomobile.go
@@ -195,26 +195,26 @@ import (
 
 func TakePersistableUriPermission(uriString string) error {
     return java.Do(func(env *java.Env) error {
-        // Java код здесь
+        // Java code here
         return nil
     })
 }
 ```
 
-## Как протестировать
+## How to test
 
-1. Соберите приложение для Android
-2. Запустите logcat для просмотра логов:
+1. Build the app for Android
+2. Run logcat to view the logs:
    ```bash
    adb logcat | grep -E "SAF|NBD"
    ```
-3. В приложении нажмите "Добавить образ" и выберите файл
-4. Проверьте логи на наличие сообщений [SAF-STEP-X]
-5. Если видите "JNI метод не реализован" - нужно добавить CGO код выше
+3. In the app, tap "Add image" and select a file
+4. Check the logs for [SAF-STEP-X] messages
+5. If you see "JNI method not implemented" — the CGO code above needs to be added
 
-## Полезные ссылки
+## Useful links
 
-- Android SAF документация: https://developer.android.com/guide/topics/providers/document-provider
-- CGO документация: https://golang.org/cmd/cgo/
+- Android SAF documentation: https://developer.android.com/guide/topics/providers/document-provider
+- CGO documentation: https://golang.org/cmd/cgo/
 - Fyne mobile: https://docs.fyne.io/started/mobile
-- JNI спецификация: https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/jniTOC.html
+- JNI specification: https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/jniTOC.html

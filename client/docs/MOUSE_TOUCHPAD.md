@@ -1,28 +1,28 @@
-# Управление указателем: touchpad / touchscreen / absolute
+# Pointer control: touchpad / touchscreen / absolute
 
-## Описание
+## Description
 
-Клиент умеет управлять указателем на удалённой машине поверх видео тремя основными режимами:
+The client can control the pointer on the remote machine over the video using three main modes:
 
-- **`mouse` (touchpad / относительный)** — движение передаётся как `dx/dy` (HID mouse).
-- **`touchscreen` (touchscreen / абсолютный + касание)** — движение и клики передаются как `x/y` + `tip` (HID touchscreen).
-- **`absolute` (absolute / абсолютный без касания)** — позиция передаётся как `x/y` без касания; клики — отдельными мышиными кликами.
+- **`mouse` (touchpad / relative)** — movement is sent as `dx/dy` (HID mouse).
+- **`touchscreen` (touchscreen / absolute + touch)** — movement and clicks are sent as `x/y` + `tip` (HID touchscreen).
+- **`absolute` (absolute / absolute without touch)** — position is sent as `x/y` without touch; clicks are sent as separate mouse clicks.
 
-## Доступные режимы
+## Available modes
 
-В текущей версии доступны:
-1. **Touchpad** — стандартный режим относительного перемещения.
-2. **Absolute** — режим абсолютного позиционирования (Single Display).
+Currently available:
+1. **Touchpad** — standard relative-movement mode.
+2. **Absolute** — absolute positioning mode (Single Display).
 
-> **Внимание:** Режимы **Abs L/2** и **Abs R/2** (для мультимониторных систем) временно отключены для доработки алгоритма калибровки координат.
+> **Note:** **Abs L/2** and **Abs R/2** modes (for multi-monitor systems) are temporarily disabled pending further work on the coordinate calibration algorithm.
 
-## API и безопасность
+## API and security
 
-Все команды управления мышью (`POST /api/mouse`) теперь требуют:
-1. Валидной HMAC-SHA256 подписи в заголовках.
-2. Активной сессии синхронизации (Master QR Sync).
+All mouse control commands (`POST /api/mouse`) now require:
+1. A valid HMAC-SHA256 signature in the headers.
+2. An active sync session (Master QR Sync).
 
-### Формат запроса
+### Request format
 ```json
 {
   "action": "move|click|scroll|touch|touch_position",
@@ -34,4 +34,4 @@
   "tip": false
 }
 ```
-Диапазон координат для абсолютных режимов: **0..4095**.
+Coordinate range for absolute modes: **0..4095**.
