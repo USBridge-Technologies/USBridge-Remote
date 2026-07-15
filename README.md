@@ -54,7 +54,7 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 ## Features
 
-![USBridge Remote — Remote Desktop](assets/screenshot_USBridge_client.png)
+<img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
 **One place for everything** — I've unified the workflow. Manage USBridge KVM hardware and software agents from a single dashboard. Add a machine, connect, and you're in.
 
@@ -64,7 +64,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 **Tailscale integration** — Built-in encrypted P2P tunneling. Connect to any machine globally without messing with port forwarding or firewall rules. It works on LAN and over the internet automatically.
 
-![USBridge Remote — Agent](assets/screenshot_USBridge_agent.png)
+<img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
+
 
 ---
 
