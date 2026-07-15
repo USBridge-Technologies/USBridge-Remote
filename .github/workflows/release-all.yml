@@ -225,7 +225,11 @@ jobs:
         working-directory: client
         env:
           PKG_CONFIG_LIBDIR: ${{ env.MINGW_SYSROOT }}/lib/pkgconfig
-        run: ./scripts/build_windows.sh
+        # TEMP: bash -x traces every command directly to this step's own
+        # log, bypassing the script's internal `exec > >(tee ...)` wrapper
+        # (which appears to lose its last buffered lines when the script
+        # exits non-zero — the real error never made it into two prior runs).
+        run: bash -x ./scripts/build_windows.sh
       - name: Dump build log on failure
         if: failure()
         run: cat client/logs/build_windows.log 2>/dev/null || echo "no log file found"
