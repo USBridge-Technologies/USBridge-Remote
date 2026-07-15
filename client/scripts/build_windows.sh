@@ -440,7 +440,7 @@ fi
 # Найти или установить go-winres (встраивает иконку без ImageMagick и fyne)
 GOWINRES_BIN=""
 for _n in go-winres go-winres.exe; do
-    _full="$(command -v "$_n" 2>/dev/null)"
+    _full="$(command -v "$_n" 2>/dev/null || true)"
     if [ -n "$_full" ]; then GOWINRES_BIN="$_full"; break; fi
     if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
 done
@@ -449,7 +449,7 @@ if [ -z "$GOWINRES_BIN" ]; then
     GOOS="" GOARCH="" go install github.com/tc-hib/go-winres@latest
     for _n in go-winres.exe go-winres; do
         if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
-        _full="$(command -v "$_n" 2>/dev/null)"
+        _full="$(command -v "$_n" 2>/dev/null || true)"
         if [ -n "$_full" ]; then GOWINRES_BIN="$_full"; break; fi
     done
 fi
