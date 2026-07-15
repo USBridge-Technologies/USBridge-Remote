@@ -1,52 +1,52 @@
 # USBridge Client
 
-Нативный кросс‑платформенный клиент на Go (Fyne) для управления USBridge 2.
+Native cross-platform Go (Fyne) client for controlling USBridge 2.
 
-Проект использует новый защищенный протокол **Master QR Sync** для авторизации и управления. Все команды подписываются HMAC-SHA256, а чувствительные данные (PIN-коды, ключи) шифруются AES-GCM.
+The project uses the new secure **Master QR Sync** protocol for authorization and control. All commands are signed with HMAC-SHA256, and sensitive data (PIN codes, keys) is encrypted with AES-GCM.
 
-## Возможности
+## Features
 
-- **Master QR Sync**: Быстрое подключение в один скан. Единый API Secret передается через QR-код и используется для подписи всех запросов.
-- **Безопасность**: Полная защита API от перехвата и подделки в локальной сети.
-- **Управление устройствами**: клавиатура, мышь/тачскрин (Touchpad/Absolute), RNDIS, CD‑ROM образы.
-- **NBD‑экспорт**: трансляция локальных образов (`.iso`, `.img` и др.) на удаленную машину.
-- **Видео с минимальной задержкой**: RTP H.264 по UDP с аппаратным ускорением.
-- **Android Support**: Полная поддержка NBD и видео на Android устройствах.
+- **Master QR Sync**: Fast one-scan connection. A single API Secret is passed via QR code and used to sign all requests.
+- **Security**: Full API protection against interception and spoofing on the local network.
+- **Device control**: keyboard, mouse/touchscreen (Touchpad/Absolute), RNDIS, CD-ROM images.
+- **NBD export**: streaming local images (`.iso`, `.img`, etc.) to the remote machine.
+- **Low-latency video**: RTP H.264 over UDP with hardware acceleration.
+- **Android support**: full NBD and video support on Android devices.
 
-## Как подключается клиент (Protocol v2)
+## How the client connects (Protocol v2)
 
-1. На сервере (Bridge) открывается экран **Master Sync QR**.
-2. В клиенте нажимается иконка QR-сканера.
-3. После сканирования клиент:
-   - Извлекает **API Secret** и запоминает его для подписи запросов.
-   - Выполняет защищенную синхронизацию (обмен Sunshine PIN, регистрация Tailscale).
-   - Поднимает FRP туннель или прямое соединение.
-4. Все последующие действия (движение мыши, нажатие клавиш) автоматически подписываются ключом.
+1. On the server (Bridge), the **Master Sync QR** screen is opened.
+2. In the client, the QR scanner icon is tapped.
+3. After scanning, the client:
+   - Extracts the **API Secret** and stores it for signing requests.
+   - Performs a secure sync (Sunshine PIN exchange, Tailscale registration).
+   - Brings up an FRP tunnel or a direct connection.
+4. All subsequent actions (mouse movement, key presses) are automatically signed with the key.
 
-## Видео
+## Video
 
-- Протокол: **RTP H.264 по UDP**.
-- Приём: **GStreamer** (`udpsrc → rtph264depay → decoder → appsink`).
-- Порт по умолчанию: `video_udp_port: 55000`.
+- Protocol: **RTP H.264 over UDP**.
+- Receiving: **GStreamer** (`udpsrc → rtph264depay → decoder → appsink`).
+- Default port: `video_udp_port: 55000`.
 
-## Режимы мыши
+## Mouse modes
 
-Поддерживаются два основных режима:
-- **Touchpad** (относительный) — эмуляция стандартного тачпада.
-- **Absolute** (абсолютный) — прямое позиционирование курсора на экране.
+Two main modes are supported:
+- **Touchpad** (relative) — emulates a standard touchpad.
+- **Absolute** — direct cursor positioning on screen.
 
-> Режимы мультимониторности (Abs L/2, Abs R/2) временно отключены.
+> Multi-monitor modes (Abs L/2, Abs R/2) are temporarily disabled.
 
-## Сборка и зависимости
+## Build & dependencies
 
-Подробные инструкции по сборке для всех платформ (Linux, macOS, Windows, Android, iOS) находятся в папке `scripts/`.
+Detailed build instructions for all platforms (Linux, macOS, Windows, Android, iOS) are in the `scripts/` folder.
 
-## Документация
+## Documentation
 
-- `docs/api_endpoints.md` — Описание защищенного API и протокола синхронизации.
-- `docs/MOUSE_TOUCHPAD.md` — Подробности режимов управления указателем.
-- `docs/FRP_VIDEO_CLIENT.md` — Видео + FRP туннелирование.
+- `docs/api_endpoints.md` — description of the secure API and sync protocol.
+- `docs/MOUSE_TOUCHPAD.md` — details of pointer control modes.
+- `docs/FRP_VIDEO_CLIENT.md` — video + FRP tunneling.
 
-## Лицензия
+## License
 
-GPLv3 (см. `LICENSE`). Проект использует moonlight-common-c (GPLv3) и GStreamer (LGPL).
+GPLv3 (see `LICENSE`). The project uses moonlight-common-c (GPLv3) and GStreamer (LGPL).
