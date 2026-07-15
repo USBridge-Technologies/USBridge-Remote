@@ -214,11 +214,14 @@ jobs:
         # zip it as one file so the release doesn't end up with those loose
         # (the binary itself is fully self-contained; nothing external to
         # bundle here, unlike Windows).
-        run: (cd client/dist/linux && zip -r ../USBridgeClient-Linux-x86_64.zip .)
+        run: |
+          set -euo pipefail
+          VERSION="$(cat client/VERSION 2>/dev/null || echo 1.0.0)"
+          (cd client/dist/linux && zip -r "../USBridgeClient-Linux-x86_64-${VERSION}.zip" .)
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-linux
-          path: client/dist/USBridgeClient-Linux-x86_64.zip
+          path: client/dist/USBridgeClient-Linux-x86_64-*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -281,11 +284,14 @@ jobs:
         # it's meant to run standalone with no external deps. Zip the whole
         # folder as one file so those don't end up as loose release assets.
         shell: msys2 {0}
-        run: (cd client/dist/windows && zip -r ../USBridgeClient-Windows-x86_64.zip .)
+        run: |
+          set -euo pipefail
+          VERSION="$(cat client/VERSION 2>/dev/null || echo 1.0.0)"
+          (cd client/dist/windows && zip -r "../USBridgeClient-Windows-x86_64-${VERSION}.zip" .)
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-windows
-          path: client/dist/USBridgeClient-Windows-x86_64.zip
+          path: client/dist/USBridgeClient-Windows-x86_64-*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -323,7 +329,7 @@ jobs:
           name: release-client-android
           # The APK is fully self-contained (no loose deps to bundle
           # alongside), so upload it directly rather than the whole dir.
-          path: client/dist/android/USBridge_Client_gradle.apk
+          path: client/dist/android/USBridgeClient-Android-*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -559,3 +565,6 @@ jobs:
           name: USBridge ${{ inputs.release_tag }}
           generate_release_notes: true
           draft: false
+          # This is the one release that should own /releases/latest —
+          # agent-release.yml/client-release.yml explicitly opt out of it.
+          make_latest: "true"

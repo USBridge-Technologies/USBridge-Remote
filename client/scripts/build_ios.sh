@@ -29,7 +29,7 @@ PROVISIONING_PROFILE="USBridge Client iOS Distribution"
 SIGN_CERT="Apple Distribution: Amir Fatkulin ($TEAM_ID)"
 
 DIST_DIR="$REPO_ROOT/dist/ios"
-IPA_NAME="USBridgeClient.ipa"
+IPA_NAME="USBridgeClient-iOS-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").ipa"
 
 echo -e "${GREEN}📱 Building USBridgeClient for iOS${NC}"
 

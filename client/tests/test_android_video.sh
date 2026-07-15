@@ -8,9 +8,9 @@ echo "🔨 Building APK (FORCE_FYNE=1)..."
 FORCE_FYNE=1 ./scripts/build_android.sh
 
 # 2. Find the APK
-APK_PATH="dist/android/USBridge_Client_gradle.apk"
-if [ ! -f "$APK_PATH" ]; then
-    echo "❌ APK not found at $APK_PATH!"
+APK_PATH="$(ls dist/android/USBridgeClient-Android-*.apk 2>/dev/null | head -1)"
+if [ -z "$APK_PATH" ]; then
+    echo "❌ APK not found in dist/android/!"
     exit 1
 fi
 echo "✅ APK found at: $APK_PATH"

@@ -256,3 +256,7 @@ jobs:
           name: USBridge Agent ${{ steps.version.outputs.version }}
           generate_release_notes: true
           draft: false
+          # Never let a standalone agent-only release take over the repo's
+          # /releases/latest badge — that should always point at the
+          # combined build from release-all.yml.
+          make_latest: "false"

@@ -104,9 +104,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # build_macos.sh currently names the archive without a version
-          # suffix (USBridgeClient-macOS.dmg); glob it anyway so this keeps
-          # working if that ever changes.
+          # build_macos.sh names the archive USBridgeClient-macOS-<version>.dmg
+          # — glob it rather than hardcoding the version.
           ARCHIVE="$(ls client/dist/USBridgeClient-macOS*.dmg)"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
@@ -397,3 +396,7 @@ jobs:
           name: USBridge Client ${{ steps.version.outputs.version }}
           generate_release_notes: true
           draft: false
+          # Never let a standalone client-only release take over the repo's
+          # /releases/latest badge — that should always point at the
+          # combined build from release-all.yml.
+          make_latest: "false"

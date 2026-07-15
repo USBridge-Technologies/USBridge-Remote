@@ -592,7 +592,8 @@ if [ -f "$APK_OUT" ]; then
             -dname "CN=Android Debug,O=Android,C=US"
     fi
 
-    FINAL_APK="$DIST_DIR/USBridge_Client_gradle.apk"
+    APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
+    FINAL_APK="$DIST_DIR/USBridgeClient-Android-${APK_VERSION}.apk"
     # Ищем apksigner: сначала в ANDROID_HOME (Linux), затем в стандартном пути macOS
     APKSIGNER=""
     if [ -n "$ANDROID_HOME" ]; then
