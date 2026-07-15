@@ -13,8 +13,10 @@ name: client-release
 #   IOS_BUILD_CERTIFICATE_BASE64    - "Apple Distribution" cert (.p12) in
 #                                      Base64, for the iOS job — a distinct
 #                                      identity from BUILD_CERTIFICATE_BASE64,
-#                                      required for App Store signing/submission
-#   IOS_P12_PASSWORD                - password for IOS_BUILD_CERTIFICATE_BASE64
+#                                      required for App Store signing/submission.
+#                                      Encrypted with the same passphrase as
+#                                      BUILD_CERTIFICATE_BASE64 (P12_PASSWORD) —
+#                                      not IOS_P12_PASSWORD, which is unused.
 #   NOTARIZATION_PASSWORD           - App-Specific Password used both for
 #                                      `notarytool` (macOS) and `altool`
 #                                      (iOS App Store Connect upload)
@@ -221,7 +223,7 @@ jobs:
       - name: Import signing certificate into a temporary keychain
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
         run: |
           set -euo pipefail
 
