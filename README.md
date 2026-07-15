@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/USBridge/USBridge-Remote-Beta/releases)
+[![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/USBridge-Technologies/USBridge-Remote/releases)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#download)
 [![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#download)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#download)
@@ -17,7 +17,7 @@
 
 **USBridge Remote** is a unified high-performance client for managing remote machines. I designed it to combine **hardware-level BIOS access** (via USBridge KVM devices) and **software-based remote desktop** in a single, streamlined interface.
 
-> ⚠️ **Beta Software** — This is an early release. Expect bugs. Please report issues via [GitHub Issues](https://github.com/USBridge/USBridge-Remote-Beta/issues) or join our [Discord](https://discord.com/invite/xqQ6ybkfWS) for support.
+> ⚠️ **Beta Software** — This is an early release. Expect bugs. Please report issues via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) or join our [Discord](https://discord.com/invite/xqQ6ybkfWS) for support.
 
 ---
 
@@ -28,8 +28,8 @@ The Client is the control interface — installed on your workstation or laptop.
 
 | Architecture | Windows | macOS | Linux | Android | iOS |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_windows_amd64-2.0.4.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_linux_amd64-2.0.4.tar.gz) | — | — |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_macOS_arm64-2.0.4.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v2.0.4/USBridge_client_android_arm64-2.0.4.apk) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.zip) | — | — |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Android-arm64.apk) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) |
 
 ## Agent
 
@@ -37,8 +37,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 | Architecture | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
-| **x86_64** | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/agent-v2.0.5/USBridgeAgent-Windows-amd64-2.0.5.zip) | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/agent-v2.0.5/USBridgeAgent-Linux-x86_64-2.0.5.AppImage) |
-| **ARM64** | — | [Download](https://github.com/USBridge/USBridge-Remote-Beta/releases/download/agent-v2.0.5/USBridgeAgent-macOS-2.0.5.zip) | — |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Linux-x86_64.AppImage) |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-macOS-arm64.dmg) | — |
 
 ---
 
