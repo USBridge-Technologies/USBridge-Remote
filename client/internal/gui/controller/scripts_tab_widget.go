@@ -163,10 +163,22 @@ func (w *ScriptsTabWidget) build() {
 	)
 	w.normalContent = container.NewVScroll(content)
 
-	lockedMsg := canvas.NewText("Please wait — Scripts are available on USBridge hardware only.", design.ColorTextMuted)
-	lockedMsg.TextSize = 13
+	lockedMsg := widget.NewLabel("Please wait — Scripts are available on USBridge hardware only.")
 	lockedMsg.Alignment = fyne.TextAlignCenter
-	w.lockedContent = container.NewCenter(view.NewInset(lockedMsg, 24, 24, 24, 24))
+	lockedMsg.Wrapping = fyne.TextWrapWord
+	lockedMsg.Importance = widget.LowImportance
+	// container.NewCenter resizes its child to the child's own MinSize rather
+	// than the space available to it, so a wrapping Label placed directly
+	// inside one never learns how wide it's allowed to be and never wraps
+	// (this bit us on narrow/mobile screens with canvas.Text before, which
+	// can't wrap at all). VBox gives its children the container's full width,
+	// so the Label wraps correctly there; spacers reproduce the vertical
+	// centering container.NewCenter used to provide.
+	w.lockedContent = container.NewVBox(
+		layout.NewSpacer(),
+		view.NewInset(lockedMsg, 24, 24, 24, 24),
+		layout.NewSpacer(),
+	)
 
 	w.outerContainer = container.NewStack(w.normalContent)
 }

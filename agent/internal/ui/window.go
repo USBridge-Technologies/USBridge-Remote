@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +25,7 @@ import (
 
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/sunshine"
 	"usbridge_agent/internal/tailscale"
@@ -875,51 +875,7 @@ func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost strin
 }
 
 func localQuickConnectIPv4() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-
-	type candidate struct {
-		name string
-		ip   string
-	}
-
-	candidates := make([]candidate, 0, 8)
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ip, _, err := net.ParseCIDR(addr.String())
-			if err != nil || ip == nil {
-				continue
-			}
-			ip4 := ip.To4()
-			if ip4 == nil || ip4.IsLoopback() {
-				continue
-			}
-			if ip4[0] == 169 && ip4[1] == 254 {
-				continue
-			}
-			candidates = append(candidates, candidate{name: iface.Name, ip: ip4.String()})
-		}
-	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].name == candidates[j].name {
-			return candidates[i].ip < candidates[j].ip
-		}
-		return candidates[i].name < candidates[j].name
-	})
-	if len(candidates) == 0 {
-		return ""
-	}
-	return candidates[0].ip
+	return netutil.PreferredIPv4()
 }
 
 func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {

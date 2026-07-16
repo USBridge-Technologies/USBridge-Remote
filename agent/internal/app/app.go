@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +25,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/input"
+	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/sunshine"
 	"usbridge_agent/internal/tailscale"
@@ -442,39 +441,7 @@ func buildQRLink(internalHost, tailscaleHost, masterKey string) string {
 }
 
 func localIPv4() string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	type candidate struct{ name, ip string }
-	var candidates []candidate
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, _ := iface.Addrs()
-		for _, addr := range addrs {
-			ip, _, err := net.ParseCIDR(addr.String())
-			if err != nil || ip == nil {
-				continue
-			}
-			ip4 := ip.To4()
-			if ip4 == nil || ip4.IsLoopback() || (ip4[0] == 169 && ip4[1] == 254) {
-				continue
-			}
-			candidates = append(candidates, candidate{iface.Name, ip4.String()})
-		}
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].name != candidates[j].name {
-			return candidates[i].name < candidates[j].name
-		}
-		return candidates[i].ip < candidates[j].ip
-	})
-	if len(candidates) == 0 {
-		return ""
-	}
-	return candidates[0].ip
+	return netutil.PreferredIPv4()
 }
 
 func (a *App) SaveConfig(cfg config.Config) error {
