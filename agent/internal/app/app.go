@@ -748,10 +748,18 @@ func (a *App) SubmitMoonlightPIN(pin string) error {
 }
 
 // SetAudioSink points Sunshine at the given audio device (sunshine.conf's
-// audio_sink) and restarts it so the change takes effect.
+// audio_sink) and restarts it so the change takes effect. If Sunshine is
+// already running with this exact sink, it's left alone — every client
+// session start used to unconditionally kill and relaunch Sunshine even
+// when nothing changed, causing a needless restart (and brief capture
+// interruption) on every connect.
 func (a *App) SetAudioSink(sink string) error {
+	unchanged := sunshine.AudioSink() == sink && a.sunshine != nil && a.sunshine.Running()
 	if err := sunshine.SetAudioSink(sink); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
+	}
+	if unchanged {
+		return nil
 	}
 	return a.RestartSunshine()
 }
