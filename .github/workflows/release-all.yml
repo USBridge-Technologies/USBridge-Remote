@@ -245,21 +245,15 @@ jobs:
             libopus-dev libssl-dev pkg-config cmake libvulkan-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - name: Build (Linux)
+        # build_linux.sh packages an AppImage directly (client/dist/USBridgeClient-Linux-x86_64-<VERSION>.AppImage),
+        # bundling libavcodec/libpulse/libopus/etc. via linuxdeploy — no separate
+        # archive step needed, same as the agent's Linux build.
         working-directory: client
         run: ./scripts/build_linux.sh
-      - name: Package into a single archive
-        # dist/linux/ holds the binary alongside a helper script and config —
-        # zip it as one file so the release doesn't end up with those loose
-        # (the binary itself is fully self-contained; nothing external to
-        # bundle here, unlike Windows).
-        run: |
-          set -euo pipefail
-          VERSION="$(cat client/VERSION 2>/dev/null || echo 1.0.0)"
-          (cd client/dist/linux && zip -r "../USBridgeClient-Linux-x86_64-${VERSION}.zip" .)
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-linux
-          path: client/dist/USBridgeClient-Linux-x86_64-*.zip
+          path: client/dist/USBridgeClient-Linux-x86_64-*.AppImage
           if-no-files-found: error
           retention-days: 7
 

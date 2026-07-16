@@ -1,23 +1,36 @@
 #!/bin/bash
-# Build USBridgeClient for Linux
-# Output: dist/linux/USBridgeClient.bin (+ config.yaml if present)
+# Build USBridgeClient for Linux, packaged as a self-contained AppImage.
+# Output: dist/USBridgeClient-Linux-x86_64-<VERSION>.AppImage
+#
+# linuxdeploy bundles every shared library the binary directly links against
+# (libavcodec/libavutil/libswscale for Moonlight HW decode, libpulse, libopus,
+# libssl, libvulkan, the GStreamer core libs, ...) into the AppImage, so the
+# target machine needs no runtime packages installed for the default Moonlight
+# streaming path. The legacy RTP video mode's GStreamer *element plugins*
+# (libgstlibav.so etc.) are loaded via dlopen rather than linked, so they are
+# not picked up by this scan — that path still needs a system GStreamer
+# install (gstreamer1.0-plugins-{base,good,bad,ugly} gstreamer1.0-libav).
 #
 # Build deps (install before running this script):
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
 #   Moonlight core:       opus openssl pkg-config cmake
-#   RTP video mode:       gstreamer1.0-* (optional, see install_gstreamer.sh in dist)
 #
 # One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
 #              libopus-dev libssl-dev pkg-config cmake
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-echo "=> Building Moonlight Core..."
-"$SCRIPTS_DIR/build_moonlight.sh" || { echo "❌ Failed to build Moonlight Core"; exit 1; }
-REPO_ROOT="$(cd "$SCRIPTS_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo -e "${YELLOW}=> Building Moonlight Core...${NC}"
+"$SCRIPT_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Failed to build Moonlight Core${NC}"; exit 1; }
 
 if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
   export USBRIDGE_LOGGING_ACTIVE=1
@@ -28,8 +41,14 @@ if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') [$0] ==="
 fi
 
-OUT_DIR="$REPO_ROOT/dist/linux"
-mkdir -p "$OUT_DIR"
+VERSION="$(tr -d ' \t\n\r' < "$REPO_ROOT/VERSION" 2>/dev/null || echo "0.0.0")"
+
+DIST_DIR="$REPO_ROOT/dist/linux"
+EXE_NAME="usbridge-client"
+OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
+
+mkdir -p "$DIST_DIR"
+rm -f "$OUTPUT_PATH"
 
 # go-gst (used for non-Moonlight RTP path) generates format-security warnings.
 export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
@@ -37,88 +56,73 @@ export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 # Verify Moonlight HW decode build deps are present before spending time compiling.
 for pkg in libavcodec libavutil libswscale libpulse-simple; do
     if ! pkg-config --exists "$pkg" 2>/dev/null; then
-        echo "❌ Missing build dep: $pkg"
+        echo -e "${RED}❌ Missing build dep: $pkg${NC}"
         echo "   Install: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev"
         exit 1
     fi
 done
 
-VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-go build -ldflags "-X main.version=$VERSION" -o "$OUT_DIR/USBridgeClient.bin" ./cmd
+echo -e "${YELLOW}Compiling client...${NC}"
+go build -ldflags "-X main.version=$VERSION" -o "$OUTPUT_PATH" ./cmd
+chmod +x "$OUTPUT_PATH"
 
-[ -f "$REPO_ROOT/config.yaml" ] && cp -f "$REPO_ROOT/config.yaml" "$OUT_DIR/"
+# ── Build AppImage ─────────────────────────────────────────────────────────────
 
-# Создаем скрипт установки зависимостей для Moonlight HW-decode
-cat > "$OUT_DIR/install_moonlight_deps.sh" << 'EOF'
-#!/bin/bash
-set -e
-# Install runtime libraries required for Moonlight hardware decode (libavcodec/ALSA).
-# These are dynamically linked — required on the target machine.
-echo "Installing Moonlight HW decode runtime dependencies..."
-if [ -f /etc/debian_version ]; then
-    sudo apt-get update && sudo apt-get install -y \
-        libavcodec60 libavutil58 libswscale7 \
-        libpulse0 \
-        libva2 libva-drm2  # VA-API for Intel/AMD GPU acceleration
-elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
-    sudo dnf install -y ffmpeg-libs pulseaudio-libs libva
-else
-    echo "Install ffmpeg-libs (libavcodec), pulseaudio-libs, and libva via your package manager."
+APPDIR="$DIST_DIR/AppDir"
+rm -rf "$APPDIR"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+
+cp "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"
+
+# Icon
+ICON_SRC="$REPO_ROOT/Icon.png"
+if [[ -f "$ICON_SRC" ]]; then
+    cp "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$EXE_NAME.png"
+    cp "$ICON_SRC" "$APPDIR/$EXE_NAME.png"
 fi
-echo "Done. Moonlight streaming uses libavcodec (VA-API/NVDEC/SW) + PulseAudio/PipeWire."
-EOF
-chmod +x "$OUT_DIR/install_moonlight_deps.sh"
 
-# Создаем скрипт установки GStreamer (для RTP видео-режима)
-cat > "$OUT_DIR/install_gstreamer.sh" << 'EOF'
-#!/bin/bash
-set -e
-# GStreamer is required only for the legacy RTP video mode.
-# Moonlight streaming uses libavcodec (VA-API/NVDEC) + ALSA natively — no GStreamer.
-echo "Installing GStreamer for Linux (RTP video mode only)..."
-if [ -f /etc/debian_version ]; then
-    sudo apt-get update && sudo apt-get install -y \
-        gstreamer1.0-tools gstreamer1.0-libav \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-        gstreamer1.0-alsa gstreamer1.0-pulseaudio
-elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
-    sudo dnf install -y gstreamer1 gstreamer1-plugins-base \
-        gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-libav
-else
-    echo "Install GStreamer 1.0 via your package manager (gstreamer1.0-tools gstreamer1.0-libav)."
+# Desktop entry
+cat > "$APPDIR/usr/share/applications/$EXE_NAME.desktop" <<DESKTOP
+[Desktop Entry]
+Name=USBridge Client
+Exec=usbridge-client
+Icon=usbridge-client
+Type=Application
+Categories=Network;RemoteAccess;
+Comment=USBridge remote desktop client (Moonlight streaming)
+DESKTOP
+cp "$APPDIR/usr/share/applications/$EXE_NAME.desktop" "$APPDIR/$EXE_NAME.desktop"
+
+# Download linuxdeploy if not cached
+LINUXDEPLOY="$DIST_DIR/linuxdeploy-x86_64.AppImage"
+if [[ ! -f "$LINUXDEPLOY" ]]; then
+    echo -e "${YELLOW}Downloading linuxdeploy...${NC}"
+    curl -fL --progress-bar -o "$LINUXDEPLOY" \
+        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+    chmod +x "$LINUXDEPLOY"
 fi
-EOF
-chmod +x "$OUT_DIR/install_gstreamer.sh"
 
-# Создаём README для dist
-cat > "$OUT_DIR/README.txt" << 'README'
-USBridgeClient for Linux
-=========================
+# Build AppImage
+echo -e "${YELLOW}Packaging AppImage...${NC}"
+OUTPUT_APPIMAGE="$REPO_ROOT/dist/USBridgeClient-Linux-x86_64-${VERSION}.AppImage"
+rm -f "$OUTPUT_APPIMAGE"
 
-Run:
-  ./USBridgeClient.bin
+ARCH=x86_64 "$LINUXDEPLOY" \
+    --appdir "$APPDIR" \
+    --executable "$APPDIR/usr/bin/$EXE_NAME" \
+    --desktop-file "$APPDIR/$EXE_NAME.desktop" \
+    --icon-file "$APPDIR/$EXE_NAME.png" \
+    --output appimage 2>&1
 
-Video modes:
-  Moonlight streaming — libavcodec hardware decode (VA-API/NVDEC/software fallback) + PulseAudio/PipeWire audio.
-    Run ./install_moonlight_deps.sh to install runtime libraries (libavcodec, libpulse0, libva).
+# linuxdeploy writes the AppImage to cwd — move it to dist/
+PRODUCED="$(find "$REPO_ROOT" -maxdepth 2 -name 'USBridgeClient*.AppImage' ! -path '*/AppDir/*' | head -1)"
+if [[ -z "$PRODUCED" ]]; then
+    PRODUCED="$(find . -maxdepth 2 -name '*.AppImage' ! -path '*/AppDir/*' | head -1)"
+fi
+if [[ -n "$PRODUCED" && "$PRODUCED" != "$OUTPUT_APPIMAGE" ]]; then
+    mv "$PRODUCED" "$OUTPUT_APPIMAGE"
+fi
+chmod +x "$OUTPUT_APPIMAGE"
 
-  Legacy RTP mode — requires GStreamer.
-    Run ./install_gstreamer.sh to install.
-
-Hardware acceleration:
-  Intel/AMD:  VA-API (install libva2 libva-drm2)
-  NVIDIA:     NVDEC (install nvidia drivers with CUDA support)
-  Fallback:   software decode (works everywhere, higher CPU usage)
-
-Configuration:
-  config.yaml next to the binary, or ~/.config/usbridge-client/
-README
-
-echo -e "\nCreating archive..."
-cd "$OUT_DIR"
-tar -czf "../USBridgeClient-linux.tar.gz" ./*
-cd "$REPO_ROOT"
-
-echo "✅ Done: $OUT_DIR/USBridgeClient.bin"
-echo "📦 Archive: dist/USBridgeClient-linux.tar.gz"
+echo -e "${GREEN}✓${NC} AppImage: $OUTPUT_APPIMAGE"
+echo "Binary: $OUTPUT_PATH"
