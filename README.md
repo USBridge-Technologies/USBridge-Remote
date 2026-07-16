@@ -98,7 +98,7 @@ I designed the USBridge Agent to support Wayland natively. It handles full scree
 
 I manage software development plans and upcoming features in an open dashboard. If you want to see what is currently being developed, what is planned, or follow the status of upcoming features, check out the live roadmap:
 
- **[View USBridge Remote Software Roadmap](https://github.com/orgs/USBridge-Technologies/projects/3)**
+ **[View USBridge Remote Roadmap](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
