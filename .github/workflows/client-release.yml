@@ -158,7 +158,16 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          hdiutil create -volname "USBridgeClient" -srcfolder "client/dist/macos" -ov -format UDZO "$ARCHIVE"
+          # hdiutil create intermittently fails with "Resource busy" on GH Actions
+          # runners — Spotlight/mdworker briefly locking the freshly-created file
+          # or a not-yet-released mount from the previous hdiutil create call in
+          # build_macos.sh. Transient; a short retry clears it.
+          for attempt in 1 2 3; do
+            hdiutil create -volname "USBridgeClient" -srcfolder "client/dist/macos" -ov -format UDZO "$ARCHIVE" && break
+            [ "$attempt" -eq 3 ] && { echo "::error::hdiutil create failed after 3 attempts"; exit 1; }
+            echo "::warning::hdiutil create failed (attempt $attempt/3) — retrying in 10s"
+            sleep 10
+          done
 
       # Hard gate before publishing: fail the job outright if the signature
       # is missing, invalid, ad-hoc, or the notarization ticket didn't stick —
