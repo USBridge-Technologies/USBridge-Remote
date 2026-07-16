@@ -120,6 +120,47 @@ func LaunchPath(exeDir string) string {
 	return BinaryPath(exeDir)
 }
 
+// CapExecPath returns the path to the bundled sunshine_capexec launcher
+// (cmd/sunshine_capexec), or "" if not bundled (non-Linux, or a dev build
+// without the AppImage layout). This is what actually carries the
+// CAP_SYS_ADMIN file capability for KMS screen capture — never sunshine
+// itself, since a file capability on sunshine would break its RPATH-based
+// dependency resolution. See RequestKMSCapture in internal/permissions.
+func CapExecPath(exeDir string) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	p := filepath.Join(exeDir, "sunshine-capexec")
+	if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		return p
+	}
+	return ""
+}
+
+// RuntimeCapExecPath returns the path sunshine_capexec should actually be
+// setcap'd and launched from, mirroring RuntimeBinaryPath: inside an
+// AppImage the bundled copy lives on the read-only squashfs mount, so
+// pkexec setcap needs the writable staged copy instead. Shares the same
+// staging pass as RuntimeBinaryPath — both binaries are copied together by
+// stageSunshineRuntime — so the two are consistent as long as both are
+// called while stageSunshineRuntime's staleness check (keyed off the
+// sunshine binary) still holds.
+func RuntimeCapExecPath(exeDir, stateDir string) string {
+	capexecSrc := CapExecPath(exeDir)
+	sunshineSrc := BinaryPath(exeDir)
+	if runtime.GOOS != "linux" || capexecSrc == "" || sunshineSrc == "" || stateDir == "" {
+		return capexecSrc
+	}
+	if os.Getenv("APPIMAGE") == "" {
+		return capexecSrc
+	}
+	if _, err := stageSunshineRuntime(sunshineSrc, stateDir); err != nil {
+		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
+		return capexecSrc
+	}
+	return filepath.Join(stateDir, "sunshine-runtime", "usr", "bin", "sunshine-capexec")
+}
+
 // RuntimeBinaryPath returns the path Sunshine should actually be launched
 // from, and the path `setcap` should target for KMS capture. On Linux, when
 // running from inside an AppImage, the bundled binary lives on the
@@ -196,6 +237,16 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 		}
 	}
 
+	// sunshine_capexec (cmd/sunshine_capexec) sits alongside sunshine in
+	// usr/bin — stage it too so RuntimeCapExecPath's writable copy exists
+	// for pkexec setcap.
+	srcCapExec := filepath.Join(appDir, "usr", "bin", "sunshine-capexec")
+	if info, err := os.Stat(srcCapExec); err == nil && !info.IsDir() {
+		if err := copyFile(srcCapExec, filepath.Join(root, "usr", "bin", "sunshine-capexec"), info.Mode()); err != nil {
+			return "", err
+		}
+	}
+
 	return dstBin, nil
 }
 
@@ -238,10 +289,11 @@ func copyDir(src, dst string) error {
 // Process manages the lifecycle of a bundled Sunshine instance launched by
 // the agent.
 type Process struct {
-	mu         sync.Mutex
-	launchPath string
-	logPath    string
-	cmd        *exec.Cmd
+	mu          sync.Mutex
+	launchPath  string
+	capExecPath string
+	logPath     string
+	cmd         *exec.Cmd
 }
 
 // NewProcess creates a Process for the given launch entry point. logPath, if
@@ -252,6 +304,17 @@ func NewProcess(launchPath, logPath string) *Process {
 		windowsSunshineDir = filepath.Dir(launchPath)
 	}
 	return &Process{launchPath: launchPath, logPath: logPath}
+}
+
+// SetCapExecPath sets the sunshine_capexec launcher path (see
+// RuntimeCapExecPath) that Start uses to launch Sunshine with CAP_SYS_ADMIN
+// when the configured capture mode is "kms". A no-op path (empty, or the
+// launcher lacking the capability) just means Start launches Sunshine
+// directly, same as before KMS capture was requested/granted.
+func (p *Process) SetCapExecPath(capExecPath string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.capExecPath = capExecPath
 }
 
 // Running reports whether this Process's Sunshine instance is currently alive.
@@ -372,7 +435,19 @@ func (p *Process) Start(adminPort int) error {
 		log.Printf("[sunshine] admin password set (user=%s)", AdminUser)
 	}
 
-	cmd := exec.Command(p.launchPath)
+	// If a capability-granted sunshine_capexec launcher is set (Linux KMS
+	// capture only — see SetCapExecPath), launch Sunshine through it so it
+	// inherits CAP_SYS_ADMIN via ambient capabilities instead of carrying a
+	// file capability itself, which would break its RPATH-based library
+	// resolution. p.capExecPath is only ever set once the capability has
+	// actually been granted (internal/app), so this exec is expected to
+	// succeed whenever it's used.
+	var cmd *exec.Cmd
+	if p.capExecPath != "" {
+		cmd = exec.Command(p.capExecPath, p.launchPath)
+	} else {
+		cmd = exec.Command(p.launchPath)
+	}
 	configureProcess(cmd)
 	switch runtime.GOOS {
 	case "linux":

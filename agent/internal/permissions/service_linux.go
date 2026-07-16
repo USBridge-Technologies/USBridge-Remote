@@ -87,39 +87,57 @@ func (s *Service) RequestScreenRecording() bool {
 	return true
 }
 
-func (s *Service) RequestMissing()                      {}
-func (s *Service) OpenPrivacySettings() error           { return nil }
-func (s *Service) OpenScreenRecordingSettings() error   { return nil }
+func (s *Service) RequestMissing()                    {}
+func (s *Service) OpenPrivacySettings() error         { return nil }
+func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
-// KMSCaptureGranted reports whether the bundled Sunshine binary has the
-// CAP_SYS_ADMIN capability needed for direct KMS screen capture (root-level,
-// no compositor/portal involved).
-func (s *Service) KMSCaptureGranted(binPath string) bool {
-	if strings.TrimSpace(binPath) == "" {
+// KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
+// has the CAP_SYS_ADMIN capability needed for Sunshine's direct KMS screen
+// capture (root-level, no compositor/portal involved).
+//
+// capexecPath is the path to sunshine_capexec, NOT to sunshine itself — see
+// RequestKMSCapture for why the capability lives on a separate launcher.
+func (s *Service) KMSCaptureGranted(capexecPath string) bool {
+	if strings.TrimSpace(capexecPath) == "" {
 		return false
 	}
-	out, err := exec.Command("getcap", binPath).CombinedOutput()
+	out, err := exec.Command("getcap", capexecPath).CombinedOutput()
 	if err != nil {
 		return false
 	}
 	return strings.Contains(string(out), "cap_sys_admin")
 }
 
-// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled Sunshine binary via
-// pkexec setcap, so Sunshine can use its KMS capture backend without running
-// as root outright.
-func (s *Service) RequestKMSCapture(binPath string) bool {
-	if strings.TrimSpace(binPath) == "" {
+// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled sunshine_capexec
+// launcher via pkexec setcap, so Sunshine can use its KMS capture backend
+// without running as root outright.
+//
+// This deliberately targets sunshine_capexec, a tiny statically-linked
+// (zero dynamic deps) launcher — never the sunshine binary itself. Setting a
+// file capability puts the dynamic linker into "secure execution" mode for
+// that binary (same as setuid): glibc ignores RPATH/RUNPATH and
+// LD_LIBRARY_PATH entirely, the same protection that stops a setuid binary
+// from being tricked into loading an attacker-controlled library. Since
+// Sunshine resolves its bundled dependencies (e.g. libminiupnpc.so.17) via
+// RPATH=$ORIGIN/../lib, setting the capability directly on it would break
+// that resolution the moment it's granted. sunshine_capexec instead raises
+// CAP_SYS_ADMIN into its own ambient capability set and execs the real,
+// perfectly ordinary (no file capability of its own) sunshine binary —
+// ambient capabilities are preserved across exec of a non-privileged binary
+// without ever placing it into secure-execution mode, so its RPATH keeps
+// resolving normally. See cmd/sunshine_capexec.
+func (s *Service) RequestKMSCapture(capexecPath string) bool {
+	if strings.TrimSpace(capexecPath) == "" {
 		return false
 	}
-	if s.KMSCaptureGranted(binPath) {
+	if s.KMSCaptureGranted(capexecPath) {
 		return true
 	}
-	cmd := exec.Command("pkexec", "setcap", "cap_sys_admin+ep", binPath)
+	cmd := exec.Command("pkexec", "setcap", "cap_sys_admin=eip", capexecPath)
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] setcap pkexec exit=%v output=%q", err, string(out))
 	if err != nil {
 		return false
 	}
-	return s.KMSCaptureGranted(binPath)
+	return s.KMSCaptureGranted(capexecPath)
 }

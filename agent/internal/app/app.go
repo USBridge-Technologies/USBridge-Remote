@@ -97,6 +97,7 @@ func New() (*App, error) {
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.fyneApp.SetIcon(assets.AppIcon)
 	instance.sunshine = sunshine.NewProcess(sunshine.RuntimeBinaryPath(resolveExeDir(), cfg.StateDir), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.syncSunshineCapExec()
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.handler = handler
 	instance.server = &http.Server{
@@ -164,10 +165,10 @@ func (a *App) Run() error {
 	defer cancel()
 
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
-	
+
 	a.startSunshine()
 	go func() { _ = a.server.ListenAndServe() }()
-	
+
 	a.initTailscale(ctx)
 	go a.handleShutdown(ctx, cancel)
 
@@ -284,6 +285,37 @@ func (a *App) SunshineBinaryPath() string {
 	return path
 }
 
+// SunshineCapExecPath returns the path to the bundled sunshine_capexec
+// launcher (Linux KMS capture only), or "" if not present.
+func (a *App) SunshineCapExecPath() string {
+	path := sunshine.RuntimeCapExecPath(resolveExeDir(), a.cfg.StateDir)
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// syncSunshineCapExec sets or clears the Process's sunshine_capexec launcher
+// so Start launches Sunshine with CAP_SYS_ADMIN exactly when the capture
+// mode is "kms" AND the capability is actually granted on that launcher —
+// never based on mode alone, since sunshine_capexec exits with an error if
+// asked to raise a capability it doesn't have, which would stop Sunshine
+// from starting at all instead of gracefully running without KMS.
+func (a *App) syncSunshineCapExec() {
+	if a.sunshine == nil {
+		return
+	}
+	capexecPath := a.SunshineCapExecPath()
+	if a.SunshineCaptureMode() == "kms" && a.perms != nil && a.perms.KMSCaptureGranted(capexecPath) {
+		a.sunshine.SetCapExecPath(capexecPath)
+	} else {
+		a.sunshine.SetCapExecPath("")
+	}
+}
+
 // SunshineCaptureMode returns the configured Linux capture backend ("",
 // "portal", or "kms"), read from sunshine.conf if present, falling back to
 // the persisted agent config.
@@ -313,6 +345,7 @@ func (a *App) SetSunshineCaptureMode(mode string) error {
 	if err := a.SaveConfig(next); err != nil {
 		return err
 	}
+	a.syncSunshineCapExec()
 	if mode == "kms" && !a.KMSCaptureGranted() {
 		return nil
 	}
@@ -333,25 +366,27 @@ func (a *App) RestartSunshine() error {
 	return a.sunshine.Start(a.cfg.SunshinePort)
 }
 
-// KMSCaptureGranted reports whether the bundled Sunshine binary has the
-// CAP_SYS_ADMIN capability needed for KMS capture.
+// KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
+// has the CAP_SYS_ADMIN capability needed for KMS capture.
 func (a *App) KMSCaptureGranted() bool {
 	if a.perms == nil {
 		return false
 	}
-	return a.perms.KMSCaptureGranted(a.SunshineBinaryPath())
+	return a.perms.KMSCaptureGranted(a.SunshineCapExecPath())
 }
 
-// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled Sunshine binary
-// (prompts for elevation via pkexec), then restarts Sunshine so the
-// newly-granted capability is actually picked up — an already-running
-// process doesn't gain capabilities retroactively.
+// RequestKMSCapture grants CAP_SYS_ADMIN to the bundled sunshine_capexec
+// launcher (prompts for elevation via pkexec) — never to Sunshine itself,
+// which would break its bundled-library resolution, see
+// internal/permissions.RequestKMSCapture — then restarts Sunshine so the
+// newly-granted capability is actually picked up.
 func (a *App) RequestKMSCapture() bool {
 	if a.perms == nil {
 		return false
 	}
-	granted := a.perms.RequestKMSCapture(a.SunshineBinaryPath())
+	granted := a.perms.RequestKMSCapture(a.SunshineCapExecPath())
 	if granted {
+		a.syncSunshineCapExec()
 		if err := a.RestartSunshine(); err != nil {
 			log.Printf("[app] failed to restart Sunshine after granting KMS capability: %v", err)
 		}
