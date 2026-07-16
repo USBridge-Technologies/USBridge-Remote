@@ -95,8 +95,8 @@ _sunshine_resolve_tag() {
 # fetch_sunshine_linux / build_sunshine_linux <dest_dir>
 # Stages itsme228/Sunshine (our fork with web_bind_address patch) under
 # $dest_dir as a cmake install tree: $dest_dir/usr/bin/sunshine and
-# $dest_dir/usr/share/sunshine/. Built with SUNSHINE_BUILD_APPIMAGE=ON so
-# the binary uses relative asset paths (./usr/share/sunshine relative to cwd),
+# $dest_dir/usr/local/assets/. Built with SUNSHINE_BUILD_APPIMAGE=ON so
+# the binary uses relative asset paths (./usr/local/assets relative to cwd),
 # making it relocatable and compatible with being bundled in the agent AppImage.
 # No system-wide install — the agent binary is responsible for launching it.
 # Fast path: download pre-built tarball from fork's GitHub Releases.

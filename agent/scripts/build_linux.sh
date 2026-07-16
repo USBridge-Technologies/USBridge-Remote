@@ -41,8 +41,8 @@ fetch_sunshine_linux "$DIST_DIR/sunshine"
 # ── Build AppImage ─────────────────────────────────────────────────────────────
 # The AppImage bundles the agent + Sunshine into a single relocatable package.
 # Sunshine is built with SUNSHINE_BUILD_APPIMAGE=ON so it looks for its assets
-# at ./usr/share/sunshine relative to cwd; the agent sets cwd = $APPDIR on
-# launch, making this resolve to $APPDIR/usr/share/sunshine inside the AppImage.
+# at ./usr/local/assets relative to cwd; the agent sets cwd = $APPDIR on
+# launch, making this resolve to $APPDIR/usr/local/assets inside the AppImage.
 
 APPDIR="$DIST_DIR/AppDir"
 rm -rf "$APPDIR"
@@ -55,8 +55,11 @@ cp "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"
 SUNSHINE_STAGING="$DIST_DIR/sunshine"
 if [[ -f "$SUNSHINE_STAGING/usr/bin/sunshine" ]]; then
     cp "$SUNSHINE_STAGING/usr/bin/sunshine" "$APPDIR/usr/bin/sunshine"
-    if [[ -d "$SUNSHINE_STAGING/usr/share/sunshine" ]]; then
-        cp -R "$SUNSHINE_STAGING/usr/share/sunshine" "$APPDIR/usr/share/sunshine"
+    if [[ -d "$SUNSHINE_STAGING/usr/local/assets" ]]; then
+        mkdir -p "$APPDIR/usr/local"
+        cp -R "$SUNSHINE_STAGING/usr/local/assets" "$APPDIR/usr/local/assets"
+    else
+        echo -e "${YELLOW}Warning: Sunshine assets not found at $SUNSHINE_STAGING/usr/local/assets — Sunshine will be missing shaders/web UI${NC}"
     fi
     echo -e "${GREEN}✓${NC} Sunshine bundled into AppDir"
 else

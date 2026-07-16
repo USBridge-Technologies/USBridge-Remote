@@ -146,10 +146,14 @@ func RuntimeBinaryPath(exeDir, stateDir string) string {
 	return dst
 }
 
-// stageSunshineRuntime copies the bundled Sunshine binary and its
-// usr/share/sunshine assets from src's read-only AppImage mount into
-// stateDir/sunshine-runtime, skipping the copy if a matching one is already
-// there (compared by size + mtime).
+// stageSunshineRuntime copies the bundled Sunshine binary, its usr/local/assets
+// (shaders/web UI/config templates), and its usr/lib (shared libraries bundled
+// by linuxdeploy, which the binary's RPATH=$ORIGIN/../lib resolves against)
+// from src's read-only AppImage mount into stateDir/sunshine-runtime, skipping
+// the copy if a matching one is already there (compared by size + mtime).
+// Omitting usr/lib here would leave the staged binary unable to resolve its
+// bundled dependencies (e.g. libminiupnpc.so.17) once it's copied outside the
+// AppImage mount, since RPATH is resolved relative to the binary's own path.
 func stageSunshineRuntime(src, stateDir string) (string, error) {
 	root := filepath.Join(stateDir, "sunshine-runtime")
 	dstBin := filepath.Join(root, "usr", "bin", "sunshine")
@@ -176,11 +180,18 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 		return "", err
 	}
 
-	// usr/share/sunshine sits 3 dirs up from usr/bin/sunshine in the source
-	// tree (see Start()'s cwd handling, which relies on the same layout).
-	srcShare := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(src))), "usr", "share", "sunshine")
-	if info, err := os.Stat(srcShare); err == nil && info.IsDir() {
-		if err := copyDir(srcShare, filepath.Join(root, "usr", "share", "sunshine")); err != nil {
+	// usr/local/assets and usr/lib sit 3 dirs up from usr/bin/sunshine in the
+	// source tree (see Start()'s cwd handling, which relies on the same layout).
+	appDir := filepath.Dir(filepath.Dir(filepath.Dir(src)))
+	srcAssets := filepath.Join(appDir, "usr", "local", "assets")
+	if info, err := os.Stat(srcAssets); err == nil && info.IsDir() {
+		if err := copyDir(srcAssets, filepath.Join(root, "usr", "local", "assets")); err != nil {
+			return "", err
+		}
+	}
+	srcLib := filepath.Join(appDir, "usr", "lib")
+	if info, err := os.Stat(srcLib); err == nil && info.IsDir() {
+		if err := copyDir(srcLib, filepath.Join(root, "usr", "lib")); err != nil {
 			return "", err
 		}
 	}
@@ -365,7 +376,7 @@ func (p *Process) Start(adminPort int) error {
 	configureProcess(cmd)
 	switch runtime.GOOS {
 	case "linux":
-		// Sunshine built with SUNSHINE_BUILD_APPIMAGE=ON uses ./usr/share/sunshine
+		// Sunshine built with SUNSHINE_BUILD_APPIMAGE=ON uses ./usr/local/assets
 		// relative to cwd. Set cwd to the root of the install tree (3 dirs up from
 		// usr/bin/sunshine), which is either the AppImage $APPDIR or the staging dir.
 		sunshineRoot := filepath.Dir(filepath.Dir(filepath.Dir(p.launchPath)))
