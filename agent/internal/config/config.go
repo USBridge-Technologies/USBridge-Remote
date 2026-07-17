@@ -26,6 +26,9 @@ type Config struct {
 	// portal-based, no root), "portal" (explicit XDG desktop portal, no root),
 	// or "kms" (direct KMS capture, requires CAP_SYS_ADMIN on the sunshine binary).
 	SunshineCaptureMode string `yaml:"sunshine_capture_mode"`
+	// Clipboard sync (agent <-> client shared clipboard)
+	ClipboardSyncEnabled bool  `yaml:"clipboard_sync_enabled"`
+	ClipboardMaxBytes    int64 `yaml:"clipboard_max_bytes"` // cap per image/file payload
 }
 
 func Default() Config {
@@ -37,6 +40,9 @@ func Default() Config {
 		NBDMountCommand:  "",
 		StateDir:         defaultStateDir(),
 		SunshinePort:     47990,
+
+		ClipboardSyncEnabled: true,
+		ClipboardMaxBytes:    200 * 1024 * 1024,
 	}
 }
 

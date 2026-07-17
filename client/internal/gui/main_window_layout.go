@@ -1516,6 +1516,17 @@ func (mw *MainWindow) showMouseModeMenu() {
 			}
 		},
 	})
+	items = append(items, view.StyledMenuItem{
+		Label:    i18n.Current.ClipboardSyncEnabled,
+		Selected: mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true),
+		OnTap: func() {
+			next := !mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true)
+			mw.app.Preferences().SetBool("clipboard_sync_enabled", next)
+			if mw.clipboardSync != nil {
+				mw.clipboardSync.SetEnabled(next)
+			}
+		},
+	})
 
 	view.ShowStyledMenu(mw.mouseIcon, items)
 }

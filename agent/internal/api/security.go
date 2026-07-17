@@ -164,6 +164,61 @@ func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, 
 	return true
 }
 
+// verifyHMACNoBody checks auth the same way verifyHMAC does, except the
+// signature covers METHOD+PATH+TIMESTAMP only (empty body), and the body is
+// never read here. Used for endpoints that stream large payloads (clipboard
+// blob PUT/GET) where buffering the whole body just to authenticate it would
+// defeat the point of streaming — the caller signs with an empty body to
+// match.
+func (m *SecurityMiddleware) verifyHMACNoBody(w http.ResponseWriter, r *http.Request) bool {
+	sig := r.Header.Get("X-Auth-Signature")
+	tsStr := r.Header.Get("X-Auth-Timestamp")
+
+	if sig == "" || tsStr == "" || len(m.masterKey) == 0 {
+		log.Printf("[security] unauthorized from %s: missing signature or master key not set", m.clientIP(r))
+		http.Error(w, "Unauthorized: signature required", http.StatusUnauthorized)
+		return false
+	}
+
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Unauthorized: invalid timestamp", http.StatusUnauthorized)
+		return false
+	}
+
+	now := time.Now().Unix()
+	if now-ts > 60 || ts-now > 60 {
+		log.Printf("[security] unauthorized from %s: timestamp expired (skew=%ds)", m.clientIP(r), now-ts)
+		http.Error(w, "Unauthorized: timestamp expired", http.StatusUnauthorized)
+		return false
+	}
+
+	expected := CalculateHMAC(r.Method, r.URL.RequestURI(), tsStr, "", m.masterKey)
+	if !hmac.Equal([]byte(sig), []byte(expected)) {
+		log.Printf("[security] unauthorized from %s: signature mismatch path=%s", m.clientIP(r), r.URL.Path)
+		http.Error(w, "Unauthorized: invalid signature", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+// LimitBlobTransfer wraps the clipboard blob PUT/GET endpoints: rate-limited
+// and HMAC-verified like the rest of the API, but via verifyHMACNoBody so a
+// multi-hundred-MB transfer is never buffered into memory just to
+// authenticate the request.
+func (m *SecurityMiddleware) LimitBlobTransfer(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !m.realtimeLimiter.get(m.clientIP(r)).Allow() {
+			writeRateLimitJSON(w)
+			return
+		}
+		if !m.verifyHMACNoBody(w, r) {
+			return
+		}
+		next(w, r)
+	}
+}
+
 // LimitRealtime wraps a handler with per-IP rate limiting + HMAC verification.
 // Use for high-frequency endpoints (mouse/keyboard WebSocket).
 func (m *SecurityMiddleware) LimitRealtime(next http.HandlerFunc) http.HandlerFunc {

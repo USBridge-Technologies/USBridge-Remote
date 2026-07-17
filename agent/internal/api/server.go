@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"usbridge_agent/internal/clipboard"
 )
 
 type Application interface {
@@ -46,14 +48,21 @@ type Application interface {
 	SetAudioSink(sink string) error
 	TailscaleStatus() *TailscaleStatusInfo
 	RegisterTailscale(ctx context.Context, authKey, hostname string) (*TailscaleStatusInfo, error)
+	// Clipboard returns the agent's clipboard sync manager, or nil if
+	// clipboard sync isn't available.
+	Clipboard() *clipboard.Manager
+	// ClipboardMaxBytes returns the configured per-transfer size cap for
+	// clipboard image/file payloads (0 means "use the built-in default").
+	ClipboardMaxBytes() int64
 }
 
 type Server struct {
-	app          Application
-	upgrader     websocket.Upgrader
-	masterKey    []byte
-	sunshinePort int
-	sec          *SecurityMiddleware
+	app            Application
+	upgrader       websocket.Upgrader
+	masterKey      []byte
+	sunshinePort   int
+	sec            *SecurityMiddleware
+	clipboardBlobs *clipboardBlobStore
 }
 
 type loggingResponseWriter struct {
@@ -70,11 +79,12 @@ func NewServerWithAuth(app Application, masterKey []byte, sunshinePort int) *Ser
 		sunshinePort = 47990
 	}
 	return &Server{
-		app:          app,
-		upgrader:     websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
-		masterKey:    masterKey,
-		sunshinePort: sunshinePort,
-		sec:          NewSecurityMiddleware(masterKey),
+		app:            app,
+		upgrader:       websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }},
+		masterKey:      masterKey,
+		sunshinePort:   sunshinePort,
+		sec:            NewSecurityMiddleware(masterKey),
+		clipboardBlobs: newClipboardBlobStore(),
 	}
 }
 
@@ -122,6 +132,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/keyboard", sec.LimitRealtime(s.keyboard))
 	mux.HandleFunc("/api/mouse", sec.LimitRealtime(s.mouse))
 	mux.HandleFunc("/api/mouse/ws", sec.LimitRealtime(s.mouseWS))
+	mux.HandleFunc("/api/clipboard/ws", sec.LimitRealtime(s.clipboardWS))
+	mux.HandleFunc("PUT /api/clipboard/blob/{id}", sec.LimitBlobTransfer(s.clipboardBlobPut))
+	mux.HandleFunc("GET /api/clipboard/blob/{id}", sec.LimitBlobTransfer(s.clipboardBlobGet))
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))

@@ -147,3 +147,19 @@ type ScreenSnapshot struct {
 	ImageBase64 string `json:"image_base64,omitempty"`
 	Timestamp   string `json:"timestamp"`
 }
+
+// ClipboardEvent is a clipboard-changed notification exchanged over
+// /api/clipboard/ws. For Kind=="text", Text carries the content inline
+// (small). For Kind=="image"/"file" this frame carries no bytes at all —
+// just BlobID + Size — the actual payload moves separately via
+// PUT/GET /api/clipboard/blob/{id} so a large transfer never blocks this
+// signaling channel behind it.
+type ClipboardEvent struct {
+	Kind     string `json:"kind"` // "text" | "image" | "file"
+	Text     string `json:"text,omitempty"`
+	Hash     string `json:"hash"`
+	Size     int64  `json:"size,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	BlobID   string `json:"blob_id,omitempty"`
+}

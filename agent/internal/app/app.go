@@ -23,6 +23,7 @@ import (
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/audio"
 	"usbridge_agent/internal/capture"
+	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/netutil"
@@ -45,16 +46,17 @@ type App struct {
 	cfgPath string
 	cfg     config.Config
 
-	state    *deviceState
-	input    *input.Controller
-	screen   *capture.Service
-	perms    *permissions.Service
-	ts       *tailscale.Service
-	sunshine *sunshine.Process
-	server   *http.Server
-	tsHTTP   *http.Server
-	handler  http.Handler
-	fyneApp  fyne.App
+	state     *deviceState
+	input     *input.Controller
+	screen    *capture.Service
+	perms     *permissions.Service
+	ts        *tailscale.Service
+	sunshine  *sunshine.Process
+	server    *http.Server
+	tsHTTP    *http.Server
+	handler   http.Handler
+	fyneApp   fyne.App
+	clipboard *clipboard.Manager
 }
 
 func New() (*App, error) {
@@ -84,15 +86,19 @@ func New() (*App, error) {
 	// both derive the HMAC/AES key via SHA256(rawMasterKeyBytes).
 	masterKeyBytes := []byte(cfg.MasterKey)
 
+	clipboardMgr := clipboard.NewManager(clipboard.NewBackend(nil), cfg.ClipboardMaxBytes)
+	clipboardMgr.SetEnabled(cfg.ClipboardSyncEnabled)
+
 	instance := &App{
-		cfgPath: cfgPath,
-		cfg:     cfg,
-		state:   &deviceState{startedAt: time.Now()},
-		input:   input.New(),
-		screen:  capture.New(),
-		perms:   permissions.New(),
-		ts:      tailscale.New(cfg.StateDir),
-		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
+		cfgPath:   cfgPath,
+		cfg:       cfg,
+		state:     &deviceState{startedAt: time.Now()},
+		input:     input.New(),
+		screen:    capture.New(),
+		perms:     permissions.New(),
+		ts:        tailscale.New(cfg.StateDir),
+		fyneApp:   fyneapp.NewWithID("io.usbridge.agent"),
+		clipboard: clipboardMgr,
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	instance.fyneApp.SetIcon(assets.AppIcon)
@@ -168,6 +174,9 @@ func (a *App) Run() error {
 
 	a.startSunshine()
 	go func() { _ = a.server.ListenAndServe() }()
+	if a.clipboard != nil {
+		go a.clipboard.Run(ctx)
+	}
 
 	a.initTailscale(ctx)
 	go a.handleShutdown(ctx, cancel)
@@ -580,6 +589,17 @@ func (a *App) Screen() interface {
 	Snapshot() (*api.ScreenSnapshot, error)
 } {
 	return a.screen
+}
+
+// Clipboard returns the agent's clipboard sync manager.
+func (a *App) Clipboard() *clipboard.Manager {
+	return a.clipboard
+}
+
+// ClipboardMaxBytes returns the configured per-transfer size cap for
+// clipboard image/file payloads.
+func (a *App) ClipboardMaxBytes() int64 {
+	return a.cfg.ClipboardMaxBytes
 }
 
 // VideoDevices reports real display metadata (native resolution, supported

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"usbridge-client/internal/api"
+	"usbridge-client/internal/clipboard"
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/i18n"
@@ -46,6 +47,7 @@ type MainWindow struct {
 	usbClient        *api.USBClient
 	frpService       *service.FRPService
 	tailscaleService *service.TailscaleService
+	clipboardSync    *api.ClipboardSync
 
 	// State
 	config                   *models.AppConfig
@@ -199,5 +201,25 @@ func (mw *MainWindow) attachUSBClient(client *api.USBClient) *api.USBClient {
 		}
 	}
 
+	mw.startClipboardSync(client)
+
 	return client
+}
+
+// startClipboardSync (re)starts clipboard sync against the newly attached
+// client. Called from attachUSBClient, the common chokepoint every
+// connection path (direct, tailscale, ...) routes through, so clipboard sync
+// tracks whichever client connection is actually active.
+func (mw *MainWindow) startClipboardSync(client *api.USBClient) {
+	if mw.clipboardSync != nil {
+		mw.clipboardSync.Stop()
+		mw.clipboardSync = nil
+	}
+	if mw.config == nil || !mw.config.ClipboardSyncEnabled || client == nil {
+		return
+	}
+	manager := clipboard.NewManager(clipboard.NewBackend(mw.window), mw.config.ClipboardMaxBytes)
+	manager.SetEnabled(mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true))
+	mw.clipboardSync = api.NewClipboardSync(client, manager, mw.config.ClipboardMaxBytes)
+	mw.clipboardSync.Start()
 }
