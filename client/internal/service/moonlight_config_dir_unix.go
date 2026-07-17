@@ -1,8 +1,10 @@
-//go:build linux || (darwin && !ios)
+//go:build (linux && !android) || (darwin && !ios)
 
-// Note: a plain "darwin" build tag also matches GOOS=ios (Go treats ios as a
-// specialization of darwin for build-tag purposes) — "!ios" is required here
-// or this collides with moonlight_ios.go's own initMoonlightConfigDir.
+// Note: plain "linux"/"darwin" build tags also match GOOS=android/ios
+// respectively (Go treats android/ios as specializations of linux/darwin for
+// build-tag purposes) — the "!android"/"!ios" exclusions are required here or
+// this collides with moonlight_android.go's/moonlight_ios.go's own
+// initMoonlightConfigDir.
 
 package service
 
