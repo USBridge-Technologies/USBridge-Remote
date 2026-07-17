@@ -190,14 +190,61 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          # hdiutil create intermittently fails with "Resource busy" on GH Actions
+          # hdiutil intermittently fails with "Resource busy" on GH Actions
           # runners — Spotlight/mdworker briefly locking the freshly-created file
-          # or a not-yet-released mount from the previous hdiutil create call in
-          # build_macos.sh. Transient; a short retry clears it.
+          # or a not-yet-released mount from the previous hdiutil call in
+          # build_macos.sh. Transient; a short retry clears it. Reuses the same
+          # drag-to-Applications Finder layout build_macos.sh already applied
+          # (agent/dist/macos/Applications symlink is already in place) so the
+          # final notarized artifact keeps it too, instead of falling back to a
+          # plain unlaid-out DMG. (create_dmg_with_drag_layout is defined
+          # identically in agent/scripts/build_macos.sh — duplicated here
+          # rather than sourced, since sourcing that script would re-run the
+          # entire build. Uses `osascript -e` per line, not a heredoc — a
+          # heredoc terminator here would inherit this step's YAML
+          # indentation and never match, hanging the job.)
+          create_dmg_with_drag_layout() {
+              local volname="$1" src_dir="$2" output_dmg="$3" app_name="$4"
+              local tmp_dmg mount_point
+              tmp_dmg="$(mktemp -u "${TMPDIR:-/tmp}/${volname}-XXXXXX").dmg"
+              mount_point="/Volumes/$volname"
+              if hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDRW -fs HFS+ "$tmp_dmg" >/dev/null 2>&1 \
+                  && hdiutil attach "$tmp_dmg" -mountpoint "$mount_point" -nobrowse -quiet 2>/dev/null; then
+                  osascript \
+                      -e "tell application \"Finder\"" \
+                      -e "tell disk \"$volname\"" \
+                      -e "open" \
+                      -e "set current view of container window to icon view" \
+                      -e "set toolbar visible of container window to false" \
+                      -e "set statusbar visible of container window to false" \
+                      -e "set the bounds of container window to {400, 100, 940, 420}" \
+                      -e "set viewOptions to the icon view options of container window" \
+                      -e "set arrangement of viewOptions to not arranged" \
+                      -e "set icon size of viewOptions to 96" \
+                      -e "set position of item \"$app_name\" of container window to {130, 150}" \
+                      -e "set position of item \"Applications\" of container window to {410, 150}" \
+                      -e "close" \
+                      -e "open" \
+                      -e "update without registering applications" \
+                      -e "delay 1" \
+                      -e "end tell" \
+                      -e "end tell" \
+                      >/dev/null 2>&1 || true
+                  hdiutil detach "$mount_point" -quiet 2>/dev/null || hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+                  rm -f "$output_dmg"
+                  if hdiutil convert "$tmp_dmg" -format UDZO -o "$output_dmg" >/dev/null 2>&1; then
+                      rm -f "$tmp_dmg"
+                      return 0
+                  fi
+              fi
+              hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+              rm -f "$tmp_dmg" "$output_dmg"
+              hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDZO "$output_dmg"
+          }
           for attempt in 1 2 3; do
-            hdiutil create -volname "USBridgeAgent" -srcfolder "agent/dist/macos" -ov -format UDZO "$ARCHIVE" && break
-            [ "$attempt" -eq 3 ] && { echo "::error::hdiutil create failed after 3 attempts"; exit 1; }
-            echo "::warning::hdiutil create failed (attempt $attempt/3) — retrying in 10s"
+            create_dmg_with_drag_layout "USBridgeAgent" "agent/dist/macos" "$ARCHIVE" "USBridgeAgent.app" && break
+            [ "$attempt" -eq 3 ] && { echo "::error::disk image rebuild failed after 3 attempts"; exit 1; }
+            echo "::warning::disk image rebuild failed (attempt $attempt/3) — retrying in 10s"
             sleep 10
           done
 
@@ -495,14 +542,61 @@ jobs:
         run: |
           set -euo pipefail
           rm -f "$ARCHIVE"
-          # hdiutil create intermittently fails with "Resource busy" on GH Actions
+          # hdiutil intermittently fails with "Resource busy" on GH Actions
           # runners — Spotlight/mdworker briefly locking the freshly-created file
-          # or a not-yet-released mount from the previous hdiutil create call in
-          # build_macos.sh. Transient; a short retry clears it.
+          # or a not-yet-released mount from the previous hdiutil call in
+          # build_macos.sh. Transient; a short retry clears it. Reuses the same
+          # drag-to-Applications Finder layout build_macos.sh already applied
+          # (client/dist/macos/Applications symlink is already in place) so the
+          # final notarized artifact keeps it too, instead of falling back to a
+          # plain unlaid-out DMG. (create_dmg_with_drag_layout is defined
+          # identically in client/scripts/build_macos.sh — duplicated here
+          # rather than sourced, since sourcing that script would re-run the
+          # entire build. Uses `osascript -e` per line, not a heredoc — a
+          # heredoc terminator here would inherit this step's YAML
+          # indentation and never match, hanging the job.)
+          create_dmg_with_drag_layout() {
+              local volname="$1" src_dir="$2" output_dmg="$3" app_name="$4"
+              local tmp_dmg mount_point
+              tmp_dmg="$(mktemp -u "${TMPDIR:-/tmp}/${volname}-XXXXXX").dmg"
+              mount_point="/Volumes/$volname"
+              if hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDRW -fs HFS+ "$tmp_dmg" >/dev/null 2>&1 \
+                  && hdiutil attach "$tmp_dmg" -mountpoint "$mount_point" -nobrowse -quiet 2>/dev/null; then
+                  osascript \
+                      -e "tell application \"Finder\"" \
+                      -e "tell disk \"$volname\"" \
+                      -e "open" \
+                      -e "set current view of container window to icon view" \
+                      -e "set toolbar visible of container window to false" \
+                      -e "set statusbar visible of container window to false" \
+                      -e "set the bounds of container window to {400, 100, 940, 420}" \
+                      -e "set viewOptions to the icon view options of container window" \
+                      -e "set arrangement of viewOptions to not arranged" \
+                      -e "set icon size of viewOptions to 96" \
+                      -e "set position of item \"$app_name\" of container window to {130, 150}" \
+                      -e "set position of item \"Applications\" of container window to {410, 150}" \
+                      -e "close" \
+                      -e "open" \
+                      -e "update without registering applications" \
+                      -e "delay 1" \
+                      -e "end tell" \
+                      -e "end tell" \
+                      >/dev/null 2>&1 || true
+                  hdiutil detach "$mount_point" -quiet 2>/dev/null || hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+                  rm -f "$output_dmg"
+                  if hdiutil convert "$tmp_dmg" -format UDZO -o "$output_dmg" >/dev/null 2>&1; then
+                      rm -f "$tmp_dmg"
+                      return 0
+                  fi
+              fi
+              hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+              rm -f "$tmp_dmg" "$output_dmg"
+              hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDZO "$output_dmg"
+          }
           for attempt in 1 2 3; do
-            hdiutil create -volname "USBridgeClient" -srcfolder "client/dist/macos" -ov -format UDZO "$ARCHIVE" && break
-            [ "$attempt" -eq 3 ] && { echo "::error::hdiutil create failed after 3 attempts"; exit 1; }
-            echo "::warning::hdiutil create failed (attempt $attempt/3) — retrying in 10s"
+            create_dmg_with_drag_layout "USBridgeClient" "client/dist/macos" "$ARCHIVE" "USBridgeClient.app" && break
+            [ "$attempt" -eq 3 ] && { echo "::error::disk image rebuild failed after 3 attempts"; exit 1; }
+            echo "::warning::disk image rebuild failed (attempt $attempt/3) — retrying in 10s"
             sleep 10
           done
 

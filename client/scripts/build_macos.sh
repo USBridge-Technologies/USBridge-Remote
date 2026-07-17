@@ -50,6 +50,54 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# create_dmg_with_drag_layout <volname> <src_dir> <output_dmg> <app_bundle_name>
+# Builds a DMG with the classic drag-to-Applications Finder window: app icon
+# on the left, an /Applications symlink on the right (src_dir must already
+# contain that symlink). Falls back to a plain hdiutil create if the
+# Finder/AppleScript step fails (e.g. no GUI session available) so a cosmetic
+# layout failure never breaks the build — the DMG still works either way.
+create_dmg_with_drag_layout() {
+    local volname="$1" src_dir="$2" output_dmg="$3" app_name="$4"
+    local tmp_dmg mount_point
+    tmp_dmg="$(mktemp -u "${TMPDIR:-/tmp}/${volname}-XXXXXX").dmg"
+    mount_point="/Volumes/$volname"
+
+    if hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDRW -fs HFS+ "$tmp_dmg" >/dev/null 2>&1 \
+        && hdiutil attach "$tmp_dmg" -mountpoint "$mount_point" -nobrowse -quiet 2>/dev/null; then
+        osascript \
+            -e "tell application \"Finder\"" \
+            -e "tell disk \"$volname\"" \
+            -e "open" \
+            -e "set current view of container window to icon view" \
+            -e "set toolbar visible of container window to false" \
+            -e "set statusbar visible of container window to false" \
+            -e "set the bounds of container window to {400, 100, 940, 420}" \
+            -e "set viewOptions to the icon view options of container window" \
+            -e "set arrangement of viewOptions to not arranged" \
+            -e "set icon size of viewOptions to 96" \
+            -e "set position of item \"$app_name\" of container window to {130, 150}" \
+            -e "set position of item \"Applications\" of container window to {410, 150}" \
+            -e "close" \
+            -e "open" \
+            -e "update without registering applications" \
+            -e "delay 1" \
+            -e "end tell" \
+            -e "end tell" \
+            >/dev/null 2>&1 || true
+        hdiutil detach "$mount_point" -quiet 2>/dev/null || hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+        rm -f "$output_dmg"
+        if hdiutil convert "$tmp_dmg" -format UDZO -o "$output_dmg" >/dev/null 2>&1; then
+            rm -f "$tmp_dmg"
+            return 0
+        fi
+    fi
+
+    echo -e "${YELLOW}Finder drag-layout step failed — falling back to a plain DMG${NC}" >&2
+    hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+    rm -f "$tmp_dmg" "$output_dmg"
+    hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDZO "$output_dmg"
+}
+
 # --------------------------------------------------------------------------
 # Dylib bundling — mirrors what build_windows.sh does for DLLs
 # --------------------------------------------------------------------------
@@ -482,44 +530,14 @@ echo -e "${GREEN}   ✅ App bundle: $DIST_DIR/$APP_BUNDLE_NAME${NC}"
 # 7. Dist extras
 [ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
 
-cat > "$DIST_DIR/README.txt" << 'README'
-USBridgeClient for macOS
-=========================
-
-Run:
-  Open USBridgeClient.app
-  (All Homebrew dependencies are bundled — Homebrew not required on the target machine.)
-
-Bundle layout:
-  Contents/MacOS/USBridgeClient    — main binary
-  Contents/MacOS/ffmpeg            — FFmpeg (H.264 RTP legacy decode)
-  Contents/MacOS/qemu-nbd          — QEMU NBD (VMDK/QCOW2/VDI image support)
-  Contents/MacOS/qemu-img          — QEMU image tool
-  Contents/MacOS/tailscale         — Tailscale CLI
-  Contents/Frameworks/             — bundled dylibs (opus, openssl, glib, gstreamer, ffmpeg libs, gnutls…) + GStreamer plugins
-
-Video modes:
-  Moonlight streaming — VideoToolbox (GPU hardware decode) + CoreAudio audio.
-    No external dependencies required.
-
-  Legacy RTP mode — requires GStreamer plugins.
-    If GStreamer was installed at build time its plugins are bundled above.
-    To activate: export GST_PLUGIN_PATH="$BUNDLE/Contents/Frameworks"
-    Or install GStreamer via Homebrew: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
-
-Requirements:
-  - macOS 10.15+
-
-Configuration:
-  config.yaml next to the .app, or ~/.config/usbridge-client/
-
-Application log:
-  ~/Library/Logs/USBridgeClient/app.log
-README
+# No README.txt in the DMG — a symlink to /Applications alongside the .app
+# gives the standard drag-to-install Finder window instead, which is more
+# discoverable than a text file nobody opens.
+ln -sf /Applications "$DIST_DIR/Applications"
 
 ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS-arm64-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").dmg"
 rm -f "$ARCHIVE"
-hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+create_dmg_with_drag_layout "USBridgeClient" "$DIST_DIR" "$ARCHIVE" "$APP_BUNDLE_NAME"
 
 # ── Notarization (optional) ───────────────────────────────────────────────────
 # Requires credentials stored in Keychain once via:
@@ -554,8 +572,7 @@ for i in d.get('issues',[]):
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
         xcrun stapler staple "$DIST_DIR/$APP_BUNDLE_NAME"
-        rm -f "$ARCHIVE"
-        hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+        create_dmg_with_drag_layout "USBridgeClient" "$DIST_DIR" "$ARCHIVE" "$APP_BUNDLE_NAME"
         echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
     else
         echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"
