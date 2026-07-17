@@ -160,7 +160,7 @@ cat > "$STORYBOARD_SRC" << 'STORYBOARD'
 STORYBOARD
 
 STORYBOARDC="$APP_BUNDLE/LaunchScreen.storyboardc"
-xcrun --sdk iphoneos ibtool --compile "$STORYBOARDC" "$STORYBOARD_SRC" 2>/dev/null \
+xcrun --sdk iphoneos ibtool --compile "$STORYBOARDC" "$STORYBOARD_SRC" 2>/dev/null
 rm -f "$STORYBOARD_SRC"
 
 # 4c. Re-sign with entitlements from embedded provisioning profile
