@@ -13,11 +13,11 @@ import (
 // which delivers frames via the same goVTFrame → vtFrameCallback path as macOS.
 func usesVideoToolbox() bool { return true }
 
-// startMoonlightGStreamer on Linux registers the libavcodec frame callback
+// startMoonlightVideoDecoder on Linux registers the libavcodec frame callback
 // and returns immediately — no subprocess is launched.
 // libavcodec (VA-API / NVDEC / software fallback) runs inside the moonlight-common-c
 // dr_submit callback thread, delivering RGBA frames directly via goVTFrame.
-func startMoonlightGStreamer(
+func startMoonlightVideoDecoder(
 	pipeRead *os.File,
 	width, height int,
 	stopCh <-chan struct{},

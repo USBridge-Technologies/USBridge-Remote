@@ -2,10 +2,10 @@
 
 package input
 
-// GetRuneKeyCodeWithModifiers возвращает HID код и модификаторы для символа (Desktop версия)
+// GetRuneKeyCodeWithModifiers returns the HID code and modifiers for a rune (Desktop version)
 func GetRuneKeyCodeWithModifiers(r rune) (int, int) {
-	// На десктопе используем стандартную карту (US-центричную),
-	// так как ввод идет с физической клавиатуры и важна 1-к-1 привязка к клавишам.
+	// On desktop we use the standard (US-centric) map,
+	// since input comes from a physical keyboard and a 1-to-1 mapping to keys matters.
 	if info, exists := CommonRuneMap[r]; exists {
 		return info.KeyCode, info.Modifiers
 	}

@@ -55,8 +55,8 @@ void gst_android_set_java_vm_and_context(JavaVM *vm, JNIEnv *env, jobject contex
     LOGI("gst_android: VM=%p, class_loader=%p", (void*)vm, (void*)g_gst_class_loader);
 }
 
-// ЭТИ ФУНКЦИИ ДОЛЖНЫ БЫТЬ ВИДИМЫ ДЛЯ dlsym(RTLD_DEFAULT)
-// В Android gomobile bind/build они будут экспортированы из libgojni.so
+// THESE FUNCTIONS MUST BE VISIBLE TO dlsym(RTLD_DEFAULT)
+// In Android gomobile bind/build they will be exported from libgojni.so
 
 JavaVM* gst_android_get_java_vm(void) {
     return g_gst_java_vm;

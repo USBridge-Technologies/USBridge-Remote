@@ -70,19 +70,19 @@ type LocalizedStrings struct {
 	ErrorMounting            string
 	ErrorNotConnected        string
 	ErrorFlashNotFound       string
-	FreeDeviceSlotRequired   string // Для подключения бэкапа/снапшота освободите одно устройство
+	FreeDeviceSlotRequired   string // "Free up one device slot to mount a backup/snapshot"
 	ErrorLoadingLocalDevices string
 	ErrorMountingFlashMsg    string
 	ErrorMountingSnapshotMsg string
 	ErrorStatusFormat        string
 
 	// Snapshot details dialog
-	SnapshotDetailsTitle   string // "Снапшот: %s"
-	SnapshotDetailsDate    string // "Дата: %s"
-	SnapshotDetailsSize    string // "Размер: %s"
-	SnapshotChangelogTitle string // "Изменения (changelog)"
-	SnapshotChangelogEmpty string // "Changelog отсутствует"
-	SnapshotTempFile       string // "временный файл"
+	SnapshotDetailsTitle   string // "Snapshot: %s"
+	SnapshotDetailsDate    string // "Date: %s"
+	SnapshotDetailsSize    string // "Size: %s"
+	SnapshotChangelogTitle string // "Changes (changelog)"
+	SnapshotChangelogEmpty string // "No changelog available"
+	SnapshotTempFile       string // "temporary file"
 	OK                     string // "OK"
 	Copy                   string // "Copy"
 
@@ -123,18 +123,18 @@ type LocalizedStrings struct {
 	RefreshButton                     string
 	LoadingFromCloud                  string
 	CloudFilesDetected                string
-	AndroidBuffering                  string // Android буферизует облачные файлы
-	PreparingToMount                  string // Подготовка к монтированию
+	AndroidBuffering                  string // "Android is buffering cloud files"
+	PreparingToMount                  string // "Preparing to mount"
 	MayTake30Seconds                  string
 	PleaseWait                        string
-	MaxDevicesReached                 string // Выбрано максимум 5 устройств
-	UnmountAllConfirm                 string // Отключить все подключенные устройства?
-	UnmountSelectedConfirm            string // Отключить выбранные устройства?
-	NoMountedDevices                  string // Нет подключенных устройств для размонтирования
-	SelectDevicesToMount              string // Выберите устройства для подключения
-	StoppingAllDevices                string // Остановка всех устройств...
-	StoppingNBDServers                string // Остановка NBD серверов...
-	AllDevicesUnmounted               string // Все устройства отключены
+	MaxDevicesReached                 string // "Maximum of 5 devices selected"
+	UnmountAllConfirm                 string // "Disconnect all mounted devices?"
+	UnmountSelectedConfirm            string // "Disconnect selected devices?"
+	NoMountedDevices                  string // "No mounted devices to unmount"
+	SelectDevicesToMount              string // "Select devices to mount"
+	StoppingAllDevices                string // "Stopping all devices..."
+	StoppingNBDServers                string // "Stopping NBD servers..."
+	AllDevicesUnmounted               string // "All devices disconnected"
 
 	// Status Messages
 	StatusConnected    string

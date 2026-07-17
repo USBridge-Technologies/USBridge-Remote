@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -165,8 +166,30 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		ts:                    ts,
 	}
 	if cm.ts == nil {
-		cm.ts = service.NewTailscaleService(config.TailscaleUserspace)
+		cm.ts = service.NewTailscaleService()
 	}
+	// Centralizes "open the login link in a browser": tsnet can produce an
+	// AuthURL from any first touch of the server (WarmUpPeer, WaitUntilReady,
+	// HTTPClient, TailnetIPv4 — not just the explicit Sign-In button), and
+	// only tsnet's own internal auto-login attempts it once per server
+	// lifetime. Keying the open off "a genuinely new URL appeared" — rather
+	// than each caller racing its own poll loop against Status() — is what
+	// makes the login reliably surface instead of sometimes silently timing
+	// out with nothing ever opened.
+	cm.ts.SetAuthURLHandler(func(authURL string) {
+		if runtime.GOOS == "android" {
+			// Android already opens it via the JNI opener inside setLatestAuthURL —
+			// calling openExternalLink too would pop a second browser/intent.
+			return
+		}
+		cm.setTailscaleStateAsync(
+			"Tailscale: auth URL received",
+			"Google: opening browser",
+			authURL,
+			"Sign In With Google",
+		)
+		cm.openExternalLink(authURL, "Tailscale login URL")
+	})
 
 	cm.qrScanner = NewQRScanner(
 		app,
@@ -231,8 +254,13 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 			"Sign In With Google",
 		)
 		logrus.Info("tailscale client ui: login button pressed")
-		authURL, err := cm.ts.StartLogin(context.Background())
-		if err != nil {
+		// The actual "open the login link in a browser" happens in the
+		// AuthURLHandler registered in NewConnectionManager, once tsnet
+		// actually produces a URL — not off this call's return value, since
+		// tsnet may have already silently started (and even completed) the
+		// interactive login via some earlier, unrelated call (WarmUpPeer,
+		// WaitUntilReady, ...) before this button was ever clicked.
+		if _, err := cm.ts.StartLogin(context.Background()); err != nil {
 			logrus.WithError(err).Error("tailscale client ui: StartLogin failed")
 			cm.setTailscaleStateAsync(
 				"Tailscale: login failed",
@@ -240,25 +268,6 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 				"Address: unavailable",
 				"Sign In With Google",
 			)
-			return
-		}
-		if strings.TrimSpace(authURL) != "" {
-			logrus.Infof("tailscale client ui: auth URL received %s", authURL)
-			cm.setTailscaleStateAsync(
-				"Tailscale: auth URL received",
-				"Google: opening browser",
-				authURL,
-				"Sign In With Google",
-			)
-			cm.openExternalLink(authURL, "Tailscale login URL")
-			cm.setTailscaleStateAsync(
-				"Tailscale: browser opened",
-				"Google: complete sign-in in browser",
-				"Address: waiting for tailnet assignment",
-				"Sign In With Google",
-			)
-		} else {
-			logrus.Info("tailscale client ui: StartLogin returned without auth URL")
 		}
 		cm.refreshTailscaleStatus()
 	}()

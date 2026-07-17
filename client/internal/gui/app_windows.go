@@ -9,9 +9,9 @@ import (
 	"usbridge-client/internal/gui/design"
 )
 
-// На Windows не используем app.NewWithID, чтобы не восстанавливать потенциально
-// "битые" сохранённые координаты окна ( off‑screen / невидимое окно ).
-// Но без ID не будут сохраняться настройки, поэтому мы обязаны использовать NewWithID.
+// On Windows we don't use app.NewWithID, to avoid restoring potentially
+// "broken" saved window coordinates (off-screen / invisible window).
+// But without an ID, settings won't be persisted, so we have to use NewWithID.
 func newFyneApp() fyne.App {
 	a := app.NewWithID("com.usbridge.client")
 	a.SetIcon(assets.AppIcon)

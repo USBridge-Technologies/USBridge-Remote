@@ -8,10 +8,10 @@ import (
 )
 
 func main() {
-	// Проверяем аргументы
+	// Check arguments
 	if len(os.Args) < 2 {
-		fmt.Println("Использование: go run generate_qr.go <host:token> [output.png]")
-		fmt.Println("Пример: go run generate_qr.go 192.168.88.244:supersecret qr_test.png")
+		fmt.Println("Usage: go run generate_qr.go <host:token> [output.png]")
+		fmt.Println("Example: go run generate_qr.go 192.168.88.244:supersecret qr_test.png")
 		os.Exit(1)
 	}
 
@@ -21,13 +21,13 @@ func main() {
 		output = os.Args[2]
 	}
 
-	// Генерируем QR-код
+	// Generate the QR code
 	err := qrcode.WriteFile(data, qrcode.Medium, 256, output)
 	if err != nil {
-		fmt.Printf("Ошибка генерации QR-кода: %v\n", err)
+		fmt.Printf("Error generating QR code: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ QR-код сохранен в файл: %s\n", output)
-	fmt.Printf("Данные: %s\n", data)
+	fmt.Printf("✓ QR code saved to file: %s\n", output)
+	fmt.Printf("Data: %s\n", data)
 }

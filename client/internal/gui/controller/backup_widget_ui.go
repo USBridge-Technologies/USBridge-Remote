@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// createInterface создает интерфейс виджета
+// createInterface creates the widget interface
 func (bw *BackupWidget) createInterface() {
 	bw.ui = view.NewBackupWidgetUI(
 		func() []fyne.CanvasObject {

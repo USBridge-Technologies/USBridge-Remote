@@ -24,7 +24,7 @@ type FRPService struct {
 	serverPort int
 	authToken  string
 	httpPort   int // local HTTP visitor port (client connects here)
-	videoPort  int // video_sudp proxy port (GStreamer udpsrc)
+	videoPort  int // video_sudp proxy port (Moonlight video UDP)
 }
 
 // NewFRPService creates a new FRP service instance
@@ -218,7 +218,7 @@ func (f *FRPService) IsRunning() bool {
 }
 
 // GetServerPorts returns the local ports exposed via FRP tunnel
-// videoPort — proxy port (GStreamer udpsrc listens here, Bridge visitor sends here)
+// videoPort — proxy port (Moonlight video UDP listens here, Bridge visitor sends here)
 func (f *FRPService) GetServerPorts() (httpPort, videoPort, nbdPort int) {
 	hp := 8080
 	if f.httpPort > 0 {

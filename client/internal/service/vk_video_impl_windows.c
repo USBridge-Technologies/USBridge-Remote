@@ -603,7 +603,7 @@ static int vk_ensure_tex(int w, int h) {
 
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ici.imageType   = VK_IMAGE_TYPE_2D;
-    ici.format      = VK_FORMAT_R8G8B8A8_UNORM; // GStreamer/Moonlight always RGBA
+    ici.format      = VK_FORMAT_R8G8B8A8_UNORM; // Moonlight decoder output is always RGBA
     ici.extent      = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
     ici.mipLevels   = 1;
     ici.arrayLayers = 1;

@@ -16,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FullscreenDialog диалог полноэкранного режима
+// FullscreenDialog is the fullscreen mode dialog
 type FullscreenDialog struct {
 	parent                 fyne.Window
 	videoWidget            *VideoWidget
@@ -39,42 +39,42 @@ type FullscreenDialog struct {
 	audioMuted             bool
 }
 
-// NewFullscreenDialog создает новый диалог полноэкранного режима
+// NewFullscreenDialog creates a new fullscreen mode dialog
 func NewFullscreenDialog(parent fyne.Window) *FullscreenDialog {
 	return &FullscreenDialog{parent: parent}
 }
 
-// SetVideoWidget устанавливает ссылку на видео виджет
+// SetVideoWidget sets the reference to the video widget
 func (fd *FullscreenDialog) SetVideoWidget(videoWidget *VideoWidget) {
 	fd.videoWidget = videoWidget
 }
 
-// SetVideoClient устанавливает ссылку на видео сервис
+// SetVideoClient sets the reference to the video service
 func (fd *FullscreenDialog) SetVideoClient(videoClient service.VideoClient) {
 	fd.videoClient = videoClient
 }
 
-// Show показывает полноэкранный режим сразу без диалога
+// Show displays fullscreen mode immediately without a dialog
 func (fd *FullscreenDialog) Show() {
 	if fd.isFullscreen {
 		fd.exitFullscreen()
 		return
 	}
 	if fd.videoWidget == nil {
-		logrus.Warn("⚠️ Видео виджет не установлен")
+		logrus.Warn("⚠️ Video widget is not set")
 		return
 	}
 	if !fd.videoWidget.IsStreaming() {
-		logrus.Warn("⚠️ Видео не запущено")
+		logrus.Warn("⚠️ Video is not running")
 		return
 	}
 
 	fd.enterFullscreen()
 }
 
-// enterFullscreen переводит вывод в fullscreen с минимизацией лишних UI-перерисовок.
+// enterFullscreen switches output into fullscreen while minimizing extra UI redraws.
 func (fd *FullscreenDialog) enterFullscreen() {
-	logrus.Info("🔍 Вход в полноэкранный режим с GStreamer")
+	logrus.Info("🔍 Entering fullscreen mode")
 
 	// On Windows, use a standalone VK fullscreen window instead of a Fyne window.
 	// This eliminates the Z-order race between the GLFW TOPMOST window and the VK
@@ -97,12 +97,12 @@ func (fd *FullscreenDialog) enterFullscreen() {
 				} else {
 					fd.isFullscreen = true
 					fd.nativeFullscreen = true
-					logrus.Info("✅ Активирован native fullscreen video sink с macOS input capture")
+					logrus.Info("✅ Activated native fullscreen video sink with macOS input capture")
 					return
 				}
 			}
 		} else {
-			logrus.Warnf("⚠️ Native fullscreen недоступен, используем Fyne fallback: %v", err)
+			logrus.Warnf("⚠️ Native fullscreen unavailable, using Fyne fallback: %v", err)
 		}
 	}
 	fd.isFullscreen = true
@@ -114,22 +114,22 @@ func (fd *FullscreenDialog) enterFullscreen() {
 			fd.videoWidget.handleVideoFrame(frame)
 			fd.updateVideoFrame(frame)
 		})
-		logrus.Info("✅ Fullscreen получает кадры без перерисовки скрытого основного canvas")
+		logrus.Info("✅ Fullscreen receives frames without redrawing the hidden main canvas")
 		if restartWindowPipeline {
 			go func() {
-				if err := fd.videoClient.ConnectToRTP(); err != nil {
-					logrus.Warnf("⚠️ Не удалось восстановить video pipeline для Fyne fullscreen fallback: %v", err)
+				if err := fd.videoClient.ConnectToMoonlight(); err != nil {
+					logrus.Warnf("⚠️ Failed to restore the video pipeline for the Fyne fullscreen fallback: %v", err)
 				}
 			}()
 		}
 	} else {
-		logrus.Warn("⚠️ GStreamer сервис не установлен")
+		logrus.Warn("⚠️ Video client/widget not set — cannot start fullscreen frame delivery")
 	}
 
-	logrus.Info("✅ Полноэкранный режим активирован")
+	logrus.Info("✅ Fullscreen mode activated")
 }
 
-// updateVideoFrame обновляет кадр видео в полноэкранном режиме
+// updateVideoFrame updates the video frame in fullscreen mode
 func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	if !fd.isFullscreen {
 		return
@@ -154,7 +154,7 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	}
 
 	if frameCount%30 == 0 {
-		logrus.Infof("🖼️ Полноэкранный режим: обновление кадра %d (native inactive → canvas)", frameCount)
+		logrus.Infof("🖼️ Fullscreen mode: updating frame %d (native inactive → canvas)", frameCount)
 	}
 
 	fyne.Do(func() {
@@ -179,9 +179,9 @@ func (fd *FullscreenDialog) updateVideoFrame(frame image.Image) {
 	})
 }
 
-// createFullscreenWindow создает полноэкранное окно с видео
+// createFullscreenWindow creates the fullscreen window with video
 func (fd *FullscreenDialog) createFullscreenWindow() {
-	logrus.Info("🔍 Создание полноэкранного окна с видео")
+	logrus.Info("🔍 Creating the fullscreen window with video")
 
 	fd.platformInitWindow()
 
@@ -194,9 +194,9 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	}
 	if currentFrame != nil {
 		bounds := currentFrame.Bounds()
-		logrus.Infof("✅ Установлен начальный кадр в полноэкранное окно: %dx%d", bounds.Dx(), bounds.Dy())
+		logrus.Infof("✅ Set the initial frame in the fullscreen window: %dx%d", bounds.Dx(), bounds.Dy())
 	} else {
-		logrus.Info("⚠️ Нет текущего кадра для fullscreen canvas (ожидается: native overlay или первый кадр)")
+		logrus.Info("⚠️ No current frame for the fullscreen canvas yet (expected: native overlay or first frame)")
 	}
 
 	fd.videoImage = canvas.NewImageFromImage(currentFrame)
@@ -206,16 +206,16 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	fd.videoWidget.platformRegisterGestureTarget()
 	fd.touchpadWrapper.SetKeyHandlers(fd.handleKeyDown, fd.handleKeyUp, fd.handleKeyPress, fd.handleRunePress)
 	fd.touchpadWrapper.SetWindowForFocus(fd.fullscreenWindow)
-	logrus.Info("✅ TouchpadWrapper создан для полноэкранного режима")
+	logrus.Info("✅ TouchpadWrapper created for fullscreen mode")
 
-	logrus.Info("⌨️ [DEBUG] Создание виртуальной клавиатуры для полноэкранного режима")
+	logrus.Info("⌨️ [DEBUG] Creating the virtual keyboard for fullscreen mode")
 	fd.virtualKeyboard = graphics.NewVirtualKeyboard(fd.fullscreenWindow, fd.handleVirtualKeyPress, fd.handleRunePress)
 	fd.platformSetupUI()
 
 	keyboardLayout := fd.virtualKeyboard.GetKeyboardLayout()
-	logrus.Infof("⌨️ [DEBUG] keyboardLayout получен: %v, MinSize: %v", keyboardLayout != nil, keyboardLayout.MinSize())
+	logrus.Infof("⌨️ [DEBUG] keyboardLayout obtained: %v, MinSize: %v", keyboardLayout != nil, keyboardLayout.MinSize())
 	keyboardLayout.Hide()
-	logrus.Infof("⌨️ [DEBUG] keyboardLayout.Hide() вызван, Visible: %v", keyboardLayout.Visible())
+	logrus.Infof("⌨️ [DEBUG] keyboardLayout.Hide() called, Visible: %v", keyboardLayout.Visible())
 	fd.ui = view.NewFullscreenUI(fd.videoImage, fd.touchpadWrapper, keyboardLayout)
 
 	fd.fullscreenWindow.SetContent(fd.ui.MainContainer)
@@ -229,7 +229,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	fd.fullscreenWindow.Canvas().SetOnTypedKey(func(event *fyne.KeyEvent) {
 		if event.Name == fyne.KeyEscape || string(event.Name) == "Back" {
-			logrus.Infof("🔍 Нажата клавиша выхода (%s) - выход из полноэкранного режима", event.Name)
+			logrus.Infof("🔍 Exit key pressed (%s) - exiting fullscreen mode", event.Name)
 			fd.exitFullscreen()
 			return
 		}
@@ -262,10 +262,10 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 				}
 				currentSize := fd.fullscreenWindow.Canvas().Size()
 				if currentSize != lastSize {
-					logrus.Infof("🔄 Обнаружено изменение размера экрана: %v -> %v", lastSize, currentSize)
-					// Если canvas вырос по высоте — экранная клавиатура закрылась.
-					// Сбрасываем IME-spacer на случай если onUnfocused не сработал
-					// (например, при закрытии keyboard кнопкой «назад»).
+					logrus.Infof("🔄 Screen size change detected: %v -> %v", lastSize, currentSize)
+					// If the canvas grew in height — the on-screen keyboard closed.
+					// Reset the IME spacer in case onUnfocused didn't fire
+					// (e.g. when the keyboard is closed via the "back" button).
 					if currentSize.Height > lastSize.Height && lastSize.Height > 0 && fd.virtualKeyboard != nil {
 						fd.virtualKeyboard.ResetIMEState()
 					}
@@ -276,10 +276,10 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		}
 	}()
 
-	logrus.Infof("⌨️ [DEBUG] Overlay контейнер создан")
-	logrus.Info("🔍 Полноэкранное окно создано")
+	logrus.Infof("⌨️ [DEBUG] Overlay container created")
+	logrus.Info("🔍 Fullscreen window created")
 	fd.platformShow()
-	logrus.Info("🔍 Полноэкранное окно показано")
+	logrus.Info("🔍 Fullscreen window shown")
 
 	// Switch Metal overlay to the fullscreen window (full-window coverage).
 	// Delay slightly so macOS finishes the fullscreen animation and the
@@ -312,7 +312,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 
 	if fd.videoImage != nil && fd.videoImage.Image != nil {
 		fd.videoImage.Refresh()
-		logrus.Info("🔍 Изображение обновлено после показа окна")
+		logrus.Info("🔍 Image updated after the window was shown")
 	}
 
 	go func() {
@@ -320,7 +320,7 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 		if !fd.isFullscreen || fd.fullscreenWindow == nil || fd.touchpadWrapper == nil {
 			return
 		}
-		// На десктопе и на мобилках фокус на touchpad нужен для перехвата кнопки "Назад" без первого тапа.
+		// On both desktop and mobile, focus on the touchpad is needed to intercept the "Back" button without a first tap.
 		logrus.Infof("[Fullscreen] 500ms goroutine: calling RequestFocus (nativeActive=%v, videoImage.Image nil=%v)",
 			fd.videoWidget != nil && fd.videoWidget.isNativeVideoActive(),
 			fd.videoImage == nil || fd.videoImage.Image == nil)
@@ -346,17 +346,17 @@ func (fd *FullscreenDialog) createFullscreenWindow() {
 	}()
 }
 
-// updateLayout обновляет позиции элементов в полноэкранном окне
+// updateLayout updates element positions in the fullscreen window
 func (fd *FullscreenDialog) updateLayout() {
 }
 
-// exitFullscreen выходит из полноэкранного режима
+// exitFullscreen exits fullscreen mode
 func (fd *FullscreenDialog) exitFullscreen() {
 	if !fd.isFullscreen {
 		return
 	}
 
-	logrus.Info("🔍 Выход из полноэкранного режима")
+	logrus.Info("🔍 Exiting fullscreen mode")
 
 	// Windows standalone VK fullscreen path.
 	if fd.windowlessVKFullscreen {
@@ -369,26 +369,26 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.nativeFullscreen = false
 		if fd.nativeCapture != nil {
 			if err := fd.nativeCapture.Stop(); err != nil {
-				logrus.Warnf("⚠️ Ошибка остановки native input capture: %v", err)
+				logrus.Warnf("⚠️ Error stopping native input capture: %v", err)
 			}
 			fd.nativeCapture = nil
 		}
 		if fd.videoClient != nil {
 			if err := fd.videoClient.StopNativeFullscreen(); err != nil {
-				logrus.Warnf("⚠️ Ошибка остановки native fullscreen: %v", err)
+				logrus.Warnf("⚠️ Error stopping native fullscreen: %v", err)
 			}
 			if fd.videoWidget != nil {
 				fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
 					fd.videoWidget.handleVideoFrame(frame)
 				})
 				go func() {
-					if err := fd.videoClient.ConnectToRTP(); err != nil {
-						logrus.Warnf("⚠️ Не удалось восстановить оконный video pipeline после native fullscreen: %v", err)
+					if err := fd.videoClient.ConnectToMoonlight(); err != nil {
+						logrus.Warnf("⚠️ Failed to restore the windowed video pipeline after native fullscreen: %v", err)
 					}
 				}()
 			}
 		}
-		logrus.Info("✅ Native fullscreen деактивирован")
+		logrus.Info("✅ Native fullscreen deactivated")
 		return
 	}
 
@@ -416,7 +416,7 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.videoClient.SetOnFrameReceived(func(frame image.Image) {
 			fd.videoWidget.handleVideoFrame(frame)
 		})
-		logrus.Info("✅ Восстановлена подписка на кадры для основного окна")
+		logrus.Info("✅ Frame subscription restored for the main window")
 		fd.videoWidget.ensureInputFocusAsync("exit-fullscreen", 150*time.Millisecond)
 	}
 	fd.lastFrame = nil
@@ -426,15 +426,15 @@ func (fd *FullscreenDialog) exitFullscreen() {
 		fd.videoWidget.metalVideoExitFullscreen()
 	}
 
-	logrus.Info("✅ Полноэкранный режим деактивирован")
+	logrus.Info("✅ Fullscreen mode deactivated")
 }
 
-// IsFullscreen возвращает состояние полноэкранного режима
+// IsFullscreen returns the fullscreen mode state
 func (fd *FullscreenDialog) IsFullscreen() bool {
 	return fd.isFullscreen
 }
 
-// toggleAudioMuted переключает состояние звука
+// toggleAudioMuted toggles the audio mute state
 func (fd *FullscreenDialog) toggleAudioMuted() {
 	fd.audioMuted = !fd.audioMuted
 	if ms, ok := fd.videoClient.(interface{ SetAudioMuted(bool) }); ok {
@@ -443,7 +443,7 @@ func (fd *FullscreenDialog) toggleAudioMuted() {
 	}
 }
 
-// SetAudioMuted устанавливает состояние звука
+// SetAudioMuted sets the audio mute state
 func (fd *FullscreenDialog) SetAudioMuted(muted bool) {
 	fd.audioMuted = muted
 }

@@ -22,35 +22,35 @@ const (
 )
 
 func main() {
-	// Парсим аргументы командной строки
+	// Parse command-line arguments
 	var (
-		logLevel    = flag.String("log-level", "info", "Уровень логирования (debug, info, warn, error)")
-		showVersion = flag.Bool("version", false, "Показать версию")
+		logLevel    = flag.String("log-level", "info", "Logging level (debug, info, warn, error)")
+		showVersion = flag.Bool("version", false, "Show version")
 	)
 	flag.Parse()
 
-	// Показываем версию если запрошено
+	// Show the version if requested
 	if *showVersion {
 		fmt.Printf("%s version %s\n", appName, version)
 		os.Exit(0)
 	}
 
-	// Настраиваем логирование для Android
+	// Set up logging for Android
 	setupAndroidLogging(*logLevel)
 
-	logrus.Infof("🚀 Запуск %s версии %s", appName, version)
+	logrus.Infof("🚀 Starting %s version %s", appName, version)
 
-	// Создаем конфигурацию по умолчанию для Android
+	// Create the default configuration for Android
 	config := models.DefaultConfig()
 
 	// Wire Android IME keyboard height into overlay popup layout so popups
 	// (e.g. connection editor dialog) reposition above the on-screen keyboard.
 	view.KeyboardHeight = graphics.GetLastIMEH
 
-	// Создаем главное окно
+	// Create the main window
 	mainWindow := gui.NewMainWindow(config)
 
-	// Настраиваем callback переключения сети
+	// Set up the network-change callback
 	platform.SetOnNetworkChangedCallback(func() {
 		logrus.Info("🌐 Network change notification received, refreshing services...")
 		mainWindow.RefreshNetworkState()
@@ -58,19 +58,19 @@ func main() {
 	// Mark app as ready only after GUI has started to prevent early JNI callbacks from crashing
 	mainWindow.SetOnReadyCallback(platform.SetAppReady)
 
-	logrus.Infof("📋 Конфигурация:")
-	logrus.Infof("  NBD порт: %d", config.NBDPort)
-	logrus.Infof("  Видео UDP bind: %s:%d", config.VideoBindHost, config.VideoUDPPort)
+	logrus.Infof("📋 Configuration:")
+	logrus.Infof("  NBD port: %d", config.NBDPort)
+	logrus.Infof("  Video UDP bind: %s:%d", config.VideoBindHost, config.VideoUDPPort)
 
-	// Проверяем доступ к SD карте
+	// Check access to the SD card
 	checkStorageAccess()
 
-	// Запускаем приложение
-	logrus.Info("🎨 Запуск графического интерфейса")
+	// Start the application
+	logrus.Info("🎨 Starting the GUI")
 	mainWindow.Show()
 }
 
-// checkStorageAccess проверяет доступ к внешнему хранилищу
+// checkStorageAccess checks access to external storage
 func checkStorageAccess() {
 	testPaths := []string{
 		"/storage/emulated/0",
@@ -84,34 +84,34 @@ func checkStorageAccess() {
 		}
 
 		if _, err := os.Stat(path); err == nil {
-			logrus.Infof("✅ Доступ к хранилищу: %s", path)
+			logrus.Infof("✅ Storage access: %s", path)
 			return
 		} else {
-			logrus.Warnf("⚠️ Нет доступа к %s: %v", path, err)
+			logrus.Warnf("⚠️ No access to %s: %v", path, err)
 		}
 	}
 
-	logrus.Warn("⚠️ Внимание: Нет доступа к внешнему хранилищу")
-	logrus.Warn("⚠️ Дайте разрешение в Настройки → Приложения → USBridge Client → Разрешения → Файлы и медиа")
+	logrus.Warn("⚠️ Warning: No access to external storage")
+	logrus.Warn("⚠️ Grant permission in Settings → Apps → USBridge Client → Permissions → Files and media")
 }
 
-// setupAndroidLogging настраивает логирование для Android
+// setupAndroidLogging sets up logging for Android
 func setupAndroidLogging(level string) {
-	// Устанавливаем уровень логирования
+	// Set the logging level
 	logLevel, err := logrus.ParseLevel(level)
 	if err != nil {
-		logrus.Warnf("Неверный уровень логирования %s, используем info", level)
+		logrus.Warnf("Invalid logging level %s, using info", level)
 		logLevel = logrus.InfoLevel
 	}
 	logrus.SetLevel(logLevel)
 
-	// Настраиваем формат логов
+	// Configure the log format
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "15:04:05",
 	})
 
-	// Перенаправляем logrus в Android logcat (stdout на Android может не показываться в adb logcat)
+	// Redirect logrus to Android logcat (stdout may not show up in adb logcat on Android)
 	platform.SetupLogrusForAndroid()
-	logrus.Info("📝 Логи записываются в Android logcat (adb logcat -s USBridge)")
+	logrus.Info("📝 Logs are written to Android logcat (adb logcat -s USBridge)")
 }

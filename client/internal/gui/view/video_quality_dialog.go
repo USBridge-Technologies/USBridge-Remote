@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// VideoQualityDialog диалог настроек качества видео
+// VideoQualityDialog is a dialog for video quality settings
 type VideoQualityDialog struct {
 	parent fyne.Window
 
@@ -26,12 +26,12 @@ type VideoQualityDialog struct {
 	onApply func(width, height, fps, quality, bitrate int)
 }
 
-// NewVideoQualityDialog создает новый диалог настроек качества
+// NewVideoQualityDialog creates a new quality settings dialog
 func NewVideoQualityDialog(parent fyne.Window) *VideoQualityDialog {
 	return &VideoQualityDialog{parent: parent}
 }
 
-// Show показывает диалог настроек качества
+// Show shows the quality settings dialog
 func (vqd *VideoQualityDialog) Show(currentWidth, currentHeight, currentFPS, currentQuality, currentBitrate int, onApply func(int, int, int, int, int)) {
 	vqd.onApply = onApply
 
@@ -93,7 +93,7 @@ func (vqd *VideoQualityDialog) Show(currentWidth, currentHeight, currentFPS, cur
 	dialog.ShowCustom(i18n.Current.VideoQualitySettings, i18n.Current.Close, settingsContainer, vqd.parent)
 }
 
-// handleApply обрабатывает применение настроек
+// handleApply handles applying the settings
 func (vqd *VideoQualityDialog) handleApply() {
 	width, err := strconv.Atoi(vqd.widthEntry.Text)
 	if err != nil {
@@ -150,7 +150,7 @@ func (vqd *VideoQualityDialog) handleApply() {
 		vqd.onApply(width, height, fps, quality, bitrate)
 	}
 
-	logrus.Infof("✅ Настройки качества видео применены: %dx%d, %d FPS, качество %d%%, битрейт %d kbps",
+	logrus.Infof("✅ Video quality settings applied: %dx%d, %d FPS, quality %d%%, bitrate %d kbps",
 		width, height, fps, quality, bitrate)
 
 	ShowInfoDialog(i18n.Current.Success, i18n.Current.VideoSettingsApplied, vqd.parent)

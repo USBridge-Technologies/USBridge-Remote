@@ -10,8 +10,8 @@ import (
 	"usbridge-client/internal/gui/design"
 )
 
-// newFyneApp создаёт приложение Fyne с постоянным ID ( mobile ),
-// чтобы работали предпочтения и прочее.
+// newFyneApp creates a Fyne app with a persistent ID (mobile),
+// so that preferences and other things work.
 //
 // On mobile, the platform driver may already have registered fyne.CurrentApp()
 // by the time this runs (e.g. on app resume), so reuse it instead of creating

@@ -203,9 +203,9 @@ func moonlightVKCode(event *fyne.KeyEvent) int16 {
 	return input.GetVKCodeFromScanCode(event.Physical.ScanCode)
 }
 
-// handlePhysicalKeyPress обрабатывает TypedKey физической клавиатуры.
-// В Moonlight-only режиме клавиши идут через handlePhysicalKeyDown/Up.
-// TypedKey подавляется чтобы избежать turbo (OS repeat) — исключение: KeyF11 игнорируем.
+// handlePhysicalKeyPress handles TypedKey from the physical keyboard.
+// In Moonlight-only mode keys go through handlePhysicalKeyDown/Up.
+// TypedKey is suppressed to avoid turbo (OS repeat) — exception: we ignore KeyF11.
 func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 	if event.Name == fyne.KeyF11 {
 		return
@@ -215,7 +215,7 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 	}
 }
 
-// handlePhysicalRunePress — rune events не используются в Moonlight-only режиме.
+// handlePhysicalRunePress — rune events are not used in Moonlight-only mode.
 func (vw *VideoWidget) handlePhysicalRunePress(_ rune) {}
 
 // hidKeyToVK converts a USB HID Usage Page 0x07 keycode (used by the virtual
@@ -313,7 +313,7 @@ func hidKeyToVK(hid int) int16 {
 	}
 }
 
-// handleVirtualKeyPress обрабатывает нажатия виртуальной клавиатуры через Moonlight.
+// handleVirtualKeyPress handles virtual keyboard key presses via Moonlight.
 // Virtual keyboard buttons use USB HID keycodes; convert to Windows VK codes first.
 // A 200 ms per-key cooldown prevents turbo from OS key-repeat or widget duplicate events.
 // The server already adds its own 50 ms hold delay for BIOS compatibility, so we send
@@ -338,7 +338,7 @@ func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 	mi.SendMoonlightKey(vk, service.LiKeyActionUp, moonlightMods)
 }
 
-// startDesktopMousePolling запускает горутину polling для плавного управления мышью.
+// startDesktopMousePolling starts the polling goroutine for smooth mouse control.
 func (vw *VideoWidget) startDesktopMousePolling() {
 	vw.stopDesktopMousePolling()
 	vw.mousePollingQuit = make(chan bool)
@@ -347,7 +347,7 @@ func (vw *VideoWidget) startDesktopMousePolling() {
 	go vw.processDesktopMousePolling()
 }
 
-// stopDesktopMousePolling останавливает горутину polling.
+// stopDesktopMousePolling stops the polling goroutine.
 func (vw *VideoWidget) stopDesktopMousePolling() {
 	if vw.mousePollingQuit != nil {
 		close(vw.mousePollingQuit)
@@ -356,7 +356,7 @@ func (vw *VideoWidget) stopDesktopMousePolling() {
 	}
 }
 
-// processDesktopMousePolling обрабатывает перемещение мыши с фиксированной частотой.
+// processDesktopMousePolling handles mouse movement at a fixed rate.
 func (vw *VideoWidget) processDesktopMousePolling() {
 	ticker := time.NewTicker(16 * time.Millisecond)
 	defer ticker.Stop()
@@ -371,7 +371,7 @@ func (vw *VideoWidget) processDesktopMousePolling() {
 	}
 }
 
-// processMouseMovement обрабатывает текущее перемещение мыши.
+// processMouseMovement handles the current mouse movement.
 func (vw *VideoWidget) processMouseMovement() {
 	if !vw.isMouseConnected || vw.dragButton == 0 {
 		return
@@ -499,7 +499,7 @@ func runeToMoonlightVK(r rune) (vk int16, mods int8) {
 		return 0xBF, shiftMod
 	}
 
-	// Russian Cyrillic ЙЦУКЕН layout → physical QWERTY key positions.
+	// Russian Cyrillic JCUKEN layout → physical QWERTY key positions.
 	// Each mapping sends the VK code for the physical key that produces this
 	// Cyrillic character when the target PC is in Russian keyboard layout.
 	// Lowercase → no Shift; uppercase → Shift.
@@ -605,7 +605,7 @@ func (vw *VideoWidget) UsesRelativeMouseInput() bool {
 	return vw.GetMouseInputMode() == mouseModeTouchPad
 }
 
-// GetMouseInputMode возвращает тип манипулятора.
+// GetMouseInputMode returns the pointer device type.
 func (vw *VideoWidget) GetMouseInputMode() string {
 	if vw.mouseInputMode == "" {
 		vw.mouseInputMode = defaultMouseMode()
@@ -613,10 +613,11 @@ func (vw *VideoWidget) GetMouseInputMode() string {
 	return normalizeMouseMode(vw.mouseInputMode)
 }
 
-// SetMouseInputMode задаёт тип манипулятора.
+// SetMouseInputMode sets the pointer device type.
 func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
+	vw.SetShowMouseCursor(vw.GetShowMouseCursor())
 	vw.resetRelativeMoveAccumulator()
 	if isVirtualCursorLikeMode(mode) {
 		// Centre the virtual cursor and set cursor scale for the current display.
@@ -638,25 +639,18 @@ func (vw *VideoWidget) setObservedMouseMode(mode string) {
 	vw.logMouseModeState("observed-updated")
 }
 
-// GetShowMouseCursor возвращает флаг отображения курсора в захваченном видео.
+// GetShowMouseCursor returns the flag for showing the cursor in the captured video.
 func (vw *VideoWidget) GetShowMouseCursor() bool {
 	return vw.showMouseCursor
 }
 
-// SetShowMouseCursor задаёт флаг отображения курсора в захваченном видео.
-// Если видео активно, перезапускает поток, чтобы сервер применил новое значение ShowMouse.
+// SetShowMouseCursor sets the flag for showing the cursor in the captured video.
 func (vw *VideoWidget) SetShowMouseCursor(show bool) {
 	if vw.showMouseCursor == show {
 		return
 	}
 	vw.showMouseCursor = show
 	vw.refreshCursorOverlay()
-	if vw.isStreaming {
-		vw.videoOpMu.Lock()
-		vw.videoRestartPending = true
-		vw.videoOpMu.Unlock()
-		vw.scheduleVideoReconcile("show-mouse-cursor-changed")
-	}
 }
 
 func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {
@@ -757,7 +751,7 @@ func (vw *VideoWidget) logMouseModeState(reason string) {
 	logrus.Infof("🖱️ Pointer mode state (%s): desired=%s observed=%s", reason, desired, observed)
 }
 
-// SendAbsolutePosition отправляет абсолютную позицию с небольшим дебаунсом.
+// SendAbsolutePosition sends the absolute position with a small debounce.
 func (vw *VideoWidget) SendAbsolutePosition(x, y int, force bool) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
@@ -824,7 +818,7 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 	}
 }
 
-// SendAbsoluteEvent отправляет атомарное абсолютное событие.
+// SendAbsoluteEvent sends an atomic absolute event.
 func (vw *VideoWidget) SendAbsoluteEvent(x, y int, scroll int, force bool) {
 	vw.absSendMu.Lock()
 	defer vw.absSendMu.Unlock()
@@ -908,7 +902,7 @@ func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 	}
 }
 
-// CancelTouchDownDelay отменяет отложенную отправку touch(down).
+// CancelTouchDownDelay cancels the deferred touch(down) send.
 func (vw *VideoWidget) CancelTouchDownDelay() {
 	vw.touchDownDelayMu.Lock()
 	defer vw.touchDownDelayMu.Unlock()
@@ -918,7 +912,7 @@ func (vw *VideoWidget) CancelTouchDownDelay() {
 	}
 }
 
-// StartTouchDownDelay планирует отправку touch(down).
+// StartTouchDownDelay schedules the touch(down) send.
 func (vw *VideoWidget) StartTouchDownDelay(x, y int, button int) {
 	vw.touchDownDelayMu.Lock()
 	if vw.touchDownDelayTimer != nil {
@@ -942,7 +936,7 @@ func (vw *VideoWidget) StartTouchDownDelay(x, y int, button int) {
 	vw.touchDownDelayMu.Unlock()
 }
 
-// TryRecordTouchDown записывает «отправляем touch(down)».
+// TryRecordTouchDown records "sending touch(down)".
 func (vw *VideoWidget) TryRecordTouchDown(x, y int) bool {
 	const samePointRadius = 5
 	vw.touchDedupMu.Lock()
@@ -964,7 +958,7 @@ func (vw *VideoWidget) TryRecordTouchDown(x, y int) bool {
 	return true
 }
 
-// UpdateTouchpadAndContentRect обновляет размер области ввода и прямоугольник видео.
+// UpdateTouchpadAndContentRect updates the input area size and the video rectangle.
 func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Image) {
 	// While standalone VK fullscreen is active, the underlying Fyne video widget
 	// still exists (hidden behind the VK overlay) and keeps re-triggering this via
@@ -1026,7 +1020,7 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 		vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH)
 }
 
-// PositionToAbsolute переводит координаты из области ввода в абсолютные координаты
+// PositionToAbsolute converts coordinates from the input area to absolute coordinates
 // Windows-friendly absolute pointer descriptor (0..32767).
 func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
@@ -1040,8 +1034,8 @@ func (vw *VideoWidget) PositionToAbsolute(px, py float32) (x, y int) {
 	rectW := vw.contentRectW
 	rectH := vw.contentRectH
 
-	// Применяем смещение по обнаруженным letterbox/pillarbox рамкам внутри кадра.
-	// Только симметричные рамки (±2px) применяются, что защищает от ложных детектов.
+	// Apply the offset from the detected letterbox/pillarbox bars inside the frame.
+	// Only symmetric bars (±2px) are applied, which guards against false detections.
 	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
 	if rectW > 0 && rectH > 0 && frameW > 0 && frameH > 0 {
 		rectX += rectW * frameX
@@ -1149,9 +1143,9 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 	top := detectDarkInset(frame, bounds, false, true)
 	bottom := detectDarkInset(frame, bounds, false, false)
 
-	// Разрешаем crop только если рамка симметрична (±20px) и не слишком мала
-	// (шум) и не занимает больше 48% стороны (защита от полностью тёмного кадра).
-	// Реальные letterbox/pillarbox рамки — обычно 5–45% стороны и могут быть немного асимметричны.
+	// Only allow the crop if the bar is symmetric (±20px) and not too small
+	// (noise) and does not take up more than 48% of the side (guards against a fully dark frame).
+	// Real letterbox/pillarbox bars are usually 5-45% of the side and can be slightly asymmetric.
 	const minMeaningfulCropInsetPx = 2
 	const maxCropAsymmetryPx = 5
 	maxHInset := frameW * 12 / 25 // 48%
@@ -1280,7 +1274,7 @@ func (vw *VideoWidget) recalculateViewport() {
 		return
 	}
 
-	// Вычисляем доступную высоту для видео (за вычетом кнопок снизу)
+	// Compute the available height for the video (minus the buttons at the bottom)
 	availableH := vw.touchpadSizeH - vw.bottomInset
 	if availableH < 0 {
 		availableH = 0
@@ -1300,26 +1294,26 @@ func (vw *VideoWidget) recalculateViewport() {
 	contentW := baseW * scale
 	contentH := baseH * scale
 
-	// Центрируем горизонтально относительно всего экрана
+	// Center horizontally relative to the whole screen
 	contentX := (vw.touchpadSizeW - contentW) / 2
 
-	// Логика вертикального позиционирования:
+	// Vertical positioning logic:
 	var contentY float32
 	if contentH > availableH {
-		// Видео больше доступной области.
-		// Базовая позиция: низ видео совпадает с низом доступной области.
+		// Video is larger than the available area.
+		// Base position: bottom of the video aligns with the bottom of the available area.
 		contentY = availableH - contentH
 
-		// Разрешаем перетаскивание в обоих направлениях:
-		//   panOffsetY < 0: видео идёт вверх (зазор между видео и клавиатурой)
-		//   panOffsetY > 0: видео идёт вниз (верхняя часть видео входит в поле зрения)
-		// Максимум вниз: верх видео на уровне верха экрана (contentY = 0)
-		// Максимум вверх: низ видео на уровне низа доступной области (panOffsetY = 0)
+		// Allow dragging in both directions:
+		//   panOffsetY < 0: video moves up (gap between video and keyboard)
+		//   panOffsetY > 0: video moves down (top of the video comes into view)
+		// Max down: top of the video at the top of the screen (contentY = 0)
+		// Max up: bottom of the video at the bottom of the available area (panOffsetY = 0)
 		maxPanY := contentH - availableH
 		vw.panOffsetY = clampFloat(vw.panOffsetY, 0, maxPanY)
 		contentY += vw.panOffsetY
 	} else {
-		// Видео меньше доступной области - центрируем его в ней
+		// Video is smaller than the available area - center it within it
 		contentY = (availableH - contentH) / 2
 		vw.panOffsetY = 0
 	}

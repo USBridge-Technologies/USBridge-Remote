@@ -12,11 +12,11 @@ import (
 // usesVideoToolbox reports true — iOS uses VideoToolbox for H.264 decode.
 func usesVideoToolbox() bool { return true }
 
-// startMoonlightGStreamer on iOS registers the VideoToolbox frame callback.
+// startMoonlightVideoDecoder on iOS registers the VideoToolbox frame callback.
 // VT decode runs inside platform_dr_submit (moonlight_cgo_apple.go):
 //
 //	dr_submit → VTDecompressionSession → vt_callback → goVTFrame → vtFrameCallback
-func startMoonlightGStreamer(
+func startMoonlightVideoDecoder(
 	pipeRead *os.File,
 	width, height int,
 	stopCh <-chan struct{},

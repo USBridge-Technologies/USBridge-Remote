@@ -9,7 +9,7 @@ import (
 
 // VideoClient defines the common interface for video receiving and rendering services.
 type VideoClient interface {
-	ConnectToRTP() error
+	ConnectToMoonlight() error
 	ConnectToUDPViaPipe(pipeReader *os.File) error
 	Disconnect() error
 	Reconnect() error

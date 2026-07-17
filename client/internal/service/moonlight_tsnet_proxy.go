@@ -1,14 +1,13 @@
-//go:build android || windows || ios
-
 package service
 
 // moonlightTSNetProxy enables Moonlight streaming over userspace tsnet (DERP-only
 // internet paths) by proxying all C moonlight-common-c connections through Go's
-// tsnet stack.
+// tsnet stack. Tailscale runs in userspace (tsnet) mode on every platform, so
+// this proxy is used universally.
 //
-// Problem: moonlight-common-c uses kernel BSD sockets that can't route to Tailscale
-// 100.x IPs when tsnet is in userspace mode (no kernel tun interface on Android or
-// when system Tailscale is not installed on Windows).
+// Problem: moonlight-common-c uses kernel BSD sockets that can't route to
+// Tailscale 100.x IPs — only Go's tsnet stack (an in-process userspace
+// WireGuard/netstack, no kernel TUN) can reach them.
 //
 // Architecture:
 //

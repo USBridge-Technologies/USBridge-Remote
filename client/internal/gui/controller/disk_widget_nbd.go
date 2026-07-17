@@ -15,11 +15,11 @@ import (
 // getLocalIP determines the local IP used to reach the USBridge device.
 func (dw *DiskWidget) getLocalIP() (string, error) {
 	if dw.usbClient == nil {
-		return "", fmt.Errorf("USB клиент не инициализирован")
+		return "", fmt.Errorf("USB client not initialized")
 	}
 	baseURL := dw.usbClient.GetBaseURL()
 	if baseURL == "" {
-		return "", fmt.Errorf("не удается получить базовый URL USB клиента")
+		return "", fmt.Errorf("unable to get the USB client's base URL")
 	}
 	host := strings.TrimPrefix(baseURL, "http://")
 	if idx := strings.Index(host, ":"); idx != -1 {
@@ -27,7 +27,7 @@ func (dw *DiskWidget) getLocalIP() (string, error) {
 	}
 	conn, err := net.Dial("udp", host+":8080")
 	if err != nil {
-		return "", fmt.Errorf("не удается определить локальный IP: %v", err)
+		return "", fmt.Errorf("unable to determine local IP: %v", err)
 	}
 	defer conn.Close()
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
@@ -39,14 +39,14 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 	const basePort = 10809
 	const maxAttempts = 100
 
-	logrus.Infof("🔍 Поиск свободного порта начиная с %d...", basePort)
+	logrus.Infof("🔍 Searching for a free port starting from %d...", basePort)
 	for i := 0; i < maxAttempts; i++ {
 		port := basePort + i
 		portInUse := false
 		dw.nbdServersMu.Lock()
 		for exportName, server := range dw.nbdServers {
 			if server.IsRunning() && server.GetServerStatus()["server_port"] == port {
-				logrus.Debugf("🔍 Порт %d занят NBD-сервером %s", port, exportName)
+				logrus.Debugf("🔍 Port %d is in use by NBD server %s", port, exportName)
 				portInUse = true
 				break
 			}
@@ -55,12 +55,12 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 		if !portInUse {
 			if listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
 				listener.Close()
-				logrus.Infof("✅ Найден свободный порт: %d", port)
+				logrus.Infof("✅ Found free port: %d", port)
 				return port, nil
 			}
 		}
 	}
-	return 0, fmt.Errorf("не удалось найти свободный порт в диапазоне %d-%d", basePort, basePort+maxAttempts-1)
+	return 0, fmt.Errorf("failed to find a free port in range %d-%d", basePort, basePort+maxAttempts-1)
 }
 
 // getDeviceIP returns the IP of the usbridge device we are connected to.
@@ -105,7 +105,7 @@ func (dw *DiskWidget) resolveNBDBindHost() string {
 // startNBDServer starts an NBD server for the given disk file.
 // VMDK/QCOW2/VDI on desktop use qemu-nbd; ISO/raw/img use the go-nbd path.
 func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, exportName string, readOnly bool) (service.NBDRunner, error) {
-	logrus.Infof("🔧 [NBD] Создание: файл=%q порт=%d export=%s ro=%v", diskInfo.Name, port, exportName, readOnly)
+	logrus.Infof("🔧 [NBD] Creating: file=%q port=%d export=%s ro=%v", diskInfo.Name, port, exportName, readOnly)
 
 	useQemuNbd := runtime.GOOS != "android" &&
 		!strings.HasPrefix(diskInfo.Path, "content://") &&
@@ -118,12 +118,12 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 			runner.SetAllowedIP(deviceIP)
 		}
 		if err := runner.EnsureQemuNbdForExport(); err != nil {
-			return nil, fmt.Errorf("образы VMDK/QCOW2/VDI требуют qemu-nbd: %w", err)
+			return nil, fmt.Errorf("VMDK/QCOW2/VDI images require qemu-nbd: %w", err)
 		}
 		if err := runner.Start(port); err != nil {
-			return nil, fmt.Errorf("образы VMDK/QCOW2/VDI требуют qemu-nbd (установите QEMU): %w", err)
+			return nil, fmt.Errorf("VMDK/QCOW2/VDI images require qemu-nbd (install QEMU): %w", err)
 		}
-		logrus.Infof("✅ [NBD-QEMU] запущен на %s:%d для %s", bindHost, port, diskInfo.Name)
+		logrus.Infof("✅ [NBD-QEMU] started on %s:%d for %s", bindHost, port, diskInfo.Name)
 		return runner, nil
 	}
 
@@ -133,7 +133,7 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 		nbdServer.SetAllowedIP(deviceIP)
 	}
 	if err := nbdServer.Start(port); err != nil {
-		return nil, fmt.Errorf("ошибка запуска NBD сервера: %v", err)
+		return nil, fmt.Errorf("error starting NBD server: %v", err)
 	}
 	export := &models.DiskExport{
 		Name:        diskInfo.Name,
@@ -146,8 +146,8 @@ func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, export
 	}
 	if err := nbdServer.AddExport(export); err != nil {
 		nbdServer.Stop()
-		return nil, fmt.Errorf("ошибка добавления NBD экспорта: %v", err)
+		return nil, fmt.Errorf("error adding NBD export: %v", err)
 	}
-	logrus.Infof("✅ [NBD] сервер для %q на %s:%d", diskInfo.Name, bindHost, port)
+	logrus.Infof("✅ [NBD] server for %q on %s:%d", diskInfo.Name, bindHost, port)
 	return nbdServer, nil
 }

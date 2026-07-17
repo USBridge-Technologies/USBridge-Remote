@@ -13,45 +13,45 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Использование: go run test_qr_scanner.go <qr_image.png>")
-		fmt.Println("Пример: go run test_qr_scanner.go /tmp/test_qr.png")
+		fmt.Println("Usage: go run test_qr_scanner.go <qr_image.png>")
+		fmt.Println("Example: go run test_qr_scanner.go /tmp/test_qr.png")
 		os.Exit(1)
 	}
 
 	imagePath := os.Args[1]
 
-	// Открываем файл
+	// Open the file
 	file, err := os.Open(imagePath)
 	if err != nil {
-		fmt.Printf("Ошибка открытия файла: %v\n", err)
+		fmt.Printf("Error opening file: %v\n", err)
 		os.Exit(1)
 	}
 	defer file.Close()
 
-	// Декодируем изображение
+	// Decode the image
 	img, _, err := image.Decode(file)
 	if err != nil {
-		fmt.Printf("Ошибка декодирования изображения: %v\n", err)
+		fmt.Printf("Error decoding image: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Конвертируем в формат для gozxing
+	// Convert to the format expected by gozxing
 	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
 	if err != nil {
-		fmt.Printf("Ошибка создания bitmap: %v\n", err)
+		fmt.Printf("Error creating bitmap: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Декодируем QR-код
+	// Decode the QR code
 	qrReader := qrcode.NewQRCodeReader()
 	result, err := qrReader.Decode(bmp, nil)
 	if err != nil {
-		fmt.Printf("Ошибка декодирования QR-кода: %v\n", err)
+		fmt.Printf("Error decoding QR code: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Выводим результат
+	// Print the result
 	qrText := result.GetText()
-	fmt.Printf("✓ QR-код успешно отсканирован!\n")
-	fmt.Printf("Данные: %s\n", qrText)
+	fmt.Printf("✓ QR code successfully scanned!\n")
+	fmt.Printf("Data: %s\n", qrText)
 }

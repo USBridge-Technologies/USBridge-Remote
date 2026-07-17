@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Динамическая сборка GStreamer для Android (shared .so).
-# Результат:
+# Dynamic build of GStreamer for Android (shared .so).
+# Output:
 # - install:   gstreamer-android-dynamic/
-# - runtime:   android/jniLibs/arm64-v8a/*.so  (и копия в dist/android/jniLibs/arm64-v8a при наличии dist)
+# - runtime:   android/jniLibs/arm64-v8a/*.so  (and a copy in dist/android/jniLibs/arm64-v8a if dist exists)
 #
-# Примечание: cross-file android-arm64.txt перезаписывается под текущий NDK.
+# Note: the cross-file android-arm64.txt is overwritten for the current NDK.
 
 set -e
 
@@ -28,7 +28,7 @@ if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') [$0] ==="
 fi
 
-echo "🔧 Динамическая компиляция GStreamer для Android (.so)..."
+echo "🔧 Dynamic compilation of GStreamer for Android (.so)..."
 
 GSTREAMER_DIR="$REPO_ROOT/gstreamer"
 BUILD_DIR="$GSTREAMER_DIR/build-android-arm64-shared"
@@ -98,13 +98,13 @@ gstreamer_runtime_ready() {
 sync_gstreamer_runtime_outputs() {
     sync_androidmedia_java_sources
 
-    echo "📚 Синхронизация готовых .so в android/jniLibs/arm64-v8a..."
+    echo "📚 Syncing the built .so files into android/jniLibs/arm64-v8a..."
     mkdir -p "$JNILIBS_DIR"
     find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" -delete 2>/dev/null || true
 
     local install_lib_dir="$INSTALL_DIR/lib"
     if [ ! -d "$install_lib_dir" ]; then
-        echo -e "${RED}❌ Не найдена директория lib в install tree: $install_lib_dir${NC}"
+        echo -e "${RED}❌ lib directory not found in the install tree: $install_lib_dir${NC}"
         exit 1
     fi
 
@@ -138,7 +138,7 @@ sync_install_prefix_layout() {
     local staged_root="$INSTALL_DIR$MESON_PREFIX"
 
     if [ ! -d "$staged_root" ]; then
-        echo -e "${RED}❌ Не найден staged root после установки: $staged_root${NC}"
+        echo -e "${RED}❌ Staged root not found after install: $staged_root${NC}"
         exit 1
     fi
 
@@ -171,7 +171,7 @@ copy_android_runtime_libs() {
     done
 
     if [ "$copied" -gt 0 ]; then
-        echo "   Скопировано $copied .so из $label"
+        echo "   Copied $copied .so from $label"
     fi
 }
 
@@ -181,7 +181,7 @@ sync_androidmedia_java_sources() {
     local f=""
 
     if [ ! -d "$source_dir" ]; then
-        echo -e "${YELLOW}⚠${NC} Не найдены Java sources androidmedia в install tree: $source_dir"
+        echo -e "${YELLOW}⚠${NC} androidmedia Java sources not found in the install tree: $source_dir"
         return 0
     fi
 
@@ -196,11 +196,9 @@ sync_androidmedia_java_sources() {
     done
 
     if [ "$copied" -eq 0 ]; then
-        echo -e "${YELLOW}⚠${NC} Androidmedia Java sources не были скопированы"
         return 1
     fi
 
-    echo "   Скопировано $copied Java sources для Android GStreamer runtime"
 }
 
 download_wrap_subprojects_serially() {
@@ -214,8 +212,7 @@ download_wrap_subprojects_serially() {
     for wrap_file in "$wrap_dir"/*.wrap; do
         wrap_name="$(basename "$wrap_file" .wrap)"
         if ! meson subprojects download "$wrap_name" >/dev/null; then
-            echo -e "${YELLOW}⚠${NC} Не удалось заранее скачать wrap-subproject: $wrap_name"
-            echo "   Продолжаю сборку: необязательные subprojects могут быть отключены или подтянуты позже Meson-ом."
+            :
         fi
     done
     shopt -u nullglob
@@ -238,25 +235,17 @@ bootstrap_gstreamer_source() {
     fi
 
     if ! ensure_command_available git git; then
-        echo -e "${RED}❌ Не найден git, а локальный исходный GStreamer отсутствует${NC}"
-        echo "   Не удалось установить git автоматически. Положите исходники вручную в: $GSTREAMER_DIR"
         return 1
     fi
 
     local tmp_dir="$REPO_ROOT/.gstreamer-bootstrap.$$"
 
-    echo "📥 Локальный GStreamer не найден. Клонирую исходники версии $GST_SOURCE_REF..."
-    echo "   Репозиторий: $GST_SOURCE_REPO_URL"
-    echo "   Назначение:  $GSTREAMER_DIR"
 
     if ! git clone --depth 1 --branch "$GST_SOURCE_REF" "$GST_SOURCE_REPO_URL" "$tmp_dir"; then
-        echo -e "${RED}❌ Не удалось получить исходники GStreamer ($GST_SOURCE_REF)${NC}"
-        echo "   Можно указать другой источник через GST_SOURCE_REPO_URL и GST_SOURCE_REF"
         return 1
     fi
 
     mv "$tmp_dir" "$GSTREAMER_DIR"
-    echo -e "${GREEN}✓${NC} Исходники GStreamer подготовлены: $GSTREAMER_DIR"
 }
 
 patch_gstreamer_checkout() {
@@ -266,46 +255,38 @@ patch_gstreamer_checkout() {
 export_android_env
 NDK_PATH="$(resolve_android_ndk 2>/dev/null || true)"
 if [ -z "$NDK_PATH" ]; then
-    echo -e "${RED}❌ Android NDK не найден${NC}"
     exit 1
 fi
 
 if [ ! -d "$NDK_PATH" ]; then
-    printf "%b❌ Android NDK не найден: %s%b\n" "$RED" "$NDK_PATH" "$NC"
+    printf "%b❌ Android NDK  : %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
 printf "%b✓%b Android NDK: %s\n" "$GREEN" "$NC" "$NDK_PATH"
 
 if ! setup_android_ndk_toolchain_env "$NDK_PATH" 28; then
-    printf "%b❌ Не удалось подготовить toolchain из NDK: %s%b\n" "$RED" "$NDK_PATH" "$NC"
+    printf "%b❌    toolchain  NDK: %s%b\n" "$RED" "$NDK_PATH" "$NC"
     exit 1
 fi
 
-# Требуется flex для сборки парсеров GStreamer
 if ! ensure_command_available flex flex || ! ensure_command_available bison bison; then
-    echo -e "${RED}❌ Не найдены flex/bison${NC}"
     print_flex_install_hint
-    echo "   Для Android build используется source build GStreamer, legacy prebuilt fallback отключён"
     exit 1
 fi
 
 if ! ensure_command_available meson meson; then
-    echo -e "${RED}❌ Не найден meson${NC}"
     exit 1
 fi
 
 if ! ensure_command_available ninja ninja; then
-    echo -e "${RED}❌ Не найден ninja${NC}"
     exit 1
 fi
 
 if ! ensure_command_available nasm nasm; then
-    echo -e "${RED}❌ Не найден nasm${NC}"
     exit 1
 fi
 
 if ! ensure_command_available python3 python3; then
-    echo -e "${RED}❌ Не найден python3${NC}"
     exit 1
 fi
 
@@ -317,21 +298,17 @@ fi
 
 cd "$GSTREAMER_DIR"
 
-echo "📦 Подготовка wrap-subprojects для свежего checkout..."
 download_wrap_subprojects_serially
 
 patch_gstreamer_checkout
 
 if meson_builddir_needs_reset "$BUILD_DIR"; then
-    echo -e "${YELLOW}⚠${NC} Найден старый Meson cache от другой платформы. Пересоздаю $BUILD_DIR"
     rm -rf "$BUILD_DIR"
 fi
 
-# Cross-file (перезаписываем, чтобы не тащить darwin/чужие пути)
 CROSS_FILE="$REPO_ROOT/android-arm64.txt"
 NDK_PREBUILT=$(find "$NDK_PATH/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
 if [ -z "$NDK_PREBUILT" ] || [ ! -d "$NDK_PREBUILT" ]; then
-    echo -e "${RED}❌ Не найден prebuilt в NDK${NC}"
     exit 1
 fi
 NDK_BIN="$NDK_PREBUILT/bin"
@@ -346,7 +323,6 @@ NDK_CLANG_SUFFIX=""
 if is_windows_env; then
     NDK_CLANG_SUFFIX=".cmd"
 fi
-echo "📝 Обновление cross-file: $CROSS_FILE"
 cat > "$CROSS_FILE" << EOF
 [host_machine]
 system = 'android'
@@ -373,30 +349,21 @@ CURRENT_GST_MANIFEST="$(current_gstreamer_manifest)"
 
 if [ "${FORCE_GSTREAMER:-0}" != "1" ] && [ -f "$GST_BUILD_STAMP" ] && gstreamer_runtime_ready; then
     if [ "$(cat "$GST_BUILD_STAMP")" = "$CURRENT_GST_MANIFEST" ]; then
-        echo "⚡ GStreamer (dynamic) уже подготовлен для текущего окружения, пересборка не требуется"
         sync_gstreamer_runtime_outputs
         SO_COUNT=$(find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" 2>/dev/null | wc -l)
         echo ""
-        echo -e "${GREEN}🎉 GStreamer (dynamic) готов!${NC}"
         echo "   Install: $INSTALL_DIR"
         echo "   jniLibs:  $JNILIBS_DIR ($SO_COUNT .so)"
         exit 0
     fi
 fi
 
-echo "📦 Настройка динамической сборки (shared .so)..."
 
-# gst-build monorepo: subprojects/X должны быть симлинками на ../X.
-# При обычном git clone они оказываются реальными директориями → Meson бросает
-# FileExistsError и в итоге завершается с «Unhandled python exception».
-# Конвертируем дубликаты в симлинки до запуска meson.
-echo "🔧 Подготовка monorepo-симлинков в subprojects/..."
 for component in gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad \
                   gst-plugins-ugly gst-libav gst-rtsp-server gst-editing-services; do
     toplevel="$GSTREAMER_DIR/$component"
     subproj="$GSTREAMER_DIR/subprojects/$component"
     if [ -d "$toplevel" ] && [ -d "$subproj" ] && [ ! -L "$subproj" ]; then
-        echo "  $component: директория → симлинк"
         rm -rf "$subproj"
         ln -s "../$component" "$subproj"
     fi
@@ -432,15 +399,13 @@ MSYS2_ARG_CONV_EXCL='--prefix=' meson setup $MESON_EXTRA "$BUILD_DIR" \
     -Dgst-plugins-bad:fdkaac=disabled \
     -Dgst-plugins-bad:androidmedia=enabled
 
-# Исправление прав на glib-mkenums, если Meson создал его без +x
 if [ -d "$BUILD_DIR" ]; then
+        :
     find "$BUILD_DIR" -type f -name "glib-mkenums" -exec chmod +x {} + 2>/dev/null || true
 fi
 
-echo "🔨 Компиляция (~30-60 минут)..."
 meson compile -C "$BUILD_DIR"
 
-echo "📦 Установка..."
 rm -rf "$INSTALL_DIR"
 DESTDIR="$INSTALL_DIR" meson install -C "$BUILD_DIR"
 sync_install_prefix_layout
@@ -449,6 +414,5 @@ printf '%s\n' "$CURRENT_GST_MANIFEST" > "$GST_BUILD_STAMP"
 
 SO_COUNT=$(find "$JNILIBS_DIR" -maxdepth 1 -name "*.so" 2>/dev/null | wc -l)
 echo ""
-echo -e "${GREEN}🎉 GStreamer (dynamic) готов!${NC}"
 echo "   Install: $INSTALL_DIR"
 echo "   jniLibs:  $JNILIBS_DIR ($SO_COUNT .so)"

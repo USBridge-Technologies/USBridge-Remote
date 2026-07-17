@@ -12,55 +12,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type TailscaleMode int
-
-const (
-	TailscaleModeUserspace TailscaleMode = iota
-	TailscaleModeSystem
-)
-
-func (m TailscaleMode) MarshalYAML() (interface{}, error) {
-	switch m {
-	case TailscaleModeUserspace:
-		return "userspace", nil
-	case TailscaleModeSystem:
-		return "system", nil
-	default:
-		return "system", nil
-	}
-}
-
-func (m *TailscaleMode) UnmarshalYAML(value *yaml.Node) error {
-	var s string
-	if err := value.Decode(&s); err == nil {
-		switch strings.ToLower(s) {
-		case "userspace":
-			*m = TailscaleModeUserspace
-			return nil
-		case "system":
-			*m = TailscaleModeSystem
-			return nil
-		}
-	}
-
-	var i int
-	if err := value.Decode(&i); err == nil {
-		*m = TailscaleMode(i)
-		return nil
-	}
-
-	*m = TailscaleModeSystem
-	return nil
-}
-
 type Config struct {
-	AppName          string        `yaml:"app_name"`
-	ListenHost       string        `yaml:"listen_host"`
-	HTTPPort         int           `yaml:"http_port"`
-	TailscaleEnabled bool          `yaml:"tailscale_enabled"`
-	TailscaleMode    TailscaleMode `yaml:"tailscale_mode"`
-	NBDMountCommand  string        `yaml:"nbd_mount_command"`
-	StateDir         string        `yaml:"state_dir"`
+	AppName          string `yaml:"app_name"`
+	ListenHost       string `yaml:"listen_host"`
+	HTTPPort         int    `yaml:"http_port"`
+	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
+	NBDMountCommand  string `yaml:"nbd_mount_command"`
+	StateDir         string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
 	SunshinePort int    `yaml:"sunshine_port"`
@@ -76,7 +34,6 @@ func Default() Config {
 		ListenHost:       "0.0.0.0",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
-		TailscaleMode:    TailscaleModeSystem,
 		NBDMountCommand:  "",
 		StateDir:         defaultStateDir(),
 		SunshinePort:     47990,

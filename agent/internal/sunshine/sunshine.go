@@ -294,6 +294,11 @@ type Process struct {
 	capExecPath string
 	logPath     string
 	cmd         *exec.Cmd
+	// watchdog is only used on macOS (see process_other.go's afterStart) — a
+	// detached helper process that kills Sunshine if the agent disappears.
+	// Left nil, and never referenced, on Linux/Windows where the OS itself
+	// (Pdeathsig / a Job Object) enforces the same guarantee.
+	watchdog *exec.Cmd
 }
 
 // NewProcess creates a Process for the given launch entry point. logPath, if
@@ -392,6 +397,20 @@ func (p *Process) Start(adminPort int) error {
 	}
 	if adminPort > 0 && portReachable(adminPort, 300*time.Millisecond) {
 		log.Printf("[sunshine] admin port %d already reachable, assuming Sunshine is already running", adminPort)
+		// This process never ran --creds this session, so activeAdminPassword
+		// is still empty. The already-running Sunshine still has whatever
+		// password was baked in via --creds the last time IT was launched
+		// fresh, which is exactly what's persisted in adminPassFile — load it
+		// so SubmitPIN/ListClients/UnpairClient (which read adminPass()
+		// directly, not the file-fallback AdminPass()) don't send an empty
+		// password and get every request rejected with 401.
+		if pf := adminPassFile(); pf != "" {
+			if data, err := os.ReadFile(pf); err == nil {
+				if pass := strings.TrimSpace(string(data)); pass != "" {
+					activeAdminPassword = pass
+				}
+			}
+		}
 		return nil
 	}
 
@@ -483,6 +502,7 @@ func (p *Process) Start(adminPort int) error {
 	}
 	p.cmd = cmd
 	log.Printf("[sunshine] started pid=%d launch=%s", cmd.Process.Pid, p.launchPath)
+	afterStart(p, cmd)
 	go func() {
 		err := cmd.Wait()
 		log.Printf("[sunshine] process exited: %v", err)
@@ -501,6 +521,13 @@ func (p *Process) Stop() error {
 		log.Printf("[sunshine] stopping pid=%d", p.cmd.Process.Pid)
 		err = p.cmd.Process.Kill()
 		p.cmd = nil
+	}
+	if p.watchdog != nil && p.watchdog.Process != nil {
+		// Stop the watchdog too: we're already terminating Sunshine
+		// ourselves, and leaving the watchdog running risks it waking up
+		// later and killing an unrelated process if that PID gets reused.
+		_ = p.watchdog.Process.Kill()
+		p.watchdog = nil
 	}
 	return err
 }

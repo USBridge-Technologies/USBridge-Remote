@@ -2,7 +2,6 @@ package view
 
 import (
 	"image/color"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
-	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -32,7 +30,6 @@ type ConnectionManagerUI struct {
 	topActions  *fyne.Container
 	topHelpBtn  fyne.CanvasObject
 	tsToggle    *tailscaleHeaderToggle
-	tsMode      *TailscaleModeSwitch
 
 	topQRBtn     *iconChromeButton
 	topAddBtn    *outlinedActionButton
@@ -288,14 +285,7 @@ var (
 	connectionActionBlockedFill = design.ColorGray900
 )
 
-type TailscaleMode = models.TailscaleMode
-
-const (
-	TailscaleModeUserspace = models.TailscaleModeUserspace
-	TailscaleModeSystem    = models.TailscaleModeSystem
-)
-
-func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onTSAuth func(), onTSMode func(TailscaleMode)) *ConnectionManagerUI {
+func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onTSAuth func()) *ConnectionManagerUI {
 	topQRButton := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:  color.Transparent,
 		HoverFill:   design.ColorSurfaceLight,
@@ -342,11 +332,6 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		)
 	}
 	tsToggle := newTailscaleHeaderToggle(onTSAuth)
-	// On Android always use userspace tsnet — hide the mode switch entirely.
-	var tsMode *TailscaleModeSwitch
-	if runtime.GOOS != "android" {
-		tsMode = NewTailscaleModeSwitch(TailscaleModeUserspace, onTSMode)
-	}
 
 	contentArea := container.NewMax()
 
@@ -363,7 +348,6 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 		topActions:        topActions,
 		topHelpBtn:        topHelpBtn,
 		tsToggle:          tsToggle,
-		tsMode:            tsMode,
 		topQRBtn:          topQRButton,
 		topAddBtn:         topAddButton,
 		centerQRBtn:       centerQRButton,
@@ -770,24 +754,11 @@ func (ui *ConnectionManagerUI) HeaderAccessory() fyne.CanvasObject {
 	if ui == nil {
 		return nil
 	}
-	// Convert *TailscaleModeSwitch to interface properly — a typed nil pointer
-	// wrapped in an interface is not a nil interface, causing Fyne to call methods
-	// on a nil receiver and crash. Explicitly nil-check before wrapping.
-	var modeObj fyne.CanvasObject
-	if ui.tsMode != nil {
-		modeObj = ui.tsMode
-	}
-	return newTailscaleHeaderAccessory(modeObj, ui.tsToggle)
+	return newTailscaleHeaderAccessory(ui.tsToggle)
 }
 
-func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
-	var row fyne.CanvasObject
-	if mode != nil {
-		row = container.NewHBox(mode, centerSpacer(8), toggle)
-	} else {
-		row = container.NewHBox(toggle)
-	}
-	content := container.NewCenter(row)
+func newTailscaleHeaderAccessory(toggle fyne.CanvasObject) fyne.CanvasObject {
+	content := container.NewCenter(container.NewHBox(toggle))
 
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = design.RadiusMD + 2
@@ -802,18 +773,6 @@ func newTailscaleHeaderAccessory(mode fyne.CanvasObject, toggle fyne.CanvasObjec
 		border,
 		NewInset(content, 6, 6, 5, 5),
 	)
-}
-
-func (ui *ConnectionManagerUI) SetTailscaleMode(mode TailscaleMode) {
-	if ui.tsMode != nil {
-		ui.tsMode.SetSelected(mode)
-	}
-}
-
-func (ui *ConnectionManagerUI) SetTailscaleModeDisabled(disabled bool) {
-	if ui.tsMode != nil {
-		ui.tsMode.SetDisabled(disabled)
-	}
 }
 
 func newConnectionsSectionCard(title string, leadingAction fyne.CanvasObject, trailingAction fyne.CanvasObject, body fyne.CanvasObject) fyne.CanvasObject {

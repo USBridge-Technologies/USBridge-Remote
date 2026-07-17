@@ -199,10 +199,9 @@ if [ "${MOONLIGHT_IOS_TARGET:-0}" = "1" ]; then
     echo ""
     echo "=== iOS arm64 (deployment target ${IOS_DEPLOY_TARGET}) ==="
 
-    # ── OpenSSL для iOS ───────────────────────────────────────────────────────
     IOS_OPENSSL_OUT="${IOS_OUT}/openssl"
     if [ -f "${IOS_OPENSSL_OUT}/lib/libssl.a" ]; then
-        echo "⚡ OpenSSL уже собран для iOS (${IOS_OPENSSL_OUT})"
+        :
     else
         OPENSSL_VERSION="3.3.2"
         OPENSSL_SRC="${BUILD_DIR}/openssl-${OPENSSL_VERSION}"
@@ -232,10 +231,9 @@ if [ "${MOONLIGHT_IOS_TARGET:-0}" = "1" ]; then
         echo "✅ OpenSSL built for iOS"
     fi
 
-    # ── Opus для iOS ──────────────────────────────────────────────────────────
     IOS_OPUS_OUT="${IOS_OUT}/opus"
     if [ -f "${IOS_OPUS_OUT}/lib/libopus.a" ]; then
-        echo "⚡ Opus уже собран для iOS (${IOS_OPUS_OUT})"
+        :
     else
         OPUS_VERSION="1.5.2"
         OPUS_SRC="${BUILD_DIR}/opus-${OPUS_VERSION}"
@@ -271,9 +269,8 @@ if [ "${MOONLIGHT_IOS_TARGET:-0}" = "1" ]; then
         echo "✅ Opus built for iOS"
     fi
 
-    # ── moonlight-common-c для iOS ────────────────────────────────────────────
     if [ -f "${IOS_OUT}/libmoonlight-common-c.a" ]; then
-        echo "⚡ moonlight-common-c уже собран для iOS"
+        :
     else
         echo "⚙️ Cross-compiling moonlight-common-c for iOS arm64..."
         IOS_MC_BUILD="${IOS_OUT}/cmake-build"
@@ -307,11 +304,9 @@ if [ "${MOONLIGHT_IOS_TARGET:-0}" = "1" ]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
-# Host build (пропускается при MOONLIGHT_SKIP_HOST=1)
 # ────────────────────────────────────────────────────────────────────────────
 if [ "${MOONLIGHT_SKIP_HOST:-0}" = "1" ]; then
     echo ""
-    echo "⚡ Host build пропущен (MOONLIGHT_SKIP_HOST=1)"
     exit 0
 fi
 

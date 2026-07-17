@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// createInterface создает интерфейс виджета.
+// createInterface creates the widget's interface.
 func (vw *VideoWidget) createInterface() {
 	vw.touchpadWrapper = NewTouchpadWrapper(vw)
 	vw.platformRegisterGestureTarget()
@@ -44,7 +44,7 @@ func (vw *VideoWidget) createInterface() {
 	vw.resetViewport()
 }
 
-// handleStartVideo обрабатывает запуск видео.
+// handleStartVideo handles video start.
 func (vw *VideoWidget) handleStartVideo() {
 	vw.setDesiredStreaming(true)
 	if !vw.beginVideoOperation() {
@@ -91,7 +91,7 @@ func (vw *VideoWidget) handleStartVideo() {
 
 		videoInfo := vw.fetchVideoInfoForStartDialog(preferredDevicePath)
 
-		// Проверяем, не закрылся ли виджет пока шли HTTP-запросы
+		// Check whether the widget was closed while the HTTP requests were in flight
 		if vw.isClosing.Load() {
 			return
 		}
@@ -235,7 +235,7 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 	return lastInfo
 }
 
-// handleVideoStartWithParams обрабатывает запуск видео с параметрами из диалога.
+// handleVideoStartWithParams handles video start with parameters from the dialog.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
 	cfg := models.VideoDeviceConfig{
 		DevicePath:   request.VideoDevice,
@@ -303,7 +303,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		hidDone <- vw.ensureControlHIDDevices()
 	}()
 
-	// The stream will be started via Moonlight's /launch API inside ConnectToRTP.
+	// The stream will be started via Moonlight's /launch API inside ConnectToMoonlight.
 	if vw.usbClient != nil {
 		fyne.Do(func() {
 			if vw.statusLabel != nil {
@@ -312,21 +312,21 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		})
 	}
 
-	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToRTP (Moonlight)")
+	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToMoonlight (Moonlight)")
 	var connectErr error
 	for attempt := 1; attempt <= 20; attempt++ {
-		connectErr = vw.videoClient.ConnectToRTP()
+		connectErr = vw.videoClient.ConnectToMoonlight()
 		if connectErr == nil {
 			break
 		}
-		logrus.Warnf("⚠️ Moonlight ConnectToRTP failed (attempt %d/20): %v", attempt, connectErr)
+		logrus.Warnf("⚠️ Moonlight ConnectToMoonlight failed (attempt %d/20): %v", attempt, connectErr)
 		if attempt < 20 {
 			time.Sleep(500 * time.Millisecond) // Give Sunshine time to bind port 47989
 		}
 	}
 
 	if connectErr != nil {
-		logrus.Errorf("❌ Moonlight ConnectToRTP ultimately failed: %v", connectErr)
+		logrus.Errorf("❌ Moonlight ConnectToMoonlight ultimately failed: %v", connectErr)
 
 		// Stop trying to reconnect, otherwise the reconcile loop will spam the server
 		vw.videoOpMu.Lock()
@@ -341,13 +341,13 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		})
 		return
 	}
-	// ConnectToRTP may have completed AFTER a disconnect was requested
+	// ConnectToMoonlight may have completed AFTER a disconnect was requested
 	// (e.g. StopVideoSync timed out and called Disconnect concurrently).
 	// If we're no longer supposed to be streaming, abort without marking
 	// the session active — this prevents the Vulkan/Metal overlay from
 	// appearing on the connection-manager screen.
 	if !vw.desiredStreamingState() {
-		logrus.Info("🛑 ConnectToRTP succeeded but streaming no longer desired — aborting session")
+		logrus.Info("🛑 ConnectToMoonlight succeeded but streaming no longer desired — aborting session")
 		go func() { <-hidDone }() // drain so the goroutine can exit
 		go func() { _ = vw.videoClient.Disconnect() }()
 		return
@@ -365,7 +365,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	vw.ensureInputFocusAsync("stream-started", 300*time.Millisecond)
 }
 
-// handleStopVideo обрабатывает остановку видео.
+// handleStopVideo handles video stop.
 func (vw *VideoWidget) handleStopVideo() {
 	if vw.usbClient == nil {
 		logrus.Warn("⚠️ USB client not initialized")
@@ -381,14 +381,14 @@ func (vw *VideoWidget) handleStopVideo() {
 func (vw *VideoWidget) StopVideoSync() error {
 	vw.setDesiredStreaming(false)
 
-	// Используем таймаут для синхронной операции, чтобы не повесить вызывающий поток (lifecycle loop)
+	// Use a timeout for the synchronous operation so we don't hang the calling thread (lifecycle loop)
 	done := make(chan struct{})
 	go func() {
 		vw.runVideoOpSync("stop-video-sync", func() {
 			if vw.usbClient != nil {
 				vw.stopVideoInternal()
 			} else {
-				// Клиент уже ушёл — чистим только локальное состояние
+				// Client is already gone — clean up only the local state
 				vw.isStreaming = false
 				vw.isVideoConnected = false
 				vw.isMouseConnected = false
@@ -446,17 +446,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 		}(vw.videoClient)
 	}
 
-	if vw.tailscaleService != nil {
-		wg.Add(1)
-		go func(svc interface{ StopVideoUDPRelay() error }) {
-			defer wg.Done()
-			if err := svc.StopVideoUDPRelay(); err != nil {
-				logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
-			}
-		}(vw.tailscaleService)
-	}
-
-	// Ожидаем завершения с небольшим таймаутом, чтобы не зависало окно видео
+	// Wait for completion with a small timeout so the video window doesn't hang
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -676,14 +666,14 @@ func (vw *VideoWidget) BootstrapControlSessionAsync() {
 	vw.scheduleVideoReconcile("control-bootstrap")
 }
 
-// updateButtons обновляет состояние кнопок.
+// updateButtons updates the button state.
 func (vw *VideoWidget) updateButtons() {
 	if vw.onFPSChanged != nil && !vw.isStreaming {
 		vw.onFPSChanged(0)
 	}
 }
 
-// Refresh обновляет виджет.
+// Refresh updates the widget.
 func (vw *VideoWidget) Refresh() {
 	if vw.isClosing.Load() {
 		return
@@ -717,7 +707,7 @@ func (vw *VideoWidget) Refresh() {
 
 }
 
-// checkMouseConnected проверяет, подключена ли мышь.
+// checkMouseConnected checks whether the mouse is connected.
 func (vw *VideoWidget) checkMouseConnected() {
 	if vw.isClosing.Load() || vw.usbClient == nil {
 		if vw.usbClient == nil {
@@ -771,7 +761,7 @@ func (vw *VideoWidget) checkMouseConnected() {
 	}
 }
 
-// handleVideoFrame обрабатывает полученный видео кадр.
+// handleVideoFrame handles a received video frame.
 func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -886,7 +876,7 @@ func (vw *VideoWidget) handleVideoFrame(frame image.Image) {
 	// Render is driven by the 60 Hz ticker — no scheduleFrameRender() call needed here.
 }
 
-// handleFullscreen обрабатывает переключение в полноэкранный режим.
+// handleFullscreen handles switching to fullscreen mode.
 func (vw *VideoWidget) handleFullscreen() {
 	vw.ShowFullscreen()
 }
@@ -905,12 +895,12 @@ func (vw *VideoWidget) ShowFullscreen() {
 	vw.fullscreenDialog.Show()
 }
 
-// HandleVirtualKeyboard обрабатывает открытие/закрытие виртуальной клавиатуры.
+// HandleVirtualKeyboard handles opening/closing the virtual keyboard.
 func (vw *VideoWidget) HandleVirtualKeyboard() {
 	vw.platformHandleVirtualKeyboard()
 }
 
-// updateStats обновляет статистику.
+// updateStats updates statistics.
 func (vw *VideoWidget) updateStats() {
 	vw.frameMutex.RLock()
 	lastFrameTime := vw.lastFrameTime
@@ -936,7 +926,7 @@ func (vw *VideoWidget) updateStats() {
 	vw.updateMetalVideoFrame()
 }
 
-// SetParentWindow устанавливает родительское окно для диалогов.
+// SetParentWindow sets the parent window for dialogs.
 func (vw *VideoWidget) SetParentWindow(window fyne.Window) {
 	vw.parentWindow = window
 
@@ -970,7 +960,7 @@ func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 	vw.onFPSChanged = fn
 }
 
-// UpdateClient обновляет USB клиент.
+// UpdateClient updates the USB client.
 func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
 	if usbClient != nil {
@@ -980,7 +970,7 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.updateButtons()
 }
 
-// SetFRPService устанавливает FRP сервис.
+// SetFRPService sets the FRP service.
 func (vw *VideoWidget) SetFRPService(frp *service.FRPService) {
 	vw.frpService = frp
 }
@@ -1000,17 +990,17 @@ func (vw *VideoWidget) SetBridgeInternalHost(host string) {
 	vw.bridgeInternalHost = strings.TrimSpace(host)
 }
 
-// GetContainer возвращает контейнер виджета.
+// GetContainer returns the widget's container.
 func (vw *VideoWidget) GetContainer() *fyne.Container {
 	return vw.container
 }
 
-// IsStreaming возвращает состояние захвата.
+// IsStreaming returns the capture state.
 func (vw *VideoWidget) IsStreaming() bool {
 	return vw.isStreaming
 }
 
-// SetStreaming устанавливает состояние захвата.
+// SetStreaming sets the capture state.
 func (vw *VideoWidget) SetStreaming(streaming bool) {
 	vw.isStreaming = streaming
 	vw.updateButtons()
@@ -1019,7 +1009,7 @@ func (vw *VideoWidget) SetStreaming(streaming bool) {
 	}
 }
 
-// StopVideo останавливает видеопоток через публичный API виджета.
+// StopVideo stops the video stream via the widget's public API.
 func (vw *VideoWidget) StopVideo() {
 	if vw.usbClient == nil {
 		return
@@ -1029,7 +1019,7 @@ func (vw *VideoWidget) StopVideo() {
 	})
 }
 
-// HandleConnectionLost останавливает локальные video/input ресурсы без запроса к серверу.
+// HandleConnectionLost stops local video/input resources without contacting the server.
 func (vw *VideoWidget) HandleConnectionLost() {
 	resetVideoInfoCache()
 
@@ -1078,7 +1068,7 @@ func (vw *VideoWidget) handleDeviceRebuildLocally() {
 	})
 }
 
-// ExitFullscreenIfNeeded закрывает fullscreen-режим, если он активен.
+// ExitFullscreenIfNeeded closes fullscreen mode if it is active.
 func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	if vw.fullscreenDialog == nil || !vw.fullscreenDialog.IsFullscreen() {
 		return false
@@ -1087,7 +1077,7 @@ func (vw *VideoWidget) ExitFullscreenIfNeeded() bool {
 	return true
 }
 
-// clearVideo очищает видео.
+// clearVideo clears the video.
 func (vw *VideoWidget) clearVideo() {
 	vw.clearVideoMu.Lock()
 	defer vw.clearVideoMu.Unlock()
@@ -1145,14 +1135,14 @@ func (vw *VideoWidget) clearVideo() {
 	logrus.Infof("🧹 [VideoTrace #%d] video canvas cleared", vw.videoTraceID.Load())
 }
 
-// GetCurrentFrame возвращает текущий кадр для полноэкранного режима.
+// GetCurrentFrame returns the current frame for fullscreen mode.
 func (vw *VideoWidget) GetCurrentFrame() image.Image {
 	vw.frameMutex.RLock()
 	defer vw.frameMutex.RUnlock()
 	return vw.currentFrame
 }
 
-// GetFrameDecoder возвращает декодер кадров для полноэкранного режима.
+// GetFrameDecoder returns the frame decoder for fullscreen mode.
 func (vw *VideoWidget) GetFrameDecoder() *media.FrameDecoder {
 	return vw.frameDecoder
 }
@@ -1449,7 +1439,7 @@ func (vw *VideoWidget) dumpFrameSnapshot(img image.Image, frameNum int64) {
 	logrus.Infof("📸 [VIDEO] frame snapshot saved trace=%s frame=%d path=%s stats=%s", trace, frameNum, path, summarizeImage(img))
 }
 
-// ShowVirtualKeyboardIfMobile показывает виртуальную клавиатуру, если мы на мобильной ОС
+// ShowVirtualKeyboardIfMobile shows the virtual keyboard if we're on a mobile OS
 func (vw *VideoWidget) ShowVirtualKeyboardIfMobile() {
 	vw.platformShowVirtualKeyboardIfMobile()
 }

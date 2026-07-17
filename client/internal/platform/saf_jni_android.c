@@ -11,7 +11,7 @@
 static JavaVM *g_jvm = NULL;
 static jobject g_ctx = NULL;
 
-// Получает детальное сообщение об ошибке из exception
+// Gets a detailed error message from the exception
 static void logExceptionDetails(JNIEnv *env, const char *prefix) {
     if (!(*env)->ExceptionCheck(env)) {
         return;
@@ -37,7 +37,7 @@ static void logExceptionDetails(JNIEnv *env, const char *prefix) {
     (*env)->DeleteLocalRef(env, exception);
 }
 
-// Помощник для получения Env в текущем потоке
+// Helper for getting the Env in the current thread
 static JNIEnv* get_env() {
     JNIEnv *env;
     if (g_jvm == NULL) return NULL;
@@ -54,7 +54,7 @@ static JNIEnv* get_env() {
     return NULL;
 }
 
-// Сохраняет контекст и VM (вызывается из Go)
+// Stores the context and VM (called from Go)
 void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
     g_jvm = (JavaVM *)jni_vm_ptr;
     JNIEnv *env = (JNIEnv *)jni_env_ptr;
@@ -65,14 +65,14 @@ void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_p
     LOGI("✅ [JNI-SAF] Global context and VM stored");
 }
 
-// Находит класс NbdBridge
+// Finds the NbdBridge class
 static jclass get_nbd_bridge_class(JNIEnv *env) {
     jclass cls = (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
     if (cls == NULL) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
         
         if (g_ctx == NULL) {
-            LOGW("⚠️ [JNI-SAF] g_ctx is NULL, fallback FindClass");
+            LOGW("⚠️ [JNI-SAF] g_ctx is NULL, falling back to FindClass");
             return (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
         }
         
@@ -92,7 +92,7 @@ static jclass get_nbd_bridge_class(JNIEnv *env) {
     return cls;
 }
 
-// Сохраняет persistable URI permission
+// Persists a persistable URI permission
 int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString) {
     LOGI("🔧 [JNI-SAF] jni_takePersistableUriPermission called for: %s", uriString);
     JNIEnv *env = (JNIEnv *)jni_env_ptr;
@@ -128,7 +128,7 @@ int jni_takePersistableUriPermission(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, c
     return 0;
 }
 
-// Открывает ParcelFileDescriptor и возвращает FD
+// Opens a ParcelFileDescriptor and returns the FD
 int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char *uriString, const char *mode) {
     LOGI("🔧 [JNI-SAF] jni_openFileDescriptor called for: %s, mode: %s", uriString, mode);
     JNIEnv *env = (JNIEnv *)jni_env_ptr;
@@ -175,7 +175,7 @@ int jni_openFileDescriptor(uintptr_t jni_env_ptr, uintptr_t ctx_ptr, const char 
     return (int)fd;
 }
 
-// Запускает SAF пикер
+// Launches the SAF picker
 int jni_startSAFPicker() {
     JNIEnv *env = get_env();
     if (env == NULL) return -1;

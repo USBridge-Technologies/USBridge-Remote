@@ -69,7 +69,10 @@ _sunshine_asset_url() {
         api_url="https://api.github.com/repos/${_sunshine_repo}/releases/tags/${version}"
     fi
     # Use || true so a 404 (no release yet) returns empty string instead of aborting.
-    curl -fsSL "${_sunshine_curl_auth[@]}" "$api_url" 2>/dev/null | python3 -c "
+    # "${arr[@]+"${arr[@]}"}" (not "${arr[@]}") — macOS ships bash 3.2, where
+    # expanding an empty array under `set -u` is an unbound-variable error
+    # (fixed only in bash 4.4+); this form is the standard 3.2-safe idiom.
+    curl -fsSL "${_sunshine_curl_auth[@]+"${_sunshine_curl_auth[@]}"}" "$api_url" 2>/dev/null | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -88,7 +91,7 @@ _sunshine_resolve_tag() {
         echo "$version"
         return 0
     fi
-    curl -fsSL "${_sunshine_curl_auth[@]}" "https://api.github.com/repos/${_sunshine_repo}/releases/latest" \
+    curl -fsSL "${_sunshine_curl_auth[@]+"${_sunshine_curl_auth[@]}"}" "https://api.github.com/repos/${_sunshine_repo}/releases/latest" \
         | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'])"
 }
 

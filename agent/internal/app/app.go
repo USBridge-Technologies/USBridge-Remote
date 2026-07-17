@@ -91,7 +91,7 @@ func New() (*App, error) {
 		input:   input.New(),
 		screen:  capture.New(),
 		perms:   permissions.New(),
-		ts:      tailscale.New(cfg.TailscaleMode, cfg.StateDir),
+		ts:      tailscale.New(cfg.StateDir),
 		fyneApp: fyneapp.NewWithID("io.usbridge.agent"),
 	}
 	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
@@ -197,49 +197,27 @@ func (a *App) initTailscale(ctx context.Context) {
 	if a.ts == nil {
 		return
 	}
-	if err := a.ts.ApplyConfig(a.cfg.TailscaleMode == config.TailscaleModeUserspace, a.cfg.StateDir); err != nil {
-		log.Printf("[app] failed to apply tailscale config: %v", err)
-	}
-
 	if a.cfg.TailscaleEnabled {
 		go a.startTailscaleHTTP(ctx)
+		go a.startSunshineTSNetForwarding()
 	}
 }
 
-func (a *App) startTailscaleHTTP(ctx context.Context) {
-	if a.cfg.TailscaleMode == config.TailscaleModeUserspace {
-		tsSrv, _ := a.ts.Server()
-		if tsSrv != nil {
-			ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort))
-			if err != nil {
-				log.Printf("[app] tsnet listen error: %v", err)
-				return
-			}
-			log.Printf("[app] tsnet http listening on :%d", a.cfg.HTTPPort)
-			if err := a.tsHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
-				log.Printf("[app] tsnet http server error: %v", err)
-			}
-			return
-		}
+func (a *App) startTailscaleHTTP(_ context.Context) {
+	tsSrv, err := a.ts.Server()
+	if err != nil {
+		log.Printf("[app] tsnet server unavailable: %v", err)
+		return
 	}
-
-	// Poll for tailscale IP more aggressively at start
-	for i := 0; i < 30; i++ {
-		if ctx.Err() != nil {
-			return
-		}
-		if ip, err := a.ts.TailnetIPv4(ctx); err == nil && ip != "" {
-			tsAddr := fmt.Sprintf("%s:%d", ip, a.cfg.HTTPPort)
-			a.tsHTTP.Addr = tsAddr
-			log.Printf("[app] tailscale http listening on %s", tsAddr)
-			if err := a.tsHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Printf("[app] tailscale http server error: %v", err)
-			}
-			return
-		}
-		time.Sleep(1 * time.Second)
+	ln, err := tsSrv.Listen("tcp", fmt.Sprintf(":%d", a.cfg.HTTPPort))
+	if err != nil {
+		log.Printf("[app] tsnet listen error: %v", err)
+		return
 	}
-	log.Printf("[app] tailscale enabled but tailnet IP could not be found after 30s")
+	log.Printf("[app] tsnet http listening on :%d", a.cfg.HTTPPort)
+	if err := a.tsHTTP.Serve(ln); err != nil && err != http.ErrServerClosed {
+		log.Printf("[app] tsnet http server error: %v", err)
+	}
 }
 
 func (a *App) handleShutdown(ctx context.Context, cancel context.CancelFunc) {

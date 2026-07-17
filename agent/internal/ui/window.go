@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -62,8 +63,17 @@ type Window struct {
 		Status(context.Context) (*tailscale.Status, error)
 		StartLogin(context.Context) (string, error)
 		Logout(context.Context) error
-		ApplyConfig(userspace bool, stateDir string) error
+		SetAuthURLHandler(func(string))
 	}
+
+	// awaitingLocalLogin is true only while the local "Sign In With Google"
+	// button has an interactive login in flight. It gates auto-opening a
+	// browser from the AuthURL handler: tsnet can also produce an AuthURL from
+	// a remote client's sync/register request or from its own first-boot
+	// auto-login, and those must NOT pop a browser on this (possibly headless,
+	// possibly actively streaming) machine — only the local button's own
+	// request should.
+	awaitingLocalLogin atomic.Bool
 
 	// UI components
 	accessLabel *widget.Label
@@ -85,7 +95,6 @@ type Window struct {
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
-	tsMode    *widget.Select
 }
 
 type uiStatus struct {
@@ -205,29 +214,6 @@ func (w *Window) refreshScreenCaptureUI() {
 			w.screenCaptureBtn.Show()
 		}
 	}
-}
-
-func (w *Window) applyTailscaleMode(mode string) {
-	newMode := config.TailscaleModeUserspace
-	if mode == "System" {
-		newMode = config.TailscaleModeSystem
-	}
-
-	if w.cfg.TailscaleMode == newMode {
-		return
-	}
-
-	w.cfg.TailscaleMode = newMode
-	if w.token != nil {
-		_ = w.token.SaveConfig(w.cfg)
-	}
-
-	if w.ts != nil {
-		_ = w.ts.ApplyConfig(newMode == config.TailscaleModeUserspace, w.cfg.StateDir)
-	}
-
-	logrus.Infof("🛰️ [UI] Tailscale mode changed to %s", mode)
-	w.performRefresh()
 }
 
 func (w *Window) ShowAndRun(onClose func()) {
@@ -440,20 +426,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow))
 
-	w.tsMode = widget.NewSelect([]string{"Userspace", "System"}, func(mode string) {
-		w.applyTailscaleMode(mode)
-	})
-	if w.cfg.TailscaleMode == config.TailscaleModeUserspace {
-		w.tsMode.SetSelected("Userspace")
-	} else {
-		w.tsMode.SetSelected("System")
-	}
-
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
 	w.tsPeers = widget.NewRichTextFromMarkdown("")
 	w.tsPeers.Wrapping = fyne.TextWrapWord
 
+	// The actual "open a browser" action is centralized in the AuthURL handler
+	// registered below (via SetAuthURLHandler) — it fires whenever tsnet
+	// produces a fresh AuthURL, no matter what triggered it. This button only
+	// sets awaitingLocalLogin so the handler knows THIS particular AuthURL was
+	// asked for locally, and nudges the login so one actually gets generated.
 	w.tsAuthBtn = widget.NewButton("Sign In With Google", func() {
 		if w.ts == nil {
 			w.setTailscaleInfo("service unavailable", "", "")
@@ -478,35 +460,43 @@ func (w *Window) ShowAndRun(onClose func()) {
 				return
 			}
 
+			w.awaitingLocalLogin.Store(true)
 			fyne.Do(func() { w.setTailscaleInfo("starting login flow...", "", "") })
-			authURL, err := w.ts.StartLogin(ctx)
-			if err != nil {
+			if _, err := w.ts.StartLogin(ctx); err != nil {
+				w.awaitingLocalLogin.Store(false)
 				fyne.Do(func() { w.setTailscaleInfo(fmt.Sprintf("error: %v", err), "", "") })
-				return
-			}
-
-			if strings.TrimSpace(authURL) != "" {
-				if parsed, parseErr := url.Parse(strings.TrimSpace(authURL)); parseErr == nil {
-					logrus.Infof("tailscale ui: captured auth URL: %s", parsed.String())
-					fyne.Do(func() {
-						if w.app != nil {
-							_ = w.app.OpenURL(parsed)
-						}
-						w.setTailscaleInfo("login link opened in browser", "", "")
-					})
-				} else {
-					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
-					fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
-				}
-			} else {
-				fyne.Do(func() { w.setTailscaleInfo("waiting for system login...", "", "") })
 			}
 		}()
 	})
 
+	if w.ts != nil {
+		w.ts.SetAuthURLHandler(func(authURL string) {
+			if !w.awaitingLocalLogin.CompareAndSwap(true, false) {
+				// Triggered by something other than this window's own button (a
+				// remote client's sync/register request, or tsnet's first-boot
+				// auto-login) — don't pop a browser on this machine unasked.
+				logrus.Infof("tailscale ui: AuthURL produced by a non-local trigger, not opening: %s", authURL)
+				return
+			}
+			parsed, parseErr := url.Parse(strings.TrimSpace(authURL))
+			if parseErr != nil {
+				logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
+				fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
+				return
+			}
+			logrus.Infof("tailscale ui: captured auth URL: %s", parsed.String())
+			fyne.Do(func() {
+				if w.app != nil {
+					_ = w.app.OpenURL(parsed)
+				}
+				w.setTailscaleInfo("login link opened in browser", "", "")
+			})
+		})
+	}
+
 	tsPanel := newPanel("Tailscale", newTightVBox(
 		container.NewBorder(nil, nil, nil, container.NewVBox(w.tsAuthBtn),
-			container.NewVBox(container.NewHBox(w.tsMode), w.tsInfo),
+			container.NewVBox(w.tsInfo),
 		),
 		w.tsPeers,
 	))
@@ -629,7 +619,7 @@ func (w *Window) refreshTailscaleWithStatus(status *tailscale.Status) {
 	w.setTailscaleInfo(
 		strings.ToLower(status.Backend),
 		fallbackValue(status.Self.UserLogin, "connected"),
-		fmt.Sprintf("%s (%s)", endpoint, fallbackValue(mapUserspace(status.Userspace), "embedded")),
+		fmt.Sprintf("%s (embedded)", endpoint),
 	)
 
 	if w.tsAuthBtn != nil {
@@ -682,13 +672,6 @@ func isActiveTailscalePeer(p tailscale.Peer) bool {
 		return true
 	}
 	return false
-}
-
-func mapUserspace(userspace bool) string {
-	if userspace {
-		return "embedded"
-	}
-	return "system"
 }
 
 func (w *Window) showTokenDialog(parent fyne.Window) {
@@ -754,7 +737,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		container.NewCenter(closeDialogBtn),
 		closeBottomGap,
 	)
-	// Убираем верхний отступ полностью, чтобы поднять QR-код
+	// Remove the top margin completely to lift the QR code
 	pL := canvas.NewRectangle(color.Transparent)
 	pL.SetMinSize(fyne.NewSize(8, 1))
 	pR := canvas.NewRectangle(color.Transparent)
@@ -767,7 +750,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	dialogCard := container.NewStack(cardBG, dialogContent)
 	dialogBody := container.NewCenter(dialogCard)
 
-	// Создаем локальную тему с нулевыми отступами только для этого диалога
+	// Create a local theme with zero padding only for this dialog
 	compactTheme := &compactTheme{Theme: design.NewBrandTheme()}
 	tokenDialog = widget.NewModalPopUp(container.NewThemeOverride(dialogBody, compactTheme), parent.Canvas())
 
@@ -1531,7 +1514,7 @@ func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
 	shadowLeftGap := canvas.NewRectangle(color.Transparent)
 	shadowLeftGap.SetMinSize(fyne.NewSize(1, 0))
 
-	// Применяем плотную тему (нулевые отступы) только к контенту внутри панели
+	// Apply a dense theme (zero padding) only to the content inside the panel
 	denseContent := container.NewThemeOverride(content, &headerButtonTheme{Theme: design.NewBrandTheme(), padding: 0})
 
 	card := container.NewStack(
@@ -1660,7 +1643,7 @@ func newLabelValue(labelText string, valueText *canvas.Text) fyne.CanvasObject {
 	title.TextSize = 10
 	title.TextStyle.Bold = true
 
-	// Контейнер для заголовка с фиксированной шириной
+	// Container for the title with a fixed width
 	titleBox := container.NewGridWrap(fyne.NewSize(55, 16), container.NewCenter(title))
 
 	return container.NewHBox(titleBox, valueText)

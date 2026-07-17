@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// DefaultVideoUDPPort — порт приёма RTP H.264 по UDP. 55000 в динамическом диапазоне (49152–65535),
-// свободен на Windows (nidmsrv/UPnP часто занимают 5000), macOS (AirPlay), Linux, Android.
+// DefaultVideoUDPPort — UDP port for receiving RTP H.264. 55000 is in the dynamic range (49152-65535),
+// free on Windows (nidmsrv/UPnP often occupy 5000), macOS (AirPlay), Linux, Android.
 const DefaultVideoUDPPort = 55000
 
 const (
@@ -20,64 +20,63 @@ const (
 	VideoProtocolGStreamer = "gstreamer"
 )
 
-// AppConfig конфигурация приложения
+// AppConfig application configuration
 type AppConfig struct {
-	// USBridge 2 подключение (как клиент)
-	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // Порт USBridge 2 (8080)
-	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // Таймаут API запросов
+	// USBridge 2 connection (as client)
+	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // USBridge 2 port (8080)
+	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
 
-	// FRP настройки (QUIC туннель)
-	FRPServerPort      int    `json:"frp_server_port" mapstructure:"frp_server_port"` // Порт FRP сервера (443)
-	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Включить FRP тунлель
-	FRPTLSCert         string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Путь к TLS сертификату
-	FRPTLSKey          string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Путь к TLS ключу
-	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Путь к CA сертификату
+	// FRP settings (QUIC tunnel)
+	FRPServerPort      int    `json:"frp_server_port" mapstructure:"frp_server_port"` // FRP server port (443)
+	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Enable the FRP tunnel
+	FRPTLSCert         string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Path to the TLS certificate
+	FRPTLSKey          string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Path to the TLS key
+	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Path to the CA certificate
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
 
-	// Tailscale настройки
-	TailscaleEnabled   bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
-	TailscaleUserspace bool `json:"tailscale_userspace" mapstructure:"tailscale_userspace"`
+	// Tailscale settings (always runs in userspace/tsnet mode, on every platform)
+	TailscaleEnabled bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
 
-	// NBD сервер (как сервер)
-	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // Порт NBD сервера (10809)
-	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Максимум NBD клиентов
-	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Пути для сканирования устройств
-	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Поддерживаемые типы файлов
-	NBDExportReadOnly bool     `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = экспорт только для чтения (безопасный дефолт), false = RW через overlay
+	// NBD server (as server)
+	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // NBD server port (10809)
+	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Maximum NBD clients
+	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Paths to scan for devices
+	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Supported file types
+	NBDExportReadOnly bool     `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = read-only export (safe default), false = RW via overlay
 
-	// Хост видеопотока (задаётся из адресной строки; в конфиге не хранится)
+	// Video stream host (set from the address bar; not stored in the config)
 	VideoHost     string `json:"-"`
 	VideoBindHost string `json:"video_bind_host" mapstructure:"video_bind_host"`
 
-	// Видео протокол (moonlight или gstreamer)
+	// Video protocol (moonlight or gstreamer)
 	VideoProtocol string `json:"video_protocol" mapstructure:"video_protocol"`
 
-	// Видео UDP (новый протокол)
-	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // Порт приёма RTP видео по UDP (55000 — свободен на Win/Mac/Linux/Android)
+	// Video UDP (new protocol)
+	VideoUDPPort int `json:"video_udp_port" mapstructure:"video_udp_port"` // UDP port for receiving RTP video (55000 — free on Win/Mac/Linux/Android)
 
-	// Видео настройки
+	// Video settings
 	VideoBitrate   int  `json:"video_bitrate" mapstructure:"video_bitrate"` // kbps
 	VideoWidth     int  `json:"video_width" mapstructure:"video_width"`
 	VideoHeight    int  `json:"video_height" mapstructure:"video_height"`
 	VideoFPS       int  `json:"video_fps" mapstructure:"video_fps"`
-	LowLatencyMode bool `json:"low_latency_mode" mapstructure:"low_latency_mode"` // Режим низкой задержки
-	BufferSize     int  `json:"buffer_size" mapstructure:"buffer_size"`           // Размер буфера кадров
-	SkipFrameDelay bool `json:"skip_frame_delay" mapstructure:"skip_frame_delay"` // Пропускать задержки между кадрами
+	LowLatencyMode bool `json:"low_latency_mode" mapstructure:"low_latency_mode"` // Low latency mode
+	BufferSize     int  `json:"buffer_size" mapstructure:"buffer_size"`           // Frame buffer size
+	SkipFrameDelay bool `json:"skip_frame_delay" mapstructure:"skip_frame_delay"` // Skip delays between frames
 
-	// Аудио настройки
+	// Audio settings
 	AudioCodec      string `json:"audio_codec" mapstructure:"audio_codec"`     // Opus, G.711
 	AudioBitrate    int    `json:"audio_bitrate" mapstructure:"audio_bitrate"` // kbps
 	AudioSampleRate int    `json:"audio_sample_rate" mapstructure:"audio_sample_rate"`
 	AudioChannels   int    `json:"audio_channels" mapstructure:"audio_channels"`
 
-	// UI настройки
+	// UI settings
 	WindowWidth  int    `json:"window_width" mapstructure:"window_width"`
 	WindowHeight int    `json:"window_height" mapstructure:"window_height"`
 	Theme        string `json:"theme" mapstructure:"theme"` // light, dark
 	LogLevel     string `json:"log_level" mapstructure:"log_level"`
 }
 
-// DefaultConfig возвращает конфигурацию по умолчанию
+// DefaultConfig returns the default configuration
 func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		// USBridge 2
@@ -92,39 +91,38 @@ func DefaultConfig() *AppConfig {
 		FRPTLSCa:           "./certs/ca.crt",
 		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),
 
-		TailscaleEnabled:   true,
-		TailscaleUserspace: true,
+		TailscaleEnabled: true,
 
-		// NBD сервер
+		// NBD server
 		NBDPort:           10809,
 		MaxClients:        5,
 		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
 		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
-		NBDExportReadOnly: true, // безопасный дефолт: RO; false = экспорт RW через overlay (база не портится)
+		NBDExportReadOnly: true, // safe default: RO; false = RW export via overlay (base image stays intact)
 
-		// Видео протокол (moonlight по умолчанию)
+		// Video protocol (moonlight by default)
 		VideoProtocol: VideoProtocolMoonlight,
 
-		// Видео UDP (55000 — динамический диапазон, не конфликтует с nidmsrv/UPnP/AirPlay и т.д.)
+		// Video UDP (55000 — dynamic range, doesn't conflict with nidmsrv/UPnP/AirPlay etc.)
 		VideoUDPPort:  DefaultVideoUDPPort,
 		VideoBindHost: "0.0.0.0",
 
-		// Видео
+		// Video
 		VideoBitrate:   10000,
 		VideoWidth:     1280,
 		VideoHeight:    720,
 		VideoFPS:       60,
-		LowLatencyMode: true, // Включаем режим низкой задержки по умолчанию
-		BufferSize:     2,    // Минимальный буфер кадров
-		SkipFrameDelay: true, // Пропускаем задержки между кадрами
+		LowLatencyMode: true, // Enable low latency mode by default
+		BufferSize:     2,    // Minimum frame buffer
+		SkipFrameDelay: true, // Skip delays between frames
 
-		// Аудио
+		// Audio
 		AudioCodec:      "Opus",
 		AudioBitrate:    128,
 		AudioSampleRate: 48000,
 		AudioChannels:   2,
 
-		// UI — размер по умолчанию удобен для современных DPI и масштабирования
+		// UI — default size is comfortable for modern DPI and scaling
 		WindowWidth:  960,
 		WindowHeight: 640,
 		Theme:        "light",
@@ -141,7 +139,7 @@ func modelsafeProtocol(protocol string) string {
 	}
 }
 
-// AppState состояние приложения
+// AppState application state
 type AppState struct {
 	IsConnected      bool      `json:"is_connected"`
 	IsStreaming      bool      `json:"is_streaming"`
@@ -151,19 +149,19 @@ type AppState struct {
 	LastDisconnected time.Time `json:"last_disconnected"`
 }
 
-// SnapshotInfo информация о снапшоте
+// SnapshotInfo snapshot information
 type SnapshotInfo struct {
 	Name        string    `json:"name"`
 	Size        int64     `json:"size"`
-	SizeHuman   string    `json:"size_human"` // Размер в читаемом формате от API (например "0 B / 40.0 GB")
-	Changelog   string    `json:"changelog"`  // Changelog снапшота (сырой от btrfs)
+	SizeHuman   string    `json:"size_human"` // Human-readable size from the API (e.g. "0 B / 40.0 GB")
+	Changelog   string    `json:"changelog"`  // Snapshot changelog (raw, from btrfs)
 	CreatedAt   time.Time `json:"created_at"`
 	Description string    `json:"description,omitempty"`
 	Path        string    `json:"path"`
 	Connected   bool      `json:"connected"`
 }
 
-// SnapshotJSON структура для парсинга JSON ответа от сервера
+// SnapshotJSON structure for parsing the server's JSON response
 type SnapshotJSON struct {
 	Name       string `json:"name"`
 	Date       string `json:"date"`
@@ -176,14 +174,14 @@ type SnapshotJSON struct {
 	Connected  bool   `json:"connected"`
 }
 
-// ToSnapshotInfo преобразует SnapshotJSON в SnapshotInfo
+// ToSnapshotInfo converts SnapshotJSON into SnapshotInfo
 func (sj *SnapshotJSON) ToSnapshotInfo() *SnapshotInfo {
-	// Пытаемся парсить дату из строки, если не получается - используем timestamp
+	// Try to parse the date from the string; fall back to the timestamp if that fails
 	var createdAt time.Time
 	var err error
 
 	if sj.Date != "" {
-		// Пробуем разные форматы даты
+		// Try different date formats
 		formats := []string{
 			"2006-01-02 15:04:05",
 			"2006-01-02T15:04:05",
@@ -199,7 +197,7 @@ func (sj *SnapshotJSON) ToSnapshotInfo() *SnapshotInfo {
 		}
 	}
 
-	// Если не удалось парсить дату из строки, используем timestamp
+	// If the date string couldn't be parsed, use the timestamp
 	if err != nil {
 		createdAt = time.Unix(sj.Timestamp, 0)
 	}
@@ -216,7 +214,7 @@ func (sj *SnapshotJSON) ToSnapshotInfo() *SnapshotInfo {
 	}
 }
 
-// FormatSize форматирует размер в человекочитаемый вид (из байтов)
+// FormatSize formats the size into a human-readable form (from bytes)
 func (s *SnapshotInfo) FormatSize() string {
 	const unit = 1024
 	if s.Size < unit {
@@ -230,7 +228,7 @@ func (s *SnapshotInfo) FormatSize() string {
 	return fmt.Sprintf("%.1f %cB", float64(s.Size)/float64(div), "KMGTPE"[exp])
 }
 
-// DisplaySize возвращает размер для отображения: приоритет у size_human от API
+// DisplaySize returns the size for display: size_human from the API takes priority
 func (s *SnapshotInfo) DisplaySize() string {
 	if s.SizeHuman != "" {
 		return s.SizeHuman
@@ -238,9 +236,9 @@ func (s *SnapshotInfo) DisplaySize() string {
 	return s.FormatSize()
 }
 
-// splitChangelogLine разбивает строку changelog, сохраняя экранированные пробелы (\ )
+// splitChangelogLine splits a changelog line, preserving escaped spaces (\ )
 func splitChangelogLine(line string) []string {
-	// Заменяем \ (backslash-space) на placeholder, чтобы не разбивать пути с пробелами
+	// Replace \ (backslash-space) with a placeholder so paths with spaces aren't split
 	const placeholder = "\u200B" // zero-width space
 	line = strings.ReplaceAll(line, "\\ ", placeholder)
 	parts := strings.Fields(line)
@@ -250,7 +248,7 @@ func splitChangelogLine(line string) []string {
 	return parts
 }
 
-// isParamPart проверяет, является ли part параметром key=value (dest=, from=, uuid= и т.д.)
+// isParamPart checks whether part is a key=value parameter (dest=, from=, uuid=, etc.)
 func isParamPart(part string) bool {
 	idx := strings.Index(part, "=")
 	if idx <= 0 {
@@ -265,7 +263,7 @@ func isParamPart(part string) bool {
 	return len(key) > 0
 }
 
-// extractPathFromParts извлекает путь, который может занимать несколько parts (при пробелах в имени)
+// extractPathFromParts extracts a path that may span multiple parts (when the name contains spaces)
 func extractPathFromParts(parts []string) (path string, params []string) {
 	if len(parts) < 2 {
 		return "", parts
@@ -280,19 +278,19 @@ func extractPathFromParts(parts []string) (path string, params []string) {
 	return strings.Join(pathParts, " "), nil
 }
 
-// extractPathParam извлекает значение параметра key= из parts (from=, dest=).
-// Значение может занимать несколько parts, если путь содержит неэкранированные пробелы.
+// extractPathParam extracts the value of a key= parameter from parts (from=, dest=).
+// The value may span multiple parts if the path contains unescaped spaces.
 func extractPathParam(parts []string, prefix string) string {
 	for i, p := range parts {
 		if !strings.HasPrefix(p, prefix) {
 			continue
 		}
 		val := strings.TrimPrefix(p, prefix)
-		// Собираем последующие parts до следующего key=value (если значение разбито)
+		// Collect subsequent parts until the next key=value (in case the value is split)
 		for j := i + 1; j < len(parts); j++ {
 			next := parts[j]
 			if strings.Contains(next, "=") && !strings.HasPrefix(next, prefix) {
-				break // Следующий параметр key=value
+				break // Next key=value parameter
 			}
 			val += " " + next
 		}
@@ -302,7 +300,7 @@ func extractPathParam(parts []string, prefix string) string {
 	return ""
 }
 
-// simplifyPath оставляет только имя файла, убирает ./ и trailing /
+// simplifyPath keeps only the file name, strips ./ and a trailing /
 func simplifyPath(p string) string {
 	p = strings.TrimPrefix(p, "./")
 	p = strings.TrimSuffix(p, "/")
@@ -312,13 +310,13 @@ func simplifyPath(p string) string {
 	return p
 }
 
-// ChangelogFormatOptions опции форматирования changelog (для локализации)
+// ChangelogFormatOptions changelog formatting options (for localization)
 type ChangelogFormatOptions struct {
-	OpNames       map[string]string // переводы операций btrfs: "snapshot" -> "создание снапшота"
-	TempFileLabel string            // не используется, оставлено для совместимости
+	OpNames       map[string]string // translations of btrfs operations: "snapshot" -> "snapshot creation"
+	TempFileLabel string            // unused, kept for compatibility
 }
 
-// formatPathForDisplay возвращает путь для отображения (BTRFS-имена показываются как есть)
+// formatPathForDisplay returns the path for display (BTRFS names are shown as-is)
 func formatPathForDisplay(path, _ string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -327,8 +325,8 @@ func formatPathForDisplay(path, _ string) string {
 	return path
 }
 
-// FormatChangelog форматирует сырой changelog btrfs в удобочитаемый вид.
-// opts — локализованные подписи (если nil, используются значения по умолчанию).
+// FormatChangelog formats the raw btrfs changelog into a human-readable form.
+// opts — localized labels (defaults are used if nil).
 func (s *SnapshotInfo) FormatChangelog(opts *ChangelogFormatOptions) string {
 	raw := strings.TrimSpace(s.Changelog)
 	if raw == "" {
@@ -377,7 +375,7 @@ func (s *SnapshotInfo) FormatChangelog(opts *ChangelogFormatOptions) string {
 				// rename: source → dest
 				lines = append(lines, fmt.Sprintf("• %s: %s → %s", op, path, dest))
 			} else if from != "" {
-				// clone: from (источник) → path (назначение)
+				// clone: from (source) → path (destination)
 				lines = append(lines, fmt.Sprintf("• %s: %s → %s", op, from, path))
 			} else {
 				lines = append(lines, fmt.Sprintf("• %s: %s", op, path))
@@ -389,20 +387,20 @@ func (s *SnapshotInfo) FormatChangelog(opts *ChangelogFormatOptions) string {
 	return strings.Join(lines, "\n")
 }
 
-// SnapshotsResponse ответ с списком снапшотов
+// SnapshotsResponse response with a list of snapshots
 type SnapshotsResponse struct {
 	Count     int            `json:"count"`
 	Snapshots []SnapshotInfo `json:"snapshots"`
 }
 
-// SnapshotsJSONResponse структура для парсинга JSON ответа от сервера
+// SnapshotsJSONResponse structure for parsing the server's JSON response
 type SnapshotsJSONResponse struct {
 	Count     int            `json:"count"`
 	Total     int            `json:"total"`
 	Snapshots []SnapshotJSON `json:"snapshots"`
 }
 
-// ToSnapshotsResponse преобразует SnapshotsJSONResponse в SnapshotsResponse
+// ToSnapshotsResponse converts SnapshotsJSONResponse into SnapshotsResponse
 func (sjr *SnapshotsJSONResponse) ToSnapshotsResponse() *SnapshotsResponse {
 	snapshots := make([]SnapshotInfo, len(sjr.Snapshots))
 	for i, snapshotJSON := range sjr.Snapshots {
@@ -415,7 +413,7 @@ func (sjr *SnapshotsJSONResponse) ToSnapshotsResponse() *SnapshotsResponse {
 	}
 }
 
-// ISOSpaceInfo информация о месте на SD-карте (btrfs раздел iso/data/backup)
+// ISOSpaceInfo information about free space on the SD card (btrfs iso/data/backup partition)
 type ISOSpaceInfo struct {
 	TotalSpace     int64   `json:"total_space"`
 	UsedSpace      int64   `json:"used_space"`
@@ -426,10 +424,3 @@ type ISOSpaceInfo struct {
 	UsedPercent    float64 `json:"used_percent"`
 	ISODirectory   string  `json:"iso_directory"`
 }
-
-type TailscaleMode int
-
-const (
-	TailscaleModeUserspace TailscaleMode = iota
-	TailscaleModeSystem
-)

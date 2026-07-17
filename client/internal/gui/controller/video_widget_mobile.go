@@ -68,7 +68,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 			mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods)
 		})
 
-		// Когда Android IME открывается/закрывается, расширяем Vulkan вверх под вкладки.
+		// When the Android IME opens/closes, expand Vulkan upward under the tabs.
 		vw.virtualKeyboard.SetOnIMEChanged(func(imeHeightDp float32) {
 			fyne.Do(func() {
 				kl := vw.virtualKeyboard.GetKeyboardLayout()
@@ -92,7 +92,7 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 		vw.forceCanvasRefresh.Store(true)
 		logrus.Info("⌨️ Virtual keyboard hidden (Android mode)")
 	} else {
-		// Регистрируем как получателя нативных Android IME-событий
+		// Register as the recipient of native Android IME events
 		vw.virtualKeyboard.RegisterAsIMETarget()
 
 		keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()

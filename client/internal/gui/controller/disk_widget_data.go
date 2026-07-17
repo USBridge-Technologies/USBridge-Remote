@@ -23,13 +23,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// uploadState сохраняет состояние загрузки для восстановления после combineDrives
+// uploadState holds the upload state so it can be restored after combineDrives
 type uploadState struct {
 	progress float64
 	speed    float64
 }
 
-// loadLocalDrives загружает локальные устройства через API
+// loadLocalDrives loads local devices via the API
 func (dw *DiskWidget) loadLocalDrives() {
 	if !dw.loadingLocalDrives.CompareAndSwap(false, true) {
 		logrus.Debug("loadLocalDrives already in flight, skipping overlapping refresh")
@@ -38,40 +38,40 @@ func (dw *DiskWidget) loadLocalDrives() {
 	go func() {
 		defer dw.loadingLocalDrives.Store(false)
 		if dw.usbClient == nil {
-			logrus.Debug("USB клиент не инициализирован, пропускаем загрузку локальных устройств")
+			logrus.Debug("USB client not initialized, skipping local device load")
 			return
 		}
 
 		localDrives, err := dw.usbClient.GetLocalDrives()
 		if err != nil {
-			logrus.Errorf("Ошибка загрузки локальных устройств: %v", err)
+			logrus.Errorf("Error loading local devices: %v", err)
 			return
 		}
 
-		// Конвертируем в указатели
+		// Convert to pointers
 		dw.localDrives = make([]*models.LocalDrive, len(localDrives.Drives))
 		for i := range localDrives.Drives {
 			dw.localDrives[i] = &localDrives.Drives[i]
 		}
 
-		logrus.Debugf("Загружено %d устройств из API", len(dw.localDrives))
+		logrus.Debugf("Loaded %d devices from the API", len(dw.localDrives))
 		dw.updateUIAsync(func() {
 			dw.scheduleCombine()
 		})
 
-		// Загружаем информацию о месте на SD-карте (раздел iso/data/backup)
+		// Load info about SD card space (iso/data/backup partition)
 		dw.loadISOSpace()
 	}()
 }
 
-// loadISOSpace загружает информацию о месте на SD-карте
+// loadISOSpace loads info about SD card space
 func (dw *DiskWidget) loadISOSpace() {
 	if dw.usbClient == nil {
 		return
 	}
 	spaceInfo, err := dw.usbClient.GetISOSpace()
 	if err != nil {
-		logrus.Debugf("Информация о месте на SD-карте недоступна: %v", err)
+		logrus.Debugf("SD card space info unavailable: %v", err)
 		dw.updateUIAsync(func() {
 			dw.sdSpaceInfo = nil
 			dw.updateSDStorageInfo()
@@ -84,7 +84,7 @@ func (dw *DiskWidget) loadISOSpace() {
 	})
 }
 
-// updateSDStorageInfo обновляет прогрессбар в main window через callback
+// updateSDStorageInfo updates the progress bar in the main window via callback
 func (dw *DiskWidget) updateSDStorageInfo() {
 	if dw.sdSpaceInfo == nil || dw.sdSpaceInfo.TotalSpace <= 0 {
 		if dw.onStorageInfoUpdate != nil {
@@ -100,7 +100,7 @@ func (dw *DiskWidget) updateSDStorageInfo() {
 	}
 }
 
-// loadLocalFiles загружает локальные файлы из папки isos
+// loadLocalFiles loads local files from the isos folder
 func (dw *DiskWidget) loadLocalFiles() {
 	if !dw.loadingLocalFiles.CompareAndSwap(false, true) {
 		logrus.Debug("loadLocalFiles already in flight, skipping overlapping refresh")
@@ -129,7 +129,7 @@ func (dw *DiskWidget) loadLocalFiles() {
 				if dw.isSupportedFile(path) {
 					diskInfo, err := models.NewDiskInfo(path)
 					if err != nil {
-						logrus.Errorf("Ошибка создания DiskInfo для %s: %v", path, err)
+						logrus.Errorf("Error creating DiskInfo for %s: %v", path, err)
 						return nil
 					}
 
@@ -140,11 +140,11 @@ func (dw *DiskWidget) loadLocalFiles() {
 			})
 
 			if err != nil {
-				logrus.Errorf("Ошибка сканирования %s: %v", scanPath, err)
+				logrus.Errorf("Error scanning %s: %v", scanPath, err)
 			}
 		}
 
-		logrus.Debugf("Найдено %d локальных файлов", len(foundFiles))
+		logrus.Debugf("Found %d local files", len(foundFiles))
 		dw.updateUIAsync(func() {
 			dw.localFiles = foundFiles
 			dw.scheduleCombine()
@@ -206,20 +206,20 @@ func (dw *DiskWidget) loadAudioDevices() {
 	}()
 }
 
-// isSupportedFile проверяет, поддерживается ли файл
+// isSupportedFile checks whether the file is supported
 func (dw *DiskWidget) isSupportedFile(filePath string) bool {
 	diskInfo := &models.DiskInfo{Path: filePath}
 	return diskInfo.IsSupported(dw.supportedTypes)
 }
 
-// combineDrives объединяет устройства из API, локальные файлы и клавиатуру
+// combineDrives merges devices from the API, local files, and keyboard
 func (dw *DiskWidget) combineDrives() {
-	// Сохраняем состояние загрузки и монтирования перед перестроением
+	// Save the upload and mount state before rebuilding
 	uploadingByPath := make(map[string]uploadState)
 	mountingByExportName := make(map[string]bool)
 	oldReadOnly := make(map[string]bool)
 	selectedKeys := make(map[string]bool)
-	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // сохраняем выбор пользователя (touchpad/touchscreen/absolute)
+	oldMouseType := normalizeMouseMode(dw.preferredMouseMode) // preserve the user's choice (touchpad/touchscreen/absolute)
 	oldRNDISMode := "auto"
 	oldGamepadMode := gamepadModeXInput
 	oldUSBAudioMode := "uac1"
@@ -248,7 +248,7 @@ func (dw *DiskWidget) combineDrives() {
 				mountingByExportName[d.Name] = true
 			}
 		}
-		// Сохраняем RO/RW для overlay-образов (vdi/vmdk/qcow2)
+		// Preserve RO/RW for overlay images (vdi/vmdk/qcow2)
 		key := ""
 		if d.DiskInfo != nil {
 			key = d.DiskInfo.Path
@@ -295,9 +295,9 @@ func (dw *DiskWidget) combineDrives() {
 		}
 	}
 
-	// Добавляем устройства из API
+	// Add devices from the API
 	for _, drive := range dw.localDrives {
-		// По умолчанию: overlay-образы (vdi/vmdk/qcow2) — RW, иначе RO
+		// By default: overlay images (vdi/vmdk/qcow2) are RW, otherwise RO
 		readOnly := true
 		if drive.SourceType != "mtp" {
 			ext := strings.ToLower(filepath.Ext(drive.Name))
@@ -319,7 +319,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, item)
 	}
 
-	// Добавляем локальные файлы
+	// Add local files
 	for _, file := range dw.localFiles {
 		ext := strings.ToLower(filepath.Ext(file.Path))
 		readOnly := !service.IsOverlayCapableExtension(ext) || ext == ".iso"
@@ -337,11 +337,11 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, item)
 	}
 
-	// Добавляем пользовательские образы
+	// Add user images
 	for _, file := range dw.userImages {
-		logrus.Debugf("🔍 [combineDrives] Обработка пользовательского образа: Name='%s', Path='%s', Type='%s'", file.Name, file.Path, file.Type)
+		logrus.Debugf("🔍 [combineDrives] Processing user image: Name='%s', Path='%s', Type='%s'", file.Name, file.Path, file.Type)
 		displayName := dw.formatPathForDisplay(file.Path, file.Name)
-		logrus.Debugf("🔍 [combineDrives] После formatPathForDisplay: displayName='%s'", displayName)
+		logrus.Debugf("🔍 [combineDrives] After formatPathForDisplay: displayName='%s'", displayName)
 
 		ext := strings.ToLower(filepath.Ext(file.Path))
 		readOnly := !service.IsOverlayCapableExtension(ext) || ext == ".iso"
@@ -359,7 +359,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, item)
 	}
 
-	// Добавляем видеоустройства
+	// Add video devices
 	for i := range dw.videoDevices {
 		device := dw.videoDevices[i]
 		item := DriveItem{
@@ -373,7 +373,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, item)
 	}
 
-	// Добавляем клавиатуру
+	// Add the keyboard
 	keyboardItem := DriveItem{
 		Name:       i18n.Current.DeviceKeyboard,
 		Size:       "N/A",
@@ -383,7 +383,7 @@ func (dw *DiskWidget) combineDrives() {
 	}
 	dw.allDrives = append(dw.allDrives, keyboardItem)
 
-	// Добавляем мышь
+	// Add the mouse
 	oldMouseType = normalizeMouseMode(oldMouseType)
 	oldRNDISMode = normalizeRNDISMode(oldRNDISMode)
 	mouseItem := DriveItem{
@@ -396,7 +396,7 @@ func (dw *DiskWidget) combineDrives() {
 	}
 	dw.allDrives = append(dw.allDrives, mouseItem)
 
-	// Добавляем сетевую карту (RNDIS) - только если ОС хоста "usbridge"
+	// Add the network card (RNDIS) - only if the host OS is "usbridge"
 	osName := strings.ToLower(dw.agentOS)
 	if strings.Contains(osName, "usbridge") {
 		rndisItem := DriveItem{
@@ -410,7 +410,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, rndisItem)
 	}
 
-	// Добавляем геймпады из системы (macOS: IOKit; другие платформы: пусто)
+	// Add gamepads from the system (macOS: IOKit; other platforms: empty)
 	for _, gpad := range dw.gamepadDevices {
 		gamepadItem := DriveItem{
 			Name:             gpad.Name,
@@ -426,7 +426,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, gamepadItem)
 	}
 
-	// Добавляем аудиоустройства захвата
+	// Add audio capture devices
 	for i := range dw.audioDevices {
 		device := dw.audioDevices[i]
 		audioItem := DriveItem{
@@ -440,7 +440,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, audioItem)
 	}
 
-	// USB Audio Gadget (UAC) — только если ОС хоста "usbridge"
+	// USB Audio Gadget (UAC) — only if the host OS is "usbridge"
 	if strings.Contains(osName, "usbridge") {
 		usbAudioItem := DriveItem{
 			Name:         i18n.Current.DeviceUSBAudio,
@@ -453,7 +453,7 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, usbAudioItem)
 	}
 
-	// Восстанавливаем состояние загрузки и монтирования
+	// Restore the upload and mount state
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil {
 			if state, ok := uploadingByPath[dw.allDrives[i].DiskInfo.Path]; ok {
@@ -485,11 +485,11 @@ func (dw *DiskWidget) combineDrives() {
 	dw.updateDevicesStatus()
 	dw.rebuildListItems()
 
-	logrus.Debugf("Объединено %d элементов (API: %d, локальные: %d, пользовательские: %d, video: %d, клавиатура: 1, мышь: 1, RNDIS: %v), agentOS: %q",
+	logrus.Debugf("Combined %d items (API: %d, local: %d, user: %d, video: %d, keyboard: 1, mouse: 1, RNDIS: %v), agentOS: %q",
 		len(dw.allDrives), len(dw.localDrives), len(dw.localFiles), len(dw.userImages), len(dw.videoDevices), strings.Contains(osName, "usbridge"), dw.agentOS)
 }
 
-// loadGamepadDevices обновляет список геймпадов из ОС и перестраивает список устройств.
+// loadGamepadDevices refreshes the gamepad list from the OS and rebuilds the device list.
 func (dw *DiskWidget) loadGamepadDevices() {
 	gamepads := platform.EnumerateGamepads()
 	dw.updateUIAsync(func() {
@@ -498,7 +498,7 @@ func (dw *DiskWidget) loadGamepadDevices() {
 	})
 }
 
-// loadMountedDevices загружает смонтированные устройства через API
+// loadMountedDevices loads mounted devices via the API
 func (dw *DiskWidget) loadMountedDevices() {
 	if !dw.loadingMountedInfo.CompareAndSwap(false, true) {
 		logrus.Debug("loadMountedDevices already in flight, skipping overlapping refresh")
@@ -507,17 +507,17 @@ func (dw *DiskWidget) loadMountedDevices() {
 	go func() {
 		defer dw.loadingMountedInfo.Store(false)
 		if dw.usbClient == nil {
-			logrus.Debug("USB клиент не инициализирован, пропускаем загрузку устройств")
+			logrus.Debug("USB client not initialized, skipping device load")
 			return
 		}
 
 		deviceInfo, err := dw.usbClient.GetDeviceInfo()
 		if err != nil {
-			logrus.Errorf("Ошибка загрузки информации об устройствах: %v", err)
+			logrus.Errorf("Error loading device info: %v", err)
 			return
 		}
 
-		logrus.Debugf("Загружено %d смонтированных устройств, agentOS='%s'", len(deviceInfo.Devices), deviceInfo.AgentOS)
+		logrus.Debugf("Loaded %d mounted devices, agentOS='%s'", len(deviceInfo.Devices), deviceInfo.AgentOS)
 		dw.updateUIAsync(func() {
 			dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
 			for i := range deviceInfo.Devices {
@@ -535,12 +535,12 @@ func (dw *DiskWidget) loadMountedDevices() {
 	}()
 }
 
-// updateDevicesStatus обновляет статус всех устройств в списке
+// updateDevicesStatus updates the status of all devices in the list
 func (dw *DiskWidget) updateDevicesStatus() {
-	logrus.Debugf("🔄 Обновление статуса устройств. Всего устройств: %d, смонтированных: %d", len(dw.allDrives), len(dw.mountedDevices))
+	logrus.Debugf("🔄 Updating device status. Total devices: %d, mounted: %d", len(dw.allDrives), len(dw.mountedDevices))
 
 	for _, device := range dw.mountedDevices {
-		logrus.Debugf("📡 Смонтированное устройство: name='%s', device='%s', type='%s', status='%s'",
+		logrus.Debugf("📡 Mounted device: name='%s', device='%s', type='%s', status='%s'",
 			device.Name, device.Device, device.Type, device.Status)
 	}
 
@@ -623,7 +623,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			if drive.IsKeyboard && (device.Type == "keyboard" || strings.HasPrefix(device.Type, "keyboard:")) {
 				isMounted = true
 				usedMountedIdx[j] = true
-				logrus.Debugf("⌨️ Найдена подключенная клавиатура: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
+				logrus.Debugf("⌨️ Found connected keyboard: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
@@ -635,7 +635,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				if drive.MouseType == "" {
 					drive.MouseType = dw.observedMouseMode
 				}
-				logrus.Debugf("🖱️ Найдена подключенная мышь: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
+				logrus.Debugf("🖱️ Found connected mouse: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
@@ -646,14 +646,14 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					rndisMode := strings.TrimPrefix(device.Type, "rndis:")
 					drive.RNDISMode = normalizeRNDISMode(rndisMode)
 				}
-				logrus.Debugf("🌐 Найдена подключенная сетевая карта: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
+				logrus.Debugf("🌐 Found connected network card: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
 			if drive.IsGamepad && (device.Type == "gamepad" || strings.HasPrefix(device.Type, "gamepad:")) {
 				isMounted = true
 				usedMountedIdx[j] = true
-				logrus.Debugf("🎮 Найден подключенный геймпад: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
+				logrus.Debugf("🎮 Found connected gamepad: %s (type: %s, device: %s)", device.Name, device.Type, device.Device)
 				break
 			}
 
@@ -700,7 +700,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					if device.DriveMode != "" {
 						drive.DriveMode = device.DriveMode
 					}
-					logrus.Debugf("🌐 Найден подключенный NBD диск (по export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+					logrus.Debugf("🌐 Found connected NBD disk (by export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					break
 				}
 			}
@@ -714,9 +714,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 						drive.DriveMode = device.DriveMode
 					}
 					if device.Type == "mtp" {
-						logrus.Debugf("📱 Найден подключенный MTP диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+						logrus.Debugf("📱 Found connected MTP disk: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					} else {
-						logrus.Debugf("💿 Найден подключенный локальный диск bridge: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+						logrus.Debugf("💿 Found connected local bridge disk: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					}
 					break
 				}
@@ -728,7 +728,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				if device.DriveMode != "" {
 					drive.DriveMode = device.DriveMode
 				}
-				logrus.Debugf("🌐 Найден подключенный NBD диск: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+				logrus.Debugf("🌐 Found connected NBD disk: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 				break
 			}
 		}

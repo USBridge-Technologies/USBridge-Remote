@@ -32,8 +32,6 @@ OUTPUT_NAME="USBridgeClient"
 DIST_ROOT="$REPO_ROOT/dist"
 DIST_OS="$DIST_ROOT/macos"
 if [ -d "$DIST_OS" ] && [ ! -w "$DIST_OS" ]; then
-    echo -e "${RED}❌ Нет прав на запись в $DIST_OS${NC}"
-    echo "   Исправьте права и повторите:"
     echo "   sudo chown -R \"$USER\":\"$USER\" \"$DIST_OS\""
     exit 1
 fi
@@ -51,6 +49,54 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+# create_dmg_with_drag_layout <volname> <src_dir> <output_dmg> <app_bundle_name>
+# Builds a DMG with the classic drag-to-Applications Finder window: app icon
+# on the left, an /Applications symlink on the right (src_dir must already
+# contain that symlink). Falls back to a plain hdiutil create if the
+# Finder/AppleScript step fails (e.g. no GUI session available) so a cosmetic
+# layout failure never breaks the build — the DMG still works either way.
+create_dmg_with_drag_layout() {
+    local volname="$1" src_dir="$2" output_dmg="$3" app_name="$4"
+    local tmp_dmg mount_point
+    tmp_dmg="$(mktemp -u "${TMPDIR:-/tmp}/${volname}-XXXXXX").dmg"
+    mount_point="/Volumes/$volname"
+
+    if hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDRW -fs HFS+ "$tmp_dmg" >/dev/null 2>&1 \
+        && hdiutil attach "$tmp_dmg" -mountpoint "$mount_point" -nobrowse -quiet 2>/dev/null; then
+        osascript \
+            -e "tell application \"Finder\"" \
+            -e "tell disk \"$volname\"" \
+            -e "open" \
+            -e "set current view of container window to icon view" \
+            -e "set toolbar visible of container window to false" \
+            -e "set statusbar visible of container window to false" \
+            -e "set the bounds of container window to {400, 100, 940, 420}" \
+            -e "set viewOptions to the icon view options of container window" \
+            -e "set arrangement of viewOptions to not arranged" \
+            -e "set icon size of viewOptions to 96" \
+            -e "set position of item \"$app_name\" of container window to {130, 150}" \
+            -e "set position of item \"Applications\" of container window to {410, 150}" \
+            -e "close" \
+            -e "open" \
+            -e "update without registering applications" \
+            -e "delay 1" \
+            -e "end tell" \
+            -e "end tell" \
+            >/dev/null 2>&1 || true
+        hdiutil detach "$mount_point" -quiet 2>/dev/null || hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+        rm -f "$output_dmg"
+        if hdiutil convert "$tmp_dmg" -format UDZO -o "$output_dmg" >/dev/null 2>&1; then
+            rm -f "$tmp_dmg"
+            return 0
+        fi
+    fi
+
+    echo -e "${YELLOW}Finder drag-layout step failed — falling back to a plain DMG${NC}" >&2
+    hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+    rm -f "$tmp_dmg" "$output_dmg"
+    hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDZO "$output_dmg"
+}
 
 # --------------------------------------------------------------------------
 # Dylib bundling — mirrors what build_windows.sh does for DLLs
@@ -201,7 +247,6 @@ create_app_icon() {
 echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
 # 1. Check optional GStreamer (needed only for legacy RTP video mode)
-echo -e "\n${YELLOW}📦 Проверка зависимостей...${NC}"
 
 GST_LAUNCH=""
 for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst-launch-1.0"; do
@@ -212,14 +257,12 @@ for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst
 done
 
 if [ -z "$GST_LAUNCH" ]; then
-    echo -e "${YELLOW}⚠${NC}  GStreamer не найден — Moonlight работает без него (VideoToolbox/CoreAudio)."
-    echo "   Для RTP видео-режима установите: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
+    :
 else
     echo -e "   ${GREEN}✓${NC} gst-launch: $GST_LAUNCH"
 fi
 
 # 2. Build binary
-echo -e "\n${YELLOW}🔨 Компиляция .app...${NC}"
 rm -f "$REPO_ROOT/cmd/fyne_metadata_init.go"
 rm -rf "$REPO_ROOT/cmd/$APP_BUNDLE_NAME"
 
@@ -324,10 +367,9 @@ for _qtool in qemu-nbd qemu-img; do
         QEMU_COPIED=$((QEMU_COPIED + 1))
         echo -e "   ${GREEN}✓${NC} MacOS/$_qtool"
     else
-        echo -e "   ${YELLOW}⚠${NC} $_qtool не найден — установите: brew install qemu"
+        :
     fi
 done
-[ "$QEMU_COPIED" -gt 0 ] && echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано" || true
 
 # 5b. Bundle FFmpeg (used by h264_decoder.go for legacy RTP H.264 decoding)
 # findFFmpeg() checks the executable's own directory first, so placing ffmpeg in
@@ -345,7 +387,7 @@ if [ -n "$_ff_src" ]; then
     bundle_homebrew_dylibs "$_ff_dest" "$APP_FRAMEWORKS_DIR"
     echo -e "${GREEN}✓${NC} MacOS/ffmpeg"
 else
-    echo -e "${YELLOW}⚠${NC} ffmpeg не найден — установите: brew install ffmpeg"
+    :
 fi
 
 # 5c. Bundle Tailscale (Go binary — statically linked, no dylib deps)
@@ -359,7 +401,7 @@ if [ -n "$_ts_src" ]; then
     chmod 755 "$APP_MACOS_DIR/tailscale"
     echo -e "${GREEN}✓${NC} MacOS/tailscale"
 else
-    echo -e "${YELLOW}⚠${NC} tailscale не найден — установите: brew install tailscale"
+    :
 fi
 
 # 6. Info.plist (written after bundling so icons/plist don't interfere with lib walk)
@@ -486,48 +528,16 @@ touch "$DIST_DIR/$APP_BUNDLE_NAME"
 echo -e "${GREEN}   ✅ App bundle: $DIST_DIR/$APP_BUNDLE_NAME${NC}"
 
 # 7. Dist extras
-echo -e "\n${YELLOW}📁 Подготовка dist...${NC}"
 [ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
 
-cat > "$DIST_DIR/README.txt" << 'README'
-USBridgeClient for macOS
-=========================
+# No README.txt in the DMG — a symlink to /Applications alongside the .app
+# gives the standard drag-to-install Finder window instead, which is more
+# discoverable than a text file nobody opens.
+ln -sf /Applications "$DIST_DIR/Applications"
 
-Run:
-  Open USBridgeClient.app
-  (All Homebrew dependencies are bundled — Homebrew not required on the target machine.)
-
-Bundle layout:
-  Contents/MacOS/USBridgeClient    — main binary
-  Contents/MacOS/ffmpeg            — FFmpeg (H.264 RTP legacy decode)
-  Contents/MacOS/qemu-nbd          — QEMU NBD (VMDK/QCOW2/VDI image support)
-  Contents/MacOS/qemu-img          — QEMU image tool
-  Contents/MacOS/tailscale         — Tailscale CLI
-  Contents/Frameworks/             — bundled dylibs (opus, openssl, glib, gstreamer, ffmpeg libs, gnutls…) + GStreamer plugins
-
-Video modes:
-  Moonlight streaming — VideoToolbox (GPU hardware decode) + CoreAudio audio.
-    No external dependencies required.
-
-  Legacy RTP mode — requires GStreamer plugins.
-    If GStreamer was installed at build time its plugins are bundled above.
-    To activate: export GST_PLUGIN_PATH="$BUNDLE/Contents/Frameworks"
-    Or install GStreamer via Homebrew: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
-
-Requirements:
-  - macOS 10.15+
-
-Configuration:
-  config.yaml next to the .app, or ~/.config/usbridge-client/
-
-Application log:
-  ~/Library/Logs/USBridgeClient/app.log
-README
-
-echo -e "\n${YELLOW}📦 Создание disk image...${NC}"
 ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS-arm64-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").dmg"
 rm -f "$ARCHIVE"
-hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+create_dmg_with_drag_layout "USBridgeClient" "$DIST_DIR" "$ARCHIVE" "$APP_BUNDLE_NAME"
 
 # ── Notarization (optional) ───────────────────────────────────────────────────
 # Requires credentials stored in Keychain once via:
@@ -562,8 +572,7 @@ for i in d.get('issues',[]):
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
         xcrun stapler staple "$DIST_DIR/$APP_BUNDLE_NAME"
-        rm -f "$ARCHIVE"
-        hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+        create_dmg_with_drag_layout "USBridgeClient" "$DIST_DIR" "$ARCHIVE" "$APP_BUNDLE_NAME"
         echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
     else
         echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"
@@ -600,9 +609,4 @@ else
     echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: $gk_result"
 fi
 
-echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
-echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
-echo -e "   Архив:     $ARCHIVE"
-echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
-echo -e "   Лог app:   ~/Library/Logs/USBridgeClient/app.log"
 echo ""

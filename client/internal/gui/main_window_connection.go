@@ -26,29 +26,7 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 }
 
 // handleConnectionFromDeepLink handles the deep-link connect callback.
-// tsMode optionally overrides the Tailscale mode before connecting.
-func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
-	if mw.tailscaleService != nil {
-		switch tsMode {
-		case TailscaleModeUserspace:
-			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: userspace (tsnet)")
-			// Stop any running tsnet first (idempotent), then switch and start.
-			mw.tailscaleService.Stop()
-			mw.tailscaleService.SetUserspace(true)
-			go func() {
-				if err := mw.tailscaleService.Start(context.Background()); err != nil {
-					logrus.Warnf("⚠️ [DeepLink] tsnet start: %v", err)
-				}
-			}()
-		case TailscaleModeKernel:
-			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: kernel (system VPN)")
-			// Stop tsnet so it doesn't run alongside system Tailscale.
-			mw.tailscaleService.Stop()
-			mw.tailscaleService.SetUserspace(false)
-		default:
-			// TailscaleModeAuto: do not change current setting
-		}
-	}
+func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
 	mw.handleConnectionFromManager(host, masterKey, "", protocol, quicPort, tailscaleRegister)
 }
 
@@ -83,12 +61,12 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 
 	if mw.connectionManager != nil {
 		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
-		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
+		logrus.Infof("✅ Connection '%s' saved", generatedName)
 		fyne.Do(func() {
-			logrus.Infof("💾 Сохранено как: %s", generatedName)
+			logrus.Infof("💾 Saved as: %s", generatedName)
 		})
 	} else {
-		logrus.Warn("⚠️ ConnectionManager не инициализирован")
+		logrus.Warn("⚠️ ConnectionManager is not initialized")
 	}
 }
 
@@ -278,7 +256,7 @@ func (mw *MainWindow) resolveBridgeAuthInputs(host, masterKey string) (deviceTok
 
 func (mw *MainWindow) handleConnectionToggle() {
 	if mw.isConnectionPending.Load() {
-		logrus.Warn("⚠️ Операция подключения/отключения уже выполняется, игнорируем повторное нажатие")
+		logrus.Warn("⚠️ A connect/disconnect operation is already in progress, ignoring repeated press")
 		return
 	}
 
@@ -315,7 +293,7 @@ func (mw *MainWindow) handleConnectionToggle() {
 	go mw.handleConnect()
 }
 
-// handleConnect обрабатывает подключение
+// handleConnect handles connecting
 func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
@@ -380,9 +358,9 @@ func getFreeVideoUDPPort() int {
 	return port
 }
 
-// doConnect выполняет блокирующую логику подключения (вызывается из горутины).
-// masterKey — API master secret (из QR кода): используется для sync и подписи API запросов.
-// frpToken  — прямой FRP токен туннеля (advanced, обходит sync).
+// doConnect performs the blocking connection logic (called from a goroutine).
+// masterKey — API master secret (from the QR code): used for sync and to sign API requests.
+// frpToken  — direct FRP tunnel token (advanced, bypasses sync).
 func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken string) error {
 	// Consume the pending FRP token (set by handleConnectionFromManager) before any async work.
 	if frpToken == "" {
@@ -394,18 +372,19 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 
 	selectedProtocol := mw.protocolSelect.Selected
 
-	// On macOS, the tsnet (userspace Tailscale) WireGuard stack initialization
-	// briefly disrupts the OS network routing table, causing even LAN connections
-	// to fail with EHOSTUNREACH. Wait for tsnet to reach Running state before
-	// making any network calls. WaitUntilReady returns immediately when already Running.
+	// The tsnet (userspace Tailscale) WireGuard stack initialization briefly
+	// disrupts the OS network routing table on some platforms, causing even LAN
+	// connections to fail with EHOSTUNREACH. Wait for tsnet to reach Running
+	// state before making any network calls. WaitUntilReady returns immediately
+	// when already Running.
 	//
 	// Only do this when the target actually needs Tailscale (a tailnet-looking
-	// host, or the user explicitly picked the "tailscale" protocol). Otherwise,
-	// on Android IsUserspace() is always true, so an unqualified call here would
-	// call tsnet's Up() on every direct/LAN connect attempt — including before
-	// the user has ever pressed the Tailscale button — which triggers an
-	// unauthenticated tsnet login and pops an auth browser window on top of the app.
-	if mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() &&
+	// host, or the user explicitly picked the "tailscale" protocol) — an
+	// unqualified call here would call tsnet's Up() on every direct/LAN connect
+	// attempt, including before the user has ever pressed the Tailscale button,
+	// which triggers an unauthenticated tsnet login and pops an auth browser
+	// window on top of the app.
+	if mw.tailscaleService != nil &&
 		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
 		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
@@ -613,7 +592,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			return fmt.Errorf("Tailscale disabled in config")
 		}
 		if mw.tailscaleService == nil {
-			mw.tailscaleService = service.NewTailscaleService(mw.config.TailscaleUserspace)
+			mw.tailscaleService = service.NewTailscaleService()
 		}
 
 		status, err := mw.tailscaleService.Status(ctx)
@@ -641,8 +620,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 
 			tsClient := api.NewUSBClientWithHTTPClient(target, mw.config.USBPort, mw.config.APITimeout, httpClient)
 
-			// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
-			// пока tsnet не установил маршрут до пира.
+			// On Android userspace Tailscale (tsnet), the first request can fail
+			// until tsnet has established a route to the peer.
 			var connErr error
 			const maxConnAttempts = 6
 			for attempt := 1; attempt <= maxConnAttempts; attempt++ {
@@ -844,11 +823,11 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 	})
 }
 
-// handleDisconnect обрабатывает отключение
+// handleDisconnect handles disconnecting
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v", mw.isConnected)
 
-	// Копируем ссылки для фоновой очистки
+	// Copy references for background cleanup
 	client := mw.usbClient
 	video := mw.videoWidget
 	backup := mw.backupWidget
@@ -862,7 +841,7 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.tailscalePollCancel = nil
 	}
 
-	// 1. Немедленно сбрасываем состояние
+	// 1. Immediately reset the state
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectedProtocol = ""
@@ -873,7 +852,7 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
-	// 2. Немедленно обновляем UI (уходим на экран логина)
+	// 2. Immediately update the UI (go back to the login screen)
 	fyne.Do(func() {
 		mw.showConnectionManager()
 		if mw.mainExitBtn != nil {
@@ -924,7 +903,7 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.updateStatusBar()
 	})
 
-	// 3. Выполняем тяжелую работу в ФОНЕ
+	// 3. Do the heavy lifting in the BACKGROUND
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -972,7 +951,7 @@ func (mw *MainWindow) handleDisconnect() {
 	}()
 }
 
-// handleRefresh обрабатывает обновление
+// handleRefresh handles a refresh
 func (mw *MainWindow) handleRefresh() {
 	if !mw.isConnected || mw.usbClient == nil {
 		logrus.Warn("Cannot refresh: no active connection")
@@ -986,7 +965,7 @@ func (mw *MainWindow) handleRefresh() {
 	}
 }
 
-// updateStatus обновляет статус в интерфейсе
+// updateStatus updates the status in the UI
 func (mw *MainWindow) updateStatus() {
 	nbdConnected := false
 	if mw.nbdServer.IsRunning() {

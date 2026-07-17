@@ -1,15 +1,12 @@
 package controller
 
 import (
-	"context"
-	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
-	"github.com/sirupsen/logrus"
 )
 
 func (cm *ConnectionManager) createInterface() {
@@ -19,46 +16,14 @@ func (cm *ConnectionManager) createInterface() {
 		cm.openQuickStartDocs,
 		cm.openHardwarePromo,
 		cm.handleTailscaleToggleAction,
-		cm.handleTailscaleModeAction,
 	)
 	cm.refreshConnectionsList()
 	cm.initTailscaleMode()
 }
 
 func (cm *ConnectionManager) initTailscaleMode() {
-	// On Android always use userspace tsnet — no system Tailscale VPN available.
-	if runtime.GOOS == "android" {
-		cm.app.Preferences().SetBool("tailscale_userspace", true)
-		cm.config.TailscaleUserspace = true
-		cm.ts.SetUserspace(true)
-		logrus.Info("🛰️ [Tailscale] Android: forced userspace (tsnet) mode")
-	} else {
-		mode := models.TailscaleModeUserspace
-		userspace := cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace)
-		if !userspace {
-			mode = models.TailscaleModeSystem
-		}
-		cm.ui.SetTailscaleMode(mode)
-
-		hasSystemTS := cm.ts.IsSystemTailscaleAvailable()
-		if !hasSystemTS {
-			cm.ui.SetTailscaleMode(models.TailscaleModeUserspace)
-			cm.ui.SetTailscaleModeDisabled(true)
-			if !userspace {
-				cm.app.Preferences().SetBool("tailscale_userspace", true)
-				cm.config.TailscaleUserspace = true
-				userspace = true
-			}
-		} else {
-			if sysSt := cm.ts.CheckSystemTailscaleStatus(); sysSt != nil && sysSt.LoggedIn {
-				userspace = false
-				cm.ui.SetTailscaleMode(models.TailscaleModeSystem)
-				cm.app.Preferences().SetBool("tailscale_userspace", false)
-			}
-			cm.config.TailscaleUserspace = userspace
-		}
-		cm.ts.SetUserspace(userspace)
-	}
+	// Tailscale always runs in userspace (tsnet) mode on every platform — no
+	// system VPN daemon involved.
 
 	// Do NOT eagerly start tsnet here just because TailscaleEnabled defaults to
 	// true. Starting tsnet while unauthenticated triggers StartLoginInteractive,
@@ -73,26 +38,6 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	// event loop is pumping, and refreshTailscaleStatus ends up calling
 	// fyne.Do, which errors if invoked directly from the main goroutine.
 	go cm.refreshTailscaleStatus()
-}
-
-func (cm *ConnectionManager) handleTailscaleModeAction(mode models.TailscaleMode) {
-	userspace := (mode == models.TailscaleModeUserspace)
-	if cm.app.Preferences().BoolWithFallback("tailscale_userspace", cm.config.TailscaleUserspace) == userspace {
-		return
-	}
-
-	cm.app.Preferences().SetBool("tailscale_userspace", userspace)
-	cm.config.TailscaleUserspace = userspace
-
-	// Restart tailscale service if it was running
-	if cm.config.TailscaleEnabled {
-		go func() {
-			cm.ts.Stop()
-			cm.ts.SetUserspace(userspace)
-			cm.ts.Start(context.Background())
-			cm.refreshTailscaleStatus()
-		}()
-	}
 }
 
 func (cm *ConnectionManager) showLanguageMenu(anchor fyne.CanvasObject) {

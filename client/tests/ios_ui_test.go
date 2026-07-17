@@ -9,17 +9,17 @@ import (
 )
 
 func TestIOSMainWindowInitialization(t *testing.T) {
-	// Инициализируем тестовое Fyne приложение (headless, без реального окна)
+	// Initialize the test Fyne app (headless, no real window)
 	testApp := test.NewApp()
 	defer testApp.Quit()
 
-	// Создаем базовый конфиг
+	// Create a base config
 	cfg := models.DefaultConfig()
 
 	t.Log("Starting MainWindow initialization for iOS test...")
 
-	// Попытка инициализировать главное окно
-	// Если здесь есть Go паника (например из-за фокуса или сервисов), тест упадет
+	// Attempt to initialize the main window
+	// If there's a Go panic here (e.g. from focus handling or services), the test will fail
 	mainWindow := gui.NewMainWindow(cfg)
 
 	if mainWindow == nil {

@@ -23,7 +23,7 @@ type selectedImage struct {
 	URI      string
 }
 
-// setUploadStateByPath устанавливает состояние загрузки по пути файла.
+// setUploadStateByPath sets the upload state for a file by its path.
 func (dw *DiskWidget) setUploadStateByPath(path string, uploading bool, progress, speed float64) {
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil && dw.allDrives[i].DiskInfo.Path == path {
@@ -35,7 +35,7 @@ func (dw *DiskWidget) setUploadStateByPath(path string, uploading bool, progress
 	}
 }
 
-// refreshDriveItemByPath обновляет отображение элемента в списке по пути.
+// refreshDriveItemByPath refreshes the list item's display by its path.
 func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil && dw.allDrives[i].DiskInfo.Path == path {
@@ -46,7 +46,7 @@ func (dw *DiskWidget) refreshDriveItemByPath(path string) {
 	dw.requestDevicesRefresh()
 }
 
-// handleAddImage обрабатывает добавление образа диска из файловой системы.
+// handleAddImage handles adding a disk image from the file system.
 func (dw *DiskWidget) handleAddImage() {
 	if !dw.imagePickerInFlight.CompareAndSwap(false, true) {
 		logrus.Debug("image picker already in flight, skipping overlapping request")
@@ -62,7 +62,7 @@ func (dw *DiskWidget) handleAddImage() {
 	}()
 
 	if dw.window == nil {
-		logrus.Warn("⚠️ Окно не установлено")
+		logrus.Warn("⚠️ Window not set")
 		dw.imagePickerInFlight.Store(false)
 		return
 	}
@@ -103,7 +103,7 @@ func (dw *DiskWidget) handleAddImage() {
 
 	fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil {
-			logrus.Errorf("❌ [ADD-IMAGE-ERROR] Ошибка при выборе файла: %v", err)
+			logrus.Errorf("❌ [ADD-IMAGE-ERROR] Error selecting file: %v", err)
 			fyne.Do(func() {
 				view.ShowErrorDialog(fmt.Errorf(i18n.Current.ErrorSelectingFile, err), dw.window)
 			})
@@ -167,7 +167,7 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 
 	if runtime.GOOS == "android" && strings.HasPrefix(uriString, "content://") {
 		if err := dw.safHelper.TakePersistableUriPermission(uriString); err != nil {
-			logrus.Errorf("❌ Не удалось сохранить разрешение для URI: %v", err)
+			logrus.Errorf("❌ Failed to persist permission for URI: %v", err)
 		}
 
 		filePath = uriString
@@ -219,7 +219,7 @@ func (dw *DiskWidget) handleSelectedImage(selected selectedImage) {
 		URI:         uriString,
 		Size:        fileSize,
 		Type:        strings.TrimPrefix(ext, "."),
-		Description: fmt.Sprintf("Пользовательский образ: %s", fileName),
+		Description: fmt.Sprintf("User image: %s", fileName),
 		IsActive:    false,
 	}
 
@@ -246,7 +246,7 @@ func (dw *DiskWidget) pickerTitle() string {
 	return "Select disk image"
 }
 
-// saveUserImagesToPreferences сохраняет список пользовательских образов в preferences.
+// saveUserImagesToPreferences saves the list of user images to preferences.
 func (dw *DiskWidget) saveUserImagesToPreferences() {
 	if dw.app == nil {
 		return
@@ -266,7 +266,7 @@ func (dw *DiskWidget) saveUserImagesToPreferences() {
 	}
 }
 
-// loadUserImagesFromPreferences загружает список пользовательских образов из preferences.
+// loadUserImagesFromPreferences loads the list of user images from preferences.
 func (dw *DiskWidget) loadUserImagesFromPreferences() {
 	if dw.app == nil {
 		return
@@ -315,7 +315,7 @@ func (dw *DiskWidget) loadUserImagesFromPreferences() {
 	}
 }
 
-// removeUserImage удаляет пользовательский образ из списка.
+// removeUserImage removes a user image from the list.
 func (dw *DiskWidget) removeUserImage(driveIndex int) {
 	if driveIndex < 0 || driveIndex >= len(dw.allDrives) {
 		return
@@ -356,7 +356,7 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 	}
 }
 
-// formatPathForDisplay форматирует путь для красивого отображения.
+// formatPathForDisplay formats a path for nicer display.
 func (dw *DiskWidget) formatPathForDisplay(path, fileName string) string {
 	if strings.HasPrefix(path, "content://") {
 		displayPath := strings.TrimPrefix(path, "content://")
@@ -382,7 +382,7 @@ func (dw *DiskWidget) formatPathForDisplay(path, fileName string) string {
 	return path
 }
 
-// handleUploadImage обрабатывает загрузку образа на устройство.
+// handleUploadImage handles uploading an image to the device.
 func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 	if driveIndex < 0 || driveIndex >= len(dw.allDrives) {
 		return
@@ -415,7 +415,7 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 	}
 }
 
-// uploadImageToDevice выполняет загрузку образа на устройство.
+// uploadImageToDevice uploads an image to the device.
 func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
 	var fileReader *os.File
 	var err error
@@ -467,7 +467,7 @@ func (dw *DiskWidget) uploadImageToDevice(drive DriveItem) {
 	dw.loadLocalDrives()
 }
 
-// deleteImageFromDevice выполняет удаление образа с устройства.
+// deleteImageFromDevice deletes an image from the device.
 func (dw *DiskWidget) deleteImageFromDevice(filename string, displayName string) {
 	err := dw.usbClient.DeleteISO(filename)
 	if err != nil {

@@ -13,7 +13,7 @@ var (
 	currentLanguageMu sync.RWMutex
 )
 
-// SetCurrentLanguage устанавливает текущий язык ввода (из Android IME)
+// SetCurrentLanguage sets the current input language (from the Android IME)
 func SetCurrentLanguage(lang string) {
 	if lang == "" {
 		lang = "en-US"
@@ -26,7 +26,7 @@ func SetCurrentLanguage(lang string) {
 	}
 }
 
-// IsRussianLanguage возвращает true, если текущий язык — русский
+// IsRussianLanguage returns true if the current language is Russian
 func IsRussianLanguage() bool {
 	currentLanguageMu.RLock()
 	lang := currentLanguage
@@ -36,13 +36,13 @@ func IsRussianLanguage() bool {
 	return isRu
 }
 
-// RuneKeyInfo информация о HID коде для символа
+// RuneKeyInfo information about the HID code for a rune
 type RuneKeyInfo struct {
 	KeyCode   int
 	Modifiers int
 }
 
-// GetKeyCode возвращает HID код клавиши по имени Fyne
+// GetKeyCode returns the HID key code for a Fyne key name
 func GetKeyCode(keyName fyne.KeyName) int {
 	keyNameStr := string(keyName)
 	switch keyNameStr {
@@ -94,7 +94,7 @@ func GetKeyCode(keyName fyne.KeyName) int {
 	return 0
 }
 
-// GetKeyCodeFromPhysical возвращает HID код по физическому коду (пока не используется)
+// GetKeyCodeFromPhysical returns the HID code from a physical code (not used yet)
 func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
 	return 0
 }
@@ -103,7 +103,7 @@ func GetKeyCodeFromPhysical(physical fyne.HardwareKey) int {
 // Windows Virtual Key code. Used as a fallback when the Fyne key name is KeyUnknown
 // (e.g. letter keys on non-Latin keyboard layouts like Russian or Ukrainian).
 // Scan codes are layout-independent physical positions, so this correctly maps
-// ЙЦУКЕН → QWERTY, WASD positions, etc. regardless of the active IME layout.
+// JCUKEN → QWERTY, WASD positions, etc. regardless of the active IME layout.
 func GetVKCodeFromScanCode(scanCode int) int16 {
 	// Standard PS/2 Set-1 scan codes for US QWERTY.
 	// Extended keys (arrow keys, ins/del/home/end, pg-up/dn, right-ctrl/alt, numpad-/)
@@ -312,7 +312,7 @@ func GetVKCode(keyName fyne.KeyName) int16 {
 	return 0
 }
 
-// IsPrintableKey возвращает true для клавиш, которые дают символ (TypedRune).
+// IsPrintableKey returns true for keys that produce a character (TypedRune).
 func IsPrintableKey(keyName fyne.KeyName) bool {
 	switch keyName {
 	case fyne.KeyA, fyne.KeyB, fyne.KeyC, fyne.KeyD, fyne.KeyE, fyne.KeyF,
@@ -376,7 +376,7 @@ func mapRussianLayoutRuneToLatin(r rune) (rune, bool) {
 	return latin, ok
 }
 
-// CommonRuneMap общая карта символов для US раскладки
+// CommonRuneMap common character map for the US layout
 var CommonRuneMap = map[rune]RuneKeyInfo{
 	'a': {4, 0}, 'b': {5, 0}, 'c': {6, 0}, 'd': {7, 0}, 'e': {8, 0},
 	'f': {9, 0}, 'g': {10, 0}, 'h': {11, 0}, 'i': {12, 0}, 'j': {13, 0},
@@ -399,7 +399,7 @@ var CommonRuneMap = map[rune]RuneKeyInfo{
 	'\n': {40, 0}, '\r': {40, 0}, // Enter
 	'\t': {43, 0}, // Tab
 
-	'×': {37, 2}, '÷': {56, 0}, // умножение, деление (как * и /)
+	'×': {37, 2}, '÷': {56, 0}, // multiplication, division (like * and /)
 
 	'!': {30, 2}, '@': {31, 2}, '#': {32, 2}, '$': {33, 2}, '%': {34, 2},
 	'^': {35, 2}, '&': {36, 2}, '*': {37, 2}, '(': {38, 2}, ')': {39, 2},

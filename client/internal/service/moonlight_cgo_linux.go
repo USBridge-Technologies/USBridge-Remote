@@ -250,7 +250,8 @@ static void deliver_frame(AVFrame *frame) {
 // platform_post_stop: no session state to tear down on Linux.
 void platform_post_stop(void) {}
 
-// platform_set_video_format: Linux GStreamer handles codec selection internally.
+// platform_set_video_format: libavcodec auto-detects the codec from the
+// H.264/HEVC bitstream, so there's nothing to configure here.
 void platform_set_video_format(int videoFormat) { (void)videoFormat; }
 
 int platform_dr_submit(PDECODE_UNIT du) {

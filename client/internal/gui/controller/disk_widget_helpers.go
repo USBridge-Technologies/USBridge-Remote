@@ -5,13 +5,13 @@ package controller
 
 import "runtime"
 
-// isAndroid возвращает true если запущено на Android
+// isAndroid returns true if running on Android
 func isAndroid() bool {
 	return runtime.GOOS == "android"
 }
 
-// canUseDirectFileAccess возвращает true если можно использовать os.Open()
-// На Android 10+ это false - нужен SAF
+// canUseDirectFileAccess returns true if os.Open() can be used
+// On Android 10+ this is false - SAF is required
 func canUseDirectFileAccess() bool {
 	return !isAndroid()
 }

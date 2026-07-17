@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Общие функции поиска Android SDK/NDK для build-скриптов.
+# Shared functions for locating the Android SDK/NDK, used by the build scripts.
 
 add_to_path_if_exists() {
     local dir="$1"
@@ -474,9 +474,9 @@ ensure_command_available() {
     fi
 
     if [ "$need_install" -eq 1 ]; then
-        echo "📥 Найден несовместимый $friendly_name вне текущего MSYS2 toolchain. Переключаю на пакет для ${MSYSTEM:-MSYS2}..."
+        echo "📥 Found an incompatible $friendly_name outside the current MSYS2 toolchain. Switching to the ${MSYSTEM:-MSYS2} package..."
     else
-        echo "📥 Не найден $friendly_name. Пытаюсь установить автоматически..."
+        echo "📥 $friendly_name not found. Attempting automatic install..."
     fi
     if install_tool_package "$tool"; then
         refresh_bootstrap_paths
@@ -487,7 +487,7 @@ ensure_command_available() {
 
     refresh_bootstrap_paths
     if [ -n "$(resolve_command_path "$tool")" ] && { ! is_msys2_env || is_msys2_mingw_tool_compatible "$tool"; }; then
-        echo "✓ $friendly_name установлен"
+        echo "✓ $friendly_name installed"
         return 0
     fi
 
@@ -496,12 +496,12 @@ ensure_command_available() {
 
 print_flex_install_hint() {
     if is_msys2_env; then
-        echo "   Установите flex в MSYS2: pacman -S --needed flex bison"
-        echo "   Если команда не найдена, запустите её в оболочке MSYS2/UCRT64"
+        echo "   Install flex in MSYS2: pacman -S --needed flex bison"
+        echo "   If the command is not found, run it from an MSYS2/UCRT64 shell"
         return 0
     fi
 
-    echo "   Установите flex (например: sudo apt-get install flex)"
+    echo "   Install flex (e.g.: sudo apt-get install flex)"
 }
 
 find_latest_ndk_in_dir() {
@@ -650,7 +650,7 @@ ensure_android_sdk_package() {
         return 1
     fi
 
-    echo "📥 Не найден Android SDK package $package_name. Устанавливаю автоматически..."
+    echo "📥 Android SDK package $package_name not found. Installing automatically..."
     if ! yes | "$sdkmanager_cmd" --sdk_root="$sdk_dir" "$package_name" >/dev/null; then
         return 1
     fi

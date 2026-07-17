@@ -21,6 +21,54 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# create_dmg_with_drag_layout <volname> <src_dir> <output_dmg> <app_bundle_name>
+# Builds a DMG with the classic drag-to-Applications Finder window: app icon
+# on the left, an /Applications symlink on the right (src_dir must already
+# contain that symlink). Falls back to a plain hdiutil create if the
+# Finder/AppleScript step fails (e.g. no GUI session available) so a cosmetic
+# layout failure never breaks the build — the DMG still works either way.
+create_dmg_with_drag_layout() {
+    local volname="$1" src_dir="$2" output_dmg="$3" app_name="$4"
+    local tmp_dmg mount_point
+    tmp_dmg="$(mktemp -u "${TMPDIR:-/tmp}/${volname}-XXXXXX").dmg"
+    mount_point="/Volumes/$volname"
+
+    if hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDRW -fs HFS+ "$tmp_dmg" >/dev/null 2>&1 \
+        && hdiutil attach "$tmp_dmg" -mountpoint "$mount_point" -nobrowse -quiet 2>/dev/null; then
+        osascript \
+            -e "tell application \"Finder\"" \
+            -e "tell disk \"$volname\"" \
+            -e "open" \
+            -e "set current view of container window to icon view" \
+            -e "set toolbar visible of container window to false" \
+            -e "set statusbar visible of container window to false" \
+            -e "set the bounds of container window to {400, 100, 940, 420}" \
+            -e "set viewOptions to the icon view options of container window" \
+            -e "set arrangement of viewOptions to not arranged" \
+            -e "set icon size of viewOptions to 96" \
+            -e "set position of item \"$app_name\" of container window to {130, 150}" \
+            -e "set position of item \"Applications\" of container window to {410, 150}" \
+            -e "close" \
+            -e "open" \
+            -e "update without registering applications" \
+            -e "delay 1" \
+            -e "end tell" \
+            -e "end tell" \
+            >/dev/null 2>&1 || true
+        hdiutil detach "$mount_point" -quiet 2>/dev/null || hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+        rm -f "$output_dmg"
+        if hdiutil convert "$tmp_dmg" -format UDZO -o "$output_dmg" >/dev/null 2>&1; then
+            rm -f "$tmp_dmg"
+            return 0
+        fi
+    fi
+
+    echo -e "${YELLOW}Finder drag-layout step failed — falling back to a plain DMG${NC}" >&2
+    hdiutil detach "$mount_point" -force -quiet 2>/dev/null || true
+    rm -f "$tmp_dmg" "$output_dmg"
+    hdiutil create -volname "$volname" -srcfolder "$src_dir" -ov -format UDZO "$output_dmg"
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo -e "${RED}Этот скрипт должен запускаться на macOS${NC}"
     exit 1
@@ -144,48 +192,15 @@ else
     codesign --force --deep --sign - "$APP_BUNDLE"
 fi
 
-cat > "$DIST_DIR/README.txt" <<'README'
-USBridgeAgent for macOS
-=======================
-
-Run:
-  ./scripts/install_macos.sh
-  open "$HOME/Applications/USBridgeAgent.app"
-
-Video/input: Sunshine (Moonlight GameStream host) is bundled inside the app at
-USBridgeAgent.app/Contents/MacOS/sunshine/Sunshine.app and is started
-automatically by the agent, including a one-time admin credential bootstrap.
-The agent itself is not in the video/input path; it only pairs with and relays
-PINs to Sunshine's local API (port 47990) on behalf of usbridge_client.
-
-Tailscale: USBridgeAgent.app/Contents/MacOS/tailscale is the bundled CLI. It
-still requires a system-installed tailscaled (Tailscale.app or
-`brew install tailscale`, started via `brew services`) — the daemon itself
-is not bundled on macOS.
-
-Requirements:
-  - Accessibility permission for mouse/keyboard injection
-  - Screen Recording permission for screen capture (used by Sunshine)
-
-Notes:
-  - For stable macOS permissions, always run the same installed app path
-  - Recommended install path: ~/Applications/USBridgeAgent.app
-  - Dev builds are left unsigned by default; set USBRIDGE_CODESIGN_IDENTITY to sign explicitly
-  - Snapshot capture uses the built-in screencapture utility
-  - The agent remains API-compatible with usbridge_client
-
-Configuration:
-  config.yaml next to the .app, or ~/.config/usbridge-agent/
-
-Application log:
-  ~/Library/Logs/USBridgeAgent/app.log
-  If USBRIDGE_LOG_DIR is set, logs are written there instead.
-README
+# No README.txt in the DMG — a symlink to /Applications alongside the .app
+# gives the standard drag-to-install Finder window instead, which is more
+# discoverable than a text file nobody opens.
+ln -sf /Applications "$DIST_DIR/Applications"
 
 ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-macOS-arm64-${VERSION}.dmg"
 rm -f "$ARCHIVE"
 echo -e "${YELLOW}Creating disk image...${NC}"
-hdiutil create -volname "USBridgeAgent" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+create_dmg_with_drag_layout "USBridgeAgent" "$DIST_DIR" "$ARCHIVE" "${OUTPUT_NAME}.app"
 echo -e "${GREEN}✓${NC} Disk image: $ARCHIVE"
 
 # ── Notarization (optional) ───────────────────────────────────────────────────
@@ -206,8 +221,7 @@ if [[ "${USBRIDGE_SKIP_NOTARIZE:-0}" != "1" ]] && command -v xcrun >/dev/null 2>
         # lives on the disk image, an app dragged out of it to /Applications
         # has no local ticket (Gatekeeper falls back to an online check).
         xcrun stapler staple "$APP_BUNDLE"
-        rm -f "$ARCHIVE"
-        hdiutil create -volname "USBridgeAgent" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
+        create_dmg_with_drag_layout "USBridgeAgent" "$DIST_DIR" "$ARCHIVE" "${OUTPUT_NAME}.app"
         echo -e "${GREEN}✓${NC} Notarized & stapled: $ARCHIVE"
     else
         echo -e "${YELLOW}Keychain profile '$NOTARIZE_PROFILE' not found — skipping notarization${NC}"

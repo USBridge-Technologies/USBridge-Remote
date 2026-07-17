@@ -32,29 +32,29 @@ echo "  USBridge Client - Gradle build (camera)"
 echo "=============================================="
 echo ""
 
-# 1. GStreamer — опциональный динамический .so (только при WITH_GSTREAMER=1)
-# По умолчанию пропускается: приложение использует Moonlight (AMediaCodec/AAudio),
-# GStreamer не нужен. Для включения: ./scripts/build_android.sh --gstreamer
+# 1. GStreamer — optional dynamic .so (only when WITH_GSTREAMER=1)
+# Skipped by default: the app uses Moonlight (AMediaCodec/AAudio),
+# GStreamer is not needed. To enable: ./scripts/build_android.sh --gstreamer
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    echo "📦 Шаг 1/5: GStreamer (dynamic .so)..."
+    echo "📦 Step 1/5: GStreamer (dynamic .so)..."
     "$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh"
     echo ""
 else
-    echo "⚡ Шаг 1/5: GStreamer — пропущен (Moonlight-only build)"
+    echo "⚡ Step 1/5: GStreamer — skipped (Moonlight-only build)"
     echo ""
 fi
 
-# 2. gomobile bind для nbdbridge
-echo "📦 Шаг 2/5: gomobile bind nbdbridge..."
+# 2. gomobile bind for nbdbridge
+echo "📦 Step 2/5: gomobile bind nbdbridge..."
 
 # 2.5 Tailscale CLI & Daemon for Android
-echo "📦 Шаг 2.5/5: Building Tailscale binaries..."
+echo "📦 Step 2.5/5: Building Tailscale binaries..."
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
 
 TS_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscale.so"
 TSD_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so"
 
-# Пересобираем только если .so нет или go.mod/go.sum обновились
+# Rebuild only if the .so is missing or go.mod/go.sum changed
 NEED_TAILSCALE=0
 [ ! -f "$TS_SO" ] || [ ! -f "$TSD_SO" ] && NEED_TAILSCALE=1
 if [ "$NEED_TAILSCALE" -eq 0 ] && path_is_newer_than "$TS_SO" \
@@ -84,10 +84,10 @@ if [ "$NEED_TAILSCALE" -eq 1 ]; then
     )
     echo -e "${GREEN}✓${NC} Tailscale binaries built"
 else
-    echo "⚡ Tailscale binaries уже актуальны"
+    echo "⚡ Tailscale binaries are already up to date"
 fi
 if ! ensure_command_available go Go; then
-    echo -e "${RED}❌ Go не найден${NC}"
+    echo -e "${RED}❌ Go not found${NC}"
     exit 1
 fi
 GOBIN="$(go env GOBIN 2>/dev/null)"
@@ -231,17 +231,17 @@ ensure_go_tool() {
         return 0
     fi
 
-    echo -e "${YELLOW}Установка $tool...${NC}" >&2
+    echo -e "${YELLOW}Installing $tool...${NC}" >&2
     if ! go install "$pkg"; then
-        echo -e "${RED}❌ Не удалось установить $tool${NC}" >&2
-        echo "   Проверьте доступ к сети и команду: go install $pkg" >&2
+        echo -e "${RED}❌ Failed to install $tool${NC}" >&2
+        echo "   Check network access and the command: go install $pkg" >&2
         exit 1
     fi
 
     tool_path="$(find_go_tool "$tool" 2>/dev/null || true)"
     if [ -z "$tool_path" ]; then
-        echo -e "${RED}❌ $tool не найден после установки${NC}" >&2
-        echo "   Проверьте PATH или используйте: $(go env GOPATH)/bin/$tool" >&2
+        echo -e "${RED}❌ $tool not found after installation${NC}" >&2
+        echo "   Check PATH or use: $(go env GOPATH)/bin/$tool" >&2
         exit 1
     fi
 
@@ -259,21 +259,21 @@ if [ -d "$GOPATH_BIN" ] && [[ ":$PATH:" != *":$GOPATH_BIN:"* ]]; then
 fi
 
 if ! ensure_command_available java Java; then
-    echo -e "${RED}❌ Java не найден${NC}"
+    echo -e "${RED}❌ Java not found${NC}"
     exit 1
 fi
 
-# Убедимся, что ANDROID_HOME/ANDROID_NDK_HOME заданы до gomobile init
+# Make sure ANDROID_HOME/ANDROID_NDK_HOME are set before gomobile init
 export_android_env
 if ! ensure_android_sdk_package "platforms;android-26" "platforms/android-26"; then
-    echo -e "${RED}❌ Android SDK platform android-26 не найден${NC}"
-    echo "   Установите через sdkmanager: platforms;android-26"
+    echo -e "${RED}❌ Android SDK platform android-26 not found${NC}"
+    echo "   Install via sdkmanager: platforms;android-26"
     exit 1
 fi
 
 "$GOMOBILE_CMD" init || {
-    echo -e "${RED}❌ gomobile init не удался${NC}"
-    echo "   Проверьте ANDROID_HOME/ANDROID_NDK_HOME и установленный JDK"
+    echo -e "${RED}❌ gomobile init failed${NC}"
+    echo "   Check ANDROID_HOME/ANDROID_NDK_HOME and the installed JDK"
     exit 1
 }
 
@@ -283,19 +283,19 @@ if [ -z "$GOBIND_CMD" ]; then
 fi
 
 if [ -z "$GOBIND_CMD" ]; then
-    echo -e "${RED}❌ gobind не найден после gomobile init${NC}"
-    echo "   Попробуйте: go install golang.org/x/mobile/cmd/gobind@latest"
+    echo -e "${RED}❌ gobind not found after gomobile init${NC}"
+    echo "   Try: go install golang.org/x/mobile/cmd/gobind@latest"
     exit 1
 fi
 
 mkdir -p android/app/libs
-# gomobile требует NDK; подхватываем системный Android SDK/NDK автоматически
+# gomobile requires the NDK; pick up the system Android SDK/NDK automatically
 export_android_env
 AAR_OUT="android/app/libs/nbdbridge.aar"
 NEED_GOMOBILE=0
 [ ! -f "$AAR_OUT" ] && NEED_GOMOBILE=1
 if [ "$NEED_GOMOBILE" -eq 0 ] && ! aar_looks_valid "$AAR_OUT"; then
-    echo -e "${YELLOW}⚠${NC} Найден битый или пустой nbdbridge.aar. Пересобираю..."
+    echo -e "${YELLOW}⚠${NC} Found a broken or empty nbdbridge.aar. Rebuilding..."
     NEED_GOMOBILE=1
 fi
 if [ "$NEED_GOMOBILE" -eq 0 ]; then
@@ -310,7 +310,7 @@ fi
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
     rm -f "$AAR_OUT"
     $GOMOBILE_CMD bind -target android -androidapi 26 -o "$AAR_OUT" ./nbdbridge || {
-        echo -e "${RED}❌ gomobile bind не удался. Установите вручную:${NC}"
+        echo -e "${RED}❌ gomobile bind failed. Install it manually:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
         echo "   $GOMOBILE_CMD bind -target android -o $AAR_OUT ./nbdbridge"
@@ -318,22 +318,22 @@ if [ "$NEED_GOMOBILE" -eq 1 ]; then
     }
 fi
 if ! aar_looks_valid "$AAR_OUT"; then
-    echo -e "${RED}❌ gomobile bind создал пустой или повреждённый nbdbridge.aar${NC}"
-    echo "   Проверьте Android SDK/NDK и повторите сборку"
+    echo -e "${RED}❌ gomobile bind produced an empty or corrupt nbdbridge.aar${NC}"
+    echo "   Check the Android SDK/NDK and retry the build"
     exit 1
 fi
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
-    echo -e "${GREEN}✓${NC} nbdbridge.aar пересобран"
+    echo -e "${GREEN}✓${NC} nbdbridge.aar rebuilt"
 else
-    echo "⚡ nbdbridge.aar уже актуален"
+    echo "⚡ nbdbridge.aar is already up to date"
 fi
 echo ""
 
-# 3. Fyne build для Go библиотеки
-echo "🔨 Шаг 3/5: Сборка Go приложения (fyne)..."
+# 3. Fyne build for the Go library
+echo "🔨 Step 3/5: Building the Go application (fyne)..."
 ANDROID_SRC="$REPO_ROOT/cmd/android"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
-# GStreamer .so копируем только когда WITH_GSTREAMER=1; иначе их нет и не нужны
+# Only copy GStreamer .so files when WITH_GSTREAMER=1; otherwise they don't exist and aren't needed
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
     for so_file in android/jniLibs/arm64-v8a/*.so; do
         [ -f "$so_file" ] || continue
@@ -345,8 +345,8 @@ if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     export_android_env
 fi
 if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
-    echo -e "${RED}❌ Android NDK не найден (fyne)${NC}"
-    echo "   Установите NDK и задайте ANDROID_NDK_HOME"
+    echo -e "${RED}❌ Android NDK not found (fyne)${NC}"
+    echo "   Install the NDK and set ANDROID_NDK_HOME"
     exit 1
 fi
 export ANDROID_NDK_HOME
@@ -404,13 +404,13 @@ run_apksigner() {
     esac
 }
 
-# Формируем build tags: базовые + gstreamer если включён
+# Compose build tags: base + gstreamer if enabled
 FYNE_TAGS="nosystray"
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
     FYNE_TAGS="nosystray,gstreamer"
 fi
 
-# Stamp-файл для инвалидации кэша при смене режима gstreamer/no-gstreamer
+# Stamp file to invalidate the cache when switching gstreamer/no-gstreamer mode
 FYNE_TAGS_STAMP="$REPO_ROOT/.build-cache/android/fyne_tags.stamp"
 mkdir -p "$(dirname "$FYNE_TAGS_STAMP")"
 PREV_FYNE_TAGS="$(cat "$FYNE_TAGS_STAMP" 2>/dev/null || true)"
@@ -420,9 +420,9 @@ NEED_FYNE_BUILD=0
 if [ "${FORCE_FYNE:-0}" = "1" ]; then
     NEED_FYNE_BUILD=1
 fi
-# Режим сборки изменился (с GStreamer ↔ без)
+# Build mode changed (with GStreamer ↔ without)
 if [ "$NEED_FYNE_BUILD" -eq 0 ] && [ "$PREV_FYNE_TAGS" != "$FYNE_TAGS" ]; then
-    echo "   Build tags изменились ($PREV_FYNE_TAGS → $FYNE_TAGS) — пересборка"
+    echo "   Build tags changed ($PREV_FYNE_TAGS → $FYNE_TAGS) — rebuilding"
     NEED_FYNE_BUILD=1
 fi
 if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$FYNE_APK" \
@@ -457,20 +457,20 @@ if [ "$NEED_FYNE_BUILD" -eq 1 ]; then
     if [ ! -f "$FYNE_APK" ] && [ -f "$REPO_ROOT/USBridge_Client.apk" ]; then
         FYNE_APK="$REPO_ROOT/USBridge_Client.apk"
     fi
-    echo -e "${GREEN}✓${NC} Fyne APK пересобран (tags: $FYNE_TAGS)"
+    echo -e "${GREEN}✓${NC} Fyne APK rebuilt (tags: $FYNE_TAGS)"
 else
-    echo "⚡ Fyne APK уже актуален (tags: $FYNE_TAGS)"
+    echo "⚡ Fyne APK is already up to date (tags: $FYNE_TAGS)"
 fi
 echo ""
 
-# 4. Извлечение .so из Fyne APK
-echo "📂 Шаг 4/5: Извлечение нативных библиотек..."
+# 4. Extracting .so from the Fyne APK
+echo "📂 Step 4/5: Extracting native libraries..."
 if ! ensure_command_available unzip unzip; then
-    echo -e "${RED}❌ unzip не найден${NC}"
+    echo -e "${RED}❌ unzip not found${NC}"
     exit 1
 fi
 if [ ! -f "$FYNE_APK" ]; then
-    echo -e "${RED}❌ Fyne APK не найден${NC}"
+    echo -e "${RED}❌ Fyne APK not found${NC}"
     exit 1
 fi
 
@@ -489,9 +489,9 @@ if [ "$NEED_EXTRACT_FYNE_SO" -eq 1 ]; then
     rm -f android/app/src/main/jniLibs/arm64-v8a/libUSB_Bridge_Client.so
     cp "$TEMP_APK/lib/arm64-v8a/libUSBridge_Client.so" android/app/src/main/jniLibs/arm64-v8a/
     rm -rf "$TEMP_APK"
-    echo -e "${GREEN}✓${NC} libUSBridge_Client.so извлечён из Fyne APK"
+    echo -e "${GREEN}✓${NC} libUSBridge_Client.so extracted from Fyne APK"
 else
-    echo "⚡ libUSBridge_Client.so уже актуален"
+    echo "⚡ libUSBridge_Client.so is already up to date"
 fi
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
     for so_file in android/jniLibs/arm64-v8a/*.so; do
@@ -499,12 +499,12 @@ if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
         sync_file_if_needed "$so_file" "android/app/src/main/jniLibs/arm64-v8a/$(basename "$so_file")"
     done
 fi
-echo -e "${GREEN}✓${NC} Нативные библиотеки синхронизированы"
+echo -e "${GREEN}✓${NC} Native libraries synchronized"
 echo ""
 
-# 5. Gradle сборка
-echo "🔨 Шаг 5/5: Gradle assemble..."
-# Kotlin 1.9 не поддерживает Java 25; используем JBR из Android Studio
+# 5. Gradle build
+echo "🔨 Step 5/5: Gradle assemble..."
+# Kotlin 1.9 does not support Java 25; use the JBR bundled with Android Studio
 if [ -z "$JAVA_HOME" ] || java -version 2>&1 | grep -q "version \"25"; then
     if [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then
         export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
@@ -525,8 +525,8 @@ normalize_android_path() {
 }
 
 if [ -z "$ANDROID_HOME_LOCAL" ] || [ ! -d "$ANDROID_HOME_LOCAL" ]; then
-    echo -e "${RED}❌ Android SDK не найден для Gradle${NC}"
-    echo "   Ожидался ANDROID_HOME с валидным путем"
+    echo -e "${RED}❌ Android SDK not found for Gradle${NC}"
+    echo "   Expected ANDROID_HOME to be set to a valid path"
     exit 1
 fi
 
@@ -535,7 +535,7 @@ if [ ! -f "$LOCAL_PROPERTIES" ] || [ "$(cat "$LOCAL_PROPERTIES" 2>/dev/null)" !=
     printf '%s\n' "$LOCAL_PROPERTIES_CONTENT" > "$LOCAL_PROPERTIES"
 fi
 
-# Синхронизируем launcher icon с той же Icon.png, что используется в Windows build.
+# Synchronize the launcher icon with the same Icon.png used in the Windows build.
 for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
     mkdir -p "app/src/main/res/$d"
     sync_file_if_needed "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png"
@@ -569,19 +569,19 @@ fi
 
 if [ "$NEED_GRADLE" -eq 1 ]; then
     ./gradlew assembleRelease --no-daemon
-    echo -e "${GREEN}✓${NC} Gradle APK пересобран"
+    echo -e "${GREEN}✓${NC} Gradle APK rebuilt"
 else
-    echo "⚡ Gradle APK уже актуален"
+    echo "⚡ Gradle APK is already up to date"
 fi
 cd "$REPO_ROOT"
 echo ""
 
-# Результат
+# Result
 APK_OUT="android/app/build/outputs/apk/release/app-release-unsigned.apk"
 if [ -f "$APK_OUT" ]; then
-    # Подписываем
+    # Sign it
     if ! ensure_command_available keytool keytool; then
-        echo -e "${RED}❌ keytool не найден${NC}"
+        echo -e "${RED}❌ keytool not found${NC}"
         exit 1
     fi
     KEYSTORE="$HOME/.android/debug.keystore"
@@ -594,7 +594,7 @@ if [ -f "$APK_OUT" ]; then
 
     APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
     FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-${APK_VERSION}.apk"
-    # Ищем apksigner: сначала в ANDROID_HOME (Linux), затем в стандартном пути macOS
+    # Look for apksigner: first in ANDROID_HOME (Linux), then in the standard macOS path
     APKSIGNER=""
     if [ -n "$ANDROID_HOME" ]; then
         APKSIGNER="$(find_apksigner "$ANDROID_HOME" 2>/dev/null || true)"
@@ -603,16 +603,16 @@ if [ -f "$APK_OUT" ]; then
         APKSIGNER="$(find_apksigner "$HOME/Library/Android/sdk" 2>/dev/null || true)"
     fi
     if [ -z "$APKSIGNER" ]; then
-        echo -e "${RED}❌ apksigner не найден в Android SDK build-tools${NC}"
-        echo "   Установите Android SDK Build-Tools или проверьте ANDROID_HOME"
+        echo -e "${RED}❌ apksigner not found in Android SDK build-tools${NC}"
+        echo "   Install Android SDK Build-Tools or check ANDROID_HOME"
         exit 1
     fi
     run_apksigner "$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android \
         --key-pass pass:android --out "$FINAL_APK" "$APK_OUT"
     run_apksigner "$APKSIGNER" verify "$FINAL_APK" >/dev/null
 
-    # apksigner может создать .idsig рядом с исходным/целевым файлом (зависит от версии).
-    # Если idsig появился — складываем рядом с APK в dist/android.
+    # apksigner may create a .idsig next to the source/target file (depends on version).
+    # If idsig shows up — place it next to the APK in dist/android.
     if [ -f "$FINAL_APK.idsig" ]; then
         :
     elif [ -f "$REPO_ROOT/$(basename "$FINAL_APK").idsig" ]; then
@@ -622,13 +622,13 @@ if [ -f "$APK_OUT" ]; then
     fi
 
     echo "=============================================="
-    echo -e "${GREEN}🎉 Сборка завершена!${NC}"
+    echo -e "${GREEN}🎉 Build complete!${NC}"
     echo "   APK: $FINAL_APK"
-    echo "   Размер: $(du -h "$FINAL_APK" | cut -f1)"
+    echo "   Size: $(du -h "$FINAL_APK" | cut -f1)"
     echo ""
-    echo "📱 Установка: adb install -r \"$FINAL_APK\""
+    echo "📱 Install: adb install -r \"$FINAL_APK\""
     echo "=============================================="
 else
-    echo -e "${RED}❌ APK не найден: $APK_OUT${NC}"
+    echo -e "${RED}❌ APK not found: $APK_OUT${NC}"
     exit 1
 fi
