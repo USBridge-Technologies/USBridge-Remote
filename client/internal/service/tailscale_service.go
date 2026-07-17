@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"tailscale.com/client/local"
-	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
@@ -53,6 +52,7 @@ type TailscaleService struct {
 	mu               sync.Mutex
 	server           *tsnet.Server
 	latestAuthURL    string
+	authURLHandler   func(string)
 	lastBackendState string
 }
 
@@ -172,11 +172,6 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 		return "", err
 	}
 	_ = lc.StartLoginInteractive(ctx)
-	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState)
-	if err != nil {
-		return "", err
-	}
-	defer watcher.Close()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		status, err := lc.Status(ctx)
@@ -442,10 +437,27 @@ func (s *TailscaleService) handleUserLogf(format string, args ...any) {
 	logrus.Infof("📡 [Tailscale/User] %s", msg)
 }
 
+// SetAuthURLHandler registers a callback invoked whenever tsnet produces a new
+// interactive-login AuthURL, regardless of which caller (the explicit Sign-In
+// button, or an incidental first touch of the server by WarmUpPeer/
+// WaitUntilReady/HTTPClient/TailnetIPv4) triggered it. tsnet only auto-starts
+// an interactive login once, on the very first Start() of the server's
+// lifetime — whichever of those callers happens to get there first "wins" and
+// silently owns that one attempt. Centralizing the browser-open here, keyed
+// purely off "a genuinely new URL appeared," is what makes the login surface
+// reliably instead of depending on which caller's own polling loop (if any)
+// happened to be watching at the right moment.
+func (s *TailscaleService) SetAuthURLHandler(fn func(string)) {
+	s.mu.Lock()
+	s.authURLHandler = fn
+	s.mu.Unlock()
+}
+
 func (s *TailscaleService) setLatestAuthURL(u string) {
 	s.mu.Lock()
 	alreadyHave := s.latestAuthURL == u
 	s.latestAuthURL = u
+	handler := s.authURLHandler
 	s.mu.Unlock()
 
 	if !alreadyHave && u != "" {
@@ -458,6 +470,9 @@ func (s *TailscaleService) setLatestAuthURL(u string) {
 			} else if opened {
 				logrus.Info("✅ [Tailscale/Android] AuthURL opened successfully")
 			}
+		}
+		if handler != nil {
+			handler(u)
 		}
 	}
 }
