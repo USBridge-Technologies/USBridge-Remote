@@ -13,3 +13,7 @@ import (
 func configureProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 }
+
+// afterStart is a no-op on Linux: Pdeathsig above already gives an
+// OS-enforced kill-on-parent-death guarantee before Sunshine even starts.
+func afterStart(p *Process, cmd *exec.Cmd) {}
