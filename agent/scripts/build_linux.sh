@@ -31,7 +31,7 @@ export GOOS=linux
 export GOARCH=amd64
 
 echo -e "${YELLOW}Compiling agent...${NC}"
-go build -trimpath -ldflags "-s -w" -o "$OUTPUT_PATH" "$BUILD_PKG"
+go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
 chmod +x "$OUTPUT_PATH"
 
 # sunshine_capexec: a tiny, fully static (CGO_ENABLED=0 — zero dynamic deps)

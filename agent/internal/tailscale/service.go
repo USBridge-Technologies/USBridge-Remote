@@ -294,6 +294,12 @@ func (s *Service) Server() (*tsnet.Server, error) {
 		return nil, err
 	}
 
+	// Not ephemeral: an ephemeral node is removed from the tailnet by the
+	// control server shortly after it goes offline, so on the next launch
+	// there is no identity left to resume — tsnet has to register as a brand
+	// new device (fresh node key, fresh 100.x IP) and re-prompt for login.
+	// Keeping the node persistent lets it resume the same identity/IP from
+	// the state stored in Dir across restarts without any user action.
 	s.server = &tsnet.Server{
 		Dir:      stateDir,
 		Hostname: "usbridge-agent",

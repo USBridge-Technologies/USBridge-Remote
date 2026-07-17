@@ -9,6 +9,7 @@ import (
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 
 	"github.com/sirupsen/logrus"
@@ -59,6 +60,7 @@ func main() {
 	logrus.Infof("NBD port: %d", config.NBDPort)
 
 	gui.SetAppVersion(version)
+	view.SetAppVersion(version)
 	mainWindow := gui.NewMainWindow(config)
 
 	logrus.Info("Starting GUI")

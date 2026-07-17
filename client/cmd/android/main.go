@@ -1,11 +1,14 @@
+//go:build android
 // +build android
 
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/graphics"
@@ -16,10 +19,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	appName = "usbridge-client"
-	version = "1.0.0-android"
-)
+const appName = "usbridge-client"
+
+// embeddedVersion is client/VERSION, copied to this directory by
+// scripts/build_android_gradle.sh before each build (embed can't reach a
+// parent directory, and the Android gomobile/fyne build has no ldflags -X
+// injection step like cmd/main.go's desktop build does).
+//
+//go:embed VERSION
+var embeddedVersion string
+
+var version = strings.TrimSpace(embeddedVersion)
 
 func main() {
 	// Parse command-line arguments
@@ -39,6 +49,9 @@ func main() {
 	setupAndroidLogging(*logLevel)
 
 	logrus.Infof("🚀 Starting %s version %s", appName, version)
+
+	gui.SetAppVersion(version)
+	view.SetAppVersion(version)
 
 	// Create the default configuration for Android
 	config := models.DefaultConfig()

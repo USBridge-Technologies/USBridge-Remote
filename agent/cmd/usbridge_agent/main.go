@@ -5,11 +5,17 @@ import (
 	"os"
 
 	"usbridge_agent/internal/app"
+	"usbridge_agent/internal/ui"
 	"github.com/sirupsen/logrus"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...";
+// see agent/scripts/build_linux.sh (and the other platform build scripts).
+var version = "dev"
+
 func main() {
 	setupLogging()
+	ui.SetAppVersion(version)
 
 	instance, err := app.New()
 	if err != nil {

@@ -15,9 +15,20 @@ echo "==============================================="
 
 if [ ! -d "${BUILD_DIR}/src" ]; then
     echo "⬇️ Initialising moonlight-common-c submodule (pinned commit)..."
-    git -C "${PROJECT_ROOT}" submodule update --init moonlight-common-c
+    git -C "${PROJECT_ROOT}" submodule update --init --recursive moonlight-common-c
 else
     echo "✅ moonlight-common-c already present ($(git -C "${BUILD_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))."
+fi
+
+# Upstream's CMakeLists.txt calls CHECK_FUNCTION_EXISTS() without including
+# the CMake module that defines it, relying on CHECK_LIBRARY_EXISTS(rt ...)
+# succeeding first so that branch never runs. Android's bionic libc has no
+# librt, so that check always fails there and this branch does run,
+# breaking configure with "Unknown CMake command CHECK_FUNCTION_EXISTS" on a
+# fresh checkout. One-line local patch, idempotent.
+if ! grep -q "include(CheckFunctionExists)" "${BUILD_DIR}/CMakeLists.txt"; then
+    sed -i.bak 's/set(CMAKE_EXTRA_INCLUDE_FILES time.h)/include(CheckFunctionExists)\n    set(CMAKE_EXTRA_INCLUDE_FILES time.h)/' "${BUILD_DIR}/CMakeLists.txt"
+    rm -f "${BUILD_DIR}/CMakeLists.txt.bak"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

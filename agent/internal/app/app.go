@@ -52,6 +52,7 @@ type App struct {
 	perms     *permissions.Service
 	ts        *tailscale.Service
 	sunshine  *sunshine.Process
+	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
 	tsHTTP    *http.Server
 	handler   http.Handler
@@ -190,9 +191,14 @@ func (a *App) startSunshine() {
 		return
 	}
 	// Sync bind_address with external_ip so Sunshine only binds streaming
-	// ports to the configured IP. The local TCP admin proxy (startAdminProxy)
-	// makes the admin web UI reachable on 127.0.0.1 regardless.
-	if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" {
+	// ports to the configured IP — but never to the agent's own tsnet IP:
+	// tsnet is a userspace-only netstack with no kernel interface for that
+	// address, so a real kernel bind() to it fails (or silently binds
+	// nowhere reachable) on any host that isn't also running a full system
+	// Tailscale client. Reachability over tsnet is handled instead by
+	// restartStreamProxy, which relays tsnet's netstack to Sunshine's real
+	// 127.0.0.1 ports.
+	if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" && !a.isTsnetSelfIP(tsIP) {
 		if err := sunshine.SetBindAddress(tsIP); err != nil {
 			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
 		}
@@ -200,6 +206,37 @@ func (a *App) startSunshine() {
 	if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
 	}
+	a.restartStreamProxy()
+}
+
+// isTsnetSelfIP reports whether host is the agent's own embedded tsnet
+// node's tailnet IP (as opposed to a LAN IP or a different tailnet peer).
+func (a *App) isTsnetSelfIP(host string) bool {
+	if a.ts == nil {
+		return false
+	}
+	srv, err := a.ts.Server()
+	if err != nil {
+		return false
+	}
+	ip4, _ := srv.TailscaleIPs()
+	return ip4.IsValid() && ip4.String() == strings.TrimSpace(host)
+}
+
+// restartStreamProxy stops any running tsnet↔Sunshine stream relay and, if
+// Tailscale is enabled, starts a new one bound to the current Sunshine
+// stream port. Safe to call whenever Sunshine's port or Tailscale's
+// enablement may have changed.
+func (a *App) restartStreamProxy() {
+	if a.tsProxy != nil {
+		a.tsProxy.Stop()
+		a.tsProxy = nil
+	}
+	if a.ts == nil || !a.cfg.TailscaleEnabled {
+		return
+	}
+	basePort := a.cfg.SunshinePort - 1 // SunshinePort is the admin port; NvHTTP base = admin - 1
+	a.tsProxy = a.ts.StartStreamProxy(basePort)
 }
 
 func (a *App) initTailscale(ctx context.Context) {
@@ -234,6 +271,9 @@ func (a *App) handleShutdown(ctx context.Context, cancel context.CancelFunc) {
 	_ = a.server.Shutdown(context.Background())
 	if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
 		_ = a.tsHTTP.Shutdown(context.Background())
+	}
+	if a.tsProxy != nil {
+		a.tsProxy.Stop()
 	}
 	if a.ts != nil {
 		_ = a.ts.Close()
@@ -350,7 +390,9 @@ func (a *App) RestartSunshine() error {
 	}
 	_ = a.sunshine.Stop()
 	time.Sleep(time.Second)
-	return a.sunshine.Start(a.cfg.SunshinePort)
+	err := a.sunshine.Start(a.cfg.SunshinePort)
+	a.restartStreamProxy()
+	return err
 }
 
 // KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
@@ -728,7 +770,14 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 		return a.cfg, err
 	}
 	_ = sunshine.SetExternalIP(host)
-	_ = sunshine.SetBindAddress(host) // restrict streaming ports to this IP; admin proxy handles localhost
+	// Only restrict Sunshine's kernel bind to this IP for real (LAN) hosts —
+	// never for the agent's own tsnet IP, which has no kernel interface to
+	// bind to. tsnet reachability is handled by restartStreamProxy instead.
+	if !a.isTsnetSelfIP(host) {
+		_ = sunshine.SetBindAddress(host)
+	} else {
+		_ = sunshine.SetBindAddress("")
+	}
 	// Write streamPort (NvHTTP base) to sunshine.conf, not webPort (admin port).
 	_ = sunshine.SetConfigKey("port", strconv.Itoa(streamPort))
 	_ = a.RestartSunshine()

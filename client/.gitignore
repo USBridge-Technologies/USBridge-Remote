@@ -1,5 +1,6 @@
 .git
 .git_old
+/cmd/android/VERSION
 .idea
 .vscode
 .codex-cache

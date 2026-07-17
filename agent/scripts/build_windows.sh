@@ -134,7 +134,7 @@ export CC_FOR_windows_amd64="$CC_BIN"
 export CXX_FOR_windows_amd64="$CXX_BIN"
 export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 
-LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui}"
+LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui} -X main.version=$VERSION"
 
 echo -e "${YELLOW}Compiling...${NC}"
 go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"

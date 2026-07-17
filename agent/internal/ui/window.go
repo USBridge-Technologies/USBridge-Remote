@@ -33,6 +33,16 @@ import (
 	"usbridge_agent/internal/ui/design"
 )
 
+// appVersion is set once at startup via SetAppVersion (ldflags -X in each
+// platform's build script) and shown as a small "vX.Y.Z" tag in the
+// bottom-right corner of the main window.
+var appVersion string
+
+// SetAppVersion records the running build's version string.
+func SetAppVersion(v string) {
+	appVersion = strings.TrimSpace(v)
+}
+
 type Window struct {
 	app   fyne.App
 	cfg   config.Config
@@ -531,7 +541,17 @@ func (w *Window) ShowAndRun(onClose func()) {
 	bg := canvas.NewRectangle(design.ColorPanel)
 	bodyContent := container.NewBorder(nil, nil, layout.NewSpacer(), layout.NewSpacer(), content)
 	body := container.NewBorder(header, nil, nil, nil, container.NewPadded(bodyContent))
-	win.SetContent(container.NewStack(bg, body))
+	stackLayers := []fyne.CanvasObject{bg, body}
+	if v := strings.TrimSpace(appVersion); v != "" {
+		versionLabel := canvas.NewText("v"+v, design.ColorTextMuted)
+		versionLabel.TextSize = 10
+		versionLabel.Alignment = fyne.TextAlignTrailing
+		versionCorner := container.NewBorder(nil,
+			container.NewPadded(container.NewHBox(layout.NewSpacer(), versionLabel)),
+			nil, nil, nil)
+		stackLayers = append(stackLayers, versionCorner)
+	}
+	win.SetContent(container.NewStack(stackLayers...))
 	win.SetCloseIntercept(func() {
 		if onClose != nil {
 			onClose()

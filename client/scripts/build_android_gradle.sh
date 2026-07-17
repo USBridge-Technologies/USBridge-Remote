@@ -332,6 +332,9 @@ echo ""
 # 3. Fyne build for the Go library
 echo "🔨 Step 3/5: Building the Go application (fyne)..."
 ANDROID_SRC="$REPO_ROOT/cmd/android"
+# cmd/android/main.go embeds this copy (go:embed can't reach a parent dir) to
+# show the real app version in-UI; keep it in sync with the source of truth.
+cp "$REPO_ROOT/VERSION" "$ANDROID_SRC/VERSION"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
 # Only copy GStreamer .so files when WITH_GSTREAMER=1; otherwise they don't exist and aren't needed
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then

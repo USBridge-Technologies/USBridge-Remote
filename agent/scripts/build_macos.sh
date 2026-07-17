@@ -83,7 +83,7 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 export CGO_ENABLED=1
 
 echo -e "${YELLOW}Compiling app bundle...${NC}"
-go build -o "$BIN_PATH" ./cmd/usbridge_agent
+go build -ldflags "-X main.version=$VERSION" -o "$BIN_PATH" ./cmd/usbridge_agent
 chmod +x "$BIN_PATH"
 
 # Icon generation

@@ -19,6 +19,17 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// appVersion is set once at startup (see SetAppVersion) so the connections
+// screen can show a small build-version tag without importing package gui,
+// which would create an import cycle (gui already imports view).
+var appVersion string
+
+// SetAppVersion records the running build's version string, shown as a small
+// "vX.Y.Z" tag in the bottom-right corner of the connections screen.
+func SetAppVersion(version string) {
+	appVersion = strings.TrimSpace(version)
+}
+
 type ConnectionManagerUI struct {
 	Container         *fyne.Container
 	ConnectionsScroll *container.Scroll
@@ -337,6 +348,13 @@ func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo fu
 
 	bg := canvas.NewRectangle(design.ColorGray950)
 	root := container.NewStack(bg, contentArea)
+	if v := strings.TrimSpace(appVersion); v != "" {
+		versionLabel := canvas.NewText("v"+v, design.ColorTextMuted)
+		versionLabel.TextSize = 10
+		versionLabel.Alignment = fyne.TextAlignTrailing
+		versionCorner := container.NewBorder(nil, NewInset(container.NewHBox(layout.NewSpacer(), versionLabel), 0, 6, 0, 6), nil, nil, nil)
+		root.Add(versionCorner)
+	}
 
 	ui := &ConnectionManagerUI{
 		Container:         root,
