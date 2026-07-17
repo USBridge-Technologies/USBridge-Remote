@@ -443,6 +443,15 @@ func (s *TailscaleService) handleUserLogf(format string, args ...any) {
 	logrus.Infof("📡 [Tailscale/User] %s", msg)
 }
 
+// handleInternalLogf receives tsnet's own internal diagnostics (netstack,
+// magicsock, wgengine, ...) — notably the compiled ACL packet filter's
+// accept/drop decisions on outbound dials. Without it, an ACL denying a
+// destination port is indistinguishable from any other "connection refused"
+// in the app's own logs.
+func (s *TailscaleService) handleInternalLogf(format string, args ...any) {
+	logrus.Infof("🛰️ [Tailscale/Internal] %s", fmt.Sprintf(format, args...))
+}
+
 // SetAuthURLHandler registers a callback invoked whenever tsnet produces a new
 // interactive-login AuthURL, regardless of which caller (the explicit Sign-In
 // button, or an incidental first touch of the server by WarmUpPeer/
