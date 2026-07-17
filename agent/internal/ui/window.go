@@ -852,7 +852,12 @@ func (w *Window) quickConnectTargets() (internalHost string, tailscaleHost strin
 		return internalHost, tailscaleHost, "tailscale"
 	}
 	if internalHost != "" {
-		return internalHost, "", "quic"
+		// "quic" was the old FRP/QUIC tunnel protocol value and no longer
+		// exists as a selectable option in the client's protocol picker
+		// (Auto/Tailscale/Direct only) — using it here left saved
+		// connections generated while Tailscale was off in a broken,
+		// unselected protocol state on the client.
+		return internalHost, "", "direct"
 	}
 	return "", "", ""
 }
