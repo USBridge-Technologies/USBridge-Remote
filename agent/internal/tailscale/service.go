@@ -104,8 +104,13 @@ func (s *Service) monitorLoop() {
 					continue
 				}
 
+				// Relay is the peer's home DERP region and stays set even once a
+				// direct path is established — CurAddr (the endpoint currently in
+				// use) is what actually tells direct from relayed, matching how
+				// upstream `tailscale status` classifies it.
+				isRelayed := p.Relay != "" && p.CurAddr == ""
 				connType := "Direct"
-				if p.Relay != "" {
+				if isRelayed {
 					connType = fmt.Sprintf("Relay (%s)", p.Relay)
 				}
 
@@ -113,7 +118,7 @@ func (s *Service) monitorLoop() {
 				if p.Active {
 					prevType, exists := lastPeers[p.IP4]
 					if !exists || prevType != connType {
-						if p.Relay != "" {
+						if isRelayed {
 							logrus.Warnf("⚠️ [Tailscale] Connection to %s (%s) is via RELAY (%s). NAT traversal failed or is in progress.", p.HostName, p.IP4, p.Relay)
 						} else {
 							logrus.Infof("🎯 [Tailscale] Connection to %s (%s) is DIRECT (NAT punch successful!)", p.HostName, p.IP4)
@@ -279,9 +284,16 @@ func (s *Service) Server() (*tsnet.Server, error) {
 	}
 
 	s.server = &tsnet.Server{
-		Dir:       stateDir,
-		Hostname:  "usbridge-agent",
-		UserLogf:  s.handleUserLogf,
+		Dir:      stateDir,
+		Hostname: "usbridge-agent",
+		UserLogf: s.handleUserLogf,
+		// Logf is required for tsnet's own internal diagnostics (notably
+		// netstack's forward-to-localhost path for unclaimed ports, e.g. the
+		// Sunshine streaming ports) — netstack.Create's logger is a no-op
+		// whenever Logf is nil, so forwarding failures were being silently
+		// dropped instead of explaining why a Moonlight client got connection
+		// refused reaching Sunshine over Tailscale.
+		Logf:      s.handleInternalLogf,
 		Ephemeral: true,
 	}
 
@@ -298,6 +310,15 @@ func (s *Service) handleUserLogf(format string, args ...any) {
 		s.setLatestAuthURL(url)
 	}
 	logrus.Infof("📡 [Tailscale/User] %s", msg)
+}
+
+// handleInternalLogf receives tsnet's own internal diagnostics (netstack,
+// magicsock, wgengine, ...) — notably netstack's forward-to-localhost path
+// logs its dial errors only here, which is why a Sunshine streaming port
+// being unreachable over Tailscale previously left no trace in app.log at
+// all.
+func (s *Service) handleInternalLogf(format string, args ...any) {
+	logrus.Infof("🛰️ [Tailscale/Internal] %s", fmt.Sprintf(format, args...))
 }
 
 func (s *Service) extractURL(text string) string {

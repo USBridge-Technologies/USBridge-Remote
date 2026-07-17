@@ -199,6 +199,7 @@ func (a *App) initTailscale(ctx context.Context) {
 	}
 	if a.cfg.TailscaleEnabled {
 		go a.startTailscaleHTTP(ctx)
+		go a.startSunshineTSNetForwarding()
 	}
 }
 

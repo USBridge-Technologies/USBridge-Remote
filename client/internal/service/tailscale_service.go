@@ -394,6 +394,12 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 		Dir:      stateDir,
 		Hostname: "usbridge-client",
 		UserLogf: s.handleUserLogf,
+		// Logf is required for tsnet's own internal diagnostics (netstack,
+		// magicsock, wgengine, and — critically — the compiled ACL packet
+		// filter's accept/drop decisions on outbound dials). Without it,
+		// an ACL denying a specific destination port is indistinguishable
+		// from any other "connection refused" in the app's own logs.
+		Logf: s.handleInternalLogf,
 		// Ephemeral=true: the node is automatically removed from the Tailscale
 		// coordination server when it disconnects. This prevents zombie "offline"
 		// entries from accumulating in the peer list and causing repeated failed
