@@ -1,0 +1,29 @@
+name: release-all-test
+
+# One-click TEST release. Reuses the exact same agent+client build matrix as
+# release-all.yml (via workflow_call — no duplicated build steps) but always
+# publishes as a pre-release with make_latest disabled and the tag prefixed
+# "test-", so it can never collide with, or replace, the real
+# /releases/latest build.
+#
+# To build from the `test` branch (or any other), pick it from the
+# "Use workflow from" branch dropdown when running this workflow manually —
+# the reusable call below resolves against whichever ref you pick.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag suffix for this test release (auto-prefixed with test-, e.g. 2026.07.17)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    uses: ./.github/workflows/release-all.yml
+    with:
+      release_tag: test-${{ inputs.release_tag }}
+      prerelease: true
+    secrets: inherit
