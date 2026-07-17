@@ -304,8 +304,16 @@ func (s *Service) Server() (*tsnet.Server, error) {
 		// whenever Logf is nil, so forwarding failures were being silently
 		// dropped instead of explaining why a Moonlight client got connection
 		// refused reaching Sunshine over Tailscale.
-		Logf:      s.handleInternalLogf,
-		Ephemeral: true,
+		Logf: s.handleInternalLogf,
+		// Ephemeral must stay false here: the agent is the permanently-dialable
+		// server side of the connection, not a throwaway client. An ephemeral
+		// node gets deleted from the tailnet by the coordination server once it
+		// spends a while without an active control connection (laptop sleep,
+		// wifi roam, brief network drop) — after that the agent silently drops
+		// out of the tailnet and no client can reach it again without a fresh
+		// interactive re-auth, even though the process is still running. This
+		// matches the "works at first, then stops connecting after a while"
+		// reports — do not copy the client's Ephemeral:true here.
 	}
 
 	if err := s.server.Start(); err != nil {
