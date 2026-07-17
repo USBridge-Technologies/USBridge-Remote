@@ -14,7 +14,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// StorageProgressBar — компактный chip: тонкая шкала и строка занятости.
+// StorageProgressBar — a compact chip: a thin bar and a usage line.
 type StorageProgressBar struct {
 	widget.BaseWidget
 	usedPercent float64 // 0-100
@@ -24,14 +24,14 @@ type StorageProgressBar struct {
 	hovered     bool
 }
 
-// NewStorageProgressBar создаёт новый компактный индикатор места на диске
+// NewStorageProgressBar creates a new compact disk space indicator
 func NewStorageProgressBar() *StorageProgressBar {
 	s := &StorageProgressBar{iconRes: assets.MemoryChipIcon}
 	s.ExtendBaseWidget(s)
 	return s
 }
 
-// SetValue устанавливает процент занятости (0-1).
+// SetValue sets the usage percentage (0-1).
 func (s *StorageProgressBar) SetValue(v float64) {
 	if v < 0 {
 		v = 0
@@ -43,13 +43,13 @@ func (s *StorageProgressBar) SetValue(v float64) {
 	s.Refresh()
 }
 
-// SetText устарел, используйте SetSizeText для строки занятости
+// SetText is deprecated, use SetSizeText for the usage line
 func (s *StorageProgressBar) SetText(text string) {
 	s.sizeText = text
 	s.Refresh()
 }
 
-// SetSizeText устанавливает текст занятости: "66/119 GB"
+// SetSizeText sets the usage text: "66/119 GB"
 func (s *StorageProgressBar) SetSizeText(text string) {
 	s.sizeText = text
 	s.Refresh()
@@ -87,7 +87,7 @@ func (s *StorageProgressBar) MouseOut() {
 	s.Refresh()
 }
 
-// colorByUsedPercent возвращает цвет в зависимости от заполненности
+// colorByUsedPercent returns a color based on how full the disk is
 func colorByUsedPercent(pct float64) color.Color {
 	if pct < 60 {
 		return color.NRGBA{R: 76, G: 175, B: 80, A: 255}
@@ -98,7 +98,7 @@ func colorByUsedPercent(pct float64) color.Color {
 	return color.NRGBA{R: 244, G: 67, B: 54, A: 255}
 }
 
-// CreateRenderer создаёт рендерер
+// CreateRenderer creates the renderer
 func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	t := s.Theme()
 	variant := fyne.CurrentApp().Settings().ThemeVariant()

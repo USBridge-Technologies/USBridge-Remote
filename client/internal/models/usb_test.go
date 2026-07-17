@@ -61,21 +61,21 @@ func TestFormatSizeShort(t *testing.T) {
 }
 
 func TestFormatStorageCompact(t *testing.T) {
-	// 43% занято: 66 GB свободно, 119 GB всего
+	// 43% used: 66 GB free, 119 GB total
 	av := int64(66) * 1024 * 1024 * 1024
 	tot := int64(119) * 1024 * 1024 * 1024
 	s := FormatStorageCompact(av, tot, 43)
 	if s != "43% 66/119 GB" {
 		t.Errorf("FormatStorageCompact(66GB, 119GB, 43) = %q, want \"43%% 66/119 GB\"", s)
 	}
-	// MB для маленьких объёмов
+	// MB for small volumes
 	av2 := int64(50) * 1024 * 1024
 	tot2 := int64(100) * 1024 * 1024
 	s2 := FormatStorageCompact(av2, tot2, 50)
 	if s2 != "50% 50/100 MB" {
 		t.Errorf("FormatStorageCompact(50MB, 100MB, 50) = %q, want \"50%% 50/100 MB\"", s2)
 	}
-	// TB для больших объёмов
+	// TB for large volumes
 	av3 := int64(500) * 1024 * 1024 * 1024 * 1024
 	tot3 := int64(1024) * 1024 * 1024 * 1024 * 1024
 	s3 := FormatStorageCompact(av3, tot3, 51)

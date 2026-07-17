@@ -820,7 +820,7 @@ func NewDeviceSectionCard(
 	card := NewInset(NewCompactSurfacePanel(cardContent, fill, design.RadiusMD+2), 0, 0, 0, 3)
 	root := container.NewVBox(header, card)
 
-	// Сохраняем контейнер для последующих обновлений без пересоздания карточки
+	// Keep the container around for later updates without recreating the card
 	sectionRegistry.Store(root, bodyContainer)
 
 	return root

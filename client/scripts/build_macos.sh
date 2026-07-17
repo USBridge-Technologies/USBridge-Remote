@@ -32,8 +32,6 @@ OUTPUT_NAME="USBridgeClient"
 DIST_ROOT="$REPO_ROOT/dist"
 DIST_OS="$DIST_ROOT/macos"
 if [ -d "$DIST_OS" ] && [ ! -w "$DIST_OS" ]; then
-    echo -e "${RED}❌ Нет прав на запись в $DIST_OS${NC}"
-    echo "   Исправьте права и повторите:"
     echo "   sudo chown -R \"$USER\":\"$USER\" \"$DIST_OS\""
     exit 1
 fi
@@ -201,7 +199,6 @@ create_app_icon() {
 echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
 # 1. Check optional GStreamer (needed only for legacy RTP video mode)
-echo -e "\n${YELLOW}📦 Проверка зависимостей...${NC}"
 
 GST_LAUNCH=""
 for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst-launch-1.0"; do
@@ -212,14 +209,12 @@ for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst
 done
 
 if [ -z "$GST_LAUNCH" ]; then
-    echo -e "${YELLOW}⚠${NC}  GStreamer не найден — Moonlight работает без него (VideoToolbox/CoreAudio)."
-    echo "   Для RTP видео-режима установите: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad"
+    :
 else
     echo -e "   ${GREEN}✓${NC} gst-launch: $GST_LAUNCH"
 fi
 
 # 2. Build binary
-echo -e "\n${YELLOW}🔨 Компиляция .app...${NC}"
 rm -f "$REPO_ROOT/cmd/fyne_metadata_init.go"
 rm -rf "$REPO_ROOT/cmd/$APP_BUNDLE_NAME"
 
@@ -324,10 +319,9 @@ for _qtool in qemu-nbd qemu-img; do
         QEMU_COPIED=$((QEMU_COPIED + 1))
         echo -e "   ${GREEN}✓${NC} MacOS/$_qtool"
     else
-        echo -e "   ${YELLOW}⚠${NC} $_qtool не найден — установите: brew install qemu"
+        :
     fi
 done
-[ "$QEMU_COPIED" -gt 0 ] && echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано" || true
 
 # 5b. Bundle FFmpeg (used by h264_decoder.go for legacy RTP H.264 decoding)
 # findFFmpeg() checks the executable's own directory first, so placing ffmpeg in
@@ -345,7 +339,7 @@ if [ -n "$_ff_src" ]; then
     bundle_homebrew_dylibs "$_ff_dest" "$APP_FRAMEWORKS_DIR"
     echo -e "${GREEN}✓${NC} MacOS/ffmpeg"
 else
-    echo -e "${YELLOW}⚠${NC} ffmpeg не найден — установите: brew install ffmpeg"
+    :
 fi
 
 # 5c. Bundle Tailscale (Go binary — statically linked, no dylib deps)
@@ -359,7 +353,7 @@ if [ -n "$_ts_src" ]; then
     chmod 755 "$APP_MACOS_DIR/tailscale"
     echo -e "${GREEN}✓${NC} MacOS/tailscale"
 else
-    echo -e "${YELLOW}⚠${NC} tailscale не найден — установите: brew install tailscale"
+    :
 fi
 
 # 6. Info.plist (written after bundling so icons/plist don't interfere with lib walk)
@@ -486,7 +480,6 @@ touch "$DIST_DIR/$APP_BUNDLE_NAME"
 echo -e "${GREEN}   ✅ App bundle: $DIST_DIR/$APP_BUNDLE_NAME${NC}"
 
 # 7. Dist extras
-echo -e "\n${YELLOW}📁 Подготовка dist...${NC}"
 [ -f config.yaml ] && cp config.yaml "$DIST_DIR/"
 
 cat > "$DIST_DIR/README.txt" << 'README'
@@ -524,7 +517,6 @@ Application log:
   ~/Library/Logs/USBridgeClient/app.log
 README
 
-echo -e "\n${YELLOW}📦 Создание disk image...${NC}"
 ARCHIVE="$REPO_ROOT/dist/USBridgeClient-macOS-arm64-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0").dmg"
 rm -f "$ARCHIVE"
 hdiutil create -volname "USBridgeClient" -srcfolder "$DIST_DIR" -ov -format UDZO "$ARCHIVE"
@@ -600,9 +592,4 @@ else
     echo -e "  ${YELLOW}⚠${NC}  Gatekeeper: $gk_result"
 fi
 
-echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
-echo -e "   Результат: $DIST_DIR/$APP_BUNDLE_NAME"
-echo -e "   Архив:     $ARCHIVE"
-echo -e "   Запуск:    open \"$DIST_DIR/$APP_BUNDLE_NAME\""
-echo -e "   Лог app:   ~/Library/Logs/USBridgeClient/app.log"
 echo ""

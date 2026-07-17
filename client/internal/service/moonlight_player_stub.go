@@ -10,7 +10,7 @@ import (
 
 func usesVideoToolbox() bool { return false }
 
-func startMoonlightGStreamer(
+func startMoonlightVideoDecoder(
 	pipeRead *os.File,
 	width, height int,
 	stopCh <-chan struct{},

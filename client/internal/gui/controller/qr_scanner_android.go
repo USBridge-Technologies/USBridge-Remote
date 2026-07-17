@@ -33,7 +33,7 @@ JNIEXPORT void JNICALL Java_com_usbridge_client_QRResultBridge_deliverQRCancel(J
     deliverQRCancelFromJNI();
 }
 
-// keepJNISymbolsReferenced — фиктивная ссылка, чтобы линкер не удалял JNI-символы (они вызываются только из Java)
+// keepJNISymbolsReferenced - dummy reference so linker doesn't remove JNI symbols (they are called only from Java)
 void keepJNISymbolsReferenced(void) {
     extern void Java_com_usbridge_client_QRResultBridge_deliverQRResult(JNIEnv*, jclass, jstring);
     extern void Java_com_usbridge_client_QRResultBridge_deliverQRCancel(JNIEnv*, jclass);
@@ -41,7 +41,7 @@ void keepJNISymbolsReferenced(void) {
     (void)Java_com_usbridge_client_QRResultBridge_deliverQRCancel;
 }
 
-// Возвращает 1 если launchQRScanner вызван, 0 если метод не найден (нужна Gradle-сборка)
+// Returns 1 if launchQRScanner is called, 0 if method is not found (Gradle build required)
 int jni_launchQRScanner(uintptr_t jni_env_ptr, uintptr_t ctx_ptr) {
     JNIEnv *env = (JNIEnv *)jni_env_ptr;
     jobject activity = (jobject)ctx_ptr;
@@ -98,11 +98,11 @@ import (
 )
 
 func init() {
-	// Фиктивный вызов — сохраняет JNI-символы в .so (линкер не удаляет их как «неиспользуемые»)
+	// Dummy call - keeps JNI symbols in .so (linker doesn't remove them as "unused")
 	C.keepJNISymbolsReferenced()
 }
 
-// deliverQRResultFromJNI вызывается из JNI (QRResultBridge.deliverQRResult) — передача в main app без libgojni
+// deliverQRResultFromJNI called from JNI (QRResultBridge.deliverQRResult) - passed to main app without libgojni
 //
 //export deliverQRResultFromJNI
 func deliverQRResultFromJNI(contents *C.char) {
@@ -111,21 +111,21 @@ func deliverQRResultFromJNI(contents *C.char) {
 	}
 }
 
-// deliverQRCancelFromJNI вызывается из JNI (QRResultBridge.deliverQRCancel)
+// deliverQRCancelFromJNI called from JNI (QRResultBridge.deliverQRCancel)
 //
 //export deliverQRCancelFromJNI
 func deliverQRCancelFromJNI() {
 	nbdbridge.SetQRResultCancelledFromJNI()
 }
 
-// ShowCameraScannerNative показывает окно камеры для сканирования QR (как в Telegram)
+// ShowCameraScannerNative shows camera window for scanning QR (like in Telegram)
 func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	qs.window = parent
 	session := qs.beginScanSession()
 
 	logrus.Info("📷 Android: starting QR scanner (camera window)")
 
-	// Очищаем предыдущий результат
+	// Clear previous result
 	nbdbridge.ClearQRResult()
 
 	var launchSuccess bool
@@ -158,18 +158,18 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 		return
 	}
 
-	// Запускаем polling ВНЕ RunNative callback
+	// Start polling OUTSIDE RunNative callback
 	if launchSuccess {
 		logrus.Info("📷 Starting polling goroutine...")
 		go qs.pollQRResult(parent, session)
 	}
 }
 
-// pollQRResult опрашивает nbdbridge (результат приходит через JNI → QRResultBridge → main app)
+// pollQRResult polls nbdbridge (result comes through JNI -> QRResultBridge -> main app)
 func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 	logrus.Info("📷 [POLL] Starting QR result polling...")
 
-	for i := 0; i < 600; i++ { // максимум 60 секунд
+	for i := 0; i < 600; i++ { // max 60 seconds
 		time.Sleep(100 * time.Millisecond)
 		if !qs.isScanSessionActive(session) {
 			logrus.Debug("📷 [POLL] Scan session changed, stopping stale polling")
@@ -228,7 +228,7 @@ func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.W
 	logrus.Warn("📷 [POLL] Empty result")
 }
 
-// scanImageData декодирует PNG/JPEG (с камеры) и сканирует QR код
+// scanImageData decodes PNG/JPEG (from camera) and scans QR code
 func (qs *QRScanner) scanImageData(data []byte, parent fyne.Window) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {

@@ -13,14 +13,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// SaveConnection сохраняет подключение напрямую.
-// masterKey — API master secret (из QR кода устройства).
-// frpToken — прямой FRP/QUIC токен туннеля (опционально, когда masterKey пуст).
+// SaveConnection saves the connection directly.
+// masterKey — API master secret (from device QR code).
+// frpToken — direct FRP/QUIC tunnel token (optional, when masterKey is empty).
 func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
-		logrus.Warn("Не указан адрес устройства")
+		logrus.Warn("Device address is not specified")
 		return ""
 	}
 	if name == "" {
@@ -104,7 +104,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 
-// UpdateConnectionOS обновляет поле RemoteOS для сохранённого подключения по хосту.
+// UpdateConnectionOS updates the RemoteOS field for a saved connection by host.
 func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os string) {
 	if cm == nil || strings.TrimSpace(os) == "" {
 		return
@@ -127,7 +127,7 @@ func (cm *ConnectionManager) UpdateConnectionOS(currentHost, os string) {
 	}
 }
 
-// getStorageURI возвращает URI для хранения
+// getStorageURI returns the storage URI
 func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	uri, err := storage.Child(cm.app.Storage().RootURI(), "connections.json")
 	if err != nil {
@@ -137,26 +137,26 @@ func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	return uri
 }
 
-// saveConnections сохраняет подключения в файл
+// saveConnections saves connections to a file
 func (cm *ConnectionManager) saveConnections() {
 	data, err := json.MarshalIndent(cm.connections, "", "  ")
 	if err != nil {
-		logrus.Errorf("Ошибка сериализации: %v", err)
+		logrus.Errorf("Serialization error: %v", err)
 		return
 	}
 	storageURI := cm.getStorageURI()
 	writer, err := storage.Writer(storageURI)
 	if err != nil {
-		logrus.Errorf("Ошибка записи: %v", err)
+		logrus.Errorf("Write error: %v", err)
 		return
 	}
 	defer writer.Close()
 	if _, err := writer.Write(data); err != nil {
-		logrus.Errorf("Ошибка сохранения: %v", err)
+		logrus.Errorf("Save error: %v", err)
 	}
 }
 
-// loadConnections загружает подключения
+// loadConnections loads connections
 func (cm *ConnectionManager) loadConnections() {
 	storageURI := cm.getStorageURI()
 	reader, err := storage.Reader(storageURI)

@@ -150,7 +150,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// GetIntentDataURI получает URI из Intent (для deep links)
+// GetIntentDataURI retrieves the URI from the Intent (for deep links)
 func GetIntentDataURI() (string, error) {
 	var result string
 
@@ -160,7 +160,7 @@ func GetIntentDataURI() (string, error) {
 			return nil
 		}
 
-		// Получаем URI через JNI
+		// Get the URI via JNI
 		cUri := C.jni_getIntentDataUri(
 			C.uintptr_t(androidCtx.Env),
 			C.uintptr_t(androidCtx.Ctx),
@@ -170,10 +170,10 @@ func GetIntentDataURI() (string, error) {
 			return nil
 		}
 
-		// Конвертируем в Go string
+		// Convert to a Go string
 		result = C.GoString(cUri)
 
-		// Освобождаем C память
+		// Free the C memory
 		C.free(unsafe.Pointer(cUri))
 
 		logrus.Infof("📱 [DEEPLINK] Got intent URI: %s", result)

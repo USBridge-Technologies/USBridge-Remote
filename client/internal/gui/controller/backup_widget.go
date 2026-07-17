@@ -12,28 +12,28 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// BackupWidget виджет для отображения списка снапшотов
+// BackupWidget is a widget for displaying the snapshot list
 type BackupWidget struct {
-	onStorageInfoUpdate func(usedPct float64, available, total int64) // Callback для main window
+	onStorageInfoUpdate func(usedPct float64, available, total int64) // Callback for main window
 	window              fyne.Window
 	ui                  *view.BackupWidgetUI
 
-	// Данные
+	// Data
 	snapshots             []*models.SnapshotInfo
-	sdSpaceInfo           *models.ISOSpaceInfo // Информация о месте на SD-карте (iso/data/backup)
-	currentFlash          *models.LocalDrive   // Актуальная бэкап флешка
-	currentFlashConnected bool                 // Подключена ли бэкап-флешка (mtp:data)
+	sdSpaceInfo           *models.ISOSpaceInfo // SD card space information (iso/data/backup)
+	currentFlash          *models.LocalDrive   // Current backup flash drive
+	currentFlashConnected bool                 // Is backup flash connected (mtp:data)
 	agentOS               string               // OS reported by the connected agent (empty/"usbridge" = real hardware)
 	loadingCurrentFlash   atomic.Bool
 	loadingSnapshots      atomic.Bool
 	isMounting            atomic.Bool
 	usbClient             *api.USBClient
 	hostEntry             *widget.Entry
-	updateStatus          func() // Callback для обновления статуса
+	updateStatus          func() // Callback for status update
 	isClosing             atomic.Bool
 }
 
-// NewBackupWidget создает новый виджет backup
+// NewBackupWidget creates a new backup widget
 func NewBackupWidget(usbClient *api.USBClient, hostEntry *widget.Entry, updateStatus func()) *BackupWidget {
 	bw := &BackupWidget{
 		usbClient:    usbClient,
@@ -55,12 +55,12 @@ func (bw *BackupWidget) Close() {
 	bw.isClosing.Store(true)
 }
 
-// SetWindow устанавливает окно для диалогов
+// SetWindow sets the window for dialogs
 func (bw *BackupWidget) SetWindow(window fyne.Window) {
 	bw.window = window
 }
 
-// UpdateClient обновляет USB клиент
+// UpdateClient updates the USB client
 func (bw *BackupWidget) UpdateClient(usbClient *api.USBClient) {
 	bw.usbClient = usbClient
 	if usbClient != nil {
@@ -70,22 +70,22 @@ func (bw *BackupWidget) UpdateClient(usbClient *api.USBClient) {
 		bw.sdSpaceInfo = nil
 		bw.updateSDStorageInfo()
 	}
-	// Обновляем данные при смене клиента
+	// Update data when client changes
 	bw.loadCurrentFlash()
 	bw.loadSnapshots()
 }
 
-// UpdateHostEntry обновляет ссылку на поле ввода хоста
+// UpdateHostEntry updates the reference to the host entry field
 func (bw *BackupWidget) UpdateHostEntry(hostEntry *widget.Entry) {
 	bw.hostEntry = hostEntry
 }
 
-// GetContainer возвращает контейнер виджета
+// GetContainer returns the widget container
 func (bw *BackupWidget) GetContainer() *fyne.Container {
 	return bw.ui.Container
 }
 
-// Refresh обновляет виджет
+// Refresh updates the widget
 func (bw *BackupWidget) Refresh() {
 	bw.loadCurrentFlash()
 	bw.loadSnapshots()
@@ -98,13 +98,13 @@ func (bw *BackupWidget) GetISODirectory() string {
 	return bw.sdSpaceInfo.ISODirectory
 }
 
-// updateUIAsync безопасно обновляет UI из горутины
+// updateUIAsync safely updates UI from a goroutine
 func (bw *BackupWidget) updateUIAsync(updateFunc func()) {
-	// В Fyne используем fyne.Do для обновления UI из горутин
+	// In Fyne we use fyne.Do to update UI from goroutines
 	fyne.Do(updateFunc)
 }
 
-// updateStatusAsync безопасно обновляет статус из горутины
+// updateStatusAsync safely updates status from a goroutine
 func (bw *BackupWidget) updateStatusAsync(status string) {
 	bw.updateUIAsync(func() {
 		bw.ui.StatusLabel.SetText(status)

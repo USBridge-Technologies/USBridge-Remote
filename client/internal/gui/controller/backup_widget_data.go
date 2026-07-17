@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// loadCurrentFlash загружает актуальную бэкап флешку
+// loadCurrentFlash loads the current backup flash drive
 func (bw *BackupWidget) loadCurrentFlash() {
 	if bw.isClosing.Load() {
 		return
@@ -25,11 +25,11 @@ func (bw *BackupWidget) loadCurrentFlash() {
 		// Capture usbClient once — UpdateClient(nil) can race with this goroutine.
 		client := bw.usbClient
 		if bw.isClosing.Load() || client == nil {
-			logrus.Debug("USB клиент не инициализирован или закрытие, пропускаем загрузку актуальной флешки")
+			logrus.Debug("USB client not initialized or closing, skipping loading current flash drive")
 			return
 		}
 
-		logrus.Debug("📱 Загрузка актуальной бэкап флешки...")
+		logrus.Debug("📱 Loading current backup flash drive...")
 
 		localDrives, err := client.GetLocalDrives()
 		if err != nil {
@@ -40,7 +40,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 		for _, drive := range localDrives.Drives {
 			if drive.SourceType == "mtp" && drive.Name == "data" {
 				bw.currentFlash = &drive
-				logrus.Infof("✅ Найдена актуальная бэкап флешка: %s", drive.Name)
+				logrus.Infof("✅ Found current backup flash drive: %s", drive.Name)
 				break
 			}
 		}
@@ -55,7 +55,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 					strings.Contains(device.Name, "data") &&
 					!strings.Contains(device.ProductName, "snapshot") {
 					bw.currentFlashConnected = true
-					logrus.Infof("✅ Бэкап-флешка подключена: %s", device.Name)
+					logrus.Infof("✅ Backup flash drive connected: %s", device.Name)
 					break
 				}
 			}
@@ -68,7 +68,7 @@ func (bw *BackupWidget) loadCurrentFlash() {
 	}()
 }
 
-// loadISOSpace загружает информацию о месте на SD-карте
+// loadISOSpace loads information about space on the SD card
 func (bw *BackupWidget) loadISOSpace() {
 	client := bw.usbClient
 	if client == nil {
@@ -76,7 +76,7 @@ func (bw *BackupWidget) loadISOSpace() {
 	}
 	spaceInfo, err := client.GetISOSpace()
 	if err != nil {
-		logrus.Debugf("Информация о месте на SD-карте недоступна: %v", err)
+		logrus.Debugf("SD card space information is unavailable: %v", err)
 		bw.updateUIAsync(func() {
 			bw.sdSpaceInfo = nil
 			bw.updateSDStorageInfo()
@@ -89,7 +89,7 @@ func (bw *BackupWidget) loadISOSpace() {
 	})
 }
 
-// updateSDStorageInfo обновляет прогрессбар в main window через callback
+// updateSDStorageInfo updates the progress bar in main window via callback
 func (bw *BackupWidget) updateSDStorageInfo() {
 	if bw.sdSpaceInfo == nil || bw.sdSpaceInfo.TotalSpace <= 0 {
 		if bw.onStorageInfoUpdate != nil {
@@ -105,12 +105,12 @@ func (bw *BackupWidget) updateSDStorageInfo() {
 	}
 }
 
-// SetOnStorageInfoUpdate устанавливает callback для обновления прогрессбара в main window
+// SetOnStorageInfoUpdate sets the callback for updating progress bar in main window
 func (bw *BackupWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, available, total int64)) {
 	bw.onStorageInfoUpdate = fn
 }
 
-// loadSnapshots загружает список снапшотов
+// loadSnapshots loads the list of snapshots
 func (bw *BackupWidget) loadSnapshots() {
 	if bw.isClosing.Load() {
 		return
@@ -133,7 +133,7 @@ func (bw *BackupWidget) loadSnapshots() {
 		}
 
 		bw.updateStatusAsync(i18n.Current.LoadingSnapshots)
-		logrus.Debug("📦 Загрузка списка снапшотов...")
+		logrus.Debug("📦 Loading snapshot list...")
 
 		snapshotsResp, err := client.GetSnapshots()
 		if err != nil {
@@ -158,11 +158,11 @@ func (bw *BackupWidget) loadSnapshots() {
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.LoadedSnapshots, len(bw.snapshots)))
 		})
 
-		logrus.Infof("✅ Загружено %d снапшотов", len(bw.snapshots))
+		logrus.Infof("✅ Loaded %d snapshots", len(bw.snapshots))
 	}()
 }
 
-// startPeriodicRefresh запускает периодическое обновление снапшотов
+// startPeriodicRefresh starts periodic snapshot refresh
 func (bw *BackupWidget) startPeriodicRefresh() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

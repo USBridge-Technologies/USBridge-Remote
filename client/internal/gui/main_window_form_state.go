@@ -63,7 +63,7 @@ func (mw *MainWindow) restoreConnectionDraft() {
 		masterKey = prefs.StringWithFallback("connection_draft_token", "")
 	}
 
-	// Очищаем старый дефолтный токен, если он застрял в преференсах
+	// Clear out the old default token if it got stuck in preferences
 	if masterKey == "usbridge-secret-token" {
 		masterKey = ""
 		prefs.SetString(connectionDraftMasterKeyPrefKey, "")

@@ -19,7 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// VideoWidget виджет управления видео захватом
+// VideoWidget is the widget that controls video capture
 type VideoWidget struct {
 	container        *fyne.Container
 	videoCanvas      *canvas.Image
@@ -27,7 +27,7 @@ type VideoWidget struct {
 	statusLabel      *widget.Label
 	infoLabel        *widget.Label
 	statsLabel       *widget.Label
-	contentContainer *fyne.Container // Контейнер для видео и клавиатуры
+	contentContainer *fyne.Container // Container for video and keyboard
 	ui               *view.VideoWidgetUI
 	statsTickerStop  chan struct{}
 
@@ -43,16 +43,16 @@ type VideoWidget struct {
 	// stopVideoInternal(), producing a SIGSEGV.
 	clearVideoMu sync.Mutex
 
-	// Состояние
+	// State
 	isStreaming      bool
 	isVideoConnected bool
-	isMouseConnected bool // Флаг подключенной мыши
+	isMouseConnected bool // Flag for whether the mouse is connected
 	enableVSync      bool // mirrors VideoStartRequest.EnableVSync for the GL overlay
 
-	// Сервисы
+	// Services
 	usbClient             *api.USBClient
 	videoClient           service.VideoClient
-	frpService            *service.FRPService // для проверки режима FRP
+	frpService            *service.FRPService // for checking FRP mode
 	tailscaleService      *service.TailscaleService
 	tailscaleVideoEnabled bool   // false when connected via direct/LAN (disables Tailscale UDP routing for video)
 	bridgeInternalHost    string // LAN/internal IP of bridge; used to detect same-subnet direct path
@@ -63,7 +63,7 @@ type VideoWidget struct {
 	desiredStreaming      bool
 	videoRestartPending   bool
 	moveQueueMu           sync.Mutex
-	bottomInset           float32 // Отступ снизу (например, для клавиатуры), который выталкивает видео вверх
+	bottomInset           float32 // Bottom inset (e.g. for the keyboard) that pushes the video upward
 
 	pendingMoveX          int
 	pendingMoveY          int
@@ -71,7 +71,7 @@ type VideoWidget struct {
 	videoOps              chan videoOperation
 	videoReconcilePending atomic.Bool
 
-	// Видео поток
+	// Video stream
 	currentFrame         image.Image
 	pendingFrame         atomic.Pointer[image.RGBA] // latest decoded frame, not yet displayed
 	frameMutex           sync.RWMutex
@@ -94,12 +94,12 @@ type VideoWidget struct {
 	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
 	lastVideoImgW        float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
 	lastVideoImgH        float32      // pixel height of the last decoded video frame
-	frameContentX        float32      // нормализованная активная область кадра по X без black bars
-	frameContentY        float32      // нормализованная активная область кадра по Y без black bars
-	frameContentW        float32      // нормализованная ширина активной области кадра
-	frameContentH        float32      // нормализованная высота активной области кадра
+	frameContentX        float32      // normalized active frame area on X without black bars
+	frameContentY        float32      // normalized active frame area on Y without black bars
+	frameContentW        float32      // normalized width of the active frame area
+	frameContentH        float32      // normalized height of the active frame area
 
-	// Диалоги
+	// Dialogs
 	fullscreenDialog      *FullscreenDialog
 	startDialog           *view.VideoStartDialog
 	parentWindow          fyne.Window
@@ -109,36 +109,36 @@ type VideoWidget struct {
 	moonlightKeyMu        sync.Mutex
 	moonlightHeldVKs      map[int16]bool // tracks VK codes currently held in Moonlight session
 
-	// Мышь/тачпад
+	// Mouse/touchpad
 	lastMouseX         float32
 	lastMouseY         float32
-	currentMouseX      float32 // Текущая позиция мыши (для polling)
-	currentMouseY      float32 // Текущая позиция мыши (для polling)
-	relativeRemainderX float32 // накопленный дробный остаток относительного перемещения по X
-	relativeRemainderY float32 // накопленный дробный остаток относительного перемещения по Y
+	currentMouseX      float32 // Current mouse position (for polling)
+	currentMouseY      float32 // Current mouse position (for polling)
+	relativeRemainderX float32 // accumulated fractional remainder of relative movement on X
+	relativeRemainderY float32 // accumulated fractional remainder of relative movement on Y
 	isDragging         bool
 	dragButton         int
 	touchStartX        float32
 	touchStartY        float32
 	touchStartTime     time.Time
-	mousePollingQuit   chan bool // Канал для остановки polling горутины
-	mouseInputMode     string    // desired mode: "mouse" (touchpad), "touchscreen" или "absolute"
-	observedMouseMode  string    // фактический transport, который сообщил сервер через /api/device/info
-	showMouseCursor    bool      // показывать курсор мыши в захваченном видео
+	mousePollingQuit   chan bool // Channel for stopping the polling goroutine
+	mouseInputMode     string    // desired mode: "mouse" (touchpad), "touchscreen" or "absolute"
+	observedMouseMode  string    // actual transport reported by the server via /api/device/info
+	showMouseCursor    bool      // show the mouse cursor in the captured video
 	agentOS            string
 	agentDisplay       string
 	cursorOverlayX     float32
 	cursorOverlayY     float32
 	cursorOverlayShown bool
-	lastMouseModeDiag  string  // последняя диагностическая строка режима мыши, чтобы не спамить лог
-	touchpadSizeW      float32 // Ширина области ввода (для перевода в абсолютные координаты)
-	touchpadSizeH      float32 // Высота области ввода
+	lastMouseModeDiag  string  // last mouse-mode diagnostic string, to avoid spamming the log
+	touchpadSizeW      float32 // Width of the input area (for conversion to absolute coordinates)
+	touchpadSizeH      float32 // Height of the input area
 	// When > 0: standalone VK fullscreen is active and the touchpad logical size is
 	// fixed to the screen dp dimensions. updateFrameContentRect uses these instead of
 	// the (wrong) main-window widget size so absolute mouse mapping covers the full screen.
 	standaloneVKScreenDpW float32
 	standaloneVKScreenDpH float32
-	// Прямоугольник видео внутри области ввода (ImageFillContain): для корректного перевода координат в 0..4095
+	// Video rectangle within the input area (ImageFillContain): for correct coordinate translation into 0..4095
 	contentRectX     float32
 	contentRectY     float32
 	contentRectW     float32
@@ -153,30 +153,30 @@ type VideoWidget struct {
 	scrollDragAxis   string
 	scrollDragLastX  float32
 	scrollDragLastY  float32
-	lastTouchX       int // последние отправленные координаты touch (чтобы не дублировать в MouseMoved)
+	lastTouchX       int // last sent touch coordinates (to avoid duplicating in MouseMoved)
 	lastTouchY       int
-	lastAbsX         int // последние отправленные координаты absolute (touch_position) чтобы не спамить
+	lastAbsX         int // last sent absolute (touch_position) coordinates, to avoid spamming
 	lastAbsY         int
-	lastAbsSentTime  time.Time // время последней отправки absolute (для дебаунса)
+	lastAbsSentTime  time.Time // time of the last absolute send (for debounce)
 	absSendMu        sync.Mutex
-	absButtons       uint8 // битмаска кнопок для absolute режима
+	absButtons       uint8 // bitmask of buttons for absolute mode
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket
 	statRelMoonlight  atomic.Int64 // relative events sent via Moonlight SendMoonlightMouseMove
 	statRelWS         atomic.Int64 // relative events sent via WebSocket SendMouseMove
-	lastTouchDownTime time.Time    // время последнего SendTouch(_, _, true) — для дедупликации
+	lastTouchDownTime time.Time    // time of the last SendTouch(_, _, true) — for deduplication
 	touchDedupMu      sync.Mutex
 	// Virtual cursor (Android "cursor" mouse mode): position in frame UV space (0..1).
 	vcMu                      sync.Mutex
 	virtualCursorU            float32
 	virtualCursorV            float32
 	lastVirtualCursorSentTime time.Time
-	// Задержка touch(down) при MouseDown: если за ~120ms не пришёл Tapped — считаем драг, шлём touch(true).
-	// Tapped приходит при полном клике на виджет; MouseUp в Fyne приходит только виджету под курсором при отпускании.
+	// touch(down) delay on MouseDown: if Tapped hasn't arrived within ~120ms — we treat it as a drag and send touch(true).
+	// Tapped arrives on a full click on the widget; Fyne delivers MouseUp only to the widget under the cursor on release.
 	touchDownDelayTimer *time.Timer
 	touchDownDelayMu    sync.Mutex
-	touchActive         bool // touch(true) уже отправлен и ещё не отправлен touch(false); MouseMoved шлёт только при true
+	touchActive         bool // touch(true) has already been sent and touch(false) not yet; MouseMoved only sends while true
 	// Tap-then-hold LMB drag for virtual cursor.
 	// lastVirtualTapAt is set when a quick tap completes; second TouchDown within 600ms holds LMB.
 	lastVirtualTapAt time.Time
@@ -327,7 +327,7 @@ type videoOperation struct {
 	done chan struct{}
 }
 
-// SetBottomInset устанавливает отступ снизу и пересчитывает вьюпорт.
+// SetBottomInset sets the bottom inset and recalculates the viewport.
 func (vw *VideoWidget) SetBottomInset(inset float32) {
 	logrus.Infof("📐 SetBottomInset: %.1f", inset)
 	vw.bottomInset = inset

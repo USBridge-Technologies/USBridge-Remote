@@ -3,7 +3,7 @@
 
 package controller
 
-// handleAndroidNBDMount заглушка для desktop
+// handleAndroidNBDMount stub for desktop
 func (dw *DiskWidget) handleAndroidNBDMount() {
-	// На desktop не используется
+	// Not used on desktop
 }

@@ -16,7 +16,7 @@ func TestFormatChangelogRename(t *testing.T) {
 }
 
 func TestFormatChangelogPathsWithSpaces(t *testing.T) {
-	// mkfile и rename с путями, содержащими пробелы (экранированные \ )
+	// mkfile and rename with paths containing spaces (escaped with \ )
 	s := &SnapshotInfo{
 		Changelog: "mkfile          ./data_2026-02-06_00-57-50/My\\ File.mov\n" +
 			"rename          ./data_2026-02-06_00-57-50/o474-191-0 dest=./data_2026-02-06_00-57-50/Screen\\ Recording.mov",
@@ -34,7 +34,7 @@ func TestFormatChangelogPathsWithSpaces(t *testing.T) {
 }
 
 func TestFormatChangelogPathSpansMultipleParts(t *testing.T) {
-	// Путь с неэкранированными пробелами занимает несколько parts
+	// Path with unescaped spaces spans multiple parts
 	s := &SnapshotInfo{
 		Changelog: "rename          ./data/File with spaces.mov dest=./data/Other name.mov",
 	}
@@ -58,7 +58,7 @@ func TestFormatChangelogWithSpaces(t *testing.T) {
 	if !strings.Contains(result, "record.mov") {
 		t.Errorf("Expected changelog to contain record.mov, got: %s", result)
 	}
-	// clone: from → to (источник → назначение)
+	// clone: from → to (source → destination)
 	if !strings.Contains(result, "Screen Recording_rnm 2026-01-20 at 21.10.02.mov → record.mov") {
 		t.Errorf("Expected clone to show source → dest order, got: %s", result)
 	}

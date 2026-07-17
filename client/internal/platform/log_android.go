@@ -34,12 +34,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// AndroidLogWriter реализует io.Writer и пишет в Android logcat
+// AndroidLogWriter implements io.Writer and writes to the Android logcat
 type AndroidLogWriter struct {
 	level int // ANDROID_LOG_INFO, WARN, ERROR
 }
 
-// Write пишет данные в logcat (разбивает по строкам, max 4KB на вызов)
+// Write writes data to logcat (splits by lines, max 4KB per call)
 func (w *AndroidLogWriter) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
@@ -51,7 +51,7 @@ func (w *AndroidLogWriter) Write(p []byte) (n int, err error) {
 		if line == "" {
 			continue
 		}
-		// logcat ограничение ~4KB, обрезаем длинные строки
+		// logcat limit is ~4KB, truncate long lines
 		if len(line) > 4000 {
 			line = line[:4000] + "..."
 		}
@@ -69,16 +69,16 @@ func (w *AndroidLogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// NewAndroidLogWriter создаёт writer для logcat (level: 3=DEBUG, 4=INFO, 5=WARN, 6=ERROR)
+// NewAndroidLogWriter creates a writer for logcat (level: 3=DEBUG, 4=INFO, 5=WARN, 6=ERROR)
 func NewAndroidLogWriter(level int) io.Writer {
 	return &AndroidLogWriter{level: level}
 }
 
-// SetupLogrusForAndroid перенаправляет logrus в Android logcat
-// На Android os.Stdout часто не попадает в adb logcat — используем __android_log_print
+// SetupLogrusForAndroid redirects logrus to the Android logcat
+// On Android, os.Stdout often doesn't reach adb logcat — we use __android_log_print instead
 func SetupLogrusForAndroid() {
 	mw := io.MultiWriter(
-		NewAndroidLogWriter(4), // INFO — пишем в logcat с тегом USBridge
+		NewAndroidLogWriter(4), // INFO — write to logcat with the USBridge tag
 	)
 	logrus.SetOutput(mw)
 }

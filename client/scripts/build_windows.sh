@@ -1,16 +1,15 @@
 #!/bin/bash
 # Build USBridge Client for Windows: binary + dist folder with libraries
 #
-# Требования:
-#   Обязательно:  Go, mingw-w64, Fyne
-#   Для Moonlight (HW decode + WASAPI audio):
+# Requirements:
+#   Mandatory:  Go, mingw-w64, Fyne
+#   For Moonlight (HW decode + WASAPI audio):
 #     FFmpeg MinGW DLLs (avcodec, avutil, swscale, opus):
-#       Скачать: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)
-#       Распаковать и указать: export FFMPEG_ROOT="/path/to/ffmpeg-mingw"
-#   Для RTP видео-режима (опционально):
-#     export GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
+#       Download: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)
+#       Extract and specify: export FFMPEG_ROOT="/path/to/ffmpeg-mingw"
 #
-# Без GSTREAMER_ROOT — Moonlight работает через libavcodec (D3D11VA/SW) без GStreamer
+# GStreamer is not needed on Windows: Moonlight uses libavcodec (D3D11VA/SW)
+# and the QR scanner uses Media Foundation directly.
 
 set -e
 
@@ -32,17 +31,13 @@ fi
 
 OUTPUT_NAME="USBridgeClient"
 DIST_WIN="dist/windows"
-DIST_WIN_DLLS="$DIST_WIN/lib"
+DIST_WIN_DLLS="$DIST_WIN/bin"
 DIST_WIN_BIN="$DIST_WIN/bin"
-APP_EXE_NAME="USBridge_Client_app.exe"
+APP_EXE_NAME="USBridge_Client.exe"
 LAUNCHER_EXE_NAME="USBridge_Client.exe"
 BUILD_CACHE_ROOT="$REPO_ROOT/.cache/build/windows-amd64"
-GST_RUNTIME_STAMP_NAME=".gstreamer-runtime.stamp"
-GST_RUNTIME_MANIFEST_NAME=".gstreamer-runtime.manifest"
-MINIMAL_GST="${MINIMAL_GST:-1}"
 MISSING_DLLS_FOUND=0
 
-# Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -66,8 +61,8 @@ download_file() {
         return
     fi
 
-    echo -e "${RED}❌ Не найден downloader для $url${NC}"
-    echo "   Нужен один из инструментов: curl, wget или powershell."
+    echo -e "${RED}❌ Downloader not found for $url${NC}"
+    echo "   Need one of: curl, wget or powershell."
     exit 1
 }
 
@@ -93,8 +88,8 @@ extract_zip() {
         return
     fi
 
-    echo -e "${RED}❌ Не найден архиватор для $archive${NC}"
-    echo "   Нужен один из инструментов: unzip, bsdtar, tar или powershell."
+    echo -e "${RED}❌ Archiver not found for $archive${NC}"
+    echo "   Need one of: unzip, bsdtar, tar or powershell."
     exit 1
 }
 
@@ -118,7 +113,7 @@ extract_msi() {
         return 1
     fi
 
-    echo -e "${RED}❌ Не найден msiexec/powershell для распаковки $msi_path${NC}"
+    echo -e "${RED}❌ msiexec/powershell not found for unpacking $msi_path${NC}"
     return 1
 }
 
@@ -169,44 +164,9 @@ build_cache_fingerprint() {
     done
 }
 
-dist_keep_entry() {
-    local name="$1"
-    local kept=""
-    for kept in "${DIST_KEEP_ENTRIES[@]}"; do
-        if [ "$kept" = "$name" ]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-dist_manifest_entries_valid() {
-    local manifest="$1"
-    local entry=""
-
-    [ -f "$manifest" ] || return 1
-
-    while IFS= read -r entry; do
-        [ -z "$entry" ] && continue
-        [ -e "$DIST_WIN/$entry" ] || return 1
-    done < "$manifest"
-
-    return 0
-}
-
-write_gst_runtime_manifest() {
-    local manifest="$1"
-
-    {
-        [ -e "$DIST_WIN/lib" ] && printf "%s\n" "lib"
-        [ -e "$DIST_WIN/libexec" ] && printf "%s\n" "libexec"
-        [ -e "$DIST_WIN/gstreamer-plugins.txt" ] && printf "%s\n" "gstreamer-plugins.txt"
-    } | sort -u > "$manifest"
-}
-
 echo -e "${GREEN}🪟 Building USBridge Client for Windows${NC}"
 
-# 1. Проверка Go
+# 1. Check Go
 find_dist_windows_processes() {
     local dist_dir="$1"
 
@@ -233,20 +193,20 @@ find_dist_windows_processes() {
 }
 
 if ! command -v go &> /dev/null; then
-    echo -e "${RED}❌ Go не найден! Установите: https://golang.org/dl/${NC}"
+    echo -e "${RED}❌ Go not found! Install: https://golang.org/dl/${NC}"
     exit 1
 fi
 echo -e "${GREEN}✓${NC} Go: $(go version)"
 
-# 2. Проверка mingw-w64
-echo -e "\n${YELLOW}🛠️ Проверка mingw-w64...${NC}"
+# 2. Check mingw-w64
+echo -e "\n${YELLOW}🛠️ Check mingw-w64...${NC}"
 if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
-    echo -e "${RED}❌ mingw-w64 не найден${NC}"
-    echo "   Для кросс-сборки Windows на Linux нужен компилятор:"
+    echo -e "${RED}❌ mingw-w64 not found${NC}"
+    echo "   For Windows cross-compilation on Linux you need a compiler:"
     echo "   sudo apt-get install -y mingw-w64"
     exit 1
 else
-    echo -e "${GREEN}✓${NC} mingw-w64 найден"
+    echo -e "${GREEN}✓${NC} mingw-w64 found"
     export CGO_ENABLED=1
     # Use native gcc for host tools, MinGW only for Windows target.
     export CC="${CC:-gcc}"
@@ -260,7 +220,7 @@ else
 fi
 
 # 2.5. pkg-config (target: Windows)
-echo -e "\n${YELLOW}🧩 Проверка pkg-config (Windows target)...${NC}"
+echo -e "\n${YELLOW}🧩 Check pkg-config (Windows target)...${NC}"
 PKG_CONFIG_BIN=""
 if command -v x86_64-w64-mingw32-pkg-config &>/dev/null; then
     PKG_CONFIG_BIN="x86_64-w64-mingw32-pkg-config"
@@ -269,12 +229,12 @@ elif command -v pkg-config &>/dev/null; then
 fi
 
 if [ -z "$PKG_CONFIG_BIN" ]; then
-    echo -e "${RED}❌ pkg-config не найден${NC}"
-    echo "   Установите: sudo apt-get install -y pkg-config"
+    echo -e "${RED}❌ pkg-config not found${NC}"
+    echo "   Install: sudo apt-get install -y pkg-config"
     exit 1
 fi
 
-# Configure pkg-config paths from FFMPEG_ROOT and/or GSTREAMER_ROOT.
+# Configure pkg-config paths from FFMPEG_ROOT.
 PKG_CONFIG_EXTRA_DIRS=()
 
 if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
@@ -282,16 +242,7 @@ if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
         PKG_CONFIG_EXTRA_DIRS+=("$FFMPEG_ROOT/lib/pkgconfig")
         echo -e "${GREEN}✓${NC} FFMPEG_ROOT: $FFMPEG_ROOT"
     else
-        echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но нет $FFMPEG_ROOT/lib/pkgconfig"
-    fi
-fi
-
-if [ -n "${GSTREAMER_ROOT:-}" ] && [ -d "$GSTREAMER_ROOT" ]; then
-    if [ -d "$GSTREAMER_ROOT/lib/pkgconfig" ]; then
-        PKG_CONFIG_EXTRA_DIRS+=("$GSTREAMER_ROOT/lib/pkgconfig")
-        echo -e "${GREEN}✓${NC} GSTREAMER_ROOT: $GSTREAMER_ROOT"
-    else
-        echo -e "${YELLOW}⚠${NC} GSTREAMER_ROOT задан, но нет $GSTREAMER_ROOT/lib/pkgconfig"
+        echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT is set, but no $FFMPEG_ROOT/lib/pkgconfig"
     fi
 fi
 
@@ -302,7 +253,7 @@ if [ "${#PKG_CONFIG_EXTRA_DIRS[@]}" -gt 0 ]; then
 fi
 
 if [ "$PKG_CONFIG_BIN" = "pkg-config" ] && [ -z "${PKG_CONFIG_LIBDIR:-}" ]; then
-    echo -e "${RED}❌ Для кросс-сборки Windows нужен PKG_CONFIG_LIBDIR или FFMPEG_ROOT/GSTREAMER_ROOT${NC}"
+    echo -e "${RED}❌ For Windows cross-compilation you need PKG_CONFIG_LIBDIR or FFMPEG_ROOT${NC}"
     exit 1
 fi
 
@@ -310,9 +261,9 @@ export PKG_CONFIG="$PKG_CONFIG_BIN"
 echo -e "${GREEN}✓${NC} PKG_CONFIG: $PKG_CONFIG"
 
 # Moonlight requires FFmpeg (libavcodec/libavutil/libswscale) + opus + openssl.
-# GStreamer is optional — only used by legacy RTP video mode.
+# GStreamer is not used on Windows at all — the QR scanner uses Media
+# Foundation directly (mfcamera_impl_windows.c).
 HAS_FFMPEG=0
-HAS_GST=0
 
 if "$PKG_CONFIG" --exists libavcodec libavutil libswscale 2>/dev/null; then
     HAS_FFMPEG=1
@@ -320,22 +271,11 @@ if "$PKG_CONFIG" --exists libavcodec libavutil libswscale 2>/dev/null; then
 else
     echo -e "${YELLOW}⚠${NC} FFmpeg libs not found via pkg-config — Moonlight will use software decode fallback"
     echo "   Set FFMPEG_ROOT to enable HW decode: export FFMPEG_ROOT=/path/to/ffmpeg-mingw"
-fi
-
-if "$PKG_CONFIG" --exists gstreamer-1.0 2>/dev/null; then
-    HAS_GST=1
-    echo -e "${GREEN}✓${NC} GStreamer found (RTP video mode enabled)"
-else
-    echo -e "${YELLOW}⚠${NC} GStreamer not found — RTP video mode disabled (Moonlight still works)"
-fi
-
-if [ "$HAS_FFMPEG" = "0" ] && [ "$HAS_GST" = "0" ]; then
-    echo -e "${YELLOW}⚠${NC} Neither FFmpeg nor GStreamer found — building without video decode libraries"
     echo "   Moonlight will fall back to software decode using bundled opus/openssl only"
 fi
 
-# 3. Проверка fyne
-echo -e "\n${YELLOW}📦 Проверка fyne...${NC}"
+# 3. Check fyne
+echo -e "\n${YELLOW}📦 Check fyne...${NC}"
 FYNE_BIN=""
 # In MSYS2 (UCRT64/MinGW64) go env GOPATH returns a Windows-style path.
 # Normalise it to a POSIX path so bash [ -x ] checks work correctly.
@@ -357,7 +297,7 @@ for name in fyne fyne.exe; do
     fi
 done
 if [ -z "$FYNE_BIN" ]; then
-    echo -e "${YELLOW}⚠${NC} fyne не найден, устанавливаю..."
+    echo -e "${YELLOW}⚠${NC} fyne not found, installing..."
     go install fyne.io/tools/cmd/fyne@latest
     for name in fyne.exe fyne; do
         if [ -x "$GOPATH_BIN/$name" ]; then
@@ -369,16 +309,14 @@ if [ -z "$FYNE_BIN" ]; then
 fi
 echo -e "${GREEN}✓${NC} fyne: $FYNE_BIN"
 
-# 4. Иконка
 ICON_PATH="$REPO_ROOT/Icon.png"
 if [ ! -f "$ICON_PATH" ]; then
-    echo -e "${RED}❌ Иконка не найдена: $ICON_PATH${NC}"
+    echo -e "${RED}❌ Icon not found: $ICON_PATH${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓${NC} Иконка: $ICON_PATH"
+echo -e "${GREEN}✓${NC} Icon: $ICON_PATH"
 
-# 5. Компиляция
-echo -e "\n${YELLOW}🔨 Компиляция...${NC}"
+echo -e "\n${YELLOW}🔨 Compilation...${NC}"
 cd "$REPO_ROOT/cmd"
 export GOOS=windows
 export GOARCH=amd64
@@ -388,17 +326,15 @@ export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
 mkdir -p "$GOCACHE" "$GOMODCACHE"
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-BUILD_LDFLAGS="-H=windowsgui -X main.version=$VERSION"
+BUILD_LDFLAGS="-H=windowsgui -X main.version=$VERSION -extldflags '-static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic'"
 BUILD_VARIANT="release"
 if [ "${DEBUG_CONSOLE:-0}" = "1" ]; then
     BUILD_LDFLAGS="-H=console -X main.version=$VERSION"
     BUILD_VARIANT="console"
-    echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: собираем консольную версию"
+    echo -e "${YELLOW}⚠${NC} DEBUG_CONSOLE=1: building console version"
 fi
 BUILD_CACHE_DIR="$BUILD_CACHE_ROOT/$BUILD_VARIANT"
 BUILD_CACHE_APP_EXE="$BUILD_CACHE_DIR/$APP_EXE_NAME"
-BUILD_CACHE_LAUNCHER_RAW="$BUILD_CACHE_DIR/USBridge_Client_launcher_raw.exe"
-BUILD_CACHE_LAUNCHER_EXE="$BUILD_CACHE_DIR/$LAUNCHER_EXE_NAME"
 BUILD_CACHE_FINGERPRINT="$BUILD_CACHE_DIR/.build-inputs.sha256"
 BUILD_CACHE_FINGERPRINT_TMP="$BUILD_CACHE_DIR/.build-inputs.current"
 mkdir -p "$BUILD_CACHE_DIR"
@@ -437,7 +373,7 @@ elif ! diff -q "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT" >/dev/n
     REBUILD_WINDOWS_REASON="build inputs changed"
 fi
 
-# Найти или установить go-winres (встраивает иконку без ImageMagick и fyne)
+# Find or install go-winres
 GOWINRES_BIN=""
 for _n in go-winres go-winres.exe; do
     _full="$(command -v "$_n" 2>/dev/null || true)"
@@ -445,7 +381,7 @@ for _n in go-winres go-winres.exe; do
     if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
 done
 if [ -z "$GOWINRES_BIN" ]; then
-    echo -e "${YELLOW}⚠${NC} go-winres не найден, устанавливаю..."
+    echo -e "${YELLOW}⚠${NC} go-winres not found, installing..."
     GOOS="" GOARCH="" go install github.com/tc-hib/go-winres@latest
     for _n in go-winres.exe go-winres; do
         if [ -x "$GOPATH_BIN/$_n" ]; then GOWINRES_BIN="$GOPATH_BIN/$_n"; break; fi
@@ -454,10 +390,10 @@ if [ -z "$GOWINRES_BIN" ]; then
     done
 fi
 
-# 5a. Основное приложение (CGo + Fyne UI, встраиваем иконку через go-winres)
+# 5a. Main app
 APP_SYSO="$REPO_ROOT/cmd/rsrc_windows_amd64.syso"
 if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
-    echo -e "${YELLOW}🧱 Сборка основного приложения (Go cache: $GOCACHE)...${NC}"
+    echo -e "${YELLOW}🧱 Building main app (Go cache: $GOCACHE)...${NC}"
     echo "   Reason: $REBUILD_WINDOWS_REASON"
     APP_SYSO="$REPO_ROOT/cmd/rsrc_windows_amd64.syso"
     if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
@@ -465,48 +401,22 @@ if [ "$REBUILD_WINDOWS_EXE" = "1" ]; then
         if (cd "$REPO_ROOT/cmd" && \
             GOOS=windows GOARCH=amd64 \
             "$GOWINRES_BIN" simply --icon "$ICON_PATH" 2>&1); then
-            [ -f "$APP_SYSO" ] && echo -e "${GREEN}✓${NC} Иконка встроена в основное приложение: $APP_SYSO"
+            [ -f "$APP_SYSO" ] && echo -e "${GREEN}✓${NC} Icon embedded into main app: $APP_SYSO"
         fi
     else
-        echo -e "${YELLOW}⚠${NC} go-winres недоступен — основное приложение будет без иконки"
+        echo -e "${YELLOW}⚠${NC} go-winres unavailable - main app will be without icon"
     fi
     go build -trimpath -ldflags="$BUILD_LDFLAGS" -o "$BUILD_CACHE_APP_EXE" "$REPO_ROOT/cmd"
     rm -f "$APP_SYSO"
     mv "$BUILD_CACHE_FINGERPRINT_TMP" "$BUILD_CACHE_FINGERPRINT"
 else
     rm -f "$BUILD_CACHE_FINGERPRINT_TMP"
-    echo -e "${GREEN}✓${NC} Используем готовый app exe из кэша: $BUILD_CACHE_APP_EXE"
+    echo -e "${GREEN}✓${NC} Using ready app exe from cache: $BUILD_CACHE_APP_EXE"
 fi
 
-# 5b. Лаунчер (чистый Go, встраиваем иконку через go-winres → .syso → go build)
-echo -e "${YELLOW}🧱 Сборка лаунчера с иконкой...${NC}"
-LAUNCHER_SYSO="$REPO_ROOT/cmd/launcher/rsrc_windows_amd64.syso"
 
-ICON_EMBEDDED=0
-if [ -n "$GOWINRES_BIN" ] && [ -x "$GOWINRES_BIN" ]; then
-    rm -f "$LAUNCHER_SYSO"
-    if (cd "$REPO_ROOT/cmd/launcher" && \
-        GOOS=windows GOARCH=amd64 \
-        "$GOWINRES_BIN" simply --icon "$ICON_PATH" 2>&1); then
-        if [ -f "$LAUNCHER_SYSO" ]; then
-            ICON_EMBEDDED=1
-            echo -e "${GREEN}✓${NC} Иконка встроена через go-winres: $LAUNCHER_SYSO"
-        fi
-    fi
-fi
-[ "$ICON_EMBEDDED" = "0" ] && echo -e "${YELLOW}⚠${NC} go-winres недоступен — лаунчер будет без иконки"
-
-# Собираем лаунчер обычным go build (.syso подхватывается автоматически)
-go build -trimpath -ldflags="-H=windowsgui" \
-    -o "$BUILD_CACHE_LAUNCHER_EXE" \
-    "$REPO_ROOT/cmd/launcher"
-rm -f "$LAUNCHER_SYSO"   # убираем из дерева исходников после сборки
-echo -e "${GREEN}✓${NC} Launcher: $BUILD_CACHE_LAUNCHER_EXE"
-
-cd "$REPO_ROOT/cmd"
-
-# 6. Создание dist
-echo -e "\n${YELLOW}📁 Создание папки dist...${NC}"
+# 6. Create dist folder
+echo -e "\n${YELLOW}📁 Creating dist folder...${NC}"
 cd "$REPO_ROOT"
 mkdir -p "$DIST_WIN"
 
@@ -520,72 +430,9 @@ if [ "${#running_dist_processes[@]}" -gt 0 ]; then
     exit 1
 fi
 
-if [ -z "$GSTREAMER_ROOT" ]; then
-    GSTREAMER_ROOT="C:/gstreamer/1.0/mingw_x86_64"
-fi
-
-GST_CANDIDATES=(
-    "$GSTREAMER_ROOT"
-    "${GSTREAMER_ROOT//\\/\/}"
-    "/c/gstreamer/1.0/mingw_x86_64"
-    "C:/gstreamer/1.0/mingw_x86_64"
-)
-
-if pkg-config --exists gstreamer-1.0 2>/dev/null; then
-    GST_PKG_PREFIX=$(pkg-config --variable=prefix gstreamer-1.0 2>/dev/null)
-    [ -n "$GST_PKG_PREFIX" ] && GST_CANDIDATES+=("$GST_PKG_PREFIX")
-fi
-
-GST_ROOT=""
-for cand in "${GST_CANDIDATES[@]}"; do
-    [ -z "$cand" ] && continue
-    if [ -d "$cand/bin" ] && [ -d "$cand/lib/gstreamer-1.0" ]; then
-        GST_ROOT="$cand"
-        break
-    fi
-    if [ -d "$cand/bin" ]; then
-        dll_count=$(find "$cand/bin" -maxdepth 1 -name "*.dll" 2>/dev/null | wc -l)
-        [ "$dll_count" -gt 0 ] && GST_ROOT="$cand" && break
-    fi
-done
-
-GST_RUNTIME_STAMP_PATH="$DIST_WIN/$GST_RUNTIME_STAMP_NAME"
-GST_RUNTIME_MANIFEST_PATH="$DIST_WIN/$GST_RUNTIME_MANIFEST_NAME"
-SKIP_GST_COPY=0
-DIST_KEEP_ENTRIES=()
-CURRENT_GST_RUNTIME_STAMP=""
-
-if [ -n "$GST_ROOT" ]; then
-    GST_VERSION="$("$PKG_CONFIG" --modversion gstreamer-1.0 2>/dev/null || echo unknown)"
-    CURRENT_GST_RUNTIME_STAMP="$(cat <<EOF
-bundle_version=1
-gst_root=$GST_ROOT
-gstreamer_version=$GST_VERSION
-minimal_gst=$MINIMAL_GST
-gst_plugin_allowlist=${GST_PLUGIN_ALLOWLIST:-}
-goarch=$GOARCH
-EOF
-)"
-
-    if [ "${FORCE_GST_REFRESH:-0}" != "1" ] && [ -f "$GST_RUNTIME_STAMP_PATH" ] && [ -f "$GST_RUNTIME_MANIFEST_PATH" ]; then
-        EXISTING_GST_RUNTIME_STAMP="$(cat "$GST_RUNTIME_STAMP_PATH" 2>/dev/null || true)"
-        if [ "$EXISTING_GST_RUNTIME_STAMP" = "$CURRENT_GST_RUNTIME_STAMP" ] && dist_manifest_entries_valid "$GST_RUNTIME_MANIFEST_PATH"; then
-            SKIP_GST_COPY=1
-            while IFS= read -r entry; do
-                [ -n "$entry" ] && DIST_KEEP_ENTRIES+=("$entry")
-            done < "$GST_RUNTIME_MANIFEST_PATH"
-            DIST_KEEP_ENTRIES+=("$GST_RUNTIME_STAMP_NAME" "$GST_RUNTIME_MANIFEST_NAME")
-        fi
-    fi
-fi
-
 cleanup_err="${TMPDIR:-/tmp}/usbridge_dist_cleanup.err"
 cleanup_failed=0
 while IFS= read -r existing; do
-    base_name="$(basename "$existing")"
-    if [ "$SKIP_GST_COPY" = "1" ] && dist_keep_entry "$base_name"; then
-        continue
-    fi
     if ! rm -rf -- "$existing" 2>>"$cleanup_err"; then
         cleanup_failed=1
     fi
@@ -599,14 +446,28 @@ fi
 rm -f "$cleanup_err"
 mkdir -p "$DIST_WIN_DLLS" "$DIST_WIN_BIN"
 
+
 cp "$BUILD_CACHE_APP_EXE" "$DIST_WIN_BIN/$APP_EXE_NAME"
-echo -e "${GREEN}✓${NC} bin/$APP_EXE_NAME (основное приложение)"
-cp "$BUILD_CACHE_LAUNCHER_EXE" "$DIST_WIN/$LAUNCHER_EXE_NAME"
-echo -e "${GREEN}✓${NC} $LAUNCHER_EXE_NAME (лаунчер с иконкой)"
+
+# Create a relative shortcut using explorer.exe
+echo "Creating shortcut..."
+cat << 'VBS_EOF' > "$DIST_WIN/make_shortcut.vbs"
+Set oWS = WScript.CreateObject("WScript.Shell")
+sLinkFile = WScript.Arguments(0)
+Set oLink = oWS.CreateShortcut(sLinkFile)
+oLink.TargetPath = "explorer.exe"
+oLink.Arguments = "bin\" & WScript.Arguments(1)
+oLink.IconLocation = oWS.CurrentDirectory & "\bin\" & WScript.Arguments(1) & ", 0"
+oLink.WindowStyle = 1
+oLink.Save
+VBS_EOF
+cscript //nologo "$DIST_WIN/make_shortcut.vbs" "$(cygpath -w "$DIST_WIN/USBridge_Client.lnk")" "$APP_EXE_NAME"
+rm -f "$DIST_WIN/make_shortcut.vbs"
+
 [ -f config.yaml ] && cp config.yaml "$DIST_WIN/" && echo -e "${GREEN}✓${NC} config.yaml"
 
-# 7a. Копирование FFmpeg DLLs (для Moonlight HW decode)
-echo -e "\n${YELLOW}📚 Копирование FFmpeg DLLs (Moonlight HW decode)...${NC}"
+# 7a. Copying FFmpeg DLLs (for Moonlight HW decode)
+echo -e "\n${YELLOW}📚 Copying FFmpeg DLLs (Moonlight HW decode)...${NC}"
 
 # ── DLL utility functions (used by 7a, 7b, 7c) ────────────────────────────────
 OBJDUMP_BIN="${OBJDUMP_BIN:-x86_64-w64-mingw32-objdump}"
@@ -671,15 +532,13 @@ _collect_dll_deps() {
 
 _resolve_dll() {
     local name="$1"
-    # Search: FFMPEG_BIN_DIR → FFMPEG_ROOT → GST_ROOT → DLL_EXTRA_DIRS
+    # Search: FFMPEG_BIN_DIR → FFMPEG_ROOT → DLL_EXTRA_DIRS
     local _d _found
-    
+
     # Pre-process search paths to ensure they are MSYS2-friendly if possible
     local _search_paths=(
         "${FFMPEG_BIN_DIR:-}"
         "${FFMPEG_ROOT:-}/bin"
-        "${GST_ROOT:-}/bin"
-        "${GST_ROOT:-}/lib"
         "${DLL_EXTRA_DIRS[@]}"
     )
 
@@ -768,7 +627,7 @@ _walk_deps() {
                     visited_deps+=("${copied,,}")
                     queue+=("$target_dir/$copied")
                 else
-                    echo -e "   ${RED}❌ ОШИБКА: Не найдена зависимость $dep (для $(basename "$file"))${NC}" >&2
+                    echo -e "   ${RED}❌ ERROR: Dependency not found $dep (for $(basename "$file"))${NC}" >&2
                     MISSING_DLLS_FOUND=1
                     # Add to visited anyway to avoid spamming the same error
                     visited_deps+=("$dep_lower")
@@ -835,7 +694,7 @@ if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
     for d in "$FFMPEG_ROOT/bin" "$FFMPEG_ROOT"; do
         if ls "$d"/*.dll &>/dev/null 2>&1; then FFMPEG_BIN_DIR="$d"; break; fi
     done
-    # Add to DLL_EXTRA_DIRS so the GStreamer section and final walk can find FFmpeg deps
+    # Add to DLL_EXTRA_DIRS so the final dependency walk can find FFmpeg deps
     [ -n "$FFMPEG_BIN_DIR" ] && DLL_EXTRA_DIRS=("$FFMPEG_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
 
     if [ -n "$FFMPEG_BIN_DIR" ]; then
@@ -857,16 +716,14 @@ if [ -n "${FFMPEG_ROOT:-}" ] && [ -d "$FFMPEG_ROOT" ]; then
         mapfile -t _all_copied < <(find "$DIST_WIN_DLLS" -maxdepth 1 -name "*.dll" 2>/dev/null)
         [ "${#_all_copied[@]}" -gt 0 ] && _walk_deps "$DIST_WIN_DLLS" "${_all_copied[@]}"
     else
-        echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT задан, но DLLs не найдены в $FFMPEG_ROOT"
+        :
     fi
 else
-    echo -e "${YELLOW}⚠${NC} FFMPEG_ROOT не задан и не обнаружен автоматически — FFmpeg DLLs не будут в дистрибутиве"
-    echo "   Скачайте: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)"
-    echo "   Затем: export FFMPEG_ROOT=/path/to/ffmpeg-win64-gpl-shared && ./scripts/build_windows.sh"
+    :
 fi
 
 # Copy Moonlight-specific runtime DLLs (opus, openssl, MinGW runtime)
-echo -e "\n${YELLOW}📚 Копирование Moonlight runtime DLLs (opus, openssl, MinGW)...${NC}"
+echo -e "\n${YELLOW}📚 Copying Moonlight runtime DLLs (opus, openssl, MinGW)...${NC}"
 MOONLIGHT_COPIED=0
 for _dll_name in "${MOONLIGHT_RUNTIME_DLLS[@]}"; do
     _copied="$(_copy_dll "$_dll_name" "$DIST_WIN_DLLS")"
@@ -877,7 +734,7 @@ for _dll_name in "${MOONLIGHT_RUNTIME_DLLS[@]}"; do
         # We don't fail for wildcard patterns that might legitimately match 0 files,
         # but for explicit exact DLL names, we print an error.
         if [[ "$_dll_name" != *"*"* ]]; then
-            echo -e "   ${RED}❌ ОШИБКА: Не найдена базовая библиотека $_dll_name${NC}" >&2
+            echo -e "   ${RED}❌ ERROR: Base library not found $_dll_name${NC}" >&2
             MISSING_DLLS_FOUND=1
         fi
     fi
@@ -888,112 +745,7 @@ else
     echo -e "${YELLOW}⚠${NC} Moonlight runtime DLLs not found (opus/openssl may be statically linked or missing)"
 fi
 
-# 7b. Копирование GStreamer (для RTP видео-режима)
-echo -e "\n${YELLOW}📚 Копирование GStreamer (RTP видео-режим)...${NC}"
-
-if [ -n "$GST_ROOT" ]; then
-    echo -e "   Найден: $GST_ROOT"
-
-    if [ "$SKIP_GST_COPY" = "1" ]; then
-        echo -e "${GREEN}✓${NC} GStreamer runtime уже подготовлен, переиспользую без перекопирования"
-    else
-        # GST-specific: copy all DLLs to DIST_WIN_DLLS (lib/)
-        copy_dll_by_name() {
-            local name="$1"
-            [ -z "$name" ] && return
-            local found=""
-            if [ -f "$GST_ROOT/bin/$name" ]; then
-                found="$GST_ROOT/bin/$name"
-            else
-                found="$(find "$GST_ROOT/bin" "$GST_ROOT/lib" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-            fi
-            if [ -z "$found" ]; then
-                local _extra
-                for _extra in "${DLL_EXTRA_DIRS[@]}"; do
-                    if [ -f "$_extra/$name" ]; then found="$_extra/$name"; break; fi
-                done
-            fi
-            [ -z "$found" ] && return
-            cp -L "$found" "$DIST_WIN_DLLS/" 2>/dev/null || true
-        }
-
-        # Reuse global DLL utilities (_collect_dll_deps, _resolve_dll, _copy_dll, _walk_deps)
-        # but wrap resolve for GST: also search GST_ROOT explicitly
-        _gst_resolve_dll() {
-            local name="$1"
-            [ -z "$name" ] && return
-            local found=""
-            for _d in "$GST_ROOT/bin" "$GST_ROOT/lib"; do
-                if [ -f "$_d/$name" ]; then found="$_d/$name"; break; fi
-                local _fi
-                _fi="$(find "$_d" -maxdepth 4 -type f -iname "$name" 2>/dev/null | head -1)"
-                [ -n "$_fi" ] && { found="$_fi"; break; }
-            done
-            if [ -z "$found" ]; then found="$(_resolve_dll "$name")"; fi
-            [ -n "$found" ] && printf "%s\n" "$found"
-        }
-
-        copy_dll_to_dir() {
-            local name="$1" target_dir="$2"
-            local resolved
-            resolved="$(_gst_resolve_dll "$name")"
-            [ -n "$resolved" ] && [ -f "$resolved" ] || return
-            cp -L "$resolved" "$target_dir/" 2>/dev/null || true
-            printf "%s\n" "$(basename "$resolved")"
-        }
-
-        collect_deps() { _collect_dll_deps "$@"; }
-        collect_recursive_deps_into() { _walk_deps "$@"; }
-
-        if [ "$MINIMAL_GST" = "1" ]; then
-            mkdir -p "$DIST_WIN_DLLS/gstreamer-1.0"
-            PLUGINS=(
-                "libgstcoreelements.dll" "libgstapp.dll" "libgstrtp.dll" "libgstrtpmanager.dll"
-                "libgstudp.dll" "libgstvideoconvert.dll" "libgstvideoconvertscale.dll"
-                "libgstvideoscale.dll" "libgstplayback.dll" "libgsttypefindfunctions.dll"
-                "libgstd3d11.dll" "libgstjpeg.dll" "libgstjpegformat.dll" "libgstlibav.dll"
-                "libgstautodetect.dll" "libgstwic.dll" "libgstqsv.dll" "libgstmsdk.dll"
-                "libgstnvcodec.dll" "libgstamfcodec.dll" "libgstvideoparsersbad.dll"
-                "libgstvideoparsers.dll" "libgstwinks.dll" "libgstmf.dll"
-                "libgstmediafoundation.dll"
-            )
-            CORE_DLLS=(
-                "libgobject-2.0-0.dll" "libglib-2.0-0.dll" "libgio-2.0-0.dll" "libgmodule-2.0-0.dll"
-                "libgstreamer-1.0-0.dll" "libgstbase-1.0-0.dll" "libgstvideo-1.0-0.dll"
-                "libgstpbutils-1.0-0.dll" "libgstapp-1.0-0.dll" "libintl-*.dll" "libffi-*.dll"
-                "libpcre2-8-0.dll" "libgcc_s_seh-1.dll" "libwinpthread-1.dll" "libz-1.dll"
-                "libcrypto-3-x64.dll" "libssl-3-x64.dll"
-                "libcrypto-1_1-x64.dll" "libssl-1_1-x64.dll"
-            )
-            needed_dlls=("${CORE_DLLS[@]}")
-            while IFS= read -r dep; do needed_dlls+=("$dep"); done < <(collect_deps "$DIST_WIN/$APP_EXE_NAME")
-
-            for plugin in "${PLUGINS[@]}"; do
-                if [ -f "$GST_ROOT/lib/gstreamer-1.0/$plugin" ]; then
-                    cp -L "$GST_ROOT/lib/gstreamer-1.0/$plugin" "$DIST_WIN_DLLS/gstreamer-1.0/" 2>/dev/null || true
-                    while IFS= read -r dep; do needed_dlls+=("$dep"); done < <(collect_deps "$GST_ROOT/lib/gstreamer-1.0/$plugin")
-                fi
-            done
-
-            printf "%s\n" "${needed_dlls[@]}" | sort -u | while read -r dll; do
-                copy_dll_by_name "$dll"
-            done
-
-            collect_recursive_deps_into "$DIST_WIN_DLLS" "$DIST_WIN/$APP_EXE_NAME"
-            collect_recursive_deps_into "$DIST_WIN_DLLS" $(find "$DIST_WIN_DLLS/gstreamer-1.0" -name "*.dll" 2>/dev/null)
-        fi
-
-        for tool in gst-launch-1.0.exe gst-inspect-1.0.exe; do
-            [ -f "$GST_ROOT/bin/$tool" ] && cp -L "$GST_ROOT/bin/$tool" "$DIST_WIN_BIN/"
-        done
-        find "$DIST_WIN_DLLS/gstreamer-1.0" -maxdepth 1 -type f -iname "*.dll" -printf "%f\n" 2>/dev/null | sort > "$DIST_WIN/gstreamer-plugins.txt"
-        printf "%s\n" "$CURRENT_GST_RUNTIME_STAMP" > "$GST_RUNTIME_STAMP_PATH"
-        write_gst_runtime_manifest "$GST_RUNTIME_MANIFEST_PATH"
-    fi
-fi
-
-# 7c. Копирование QEMU (qemu-nbd / qemu-img для работы с VMDK/QCOW2/VDI образами)
-echo -e "\n${YELLOW}📀 Копирование QEMU (qemu-nbd, qemu-img)...${NC}"
+echo -e "\n${YELLOW}📀 Copying QEMU (qemu-nbd, qemu-img)...${NC}"
 
 QEMU_BIN_DIR=""
 for _qd in \
@@ -1022,25 +774,18 @@ if [ -n "$QEMU_BIN_DIR" ]; then
             echo -e "   ${GREEN}✓${NC} bin/$_qtool"
             QEMU_COPIED=$((QEMU_COPIED + 1))
         else
-            echo -e "   ${YELLOW}⚠${NC} $_qtool не найден в $QEMU_BIN_DIR"
+            echo -e "   ${YELLOW}⚠${NC} $_qtool not found in $QEMU_BIN_DIR"
         fi
     done
-    # Добавляем QEMU_BIN_DIR в пул поиска DLL для _walk_deps
+    # Add QEMU_BIN_DIR to DLL search pool for _walk_deps
     DLL_EXTRA_DIRS=("$QEMU_BIN_DIR" "${DLL_EXTRA_DIRS[@]}")
-    # Обходим зависимости скопированных QEMU-бинарников (DLL идут в lib/)
     mapfile -t _qemu_bins < <(find "$DIST_WIN_BIN" -maxdepth 1 \( -name "qemu-nbd.exe" -o -name "qemu-img.exe" \) 2>/dev/null)
     [ "${#_qemu_bins[@]}" -gt 0 ] && _walk_deps "$DIST_WIN_DLLS" "${_qemu_bins[@]}"
-    echo -e "${GREEN}✓${NC} QEMU: $QEMU_COPIED бинарников скопировано"
 else
-    echo -e "${YELLOW}⚠${NC} QEMU не найден — qemu-nbd/qemu-img недоступны (VMDK/QCOW2/VDI образы работать не будут)"
-    echo "   Установите: pacman -S mingw-w64-ucrt-x86_64-qemu"
-    echo "   Или задайте QEMU_ROOT=/path/to/qemu"
+    echo "   Install: pacman -S mingw-w64-ucrt-x86_64-qemu"
 fi
 
-# 7d. Финальный dep walk — обходим все зависимости exe и всех DLL, чтобы не пропустить ни одну транзитивную зависимость
-echo -e "\n${YELLOW}🔍 Финальная проверка зависимостей...${NC}"
 if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
-    # Начинаем с exe-файлов в корне и bin/, всех DLL в lib/
     mapfile -t _initial_queue < <(
         find "$DIST_WIN" -maxdepth 1 -name "*.exe" 2>/dev/null
         find "$DIST_WIN_BIN" -maxdepth 1 -name "*.exe" 2>/dev/null
@@ -1049,13 +794,11 @@ if command -v "$OBJDUMP_BIN" >/dev/null 2>&1; then
     if [ "${#_initial_queue[@]}" -gt 0 ]; then
         _walk_deps "$DIST_WIN_DLLS" "${_initial_queue[@]}"
     fi
-    echo -e "${GREEN}✓${NC} Финальная проверка завершена"
 else
-    echo -e "${YELLOW}⚠${NC} objdump не найден — пропускаем финальную проверку зависимостей"
+    :
 fi
 
 # 7e. Sanity check for known problematic DLLs
-echo -e "\n${YELLOW}🛠️ Проверка обязательных библиотек...${NC}"
 FORCE_DLLS=(
     "libhwy.dll" "libogg-0.dll" "libbrotlienc.dll" "libjxl_cms.dll"
     "libsoxr.dll" "libsharpyuv-0.dll" "libshaderc_shared.dll" "liblcms2-2.dll"
@@ -1064,17 +807,14 @@ FORCE_DLLS=(
 for _fdll in "${FORCE_DLLS[@]}"; do
     _existing="$(find "$DIST_WIN_DLLS" -maxdepth 1 -iname "$_fdll" 2>/dev/null | head -1)"
     if [ -z "$_existing" ]; then
-        echo -e "   ${YELLOW}⚠ $_fdll отсутствует, пытаюсь найти принудительно...${NC}"
         _copied="$(_copy_dll "$_fdll" "$DIST_WIN_DLLS")"
         if [ -n "$_copied" ]; then
-            echo -e "   ${GREEN}✓${NC} $_copied скопирована принудительно"
             _walk_deps "$DIST_WIN_DLLS" "$DIST_WIN_DLLS/$_copied"
         else
-            echo -e "   ${RED}❌ ОШИБКА: Не удалось найти $_fdll${NC}"
             MISSING_DLLS_FOUND=1
         fi
     else
-        echo -e "   ${GREEN}✓${NC} $_fdll на месте"
+        :
     fi
 done
 
@@ -1174,7 +914,6 @@ if [ -n "$TAILSCALE_BIN_DIR" ]; then
             echo -e "   ${YELLOW}⚠${NC} $_ts_bin not found in $TAILSCALE_BIN_DIR"
         fi
     done
-    echo -e "${GREEN}✓${NC} Tailscale: $TS_COPIED бинарников скопировано"
     # Walk DLL deps of tailscale binaries
     mapfile -t _ts_bins < <(
         find "$DIST_WIN_BIN" -maxdepth 1 \( -name "tailscale.exe" -o -name "tailscaled.exe" \) 2>/dev/null
@@ -1187,7 +926,6 @@ else
 fi
 
 # 8. README
-echo -e "\n${YELLOW}📝 Создание README...${NC}"
 
 cat > "$DIST_WIN/README.txt" << 'README'
 USBridge Client for Windows
@@ -1195,14 +933,13 @@ USBridge Client for Windows
 Double-click USBridge_Client.exe to launch.
 
 Folder structure:
-  USBridge_Client.exe          — запускаемый файл (лаунчер с иконкой)
-  bin\USBridge_Client_app.exe  — основное приложение (запускается автоматически)
+  USBridge_Client.exe          —   (  )
+  bin\USBridge_Client_app.exe  —   ( )
   bin\tailscale.exe            — Tailscale CLI (system VPN, for C-socket routing)
   bin\tailscaled.exe           — Tailscale daemon (run as service for best performance)
-  bin\qemu-nbd.exe             — QEMU NBD (для работы с VMDK/QCOW2/VDI образами)
+  bin\qemu-nbd.exe             — QEMU NBD (for   VMDK/QCOW2/VDI )
   bin\qemu-img.exe             — QEMU image tool
   lib\                         — runtime DLLs (FFmpeg, OpenSSL, MinGW runtime, etc.)
-  lib\gstreamer-1.0\           — GStreamer plugins (if bundled)
 
 Tailscale / networking:
   The app uses built-in (embedded) Tailscale for all Go-level connections.
@@ -1223,9 +960,8 @@ Video modes:
     (bundled if FFMPEG_ROOT was set at build time).
     Falls back to software decode if DLLs are missing.
 
-  Legacy RTP mode — requires GStreamer.
-    Bundled if GSTREAMER_ROOT was set at build time, otherwise install GStreamer
-    from https://gstreamer.freedesktop.org/download/ (MinGW x86_64).
+  QR code scanning (device pairing) uses Media Foundation directly —
+  no GStreamer or extra DLLs required.
 
 Hardware acceleration:
   D3D11VA: automatic on all modern Windows (DirectX 11 capable GPU).
@@ -1235,26 +971,23 @@ Configuration:
   config.yaml next to the exe, or %APPDATA%\usbridge-client\
 README
 
-echo -e "\n${YELLOW}📦 Создание архива...${NC}"
+echo -e "\n${YELLOW}📦 Creating archive...${NC}"
 cd "$DIST_WIN"
 if command -v zip >/dev/null 2>&1; then
     zip -rq "../USBridgeClient-Windows.zip" ./*
 elif command -v powershell >/dev/null 2>&1; then
     powershell -NoProfile -NonInteractive -Command "Compress-Archive -Path '.\*' -DestinationPath '..\USBridgeClient-Windows.zip' -Force"
 else
-    echo -e "${YELLOW}⚠ Zip утилита не найдена. Архив не создан.${NC}"
+    :
 fi
 cd "$REPO_ROOT"
 
 if [ "$MISSING_DLLS_FOUND" = "1" ]; then
-    echo -e "\n${RED}❌ Сборка завершена с предупреждениями!${NC}"
-    echo -e "${RED}Некоторые необходимые DLL не были найдены.${NC}"
-    echo -e "Если вы используете MSYS2 UCRT64, попробуйте установить недостающие пакеты, например:"
+    echo -e "\n${RED}❌ Build completed with warnings!${NC}"
+    echo -e "${RED}Some required DLLs were not found.${NC}"
     echo -e "   pacman -S mingw-w64-ucrt-x86_64-brotli mingw-w64-ucrt-x86_64-libjxl mingw-w64-ucrt-x86_64-libogg"
-    echo -e "Проверьте вывод логов выше, чтобы узнать точные имена пропущенных зависимостей."
     exit 1
 fi
 
-echo -e "\n${GREEN}✅ Сборка завершена!${NC}"
-echo -e "   Результат: $DIST_WIN/"
-echo -e "   Архив:     dist/USBridgeClient-Windows.zip"
+echo -e "\n${GREEN}✅ Build completed!${NC}"
+echo -e "   Archive:     dist/USBridgeClient-Windows.zip"

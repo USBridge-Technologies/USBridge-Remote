@@ -32,14 +32,14 @@ type MoonlightService struct {
 	onError         func(error)
 
 	mu         sync.Mutex    // protects isRunning, stopPlayerCh, activeWrapper, abort
-	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToRTP
+	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToMoonlight
 	isRunning  bool
 	serverHost string
 	videoMode  string
 	width      int
 	height     int
-	fps        int // overrides config.VideoFPS when > 0; set via SetFPS before ConnectToRTP
-	bitrate    int // kbps; overrides the 10 Mbps default when > 0; set via SetBitrate before ConnectToRTP
+	fps        int // overrides config.VideoFPS when > 0; set via SetFPS before ConnectToMoonlight
+	bitrate    int // kbps; overrides the 10 Mbps default when > 0; set via SetBitrate before ConnectToMoonlight
 	audioMuted bool
 
 	apiSecret []byte // master secret for HMAC-signed API requests
@@ -47,7 +47,7 @@ type MoonlightService struct {
 	client             *moonlight.Client
 	pairingPIN         string               // retained across reconnects so the user only needs to enter one PIN
 	lastAppId          int                  // app ID from the last Launch(); used to quit before reconnect
-	stopPlayerCh       chan struct{}        // closed to stop the active GStreamer player goroutines
+	stopPlayerCh       chan struct{}        // closed to stop the active video/audio decoder goroutines
 	activeWrapper      *MoonlightCgoWrapper // set while a stream is running, used for input routing
 	tailscaleSvc       *TailscaleService    // optional; if set, Moonlight uses its dialer for Tailscale IPs
 	stopMoonlightProxy func()               // non-nil when a tsnet proxy is active for internet streaming
@@ -84,7 +84,7 @@ func NewMoonlightService(config *models.AppConfig) *MoonlightService {
 	}
 }
 
-func (m *MoonlightService) ConnectToRTP() error {
+func (m *MoonlightService) ConnectToMoonlight() error {
 	// Create a fresh abort channel for this connection attempt so Disconnect()
 	// can interrupt any blocking HTTP call or post-connect setup.
 	abort := make(chan struct{})
@@ -110,7 +110,7 @@ func (m *MoonlightService) ConnectToRTP() error {
 		}
 	}
 
-	logrus.Info("🌕 Moonlight protocol: ConnectToRTP called")
+	logrus.Info("🌕 Moonlight protocol: ConnectToMoonlight called")
 
 	// 1. Setup client with the correct host
 	m.client.Host = m.serverHost
@@ -271,17 +271,17 @@ func (m *MoonlightService) ConnectToRTP() error {
 	// Determine decode path once so closures below capture a stable value.
 	vtPath := usesVideoToolbox()
 
-	// 5a. Video pipe — only used on non-Darwin (GStreamer) path.
-	//     Darwin (VideoToolbox): dr_submit calls VTDecompressionSession directly;
-	//     no pipe needed. We still create one so startMoonlightGStreamer can close
-	//     its read end and the GStreamer-shaped function signature is unchanged.
+	// 5a. Video pipe. Every platform now decodes in-process (VideoToolbox /
+	//     libavcodec) via a direct frame callback and closes pipeRead
+	//     immediately without reading from it — the pipe exists only to keep
+	//     startMoonlightVideoDecoder's signature uniform across platforms.
 	pipeRead, pipeWrite, err := os.Pipe()
 	if err != nil {
 		m.isRunning = false
 		return fmt.Errorf("pipe: %v", err)
 	}
 
-	// 5aa. Audio pipe: ar_decode writes S16LE PCM → GStreamer autoaudiosink.
+	// 5aa. Audio pipe: ar_decode writes S16LE PCM for startMoonlightAudio to consume.
 	var audioPipeWrite *os.File
 	if audioPipeRead, apw, aerr := os.Pipe(); aerr != nil {
 		logrus.Warnf("🔊 [Moonlight/Audio] failed to create audio pipe: %v — audio disabled", aerr)
@@ -301,27 +301,24 @@ func (m *MoonlightService) ConnectToRTP() error {
 		}
 	}
 
-	// 5b. Start video decode path (non-blocking).
-	//   Darwin:  startMoonlightGStreamer registers the VT frame callback and
-	//            closes pipeRead; no subprocess is started.
-	//   Linux:   startMoonlightGStreamer launches a GStreamer subprocess that
-	//            reads from pipeRead; its onStop callback handles state change.
-	if err := startMoonlightGStreamer(pipeRead, width, height, stopCh,
+	// 5b. Start video decode path (non-blocking). On every platform,
+	//     startMoonlightVideoDecoder registers the in-process frame callback
+	//     (VideoToolbox / libavcodec) and closes pipeRead; no subprocess is started.
+	if err := startMoonlightVideoDecoder(pipeRead, width, height, stopCh,
 		func(img image.Image) {
 			if m.onFrameReceived != nil {
 				m.onFrameReceived(img)
 			}
 		},
 		func(playerErr error) {
-			// GStreamer path (Linux/Windows): subprocess exit signals stream end.
 			m.isRunning = false
 			if playerErr != nil {
-				logrus.Errorf("🌕 [Moonlight/GStreamer] stopped with error: %v", playerErr)
+				logrus.Errorf("🌕 [Moonlight/Player] stopped with error: %v", playerErr)
 				if m.onError != nil {
 					m.onError(fmt.Errorf("moonlight stream ended: %v", playerErr))
 				}
 			} else {
-				logrus.Info("🌕 [Moonlight/GStreamer] stopped cleanly")
+				logrus.Info("🌕 [Moonlight/Player] stopped cleanly")
 			}
 			if m.onStateChanged != nil {
 				m.onStateChanged("disconnected")
@@ -338,9 +335,9 @@ func (m *MoonlightService) ConnectToRTP() error {
 	}
 
 	// 5c. Start LiStartConnection in background goroutine.
-	//   Darwin:  dr_submit feeds VTDecompressionSession; pipeWrite is passed
-	//            but its fd is ignored by do_li_start (#ifdef __APPLE__).
-	//   Linux:   dr_submit writes Annex-B H.264 to pipeWrite → GStreamer reads it.
+	//   dr_submit feeds the platform decoder (VideoToolbox / libavcodec /
+	//   AMediaCodec) directly on every platform; pipeWrite is passed through
+	//   but its fd is unused by do_li_start.
 	// On Android with userspace tsnet, C-level BSD sockets bypass the Go tsnet
 	// stack and can only reach LAN IPs via the kernel wlan0 route.
 	// If the Tailscale peer has a direct (non-100.x) endpoint on the same LAN,
@@ -424,8 +421,8 @@ func (m *MoonlightService) ConnectToRTP() error {
 					m.onError(cgoErr)
 				}
 			}
-			// VideoToolbox path: no GStreamer subprocess to signal stream end,
-			// so we handle the state change here instead.
+			// In-process decode path: there's no subprocess to signal stream
+			// end, so we handle the state change here instead.
 			if vtPath {
 				m.mu.Lock()
 				m.isRunning = false
@@ -484,7 +481,7 @@ func (m *MoonlightService) Disconnect() error {
 	m.mu.Lock()
 	m.isRunning = false
 
-	// Signal any in-progress ConnectToRTP to abort.
+	// Signal any in-progress ConnectToMoonlight to abort.
 	if m.abort != nil {
 		select {
 		case <-m.abort: // already closed
@@ -504,8 +501,8 @@ func (m *MoonlightService) Disconnect() error {
 	m.stopMoonlightProxy = nil
 	m.mu.Unlock()
 
-	// LiStopConnection interrupts the LiStartConnection goroutine, which closes
-	// pipeWrite → GStreamer gets EOF → frame reader goroutine exits.
+	// LiStopConnection interrupts the LiStartConnection goroutine; the stream's
+	// completion callback (registered in StartStream) then reports "disconnected".
 	if activeWrapper != nil {
 		activeWrapper.StopStream()
 	} else {
@@ -628,7 +625,7 @@ func (m *MoonlightService) Reconnect() error {
 			logrus.Info("🌕 [Moonlight] /cancel sent — Sunshine session reset")
 		}
 	}
-	return m.ConnectToRTP()
+	return m.ConnectToMoonlight()
 }
 
 // submitPinToService sends the pairing PIN to the usbridge service, which forwards it

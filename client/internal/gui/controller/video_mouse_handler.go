@@ -22,7 +22,7 @@ import (
 // so TouchDown/Dragged do it on first touch when isMouseConnected is false.
 var touchMouseCheckPending int32
 
-// Проверяем что TouchpadWrapper реализует все необходимые интерфейсы
+// Check that TouchpadWrapper implements all the necessary interfaces
 var (
 	_ fyne.Tappable          = (*TouchpadWrapper)(nil)
 	_ fyne.SecondaryTappable = (*TouchpadWrapper)(nil)
@@ -36,7 +36,7 @@ var (
 	_ mobile.Touchable       = (*TouchpadWrapper)(nil)
 )
 
-// TouchpadWrapper обертка для videoCanvas с поддержкой мыши и тачскрина
+// TouchpadWrapper wraps videoCanvas with mouse and touchscreen support
 type TouchpadWrapper struct {
 	widget.BaseWidget
 	videoWidget *VideoWidget
@@ -46,7 +46,7 @@ type TouchpadWrapper struct {
 	hScrollBar  *canvas.Rectangle
 	vScrollBar  *canvas.Rectangle
 
-	// Обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey может не работать)
+	// Keyboard handlers (for macOS, where Canvas.SetOnTypedKey may not work)
 	window            fyne.Window
 	windowFocusTarget fyne.Focusable
 	onKeyDown         func(*fyne.KeyEvent)
@@ -59,7 +59,7 @@ type TouchpadWrapper struct {
 	skipWindowFocus atomic.Bool
 }
 
-// NewTouchpadWrapper создает обертку для тачпада
+// NewTouchpadWrapper creates a wrapper for the touchpad
 func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
@@ -78,7 +78,7 @@ func NewTouchpadWrapper(videoWidget *VideoWidget) *TouchpadWrapper {
 	return wrapper
 }
 
-// NewTouchpadWrapperWithImage создает обертку для тачпада с заданным изображением
+// NewTouchpadWrapperWithImage creates a wrapper for the touchpad with a given image
 func NewTouchpadWrapperWithImage(videoWidget *VideoWidget, image *canvas.Image) *TouchpadWrapper {
 	wrapper := &TouchpadWrapper{
 		videoWidget: videoWidget,
@@ -126,7 +126,7 @@ func (t *TouchpadWrapper) UpdateCursorOverlay() {
 	canvas.Refresh(t.cursor)
 }
 
-// SetKeyHandlers устанавливает обработчики клавиатуры (для macOS, где Canvas.SetOnTypedKey ненадёжен)
+// SetKeyHandlers sets the keyboard handlers (for macOS, where Canvas.SetOnTypedKey is unreliable)
 func (t *TouchpadWrapper) SetKeyHandlers(onKeyDown func(*fyne.KeyEvent), onKeyUp func(*fyne.KeyEvent), onKey func(*fyne.KeyEvent), onRune func(rune)) {
 	t.onKeyDown = onKeyDown
 	t.onKeyUp = onKeyUp
@@ -134,7 +134,7 @@ func (t *TouchpadWrapper) SetKeyHandlers(onKeyDown func(*fyne.KeyEvent), onKeyUp
 	t.onRunePress = onRune
 }
 
-// SetWindowForFocus устанавливает окно для запроса фокуса при клике (desktop)
+// SetWindowForFocus sets the window used to request focus on click (desktop)
 func (t *TouchpadWrapper) SetWindowForFocus(w fyne.Window) {
 	t.window = w
 }
@@ -150,22 +150,22 @@ func (t *TouchpadWrapper) SetSkipWindowFocus(skip bool) {
 	t.skipWindowFocus.Store(skip)
 }
 
-// FocusGained реализация fyne.Focusable
+// FocusGained implements fyne.Focusable
 func (t *TouchpadWrapper) FocusGained() {}
 
-// FocusLost реализация fyne.Focusable
+// FocusLost implements fyne.Focusable
 func (t *TouchpadWrapper) FocusLost() {}
 
 func (t *TouchpadWrapper) Cursor() desktop.Cursor { return desktop.DefaultCursor }
 
-// CreateRenderer создает renderer для виджета
+// CreateRenderer creates the renderer for the widget
 func (t *TouchpadWrapper) CreateRenderer() fyne.WidgetRenderer {
 	return &touchpadRenderer{
 		wrapper: t,
 	}
 }
 
-// touchpadRenderer рендерер для TouchpadWrapper
+// touchpadRenderer is the renderer for TouchpadWrapper
 type touchpadRenderer struct {
 	wrapper *TouchpadWrapper
 }
@@ -207,7 +207,7 @@ func (r *touchpadRenderer) Objects() []fyne.CanvasObject {
 func (r *touchpadRenderer) Destroy() {
 }
 
-// updateTouchpadSize обновляет размер области ввода и прямоугольник видео (для корректного перевода координат в 0..4095).
+// updateTouchpadSize updates the input area size and the video rectangle (for correct coordinate translation into 0..4095).
 func (t *TouchpadWrapper) updateTouchpadSize() {
 	s := t.Size()
 	if s.Width > 0 && s.Height > 0 {
@@ -223,7 +223,7 @@ func (t *TouchpadWrapper) wrapperLayoutImage(size fyne.Size) {
 	if t.image == nil {
 		return
 	}
-	// Явно задаем размер контейнеру обрезки, чтобы видео не вылезало за границы виджета
+	// Explicitly set the clip container size so the video doesn't spill past the widget bounds
 	if t.clip != nil {
 		t.clip.Resize(size)
 		t.clip.Move(fyne.NewPos(0, 0))
@@ -249,7 +249,7 @@ func (t *TouchpadWrapper) updateScrollIndicators(size fyne.Size, x, y, w, h floa
 		progress := clampFloat(-x/(w-size.Width), 0, 1)
 		trackW := size.Width - (margin * 2) - thumbW
 		t.hScrollBar.Show()
-		// Перемещаем наверх: вместо size.Height-margin-thickness используем просто margin
+		// Move to the top: use just margin instead of size.Height-margin-thickness
 		t.hScrollBar.Move(fyne.NewPos(margin+(trackW*progress), margin))
 		t.hScrollBar.Resize(fyne.NewSize(thumbW, thickness))
 	} else {
@@ -357,7 +357,7 @@ func (t *TouchpadWrapper) scrollbarAxisAt(pos fyne.Position) string {
 		progress := clampFloat(-x/(w-size.Width), 0, 1)
 		trackW := size.Width - (margin * 2) - thumbW
 		thumbX := margin + (trackW * progress)
-		// Проверка для верхней части экрана (pos.Y <= touchBand)
+		// Check for the top of the screen (pos.Y <= touchBand)
 		if pos.Y <= touchBand && pos.X >= thumbX-touchBand/2 && pos.X <= thumbX+thumbW+touchBand/2 {
 			return "horizontal"
 		}
@@ -376,8 +376,9 @@ func (t *TouchpadWrapper) scrollbarAxisAt(pos fyne.Position) string {
 	return ""
 }
 
-// Tapped вызывается при полном клике (нажали и отпустили на виджете). В Fyne MouseUp приходит виджету под курсором при отпускании,
-// поэтому при отпускании вне виджета MouseUp мы не получим. Tapped же приходит только при завершённом клике по виджету — используем для тапа.
+// Tapped is called on a full click (pressed and released on the widget). In Fyne MouseUp is delivered
+// to the widget under the cursor on release, so we won't get MouseUp when releasing outside the widget.
+// Tapped, however, only fires on a completed click on the widget — we use it for tap detection.
 func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -394,8 +395,8 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 		t.videoWidget.enqueueTouchTap(x, y)
 		return
 	}
-	// Absolute: сам клик уже приходит через MouseDown/MouseUp или TouchDown/TouchUp.
-	// Здесь только синхронизируем позицию, чтобы не удваивать нажатие.
+	// Absolute: the click itself already comes through MouseDown/MouseUp or TouchDown/TouchUp.
+	// Here we only sync the position so we don't duplicate the click.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.SendAbsolutePosition(x, y, true)
@@ -404,9 +405,9 @@ func (t *TouchpadWrapper) Tapped(ev *fyne.PointEvent) {
 	logrus.Debugf("🖱️ Tapped at: %v (mouse mode, using TouchUp)", ev.Position)
 }
 
-// TappedSecondary — правый клик. В режиме тача: только обновляем позицию без касания (tip=false),
-// затем один клик правой кнопкой. Пара touch_position(down)+touch_position(up) хост часто трактует
-// как левый клик, из-за чего получалось «двойной левый» вместо правого.
+// TappedSecondary — right click. In touch mode: only update the position without a touch (tip=false),
+// then a single right-button click. A touch_position(down)+touch_position(up) pair is often interpreted
+// by the host as a left click, which resulted in a "double left" instead of a right click.
 func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -431,7 +432,7 @@ func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 	t.videoWidget.enqueueMouseClick(2)
 }
 
-// MouseDown обрабатывает нажатие кнопки мыши (desktop)
+// MouseDown handles a mouse button press (desktop)
 func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	t.requestFocus()
 	if !t.videoWidget.isMouseConnected {
@@ -465,12 +466,12 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 		btn = 0
 	}
 
-	// Тачскрин: отложенный touch(down). Для левой — touch+BTN_LEFT, для правой — только позиция (клик потом).
+	// Touchscreen: deferred touch(down). For the left button — touch+BTN_LEFT, for the right — only position (click later).
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.StartTouchDownDelay(x, y, btn)
 	}
-	// Absolute: синхронизируем позицию сразу при нажатии и атомарно обновляем кнопку.
+	// Absolute: sync the position immediately on press and atomically update the button.
 	// Only forward the press when the cursor is within the actual video content area —
 	// clicks in letterbox/pillarbox regions or outside the widget must not reach the
 	// remote, otherwise both the local OS and the remote system register the click.
@@ -485,7 +486,7 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 	}
 }
 
-// MouseUp обрабатывает отпускание кнопки мыши (desktop)
+// MouseUp handles a mouse button release (desktop)
 func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -495,7 +496,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	dy := math.Abs(float64(ev.Position.Y - t.videoWidget.touchStartY))
 	duration := time.Since(t.videoWidget.touchStartTime)
 
-	// Тачскрин: отпускание (tip=false) — только при активном touch (таймер успел сработать / был драг)
+	// Touchscreen: release (tip=false) — only when touch is active (timer fired / was a drag)
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
 		t.videoWidget.CancelTouchDownDelay()
 		if t.videoWidget.touchActive {
@@ -533,7 +534,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 		return
 	}
 
-	// Режим мыши: как раньше
+	// Mouse mode: as before
 	if t.videoWidget.isDragging {
 		t.videoWidget.isDragging = false
 		t.videoWidget.dragButton = 0
@@ -560,7 +561,7 @@ func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
 	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
-// MouseMoved обрабатывает перемещение мыши (desktop)
+// MouseMoved handles mouse movement (desktop)
 func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -569,7 +570,7 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	t.videoWidget.UpdateCursorOverlayFromLocalInput(ev.Position.X, ev.Position.Y, true)
 
 	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
-		// Тачскрин: обновление позиции при драге. Левая — SendTouch, правая — только позиция (SendTouchPositionOnly).
+		// Touchscreen: update the position during a drag. Left — SendTouch, right — position only (SendTouchPositionOnly).
 		if t.videoWidget.touchActive && t.videoWidget.dragButton != 0 {
 			x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 			if x != t.videoWidget.lastTouchX || y != t.videoWidget.lastTouchY {
@@ -584,7 +585,7 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 		}
 	}
 
-	// Absolute: позиционирование курсора через absolute tablet.
+	// Absolute: cursor positioning via absolute tablet.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.SendAbsolutePosition(x, y, false)
@@ -594,7 +595,7 @@ func (t *TouchpadWrapper) MouseMoved(ev *desktop.MouseEvent) {
 	t.videoWidget.currentMouseY = ev.Position.Y
 }
 
-// MouseIn обрабатывает вход курсора в область (desktop)
+// MouseIn handles the cursor entering the area (desktop)
 func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -612,7 +613,7 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	}
 }
 
-// MouseOut обрабатывает выход курсора из области (desktop)
+// MouseOut handles the cursor leaving the area (desktop)
 func (t *TouchpadWrapper) MouseOut() {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -663,7 +664,7 @@ func (t *TouchpadWrapper) MouseOut() {
 	}
 }
 
-// Scrolled обрабатывает прокрутку колеса мыши (desktop). В режиме тача скролл тоже отправляется на хост.
+// Scrolled handles mouse wheel scrolling (desktop). In touch mode scroll is also sent to the host.
 func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 	logrus.Debugf("🖱️ Scrolled: %v", ev.Scrolled)
 
@@ -676,10 +677,10 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 	if scroll == 0 {
 		return
 	}
-	// Absolute: перед скроллом синхронизируем абсолютную позицию.
+	// Absolute: sync the absolute position before scrolling.
 	if t.videoWidget.IsAbsoluteLikeInputMode() {
-		// Берем текущую позицию курсора внутри виджета (последнее известное).
-		// MouseMoved/TouchMove обновляют lastAbsX/Y, но на некоторых платформах скролл может прийти без движения.
+		// Take the current cursor position within the widget (last known).
+		// MouseMoved/TouchMove update lastAbsX/Y, but on some platforms scroll can arrive without movement.
 		x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
 		t.videoWidget.SendAbsoluteEvent(x, y, scroll, true)
 		return
@@ -687,7 +688,7 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 	t.videoWidget.enqueueMouseScroll(scroll)
 }
 
-// TouchDown обрабатывает начало касания (mobile)
+// TouchDown handles the start of a touch (mobile)
 func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		// On mobile there is no overlay event dispatch to trigger checkMouseConnected.
@@ -793,7 +794,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	}
 }
 
-// TouchUp обрабатывает окончание касания (mobile)
+// TouchUp handles the end of a touch (mobile)
 func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -929,7 +930,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		return
 	}
 
-	// Тачскрин: отпускание (tip=false)
+	// Touchscreen: release (tip=false)
 	if mode == "touchscreen" {
 		x, y := t.videoWidget.PositionToAbsolute(ev.Position.X, ev.Position.Y)
 		t.videoWidget.lastTouchX = x
@@ -939,7 +940,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 		t.videoWidget.isDragging = false
 		return
 	}
-	// Режим мыши: как раньше
+	// Mouse mode: as before
 	if t.videoWidget.isDragging {
 		t.videoWidget.isDragging = false
 		t.videoWidget.resetRelativeMoveAccumulator()
@@ -964,7 +965,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
-// TouchMove обрабатывает перемещение касания (mobile)
+// TouchMove handles touch movement (mobile)
 func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -1011,7 +1012,7 @@ func (t *TouchpadWrapper) TouchMove(ev *mobile.TouchEvent) {
 		return
 	}
 
-	// Мышь: относительное перемещение
+	// Mouse: relative movement
 	rawDx := ev.Position.X - t.videoWidget.lastMouseX
 	rawDy := ev.Position.Y - t.videoWidget.lastMouseY
 	t.videoWidget.lastMouseX = ev.Position.X
@@ -1160,7 +1161,7 @@ func (t *TouchpadWrapper) flushVirtualCursorPosition() {
 	t.videoWidget.sendVirtualCursorToHost()
 }
 
-// TouchCancel обрабатывает отмену касания (mobile)
+// TouchCancel handles a canceled touch (mobile)
 func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	t.endScrollbarDrag()
 	if t.videoWidget.rmbHapticTimer != nil {
@@ -1186,8 +1187,8 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 	t.videoWidget.resetRelativeMoveAccumulator()
 }
 
-// Dragged обрабатывает драг (реализация fyne.Draggable)
-// На desktop — обновление позиции для polling. На Android — основной способ движения пальца.
+// Dragged handles a drag (implementation of fyne.Draggable)
+// On desktop — updates the position for polling. On Android — the primary way finger movement is tracked.
 func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 	if !t.videoWidget.isMouseConnected {
 		if atomic.CompareAndSwapInt32(&touchMouseCheckPending, 0, 1) {
@@ -1237,7 +1238,7 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 			vw.lastMouseX = px
 			vw.lastMouseY = py
 		} else {
-			// Тачпад: относительное перемещение
+			// Touchpad: relative movement
 			rawDx := ev.Position.X - t.videoWidget.lastMouseX
 			rawDy := ev.Position.Y - t.videoWidget.lastMouseY
 			t.videoWidget.lastMouseX = ev.Position.X
@@ -1262,9 +1263,9 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 	}
 }
 
-// DragEnd обрабатывает окончание драга (реализация fyne.Draggable)
-// ВАЖНО: На desktop этот метод НЕ используется (используется MouseUp)
-// ВАЖНО: На Android вызывается после окончания свайпа
+// DragEnd handles the end of a drag (implementation of fyne.Draggable)
+// IMPORTANT: On desktop this method is NOT used (MouseUp is used instead)
+// IMPORTANT: On Android it is called after a swipe finishes
 func (t *TouchpadWrapper) DragEnd() {
 	isAndroid := fyne.CurrentDevice().IsMobile()
 
@@ -1308,11 +1309,11 @@ func (t *TouchpadWrapper) DragEnd() {
 			t.videoWidget.resetRelativeMoveAccumulator()
 		}
 	}
-	// На desktop ничего не делаем - используется MouseUp
+	// On desktop we do nothing - MouseUp is used instead
 }
 
-// TypedKey обрабатывает нажатие клавиши
-// На macOS Canvas.SetOnTypedKey ненадёжен, поэтому пересылаем через виджет с фокусом
+// TypedKey handles a key press
+// On macOS Canvas.SetOnTypedKey is unreliable, so we forward via the focused widget
 func (t *TouchpadWrapper) TypedKey(key *fyne.KeyEvent) {
 	if key != nil && key.Name == fyne.KeyF11 && t.videoWidget != nil && t.videoWidget.isStreaming {
 		logrus.Info("⌨️ [TOUCHPAD][PRESS] opening fullscreen")
@@ -1324,7 +1325,7 @@ func (t *TouchpadWrapper) TypedKey(key *fyne.KeyEvent) {
 	}
 }
 
-// TypedRune обрабатывает ввод символа
+// TypedRune handles character input
 func (t *TouchpadWrapper) TypedRune(r rune) {
 	if t.onRunePress != nil {
 		t.onRunePress(r)
@@ -1343,7 +1344,7 @@ func (t *TouchpadWrapper) KeyUp(key *fyne.KeyEvent) {
 	}
 }
 
-// requestFocus запрашивает фокус для виджета (только на desktop, когда окно задано)
+// requestFocus requests focus for the widget (desktop only, when a window is set)
 func (t *TouchpadWrapper) requestFocus() {
 	if t.window == nil || fyne.CurrentDevice().IsMobile() {
 		return
@@ -1361,7 +1362,7 @@ func (t *TouchpadWrapper) requestFocus() {
 	t.window.Canvas().Focus(target)
 }
 
-// clamp ограничивает значение в пределах min..max
+// clamp restricts a value to the min..max range
 func clamp(value, min, max int) int {
 	if value < min {
 		return min

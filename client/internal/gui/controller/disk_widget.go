@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// DiskWidget виджет управления устройствами и ISO
+// DiskWidget is the widget for managing devices and ISOs
 type DiskWidget struct {
 	container   *fyne.Container
 	devicesList *view.DevicesListView
@@ -32,11 +32,11 @@ type DiskWidget struct {
 	window      fyne.Window
 	app         fyne.App
 
-	// Компактные кнопки для статус бара
+	// Compact buttons for the status bar
 	compactMountBtn   *view.DeviceActionButton
 	compactUnmountBtn *view.DeviceActionButton
 
-	// Данные
+	// Data
 	localDrives    []*models.LocalDrive
 	localFiles     []*models.DiskInfo
 	videoDevices   []models.SystemDevice
@@ -85,14 +85,14 @@ type DiskWidget struct {
 	rowsCache  map[string]fyne.CanvasObject
 	cardsCache map[string]fyne.CanvasObject
 
-	// Сервисы
+	// Services
 	nbdServersMu sync.Mutex
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()
 	frpService   *service.FRPService
 
-	// Конфигурация
+	// Configuration
 	config         *models.AppConfig
 	scanPaths      []string
 	supportedTypes []string
@@ -112,7 +112,7 @@ type DiskWidget struct {
 	agentOS string
 }
 
-// MaxDevicesToMount максимальное количество устройств для одновременного выбора
+// MaxDevicesToMount maximum number of devices that can be selected at once
 const MaxDevicesToMount = 5
 
 var rndisModeOptions = []string{"auto", "wifirouter", "etherouter", "etherbridge"}
@@ -149,7 +149,7 @@ func normalizeRNDISMode(mode string) string {
 	}
 }
 
-// DriveItem объединяет локальные устройства из API, локальные файлы и клавиатуру
+// DriveItem merges local devices from the API, local files, and the keyboard
 type DriveItem struct {
 	Name             string
 	Size             string
@@ -181,7 +181,7 @@ type DriveItem struct {
 	IsMounting       bool
 }
 
-// NewDiskWidget создает новый виджет устройств
+// NewDiskWidget creates a new devices widget
 func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, config *models.AppConfig) *DiskWidget {
 	supportedTypes := []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"}
 	scanPaths := []string{"./isos", "/home/user/isos", "/mnt/isos"}
@@ -229,7 +229,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	return dw
 }
 
-// SetWindow устанавливает окно для диалогов
+// SetWindow sets the window used for dialogs
 func (dw *DiskWidget) SetWindow(window fyne.Window) {
 	dw.window = window
 	if runtime.GOOS == "android" && dw.safHelper != nil {
@@ -252,7 +252,7 @@ func (dw *DiskWidget) SetWindow(window fyne.Window) {
 	}
 }
 
-// createInterface создает интерфейс виджета
+// createInterface creates the widget's interface
 func (dw *DiskWidget) createInterface() {
 	dw.ui = view.NewDiskWidgetUI(nil, dw.buildDeviceCards, nil)
 	dw.devicesList = dw.ui.DevicesList
@@ -314,7 +314,7 @@ func (dw *DiskWidget) getDriveUniqueID(drive DriveItem) string {
 	}
 }
 
-// SetOnStorageInfoUpdate устанавливает callback для обновления прогрессбара в main window
+// SetOnStorageInfoUpdate sets the callback for updating the progress bar in the main window
 func (dw *DiskWidget) SetOnStorageInfoUpdate(fn func(usedPct float64, available, total int64)) {
 	dw.onStorageInfoUpdate = fn
 }
@@ -326,7 +326,7 @@ func (dw *DiskWidget) GetISODirectory() string {
 	return dw.sdSpaceInfo.ISODirectory
 }
 
-// SetOnMouseTypeChanged устанавливает callback при смене типа манипулятора после запуска устройства.
+// SetOnMouseTypeChanged sets the callback fired when the pointer type changes after a device starts.
 func (dw *DiskWidget) SetOnMouseTypeChanged(fn func(mouseType string)) {
 	dw.onMouseTypeChanged = fn
 }
@@ -335,7 +335,7 @@ func (dw *DiskWidget) SetOnMouseModeReconfigured(fn func()) {
 	dw.onMouseModeReconfigured = fn
 }
 
-// GetMouseMode возвращает текущий выбранный режим указателя.
+// GetMouseMode returns the currently selected pointer mode.
 func (dw *DiskWidget) GetMouseMode() string {
 	if mode := normalizeMouseMode(dw.preferredMouseMode); mode != "" {
 		return mode
@@ -348,7 +348,7 @@ func (dw *DiskWidget) GetMouseMode() string {
 	return defaultMouseMode()
 }
 
-// GetDisplayConfig возвращает текущую конфигурацию дисплея для абсолютного режима мыши.
+// GetDisplayConfig returns the current display configuration for absolute mouse mode.
 func (dw *DiskWidget) GetDisplayConfig() (displayIndex, displayCount int) {
 	idx := dw.preferredDisplayIndex
 	cnt := dw.preferredDisplayCount
@@ -358,7 +358,7 @@ func (dw *DiskWidget) GetDisplayConfig() (displayIndex, displayCount int) {
 	return idx, cnt
 }
 
-// SetDisplayConfig сохраняет конфигурацию дисплея и записывает в preferences.
+// SetDisplayConfig saves the display configuration and writes it to preferences.
 func (dw *DiskWidget) SetDisplayConfig(displayIndex, displayCount int) {
 	if displayCount < 1 {
 		displayCount = 1
@@ -371,7 +371,7 @@ func (dw *DiskWidget) SetDisplayConfig(displayIndex, displayCount int) {
 	}
 }
 
-// loadDisplayConfig загружает конфигурацию дисплея из preferences.
+// loadDisplayConfig loads the display configuration from preferences.
 func (dw *DiskWidget) loadDisplayConfig() {
 	if dw.app == nil {
 		return
@@ -380,7 +380,7 @@ func (dw *DiskWidget) loadDisplayConfig() {
 	dw.preferredDisplayCount = dw.app.Preferences().IntWithFallback("mouse.display.count", 1)
 }
 
-// GetRNDISMode возвращает текущий выбранный режим RNDIS.
+// GetRNDISMode returns the currently selected RNDIS mode.
 func (dw *DiskWidget) GetRNDISMode() string {
 	for _, drive := range dw.allDrives {
 		if drive.IsRNDIS {
@@ -390,7 +390,7 @@ func (dw *DiskWidget) GetRNDISMode() string {
 	return normalizeRNDISMode("auto")
 }
 
-// SetMouseMode применяет режим указателя через ту же логику, что и экран устройств.
+// SetMouseMode applies the pointer mode using the same logic as the devices screen.
 func (dw *DiskWidget) SetMouseMode(mode string) {
 	if dw == nil || dw.controlsLocked() {
 		return
@@ -411,7 +411,7 @@ func (dw *DiskWidget) SetMouseMode(mode string) {
 	}
 }
 
-// SetRNDISMode применяет режим сетевой карты так же, как в карточке устройства.
+// SetRNDISMode applies the network card mode the same way as in the device card.
 func (dw *DiskWidget) SetRNDISMode(mode string) {
 	if dw == nil || dw.controlsLocked() {
 		return
@@ -731,7 +731,7 @@ func (dw *DiskWidget) hasMountedStorageDevices() bool {
 	return false
 }
 
-// Refresh сбрасывает UI-кэш и запускает все загрузчики данных заново.
+// Refresh clears the UI cache and reruns all the data loaders.
 func (dw *DiskWidget) Refresh() {
 	dw.refreshMu.Lock()
 	dw.rowsCache = make(map[string]fyne.CanvasObject)
@@ -746,12 +746,12 @@ func (dw *DiskWidget) Refresh() {
 	go dw.loadGamepadDevices()
 }
 
-// GetContainer возвращает контейнер виджета
+// GetContainer returns the widget's container
 func (dw *DiskWidget) GetContainer() fyne.CanvasObject {
 	return dw.ui.Container
 }
 
-// GetButtons возвращает компактные кнопки управления для размещения в statusBar
+// GetButtons returns the compact control buttons for placement in the statusBar
 func (dw *DiskWidget) GetButtons() (mount, unmount, addImage fyne.CanvasObject) {
 	if dw.compactMountBtn == nil {
 		dw.compactMountBtn = view.NewDeviceActionButton(i18n.Current.ConnectButton, nil, dw.handleMount)
@@ -763,7 +763,7 @@ func (dw *DiskWidget) GetButtons() (mount, unmount, addImage fyne.CanvasObject) 
 	return dw.compactMountBtn, dw.compactUnmountBtn, addImageBtn
 }
 
-// setButtonsEnabled включает/выключает кнопки управления во время операций
+// setButtonsEnabled enables/disables the control buttons during operations
 func (dw *DiskWidget) setButtonsEnabled(enabled bool) {
 	if enabled {
 		dw.updateButtons()
@@ -781,7 +781,7 @@ func (dw *DiskWidget) setButtonsEnabled(enabled bool) {
 	}
 }
 
-// setMountingStateByExportNames устанавливает IsMounting для устройств по именам экспортов
+// setMountingStateByExportNames sets IsMounting for devices matching the given export names
 func (dw *DiskWidget) setMountingStateByExportNames(exportNames map[string]bool, mounting bool) {
 	for i := range dw.allDrives {
 		name := ""
@@ -798,19 +798,19 @@ func (dw *DiskWidget) setMountingStateByExportNames(exportNames map[string]bool,
 	}
 }
 
-// updateUIAsync безопасно обновляет UI из горутины
+// updateUIAsync safely updates the UI from a goroutine
 func (dw *DiskWidget) updateUIAsync(updateFunc func()) {
 	fyne.Do(updateFunc)
 }
 
-// updateStatusAsync логирует статусное сообщение
+// updateStatusAsync logs a status message
 func (dw *DiskWidget) updateStatusAsync(status string) {
 	logrus.Info(status)
 }
 
-// showErrorAsync показывает ошибку из горутины
+// showErrorAsync shows an error from a goroutine
 func (dw *DiskWidget) showErrorAsync(err error) {
-	logrus.Errorf("Ошибка: %v", err)
+	logrus.Errorf("Error: %v", err)
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
 			view.ShowErrorDialog(err, dw.window)
@@ -818,7 +818,7 @@ func (dw *DiskWidget) showErrorAsync(err error) {
 	})
 }
 
-// showWarningAsync показывает предупреждение из горутины
+// showWarningAsync shows a warning from a goroutine
 func (dw *DiskWidget) showWarningAsync(title, message string) {
 	dw.updateUIAsync(func() {
 		if dw.window != nil {
@@ -827,13 +827,13 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 	})
 }
 
-// SetFRPService устанавливает FRP сервис для проверки перед монтированием NBD
+// SetFRPService sets the FRP service to check before mounting NBD
 func (dw *DiskWidget) SetFRPService(frp *service.FRPService) {
 	dw.frpService = frp
 }
 
-// UpdateClient обновляет USB клиент. На отключение — немедленно очищает данные;
-// на подключение — запускает полный цикл загрузки.
+// UpdateClient updates the USB client. On disconnect — immediately clears the data;
+// on connect — kicks off the full load cycle.
 func (dw *DiskWidget) UpdateClient(usbClient *api.USBClient) {
 	dw.usbClient = usbClient
 	dw.agentOS = ""

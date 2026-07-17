@@ -27,12 +27,12 @@ var (
 	nbdAddr         = "127.0.0.1:10809" // Default address
 )
 
-// pickImageForDiskList запускает выбор файла через SAF и добавляет его в список образов
-// Глобальный обработчик для SAF (чтобы избежать проблем с видимостью между пакетами)
+// pickImageForDiskList triggers a file pick via SAF and adds it to the image list
+// Global handler for SAF (to avoid visibility issues between packages)
 var globalSAFSuccessHandler func(uri string, fd int, size int64)
 var globalSAFErrorHandler func(err string)
 
-// CallGlobalSAFSuccess вызывается внешними пакетами для передачи результата SAF
+// CallGlobalSAFSuccess is called by external packages to pass through the SAF result
 func CallGlobalSAFSuccess(uri string, fd int, size int64) {
 	if globalSAFSuccessHandler != nil {
 		globalSAFSuccessHandler(uri, fd, size)
@@ -41,7 +41,7 @@ func CallGlobalSAFSuccess(uri string, fd int, size int64) {
 	}
 }
 
-// CallGlobalSAFError вызывается внешними пакетами для передачи ошибки SAF
+// CallGlobalSAFError is called by external packages to pass through a SAF error
 func CallGlobalSAFError(err string) {
 	if globalSAFErrorHandler != nil {
 		globalSAFErrorHandler(err)
@@ -62,7 +62,7 @@ func (dw *DiskWidget) pickImageForDiskList() {
 	fmt.Println("📁 [SAF] Starting image picker for disk list...")
 	logrus.Info("📁 [SAF] Starting image picker for disk list...")
 
-	// Устанавливаем локальный обработчик
+	// Set up the local handler
 	successHandler := func(uri string, fileName string, fd int, size int64) {
 		logrus.Infof("✅ [SAF-LOCAL-HANDLER] Success for uri=%s, fileName=%s, fd=%d, size=%d", uri, fileName, fd, size)
 
@@ -89,7 +89,7 @@ func (dw *DiskWidget) pickImageForDiskList() {
 		})
 	}
 
-	// Регистрируем обработчики и в nbdbridge, и глобально
+	// Register the handlers both in nbdbridge and globally
 	globalSAFSuccessHandler = func(uri string, fd int, size int64) {
 		successHandler(uri, "", fd, size)
 	}
@@ -98,7 +98,7 @@ func (dw *DiskWidget) pickImageForDiskList() {
 		successHandler(uri, "", fd, size)
 	}, errorHandler)
 
-	// Запускаем нативный пикер через JNI
+	// Trigger the native picker via JNI
 	if dw.safHelper != nil {
 		go func() {
 			err := dw.safHelper.TriggerSAFPicker()
@@ -110,10 +110,10 @@ func (dw *DiskWidget) pickImageForDiskList() {
 				return
 			}
 
-			// Начинаем поллинг результата из Java (т.к. коллбэки Go могут не сработать из-за gomobile bind)
+			// Start polling for the result from Java (since Go callbacks may not fire due to gomobile bind)
 			logrus.Info("⏳ [SAF-POLL] Starting result polling from Java...")
 
-			// Ограничиваем время поллинга (например, 2 минуты)
+			// Limit the polling duration (e.g. 2 minutes)
 			timeout := time.After(2 * time.Minute)
 			ticker := time.NewTicker(500 * time.Millisecond)
 			defer ticker.Stop()
@@ -139,18 +139,18 @@ func (dw *DiskWidget) pickImageForDiskList() {
 	}
 }
 
-// handleAddImageAndroid обрабатывает добавление образа через SAF на Android
+// handleAddImageAndroid handles adding an image via SAF on Android
 func (dw *DiskWidget) handleAddImageAndroid() {
 	if dw.window == nil {
 		logrus.Warn("⚠️ Window is not set")
 		return
 	}
 
-	// Показываем диалог с NBD функциональностью
+	// Show the NBD management dialog
 	dw.showNbdDialog()
 }
 
-// showNbdDialog показывает диалог управления NBD сервером
+// showNbdDialog shows the NBD server management dialog
 func (dw *DiskWidget) showNbdDialog() {
 	// Status label
 	statusLabel := widget.NewLabel(getNbdStatusText())
@@ -177,7 +177,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			nbdSelectedUri, nbdSelectedSize/1024/1024))
 	}
 
-	// Pick file button - использует SAF через NbdBridge.startSAFPicker()
+	// Pick file button - uses SAF via NbdBridge.startSAFPicker()
 	pickBtn := widget.NewButton(i18n.Current.NBDSelectImage, func() {
 		logrus.Info("📁 Installing SAF callbacks and preparing the picker...")
 
@@ -221,7 +221,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			})
 		}
 
-		// Вызов SAF пикера через NbdBridge (через JNI)
+		// Call the SAF picker via NbdBridge (through JNI)
 		logrus.Info("📱 Triggering SAF picker via JNI...")
 		if dw.safHelper != nil {
 			go func() {
@@ -234,7 +234,7 @@ func (dw *DiskWidget) showNbdDialog() {
 					return
 				}
 
-				// Поллинг результата
+				// Poll for the result
 				timeout := time.After(2 * time.Minute)
 				ticker := time.NewTicker(500 * time.Millisecond)
 				defer ticker.Stop()
@@ -272,7 +272,7 @@ func (dw *DiskWidget) showNbdDialog() {
 		}
 		nbdAddr = addr
 
-		// Start NBD with foreground service via JNI (readOnly=false: разрешаем запись для RW/overlay)
+		// Start NBD with foreground service via JNI (readOnly=false: allow writes for RW/overlay)
 		dw.startNbdServiceJNI(nbdSelectedFd, nbdSelectedSize, addr, false)
 
 		// Update status
@@ -325,12 +325,12 @@ func (dw *DiskWidget) showNbdDialog() {
 	d.Show()
 }
 
-// startNbdServiceJNI запускает NBD через foreground service с использованием JNI
-// readOnly: false = RW (запись возможна, для overlay); true = только чтение
+// startNbdServiceJNI starts NBD via a foreground service using JNI
+// readOnly: false = RW (writes allowed, for overlay); true = read-only
 func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOnly bool) {
 	logrus.Infof("🚀 Starting NBD service via JNI: fd=%d, size=%d, addr=%s, readOnly=%v", fd, size, addr, readOnly)
 
-	// Start NBD backend (readOnly=false чтобы хост мог писать в loop без I/O error)
+	// Start NBD backend (readOnly=false so the host can write to the loop without an I/O error)
 	err := nbdbridge.StartNBD(fd, size, addr, readOnly)
 	if err != nil {
 		logrus.Errorf("❌ Failed to start NBD backend: %v", err)
@@ -352,7 +352,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 	})
 }
 
-// stopNbdService останавливает NBD service
+// stopNbdService stops the NBD service
 func (dw *DiskWidget) stopNbdService() {
 	logrus.Info("🛑 Stopping NBD service")
 
@@ -371,7 +371,7 @@ func (dw *DiskWidget) stopNbdService() {
 	})
 }
 
-// getNbdStatusText возвращает текущий статус NBD
+// getNbdStatusText returns the current NBD status
 func getNbdStatusText() string {
 	status := nbdbridge.Status()
 
@@ -386,14 +386,14 @@ func getNbdStatusText() string {
 	return "⚪ " + status
 }
 
-// Инициализация для Android
+// Initialization for Android
 func init() {
 	if runtime.GOOS == "android" {
 		logrus.Info("🤖 Android: NBD integration with SAF via JNI is enabled")
 		logrus.Info("📱 Using JNI integration for SAF and foreground service")
 
-		// Внедряем глобальные обработчики в пакет nbdbridge
-		// Это решает проблему, когда gomobile bind создает свой экземпляр пакета
+		// Inject global handlers into the nbdbridge package
+		// This works around gomobile bind creating its own instance of the package
 		nbdbridge.GlobalSuccessHandler = CallGlobalSAFSuccess
 		nbdbridge.GlobalErrorHandler = CallGlobalSAFError
 		logrus.Info("🔗 [ANDROID-INIT] SAF global handlers injected into nbdbridge")

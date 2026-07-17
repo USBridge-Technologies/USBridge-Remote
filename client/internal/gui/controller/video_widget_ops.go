@@ -119,7 +119,7 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 			if vw.usbClient != nil {
 				vw.stopVideoInternal()
 			} else {
-				// Клиент уже ушёл (потеря соединения), очищаем только локальное состояние
+				// Client is already gone (connection lost), clean up only the local state
 				vw.isStreaming = false
 				vw.isVideoConnected = false
 				vw.isMouseConnected = false

@@ -1,16 +1,16 @@
 #!/bin/bash
-# Единая точка сборки Android → dist/android
+# Single entry point for the Android build → dist/android
 #
-# Использование:
-#   ./scripts/build_android.sh              # Moonlight-only (GStreamer не нужен)
-#   ./scripts/build_android.sh --gstreamer  # + GStreamer (нужен gstreamer-android-dynamic)
-#   WITH_GSTREAMER=1 ./scripts/build_android.sh  # то же через env-переменную
+# Usage:
+#   ./scripts/build_android.sh              # Moonlight-only (GStreamer not needed)
+#   ./scripts/build_android.sh --gstreamer  # + GStreamer (needs gstreamer-android-dynamic)
+#   WITH_GSTREAMER=1 ./scripts/build_android.sh  # same, via env variable
 
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Парсим флаги
+# Parse flags
 WITH_GSTREAMER="${WITH_GSTREAMER:-0}"
 for arg in "$@"; do
     case "$arg" in
@@ -38,9 +38,9 @@ if [ -z "${USBRIDGE_LOGGING_ACTIVE:-}" ]; then
 fi
 
 if [ "$WITH_GSTREAMER" = "1" ]; then
-    echo "🎬 GStreamer: enabled (требуется gstreamer-android-dynamic/)"
+    echo "🎬 GStreamer: enabled (requires gstreamer-android-dynamic/)"
 else
-    echo "🎬 GStreamer: disabled — Moonlight-only build. Для включения: --gstreamer"
+    echo "🎬 GStreamer: disabled — Moonlight-only build. To enable: --gstreamer"
 fi
 
 exec "$SCRIPTS_DIR/build_android_gradle.sh"

@@ -69,7 +69,7 @@ func executeDeviceBatch(
 	logrus.Infof("♻️ [GADGET] Executing USB gadget batch with %d device(s) (%s)", len(requests), modeStr)
 
 	if len(requests) == 0 && !merge {
-		// Если список пуст и это Full Replace, мы должны просто остановить все устройства
+		// If the list is empty and this is Full Replace, we should simply stop all devices
 		logrus.Infof("🛑 [GADGET] Stopping all devices since request list is empty and mode is Full Replace")
 		err := usbClient.StopAllDevices()
 		if err != nil {

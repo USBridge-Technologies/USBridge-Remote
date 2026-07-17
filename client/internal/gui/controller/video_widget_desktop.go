@@ -9,7 +9,7 @@ import (
 )
 
 func (vw *VideoWidget) platformRegisterGestureTarget() {
-	// На десктопе не требуется регистрация нативных жестов
+	// Native gesture registration is not needed on desktop
 }
 
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {

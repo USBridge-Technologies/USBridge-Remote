@@ -101,7 +101,7 @@ func (bw *BackupWidget) buildDeviceBatchWithoutCurrentFlash() models.DeviceStart
 	return models.DeviceStartBatchRequest(bw.buildBaseDeviceBatch())
 }
 
-// canConnectBackupOrSnapshot проверяет, можно ли подключить бэкап или снапшот.
+// canConnectBackupOrSnapshot checks if backup or snapshot can be connected.
 func (bw *BackupWidget) canConnectBackupOrSnapshot() (bool, string) {
 	deviceInfo, err := bw.usbClient.GetDeviceInfo()
 	if err != nil {
@@ -127,7 +127,7 @@ func (bw *BackupWidget) canConnectBackupOrSnapshot() (bool, string) {
 	return true, ""
 }
 
-// buildDeviceBatchWithMTP собирает batch-запрос с сохранением подключённых устройств и заменой MTP.
+// buildDeviceBatchWithMTP builds a batch request saving connected devices and replacing MTP.
 func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string) models.DeviceStartBatchRequest {
 	requests := bw.buildBaseDeviceBatch()
 
@@ -136,11 +136,11 @@ func (bw *BackupWidget) buildDeviceBatchWithMTP(mtpServer, mtpProductName string
 		Server: mtpServer,
 	})
 
-	logrus.Infof("📋 Собран batch: %d устройств (включая MTP %s)", len(requests), mtpServer)
+	logrus.Infof("📋 Built batch: %d devices (including MTP %s)", len(requests), mtpServer)
 	return models.DeviceStartBatchRequest(requests)
 }
 
-// handleMountCurrentFlash обрабатывает монтирование актуальной флешки
+// handleMountCurrentFlash handles mounting the current flash drive
 func (bw *BackupWidget) handleMountCurrentFlash() {
 	if bw.usbClient == nil {
 		if bw.window != nil {
@@ -169,7 +169,7 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 		}()
 
 		if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
-			logrus.Warnf("⚠️ Нельзя подключить бэкап-флешку: %s", msg)
+			logrus.Warnf("⚠️ Cannot connect backup flash drive: %s", msg)
 			bw.updateStatusAsync(msg)
 			if bw.window != nil {
 				bw.updateUIAsync(func() {
@@ -182,11 +182,11 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 		bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingFlash, bw.currentFlash.Name))
 
 		batchRequest := bw.buildDeviceBatchWithMTP("data", "BackupDrive")
-		logrus.Infof("🚀 Запуск монтирования актуальной флешки как MTP: %s", bw.currentFlash.Name)
+		logrus.Infof("🚀 Starting mount of current flash drive as MTP: %s", bw.currentFlash.Name)
 
 		deviceResp, err := bw.usbClient.StartDevicesBatch(batchRequest)
 		if err != nil {
-			logrus.Errorf("❌ Ошибка монтирования актуальной флешки: %v", err)
+			logrus.Errorf("❌ Error mounting current flash drive: %v", err)
 			bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMountingFlashMsg, err))
 			return
 		}
@@ -196,13 +196,13 @@ func (bw *BackupWidget) handleMountCurrentFlash() {
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.FlashMounted, bw.currentFlash.Name))
 		})
 
-		logrus.Infof("✅ Актуальная флешка %s успешно смонтирована", bw.currentFlash.Name)
+		logrus.Infof("✅ Current flash drive %s successfully mounted", bw.currentFlash.Name)
 		success = true
 		bw.finishMountRefresh()
 	}()
 }
 
-// handleMountSnapshot обрабатывает монтирование снапшота
+// handleMountSnapshot handles mounting a snapshot
 func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 	if bw.usbClient == nil {
 		if bw.window != nil {
@@ -224,7 +224,7 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 		}()
 
 		if ok, msg := bw.canConnectBackupOrSnapshot(); !ok {
-			logrus.Warnf("⚠️ Нельзя подключить снапшот: %s", msg)
+			logrus.Warnf("⚠️ Cannot connect snapshot: %s", msg)
 			bw.updateStatusAsync(msg)
 			if bw.window != nil {
 				bw.updateUIAsync(func() {
@@ -237,11 +237,11 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 		bw.updateStatusAsync(fmt.Sprintf(i18n.Current.MountingSnapshot, snapshot.Name))
 
 		batchRequest := bw.buildDeviceBatchWithMTP(snapshot.Name, snapshot.Name)
-		logrus.Infof("🚀 Запуск монтирования снапшота как MTP: %s", snapshot.Name)
+		logrus.Infof("🚀 Starting mount of snapshot as MTP: %s", snapshot.Name)
 
 		deviceResp, err := bw.usbClient.StartDevicesBatch(batchRequest)
 		if err != nil {
-			logrus.Errorf("❌ Ошибка монтирования снапшота: %v", err)
+			logrus.Errorf("❌ Error mounting snapshot: %v", err)
 			bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMountingSnapshotMsg, err))
 			return
 		}
@@ -251,13 +251,13 @@ func (bw *BackupWidget) handleMountSnapshot(snapshot *models.SnapshotInfo) {
 			bw.ui.StatusLabel.SetText(fmt.Sprintf(i18n.Current.SnapshotMounted, snapshot.Name))
 		})
 
-		logrus.Infof("✅ Снапшот %s успешно смонтирован", snapshot.Name)
+		logrus.Infof("✅ Snapshot %s successfully mounted", snapshot.Name)
 		success = true
 		bw.finishMountRefresh()
 	}()
 }
 
-// showSnapshotDetails показывает диалог с деталями снапшота
+// showSnapshotDetails shows a dialog with snapshot details
 func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	if bw.window == nil {
 		return
@@ -406,7 +406,7 @@ func (bw *BackupWidget) showSnapshotDetails(snapshot *models.SnapshotInfo) {
 	popup.Show()
 }
 
-// showErrorAsync безопасно показывает ошибку из горутины
+// showErrorAsync safely shows an error from a goroutine
 func (bw *BackupWidget) showErrorAsync(err error) {
 	bw.updateUIAsync(func() {
 		if bw.window != nil {
@@ -417,7 +417,7 @@ func (bw *BackupWidget) showErrorAsync(err error) {
 }
 
 func (bw *BackupWidget) finishMountRefresh() {
-	logrus.Info("⏳ Ожидание обновления списка устройств (2 секунды)...")
+	logrus.Info("⏳ Waiting for device list update (2 seconds)...")
 	time.Sleep(2 * time.Second)
 
 	bw.isMounting.Store(false)
@@ -425,7 +425,7 @@ func (bw *BackupWidget) finishMountRefresh() {
 	bw.loadSnapshots()
 
 	if bw.updateStatus != nil {
-		logrus.Info("🔄 Вызов updateStatus() для обновления иконок")
+		logrus.Info("🔄 Calling updateStatus() to update icons")
 		fyne.Do(func() {
 			bw.updateStatus()
 		})
@@ -457,7 +457,7 @@ func (bw *BackupWidget) handleDisconnectCurrentFlash() {
 			}
 			batchRequest := bw.buildDeviceBatchWithoutCurrentFlash()
 			if _, err := executeDeviceBatch(client, client.StartDevicesBatchWithMerge, batchRequest, false); err != nil {
-				logrus.Errorf("❌ Ошибка отключения backup flash: %v", err)
+				logrus.Errorf("❌ Error unmounting backup flash: %v", err)
 				bw.showErrorAsync(fmt.Errorf(i18n.Current.ErrorMounting, err))
 				return
 			}
@@ -470,7 +470,7 @@ func (bw *BackupWidget) handleDisconnectCurrentFlash() {
 }
 
 func (bw *BackupWidget) logBatchResponse(success bool, message string, data any) {
-	logrus.Infof("✅ API ответ от USBridge 2:")
+	logrus.Infof("✅ API response from USBridge 2:")
 	logrus.Infof("  - Success: %v", success)
 	logrus.Infof("  - Message: %s", message)
 	if data != nil {

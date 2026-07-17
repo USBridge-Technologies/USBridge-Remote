@@ -19,7 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// startDevicesWithRetry выполняет StartDevicesBatchWithMerge с 3 попытками и паузой 3 с между ними.
+// startDevicesWithRetry runs StartDevicesBatchWithMerge with 3 attempts and a 3s pause between them.
 func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatchRequest, merge bool) (*models.APIResponse, error) {
 	const maxAttempts = 3
 	const retryDelay = 3 * time.Second
@@ -29,7 +29,7 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 		resp, err := dw.usbClient.StartDevicesBatchWithMerge(batchRequest, merge)
 		if err == nil {
 			if attempt > 1 {
-				logrus.Infof("✅ [MOUNT-API-RETRY] Попытка %d/%d успешна", attempt, maxAttempts)
+				logrus.Infof("✅ [MOUNT-API-RETRY] Attempt %d/%d succeeded", attempt, maxAttempts)
 			}
 			return resp, nil
 		}
@@ -41,30 +41,30 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 		if !isRetryable || attempt == maxAttempts {
 			return nil, err
 		}
-		logrus.Warnf("⚠️ [MOUNT-API-RETRY] Попытка %d/%d: %v, повтор через 3 с...", attempt, maxAttempts, err)
-		dw.updateStatusAsync(fmt.Sprintf("Повтор подключения %d/%d через 3 с...", attempt, maxAttempts))
+		logrus.Warnf("⚠️ [MOUNT-API-RETRY] Attempt %d/%d: %v, retrying in 3s...", attempt, maxAttempts, err)
+		dw.updateStatusAsync(fmt.Sprintf("Retrying connection %d/%d in 3s...", attempt, maxAttempts))
 		time.Sleep(retryDelay)
 	}
 	return nil, lastErr
 }
 
-// beginOperation блокирует UI перед началом операции монтирования/размонтирования.
-// Вызывается из потока Fyne.
+// beginOperation locks the UI before starting a mount/unmount operation.
+// Called from the Fyne thread.
 func (dw *DiskWidget) beginOperation() {
 	dw.userOperationInFlight.Store(true)
 	dw.setButtonsEnabled(false)
 }
 
-// endOperation завершает операцию монтирования/размонтирования.
-// Делает HTTP-запросы для получения свежих данных, затем в ОДНОМ fyne.Do:
-//   - обновляет данные об устройствах
-//   - сбрасывает все IsMounting-флаги
-//   - безусловно сбрасывает userOperationInFlight и apiMountInProgress
-//   - обновляет статус и кнопки
+// endOperation finishes a mount/unmount operation.
+// Makes HTTP requests to fetch fresh data, then in a SINGLE fyne.Do:
+//   - updates device data
+//   - resets all IsMounting flags
+//   - unconditionally resets userOperationInFlight and apiMountInProgress
+//   - updates status and buttons
 //
-// Все изменения в одном fyne.Do — никакой другой асинхронный обновитель не может
-// влезть между очисткой флагов и updateButtons(), что устраняет постоянную блокировку UI.
-// Безопасно вызывать из любой горутины; используется как defer в горутинах операций.
+// All changes happen in one fyne.Do — no other async updater can slip in between
+// clearing the flags and updateButtons(), which eliminates permanent UI lockups.
+// Safe to call from any goroutine; used as a defer in operation goroutines.
 func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
@@ -94,9 +94,9 @@ func (dw *DiskWidget) endOperation() {
 		}
 	}
 
-	// Все изменения в одном fyne.Do — атомарная с точки зрения event-loop операция.
-	// Это исключает гонку: поздний ответ сервера (apiMountInProgress=true) в другом
-	// fyne.Do не может оказаться между сбросом флагов и updateButtons().
+	// All changes happen in one fyne.Do — atomic from the event loop's point of view.
+	// This rules out a race where a late server response (apiMountInProgress=true) in
+	// another fyne.Do could land between clearing the flags and updateButtons().
 	fyne.Do(func() {
 		if newMounted != nil {
 			dw.mountedDevices = newMounted
@@ -105,16 +105,16 @@ func (dw *DiskWidget) endOperation() {
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives
 		}
-		// Сбрасываем все анимации монтирования
+		// Reset all mounting animations
 		for i := range dw.allDrives {
 			dw.allDrives[i].IsMounting = false
 		}
-		// Безусловно сбрасываем флаги ДО вызова updateDevicesStatus/updateButtons,
-		// чтобы controlsLocked() вернул false и кнопки гарантированно включились.
+		// Unconditionally reset the flags BEFORE calling updateDevicesStatus/updateButtons,
+		// so controlsLocked() returns false and buttons are guaranteed to re-enable.
 		dw.userOperationInFlight.Store(false)
 		dw.apiMountInProgress.Store(false)
-		// Пересобираем статус и список из свежих данных
-		dw.updateDevicesStatus() // обновляет IsMounted, вызывает updateButtons
+		// Rebuild status and list from fresh data
+		dw.updateDevicesStatus() // updates IsMounted, calls updateButtons
 		dw.lastDrivesTraceSig = ""
 		dw.requestDevicesRefresh()
 	})
@@ -124,9 +124,9 @@ func (dw *DiskWidget) endOperation() {
 	}
 }
 
-// handleMount обрабатывает нажатие кнопки Connect.
+// handleMount handles the Connect button press.
 func (dw *DiskWidget) handleMount() {
-	logrus.Infof("📍 [MOUNT] handleMount вызван, GOOS: %s", runtime.GOOS)
+	logrus.Infof("📍 [MOUNT] handleMount called, GOOS: %s", runtime.GOOS)
 
 	if dw.usbClient == nil {
 		if dw.window != nil {
@@ -135,7 +135,7 @@ func (dw *DiskWidget) handleMount() {
 		return
 	}
 
-	// Собираем выбранные несмонтированные не-видео/не-аудио устройства
+	// Collect selected unmounted non-video/non-audio devices
 	var selectedDrives []DriveItem
 	dw.selectedItemsMu.RLock()
 	for id, selected := range dw.selectedItems {
@@ -168,11 +168,11 @@ func (dw *DiskWidget) handleMount() {
 		return
 	}
 
-	logrus.Infof("📁 [MOUNT] смонтировано: %d, добавляем: %d", mountedGadgetCount, len(selectedDrives))
+	logrus.Infof("📁 [MOUNT] mounted: %d, adding: %d", mountedGadgetCount, len(selectedDrives))
 
-	// XInput геймпад несовместим с клавиатурой/мышью в одном композитном устройстве:
-	// Windows не инициализирует остальные HID-интерфейсы под Xbox VID/PID.
-	// Проверяем как в новом выборе, так и среди уже смонтированных устройств.
+	// An XInput gamepad is incompatible with keyboard/mouse in the same composite device:
+	// Windows won't initialize the remaining HID interfaces under the Xbox VID/PID.
+	// Check both the new selection and the already-mounted devices.
 	if dw.window != nil {
 		hasXInputSelected := false
 		hasHIDSelected := false
@@ -196,7 +196,7 @@ func (dw *DiskWidget) handleMount() {
 		}
 	}
 
-	// Прогресс-диалог для файлов из Google Drive
+	// Progress dialog for files from Google Drive
 	var progressDialog dialog.Dialog
 	for _, d := range selectedDrives {
 		if (d.Source == "local" || d.Source == "user") && d.DiskInfo != nil &&
@@ -226,14 +226,14 @@ func (dw *DiskWidget) handleMount() {
 			dw.endOperation()
 		}()
 
-		// Формируем запросы, запускаем NBD-серверы
+		// Build requests, start NBD servers
 		var deviceRequests []models.DeviceStartRequest
 		startedMouseMode := ""
 
 		for _, sel := range selectedDrives {
 			req, mouseMode, err := dw.buildMountRequest(sel)
 			if err != nil {
-				dw.showErrorAsync(fmt.Errorf("ошибка подготовки %s: %v", sel.Name, err))
+				dw.showErrorAsync(fmt.Errorf("error preparing %s: %v", sel.Name, err))
 				return
 			}
 			if mouseMode != "" {
@@ -245,14 +245,14 @@ func (dw *DiskWidget) handleMount() {
 		}
 
 		if len(deviceRequests) == 0 {
-			dw.showErrorAsync(fmt.Errorf("не удалось подготовить устройства для монтирования"))
+			dw.showErrorAsync(fmt.Errorf("failed to prepare devices for mounting"))
 			return
 		}
 
-		// Определяем имена NBD-экспортов для анимации монтирования
+		// Determine NBD export names for the mounting animation
 		mountingExportNames := dw.nbdExportNamesForRequests(deviceRequests)
 
-		// Ждём готовности NBD-серверов
+		// Wait for the NBD servers to be ready
 		if err := dw.waitForNBDServers(30 * time.Second); err != nil {
 			dw.showErrorAsync(err)
 			return
@@ -262,17 +262,17 @@ func (dw *DiskWidget) handleMount() {
 		hasNBD := len(dw.nbdServers) > 0
 		dw.nbdServersMu.Unlock()
 
-		// Проверяем FRP-туннель для NBD
+		// Check the FRP tunnel for NBD
 		if hasNBD && dw.frpService != nil && !dw.frpService.IsRunning() {
-			dw.showErrorAsync(fmt.Errorf("FRP туннель не активен — переподключитесь перед монтированием NBD"))
+			dw.showErrorAsync(fmt.Errorf("FRP tunnel is not active — reconnect before mounting NBD"))
 			return
 		}
 		if hasNBD {
-			logrus.Infof("⏱️ [MOUNT-NBD] Ожидание 1 с (стабилизация FRP/туннеля)")
+			logrus.Infof("⏱️ [MOUNT-NBD] Waiting 1s (FRP/tunnel stabilization)")
 			time.Sleep(1 * time.Second)
 		}
 
-		// Показываем анимацию монтирования и снимаем выделение
+		// Show mounting animation and clear selection
 		fyne.Do(func() {
 			dw.setMountingStateByExportNames(mountingExportNames, true)
 			dw.setAPIMountInProgress(true)
@@ -282,34 +282,34 @@ func (dw *DiskWidget) handleMount() {
 			dw.requestDevicesRefresh()
 		})
 
-		// Вызываем API
-		logrus.Infof("🚀 [MOUNT-API] Запуск %d устройств (Merge)", len(deviceRequests))
+		// Call the API
+		logrus.Infof("🚀 [MOUNT-API] Starting %d devices (Merge)", len(deviceRequests))
 		for i, req := range deviceRequests {
 			logrus.Infof("   📤 [MOUNT-API] [%d] device=%s server=%s port=%d export=%s ro=%v",
 				i+1, req.Device, req.Server, req.Port, req.ExportName, req.ReadOnly)
 		}
-		dw.updateStatusAsync("Запуск устройств...")
+		dw.updateStatusAsync("Starting devices...")
 		if resp, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), true); err != nil {
-			logrus.Errorf("❌ [MOUNT-API] Ошибка: %v", err)
-			dw.showErrorAsync(fmt.Errorf("ошибка запуска устройств: %v", err))
+			logrus.Errorf("❌ [MOUNT-API] Error: %v", err)
+			dw.showErrorAsync(fmt.Errorf("error starting devices: %v", err))
 			return
 		} else {
 			logrus.Infof("✅ [MOUNT-API] Success=%v Message=%s", resp.Success, resp.Message)
 		}
 
-		// Сохраняем режим мыши
+		// Save the mouse mode
 		if dw.onMouseTypeChanged != nil && startedMouseMode != "" {
 			dw.preferredMouseMode = startedMouseMode
 			dw.onMouseTypeChanged(startedMouseMode)
 		}
 
-		logrus.Infof("✅ [MOUNT] Монтирование завершено, ждём endOperation()")
+		logrus.Infof("✅ [MOUNT] Mounting complete, waiting for endOperation()")
 	}()
 }
 
-// buildMountRequest строит DeviceStartRequest для монтируемого устройства.
-// Для NBD-устройств запускает NBD-сервер.
-// Возвращает (запрос, mouseType, ошибка).
+// buildMountRequest builds a DeviceStartRequest for the device being mounted.
+// Starts an NBD server for NBD devices.
+// Returns (request, mouseType, error).
 func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartRequest, string, error) {
 	switch sel.Source {
 	case "keyboard":
@@ -338,7 +338,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		return &req, "", nil
 	case "api":
 		if sel.LocalDrive == nil {
-			return nil, "", fmt.Errorf("LocalDrive == nil для api-устройства: %s", sel.Name)
+			return nil, "", fmt.Errorf("LocalDrive == nil for api device: %s", sel.Name)
 		}
 		if sel.LocalDrive.SourceType == "mtp" {
 			return &models.DeviceStartRequest{
@@ -350,15 +350,15 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		}, "", nil
 	case "local", "user":
 		if sel.DiskInfo == nil {
-			return nil, "", fmt.Errorf("DiskInfo == nil для %s-устройства: %s", sel.Source, sel.Name)
+			return nil, "", fmt.Errorf("DiskInfo == nil for %s device: %s", sel.Source, sel.Name)
 		}
 		localIP, err := dw.getLocalIP()
 		if err != nil {
-			return nil, "", fmt.Errorf("ошибка получения локального IP: %v", err)
+			return nil, "", fmt.Errorf("error getting local IP: %v", err)
 		}
 		nbdPort, err := dw.getAvailablePort()
 		if err != nil {
-			return nil, "", fmt.Errorf("ошибка получения свободного порта: %v", err)
+			return nil, "", fmt.Errorf("error getting a free port: %v", err)
 		}
 		exportName := sel.DiskInfo.Name
 		dw.nbdServersMu.Lock()
@@ -376,7 +376,7 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		}
 		nbdServer, err := dw.startNBDServer(sel.DiskInfo, nbdPort, exportName, readOnly)
 		if err != nil {
-			return nil, "", fmt.Errorf("ошибка запуска NBD сервера: %v", err)
+			return nil, "", fmt.Errorf("error starting NBD server: %v", err)
 		}
 		dw.nbdServersMu.Lock()
 		dw.nbdServers[exportName] = nbdServer
@@ -391,10 +391,10 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 			DriveMode:               sel.DriveMode,
 		}, "", nil
 	}
-	return nil, "", fmt.Errorf("неизвестный тип устройства: %s (source=%s)", sel.Name, sel.Source)
+	return nil, "", fmt.Errorf("unknown device type: %s (source=%s)", sel.Name, sel.Source)
 }
 
-// nbdExportNamesForRequests возвращает имена экспортов NBD по запросам — для анимации монтирования.
+// nbdExportNamesForRequests returns the NBD export names for the requests — used for the mounting animation.
 func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartRequest) map[string]bool {
 	names := make(map[string]bool)
 	for _, req := range requests {
@@ -432,7 +432,7 @@ func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartReq
 	return names
 }
 
-// waitForNBDServers сигнализирует NBD-серверам принимать соединения и ждёт их готовности.
+// waitForNBDServers signals the NBD servers to accept connections and waits for them to be ready.
 func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 	dw.nbdServersMu.Lock()
 	if len(dw.nbdServers) == 0 {
@@ -440,7 +440,7 @@ func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 		return nil
 	}
 
-	logrus.Infof("📡 [NBD] Сигнализируем готовность %d серверам", len(dw.nbdServers))
+	logrus.Infof("📡 [NBD] Signaling readiness to %d servers", len(dw.nbdServers))
 	for name, srv := range dw.nbdServers {
 		logrus.Infof("  📡 [NBD] SignalReady: %s", name)
 		srv.SignalReady()
@@ -463,25 +463,25 @@ func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 			for n := range remaining {
 				names = append(names, n)
 			}
-			return fmt.Errorf("таймаут ожидания NBD серверов: %v", names)
+			return fmt.Errorf("timed out waiting for NBD servers: %v", names)
 		case <-ticker.C:
 			for name, srv := range remaining {
 				select {
 				case <-srv.WaitReady():
-					logrus.Infof("✅ [NBD] Сервер %s готов", name)
+					logrus.Infof("✅ [NBD] Server %s ready", name)
 					delete(remaining, name)
 				default:
 				}
 			}
 			if len(remaining) == 0 {
-				logrus.Infof("✅ [NBD] Все серверы готовы")
+				logrus.Infof("✅ [NBD] All servers ready")
 				return nil
 			}
 		}
 	}
 }
 
-// handleUnmount обрабатывает нажатие кнопки Disconnect.
+// handleUnmount handles the Disconnect button press.
 func (dw *DiskWidget) handleUnmount() {
 	if dw.usbClient == nil {
 		if dw.window != nil {
@@ -490,7 +490,7 @@ func (dw *DiskWidget) handleUnmount() {
 		return
 	}
 
-	// Собираем смонтированные не-видео/не-аудио устройства
+	// Collect mounted non-video/non-audio devices
 	var mountedDrives []DriveItem
 	var mountedIndices []int
 	for i, d := range dw.allDrives {
@@ -517,7 +517,7 @@ func (dw *DiskWidget) handleUnmount() {
 		return
 	}
 
-	// Определяем что именно отключаем (выбранное или всё)
+	// Determine what to disconnect exactly (selection or everything)
 	selectedIndices := make(map[int]bool)
 	selectedMountedVideo := false
 	dw.selectedItemsMu.RLock()
@@ -538,7 +538,7 @@ func (dw *DiskWidget) handleUnmount() {
 		confirmMsg = i18n.Current.UnmountSelectedConfirm
 	}
 
-	// Снапшот состояния для горутины
+	// Snapshot state for the goroutine
 	snapMountedDrives := make([]DriveItem, len(mountedDrives))
 	copy(snapMountedDrives, mountedDrives)
 	snapMountedIndices := make([]int, len(mountedIndices))
@@ -553,7 +553,7 @@ func (dw *DiskWidget) handleUnmount() {
 			return
 		}
 		dw.beginOperation()
-		// Сразу снимаем выделение для визуального отклика
+		// Immediately clear selection for visual feedback
 		dw.selectedItemsMu.Lock()
 		if unmountAll {
 			dw.selectedItems = make(map[int]bool)
@@ -570,9 +570,9 @@ func (dw *DiskWidget) handleUnmount() {
 	}, dw.window)
 }
 
-// doUnmount выполняет размонтирование в горутине.
+// doUnmount performs the unmount in a goroutine.
 func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, mountedDrives []DriveItem, mountedIndices []int) {
-	defer dw.endOperation() // ВСЕГДА сбрасывает все флаги и обновляет UI
+	defer dw.endOperation() // ALWAYS resets all flags and refreshes the UI
 
 	if unmountAll {
 		if dw.onVideoDisconnect != nil {
@@ -583,16 +583,16 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		}
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
-			logrus.Warnf("⚠️ [UNMOUNT-ALL] Ошибка остановки: %v", err)
+			logrus.Warnf("⚠️ [UNMOUNT-ALL] Stop error: %v", err)
 		} else {
-			logrus.Infof("✅ [UNMOUNT-ALL] Все устройства остановлены")
+			logrus.Infof("✅ [UNMOUNT-ALL] All devices stopped")
 		}
 		dw.stopNBDAndCleanup(mountedDrives, true)
 		dw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
 		return
 	}
 
-	// Частичное размонтирование: определяем что оставить, что удалить
+	// Partial unmount: determine what to keep and what to remove
 	keepIndices := make(map[int]bool)
 	for _, idx := range mountedIndices {
 		if !selectedIndices[idx] {
@@ -617,12 +617,12 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 
 	if len(keepIndices) == 0 {
-		// Удаляем все — простая остановка
+		// Removing everything — simple stop
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
-			logrus.Warnf("⚠️ [UNMOUNT-SEL] Ошибка остановки: %v", err)
+			logrus.Warnf("⚠️ [UNMOUNT-SEL] Stop error: %v", err)
 		}
 	} else {
-		// Часть устройств остаётся — Full Replace только с оставляемыми
+		// Some devices remain — Full Replace with only the ones being kept
 		var keepRequests []models.DeviceStartRequest
 		for idx := range keepIndices {
 			if idx >= len(dw.allDrives) {
@@ -630,20 +630,20 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			}
 			req, err := dw.buildDeviceRequestForDrive(dw.allDrives[idx], true)
 			if err != nil {
-				logrus.Warnf("⚠️ [UNMOUNT-SEL] Пропускаем %s: %v", dw.allDrives[idx].Name, err)
+				logrus.Warnf("⚠️ [UNMOUNT-SEL] Skipping %s: %v", dw.allDrives[idx].Name, err)
 				continue
 			}
 			keepRequests = append(keepRequests, *req)
 		}
-		logrus.Infof("🔄 [UNMOUNT-SEL] Full Replace с %d оставляемыми устройствами", len(keepRequests))
+		logrus.Infof("🔄 [UNMOUNT-SEL] Full Replace with %d remaining devices", len(keepRequests))
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(keepRequests), false); err != nil {
-			logrus.Warnf("⚠️ [UNMOUNT-SEL] Ошибка переподключения: %v", err)
+			logrus.Warnf("⚠️ [UNMOUNT-SEL] Reconnect error: %v", err)
 		}
 	}
 
 	dw.stopNBDAndCleanup(drivesToUnmount, false)
 	dw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
-	logrus.Infof("✅ [UNMOUNT-SEL] Частичное размонтирование завершено")
+	logrus.Infof("✅ [UNMOUNT-SEL] Partial unmount complete")
 }
 
 // StopAllNBDServers stops all running NBD servers and clears the map.
@@ -653,7 +653,7 @@ func (dw *DiskWidget) StopAllNBDServers() {
 	dw.stopNBDAndCleanup(nil, true)
 }
 
-// stopNBDAndCleanup останавливает NBD-серверы и освобождает ресурсы.
+// stopNBDAndCleanup stops NBD servers and releases resources.
 func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 	dw.updateStatusAsync(i18n.Current.StoppingNBDServers)
 	toStop := make(map[string]bool)
@@ -680,7 +680,7 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 		if exists {
 			if nbdServer.IsRunning() {
 				if err := nbdServer.Stop(); err != nil {
-					logrus.Warnf("⚠️ Ошибка остановки NBD сервера %s: %v", exportName, err)
+					logrus.Warnf("⚠️ Error stopping NBD server %s: %v", exportName, err)
 				}
 			}
 			dw.nbdServersMu.Lock()
@@ -702,8 +702,8 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 	}
 }
 
-// buildDeviceRequestForDrive строит DeviceStartRequest для уже смонтированного устройства
-// (использует существующие NBD-серверы).
+// buildDeviceRequestForDrive builds a DeviceStartRequest for an already-mounted device
+// (uses existing NBD servers).
 func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD bool) (*models.DeviceStartRequest, error) {
 	if drive.Source == "keyboard" {
 		req := newKeyboardStartRequest()
@@ -746,12 +746,12 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		nbdServer, exists := dw.nbdServers[exportName]
 		dw.nbdServersMu.Unlock()
 		if !exists || !nbdServer.IsRunning() {
-			return nil, fmt.Errorf("NBD сервер для %s не найден или не запущен", exportName)
+			return nil, fmt.Errorf("NBD server for %s not found or not running", exportName)
 		}
 		status := nbdServer.GetServerStatus()
 		portVal, ok := status["server_port"]
 		if !ok {
-			return nil, fmt.Errorf("порт NBD сервера %s не найден", exportName)
+			return nil, fmt.Errorf("port for NBD server %s not found", exportName)
 		}
 		var port int
 		switch p := portVal.(type) {
@@ -762,7 +762,7 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		case float64:
 			port = int(p)
 		default:
-			return nil, fmt.Errorf("неверный тип порта для %s", exportName)
+			return nil, fmt.Errorf("invalid port type for %s", exportName)
 		}
 		localIP, err := dw.getLocalIP()
 		if err != nil {
@@ -778,10 +778,10 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 			ReadOnly:                drive.ReadOnly,
 		}, nil
 	}
-	return nil, fmt.Errorf("неизвестный тип устройства: %s", drive.Name)
+	return nil, fmt.Errorf("unknown device type: %s", drive.Name)
 }
 
-// countSelectedItems возвращает количество выбранных элементов.
+// countSelectedItems returns the number of selected items.
 func (dw *DiskWidget) countSelectedItems() int {
 	dw.selectedItemsMu.RLock()
 	defer dw.selectedItemsMu.RUnlock()
@@ -806,7 +806,7 @@ func (dw *DiskWidget) countSelectedGadgetItems() int {
 	return count
 }
 
-// updateButtons обновляет состояние кнопок.
+// updateButtons updates the button states.
 func (dw *DiskWidget) updateButtons() {
 	dw.selectedItemsMu.RLock()
 	selectedCount := 0
@@ -943,7 +943,7 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 			}
 			req, err := dw.buildDeviceRequestForDrive(current, true)
 			if err != nil {
-				dw.showErrorAsync(fmt.Errorf("не удалось перестроить конфиг для %s: %w", current.Name, err))
+				dw.showErrorAsync(fmt.Errorf("failed to rebuild config for %s: %w", current.Name, err))
 				return
 			}
 			deviceRequests = append(deviceRequests, *req)
@@ -959,13 +959,13 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 
 		if len(deviceRequests) == 0 {
-			dw.showErrorAsync(fmt.Errorf("нет смонтированных устройств для перенастройки"))
+			dw.showErrorAsync(fmt.Errorf("no mounted devices to reconfigure"))
 			return
 		}
 
 		dw.updateStatusAsync("Reconfiguring USB gadget...")
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, models.DeviceStartBatchRequest(deviceRequests), false); err != nil {
-			dw.showErrorAsync(fmt.Errorf("ошибка перенастройки мыши: %w", err))
+			dw.showErrorAsync(fmt.Errorf("error reconfiguring mouse: %w", err))
 			return
 		}
 

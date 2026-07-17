@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-// DiskInfo информация об устройстве/ISO образе
+// DiskInfo information about a device/ISO image
 type DiskInfo struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
-	URI         string `json:"uri"` // Android content:// URI (если применимо)
+	URI         string `json:"uri"` // Android content:// URI (if applicable)
 	Size        int64  `json:"size"`
 	Type        string `json:"type"` // iso, img, device
 	Description string `json:"description"`
@@ -19,7 +19,7 @@ type DiskInfo struct {
 	LastUsed    string `json:"last_used"`
 }
 
-// DiskExport экспорт для NBD сервера или локальный файл
+// DiskExport export for the NBD server or a local file
 type DiskExport struct {
 	Name        string `json:"name"`
 	FilePath    string `json:"file_path"`
@@ -27,14 +27,14 @@ type DiskExport struct {
 	ReadOnly    bool   `json:"read_only"`
 	Description string `json:"description"`
 	IsActive    bool   `json:"is_active"`
-	ExportName  string `json:"export_name"` // Имя экспорта в NBD
-	DeviceID    int    `json:"device_id"`   // ID устройства для отключения
-	SourceType  string `json:"source_type"` // "nbd" или "local"
-	NBDHost     string `json:"nbd_host"`    // IP адрес NBD сервера (только для NBD)
-	NBDPort     int    `json:"nbd_port"`    // Порт NBD сервера (только для NBD)
+	ExportName  string `json:"export_name"` // Export name in NBD
+	DeviceID    int    `json:"device_id"`   // Device ID for disconnecting
+	SourceType  string `json:"source_type"` // "nbd" or "local"
+	NBDHost     string `json:"nbd_host"`    // NBD server IP address (NBD only)
+	NBDPort     int    `json:"nbd_port"`    // NBD server port (NBD only)
 }
 
-// NewDiskInfo создает новую информацию об устройстве
+// NewDiskInfo creates new device information
 func NewDiskInfo(path string) (*DiskInfo, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -54,8 +54,8 @@ func NewDiskInfo(path string) (*DiskInfo, error) {
 	}, nil
 }
 
-// getDiskType определяет тип устройства по расширению файла.
-// Поддерживаются: ISO, IMG, VMDK, VDI, QCOW/QCOW2, RAW, VMI (образы для NBD).
+// getDiskType determines the device type from the file extension.
+// Supported: ISO, IMG, VMDK, VDI, QCOW/QCOW2, RAW, VMI (images for NBD).
 func getDiskType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -68,21 +68,21 @@ func getDiskType(path string) string {
 	}
 }
 
-// getDescription возвращает описание типа устройства
+// getDescription returns the device type description
 func getDescription(diskType string) string {
 	switch diskType {
 	case "iso":
-		return "ISO образ устройства"
+		return "Device ISO image"
 	case "img":
-		return "Образ устройства"
+		return "Device image"
 	case "device":
-		return "Физическое устройство"
+		return "Physical device"
 	default:
-		return "Неизвестный тип"
+		return "Unknown type"
 	}
 }
 
-// FormatSize форматирует размер в читаемый вид
+// FormatSize formats the size into a readable form
 func (d *DiskInfo) FormatSize() string {
 	const unit = 1024
 	if d.Size < unit {
@@ -96,7 +96,7 @@ func (d *DiskInfo) FormatSize() string {
 	return fmt.Sprintf("%.1f %cB", float64(d.Size)/float64(div), "KMGTPE"[exp])
 }
 
-// IsSupported проверяет, поддерживается ли тип файла
+// IsSupported checks whether the file type is supported
 func (d *DiskInfo) IsSupported(supportedTypes []string) bool {
 	ext := strings.ToLower(filepath.Ext(d.Path))
 	for _, supportedType := range supportedTypes {

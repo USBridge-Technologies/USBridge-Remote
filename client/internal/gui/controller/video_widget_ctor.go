@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NewVideoWidget создаёт VideoWidget с Moonlight-only путём видео и ввода.
+// NewVideoWidget creates a VideoWidget with a Moonlight-only video and input path.
 func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient service.VideoClient, updateStatus func()) *VideoWidget {
 	vw := &VideoWidget{
 		usbClient:    usbClient,

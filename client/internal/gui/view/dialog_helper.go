@@ -1,4 +1,4 @@
-// Package view содержит Fyne-компоненты и хелперы для интерфейса.
+// Package view contains Fyne components and UI helpers.
 package view
 
 import (
@@ -17,7 +17,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// minWidthLayout задаёт минимальную ширину контента (для мобильных в портрете)
+// minWidthLayout sets a minimum content width (for mobile in portrait orientation)
 type minWidthLayout struct {
 	minWidth float32
 }
@@ -218,15 +218,15 @@ func showConfirmDialog(title, message string, callback func(bool), parent fyne.W
 	})
 }
 
-// ShowConfirmYesLeft показывает диалог подтверждения с кнопкой Yes слева, No справа.
-// Использует локализованные строки i18n.Current.Yes и i18n.Current.No.
-// На мобильных в вертикальной ориентации диалог шире (как edit connection).
+// ShowConfirmYesLeft shows a confirmation dialog with the Yes button on the left, No on the right.
+// Uses the localized strings i18n.Current.Yes and i18n.Current.No.
+// On mobile in portrait orientation the dialog is wider (like edit connection).
 func ShowConfirmYesLeft(title, message string, callback func(bool), parent fyne.Window) {
 	showConfirmDialog(title, message, callback, parent, false)
 }
 
-// ShowConfirmYesLeftDanger — то же, что ShowConfirmYesLeft, но кнопка «Да» красная (DangerImportance).
-// Используется для подтверждения питания и перезагрузки.
+// ShowConfirmYesLeftDanger — same as ShowConfirmYesLeft, but the "Yes" button is red (DangerImportance).
+// Used for confirming power and reboot actions.
 func ShowConfirmYesLeftDanger(title, message string, callback func(bool), parent fyne.Window) {
 	showConfirmDialog(title, message, callback, parent, true)
 }

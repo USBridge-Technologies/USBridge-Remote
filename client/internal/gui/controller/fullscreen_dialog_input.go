@@ -47,10 +47,10 @@ func (fd *FullscreenDialog) handleKeyUp(event *fyne.KeyEvent) {
 	}
 }
 
-// handleKeyPress обрабатывает TypedKey в полноэкранном режиме.
-// Всегда подавляем USB-путь; клавиши идут через handleKeyDown/Up → Moonlight.
-// TypedKey используется ТОЛЬКО для выхода из полноэкранного режима и как фолбек
-// (через canvas.SetOnTypedKey) когда touchpadWrapper ещё не получил фокус.
+// handleKeyPress handles TypedKey in fullscreen mode.
+// We always suppress the USB path; keys go through handleKeyDown/Up → Moonlight.
+// TypedKey is used ONLY to exit fullscreen mode and as a fallback
+// (via canvas.SetOnTypedKey) when touchpadWrapper hasn't received focus yet.
 func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	if event == nil {
 		return
@@ -77,10 +77,10 @@ func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	}
 }
 
-// handleRunePress — TypedRune больше не используется для отправки ввода.
+// handleRunePress — TypedRune is no longer used for sending input.
 func (fd *FullscreenDialog) handleRunePress(_ rune) {}
 
-// handleVirtualKeyPress обрабатывает нажатие клавиш виртуальной клавиатуры через Moonlight.
+// handleVirtualKeyPress handles virtual keyboard key presses via Moonlight.
 func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
 	logrus.Infof("⌨️ [FS][VIRTUAL] keyCode=%d modifiers=%d", keyCode, modifiers)
 	mi := fd.videoWidget.moonlightInput()

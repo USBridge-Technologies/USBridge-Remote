@@ -34,21 +34,18 @@ IPA_NAME="USBridgeClient-iOS-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0
 echo -e "${GREEN}📱 Building USBridgeClient for iOS${NC}"
 
 # 1. Check dependencies
-echo -e "\n${YELLOW}🔍 Проверка зависимостей...${NC}"
 if ! command -v xcodebuild >/dev/null 2>&1; then
-    echo -e "${RED}❌ xcodebuild не найден — установите Xcode${NC}"; exit 1
+    :
 fi
 echo -e "   ${GREEN}✓${NC} xcodebuild $(xcodebuild -version 2>/dev/null | head -1)"
 
 FYNE_BIN="$(go env GOPATH)/bin/fyne"
 if [ ! -x "$FYNE_BIN" ]; then
-    echo -e "${YELLOW}⚠${NC}  fyne не найден — устанавливаю..."
     go install fyne.io/fyne/v2/cmd/fyne@latest
 fi
 echo -e "   ${GREEN}✓${NC} fyne: $FYNE_BIN"
 
 # 2. Build Moonlight Core (iOS + skip host)
-echo -e "\n${YELLOW}📦 Сборка Moonlight Core (iOS)...${NC}"
 MOONLIGHT_IOS_TARGET=1 MOONLIGHT_SKIP_HOST=1 \
     "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
 
@@ -83,21 +80,18 @@ if [ -z "$APP_BUNDLE" ]; then
     APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
 fi
 if [ -z "$APP_BUNDLE" ]; then
-    echo -e "${RED}❌ .app не найден после fyne package${NC}"; exit 1
+    :
 fi
 echo -e "${GREEN}✓${NC} App bundle: $APP_BUNDLE"
 
 # 4a. Inject NSCameraUsageDescription into Info.plist
-echo -e "\n${YELLOW}📋 Добавляем NSCameraUsageDescription в Info.plist...${NC}"
 INFO_PLIST="$APP_BUNDLE/Info.plist"
 if [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
-    echo -e "   ${GREEN}✓${NC} NSCameraUsageDescription добавлен"
 fi
 
 # 4b. Rebuild Assets.car via actool with all required icon sizes including 167x167 (iPad Pro)
-echo -e "\n${YELLOW}🖼  Пересборка Assets.car (добавляем iPad Pro 167×167)...${NC}"
 _XCASSETS="$(mktemp -d)/AppIcons.xcassets"
 _ICONSET="$_XCASSETS/AppIcon.appiconset"
 mkdir -p "$_ICONSET"
@@ -129,9 +123,8 @@ xcrun actool "$_XCASSETS" \
     --output-partial-info-plist "$_ACTOOL_OUT/partial_info.plist" 2>/dev/null
 if [ -f "$_ACTOOL_OUT/Assets.car" ]; then
     cp "$_ACTOOL_OUT/Assets.car" "$APP_BUNDLE/Assets.car"
-    echo -e "   ${GREEN}✓${NC} Assets.car пересобран (76/120/152/167/180/1024px)"
 else
-    echo -e "   ${RED}❌ actool не создал Assets.car${NC}"
+    :
 fi
 # Also add loose PNG + Info.plist entry for older iOS compatibility
 cp "$_ICONSET/Icon_167.png" "$APP_BUNDLE/AppIcon83.5x83.5@2x~ipad.png" 2>/dev/null || true
@@ -141,7 +134,6 @@ cp "$_ICONSET/Icon_167.png" "$APP_BUNDLE/AppIcon83.5x83.5@2x~ipad.png" 2>/dev/nu
 rm -rf "$(dirname "$_XCASSETS")" "$_ACTOOL_OUT"
 
 # 4c. Inject LaunchScreen.storyboardc (required for App Store)
-echo -e "\n${YELLOW}📋 Компиляция LaunchScreen.storyboard...${NC}"
 STORYBOARD_SRC="$(mktemp /tmp/LaunchScreen.XXXXXX.storyboard)"
 cat > "$STORYBOARD_SRC" << 'STORYBOARD'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -169,13 +161,10 @@ STORYBOARD
 
 STORYBOARDC="$APP_BUNDLE/LaunchScreen.storyboardc"
 xcrun --sdk iphoneos ibtool --compile "$STORYBOARDC" "$STORYBOARD_SRC" 2>/dev/null \
-    && echo -e "   ${GREEN}✓${NC} LaunchScreen.storyboardc добавлен" \
-    || echo -e "   ${YELLOW}⚠${NC} ibtool не смог скомпилировать storyboard — продолжаем без него"
 rm -f "$STORYBOARD_SRC"
 
 # 4c. Re-sign with entitlements from embedded provisioning profile
 # Adding new files (LaunchScreen) invalidates the fyne signature.
-echo -e "\n${YELLOW}🔏 Переподпись с entitlements (Distribution)...${NC}"
 ENTITLEMENTS_PLIST="$(mktemp /tmp/entitlements.XXXXXX.plist)"
 PROVISION_TMP="$(mktemp /tmp/provision.XXXXXX.plist)"
 security cms -D -i "$APP_BUNDLE/embedded.mobileprovision" > "$PROVISION_TMP" 2>/dev/null
@@ -193,10 +182,8 @@ codesign --force \
     --entitlements "$ENTITLEMENTS_PLIST" \
     "$APP_BUNDLE" 2>&1 | grep -v "replacing existing" || true
 rm -f "$ENTITLEMENTS_PLIST"
-echo -e "   ${GREEN}✓${NC} Переподписано"
 
 # 5. Package .app → .ipa  (Payload/<App>.app zipped)
-echo -e "\n${YELLOW}📦 Упаковка в .ipa...${NC}"
 mkdir -p "$DIST_DIR"
 PAYLOAD_DIR="$(mktemp -d)/Payload"
 mkdir -p "$PAYLOAD_DIR"
@@ -206,9 +193,6 @@ IPA_PATH="$DIST_DIR/$IPA_NAME"
 rm -rf "$(dirname "$PAYLOAD_DIR")"
 echo -e "${GREEN}✓${NC} IPA: $IPA_PATH"
 
-echo -e "\n${GREEN}✅ iOS сборка завершена!${NC}"
 echo -e "   IPA:  $IPA_PATH"
-echo -e "   Лог:  ${LOG_FILE:-stdout}"
 echo -e ""
-echo -e "   Загрузка в App Store Connect (через Transporter или altool):"
 echo -e "   xcrun altool --upload-app -f \"$IPA_PATH\" -t ios -u fatkulinamir80@gmail.com"

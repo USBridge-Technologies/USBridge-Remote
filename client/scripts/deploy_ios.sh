@@ -36,37 +36,37 @@ DIST_DIR="$REPO_ROOT/dist/ios-dev"
 echo -e "${GREEN}📱 Deploy USBridgeClient → iPhone${NC}"
 
 # 1. Check dependencies
-echo -e "\n${YELLOW}🔍 Проверка зависимостей...${NC}"
+echo -e "\n${YELLOW}🔍 Checking dependencies...${NC}"
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
-    echo -e "${RED}❌ xcodebuild не найден — установите Xcode${NC}"; exit 1
+    echo -e "${RED}❌ xcodebuild not found — install Xcode${NC}"; exit 1
 fi
 echo -e "   ${GREEN}✓${NC} xcodebuild $(xcodebuild -version 2>/dev/null | head -1)"
 
 FYNE_BIN="$(go env GOPATH)/bin/fyne"
 if [ ! -x "$FYNE_BIN" ]; then
-    echo -e "${YELLOW}⚠${NC}  fyne не найден — устанавливаю..."
+    echo -e "${YELLOW}⚠${NC}  fyne not found — installing..."
     go install fyne.io/fyne/v2/cmd/fyne@latest
 fi
 echo -e "   ${GREEN}✓${NC} fyne: $FYNE_BIN"
 
 if ! command -v ios-deploy >/dev/null 2>&1; then
-    echo -e "${YELLOW}⚠${NC}  ios-deploy не найден — устанавливаю..."
+    echo -e "${YELLOW}⚠${NC}  ios-deploy not found — installing..."
     brew install ios-deploy
 fi
 echo -e "   ${GREEN}✓${NC} ios-deploy: $(ios-deploy --version 2>/dev/null)"
 
 # Check Development certificate
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "Apple Development:"; then
-    echo -e "${RED}❌ Apple Development сертификат не найден в Keychain.${NC}"
-    echo "   Создайте его в Apple Developer → Certificates → + → Apple Development"
-    echo "   И создайте Development Provisioning Profile с UDID вашего iPhone."
+    echo -e "${RED}❌ Apple Development certificate not found in Keychain.${NC}"
+    echo "   Create it in Apple Developer → Certificates → + → Apple Development"
+    echo "   And create a Development Provisioning Profile with your iPhone's UDID."
     exit 1
 fi
-echo -e "   ${GREEN}✓${NC} Development certificate найден"
+echo -e "   ${GREEN}✓${NC} Development certificate found"
 
 # 2. Check connected device
-echo -e "\n${YELLOW}📱 Поиск подключённого iPhone...${NC}"
+echo -e "\n${YELLOW}📱 Looking for connected iPhone...${NC}"
 DEVICE_ID=""
 DEVICE_NAME=""
 
@@ -85,16 +85,16 @@ while IFS= read -r line; do
 done <<< "$XCTRACE_OUT"
 
 if [ -z "$DEVICE_ID" ]; then
-    echo -e "${RED}❌ iPhone не найден — подключите по проводу и разблокируйте${NC}"
+    echo -e "${RED}❌ iPhone not found — connect it via cable and unlock it${NC}"
     echo ""
-    echo "   Доступные устройства:"
+    echo "   Available devices:"
     xcrun xctrace list devices 2>/dev/null | grep -v Simulator || true
     exit 1
 fi
-echo -e "   ${GREEN}✓${NC} Устройство: ${DEVICE_NAME} ($DEVICE_ID)"
+echo -e "   ${GREEN}✓${NC} Device: ${DEVICE_NAME} ($DEVICE_ID)"
 
 # 3. Build Moonlight Core (iOS + host)
-echo -e "\n${YELLOW}📦 Сборка Moonlight Core (iOS)...${NC}"
+echo -e "\n${YELLOW}📦 Building Moonlight Core (iOS)...${NC}"
 MOONLIGHT_IOS_TARGET=1 MOONLIGHT_SKIP_HOST=1 \
     "$SCRIPTS_DIR/build_moonlight.sh" || { echo -e "${RED}❌ Moonlight Core build failed${NC}"; exit 1; }
 
@@ -123,21 +123,21 @@ if [ -z "$APP_BUNDLE" ]; then
     APP_BUNDLE=$(find "$REPO_ROOT" -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
 fi
 if [ -z "$APP_BUNDLE" ]; then
-    echo -e "${RED}❌ .app не найден после fyne package${NC}"; exit 1
+    echo -e "${RED}❌ .app not found after fyne package${NC}"; exit 1
 fi
 echo -e "${GREEN}✓${NC} App bundle: $APP_BUNDLE"
 
 # 5a. Inject privacy usage descriptions into Info.plist (required for camera access)
-echo -e "\n${YELLOW}📋 Добавляем NSCameraUsageDescription в Info.plist...${NC}"
+echo -e "\n${YELLOW}📋 Adding NSCameraUsageDescription to Info.plist...${NC}"
 INFO_PLIST="$APP_BUNDLE/Info.plist"
 if [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST" 2>/dev/null || \
     /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Scan QR code to connect to your USBridge device'" "$INFO_PLIST"
-    echo -e "   ${GREEN}✓${NC} NSCameraUsageDescription добавлен"
+    echo -e "   ${GREEN}✓${NC} NSCameraUsageDescription added"
 fi
 
 # 5. Inject LaunchScreen.storyboardc (fyne doesn't generate it, iOS needs it)
-echo -e "\n${YELLOW}📋 Компиляция LaunchScreen.storyboard...${NC}"
+echo -e "\n${YELLOW}📋 Compiling LaunchScreen.storyboard...${NC}"
 STORYBOARD_SRC="$(mktemp /tmp/LaunchScreen.XXXXXX.storyboard)"
 cat > "$STORYBOARD_SRC" << 'STORYBOARD'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -165,12 +165,12 @@ STORYBOARD
 
 STORYBOARDC="$APP_BUNDLE/LaunchScreen.storyboardc"
 xcrun --sdk iphoneos ibtool --compile "$STORYBOARDC" "$STORYBOARD_SRC" 2>/dev/null \
-    && echo -e "   ${GREEN}✓${NC} LaunchScreen.storyboardc добавлен" \
-    || echo -e "   ${YELLOW}⚠${NC} ibtool не смог скомпилировать storyboard — продолжаем без него"
+    && echo -e "   ${GREEN}✓${NC} LaunchScreen.storyboardc added" \
+    || echo -e "   ${YELLOW}⚠${NC} ibtool failed to compile the storyboard — continuing without it"
 rm -f "$STORYBOARD_SRC"
 
 # 6. Re-sign with entitlements from embedded provisioning profile
-echo -e "\n${YELLOW}🔏 Переподпись с entitlements...${NC}"
+echo -e "\n${YELLOW}🔏 Re-signing with entitlements...${NC}"
 ENTITLEMENTS_PLIST="$(mktemp /tmp/entitlements.XXXXXX.plist)"
 security cms -D -i "$APP_BUNDLE/embedded.mobileprovision" > /tmp/provision_decoded.plist 2>/dev/null
 /usr/libexec/PlistBuddy -x -c "Print Entitlements" /tmp/provision_decoded.plist > "$ENTITLEMENTS_PLIST" 2>/dev/null
@@ -186,10 +186,10 @@ codesign --force \
     --entitlements "$ENTITLEMENTS_PLIST" \
     "$APP_BUNDLE" 2>&1 | grep -v "replacing existing" || true
 rm -f "$ENTITLEMENTS_PLIST"
-echo -e "   ${GREEN}✓${NC} Переподписано"
+echo -e "   ${GREEN}✓${NC} Re-signed"
 
 # 7. Install directly on device via ios-deploy (no IPA needed)
-echo -e "\n${YELLOW}📲 Установка на устройство...${NC}"
+echo -e "\n${YELLOW}📲 Installing on device...${NC}"
 ios-deploy --bundle "$APP_BUNDLE" --no-wifi --id "$DEVICE_ID" 2>&1
 
-echo -e "\n${GREEN}✅ Готово! Откройте USBridge Client на iPhone.${NC}"
+echo -e "\n${GREEN}✅ Done! Open USBridge Client on your iPhone.${NC}"

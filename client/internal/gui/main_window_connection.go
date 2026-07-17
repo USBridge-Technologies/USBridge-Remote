@@ -83,12 +83,12 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 
 	if mw.connectionManager != nil {
 		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
-		logrus.Infof("✅ Подключение '%s' сохранено", generatedName)
+		logrus.Infof("✅ Connection '%s' saved", generatedName)
 		fyne.Do(func() {
-			logrus.Infof("💾 Сохранено как: %s", generatedName)
+			logrus.Infof("💾 Saved as: %s", generatedName)
 		})
 	} else {
-		logrus.Warn("⚠️ ConnectionManager не инициализирован")
+		logrus.Warn("⚠️ ConnectionManager is not initialized")
 	}
 }
 
@@ -278,7 +278,7 @@ func (mw *MainWindow) resolveBridgeAuthInputs(host, masterKey string) (deviceTok
 
 func (mw *MainWindow) handleConnectionToggle() {
 	if mw.isConnectionPending.Load() {
-		logrus.Warn("⚠️ Операция подключения/отключения уже выполняется, игнорируем повторное нажатие")
+		logrus.Warn("⚠️ A connect/disconnect operation is already in progress, ignoring repeated press")
 		return
 	}
 
@@ -315,7 +315,7 @@ func (mw *MainWindow) handleConnectionToggle() {
 	go mw.handleConnect()
 }
 
-// handleConnect обрабатывает подключение
+// handleConnect handles connecting
 func (mw *MainWindow) handleConnect() {
 	logrus.Infof("🔍 [DEBUG] handleConnect() called")
 
@@ -380,9 +380,9 @@ func getFreeVideoUDPPort() int {
 	return port
 }
 
-// doConnect выполняет блокирующую логику подключения (вызывается из горутины).
-// masterKey — API master secret (из QR кода): используется для sync и подписи API запросов.
-// frpToken  — прямой FRP токен туннеля (advanced, обходит sync).
+// doConnect performs the blocking connection logic (called from a goroutine).
+// masterKey — API master secret (from the QR code): used for sync and to sign API requests.
+// frpToken  — direct FRP tunnel token (advanced, bypasses sync).
 func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken string) error {
 	// Consume the pending FRP token (set by handleConnectionFromManager) before any async work.
 	if frpToken == "" {
@@ -641,8 +641,8 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 
 			tsClient := api.NewUSBClientWithHTTPClient(target, mw.config.USBPort, mw.config.APITimeout, httpClient)
 
-			// На Android userspace-Tailscale (tsnet) первый запрос может провалиться,
-			// пока tsnet не установил маршрут до пира.
+			// On Android userspace Tailscale (tsnet), the first request can fail
+			// until tsnet has established a route to the peer.
 			var connErr error
 			const maxConnAttempts = 6
 			for attempt := 1; attempt <= maxConnAttempts; attempt++ {
@@ -844,11 +844,11 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 	})
 }
 
-// handleDisconnect обрабатывает отключение
+// handleDisconnect handles disconnecting
 func (mw *MainWindow) handleDisconnect() {
 	logrus.Infof("[shutdown] handleDisconnect: start connected=%v", mw.isConnected)
 
-	// Копируем ссылки для фоновой очистки
+	// Copy references for background cleanup
 	client := mw.usbClient
 	video := mw.videoWidget
 	backup := mw.backupWidget
@@ -862,7 +862,7 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.tailscalePollCancel = nil
 	}
 
-	// 1. Немедленно сбрасываем состояние
+	// 1. Immediately reset the state
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectedProtocol = ""
@@ -873,7 +873,7 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
-	// 2. Немедленно обновляем UI (уходим на экран логина)
+	// 2. Immediately update the UI (go back to the login screen)
 	fyne.Do(func() {
 		mw.showConnectionManager()
 		if mw.mainExitBtn != nil {
@@ -924,7 +924,7 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.updateStatusBar()
 	})
 
-	// 3. Выполняем тяжелую работу в ФОНЕ
+	// 3. Do the heavy lifting in the BACKGROUND
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -972,7 +972,7 @@ func (mw *MainWindow) handleDisconnect() {
 	}()
 }
 
-// handleRefresh обрабатывает обновление
+// handleRefresh handles a refresh
 func (mw *MainWindow) handleRefresh() {
 	if !mw.isConnected || mw.usbClient == nil {
 		logrus.Warn("Cannot refresh: no active connection")
@@ -986,7 +986,7 @@ func (mw *MainWindow) handleRefresh() {
 	}
 }
 
-// updateStatus обновляет статус в интерфейсе
+// updateStatus updates the status in the UI
 func (mw *MainWindow) updateStatus() {
 	nbdConnected := false
 	if mw.nbdServer.IsRunning() {
