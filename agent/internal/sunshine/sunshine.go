@@ -392,6 +392,20 @@ func (p *Process) Start(adminPort int) error {
 	}
 	if adminPort > 0 && portReachable(adminPort, 300*time.Millisecond) {
 		log.Printf("[sunshine] admin port %d already reachable, assuming Sunshine is already running", adminPort)
+		// This process never ran --creds this session, so activeAdminPassword
+		// is still empty. The already-running Sunshine still has whatever
+		// password was baked in via --creds the last time IT was launched
+		// fresh, which is exactly what's persisted in adminPassFile — load it
+		// so SubmitPIN/ListClients/UnpairClient (which read adminPass()
+		// directly, not the file-fallback AdminPass()) don't send an empty
+		// password and get every request rejected with 401.
+		if pf := adminPassFile(); pf != "" {
+			if data, err := os.ReadFile(pf); err == nil {
+				if pass := strings.TrimSpace(string(data)); pass != "" {
+					activeAdminPassword = pass
+				}
+			}
+		}
 		return nil
 	}
 

@@ -45,7 +45,6 @@ type Service struct {
 	mu             sync.Mutex
 	server         *tsnet.Server
 	stateDir       string
-	latestAuthURL  string
 	authURLHandler func(string)
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -62,10 +61,22 @@ func New(stateDir string) *Service {
 	return s
 }
 
-// SetAuthURLHandler registers a callback invoked whenever tsnet produces a new
-// interactive-login AuthURL, regardless of which caller (local UI, a remote
-// client's sync/register request, or tsnet's own first-boot auto-login)
-// triggered it. Deduplicated: fires only when the URL actually changes.
+// SetAuthURLHandler registers a callback invoked every time tsnet reports a
+// pending interactive-login AuthURL, regardless of which caller (local UI, a
+// remote client's sync/register request, or tsnet's own first-boot
+// auto-login) triggered it — and repeatedly for as long as the node stays in
+// NeedsLogin, since tsnet's printAuthURLLoop re-announces the *same* URL every
+// 5s (see tsnet.Server.printAuthURLLoop) regardless of whether anyone asked
+// for it. Not deduplicated by URL value: an earlier attempt deduped here, but
+// that meant the very first automatic announcement (which usually happens
+// before any UI button click, or before this handler is even registered)
+// permanently consumed the "new URL" signal, so a later genuine button click
+// would call StartLogin and then wait forever for a callback that was never
+// coming — tsnet only reuses the cached AuthURL and never re-logs it via
+// UserLogf outside this loop. Callers that need "open the browser at most
+// once per click" semantics (e.g. the UI's Sign In button) must gate that
+// themselves, e.g. with a CompareAndSwap flag set right before calling
+// StartLogin.
 func (s *Service) SetAuthURLHandler(fn func(string)) {
 	s.mu.Lock()
 	s.authURLHandler = fn
@@ -333,17 +344,15 @@ func (s *Service) extractURL(text string) string {
 }
 
 func (s *Service) setLatestAuthURL(u string) {
+	if u == "" {
+		return
+	}
 	s.mu.Lock()
-	alreadyHave := s.latestAuthURL == u
-	s.latestAuthURL = u
 	handler := s.authURLHandler
 	s.mu.Unlock()
 
-	if !alreadyHave && u != "" {
-		logrus.Infof("🔗 [Tailscale] New AuthURL: %s", u)
-		if handler != nil {
-			handler(u)
-		}
+	if handler != nil {
+		handler(u)
 	}
 }
 
