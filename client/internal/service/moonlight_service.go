@@ -642,13 +642,13 @@ func (m *MoonlightService) submitPinToService(pin string) error {
 
 	body, _ := json.Marshal(map[string]string{"pin": pin})
 
-	// On userspace Tailscale (Android tsnet), signed requests to an actual Tailscale
-	// peer must go through the tsnet dialer — the OS dialer can't reach Tailscale IPs.
-	// But for a plain LAN host (protocol=direct), tsnet's netstack can't route there
-	// either (when unauthenticated it black-holes the connection), so this must only
-	// apply when the target is actually a tailnet address — see isLikelyTailnetHost.
+	// Signed requests to an actual Tailscale peer must go through the tsnet dialer —
+	// the OS dialer can't reach Tailscale IPs. But for a plain LAN host
+	// (protocol=direct), tsnet's netstack can't route there either (when
+	// unauthenticated it black-holes the connection), so this must only apply
+	// when the target is actually a tailnet address — see isLikelyTailnetHost.
 	tsHTTPClient := (*http.Client)(nil)
-	if m.tailscaleSvc != nil && m.tailscaleSvc.IsUserspace() && isLikelyTailnetHost(host) {
+	if m.tailscaleSvc != nil && isLikelyTailnetHost(host) {
 		if c, err := m.tailscaleSvc.HTTPClient(); err == nil {
 			tsHTTPClient = c
 		}

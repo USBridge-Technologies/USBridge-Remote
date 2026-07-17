@@ -446,16 +446,6 @@ func (vw *VideoWidget) stopVideoInternal() {
 		}(vw.videoClient)
 	}
 
-	if vw.tailscaleService != nil {
-		wg.Add(1)
-		go func(svc interface{ StopVideoUDPRelay() error }) {
-			defer wg.Done()
-			if err := svc.StopVideoUDPRelay(); err != nil {
-				logrus.Errorf("Failed to stop Tailscale video relay: %v", err)
-			}
-		}(vw.tailscaleService)
-	}
-
 	// Wait for completion with a small timeout so the video window doesn't hang
 	done := make(chan struct{})
 	go func() {

@@ -26,29 +26,7 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 }
 
 // handleConnectionFromDeepLink handles the deep-link connect callback.
-// tsMode optionally overrides the Tailscale mode before connecting.
-func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) {
-	if mw.tailscaleService != nil {
-		switch tsMode {
-		case TailscaleModeUserspace:
-			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: userspace (tsnet)")
-			// Stop any running tsnet first (idempotent), then switch and start.
-			mw.tailscaleService.Stop()
-			mw.tailscaleService.SetUserspace(true)
-			go func() {
-				if err := mw.tailscaleService.Start(context.Background()); err != nil {
-					logrus.Warnf("⚠️ [DeepLink] tsnet start: %v", err)
-				}
-			}()
-		case TailscaleModeKernel:
-			logrus.Infof("🛰️ [DeepLink] Forcing Tailscale mode: kernel (system VPN)")
-			// Stop tsnet so it doesn't run alongside system Tailscale.
-			mw.tailscaleService.Stop()
-			mw.tailscaleService.SetUserspace(false)
-		default:
-			// TailscaleModeAuto: do not change current setting
-		}
-	}
+func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
 	mw.handleConnectionFromManager(host, masterKey, "", protocol, quicPort, tailscaleRegister)
 }
 
@@ -394,18 +372,19 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 
 	selectedProtocol := mw.protocolSelect.Selected
 
-	// On macOS, the tsnet (userspace Tailscale) WireGuard stack initialization
-	// briefly disrupts the OS network routing table, causing even LAN connections
-	// to fail with EHOSTUNREACH. Wait for tsnet to reach Running state before
-	// making any network calls. WaitUntilReady returns immediately when already Running.
+	// The tsnet (userspace Tailscale) WireGuard stack initialization briefly
+	// disrupts the OS network routing table on some platforms, causing even LAN
+	// connections to fail with EHOSTUNREACH. Wait for tsnet to reach Running
+	// state before making any network calls. WaitUntilReady returns immediately
+	// when already Running.
 	//
 	// Only do this when the target actually needs Tailscale (a tailnet-looking
-	// host, or the user explicitly picked the "tailscale" protocol). Otherwise,
-	// on Android IsUserspace() is always true, so an unqualified call here would
-	// call tsnet's Up() on every direct/LAN connect attempt — including before
-	// the user has ever pressed the Tailscale button — which triggers an
-	// unauthenticated tsnet login and pops an auth browser window on top of the app.
-	if mw.tailscaleService != nil && mw.tailscaleService.IsUserspace() &&
+	// host, or the user explicitly picked the "tailscale" protocol) — an
+	// unqualified call here would call tsnet's Up() on every direct/LAN connect
+	// attempt, including before the user has ever pressed the Tailscale button,
+	// which triggers an unauthenticated tsnet login and pops an auth browser
+	// window on top of the app.
+	if mw.tailscaleService != nil &&
 		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
 		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
@@ -613,7 +592,7 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 			return fmt.Errorf("Tailscale disabled in config")
 		}
 		if mw.tailscaleService == nil {
-			mw.tailscaleService = service.NewTailscaleService(mw.config.TailscaleUserspace)
+			mw.tailscaleService = service.NewTailscaleService()
 		}
 
 		status, err := mw.tailscaleService.Status(ctx)

@@ -165,7 +165,7 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 		ts:                    ts,
 	}
 	if cm.ts == nil {
-		cm.ts = service.NewTailscaleService(config.TailscaleUserspace)
+		cm.ts = service.NewTailscaleService()
 	}
 
 	cm.qrScanner = NewQRScanner(

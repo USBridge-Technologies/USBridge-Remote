@@ -221,15 +221,11 @@ func (vw *VideoWidget) desiredStreamingState() bool {
 }
 
 func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
-	go func() {
-		vw.handleDeviceRebuildLocally()
-
-		vw.videoOpMu.Lock()
-		vw.videoRestartPending = true
-		vw.videoOpMu.Unlock()
-		time.Sleep(250 * time.Millisecond)
-		vw.scheduleVideoReconcile("control-device-rebuild")
-	}()
+	// The user requested to avoid restarting the video stream when the USB gadget is rebuilt
+	// (e.g. when changing mouse modes or mounting/unmounting devices), because it is a heavy operation.
+	// The video stream will now stay alive; Moonlight will keep sending input packets which
+	// will be routed to the new HID device once the gadget is back online.
+	logrus.Infof("Control device rebuilt; intentionally keeping video stream alive")
 }
 
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {

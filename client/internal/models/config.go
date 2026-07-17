@@ -34,9 +34,8 @@ type AppConfig struct {
 	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Path to the CA certificate
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
 
-	// Tailscale settings
-	TailscaleEnabled   bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
-	TailscaleUserspace bool `json:"tailscale_userspace" mapstructure:"tailscale_userspace"`
+	// Tailscale settings (always runs in userspace/tsnet mode, on every platform)
+	TailscaleEnabled bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
 
 	// NBD server (as server)
 	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // NBD server port (10809)
@@ -92,8 +91,7 @@ func DefaultConfig() *AppConfig {
 		FRPTLSCa:           "./certs/ca.crt",
 		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),
 
-		TailscaleEnabled:   true,
-		TailscaleUserspace: true,
+		TailscaleEnabled: true,
 
 		// NBD server
 		NBDPort:           10809,
@@ -426,10 +424,3 @@ type ISOSpaceInfo struct {
 	UsedPercent    float64 `json:"used_percent"`
 	ISODirectory   string  `json:"iso_directory"`
 }
-
-type TailscaleMode int
-
-const (
-	TailscaleModeUserspace TailscaleMode = iota
-	TailscaleModeSystem
-)

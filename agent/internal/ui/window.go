@@ -754,7 +754,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 		container.NewCenter(closeDialogBtn),
 		closeBottomGap,
 	)
-	// Убираем верхний отступ полностью, чтобы поднять QR-код
+	// Remove the top margin completely to lift the QR code
 	pL := canvas.NewRectangle(color.Transparent)
 	pL.SetMinSize(fyne.NewSize(8, 1))
 	pR := canvas.NewRectangle(color.Transparent)
@@ -767,7 +767,7 @@ func (w *Window) showTokenDialog(parent fyne.Window) {
 	dialogCard := container.NewStack(cardBG, dialogContent)
 	dialogBody := container.NewCenter(dialogCard)
 
-	// Создаем локальную тему с нулевыми отступами только для этого диалога
+	// Create a local theme with zero padding only for this dialog
 	compactTheme := &compactTheme{Theme: design.NewBrandTheme()}
 	tokenDialog = widget.NewModalPopUp(container.NewThemeOverride(dialogBody, compactTheme), parent.Canvas())
 
@@ -1531,7 +1531,7 @@ func newPanel(title string, content fyne.CanvasObject) fyne.CanvasObject {
 	shadowLeftGap := canvas.NewRectangle(color.Transparent)
 	shadowLeftGap.SetMinSize(fyne.NewSize(1, 0))
 
-	// Применяем плотную тему (нулевые отступы) только к контенту внутри панели
+	// Apply a dense theme (zero padding) only to the content inside the panel
 	denseContent := container.NewThemeOverride(content, &headerButtonTheme{Theme: design.NewBrandTheme(), padding: 0})
 
 	card := container.NewStack(
@@ -1660,7 +1660,7 @@ func newLabelValue(labelText string, valueText *canvas.Text) fyne.CanvasObject {
 	title.TextSize = 10
 	title.TextStyle.Bold = true
 
-	// Контейнер для заголовка с фиксированной шириной
+	// Container for the title with a fixed width
 	titleBox := container.NewGridWrap(fyne.NewSize(55, 16), container.NewCenter(title))
 
 	return container.NewHBox(titleBox, valueText)

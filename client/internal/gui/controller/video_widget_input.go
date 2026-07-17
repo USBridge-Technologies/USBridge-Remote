@@ -617,6 +617,7 @@ func (vw *VideoWidget) GetMouseInputMode() string {
 func (vw *VideoWidget) SetMouseInputMode(mode string) {
 	mode = normalizeMouseMode(mode)
 	vw.mouseInputMode = mode
+	vw.SetShowMouseCursor(vw.GetShowMouseCursor())
 	vw.resetRelativeMoveAccumulator()
 	if isVirtualCursorLikeMode(mode) {
 		// Centre the virtual cursor and set cursor scale for the current display.
@@ -644,19 +645,12 @@ func (vw *VideoWidget) GetShowMouseCursor() bool {
 }
 
 // SetShowMouseCursor sets the flag for showing the cursor in the captured video.
-// If video is active, restarts the stream so the server applies the new ShowMouse value.
 func (vw *VideoWidget) SetShowMouseCursor(show bool) {
 	if vw.showMouseCursor == show {
 		return
 	}
 	vw.showMouseCursor = show
 	vw.refreshCursorOverlay()
-	if vw.isStreaming {
-		vw.videoOpMu.Lock()
-		vw.videoRestartPending = true
-		vw.videoOpMu.Unlock()
-		vw.scheduleVideoReconcile("show-mouse-cursor-changed")
-	}
 }
 
 func (vw *VideoWidget) SetAgentEnvironment(agentOS, agentDisplay string) {

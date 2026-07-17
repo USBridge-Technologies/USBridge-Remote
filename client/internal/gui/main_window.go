@@ -130,7 +130,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	}
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
-	mw.tailscaleService = service.NewTailscaleService(cfg.TailscaleUserspace)
+	mw.tailscaleService = service.NewTailscaleService()
 	ms := service.NewMoonlightService(cfg)
 	ms.SetTailscaleService(mw.tailscaleService)
 	mw.videoClient = ms

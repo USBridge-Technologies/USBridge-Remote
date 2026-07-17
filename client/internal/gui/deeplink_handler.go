@@ -17,25 +17,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TailscaleModeOverride sets the Tailscale mode via a deep link.
-// "" = auto (don't change), "userspace" = tsnet, "kernel" = system VPN.
-type TailscaleModeOverride string
-
-const (
-	TailscaleModeAuto      TailscaleModeOverride = ""
-	TailscaleModeUserspace TailscaleModeOverride = "userspace"
-	TailscaleModeKernel    TailscaleModeOverride = "kernel"
-)
-
 // DeepLinkHandler handles deep links
 type DeepLinkHandler struct {
-	onConnect func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride) // Connect
-	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool)  // Save only, without connecting
-	lastURI   string                                                                                                     // Last processed URI (to avoid processing twice)
+	onConnect func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool)                              // Connect
+	onSave    func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool) // Save only, without connecting
+	lastURI   string                                                                                                    // Last processed URI (to avoid processing twice)
 }
 
 // NewDeepLinkHandler creates a new handler
-func NewDeepLinkHandler(onConnect func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool, tsMode TailscaleModeOverride), onSave func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool)) *DeepLinkHandler {
+func NewDeepLinkHandler(onConnect func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool), onSave func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool)) *DeepLinkHandler {
 	return &DeepLinkHandler{
 		onConnect: onConnect,
 		onSave:    onSave,
@@ -69,7 +59,7 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 	h.lastURI = uri
 
 	// Parse the URI
-	internalHost, tailscaleHost, masterKey, protocol, quicPort, immediate, tsMode, err := h.parseDeepLink(uri)
+	internalHost, tailscaleHost, masterKey, protocol, quicPort, immediate, err := h.parseDeepLink(uri)
 	if err != nil {
 		logrus.Errorf("❌ Failed to parse deep link: %v", err)
 		view.ShowErrorDialog(fmt.Errorf(i18n.Current.DeepLinkError, err), parent)
@@ -80,31 +70,31 @@ func (h *DeepLinkHandler) CheckAndHandleDeepLink(parent fyne.Window) {
 		logrus.Info("🚀 Immediate connection requested via deep link")
 		host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
 		if h.onConnect != nil {
-			h.onConnect(host, masterKey, protocol, quicPort, false, tsMode)
+			h.onConnect(host, masterKey, protocol, quicPort, false)
 		}
 		return
 	}
 
 	// Show the confirmation dialog
-	h.showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol, quicPort, tsMode, parent)
+	h.showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol, quicPort, parent)
 }
 
 // parseDeepLink parses the deep link URI
-func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, masterKey, protocol string, quicPort int, immediate bool, tsMode TailscaleModeOverride, err error) {
+func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost, masterKey, protocol string, quicPort int, immediate bool, err error) {
 	// Parse the URL
 	u, err := url.Parse(uri)
 	if err != nil {
-		return "", "", "", "", 0, false, TailscaleModeAuto, fmt.Errorf("invalid link format: %v", err)
+		return "", "", "", "", 0, false, fmt.Errorf("invalid link format: %v", err)
 	}
 
 	// Check the scheme (only usbridge://)
 	if u.Scheme != "usbridge" {
-		return "", "", "", "", 0, false, TailscaleModeAuto, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
+		return "", "", "", "", 0, false, fmt.Errorf("unsupported scheme: %s (use usbridge://)", u.Scheme)
 	}
 
 	// Format: usbridge://connect?host=192.168.1.1&quic_token=secret
 	if u.Host != "connect" {
-		return "", "", "", "", 0, false, TailscaleModeAuto, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
+		return "", "", "", "", 0, false, fmt.Errorf("unsupported path: %s (use usbridge://connect)", u.Host)
 	}
 
 	// Get the parameters
@@ -133,32 +123,22 @@ func (h *DeepLinkHandler) parseDeepLink(uri string) (internalHost, tailscaleHost
 		fmt.Sscanf(query.Get("quic_port"), "%d", &quicPort)
 	}
 
-	// ts_mode: "userspace" | "kernel" | "" (auto)
-	switch query.Get("ts_mode") {
-	case "userspace":
-		tsMode = TailscaleModeUserspace
-	case "kernel":
-		tsMode = TailscaleModeKernel
-	default:
-		tsMode = TailscaleModeAuto
-	}
-
 	// Check the required parameters
 	if internalHost == "" && tailscaleHost == "" {
-		return "", "", "", "", 0, false, TailscaleModeAuto, fmt.Errorf("missing host parameter")
+		return "", "", "", "", 0, false, fmt.Errorf("missing host parameter")
 	}
 
 	if masterKey == "" {
-		return "", "", "", "", 0, false, TailscaleModeAuto, fmt.Errorf("missing master_key parameter")
+		return "", "", "", "", 0, false, fmt.Errorf("missing master_key parameter")
 	}
 
-	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s masterKey=%s protocol=%s immediate=%v ts_mode=%q", internalHost, tailscaleHost, maskSensitiveToken(masterKey), protocol, immediate, tsMode)
-	return internalHost, tailscaleHost, masterKey, protocol, quicPort, immediate, tsMode, nil
+	logrus.Infof("✅ Deep link parsed: internal=%s tailscale=%s masterKey=%s protocol=%s immediate=%v", internalHost, tailscaleHost, maskSensitiveToken(masterKey), protocol, immediate)
+	return internalHost, tailscaleHost, masterKey, protocol, quicPort, immediate, nil
 }
 
 // showConfirmDialog shows the connection confirmation dialog with an option to save
 // IMPORTANT: must be called from the UI thread (inside fyne.Do)
-func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tsMode TailscaleModeOverride, parent fyne.Window) {
+func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, masterKey, protocol string, quicPort int, parent fyne.Window) {
 	host := resolveDeepLinkHost(protocol, internalHost, tailscaleHost)
 	// Create a preview with the data
 	titleLabel := widget.NewLabelWithStyle(
@@ -184,7 +164,7 @@ func (h *DeepLinkHandler) showConfirmDialog(internalHost, tailscaleHost, masterK
 			d.Hide()
 		}
 		if h.onConnect != nil {
-			h.onConnect(host, masterKey, protocol, quicPort, false, tsMode)
+			h.onConnect(host, masterKey, protocol, quicPort, false)
 		}
 	})
 	connectBtn.Importance = widget.HighImportance

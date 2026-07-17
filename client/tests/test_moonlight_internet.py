@@ -8,7 +8,7 @@ Usage:
 
 The test:
   1. Clears logcat
-  2. Sends deep link with immediate=true, ts_mode=userspace
+  2. Sends deep link with immediate=true
   3. Waits for up to TIMEOUT seconds
   4. Reads logcat and checks for proxy startup + video success markers
   5. Exits 0 on success, 1 on failure with diagnostics
@@ -57,7 +57,7 @@ def clear_logcat():
     time.sleep(0.5)
 
 
-def send_deeplink(ts_host, key, ts_mode="userspace"):
+def send_deeplink(ts_host, key):
     # Force-stop first so getIntent() returns the new deep link (not the stale launch intent).
     adb("shell am force-stop com.usbridge.client")
     time.sleep(1.5)
@@ -67,7 +67,6 @@ def send_deeplink(ts_host, key, ts_mode="userspace"):
         f"?tailscale_host={ts_host}"
         f"&master_key={key}"
         f"&immediate=true"
-        f"&ts_mode={ts_mode}"
     )
     # Pass the entire am start command as one string to adb shell so Android's sh
     # sees the single quotes and treats & literally (not as a background operator).
@@ -162,16 +161,15 @@ def main():
     parser.add_argument("--ts-host", default=TAILSCALE_HOST, help="Tailscale IP of the server")
     parser.add_argument("--key",     default=MASTER_KEY,     help="Master key / API token")
     parser.add_argument("--timeout", type=int, default=TIMEOUT, help="Seconds to wait for result")
-    parser.add_argument("--ts-mode", default="userspace", choices=["userspace","kernel",""], help="ts_mode deep link param")
     args = parser.parse_args()
 
     print(f"🧪 Moonlight internet streaming test")
-    print(f"   Server : {args.ts_host}  mode={args.ts_mode}  timeout={args.timeout}s\n")
+    print(f"   Server : {args.ts_host}  timeout={args.timeout}s\n")
 
     check_device()
     clear_logcat()
     print(f"🔗 Sending deep link...")
-    send_deeplink(args.ts_host, args.key, args.ts_mode)
+    send_deeplink(args.ts_host, args.key)
 
     print(f"\n📋 Collecting logs for up to {args.timeout}s...\n")
     lines = collect_logcat(args.timeout)
