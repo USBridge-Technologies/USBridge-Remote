@@ -192,6 +192,8 @@ class MainActivity : GoNativeActivity() {
         registerReceiver(inputMethodReceiver, filter)
 
         gyroSensorManager.start()
+
+        clipboardManager.addPrimaryClipChangedListener { clipChangeCount++ }
     }
 
     private fun reportLanguage() {
@@ -778,5 +780,115 @@ class MainActivity : GoNativeActivity() {
     fun clearCapturedImage() {
         Log.i(TAG, "🗑️ [CAMERA-CLEAR] Clearing captured image data")
         capturedImageData = null
+    }
+
+    // ---- Clipboard bridge ----
+    // Called from Go via JNI, see internal/clipboard/backend_android.go.
+    // Note: since Android 10 (API 29) the platform blocks getPrimaryClip()
+    // for apps that aren't in the foreground (privacy restriction) — reads
+    // will just see an empty/unchanged clipboard while backgrounded, same as
+    // every other remote-clipboard app on Android.
+
+    private val clipboardManager: android.content.ClipboardManager by lazy {
+        getSystemService(android.content.ClipboardManager::class.java)
+    }
+
+    @Volatile private var clipChangeCount: Int = 0
+    @Volatile private var clipReadText: String = ""
+    @Volatile private var clipReadMime: String = ""
+    @Volatile private var clipReadName: String = ""
+    @Volatile private var clipReadFd: Int = -1
+
+    fun clipboardChangeCount(): Int = clipChangeCount
+
+    /**
+     * Resolves the current primary clip and returns "text"|"image"|"file"|
+     * "none". For image/file kinds, clipboardReadFd() returns a detached fd
+     * (transferred to native code, same detachFd() pattern as
+     * NbdBridge.handleActivityResult) that the Go side reads to EOF and
+     * closes; for text, clipboardReadText() carries it directly.
+     */
+    fun clipboardRead(): String {
+        return try {
+            val clip = clipboardManager.primaryClip
+            if (clip == null || clip.itemCount == 0) return "none"
+            val item = clip.getItemAt(0)
+            val uri = item.uri
+            if (uri != null) {
+                val mimeType = clip.description
+                    ?.takeIf { it.mimeTypeCount > 0 }
+                    ?.getMimeType(0)
+                    ?: contentResolver.getType(uri)
+                    ?: "application/octet-stream"
+                val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return "none"
+                clipReadFd = pfd.detachFd()
+                clipReadName = queryDisplayName(uri) ?: uri.lastPathSegment ?: "file"
+                clipReadMime = mimeType
+                return if (mimeType.startsWith("image/")) "image" else "file"
+            }
+            val text = item.coerceToText(this)?.toString()
+            if (!text.isNullOrEmpty()) {
+                clipReadText = text
+                return "text"
+            }
+            "none"
+        } catch (e: Exception) {
+            Log.e(TAG, "clipboardRead failed", e)
+            "none"
+        }
+    }
+
+    fun clipboardReadText(): String = clipReadText
+    fun clipboardReadMime(): String = clipReadMime
+    fun clipboardReadFileName(): String = clipReadName
+    fun clipboardReadFd(): Int = clipReadFd
+
+    fun clipboardSetText(text: String): Boolean {
+        return try {
+            clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("USBridge", text))
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "clipboardSetText failed", e)
+            false
+        }
+    }
+
+    /**
+     * path must already be a file under this app's cache dir (the Go
+     * clipboard backend writes the peer's bytes there first — see
+     * file_paths.xml's cache-path covering the whole cache dir). Exposing it
+     * as a content:// URI through the existing FileProvider lets Android
+     * automatically extend a read-permission grant to whichever app performs
+     * the paste (FileProvider's grantUriPermissions="true" in the manifest
+     * is what makes that automatic grant possible).
+     */
+    fun clipboardSetFile(path: String, mimeType: String): Boolean {
+        return try {
+            val file = java.io.File(path)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "com.usbridge.client.fileprovider", file
+            )
+            val clip = android.content.ClipData(
+                file.name,
+                arrayOf(mimeType),
+                android.content.ClipData.Item(uri)
+            )
+            clipboardManager.setPrimaryClip(clip)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "clipboardSetFile failed", e)
+            false
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        return try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 }

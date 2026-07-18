@@ -5,10 +5,12 @@
 <div align="center">
 
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/USBridge-Technologies/USBridge-Remote/releases)
-[![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#download)
-[![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#download)
-[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#download)
-[![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)](#download)
+[![Patreon](https://img.shields.io/badge/Patreon-Support_Us-F96854?logo=patreon&logoColor=white)](https://www.patreon.com/USBridge_Technologies)
+[![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#)
+[![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#)
+[![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)](#)
+[![iOS](https://img.shields.io/badge/iOS-000000?logo=apple&logoColor=white)](#)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/xqQ6ybkfWS)
 <a href="https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?logo=crowdsupply&logoColor=white" alt="Crowd Supply"></a>
 
@@ -113,5 +115,6 @@ Join our Discord to get the **Beta Tester** role, report bugs, and help me shape
 ## Links
 
 - 🌐 [Official Website](https://usbridge.io)
+- ❤️ [Patreon Page](https://www.patreon.com/USBridge_Technologies)
 - 🛒 [USBridge KVM 2.0 on Crowd Supply](https://crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 - 💬 [Discord](https://discord.com/invite/xqQ6ybkfWS)
