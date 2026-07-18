@@ -170,6 +170,18 @@ func writeText(text string) error {
 	return nil
 }
 
+// TODO(clipboard-windows-image): this only checks the registered "PNG"
+// format (Chromium-based apps, Photoshop, GIMP, current mspaint). Most other
+// Windows apps (WinForms/WPF, many screenshot tools, RDP, older Paint/
+// WordPad) put images on the clipboard as CF_DIB/CF_BITMAP instead, which
+// isn't checked here — copying an image from those apps is silently dropped
+// (ChangeStamp fires but Read returns ok=false). Confirmed by direct
+// experiment: `[System.Windows.Forms.Clipboard]::SetImage(...)` in
+// PowerShell is invisible to Read(). Fix: fall back to CF_DIB/CF_DIBV5,
+// reconstruct a BMP (prepend BITMAPFILEHEADER) and decode/re-encode to PNG
+// (e.g. golang.org/x/image/bmp + image/png) — mirrors the TIFF fallback in
+// backend_darwin.m's clipboard_get_image_png. Low priority: works fine for
+// this user today, not fixing now.
 func readImagePNG() ([]byte, bool) {
 	fmtID := pngFormat()
 	if fmtID == 0 || !isFormatAvailable(fmtID) {
@@ -197,6 +209,13 @@ func readImagePNG() ([]byte, bool) {
 	return buf, true
 }
 
+// TODO(clipboard-windows-image): only sets the "PNG" registered format, no
+// CF_DIB fallback. A picture synced in from a peer can't be pasted into
+// apps that don't understand the "PNG" format (older Paint, WordPad, etc).
+// Fix: also synthesize CF_DIB from the decoded PNG and set it alongside,
+// mirroring the TIFF write-back in backend_darwin.m's
+// clipboard_set_image_png. Low priority: works fine for this user today,
+// not fixing now.
 func writeImagePNG(data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("clipboard: empty image")
