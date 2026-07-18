@@ -17,7 +17,6 @@ const (
 	ConnectionProtocolDirect    = "direct"
 
 	VideoProtocolMoonlight = "moonlight"
-	VideoProtocolGStreamer = "gstreamer"
 )
 
 // AppConfig application configuration
@@ -48,7 +47,7 @@ type AppConfig struct {
 	VideoHost     string `json:"-"`
 	VideoBindHost string `json:"video_bind_host" mapstructure:"video_bind_host"`
 
-	// Video protocol (moonlight or gstreamer)
+	// Video protocol (always "moonlight")
 	VideoProtocol string `json:"video_protocol" mapstructure:"video_protocol"`
 
 	// Video UDP (new protocol)

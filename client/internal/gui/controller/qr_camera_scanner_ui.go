@@ -18,9 +18,10 @@ import (
 	"github.com/makiuchi-d/gozxing"
 )
 
-// Shared popup UI for the desktop QR camera scanner. Used by both the
-// gstreamer-based capture (macOS/Linux) and the Media Foundation-based
-// capture (Windows) — the layout has no platform-specific behavior.
+// Shared popup UI for the desktop QR camera scanner. Used by the V4L2-based
+// capture (Linux), AVFoundation-based capture (macOS), and the Media
+// Foundation-based capture (Windows) — the layout has no platform-specific
+// behavior.
 
 func showEmbeddedQRScannerPopup(parent fyne.Window, videoImg *canvas.Image, onClose func()) *widget.PopUp {
 	title := canvas.NewText("Scan device qr code", design.ColorTextLight)

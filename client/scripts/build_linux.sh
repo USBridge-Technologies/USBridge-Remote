@@ -4,12 +4,10 @@
 #
 # linuxdeploy bundles every shared library the binary directly links against
 # (libavcodec/libavutil/libswscale for Moonlight HW decode, libpulse, libopus,
-# libssl, libvulkan, the GStreamer core libs, ...) into the AppImage, so the
-# target machine needs no runtime packages installed for the default Moonlight
-# streaming path. The legacy RTP video mode's GStreamer *element plugins*
-# (libgstlibav.so etc.) are loaded via dlopen rather than linked, so they are
-# not picked up by this scan — that path still needs a system GStreamer
-# install (gstreamer1.0-plugins-{base,good,bad,ugly} gstreamer1.0-libav).
+# libssl, libvulkan, ...) into the AppImage, so the target machine needs no
+# runtime packages installed for the Moonlight streaming path. GStreamer is
+# not linked, imported, or bundled anywhere in this build — the QR camera
+# scanner reads /dev/videoN directly via V4L2 (v4l2camera_impl_linux.c).
 #
 # Build deps (install before running this script):
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
@@ -49,9 +47,6 @@ OUTPUT_PATH="$DIST_DIR/$EXE_NAME"
 
 mkdir -p "$DIST_DIR"
 rm -f "$OUTPUT_PATH"
-
-# go-gst (used for non-Moonlight RTP path) generates format-security warnings.
-export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 
 # Verify Moonlight HW decode build deps are present before spending time compiling.
 for pkg in libavcodec libavutil libswscale libpulse-simple; do
