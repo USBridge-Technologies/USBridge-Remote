@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 
 	"usbridge-client/internal/clipboard"
 )
@@ -99,7 +99,7 @@ func (cs *ClipboardSync) connectLoop(ctx context.Context) {
 	const maxBackoff = 30 * time.Second
 	for ctx.Err() == nil {
 		if err := cs.runOnce(ctx); err != nil {
-			log.Printf("[clipboard-sync] connection error: %v", err)
+			logrus.Errorf("[clipboard-sync] connection error: %v", err)
 		}
 		if ctx.Err() != nil {
 			return
@@ -114,6 +114,24 @@ func (cs *ClipboardSync) connectLoop(ctx context.Context) {
 			backoff = maxBackoff
 		}
 	}
+}
+
+// dialer builds a websocket.Dialer that routes through the same transport
+// c.client's regular HTTP calls use. This matters when the connection is
+// over Tailscale in userspace (tsnet) mode: tailscale addresses (100.x.x.x)
+// have no real OS-level route — only tsnet's in-process netstack knows how
+// to reach them — so a plain websocket.DefaultDialer (a bare OS dial) would
+// just hang. Reusing the *http.Transport's DialContext (already wired to
+// tsnet's dialer by TailscaleService.HTTPClient) makes the WS upgrade dial
+// exactly the way every other request to the agent already does.
+func (cs *ClipboardSync) dialer() *websocket.Dialer {
+	d := &websocket.Dialer{HandshakeTimeout: 45 * time.Second}
+	if cs.client != nil && cs.client.httpClient != nil {
+		if t, ok := cs.client.httpClient.Transport.(*http.Transport); ok && t.DialContext != nil {
+			d.NetDialContext = t.DialContext
+		}
+	}
+	return d
 }
 
 func (cs *ClipboardSync) wsURL() string {
@@ -140,7 +158,7 @@ func (cs *ClipboardSync) signedHeader(method, path string) http.Header {
 
 func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	header := cs.signedHeader("GET", "/api/clipboard/ws")
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, cs.wsURL(), header)
+	conn, _, err := cs.dialer().DialContext(ctx, cs.wsURL(), header)
 	if err != nil {
 		return err
 	}
@@ -176,11 +194,11 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 		}
 		event, err := cs.buildOutgoingEvent(ctx, content)
 		if err != nil {
-			log.Printf("[clipboard-sync] failed to prepare outgoing event: %v", err)
+			logrus.Errorf("[clipboard-sync] failed to prepare outgoing event: %v", err)
 			return
 		}
 		if err := safeWriteJSON(event); err != nil {
-			log.Printf("[clipboard-sync] push failed: %v", err)
+			logrus.Errorf("[clipboard-sync] push failed: %v", err)
 		}
 	})
 	defer func() {
@@ -194,7 +212,7 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 			return err
 		}
 		if err := cs.applyIncomingEvent(ctx, event); err != nil {
-			log.Printf("[clipboard-sync] apply failed kind=%s: %v", event.Kind, err)
+			logrus.Errorf("[clipboard-sync] apply failed kind=%s: %v", event.Kind, err)
 		}
 	}
 }
