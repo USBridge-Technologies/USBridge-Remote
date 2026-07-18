@@ -20,22 +20,13 @@ controls it exactly like it would a real USBridge device.
 
 ## Why
 
-- Tailscale is built in — system or userspace, agent registers itself on the
-  tailnet on boot. Connect direct on LAN or over Tailscale, nothing else in
-  between.
-- Sunshine does the capture/encode, bundled and auto-launched. The agent never
-  touches a video frame — it pairs with Sunshine's admin API and relays
-  Moonlight PINs.
-- API requests are HMAC-SHA256 signed over the master key, ±60s replay window
-  (pairing/health/QR endpoints are the only exceptions). The pairing handshake
-  itself is AES-256-GCM encrypted. Same scheme as the client and the hardware unit.
-- Native input injection: `SendInput` on Windows, `CGEvent`/Quartz on macOS,
-  direct injection on Linux.
-- On Linux, flipping Sunshine to KMS capture only needs one `pkexec` grant —
-  it sets `CAP_SYS_ADMIN` on the binary, persists across reboots, and the
-  portal permission dialog doesn't come back.
-- Control window shows LAN/Tailscale addresses, Sunshine health, permission
-  status, and Tailscale sign-in in one place.
+- **Built-in Tailscale**: system or userspace, agent registers itself on the tailnet on boot. Connect direct on LAN or over Tailscale, nothing else in between.
+- **Hardware-Accelerated Sunshine Streaming**: Sunshine does the capture and encoding, bundled and auto-launched. The agent leverages Vulkan/Metal for optimal performance. It pairs with Sunshine's admin API and relays Moonlight PINs flawlessly.
+- **Zero GStreamer & Zero Canvas**: We've completely removed legacy GStreamer processes and Canvas rendering loops, moving entirely to native APIs for maximum frame rates and zero latency.
+- **Bank-grade Security**: API requests are HMAC-SHA256 signed over the master key, ±60s replay window. The pairing handshake is AES-256-GCM encrypted. Same scheme as the client and the hardware unit.
+- **Native input injection**: `SendInput` on Windows, `CGEvent`/Quartz on macOS, direct injection on Linux.
+- **Wayland Native**: On Linux, flipping Sunshine to KMS capture only needs one `pkexec` grant — it sets `CAP_SYS_ADMIN` on the binary, persists across reboots, and the portal permission dialog doesn't come back.
+- **Unified Dashboard**: Control window shows LAN/Tailscale addresses, Sunshine health, permission status, and Tailscale sign-in in one place.
 
 ## Quick start
 

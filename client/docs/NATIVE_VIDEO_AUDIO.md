@@ -1,7 +1,7 @@
 # Native Hardware Video & Audio (Moonlight Mode)
 
 Moonlight streaming uses platform-native hardware APIs for zero-subprocess,
-zero-pipe video decode and audio output on every platform.
+zero-pipe video decode and audio output on every platform. We've completely removed GStreamer and Canvas, relying solely on hardware acceleration via Vulkan and Metal.
 
 ## Architecture
 
@@ -13,25 +13,25 @@ Sunshine (server) → H.264 RTP → moonlight-common-c
                           ┌─────────────▼────────────────┐
                           │   platform_dr_submit (CGO)   │
                           └─────────────┬────────────────┘
-                                        │ RGBA frame
+                                        │ GPU texture
                                   goVTFrame (Go callback)
                                         │
                              vtFrameCallback (Go func)
                                         │
-                                   Fyne canvas
+                           Vulkan / Metal Hardware Context
 
 Opus packets → ar_decode (C) → platform_ar_decode (CGO) → native audio API
 ```
 
 ## Per-platform implementation
 
-| Platform | Video decoder | Audio output | File |
+| Platform | Video decoder & Rendering | Audio output | File |
 |----------|--------------|--------------|------|
-| macOS | VideoToolbox `VTDecompressionSession` (GPU, Apple Silicon / Intel) | CoreAudio `AudioQueue` | `moonlight_cgo_apple.go` |
-| iOS | VideoToolbox (same as macOS) | CoreAudio `AudioQueue` | `moonlight_cgo_apple.go` |
-| Linux | libavcodec — auto-selects: `h264_vaapi` (Intel/AMD) → `h264_nvdec` (NVIDIA) → software | ALSA `snd_pcm_writei` | `moonlight_cgo_linux.go` |
-| Windows | libavcodec `h264_d3d11va` (DirectX 11) → software fallback | WASAPI `IAudioRenderClient` | `moonlight_cgo_windows.go` |
-| Android | `AMediaCodec` NDK (hardware H.264) | `AAudio` NDK (low-latency) | `moonlight_cgo_android.go` |
+| macOS | Metal + VideoToolbox `VTDecompressionSession` | CoreAudio `AudioQueue` | `moonlight_cgo_apple.go` |
+| iOS | Metal + VideoToolbox | CoreAudio `AudioQueue` | `moonlight_cgo_apple.go` |
+| Linux | Vulkan + libavcodec (`h264_vaapi` / `h264_nvdec`) | ALSA `snd_pcm_writei` | `moonlight_cgo_linux.go` |
+| Windows | Vulkan + libavcodec `h264_d3d11va` | WASAPI `IAudioRenderClient` | `moonlight_cgo_windows.go` |
+| Android | Vulkan + `AMediaCodec` NDK | `AAudio` NDK (low-latency) | `moonlight_cgo_android.go` |
 
 ## C interface (moonlight_cgo_shared.h)
 
@@ -51,9 +51,9 @@ The shared header provides: opus decoder, connection callbacks, `do_li_start/sto
 ## Build dependencies
 
 ### macOS / iOS
-No external dependencies — VideoToolbox and CoreAudio are Apple system frameworks.
+No external dependencies — Metal, VideoToolbox and CoreAudio are Apple system frameworks.
 ```
--framework VideoToolbox -framework CoreMedia -framework CoreFoundation
+-framework Metal -framework VideoToolbox -framework CoreMedia -framework CoreFoundation
 -framework CoreVideo -framework AudioToolbox
 ```
 
@@ -61,10 +61,10 @@ No external dependencies — VideoToolbox and CoreAudio are Apple system framewo
 Install at **build time** (headers) and **run time** (shared libs):
 ```bash
 # Build deps
-sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev
+sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libasound2-dev libvulkan-dev
 
 # Runtime (target machine)
-sudo apt-get install -y libavcodec60 libavutil58 libswscale7 libasound2
+sudo apt-get install -y libavcodec60 libavutil58 libswscale7 libasound2 libvulkan1
 
 # Optional hardware acceleration
 sudo apt-get install -y libva2 libva-drm2        # Intel/AMD VA-API
@@ -72,7 +72,7 @@ sudo apt-get install -y libva2 libva-drm2        # Intel/AMD VA-API
 ```
 
 ### Windows
-FFmpeg MinGW shared build (avcodec, avutil, swscale) + system WASAPI (no install needed).
+FFmpeg MinGW shared build (avcodec, avutil, swscale) + system WASAPI and Vulkan drivers.
 
 Download FFmpeg: https://github.com/BtbN/FFmpeg-Builds/releases  
 Pick: `ffmpeg-master-latest-win64-gpl-shared.zip`
@@ -84,27 +84,19 @@ scripts/build_windows.sh
 The build script copies `avcodec-*.dll`, `avutil-*.dll`, `swscale-*.dll` into `dist/windows/`.
 
 ### Android
-`AMediaCodec` and `AAudio` are part of the Android NDK — no extra packages needed.  
-Link flags: `-lmediandk -laaudio -landroid`
+`AMediaCodec` and `AAudio` are part of the Android NDK. Vulkan API is loaded dynamically.  
+Link flags: `-lmediandk -laaudio -landroid -lvulkan`
 
 Note: moonlight-common-c must be compiled for Android ARM64 (NDK toolchain).
 
-## Performance vs. old GStreamer path
+## Performance
 
-| Metric | Old (GStreamer subprocess) | New (native) |
-|--------|--------------------------|--------------|
-| Processes | 2 extra (video + audio) | 0 |
-| OS pipes | 2 | 0 |
-| IPC latency | ~1–5 ms/frame | 0 |
-| Video decode | GStreamer avdec_h264 (SW) or vtdec (macOS) | Hardware GPU always |
-| Audio | GStreamer autoaudiosink | Native API (CoreAudio / ALSA / WASAPI / AAudio) |
-| Startup time | ~500 ms (subprocess launch) | ~50 ms (codec open) |
-| CPU video (1080p30) | ~15–25% | <2% (GPU hardware) |
-
-## GStreamer still used for
-
-The legacy **RTP video mode** (non-Moonlight) still uses GStreamer:
-- `GStreamerService` in `internal/service/gstreamer_service*.go`
-- This receives raw H.264 RTP from the server's FFmpeg capture pipeline
-
-GStreamer is NOT required for Moonlight streaming on any platform.
+| Metric | New Native Pipeline (Vulkan/Metal) |
+|--------|------------------------------|
+| Processes | 0 extra processes |
+| OS pipes | 0 |
+| IPC latency | 0 ms |
+| Video decode | Hardware GPU always |
+| Audio | Native API (CoreAudio / ALSA / WASAPI / AAudio) |
+| Startup time | ~50 ms (codec open) |
+| CPU video (1080p30) | <2% (GPU hardware) |
