@@ -300,6 +300,18 @@ func parseURIList(data []byte) []FileItem {
 		if err != nil || u.Scheme != "file" {
 			continue
 		}
+		info, err := os.Stat(u.Path)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			data, err := tarDir(u.Path)
+			if err != nil {
+				continue
+			}
+			files = append(files, FileItem{Name: filepath.Base(u.Path), Data: data, IsDir: true})
+			continue
+		}
 		data, err := os.ReadFile(u.Path)
 		if err != nil {
 			continue
@@ -320,7 +332,11 @@ func buildURIList(files []FileItem) ([]byte, error) {
 	var b bytes.Buffer
 	for _, f := range files {
 		path := filepath.Join(dir, sanitizeFileName(f.Name))
-		if err := os.WriteFile(path, f.Data, 0o600); err != nil {
+		if f.IsDir {
+			if err := untarDir(f.Data, path); err != nil {
+				return nil, err
+			}
+		} else if err := os.WriteFile(path, f.Data, 0o600); err != nil {
 			return nil, err
 		}
 		u := url.URL{Scheme: "file", Path: path}

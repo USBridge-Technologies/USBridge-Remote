@@ -248,31 +248,33 @@ func writeImagePNG(data []byte) error {
 	return nil
 }
 
+// readFiles first collects the dropped paths under the clipboard lock, then
+// closes it before touching disk: reading file bytes (or taring a
+// directory) can take a while for a large payload, and holding OpenClipboard
+// for that whole time would make any concurrent Apply() from a peer's
+// incoming update lose the lock race and silently fail to apply.
 func readFiles() ([]FileItem, bool) {
 	if !isFormatAvailable(cfHDROP) {
 		return nil, false
 	}
-	if !openClipboard() {
-		return nil, false
-	}
-	defer closeClipboard()
-	h, _, _ := procGetClipboardData.Call(cfHDROP)
-	if h == 0 {
-		return nil, false
-	}
-	count, _, _ := procDragQueryFileW.Call(h, 0xFFFFFFFF, 0, 0)
-	if count == 0 {
+	paths := collectDroppedPaths()
+	if len(paths) == 0 {
 		return nil, false
 	}
 	var files []FileItem
-	for i := uintptr(0); i < count; i++ {
-		n, _, _ := procDragQueryFileW.Call(h, i, 0, 0)
-		if n == 0 {
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
 			continue
 		}
-		buf := make([]uint16, n+1)
-		procDragQueryFileW.Call(h, i, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-		path := windows.UTF16ToString(buf)
+		if info.IsDir() {
+			data, err := tarDir(path)
+			if err != nil {
+				continue
+			}
+			files = append(files, FileItem{Name: filepath.Base(path), Data: data, IsDir: true})
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -283,6 +285,32 @@ func readFiles() ([]FileItem, bool) {
 		return nil, false
 	}
 	return files, true
+}
+
+func collectDroppedPaths() []string {
+	if !openClipboard() {
+		return nil
+	}
+	defer closeClipboard()
+	h, _, _ := procGetClipboardData.Call(cfHDROP)
+	if h == 0 {
+		return nil
+	}
+	count, _, _ := procDragQueryFileW.Call(h, 0xFFFFFFFF, 0, 0)
+	if count == 0 {
+		return nil
+	}
+	paths := make([]string, 0, count)
+	for i := uintptr(0); i < count; i++ {
+		n, _, _ := procDragQueryFileW.Call(h, i, 0, 0)
+		if n == 0 {
+			continue
+		}
+		buf := make([]uint16, n+1)
+		procDragQueryFileW.Call(h, i, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		paths = append(paths, windows.UTF16ToString(buf))
+	}
+	return paths
 }
 
 // dropFilesHeader mirrors the Win32 DROPFILES struct: 20 bytes on both amd64
@@ -307,7 +335,11 @@ func writeFiles(items []FileItem) error {
 	paths := make([]string, 0, len(items))
 	for _, f := range items {
 		path := filepath.Join(dir, sanitizeFileName(f.Name))
-		if err := os.WriteFile(path, f.Data, 0o600); err != nil {
+		if f.IsDir {
+			if err := untarDir(f.Data, path); err != nil {
+				return err
+			}
+		} else if err := os.WriteFile(path, f.Data, 0o600); err != nil {
 			return err
 		}
 		paths = append(paths, path)

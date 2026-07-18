@@ -19,10 +19,13 @@ const (
 	KindFile  Kind = "file"
 )
 
-// FileItem is one file carried by a KindFile clipboard payload.
+// FileItem is one file (or directory) carried by a KindFile clipboard
+// payload. When IsDir is true, Data is a tar archive of the directory's
+// contents (see tarDir/untarDir) rather than a single file's raw bytes.
 type FileItem struct {
-	Name string
-	Data []byte
+	Name  string
+	Data  []byte
+	IsDir bool
 }
 
 // Content is a clipboard payload of exactly one kind.
@@ -66,6 +69,11 @@ func (c Content) Hash() string {
 	case KindFile:
 		for _, f := range c.Files {
 			h.Write([]byte(f.Name))
+			if f.IsDir {
+				h.Write([]byte{1})
+			} else {
+				h.Write([]byte{0})
+			}
 			h.Write(f.Data)
 		}
 	}
@@ -86,11 +94,12 @@ func (c Content) Empty() bool {
 	}
 }
 
-// EncodeFiles packs multiple files into a single blob for wire transfer — a
-// sequence of [4-byte name length][name][8-byte data length][data] — so a
-// multi-file clipboard copy (selecting several files in a file manager)
-// still moves as one blob over one blob-transfer request instead of needing
-// a blob ID per file.
+// EncodeFiles packs multiple files (and/or directories) into a single blob
+// for wire transfer — a sequence of [4-byte name length][name][1-byte
+// isDir][8-byte data length][data] — so a multi-file clipboard copy
+// (selecting several files in a file manager) still moves as one blob over
+// one blob-transfer request instead of needing a blob ID per file. For a
+// directory entry, data is a tar archive of its contents (see tarDir).
 func EncodeFiles(files []FileItem) []byte {
 	var buf bytes.Buffer
 	for _, f := range files {
@@ -99,6 +108,11 @@ func EncodeFiles(files []FileItem) []byte {
 		binary.BigEndian.PutUint32(nameLen[:], uint32(len(nameBytes)))
 		buf.Write(nameLen[:])
 		buf.Write(nameBytes)
+		if f.IsDir {
+			buf.WriteByte(1)
+		} else {
+			buf.WriteByte(0)
+		}
 		var dataLen [8]byte
 		binary.BigEndian.PutUint64(dataLen[:], uint64(len(f.Data)))
 		buf.Write(dataLen[:])
@@ -120,6 +134,10 @@ func DecodeFiles(data []byte) ([]FileItem, error) {
 		if _, err := io.ReadFull(r, nameBuf); err != nil {
 			return nil, fmt.Errorf("clipboard: decode file name: %w", err)
 		}
+		isDirByte, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("clipboard: decode file isDir flag: %w", err)
+		}
 		var dataLen [8]byte
 		if _, err := io.ReadFull(r, dataLen[:]); err != nil {
 			return nil, fmt.Errorf("clipboard: decode file data length: %w", err)
@@ -128,7 +146,7 @@ func DecodeFiles(data []byte) ([]FileItem, error) {
 		if _, err := io.ReadFull(r, dataBuf); err != nil {
 			return nil, fmt.Errorf("clipboard: decode file data: %w", err)
 		}
-		files = append(files, FileItem{Name: string(nameBuf), Data: dataBuf})
+		files = append(files, FileItem{Name: string(nameBuf), Data: dataBuf, IsDir: isDirByte == 1})
 	}
 	return files, nil
 }

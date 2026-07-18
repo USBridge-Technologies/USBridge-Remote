@@ -25,6 +25,14 @@ type Manager struct {
 	maxBytes int64
 	enabled  atomic.Bool
 
+	// backendMu serializes all access to backend. Run's poll goroutine reads
+	// it on a timer while Apply (driven by the transport's WS goroutine) can
+	// write to it at any moment; without this lock the two race on the native
+	// clipboard. On Windows in particular a racing OpenClipboard call loses
+	// and gives up after a short retry budget, so a concurrent Read() could
+	// silently fail an incoming Apply() and leave stale content in place.
+	backendMu sync.Mutex
+
 	mu              sync.Mutex
 	lastAppliedHash string
 	onLocalChange   func(Content)
@@ -64,13 +72,16 @@ func (m *Manager) Run(ctx context.Context) {
 			if !m.enabled.Load() {
 				continue
 			}
+			m.backendMu.Lock()
 			stamp, err := m.backend.ChangeStamp()
 			if err != nil || stamp == lastStamp {
+				m.backendMu.Unlock()
 				continue
 			}
 			lastStamp = stamp
 
 			content, ok, err := m.backend.Read()
+			m.backendMu.Unlock()
 			if err != nil {
 				log.Printf("[clipboard] read failed: %v", err)
 				continue
@@ -94,6 +105,24 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
+// Snapshot reads whatever is currently on the local clipboard right now,
+// bypassing the change-stamp tracking Run uses. Callers use this to resync a
+// peer immediately after a connection is (re)established: Run only pushes on
+// the *edge* of a detected change, so a local change that occurred (or that
+// failed to send) while no connection was up would otherwise never be
+// retried, since the poll loop already considers that change stamp "seen".
+// Returns ok=false if there's nothing worth sending (empty, unreadable, or
+// over the size cap).
+func (m *Manager) Snapshot() (Content, bool) {
+	m.backendMu.Lock()
+	content, ok, err := m.backend.Read()
+	m.backendMu.Unlock()
+	if err != nil || !ok || content.Empty() || content.Size() > m.maxBytes {
+		return Content{}, false
+	}
+	return content, true
+}
+
 // Apply writes remote content to the local clipboard, remembering its hash
 // so the poll loop above recognizes the resulting local change as its own
 // echo instead of bouncing it straight back to the sender.
@@ -105,5 +134,7 @@ func (m *Manager) Apply(content Content) error {
 	m.mu.Lock()
 	m.lastAppliedHash = hash
 	m.mu.Unlock()
+	m.backendMu.Lock()
+	defer m.backendMu.Unlock()
 	return m.backend.Write(content)
 }

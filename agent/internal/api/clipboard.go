@@ -230,10 +230,7 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Push local clipboard changes to this connection for as long as it's
-	// open; clear the callback on disconnect so a later local change with no
-	// connected peer doesn't try to write to a closed socket.
-	mgr.SetOnLocalChange(func(content clipboard.Content) {
+	pushLocal := func(content clipboard.Content) {
 		event := ClipboardEvent{Kind: string(content.Kind), Hash: content.Hash()}
 		switch content.Kind {
 		case clipboard.KindText:
@@ -266,8 +263,22 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 		if err := safeWriteJSON(event); err != nil {
 			log.Printf("[api] clipboard_ws push failed: %v", err)
 		}
-	})
+	}
+
+	// Push local clipboard changes to this connection for as long as it's
+	// open; clear the callback on disconnect so a later local change with no
+	// connected peer doesn't try to write to a closed socket.
+	mgr.SetOnLocalChange(pushLocal)
 	defer mgr.SetOnLocalChange(nil)
+
+	// mgr's poll loop only fires on the *edge* of a detected clipboard
+	// change, so a local change that happened (or that failed to send) while
+	// no client was connected would otherwise never be retried. Resync once
+	// up front on every fresh connection so the peer always converges to
+	// whatever is currently on the clipboard, not just future changes.
+	if content, ok := mgr.Snapshot(); ok {
+		pushLocal(content)
+	}
 
 	for {
 		var event ClipboardEvent

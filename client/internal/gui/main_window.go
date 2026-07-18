@@ -216,10 +216,14 @@ func (mw *MainWindow) startClipboardSync(client *api.USBClient) {
 		mw.clipboardSync = nil
 	}
 	if mw.config == nil || !mw.config.ClipboardSyncEnabled || client == nil {
+		logrus.Infof("[clipboard-sync] not starting: config=%v enabled=%v client=%v",
+			mw.config != nil, mw.config != nil && mw.config.ClipboardSyncEnabled, client != nil)
 		return
 	}
+	enabled := mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true)
+	logrus.Infof("[clipboard-sync] starting (user-toggle enabled=%v, max_bytes=%d)", enabled, mw.config.ClipboardMaxBytes)
 	manager := clipboard.NewManager(clipboard.NewBackend(mw.window), mw.config.ClipboardMaxBytes)
-	manager.SetEnabled(mw.app.Preferences().BoolWithFallback("clipboard_sync_enabled", true))
+	manager.SetEnabled(enabled)
 	mw.clipboardSync = api.NewClipboardSync(client, manager, mw.config.ClipboardMaxBytes)
 	mw.clipboardSync.Start()
 }

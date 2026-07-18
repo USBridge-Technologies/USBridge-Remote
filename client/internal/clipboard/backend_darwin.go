@@ -53,6 +53,18 @@ func (b *darwinBackend) Read() (Content, bool, error) {
 			}
 			path := C.GoString(cPath)
 			C.free(unsafe.Pointer(cPath))
+			info, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				tarData, err := tarDir(path)
+				if err != nil {
+					continue
+				}
+				files = append(files, FileItem{Name: filepath.Base(path), Data: tarData, IsDir: true})
+				continue
+			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				continue
@@ -114,7 +126,11 @@ func (b *darwinBackend) Write(content Content) error {
 		cPaths := make([]*C.char, len(content.Files))
 		for i, f := range content.Files {
 			path := filepath.Join(dir, sanitizeFileName(f.Name))
-			if err := os.WriteFile(path, f.Data, 0o600); err != nil {
+			if f.IsDir {
+				if err := untarDir(f.Data, path); err != nil {
+					return err
+				}
+			} else if err := os.WriteFile(path, f.Data, 0o600); err != nil {
 				return err
 			}
 			cPaths[i] = C.CString(path)

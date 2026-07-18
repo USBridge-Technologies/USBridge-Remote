@@ -158,10 +158,17 @@ func (cs *ClipboardSync) signedHeader(method, path string) http.Header {
 
 func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	header := cs.signedHeader("GET", "/api/clipboard/ws")
-	conn, _, err := cs.dialer().DialContext(ctx, cs.wsURL(), header)
+	logrus.Infof("[clipboard-sync] dialing %s", cs.wsURL())
+	conn, resp, err := cs.dialer().DialContext(ctx, cs.wsURL(), header)
 	if err != nil {
+		status := "n/a"
+		if resp != nil {
+			status = resp.Status
+		}
+		logrus.Errorf("[clipboard-sync] dial failed (http status=%s): %v", status, err)
 		return err
 	}
+	logrus.Infof("[clipboard-sync] connected")
 	defer conn.Close()
 
 	cs.mu.Lock()
@@ -188,7 +195,7 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 	}
 
 	var closed atomic.Bool
-	cs.manager.SetOnLocalChange(func(content clipboard.Content) {
+	pushLocal := func(content clipboard.Content) {
 		if closed.Load() {
 			return
 		}
@@ -199,18 +206,32 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 		}
 		if err := safeWriteJSON(event); err != nil {
 			logrus.Errorf("[clipboard-sync] push failed: %v", err)
+			return
 		}
-	})
+		logrus.Infof("[clipboard-sync] sent local %s change (size=%d)", event.Kind, event.Size)
+	}
+	cs.manager.SetOnLocalChange(pushLocal)
 	defer func() {
 		closed.Store(true)
 		cs.manager.SetOnLocalChange(nil)
 	}()
 
+	// Run's poll loop only fires on the *edge* of a detected clipboard
+	// change, so a local change that happened (or that failed to send) while
+	// this connection was down would otherwise never be retried. Resync once
+	// up front on every fresh connection so the peer always converges to
+	// whatever is currently on the clipboard, not just future changes.
+	if content, ok := cs.manager.Snapshot(); ok {
+		pushLocal(content)
+	}
+
 	for {
 		var event ClipboardEvent
 		if err := conn.ReadJSON(&event); err != nil {
+			logrus.Errorf("[clipboard-sync] read failed, reconnecting: %v", err)
 			return err
 		}
+		logrus.Infof("[clipboard-sync] received remote %s change (size=%d)", event.Kind, event.Size)
 		if err := cs.applyIncomingEvent(ctx, event); err != nil {
 			logrus.Errorf("[clipboard-sync] apply failed kind=%s: %v", event.Kind, err)
 		}
