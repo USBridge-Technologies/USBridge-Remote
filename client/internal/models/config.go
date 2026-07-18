@@ -74,6 +74,10 @@ type AppConfig struct {
 	WindowHeight int    `json:"window_height" mapstructure:"window_height"`
 	Theme        string `json:"theme" mapstructure:"theme"` // light, dark
 	LogLevel     string `json:"log_level" mapstructure:"log_level"`
+
+	// Clipboard sync (agent <-> client shared clipboard)
+	ClipboardSyncEnabled bool  `json:"clipboard_sync_enabled" mapstructure:"clipboard_sync_enabled"`
+	ClipboardMaxBytes    int64 `json:"clipboard_max_bytes" mapstructure:"clipboard_max_bytes"` // cap per image/file payload
 }
 
 // DefaultConfig returns the default configuration
@@ -127,6 +131,10 @@ func DefaultConfig() *AppConfig {
 		WindowHeight: 640,
 		Theme:        "light",
 		LogLevel:     "info",
+
+		// Clipboard sync
+		ClipboardSyncEnabled: true,
+		ClipboardMaxBytes:    200 * 1024 * 1024,
 	}
 }
 

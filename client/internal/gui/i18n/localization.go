@@ -320,6 +320,7 @@ type LocalizedStrings struct {
 	DeviceXInput              string // "XInput"
 	XInputIncompatibleWithHID string // error: XInput + keyboard/mouse
 	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
+	ClipboardSyncEnabled      string // "Shared Clipboard" (toggle clipboard sync with the agent)
 	EnableVSync               string // "VSync" (enable vsync for capture card)
 	MuteAudio                 string // "Mute Audio"
 	UnmuteAudio               string // "Unmute Audio"
@@ -696,6 +697,7 @@ func EN() *LocalizedStrings {
 		DeviceXInput:              "XInput",
 		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
 		ShowMouseCursor:           "Show Mouse",
+		ClipboardSyncEnabled:      "Shared Clipboard",
 		EnableVSync:               "VSync",
 		MuteAudio:                 "Mute Audio",
 		UnmuteAudio:               "Unmute Audio",
@@ -839,6 +841,7 @@ func ES() *LocalizedStrings {
 	locale.DeviceAbsoluteRight2 = "Abs D/2"
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
+	locale.ClipboardSyncEnabled = "Portapapeles compartido"
 	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Master Key:"
@@ -975,6 +978,7 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceGyroMouse = "ГіроМиша"
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
+	locale.ClipboardSyncEnabled = "Спільний буфер обміну"
 	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Master Key:"

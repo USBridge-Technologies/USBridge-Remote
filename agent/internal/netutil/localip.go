@@ -56,10 +56,47 @@ func interfacePriority(name string, flags net.Flags) int {
 }
 
 // PreferredIPv4 returns the IPv4 address most likely to be reachable from
-// another device on the same LAN — preferring real Ethernet/Wi-Fi adapters
-// over container bridges (docker0), VPN tunnels (tailscale0, utun*), and
-// other virtual interfaces. Returns "" if no usable address is found.
+// another device on the same LAN. It first asks the OS which local address
+// it would use to reach the public internet (routingTableIPv4) — that
+// reflects the machine's actual default route, so it's right even when
+// there are several "real-looking" adapters up at once (e.g. a disconnected
+// Ethernet port that's still administratively up, sorting alphabetically
+// ahead of the Wi-Fi adapter that's actually carrying traffic), a case the
+// name/prefix heuristic below can get wrong. Falls back to that heuristic
+// only if the routing-table lookup fails (fully offline, no default
+// route), which can still happen on a LAN-only network with no internet
+// egress.
 func PreferredIPv4() string {
+	if ip := routingTableIPv4(); ip != "" {
+		return ip
+	}
+	return preferredIPv4ByInterfaceHeuristic()
+}
+
+// routingTableIPv4 asks the kernel which local address it would pick to
+// reach the public internet, by "dialing" UDP to a well-known public IP —
+// this never actually sends a packet (UDP dial just performs a route
+// lookup) — and reading back the local endpoint the kernel chose. That
+// mirrors the machine's real default-route interface instead of guessing
+// from adapter names.
+func routingTableIPv4() string {
+	conn, err := net.Dial("udp4", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return ""
+	}
+	ip4 := addr.IP.To4()
+	if ip4 == nil || ip4.IsLoopback() || ip4.IsUnspecified() {
+		return ""
+	}
+	return ip4.String()
+}
+
+func preferredIPv4ByInterfaceHeuristic() string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""

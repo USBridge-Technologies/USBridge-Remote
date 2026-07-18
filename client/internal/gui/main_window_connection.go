@@ -841,6 +841,11 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.tailscalePollCancel = nil
 	}
 
+	if mw.clipboardSync != nil {
+		mw.clipboardSync.Stop()
+		mw.clipboardSync = nil
+	}
+
 	// 1. Immediately reset the state
 	mw.isConnected = false
 	mw.isStreaming = false
