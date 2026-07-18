@@ -257,6 +257,45 @@ func (b *linuxBackend) Read() (Content, bool, error) {
 	return Content{}, false, nil
 }
 
+// EnumerateFiles implements FileEnumerator: same text/uri-list fetch as
+// Read, but stops at os.Stat — no file bytes are read, so this is cheap
+// enough to call on every detected change.
+func (b *linuxBackend) EnumerateFiles() ([]FileSummary, bool) {
+	tool := detect()
+	if tool == nil || !tool.supportsMime() {
+		return nil, false
+	}
+	data, ok, _ := tool.getMime(context.Background(), mimeURIList)
+	if !ok {
+		return nil, false
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	var summaries []FileSummary
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		u, err := url.Parse(line)
+		if err != nil || u.Scheme != "file" {
+			continue
+		}
+		info, err := os.Stat(u.Path)
+		if err != nil {
+			continue
+		}
+		size := info.Size()
+		if info.IsDir() {
+			size = 0 // a real total would mean walking the tree — not cheap
+		}
+		summaries = append(summaries, FileSummary{Name: filepath.Base(u.Path), Size: size, IsDir: info.IsDir()})
+	}
+	if len(summaries) == 0 {
+		return nil, false
+	}
+	return summaries, true
+}
+
 func (b *linuxBackend) Write(content Content) error {
 	tool := detect()
 	if tool == nil {

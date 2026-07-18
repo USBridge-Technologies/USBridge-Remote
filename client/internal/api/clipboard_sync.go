@@ -27,14 +27,23 @@ import (
 // the payload moves separately via uploadBlob/downloadBlob so a large
 // transfer can never block a subsequent small clipboard-changed
 // notification behind it on this same connection.
+//
+// Pending==true marks a fast, best-effort pre-announcement sent the moment a
+// file/directory clipboard change is detected — before the (possibly slow,
+// for many/large files) local read+upload has even started. It carries no
+// Hash/BlobID (there's nothing to fetch yet) and must not be applied to the
+// local clipboard; the real event with a usable BlobID follows once the
+// transfer is ready.
 type ClipboardEvent struct {
-	Kind     string `json:"kind"`
-	Text     string `json:"text,omitempty"`
-	Hash     string `json:"hash"`
-	Size     int64  `json:"size,omitempty"`
-	FileName string `json:"file_name,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
-	BlobID   string `json:"blob_id,omitempty"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text,omitempty"`
+	Hash      string `json:"hash"`
+	Size      int64  `json:"size,omitempty"`
+	FileName  string `json:"file_name,omitempty"`
+	MimeType  string `json:"mime_type,omitempty"`
+	BlobID    string `json:"blob_id,omitempty"`
+	Pending   bool   `json:"pending,omitempty"`
+	FileCount int    `json:"file_count,omitempty"`
 }
 
 // ClipboardSync dials the paired agent's /api/clipboard/ws signaling channel
@@ -211,9 +220,24 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 		logrus.Infof("[clipboard-sync] sent local %s change (size=%d)", event.Kind, event.Size)
 	}
 	cs.manager.SetOnLocalChange(pushLocal)
+
+	pushPending := func(info clipboard.PendingInfo) {
+		if closed.Load() {
+			return
+		}
+		event := ClipboardEvent{Kind: string(info.Kind), Pending: true, FileCount: info.Count, Size: info.ApproxSize}
+		if err := safeWriteJSON(event); err != nil {
+			logrus.Errorf("[clipboard-sync] pending push failed: %v", err)
+			return
+		}
+		logrus.Infof("[clipboard-sync] sent local pending %s change (count=%d, approx_size=%d)", event.Kind, info.Count, info.ApproxSize)
+	}
+	cs.manager.SetOnLocalChangePending(pushPending)
+
 	defer func() {
 		closed.Store(true)
 		cs.manager.SetOnLocalChange(nil)
+		cs.manager.SetOnLocalChangePending(nil)
 	}()
 
 	// Run's poll loop only fires on the *edge* of a detected clipboard
@@ -230,6 +254,13 @@ func (cs *ClipboardSync) runOnce(ctx context.Context) error {
 		if err := conn.ReadJSON(&event); err != nil {
 			logrus.Errorf("[clipboard-sync] read failed, reconnecting: %v", err)
 			return err
+		}
+		if event.Pending {
+			// No BlobID yet — the peer is still reading/uploading. Nothing to
+			// apply; this exists purely so a UI hook can show "receiving N
+			// files..." instead of appearing to hang until the real event.
+			logrus.Infof("[clipboard-sync] remote is preparing %s change (count=%d, approx_size=%d)", event.Kind, event.FileCount, event.Size)
+			continue
 		}
 		logrus.Infof("[clipboard-sync] received remote %s change (size=%d)", event.Kind, event.Size)
 		if err := cs.applyIncomingEvent(ctx, event); err != nil {

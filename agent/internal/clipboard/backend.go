@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,26 @@ type Backend interface {
 	Write(content Content) error
 }
 
+// FileSummary is a cheap (no file-content read) description of one
+// clipboard file/directory entry — just a name, a best-effort size (0 for
+// directories, where computing a real total would mean walking them), and
+// whether it's a directory. Used only for the fast pre-announce below.
+type FileSummary struct {
+	Name  string
+	Size  int64
+	IsDir bool
+}
+
+// FileEnumerator is implemented by backends that can list what's currently
+// on the clipboard for a file/directory selection without reading any file
+// content — just paths and a cheap stat. Manager uses this, when available,
+// to fire a fast "N files incoming" signal the instant a change is detected,
+// well before the full Read() (which actually loads everything into memory,
+// and can take a while for many/large files) finishes.
+type FileEnumerator interface {
+	EnumerateFiles() (files []FileSummary, ok bool)
+}
+
 // sanitizeFileName strips path separators from a peer-supplied file name so
 // it can't escape the temp directory files are materialized into before
 // being registered on the native clipboard.
@@ -47,22 +68,41 @@ func sanitizeFileName(name string) string {
 	return string(out)
 }
 
+// zeroReader is an infinite stream of zero bytes, used to pad a tar entry
+// out to its declared size when the real source came up short mid-copy.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
+
 // tarDir archives the directory at path into an uncompressed tar stream
 // (Store, not Deflate — clipboard payloads are typically already-compressed
 // formats or short-lived, so spending CPU on compression isn't worth it),
 // preserving relative structure including empty subdirectories. Symlinks
 // are skipped rather than followed, so a folder copy can't be tricked into
 // pulling in an arbitrary target outside the copied tree.
+//
+// A single bad entry (locked Thumbs.db/desktop.ini, a permission error, a
+// OneDrive/cloud-placeholder file that fails to open) is skipped rather than
+// aborting the whole archive — real-world folders on Windows routinely
+// contain at least one such file, and dropping the entire folder copy over
+// one unreadable file inside it is worse than delivering everything else.
 func tarDir(root string) ([]byte, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			log.Printf("[clipboard] tarDir: skipping %s: %v", path, err)
+			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return err
+			log.Printf("[clipboard] tarDir: skipping %s: %v", path, err)
+			return nil
 		}
 		if rel == "." {
 			return nil
@@ -72,29 +112,49 @@ func tarDir(root string) ([]byte, error) {
 		}
 		hdr, err := tar.FileInfoHeader(info, "")
 		if err != nil {
-			return err
+			log.Printf("[clipboard] tarDir: skipping %s: %v", rel, err)
+			return nil
 		}
 		hdr.Name = filepath.ToSlash(rel)
 		if info.IsDir() {
 			hdr.Name += "/"
-			return tw.WriteHeader(hdr)
+			if err := tw.WriteHeader(hdr); err != nil {
+				log.Printf("[clipboard] tarDir: skipping dir %s: %v", rel, err)
+			}
+			return nil
 		}
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
 		f, err := os.Open(path)
 		if err != nil {
-			return err
+			log.Printf("[clipboard] tarDir: skipping %s: %v", rel, err)
+			return nil
 		}
 		defer f.Close()
-		_, err = io.Copy(tw, f)
-		return err
+		if err := tw.WriteHeader(hdr); err != nil {
+			log.Printf("[clipboard] tarDir: skipping %s: %v", rel, err)
+			return nil
+		}
+		// A tar entry's size is fixed by the header written above, so a
+		// short/failed read partway through can't just be logged and moved
+		// past — the writer would desync and corrupt every entry after this
+		// one. Pad out to the declared size instead, trading a truncated
+		// (zero-filled) tail in this one file for a structurally valid
+		// archive overall.
+		n, copyErr := io.CopyN(tw, f, hdr.Size)
+		if copyErr != nil && copyErr != io.EOF {
+			log.Printf("[clipboard] tarDir: %s: partial read (%d/%d bytes): %v", rel, n, hdr.Size, copyErr)
+		}
+		if n < hdr.Size {
+			if _, err := io.CopyN(tw, zeroReader{}, hdr.Size-n); err != nil {
+				log.Printf("[clipboard] tarDir: %s: pad failed: %v", rel, err)
+			}
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, err
+	if walkErr != nil {
+		return nil, walkErr
 	}
 	if err := tw.Close(); err != nil {
 		return nil, err

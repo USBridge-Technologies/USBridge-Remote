@@ -106,6 +106,36 @@ func (b *windowsBackend) Read() (Content, bool, error) {
 	return Content{}, false, nil
 }
 
+// EnumerateFiles implements FileEnumerator: same path collection as
+// readFiles, but stops at os.Stat — no file bytes are read and no directory
+// is tarred, so this is safe to call on every detected change regardless of
+// how large the selection is.
+func (b *windowsBackend) EnumerateFiles() ([]FileSummary, bool) {
+	if !isFormatAvailable(cfHDROP) {
+		return nil, false
+	}
+	paths := collectDroppedPaths()
+	if len(paths) == 0 {
+		return nil, false
+	}
+	summaries := make([]FileSummary, 0, len(paths))
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		size := info.Size()
+		if info.IsDir() {
+			size = 0 // a real total would mean walking the tree — not cheap
+		}
+		summaries = append(summaries, FileSummary{Name: filepath.Base(path), Size: size, IsDir: info.IsDir()})
+	}
+	if len(summaries) == 0 {
+		return nil, false
+	}
+	return summaries, true
+}
+
 func (b *windowsBackend) Write(content Content) error {
 	switch content.Kind {
 	case KindText:

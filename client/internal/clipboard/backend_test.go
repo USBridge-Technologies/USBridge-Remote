@@ -64,6 +64,35 @@ func TestTarUntarDirRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTarDirSkipsUnreadableEntry(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root: permission bits don't block reads")
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "good.txt"), []byte("readable"), 0o600); err != nil {
+		t.Fatalf("write good.txt: %v", err)
+	}
+	blockedPath := filepath.Join(src, "blocked.txt")
+	if err := os.WriteFile(blockedPath, []byte("locked"), 0o000); err != nil {
+		t.Fatalf("write blocked.txt: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(blockedPath, 0o600) })
+
+	archive, err := tarDir(src)
+	if err != nil {
+		t.Fatalf("tarDir: %v (a single unreadable file must not fail the whole folder)", err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "restored")
+	if err := untarDir(archive, dest); err != nil {
+		t.Fatalf("untarDir: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "good.txt"))
+	if err != nil || !bytes.Equal(got, []byte("readable")) {
+		t.Fatalf("good.txt should survive alongside a skipped sibling: data=%q err=%v", got, err)
+	}
+}
+
 func TestUntarDirRejectsPathTraversal(t *testing.T) {
 	// A hand-built tar with a "../escape" entry should never write outside
 	// destDir, even from a corrupt or hostile peer.

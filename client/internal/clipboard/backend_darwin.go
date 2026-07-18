@@ -96,6 +96,38 @@ func (b *darwinBackend) Read() (Content, bool, error) {
 	return Content{}, false, nil
 }
 
+// EnumerateFiles implements FileEnumerator: same pasteboard URL listing as
+// Read, but stops at os.Stat — no file bytes are read and no directory is
+// tarred, so this is cheap enough to call on every detected change.
+func (b *darwinBackend) EnumerateFiles() ([]FileSummary, bool) {
+	n := int(C.clipboard_get_file_count())
+	if n == 0 {
+		return nil, false
+	}
+	summaries := make([]FileSummary, 0, n)
+	for i := 0; i < n; i++ {
+		cPath := C.clipboard_get_file_path(C.int(i))
+		if cPath == nil {
+			continue
+		}
+		path := C.GoString(cPath)
+		C.free(unsafe.Pointer(cPath))
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		size := info.Size()
+		if info.IsDir() {
+			size = 0 // a real total would mean walking the tree — not cheap
+		}
+		summaries = append(summaries, FileSummary{Name: filepath.Base(path), Size: size, IsDir: info.IsDir()})
+	}
+	if len(summaries) == 0 {
+		return nil, false
+	}
+	return summaries, true
+}
+
 func (b *darwinBackend) Write(content Content) error {
 	switch content.Kind {
 	case KindText:

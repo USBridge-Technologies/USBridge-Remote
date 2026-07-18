@@ -57,6 +57,22 @@ func (f *fakeBackend) snapshot() clipboard.Content {
 	return f.content
 }
 
+// fakeFileEnumeratorBackend adds a canned FileEnumerator response on top of
+// fakeBackend, so tests can drive Manager's fast pre-announce path (Run only
+// calls EnumerateFiles when the concrete backend implements it — a plain
+// *fakeBackend doesn't).
+type fakeFileEnumeratorBackend struct {
+	fakeBackend
+	files []clipboard.FileSummary
+}
+
+func (f *fakeFileEnumeratorBackend) EnumerateFiles() ([]clipboard.FileSummary, bool) {
+	if len(f.files) == 0 {
+		return nil, false
+	}
+	return f.files, true
+}
+
 type stubInput struct{}
 
 func (stubInput) Key(uint8) error                          { return nil }
@@ -244,6 +260,48 @@ func TestClipboardWS_AgentToClient_Text(t *testing.T) {
 	event := client.recv(3 * time.Second)
 	if event.Kind != string(clipboard.KindText) || event.Text != "from-agent" {
 		t.Fatalf("unexpected event: %+v", event)
+	}
+}
+
+func TestClipboardWS_AgentToClient_FilePendingBeforeReal(t *testing.T) {
+	secret := []byte("test-master-key-clipboard")
+	backend := &fakeFileEnumeratorBackend{}
+	mgr := clipboard.NewManager(backend, 10*1024*1024)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go mgr.Run(ctx)
+
+	srv := NewServerWithAuth(&stubApp{clip: mgr}, secret, 0)
+	ts := httptest.NewServer(srv.Routes())
+	t.Cleanup(ts.Close)
+
+	client := dialTestClipboardClient(t, ts.URL, secret)
+	defer client.close()
+
+	backend.files = []clipboard.FileSummary{
+		{Name: "a.jpg", Size: 1_000_000},
+		{Name: "b.jpg", Size: 2_000_000},
+	}
+	backend.simulateLocalChange(clipboard.Content{
+		Kind:  clipboard.KindFile,
+		Files: []clipboard.FileItem{{Name: "a.jpg", Data: []byte("aaa")}, {Name: "b.jpg", Data: []byte("bbb")}},
+	})
+
+	pending := client.recv(3 * time.Second)
+	if !pending.Pending || pending.Kind != string(clipboard.KindFile) {
+		t.Fatalf("expected a pending pre-announce first, got: %+v", pending)
+	}
+	if pending.FileCount != 2 || pending.Size != 3_000_000 {
+		t.Fatalf("unexpected pending summary: count=%d size=%d", pending.FileCount, pending.Size)
+	}
+	if pending.BlobID != "" || pending.Hash != "" {
+		t.Fatalf("pending event must not carry a fetchable blob/hash: %+v", pending)
+	}
+
+	real := client.recv(3 * time.Second)
+	if real.Pending || real.Kind != string(clipboard.KindFile) || real.BlobID == "" {
+		t.Fatalf("expected the real event to follow with a usable BlobID, got: %+v", real)
 	}
 }
 

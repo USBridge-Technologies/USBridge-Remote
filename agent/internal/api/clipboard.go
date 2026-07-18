@@ -269,7 +269,19 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 	// open; clear the callback on disconnect so a later local change with no
 	// connected peer doesn't try to write to a closed socket.
 	mgr.SetOnLocalChange(pushLocal)
-	defer mgr.SetOnLocalChange(nil)
+
+	pushPending := func(info clipboard.PendingInfo) {
+		event := ClipboardEvent{Kind: string(info.Kind), Pending: true, FileCount: info.Count, Size: info.ApproxSize}
+		if err := safeWriteJSON(event); err != nil {
+			log.Printf("[api] clipboard_ws pending push failed: %v", err)
+		}
+	}
+	mgr.SetOnLocalChangePending(pushPending)
+
+	defer func() {
+		mgr.SetOnLocalChange(nil)
+		mgr.SetOnLocalChangePending(nil)
+	}()
 
 	// mgr's poll loop only fires on the *edge* of a detected clipboard
 	// change, so a local change that happened (or that failed to send) while
@@ -287,6 +299,13 @@ func (s *Server) clipboardWS(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[api] clipboard_ws read error: %v", err)
 			}
 			return
+		}
+		if event.Pending {
+			// No BlobID yet — the peer is still reading/uploading. Nothing to
+			// apply; this exists purely so a UI hook can show "receiving N
+			// files..." instead of appearing to hang until the real event.
+			log.Printf("[api] clipboard_ws remote is preparing %s change (count=%d, approx_size=%d)", event.Kind, event.FileCount, event.Size)
+			continue
 		}
 		if err := s.applyClipboardEvent(mgr, event); err != nil {
 			log.Printf("[api] clipboard_ws apply failed kind=%s: %v", event.Kind, err)

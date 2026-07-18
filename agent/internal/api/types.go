@@ -154,12 +154,23 @@ type ScreenSnapshot struct {
 // just BlobID + Size — the actual payload moves separately via
 // PUT/GET /api/clipboard/blob/{id} so a large transfer never blocks this
 // signaling channel behind it.
+//
+// Pending==true marks a fast, best-effort pre-announcement sent the moment a
+// file/directory clipboard change is detected — before the (possibly slow,
+// for many/large files) local read+upload has even started. It carries no
+// Hash/BlobID (there's nothing to fetch yet) and must not be applied to the
+// local clipboard; the real event with a usable BlobID follows once the
+// transfer is ready. Its only purpose is letting the peer react instantly
+// ("receiving N files...") instead of appearing to hang until the transfer
+// finishes.
 type ClipboardEvent struct {
-	Kind     string `json:"kind"` // "text" | "image" | "file"
-	Text     string `json:"text,omitempty"`
-	Hash     string `json:"hash"`
-	Size     int64  `json:"size,omitempty"`
-	FileName string `json:"file_name,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
-	BlobID   string `json:"blob_id,omitempty"`
+	Kind      string `json:"kind"` // "text" | "image" | "file"
+	Text      string `json:"text,omitempty"`
+	Hash      string `json:"hash"`
+	Size      int64  `json:"size,omitempty"`
+	FileName  string `json:"file_name,omitempty"`
+	MimeType  string `json:"mime_type,omitempty"`
+	BlobID    string `json:"blob_id,omitempty"`
+	Pending   bool   `json:"pending,omitempty"`
+	FileCount int    `json:"file_count,omitempty"`
 }

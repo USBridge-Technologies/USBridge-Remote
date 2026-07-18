@@ -33,9 +33,20 @@ type Manager struct {
 	// silently fail an incoming Apply() and leave stale content in place.
 	backendMu sync.Mutex
 
-	mu              sync.Mutex
-	lastAppliedHash string
-	onLocalChange   func(Content)
+	mu                   sync.Mutex
+	lastAppliedHash      string
+	onLocalChange        func(Content)
+	onLocalChangePending func(PendingInfo)
+}
+
+// PendingInfo is a cheap, best-effort summary of an in-progress local
+// clipboard change — sent via SetOnLocalChangePending before the (possibly
+// slow) full read has finished, purely so a peer can react instantly instead
+// of appearing to hang until the real transfer completes.
+type PendingInfo struct {
+	Kind       Kind
+	Count      int
+	ApproxSize int64
 }
 
 // NewManager wraps backend with change polling and loop prevention. Sync
@@ -59,6 +70,17 @@ func (m *Manager) SetOnLocalChange(fn func(Content)) {
 	m.mu.Unlock()
 }
 
+// SetOnLocalChangePending registers the callback invoked as soon as a local
+// file/directory clipboard change is detected, before Read() has actually
+// loaded its content — only backends implementing FileEnumerator support
+// this (see backend.go); on others it's simply never called. Same calling
+// convention as SetOnLocalChange: safe from another goroutine, nil to stop.
+func (m *Manager) SetOnLocalChangePending(fn func(PendingInfo)) {
+	m.mu.Lock()
+	m.onLocalChangePending = fn
+	m.mu.Unlock()
+}
+
 // Run polls until ctx is cancelled. Call it in its own goroutine.
 func (m *Manager) Run(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
@@ -78,6 +100,8 @@ func (m *Manager) Run(ctx context.Context) {
 				m.backendMu.Unlock()
 				continue
 			}
+
+			m.firePendingLocked()
 
 			content, ok, err := m.backend.Read()
 			m.backendMu.Unlock()
@@ -110,6 +134,31 @@ func (m *Manager) Run(ctx context.Context) {
 				cb(content)
 			}
 		}
+	}
+}
+
+// firePendingLocked calls the backend's cheap file enumeration (if it
+// supports one) and, if there's anything there, fires onLocalChangePending
+// with a summary. Called with backendMu already held, right after detecting
+// a changed stamp but before the (possibly slow) full Read().
+func (m *Manager) firePendingLocked() {
+	fe, ok := m.backend.(FileEnumerator)
+	if !ok {
+		return
+	}
+	files, ok := fe.EnumerateFiles()
+	if !ok || len(files) == 0 {
+		return
+	}
+	var total int64
+	for _, f := range files {
+		total += f.Size
+	}
+	m.mu.Lock()
+	cb := m.onLocalChangePending
+	m.mu.Unlock()
+	if cb != nil {
+		cb(PendingInfo{Kind: KindFile, Count: len(files), ApproxSize: total})
 	}
 }
 
