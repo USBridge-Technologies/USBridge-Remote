@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !android
 
 // V4L2-based desktop QR camera capture for Linux. Replaces the gstreamer
 // autovideosrc pipeline used previously so the Linux build doesn't need to

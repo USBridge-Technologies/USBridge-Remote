@@ -1,3 +1,5 @@
+//go:build linux && !android
+
 #ifndef USBRIDGE_V4L2CAMERA_IMPL_LINUX_H
 #define USBRIDGE_V4L2CAMERA_IMPL_LINUX_H
 

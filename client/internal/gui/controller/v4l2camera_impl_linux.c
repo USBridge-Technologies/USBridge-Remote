@@ -1,3 +1,5 @@
+//go:build linux && !android
+
 // Minimal V4L2 webcam capture used by the desktop QR scanner on Linux.
 // Replaces the previous gstreamer autovideosrc pipeline (qr_camera_scanner.go,
 // now removed) so the Linux build no longer needs to link or bundle
