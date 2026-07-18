@@ -803,15 +803,29 @@ class MainActivity : GoNativeActivity() {
 
     /**
      * Resolves the current primary clip and returns "text"|"image"|"file"|
-     * "none". For image/file kinds, clipboardReadFd() returns a detached fd
-     * (transferred to native code, same detachFd() pattern as
+     * "none"|"blocked". For image/file kinds, clipboardReadFd() returns a
+     * detached fd (transferred to native code, same detachFd() pattern as
      * NbdBridge.handleActivityResult) that the Go side reads to EOF and
      * closes; for text, clipboardReadText() carries it directly.
+     *
+     * "blocked" vs "none": Android 10+ returns a null primaryClip for any app
+     * that isn't currently focused, indistinguishable from a genuinely empty
+     * clipboard. clipChangeCount (see addPrimaryClipChangedListener above)
+     * still increments correctly while backgrounded though, so if Go treated
+     * a focus-gated null the same as "genuinely nothing to sync" it would
+     * mark that change-stamp as handled and never come back to it — the
+     * clipboard update that happened while USBridge was in the background
+     * would be lost for good instead of picked up next time it's read
+     * successfully. Reporting "blocked" instead lets the Go side (see
+     * manager.go's Run loop) treat this as a transient read failure and
+     * retry the same stamp later, instead of silently dropping it.
      */
     fun clipboardRead(): String {
         return try {
             val clip = clipboardManager.primaryClip
-            if (clip == null || clip.itemCount == 0) return "none"
+            if (clip == null || clip.itemCount == 0) {
+                return if (!hasWindowFocus()) "blocked" else "none"
+            }
             val item = clip.getItemAt(0)
             val uri = item.uri
             if (uri != null) {

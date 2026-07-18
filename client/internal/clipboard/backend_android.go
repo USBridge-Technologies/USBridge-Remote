@@ -164,13 +164,23 @@ func (b *androidBackend) ChangeStamp() (string, error) {
 
 // Read resolves the Android primary clip. Note: since Android 10 (API 29),
 // the platform blocks clipboard reads from apps that aren't in the
-// foreground for privacy reasons — clipboardRead() will report "none" (not
-// an error) while USBridge is backgrounded, same as every other remote-
-// clipboard app on Android. This is an OS restriction, not a bug here.
+// foreground for privacy reasons. clipboardRead() reports "blocked" for that
+// case specifically (as opposed to "none" for a genuinely empty clipboard),
+// which Read() surfaces as an error rather than ok=false: Manager.Run only
+// advances its change-stamp tracking past a stamp it got real content (or a
+// definitive "nothing here") for, so a "blocked" result here means the
+// caller retries this same stamp once USBridge is foregrounded again instead
+// of losing whatever changed while it was backgrounded.
 func (b *androidBackend) Read() (Content, bool, error) {
 	kind, err := b.callString("clipboardRead")
-	if err != nil || kind == "" || kind == "none" {
+	if err != nil {
 		return Content{}, false, err
+	}
+	if kind == "blocked" {
+		return Content{}, false, fmt.Errorf("clipboard: read blocked (app not focused)")
+	}
+	if kind == "" || kind == "none" {
+		return Content{}, false, nil
 	}
 
 	switch kind {
@@ -256,13 +266,26 @@ func (b *androidBackend) Write(content Content) error {
 		// Android apps only look at clip item 0 on paste anyway.
 		f := content.Files[0]
 		name := sanitizeFileName(f.Name)
+		var mimeType string
+		if f.IsDir {
+			// Android's ClipData/FileProvider model has no concept of "this
+			// URI is a directory" (that needs a SAF DocumentsProvider tree
+			// URI, a much larger integration) — so unlike the desktop
+			// backends, f.Data can't be untarred into a real folder here.
+			// Deliver it as a plain .tar the user can open/extract instead
+			// of silently mislabeling raw tar bytes as an extensionless
+			// application/octet-stream blob.
+			name += ".tar"
+			mimeType = "application/x-tar"
+		} else {
+			mimeType = mime.TypeByExtension(filepath.Ext(name))
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+		}
 		path, err := b.writeTempFile(name, f.Data)
 		if err != nil {
 			return err
-		}
-		mimeType := mime.TypeByExtension(filepath.Ext(name))
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
 		}
 		ok, err := b.callBoolFile(path, mimeType)
 		if err != nil {

@@ -78,14 +78,22 @@ func (m *Manager) Run(ctx context.Context) {
 				m.backendMu.Unlock()
 				continue
 			}
-			lastStamp = stamp
 
 			content, ok, err := m.backend.Read()
 			m.backendMu.Unlock()
 			if err != nil {
+				// Don't advance lastStamp: this stamp might not have been
+				// genuinely unreadable, just transiently so (e.g. Android
+				// blocks clipboard reads from backgrounded apps — see
+				// backend_android.go's "blocked" case). Retrying the same
+				// stamp next tick means a change that happened while
+				// unreadable eventually gets picked up instead of being
+				// silently lost until some later, unrelated change bumps
+				// the stamp again.
 				log.Printf("[clipboard] read failed: %v", err)
 				continue
 			}
+			lastStamp = stamp
 			if !ok || content.Empty() || content.Size() > m.maxBytes {
 				continue
 			}
