@@ -134,12 +134,20 @@ rm -f "$OUTPUT_APPIMAGE"
 # fix applied to the Sunshine fork's own release build, which hit the
 # identical "fusermount not found" failure).
 export APPIMAGE_EXTRACT_AND_RUN=1
+# --executable "sunshine" makes this pass re-scan sunshine's own dynamic deps
+# and bundle whatever it finds on *this* build machine -- including
+# libva.so*/libva-drm.so*, silently undoing the exclusion the fork's own CI
+# already applied (and re-seeded into AppDir/usr/lib above) specifically
+# because a mismatched bundled libva breaks VAAPI hardware encoding on the
+# end user's host. Exclude them here too so this pass can't reintroduce them.
 ARCH=x86_64 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/$EXE_NAME" \
     --executable "$APPDIR/usr/bin/sunshine" \
     --desktop-file "$APPDIR/$EXE_NAME.desktop" \
     --icon-file "$APPDIR/$EXE_NAME.png" \
+    --exclude-library="libva.so*" \
+    --exclude-library="libva-drm.so*" \
     --output appimage 2>&1
 
 # linuxdeploy writes the AppImage to cwd — move it to dist/
