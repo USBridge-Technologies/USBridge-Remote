@@ -22,6 +22,18 @@ const ipBoundIF = 25
 // (setsockopt IPPROTO_IP, 25) so traffic goes through the physical LAN
 // interface even when a VPN Network Extension is active and in a bad state.
 func buildDirectDialer(destHost string) *net.Dialer {
+	// Loopback destinations never go through a VPN Network Extension or
+	// physical interface in the first place, so IP_BOUND_IF has nothing to
+	// route around here -- and forcing one on breaks it outright: binding a
+	// loopback-destined socket to a physical LAN interface makes the kernel
+	// reject the connect with EADDRNOTAVAIL ("can't assign requested
+	// address"), since loopback traffic can't be routed out through a
+	// physical NIC. This is exactly what made "protocol=direct" connections
+	// to 127.0.0.1 fail unconditionally before this check existed.
+	if isLoopbackHost(destHost) {
+		return &net.Dialer{}
+	}
+
 	// Find the LAN interface (prefer the one whose subnet contains destHost).
 	ifaceIdx, ifaceName := findLANInterface(destHost)
 	if ifaceIdx < 0 {

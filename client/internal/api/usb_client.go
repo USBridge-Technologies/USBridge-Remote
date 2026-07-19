@@ -111,6 +111,29 @@ func NewDirectUSBClient(host string, port int, timeout int) *USBClient {
 	return NewUSBClientWithHTTPClient(host, port, timeout, client)
 }
 
+// isLoopbackHost reports whether destHost (an IP, optionally with a ":port"
+// suffix) is a loopback address. Loopback destinations never route through a
+// VPN/Tailscale interface, so the LAN-interface-pinning tricks in
+// buildDirectDialer/findLANSourceIP have nothing to route around for them --
+// applying those tricks anyway forces the socket onto a physical interface
+// that can't reach loopback at all, which fails outright (macOS: connect()
+// returns EADDRNOTAVAIL "can't assign requested address").
+func isLoopbackHost(destHost string) bool {
+	host := destHost
+	// destHost may or may not carry a port; net.SplitHostPort handles both
+	// "host:port" and bracketed IPv6 ("[::1]:port") correctly, unlike a naive
+	// strings.Split on ":" (which mis-splits any bare IPv6 address such as
+	// "::1" into empty/garbage segments).
+	if h, _, err := net.SplitHostPort(destHost); err == nil {
+		host = h
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // findLANSourceIP returns a local IPv4 address that can reach destHost directly
 // (not via Tailscale or other VPN). Prefers addresses in the same subnet.
 func findLANSourceIP(destHost string) net.IP {
