@@ -435,7 +435,15 @@ static int do_li_start(
     const unsigned char *rikey, int rikeyid, uintptr_t unused
 ) {
     (void)unused;
-    win_av_init();
+    // Do NOT call win_av_init() here: g_video_format at this point is
+    // whatever the *previous* session negotiated (there's nothing to reset
+    // it in between -- dr_cleanup()/dr_stop() are no-ops), so creating the
+    // decoder this early picks the wrong codec family whenever the user
+    // switches codec between sessions (e.g. HEVC -> H264). dr_setup() runs
+    // during LiStartConnection's stream init, before any decode units are
+    // submitted, and updates g_video_format with what was *actually*
+    // negotiated for this session; the lazy `if (!g_avctx) win_av_init();`
+    // in dr_submit() then creates the decoder against the correct format.
 
     SERVER_INFORMATION srv; LiInitializeServerInformation(&srv);
     srv.address = address; srv.serverInfoAppVersion = appVersion;
