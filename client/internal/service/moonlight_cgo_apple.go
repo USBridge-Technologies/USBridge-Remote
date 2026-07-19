@@ -17,6 +17,7 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+extern void goVideoFormatNegotiated(int videoFormat);
 
 // Metal overlay fast path (macOS: metal_video_darwin.go, iOS: metal_video_ios.go).
 extern int metal_video_try_submit(CVImageBufferRef img);

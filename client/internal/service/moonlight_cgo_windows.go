@@ -693,6 +693,11 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 }
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
+// NegotiatedVideoCodecName is not yet wired on Windows: dr_setup here
+// discards its videoFormat parameter instead of reporting it back to Go
+// (unlike the shared macOS/Linux dr_setup in moonlight_cgo_shared.h). Follow-up.
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) { return "", false }
+
 func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
 	if !liStartConnectionActive.Load() || len(text) == 0 {
 		return

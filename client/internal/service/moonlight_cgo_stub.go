@@ -31,6 +31,7 @@ func (w *MoonlightCgoWrapper) StopStream()                                      
 func (w *MoonlightCgoWrapper) SetAudioMuted(muted bool)                                   { w.audioMuted = muted }
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool                                        { return w.audioMuted }
 func (w *MoonlightCgoWrapper) IsInputActive() bool                                        { return false }
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool)                   { return "", false }
 func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {}
 func (w *MoonlightCgoWrapper) SendMoonlightMouseMove(dx, dy int16)                        {}
 func (w *MoonlightCgoWrapper) SendMoonlightMousePosition(x, y, refW, refH int16)          {}

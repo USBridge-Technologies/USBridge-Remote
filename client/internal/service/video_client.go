@@ -32,6 +32,12 @@ type VideoClient interface {
 	SetFPS(fps int)
 	SetBitrate(kbps int)
 
+	// NegotiatedVideoCodecName returns the codec the server actually
+	// negotiated for the current session (from moonlight-common-c's
+	// dr_setup callback), and whether a session has reported one yet.
+	// This reflects reality, not what was merely requested.
+	NegotiatedVideoCodecName() (string, bool)
+
 	SupportsNativeFullscreen() bool
 	IsNativeFullscreenActive() bool
 	StartNativeFullscreen() error

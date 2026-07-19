@@ -14,6 +14,7 @@
  *   extern void goMoonlightStage(int stage, int result, int errCode);
  *   extern void goMoonlightConnected(void);
  *   extern void goMoonlightTerminated(int errCode);
+ *   extern void goVideoFormatNegotiated(int videoFormat);
  */
 
 #pragma once
@@ -138,6 +139,7 @@ extern void platform_set_video_format(int videoFormat);
 static int  dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
     (void)ctx; (void)flags;
     platform_set_video_format(fmt);
+    goVideoFormatNegotiated(fmt);
     char buf[128];
     snprintf(buf, sizeof(buf), "dr_setup: negotiated fmt=0x%04X, %dx%d@%d", fmt, w, h, rate);
     goVTLog(buf);

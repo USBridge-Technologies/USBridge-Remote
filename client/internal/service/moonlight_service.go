@@ -585,6 +585,16 @@ func (m *MoonlightService) IsInputActive() bool {
 	return m.activeWrapper != nil && m.activeWrapper.IsInputActive()
 }
 
+// NegotiatedVideoCodecName returns the codec moonlight-common-c actually
+// negotiated with the server for the current session, straight from
+// dr_setup's NegotiatedVideoFormat — see MoonlightCgoWrapper.NegotiatedVideoCodecName.
+func (m *MoonlightService) NegotiatedVideoCodecName() (string, bool) {
+	if m.activeWrapper == nil {
+		return "", false
+	}
+	return m.activeWrapper.NegotiatedVideoCodecName()
+}
+
 func (m *MoonlightService) SendMoonlightUtf8Text(text string) {
 	if m.activeWrapper != nil {
 		m.activeWrapper.SendMoonlightUtf8Text(text)

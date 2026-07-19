@@ -40,6 +40,8 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+
+	"usbridge-client/internal/models"
 )
 
 // vtFrameCallback receives decoded RGBA frames from the hardware decoder.
@@ -50,6 +52,16 @@ var (
 )
 
 var liStartConnectionActive atomic.Bool
+
+// negotiatedVideoFormat holds the VIDEO_FORMAT_* value moonlight-common-c
+// reported via dr_setup(NegotiatedVideoFormat, ...) — the server's actual
+// codec choice for the current session, as opposed to what the client asked
+// for. -1 means "no session has reported a negotiated format yet".
+var negotiatedVideoFormat atomic.Int32
+
+func init() {
+	negotiatedVideoFormat.Store(-1)
+}
 
 var (
 	activeStreamDone    chan struct{}
@@ -342,7 +354,54 @@ func goMoonlightTerminated(errCode C.int) {
 	}
 	logrus.Errorf("🌕 [Moonlight] ❌ terminated: code=%d (%s)", int(errCode), reason)
 	activeStreamTermErr = fmt.Errorf("stream terminated: code=%d (%s)", int(errCode), reason)
+	// Clear the negotiated codec so a stale value from this session can't be
+	// shown as "currently active" once the stream has actually ended.
+	negotiatedVideoFormat.Store(-1)
 	closeActiveStreamDone()
+}
+
+// videoFormatCodecName maps a VIDEO_FORMAT_* bitmask (Limelight.h) to the
+// client's codec name constants ("h264"/"h265"/"av1"). Mirrors the bit
+// layout moonlightVideoFormat() in moonlight_service.go encodes, plus the
+// mask bits the platform CGO files already use to branch HEVC vs H264
+// (VIDEO_FORMAT_MASK_H265 = 0x0F00, VIDEO_FORMAT_MASK_AV1 = 0xF000).
+func videoFormatCodecName(format int32) (string, bool) {
+	switch {
+	case format < 0:
+		return "", false
+	case format&0x0F00 != 0:
+		return models.VideoModeH265, true
+	case format&0xF000 != 0:
+		return models.VideoModeAV1, true
+	case format&0x00FF != 0:
+		return models.VideoModeH264, true
+	default:
+		return "", false
+	}
+}
+
+//export goVideoFormatNegotiated
+func goVideoFormatNegotiated(format C.int) {
+	negotiatedVideoFormat.Store(int32(format))
+	name, ok := videoFormatCodecName(int32(format))
+	if !ok {
+		logrus.Warnf("🎬 [Moonlight/HW] negotiated video format: unrecognized 0x%04X", int(format))
+		return
+	}
+	logrus.Infof("🎬 [Moonlight/HW] negotiated video format: %s (0x%04X)", name, int(format))
+}
+
+// NegotiatedVideoCodecName returns the codec moonlight-common-c actually
+// negotiated with the server for the current session (from dr_setup's
+// NegotiatedVideoFormat), and whether a session has reported one yet. This
+// is the authoritative answer to "what codec is really streaming" — unlike
+// the client's requested mode or the agent's best-effort guess, it reflects
+// what the server actually accepted.
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) {
+	if !liStartConnectionActive.Load() {
+		return "", false
+	}
+	return videoFormatCodecName(negotiatedVideoFormat.Load())
 }
 
 //export goVTLog

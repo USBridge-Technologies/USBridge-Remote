@@ -57,6 +57,21 @@ type VideoStartDialog struct {
 	extraBtn  *widget.Button
 
 	onApply func(request *models.VideoStartRequest)
+
+	// liveCodecProvider, when set, returns the codec actually negotiated by
+	// the running Moonlight session (ok=false if no session is active). It
+	// is authoritative and takes priority over the agent's pre-connection
+	// guess in info.Encoding — see Configure().
+	liveCodecProvider func() (codec string, ok bool)
+}
+
+// SetLiveCodecProvider wires a callback that reports the codec truly
+// negotiated by the active Moonlight session (e.g.
+// service.VideoClient.NegotiatedVideoCodecName). Configure() prefers this
+// over the agent's best-effort guess whenever it reports a value, since it
+// reflects what the server actually accepted, not what was requested.
+func (vsd *VideoStartDialog) SetLiveCodecProvider(provider func() (string, bool)) {
+	vsd.liveCodecProvider = provider
 }
 
 type videoDialogButtonsLayout struct {
@@ -736,13 +751,28 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	}
 	vsd.updateResolutionMeta(hasMultipleFormats)
 
-	selectedMode := models.VideoModeH264
-	if info != nil && info.Mode != "" {
-		selectedMode = info.Mode
+	// Resolve which codec button should be preselected, in priority order:
+	//  1. The codec actually negotiated by a currently-running session — the
+	//     only fully authoritative source (from moonlight-common-c's
+	//     dr_setup, via liveCodecProvider).
+	//  2. The agent's best-effort guess from info.Encoding (NOT info.Mode,
+	//     which is a transport label like "moonlight", not a codec — using
+	//     it here previously meant this always fell through to the first
+	//     entry in the mode list, i.e. always H264).
+	//  3. H264 as the last-resort default.
+	selectedMode, source := "", "default"
+	if vsd.liveCodecProvider != nil {
+		if codec, ok := vsd.liveCodecProvider(); ok && codec != "" {
+			selectedMode, source = codec, "live-negotiated"
+		}
+	}
+	if selectedMode == "" && info != nil && info.Encoding != "" {
+		selectedMode, source = info.Encoding, "agent-hint"
 	}
 	if selectedMode == "" {
 		selectedMode = models.VideoModeH264
 	}
+	logrus.Infof("🎬 [VideoStartDialog] preselecting codec=%s (source=%s)", selectedMode, source)
 	vsd.refreshAvailableModes()
 	vsd.setSelectedModeID(selectedMode)
 
@@ -892,12 +922,14 @@ func (vsd *VideoStartDialog) setSelectedModeID(modeID string) {
 	}
 	if len(vsd.modeButtons) > 0 {
 		if _, ok := vsd.modeButtons[modeID]; !ok {
+			requested := modeID
 			for _, mode := range vsd.streamModes {
 				if _, exists := vsd.modeButtons[mode.ID]; exists {
 					modeID = mode.ID
 					break
 				}
 			}
+			logrus.Warnf("🎬 [VideoStartDialog] codec %q not offered by this device — falling back to %q", requested, modeID)
 		}
 	}
 	vsd.currentModeID = modeID

@@ -81,6 +81,12 @@ func (vw *VideoWidget) handleStartVideo() {
 				return
 			}
 			vw.startDialog = view.NewVideoStartDialog(vw.parentWindow)
+			vw.startDialog.SetLiveCodecProvider(func() (string, bool) {
+				if vw.videoClient == nil {
+					return "", false
+				}
+				return vw.videoClient.NegotiatedVideoCodecName()
+			})
 		}
 
 		preferredConfig, preferredErr := vw.resolvePreferredVideoConfig()

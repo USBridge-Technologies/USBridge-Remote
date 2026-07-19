@@ -686,6 +686,12 @@ func (w *MoonlightCgoWrapper) SetAudioMuted(m bool) {
 func (w *MoonlightCgoWrapper) GetAudioMuted() bool { return w.audioMuted }
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
+// NegotiatedVideoCodecName is not yet wired on Android: dr_setup here uses
+// its fmt parameter locally to pick the AMediaCodec MIME type but never
+// reports it back to Go (unlike the shared macOS/Linux dr_setup in
+// moonlight_cgo_shared.h). Follow-up.
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) { return "", false }
+
 func (w *MoonlightCgoWrapper) SendMoonlightKey(c int16, a, m int8) {
 	if liStartConnectionActive.Load() {
 		C.do_send_key(C.short(c), C.char(a), C.char(m))
