@@ -560,6 +560,25 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
+    // Whether dest falls within the local/prefixLength subnet of local --
+    // compares raw address bytes rather than using RouteInfo, so it isn't
+    // fooled by a default route (see bindSocketToBestNetwork above).
+    private fun isInSameSubnet(local: java.net.InetAddress, prefixLength: Int, dest: java.net.InetAddress): Boolean {
+        val a = local.address
+        val b = dest.address
+        if (a.size != b.size) return false
+        val fullBytes = prefixLength / 8
+        val remainingBits = prefixLength % 8
+        for (i in 0 until fullBytes) {
+            if (a[i] != b[i]) return false
+        }
+        if (remainingBits > 0 && fullBytes < a.size) {
+            val mask = (0xFF shl (8 - remainingBits)) and 0xFF
+            if ((a[fullBytes].toInt() and mask) != (b[fullBytes].toInt() and mask)) return false
+        }
+        return true
+    }
+
     fun requestLanguageReport() {
         runOnUiThread {
             reportLanguage()

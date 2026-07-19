@@ -50,6 +50,13 @@ extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stri
 static _Atomic int    g_li_active      = 0;
 static volatile int   g_audio_muted    = 0;
 static AAudioStream  *g_aa_stream      = NULL;
+// Sticks at AAUDIO_PERFORMANCE_MODE_NONE once ar_decode gives up on
+// LOW_LATENCY (see the XRun-at-capacity escalation below) so every
+// subsequent aaudio_open() -- including the ones triggered by write
+// errors/stuck-stream recovery elsewhere in this file -- keeps using the
+// mode that's actually sustainable on this device instead of reverting
+// back to the one that was causing continuous underruns.
+static aaudio_performance_mode_t g_aa_perf_mode = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
 static int            g_audio_channels = 2;
 static int            g_samples_per_frame = 240; // 5ms @ 48kHz default, overwritten by ar_init
 static OpusMSDecoder *g_opus_decoder   = NULL;
@@ -98,18 +105,19 @@ static void aaudio_open(int channels, int sample_rate) {
     AAudioStreamBuilder_setFormat(builder,          AAUDIO_FORMAT_PCM_I16);
     AAudioStreamBuilder_setChannelCount(builder,    channels);
     AAudioStreamBuilder_setSampleRate(builder,      (int32_t)sample_rate);
-    AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    AAudioStreamBuilder_setPerformanceMode(builder, g_aa_perf_mode);
     aaudio_result_t status = AAudioStreamBuilder_openStream(builder, &g_aa_stream);
     AAudioStreamBuilder_delete(builder);
     if (status == AAUDIO_OK) {
         int32_t burst = AAudioStream_getFramesPerBurst(g_aa_stream);
         // Set a larger initial buffer (e.g. 4x burst size) to prevent crackling
-        // (XRuns) during the first few seconds of connection before Android's 
+        // (XRuns) during the first few seconds of connection before Android's
         // internal adaptive buffer algorithm kicks in.
         AAudioStream_setBufferSizeInFrames(g_aa_stream, burst * 4);
-        
+
         AAudioStream_requestStart(g_aa_stream);
-        ALOGI("AAudio stream started: ch=%d rate=%d burst=%d", channels, sample_rate, burst);
+        ALOGI("AAudio stream started: ch=%d rate=%d burst=%d perf_mode=%d",
+              channels, sample_rate, burst, (int)g_aa_perf_mode);
     } else {
         ALOGE("AAudio openStream failed: %d", (int)status);
         g_aa_stream = NULL;
@@ -178,11 +186,39 @@ static void ar_decode(char *data, int len) {
     }
     if (g_audio_muted) memset(pcm, 0, (size_t)(samples * g_audio_channels * 2));
 
-    // Adaptive buffer size to prevent crackling (XRuns) during Wi-Fi lag
-    static int32_t s_previous_xruns = 0;
+    // Adaptive buffer size to prevent crackling (XRuns) during Wi-Fi lag.
+    //
+    // Growing the buffer on every XRun is a losing game if XRuns keep piling
+    // up regardless: on some devices/loads AAudio's own internal tuning walks
+    // the buffer size back down between our checks (observed via
+    // AAudioStream_getBufferSizeInFrames() never actually reading back as
+    // "stuck at capacity" even though the resize we issue is clearly not
+    // helping — it just re-grows to the same ceiling forever, logged on every
+    // single call). So detection here does NOT depend on the resize becoming
+    // a no-op; it tracks the XRun *rate* directly over a fixed window of
+    // decode calls (~1s of audio at typical 5ms Opus frames) and escalates
+    // once that rate crosses a threshold, however the buffer size happens to
+    // be reading at the time.
+    //
+    // Escalation drops from AAUDIO_PERFORMANCE_MODE_LOW_LATENCY (exclusive
+    // MMAP, tightest possible timing) to AAUDIO_PERFORMANCE_MODE_NONE (goes
+    // through AudioFlinger's mixer, far more forgiving of scheduling jitter)
+    // -- the standard Android fallback for exactly this case: LOW_LATENCY
+    // can't keep its deadline when the same cores are also busy with video
+    // decode + GL/Vulkan rendering. g_aa_perf_mode is process-global and only
+    // ever moves LOW_LATENCY -> NONE, never back, so this can fire at most
+    // once per app run: once we know LOW_LATENCY doesn't work on this device
+    // under real load, there's no reason to keep re-trying it every session.
+    #define AUDIO_XRUN_WINDOW_CALLS  200 // ~1s of audio at 5ms/frame
+    #define AUDIO_XRUN_WINDOW_LIMIT   20 // >10% of frames underrunning in that window
+    static int32_t s_previous_xruns      = 0;
+    static int      s_window_start_call  = 0;
+    static int      s_window_xruns       = 0;
     int32_t xruns = AAudioStream_getXRunCount(g_aa_stream);
     if (xruns > s_previous_xruns) {
         s_previous_xruns = xruns;
+        s_window_xruns++;
+
         int32_t current_size = AAudioStream_getBufferSizeInFrames(g_aa_stream);
         int32_t burst = AAudioStream_getFramesPerBurst(g_aa_stream);
         int32_t capacity = AAudioStream_getBufferCapacityInFrames(g_aa_stream);
@@ -190,8 +226,24 @@ static void ar_decode(char *data, int len) {
         if (new_size > capacity) new_size = capacity;
         if (new_size > current_size) {
             AAudioStream_setBufferSizeInFrames(g_aa_stream, new_size);
-            ALOGI("ar_decode: XRun detected (%d total), increased buffer to %d frames to prevent crackling", xruns, new_size);
+            ALOGI("ar_decode: XRun detected (%d total, %d in current window), increased buffer to %d frames to prevent crackling",
+                  xruns, s_window_xruns, new_size);
         }
+
+        if (s_window_xruns > AUDIO_XRUN_WINDOW_LIMIT && g_aa_perf_mode == AAUDIO_PERFORMANCE_MODE_LOW_LATENCY) {
+            ALOGE("ar_decode: %d XRuns in the last %d decode calls (buffer resizing isn't helping) — "
+                  "falling back to AAUDIO_PERFORMANCE_MODE_NONE", s_window_xruns, s_decode_calls - s_window_start_call);
+            g_aa_perf_mode = AAUDIO_PERFORMANCE_MODE_NONE;
+            int rate = AAudioStream_getSampleRate(g_aa_stream);
+            aaudio_open(g_audio_channels, rate);
+            s_previous_xruns = 0; // reset xrun tracker for the new stream
+            s_window_start_call = s_decode_calls;
+            s_window_xruns = 0;
+        }
+    }
+    if (s_decode_calls - s_window_start_call >= AUDIO_XRUN_WINDOW_CALLS) {
+        s_window_start_call = s_decode_calls;
+        s_window_xruns = 0;
     }
 
     // A single AAudioStream_write() call can return fewer frames than requested
