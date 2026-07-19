@@ -75,13 +75,13 @@ func (f *fakeFileEnumeratorBackend) EnumerateFiles() ([]clipboard.FileSummary, b
 
 type stubInput struct{}
 
-func (stubInput) Key(uint8) error                          { return nil }
-func (stubInput) Combo(uint8, uint8) error                  { return nil }
-func (stubInput) Text(string) error                         { return nil }
-func (stubInput) MouseMove(int8, int8) error                { return nil }
-func (stubInput) MouseClick(uint8) error                    { return nil }
-func (stubInput) MouseScroll(int8) error                    { return nil }
-func (stubInput) MouseAction(uint8, int8, int8, int8) error { return nil }
+func (stubInput) Key(uint8) error                                 { return nil }
+func (stubInput) Combo(uint8, uint8) error                        { return nil }
+func (stubInput) Text(string) error                               { return nil }
+func (stubInput) MouseMove(int8, int8) error                      { return nil }
+func (stubInput) MouseClick(uint8) error                          { return nil }
+func (stubInput) MouseScroll(int8) error                          { return nil }
+func (stubInput) MouseAction(uint8, int8, int8, int8) error       { return nil }
 func (stubInput) AbsoluteEvent(uint8, uint16, uint16, int8) error { return nil }
 
 type stubScreen struct{}
@@ -115,14 +115,15 @@ func (s *stubApp) Screen() interface {
 } {
 	return stubScreen{}
 }
-func (s *stubApp) VideoDevices() []VideoDeviceInfo               { return nil }
-func (s *stubApp) SunshineStreamHost() string                     { return "" }
-func (s *stubApp) SunshineAdminPort() int                         { return 0 }
-func (s *stubApp) CurrentVideoCodec() string                      { return "" }
-func (s *stubApp) AudioSinks() ([]AudioSink, error)               { return nil, nil }
-func (s *stubApp) CurrentAudioSink() (string, error)              { return "", nil }
-func (s *stubApp) SetAudioSink(string) error                      { return nil }
-func (s *stubApp) TailscaleStatus() *TailscaleStatusInfo          { return nil }
+func (s *stubApp) VideoDevices() []VideoDeviceInfo       { return nil }
+func (s *stubApp) SunshineStreamHost() string            { return "" }
+func (s *stubApp) SunshineAdminPort() int                { return 0 }
+func (s *stubApp) CurrentVideoCodec() string             { return "" }
+func (s *stubApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
+func (s *stubApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }
+func (s *stubApp) CurrentAudioSink() (string, error)     { return "", nil }
+func (s *stubApp) SetAudioSink(string) error             { return nil }
+func (s *stubApp) TailscaleStatus() *TailscaleStatusInfo { return nil }
 func (s *stubApp) RegisterTailscale(context.Context, string, string) (*TailscaleStatusInfo, error) {
 	return nil, nil
 }

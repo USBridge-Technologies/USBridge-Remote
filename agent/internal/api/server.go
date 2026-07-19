@@ -43,6 +43,9 @@ type Application interface {
 	// SunshineAdminPort returns the Sunshine web admin / NvHTTP port (default 47990).
 	SunshineAdminPort() int
 	CurrentVideoCodec() string
+	// SupportedVideoCodecs returns which of h264/h265/av1 the host's hardware
+	// encoder can actually produce right now (Sunshine's live capability probe).
+	SupportedVideoCodecs() []string
 	AudioSinks() ([]AudioSink, error)
 	CurrentAudioSink() (string, error)
 	SetAudioSink(sink string) error
@@ -618,15 +621,44 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 		"encoding":          s.app.CurrentVideoCodec(),
 		"streaming":         false,
 		"capture_modes":     modes,
-		"supported_modes": []map[string]string{
-			{"id": "h264", "name": "H.264", "description": "H.264 (AVC) Hardware Encoding", "transport": "rtp", "encoding": "h264"},
-			{"id": "h265", "name": "H.265", "description": "H.265 (HEVC) Hardware Encoding", "transport": "rtp", "encoding": "h265"},
-			{"id": "av1", "name": "AV1", "description": "AV1 Hardware Encoding", "transport": "rtp", "encoding": "av1"},
-		},
+		"supported_modes":   videoCodecModes(s.app.SupportedVideoCodecs()),
 		"available_devices": devices,
 		"moonlight_host":    moonlightHost,
 		"sunshine_port":     sunshinePort,
 	})
+}
+
+// videoCodecModeInfo holds the display metadata for each Moonlight-supported
+// codec; videoCodecModes filters this against what the host can actually
+// encode (from Application.SupportedVideoCodecs) so the client never offers
+// a codec the hardware can't produce — e.g. AV1 on GPUs without an AV1
+// encoder, which Sunshine's own capability probe reports as unsupported.
+var videoCodecModeInfo = []map[string]string{
+	{"id": "h264", "name": "H.264", "description": "H.264 (AVC) Hardware Encoding", "transport": "rtp", "encoding": "h264"},
+	{"id": "h265", "name": "H.265", "description": "H.265 (HEVC) Hardware Encoding", "transport": "rtp", "encoding": "h265"},
+	{"id": "av1", "name": "AV1", "description": "AV1 Hardware Encoding", "transport": "rtp", "encoding": "av1"},
+}
+
+func videoCodecModes(supported []string) []map[string]string {
+	supportedSet := make(map[string]bool, len(supported))
+	for _, codec := range supported {
+		supportedSet[codec] = true
+	}
+	modes := make([]map[string]string, 0, len(videoCodecModeInfo))
+	for _, mode := range videoCodecModeInfo {
+		if supportedSet[mode["encoding"]] {
+			modes = append(modes, mode)
+		}
+	}
+	if len(modes) == 0 {
+		// Never return an empty list — h264 is Sunshine's protocol-mandated
+		// baseline, so this only happens if the capability query itself
+		// failed in a way that still returned a codec list without h264 in
+		// it (shouldn't happen given SupportedVideoCodecs' own fallback, but
+		// guard the client's UI from an empty codec picker regardless).
+		modes = append(modes, videoCodecModeInfo[0])
+	}
+	return modes
 }
 
 func isLoopbackHost(host string) bool {

@@ -174,6 +174,7 @@ func (a *App) Run() error {
 	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
 
 	a.startSunshine()
+	go a.sunshineWatchdog(ctx)
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
@@ -207,6 +208,38 @@ func (a *App) startSunshine() {
 		log.Printf("[app] failed to start Sunshine: %v", err)
 	}
 	a.restartStreamProxy()
+}
+
+// sunshineWatchdogInterval is how often sunshineWatchdog re-checks that
+// Sunshine is still alive. Short enough to recover within a bounded time
+// after a crash, long enough that a spell of Sunshine being genuinely busy
+// (e.g. mid capability-probe on every new session negotiation) never looks
+// like a restart storm.
+const sunshineWatchdogInterval = 15 * time.Second
+
+// sunshineWatchdog periodically re-invokes startSunshine so a crashed
+// Sunshine process gets relaunched automatically instead of leaving
+// streaming broken until the agent itself is restarted. This matters
+// because Process.Start()'s "already running" fast path only reflects
+// reality once the exited process's Wait() goroutine has cleared p.cmd
+// (see sunshine.Process.Start) -- after that, calling startSunshine() again
+// here is what actually notices and relaunches it. startSunshine() itself
+// is always safe to call repeatedly: it no-ops whenever Sunshine (ours or
+// externally managed) is already reachable.
+func (a *App) sunshineWatchdog(ctx context.Context) {
+	if a.sunshine == nil {
+		return
+	}
+	ticker := time.NewTicker(sunshineWatchdogInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.startSunshine()
+		}
+	}
 }
 
 // isTsnetSelfIP reports whether host is the agent's own embedded tsnet
@@ -700,6 +733,17 @@ func (a *App) CurrentVideoCodec() string {
 		return a.sunshine.CurrentVideoCodec()
 	}
 	return "h264"
+}
+
+// SupportedVideoCodecs returns which of h264/h265/av1 this host's hardware
+// encoder can actually produce right now, per Sunshine's own live capability
+// probe (its /serverinfo ServerCodecModeSupport field) — not a static list.
+func (a *App) SupportedVideoCodecs() []string {
+	port := a.cfg.SunshinePort
+	if port == 0 {
+		port = 47990
+	}
+	return sunshine.SupportedVideoCodecs(port)
 }
 
 // UnpairSunshineClient removes the Moonlight client with the given UUID from

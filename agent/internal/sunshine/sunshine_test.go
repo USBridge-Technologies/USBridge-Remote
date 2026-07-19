@@ -1,10 +1,18 @@
 package sunshine
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // realSessionPreamble is the capability-probe phase Sunshine (itsme228/Sunshine
@@ -144,5 +152,190 @@ func TestCreatingEncoderCodec(t *testing.T) {
 		if codec != c.codec || ok != c.ok {
 			t.Errorf("creatingEncoderCodec(%q) = (%q, %v), want (%q, %v)", c.line, codec, ok, c.codec, c.ok)
 		}
+	}
+}
+
+// newServerInfoStub starts an httptest server that serves the given
+// ServerCodecModeSupport value at /serverinfo, exactly like Sunshine's
+// unauthenticated NvHTTP endpoint. Returns the adminPort to pass to
+// fetchSupportedVideoCodecs/SupportedVideoCodecs so nvhttpPort (adminPort-1)
+// resolves back to this stub.
+func newServerInfoStub(t *testing.T, codecModeSupport int) (adminPort int, closeFn func()) {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/serverinfo", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+  <hostname>test</hostname>
+  <appversion>1.0.0.0</appversion>
+  <GfeVersion>3.23.0.74</GfeVersion>
+  <uniqueid>test</uniqueid>
+  <mac>00:00:00:00:00:00</mac>
+  <ServerCodecModeSupport>%d</ServerCodecModeSupport>
+  <PairStatus>0</PairStatus>
+  <currentgame>0</currentgame>
+  <state>SUNSHINE_SERVER_FREE</state>
+</root>`, codecModeSupport)
+	})
+	srv := httptest.NewServer(mux)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse stub URL: %v", err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("parse stub port: %v", err)
+	}
+	// fetchSupportedVideoCodecs computes nvhttpPort = adminPort - 1, so give
+	// it adminPort = stub port + 1 to land back on the stub.
+	return port + 1, srv.Close
+}
+
+func TestFetchSupportedVideoCodecs(t *testing.T) {
+	cases := []struct {
+		name             string
+		codecModeSupport int
+		want             []string
+	}{
+		{"h264 only (this Mac's real AV1-unavailable flags)", scmH264 | scmHEVC, []string{"h264", "h265"}},
+		{"h264+hevc+av1, all supported", scmH264 | scmHEVC | scmAV1Main8, []string{"h264", "h265", "av1"}},
+		{"h264 only, no hevc no av1", scmH264, []string{"h264"}},
+		{"hevc main10 still counts as hevc support", scmH264 | scmHEVCMain10, []string{"h264", "h265"}},
+		{"av1 high10 444 still counts as av1 support", scmH264 | scmAV1High10444, []string{"h264", "av1"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			adminPort, closeFn := newServerInfoStub(t, c.codecModeSupport)
+			defer closeFn()
+
+			got := fetchSupportedVideoCodecs(adminPort)
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("fetchSupportedVideoCodecs() = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestFetchSupportedVideoCodecs_UnreachableFallsBackToH264Only(t *testing.T) {
+	// Nothing listening on this port.
+	got := fetchSupportedVideoCodecs(1)
+	if !reflect.DeepEqual(got, []string{"h264"}) {
+		t.Errorf("fetchSupportedVideoCodecs(unreachable) = %v, want [h264]", got)
+	}
+}
+
+func TestSupportedVideoCodecs_Caches(t *testing.T) {
+	supportedCodecsCache.mu.Lock()
+	supportedCodecsCache.codecs = nil
+	supportedCodecsCache.fetchedAt = time.Time{}
+	supportedCodecsCache.mu.Unlock()
+
+	calls := 0
+	adminPort, closeFn := newServerInfoStubCounting(t, scmH264|scmHEVC, &calls)
+	defer closeFn()
+
+	first := SupportedVideoCodecs(adminPort)
+	second := SupportedVideoCodecs(adminPort)
+
+	if !reflect.DeepEqual(first, second) {
+		t.Errorf("cached results differ: %v vs %v", first, second)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 HTTP call within the cache TTL, got %d", calls)
+	}
+}
+
+func newServerInfoStubCounting(t *testing.T, codecModeSupport int, calls *int) (adminPort int, closeFn func()) {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/serverinfo", func(w http.ResponseWriter, r *http.Request) {
+		*calls++
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<root><ServerCodecModeSupport>%d</ServerCodecModeSupport></root>`, codecModeSupport)
+	})
+	srv := httptest.NewServer(mux)
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse stub URL: %v", err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("parse stub port: %v", err)
+	}
+	return port + 1, srv.Close
+}
+
+// This is the exact bug behind "Sunshine crashed, and the popup/API just
+// silently stopped updating until the whole agent was restarted": Start()'s
+// "already running, no-op" fast path only reads p.cmd/p.cmd.Process, which
+// exec.Cmd never clears on its own when the OS process dies out from under
+// it. Nothing used to notice the child had exited, so a crashed Sunshine
+// (e.g. the ENet null-pointer-dereference in host_create — see
+// itsme228/Sunshine's network.cpp) stayed "believed alive" forever.
+func TestWatchProcessExit_ClearsCmdOnExit(t *testing.T) {
+	cmd := exec.Command("/bin/sh", "-c", "exit 1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start test process: %v", err)
+	}
+	p := &Process{cmd: cmd}
+	if !p.Running() {
+		t.Fatal("sanity check: Running() should be true immediately after Start()")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		p.watchProcessExit(cmd)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watchProcessExit did not return after the watched process exited")
+	}
+
+	if p.Running() {
+		t.Error("Running() should report false once the watched process has exited — this is what lets Start() relaunch a crashed Sunshine instead of believing it's still alive forever")
+	}
+}
+
+// A stale watcher for an OLD cmd (already replaced by Stop()+a fresh Start())
+// must not clobber the newer, still-running p.cmd.
+func TestWatchProcessExit_DoesNotClobberNewerCmd(t *testing.T) {
+	oldCmd := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := oldCmd.Start(); err != nil {
+		t.Fatalf("start old test process: %v", err)
+	}
+	newCmd := exec.Command("/bin/sh", "-c", "sleep 30")
+	if err := newCmd.Start(); err != nil {
+		t.Fatalf("start new test process: %v", err)
+	}
+	defer func() {
+		_ = newCmd.Process.Kill()
+		_, _ = newCmd.Process.Wait()
+	}()
+
+	p := &Process{cmd: newCmd} // simulates: oldCmd already replaced by a fresh Start()
+
+	done := make(chan struct{})
+	go func() {
+		p.watchProcessExit(oldCmd)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watchProcessExit(oldCmd) did not return")
+	}
+
+	p.mu.Lock()
+	got := p.cmd
+	p.mu.Unlock()
+	if got != newCmd {
+		t.Error("watchProcessExit for a stale/replaced cmd must not clear a newer p.cmd")
 	}
 }

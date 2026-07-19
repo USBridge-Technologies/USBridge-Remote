@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -466,6 +467,114 @@ func (p *Process) CurrentVideoCodec() string {
 	return "h264"
 }
 
+// Limelight.h SCM_* codec-mode-support bit flags (see moonlight-common-c's
+// Limelight.h, shared by every Moonlight-protocol client and server). Sunshine
+// reports these in /serverinfo's ServerCodecModeSupport field, computed live
+// per request by actually probing the host's hardware encoders — this is the
+// one source of truth for "which codecs can this machine actually encode
+// right now," as opposed to a client's request or a log-scraped guess.
+const (
+	scmH264          = 0x00000001
+	scmHEVC          = 0x00000100
+	scmHEVCMain10    = 0x00000200
+	scmAV1Main8      = 0x00010000
+	scmAV1Main10     = 0x00020000
+	scmH264High8444  = 0x00040000
+	scmHEVCRext8444  = 0x00080000
+	scmHEVCRext10444 = 0x00100000
+	scmAV1High8444   = 0x00200000
+	scmAV1High10444  = 0x00400000
+
+	scmMaskH264 = scmH264 | scmH264High8444
+	scmMaskHEVC = scmHEVC | scmHEVCMain10 | scmHEVCRext8444 | scmHEVCRext10444
+	scmMaskAV1  = scmAV1Main8 | scmAV1Main10 | scmAV1High8444 | scmAV1High10444
+)
+
+type serverInfoXML struct {
+	XMLName                xml.Name `xml:"root"`
+	ServerCodecModeSupport int      `xml:"ServerCodecModeSupport"`
+}
+
+// supportedCodecsCache memoizes SupportedVideoCodecs briefly: it's a live
+// network call to Sunshine, and hardware encoder capability can't change
+// while Sunshine keeps running, so re-querying on every video_info poll
+// would just be wasted round trips.
+var supportedCodecsCache struct {
+	mu        sync.Mutex
+	codecs    []string
+	fetchedAt time.Time
+}
+
+const supportedCodecsCacheTTL = 10 * time.Second
+
+// SupportedVideoCodecs queries Sunshine's own /serverinfo endpoint — the
+// standard, unauthenticated GameStream discovery response every Moonlight
+// client already reads ServerCodecModeSupport from — and decodes it into
+// which of h264/h265/av1 this host's hardware encoder can actually produce
+// right now. h264 is always included, both because Sunshine's protocol
+// always advertises SCM_H264 and as the safe fallback if the query fails
+// (Sunshine not up yet, port mismatch, etc.) — never silently offer h265/av1
+// as "supported" when we simply couldn't check.
+func SupportedVideoCodecs(adminPort int) []string {
+	supportedCodecsCache.mu.Lock()
+	if !supportedCodecsCache.fetchedAt.IsZero() && time.Since(supportedCodecsCache.fetchedAt) < supportedCodecsCacheTTL {
+		cached := supportedCodecsCache.codecs
+		supportedCodecsCache.mu.Unlock()
+		return cached
+	}
+	supportedCodecsCache.mu.Unlock()
+
+	codecs := fetchSupportedVideoCodecs(adminPort)
+
+	supportedCodecsCache.mu.Lock()
+	supportedCodecsCache.codecs = codecs
+	supportedCodecsCache.fetchedAt = time.Now()
+	supportedCodecsCache.mu.Unlock()
+	return codecs
+}
+
+func fetchSupportedVideoCodecs(adminPort int) []string {
+	fallback := []string{"h264"}
+	if adminPort <= 0 {
+		adminPort = 47990
+	}
+	// The plain NvHTTP port (unauthenticated /serverinfo, same one every
+	// Moonlight client falls back to) is the admin/web-UI port minus 1 — see
+	// UpdateSunshineStreamAddr's "webPort := streamPort + 1" in app.go.
+	nvhttpPort := adminPort - 1
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/serverinfo", nvhttpPort))
+	if err != nil {
+		log.Printf("[sunshine] serverinfo query failed (%v) — reporting h264-only", err)
+		return fallback
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[sunshine] serverinfo read failed (%v) — reporting h264-only", err)
+		return fallback
+	}
+
+	var info serverInfoXML
+	if err := xml.Unmarshal(body, &info); err != nil {
+		log.Printf("[sunshine] serverinfo parse failed (%v) — reporting h264-only", err)
+		return fallback
+	}
+
+	flags := info.ServerCodecModeSupport
+	codecs := []string{"h264"}
+	if flags&scmMaskHEVC != 0 {
+		codecs = append(codecs, "h265")
+	}
+	if flags&scmMaskAV1 != 0 {
+		codecs = append(codecs, "av1")
+	}
+	log.Printf("[sunshine] serverinfo codec support: flags=0x%08X -> %v", flags, codecs)
+	return codecs
+}
+
 // Start launches Sunshine if it isn't already running (by this Process, or
 // reachable on adminPort — e.g. a system-installed Sunshine service). No-op
 // if the launch path doesn't exist.
@@ -590,12 +699,29 @@ func (p *Process) Start(adminPort int) error {
 	p.cmd = cmd
 	log.Printf("[sunshine] started pid=%d launch=%s", cmd.Process.Pid, p.launchPath)
 	afterStart(p, cmd)
-	go func() {
-		err := cmd.Wait()
-		log.Printf("[sunshine] process exited: %v", err)
-	}()
+	go p.watchProcessExit(cmd)
 
 	return nil
+}
+
+// watchProcessExit blocks until cmd exits (however it exits — clean shutdown,
+// killed by Stop(), or a crash such as the ENet null-pointer-dereference bug
+// in Sunshine's host_create) and then clears p.cmd, so Start()'s "already
+// running, no-op" fast path stops believing a dead process is still alive.
+// Without this, a crashed Sunshine can only be recovered by restarting the
+// whole agent, since nothing else ever notices the child died.
+//
+// Only clears p.cmd if it's still THIS cmd: a concurrent Stop() or a newer
+// Start() may have already replaced it with a different process, and this
+// stale watcher must not clobber that.
+func (p *Process) watchProcessExit(cmd *exec.Cmd) {
+	err := cmd.Wait()
+	log.Printf("[sunshine] process exited: %v", err)
+	p.mu.Lock()
+	if p.cmd == cmd {
+		p.cmd = nil
+	}
+	p.mu.Unlock()
 }
 
 // Stop terminates a Sunshine instance started by this Process. No-op if not
