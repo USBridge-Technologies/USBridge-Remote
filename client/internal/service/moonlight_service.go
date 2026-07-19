@@ -415,6 +415,16 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		width, height, fps, bitrate,
 		pipeWrite, audioPipeWrite,
 		func(cgoErr error) {
+			// The tsnet proxy (if any) belongs to this specific connection
+			// attempt. Whatever ends the stream — a clean stop or a mid-stream
+			// C error like a failed RTSP handshake — this callback is the one
+			// place guaranteed to fire for every path (vtPath and not), so it
+			// owns the proxy teardown. Leaving it running past this point just
+			// leaks its bound UDP port (127.0.0.1:47999), which fails the next
+			// reconnect's proxy bind with "address already in use" and forces
+			// it onto the unreliable direct-Tailscale-IP fallback instead.
+			m.stopActiveProxy()
+
 			if cgoErr != nil {
 				logrus.Errorf("🌕 [Moonlight/CGO] stream error: %v", cgoErr)
 				if m.onError != nil {
@@ -473,6 +483,20 @@ func (m *MoonlightService) ConnectToUDPViaPipe(pipeReader *os.File) error {
 	return fmt.Errorf("ConnectToUDPViaPipe not supported by MoonlightService")
 }
 
+// stopActiveProxy stops and clears the tsnet proxy for the current connection
+// attempt, if one is active. Safe to call multiple times (e.g. once from the
+// stream-end callback and again from a later Disconnect()) since it's a no-op
+// once m.stopMoonlightProxy has already been cleared.
+func (m *MoonlightService) stopActiveProxy() {
+	m.mu.Lock()
+	stopProxy := m.stopMoonlightProxy
+	m.stopMoonlightProxy = nil
+	m.mu.Unlock()
+	if stopProxy != nil {
+		stopProxy()
+	}
+}
+
 func (m *MoonlightService) Disconnect() error {
 	logrus.Info("🌕 Moonlight protocol: Disconnect called")
 
@@ -496,10 +520,9 @@ func (m *MoonlightService) Disconnect() error {
 
 	stopCh := m.stopPlayerCh
 	m.stopPlayerCh = nil
-
-	stopProxy := m.stopMoonlightProxy
-	m.stopMoonlightProxy = nil
 	m.mu.Unlock()
+
+	m.stopActiveProxy()
 
 	// LiStopConnection interrupts the LiStartConnection goroutine; the stream's
 	// completion callback (registered in StartStream) then reports "disconnected".
@@ -511,9 +534,6 @@ func (m *MoonlightService) Disconnect() error {
 
 	if stopCh != nil {
 		close(stopCh)
-	}
-	if stopProxy != nil {
-		stopProxy()
 	}
 	if m.onStateChanged != nil {
 		m.onStateChanged("disconnected")
