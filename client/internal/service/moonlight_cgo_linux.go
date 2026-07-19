@@ -133,6 +133,16 @@ static int                g_av_h         = 0;
 static pthread_mutex_t    g_av_mu        = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t           g_av_frame_cnt = 0;
 
+// Codec negotiated by moonlight-common-c for the current session, set by
+// platform_set_video_format (called from dr_setup with NegotiatedVideoFormat).
+// VIDEO_FORMAT_* bitmask from Limelight.h: 0x0001=H264, 0x0100=H265/HEVC,
+// 0x1000=AV1_MAIN8. linux_av_init() reads this to pick a matching decoder --
+// it used to be ignored entirely (avcodec_find_decoder_by_name only ever
+// tried h264_vaapi/h264_nvdec, hardcoded AV_CODEC_ID_H264 as the software
+// fallback), so an HEVC/AV1 session got HEVC/AV1 bitstream fed into an H264
+// decoder and silently produced no frames.
+static int g_video_format = 0x0001;
+
 static enum AVPixelFormat av_get_hw_format_cb(AVCodecContext *ctx,
                                                const enum AVPixelFormat *fmts) {
     (void)ctx;
@@ -169,9 +179,22 @@ static const AVCodec *try_hw_decoder(const char *name,
 static void linux_av_init(void) {
     if (g_avctx) return;
 
-    static const struct { const char *name; enum AVHWDeviceType type; enum AVPixelFormat fmt; } hw[] = {
-        { "h264_vaapi", AV_HWDEVICE_TYPE_VAAPI, AV_PIX_FMT_VAAPI },
-        { "h264_nvdec", AV_HWDEVICE_TYPE_CUDA,  AV_PIX_FMT_CUDA  },
+    // Pick the decoder family to match what was actually negotiated for
+    // this session (g_video_format, set by platform_set_video_format).
+    const char *hw_vaapi_name, *hw_nvdec_name;
+    enum AVCodecID sw_id;
+    const char *codec_label;
+    if (g_video_format & 0x0F00) { // VIDEO_FORMAT_MASK_H265
+        hw_vaapi_name = "hevc_vaapi"; hw_nvdec_name = "hevc_nvdec"; sw_id = AV_CODEC_ID_HEVC; codec_label = "hevc";
+    } else if (g_video_format & 0xF000) { // VIDEO_FORMAT_MASK_AV1
+        hw_vaapi_name = "av1_vaapi"; hw_nvdec_name = "av1_nvdec"; sw_id = AV_CODEC_ID_AV1; codec_label = "av1";
+    } else {
+        hw_vaapi_name = "h264_vaapi"; hw_nvdec_name = "h264_nvdec"; sw_id = AV_CODEC_ID_H264; codec_label = "h264";
+    }
+
+    const struct { const char *name; enum AVHWDeviceType type; enum AVPixelFormat fmt; } hw[] = {
+        { hw_vaapi_name, AV_HWDEVICE_TYPE_VAAPI, AV_PIX_FMT_VAAPI },
+        { hw_nvdec_name, AV_HWDEVICE_TYPE_CUDA,  AV_PIX_FMT_CUDA  },
     };
 
     const AVCodec *codec = NULL;
@@ -186,9 +209,17 @@ static void linux_av_init(void) {
         }
     }
     if (!codec) {
-        codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        codec = avcodec_find_decoder(sw_id);
         g_hw_pix_fmt = AV_PIX_FMT_NONE;
-        goVTLog((char*)"libavcodec: h264 software fallback (no VA-API/NVDEC found)");
+        char msg[80];
+        snprintf(msg, sizeof(msg), "libavcodec: %s software fallback (no VA-API/NVDEC found)", codec_label);
+        goVTLog(msg);
+    }
+    if (!codec) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "libavcodec: no decoder available for %s", codec_label);
+        goVTLog(msg);
+        return;
     }
 
     g_avctx = avcodec_alloc_context3(codec);
@@ -251,9 +282,13 @@ static void deliver_frame(AVFrame *frame) {
 // platform_post_stop: no session state to tear down on Linux.
 void platform_post_stop(void) {}
 
-// platform_set_video_format: libavcodec auto-detects the codec from the
-// H.264/HEVC bitstream, so there's nothing to configure here.
-void platform_set_video_format(int videoFormat) { (void)videoFormat; }
+// platform_set_video_format records the negotiated codec so linux_av_init()
+// can pick a matching decoder (see g_video_format's comment above) --
+// libavcodec's decoder selection here is by explicit codec name/ID, not
+// bitstream auto-detection, so this can't be skipped.
+void platform_set_video_format(int videoFormat) {
+    g_video_format = videoFormat ? videoFormat : 0x0001;
+}
 
 int platform_dr_submit(PDECODE_UNIT du) {
     pthread_mutex_lock(&g_av_mu);

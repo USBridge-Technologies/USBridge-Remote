@@ -33,6 +33,7 @@ extern void goMoonlightConnected(void);
 extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
+extern void goVideoFormatNegotiated(int videoFormat);
 
 // Native overlay fast paths.
 // Vulkan (vk_video_impl_windows.c) — preferred, RGBA format.
@@ -253,6 +254,15 @@ static CRITICAL_SECTION   g_av_cs;
 static int                g_av_cs_init  = 0;
 static uint64_t           g_av_frame_cnt = 0;
 
+// Codec negotiated by moonlight-common-c for the current session (set in
+// dr_setup from its NegotiatedVideoFormat param). VIDEO_FORMAT_* bitmask
+// from Limelight.h: 0x0001=H264, 0x0100=H265/HEVC, 0x1000=AV1_MAIN8.
+// win_av_init() reads this to pick a matching decoder -- without it, every
+// session decoded as H264 regardless of what was actually negotiated, which
+// silently breaks HEVC/AV1 sessions (the decoder rejects bitstream it can't
+// parse as H264).
+static int g_video_format = 0x0001;
+
 static enum AVPixelFormat win_get_hw_format(AVCodecContext *ctx,
                                              const enum AVPixelFormat *fmts) {
     (void)ctx;
@@ -266,10 +276,25 @@ static void win_av_init(void) {
     if (!g_av_cs_init) { InitializeCriticalSection(&g_av_cs); g_av_cs_init = 1; }
     if (g_avctx) return;
 
+    // Pick the decoder family to match what was actually negotiated for this
+    // session (g_video_format, set by dr_setup) -- previously this always
+    // picked H264 unconditionally, so an HEVC/AV1 session fed HEVC/AV1
+    // bitstream into an H264 decoder and silently failed to produce frames.
+    const char *hw_name;
+    enum AVCodecID sw_id;
+    const char *codec_label;
+    if (g_video_format & 0x0F00) { // VIDEO_FORMAT_MASK_H265
+        hw_name = "hevc_d3d11va"; sw_id = AV_CODEC_ID_HEVC; codec_label = "hevc";
+    } else if (g_video_format & 0xF000) { // VIDEO_FORMAT_MASK_AV1
+        hw_name = "av1_d3d11va"; sw_id = AV_CODEC_ID_AV1; codec_label = "av1";
+    } else {
+        hw_name = "h264_d3d11va"; sw_id = AV_CODEC_ID_H264; codec_label = "h264";
+    }
+
     const AVCodec *codec = NULL;
 
     // Try D3D11VA hardware decoder.
-    const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_d3d11va");
+    const AVCodec *hw_codec = avcodec_find_decoder_by_name(hw_name);
     if (hw_codec) {
         AVBufferRef *hw_ctx = NULL;
         if (av_hwdevice_ctx_create(&hw_ctx, AV_HWDEVICE_TYPE_D3D11VA, NULL, NULL, 0) == 0) {
@@ -281,7 +306,9 @@ static void win_av_init(void) {
                 codec = hw_codec;
                 if (g_hw_dev_ctx) av_buffer_unref(&g_hw_dev_ctx);
                 g_hw_dev_ctx = hw_ctx;
-                goVTLog((char*)"libavcodec/win: using h264_d3d11va (hardware)");
+                char msg[96];
+                snprintf(msg, sizeof(msg), "libavcodec/win: using %s (hardware)", hw_name);
+                goVTLog(msg);
             } else {
                 av_buffer_unref(&hw_ctx);
                 g_hw_pix_fmt = AV_PIX_FMT_NONE;
@@ -290,9 +317,17 @@ static void win_av_init(void) {
         }
     }
     if (!codec) {
-        codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        codec = avcodec_find_decoder(sw_id);
         g_hw_pix_fmt = AV_PIX_FMT_NONE;
-        goVTLog((char*)"libavcodec/win: using h264 software fallback");
+        char msg[96];
+        snprintf(msg, sizeof(msg), "libavcodec/win: using %s software fallback", codec_label);
+        goVTLog(msg);
+    }
+    if (!codec) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "libavcodec/win: no decoder available for %s", codec_label);
+        goVTLog(msg);
+        return;
     }
 
     g_avctx = avcodec_alloc_context3(codec);
@@ -345,7 +380,10 @@ static void win_deliver_frame(AVFrame *frame) {
 // ── Video callbacks ───────────────────────────────────────────────────────────
 
 static int  dr_setup(int fmt, int w, int h, int rate, void *ctx, int flags) {
-    (void)fmt; (void)w; (void)h; (void)rate; (void)ctx; (void)flags; return 0;
+    (void)w; (void)h; (void)rate; (void)ctx; (void)flags;
+    g_video_format = fmt ? fmt : 0x0001;
+    goVideoFormatNegotiated(fmt);
+    return 0;
 }
 static void dr_start(void)   {}
 static void dr_stop(void)    {}
@@ -482,9 +520,37 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+
+	"usbridge-client/internal/models"
 )
 
 var liStartConnectionActive atomic.Bool
+
+// negotiatedVideoFormat holds the VIDEO_FORMAT_* value moonlight-common-c
+// reported via dr_setup(NegotiatedVideoFormat, ...) -- the server's actual
+// codec choice for the current session. -1 means "no session has reported a
+// negotiated format yet". See moonlight_cgo_wrapper.go's identical pattern
+// used on macOS/Linux.
+var negotiatedVideoFormat atomic.Int32
+
+func init() {
+	negotiatedVideoFormat.Store(-1)
+}
+
+func windowsVideoFormatCodecName(format int32) (string, bool) {
+	switch {
+	case format < 0:
+		return "", false
+	case format&0x0F00 != 0:
+		return models.VideoModeH265, true
+	case format&0xF000 != 0:
+		return models.VideoModeAV1, true
+	case format&0x00FF != 0:
+		return models.VideoModeH264, true
+	default:
+		return "", false
+	}
+}
 
 var (
 	activeStreamDone    chan struct{}
@@ -693,10 +759,26 @@ func (w *MoonlightCgoWrapper) SendMoonlightControllerEvent(
 }
 func (w *MoonlightCgoWrapper) IsInputActive() bool { return liStartConnectionActive.Load() }
 
-// NegotiatedVideoCodecName is not yet wired on Windows: dr_setup here
-// discards its videoFormat parameter instead of reporting it back to Go
-// (unlike the shared macOS/Linux dr_setup in moonlight_cgo_shared.h). Follow-up.
-func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) { return "", false }
+// NegotiatedVideoCodecName returns the codec moonlight-common-c actually
+// negotiated with the server for the current session (from dr_setup's
+// NegotiatedVideoFormat), matching the macOS/Linux implementation.
+func (w *MoonlightCgoWrapper) NegotiatedVideoCodecName() (string, bool) {
+	if !liStartConnectionActive.Load() {
+		return "", false
+	}
+	return windowsVideoFormatCodecName(negotiatedVideoFormat.Load())
+}
+
+//export goVideoFormatNegotiated
+func goVideoFormatNegotiated(format C.int) {
+	negotiatedVideoFormat.Store(int32(format))
+	name, ok := windowsVideoFormatCodecName(int32(format))
+	if !ok {
+		logrus.Warnf("🎬 [Moonlight/HW/Win] negotiated video format: unrecognized 0x%04X", int(format))
+		return
+	}
+	logrus.Infof("🎬 [Moonlight/HW/Win] negotiated video format: %s (0x%04X)", name, int(format))
+}
 
 func (w *MoonlightCgoWrapper) SendMoonlightUtf8Text(text string) {
 	if !liStartConnectionActive.Load() || len(text) == 0 {
@@ -744,6 +826,9 @@ func goMoonlightTerminated(errCode C.int) {
 	}
 	logrus.Errorf("🌕 [Moonlight] ❌ terminated: code=%d (%s)", int(errCode), reason)
 	activeStreamTermErr = fmt.Errorf("stream terminated: code=%d (%s)", int(errCode), reason)
+	// Clear the negotiated codec so a stale value from this session can't be
+	// shown as "currently active" once the stream has actually ended.
+	negotiatedVideoFormat.Store(-1)
 	closeActiveStreamDone()
 }
 
