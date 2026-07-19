@@ -379,11 +379,6 @@ func (s *TailscaleService) serverInstance() (*tsnet.Server, error) {
 
 	initAndroidTailscaleUserspace()
 
-	if runtime.GOOS == "android" {
-		logrus.Info("🛰️ [Tailscale] Requesting Android VPN permissions (just in case)")
-		_ = requestAndroidVpnPermission()
-	}
-
 	stateDir := tailscaleStateDir("usbridge-client")
 	logrus.Infof("🛰️ [Tailscale] State directory: %s", stateDir)
 	if err := os.MkdirAll(stateDir, 0755); err != nil {

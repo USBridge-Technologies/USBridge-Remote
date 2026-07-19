@@ -496,6 +496,70 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
+    // Binds a raw native socket fd to whichever active network can actually
+    // route to destHost. Plain source-IP binding (Go's net.Dialer.LocalAddr)
+    // picks an address but Android still routes the socket through whatever
+    // network ConnectivityManager assigned to this app's UID -- e.g. mobile
+    // data, even with a Wi-Fi-only address bound -- so a LAN destination on
+    // Wi-Fi gets ENETUNREACH the moment mobile data is also up. This is the
+    // Android equivalent of macOS's IP_BOUND_IF trick in direct_dialer_darwin.go.
+    //
+    // FileDescriptor's backing int can only be set reflectively -- there's no
+    // public constructor/setter for an arbitrary fd -- but Network.bindSocket
+    // only reads that int to do the actual (kernel-level) binding, so this
+    // doesn't take ownership of or duplicate the fd; the Go side still owns
+    // and closes it normally.
+    fun bindSocketToBestNetwork(fd: Int, destHost: String): Boolean {
+        return try {
+            val connectivity = getSystemService(ConnectivityManager::class.java) ?: return false
+            val destAddr = try {
+                java.net.InetAddress.getByName(destHost)
+            } catch (e: Exception) {
+                null
+            }
+
+            var target: android.net.Network? = null
+            var wifiFallback: android.net.Network? = null
+            for (network in connectivity.allNetworks) {
+                val caps = connectivity.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+                val linkProperties = connectivity.getLinkProperties(network)
+                // Match against the network's own assigned subnet (address +
+                // prefix length), not LinkProperties.routes -- RouteInfo.matches()
+                // also matches a plain default route (0.0.0.0/0), which every
+                // network with internet access has, so it would happily "match"
+                // a private LAN destination on the mobile network too and pick
+                // whichever network happened to be listed first.
+                if (destAddr != null && linkProperties != null &&
+                    linkProperties.linkAddresses.any { isInSameSubnet(it.address, it.prefixLength, destAddr) }
+                ) {
+                    target = network
+                    break
+                }
+                if (wifiFallback == null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) {
+                    wifiFallback = network
+                }
+            }
+            if (target == null) target = wifiFallback
+            if (target == null) {
+                Log.w(TAG, "🔗 [NETBIND] No network with a route to $destHost")
+                return false
+            }
+
+            val fdField = java.io.FileDescriptor::class.java.getDeclaredField("descriptor")
+            fdField.isAccessible = true
+            val fileDescriptor = java.io.FileDescriptor()
+            fdField.set(fileDescriptor, fd)
+
+            target.bindSocket(fileDescriptor)
+            Log.i(TAG, "🔗 [NETBIND] Bound fd=$fd to network for dest=$destHost")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [NETBIND] Failed to bind fd=$fd for dest=$destHost", e)
+            false
+        }
+    }
+
     fun requestLanguageReport() {
         runOnUiThread {
             reportLanguage()
