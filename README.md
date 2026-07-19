@@ -81,6 +81,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 **Tailscale integration** — Built-in encrypted P2P tunneling. Connect to any machine globally without messing with port forwarding or firewall rules. It works on LAN and over the internet automatically.
 
+**Shared Clipboard** — Copy and paste seamlessly between your local machine and remote targets. It fully supports text, images, and file transfers out-of-the-box.
+
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
 
