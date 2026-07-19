@@ -105,7 +105,12 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 		return
 	}
 
-	videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted
+	// VideoDevice.Connected tracks a physical capture card, which only exists
+	// on real USBridge hardware -- a software agent (Windows/Linux/macOS)
+	// captures the whole desktop instead, so it never reports "Connected" and
+	// videoUnavailable would otherwise permanently disable video config on
+	// every software-agent host.
+	videoUnavailable := drive.IsVideo && drive.VideoDevice != nil && !drive.VideoDevice.Connected && !drive.IsMounted && isUSBridgeAgentOS(dw.agentOS)
 	audioUnavailable := drive.IsAudio && drive.AudioDevice != nil && !drive.AudioDevice.Connected && !drive.IsMounted
 	controlsLocked := dw.controlsLocked()
 	checked := false
