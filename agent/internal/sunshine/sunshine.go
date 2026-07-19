@@ -495,17 +495,26 @@ type serverInfoXML struct {
 	ServerCodecModeSupport int      `xml:"ServerCodecModeSupport"`
 }
 
-// supportedCodecsCache memoizes SupportedVideoCodecs briefly: it's a live
-// network call to Sunshine, and hardware encoder capability can't change
-// while Sunshine keeps running, so re-querying on every video_info poll
-// would just be wasted round trips.
+// supportedCodecsCache memoizes SupportedVideoCodecs. This is not just an
+// optimization: Sunshine's /serverinfo does a LIVE hardware probe on every
+// single call (get_codec_mode_flags() actually creates, tests, and tears
+// down h264/hevc/av1 VideoToolbox/NVENC/etc. encoder sessions each time --
+// see the "Trying encoder"/"Creating encoder"/"Couldn't open" sequence it
+// logs), not a cached readout. Confirmed live: with multiple clients
+// polling /api/video/info roughly every 10s each, a short cache here meant
+// re-hitting /serverinfo about that often, which measurably interfered with
+// a real client's session negotiation -- one connection attempt stalled for
+// ~2.5 minutes, repeatedly re-probing instead of ever reaching "New
+// streaming session started", until the probing happened to let a launch
+// through. Since hardware encoder capability cannot change while Sunshine
+// keeps running, there is no reason to re-probe more than very rarely.
 var supportedCodecsCache struct {
 	mu        sync.Mutex
 	codecs    []string
 	fetchedAt time.Time
 }
 
-const supportedCodecsCacheTTL = 10 * time.Second
+const supportedCodecsCacheTTL = 30 * time.Minute
 
 // SupportedVideoCodecs queries Sunshine's own /serverinfo endpoint — the
 // standard, unauthenticated GameStream discovery response every Moonlight
