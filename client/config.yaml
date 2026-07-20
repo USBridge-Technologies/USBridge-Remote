@@ -38,10 +38,3 @@ window_width: 1200
 window_height: 800
 theme: "light"
 log_level: "debug"
-
-# FRP QUIC tunnel (encrypts all traffic)
-frp_server_port: 443
-frp_enabled: true
-frp_tls_cert: "./certs/server.crt"
-frp_tls_key: "./certs/server.key"
-frp_tls_ca: "./certs/ca.crt"

@@ -8,7 +8,7 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import nbdbridge.Nbdbridge
+import androidbridge.Androidbridge
 
 /**
  * Bridge between Android SAF and Go NBD backend
@@ -17,7 +17,7 @@ import nbdbridge.Nbdbridge
 object NbdBridge {
     private const val TAG = "NbdBridge"
 
-    // Статические поля для результата (для надежного доступа через JNI)
+    // Static result fields (for reliable access via JNI)
     @JvmStatic @Volatile var lastUri: String = ""
     @JvmStatic @Volatile var lastFileName: String = ""
     @JvmStatic @Volatile var lastFd: Int = -1
@@ -33,7 +33,7 @@ object NbdBridge {
         lastSize = 0
     }
 
-    // Callbacks не нужны - используем прямой вызов Go функций через Nbdbridge пакет
+    // No callbacks needed - Go functions are called directly through the Androidbridge package
 
     /**
      * Start SAF file picker
@@ -54,7 +54,7 @@ object NbdBridge {
 
     /**
      * Handle SAF picker result - called from MainActivity.onActivityResult
-     * ВАЖНО: Переносим все операции с файлами в фоновый поток для предотвращения блокировки UI
+     * IMPORTANT: all file operations run on a background thread to avoid blocking the UI
      */
     fun handleActivityResult(
         requestCode: Int,
@@ -98,7 +98,7 @@ object NbdBridge {
         Log.i(TAG, "📍 [SAF-URI] URI authority: ${uri.authority}")
         Log.i(TAG, "📍 [SAF-URI] URI path: ${uri.path}")
 
-        // Определяем источник файла для отладки
+        // Detect file source for debugging
         val source = when {
             uri.authority?.contains("com.google.android.apps.docs.storage") == true -> "Google Drive"
             uri.authority?.contains("downloads") == true -> "Downloads"
@@ -108,8 +108,8 @@ object NbdBridge {
         }
         Log.i(TAG, "📂 [SAF-SOURCE] File source detected: $source")
 
-        // КРИТИЧНО: Переносим ВСЕ операции с файлами в фоновый поток
-        // чтобы не блокировать UI thread при работе с Google Drive
+        // CRITICAL: move ALL file operations to a background thread
+        // to avoid blocking the UI thread when working with Google Drive
         Log.i(TAG, "🧵 [SAF-THREAD] Launching background thread for file operations...")
         Thread {
             val bgThreadName = Thread.currentThread().name
@@ -186,7 +186,7 @@ object NbdBridge {
 
                 try {
                     Log.i(TAG, "📞 [SAF-CALLBACK] Calling Go callback as fallback...")
-                    Nbdbridge.onSAFSuccess(lastUri, lastFd.toLong(), lastSize)
+                    Androidbridge.onSAFSuccess(lastUri, lastFd.toLong(), lastSize)
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ [SAF-CALLBACK] Error calling Go callback: $e")
                 }
@@ -208,15 +208,15 @@ object NbdBridge {
 
     /**
      * Called when SAF picker encounters an error
-     * ВАЖНО: вызываем Go функции в отдельном потоке, чтобы избежать
-     * "unknown caller pc" ошибки Go runtime при вызове из UI потока
+     * IMPORTANT: call Go functions from a separate thread to avoid a Go
+     * runtime "unknown caller pc" error when called from the UI thread
      */
     fun onSAFPickerError(message: String) {
         Log.e(TAG, "SAF picker error: $message")
         val messageCopy = String(message.toCharArray())
         Thread {
             try {
-                Nbdbridge.onSAFError(messageCopy)
+                Androidbridge.onSAFError(messageCopy)
             } catch (e: Exception) {
                 Log.e(TAG, "Error calling Go error callback: $e", e)
             }
@@ -360,7 +360,7 @@ object NbdBridge {
     fun startNbd(fd: Int, size: Long, addr: String, readOnly: Boolean = true): Int {
         return try {
             Log.i(TAG, "Starting NBD: fd=$fd, size=$size, addr=$addr, readOnly=$readOnly")
-            Nbdbridge.startNBD(fd.toLong(), size, addr, readOnly)
+            Androidbridge.startNBD(fd.toLong(), size, addr, readOnly)
             Log.i(TAG, "NBD started successfully")
             0
         } catch (e: Exception) {
@@ -376,7 +376,7 @@ object NbdBridge {
     fun stopNbd() {
         try {
             Log.i(TAG, "Stopping NBD")
-            Nbdbridge.stopNBD()
+            Androidbridge.stopNBD()
             Log.i(TAG, "NBD stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop NBD: $e", e)
@@ -389,7 +389,7 @@ object NbdBridge {
     @JvmStatic
     fun nbdStatus(): String {
         return try {
-            Nbdbridge.status()
+            Androidbridge.status()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get NBD status: $e", e)
             "error: $e"

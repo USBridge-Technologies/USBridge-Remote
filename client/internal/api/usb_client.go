@@ -311,7 +311,7 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 		}
 		if req.Device == "drive" {
 			if req.Port > 0 {
-				logrus.Infof("      NBD: server=%s, port=%d, export=%s (bridge connects to 127.0.0.1:%d via FRP)", req.Server, req.Port, req.ExportName, req.Port)
+				logrus.Infof("      NBD: server=%s, port=%d, export=%s", req.Server, req.Port, req.ExportName)
 			} else {
 				logrus.Infof("      Local: %s", req.Server)
 			}
@@ -1252,7 +1252,6 @@ func (c *USBClient) UploadISO(filePath string, fileReader io.Reader) error {
 }
 
 // isRetriableUploadError returns true if upload error can be fixed by retrying.
-// FRP tunnel periodically reconnects - on broken pipe request can be retried.
 func isRetriableUploadError(err error) bool {
 	if err == nil {
 		return false
@@ -1301,7 +1300,7 @@ func computeMultipartSize(boundary, fileName string, fileSize int64) int64 {
 
 // UploadISOWithProgress uploads ISO image to device with progress callback.
 // Uses streaming - file is not fully loaded into memory, UI does not freeze.
-// On broken pipe (FRP tunnel reconnect) automatically retries up to 3 times with 3 sec pause.
+// On broken pipe automatically retries up to 3 times with 3 sec pause.
 func (c *USBClient) UploadISOWithProgress(filePath string, fileReader io.Reader, progressCallback UploadProgressCallback) error {
 	logrus.Infof("📤 Uploading ISO image to device: %s", filePath)
 

@@ -1,6 +1,8 @@
-// Package nbdbridge provides NBD (Network Block Device) server functionality
-// for streaming disk images over the network using file descriptors from Android SAF
-package nbdbridge
+// Package androidbridge provides Android-side native bridge functionality:
+// NBD (Network Block Device) server for streaming disk images over the
+// network using file descriptors from Android SAF, plus SAF and QR-scan
+// result callbacks delivered via JNI.
+package androidbridge
 
 import (
 	"errors"

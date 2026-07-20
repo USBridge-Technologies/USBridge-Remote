@@ -50,7 +50,6 @@ POST /api/auth/sync
 {
   "success": true,
   "data": {
-    "frp_token": "tunnel_token_here",
     "tailscale_status": { ... },
     "sunshine_status": "paired"
   }

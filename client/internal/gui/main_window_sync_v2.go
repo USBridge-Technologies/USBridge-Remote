@@ -13,13 +13,11 @@ import (
 )
 
 // syncWithBridgeV2 performs master sync with the bridge.
-// Returns (frpToken, tailscaleReady, error).
+// Returns (tailscaleReady, error).
 // tailscaleReady is true when the bridge is already logged in to Tailscale
 // and a Tailscale address was obtained from the sync response.
-// syncWithBridgeV2 performs master sync with the bridge.
-// Returns (frpToken, tailscaleReady, error).
 // tailscaleRegister=true makes the bridge run 'tailscale up' (returns AuthURL if not yet logged in).
-func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string, tailscaleRegister ...bool) (string, bool, error) {
+func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input string, tailscaleRegister ...bool) (bool, error) {
 	doRegister := len(tailscaleRegister) > 0 && tailscaleRegister[0]
 	_ = doRegister // used below
 	secret := input
@@ -33,7 +31,7 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 	}
 
 	if secret == "" {
-		return "", false, fmt.Errorf("empty API secret")
+		return false, fmt.Errorf("empty API secret")
 	}
 
 	mw.activeAPISecret = []byte(secret)
@@ -68,10 +66,10 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 
 	resp, err := bootstrapClient.MasterSyncV2(ctx, syncPayload)
 	if err != nil {
-		return "", false, fmt.Errorf("master sync failed: %v", err)
+		return false, fmt.Errorf("master sync failed: %v", err)
 	}
 
-	logrus.Infof("✅ [SYNC] Master sync successful. FRP Token received.")
+	logrus.Info("✅ [SYNC] Master sync successful.")
 
 	// If server returned a Tailscale IP, remember it so the Tailscale protocol
 	// can connect directly without an additional API call.
@@ -116,5 +114,5 @@ func (mw *MainWindow) syncWithBridgeV2(ctx context.Context, bootstrapHost, input
 		}
 	}
 
-	return resp.FRPToken, tailscaleReady, nil
+	return tailscaleReady, nil
 }

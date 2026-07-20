@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"runtime"
@@ -31,34 +30,13 @@ type SavedConnection struct {
 	Name          string `json:"name"`
 	InternalHost  string `json:"internal_host,omitempty"`
 	TailscaleHost string `json:"tailscale_host,omitempty"`
-	QUICPort      int    `json:"quic_port,omitempty"`
 	Host          string `json:"host,omitempty"`
 	// MasterKey holds the API master secret (obtained by scanning the device QR code).
-	// It is used to sign requests and perform the initial sync that returns the FRP tunnel token.
-	MasterKey string `json:"master_key"`
-	// FRPToken is an explicit FRP/QUIC tunnel token used to bypass the sync flow.
-	// Leave empty when MasterKey (API secret) is set.
-	FRPToken          string `json:"frp_token,omitempty"`
+	// It is used to sign requests and perform the initial sync.
+	MasterKey         string `json:"master_key"`
 	Protocol          string `json:"protocol,omitempty"`
 	TailscaleRegister bool   `json:"tailscale_register,omitempty"`
 	RemoteOS          string `json:"remote_os,omitempty"`
-}
-
-func (s *SavedConnection) UnmarshalJSON(data []byte) error {
-	type Alias SavedConnection
-	aux := &struct {
-		QUICToken string `json:"quic_token"`
-		*Alias
-	}{
-		Alias: (*Alias)(s),
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if s.MasterKey == "" && aux.QUICToken != "" {
-		s.MasterKey = aux.QUICToken
-	}
-	return nil
 }
 
 type ConnectionManager struct {
@@ -82,7 +60,7 @@ type ConnectionManager struct {
 	tsStatus                *service.TailscaleStatus
 	tailscaleAuthInProgress atomic.Bool // guards against concurrent auth goroutines
 
-	onConnect                func(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool)
+	onConnect                func(host, masterKey, protocol string, tailscaleRegister bool)
 	onSelect                 func(tailscaleRegister bool)
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
@@ -150,7 +128,7 @@ func (cm *ConnectionManager) ResolveTailscaleHost(host string) string {
 	return ""
 }
 
-func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, masterKeyEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool), onSelect func(tailscaleRegister bool)) *ConnectionManager {
+func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppConfig, hostEntry, masterKeyEntry *widget.Entry, protocolSelect *widget.Select, ts *service.TailscaleService, onConnect func(host, masterKey, protocol string, tailscaleRegister bool), onSelect func(tailscaleRegister bool)) *ConnectionManager {
 	cm := &ConnectionManager{
 		app:                   app,
 		window:                window,
@@ -193,25 +171,25 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 
 	cm.qrScanner = NewQRScanner(
 		app,
-		func(host, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
+		func(host, masterKey, protocol string, tailscaleRegister bool) {
 			fyne.Do(func() {
 				cm.ClearSelection()
 				cm.applyConnectionToForm(host, masterKey, protocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, masterKey, "", protocol, quicPort, tailscaleRegister)
+				cm.onConnect(host, masterKey, protocol, tailscaleRegister)
 			}
-			logrus.Infof("QR connect: host=%s quicPort=%d", host, quicPort)
+			logrus.Infof("QR connect: host=%s", host)
 		},
-		func(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
-			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
+		func(name, internalHost, tailscaleHost, masterKey, protocol string, tailscaleRegister bool) {
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, tailscaleRegister)
 			fyne.Do(func() {
 				cm.applyConnectionToForm(resolveScannedHost(protocol, internalHost, tailscaleHost), masterKey, protocol)
 			})
-			logrus.Infof("QR saved directly: internal=%s tailscale=%s quicPort=%d", internalHost, tailscaleHost, quicPort)
+			logrus.Infof("QR saved directly: internal=%s tailscale=%s", internalHost, tailscaleHost)
 		},
-		func(internalHost, tailscaleHost, masterKey, protocol string, quicPort int, scanned bool) {
-			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, masterKey, protocol, quicPort, scanned)
+		func(internalHost, tailscaleHost, masterKey, protocol string, scanned bool) {
+			cm.showPrefilledAddDialog("", internalHost, tailscaleHost, masterKey, protocol, scanned)
 		},
 	)
 
@@ -466,8 +444,6 @@ func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protoc
 
 func normalizeConnectionProtocol(protocol string) string {
 	switch strings.TrimSpace(protocol) {
-	case models.ConnectionProtocolQUIC:
-		return models.ConnectionProtocolQUIC
 	case models.ConnectionProtocolTailscale:
 		return models.ConnectionProtocolTailscale
 	case models.ConnectionProtocolDirect:
@@ -633,8 +609,6 @@ func (cm *ConnectionManager) beginConnectionFromRow(idx int) bool {
 
 func connectionProtocolBadge(protocol string) string {
 	switch normalizeConnectionProtocol(protocol) {
-	case models.ConnectionProtocolQUIC:
-		return "QUIC"
 	case models.ConnectionProtocolTailscale:
 		return "TS"
 	case models.ConnectionProtocolDirect:
@@ -646,8 +620,6 @@ func connectionProtocolBadge(protocol string) string {
 
 func connectionProtocolFromBadge(badge string) string {
 	switch strings.ToUpper(strings.TrimSpace(badge)) {
-	case "QUIC":
-		return models.ConnectionProtocolQUIC
 	case "TS":
 		return models.ConnectionProtocolTailscale
 	case "LAN":

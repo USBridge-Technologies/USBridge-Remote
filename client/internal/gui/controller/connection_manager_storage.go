@@ -15,8 +15,7 @@ import (
 
 // SaveConnection saves the connection directly.
 // masterKey — API master secret (from device QR code).
-// frpToken — direct FRP/QUIC tunnel token (optional, when masterKey is empty).
-func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool) string {
+func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol string, tailscaleRegister bool) string {
 	internalHost = strings.TrimSpace(internalHost)
 	tailscaleHost = strings.TrimSpace(tailscaleHost)
 	if internalHost == "" && tailscaleHost == "" {
@@ -43,9 +42,7 @@ func (cm *ConnectionManager) SaveConnection(name, internalHost, tailscaleHost, m
 		Name:              name,
 		InternalHost:      internalHost,
 		TailscaleHost:     tailscaleHost,
-		QUICPort:          quicPort,
 		MasterKey:         strings.TrimSpace(masterKey),
-		FRPToken:          strings.TrimSpace(frpToken),
 		Protocol:          normalizeConnectionProtocol(protocol),
 		TailscaleRegister: tailscaleRegister,
 	}
@@ -100,7 +97,7 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 	}
 
 	logrus.Warnf("⚠️ [TS] No matching connection found for currentHost=%q; saving as NEW connection", currentHost)
-	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, "", "tailscale", 0, false)
+	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, "tailscale", false)
 	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
 }
 

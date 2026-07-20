@@ -26,16 +26,15 @@ func (mw *MainWindow) handleSelectionFromManager(tailscaleRegister bool) {
 }
 
 // handleConnectionFromDeepLink handles the deep-link connect callback.
-func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
-	mw.handleConnectionFromManager(host, masterKey, "", protocol, quicPort, tailscaleRegister)
+func (mw *MainWindow) handleConnectionFromDeepLink(host, masterKey, protocol string, tailscaleRegister bool) {
+	mw.handleConnectionFromManager(host, masterKey, protocol, tailscaleRegister)
 }
 
 // handleConnectionFromManager handles connection from the manager (arrow on the card).
-// masterKey is the API secret (from QR sync); frpToken is a direct FRP tunnel token override.
-func (mw *MainWindow) handleConnectionFromManager(host, masterKey, frpToken, protocol string, quicPort int, tailscaleRegister bool) {
+// masterKey is the API secret (from QR sync).
+func (mw *MainWindow) handleConnectionFromManager(host, masterKey, protocol string, tailscaleRegister bool) {
 	mw.hostEntry.SetText(host)
 	mw.tokenEntry.SetText(masterKey)
-	mw.pendingFRPToken = frpToken
 	mw.pendingTailscaleRegister = tailscaleRegister
 	if protocol != "" {
 		mw.protocolSelect.SetSelected(protocol)
@@ -44,12 +43,12 @@ func (mw *MainWindow) handleConnectionFromManager(host, masterKey, frpToken, pro
 }
 
 // handleSaveFromDeepLink saves data from a deep link WITHOUT connecting.
-func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, tailscaleRegister bool) {
+func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, masterKey, protocol string, tailscaleRegister bool) {
 	host := strings.TrimSpace(tailscaleHost)
 	if host == "" {
 		host = strings.TrimSpace(internalHost)
 	}
-	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' quicPort=%d masterKey='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, quicPort, maskSensitiveToken(masterKey), protocol, tailscaleRegister)
+	logrus.Infof("💾 handleSaveFromDeepLink: name='%s' internal='%s' tailscale='%s' masterKey='%s' protocol='%s' register=%v", name, internalHost, tailscaleHost, maskSensitiveToken(masterKey), protocol, tailscaleRegister)
 
 	fyne.Do(func() {
 		mw.hostEntry.SetText(host)
@@ -60,7 +59,7 @@ func (mw *MainWindow) handleSaveFromDeepLink(name, internalHost, tailscaleHost, 
 	})
 
 	if mw.connectionManager != nil {
-		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, "", protocol, quicPort, tailscaleRegister)
+		generatedName := mw.connectionManager.SaveConnection(name, internalHost, tailscaleHost, masterKey, protocol, tailscaleRegister)
 		logrus.Infof("✅ Connection '%s' saved", generatedName)
 		fyne.Do(func() {
 			logrus.Infof("💾 Saved as: %s", generatedName)
@@ -102,8 +101,6 @@ func (mw *MainWindow) resolveConnectionToken(host, masterKey string) string {
 		}
 	}
 
-	// NOTE: activeFRPToken is the FRP tunnel token — a completely different credential from
-	// the master key (API secret). Do NOT fall back to it here.
 	return ""
 }
 
@@ -155,8 +152,7 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastE
 		})
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
-		// Use activeFRPToken (not tokenEntry which holds the master key, not the FRP token).
-		err := mw.doConnectWithProtocol(ctx, mw.hostEntry.Text, mw.activeFRPToken, protocol)
+		err := mw.doConnectWithProtocol(ctx, mw.hostEntry.Text, protocol)
 		cancel()
 		if err == nil {
 			return true
@@ -206,11 +202,6 @@ func (mw *MainWindow) cleanupDeadConnectionState() {
 
 	if mw.videoWidget != nil {
 		mw.videoWidget.HandleConnectionLost()
-	}
-
-	if mw.frpService != nil {
-		_ = mw.frpService.Disconnect()
-		mw.frpService = nil
 	}
 
 	mw.usbClient = nil
@@ -310,7 +301,7 @@ func (mw *MainWindow) handleConnect() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(mw.config.APITimeout)*time.Second)
 	defer cancel()
 
-	if err := mw.doConnect(ctx, host, masterKey, ""); err != nil {
+	if err := mw.doConnect(ctx, host, masterKey); err != nil {
 		mw.handleConnectFailure("Connection failed", err)
 	}
 }
@@ -360,14 +351,7 @@ func getFreeVideoUDPPort() int {
 
 // doConnect performs the blocking connection logic (called from a goroutine).
 // masterKey — API master secret (from the QR code): used for sync and to sign API requests.
-// frpToken  — direct FRP tunnel token (advanced, bypasses sync).
-func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken string) error {
-	// Consume the pending FRP token (set by handleConnectionFromManager) before any async work.
-	if frpToken == "" {
-		frpToken = mw.pendingFRPToken
-	}
-	mw.pendingFRPToken = ""
-
+func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) error {
 	mw.lastTailscaleAuthURL = ""
 
 	selectedProtocol := mw.protocolSelect.Selected
@@ -420,16 +404,8 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		protocol = models.ConnectionProtocolAuto
 	}
 
-	var tunnelToken string
-
-	switch {
-	case strings.TrimSpace(frpToken) != "":
-		// Direct FRP token — skip sync entirely.
-		tunnelToken = strings.TrimSpace(frpToken)
-		logrus.Infof("🔗 [CONNECT] using explicit frp_token (no sync)")
-
-	case strings.TrimSpace(masterKey) != "":
-		// Master key — perform QR sync to obtain the FRP tunnel token.
+	if strings.TrimSpace(masterKey) != "" {
+		// Master key — perform QR sync.
 		key := strings.TrimSpace(masterKey)
 		if strings.HasPrefix(key, "usbridge://sync") {
 			// Full deep-link URI passed via bar (e.g., manual paste).
@@ -458,8 +434,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 			}
 		}
 
-		if newToken, tsReady, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
-			tunnelToken = newToken
+		if tsReady, err := mw.syncWithBridgeV2(ctx, host, key); err == nil {
 			// When the user wants Tailscale registration but the bridge is not yet
 			// in the tailnet (no auth key was sent), fall back to Auto or Direct
 			// so that registration can proceed over the current connection.
@@ -474,33 +449,28 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 			}
 		} else {
 			logrus.Warnf("⚠️ [SYNC] Sync failed: %v", err)
-			// FRP protocol is removed, so the sync token is no longer needed for
-			// any connection type. For direct and auto protocols, sync failure is
-			// not fatal — mw.activeAPISecret was already set at the start of
+			// For direct and auto protocols, sync failure is not fatal —
+			// mw.activeAPISecret was already set at the start of
 			// syncWithBridgeV2 (before the network call), so HMAC auth still
 			// works via attachUSBClient. Tailscale protocol still requires sync
 			// to resolve the Tailscale IP.
 			if protocol == models.ConnectionProtocolTailscale {
 				return fmt.Errorf("sync failed: %w", err)
 			}
-			logrus.Infof("🔗 [CONNECT] Sync failed but protocol=%s — proceeding without sync token", protocol)
+			logrus.Infof("🔗 [CONNECT] Sync failed but protocol=%s — proceeding without sync", protocol)
 		}
-
-	default:
-		logrus.Warn("⚠️ [CONNECT] No master key or FRP token provided")
+	} else {
+		logrus.Warn("⚠️ [CONNECT] No master key provided")
 	}
 
-	// Cache the FRP tunnel token for connection recovery (tryRecoverConnectionAfterLoss).
-	// This is the tunnel token, NOT the master key — they are independent credentials.
-	mw.activeFRPToken = tunnelToken
-	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s tunnel_token=%s timeout=%ds",
-		strings.TrimSpace(host), protocol, maskSensitiveToken(tunnelToken), mw.config.APITimeout)
+	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s timeout=%ds",
+		strings.TrimSpace(host), protocol, mw.config.APITimeout)
 
 	if mw.pendingTailscaleRegister {
 		mw.pollTailscaleRegistration(host, masterKey, protocol)
 	}
 
-	return mw.doConnectWithProtocol(ctx, host, tunnelToken, protocol)
+	return mw.doConnectWithProtocol(ctx, host, protocol)
 }
 
 func (mw *MainWindow) pollTailscaleRegistration(host, masterKey, protocol string) {
@@ -528,7 +498,7 @@ func (mw *MainWindow) pollTailscaleRegistration(host, masterKey, protocol string
 			// Pass tailscaleRegister=true so the bridge runs 'tailscale up --json'
 			// and returns an AuthURL when not yet logged in.
 			syncCtx, syncCancel := context.WithTimeout(ctx, 25*time.Second)
-			_, tsReady, err := mw.syncWithBridgeV2(syncCtx, host, masterKey, true)
+			tsReady, err := mw.syncWithBridgeV2(syncCtx, host, masterKey, true)
 			syncCancel()
 
 			if err == nil && tsReady {
@@ -580,13 +550,13 @@ func (mw *MainWindow) reconnectViaTailscaleAfterRegistration(host, masterKey str
 			time.Sleep(2 * time.Second)
 
 			fyne.Do(func() {
-				mw.handleConnectionFromManager(capturedHost, capturedKey, "", models.ConnectionProtocolTailscale, 0, false)
+				mw.handleConnectionFromManager(capturedHost, capturedKey, models.ConnectionProtocolTailscale, false)
 			})
 		})
 	})
 }
 
-func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, protocol string) error {
+func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol string) error {
 	connectTailscale := func(ctx context.Context) error {
 		resolvedHost := strings.TrimSpace(host)
 
@@ -664,10 +634,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 				return fmt.Errorf("tailscale direct connect: bridge unreachable at %s: %w", target, connErr)
 			}
 
-			if mw.frpService != nil && mw.frpService.IsRunning() {
-				_ = mw.frpService.Disconnect()
-			}
-			mw.frpService = nil
 			mw.usbClient = mw.attachUSBClient(tsClient)
 			mw.videoClient.UpdateHost(target)
 			// Pre-warm the tsnet WireGuard session to the peer so it's established
@@ -736,10 +702,6 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, token, pr
 
 	if err := mw.verifyActiveConnectionWithContext(ctx); err != nil {
 		logrus.Errorf("❌ Connection verification failed: %v", err)
-		if mw.frpService != nil && mw.frpService.IsRunning() {
-			_ = mw.frpService.Disconnect()
-			mw.frpService = nil
-		}
 		mw.usbClient = nil
 		fyne.Do(func() {
 			mw.clearConnectionPending()
@@ -827,7 +789,6 @@ func (mw *MainWindow) handleConnectFailure(message string, err error) {
 		mw.clearConnectionPending()
 		mw.isConnected = false
 		mw.connectedProtocol = ""
-		mw.activeFRPToken = ""
 		mw.refreshConnectionControls()
 		mw.hostEntry.Enable()
 		mw.tokenEntry.Enable()
@@ -846,7 +807,6 @@ func (mw *MainWindow) handleDisconnect() {
 	client := mw.usbClient
 	video := mw.videoWidget
 	backup := mw.backupWidget
-	frp := mw.frpService
 	nbd := mw.nbdServer
 	diskWidget := mw.diskWidget
 
@@ -876,7 +836,6 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.isConnected = false
 	mw.isStreaming = false
 	mw.connectedProtocol = ""
-	mw.activeFRPToken = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
 	mw.appState.IsNBDRunning = false
@@ -899,18 +858,15 @@ func (mw *MainWindow) handleDisconnect() {
 
 		if mw.diskWidget != nil {
 			mw.diskWidget.UpdateClient(nil)
-			mw.diskWidget.SetFRPService(nil)
 		}
 		if video != nil {
 			video.UpdateClient(nil)
-			video.SetFRPService(nil)
 		}
 		if backup != nil {
 			backup.UpdateClient(nil)
 		}
 
 		mw.usbClient = nil
-		mw.frpService = nil
 
 		mw.clearConnectionPending()
 		mw.refreshConnectionControls()
@@ -974,11 +930,6 @@ func (mw *MainWindow) handleDisconnect() {
 			logrus.Info("🛑 [shutdown] Stopping disk widget NBD servers...")
 			diskWidget.StopAllNBDServers()
 		}
-
-		if frp != nil && frp.IsRunning() {
-			logrus.Info("🛑 [shutdown] Stopping FRP service...")
-			_ = frp.Disconnect()
-		}
 	}()
 }
 
@@ -1021,9 +972,6 @@ func (mw *MainWindow) updateStatus() {
 // resolveVideoBindHost returns the address on which the video client should listen.
 // Tailscale: Tailscale interface (100.x.x.x), otherwise 127.0.0.1.
 func (mw *MainWindow) resolveVideoBindHost() string {
-	if mw.frpService != nil {
-		return "127.0.0.1"
-	}
 	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)

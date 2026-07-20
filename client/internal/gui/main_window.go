@@ -45,7 +45,6 @@ type MainWindow struct {
 	nbdServer        *service.NBDServer
 	videoClient      service.VideoClient
 	usbClient        *api.USBClient
-	frpService       *service.FRPService
 	tailscaleService *service.TailscaleService
 	clipboardSync    *api.ClipboardSync
 
@@ -58,8 +57,6 @@ type MainWindow struct {
 	isConnectionPending      atomic.Bool
 	isConnectionLoading      bool
 	connectedProtocol        string
-	activeFRPToken           string
-	pendingFRPToken          string // direct FRP token override from saved connection (skips sync)
 	pendingTailscaleRegister bool
 	lastTailscaleAuthURL     string
 	tailscalePollCancel      context.CancelFunc

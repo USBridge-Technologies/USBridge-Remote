@@ -20,14 +20,14 @@ The project uses the new secure **Master QR Sync** protocol for authorization an
 3. After scanning, the client:
    - Extracts the **API Secret** and stores it for signing requests.
    - Performs a secure sync (Sunshine PIN exchange, Tailscale registration).
-   - Brings up an FRP tunnel or a direct connection.
+   - Brings up a direct connection or a Tailscale tunnel.
 4. All subsequent actions (mouse movement, key presses) are automatically signed with the key.
 
 ## Video & Rendering
 
 - Protocol: **Sunshine / Moonlight Stack**.
 - Rendering: **Vulkan** (Linux/Windows/Android) and **Metal** (macOS/iOS).
-- Performance: We completely removed GStreamer and Fyne Canvas rendering, switching entirely to pure native hardware decoding and rendering.
+- Performance: Pure native hardware decoding and rendering, no subprocess or IPC overhead.
 
 ## Mouse modes
 

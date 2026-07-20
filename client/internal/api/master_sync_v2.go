@@ -23,7 +23,6 @@ type MasterSyncPayloadV2 struct {
 }
 
 type MasterSyncResponseV2 struct {
-	FRPToken        string                  `json:"frp_token"`
 	TailscaleStatus *models.TailscaleStatus `json:"tailscale_status,omitempty"`
 	SunshineStatus  string                  `json:"sunshine_status"`
 }

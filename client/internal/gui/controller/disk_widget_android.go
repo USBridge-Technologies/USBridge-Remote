@@ -10,7 +10,7 @@ import (
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
-	"usbridge-client/nbdbridge"
+	"usbridge-client/androidbridge"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -89,12 +89,12 @@ func (dw *DiskWidget) pickImageForDiskList() {
 		})
 	}
 
-	// Register the handlers both in nbdbridge and globally
+	// Register the handlers both in androidbridge and globally
 	globalSAFSuccessHandler = func(uri string, fd int, size int64) {
 		successHandler(uri, "", fd, size)
 	}
 	globalSAFErrorHandler = errorHandler
-	nbdbridge.SetSAFCallbacks(func(uri string, fd int, size int64) {
+	androidbridge.SetSAFCallbacks(func(uri string, fd int, size int64) {
 		successHandler(uri, "", fd, size)
 	}, errorHandler)
 
@@ -201,7 +201,7 @@ func (dw *DiskWidget) showNbdDialog() {
 			})
 		}
 
-		nbdbridge.SetSAFCallbacks(
+		androidbridge.SetSAFCallbacks(
 			func(uri string, fd int, size int64) { successHandler(uri, "", fd, size) },
 			func(error string) {
 				logrus.Errorf("❌ File selection failed: %s", error)
@@ -331,7 +331,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 	logrus.Infof("🚀 Starting NBD service via JNI: fd=%d, size=%d, addr=%s, readOnly=%v", fd, size, addr, readOnly)
 
 	// Start NBD backend (readOnly=false so the host can write to the loop without an I/O error)
-	err := nbdbridge.StartNBD(fd, size, addr, readOnly)
+	err := androidbridge.StartNBD(fd, size, addr, readOnly)
 	if err != nil {
 		logrus.Errorf("❌ Failed to start NBD backend: %v", err)
 		fyne.Do(func() {
@@ -356,7 +356,7 @@ func (dw *DiskWidget) startNbdServiceJNI(fd int, size int64, addr string, readOn
 func (dw *DiskWidget) stopNbdService() {
 	logrus.Info("🛑 Stopping NBD service")
 
-	err := nbdbridge.StopNBD()
+	err := androidbridge.StopNBD()
 	if err != nil {
 		logrus.Errorf("❌ Failed to stop NBD: %v", err)
 		fyne.Do(func() {
@@ -373,7 +373,7 @@ func (dw *DiskWidget) stopNbdService() {
 
 // getNbdStatusText returns the current NBD status
 func getNbdStatusText() string {
-	status := nbdbridge.Status()
+	status := androidbridge.Status()
 
 	if status == "stopped" {
 		return "🔴 " + i18n.Current.NBDStatusStopped
@@ -394,8 +394,8 @@ func init() {
 
 		// Inject global handlers into the nbdbridge package
 		// This works around gomobile bind creating its own instance of the package
-		nbdbridge.GlobalSuccessHandler = CallGlobalSAFSuccess
-		nbdbridge.GlobalErrorHandler = CallGlobalSAFError
+		androidbridge.GlobalSuccessHandler = CallGlobalSAFSuccess
+		androidbridge.GlobalErrorHandler = CallGlobalSAFError
 		logrus.Info("🔗 [ANDROID-INIT] SAF global handlers injected into nbdbridge")
 	}
 }

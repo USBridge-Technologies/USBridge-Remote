@@ -19,8 +19,14 @@ name: release-all
 #                                                        (client iOS). Encrypted
 #                                                        with the same P12_PASSWORD.
 #   IOS_PROVISIONING_PROFILE_BASE64                    - client iOS distribution profile
-# Android is self-signed with an on-the-fly debug keystore (build_android_gradle.sh
-# auto-generates ~/.android/debug.keystore) — no secret required.
+#   ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+#   ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD           - client Android release
+#                                                        signing key. Without these,
+#                                                        build_android_gradle.sh falls
+#                                                        back to an on-the-fly debug
+#                                                        keystore that's regenerated
+#                                                        (and re-signs with a new,
+#                                                        different key) on every runner.
 
 on:
   workflow_dispatch:
@@ -428,9 +434,45 @@ jobs:
           export ANDROID_NDK_HOME="$NDK_DIR"
           echo "Using NDK: $ANDROID_NDK_HOME"
           MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
-      - name: Build (Android, Moonlight-only, self-signed debug keystore)
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/usbridge-release.keystore"
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Build (Android, Moonlight-only, release-signed)
         working-directory: client
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./scripts/build_android_gradle.sh
+
+      - name: Verify release signature
+        # Mirrors the macOS/iOS "Verify ... signature" steps: fail the job
+        # instead of silently shipping an APK that fell back to the
+        # auto-generated debug keystore (which would break users' upgrade
+        # path, since Android refuses to install an update signed by a
+        # different key than the one already installed).
+        run: |
+          set -euo pipefail
+          APK="$(ls client/dist/android/USBridgeClient-Android-*.apk)"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          NDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+          APKSIGNER="$NDK_BUILD_TOOLS/apksigner"
+          "$APKSIGNER" verify --print-certs "$APK"
+          CERT_INFO="$(keytool -printcert -jarfile "$APK" 2>&1)"
+          echo "$CERT_INFO" | grep -E "Owner|SHA256"
+          echo "$CERT_INFO" | grep -q "CN=Android Debug" && { echo "::error::APK is signed with the auto-generated debug keystore, not the release key — check ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD secrets"; exit 1; }
+          echo "✓ client Android signed with release key"
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "${ANDROID_KEYSTORE_PATH:-}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-android

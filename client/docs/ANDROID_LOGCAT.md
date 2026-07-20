@@ -5,27 +5,26 @@
 On Android, app logs are written to **logcat**. Connect the device via USB and run:
 
 ```bash
-# All app logs (USBridge and GStreamer-Static tags)
-adb logcat USBridge:* GStreamer-Static:* *:S
+# All app logs (USBridge tag)
+adb logcat USBridge:* *:S
 
 # Only USBridge app logs (logrus)
 adb logcat -s USBridge
 
 # Clear the buffer before viewing
-adb logcat -c && adb logcat USBridge:* GStreamer-Static:*
+adb logcat -c && adb logcat USBridge:*
 ```
 
 ## Tags
 
 | Tag | Description |
 |-----|----------|
-| `USBridge` | Logs from Go (logrus) — API, UI, video, FRP |
-| `GStreamer-Static` | GStreamer logs — pipeline, RTP, decoder |
+| `USBridge` | Logs from Go (logrus) — API, UI, video |
 
 ## Example: debugging video
 
 ```bash
-adb logcat -c && adb logcat USBridge:* GStreamer-Static:* | grep -E "RTP|Frame|GStreamer|video"
+adb logcat -c && adb logcat USBridge:* | grep -E "RTP|Frame|video"
 ```
 
 Look for these in the logs:

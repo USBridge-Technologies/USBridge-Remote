@@ -1,5 +1,5 @@
-# Keep nbdbridge
--keep class nbdbridge.** { *; }
+# Keep androidbridge
+-keep class androidbridge.** { *; }
 
 # Keep GoNativeActivity
 -keep class org.golang.app.** { *; }

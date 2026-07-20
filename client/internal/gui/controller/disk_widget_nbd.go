@@ -79,11 +79,8 @@ func (dw *DiskWidget) getDeviceIP() string {
 }
 
 // resolveNBDBindHost returns the address the NBD server should listen on.
-// FRP tunnel → 127.0.0.1; Tailscale → 100.x.x.x interface; default → 127.0.0.1.
+// Tailscale → 100.x.x.x interface; default → 127.0.0.1.
 func (dw *DiskWidget) resolveNBDBindHost() string {
-	if dw.frpService != nil {
-		return "127.0.0.1"
-	}
 	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)
