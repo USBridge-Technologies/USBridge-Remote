@@ -11,6 +11,7 @@ import (
 
 	"github.com/kbinani/screenshot"
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/display"
 )
 
 type Service struct{}
@@ -66,8 +67,30 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 			Bus:            "x11",
 			Index:          i,
 			Connected:      true,
-			SupportedModes: GetDisplayModes(i),
+			SupportedModes: linuxDisplayModes(i),
 		})
 	}
 	return out
+}
+
+// linuxDisplayModes reports the modes a connected output actually supports,
+// read from /sys/class/drm (see display.ConnectorResolutions) rather than
+// guessed from a fixed shortlist. Falls back to the generic
+// native-size-filtered list only if DRM can't be read (no permissions,
+// non-DRM setup) or the display index has no matching connector.
+func linuxDisplayModes(index int) []api.VideoCaptureMode {
+	connectors := display.ConnectorResolutions()
+	if index < 0 || index >= len(connectors) || len(connectors[index]) == 0 {
+		return GetDisplayModes(index)
+	}
+	modes := make([]api.VideoCaptureMode, 0, len(connectors[index]))
+	for _, r := range connectors[index] {
+		modes = append(modes, api.VideoCaptureMode{
+			Width:       r.Width,
+			Height:      r.Height,
+			FPS:         standardFPS,
+			PixelFormat: "BGRA",
+		})
+	}
+	return modes
 }
