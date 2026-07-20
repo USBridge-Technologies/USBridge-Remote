@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.content.ContentResolver
 import android.content.Intent

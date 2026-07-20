@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 /**
  * Bridge for network change notifications from Android to Go

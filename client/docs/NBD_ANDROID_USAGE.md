@@ -250,7 +250,7 @@ usbridge_client/
 ├── internal/ui/
 │   └── disk_widget_android.go       # Android UI integration
 ├── android/app/src/main/
-│   ├── java/com/usbridge/client/
+│   ├── java/io/usbridge/client/
 │   │   ├── NbdBridge.kt            # SAF bridge (Kotlin)
 │   │   └── NbdForegroundService.kt # Foreground service
 │   └── AndroidManifest.xml          # Permissions + service

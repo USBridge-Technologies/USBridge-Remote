@@ -29,7 +29,7 @@
 // ── State ──────────────────────────────────────────────────────────────────────
 
 static JavaVM    *g_jvm      = NULL;
-static jclass     g_cls_vsb  = NULL; // cached com/usbridge/client/VideoSurfaceBridge
+static jclass     g_cls_vsb  = NULL; // cached io/usbridge/client/VideoSurfaceBridge
 static EGLDisplay g_display  = EGL_NO_DISPLAY;
 static EGLContext g_context  = EGL_NO_CONTEXT;
 static EGLSurface g_surface  = EGL_NO_SURFACE; // tiny pbuffer (just to hold the context)
@@ -658,7 +658,7 @@ void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
     JNIEnv *env = get_env(&detach);
     if (env) {
         // Try to find class normally first
-        jclass cls = (*env)->FindClass(env, "com/usbridge/client/VideoSurfaceBridge");
+        jclass cls = (*env)->FindClass(env, "io/usbridge/client/VideoSurfaceBridge");
         
         if (!cls) {
             if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
@@ -672,7 +672,7 @@ void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
                 jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
                 jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
                 
-                jstring className = (*env)->NewStringUTF(env, "com.usbridge.client.VideoSurfaceBridge");
+                jstring className = (*env)->NewStringUTF(env, "io.usbridge.client.VideoSurfaceBridge");
                 cls = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
                 
                 if ((*env)->ExceptionCheck(env)) {

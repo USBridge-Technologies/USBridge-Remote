@@ -8,7 +8,7 @@
 // must cache a JavaVM global) there's nothing to cache here.
 //
 // The Android-side logic lives directly on MainActivity (see
-// android/app/src/main/java/com/usbridge/client/MainActivity.kt, the
+// android/app/src/main/java/io/usbridge/client/MainActivity.kt, the
 // "Clipboard bridge" section) rather than a separate bridge object, mirroring
 // how tailscale_android.go calls plain instance methods like
 // getCacheDirAbsolutePath().

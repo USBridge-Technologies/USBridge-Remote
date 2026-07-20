@@ -6,7 +6,7 @@ package platform
 #include <jni.h>
 #include <stdlib.h>
 
-extern void Java_com_usbridge_client_NetworkBridge_onNetworkChanged(JNIEnv* env, jclass clazz);
+extern void Java_io_usbridge_client_NetworkBridge_onNetworkChanged(JNIEnv* env, jclass clazz);
 */
 import "C"
 import (
@@ -36,8 +36,8 @@ func SetOnNetworkChangedCallback(cb func()) {
 	onNetworkChangedCallback = cb
 }
 
-//export Java_com_usbridge_client_NetworkBridge_onNetworkChanged
-func Java_com_usbridge_client_NetworkBridge_onNetworkChanged(env *C.JNIEnv, clazz C.jclass) {
+//export Java_io_usbridge_client_NetworkBridge_onNetworkChanged
+func Java_io_usbridge_client_NetworkBridge_onNetworkChanged(env *C.JNIEnv, clazz C.jclass) {
 	if !appReadyFlag.Load() {
 		return // App not fully initialized yet, ignore early callbacks
 	}

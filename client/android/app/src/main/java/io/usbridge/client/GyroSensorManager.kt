@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.content.Context
 import android.hardware.Sensor

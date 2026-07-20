@@ -12,14 +12,14 @@
 # a release APK, logged as "cannot find method showFileOpen (Ljava/lang/String;)V"
 # at Fyne init, then crashed the whole process later with a JNI
 # "mid == null" abort the first time that cached (null) method ID was invoked.
--keep class com.usbridge.client.MainActivity { *; }
--keep class com.usbridge.client.GyroBridge { *; }
--keep class com.usbridge.client.NetworkBridge { *; }
--keep class com.usbridge.client.QRResultBridge { *; }
--keep class com.usbridge.client.KeyboardBridge { *; }
--keep class com.usbridge.client.GestureBridge { *; }
--keep class com.usbridge.client.VideoSurfaceBridge { *; }
--keep class com.usbridge.client.CameraHelper { *; }
--keep class com.usbridge.client.VulkanOverlayBridge { *; }
--keep class com.usbridge.client.HapticBridge { *; }
--keep class com.usbridge.client.NbdBridge { *; }
+-keep class io.usbridge.client.MainActivity { *; }
+-keep class io.usbridge.client.GyroBridge { *; }
+-keep class io.usbridge.client.NetworkBridge { *; }
+-keep class io.usbridge.client.QRResultBridge { *; }
+-keep class io.usbridge.client.KeyboardBridge { *; }
+-keep class io.usbridge.client.GestureBridge { *; }
+-keep class io.usbridge.client.VideoSurfaceBridge { *; }
+-keep class io.usbridge.client.CameraHelper { *; }
+-keep class io.usbridge.client.VulkanOverlayBridge { *; }
+-keep class io.usbridge.client.HapticBridge { *; }
+-keep class io.usbridge.client.NbdBridge { *; }

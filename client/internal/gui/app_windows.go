@@ -13,7 +13,7 @@ import (
 // "broken" saved window coordinates (off-screen / invisible window).
 // But without an ID, settings won't be persisted, so we have to use NewWithID.
 func newFyneApp() fyne.App {
-	a := app.NewWithID("com.usbridge.client")
+	a := app.NewWithID("io.usbridge.client")
 	a.SetIcon(assets.AppIcon)
 	a.Settings().SetTheme(design.NewBrandTheme())
 	return a

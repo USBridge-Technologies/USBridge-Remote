@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.util.Log
 import android.view.Surface

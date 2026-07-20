@@ -146,7 +146,7 @@ int av_camera_open(int reqWidth, int reqHeight, int *outWidth, int *outHeight) {
     output.alwaysDiscardsLateVideoFrames = YES;
 
     g_delegate = [[_USBAVCameraDelegate alloc] init];
-    g_queue = dispatch_queue_create("com.usbridge.client.qrcamera", DISPATCH_QUEUE_SERIAL);
+    g_queue = dispatch_queue_create("io.usbridge.client.qrcamera", DISPATCH_QUEUE_SERIAL);
     [output setSampleBufferDelegate:g_delegate queue:g_queue];
 
     if (![session canAddOutput:output]) {
