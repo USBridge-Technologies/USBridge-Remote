@@ -58,6 +58,17 @@ static int     g_pbo_primed = 0;     // 1 after first frame (other PBO ready)
 
 // ── JNI helpers ───────────────────────────────────────────────────────────────
 
+// get_env/detach_env used to attach-then-detach the calling native thread on
+// every single call. That's fine for the rare one-off callers (set_jvm,
+// release), but android_gl_get_frame's per-frame path (wait_for_frame_available's
+// poll loop alone can call this up to 40 times, plus java_update_tex) runs on
+// the SAME decoder thread every frame — and on Android's ART, re-attaching a
+// thread right after DetachCurrentThread registers a brand-new
+// java.lang.Thread wrapper each time (visible as an ever-growing count of
+// anonymous "Thread-N" objects in `top`), which is expensive enough to be a
+// measurable chunk of CPU/battery at 60fps. Attach the calling thread once
+// and leave it attached; detach_env is now a no-op and the one real detach
+// happens in android_gl_release() when this render thread is done for good.
 static JNIEnv *get_env(int *need_detach) {
     *need_detach = 0;
     if (!g_jvm) return NULL;
@@ -65,13 +76,12 @@ static JNIEnv *get_env(int *need_detach) {
     jint rc = (*g_jvm)->GetEnv(g_jvm, (void **)&env, JNI_VERSION_1_6);
     if (rc == JNI_EDETACHED) {
         (*g_jvm)->AttachCurrentThread(g_jvm, &env, NULL);
-        *need_detach = 1;
     }
     return env;
 }
 
 static void detach_env(int need_detach) {
-    if (need_detach && g_jvm) (*g_jvm)->DetachCurrentThread(g_jvm);
+    (void)need_detach; // kept for call-site compatibility; see get_env() above
 }
 
 // ── GLSL shaders ──────────────────────────────────────────────────────────────
@@ -584,6 +594,19 @@ void android_gl_release(void) {
         }
         g_surf_ref = NULL;
     }
+
+    // Real detach for whichever thread is calling release — the one place
+    // in this file that still balances the attach get_env() left standing
+    // (see get_env()'s comment). Harmless no-op if this thread was never
+    // attached (e.g. the "safety cleanup" caller in moonlight_cgo_android.go
+    // when dr_cleanup already handled it on the actual decoder thread).
+    if (g_jvm) {
+        JNIEnv *env = NULL;
+        if ((*g_jvm)->GetEnv(g_jvm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) {
+            (*g_jvm)->DetachCurrentThread(g_jvm);
+        }
+    }
+
     VLOGI("android_gl_release done");
 }
 
