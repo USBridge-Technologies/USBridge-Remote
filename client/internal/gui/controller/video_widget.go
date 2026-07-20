@@ -195,10 +195,30 @@ type VideoWidget struct {
 	lmbPendingDoubleClick bool
 	rmbHapticTimer        *time.Timer // fires at 1s hold to signal RMB long-press readiness
 	isClosing             atomic.Bool
+
+	// userStoppedVideo is set when the user explicitly presses stop/disconnect
+	// and cleared on a fresh host connection (UpdateClient) or an explicit
+	// start request. scheduleControlBootstrap's timers (main_window_lifecycle.go)
+	// fire on a schedule tied to which tab is showing, not to user intent, and
+	// used to unconditionally call setDesiredStreaming(true) — silently
+	// reconnecting video/audio moments after the user asked to stop, since one
+	// of those timers could still be pending when the stop happened.
+	userStoppedVideo atomic.Bool
 }
 
 func (vw *VideoWidget) Close() {
 	vw.isClosing.Store(true)
+}
+
+// MarkUserStopped records that the user explicitly asked to stop/disconnect,
+// suppressing any pending scheduleControlBootstrap timer (main_window_lifecycle.go)
+// that would otherwise silently restart video/audio moments later. Callers
+// that disconnect from outside this widget (e.g. the main window's full
+// host-disconnect flow) must call this synchronously, as early as possible —
+// setting the same flag later from inside a background cleanup goroutine
+// races against an already-pending bootstrap timer and can lose.
+func (vw *VideoWidget) MarkUserStopped() {
+	vw.userStoppedVideo.Store(true)
 }
 
 func (vw *VideoWidget) setDesiredStreaming(streaming bool) {

@@ -45,6 +45,7 @@ func (vw *VideoWidget) createInterface() {
 
 // handleStartVideo handles video start.
 func (vw *VideoWidget) handleStartVideo() {
+	vw.userStoppedVideo.Store(false)
 	vw.setDesiredStreaming(true)
 	if !vw.beginVideoOperation() {
 		// Another op (likely stop/reconcile) is running. Mark restart so the
@@ -361,6 +362,25 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	vw.isVideoConnected = true
 	logrus.Info("✅ Moonlight stream started")
 
+	// Re-check right after marking the session live: ConnectToMoonlight()
+	// returns once LiStartConnection is merely *submitted* (see its own
+	// "submitted... waiting for first frame" log), not once the underlying
+	// C-level session is actually up — so the desiredStreamingState() check
+	// above can pass and then the user presses stop in the gap before this
+	// point. Before this second check, nothing ever re-evaluated
+	// desiredStreaming against the now-true isStreaming: the reconcile that
+	// coalesces after a mismatch could run while isStreaming was still
+	// false (the race itself), see streaming==desired==false, and exit
+	// without calling stopVideoInternal() — leaving this session's video
+	// and (audibly) its audio running indefinitely with nothing left to
+	// notice or clean it up.
+	if !vw.desiredStreamingState() {
+		logrus.Info("🛑 stream went live but streaming no longer desired (stop arrived mid-connect) — stopping immediately")
+		go func() { <-hidDone }() // drain so the goroutine can exit
+		vw.stopVideoInternal()
+		return
+	}
+
 	// Wait for HID — non-fatal if it fails; checkMouseConnected() will retry.
 	if err := <-hidDone; err != nil {
 		logrus.Errorf("❌ [VIDEO] HID auto-connect failed: %v", err)
@@ -379,11 +399,13 @@ func (vw *VideoWidget) handleStopVideo() {
 		})
 		return
 	}
+	vw.userStoppedVideo.Store(true)
 	vw.setDesiredStreaming(false)
 	vw.scheduleVideoReconcile("handle-stop-video")
 }
 
 func (vw *VideoWidget) StopVideoSync() error {
+	vw.userStoppedVideo.Store(true)
 	vw.setDesiredStreaming(false)
 
 	// Use a timeout for the synchronous operation so we don't hang the calling thread (lifecycle loop)
@@ -662,6 +684,15 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 }
 
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
+	if vw.userStoppedVideo.Load() {
+		// The user explicitly pressed stop; this call is one of
+		// scheduleControlBootstrap's timers (main_window_lifecycle.go), which
+		// fire on a schedule tied to which tab is visible, not to user intent
+		// — a stop can land in the window between them, and an already-queued
+		// timer would otherwise silently reconnect video/audio moments later.
+		logrus.Info("🎬 control-bootstrap skipped — user explicitly stopped video")
+		return
+	}
 	vw.setDesiredStreaming(true)
 	vw.scheduleVideoReconcile("control-bootstrap")
 }
@@ -965,6 +996,7 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient
 	if usbClient != nil {
 		vw.isClosing.Store(false)
+		vw.userStoppedVideo.Store(false)
 		usbClient.SetCursorUpdateHandler(vw.handleRemoteCursorUpdate)
 	}
 	vw.updateButtons()

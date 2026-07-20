@@ -835,6 +835,17 @@ func (mw *MainWindow) handleDisconnect() {
 	nbd := mw.nbdServer
 	diskWidget := mw.diskWidget
 
+	// Must happen synchronously, before anything else: a pending
+	// scheduleControlBootstrap timer (main_window_lifecycle.go, fires on a
+	// schedule tied to which tab is visible, not to user intent) can land in
+	// the gap between now and when the background cleanup goroutine below
+	// gets around to stopping video, silently reconnecting it right after
+	// this disconnect. Setting the flag from inside that goroutine was too
+	// late to reliably win that race.
+	if video != nil {
+		video.MarkUserStopped()
+	}
+
 	// Stop any running Tailscale registration poll goroutine.
 	if mw.tailscalePollCancel != nil {
 		mw.tailscalePollCancel()
