@@ -305,7 +305,19 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				if c2sCount <= 3 || c2sCount%200 == 0 {
 					logrus.Infof("🌕 [Moonlight/Proxy] c→s serverPort=%d pkt#%d %d bytes from %s", serverPort, c2sCount, n, addr)
 				}
+				// tsConn.Write hands the packet to tsnet's userspace WireGuard
+				// netstack — this is the one hop in this proxy that could
+				// plausibly block (internal queue/congestion control), as
+				// opposed to the OS-level UDP read/write calls around it which
+				// are effectively instant. Timing it directly settles whether
+				// multi-second Moonlight control-latency reports are a real
+				// network problem or queueing introduced right here, instead
+				// of guessing from gaps between throttled packet-count logs.
+				wStart := time.Now()
 				tsConn.Write(buf[:n]) //nolint:errcheck
+				if wElapsed := time.Since(wStart); wElapsed > 50*time.Millisecond {
+					logrus.Warnf("🌕 [Moonlight/Proxy] c→s serverPort=%d SLOW tsConn.Write: %v (pkt#%d)", serverPort, wElapsed, c2sCount)
+				}
 			}
 		}
 	}()
@@ -361,7 +373,11 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 					if s2cCount <= 3 || s2cCount%200 == 0 {
 						logrus.Infof("🌕 [Moonlight/Proxy] s→c serverPort=%d pkt#%d %d bytes → %s", serverPort, s2cCount, n, ca)
 					}
+					wStart := time.Now()
 					ln.WriteToUDP(buf[:n], ca) //nolint:errcheck
+					if wElapsed := time.Since(wStart); wElapsed > 50*time.Millisecond {
+						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d SLOW WriteToUDP: %v (pkt#%d)", serverPort, wElapsed, s2cCount)
+					}
 				} else {
 					s2cDropped++
 					if s2cDropped <= 3 || s2cDropped%200 == 0 {
