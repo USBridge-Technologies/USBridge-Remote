@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -339,64 +338,31 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	//   AMediaCodec) directly on every platform; pipeWrite is passed through
 	//   but its fd is unused by do_li_start.
 	// On Android with userspace tsnet, C-level BSD sockets bypass the Go tsnet
-	// stack and can only reach LAN IPs via the kernel wlan0 route.
-	// If the Tailscale peer has a direct (non-100.x) endpoint on the same LAN,
-	// use that so LiStartConnection's RTSP/RTP go through the kernel directly.
+	// stack and have no kernel route to a 100.x tailnet IP at all.
+	// m.client.Host being a tailnet address is the user's explicit choice to
+	// connect over Tailscale — always honor that and route the C-level
+	// sockets through the local tsnet proxy. This used to opportunistically
+	// probe for a same-LAN direct IP and silently switch to it instead,
+	// which (a) meant "Tailscale" didn't actually mean Tailscale, and (b)
+	// wasn't even the fix for the control-stream disconnects it was
+	// suspected of — reconnects were reproduced on both paths.
 	moonlightHost := m.client.Host
 	if m.tailscaleSvc != nil && isLikelyTailnetHost(m.client.Host) {
-		// C-level BSD sockets bypass tsnet and need a direct LAN route.
-		// Ask Tailscale for a known direct endpoint and probe it.
-		// Gated to actual tailnet hosts: GetPeerDirectIP falls through to
-		// tsnet Status(), which lazily starts/authenticates tsnet as a side
-		// effect — for a plain LAN/direct host this used to trigger an
-		// unwanted tsnet login (auth browser popup) on every connect attempt.
-		lanIP := ""
-		if candidate := m.tailscaleSvc.GetPeerDirectIP(m.client.Host); candidate != "" {
-			if conn, err := net.DialTimeout("tcp", net.JoinHostPort(candidate, "47989"), 400*time.Millisecond); err == nil {
-				conn.Close()
-				lanIP = candidate
-				logrus.Infof("🌕 [Moonlight/tsnet] LAN IP %s reachable → using for C sockets", lanIP)
-			} else {
-				logrus.Warnf("🌕 [Moonlight/tsnet] LAN candidate %s unreachable (%v)", candidate, err)
+		rtspPort := 48010 // default; parse from sessionUrl for accuracy
+		if _, portStr, splitErr := net.SplitHostPort(sessionUrl); splitErr == nil {
+			if p, perr := strconv.Atoi(portStr); perr == nil && p > 0 {
+				rtspPort = p
 			}
 		}
-
-		if lanIP != "" {
-			moonlightHost = lanIP
-			fullUrl := sessionUrl
-			if !strings.HasPrefix(fullUrl, "rtsp://") {
-				fullUrl = "rtsp://" + fullUrl
-			}
-			if u, err := url.Parse(fullUrl); err == nil {
-				port := u.Port()
-				if port != "" {
-					u.Host = lanIP + ":" + port
-				} else {
-					u.Host = lanIP
-				}
-				sessionUrl = u.String()
-				logrus.Infof("🌕 [Moonlight/tsnet] RTSP via LAN: %s", sessionUrl)
-			}
+		stopProxy, localRTSPPort, proxyErr := startMoonlightProxy(m.tailscaleSvc, m.client.Host, rtspPort)
+		if proxyErr != nil {
+			logrus.Warnf("🌕 [Moonlight/tsnet] proxy failed (%v) — C sockets will use the Tailscale IP directly (needs system VPN)", proxyErr)
 		} else {
-			// DERP-only (internet): C-level BSD sockets have no kernel route to the
-			// Tailscale IP. Start a local TCP+UDP proxy so the C library connects to
-			// 127.0.0.1 while Go routes everything through tsnet.
-			rtspPort := 48010 // default; parse from sessionUrl for accuracy
-			if _, portStr, splitErr := net.SplitHostPort(sessionUrl); splitErr == nil {
-				if p, perr := strconv.Atoi(portStr); perr == nil && p > 0 {
-					rtspPort = p
-				}
-			}
-			stopProxy, localRTSPPort, proxyErr := startMoonlightProxy(m.tailscaleSvc, m.client.Host, rtspPort)
-			if proxyErr != nil {
-				logrus.Warnf("🌕 [Moonlight/tsnet] no reachable LAN IP and proxy failed (%v) — C sockets will use Tailscale IP (needs system VPN)", proxyErr)
-			} else {
-				moonlightHost = "127.0.0.1"
-				// Keep host:port format (no rtsp:// prefix; CGO wrapper handles that per-platform).
-				sessionUrl = fmt.Sprintf("127.0.0.1:%d", localRTSPPort)
-				m.stopMoonlightProxy = stopProxy
-				logrus.Infof("🌕 [Moonlight/Proxy] ✅ Internet proxy active: moonlightHost=127.0.0.1 rtspProxy=127.0.0.1:%d", localRTSPPort)
-			}
+			moonlightHost = "127.0.0.1"
+			// Keep host:port format (no rtsp:// prefix; CGO wrapper handles that per-platform).
+			sessionUrl = fmt.Sprintf("127.0.0.1:%d", localRTSPPort)
+			m.stopMoonlightProxy = stopProxy
+			logrus.Infof("🌕 [Moonlight/Proxy] ✅ tsnet proxy active: moonlightHost=127.0.0.1 rtspProxy=127.0.0.1:%d", localRTSPPort)
 		}
 	}
 	t3 := time.Now()
