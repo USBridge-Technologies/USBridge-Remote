@@ -5,6 +5,7 @@
 <div align="center">
 
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/USBridge-Technologies/USBridge-Remote/releases)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
 [![Patreon](https://img.shields.io/badge/Patreon-Support_Us-F96854?logo=patreon&logoColor=white)](https://www.patreon.com/USBridge_Technologies)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#)
 [![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#)
@@ -128,3 +129,9 @@ Join our Discord to get the **Beta Tester** role, report bugs, and help me shape
 - ❤️ [Patreon Page](https://www.patreon.com/USBridge_Technologies)
 - 🛒 [USBridge KVM 2.0 on Crowd Supply](https://crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 - 💬 [Discord](https://discord.com/invite/xqQ6ybkfWS)
+
+---
+
+## License
+
+GPLv3 — see [`LICENSE`](LICENSE).
