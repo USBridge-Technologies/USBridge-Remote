@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -438,36 +437,19 @@ func (vw *VideoWidget) stopVideoInternal() {
 	})
 	resetVideoInfoCache()
 
-	var wg sync.WaitGroup
-
-	// Sunshine stops video streaming when the Moonlight session ends via /cancel (Quit).
-
-	if vw.videoClient != nil {
-		wg.Add(1)
-		go func(client interface{ Disconnect() error }) {
-			defer wg.Done()
-			if err := client.Disconnect(); err != nil {
-				logrus.Errorf("Failed to disconnect Moonlight: %v", err)
-			}
-		}(vw.videoClient)
-	}
-
-	// Wait for completion with a small timeout so the video window doesn't hang
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(1500 * time.Millisecond):
-		logrus.Warn("⚠️ Stop video network ops timed out, proceeding to clear UI")
-	}
-
 	vw.isStreaming = false
 	vw.isVideoConnected = false
 	vw.isMouseConnected = false
 
+	// Tear down the local overlay/canvas first, before touching the network at
+	// all. clearVideo() destroys the native GPU overlay (Android's Vulkan
+	// SurfaceView, macOS/Windows' Metal/D3D window) — a real OS-level surface
+	// sitting outside Fyne's canvas, independent of whatever screen the app
+	// navigates to next. It used to run only after waiting up to 1.5s for
+	// Moonlight's network Disconnect() (LiStopConnection + Sunshine /cancel)
+	// to finish, so pressing stop and immediately switching screens left that
+	// overlay rendering on top of the new screen for up to that long. Nothing
+	// here depends on the network op completing first.
 	vw.resetViewport()
 	vw.clearVideo()
 
@@ -479,6 +461,18 @@ func (vw *VideoWidget) stopVideoInternal() {
 	})
 
 	vw.updateStatus()
+
+	// Sunshine stops video streaming when the Moonlight session ends via /cancel
+	// (Quit). Fire-and-forget: the 0.8s sleep below already gives Sunshine time
+	// to settle before this function is considered done, so there's nothing to
+	// gain by blocking the (now-already-cleared) UI on this too.
+	if vw.videoClient != nil {
+		go func(client interface{ Disconnect() error }) {
+			if err := client.Disconnect(); err != nil {
+				logrus.Errorf("Failed to disconnect Moonlight: %v", err)
+			}
+		}(vw.videoClient)
+	}
 
 	// Python test "standard": wait 0.8s after stopping video to let Sunshine clean up
 	logrus.Info("⏳ Waiting 0.8s for Sunshine to fully shut down (like test_api_full.py)")
