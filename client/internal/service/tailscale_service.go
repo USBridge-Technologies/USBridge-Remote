@@ -49,11 +49,12 @@ type TailscalePeer struct {
 // WireGuard/netstack embedded in the app, no kernel TUN or system daemon
 // required on any platform.
 type TailscaleService struct {
-	mu               sync.Mutex
-	server           *tsnet.Server
-	latestAuthURL    string
-	authURLHandler   func(string)
-	lastBackendState string
+	mu                 sync.Mutex
+	server             *tsnet.Server
+	latestAuthURL      string
+	authURLHandler     func(string)
+	lastBackendState   string
+	recoveringIdentity bool
 }
 
 func NewTailscaleService() *TailscaleService {
@@ -444,7 +445,60 @@ func (s *TailscaleService) handleUserLogf(format string, args ...any) {
 // destination port is indistinguishable from any other "connection refused"
 // in the app's own logs.
 func (s *TailscaleService) handleInternalLogf(format string, args ...any) {
-	logrus.Infof("🛰️ [Tailscale/Internal] %s", fmt.Sprintf(format, args...))
+	msg := fmt.Sprintf(format, args...)
+	logrus.Infof("🛰️ [Tailscale/Internal] %s", msg)
+
+	// A persisted node identity (in the on-disk state dir) can outlive the
+	// registration the coordination server actually holds for it — most
+	// commonly because Stop() calls LocalClient.Logout() (or the server is
+	// Ephemeral and got reaped after a previous disconnect) but leaves the
+	// state files on disk untouched. On the next Start(), tsnet resumes that
+	// now-dead identity and PollNetMap comes back "404: node not found"
+	// forever, retried with growing backoff, with no way to recover short of
+	// wiping app data. Detect that specific failure and self-heal once: drop
+	// the stale identity and let tsnet re-run interactive login from scratch
+	// (SetAuthURLHandler/setLatestAuthURL already surfaces the new login URL
+	// to the user automatically on Android).
+	if strings.Contains(msg, "node not found") {
+		s.mu.Lock()
+		already := s.recoveringIdentity
+		if !already {
+			s.recoveringIdentity = true
+		}
+		s.mu.Unlock()
+
+		if !already {
+			logrus.Warn("🛰️ [Tailscale] Detected stale node identity (404 node not found) — resetting local state and re-authenticating")
+			go s.recoverStaleIdentity()
+		}
+	}
+}
+
+// recoverStaleIdentity tears down the current tsnet server, wipes its on-disk
+// state directory, and starts a fresh server so tsnet performs a brand-new
+// interactive login instead of endlessly retrying a node identity the
+// coordination server no longer recognizes.
+func (s *TailscaleService) recoverStaleIdentity() {
+	defer func() {
+		s.mu.Lock()
+		s.recoveringIdentity = false
+		s.mu.Unlock()
+	}()
+
+	if err := s.Stop(); err != nil {
+		logrus.WithError(err).Warn("🛰️ [Tailscale] Error stopping tsnet server during identity recovery")
+	}
+
+	stateDir := tailscaleStateDir("usbridge-client")
+	if err := os.RemoveAll(stateDir); err != nil {
+		logrus.WithError(err).Errorf("🛰️ [Tailscale] Failed to clear stale state directory: %s", stateDir)
+		return
+	}
+	logrus.Infof("🛰️ [Tailscale] Cleared stale state directory: %s", stateDir)
+
+	if _, err := s.serverInstance(); err != nil {
+		logrus.WithError(err).Error("🛰️ [Tailscale] Failed to restart tsnet server after identity recovery")
+	}
 }
 
 // SetAuthURLHandler registers a callback invoked whenever tsnet produces a new

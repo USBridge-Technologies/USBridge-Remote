@@ -1885,11 +1885,16 @@ type tailscaleHeaderToggle struct {
 	disabled bool
 	hovered  bool
 
-	bg     *canvas.Rectangle
-	border *canvas.Rectangle
-	label  *canvas.Text
-	track  *canvas.Rectangle
-	thumb  *canvas.Circle
+	bg      *canvas.Rectangle
+	border  *canvas.Rectangle
+	label   *canvas.Text
+	track   *canvas.Rectangle
+	thumb   *canvas.Circle
+	spinner *canvas.Image
+
+	spinnerMu   sync.Mutex
+	spinnerStop chan struct{}
+	spinnerStep int
 }
 
 func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
@@ -1972,12 +1977,16 @@ func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
 
 	t.thumb = canvas.NewCircle(design.ColorGray400)
 
+	t.spinner = canvas.NewImageFromResource(assets.LoadingGrayFrames[0])
+	t.spinner.FillMode = canvas.ImageFillContain
+	t.spinner.Hidden = true
+
 	t.refreshVisuals()
 	return &tailscaleHeaderToggleRenderer{toggle: t}
 }
 
 func (t *tailscaleHeaderToggle) refreshVisuals() {
-	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil {
+	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil || t.spinner == nil {
 		return
 	}
 
@@ -2005,10 +2014,81 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	t.border.Refresh()
 	t.label.Color = labelColor
 	t.label.Refresh()
+
+	t.track.Hidden = t.loading
+	t.thumb.Hidden = t.loading
 	t.track.FillColor = trackColor
 	t.track.Refresh()
 	t.thumb.FillColor = thumbColor
 	t.thumb.Refresh()
+
+	t.spinner.Hidden = !t.loading
+	t.spinner.Refresh()
+	if t.loading {
+		t.startSpinner()
+	} else {
+		t.stopSpinner()
+	}
+}
+
+func (t *tailscaleHeaderToggle) startSpinner() {
+	if len(assets.LoadingGrayFrames) == 0 || t.spinner == nil {
+		return
+	}
+
+	t.spinnerMu.Lock()
+	alreadyRunning := t.spinnerStop != nil
+	t.spinnerMu.Unlock()
+	if alreadyRunning {
+		return
+	}
+
+	stop := make(chan struct{})
+	t.spinnerMu.Lock()
+	t.spinnerStop = stop
+	t.spinnerStep = 0
+	t.spinnerMu.Unlock()
+
+	t.spinner.Resource = assets.LoadingGrayFrames[0]
+	t.spinner.Refresh()
+
+	go func() {
+		ticker := time.NewTicker(140 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() {
+					t.spinnerMu.Lock()
+					active := t.spinnerStop == stop
+					if active {
+						t.spinnerStep = (t.spinnerStep + 1) % len(assets.LoadingGrayFrames)
+					}
+					step := t.spinnerStep
+					t.spinnerMu.Unlock()
+					if !active || t.spinner == nil {
+						return
+					}
+					t.spinner.Resource = assets.LoadingGrayFrames[step]
+					t.spinner.Refresh()
+				})
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+func (t *tailscaleHeaderToggle) stopSpinner() {
+	t.spinnerMu.Lock()
+	stop := t.spinnerStop
+	t.spinnerStop = nil
+	t.spinnerMu.Unlock()
+
+	if stop != nil {
+		close(stop)
+	}
 }
 
 type tailscaleHeaderToggleRenderer struct {
@@ -2016,7 +2096,7 @@ type tailscaleHeaderToggleRenderer struct {
 }
 
 func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
-	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil {
+	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil || r.toggle.spinner == nil {
 		return
 	}
 
@@ -2045,6 +2125,10 @@ func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
 	}
 	r.toggle.thumb.Move(fyne.NewPos(thumbX, thumbY))
 	r.toggle.thumb.Resize(fyne.NewSize(thumbSize, thumbSize))
+
+	spinnerSize := float32(14)
+	r.toggle.spinner.Move(fyne.NewPos((size.Width-spinnerSize)/2, trackY-1))
+	r.toggle.spinner.Resize(fyne.NewSize(spinnerSize, spinnerSize))
 }
 
 func (r *tailscaleHeaderToggleRenderer) MinSize() fyne.Size {
@@ -2056,10 +2140,12 @@ func (r *tailscaleHeaderToggleRenderer) Refresh() {
 	r.Layout(r.toggle.Size())
 }
 
-func (r *tailscaleHeaderToggleRenderer) Destroy() {}
+func (r *tailscaleHeaderToggleRenderer) Destroy() {
+	r.toggle.stopSpinner()
+}
 
 func (r *tailscaleHeaderToggleRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.border}
+	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.spinner, r.toggle.border}
 }
 
 func (r *tailscaleHeaderToggleRenderer) BackgroundColor() color.Color {

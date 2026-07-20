@@ -386,7 +386,16 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 	// window on top of the app.
 	if mw.tailscaleService != nil &&
 		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
-		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+		// Deliberately not derived from ctx (which is bounded by the short
+		// APITimeout meant for the actual API calls below): tsnet coming up
+		// cold — especially first-ever interactive login — can take well
+		// longer than that. Carving this wait out of ctx's budget left
+		// little or nothing for the connect attempt that follows, so the
+		// first press after enabling Tailscale would fail with a
+		// "context deadline exceeded"-style error even though tsnet itself
+		// was still fine — a second press then worked because tsnet was
+		// already Running by then.
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), 25*time.Second)
 		if waitErr := mw.tailscaleService.WaitUntilReady(waitCtx); waitErr != nil {
 			logrus.Warnf("⚠️ [CONNECT] tsnet not yet ready: %v (proceeding anyway)", waitErr)
 		}
@@ -436,7 +445,13 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey, frpToken s
 		// tsnet.Up() blocks until Running state (~4s on first launch).
 		if isLikelyTailscaleHost(host) && mw.tailscaleService != nil {
 			logrus.Info("🛰️ [SYNC] Waiting for Tailscale to be ready...")
-			if waitErr := mw.tailscaleService.WaitUntilReady(ctx); waitErr != nil {
+			// Own budget, not ctx (see the identical rationale above) — otherwise
+			// this wait alone can exhaust the API timeout, leaving the sync
+			// request below to fail immediately with a deadline-exceeded error.
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 25*time.Second)
+			waitErr := mw.tailscaleService.WaitUntilReady(waitCtx)
+			waitCancel()
+			if waitErr != nil {
 				logrus.Warnf("🛰️ [SYNC] Tailscale not ready: %v (proceeding anyway)", waitErr)
 			} else {
 				logrus.Info("🛰️ [SYNC] Tailscale ready")
