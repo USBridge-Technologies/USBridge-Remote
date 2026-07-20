@@ -221,7 +221,11 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	return cm
 }
 
-func (cm *ConnectionManager) startTailscaleAuthAction() {
+// startTailscaleLogin handles a tap on the toggle while it's off. The intent
+// is fixed at "get me connected" — it must never fall through to a logout,
+// even if resuming tsnet's persisted session (below) happens to land it in a
+// LoggedIn state by the time the check runs.
+func (cm *ConnectionManager) startTailscaleLogin() {
 	if cm.ts == nil {
 		return
 	}
@@ -231,18 +235,34 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 	}
 	go func() {
 		defer cm.tailscaleAuthInProgress.Store(false)
+
+		// Status() reports a default "not logged in, not running" result
+		// whenever the tsnet server hasn't been explicitly started yet — and
+		// this button, unlike Connect (which starts tsnet via
+		// WaitUntilReady/HTTPClient before ever checking status), could
+		// previously be the very first thing to touch tsnet. That made it
+		// look like there was never a saved session, so it always fell
+		// through to StartLogin/StartLoginInteractive and forced a brand new
+		// browser sign-in — even when a valid Tailscale session was already
+		// persisted on disk from a previous run. Start tsnet and give it a
+		// moment to resume that persisted session first, exactly like
+		// Connect does, so this button only prompts for a fresh login when
+		// one is actually needed.
+		if err := cm.ts.Start(context.Background()); err != nil {
+			logrus.WithError(err).Warn("tailscale client ui: Start failed")
+		}
+		warmCtx, warmCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		_ = cm.ts.WaitUntilReady(warmCtx)
+		warmCancel()
+
 		status, err := cm.ts.Status(context.Background())
 		if err == nil && status != nil && status.LoggedIn {
-			logrus.Info("tailscale client ui: logout button pressed")
-			cm.setTailscaleStateAsync(
-				"Tailscale: signing out",
-				"Google: disconnecting account",
-				"Address: unavailable",
-				"Sign Out",
-			)
-			if logoutErr := cm.ts.Logout(context.Background()); logoutErr != nil {
-				logrus.WithError(logoutErr).Error("tailscale client ui: Logout failed")
-			}
+			// The persisted session was resumed successfully — already
+			// connected, nothing more to do. This must NOT trigger a
+			// logout: that was a real regression where resuming a valid
+			// session right here made it look, one line down, like the
+			// user had asked to sign out.
+			logrus.Info("tailscale client ui: login button pressed — session already resumed, nothing to do")
 			cm.refreshTailscaleStatus()
 			return
 		}
@@ -273,6 +293,35 @@ func (cm *ConnectionManager) startTailscaleAuthAction() {
 	}()
 }
 
+// startTailscaleLogout handles a tap on the toggle while it's on, after the
+// user has confirmed the sign-out dialog. Intent is fixed at "disconnect" —
+// unlike startTailscaleLogin, it never re-derives what to do from a status
+// check.
+func (cm *ConnectionManager) startTailscaleLogout() {
+	if cm.ts == nil {
+		return
+	}
+	if !cm.tailscaleAuthInProgress.CompareAndSwap(false, true) {
+		logrus.Info("tailscale client ui: auth action already in progress, ignoring duplicate click")
+		return
+	}
+	go func() {
+		defer cm.tailscaleAuthInProgress.Store(false)
+
+		logrus.Info("tailscale client ui: logout button pressed")
+		cm.setTailscaleStateAsync(
+			"Tailscale: signing out",
+			"Google: disconnecting account",
+			"Address: unavailable",
+			"Sign Out",
+		)
+		if logoutErr := cm.ts.Logout(context.Background()); logoutErr != nil {
+			logrus.WithError(logoutErr).Error("tailscale client ui: Logout failed")
+		}
+		cm.refreshTailscaleStatus()
+	}()
+}
+
 func (cm *ConnectionManager) handleTailscaleToggleAction() {
 	if cm.tsStatus != nil && cm.tsStatus.LoggedIn {
 		view.ShowConfirmYesLeft(
@@ -280,13 +329,13 @@ func (cm *ConnectionManager) handleTailscaleToggleAction() {
 			i18n.Current.TailscaleLogoutConfirm,
 			func(confirmed bool) {
 				if confirmed {
-					cm.startTailscaleAuthAction()
+					cm.startTailscaleLogout()
 				}
 			},
 			cm.window,
 		)
 	} else {
-		cm.startTailscaleAuthAction()
+		cm.startTailscaleLogin()
 	}
 }
 

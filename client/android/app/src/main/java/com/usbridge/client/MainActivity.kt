@@ -226,22 +226,44 @@ class MainActivity : GoNativeActivity() {
     }
 
     /**
-     * Отслеживает высоту системной клавиатуры Android (IME) через ViewTreeObserver.
+     * Tracks the Android system keyboard (IME) height via ViewTreeObserver.
      *
-     * С темой Fullscreen `windowSoftInputMode=adjustResize` не работает (ограничение Android),
-     * поэтому мы вручную измеряем высоту IME в пикселях и передаём точное значение в Go
-     * через KeyboardBridge.onIMEHeightChanged(). Go конвертирует пиксели в Fyne-единицы
-     * пропорционально высоте экрана и выставляет нижний отступ под нашей клавиатурой.
+     * With the Fullscreen theme, `windowSoftInputMode=adjustResize` doesn't work (an Android
+     * limitation), so we manually measure the IME height in pixels and pass the exact value to
+     * Go via KeyboardBridge.onIMEHeightChanged(). Go converts pixels to Fyne units
+     * proportionally to screen height and sets the bottom margin under our keyboard panel.
      *
-     * Дополнительно, когда IME скрывается (imeHeight становится 0):
-     *  - вызываем GoNativeActivity.hideKeyboard() чтобы сбросить keyboardUp=false
-     *    → иначе кнопка "Назад" не выходит из fullscreen (видит keyboardUp=true и снова прячет клавиатуру)
-     *  - это также устанавливает textEdit.visibility=GONE, что триггерит Fyne перерисовать layout
-     *    → иначе в обычном режиме layout не возвращается на место пока поле ввода в фокусе
+     * Additionally, when the IME hides (imeHeight becomes 0):
+     *  - we call GoNativeActivity.hideKeyboard() to reset keyboardUp=false
+     *    → otherwise the "Back" button doesn't exit fullscreen (it sees keyboardUp=true and
+     *      hides the keyboard again instead)
+     *  - this also sets textEdit.visibility=GONE, which triggers Fyne to relayout
+     *    → otherwise in normal mode the layout doesn't return to place while the input field
+     *      still has focus
      */
     private fun setupIMEListener() {
         val decorView = window.decorView
         var lastImeHeightPx = -1
+
+        // ViewCompat.getRootWindowInsets(decorView), called fresh from inside the global
+        // layout listener below, can transiently return null or a stale/interim insets
+        // object — e.g. right after the window is reattached, during a resize on
+        // freeform/desktop-mode-capable devices, or while an insets animation (predictive
+        // back, IME transition) is still in flight. Each global layout pass previously
+        // fell back to `?: 0` on a null read, which was indistinguishable from "this device
+        // genuinely has no nav bar" — silently reporting navBarHeight=0 for one frame and
+        // pushing the click-to-type panel down onto the nav buttons until the next inset
+        // dispatch (e.g. opening the IME) corrected it.
+        //
+        // setOnApplyWindowInsetsListener is the framework's authoritative, race-free signal
+        // for "these are the current insets for this window" — cache the latest one here and
+        // read from the cache below instead of re-querying decorView on every layout pass.
+        var latestInsets: WindowInsetsCompat? = null
+        ViewCompat.setOnApplyWindowInsetsListener(decorView) { _, insets ->
+            latestInsets = insets
+            insets
+        }
+        ViewCompat.requestApplyInsets(decorView)
 
         decorView.viewTreeObserver.addOnGlobalLayoutListener {
             val rect = Rect()
@@ -251,19 +273,21 @@ class MainActivity : GoNativeActivity() {
 
             val visibleImeHeight = (screenHeight - rect.bottom).coerceAtLeast(0)
 
-            // В edge-to-edge / fullscreen режиме getWindowVisibleDisplayFrame не учитывает
-            // навигационный бар (окно занимает весь экран). Получаем его высоту через WindowInsets,
-            // чтобы тулбар с кнопками всегда поднимался над видимым навбаром.
-            val navBarHeight = ViewCompat.getRootWindowInsets(decorView)
+            // In edge-to-edge / fullscreen mode, getWindowVisibleDisplayFrame doesn't account
+            // for the navigation bar (the window occupies the full screen). Read its height
+            // from the last authoritatively-dispatched WindowInsets (see comment above) so the
+            // toolbar with the buttons always sits above the visible nav bar without racing
+            // against null/stale insets.
+            val navBarHeight = (latestInsets ?: ViewCompat.getRootWindowInsets(decorView))
                 ?.getInsets(WindowInsetsCompat.Type.navigationBars())
                 ?.bottom ?: 0
 
-            // Используем максимум: IME-высота или высота навбара.
-            // Это гарантирует корректный отступ как в обычном, так и в fullscreen edge-to-edge режиме.
+            // Use the max of IME height or nav bar height.
+            // This guarantees a correct margin both in normal mode and in fullscreen edge-to-edge mode.
             val imeHeight = maxOf(visibleImeHeight, navBarHeight)
 
-            // Проверяем язык всегда, когда клавиатура открыта,
-            // так как переключение раскладки может не менять высоту окна.
+            // Always check the language when the keyboard is open,
+            // since switching layouts may not change the window height.
             if (imeHeight > 0) {
                 reportLanguage()
             }
@@ -275,31 +299,33 @@ class MainActivity : GoNativeActivity() {
                 Log.d(TAG, "⌨️ [IME] height changed: imeHeight=$imeHeight (visible=$visibleImeHeight, navBar=$navBarHeight) screenHeight=$screenHeight")
 
                 if (visibleImeHeight == 0 && wasKeyboardVisible) {
-                    // IME только что скрылась (пользователь нажал ↓ или кнопку сворачивания).
-                    // Синхронизируем состояние GoNativeActivity: keyboardUp=false и textEdit=GONE.
-                    // Без этого: кнопка "Назад" видит keyboardUp=true и не выходит из fullscreen;
-                    // а в обычном режиме Fyne не знает что клавиатура ушла и не перерисовывает layout.
-                    Log.d(TAG, "⌨️ [IME] скрылась — сбрасываем keyboardUp через hideKeyboard()")
+                    // The IME just hid (user pressed ↓ or the collapse button).
+                    // Sync GoNativeActivity's state: keyboardUp=false and textEdit=GONE.
+                    // Without this: the "Back" button sees keyboardUp=true and doesn't exit
+                    // fullscreen; and in normal mode Fyne doesn't know the keyboard is gone and
+                    // doesn't relayout.
+                    Log.d(TAG, "⌨️ [IME] hidden — resetting keyboardUp via hideKeyboard()")
                     org.golang.app.GoNativeActivity.hideKeyboard()
 
-                    // Снимаем фокус с поля ввода, чтобы Fyne перерисовал layout.
-                    // Без этого в обычном режиме layout не возвращается на место, пока не кликнешь по окну.
+                    // Clear focus from the input field so Fyne relayouts.
+                    // Without this, in normal mode the layout doesn't return to place until the
+                    // window is clicked.
                     currentFocus?.let {
-                        Log.d(TAG, "⌨️ [IME] сбрасываем фокус с ${it.javaClass.simpleName}")
+                        Log.d(TAG, "⌨️ [IME] clearing focus from ${it.javaClass.simpleName}")
                         it.clearFocus()
                     }
                 } else if (imeHeight == 0 && isInitialLayout) {
-                    // Первый запуск: Fyne использует полный canvas включая NavBar.
-                    // hideKeyboard() заставляет Fyne пересчитать размер canvas без NavBar,
-                    // чтобы кнопки и поля ввода изначально были в правильной позиции.
-                    // Задержка нужна чтобы Fyne успел инициализировать textEdit.
-                    Log.d(TAG, "⌨️ [IME] первый layout — планируем начальный hideKeyboard()")
+                    // First launch: Fyne uses the full canvas including the nav bar.
+                    // hideKeyboard() forces Fyne to recompute the canvas size without the nav
+                    // bar, so buttons and input fields start in the correct position.
+                    // The delay gives Fyne time to finish initializing textEdit.
+                    Log.d(TAG, "⌨️ [IME] first layout — scheduling initial hideKeyboard()")
                     decorView.postDelayed({
                         try {
                             org.golang.app.GoNativeActivity.hideKeyboard()
-                            Log.d(TAG, "⌨️ [IME] начальный hideKeyboard() выполнен")
+                            Log.d(TAG, "⌨️ [IME] initial hideKeyboard() done")
                         } catch (e: Exception) {
-                            Log.e(TAG, "❌ [IME] начальный hideKeyboard() не удался: ${e.message}")
+                            Log.e(TAG, "❌ [IME] initial hideKeyboard() failed: ${e.message}")
                         }
                     }, 600)
                 }
