@@ -19,6 +19,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_android.h>
 #include <android/native_window_jni.h>
+#include <android/hardware_buffer.h>
 #include <android/log.h>
 #include <jni.h>
 #include <pthread.h>
@@ -139,6 +140,19 @@ static VkImage                  g_tex        = VK_NULL_HANDLE;
 static VkDeviceMemory           g_tex_mem    = VK_NULL_HANDLE;
 static int                      g_tex_w      = 0, g_tex_h = 0;
 
+// ── AHardwareBuffer zero-copy import cache ─────────────────────────────────────
+// gl_video_impl_android.c's render_to_hwbuffer hands back one of two
+// AHardwareBuffer* it owns and reuses every frame (double-buffered). Rather
+// than import (allocate a VkImage + bind memory) on every single frame, cache
+// one imported VkImage per distinct AHardwareBuffer* we've seen -- keyed by
+// pointer identity, which is stable across frames for each of GL's two slots.
+#define HWIMPORT_COUNT 2
+static PFN_vkGetAndroidHardwareBufferPropertiesANDROID p_vkGetAndroidHardwareBufferPropertiesANDROID = NULL;
+static void        *g_hwimport_src[HWIMPORT_COUNT] = {NULL, NULL}; // AHardwareBuffer* this slot was imported from
+static VkImage       g_hwimport_img[HWIMPORT_COUNT] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+static VkDeviceMemory g_hwimport_mem[HWIMPORT_COUNT] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+static int            g_hwimport_w = 0, g_hwimport_h = 0;
+
 static VkCommandPool            g_cmdpool    = VK_NULL_HANDLE;
 static VkCommandBuffer          g_cmdbuf     = VK_NULL_HANDLE;
 static VkFence                  g_fence      = VK_NULL_HANDLE;
@@ -161,6 +175,14 @@ static uint8_t        *g_buf    = NULL;
 static size_t          g_buf_sz = 0;
 static int             g_fw = 0, g_fh = 0, g_fs = 0;
 static volatile int    g_ready  = 0;
+
+// AHardwareBuffer zero-copy submission (android_vk_try_submit_hwbuffer):
+// nothing to copy, just the pointer GL rendered into and its dimensions.
+// Mutually exclusive with g_buf/g_ready above in practice (dr_submit picks
+// one path or the other for a whole session), guarded by the same g_mu.
+static void            *g_pend_ahb = NULL;
+static int              g_pend_ahb_w = 0, g_pend_ahb_h = 0;
+static volatile int     g_ahb_ready  = 0;
 
 static pthread_mutex_t g_mu     = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       g_thread = 0;
@@ -368,13 +390,42 @@ static void cursor_init(int scale) {
 
 // ─── Vulkan init ──────────────────────────────────────────────────────────────
 
+// g_hw_import_supported is set once vk_create_device has confirmed every
+// extension AHardwareBuffer import needs was actually enabled. android_vk_try_submit
+// checks this and falls back to the old CPU staging-buffer path (still fully
+// functional, just not zero-copy) on any device/driver that's missing one of
+// these -- never crashes or blanks the screen over it.
+static int g_hw_import_supported = 0;
+static int g_inst_has_ext_mem_caps = 0; // both instance prereqs enabled successfully
+
+static int has_ext(VkExtensionProperties *avail, uint32_t n, const char *name) {
+    for (uint32_t i = 0; i < n; i++)
+        if (strcmp(avail[i].extensionName, name) == 0) return 1;
+    return 0;
+}
+
 static int vk_create_instance(void) {
-    const char *exts[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
-    };
+    uint32_t availN = 0;
+    vkEnumerateInstanceExtensionProperties(NULL, &availN, NULL);
+    VkExtensionProperties *avail = availN ? malloc(availN * sizeof(*avail)) : NULL;
+    if (avail) vkEnumerateInstanceExtensionProperties(NULL, &availN, avail);
+
+    const char *exts[8];
+    uint32_t n = 0;
+    exts[n++] = VK_KHR_SURFACE_EXTENSION_NAME;
+    exts[n++] = VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
+    // Prerequisites for AHardwareBuffer zero-copy import (see vk_create_device).
+    // Both have been core-promoted since Vulkan 1.1 but Android's Vulkan is
+    // often exposed at 1.0 via extensions, so request them explicitly.
+    int hasGpdp2 = avail && has_ext(avail, availN, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    int hasExtMemCap = avail && has_ext(avail, availN, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+    if (hasGpdp2)     exts[n++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+    if (hasExtMemCap) exts[n++] = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
+    g_inst_has_ext_mem_caps = hasGpdp2 && hasExtMemCap;
+    free(avail);
+
     VkInstanceCreateInfo ci = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    ci.enabledExtensionCount   = 2;
+    ci.enabledExtensionCount   = n;
     ci.ppEnabledExtensionNames = exts;
     VkResult r = vkCreateInstance(&ci, NULL, &g_inst);
     if (r != VK_SUCCESS) { VLOGE("vkCreateInstance failed: %d", (int)r); return 0; }
@@ -406,14 +457,77 @@ static int vk_create_device(void) {
     qci.queueFamilyIndex = g_qfam;
     qci.queueCount       = 1;
     qci.pQueuePriorities = &pri;
-    const char *dev_exts[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+    uint32_t availN = 0;
+    vkEnumerateDeviceExtensionProperties(g_pdev, NULL, &availN, NULL);
+    VkExtensionProperties *avail = availN ? malloc(availN * sizeof(*avail)) : NULL;
+    if (avail) vkEnumerateDeviceExtensionProperties(g_pdev, NULL, &availN, avail);
+
+    const char *dev_exts[16];
+    uint32_t n = 0;
+    dev_exts[n++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+
+    // Full prerequisite chain the Vulkan spec requires for
+    // VK_ANDROID_external_memory_android_hardware_buffer. If the instance
+    // didn't get its two prerequisites (vk_create_instance) or the device is
+    // missing any single one of these, zero-copy AHardwareBuffer import is
+    // simply unavailable here -- g_hw_import_supported stays 0 and
+    // android_vk_try_submit falls back to the CPU staging-buffer path that
+    // already worked before this, on every device.
+    static const char *hwbuf_exts[] = {
+        VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+        VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+        VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+        VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+        VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+        VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+        VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+    };
+    int hwbuf_ok = g_inst_has_ext_mem_caps && avail;
+    if (hwbuf_ok) {
+        for (size_t i = 0; i < sizeof(hwbuf_exts) / sizeof(hwbuf_exts[0]); i++) {
+            if (!has_ext(avail, availN, hwbuf_exts[i])) { hwbuf_ok = 0; break; }
+        }
+    }
+    if (hwbuf_ok) {
+        for (size_t i = 0; i < sizeof(hwbuf_exts) / sizeof(hwbuf_exts[0]); i++) {
+            dev_exts[n++] = hwbuf_exts[i];
+        }
+    }
+    free(avail);
+
     VkDeviceCreateInfo dci = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     dci.queueCreateInfoCount    = 1;
     dci.pQueueCreateInfos       = &qci;
-    dci.enabledExtensionCount   = 1;
+    dci.enabledExtensionCount   = n;
     dci.ppEnabledExtensionNames = dev_exts;
-    if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) return 0;
+    if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) {
+        if (hwbuf_ok) {
+            // Retry with just the required extension in case one of the
+            // "optional" ones we detected as available still fails device
+            // creation for some other reason -- never let this new code
+            // path stop the swapchain (and therefore all video) from
+            // coming up at all.
+            VLOGE("vkCreateDevice with hwbuffer extensions failed, retrying without them");
+            dci.enabledExtensionCount = 1;
+            hwbuf_ok = 0;
+            if (vkCreateDevice(g_pdev, &dci, NULL, &g_dev) != VK_SUCCESS) return 0;
+        } else {
+            return 0;
+        }
+    }
     vkGetDeviceQueue(g_dev, g_qfam, 0, &g_queue);
+
+    if (hwbuf_ok) {
+        p_vkGetAndroidHardwareBufferPropertiesANDROID =
+            (PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
+            vkGetDeviceProcAddr(g_dev, "vkGetAndroidHardwareBufferPropertiesANDROID");
+        g_hw_import_supported = p_vkGetAndroidHardwareBufferPropertiesANDROID != NULL;
+        VLOGI("AHardwareBuffer zero-copy import: %s", g_hw_import_supported ? "available" : "unavailable (proc addr)");
+    } else {
+        VLOGI("AHardwareBuffer zero-copy import: unavailable (missing extensions)");
+    }
     return 1;
 }
 
@@ -842,6 +956,317 @@ static int vk_render_frame(int fw, int fh, int fs) {
     return 1;
 }
 
+// ── AHardwareBuffer zero-copy path ─────────────────────────────────────────────
+// See gl_video_impl_android.c's render_to_hwbuffer for the GL side. Imports
+// the same AHardwareBuffer GL just rendered into directly as a VkImage
+// (VK_ANDROID_external_memory_android_hardware_buffer) and blits straight
+// from it -- no staging buffer, no vkCmdCopyBufferToImage, no CPU touches
+// the pixels at all between the GPU shader write and the swapchain present.
+
+static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
+    AHardwareBuffer *ahb = (AHardwareBuffer *)ahb_void;
+
+    if (g_hwimport_w != fw || g_hwimport_h != fh) {
+        // GL only reallocates both of its AHardwareBuffers together on
+        // resize, so any cached import from the old size is stale for both
+        // slots at once -- drop everything rather than risk matching a
+        // pointer that happens to have been reused at the new size.
+        if (g_hwimport_img[0] != VK_NULL_HANDLE || g_hwimport_img[1] != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(g_dev);
+        }
+        for (int i = 0; i < HWIMPORT_COUNT; i++) {
+            if (g_hwimport_img[i] != VK_NULL_HANDLE) { vkDestroyImage(g_dev, g_hwimport_img[i], NULL); g_hwimport_img[i] = VK_NULL_HANDLE; }
+            if (g_hwimport_mem[i] != VK_NULL_HANDLE) { vkFreeMemory(g_dev, g_hwimport_mem[i], NULL);  g_hwimport_mem[i] = VK_NULL_HANDLE; }
+            g_hwimport_src[i] = NULL;
+        }
+        g_hwimport_w = fw; g_hwimport_h = fh;
+    }
+
+    for (int i = 0; i < HWIMPORT_COUNT; i++) {
+        if (g_hwimport_src[i] == ahb_void && g_hwimport_img[i] != VK_NULL_HANDLE) {
+            return g_hwimport_img[i];
+        }
+    }
+
+    int slot = -1;
+    for (int i = 0; i < HWIMPORT_COUNT; i++) if (g_hwimport_src[i] == NULL) { slot = i; break; }
+    if (slot < 0) slot = 0; // shouldn't happen (GL only ever hands back one of 2 pointers)
+
+    if (g_hwimport_img[slot] != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(g_dev);
+        vkDestroyImage(g_dev, g_hwimport_img[slot], NULL); g_hwimport_img[slot] = VK_NULL_HANDLE;
+    }
+    if (g_hwimport_mem[slot] != VK_NULL_HANDLE) {
+        vkFreeMemory(g_dev, g_hwimport_mem[slot], NULL); g_hwimport_mem[slot] = VK_NULL_HANDLE;
+    }
+
+    VkAndroidHardwareBufferFormatPropertiesANDROID fmtProps = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID };
+    VkAndroidHardwareBufferPropertiesANDROID props = { VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID, &fmtProps };
+    if (p_vkGetAndroidHardwareBufferPropertiesANDROID(g_dev, ahb, &props) != VK_SUCCESS) {
+        VLOGE("hwimport: vkGetAndroidHardwareBufferPropertiesANDROID failed");
+        return VK_NULL_HANDLE;
+    }
+    if (fmtProps.format == VK_FORMAT_UNDEFINED) {
+        // Would need VkExternalFormatANDROID + a sampler Ycbcr conversion to
+        // use at all (the path for opaque/YUV buffer formats) -- our buffers
+        // are always allocated as plain AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM
+        // (gl_video_impl_android.c), which should always report a direct
+        // format here. Treat anything else as "can't import".
+        VLOGE("hwimport: AHardwareBuffer has no direct VkFormat (external format unsupported here)");
+        return VK_NULL_HANDLE;
+    }
+
+    VkExternalMemoryImageCreateInfo extImgCi = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO };
+    extImgCi.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &extImgCi };
+    ici.imageType     = VK_IMAGE_TYPE_2D;
+    ici.format        = fmtProps.format;
+    ici.extent        = (VkExtent3D){(uint32_t)fw, (uint32_t)fh, 1};
+    ici.mipLevels     = 1;
+    ici.arrayLayers   = 1;
+    ici.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ici.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkImage img = VK_NULL_HANDLE;
+    if (vkCreateImage(g_dev, &ici, NULL, &img) != VK_SUCCESS) {
+        VLOGE("hwimport: vkCreateImage failed");
+        return VK_NULL_HANDLE;
+    }
+
+    VkImportAndroidHardwareBufferInfoANDROID importInfo = { VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID };
+    importInfo.buffer = ahb;
+
+    // Dedicated allocation is required by the Vulkan spec when importing an
+    // AHardwareBuffer that (like ours) has GPU_COLOR_OUTPUT usage.
+    VkMemoryDedicatedAllocateInfo dedicated = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &importInfo };
+    dedicated.image = img;
+
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, props.memoryTypeBits, 0);
+    if (mi == UINT32_MAX) {
+        VLOGE("hwimport: no matching memory type for imported buffer");
+        vkDestroyImage(g_dev, img, NULL);
+        return VK_NULL_HANDLE;
+    }
+
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &dedicated };
+    mai.allocationSize  = props.allocationSize;
+    mai.memoryTypeIndex = mi;
+
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    if (vkAllocateMemory(g_dev, &mai, NULL, &mem) != VK_SUCCESS) {
+        VLOGE("hwimport: vkAllocateMemory (import) failed");
+        vkDestroyImage(g_dev, img, NULL);
+        return VK_NULL_HANDLE;
+    }
+    if (vkBindImageMemory(g_dev, img, mem, 0) != VK_SUCCESS) {
+        VLOGE("hwimport: vkBindImageMemory failed");
+        vkFreeMemory(g_dev, mem, NULL);
+        vkDestroyImage(g_dev, img, NULL);
+        return VK_NULL_HANDLE;
+    }
+
+    g_hwimport_img[slot] = img;
+    g_hwimport_mem[slot] = mem;
+    g_hwimport_src[slot] = ahb_void;
+    VLOGI("hwimport: imported AHardwareBuffer %p as %dx%d VkImage (slot %d, fmt=%d)",
+          ahb_void, fw, fh, slot, (int)fmtProps.format);
+    return img;
+}
+
+static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
+    if (!g_dev) return 0;
+    if (!g_swap) { vk_recreate_swapchain(); return 0; }
+
+    {
+        VkSurfaceCapabilitiesKHR caps;
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_pdev, g_surf, &caps) == VK_SUCCESS) {
+            VkExtent2D cur = vk_surface_extent(&caps);
+            if (cur.width != 0 && cur.height != 0 &&
+                (cur.width != g_swap_ext.width || cur.height != g_swap_ext.height)) {
+                VLOGI("surface resized %ux%u → %ux%u, recreating swapchain",
+                      g_swap_ext.width, g_swap_ext.height, cur.width, cur.height);
+                vk_recreate_swapchain();
+                return 0;
+            }
+        } else {
+            vk_recreate_swapchain();
+            return 0;
+        }
+    }
+
+    VkImage srcImg = hwimport_get_or_create(ahb_void, fw, fh);
+    if (srcImg == VK_NULL_HANDLE) return 0;
+
+    uint32_t img_idx = 0;
+    VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 2000000000ULL,
+                                          g_img_sem, VK_NULL_HANDLE, &img_idx);
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) { vk_recreate_swapchain(); return 0; }
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) return 0;
+
+    if (vkWaitForFences(g_dev, 1, &g_fence, VK_TRUE, 2000000000ULL) == VK_TIMEOUT) {
+        VLOGE("vkWaitForFences timeout (2s)");
+        vkResetFences(g_dev, 1, &g_fence); return 0;
+    }
+    vkResetFences(g_dev, 1, &g_fence);
+
+    vkResetCommandBuffer(g_cmdbuf, 0);
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(g_cmdbuf, &bi);
+
+    // GL already wrote (and glFinish()'d) this frame's pixels straight into
+    // srcImg's backing memory -- there's nothing for us to copy in, just a
+    // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
+    // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
+    // boundaries: we never write to this image via Vulkan ourselves, only
+    // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
+    vk_image_barrier(g_cmdbuf, srcImg,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        0, VK_ACCESS_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        0, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    // Snapshot viewport + cursor state atomically, identical to vk_render_frame.
+    pthread_mutex_lock(&g_state_mu);
+    float u0 = atomic_load(&g_vp_u0_fp) / 65536.0f;
+    float v0 = atomic_load(&g_vp_v0_fp) / 65536.0f;
+    float u1 = atomic_load(&g_vp_u1_fp) / 65536.0f;
+    float v1 = atomic_load(&g_vp_v1_fp) / 65536.0f;
+    float snap_uc  = atomic_load(&g_cursor_uc_fp)  / 65536.0f;
+    float snap_vc  = atomic_load(&g_cursor_vc_fp)  / 65536.0f;
+    int   snap_vis = atomic_load(&g_cursor_visible);
+    pthread_mutex_unlock(&g_state_mu);
+    if (u0 < 0.0f) u0 = 0.0f; if (u1 > 1.0f) u1 = 1.0f;
+    if (v0 < 0.0f) v0 = 0.0f; if (v1 > 1.0f) v1 = 1.0f;
+    if (u1 <= u0 + 0.001f) { u0 = 0.0f; u1 = 1.0f; }
+    if (v1 <= v0 + 0.001f) { v0 = 0.0f; v1 = 1.0f; }
+
+    int src_x0 = (int)(u0 * fw);
+    int src_y0 = (int)(v0 * fh);
+    int src_x1 = (int)(u1 * fw + 0.5f);
+    int src_y1 = (int)(v1 * fh + 0.5f);
+    if (src_x0 < 0) src_x0 = 0;
+    if (src_y0 < 0) src_y0 = 0;
+    if (src_x1 > fw) src_x1 = fw;
+    if (src_y1 > fh) src_y1 = fh;
+    if (src_x1 <= src_x0 || src_y1 <= src_y0) return 0;
+
+    int sw = (int)g_swap_ext.width, sh = (int)g_swap_ext.height;
+    float fa = (float)(src_x1 - src_x0) / (float)(src_y1 - src_y0);
+    float wa = (float)sw / (float)(sh ? sh : 1);
+    int dx = 0, dy = 0, dw = sw, dh = sh;
+    if (fa > wa) { dh = (int)(sw / fa + 0.5f); dy = atomic_load(&g_align_bottom) ? (sh - dh) : (sh - dh) / 2; }
+    else         { dw = (int)(sh * fa + 0.5f); dx = (sw - dw) / 2; }
+
+    VkClearColorValue black = {0};
+    VkImageSubresourceRange full = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vkCmdClearColorImage(g_cmdbuf, g_swap_imgs[img_idx],
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &full);
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    VkImageBlit blt = {0};
+    blt.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blt.srcSubresource.layerCount = 1;
+    blt.srcOffsets[0] = (VkOffset3D){src_x0, src_y0, 0};
+    blt.srcOffsets[1] = (VkOffset3D){src_x1, src_y1, 1};
+    blt.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blt.dstSubresource.layerCount = 1;
+    blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
+    blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
+    vkCmdBlitImage(g_cmdbuf,
+        srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blt, VK_FILTER_LINEAR);
+
+    if (snap_vis && g_cursor_nspans > 0 &&
+        g_cursor_vk_buf != VK_NULL_HANDLE) {
+        float uc = snap_uc;
+        float vc = snap_vc;
+        float span_u = u1 - u0, span_v = v1 - v0;
+        float tu = (span_u > 0.001f) ? (uc - u0) / span_u : 0.5f;
+        float tv = (span_v > 0.001f) ? (vc - v0) / span_v : 0.5f;
+        int csx = dx + (int)(tu * dw + 0.5f);
+        int csy = dy + (int)(tv * dh + 0.5f);
+
+        VkMemoryBarrier mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(g_cmdbuf,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 1, &mb, 0, NULL, 0, NULL);
+
+        VkBufferImageCopy regs[MAX_CURSOR_SPANS];
+        int nreg = 0;
+        for (int i = 0; i < g_cursor_nspans; i++) {
+            int ax0 = csx + g_cursor_spans[i].rel_x;
+            int ax1 = ax0 + g_cursor_spans[i].width;
+            int ay  = csy + g_cursor_spans[i].rel_y;
+            if (ay < 0 || ay >= sh || ax1 <= 0 || ax0 >= sw) continue;
+            int cx0 = ax0 < 0 ? 0 : ax0;
+            int cx1 = ax1 > sw ? sw : ax1;
+            if (cx1 <= cx0) continue;
+            regs[nreg].bufferOffset      = g_cursor_spans[i].buf_off + (uint32_t)(cx0-ax0)*4;
+            regs[nreg].bufferRowLength   = 0;
+            regs[nreg].bufferImageHeight = 0;
+            regs[nreg].imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            regs[nreg].imageSubresource.mipLevel       = 0;
+            regs[nreg].imageSubresource.baseArrayLayer = 0;
+            regs[nreg].imageSubresource.layerCount     = 1;
+            regs[nreg].imageOffset = (VkOffset3D){cx0, ay, 0};
+            regs[nreg].imageExtent = (VkExtent3D){(uint32_t)(cx1-cx0), 1, 1};
+            nreg++;
+        }
+        if (nreg > 0)
+            vkCmdCopyBufferToImage(g_cmdbuf, g_cursor_vk_buf,
+                g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                (uint32_t)nreg, regs);
+    }
+
+    vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_ACCESS_TRANSFER_WRITE_BIT, 0,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+    vkEndCommandBuffer(g_cmdbuf);
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.waitSemaphoreCount   = 1; si.pWaitSemaphores   = &g_img_sem;
+    si.pWaitDstStageMask    = &wait_stage;
+    si.commandBufferCount   = 1; si.pCommandBuffers   = &g_cmdbuf;
+    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &g_rnd_sem;
+    vkQueueSubmit(g_queue, 1, &si, g_fence);
+
+    VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &g_rnd_sem;
+    pi.swapchainCount     = 1; pi.pSwapchains     = &g_swap;
+    pi.pImageIndices      = &img_idx;
+    res = vkQueuePresentKHR(g_queue, &pi);
+    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        VLOGI("vkQueuePresentKHR out of date or suboptimal (%d), recreating swapchain", (int)res);
+        vk_recreate_swapchain(); return 1;
+    }
+    if (res != VK_SUCCESS) {
+        VLOGE("vkQueuePresentKHR failed: %d", (int)res);
+        return 0;
+    }
+    return 1;
+}
+
 static double mono_sec_vk(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -855,6 +1280,9 @@ static void *vk_render_thread(void *unused) {
     VLOGI("render thread started");
     int last_fw = 0, last_fh = 0, last_fs = 0;
     int has_last_frame = 0;
+    void *last_ahb = NULL;
+    int last_ahb_w = 0, last_ahb_h = 0;
+    int has_last_ahb = 0;
 
     while (atomic_load(&g_active)) {
         struct timeval tv = {0, 8000};
@@ -875,8 +1303,18 @@ static void *vk_render_thread(void *unused) {
 
         int fw = 0, fh = 0, fs = 0;
         int got_frame = 0;
+        void *ahb = NULL;
+        int ahb_w = 0, ahb_h = 0;
+        int got_ahb = 0;
+
         pthread_mutex_lock(&g_mu);
-        if (g_ready && g_buf) {
+        if (g_ahb_ready && g_pend_ahb) {
+            // Zero-copy path: nothing to copy, just the pointer + size GL
+            // already rendered into (see android_vk_try_submit_hwbuffer).
+            ahb = g_pend_ahb; ahb_w = g_pend_ahb_w; ahb_h = g_pend_ahb_h;
+            got_ahb = 1;
+            g_ahb_ready = 0;
+        } else if (g_ready && g_buf) {
             fw = g_fw; fh = g_fh; fs = g_fs;
             size_t sz = (size_t)fh * (size_t)fs;
             // Copy straight into Vulkan's mapped staging buffer instead of
@@ -909,11 +1347,20 @@ static void *vk_render_thread(void *unused) {
         int cursor_dirty = atomic_exchange(&g_cursor_dirty, 0);
 
         int is_video_frame = 0;
-        if (got_frame) {
+        if (got_ahb) {
+            last_ahb = ahb; last_ahb_w = ahb_w; last_ahb_h = ahb_h;
+            has_last_ahb = 1;
+            is_video_frame = 1;
+        } else if (got_frame) {
             // Remember last frame dimensions for cursor-only redraws.
             last_fw = fw; last_fh = fh; last_fs = fs;
             has_last_frame = 1;
             is_video_frame = 1;
+        } else if (cursor_dirty && has_last_ahb) {
+            // Cursor moved but no new video frame — re-blit the same
+            // imported VkImage from last time with the updated cursor.
+            ahb = last_ahb; ahb_w = last_ahb_w; ahb_h = last_ahb_h;
+            got_ahb = 1;
         } else if (cursor_dirty && has_last_frame) {
             // Cursor moved but no new video frame — redraw the previous
             // frame, which is still sitting in g_stage_ptr from the last
@@ -922,9 +1369,10 @@ static void *vk_render_thread(void *unused) {
             got_frame = 1;
         }
 
-        if (!got_frame) continue;
+        if (!got_frame && !got_ahb) continue;
 
-        if (vk_render_frame(fw, fh, fs)) {
+        int ok = got_ahb ? vk_render_frame_hw(ahb, ahb_w, ahb_h) : vk_render_frame(fw, fh, fs);
+        if (ok) {
             g_rendered++;
             // Only count real video frames toward FPS — cursor-only redraws skew the counter.
             if (is_video_frame) {
@@ -966,6 +1414,13 @@ static void vk_full_cleanup(void) {
         if (g_tex)     { vkDestroyImage(g_dev, g_tex, NULL);   g_tex     = VK_NULL_HANDLE; }
         if (g_tex_mem) { vkFreeMemory(g_dev, g_tex_mem, NULL); g_tex_mem = VK_NULL_HANDLE; }
         g_tex_w = 0; g_tex_h = 0;
+        for (int i = 0; i < HWIMPORT_COUNT; i++) {
+            if (g_hwimport_img[i]) { vkDestroyImage(g_dev, g_hwimport_img[i], NULL); g_hwimport_img[i] = VK_NULL_HANDLE; }
+            if (g_hwimport_mem[i]) { vkFreeMemory(g_dev, g_hwimport_mem[i], NULL);   g_hwimport_mem[i] = VK_NULL_HANDLE; }
+            g_hwimport_src[i] = NULL;
+        }
+        g_hwimport_w = g_hwimport_h = 0;
+        g_hw_import_supported = 0;
         if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
         if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence   = VK_NULL_HANDLE; }
@@ -983,6 +1438,7 @@ static void vk_full_cleanup(void) {
     pthread_mutex_lock(&g_mu);
     if (g_buf) { free(g_buf); g_buf = NULL; g_buf_sz = 0; }
     g_ready = 0; g_rendered = 0; g_submitted = 0;
+    g_pend_ahb = NULL; g_pend_ahb_w = 0; g_pend_ahb_h = 0; g_ahb_ready = 0;
     pthread_mutex_unlock(&g_mu);
     g_fps_n = 0; g_fps_t0 = 0.0; g_stat_fps = 0.0f; g_stat_ready = 0;
 }
@@ -1177,6 +1633,37 @@ int android_vk_try_submit(uint8_t *rgba, int width, int height, int stride) {
     pthread_mutex_unlock(&g_mu);
     if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
     return 1;
+}
+
+// android_vk_try_submit_hwbuffer is the zero-copy counterpart of
+// android_vk_try_submit: ahb is an AHardwareBuffer* (see
+// gl_video_impl_android.c's android_gl_get_frame_hwbuffer) that GL has
+// already rendered this frame into and glFinish()'d — there is nothing to
+// copy, just the pointer and its dimensions to hand to the render thread.
+// Returns 0 (falls back to the caller using android_vk_try_submit instead)
+// if this device/driver doesn't support AHardwareBuffer import at all.
+int android_vk_try_submit_hwbuffer(void *ahb, int width, int height) {
+    if (!atomic_load(&g_active) || !g_hw_import_supported) return 0;
+    pthread_mutex_lock(&g_mu);
+    if (!atomic_load(&g_active)) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
+    g_pend_ahb = ahb; g_pend_ahb_w = width; g_pend_ahb_h = height;
+    g_ahb_ready = 1; g_submitted++;
+    pthread_mutex_unlock(&g_mu);
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    return 1;
+}
+
+// android_vk_hwbuffer_supported reports whether this device/driver has every
+// extension AHardwareBuffer zero-copy import needs (see vk_create_device).
+// Callers should check this once after android_vk_create succeeds and pick
+// android_vk_try_submit_hwbuffer vs android_vk_try_submit for the whole
+// session accordingly -- switching mid-session isn't supported (the render
+// thread doesn't clear the other path's pending frame).
+int android_vk_hwbuffer_supported(void) {
+    return g_hw_import_supported;
 }
 
 void android_vk_update_rect(int x, int y, int w, int h) {

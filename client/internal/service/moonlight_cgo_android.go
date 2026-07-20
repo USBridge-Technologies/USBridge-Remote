@@ -35,12 +35,15 @@ extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void         android_gl_set_jvm(JavaVM *jvm, jobject ctx);
 extern ANativeWindow *android_gl_init(int width, int height);
 extern uint8_t      *android_gl_get_frame(int width, int height);
+extern void         *android_gl_get_frame_hwbuffer(int width, int height);
 extern void          android_gl_release(void);
 
 // Declared in vk_video_impl_android.c
 extern void android_vk_set_jvm(JavaVM *jvm, jobject ctx);
 extern int  android_vk_is_active(void);
 extern int  android_vk_try_submit(uint8_t *rgba, int width, int height, int stride);
+extern int  android_vk_try_submit_hwbuffer(void *ahb, int width, int height);
+extern int  android_vk_hwbuffer_supported(void);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -377,16 +380,32 @@ static int dr_submit(PDECODE_UNIT du) {
     ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(g_amc, &info, 0);
     if (out_idx >= 0) {
         AMediaCodec_releaseOutputBuffer(g_amc, out_idx, 1);
-        uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
-        if (rgba) {
-            if (android_vk_is_active()) {
-                // Vulkan overlay: present directly to SurfaceView.
-                android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+        if (android_vk_is_active() && android_vk_hwbuffer_supported()) {
+            // Zero-copy path: GL renders straight into an AHardwareBuffer
+            // that Vulkan imports and blits from directly -- no glReadPixels,
+            // no staging-buffer upload, no CPU touches the pixels at all.
+            // See gl_video_impl_android.c/vk_video_impl_android.c.
+            void *ahb = android_gl_get_frame_hwbuffer(g_amc_w, g_amc_h);
+            if (ahb) {
+                android_vk_try_submit_hwbuffer(ahb, g_amc_w, g_amc_h);
+                // NULL: frame counting/FPS only, goVTFrame never dereferences
+                // the pointer while Vulkan is active (see its Go side).
+                goVTFrame(NULL, g_amc_w, g_amc_h, g_amc_w * 4);
             }
-            // Always notify Go for frame counting and FPS stats. goVTFrame detects
-            // NativeVideoOverlayIsActive() and delivers nil to the callback so no
-            // Go image allocation happens while Vulkan is rendering.
-            goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+        } else {
+            uint8_t *rgba = android_gl_get_frame(g_amc_w, g_amc_h);
+            if (rgba) {
+                if (android_vk_is_active()) {
+                    // Vulkan overlay active but this device/driver lacks
+                    // AHardwareBuffer import support -- fall back to the CPU
+                    // staging-buffer path, which works everywhere.
+                    android_vk_try_submit(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+                }
+                // Always notify Go for frame counting and FPS stats. goVTFrame detects
+                // NativeVideoOverlayIsActive() and delivers nil to the callback so no
+                // Go image allocation happens while Vulkan is rendering.
+                goVTFrame(rgba, g_amc_w, g_amc_h, g_amc_w * 4);
+            }
         }
     }
     return DR_OK;

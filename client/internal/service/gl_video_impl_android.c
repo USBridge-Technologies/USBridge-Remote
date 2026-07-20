@@ -14,6 +14,7 @@
 #include <GLES3/gl3ext.h>
 #include <GLES2/gl2ext.h>   // GL_TEXTURE_EXTERNAL_OES, GL_OES_EGL_image_external
 #include <android/native_window_jni.h>
+#include <android/hardware_buffer.h>
 #include <stdatomic.h>
 #include <time.h>
 #include <jni.h>
@@ -467,6 +468,184 @@ static uint8_t *render_and_readback(int w, int h) {
     return g_readback;
 }
 
+// ── AHardwareBuffer zero-copy render target (Vulkan-active path) ──────────────
+//
+// render_and_readback above exists for the Fyne-canvas fallback (no Vulkan
+// overlay): render OES -> FBO -> glReadPixels -> CPU RGBA -> handed to Go,
+// which is unavoidable there since Fyne needs actual pixels on the CPU side.
+// When the Vulkan overlay IS active, that CPU round-trip is pure overhead:
+// Vulkan only wants the pixels back on the GPU anyway. render_to_hwbuffer
+// renders directly into an AHardwareBuffer-backed texture instead of a plain
+// one, so Vulkan can import that same buffer as a VkImage
+// (VK_ANDROID_external_memory_android_hardware_buffer) and blit straight
+// from it — no glReadPixels, no staging-buffer upload, no CPU memcpy at all.
+//
+// Double-buffered (like the PBO path above) so Vulkan can still be reading
+// slot A while GL starts rendering the next frame into slot B; there's no
+// cross-API fence between the two GPU work queues here, so glFinish() after
+// each render is what actually guarantees Vulkan never observes a
+// partially-written buffer -- a deliberate simplicity/latency trade instead
+// of wiring up EGL_ANDROID_native_fence_sync <-> VK_KHR_external_semaphore_fd.
+
+#define HWBUF_COUNT 2
+static AHardwareBuffer *g_hwbuf[HWBUF_COUNT]     = {NULL, NULL};
+static EGLImageKHR      g_hwbuf_img[HWBUF_COUNT] = {EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
+static GLuint           g_hwbuf_tex[HWBUF_COUNT] = {0, 0};
+static GLuint           g_hwbuf_fbo[HWBUF_COUNT] = {0, 0};
+static int              g_hwbuf_w = 0, g_hwbuf_h = 0;
+static int              g_hwbuf_wr = 0; // slot GL will render into next
+
+typedef EGLImageKHR (EGLAPIENTRYP PFNEGLCREATEIMAGEKHRPROC_L)(EGLDisplay, EGLContext, EGLenum, EGLClientBuffer, const EGLint*);
+typedef EGLBoolean  (EGLAPIENTRYP PFNEGLDESTROYIMAGEKHRPROC_L)(EGLDisplay, EGLImageKHR);
+typedef void        (GL_APIENTRYP PFNGLEGLIMAGETARGETTEXTURE2DOESPROC_L)(GLenum, GLeglImageOES);
+typedef EGLClientBuffer (EGLAPIENTRYP PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC_L)(const AHardwareBuffer*);
+
+static PFNEGLCREATEIMAGEKHRPROC_L            p_eglCreateImageKHR  = NULL;
+static PFNEGLDESTROYIMAGEKHRPROC_L           p_eglDestroyImageKHR = NULL;
+static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC_L p_glEGLImageTargetTexture2DOES = NULL;
+static PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC_L p_eglGetNativeClientBufferANDROID = NULL;
+
+static int hwbuf_load_ext_procs(void) {
+    if (!p_eglCreateImageKHR)
+        p_eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC_L)eglGetProcAddress("eglCreateImageKHR");
+    if (!p_eglDestroyImageKHR)
+        p_eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC_L)eglGetProcAddress("eglDestroyImageKHR");
+    if (!p_glEGLImageTargetTexture2DOES)
+        p_glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC_L)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    if (!p_eglGetNativeClientBufferANDROID)
+        p_eglGetNativeClientBufferANDROID = (PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC_L)eglGetProcAddress("eglGetNativeClientBufferANDROID");
+    return p_eglCreateImageKHR && p_eglDestroyImageKHR && p_glEGLImageTargetTexture2DOES && p_eglGetNativeClientBufferANDROID;
+}
+
+static void hwbuf_destroy_slot(int i) {
+    if (g_hwbuf_fbo[i]) { glDeleteFramebuffers(1, &g_hwbuf_fbo[i]); g_hwbuf_fbo[i] = 0; }
+    if (g_hwbuf_tex[i]) { glDeleteTextures(1, &g_hwbuf_tex[i]); g_hwbuf_tex[i] = 0; }
+    if (g_hwbuf_img[i] != EGL_NO_IMAGE_KHR && p_eglDestroyImageKHR) {
+        p_eglDestroyImageKHR(g_display, g_hwbuf_img[i]);
+        g_hwbuf_img[i] = EGL_NO_IMAGE_KHR;
+    }
+    if (g_hwbuf[i]) { AHardwareBuffer_release(g_hwbuf[i]); g_hwbuf[i] = NULL; }
+}
+
+static int hwbuf_ensure_slots(int w, int h) {
+    if (g_hwbuf_w == w && g_hwbuf_h == h && g_hwbuf[0] && g_hwbuf[1]) return 1;
+    if (!hwbuf_load_ext_procs()) {
+        VLOGE("hwbuffer: required EGL/GL extensions unavailable");
+        return 0;
+    }
+
+    for (int i = 0; i < HWBUF_COUNT; i++) hwbuf_destroy_slot(i);
+
+    AHardwareBuffer_Desc desc;
+    memset(&desc, 0, sizeof(desc));
+    desc.width  = (uint32_t)w;
+    desc.height = (uint32_t)h;
+    desc.layers = 1;
+    desc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    desc.usage  = AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+
+    for (int i = 0; i < HWBUF_COUNT; i++) {
+        if (AHardwareBuffer_allocate(&desc, &g_hwbuf[i]) != 0 || !g_hwbuf[i]) {
+            VLOGE("hwbuffer: AHardwareBuffer_allocate failed for slot %d", i);
+            for (int j = 0; j <= i; j++) hwbuf_destroy_slot(j);
+            g_hwbuf_w = g_hwbuf_h = 0;
+            return 0;
+        }
+        EGLClientBuffer clientBuf = p_eglGetNativeClientBufferANDROID(g_hwbuf[i]);
+        if (!clientBuf) {
+            VLOGE("hwbuffer: eglGetNativeClientBufferANDROID failed (slot %d)", i);
+            hwbuf_destroy_slot(i);
+            g_hwbuf_w = g_hwbuf_h = 0;
+            return 0;
+        }
+        const EGLint imgAttrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+        g_hwbuf_img[i] = p_eglCreateImageKHR(g_display, EGL_NO_CONTEXT,
+            EGL_NATIVE_BUFFER_ANDROID, clientBuf, imgAttrs);
+        if (g_hwbuf_img[i] == EGL_NO_IMAGE_KHR) {
+            VLOGE("hwbuffer: eglCreateImageKHR failed (slot %d)", i);
+            hwbuf_destroy_slot(i);
+            g_hwbuf_w = g_hwbuf_h = 0;
+            return 0;
+        }
+
+        glGenTextures(1, &g_hwbuf_tex[i]);
+        glBindTexture(GL_TEXTURE_2D, g_hwbuf_tex[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        p_glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)g_hwbuf_img[i]);
+
+        glGenFramebuffers(1, &g_hwbuf_fbo[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_hwbuf_fbo[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_hwbuf_tex[i], 0);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            VLOGE("hwbuffer: FBO incomplete for slot %d: 0x%x", i, status);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            hwbuf_destroy_slot(i);
+            g_hwbuf_w = g_hwbuf_h = 0;
+            return 0;
+        }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    g_hwbuf_w = w; g_hwbuf_h = h;
+    VLOGI("hwbuffer: allocated %dx%d double-buffered zero-copy render targets", w, h);
+    return 1;
+}
+
+static AHardwareBuffer *render_to_hwbuffer(int w, int h) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_egl_busy, &expected, 1)) {
+        return NULL; // release already in progress
+    }
+
+    if (!eglMakeCurrent(g_display, g_surface, g_surface, g_context)) {
+        VLOGE("eglMakeCurrent failed in render_to_hwbuffer");
+        atomic_store(&g_egl_busy, 0);
+        return NULL;
+    }
+
+    wait_for_frame_available();
+    java_update_tex();
+
+    float mtx[16];
+    java_get_transform(mtx);
+
+    if (!hwbuf_ensure_slots(w, h)) {
+        eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        atomic_store(&g_egl_busy, 0);
+        return NULL;
+    }
+
+    int slot = g_hwbuf_wr;
+    glBindFramebuffer(GL_FRAMEBUFFER, g_hwbuf_fbo[slot]);
+    glViewport(0, 0, w, h);
+    glUseProgram(g_prog);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_oes_tex);
+    glUniform1i(g_loc_tex, 0);
+    glUniformMatrix4fv(g_loc_mtx, 1, GL_FALSE, mtx);
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), kVerts);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), kVerts + 2);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glFinish(); // see file comment above: stands in for a cross-API GPU fence
+
+    eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    atomic_store(&g_egl_busy, 0);
+
+    g_hwbuf_wr = 1 - g_hwbuf_wr;
+    return g_hwbuf[slot];
+}
+
 // ── Public C API (called from moonlight_cgo_android.go) ───────────────────────
 
 void android_gl_set_jvm(JavaVM *jvm, jobject ctx) {
@@ -548,6 +727,16 @@ uint8_t *android_gl_get_frame(int width, int height) {
     return render_and_readback(width, height);
 }
 
+// android_gl_get_frame_hwbuffer is the zero-copy counterpart of
+// android_gl_get_frame for when the Vulkan overlay is active (see the
+// comment above render_to_hwbuffer). Returns an AHardwareBuffer* (as void*
+// so callers outside this file don't need <android/hardware_buffer.h>) that
+// stays valid until this same slot is reused two calls from now, or NULL.
+void *android_gl_get_frame_hwbuffer(int width, int height) {
+    if (g_context == EGL_NO_CONTEXT || !g_prog) return NULL;
+    return (void *)render_to_hwbuffer(width, height);
+}
+
 void android_gl_release(void) {
     if (g_context == EGL_NO_CONTEXT) return;
 
@@ -572,6 +761,8 @@ void android_gl_release(void) {
     if (g_fbo)     { glDeleteFramebuffers(1, &g_fbo); g_fbo = 0; }
     if (g_fbo_tex) { glDeleteTextures(1, &g_fbo_tex); g_fbo_tex = 0; }
     if (g_oes_tex) { glDeleteTextures(1, &g_oes_tex); g_oes_tex = 0; }
+    for (int i = 0; i < HWBUF_COUNT; i++) hwbuf_destroy_slot(i);
+    g_hwbuf_w = g_hwbuf_h = 0; g_hwbuf_wr = 0;
 
     eglMakeCurrent(g_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroyContext(g_display, g_context); g_context = EGL_NO_CONTEXT;
