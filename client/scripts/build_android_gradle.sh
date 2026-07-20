@@ -587,12 +587,26 @@ if [ -f "$APK_OUT" ]; then
         echo -e "${RED}❌ keytool not found${NC}"
         exit 1
     fi
-    KEYSTORE="$HOME/.android/debug.keystore"
-    if [ ! -f "$KEYSTORE" ]; then
+    # Use a real release keystore when one is provided (e.g. CI, decoded from
+    # ANDROID_KEYSTORE_BASE64 into ANDROID_KEYSTORE_PATH) so every build is
+    # signed with the same key. Falls back to the auto-generated debug
+    # keystore for local dev builds, but that keystore is unique per machine
+    # and gets regenerated on any ephemeral runner — never use it for a build
+    # meant to be a signature-stable upgrade path (e.g. a release users install
+    # over a previous version).
+    KEYSTORE="${ANDROID_KEYSTORE_PATH:-$HOME/.android/debug.keystore}"
+    KEYSTORE_PASS="${ANDROID_KEYSTORE_PASSWORD:-android}"
+    KEY_ALIAS="${ANDROID_KEY_ALIAS:-androiddebugkey}"
+    KEY_PASS="${ANDROID_KEY_PASSWORD:-android}"
+    if [ -z "${ANDROID_KEYSTORE_PATH:-}" ] && [ ! -f "$KEYSTORE" ]; then
         mkdir -p "$HOME/.android"
         keytool -genkey -v -keystore "$KEYSTORE" -storepass android -alias androiddebugkey \
             -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
+    fi
+    if [ -n "${ANDROID_KEYSTORE_PATH:-}" ] && [ ! -f "$KEYSTORE" ]; then
+        echo -e "${RED}❌ ANDROID_KEYSTORE_PATH is set but the file does not exist: $KEYSTORE${NC}"
+        exit 1
     fi
 
     APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
@@ -610,9 +624,23 @@ if [ -f "$APK_OUT" ]; then
         echo "   Install Android SDK Build-Tools or check ANDROID_HOME"
         exit 1
     fi
-    run_apksigner "$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android \
-        --key-pass pass:android --out "$FINAL_APK" "$APK_OUT"
-    run_apksigner "$APKSIGNER" verify "$FINAL_APK" >/dev/null
+    run_apksigner "$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYSTORE_PASS" \
+        --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASS" --out "$FINAL_APK" "$APK_OUT"
+
+    # Verify the signature the same way the macOS/iOS jobs verify codesign:
+    # confirm apksigner accepts it, then print the signer cert fingerprint so
+    # CI logs make it obvious whether this build used the expected release
+    # key or fell back to a throwaway debug key (fingerprint would differ
+    # build-to-build in that case).
+    run_apksigner "$APKSIGNER" verify --print-certs "$FINAL_APK"
+    KEYTOOL_LIST="$(keytool -printcert -jarfile "$FINAL_APK" 2>&1)" || {
+        echo -e "${RED}❌ Could not read signer certificate from $FINAL_APK${NC}"
+        exit 1
+    }
+    echo "$KEYTOOL_LIST" | grep -E "Owner|SHA256"
+    if [ -z "${ANDROID_KEYSTORE_PATH:-}" ]; then
+        echo -e "${YELLOW}⚠ signed with the auto-generated debug keystore — fingerprint will change on every fresh runner${NC}"
+    fi
 
     # apksigner may create a .idsig next to the source/target file (depends on version).
     # If idsig shows up — place it next to the APK in dist/android.

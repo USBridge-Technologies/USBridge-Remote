@@ -1002,11 +1002,6 @@ func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.updateButtons()
 }
 
-// SetFRPService sets the FRP service.
-func (vw *VideoWidget) SetFRPService(frp *service.FRPService) {
-	vw.frpService = frp
-}
-
 func (vw *VideoWidget) SetTailscaleService(ts *service.TailscaleService) {
 	vw.tailscaleService = ts
 	vw.tailscaleVideoEnabled = ts != nil

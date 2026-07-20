@@ -1,7 +1,7 @@
 # Native Hardware Video & Audio (Moonlight Mode)
 
 Moonlight streaming uses platform-native hardware APIs for zero-subprocess,
-zero-pipe video decode and audio output on every platform. We've completely removed GStreamer and Canvas, relying solely on hardware acceleration via Vulkan and Metal.
+zero-pipe video decode and audio output on every platform, relying solely on hardware acceleration via Vulkan and Metal.
 
 ## Architecture
 

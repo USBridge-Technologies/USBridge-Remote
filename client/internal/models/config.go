@@ -12,7 +12,6 @@ const DefaultVideoUDPPort = 55000
 
 const (
 	ConnectionProtocolAuto      = "auto"
-	ConnectionProtocolQUIC      = "quic"
 	ConnectionProtocolTailscale = "tailscale"
 	ConnectionProtocolDirect    = "direct"
 
@@ -25,12 +24,6 @@ type AppConfig struct {
 	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // USBridge 2 port (8080)
 	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
 
-	// FRP settings (QUIC tunnel)
-	FRPServerPort      int    `json:"frp_server_port" mapstructure:"frp_server_port"` // FRP server port (443)
-	FRPEnabled         bool   `json:"frp_enabled" mapstructure:"frp_enabled"`         // Enable the FRP tunnel
-	FRPTLSCert         string `json:"frp_tls_cert" mapstructure:"frp_tls_cert"`       // Path to the TLS certificate
-	FRPTLSKey          string `json:"frp_tls_key" mapstructure:"frp_tls_key"`         // Path to the TLS key
-	FRPTLSCa           string `json:"frp_tls_ca" mapstructure:"frp_tls_ca"`           // Path to the CA certificate
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
 
 	// Tailscale settings (always runs in userspace/tsnet mode, on every platform)
@@ -86,12 +79,6 @@ func DefaultConfig() *AppConfig {
 		USBPort:    8080,
 		APITimeout: 15,
 
-		// FRP
-		FRPServerPort:      443,
-		FRPEnabled:         true,
-		FRPTLSCert:         "./certs/server.crt",
-		FRPTLSKey:          "./certs/server.key",
-		FRPTLSCa:           "./certs/ca.crt",
 		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),
 
 		TailscaleEnabled: true,
@@ -139,7 +126,7 @@ func DefaultConfig() *AppConfig {
 
 func modelsafeProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case ConnectionProtocolQUIC, ConnectionProtocolTailscale, ConnectionProtocolDirect:
+	case ConnectionProtocolTailscale, ConnectionProtocolDirect:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	default:
 		return ConnectionProtocolAuto

@@ -258,20 +258,6 @@ func (dw *DiskWidget) handleMount() {
 			return
 		}
 
-		dw.nbdServersMu.Lock()
-		hasNBD := len(dw.nbdServers) > 0
-		dw.nbdServersMu.Unlock()
-
-		// Check the FRP tunnel for NBD
-		if hasNBD && dw.frpService != nil && !dw.frpService.IsRunning() {
-			dw.showErrorAsync(fmt.Errorf("FRP tunnel is not active — reconnect before mounting NBD"))
-			return
-		}
-		if hasNBD {
-			logrus.Infof("⏱️ [MOUNT-NBD] Waiting 1s (FRP/tunnel stabilization)")
-			time.Sleep(1 * time.Second)
-		}
-
 		// Show mounting animation and clear selection
 		fyne.Do(func() {
 			dw.setMountingStateByExportNames(mountingExportNames, true)

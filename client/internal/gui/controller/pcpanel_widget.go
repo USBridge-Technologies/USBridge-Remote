@@ -32,7 +32,7 @@ const (
 
 var (
 	pcpanelIndicatorIdle  = color.NRGBA{R: 0x16, G: 0x16, B: 0x16, A: 0x38}
-	pcpanelIndicatorAlert = design.ColorProtocolQUIC
+	pcpanelIndicatorAlert = design.ColorAlert
 	pcpanelPowerColor     = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
 	pcpanelResetColor     = color.NRGBA{R: 0xe9, G: 0x8a, B: 0x2b, A: 0xff}
 	pcpanelHoldHoverFill  = color.NRGBA{R: 0x45, G: 0x45, B: 0x45, A: 0xff}

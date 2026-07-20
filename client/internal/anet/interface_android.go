@@ -155,8 +155,6 @@ type ipv6ZoneCache struct {
 	toName       map[int]string // interface index to its name
 }
 
-// zoneCache removed - not needed for Android FRP support
-
 // update refreshes the network interface information if the cache was last
 // updated more than 1 minute ago, or if force is set. It reports whether the
 // cache was updated.

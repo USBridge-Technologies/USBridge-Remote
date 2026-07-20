@@ -8,7 +8,7 @@ import (
 
 const (
 	connectionDraftHostPrefKey      = "connection_draft_host"
-	connectionDraftMasterKeyPrefKey = "connection_draft_quic_token"
+	connectionDraftMasterKeyPrefKey = "connection_draft_master_key"
 	connectionDraftProtocolPrefKey  = "connection_draft_protocol"
 )
 

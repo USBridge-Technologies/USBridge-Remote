@@ -196,7 +196,7 @@ func (ns *NBDServer) Start(port int) error {
 	logrus.Infof("📍 [NBD-START-3] Starting health monitoring")
 	ns.startHealthMonitoring()
 
-	logrus.Infof("🚀 [NBD-START-4-SUCCESS] NBD server started on %s, waiting for exports to be added (FRP tunnel: nbd_srv%d)", actualAddr, port-10808)
+	logrus.Infof("🚀 [NBD-START-4-SUCCESS] NBD server started on %s, waiting for exports to be added", actualAddr)
 
 	// We DO NOT close readyChan here - the server isn't ready to accept connections yet
 	// readyChan will be closed after exports are added via SignalReady()
@@ -846,7 +846,6 @@ func (ns *NBDServer) handleClient(conn net.Conn) {
 	logrus.Infof("📥 [NBD-CLIENT-CONNECT] New NBD client connected: %s", clientAddr)
 
 	// Enable TCP KeepAlive to detect disconnection faster than default 2 hours.
-	// Important for FRP STCP: if QUIC tunnel drops, localhost TCP might hang without keepalive.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		tcpConn.SetKeepAlive(true)
 		tcpConn.SetKeepAlivePeriod(30 * time.Second)

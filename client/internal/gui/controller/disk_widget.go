@@ -90,7 +90,6 @@ type DiskWidget struct {
 	nbdServers   map[string]service.NBDRunner
 	usbClient    *api.USBClient
 	updateStatus func()
-	frpService   *service.FRPService
 
 	// Configuration
 	config         *models.AppConfig
@@ -825,11 +824,6 @@ func (dw *DiskWidget) showWarningAsync(title, message string) {
 			view.ShowInfoDialog(title, message, dw.window)
 		}
 	})
-}
-
-// SetFRPService sets the FRP service to check before mounting NBD
-func (dw *DiskWidget) SetFRPService(frp *service.FRPService) {
-	dw.frpService = frp
 }
 
 // UpdateClient updates the USB client. On disconnect — immediately clears the data;

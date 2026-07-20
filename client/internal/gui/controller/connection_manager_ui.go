@@ -156,7 +156,7 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 						conn := cm.connections[idx]
 						protocol := normalizeConnectionProtocol(conn.Protocol)
 						host := cm.resolveHostForProtocol(conn, protocol)
-						cm.onConnect(host, conn.MasterKey, conn.FRPToken, protocol, conn.QUICPort, conn.TailscaleRegister)
+						cm.onConnect(host, conn.MasterKey, protocol, conn.TailscaleRegister)
 						return
 					}
 					cm.SetConnectionPending(false)

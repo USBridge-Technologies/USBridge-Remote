@@ -90,7 +90,7 @@ import (
 
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
-	"usbridge-client/nbdbridge"
+	"usbridge-client/androidbridge"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"
@@ -107,7 +107,7 @@ func init() {
 //export deliverQRResultFromJNI
 func deliverQRResultFromJNI(contents *C.char) {
 	if contents != nil {
-		nbdbridge.SetQRResultFromJNI(C.GoString(contents))
+		androidbridge.SetQRResultFromJNI(C.GoString(contents))
 	}
 }
 
@@ -115,7 +115,7 @@ func deliverQRResultFromJNI(contents *C.char) {
 //
 //export deliverQRCancelFromJNI
 func deliverQRCancelFromJNI() {
-	nbdbridge.SetQRResultCancelledFromJNI()
+	androidbridge.SetQRResultCancelledFromJNI()
 }
 
 // ShowCameraScannerNative shows camera window for scanning QR (like in Telegram)
@@ -126,7 +126,7 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	logrus.Info("📷 Android: starting QR scanner (camera window)")
 
 	// Clear previous result
-	nbdbridge.ClearQRResult()
+	androidbridge.ClearQRResult()
 
 	var launchSuccess bool
 
@@ -165,7 +165,7 @@ func (qs *QRScanner) ShowCameraScannerNative(parent fyne.Window) {
 	}
 }
 
-// pollQRResult polls nbdbridge (result comes through JNI -> QRResultBridge -> main app)
+// pollQRResult polls androidbridge (result comes through JNI -> QRResultBridge -> main app)
 func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 	logrus.Info("📷 [POLL] Starting QR result polling...")
 
@@ -176,23 +176,23 @@ func (qs *QRScanner) pollQRResult(parent fyne.Window, session uint64) {
 			return
 		}
 
-		ready := nbdbridge.IsQRResultReady()
+		ready := androidbridge.IsQRResultReady()
 		if !ready {
 			continue
 		}
 
-		result := nbdbridge.GetQRResult()
+		result := androidbridge.GetQRResult()
 		if result == nil {
 			continue
 		}
-		nbdbridge.ClearQRResult()
+		androidbridge.ClearQRResult()
 
 		qs.applyQRResult(result, parent, session)
 		return
 	}
 }
 
-func (qs *QRScanner) applyQRResult(result *nbdbridge.QRScanResult, parent fyne.Window, session uint64) {
+func (qs *QRScanner) applyQRResult(result *androidbridge.QRScanResult, parent fyne.Window, session uint64) {
 	if !qs.tryHandleScanResult(session) {
 		logrus.Debug("📷 [POLL] Ignoring stale or duplicate QR result")
 		return

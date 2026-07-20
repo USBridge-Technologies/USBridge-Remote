@@ -115,7 +115,7 @@ func (mw *MainWindow) handleClose() {
 
 	mw.stopDeepLinkMonitoring()
 	mw.enqueueLifecycleOp("app-close", func() {
-		logrus.Infof("[shutdown] handleClose: entered connected=%v frp_running=%v", mw.isConnected, mw.frpService != nil && mw.frpService.IsRunning())
+		logrus.Infof("[shutdown] handleClose: entered connected=%v", mw.isConnected)
 
 		if mw.videoWidget != nil && mw.videoWidget.ExitFullscreenIfNeeded() {
 			logrus.Info("handleClose: fullscreen active, exit it first")
@@ -127,8 +127,7 @@ func (mw *MainWindow) handleClose() {
 		needsDisconnect := mw.isConnected ||
 			mw.usbClient != nil ||
 			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
-			(mw.nbdServer != nil && mw.nbdServer.IsRunning()) ||
-			(mw.frpService != nil && mw.frpService.IsRunning())
+			(mw.nbdServer != nil && mw.nbdServer.IsRunning())
 
 		if needsDisconnect {
 			logrus.Info("[shutdown] handleClose: calling handleDisconnect")

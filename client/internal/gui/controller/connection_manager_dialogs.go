@@ -41,14 +41,12 @@ type connectionDialogSpec struct {
 	nameValue              string
 	internalHostValue      string
 	tailscaleHostValue     string
-	quicPortValue          int
 	masterKeyValue         string // master key (API secret from QR)
-	frpTokenValue          string // direct FRP/QUIC tunnel token (advanced)
 	tailscaleRegisterValue bool
 	feedbackText           string
 	feedbackColor          color.Color
-	onConnect              func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
-	onSave                 func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool
+	onConnect              func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
+	onSave                 func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool
 	onDelete               func(close func())
 	onQR                   func()
 }
@@ -736,7 +734,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 			connectLabel = i18n.Current.DeepLinkConnect
 		}
 		btn := newConnectionDialogPrimaryButton(connectLabel, spec.connectIcon, func() {
-			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
+			if spec.onConnect != nil && !spec.onConnect(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, registerCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -747,7 +745,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	}
 
 	btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
+		if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, registerCheck.Checked) {
 			return
 		}
 		if d != nil {
@@ -759,7 +757,7 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 
 	if spec.onConnect != nil && spec.onDelete == nil {
 		btn := view.NewConnectionPrimaryButton(saveLabel, func() {
-			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, "", 0, registerCheck.Checked) {
+			if spec.onSave != nil && !spec.onSave(nameEntry.Text, internalHostEntry.Text, tailscaleHostEntry.Text, masterKeyEntry.Text, registerCheck.Checked) {
 				return
 			}
 			if d != nil {
@@ -926,11 +924,9 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 		nameValue:              conn.Name,
 		internalHostValue:      conn.InternalHost,
 		tailscaleHostValue:     conn.TailscaleHost,
-		quicPortValue:          conn.QUICPort,
 		masterKeyValue:         conn.MasterKey,
-		frpTokenValue:          conn.FRPToken,
 		tailscaleRegisterValue: conn.TailscaleRegister,
-		onSave: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if name == "" || (internalHost == "" && tailscaleHost == "") {
@@ -942,10 +938,8 @@ func (cm *ConnectionManager) showEditDialog(idx int) {
 				Name:              name,
 				InternalHost:      internalHost,
 				TailscaleHost:     tailscaleHost,
-				QUICPort:          quicPort,
 				Host:              fallbackText(internalHost, tailscaleHost),
 				MasterKey:         strings.TrimSpace(masterKey),
-				FRPToken:          strings.TrimSpace(frpToken),
 				Protocol:          conn.Protocol,
 				TailscaleRegister: tailscaleRegister,
 			}
@@ -969,17 +963,17 @@ func (cm *ConnectionManager) showAddDialog() {
 	if selected := normalizeConnectionProtocol(cm.protocolSelect.Selected); selected == models.ConnectionProtocolTailscale {
 		internalHost, tailscaleHost = "", strings.TrimSpace(cm.hostEntry.Text)
 	}
-	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.masterKeyEntry.Text, "", 0, false)
+	cm.showPrefilledAddDialog("", internalHost, tailscaleHost, cm.masterKeyEntry.Text, "", false)
 }
 
-func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, quicPort int, scanned bool) {
+func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscaleHost, masterKey, protocol string, scanned bool) {
 	feedbackText := ""
 	if scanned {
 		feedbackText = qrScanSuccessText
 	}
 	masterKey = strings.TrimSpace(masterKey)
 
-	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s quicPort=%d scanned=%v", internalHost, tailscaleHost, quicPort, scanned)
+	logrus.Infof("Opening add connection dialog: internal=%s tailscale=%s scanned=%v", internalHost, tailscaleHost, scanned)
 
 	showConnectionEditorDialog(cm.window, cm.window, connectionDialogSpec{
 		title:                  i18n.Current.AddConnectionTitle,
@@ -989,13 +983,11 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		nameValue:              name,
 		internalHostValue:      internalHost,
 		tailscaleHostValue:     tailscaleHost,
-		quicPortValue:          quicPort,
 		masterKeyValue:         masterKey, // from QR scan or prefill — treated as master key
-		frpTokenValue:          "",
 		tailscaleRegisterValue: strings.TrimSpace(tailscaleHost) == "",
 		feedbackText:           feedbackText,
 		feedbackColor:          design.ColorAccent,
-		onConnect: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
+		onConnect: func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -1009,20 +1001,16 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			effectiveToken := masterKey
-			if effectiveToken == "" {
-				effectiveToken = frpToken
-			}
 			fyne.Do(func() {
 				cm.ClearSelection()
-				cm.applyConnectionToForm(host, effectiveToken, selectedProtocol)
+				cm.applyConnectionToForm(host, masterKey, selectedProtocol)
 			})
 			if cm.onConnect != nil {
-				cm.onConnect(host, masterKey, frpToken, selectedProtocol, quicPort, tailscaleRegister)
+				cm.onConnect(host, masterKey, selectedProtocol, tailscaleRegister)
 			}
 			return true
 		},
-		onSave: func(name, internalHost, tailscaleHost, masterKey, frpToken string, quicPort int, tailscaleRegister bool) bool {
+		onSave: func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool {
 			internalHost = strings.TrimSpace(internalHost)
 			tailscaleHost = strings.TrimSpace(tailscaleHost)
 			if internalHost == "" && tailscaleHost == "" {
@@ -1036,13 +1024,9 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 			}
 			host := resolveHostForDialog(selectedProtocol, internalHost, tailscaleHost)
 
-			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, frpToken, selectedProtocol, quicPort, tailscaleRegister)
-			effectiveToken := masterKey
-			if effectiveToken == "" {
-				effectiveToken = frpToken
-			}
+			cm.SaveConnection(name, internalHost, tailscaleHost, masterKey, selectedProtocol, tailscaleRegister)
 			fyne.Do(func() {
-				cm.applyConnectionToForm(host, effectiveToken, selectedProtocol)
+				cm.applyConnectionToForm(host, masterKey, selectedProtocol)
 				cm.refreshConnectionsList()
 			})
 			return true
@@ -1294,7 +1278,7 @@ func showPasteLinkDialog(parent fyne.Window, onApply func(internalHost, tailscal
 	var popup *widget.PopUp
 
 	applyFn := func() {
-		ih, th, mk, _, _, err := parseQRContents(entry.Text)
+		ih, th, mk, _, err := parseQRContents(entry.Text)
 		if err != nil {
 			errLabel.Text = "Invalid link format"
 			errLabel.Refresh()

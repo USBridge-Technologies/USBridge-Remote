@@ -52,7 +52,6 @@ type VideoWidget struct {
 	// Services
 	usbClient             *api.USBClient
 	videoClient           service.VideoClient
-	frpService            *service.FRPService // for checking FRP mode
 	tailscaleService      *service.TailscaleService
 	tailscaleVideoEnabled bool   // false when connected via direct/LAN (disables Tailscale UDP routing for video)
 	bridgeInternalHost    string // LAN/internal IP of bridge; used to detect same-subnet direct path
