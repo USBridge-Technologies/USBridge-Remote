@@ -209,16 +209,31 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 		return dstBin, nil
 	}
 
-	if err := os.RemoveAll(root); err != nil {
+	// Build the whole tree in a private tmp dir first and only make it
+	// visible at `root` via a final rename, instead of RemoveAll(root) +
+	// copy-in-place. Two agent instances (e.g. a locally built AppImage and
+	// the downloaded release, or two copies of the same one launched by
+	// mistake) can both reach this point around the same time; with
+	// copy-in-place, one instance's RemoveAll could fire while a Sunshine
+	// process spawned by the OTHER instance was mid-read of these same
+	// shader/asset files, handing it truncated/empty content (the
+	// "ConvertUV.frag: syntax error, unexpected end of file" corruption).
+	// Building off to the side means `root` is always either the prior
+	// complete tree or the new one, never a partially-written mix.
+	tmpRoot, err := os.MkdirTemp(stateDir, "sunshine-runtime.tmp-")
+	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(dstBin), 0o755); err != nil {
+	defer os.RemoveAll(tmpRoot) // no-op once renamed into place below
+
+	tmpBin := filepath.Join(tmpRoot, "usr", "bin", "sunshine")
+	if err := os.MkdirAll(filepath.Dir(tmpBin), 0o755); err != nil {
 		return "", err
 	}
-	if err := copyFile(src, dstBin, srcInfo.Mode()); err != nil {
+	if err := copyFile(src, tmpBin, srcInfo.Mode()); err != nil {
 		return "", err
 	}
-	if err := os.Chtimes(dstBin, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
+	if err := os.Chtimes(tmpBin, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
 		return "", err
 	}
 
@@ -227,13 +242,13 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 	appDir := filepath.Dir(filepath.Dir(filepath.Dir(src)))
 	srcAssets := filepath.Join(appDir, "usr", "local", "assets")
 	if info, err := os.Stat(srcAssets); err == nil && info.IsDir() {
-		if err := copyDir(srcAssets, filepath.Join(root, "usr", "local", "assets")); err != nil {
+		if err := copyDir(srcAssets, filepath.Join(tmpRoot, "usr", "local", "assets")); err != nil {
 			return "", err
 		}
 	}
 	srcLib := filepath.Join(appDir, "usr", "lib")
 	if info, err := os.Stat(srcLib); err == nil && info.IsDir() {
-		if err := copyDir(srcLib, filepath.Join(root, "usr", "lib")); err != nil {
+		if err := copyDir(srcLib, filepath.Join(tmpRoot, "usr", "lib")); err != nil {
 			return "", err
 		}
 	}
@@ -243,9 +258,22 @@ func stageSunshineRuntime(src, stateDir string) (string, error) {
 	// for pkexec setcap.
 	srcCapExec := filepath.Join(appDir, "usr", "bin", "sunshine-capexec")
 	if info, err := os.Stat(srcCapExec); err == nil && !info.IsDir() {
-		if err := copyFile(srcCapExec, filepath.Join(root, "usr", "bin", "sunshine-capexec"), info.Mode()); err != nil {
+		if err := copyFile(srcCapExec, filepath.Join(tmpRoot, "usr", "bin", "sunshine-capexec"), info.Mode()); err != nil {
 			return "", err
 		}
+	}
+
+	// Swap the fully-built tree into place. os.Rename is atomic when both
+	// paths are on the same filesystem (guaranteed: both under stateDir),
+	// but can't replace a non-empty directory, so the old tree has to be
+	// removed first — this still leaves a brief window where `root` doesn't
+	// exist, but it's a single fast syscall pair rather than the many
+	// milliseconds a full asset copy used to hold `root` half-written for.
+	if err := os.RemoveAll(root); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpRoot, root); err != nil {
+		return "", err
 	}
 
 	return dstBin, nil

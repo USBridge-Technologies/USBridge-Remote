@@ -207,7 +207,17 @@ func (a *App) startSunshine() {
 	if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
 	}
-	a.restartStreamProxy()
+	// startSunshine() is invoked unconditionally every sunshineWatchdogInterval
+	// (see sunshineWatchdog) and is a no-op whenever Sunshine is already
+	// reachable — which is true almost every tick. Only (re)build the tsnet
+	// relay when it isn't already up: rebuilding it on every no-op tick tore
+	// down and recreated its listeners mid-stream, racing the new listen
+	// against the old one's async netstack teardown and intermittently
+	// failing with "port is in use" — surfacing as flaky input (ENet control
+	// relay) and video (RTP relay) during an active session.
+	if a.tsProxy == nil {
+		a.restartStreamProxy()
+	}
 }
 
 // sunshineWatchdogInterval is how often sunshineWatchdog re-checks that
