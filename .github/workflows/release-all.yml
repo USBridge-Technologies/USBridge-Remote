@@ -440,7 +440,7 @@ jobs:
         run: |
           set -euo pipefail
           KEYSTORE_PATH="$RUNNER_TEMP/usbridge-release.keystore"
-          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode -o "$KEYSTORE_PATH"
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Build (Android, Moonlight-only, release-signed)
