@@ -488,15 +488,26 @@ func (m *MoonlightService) Disconnect() error {
 	m.stopPlayerCh = nil
 	m.mu.Unlock()
 
-	m.stopActiveProxy()
-
 	// LiStopConnection interrupts the LiStartConnection goroutine; the stream's
 	// completion callback (registered in StartStream) then reports "disconnected".
+	//
+	// This must run BEFORE stopActiveProxy(), not after: moonlight-common-c's
+	// control stream teardown attempts a *graceful* ENet disconnect --
+	// send a disconnect packet, then wait up to CONTROL_STREAM_LINGER_TIMEOUT_SEC
+	// (2s, fixed) for the peer to ACK it. Tearing down our local tsnet proxy
+	// first closes the UDP relay that packet and its ACK would have to travel
+	// through, so the ACK can never arrive and this always burns the full 2s
+	// timeout ("Timed out waiting for ENet peer to acknowledge disconnection").
+	// Every tailnet connection goes through this proxy now (see Connect()), so
+	// this was adding a guaranteed ~2s stall to every disconnect+reconnect
+	// (e.g. switching codecs) that a direct LAN connection never used to hit.
 	if activeWrapper != nil {
 		activeWrapper.StopStream()
 	} else {
 		NewMoonlightCgoWrapper(m.host()).StopStream()
 	}
+
+	m.stopActiveProxy()
 
 	if stopCh != nil {
 		close(stopCh)
