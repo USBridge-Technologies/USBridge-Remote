@@ -30,7 +30,7 @@ func (cm *ConnectionManager) initTailscaleMode() {
 	// which pops an auth browser window on top of the app on every launch/connect
 	// — even for a plain LAN/direct connection the user never asked to route via
 	// Tailscale. tsnet is started lazily instead: by the explicit "Sign In With
-	// Google" button (startTailscaleAuthAction) or by a connection attempt that
+	// Google" button (startTailscaleLogin) or by a connection attempt that
 	// actually targets a tailnet host. Status() will not auto-start tsnet if the
 	// server hasn't been explicitly started yet.
 	//
