@@ -44,8 +44,8 @@ else
     echo ""
 fi
 
-# 2. gomobile bind for nbdbridge
-echo "📦 Step 2/5: gomobile bind nbdbridge..."
+# 2. gomobile bind for androidbridge
+echo "📦 Step 2/5: gomobile bind androidbridge..."
 
 # 2.5 Tailscale CLI & Daemon for Android
 echo "📦 Step 2.5/5: Building Tailscale binaries..."
@@ -291,15 +291,15 @@ fi
 mkdir -p android/app/libs
 # gomobile requires the NDK; pick up the system Android SDK/NDK automatically
 export_android_env
-AAR_OUT="android/app/libs/nbdbridge.aar"
+AAR_OUT="android/app/libs/androidbridge.aar"
 NEED_GOMOBILE=0
 [ ! -f "$AAR_OUT" ] && NEED_GOMOBILE=1
 if [ "$NEED_GOMOBILE" -eq 0 ] && ! aar_looks_valid "$AAR_OUT"; then
-    echo -e "${YELLOW}⚠${NC} Found a broken or empty nbdbridge.aar. Rebuilding..."
+    echo -e "${YELLOW}⚠${NC} Found a broken or empty androidbridge.aar. Rebuilding..."
     NEED_GOMOBILE=1
 fi
 if [ "$NEED_GOMOBILE" -eq 0 ]; then
-    if find nbdbridge -name "*.go" -newer "$AAR_OUT" | head -1 | grep -q .; then
+    if find androidbridge -name "*.go" -newer "$AAR_OUT" | head -1 | grep -q .; then
         NEED_GOMOBILE=1
     fi
 fi
@@ -309,23 +309,23 @@ fi
 
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
     rm -f "$AAR_OUT"
-    $GOMOBILE_CMD bind -target android -androidapi 26 -o "$AAR_OUT" ./nbdbridge || {
+    $GOMOBILE_CMD bind -target android -androidapi 26 -o "$AAR_OUT" ./androidbridge || {
         echo -e "${RED}❌ gomobile bind failed. Install it manually:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
-        echo "   $GOMOBILE_CMD bind -target android -o $AAR_OUT ./nbdbridge"
+        echo "   $GOMOBILE_CMD bind -target android -o $AAR_OUT ./androidbridge"
         exit 1
     }
 fi
 if ! aar_looks_valid "$AAR_OUT"; then
-    echo -e "${RED}❌ gomobile bind produced an empty or corrupt nbdbridge.aar${NC}"
+    echo -e "${RED}❌ gomobile bind produced an empty or corrupt androidbridge.aar${NC}"
     echo "   Check the Android SDK/NDK and retry the build"
     exit 1
 fi
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
-    echo -e "${GREEN}✓${NC} nbdbridge.aar rebuilt"
+    echo -e "${GREEN}✓${NC} androidbridge.aar rebuilt"
 else
-    echo "⚡ nbdbridge.aar is already up to date"
+    echo "⚡ androidbridge.aar is already up to date"
 fi
 echo ""
 
@@ -431,7 +431,7 @@ fi
 if [ "$NEED_FYNE_BUILD" -eq 0 ] && tree_has_newer_files "$FYNE_APK" \
     "$REPO_ROOT/cmd/android" \
     "$REPO_ROOT/internal" \
-    "$REPO_ROOT/nbdbridge" \
+    "$REPO_ROOT/androidbridge" \
     "$REPO_ROOT/android/jniLibs/arm64-v8a"; then
     NEED_FYNE_BUILD=1
 fi

@@ -3,8 +3,8 @@ package com.usbridge.client
 import android.util.Log
 
 /**
- * Передаёт результат QR-сканирования напрямую в main app (libUSBridge_Client.so)
- * через JNI, без использования nbdbridge.aar. Избегает конфликта двух Go runtime.
+ * Passes the QR scan result directly to the main app (libUSBridge_Client.so)
+ * via JNI, without going through androidbridge.aar. Avoids a conflict between two Go runtimes.
  */
 object QRResultBridge {
     private const val TAG = "QRResultBridge"
