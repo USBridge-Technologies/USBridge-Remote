@@ -625,7 +625,10 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
 
 // ─── render one frame ─────────────────────────────────────────────────────────
 
-static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
+// vk_render_frame presents the frame whose pixels are already sitting in
+// g_stage_ptr (written directly by the render thread before calling this —
+// see vk_render_thread) at dimensions fw x fh, row stride fs bytes.
+static int vk_render_frame(int fw, int fh, int fs) {
     if (!g_dev) return 0;
     // Retry swapchain creation if a previous attempt failed (g_swap may be NULL
     // after a failed vk_recreate_swapchain call or after explicit force-recreate).
@@ -658,15 +661,6 @@ static int vk_render_frame(uint8_t *pixels, int fw, int fh, int fs) {
     size_t frame_sz = (size_t)fh * (size_t)fs;
     if (!vk_ensure_staging(frame_sz)) return 0;
     if (!vk_ensure_tex(fw, fh))       return 0;
-
-    size_t row = (size_t)fw * 4;
-    if ((size_t)fs == row) {
-        memcpy(g_stage_ptr, pixels, frame_sz);
-    } else {
-        uint8_t *dst = (uint8_t *)g_stage_ptr;
-        for (int y = 0; y < fh; y++)
-            memcpy(dst + (size_t)y * row, pixels + (size_t)y * (size_t)fs, row);
-    }
 
     uint32_t img_idx = 0;
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 2000000000ULL,
@@ -859,8 +853,6 @@ static double mono_sec_vk(void) {
 static void *vk_render_thread(void *unused) {
     (void)unused;
     VLOGI("render thread started");
-    uint8_t *frame_buf = NULL;
-    size_t frame_buf_sz = 0;
     int last_fw = 0, last_fh = 0, last_fs = 0;
     int has_last_frame = 0;
 
@@ -887,13 +879,27 @@ static void *vk_render_thread(void *unused) {
         if (g_ready && g_buf) {
             fw = g_fw; fh = g_fh; fs = g_fs;
             size_t sz = (size_t)fh * (size_t)fs;
-            if (sz > frame_buf_sz) {
-                free(frame_buf);
-                frame_buf = malloc(sz);
-                frame_buf_sz = frame_buf ? sz : 0;
-            }
-            if (frame_buf) {
-                memcpy(frame_buf, g_buf, sz);
+            // Copy straight into Vulkan's mapped staging buffer instead of
+            // through an intermediate malloc'd buffer — one fewer full-frame
+            // memcpy (~8MB at 1080p, every decoded frame) than the previous
+            // g_buf -> frame_buf -> g_stage_ptr double-hop. vk_ensure_staging
+            // is cheap (no-op) once sized; it only does real work on the
+            // first frame or a resolution change.
+            if (g_dev && vk_ensure_staging(sz) && g_stage_ptr) {
+                // vk_render_frame's VkBufferImageCopy always describes the
+                // staging buffer as tightly packed (bufferRowLength = fw
+                // texels) since that's what it uploads to a GPU image with —
+                // so any row padding in g_buf (fs > fw*4, e.g. decoder
+                // alignment) must be stripped here, not carried into
+                // g_stage_ptr, or every row after the first renders shifted.
+                size_t tight_row = (size_t)fw * 4;
+                if ((size_t)fs == tight_row) {
+                    memcpy(g_stage_ptr, g_buf, sz);
+                } else {
+                    uint8_t *dst = (uint8_t *)g_stage_ptr;
+                    for (int y = 0; y < fh; y++)
+                        memcpy(dst + (size_t)y * tight_row, g_buf + (size_t)y * (size_t)fs, tight_row);
+                }
                 got_frame = 1;
             }
             g_ready = 0;
@@ -909,14 +915,16 @@ static void *vk_render_thread(void *unused) {
             has_last_frame = 1;
             is_video_frame = 1;
         } else if (cursor_dirty && has_last_frame) {
-            // Cursor moved but no new video frame — redraw last frame with updated cursor.
+            // Cursor moved but no new video frame — redraw the previous
+            // frame, which is still sitting in g_stage_ptr from the last
+            // time we wrote it, with the updated cursor. No copy needed.
             fw = last_fw; fh = last_fh; fs = last_fs;
             got_frame = 1;
         }
 
         if (!got_frame) continue;
 
-        if (vk_render_frame(frame_buf, fw, fh, fs)) {
+        if (vk_render_frame(fw, fh, fs)) {
             g_rendered++;
             // Only count real video frames toward FPS — cursor-only redraws skew the counter.
             if (is_video_frame) {
@@ -935,7 +943,6 @@ static void *vk_render_thread(void *unused) {
             }
         }
     }
-    free(frame_buf);
     VLOGI("render thread exiting");
     return NULL;
 }
