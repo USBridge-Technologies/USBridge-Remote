@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"usbridge_agent/internal/clipboard"
+	"usbridge_agent/internal/display"
 )
 
 type Application interface {
@@ -607,6 +608,13 @@ func (s *Server) videoInfo(w http.ResponseWriter, r *http.Request) {
 				fps = modes[0].FPS[n-1]
 			}
 		}
+	} else if dw, dh, ok := display.MaxResolution(); ok {
+		// No physical capture device (software agent streaming the whole
+		// desktop) — 1920x1080 above is just a last-resort guess. Query the
+		// host's actual connected display instead, so a client that doesn't
+		// explicitly pick a resolution defaults to the real maximum
+		// (e.g. a 4K monitor) rather than always being capped at 1080p.
+		width, height = dw, dh
 	}
 
 	moonlightHost := s.app.SunshineStreamHost()
