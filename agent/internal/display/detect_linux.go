@@ -57,6 +57,63 @@ func MaxResolution() (width, height int, ok bool) {
 	return width, height, ok
 }
 
+// Resolution is a single width x height mode.
+type Resolution struct {
+	Width  int
+	Height int
+}
+
+// ConnectorResolutions returns every distinct resolution advertised by each
+// connected DRM/KMS output, one slice per connector, ordered by connector
+// name (e.g. "card1-DP-1", "card1-DP-2", ...) — the same order os.ReadDir
+// gives, which lines up with how the agent otherwise indexes displays.
+// Within a connector, modes keep the order the kernel reports them in
+// (preferred/highest first, see MaxResolution's comment), deduplicated by
+// width/height since the same resolution is repeated once per refresh rate.
+// Returns nil if /sys/class/drm can't be read or no connector has modes.
+func ConnectorResolutions() [][]Resolution {
+	entries, err := os.ReadDir("/sys/class/drm")
+	if err != nil {
+		return nil
+	}
+	var connectors [][]Resolution
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.Contains(name, "-") {
+			continue
+		}
+		dir := filepath.Join("/sys/class/drm", name)
+		status, err := os.ReadFile(filepath.Join(dir, "status"))
+		if err != nil || strings.TrimSpace(string(status)) != "connected" {
+			continue
+		}
+		f, err := os.Open(filepath.Join(dir, "modes"))
+		if err != nil {
+			continue
+		}
+		seen := make(map[Resolution]bool)
+		var modes []Resolution
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			w, h, parsed := parseModeLine(sc.Text())
+			if !parsed {
+				continue
+			}
+			r := Resolution{Width: w, Height: h}
+			if seen[r] {
+				continue
+			}
+			seen[r] = true
+			modes = append(modes, r)
+		}
+		f.Close()
+		if len(modes) > 0 {
+			connectors = append(connectors, modes)
+		}
+	}
+	return connectors
+}
+
 func parseModeLine(line string) (w, h int, ok bool) {
 	parts := strings.SplitN(strings.TrimSpace(line), "x", 2)
 	if len(parts) != 2 {
