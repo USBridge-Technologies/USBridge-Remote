@@ -44,6 +44,22 @@ func main() {
 	target := os.Args[1]
 	args := os.Args[1:]
 
+	// The agent sets PR_SET_PDEATHSIG=SIGKILL on the process it forks so
+	// Sunshine can never outlive it (crash, SIGKILL, a shutdown path that
+	// hangs before reaching its own cleanup). But per capabilities(7)/
+	// prctl(2), the kernel silently clears PDEATHSIG the moment that forked
+	// process execve()s a binary carrying a file capability — which is
+	// exactly what just happened: this binary is `setcap cap_sys_admin=eip`.
+	// Left unaddressed, Sunshine (execve'd below into this same, now
+	// deathsig-less process image) becomes an unkillable orphan the instant
+	// KMS capture is in use — reparented to init instead of dying with the
+	// agent. Re-arm it here before the final exec: this process itself
+	// carries no file capability, so the clear-on-exec rule doesn't strip it
+	// a second time, and Sunshine inherits it same as in non-KMS mode.
+	if err := unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGKILL), 0, 0, 0); err != nil {
+		fmt.Fprintf(os.Stderr, "sunshine_capexec: set PDEATHSIG: %v\n", err)
+	}
+
 	// `setcap cap_sys_admin=eip` on this binary puts CAP_SYS_ADMIN in our
 	// effective and permitted sets at exec time (via the file's fP,
 	// intersected with our capability bounding set) — but NOT in our
