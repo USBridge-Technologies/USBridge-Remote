@@ -845,9 +845,22 @@ func goVTFrame(rgba *C.uint8_t, w, h, s C.int) {
 	if cb == nil {
 		return
 	}
-	// When Vulkan overlay is active the frame is already presented — skip the
-	// expensive 8 MB RGBA copy and just notify Go to increment frame counters.
-	if C.android_vk_is_active() != 0 {
+	// A nil rgba means the C caller (dr_submit in this file) already decided
+	// the frame was presented via the zero-copy AHardwareBuffer/Vulkan path
+	// and passed NULL on purpose — just notify Go to increment frame counters.
+	//
+	// This used to re-derive that same decision here by calling
+	// android_vk_is_active() again instead of trusting the pointer. That is
+	// a TOCTOU race: dr_submit's own android_vk_is_active() check and this
+	// one read that same flag at two different times with no synchronization
+	// between them. During disconnect, the Vulkan renderer can be torn down
+	// (setting the flag to inactive) in the gap between dr_submit deciding
+	// "zero-copy, pass NULL" and this function re-checking the flag — which
+	// then read "not active" and fell through to unsafe.Slice(nil, n) with
+	// n > 0, crashing the process (SIGABRT) on every disconnect that raced
+	// with an in-flight frame. Trusting rgba's nil-ness directly removes the
+	// race: it's the same value the caller committed to in this one call.
+	if rgba == nil {
 		cb(nil)
 		return
 	}

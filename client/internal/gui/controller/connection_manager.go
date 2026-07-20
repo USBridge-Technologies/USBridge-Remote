@@ -236,6 +236,18 @@ func (cm *ConnectionManager) startTailscaleLogin() {
 	go func() {
 		defer cm.tailscaleAuthInProgress.Store(false)
 
+		// Show the spinner immediately on tap. The resume attempt below
+		// (Start + WaitUntilReady, up to 8s) previously ran silently before
+		// any state update reached the UI, so the toggle looked dead/unresponsive
+		// for up to 8 seconds — as if the tap had done nothing — until this
+		// same "starting login" state finally got set afterwards.
+		cm.setTailscaleStateAsync(
+			"Tailscale: checking saved session",
+			"Google: connecting",
+			"Address: unavailable",
+			"Sign In With Google",
+		)
+
 		// Status() reports a default "not logged in, not running" result
 		// whenever the tsnet server hasn't been explicitly started yet — and
 		// this button, unlike Connect (which starts tsnet via
@@ -536,6 +548,18 @@ func (cm *ConnectionManager) startTailscaleStatusPolling() {
 
 func (cm *ConnectionManager) refreshTailscaleStatus() {
 	if cm.ts == nil {
+		return
+	}
+	if cm.tailscaleAuthInProgress.Load() {
+		// A login/logout action is actively driving the toggle's state right
+		// now (spinner, "checking saved session", "starting login", ...).
+		// This function also runs off a 5s background ticker, and used to
+		// stomp over that in-flight state with whatever tsnet's status
+		// happened to be mid-transition (e.g. still NeedsLogin a moment
+		// before StartLogin's AuthURL arrives) — flipping the spinner back
+		// to a plain toggle for a second or two before the browser opened.
+		// The auth goroutine itself calls refreshTailscaleStatus once it's
+		// actually done, so skipping here just avoids the race.
 		return
 	}
 	status, err := cm.ts.Status(context.Background())
