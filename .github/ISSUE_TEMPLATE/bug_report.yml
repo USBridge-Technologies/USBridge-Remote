@@ -1,25 +1,32 @@
 name: Bug Report
 description: Report a bug in USBridge Soft
-title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
-      value: |
-        Thanks for taking the time to report a bug. Please fill in as much detail as possible.
-
+      value: Thanks for taking the time to report a bug. Please fill in as much detail as possible.
+  
   - type: dropdown
     id: component
     attributes:
       label: Component
       options:
-        - Client (Windows)
-        - Client (macOS)
-        - Client (Linux)
-        - Client (Android)
-        - Agent (Windows)
-        - Agent (macOS)
-        - Connection / Networking
+        - USBridge Client
+        - USBridge Agent
+        - USBridge-KVM
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS
         - Other
     validations:
       required: true
@@ -28,23 +35,23 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: "e.g. Beta 0.1.0"
+      placeholder: e.g. Beta 0.1.0
     validations:
       required: true
 
   - type: textarea
     id: description
     attributes:
-      label: Bug Description
-      placeholder: "What happened? What did you expect?"
-    validations:
-      required: true
-
-  - type: textarea
-    id: steps
-    attributes:
-      label: Steps to Reproduce
-      placeholder: |
+      label: Bug Description & Steps to Reproduce
+      description: Tell me what happened, what you expected, and how I can reproduce it.
+      value: |
+        **What happened?**
+        ...
+        
+        **What did you expect?**
+        ...
+        
+        **Steps to reproduce:**
         1. Open the client
         2. Click on...
         3. See error
@@ -55,5 +62,6 @@ body:
     id: logs
     attributes:
       label: Logs or Screenshots
+      description: Drag and drop screenshots here, or paste relevant error logs.
     validations:
       required: false
