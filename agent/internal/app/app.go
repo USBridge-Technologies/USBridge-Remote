@@ -20,6 +20,7 @@ import (
 	fyneapp "fyne.io/fyne/v2/app"
 
 	"usbridge_agent/assets"
+	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/audio"
 	"usbridge_agent/internal/capture"
@@ -58,6 +59,66 @@ type App struct {
 	handler   http.Handler
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
+	adminSrv  *adminapi.Server
+}
+
+// Start is the sole entry point from main(). It decides, based on mode and
+// whether another instance's admin socket is already reachable, whether
+// this process owns the engine (HTTP server, Sunshine, tsnet) or just
+// attaches a GUI to one that's already running headless — see
+// runThinClientGUI. This is what lets the same binary/AppImage work both as
+// a `--headless` systemd/launchd/autostart service and as the normal GUI
+// app without ever running two engines (and two Sunshine/tsnet instances)
+// at once on the same machine.
+func Start(headless bool) error {
+	cfgPath := resolveConfigPath()
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	// EnsureState only creates cfg.StateDir if missing — needed up front so
+	// the admin socket path is known, but otherwise side-effect-free (no
+	// goroutines, no network binds), so probing before committing to owning
+	// the engine is safe.
+	if err := cfg.EnsureState(); err != nil {
+		return err
+	}
+
+	socketPath := adminapi.SocketPath(cfg.StateDir)
+	if client, dialErr := adminapi.Dial(socketPath); dialErr == nil {
+		if headless {
+			client.Close()
+			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
+		}
+		return runThinClientGUI(client)
+	}
+
+	instance, err := New()
+	if err != nil {
+		return err
+	}
+	return instance.Run(headless)
+}
+
+// runThinClientGUI shows the GUI backed by an already-running headless
+// instance's admin socket instead of starting a second engine. Closing the
+// window here does NOT stop the headless instance — only a process actually
+// owning the engine (see App.Run/shutdownEngine) does that.
+func runThinClientGUI(client *adminapi.Client) error {
+	cfg, err := client.CurrentConfig()
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("fetch config from running instance: %w", err)
+	}
+
+	fyneApp := fyneapp.NewWithID("io.usbridge.agent")
+	fyneApp.Settings().SetTheme(design.NewBrandTheme())
+	fyneApp.SetIcon(assets.AppIcon)
+
+	ui.NewWindow(fyneApp, cfg, client, client, client).ShowAndRun(func() {
+		client.Close()
+	})
+	return nil
 }
 
 func New() (*App, error) {
@@ -98,11 +159,11 @@ func New() (*App, error) {
 		screen:    capture.New(),
 		perms:     permissions.New(),
 		ts:        tailscale.New(cfg.StateDir),
-		fyneApp:   fyneapp.NewWithID("io.usbridge.agent"),
 		clipboard: clipboardMgr,
 	}
-	instance.fyneApp.Settings().SetTheme(design.NewBrandTheme())
-	instance.fyneApp.SetIcon(assets.AppIcon)
+	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
+	// --headless engine never touches Fyne at all, so it never needs a
+	// display connection (see Run).
 	instance.sunshine = sunshine.NewProcess(sunshine.RuntimeBinaryPath(resolveExeDir(), cfg.StateDir), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	instance.syncSunshineCapExec()
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
@@ -167,11 +228,15 @@ func resolveConfigPath() string {
 	return candidates[0]
 }
 
-func (a *App) Run() error {
+// Run starts the engine (HTTP server, Sunshine, tsnet, admin socket) and
+// then either blocks headlessly on ctx.Done() (headless==true — no Fyne
+// driver ever touched, so no display connection is required) or shows the
+// GUI window backed directly by this same in-process engine (headless==false).
+func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	log.Printf("[app] starting http=%s:%d", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort)
+	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
 
 	a.startSunshine()
 	go a.sunshineWatchdog(ctx)
@@ -181,8 +246,31 @@ func (a *App) Run() error {
 	}
 
 	a.initTailscale(ctx)
-	go a.handleShutdown(ctx, cancel)
 
+	if srv, err := adminapi.NewServer(adminapi.SocketPath(a.cfg.StateDir), a, a.perms, a.ts, func() config.Config { return a.cfg }); err != nil {
+		// Non-fatal: the engine itself works fine without it, it just means
+		// no separate GUI process can attach to this instance later.
+		log.Printf("[app] warning: admin socket unavailable: %v", err)
+	} else {
+		a.adminSrv = srv
+		go func() {
+			if err := srv.Serve(); err != nil {
+				log.Printf("[app] admin socket server error: %v", err)
+			}
+		}()
+	}
+
+	if headless {
+		<-ctx.Done()
+		a.shutdownEngine()
+		return nil
+	}
+
+	a.fyneApp = fyneapp.NewWithID("io.usbridge.agent")
+	a.fyneApp.Settings().SetTheme(design.NewBrandTheme())
+	a.fyneApp.SetIcon(assets.AppIcon)
+
+	go a.handleShutdown(ctx, cancel)
 	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
 }
@@ -309,8 +397,22 @@ func (a *App) startTailscaleHTTP(_ context.Context) {
 	}
 }
 
+// handleShutdown is used by the GUI-owning path only: it waits for ctx to be
+// cancelled (e.g. the window's close intercept calling cancel), tears down
+// the engine, then quits the Fyne app loop so ShowAndRun's blocking call in
+// Run returns. The headless path calls shutdownEngine directly instead,
+// since there's no Fyne loop to quit.
 func (a *App) handleShutdown(ctx context.Context, cancel context.CancelFunc) {
 	<-ctx.Done()
+	a.shutdownEngine()
+	fyne.Do(func() {
+		a.fyneApp.Quit()
+	})
+}
+
+// shutdownEngine tears down everything Run started except the GUI: the HTTP
+// server(s), Sunshine, the tsnet stream proxy/service, and the admin socket.
+func (a *App) shutdownEngine() {
 	_ = a.server.Shutdown(context.Background())
 	if a.tsHTTP != nil && a.tsHTTP.Addr != "" {
 		_ = a.tsHTTP.Shutdown(context.Background())
@@ -324,9 +426,9 @@ func (a *App) handleShutdown(ctx context.Context, cancel context.CancelFunc) {
 	if a.sunshine != nil {
 		_ = a.sunshine.Stop()
 	}
-	fyne.Do(func() {
-		a.fyneApp.Quit()
-	})
+	if a.adminSrv != nil {
+		_ = a.adminSrv.Close()
+	}
 }
 
 func (a *App) RegenerateMasterKey() (config.Config, error) {
