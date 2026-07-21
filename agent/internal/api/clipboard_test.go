@@ -116,6 +116,8 @@ func (s *stubApp) Screen() interface {
 	return stubScreen{}
 }
 func (s *stubApp) VideoDevices() []VideoDeviceInfo       { return nil }
+func (s *stubApp) SunshineOutputName() string            { return "" }
+func (s *stubApp) SetSunshineOutputName(string) error    { return nil }
 func (s *stubApp) SunshineStreamHost() string            { return "" }
 func (s *stubApp) SunshineAdminPort() int                { return 0 }
 func (s *stubApp) CurrentVideoCodec() string             { return "" }

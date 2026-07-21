@@ -966,3 +966,33 @@ func (a *App) SetAudioSink(sink string) error {
 	}
 	return a.RestartSunshine()
 }
+
+// SunshineOutputName returns the monitor Sunshine is pinned to capture
+// (Sunshine's own connected-output index, stringified), read from
+// sunshine.conf if present, falling back to the persisted agent config.
+func (a *App) SunshineOutputName() string {
+	if name := sunshine.OutputName(); name != "" {
+		return name
+	}
+	return a.cfg.SunshineOutputName
+}
+
+// SetSunshineOutputName pins Sunshine's capture to the given monitor
+// (Sunshine's connected-output index, stringified, or "" to auto-pick),
+// persists it into both sunshine.conf and the agent config, and restarts
+// Sunshine so the change takes effect.
+func (a *App) SetSunshineOutputName(name string) error {
+	unchanged := sunshine.OutputName() == name && a.sunshine != nil && a.sunshine.Running()
+	if err := sunshine.SetOutputName(name); err != nil {
+		return fmt.Errorf("write sunshine.conf: %w", err)
+	}
+	next := a.cfg
+	next.SunshineOutputName = name
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	if unchanged {
+		return nil
+	}
+	return a.RestartSunshine()
+}

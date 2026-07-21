@@ -455,7 +455,7 @@ func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply
 		cfg.DeviceName = device.Name
 
 		info := vw.fetchVideoInfoForStartDialog(device.Path)
-		isDisplayDevice := strings.HasPrefix(device.Path, "display:")
+		isDisplayDevice := strings.HasPrefix(device.Path, "display:") || strings.HasPrefix(device.Path, "drm:")
 		// Only merge server params into the dialog defaults when the server is actively
 		// streaming. When not streaming, the server returns its hard-coded config defaults
 		// (1280x720 @ 30fps) which would silently overwrite the client's saved preferences.

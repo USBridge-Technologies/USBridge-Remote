@@ -67,6 +67,40 @@ USBRIDGE_SUNSHINE_VERSION=<tag> pin a specific Sunshine release
 > Dev builds aren't ad-hoc signed, so re-signing on every rebuild looks like a
 > new app to macOS and both prompts come back.
 
+## Launch at Login (autostart)
+
+The "Launch at Login" checkbox has no stored on/off state of its own — it
+always reflects whatever the OS's real autostart mechanism currently says
+(`systemctl is-enabled usbridge-agent.service` on Linux), so it only shows
+checked if that mechanism is actually registered on this machine. It starts
+unchecked on a fresh machine and only gets enabled when you check it.
+
+Checking it registers **the exact file you're currently running** as the
+command to launch at boot:
+- Running as an AppImage: the `$APPIMAGE` path (the outer `.AppImage` file
+  itself, not its ephemeral mount point) — e.g.
+  `/path/to/USBridgeAgent-Linux-x86_64-2.0.21.AppImage`.
+- Running as a plain binary: `os.Executable()`'s path.
+
+Always with `--headless` appended, so autostart brings up the HTTP/Sunshine/
+Tailscale engine on every boot without popping a window; opening the app
+normally afterwards just attaches a GUI to that already-running instance.
+
+On Linux this installs a **system-wide** (not `--user`) systemd unit at
+`/etc/systemd/system/usbridge-agent.service` via `pkexec`, deliberately, so
+it can start before any graphical session exists — needed for KMS capture,
+which reads DRM/KMS directly with no compositor/portal required. Re-checking
+the box from a different path overwrites the unit with the new path;
+un-checking it removes the unit entirely. If you move/rename the binary
+without re-toggling the checkbox, the installed unit still points at the old,
+now-missing path — toggle it off/on again from the new location, or fix it
+manually:
+```bash
+sudo systemctl disable --now usbridge-agent.service
+sudo rm -f /etc/systemd/system/usbridge-agent.service
+sudo systemctl daemon-reload
+```
+
 ## License
 
 GPLv3 — see [`LICENSE`](LICENSE). Bundles [Sunshine](https://github.com/LizardByte/Sunshine) (GPLv3).

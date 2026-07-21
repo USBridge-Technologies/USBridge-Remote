@@ -1088,3 +1088,17 @@ func SetAudioSink(sink string) error {
 func AudioSink() string {
 	return configKey("audio_sink")
 }
+
+// SetOutputName upserts the "output_name" key in sunshine.conf — which
+// connected monitor Sunshine captures, addressed by Sunshine's own
+// connected-output index (see display.Connectors). An empty name removes
+// the key (Sunshine auto-picks the first output it finds).
+func SetOutputName(name string) error {
+	return setConfigKey("output_name", name)
+}
+
+// OutputName reads the current "output_name" value from sunshine.conf, or ""
+// if unset (auto-pick).
+func OutputName() string {
+	return configKey("output_name")
+}

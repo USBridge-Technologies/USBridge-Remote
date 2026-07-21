@@ -103,6 +103,25 @@ GET /api/video/info
 POST /api/video/start
 ```
 
+### Video Devices
+```http
+GET /api/video/devices
+```
+**Description**: Lists capturable monitors/displays. On Linux these are the
+connected DRM/KMS outputs (works even headless, before any login), each
+reported as `{"path": "drm:<index>", "name": "...", "bus": "drm", ...}`.
+**Response `data`**: `{"devices": [...], "count": N}`.
+
+### Video Set Device
+```http
+POST /api/video/set_device
+```
+**Description**: Pins Sunshine's capture to one monitor from the list above.
+**Request Body**: `{"device": "drm:<index>", "pixel_format": "..."}` — `device`
+is a `path` value from `/api/video/devices`; empty string clears the pin
+(Sunshine auto-picks). Persists into `sunshine.conf`'s `output_name` and
+restarts Sunshine.
+
 ### Audio Info
 ```http
 GET /api/audio/info

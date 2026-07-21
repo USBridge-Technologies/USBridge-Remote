@@ -55,9 +55,39 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 // if/when it needs one); triggering a second, independent portal session
 // here just to describe available displays caused a confusing extra
 // permission prompt after Sunshine had already connected successfully.
-// screenshot.NumActiveDisplays/GetDisplayBounds work under Wayland too via
-// XWayland, so this needs no Wayland-specific branch.
+//
+// Enumeration is DRM/KMS-based (via /sys/class/drm) rather than X11-based:
+// it works with no graphical session at all (headless/systemd autostart,
+// before login), and its connected-output order/index is what Sunshine's
+// own KMS capture backend uses for its "output_name" monitor pin (see
+// display.Connectors), so the paths reported here ("drm:<index>") are
+// exactly the values SetSunshineOutputName expects. Falls back to the old
+// X11-based enumeration only if no DRM connector could be read at all.
 func (s *Service) Devices() []api.VideoDeviceInfo {
+	if connectors := display.Connectors(); len(connectors) > 0 {
+		out := make([]api.VideoDeviceInfo, 0, len(connectors))
+		for _, c := range connectors {
+			modes := make([]api.VideoCaptureMode, 0, len(c.Modes))
+			for _, r := range c.Modes {
+				modes = append(modes, api.VideoCaptureMode{
+					Width:       r.Width,
+					Height:      r.Height,
+					FPS:         standardFPS,
+					PixelFormat: "BGRA",
+				})
+			}
+			out = append(out, api.VideoDeviceInfo{
+				Path:           fmt.Sprintf("drm:%d", c.Index),
+				Name:           c.Name,
+				Bus:            "drm",
+				Index:          c.Index,
+				Connected:      true,
+				SupportedModes: modes,
+			})
+		}
+		return out
+	}
+
 	num := screenshot.NumActiveDisplays()
 	out := make([]api.VideoDeviceInfo, 0, num)
 	for i := 0; i < num; i++ {
