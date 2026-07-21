@@ -59,7 +59,7 @@ def clear_logcat():
 
 def send_deeplink(ts_host, key):
     # Force-stop first so getIntent() returns the new deep link (not the stale launch intent).
-    adb("shell am force-stop com.usbridge.client")
+    adb("shell am force-stop io.usbridge.client")
     time.sleep(1.5)
 
     deeplink = (

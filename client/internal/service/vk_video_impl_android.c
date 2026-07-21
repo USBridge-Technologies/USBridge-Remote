@@ -38,8 +38,8 @@
 // ─── JNI bridge (cached class / JVM) ─────────────────────────────────────────
 
 static JavaVM *g_jvm           = NULL;
-static jclass  g_cls_vob       = NULL; // com/usbridge/client/VulkanOverlayBridge
-static jclass  g_cls_haptic    = NULL; // com/usbridge/client/HapticBridge
+static jclass  g_cls_vob       = NULL; // io/usbridge/client/VulkanOverlayBridge
+static jclass  g_cls_haptic    = NULL; // io/usbridge/client/HapticBridge
 
 static JNIEnv *get_env(int *need_detach) {
     *need_detach = 0;
@@ -1451,7 +1451,7 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
     int nd; JNIEnv *env = get_env(&nd);
     if (!env) return;
 
-    jclass cls = (*env)->FindClass(env, "com/usbridge/client/VulkanOverlayBridge");
+    jclass cls = (*env)->FindClass(env, "io/usbridge/client/VulkanOverlayBridge");
     if (!cls || (*env)->ExceptionCheck(env)) {
         (*env)->ExceptionClear(env);
         VLOGI("android_vk_set_jvm: fallback to ClassLoader for VulkanOverlayBridge");
@@ -1461,7 +1461,7 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
             jobject cl = (*env)->CallObjectMethod(env, ctx, getCL);
             jclass clCls = (*env)->FindClass(env, "java/lang/ClassLoader");
             jmethodID loadCls = (*env)->GetMethodID(env, clCls, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
-            jstring name = (*env)->NewStringUTF(env, "com.usbridge.client.VulkanOverlayBridge");
+            jstring name = (*env)->NewStringUTF(env, "io.usbridge.client.VulkanOverlayBridge");
             cls = (jclass)(*env)->CallObjectMethod(env, cl, loadCls, name);
             if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); cls = NULL; }
             (*env)->DeleteLocalRef(env, name);
@@ -1476,7 +1476,7 @@ void android_vk_set_jvm(JavaVM *jvm, jobject ctx) {
     }
 
     // Cache HapticBridge for short-tap haptic feedback.
-    jclass hcls = (*env)->FindClass(env, "com/usbridge/client/HapticBridge");
+    jclass hcls = (*env)->FindClass(env, "io/usbridge/client/HapticBridge");
     if (hcls && !(*env)->ExceptionCheck(env)) {
         g_cls_haptic = (jclass)(*env)->NewGlobalRef(env, hcls);
         (*env)->DeleteLocalRef(env, hcls);

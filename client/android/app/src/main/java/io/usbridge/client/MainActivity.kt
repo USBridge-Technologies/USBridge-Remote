@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.Manifest
 import android.content.Intent
@@ -989,7 +989,7 @@ class MainActivity : GoNativeActivity() {
         return try {
             val file = java.io.File(path)
             val uri = androidx.core.content.FileProvider.getUriForFile(
-                this, "com.usbridge.client.fileprovider", file
+                this, "io.usbridge.client.fileprovider", file
             )
             val clip = android.content.ClipData(
                 file.name,

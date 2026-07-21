@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.app.*
 import android.content.Context
@@ -28,8 +28,8 @@ class NbdForegroundService : Service() {
         const val EXTRA_READ_ONLY = "read_only"
 
         // Actions
-        const val ACTION_START_NBD = "com.usbridge.client.START_NBD"
-        const val ACTION_STOP_NBD = "com.usbridge.client.STOP_NBD"
+        const val ACTION_START_NBD = "io.usbridge.client.START_NBD"
+        const val ACTION_STOP_NBD = "io.usbridge.client.STOP_NBD"
 
         /**
          * Start NBD service

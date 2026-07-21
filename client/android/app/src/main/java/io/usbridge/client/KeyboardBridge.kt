@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 /**
  * Передаёт точную высоту Android IME (системной клавиатуры) в Go через JNI.

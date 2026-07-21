@@ -13,27 +13,27 @@ extern void deliverViewportGestureUpdateFromJNI(jfloat scaleFactor, jfloat focus
 extern void deliverScrollGestureFromJNI(jfloat dy);
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv *env, jclass clazz, jboolean active) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv *env, jclass clazz, jboolean active) {
     deliverViewportGestureStateFromJNI(active);
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onViewportGestureUpdate(JNIEnv *env, jclass clazz, jfloat scaleFactor, jfloat focusX, jfloat focusY, jfloat panDx, jfloat panDy) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GestureBridge_onViewportGestureUpdate(JNIEnv *env, jclass clazz, jfloat scaleFactor, jfloat focusX, jfloat focusY, jfloat panDx, jfloat panDy) {
     deliverViewportGestureUpdateFromJNI(scaleFactor, focusX, focusY, panDx, panDy);
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GestureBridge_onScrollGesture(JNIEnv *env, jclass clazz, jfloat dy) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GestureBridge_onScrollGesture(JNIEnv *env, jclass clazz, jfloat dy) {
     deliverScrollGestureFromJNI(dy);
 }
 
 void keepViewportGestureJNISymbolsReferenced(void) {
-    extern void Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv*, jclass, jboolean);
-    extern void Java_com_usbridge_client_GestureBridge_onViewportGestureUpdate(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat, jfloat);
-    extern void Java_com_usbridge_client_GestureBridge_onScrollGesture(JNIEnv*, jclass, jfloat);
-    (void)Java_com_usbridge_client_GestureBridge_onViewportGestureStateChanged;
-    (void)Java_com_usbridge_client_GestureBridge_onViewportGestureUpdate;
-    (void)Java_com_usbridge_client_GestureBridge_onScrollGesture;
+    extern void Java_io_usbridge_client_GestureBridge_onViewportGestureStateChanged(JNIEnv*, jclass, jboolean);
+    extern void Java_io_usbridge_client_GestureBridge_onViewportGestureUpdate(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat, jfloat);
+    extern void Java_io_usbridge_client_GestureBridge_onScrollGesture(JNIEnv*, jclass, jfloat);
+    (void)Java_io_usbridge_client_GestureBridge_onViewportGestureStateChanged;
+    (void)Java_io_usbridge_client_GestureBridge_onViewportGestureUpdate;
+    (void)Java_io_usbridge_client_GestureBridge_onScrollGesture;
 }
 */
 import "C"

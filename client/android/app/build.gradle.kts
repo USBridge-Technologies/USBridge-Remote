@@ -46,14 +46,14 @@ val appVersionCode = try {
 }
 
 android {
-    namespace = "com.usbridge.client"
+    namespace = "io.usbridge.client"
     compileSdk = 34
     if (!detectedNdkVersion.isNullOrBlank()) {
         ndkVersion = detectedNdkVersion
     }
 
     defaultConfig {
-        applicationId = "com.usbridge.client"
+        applicationId = "io.usbridge.client"
         minSdk = 26
         targetSdk = 34
         versionCode = appVersionCode

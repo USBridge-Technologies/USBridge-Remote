@@ -67,13 +67,13 @@ void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_p
 
 // Finds the NbdBridge class
 static jclass get_nbd_bridge_class(JNIEnv *env) {
-    jclass cls = (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+    jclass cls = (*env)->FindClass(env, "io/usbridge/client/NbdBridge");
     if (cls == NULL) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
         
         if (g_ctx == NULL) {
             LOGW("⚠️ [JNI-SAF] g_ctx is NULL, falling back to FindClass");
-            return (*env)->FindClass(env, "com/usbridge/client/NbdBridge");
+            return (*env)->FindClass(env, "io/usbridge/client/NbdBridge");
         }
         
         jclass activityClass = (*env)->GetObjectClass(env, g_ctx);
@@ -82,7 +82,7 @@ static jclass get_nbd_bridge_class(JNIEnv *env) {
         jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
         jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
         
-        jstring className = (*env)->NewStringUTF(env, "com.usbridge.client.NbdBridge");
+        jstring className = (*env)->NewStringUTF(env, "io.usbridge.client.NbdBridge");
         cls = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
         
         (*env)->DeleteLocalRef(env, className);

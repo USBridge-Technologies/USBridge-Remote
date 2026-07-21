@@ -12,12 +12,12 @@ extern void deliverIMEHeightFromJNI(jint imeHeightPx, jint screenHeightPx);
 extern void deliverLanguageFromJNI(char* lang);
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv *env, jclass clazz, jint imeHeightPx, jint screenHeightPx) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv *env, jclass clazz, jint imeHeightPx, jint screenHeightPx) {
     deliverIMEHeightFromJNI(imeHeightPx, screenHeightPx);
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv *env, jclass clazz, jstring lang) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv *env, jclass clazz, jstring lang) {
     const char *nativeString = (*env)->GetStringUTFChars(env, lang, 0);
     deliverLanguageFromJNI((char*)nativeString);
     (*env)->ReleaseStringUTFChars(env, lang, nativeString);
@@ -25,11 +25,11 @@ JNIEXPORT void JNICALL Java_com_usbridge_client_KeyboardBridge_onLanguageChanged
 
 // keepIMEBridgeSymbolsReferenced - dummy reference to prevent the linker from removing JNI symbols
 void keepIMEBridgeSymbolsReferenced(void) {
-    extern void Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
-    (void)Java_com_usbridge_client_KeyboardBridge_onIMEHeightChanged;
+    extern void Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged(JNIEnv*, jclass, jint, jint);
+    (void)Java_io_usbridge_client_KeyboardBridge_onIMEHeightChanged;
 
-    extern void Java_com_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv*, jclass, jstring);
-    (void)Java_com_usbridge_client_KeyboardBridge_onLanguageChanged;
+    extern void Java_io_usbridge_client_KeyboardBridge_onLanguageChanged(JNIEnv*, jclass, jstring);
+    (void)Java_io_usbridge_client_KeyboardBridge_onLanguageChanged;
 }
 */
 import "C"

@@ -24,7 +24,7 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PKG="com.usbridge.client"
+PKG="io.usbridge.client"
 
 SERIAL="${1:-$(adb devices | awk 'NR==2{print $1}')}"
 if [ -z "$SERIAL" ]; then

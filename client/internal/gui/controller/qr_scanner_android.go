@@ -19,7 +19,7 @@ extern void deliverQRResultFromJNI(char* contents);
 extern void deliverQRCancelFromJNI(void);
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_QRResultBridge_deliverQRResult(JNIEnv *env, jclass clazz, jstring contents) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_QRResultBridge_deliverQRResult(JNIEnv *env, jclass clazz, jstring contents) {
     if (contents == NULL) return;
     const char* utf = (*env)->GetStringUTFChars(env, contents, NULL);
     if (utf) {
@@ -29,16 +29,16 @@ JNIEXPORT void JNICALL Java_com_usbridge_client_QRResultBridge_deliverQRResult(J
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_QRResultBridge_deliverQRCancel(JNIEnv *env, jclass clazz) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_QRResultBridge_deliverQRCancel(JNIEnv *env, jclass clazz) {
     deliverQRCancelFromJNI();
 }
 
 // keepJNISymbolsReferenced - dummy reference so linker doesn't remove JNI symbols (they are called only from Java)
 void keepJNISymbolsReferenced(void) {
-    extern void Java_com_usbridge_client_QRResultBridge_deliverQRResult(JNIEnv*, jclass, jstring);
-    extern void Java_com_usbridge_client_QRResultBridge_deliverQRCancel(JNIEnv*, jclass);
-    (void)Java_com_usbridge_client_QRResultBridge_deliverQRResult;
-    (void)Java_com_usbridge_client_QRResultBridge_deliverQRCancel;
+    extern void Java_io_usbridge_client_QRResultBridge_deliverQRResult(JNIEnv*, jclass, jstring);
+    extern void Java_io_usbridge_client_QRResultBridge_deliverQRCancel(JNIEnv*, jclass);
+    (void)Java_io_usbridge_client_QRResultBridge_deliverQRResult;
+    (void)Java_io_usbridge_client_QRResultBridge_deliverQRCancel;
 }
 
 // Returns 1 if launchQRScanner is called, 0 if method is not found (Gradle build required)

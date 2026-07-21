@@ -14,34 +14,34 @@ extern void deliverShakeFromJNI(void);
 extern jboolean isGyroMouseModeActiveFromJNI(void);
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GyroBridge_onGyroEvent(JNIEnv *env, jclass clazz, jfloat rx, jfloat ry, jfloat rz, jfloat dtMs) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GyroBridge_onGyroEvent(JNIEnv *env, jclass clazz, jfloat rx, jfloat ry, jfloat rz, jfloat dtMs) {
     deliverGyroEventFromJNI(rx, ry, rz, dtMs);
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GyroBridge_onVolumeButton(JNIEnv *env, jclass clazz, jint button, jboolean pressed) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GyroBridge_onVolumeButton(JNIEnv *env, jclass clazz, jint button, jboolean pressed) {
     deliverVolumeButtonFromJNI(button, pressed);
 }
 
 __attribute__((used))
-JNIEXPORT void JNICALL Java_com_usbridge_client_GyroBridge_onShakeGesture(JNIEnv *env, jclass clazz) {
+JNIEXPORT void JNICALL Java_io_usbridge_client_GyroBridge_onShakeGesture(JNIEnv *env, jclass clazz) {
     deliverShakeFromJNI();
 }
 
 __attribute__((used))
-JNIEXPORT jboolean JNICALL Java_com_usbridge_client_GyroBridge_isGyroMouseModeActive(JNIEnv *env, jclass clazz) {
+JNIEXPORT jboolean JNICALL Java_io_usbridge_client_GyroBridge_isGyroMouseModeActive(JNIEnv *env, jclass clazz) {
     return isGyroMouseModeActiveFromJNI();
 }
 
 void keepGyroJNISymbolsReferenced(void) {
-    extern void Java_com_usbridge_client_GyroBridge_onGyroEvent(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat);
-    extern void Java_com_usbridge_client_GyroBridge_onVolumeButton(JNIEnv*, jclass, jint, jboolean);
-    extern void Java_com_usbridge_client_GyroBridge_onShakeGesture(JNIEnv*, jclass);
-    extern jboolean Java_com_usbridge_client_GyroBridge_isGyroMouseModeActive(JNIEnv*, jclass);
-    (void)Java_com_usbridge_client_GyroBridge_onGyroEvent;
-    (void)Java_com_usbridge_client_GyroBridge_onVolumeButton;
-    (void)Java_com_usbridge_client_GyroBridge_onShakeGesture;
-    (void)Java_com_usbridge_client_GyroBridge_isGyroMouseModeActive;
+    extern void Java_io_usbridge_client_GyroBridge_onGyroEvent(JNIEnv*, jclass, jfloat, jfloat, jfloat, jfloat);
+    extern void Java_io_usbridge_client_GyroBridge_onVolumeButton(JNIEnv*, jclass, jint, jboolean);
+    extern void Java_io_usbridge_client_GyroBridge_onShakeGesture(JNIEnv*, jclass);
+    extern jboolean Java_io_usbridge_client_GyroBridge_isGyroMouseModeActive(JNIEnv*, jclass);
+    (void)Java_io_usbridge_client_GyroBridge_onGyroEvent;
+    (void)Java_io_usbridge_client_GyroBridge_onVolumeButton;
+    (void)Java_io_usbridge_client_GyroBridge_onShakeGesture;
+    (void)Java_io_usbridge_client_GyroBridge_isGyroMouseModeActive;
 }
 */
 import "C"

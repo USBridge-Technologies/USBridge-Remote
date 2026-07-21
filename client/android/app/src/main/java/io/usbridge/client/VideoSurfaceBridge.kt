@@ -1,4 +1,4 @@
-package com.usbridge.client
+package io.usbridge.client
 
 import android.graphics.SurfaceTexture
 import android.util.Log

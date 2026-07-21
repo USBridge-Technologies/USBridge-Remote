@@ -41,7 +41,7 @@
 
         <!-- Главная активность - MainActivity extends GoNativeActivity, камера/QR/SAF -->
         <activity
-            android:name="com.usbridge.client.MainActivity"
+            android:name="io.usbridge.client.MainActivity"
             android:label="USBridge Client"
             android:theme="@style/AppTheme"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|uiMode"
@@ -65,7 +65,7 @@
 
         <!-- QR Scanner — live viewfinder, как в Telegram -->
         <activity
-            android:name="com.usbridge.client.QRScannerActivity"
+            android:name="io.usbridge.client.QRScannerActivity"
             android:label="Сканирование QR"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"
             android:configChanges="orientation|keyboardHidden|screenSize"
@@ -74,7 +74,7 @@
         <!-- Провайдер файлов для Android 7.0+ -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.usbridge.client.fileprovider"
+            android:authorities="io.usbridge.client.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -84,7 +84,7 @@
 
         <!-- NBD Foreground Service -->
         <service
-            android:name="com.usbridge.client.NbdForegroundService"
+            android:name="io.usbridge.client.NbdForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync|connectedDevice" />

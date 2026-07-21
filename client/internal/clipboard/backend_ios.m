@@ -10,8 +10,8 @@
 // clipboard slot the way desktop OSes do, so this only interoperates
 // reliably between USBridge instances, not with an arbitrary iOS app's own
 // "copy file" action (which uses that app's own document UTI).
-static NSString *const kUSBFileDataType = @"com.usbridge.client.file-data";
-static NSString *const kUSBFileNameType = @"com.usbridge.client.file-name";
+static NSString *const kUSBFileDataType = @"io.usbridge.client.file-data";
+static NSString *const kUSBFileNameType = @"io.usbridge.client.file-name";
 
 int clipboard_change_count(void) {
     @autoreleasepool {
