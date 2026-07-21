@@ -27,6 +27,10 @@
 
 
 > ⚠️ **Beta Software** — This is an early release. Expect bugs. Please report issues via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) or join our [Discord](https://discord.com/invite/xqQ6ybkfWS) for support.
+> 
+> ℹ️ **Note regarding Windows Defender / Antivirus False Positives:**  
+> Windows Defender may incorrectly flag `libva.dll` as a threat (`Trojan:Win32/Wacatac.B!ml`) due to heuristics/machine-learning detection on unsigned binaries. **This is a false positive.**  
+> We have submitted the file to Microsoft Security Intelligence for official review and whitelisting. In the meantime, if your antivirus removes `libva.dll`, please restore it from Quarantine or add the USBridge folder to your antivirus exclusion list.
 
 ---
 
