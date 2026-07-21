@@ -392,7 +392,14 @@ func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
 		cfg.DeviceName = deviceName
 
 		if !hasSavedVideoDeviceConfig(devicePath) {
-			if info, err := getVideoInfoData(vw.usbClient); err == nil && info != nil && info.Device == devicePath {
+			// Query /api/video/info scoped to THIS device, not whatever's
+			// currently streaming — at switch time the server is still on
+			// the old device, so its default (unscoped) video info reports
+			// the old device's path/resolution and the merge below would
+			// silently no-op, leaving the stale 1280x720 default in cfg
+			// (see defaultVideoDeviceConfig) and mis-sizing absolute mouse
+			// mapping for the newly selected monitor.
+			if info, err := getVideoInfoDataForDevice(vw.usbClient, devicePath); err == nil && info != nil && info.Device == devicePath {
 				cfg = mergeVideoConfigWithInfo(cfg, info)
 			}
 		}
