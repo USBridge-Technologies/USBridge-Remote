@@ -276,7 +276,8 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s", traceID, time.Since(start).Round(time.Millisecond), vw.safeVideoStats(), vw.safeRelayDebugInfo())
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), vw.safeVideoStats(), vw.safeRelayDebugInfo())
+			vw.forceReconnectStuckStream(reason)
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
 		default:
@@ -285,6 +286,41 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	})
 
 	return traceID
+}
+
+// forceReconnectStuckStream recovers a session that negotiated successfully
+// (Sunshine accepted the connection; RTSP/control/audio/input all reported
+// success) but never actually delivered a video frame — reproduced
+// intermittently after switching the captured monitor on a multi-GPU
+// Windows machine, where Sunshine hands its capture/encode pipeline off to a
+// *different* physical GPU (e.g. one monitor wired to an NVIDIA dGPU, the
+// other to an AMD/Intel iGPU) and that handoff can silently fail with no
+// error surfaced anywhere, client or server side.
+//
+// moonlight-common-c's own watchdogs (ML_ERROR_NO_VIDEO_TRAFFIC /
+// ML_ERROR_NO_VIDEO_FRAME, both 10s — see VideoStream.c) don't reliably
+// catch this: receivedDataFromPeer latches true forever after a single
+// packet (even a runt/duplicate one), permanently disabling the "no
+// traffic" timer, while the "no full frame yet" timer is only re-evaluated
+// on receipt of the *next* packet — so if traffic stops completely after
+// that one packet, neither ever fires again and the session hangs
+// indefinitely. Confirmed live: a stuck session sat "connected" with zero
+// frames for 3+ minutes with no self-recovery.
+//
+// Manually forcing a codec change or an explicit reconnect was found to
+// reliably clear it, so this automates exactly that: reuse the same
+// "stop, then restart with the current config" path already used for an
+// explicit device switch (videoRestartPending), rather than teaching this
+// watchdog its own separate recovery mechanism.
+func (vw *VideoWidget) forceReconnectStuckStream(reason string) {
+	vw.videoOpMu.Lock()
+	if !vw.desiredStreaming || !vw.isStreaming {
+		vw.videoOpMu.Unlock()
+		return
+	}
+	vw.videoRestartPending = true
+	vw.videoOpMu.Unlock()
+	vw.scheduleVideoReconcile("stuck-no-frame:" + reason)
 }
 
 func (vw *VideoWidget) currentVideoTraceLabel() string {

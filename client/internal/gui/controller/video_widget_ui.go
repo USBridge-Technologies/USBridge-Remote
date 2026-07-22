@@ -493,20 +493,44 @@ func (vw *VideoWidget) stopVideoInternal() {
 	vw.updateStatus()
 
 	// Sunshine stops video streaming when the Moonlight session ends via /cancel
-	// (Quit). Fire-and-forget: the 0.8s sleep below already gives Sunshine time
-	// to settle before this function is considered done, so there's nothing to
-	// gain by blocking the (now-already-cleared) UI on this too.
+	// (Quit). The UI (canvas/overlay/status) is already cleared above, so this
+	// doesn't block perceived responsiveness — but the actual wait DOES matter:
+	// Disconnect() does real, load-bearing work synchronously (LiStopConnection,
+	// then closing our local tsnet UDP proxy listener on Sunshine's control/video/
+	// audio ports — see MoonlightService.Disconnect). A restart (reconcileVideoState
+	// with restartPending) calls startVideoWithParamsInternal right after this
+	// returns, which opens a *new* proxy listener on those same ports and issues a
+	// fresh /launch. If Disconnect() hasn't actually finished — e.g. it's still
+	// inside the up-to-2s ENet graceful-disconnect linger
+	// (CONTROL_STREAM_LINGER_TIMEOUT_SEC in ControlStream.c) — the new listener's
+	// bind() collides with the old one ("Only one usage of each socket address"),
+	// Sunshine still thinks a session is running ("An app is already running on
+	// this host"), and the two overlapping native sessions can race each other in
+	// moonlight-common-c, corrupting stream state. A fixed 800ms sleep used to
+	// stand in for this wait, which was fast but frequently too short. Bounded at
+	// 3s (comfortably above the 2s ENet linger) as a safety net so a stuck
+	// Disconnect() can't hang a restart forever.
 	if vw.videoClient != nil {
+		done := make(chan struct{})
 		go func(client interface{ Disconnect() error }) {
+			defer close(done)
 			if err := client.Disconnect(); err != nil {
 				logrus.Errorf("Failed to disconnect Moonlight: %v", err)
 			}
 		}(vw.videoClient)
-	}
 
-	// Python test "standard": wait 0.8s after stopping video to let Sunshine clean up
-	logrus.Info("⏳ Waiting 0.8s for Sunshine to fully shut down (like test_api_full.py)")
-	time.Sleep(800 * time.Millisecond)
+		logrus.Info("⏳ Waiting for Moonlight disconnect (LiStopConnection + local proxy teardown) to complete...")
+		select {
+		case <-done:
+			logrus.Info("✅ [VideoWidget] Moonlight disconnect completed")
+		case <-time.After(3 * time.Second):
+			logrus.Warn("⚠️ [VideoWidget] Moonlight disconnect did not complete within 3s, proceeding anyway")
+		}
+	} else {
+		// No client to disconnect — still give Sunshine a moment to settle
+		// (Python test "standard": wait 0.8s, like test_api_full.py).
+		time.Sleep(800 * time.Millisecond)
+	}
 
 	logrus.Info("✅ [VideoWidget] Internal stop complete")
 }
