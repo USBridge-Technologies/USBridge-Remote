@@ -1,6 +1,6 @@
 # USBridge Remote (Beta)
 
-![USBridge Remote](assets/banner.png)
+![USBridge Remote](https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/assets/banner.png)
 
 <div align="center">
 
