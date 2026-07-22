@@ -43,6 +43,8 @@ type PermsBackend interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+	CameraGranted() bool
+	OpenCameraSettings() error
 }
 
 // TSBackend mirrors internal/tailscale.Service's methods used by the GUI.
@@ -159,6 +161,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /perms/request-screen-recording", s.handlePermsBool(func() bool { return s.perms.RequestScreenRecording() }))
 	mux.HandleFunc("POST /perms/open-privacy-settings", s.handlePermsErr(func() error { return s.perms.OpenPrivacySettings() }))
 	mux.HandleFunc("POST /perms/open-screen-recording-settings", s.handlePermsErr(func() error { return s.perms.OpenScreenRecordingSettings() }))
+	mux.HandleFunc("GET /perms/camera", s.handlePermsBool(func() bool { return s.perms.CameraGranted() }))
+	mux.HandleFunc("POST /perms/open-camera-settings", s.handlePermsErr(func() error { return s.perms.OpenCameraSettings() }))
 
 	mux.HandleFunc("GET /ts/status", s.handleTSStatus)
 	mux.HandleFunc("POST /ts/login", s.handleTSLogin)

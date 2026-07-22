@@ -232,6 +232,16 @@ func (c *Client) OpenScreenRecordingSettings() error {
 	return c.do(http.MethodPost, "/perms/open-screen-recording-settings", nil, nil)
 }
 
+func (c *Client) CameraGranted() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/perms/camera", nil, &body)
+	return body.Value
+}
+
+func (c *Client) OpenCameraSettings() error {
+	return c.do(http.MethodPost, "/perms/open-camera-settings", nil, nil)
+}
+
 // --- TSBackend ---
 
 func (c *Client) Status(ctx context.Context) (*tailscale.Status, error) {

@@ -91,6 +91,11 @@ func (s *Service) RequestMissing()                    {}
 func (s *Service) OpenPrivacySettings() error         { return nil }
 func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
+// CameraGranted and OpenCameraSettings are darwin-only (Sunshine's camera
+// capture backend only exists on macOS so far); not applicable on Linux.
+func (s *Service) CameraGranted() bool       { return true }
+func (s *Service) OpenCameraSettings() error { return nil }
+
 // KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
 // has the CAP_SYS_ADMIN capability needed for Sunshine's direct KMS screen
 // capture (root-level, no compositor/portal involved).

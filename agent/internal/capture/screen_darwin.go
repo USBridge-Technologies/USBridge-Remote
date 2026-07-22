@@ -64,5 +64,6 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 			SupportedModes: GetDisplayModes(i),
 		})
 	}
+	out = append(out, cameraDevices()...)
 	return out
 }

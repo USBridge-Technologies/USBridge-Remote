@@ -41,8 +41,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+
+	"usbridge_agent/internal/sunshine"
 )
 
 type Service struct{}
@@ -69,11 +70,10 @@ func (s *Service) ScreenRecordingGranted() bool {
 // recent Sunshine startup succeeded in getting screen capture access.
 // Returns true (optimistic) if the log is absent or contains no startup yet.
 func sunshineHasScreenCapture() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	logPath := sunshine.LogPath()
+	if logPath == "" {
 		return true
 	}
-	logPath := filepath.Join(home, ".config", "sunshine", "sunshine.log")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		return true // Sunshine hasn't started yet
@@ -133,6 +133,46 @@ func (s *Service) OpenPrivacySettings() error {
 func (s *Service) OpenScreenRecordingSettings() error {
 	return exec.Command("open",
 		"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+	).Run()
+}
+
+// CameraGranted infers whether Sunshine (a separate process — camera capture
+// happens entirely inside it, USBridgeAgent never touches the camera itself)
+// has camera access, the same way ScreenRecordingGranted infers Sunshine's
+// screen-capture status: by reading its most recent startup log. Unlike
+// screen capture, Sunshine only touches the camera lazily — once a client
+// actually picks a "cam:" device — so this is optimistic (true) until that
+// has happened at least once this session; macOS has no
+// CGPreflightScreenCaptureAccess equivalent for camera that would let us
+// check another process's TCC grant ahead of time.
+func (s *Service) CameraGranted() bool {
+	return sunshineHasCameraCapture()
+}
+
+func sunshineHasCameraCapture() bool {
+	logPath := sunshine.LogPath()
+	if logPath == "" {
+		return true
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return true
+	}
+	content := string(data)
+	lastStart := strings.LastIndex(content, "Sunshine version:")
+	if lastStart == -1 {
+		lastStart = 0
+	}
+	return !strings.Contains(content[lastStart:], "Camera setup failed")
+}
+
+// OpenCameraSettings opens the Camera privacy pane so the user can grant
+// Sunshine access — same reasoning as OpenScreenRecordingSettings: camera
+// capture runs inside the Sunshine process, so USBridgeAgent cannot request
+// it on Sunshine's behalf, only point the user at the right Settings pane.
+func (s *Service) OpenCameraSettings() error {
+	return exec.Command("open",
+		"x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
 	).Run()
 }
 

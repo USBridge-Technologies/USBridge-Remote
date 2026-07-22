@@ -797,11 +797,21 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 	// "display:0" (or "winid:{...}") was written to output_name verbatim,
 	// which Sunshine can't parse and silently falls back to auto-pick —
 	// monitor switching had no effect.
+	//
+	// "cam:<unique-id>" (macOS cameraDevices()) is different: Sunshine's
+	// capture backend needs to tell a camera apart from a display id, so
+	// unlike the display prefixes above it is rewritten to "camera:<id>"
+	// instead of being stripped bare (see platform/macos/display.mm's
+	// is_camera_name()/kCameraPrefix).
 	outputName := req.Device
-	for _, prefix := range []string{"drm:", "winid:", "display:"} {
-		if strings.HasPrefix(outputName, prefix) {
-			outputName = strings.TrimPrefix(outputName, prefix)
-			break
+	if strings.HasPrefix(outputName, "cam:") {
+		outputName = "camera:" + strings.TrimPrefix(outputName, "cam:")
+	} else {
+		for _, prefix := range []string{"drm:", "winid:", "display:"} {
+			if strings.HasPrefix(outputName, prefix) {
+				outputName = strings.TrimPrefix(outputName, prefix)
+				break
+			}
 		}
 	}
 	log.Printf("[api] video_set_device device=%s", req.Device)

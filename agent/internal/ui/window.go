@@ -61,6 +61,8 @@ type PermsProvider interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+	CameraGranted() bool
+	OpenCameraSettings() error
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -111,6 +113,13 @@ type Window struct {
 	screenCaptureLabel  *widget.Label
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
+
+	// Camera: darwin-only, mirrors the Screen Capture row's macOS branch —
+	// Sunshine (a separate process) does the actual capture, so the button
+	// only opens Settings + restarts Sunshine, it can't request on Sunshine's
+	// behalf. Hidden entirely on platforms without a camera capture backend.
+	cameraLabel *widget.Label
+	cameraBtn   *widget.Button
 
 	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
 	moonlightBtn *widget.Button
@@ -227,6 +236,26 @@ func (w *Window) refreshScreenCaptureUI() {
 	}
 }
 
+// refreshCameraUI updates the Camera status label/button. Darwin-only —
+// callers must not invoke this on other platforms since w.cameraLabel/
+// w.cameraBtn are never created there.
+func (w *Window) refreshCameraUI() {
+	if w.cameraLabel == nil || w.perms == nil {
+		return
+	}
+	if w.perms.CameraGranted() {
+		w.cameraLabel.SetText("Camera: ✅")
+		if w.cameraBtn != nil {
+			w.cameraBtn.Hide()
+		}
+	} else {
+		w.cameraLabel.SetText("Camera: ❌")
+		if w.cameraBtn != nil {
+			w.cameraBtn.Show()
+		}
+	}
+}
+
 func (w *Window) ShowAndRun(onClose func()) {
 	win := w.app.NewWindow("USBridge Agent")
 	win.SetPadded(false)
@@ -292,6 +321,31 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.screenCaptureBtn.Importance = widget.HighImportance
+
+	// Camera: darwin-only (Sunshine's camera capture backend only exists on
+	// macOS so far). Same "open Settings + restart Sunshine" flow as Screen
+	// Capture's macOS branch above, for the same reason — Sunshine itself is
+	// the process that needs the grant, not USBridgeAgent.
+	w.cameraLabel = widget.NewLabel("Camera")
+	w.cameraBtn = widget.NewButton("Request", func() {
+		w.cameraBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.cameraBtn != nil {
+					w.cameraBtn.Enable()
+				}
+			})
+			if w.perms != nil {
+				_ = w.perms.OpenCameraSettings()
+			}
+			if w.token != nil {
+				_ = w.token.RestartSunshine()
+			}
+			fyne.Do(w.refreshCameraUI)
+		}()
+	})
+	w.cameraBtn.Importance = widget.HighImportance
+
 	w.permInfo = widget.NewLabel("")
 	w.permInfo.Wrapping = fyne.TextWrapWord
 
@@ -328,6 +382,14 @@ func (w *Window) ShowAndRun(onClose func()) {
 		screenCaptureRow.Add(w.screenCaptureSelect)
 	}
 	screenCaptureRow.Add(w.screenCaptureBtn)
+
+	cameraRow := container.NewHBox(w.cameraLabel, layout.NewSpacer(), w.cameraBtn)
+	if runtime.GOOS == "darwin" {
+		w.cameraBtn.Resize(fyne.NewSize(80, 24))
+	} else {
+		w.cameraLabel.Hide()
+		w.cameraBtn.Hide()
+	}
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a
 	// system-wide systemd unit on Linux — so it starts at boot before any
@@ -382,6 +444,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 			container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 			screenCaptureRow,
 		}
+	}
+	if runtime.GOOS == "darwin" {
+		permRows = append(permRows, cameraRow)
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
@@ -574,6 +639,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// Initial refresh
 	w.performRefresh()
 	w.refreshScreenCaptureUI()
+	if runtime.GOOS == "darwin" {
+		w.refreshCameraUI()
+	}
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -646,6 +714,9 @@ func (w *Window) performRefresh() {
 				w.moonlightBtn.SetText(fmt.Sprintf("%d", status.moonlightCount))
 			}
 			w.refreshScreenCaptureUI()
+			if runtime.GOOS == "darwin" {
+				w.refreshCameraUI()
+			}
 			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenCaptureLabel != nil {
 				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenCaptureLabel.Text))
 			}
