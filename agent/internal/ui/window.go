@@ -329,7 +329,44 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	screenCaptureRow.Add(w.screenCaptureBtn)
 
+	// Autostart at Boot: installs the OS-native autostart mechanism (a
+	// system-wide systemd unit on Linux — so it starts at boot before any
+	// graphical session, which is what KMS capture needs; a LaunchAgent
+	// plist on macOS; a Run registry value on Windows — see
+	// internal/autostart). The registered command always launches with
+	// --headless, so a later normal launch of this same binary/AppImage
+	// attaches a GUI to that instance instead of starting a second engine —
+	// see app.Start. On Linux this shells out via pkexec, same as the KMS
+	// capability grant, so expect a polkit prompt on toggle.
+	w.autostartCheck = widget.NewCheck("", nil)
+	w.autostartCheck.Checked = autostart.IsEnabled()
+	w.autostartCheck.Refresh()
+	w.autostartCheck.OnChanged = func(checked bool) {
+		w.autostartCheck.Disable()
+		go func() {
+			var err error
+			if checked {
+				err = autostart.Enable()
+			} else {
+				err = autostart.Disable()
+			}
+			fyne.Do(func() {
+				if w.autostartCheck == nil {
+					return
+				}
+				w.autostartCheck.Enable()
+				if err != nil {
+					logrus.Errorf("[ui] autostart toggle failed: %v", err)
+					w.autostartCheck.Checked = !checked
+					w.autostartCheck.Refresh()
+					dialog.ShowError(err, win)
+				}
+			})
+		}()
+	}
+
 	permRows := []fyne.CanvasObject{
+		container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck),
 		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 		screenCaptureRow,
 	}
@@ -435,43 +472,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal),
 		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
 
-	// Launch at Login: installs the OS-native autostart mechanism (a
-	// system-wide systemd unit on Linux — so it starts at boot before any
-	// graphical session, which is what KMS capture needs; a LaunchAgent
-	// plist on macOS; a Run registry value on Windows — see
-	// internal/autostart). The registered command always launches with
-	// --headless, so a later normal launch of this same binary/AppImage
-	// attaches a GUI to that instance instead of starting a second engine —
-	// see app.Start. On Linux this shells out via pkexec, same as the KMS
-	// capability grant, so expect a polkit prompt on toggle.
-	w.autostartCheck = widget.NewCheck("Launch at Login", nil)
-	w.autostartCheck.Checked = autostart.IsEnabled()
-	w.autostartCheck.Refresh()
-	w.autostartCheck.OnChanged = func(checked bool) {
-		w.autostartCheck.Disable()
-		go func() {
-			var err error
-			if checked {
-				err = autostart.Enable()
-			} else {
-				err = autostart.Disable()
-			}
-			fyne.Do(func() {
-				if w.autostartCheck == nil {
-					return
-				}
-				w.autostartCheck.Enable()
-				if err != nil {
-					logrus.Errorf("[ui] autostart toggle failed: %v", err)
-					w.autostartCheck.Checked = !checked
-					w.autostartCheck.Refresh()
-					dialog.ShowError(err, win)
-				}
-			})
-		}()
-	}
-
-	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow, container.NewHBox(w.autostartCheck)))
+	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow))
 
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
