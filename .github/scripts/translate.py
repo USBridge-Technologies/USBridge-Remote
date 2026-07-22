@@ -15,7 +15,6 @@ def translate_readme():
         print("README.md not found!")
         return
 
-    # Создаем папку docs, если ее нет
     os.makedirs("docs", exist_ok=True)
 
     with open("README.md", "r", encoding="utf-8") as f:
@@ -42,7 +41,6 @@ Text to translate:
 
         translated_text = response.choices[0].message.content
 
-        # Сохраняем внутри папки docs/
         output_filename = os.path.join("docs", f"README_{lang_code}.md")
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(translated_text)
