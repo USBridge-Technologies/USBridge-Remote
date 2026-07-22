@@ -21,8 +21,14 @@
 
 _sunshine_repo="itsme228/Sunshine"
 
-# Принудительно устанавливаем нужную версию и заставляем скрипт обновлять бинарники
-export USBRIDGE_SUNSHINE_VERSION="${USBRIDGE_SUNSHINE_VERSION:-v2026.719.4.usbridge}"
+# TEMP, camera-capture-test branch only: default to the prerelease Sunshine
+# build with camera support (itsme228/Sunshine@test/camera-capture) instead of
+# the last stable tag, so a plain local ./build_macos.sh run picks it up
+# without having to export USBRIDGE_SUNSHINE_VERSION by hand every time. It's
+# deliberately marked prerelease and excluded from /releases/latest. Do not
+# merge this default to main — revert to the last stable tag
+# (v2026.719.4.usbridge) before merging.
+export USBRIDGE_SUNSHINE_VERSION="${USBRIDGE_SUNSHINE_VERSION:-v2026.722.2-test.usbridge}"
 export USBRIDGE_SUNSHINE_FORCE="${USBRIDGE_SUNSHINE_FORCE:-1}"
 
 _sunshine_require() {
