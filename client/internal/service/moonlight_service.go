@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	usbapi "usbridge-client/internal/api"
@@ -30,9 +31,19 @@ type MoonlightService struct {
 	onStateChanged  func(string)
 	onError         func(error)
 
-	mu         sync.Mutex    // protects isRunning, stopPlayerCh, activeWrapper, abort
+	mu         sync.Mutex    // protects isRunning, connecting, stopPlayerCh, activeWrapper, abort
 	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToMoonlight
 	isRunning  bool
+	connecting bool // true for the duration of an in-flight ConnectToMoonlight call; see its doc comment
+	// connGen identifies the "current" ConnectToMoonlight attempt. A fast
+	// reconnect (e.g. right after a capture-device switch) can have a new
+	// ConnectToMoonlight call start before a previous, failing one's
+	// StartStream onStop callback has fired — that stale callback must not
+	// clear isRunning / fire onStateChanged("disconnected") for a session
+	// that has already moved on to (and possibly succeeded at) a newer
+	// attempt. Mirrors the liStreamGen guard already used at the CGO layer
+	// for the same reason.
+	connGen atomic.Uint64
 	serverHost string
 	videoMode  string
 	width      int
@@ -88,6 +99,30 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 	// can interrupt any blocking HTTP call or post-connect setup.
 	abort := make(chan struct{})
 	m.mu.Lock()
+	// Refuse to start a second attempt while one is still mid-flight instead
+	// of just letting it run and sorting out the fallout with connGen
+	// afterward. The abort channel above only gets checked at synchronous
+	// checkpoints between stages — it does not cancel an HTTP request that's
+	// already in flight. Two overlapping attempts can therefore both reach
+	// Sunshine's /launch with two different rikeys close together; Sunshine
+	// binds whichever /launch lands last as the pending session, so the
+	// *other* attempt's RTSP/ENet handshake ends up keyed against a session
+	// Sunshine has already replaced — a persistent "Failed to verify tag on
+	// control packet" for that connection's whole lifetime, not just a
+	// transient reordering blip. Reject the second attempt outright; the
+	// existing reconcile "coalesced" retry picks it up once the first one
+	// finishes.
+	if m.connecting {
+		m.mu.Unlock()
+		return fmt.Errorf("connect already in progress")
+	}
+	m.connecting = true
+	defer func() {
+		m.mu.Lock()
+		m.connecting = false
+		m.mu.Unlock()
+	}()
+	myConnGen := m.connGen.Add(1)
 	m.isRunning = true
 	// Close any previous abort channel from a stale concurrent call.
 	if m.abort != nil {
@@ -390,6 +425,20 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 			// reconnect's proxy bind with "address already in use" and forces
 			// it onto the unreliable direct-Tailscale-IP fallback instead.
 			m.stopActiveProxy()
+
+			// A newer ConnectToMoonlight attempt may already be running (or have
+			// succeeded) by the time this callback fires for a stale/superseded
+			// one — e.g. a fast reconnect where this attempt's own RTSP
+			// handshake failed after a newer attempt had already started. Only
+			// the current generation may report an error or flip isRunning /
+			// onStateChanged, otherwise a late failure callback from the old
+			// attempt clobbers state a newer, healthy connection already set,
+			// leaving isRunning stuck false (and therefore IsConnected()==false,
+			// silently dropping every input send) despite streaming happily.
+			if m.connGen.Load() != myConnGen {
+				logrus.Debugf("🌕 [Moonlight] stream callback for superseded connGen=%d (current=%d) ignored", myConnGen, m.connGen.Load())
+				return
+			}
 
 			if cgoErr != nil {
 				logrus.Errorf("🌕 [Moonlight/CGO] stream error: %v", cgoErr)

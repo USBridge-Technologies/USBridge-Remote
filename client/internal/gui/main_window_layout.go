@@ -338,6 +338,11 @@ func (mw *MainWindow) recreateContainers() {
 		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil {
 				mw.videoWidget.BootstrapControlSessionAsync()
+				mw.videoWidget.RefreshViewportGeometry()
+				// The tab's content may not have been laid out to its final
+				// size yet at the point this callback runs, so retry shortly
+				// after — mirrors scheduleControlBootstrap's settle delays.
+				time.AfterFunc(150*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
 			}
 			if videoWasPaused {
 				view.NotifyOverlayHide()

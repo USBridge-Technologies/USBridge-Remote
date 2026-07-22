@@ -884,6 +884,28 @@ func portReachable(port int, timeout time.Duration) bool {
 	return true
 }
 
+// WaitReady polls adminPort until Sunshine's HTTPS/NvHTTP listener (the same
+// one the client's Launch()/GetServerInfo() calls hit) accepts a connection,
+// or the deadline passes. Process.Start only waits for the OS to fork the
+// process, not for Sunshine's own bootstrap (config parse, KMS/Wayland
+// enumeration, binding its listeners) to finish — a caller that restarts
+// Sunshine and then immediately lets a client reconnect (e.g. switching the
+// captured monitor) races that bootstrap. Returns true once reachable, false
+// if it never became reachable within deadline.
+func WaitReady(adminPort int, deadline time.Duration) bool {
+	if adminPort <= 0 {
+		return true
+	}
+	start := time.Now()
+	for time.Since(start) < deadline {
+		if portReachable(adminPort, 250*time.Millisecond) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
 // ConfigPath returns the default sunshine.conf location Sunshine uses when
 // launched without an explicit config argument (matches Sunshine's own
 // platf::appdata() resolution: $HOME/.config/sunshine/sunshine.conf on Linux).

@@ -536,8 +536,48 @@ func (a *App) RestartSunshine() error {
 	_ = a.sunshine.Stop()
 	time.Sleep(time.Second)
 	err := a.sunshine.Start(a.cfg.SunshinePort)
+	// Start() only waits for the OS to fork the Sunshine process, not for its
+	// own bootstrap (config parse, KMS/Wayland monitor enumeration, binding
+	// its HTTPS/RTSP listeners) to finish. Callers of RestartSunshine (e.g.
+	// SetSunshineOutputName, switching the captured monitor) return straight
+	// to a client that immediately reconnects — without this wait, that
+	// reconnect can race Sunshine's bootstrap and land a session whose
+	// control-stream encryption never gets fully wired up, which then fails
+	// to decrypt every subsequent input packet for the rest of that session.
+	// Waiting here for the same admin port the client's own Launch() call
+	// hits closes that window.
+	if err == nil {
+		sunshine.WaitReady(a.cfg.SunshinePort, 5*time.Second)
+		waitForMonitorCorrelation()
+	}
 	a.restartStreamProxy()
 	return err
+}
+
+// waitForMonitorCorrelation blocks briefly for Sunshine's KMS/Wayland
+// per-monitor CRTC-offset correlation (correlate_to_wayland in kmsgrab.cpp,
+// see MonitorIndexByName's doc comment) to finish after a restart.
+// WaitReady only confirms the HTTPS/NvHTTP listener is up, which binds well
+// before that correlation completes — a client that reconnects (Launch) in
+// that gap locks in a session using default/uncorrelated per-connector CRTC
+// offsets, so absolute-mouse coordinates land on the wrong monitor or drift
+// near its edges for that whole session. A *second*, later reconnect (e.g.
+// triggered by an unrelated codec change) picks up the by-then-finished
+// correlation and looks like it "fixed" the mouse — this closes that gap by
+// making the restart itself wait for correlation instead. Only meaningful
+// for the Linux KMS capture backend; a bounded poll elsewhere just times out
+// as a no-op.
+func waitForMonitorCorrelation() {
+	if runtime.GOOS != "linux" || sunshine.CaptureMode() != "kms" {
+		return
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if sunshine.MonitorIndexByName() != nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
