@@ -274,6 +274,25 @@ func (vw *VideoWidget) resolvePreferredVideoConfig() (models.VideoDeviceConfig, 
 	return cfg, nil
 }
 
+// mergeVideoConfigResolution refreshes only the width/height in cfg from
+// info, leaving quality/bitrate/fps/mode untouched. Physical monitor
+// resolution is a hardware fact that can change between switches to the
+// same device (e.g. the connected display's mode changed), unlike
+// quality/bitrate which are deliberately preserved as user preferences —
+// see mergeVideoConfigWithInfo's callers.
+func mergeVideoConfigResolution(cfg models.VideoDeviceConfig, info *models.VideoInfoData) models.VideoDeviceConfig {
+	if info == nil {
+		return cfg
+	}
+	if info.Width > 0 {
+		cfg.VideoWidth = info.Width
+	}
+	if info.Height > 0 {
+		cfg.VideoHeight = info.Height
+	}
+	return cfg
+}
+
 func mergeVideoConfigWithInfo(cfg models.VideoDeviceConfig, info *models.VideoInfoData) models.VideoDeviceConfig {
 	if info == nil {
 		return cfg
@@ -391,16 +410,26 @@ func (vw *VideoWidget) StartVideoDeviceAsync(devicePath string) {
 		cfg.DevicePath = devicePath
 		cfg.DeviceName = deviceName
 
-		if !hasSavedVideoDeviceConfig(devicePath) {
-			// Query /api/video/info scoped to THIS device, not whatever's
-			// currently streaming — at switch time the server is still on
-			// the old device, so its default (unscoped) video info reports
-			// the old device's path/resolution and the merge below would
-			// silently no-op, leaving the stale 1280x720 default in cfg
-			// (see defaultVideoDeviceConfig) and mis-sizing absolute mouse
-			// mapping for the newly selected monitor.
-			if info, err := getVideoInfoDataForDevice(vw.usbClient, devicePath); err == nil && info != nil && info.Device == devicePath {
+		// Query /api/video/info scoped to THIS device, not whatever's
+		// currently streaming — at switch time the server is still on
+		// the old device, so its default (unscoped) video info reports
+		// the old device's path/resolution and the merge below would
+		// silently no-op, leaving the stale 1280x720 default in cfg
+		// (see defaultVideoDeviceConfig) and mis-sizing absolute mouse
+		// mapping for the newly selected monitor.
+		if info, err := getVideoInfoDataForDevice(vw.usbClient, devicePath); err == nil && info != nil && info.Device == devicePath {
+			if !hasSavedVideoDeviceConfig(devicePath) {
 				cfg = mergeVideoConfigWithInfo(cfg, info)
+			} else {
+				// A saved config already exists for this device (we've switched to
+				// it before), so don't clobber the user's saved quality/bitrate/fps
+				// preferences — but resolution must still be refreshed every time:
+				// the cached width/height is whatever was true the first time this
+				// monitor was selected, and a switch back to it after switching
+				// through others otherwise reused that stale value, mis-scaling
+				// absolute mouse mapping (or, with a different-aspect monitor in
+				// between, making the touch field look like it spans both).
+				cfg = mergeVideoConfigResolution(cfg, info)
 			}
 		}
 		if err := vw.applyVideoDeviceConfig(cfg, true); err != nil {

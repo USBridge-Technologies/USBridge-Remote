@@ -59,6 +59,18 @@ func Enable() error {
 		execParts = append(execParts, systemdQuote(a))
 	}
 
+	// XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS are normally set by pam_systemd
+	// on interactive login. A system unit (see the comment above on why this
+	// is a system rather than --user unit) gets neither, so without setting
+	// them explicitly here, every child process (this agent's own `pactl`
+	// calls in internal/audio, and Sunshine itself, which inherits this
+	// process's environment — see sunshine.Process.Start) can never reach the
+	// user's PipeWire/PulseAudio session: not just "before login", but
+	// permanently, since a unit's Environment= is fixed at service start and
+	// never picks up a session that comes up later. loginctl enable-linger
+	// is what actually gets PipeWire/WirePlumber running at boot without a
+	// physical login in the first place; the two together make audio_sink
+	// enumeration and Sunshine's own audio capture work headlessly.
 	unit := fmt.Sprintf(`[Unit]
 Description=USBridge Agent
 After=network-online.target
@@ -69,13 +81,15 @@ Type=simple
 User=%s
 Environment=HOME=%s
 Environment=APPIMAGE_EXTRACT_AND_RUN=1
+Environment=XDG_RUNTIME_DIR=/run/user/%s
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
 ExecStart=%s
 Restart=on-failure
 RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
-`, u.Username, u.HomeDir, strings.Join(execParts, " "))
+`, u.Username, u.HomeDir, u.Uid, u.Uid, strings.Join(execParts, " "))
 
 	tmp, err := os.CreateTemp("", "usbridge-agent-*.service")
 	if err != nil {
@@ -92,9 +106,14 @@ WantedBy=multi-user.target
 	// spaces or shell metacharacters, so no extra shell-quoting is needed
 	// here — only the ExecStart= line inside the unit itself (systemdQuote,
 	// above) handles a path that might contain them.
+	// enable-linger starts the user's own systemd instance (and with it
+	// PipeWire/WirePlumber, which the audio_sink lookups and Sunshine's audio
+	// capture both depend on) at boot, without requiring an interactive
+	// login — otherwise XDG_RUNTIME_DIR above points at a session that never
+	// comes up on a headless boot.
 	script := fmt.Sprintf(
-		"install -m 0644 %s %s && systemctl daemon-reload && systemctl enable --now %s",
-		tmp.Name(), unitPath, unitName,
+		"install -m 0644 %s %s && systemctl daemon-reload && systemctl enable --now %s && loginctl enable-linger %s",
+		tmp.Name(), unitPath, unitName, systemdQuote(u.Username),
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
