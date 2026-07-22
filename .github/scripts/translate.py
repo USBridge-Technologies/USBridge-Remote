@@ -5,7 +5,13 @@ LANGUAGES = {
     'ES': 'Spanish',
     'JA': 'Japanese',
     'KO': 'Korean',
-    'ZH': 'Simplified Chinese'
+    'ZH': 'Simplified Chinese',
+    'DE': 'German',
+    'FR': 'French',
+    'IT': 'Italian',
+    'PT_BR': 'Brazilian Portuguese',
+    'UA': 'Ukrainian',
+    'PL': 'Polish'
 }
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
