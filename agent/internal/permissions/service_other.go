@@ -19,4 +19,5 @@ func (s *Service) OpenScreenRecordingSettings() error    { return nil }
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
 func (s *Service) CameraGranted() bool                   { return true }
+func (s *Service) RequestCamera() bool                   { return true }
 func (s *Service) OpenCameraSettings() error             { return nil }

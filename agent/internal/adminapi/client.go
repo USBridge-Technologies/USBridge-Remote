@@ -238,6 +238,12 @@ func (c *Client) CameraGranted() bool {
 	return body.Value
 }
 
+func (c *Client) RequestCamera() bool {
+	var body boolBody
+	_ = c.do(http.MethodPost, "/perms/request-camera", nil, &body)
+	return body.Value
+}
+
 func (c *Client) OpenCameraSettings() error {
 	return c.do(http.MethodPost, "/perms/open-camera-settings", nil, nil)
 }

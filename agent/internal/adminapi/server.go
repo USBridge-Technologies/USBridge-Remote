@@ -44,6 +44,7 @@ type PermsBackend interface {
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
 	CameraGranted() bool
+	RequestCamera() bool
 	OpenCameraSettings() error
 }
 
@@ -162,6 +163,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /perms/open-privacy-settings", s.handlePermsErr(func() error { return s.perms.OpenPrivacySettings() }))
 	mux.HandleFunc("POST /perms/open-screen-recording-settings", s.handlePermsErr(func() error { return s.perms.OpenScreenRecordingSettings() }))
 	mux.HandleFunc("GET /perms/camera", s.handlePermsBool(func() bool { return s.perms.CameraGranted() }))
+	mux.HandleFunc("POST /perms/request-camera", s.handlePermsBool(func() bool { return s.perms.RequestCamera() }))
 	mux.HandleFunc("POST /perms/open-camera-settings", s.handlePermsErr(func() error { return s.perms.OpenCameraSettings() }))
 
 	mux.HandleFunc("GET /ts/status", s.handleTSStatus)

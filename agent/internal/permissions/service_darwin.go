@@ -3,7 +3,7 @@
 package permissions
 
 /*
-#cgo darwin LDFLAGS: -framework ApplicationServices -framework CoreFoundation
+#cgo darwin LDFLAGS: -framework ApplicationServices -framework CoreFoundation -framework AVFoundation
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -34,6 +34,12 @@ static int usbridge_screen_recording_granted() {
 static int usbridge_request_screen_recording() {
 	return CGRequestScreenCaptureAccess() ? 1 : 0;
 }
+
+// usbridge_camera_authorized/usbridge_request_camera are implemented in
+// camera_darwin.m (Objective-C — AVCaptureDevice's authorization API has no
+// plain-C equivalent like the CoreGraphics screen-capture calls above).
+extern int usbridge_camera_authorized(void);
+extern int usbridge_request_camera(void);
 */
 import "C"
 
@@ -136,17 +142,31 @@ func (s *Service) OpenScreenRecordingSettings() error {
 	).Run()
 }
 
-// CameraGranted infers whether Sunshine (a separate process — camera capture
-// happens entirely inside it, USBridgeAgent never touches the camera itself)
-// has camera access, the same way ScreenRecordingGranted infers Sunshine's
-// screen-capture status: by reading its most recent startup log. Unlike
-// screen capture, Sunshine only touches the camera lazily — once a client
-// actually picks a "cam:" device — so this is optimistic (true) until that
-// has happened at least once this session; macOS has no
-// CGPreflightScreenCaptureAccess equivalent for camera that would let us
-// check another process's TCC grant ahead of time.
+// CameraGranted reports whether the camera TCC grant USBridgeAgent and
+// Sunshine share is in place. Despite Sunshine being the process that
+// actually opens the camera, macOS's hardened-runtime "responsible process"
+// resolution attributes the kTCCServiceCamera check to USBridgeAgent (its
+// parent, launched via plain exec rather than Launch Services) — confirmed
+// via tccd's own logs — so usbridge_camera_authorized() (querying this
+// process's own AVFoundation authorization status) is authoritative, the
+// same way usbridge_screen_recording_granted() is for screen capture.
+// sunshineHasCameraCapture() is kept as a second, independent signal in case
+// Sunshine still fails to open the camera for some other reason (in use by
+// another app, hardware fault, etc.) even once authorized.
 func (s *Service) CameraGranted() bool {
+	if C.usbridge_camera_authorized() == 0 {
+		return false
+	}
 	return sunshineHasCameraCapture()
+}
+
+// RequestCamera requests camera access for USBridgeAgent itself. Because TCC
+// attributes Sunshine's camera check to USBridgeAgent (see CameraGranted),
+// this — not anything run inside Sunshine — is what actually surfaces the
+// system permission dialog; blocks until the user answers it (or returns
+// immediately if a decision already exists from a prior run).
+func (s *Service) RequestCamera() bool {
+	return C.usbridge_request_camera() != 0
 }
 
 func sunshineHasCameraCapture() bool {
@@ -166,10 +186,9 @@ func sunshineHasCameraCapture() bool {
 	return !strings.Contains(content[lastStart:], "Camera setup failed")
 }
 
-// OpenCameraSettings opens the Camera privacy pane so the user can grant
-// Sunshine access — same reasoning as OpenScreenRecordingSettings: camera
-// capture runs inside the Sunshine process, so USBridgeAgent cannot request
-// it on Sunshine's behalf, only point the user at the right Settings pane.
+// OpenCameraSettings opens the Camera privacy pane directly — used as a
+// fallback if RequestCamera() reports denied (a prompt only fires once; a
+// prior denial needs a manual toggle in Settings, same as Accessibility).
 func (s *Service) OpenCameraSettings() error {
 	return exec.Command("open",
 		"x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",

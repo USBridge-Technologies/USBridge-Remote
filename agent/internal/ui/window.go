@@ -62,6 +62,7 @@ type PermsProvider interface {
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
 	CameraGranted() bool
+	RequestCamera() bool
 	OpenCameraSettings() error
 }
 
@@ -114,10 +115,12 @@ type Window struct {
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
 
-	// Camera: darwin-only, mirrors the Screen Capture row's macOS branch —
-	// Sunshine (a separate process) does the actual capture, so the button
-	// only opens Settings + restarts Sunshine, it can't request on Sunshine's
-	// behalf. Hidden entirely on platforms without a camera capture backend.
+	// Camera: darwin-only. Despite Sunshine (a separate process) being the
+	// one that opens the camera, macOS's hardened-runtime TCC resolution
+	// attributes the permission check to USBridgeAgent (confirmed via tccd
+	// logs), so — like Accessibility's button — this requests directly
+	// in-process rather than only opening Settings. Hidden entirely on
+	// platforms without a camera capture backend.
 	cameraLabel *widget.Label
 	cameraBtn   *widget.Button
 
@@ -323,9 +326,12 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.screenCaptureBtn.Importance = widget.HighImportance
 
 	// Camera: darwin-only (Sunshine's camera capture backend only exists on
-	// macOS so far). Same "open Settings + restart Sunshine" flow as Screen
-	// Capture's macOS branch above, for the same reason — Sunshine itself is
-	// the process that needs the grant, not USBridgeAgent.
+	// macOS so far). Requests directly, same pattern as Accessibility's
+	// button — TCC attributes the camera check to USBridgeAgent itself (see
+	// PermsProvider.RequestCamera), not Sunshine. Falls back to opening
+	// Settings if the request comes back denied (a prompt only fires once;
+	// a prior denial needs a manual toggle, same as Accessibility), then
+	// restarts Sunshine so it picks up the new grant.
 	w.cameraLabel = widget.NewLabel("Camera")
 	w.cameraBtn = widget.NewButton("Request", func() {
 		w.cameraBtn.Disable()
@@ -335,7 +341,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 					w.cameraBtn.Enable()
 				}
 			})
-			if w.perms != nil {
+			if w.perms != nil && !w.perms.RequestCamera() {
 				_ = w.perms.OpenCameraSettings()
 			}
 			if w.token != nil {
