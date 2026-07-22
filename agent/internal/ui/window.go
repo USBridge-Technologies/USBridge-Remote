@@ -365,13 +365,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	}
 
-	permRows := []fyne.CanvasObject{
-		container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck),
-		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
-		screenCaptureRow,
-	}
+	// Autostart at Boot is always shown, regardless of platform — unlike the
+	// access/screen-capture rows below, it's never collapsed into permInfo's
+	// plain-text summary. Windows (and any other platform with neither
+	// interactive request buttons nor the Linux capture dropdown) used to
+	// fall into the permInfo-only branch below, which replaced the entire
+	// permRows slice and silently dropped the Autostart checkbox with it.
+	autostartRow := container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck)
+
+	var permRows []fyne.CanvasObject
 	if !showButtons && !linuxCapture {
-		permRows = []fyne.CanvasObject{w.permInfo}
+		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
+	} else {
+		permRows = []fyne.CanvasObject{
+			autostartRow,
+			container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
+			screenCaptureRow,
+		}
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
