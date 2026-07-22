@@ -20,7 +20,7 @@
 
 ---
 
-**USBridge Remote** è un client unificato ad alte prestazioni per la gestione di macchine remote. L'ho progettato per combinare **accesso BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
+**USBridge Remote** è un client unificato ad alte prestazioni per la gestione di macchine remote. L'ho progettato per combinare **accesso al BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
 
  🖥️ **Hai bisogno di controllo del BIOS a livello hardware prima che il sistema operativo si avvii?**  
  USBridge Remote si integra nativamente con **USBridge-KVM 2.0** per la gestione out-of-band a livello metallico.
@@ -32,7 +32,7 @@
 > 
 > ℹ️ **Nota riguardo ai falsi positivi di Windows Defender / Antivirus:**  
 > Windows Defender potrebbe contrassegnare erroneamente `libva.dll` come una minaccia (`Trojan:Win32/Wacatac.B!ml`) a causa di rilevamenti euristici/apprendimento automatico su binari non firmati. **Questo è un falso positivo.**  
-> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e l'inserimento nella lista bianca. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ti preghiamo di ripristinarlo dalla quarantena o di aggiungere la cartella USBridge alla lista di esclusione del tuo antivirus.
+> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e per la whitelist. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ti preghiamo di ripristinarlo dalla quarantena o di aggiungere la cartella USBridge alla lista di esclusione del tuo antivirus.
 
 ---
 
@@ -67,27 +67,30 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ---
 
-## In the Media
+## Nella Stampa
 
-| Media | Highlight | Link |
+| Media | Evidenza | Link |
 | :--- | :--- | :---: |
-| **IlSoftware.it** (Italia) | *"USBridge Remote sfida RustDesk e AnyDesk..."* — Recensione approfondita indipendente che elogia la sinergia tra l'agente software e l'hardware KVM, il supporto nativo per Wayland e l'architettura P2P. | [Leggi l'articolo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
+| **IlSoftware.it** (Italia) | *"USBridge Remote sfida RustDesk e AnyDesk..."* — Recensione approfondita indipendente che elogia la sinergia tra l'agente software e l'hardware KVM, il supporto nativo per Wayland e l'architettura P2P. | [Leggi l'Articolo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
 
 ---
 
-## Features
+## Caratteristiche
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Un posto per tutto** — Ho unificato il flusso di lavoro. Gestisci l'hardware USBridge KVM e gli agenti software da un'unica dashboard. Aggiungi una macchina, connettiti e sei dentro.
+**Un posto per tutto** — Ho unificato il flusso di lavoro. Gestisci l'hardware KVM di USBridge e gli agenti software da un'unica dashboard. Aggiungi una macchina, connettiti e sei dentro.
 
 **Nessun limite, nessun abbonamento** — Completamente gratuito. Nessun limite di tempo per le sessioni, nessun limite di connessione e nessun account richiesto sulla macchina target.
 
-**Video a bassa latenza e integrazione con Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percepibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa di Moonlight per offrire prestazioni di desktop remoto senza pari e a ultra-bassa latenza.
+**Video a bassa latenza e integrazione con Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percepibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa con Moonlight per offrire prestazioni di desktop remoto ultra-basse in latenza.
 
-**Integrazione Tailscale** — Tunnel P2P crittografati integrati. Connettiti a qualsiasi macchina a livello globale senza dover gestire il port forwarding o le regole del firewall. Funziona automaticamente su LAN e su Internet.
+**Integrazione con Tailscale** — Tunnel P2P crittografato integrato. Connettiti a qualsiasi macchina a livello globale senza dover gestire il port forwarding o le regole del firewall. Funziona automaticamente su LAN e su Internet.
 
 **Appunti condivisi** — Copia e incolla senza problemi tra la tua macchina locale e i target remoti. Supporta completamente testo, immagini e trasferimenti di file out-of-the-box.
+
+**Supporto Multi-Monitor** — Ho aggiunto la possibilità di passare tra più display. Se la macchina target ha più monitor, ora puoi facilmente selezionare quale visualizzare direttamente dalle impostazioni di connessione. 
+> **Nota:** Dopo aver selezionato un monitor diverso, devi riconnettere la sessione per ri-inizializzare il flusso video e visualizzare il nuovo schermo.
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -96,31 +99,31 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ## Supporto Wayland (Nessun Prompt)
 
-La maggior parte degli agenti desktop remoti su Linux ha difficoltà con Wayland o ti riempie costantemente di richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione.
+La maggior parte degli agenti di desktop remoto su Linux ha difficoltà con Wayland o ti spamma costantemente con richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione. 
 
 Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la cattura dello schermo e l'iniezione degli input out-of-the-box **senza alcun fastidioso prompt di autorizzazione** o conferme manuali. Funziona e basta.
 
 ---
 
-## Avvio Veloce
+## Guida Rapida
 
 1. **Installa l'Agent** sulla macchina a cui desideri accedere in remoto. Avvialo — mostrerà un token di connessione e un indirizzo Tailscale. Connetti Tailscale se hai bisogno di accesso su Internet.
 
 2. **Installa il Client** sulla tua workstation, laptop o telefono.
 
-3. **Aggiungi una connessione** — inserisci l'indirizzo IP o Tailscale mostrato nella finestra dell'Agent. Ecco fatto.
+3. **Aggiungi una connessione** — inserisci l'indirizzo IP o Tailscale mostrato nella finestra dell'Agent. È tutto.
 
 ---
 
 ##  Roadmap del Progetto
 
-Gestisco i piani di sviluppo software e le funzionalità future in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità future, dai un'occhiata alla roadmap live:
+Gestisco i piani di sviluppo software e le funzionalità in arrivo in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità in arrivo, dai un'occhiata alla roadmap live:
 
  **[Visualizza la Roadmap di USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
-## Comunità e Beta Testing
+## Comunità & Beta Testing
 
 Unisciti al nostro Discord per ottenere il ruolo di **Beta Tester**, segnalare bug e aiutarmi a plasmare la roadmap:
 
