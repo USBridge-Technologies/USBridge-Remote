@@ -381,9 +381,17 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		return
 	}
 
-	// Wait for HID — non-fatal if it fails; checkMouseConnected() will retry.
+	// Wait for HID — non-fatal if it fails. checkMouseConnected() (periodic
+	// Refresh()/touch-triggered) only ever *observes* connection state, it
+	// never re-sends the registration request — so a failure here (e.g. the
+	// agent still busy restarting Sunshine right after a capture-device
+	// switch, see RestartSunshine) previously left the mouse dead until some
+	// unrelated action (like a codec switch) happened to call
+	// ensureControlHIDDevices() again. Retry it ourselves a few times instead
+	// of requiring the user to stumble into that.
 	if err := <-hidDone; err != nil {
 		logrus.Errorf("❌ [VIDEO] HID auto-connect failed: %v", err)
+		go vw.retryControlHIDDevices()
 	}
 
 	vw.updateStatus() // update header icon to show video-active state
@@ -526,6 +534,29 @@ func isConnectedStorageDevice(device models.DeviceInfo) bool {
 	return false
 }
 
+// retryControlHIDDevices re-attempts ensureControlHIDDevices a few times
+// after the initial parallel attempt in startVideoWithParamsInternal failed
+// (most commonly a timeout because the agent was still mid-restart from a
+// capture-device switch, see RestartSunshine's WaitReady). Bails out early
+// if the session moved on (stopped, or a newer stream superseded this one)
+// so it can't fight a later, legitimate device-connect attempt.
+func (vw *VideoWidget) retryControlHIDDevices() {
+	delays := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	for _, d := range delays {
+		time.Sleep(d)
+		if vw.isClosing.Load() || !vw.desiredStreamingState() {
+			return
+		}
+		if err := vw.ensureControlHIDDevices(); err != nil {
+			logrus.Warnf("⌨️🖱️ [VIDEO] HID auto-connect retry failed: %v", err)
+			continue
+		}
+		logrus.Info("⌨️🖱️ [VIDEO] HID auto-connect retry succeeded")
+		return
+	}
+	logrus.Error("⌨️🖱️ [VIDEO] HID auto-connect: all retries exhausted, mouse/keyboard may be unresponsive until next reconnect")
+}
+
 func (vw *VideoWidget) ensureControlHIDDevices() error {
 	// Capture usbClient once. The field can be set to nil concurrently by
 	// UpdateClient(nil) during disconnect, so all subsequent uses must go
@@ -551,6 +582,14 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 	storageConnected := false
 	xinputGamepadConnected := false
 	desiredMouseType := vw.GetMouseInputMode()
+	// The client-facing mode ("cursor", "gyro", ...) and the wire/device type
+	// the agent actually reports back are different vocabularies — virtual
+	// cursor and gyro modes are client-only concepts that always register as
+	// "absolute" on the gadget/bridge (see mouseTransportType). Comparing
+	// observedMode straight against desiredMouseType here always failed for
+	// those modes (Android's default), so the device never looked "ready"
+	// and this function retried/timed out forever.
+	desiredTransportType := mouseTransportType(desiredMouseType)
 
 	for _, device := range deviceInfo.Devices {
 		if device.Status != "connected" {
@@ -564,7 +603,7 @@ func (vw *VideoWidget) ensureControlHIDDevices() error {
 			mouseConnected = true
 			observedMode := mouseModeFromDeviceType(device.Type)
 			vw.setObservedMouseMode(observedMode)
-			mouseModeMatches = observedMode == desiredMouseType
+			mouseModeMatches = observedMode == desiredTransportType
 		case IsGamepadXInputDeviceType(device.Type):
 			xinputGamepadConnected = true
 		}
@@ -634,7 +673,7 @@ hidWaitLoop:
 				if isMouseDeviceType(device.Type) {
 					observedMode := mouseModeFromDeviceType(device.Type)
 					vw.setObservedMouseMode(observedMode)
-					mouseReady = observedMode == desiredMouseType
+					mouseReady = observedMode == desiredTransportType
 				}
 			}
 
@@ -664,6 +703,9 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 	mouseConnected := false
 	mouseModeMatches := false
 	desiredMouseType := vw.GetMouseInputMode()
+	// See the identical comment in ensureControlHIDDevices: compare against
+	// the wire transport type, not the raw client-facing mode name.
+	desiredTransportType := mouseTransportType(desiredMouseType)
 
 	for _, device := range deviceInfo.Devices {
 		if device.Status != "connected" {
@@ -676,7 +718,7 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 			mouseConnected = true
 			observedMode := mouseModeFromDeviceType(device.Type)
 			vw.setObservedMouseMode(observedMode)
-			mouseModeMatches = observedMode == desiredMouseType
+			mouseModeMatches = observedMode == desiredTransportType
 		}
 	}
 

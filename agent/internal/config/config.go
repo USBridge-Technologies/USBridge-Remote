@@ -26,6 +26,10 @@ type Config struct {
 	// portal-based, no root), "portal" (explicit XDG desktop portal, no root),
 	// or "kms" (direct KMS capture, requires CAP_SYS_ADMIN on the sunshine binary).
 	SunshineCaptureMode string `yaml:"sunshine_capture_mode"`
+	// SunshineOutputName pins Sunshine's KMS/portal capture to a specific
+	// monitor: Sunshine's own connected-output index (stringified), or ""
+	// to let Sunshine auto-pick (its default, first-found output).
+	SunshineOutputName string `yaml:"sunshine_output_name"`
 	// Clipboard sync (agent <-> client shared clipboard)
 	ClipboardSyncEnabled bool  `yaml:"clipboard_sync_enabled"`
 	ClipboardMaxBytes    int64 `yaml:"clipboard_max_bytes"` // cap per image/file payload

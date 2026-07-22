@@ -114,6 +114,69 @@ func ConnectorResolutions() [][]Resolution {
 	return connectors
 }
 
+// Connector is a single connected DRM/KMS output, in the same enumeration
+// order as ConnectorResolutions (os.ReadDir order over /sys/class/drm).
+// Sunshine's own KMS capture backend enumerates connected outputs in the
+// same connected-only order and refers to them by that position (its
+// "output_name"/monitor index), so Index here is meant to line up with it.
+type Connector struct {
+	Name  string // e.g. "card1-DP-2"
+	Index int    // position among connected connectors, 0-based
+	Modes []Resolution
+}
+
+// Connectors returns every connected DRM/KMS output with its name and
+// supported modes, in connected-connector order — the value to persist as
+// Sunshine's output_name (as Index, stringified) to pin a specific monitor
+// for KMS capture. Returns nil if /sys/class/drm can't be read.
+func Connectors() []Connector {
+	entries, err := os.ReadDir("/sys/class/drm")
+	if err != nil {
+		return nil
+	}
+	var connectors []Connector
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.Contains(name, "-") {
+			continue
+		}
+		dir := filepath.Join("/sys/class/drm", name)
+		status, err := os.ReadFile(filepath.Join(dir, "status"))
+		if err != nil || strings.TrimSpace(string(status)) != "connected" {
+			continue
+		}
+		f, err := os.Open(filepath.Join(dir, "modes"))
+		if err != nil {
+			continue
+		}
+		seen := make(map[Resolution]bool)
+		var modes []Resolution
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			w, h, parsed := parseModeLine(sc.Text())
+			if !parsed {
+				continue
+			}
+			r := Resolution{Width: w, Height: h}
+			if seen[r] {
+				continue
+			}
+			seen[r] = true
+			modes = append(modes, r)
+		}
+		f.Close()
+		if len(modes) == 0 {
+			continue
+		}
+		connectors = append(connectors, Connector{
+			Name:  name,
+			Index: len(connectors),
+			Modes: modes,
+		})
+	}
+	return connectors
+}
+
 func parseModeLine(line string) (w, h int, ok bool) {
 	parts := strings.SplitN(strings.TrimSpace(line), "x", 2)
 	if len(parts) != 2 {

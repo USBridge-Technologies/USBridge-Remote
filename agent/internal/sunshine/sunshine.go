@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -883,6 +884,28 @@ func portReachable(port int, timeout time.Duration) bool {
 	return true
 }
 
+// WaitReady polls adminPort until Sunshine's HTTPS/NvHTTP listener (the same
+// one the client's Launch()/GetServerInfo() calls hit) accepts a connection,
+// or the deadline passes. Process.Start only waits for the OS to fork the
+// process, not for Sunshine's own bootstrap (config parse, KMS/Wayland
+// enumeration, binding its listeners) to finish — a caller that restarts
+// Sunshine and then immediately lets a client reconnect (e.g. switching the
+// captured monitor) races that bootstrap. Returns true once reachable, false
+// if it never became reachable within deadline.
+func WaitReady(adminPort int, deadline time.Duration) bool {
+	if adminPort <= 0 {
+		return true
+	}
+	start := time.Now()
+	for time.Since(start) < deadline {
+		if portReachable(adminPort, 250*time.Millisecond) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
 // ConfigPath returns the default sunshine.conf location Sunshine uses when
 // launched without an explicit config argument (matches Sunshine's own
 // platf::appdata() resolution: $HOME/.config/sunshine/sunshine.conf on Linux).
@@ -905,6 +928,171 @@ func ConfigPath() string {
 	default:
 		return ""
 	}
+}
+
+// LogPath returns the default sunshine.log location Sunshine writes to
+// alongside sunshine.conf (same appdata() dir, see ConfigPath) when launched
+// without an explicit log path override. This also covers Windows: the
+// portable build's config dir (windowsSunshineDir/config) holds both
+// sunshine.conf and sunshine.log, so deriving from ConfigPath works there too.
+func LogPath() string {
+	dir := filepath.Dir(ConfigPath())
+	if dir == "" || dir == "." {
+		return ""
+	}
+	return filepath.Join(dir, "sunshine.log")
+}
+
+// monitorLogLineRe matches Sunshine's own "Monitor <index> is <name>: ..."
+// info-level log line (see correlate_to_wayland in kmsgrab.cpp), which is
+// the only place Sunshine tells us how its KMS capture output_name index
+// (an arbitrary plane-enumeration order, not necessarily alphabetical by
+// connector name) maps back to a real connector name like "DP-2".
+var monitorLogLineRe = regexp.MustCompile(`Monitor (\d+) is ([^:]+):`)
+
+// MonitorIndexByName scans Sunshine's log for its most recent "Monitor N is
+// <name>" enumeration (see monitorLogLineRe) and returns a map from
+// connector name (e.g. "DP-2") to Sunshine's own output_name index for it.
+// Without this, callers have no way to know Sunshine's real index-to-monitor
+// mapping short of guessing (e.g. alphabetical /sys/class/drm order), which
+// silently mislabels devices whenever Sunshine's internal DRM plane
+// enumeration order doesn't match — see the "drm:N" device paths built in
+// capture.Devices(). Returns nil (not an error) if the log doesn't exist yet
+// or the correlation never ran (e.g. no Wayland connection at startup), so
+// callers can fall back to their own guess.
+func MonitorIndexByName() map[string]int {
+	path := LogPath()
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// Only the tail of the log matters (the most recent Sunshine startup's
+	// enumeration); seeking near the end bounds the read on a long-lived
+	// deployment's log instead of scanning it in full every call.
+	const tailBytes = 1 << 20 // 1MiB is generously more than one startup's worth of log lines
+	if info, err := f.Stat(); err == nil && info.Size() > tailBytes {
+		_, _ = f.Seek(-tailBytes, io.SeekEnd)
+	}
+
+	result := make(map[string]int)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		m := monitorLogLineRe.FindStringSubmatch(sc.Text())
+		if m == nil {
+			continue
+		}
+		idx, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		// Keep overwriting on later matches so a mid-log restart's fresher
+		// enumeration wins over an older one earlier in the tail window.
+		result[strings.TrimSpace(m[2])] = idx
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// windowsDisplayDevicesMarker precedes the JSON array Sunshine's Windows
+// display_device backend logs once at every startup (see sunshine.log:
+// "Info: Currently available display devices:" followed by a pretty-printed
+// JSON array on the following lines).
+const windowsDisplayDevicesMarker = "Currently available display devices:"
+
+// WindowsDisplayDevice is one entry from Sunshine's Windows-only display
+// device JSON dump (see WindowsDisplayDevices).
+type WindowsDisplayDevice struct {
+	DeviceID     string `json:"device_id"`
+	DisplayName  string `json:"display_name"`
+	FriendlyName string `json:"friendly_name"`
+	Info         struct {
+		Primary    bool `json:"primary"`
+		Resolution struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"resolution"`
+	} `json:"info"`
+}
+
+// WindowsDisplayDevices parses Sunshine's own "Currently available display
+// devices" JSON block from its log. This is the only place the real,
+// stable device_id string that Sunshine's Windows output_name config key
+// expects is ever exposed: unlike Linux/KMS, where output_name is a small
+// connected-output index (see display.Connectors / MonitorIndexByName),
+// Sunshine's Windows display_device backend identifies each monitor by an
+// id derived from its EDID + instance path (e.g.
+// "{26932b0f-6861-553f-b009-2caec1fc240f}"), which the agent has no way to
+// compute or predict — it can only be read back from what Sunshine itself
+// already determined at startup. Returns nil if the log doesn't exist yet
+// or no such block has been logged this session (e.g. before Sunshine's
+// first launch), so callers can fall back to a less precise enumeration.
+func WindowsDisplayDevices() []WindowsDisplayDevice {
+	path := LogPath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text := string(data)
+
+	var result []WindowsDisplayDevice
+	searchFrom := 0
+	for {
+		rel := strings.Index(text[searchFrom:], windowsDisplayDevicesMarker)
+		if rel < 0 {
+			break
+		}
+		afterMarker := searchFrom + rel + len(windowsDisplayDevicesMarker)
+		relStart := strings.IndexByte(text[afterMarker:], '[')
+		if relStart < 0 {
+			break
+		}
+		start := afterMarker + relStart
+		end := jsonArrayEnd(text, start)
+		if end < 0 {
+			break
+		}
+		var devices []WindowsDisplayDevice
+		if err := json.Unmarshal([]byte(text[start:end+1]), &devices); err == nil {
+			// Keep overwriting so a later restart's fresher enumeration wins
+			// over an older one earlier in the log (same "last wins" logic
+			// as MonitorIndexByName).
+			result = devices
+		}
+		searchFrom = end + 1
+	}
+	return result
+}
+
+// jsonArrayEnd returns the index of the ']' that closes the JSON array
+// starting at s[start] (which must be '['), tracking bracket depth only —
+// it doesn't need to be string-aware since none of the fields Sunshine logs
+// here (paths, GUIDs, names) contain literal '[' or ']' characters. Returns
+// -1 if the array is never closed (e.g. log was truncated mid-write).
+func jsonArrayEnd(s string, start int) int {
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // SetConfigKey upserts a single "key = value" line in sunshine.conf.
@@ -1087,4 +1275,18 @@ func SetAudioSink(sink string) error {
 // if unset (system default).
 func AudioSink() string {
 	return configKey("audio_sink")
+}
+
+// SetOutputName upserts the "output_name" key in sunshine.conf — which
+// connected monitor Sunshine captures, addressed by Sunshine's own
+// connected-output index (see display.Connectors). An empty name removes
+// the key (Sunshine auto-picks the first output it finds).
+func SetOutputName(name string) error {
+	return setConfigKey("output_name", name)
+}
+
+// OutputName reads the current "output_name" value from sunshine.conf, or ""
+// if unset (auto-pick).
+func OutputName() string {
+	return configKey("output_name")
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 
@@ -14,15 +15,14 @@ import (
 var version = "dev"
 
 func main() {
+	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
+	flag.Parse()
+
 	setupLogging()
 	ui.SetAppVersion(version)
 
-	instance, err := app.New()
-	if err != nil {
-		log.Fatalf("create app: %v", err)
-	}
-	if err := instance.Run(); err != nil {
-		log.Fatalf("run app: %v", err)
+	if err := app.Start(*headless); err != nil {
+		log.Fatalf("start app: %v", err)
 	}
 }
 

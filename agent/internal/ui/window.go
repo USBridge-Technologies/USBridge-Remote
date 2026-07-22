@@ -24,14 +24,53 @@ import (
 	"github.com/sirupsen/logrus"
 	qrcode "github.com/skip2/go-qrcode"
 
+	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/netutil"
-	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/sunshine"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 )
+
+// TokenProvider is whatever owns the agent's config/Sunshine lifecycle —
+// normally *app.App when the GUI starts its own engine, or *adminapi.Client
+// when it's attaching to an already-running headless instance instead.
+type TokenProvider interface {
+	RegenerateMasterKey() (config.Config, error)
+	SaveConfig(config.Config) error
+	SunshineCaptureMode() string
+	SetSunshineCaptureMode(mode string) error
+	KMSCaptureGranted() bool
+	RequestKMSCapture() bool
+	RestartSunshine() error
+	ListSunshineClients() ([]sunshine.Client, error)
+	UnpairSunshineClient(uniqueID string) error
+	SubmitMoonlightPIN(pin string) error
+	UpdateListenAddr(host string, port int) (config.Config, error)
+	UpdateSunshinePort(port int) (config.Config, error)
+	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
+}
+
+// PermsProvider is satisfied by *permissions.Service (embedded engine) or
+// *adminapi.Client (thin client attaching to a headless instance).
+type PermsProvider interface {
+	AccessibilityGranted() bool
+	ScreenRecordingGranted() bool
+	RequestAccessibility() bool
+	RequestScreenRecording() bool
+	OpenPrivacySettings() error
+	OpenScreenRecordingSettings() error
+}
+
+// TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
+// *adminapi.Client (thin client attaching to a headless instance).
+type TailscaleProvider interface {
+	Status(context.Context) (*tailscale.Status, error)
+	StartLogin(context.Context) (string, error)
+	Logout(context.Context) error
+	SetAuthURLHandler(func(string))
+}
 
 // appVersion is set once at startup via SetAppVersion (ldflags -X in each
 // platform's build script) and shown as a small "vX.Y.Z" tag in the
@@ -46,35 +85,9 @@ func SetAppVersion(v string) {
 type Window struct {
 	app   fyne.App
 	cfg   config.Config
-	token interface {
-		RegenerateMasterKey() (config.Config, error)
-		SaveConfig(config.Config) error
-		SunshineCaptureMode() string
-		SetSunshineCaptureMode(mode string) error
-		KMSCaptureGranted() bool
-		RequestKMSCapture() bool
-		RestartSunshine() error
-		ListSunshineClients() ([]sunshine.Client, error)
-		UnpairSunshineClient(uniqueID string) error
-		SubmitMoonlightPIN(pin string) error
-		UpdateListenAddr(host string, port int) (config.Config, error)
-		UpdateSunshinePort(port int) (config.Config, error)
-		UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
-	}
-	perms interface {
-		AccessibilityGranted() bool
-		ScreenRecordingGranted() bool
-		RequestAccessibility() bool
-		RequestScreenRecording() bool
-		OpenPrivacySettings() error
-		OpenScreenRecordingSettings() error
-	}
-	ts interface {
-		Status(context.Context) (*tailscale.Status, error)
-		StartLogin(context.Context) (string, error)
-		Logout(context.Context) error
-		SetAuthURLHandler(func(string))
-	}
+	token TokenProvider
+	perms PermsProvider
+	ts    TailscaleProvider
 
 	// awaitingLocalLogin is true only while the local "Sign In With Google"
 	// button has an interactive login in flight. It gates auto-opening a
@@ -105,6 +118,8 @@ type Window struct {
 	tsInfo    *widget.Label
 	tsPeers   *widget.RichText
 	tsAuthBtn *widget.Button
+
+	autostartCheck *widget.Check
 }
 
 type uiStatus struct {
@@ -113,21 +128,7 @@ type uiStatus struct {
 	moonlightCount int
 }
 
-func NewWindow(app fyne.App, cfg config.Config, perms *permissions.Service, ts *tailscale.Service, tokenManager interface {
-	RegenerateMasterKey() (config.Config, error)
-	SaveConfig(config.Config) error
-	SunshineCaptureMode() string
-	SetSunshineCaptureMode(mode string) error
-	KMSCaptureGranted() bool
-	RequestKMSCapture() bool
-	RestartSunshine() error
-	ListSunshineClients() ([]sunshine.Client, error)
-	UnpairSunshineClient(uniqueID string) error
-	SubmitMoonlightPIN(pin string) error
-	UpdateListenAddr(host string, port int) (config.Config, error)
-	UpdateSunshinePort(port int) (config.Config, error)
-	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
-}) *Window {
+func NewWindow(app fyne.App, cfg config.Config, perms PermsProvider, ts TailscaleProvider, tokenManager TokenProvider) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
 
@@ -328,12 +329,59 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	screenCaptureRow.Add(w.screenCaptureBtn)
 
-	permRows := []fyne.CanvasObject{
-		container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
-		screenCaptureRow,
+	// Autostart at Boot: installs the OS-native autostart mechanism (a
+	// system-wide systemd unit on Linux — so it starts at boot before any
+	// graphical session, which is what KMS capture needs; a LaunchAgent
+	// plist on macOS; a Run registry value on Windows — see
+	// internal/autostart). The registered command always launches with
+	// --headless, so a later normal launch of this same binary/AppImage
+	// attaches a GUI to that instance instead of starting a second engine —
+	// see app.Start. On Linux this shells out via pkexec, same as the KMS
+	// capability grant, so expect a polkit prompt on toggle.
+	w.autostartCheck = widget.NewCheck("", nil)
+	w.autostartCheck.Checked = autostart.IsEnabled()
+	w.autostartCheck.Refresh()
+	w.autostartCheck.OnChanged = func(checked bool) {
+		w.autostartCheck.Disable()
+		go func() {
+			var err error
+			if checked {
+				err = autostart.Enable()
+			} else {
+				err = autostart.Disable()
+			}
+			fyne.Do(func() {
+				if w.autostartCheck == nil {
+					return
+				}
+				w.autostartCheck.Enable()
+				if err != nil {
+					logrus.Errorf("[ui] autostart toggle failed: %v", err)
+					w.autostartCheck.Checked = !checked
+					w.autostartCheck.Refresh()
+					dialog.ShowError(err, win)
+				}
+			})
+		}()
 	}
+
+	// Autostart at Boot is always shown, regardless of platform — unlike the
+	// access/screen-capture rows below, it's never collapsed into permInfo's
+	// plain-text summary. Windows (and any other platform with neither
+	// interactive request buttons nor the Linux capture dropdown) used to
+	// fall into the permInfo-only branch below, which replaced the entire
+	// permRows slice and silently dropped the Autostart checkbox with it.
+	autostartRow := container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck)
+
+	var permRows []fyne.CanvasObject
 	if !showButtons && !linuxCapture {
-		permRows = []fyne.CanvasObject{w.permInfo}
+		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
+	} else {
+		permRows = []fyne.CanvasObject{
+			autostartRow,
+			container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
+			screenCaptureRow,
+		}
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.

@@ -1151,6 +1151,10 @@ func (vw *VideoWidget) sendVirtualCursorToHost() {
 	if mi != nil && mi.IsInputActive() {
 		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
 		vw.lastVirtualCursorSentTime = time.Now()
+	} else {
+		connected := vw.videoClient != nil && vw.videoClient.IsConnected()
+		logrus.Warnf("🖱️ [VC] DROPPED send: mi_nil=%v input_active=%v client_nil=%v client_connected=%v",
+			mi == nil, mi != nil && mi.IsInputActive(), vw.videoClient == nil, connected)
 	}
 }
 

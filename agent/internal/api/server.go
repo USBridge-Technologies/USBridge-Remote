@@ -38,6 +38,11 @@ type Application interface {
 		Snapshot() (*ScreenSnapshot, error)
 	}
 	VideoDevices() []VideoDeviceInfo
+	// SunshineOutputName returns the monitor Sunshine is pinned to capture
+	// (its connected-output index, stringified), or "" for auto-pick.
+	SunshineOutputName() string
+	// SetSunshineOutputName pins Sunshine's capture to the given monitor.
+	SetSunshineOutputName(name string) error
 	// SunshineStreamHost returns the IP Sunshine advertises to Moonlight clients
 	// (external_ip from sunshine.conf, or "" if auto-detect).
 	SunshineStreamHost() string
@@ -141,6 +146,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/clipboard/blob/{id}", sec.LimitBlobTransfer(s.clipboardBlobGet))
 	mux.HandleFunc("/api/video/info", sec.LimitPolling(s.videoInfo))
 	mux.HandleFunc("/api/video/devices", sec.LimitPolling(s.videoDevices))
+	mux.HandleFunc("/api/video/set_device", sec.LimitPolling(s.videoSetDevice))
 	mux.HandleFunc("/api/screen", sec.LimitPolling(s.screen))
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
@@ -764,5 +770,45 @@ func filterDevices(devices []DeviceRequest) []DeviceRequest {
 
 func (s *Server) videoDevices(w http.ResponseWriter, r *http.Request) {
 	devices := s.app.VideoDevices()
-	s.ok(w, "video devices list", devices)
+	s.ok(w, "video devices list", map[string]any{"devices": devices, "count": len(devices)})
+}
+
+// videoSetDevice pins Sunshine's capture to the monitor identified by
+// "device" (a VideoDeviceInfo.Path, e.g. "drm:1" from /api/video/devices).
+// An empty device clears the pin (Sunshine auto-picks).
+func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Device string `json:"device"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[api] video_set_device invalid_json: %v", err)
+		s.fail(w, http.StatusBadRequest, "invalid_json", err)
+		return
+	}
+	// VideoDevices() reports "drm:<index>" on Linux (correlated to Sunshine's
+	// own KMS output index — see sunshine.MonitorIndexByName), "winid:<id>"
+	// on Windows (Sunshine's own EDID+instance-derived device_id — see
+	// sunshine.WindowsDisplayDevices), or "display:<index>" as a fallback on
+	// Windows/macOS/Linux-X11 before Sunshine has logged its real device list
+	// this session (see screen_windows.go, screen_darwin.go,
+	// screen_linux_x11.go). Sunshine's output_name wants just the bare
+	// value in every case, so whichever prefix is present must be stripped.
+	// Previously only "drm:" was handled, so on Windows the literal string
+	// "display:0" (or "winid:{...}") was written to output_name verbatim,
+	// which Sunshine can't parse and silently falls back to auto-pick —
+	// monitor switching had no effect.
+	outputName := req.Device
+	for _, prefix := range []string{"drm:", "winid:", "display:"} {
+		if strings.HasPrefix(outputName, prefix) {
+			outputName = strings.TrimPrefix(outputName, prefix)
+			break
+		}
+	}
+	log.Printf("[api] video_set_device device=%s", req.Device)
+	if err := s.app.SetSunshineOutputName(outputName); err != nil {
+		log.Printf("[api] video_set_device failed: %v", err)
+		s.fail(w, http.StatusInternalServerError, "video_set_device_failed", err)
+		return
+	}
+	s.ok(w, "video_device_set", nil)
 }
