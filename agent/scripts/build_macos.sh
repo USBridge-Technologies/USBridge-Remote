@@ -136,6 +136,8 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
     <string>12.3</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>USBridge needs camera access so a connected Moonlight client can stream your camera as a video source.</string>
 </dict>
 </plist>
 PLIST
