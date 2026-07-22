@@ -6,7 +6,9 @@ on:
       - main  
     paths:
       - 'README.md'
-
+      
+permissions:
+  contents: write
 jobs:
   translate:
     runs-on: ubuntu-latest
