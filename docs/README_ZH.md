@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[English](README.md) | [Español](docs/README_ES.md) | [日本語](docs/README_JA.md) | [한국어](docs/README_KO.md) | [简体中文](docs/README_ZH.md)
+[English](README.md) | [Deutsch](docs/README_DE.md) | [Français](docs/README_FR.md) | [Italiano](docs/README_IT.md) | [Español](docs/README_ES.md) | [Português (Brasil)](docs/README_PT_BR.md) | [Українська](docs/README_UA.md) | [Polski](docs/README_PL.md) | [日本語](docs/README_JA.md) | [한국어](docs/README_KO.md) | [简体中文](docs/README_ZH.md)
 
 [![Beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/USBridge-Technologies/USBridge-Remote/releases)
 [![Patreon](https://img.shields.io/badge/Patreon-Support_Us-F96854?logo=patreon&logoColor=white)](https://www.patreon.com/USBridge_Technologies)
@@ -28,11 +28,11 @@
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Beta 软件** — 这是一个早期版本。可能会有错误。请通过 [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) 报告问题，或加入我们的 [Discord](https://discord.com/invite/xqQ6ybkfWS) 以获取支持。
+> ⚠️ **Beta 软件** — 这是一个早期版本。请预期会有错误。请通过 [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) 报告问题，或加入我们的 [Discord](https://discord.com/invite/xqQ6ybkfWS) 获取支持。
 > 
 > ℹ️ **关于 Windows Defender / 杀毒软件误报的说明：**  
-> Windows Defender 可能错误地将 `libva.dll` 标记为威胁（`Trojan:Win32/Wacatac.B!ml`），这是由于对未签名二进制文件的启发式/机器学习检测。**这是一个误报。**  
-> 我们已将该文件提交给 Microsoft Security Intelligence 进行官方审查和白名单处理。在此期间，如果您的杀毒软件删除了 `libva.dll`，请从隔离区恢复它或将 USBridge 文件夹添加到您的杀毒软件排除列表中。
+> Windows Defender 可能会错误地将 `libva.dll` 标记为威胁（`Trojan:Win32/Wacatac.B!ml`），这是由于对未签名二进制文件的启发式/机器学习检测。**这是一个误报。**  
+> 我们已将该文件提交给 Microsoft Security Intelligence 进行官方审查和白名单。在此期间，如果您的杀毒软件删除了 `libva.dll`，请从隔离区恢复它或将 USBridge 文件夹添加到您的杀毒软件排除列表中。
 
 ---
 
@@ -61,7 +61,7 @@
 
 <div align="center">
   <a href="https://youtu.be/1pV9PJeBr7M">
-    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote Demo" style="max-width: 100%; border-radius: 8px;">
+    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote 演示" style="max-width: 100%; border-radius: 8px;">
   </a>
 </div>
 
@@ -79,15 +79,15 @@
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**一切尽在一处** — 我统一了工作流程。从一个仪表板管理 USBridge KVM 硬件和软件代理。添加一台机器，连接，您就可以使用了。
+**一处满足所有需求** — 我统一了工作流程。从单一仪表板管理 USBridge KVM 硬件和软件代理。添加一台机器，连接，您就可以使用了。
 
 **没有限制，没有订阅** — 完全免费。没有会话时间限制，没有连接上限，也不需要在目标机器上创建账户。
 
-**低延迟视频与 Moonlight 集成** — 享受高达 2K 的分辨率，流畅的 240 FPS 和零可感知延迟。我的自适应流媒体引擎利用原生 Moonlight 集成，提供无与伦比的超低延迟远程桌面性能。
+**低延迟视频与 Moonlight 集成** — 享受高达 2K 分辨率的流畅 240 FPS 视频，几乎没有可感知的延迟。我的自适应流媒体引擎利用原生 Moonlight 集成，提供无与伦比的超低延迟远程桌面性能。
 
-**Tailscale 集成** — 内置加密 P2P 隧道。无需处理端口转发或防火墙规则即可全球连接任何机器。它在局域网和互联网自动工作。
+**Tailscale 集成** — 内置加密 P2P 隧道。无需处理端口转发或防火墙规则，即可全球连接任何机器。它在局域网和互联网自动工作。
 
-**共享剪贴板** — 在本地机器和远程目标之间无缝复制和粘贴。它完全支持文本、图像和文件传输。
+**共享剪贴板** — 在本地机器和远程目标之间无缝复制和粘贴。它完全支持文本、图像和文件传输，开箱即用。
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -96,9 +96,9 @@
 
 ## Wayland 支持（无提示）
 
-大多数 Linux 上的远程桌面代理在 Wayland 上都很挣扎，或者在每次会话开始时不断向您发送权限提示和确认弹窗。
+大多数 Linux 上的远程桌面代理在 Wayland 上表现不佳，或者每次会话开始时都会不断弹出权限提示和确认窗口。
 
-我设计的 USBridge 代理原生支持 Wayland。它开箱即用地处理全屏捕获和输入注入 **而无需任何烦人的权限提示** 或手动确认。它就是这样工作。
+我设计的 USBridge 代理原生支持 Wayland。它开箱即用地处理全屏捕获和输入注入，**没有任何烦人的权限提示**或手动确认。它就是这么简单。
 
 ---
 
@@ -122,7 +122,7 @@
 
 ## 社区与 Beta 测试
 
-加入我们的 Discord 以获得 **Beta 测试者** 角色，报告错误，并帮助我制定路线图：
+加入我们的 Discord 获取 **Beta 测试者** 角色，报告错误，并帮助我制定路线图：
 
 **[discord.com/invite/xqQ6ybkfWS](https://discord.com/invite/xqQ6ybkfWS)**
 
