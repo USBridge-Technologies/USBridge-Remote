@@ -79,7 +79,7 @@ Checking it registers **the exact file you're currently running** as the
 command to launch at boot:
 - Running as an AppImage: the `$APPIMAGE` path (the outer `.AppImage` file
   itself, not its ephemeral mount point) — e.g.
-  `/path/to/USBridgeAgent-Linux-x86_64-2.0.21.AppImage`.
+  `/path/to/USBridgeAgent-Linux-x86_64-2.0.23.AppImage`.
 - Running as a plain binary: `os.Executable()`'s path.
 
 Always with `--headless` appended, so autostart brings up the HTTP/Sunshine/
