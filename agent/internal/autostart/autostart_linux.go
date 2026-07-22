@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,6 +34,35 @@ const (
 func systemdQuote(s string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
 	return `"` + replacer.Replace(s) + `"`
+}
+
+// detectWaylandDisplay returns the compositor socket name (e.g. "wayland-0")
+// to bake into the unit's WAYLAND_DISPLAY=. Sunshine's KMS capture backend
+// uses this to open a Wayland connection (see wl::init()/correlate_to_wayland
+// in kmsgrab.cpp) and correct each monitor's DRM viewport with the
+// compositor's real logical position via xdg-output — without it, every
+// monitor's offset falls back to its raw CRTC x/y, which on this hardware is
+// 0 for every connector independently (each output has its own CRTC with no
+// concept of the others' placement), so a second monitor's absolute-mouse
+// input silently gets the wrong (zero) offset instead of its real position
+// next to the first one. Prefers the value from our own environment (Enable
+// runs as the logged-in user's own process, typically while a graphical
+// session is active) and falls back to scanning the runtime dir, then to the
+// near-universal "wayland-0" default so the unit still has *something*
+// rather than nothing on the rare chance neither found a live session.
+func detectWaylandDisplay(uid string) string {
+	if v := strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")); v != "" {
+		return v
+	}
+	if matches, err := filepath.Glob(fmt.Sprintf("/run/user/%s/wayland-*", uid)); err == nil {
+		for _, m := range matches {
+			if strings.HasSuffix(m, ".lock") {
+				continue
+			}
+			return filepath.Base(m)
+		}
+	}
+	return "wayland-0"
 }
 
 func IsEnabled() bool {
@@ -71,6 +101,18 @@ func Enable() error {
 	// is what actually gets PipeWire/WirePlumber running at boot without a
 	// physical login in the first place; the two together make audio_sink
 	// enumeration and Sunshine's own audio capture work headlessly.
+	//
+	// WAYLAND_DISPLAY (see detectWaylandDisplay) fixes a related problem for
+	// Sunshine's KMS capture: without it, Sunshine can't open a Wayland
+	// connection, so it never runs its xdg-output correlation step and each
+	// monitor's absolute-mouse offset falls back to its raw CRTC x/y — 0 for
+	// every connector independently on hardware where each output has its
+	// own CRTC — silently breaking multi-monitor absolute mouse input. Like
+	// audio, this only helps when the unit is (re-)enabled while a real
+	// compositor is already running: there's no enable-linger equivalent
+	// that brings up a Wayland compositor from nothing on a true headless
+	// boot before any login, since unlike PipeWire it needs actual display
+	// hardware and a logged-in session.
 	unit := fmt.Sprintf(`[Unit]
 Description=USBridge Agent
 After=network-online.target
@@ -83,13 +125,14 @@ Environment=HOME=%s
 Environment=APPIMAGE_EXTRACT_AND_RUN=1
 Environment=XDG_RUNTIME_DIR=/run/user/%s
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
+Environment=WAYLAND_DISPLAY=%s
 ExecStart=%s
 Restart=on-failure
 RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
-`, u.Username, u.HomeDir, u.Uid, u.Uid, strings.Join(execParts, " "))
+`, u.Username, u.HomeDir, u.Uid, u.Uid, detectWaylandDisplay(u.Uid), strings.Join(execParts, " "))
 
 	tmp, err := os.CreateTemp("", "usbridge-agent-*.service")
 	if err != nil {

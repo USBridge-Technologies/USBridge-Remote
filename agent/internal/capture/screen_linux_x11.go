@@ -12,6 +12,7 @@ import (
 	"github.com/kbinani/screenshot"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/display"
+	"usbridge_agent/internal/sunshine"
 )
 
 type Service struct{}
@@ -65,8 +66,23 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 // X11-based enumeration only if no DRM connector could be read at all.
 func (s *Service) Devices() []api.VideoDeviceInfo {
 	if connectors := display.Connectors(); len(connectors) > 0 {
+		// display.Connectors() indexes connectors alphabetically by DRM
+		// connector name (its own doc comment flags this as a guess). That
+		// only happens to match Sunshine's real output_name index — an
+		// artifact of its own DRM plane-enumeration order, which depends on
+		// driver/hardware and isn't alphabetical in general — by luck. When
+		// Sunshine's log has already told us the real mapping (see
+		// MonitorIndexByName), prefer it so "drm:N" always means what
+		// Sunshine itself thinks index N means; otherwise keep the
+		// alphabetical guess as the only information available (e.g. before
+		// Sunshine's first successful Wayland connection this session).
+		byName := sunshine.MonitorIndexByName()
 		out := make([]api.VideoDeviceInfo, 0, len(connectors))
 		for _, c := range connectors {
+			idx := c.Index
+			if realIdx, ok := byName[c.Name]; ok {
+				idx = realIdx
+			}
 			modes := make([]api.VideoCaptureMode, 0, len(c.Modes))
 			for _, r := range c.Modes {
 				modes = append(modes, api.VideoCaptureMode{
@@ -77,10 +93,10 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 				})
 			}
 			out = append(out, api.VideoDeviceInfo{
-				Path:           fmt.Sprintf("drm:%d", c.Index),
+				Path:           fmt.Sprintf("drm:%d", idx),
 				Name:           c.Name,
 				Bus:            "drm",
-				Index:          c.Index,
+				Index:          idx,
 				Connected:      true,
 				SupportedModes: modes,
 			})
