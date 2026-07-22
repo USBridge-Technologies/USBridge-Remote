@@ -1,0 +1,34 @@
+name: Auto Translate README via ChatGPT
+
+on:
+  push:
+    branches:
+      - main  
+    paths:
+      - 'README.md'
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Dependencies
+        run: pip install openai
+
+      - name: Run Translation Script
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python .github/scripts/translate.py
+
+      - name: Commit and Push translated READMEs
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'docs: auto-translate README via ChatGPT [skip ci]'
+          file_pattern: 'docs/README_*.md'  
