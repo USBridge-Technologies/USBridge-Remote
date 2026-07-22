@@ -932,10 +932,9 @@ func ConfigPath() string {
 
 // LogPath returns the default sunshine.log location Sunshine writes to
 // alongside sunshine.conf (same appdata() dir, see ConfigPath) when launched
-// without an explicit log path override. Windows isn't covered: Sunshine's
-// default log path there is relative to its install dir in a way that isn't
-// currently tracked by windowsSunshineDir, and nothing on that platform reads
-// this yet.
+// without an explicit log path override. This also covers Windows: the
+// portable build's config dir (windowsSunshineDir/config) holds both
+// sunshine.conf and sunshine.log, so deriving from ConfigPath works there too.
 func LogPath() string {
 	dir := filepath.Dir(ConfigPath())
 	if dir == "" || dir == "." {
@@ -1000,6 +999,100 @@ func MonitorIndexByName() map[string]int {
 		return nil
 	}
 	return result
+}
+
+// windowsDisplayDevicesMarker precedes the JSON array Sunshine's Windows
+// display_device backend logs once at every startup (see sunshine.log:
+// "Info: Currently available display devices:" followed by a pretty-printed
+// JSON array on the following lines).
+const windowsDisplayDevicesMarker = "Currently available display devices:"
+
+// WindowsDisplayDevice is one entry from Sunshine's Windows-only display
+// device JSON dump (see WindowsDisplayDevices).
+type WindowsDisplayDevice struct {
+	DeviceID     string `json:"device_id"`
+	DisplayName  string `json:"display_name"`
+	FriendlyName string `json:"friendly_name"`
+	Info         struct {
+		Primary    bool `json:"primary"`
+		Resolution struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"resolution"`
+	} `json:"info"`
+}
+
+// WindowsDisplayDevices parses Sunshine's own "Currently available display
+// devices" JSON block from its log. This is the only place the real,
+// stable device_id string that Sunshine's Windows output_name config key
+// expects is ever exposed: unlike Linux/KMS, where output_name is a small
+// connected-output index (see display.Connectors / MonitorIndexByName),
+// Sunshine's Windows display_device backend identifies each monitor by an
+// id derived from its EDID + instance path (e.g.
+// "{26932b0f-6861-553f-b009-2caec1fc240f}"), which the agent has no way to
+// compute or predict — it can only be read back from what Sunshine itself
+// already determined at startup. Returns nil if the log doesn't exist yet
+// or no such block has been logged this session (e.g. before Sunshine's
+// first launch), so callers can fall back to a less precise enumeration.
+func WindowsDisplayDevices() []WindowsDisplayDevice {
+	path := LogPath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text := string(data)
+
+	var result []WindowsDisplayDevice
+	searchFrom := 0
+	for {
+		rel := strings.Index(text[searchFrom:], windowsDisplayDevicesMarker)
+		if rel < 0 {
+			break
+		}
+		afterMarker := searchFrom + rel + len(windowsDisplayDevicesMarker)
+		relStart := strings.IndexByte(text[afterMarker:], '[')
+		if relStart < 0 {
+			break
+		}
+		start := afterMarker + relStart
+		end := jsonArrayEnd(text, start)
+		if end < 0 {
+			break
+		}
+		var devices []WindowsDisplayDevice
+		if err := json.Unmarshal([]byte(text[start:end+1]), &devices); err == nil {
+			// Keep overwriting so a later restart's fresher enumeration wins
+			// over an older one earlier in the log (same "last wins" logic
+			// as MonitorIndexByName).
+			result = devices
+		}
+		searchFrom = end + 1
+	}
+	return result
+}
+
+// jsonArrayEnd returns the index of the ']' that closes the JSON array
+// starting at s[start] (which must be '['), tracking bracket depth only —
+// it doesn't need to be string-aware since none of the fields Sunshine logs
+// here (paths, GUIDs, names) contain literal '[' or ']' characters. Returns
+// -1 if the array is never closed (e.g. log was truncated mid-write).
+func jsonArrayEnd(s string, start int) int {
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // SetConfigKey upserts a single "key = value" line in sunshine.conf.

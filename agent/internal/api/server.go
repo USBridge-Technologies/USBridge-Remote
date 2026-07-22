@@ -785,7 +785,25 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, "invalid_json", err)
 		return
 	}
-	outputName := strings.TrimPrefix(req.Device, "drm:")
+	// VideoDevices() reports "drm:<index>" on Linux (correlated to Sunshine's
+	// own KMS output index — see sunshine.MonitorIndexByName), "winid:<id>"
+	// on Windows (Sunshine's own EDID+instance-derived device_id — see
+	// sunshine.WindowsDisplayDevices), or "display:<index>" as a fallback on
+	// Windows/macOS/Linux-X11 before Sunshine has logged its real device list
+	// this session (see screen_windows.go, screen_darwin.go,
+	// screen_linux_x11.go). Sunshine's output_name wants just the bare
+	// value in every case, so whichever prefix is present must be stripped.
+	// Previously only "drm:" was handled, so on Windows the literal string
+	// "display:0" (or "winid:{...}") was written to output_name verbatim,
+	// which Sunshine can't parse and silently falls back to auto-pick —
+	// monitor switching had no effect.
+	outputName := req.Device
+	for _, prefix := range []string{"drm:", "winid:", "display:"} {
+		if strings.HasPrefix(outputName, prefix) {
+			outputName = strings.TrimPrefix(outputName, prefix)
+			break
+		}
+	}
 	log.Printf("[api] video_set_device device=%s", req.Device)
 	if err := s.app.SetSunshineOutputName(outputName); err != nil {
 		log.Printf("[api] video_set_device failed: %v", err)
