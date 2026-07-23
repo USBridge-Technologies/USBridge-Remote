@@ -27,6 +27,8 @@ extern void android_vk_set_cursor_scale(int scale);
 extern void android_vk_set_cursor_pixels(const uint8_t *src_rgba, int w, int h);
 extern void android_vk_get_stats(float *fps, int *fps_ready,
                                   long long *rendered, long long *submitted);
+extern void android_vk_set_postprocess(int enabled, float sharpen, float denoise, float temporal,
+                                        float gamma, float contrast, float saturation);
 */
 import "C"
 
@@ -157,6 +159,23 @@ func VKVideoAndroidGetFPS() float64 {
 // VKVideoAndroidHapticShortTap triggers a brief haptic tap (~30 ms) via HapticBridge.kt.
 func VKVideoAndroidHapticShortTap() {
 	C.android_haptic_short_tap()
+}
+
+// VKVideoAndroidSetPostprocess updates the Vulkan compute post-processing
+// pipeline (denoise → sharpen → temporal accumulation → gamma/contrast/
+// saturation grade) applied just before the decoded frame is blitted to the
+// swapchain. Safe to call at any time, including before the renderer exists;
+// settings are cached and take effect on the next rendered frame. Passing
+// enabled=false makes the renderer take its original blit-only path with
+// zero overhead.
+func VKVideoAndroidSetPostprocess(enabled bool, sharpen, denoise, temporal, gamma, contrast, saturation float64) {
+	e := C.int(0)
+	if enabled {
+		e = 1
+	}
+	C.android_vk_set_postprocess(e,
+		C.float(sharpen), C.float(denoise), C.float(temporal),
+		C.float(gamma), C.float(contrast), C.float(saturation))
 }
 
 // VKVideoAndroidSetCursorPixels uploads a pre-rendered RGBA cursor image.

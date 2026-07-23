@@ -1,0 +1,101 @@
+#version 450
+// USBridge Vulkan post-processing pass (Android).
+//
+// Single compute dispatch applied to the already-decoded RGBA frame right
+// before it is blitted into the swapchain:
+//   1. Edge-aware spatial denoise (5-tap plus-shaped bilateral filter).
+//   2. Unsharp-mask sharpen on the denoised signal (CAS-style local contrast).
+//   3. Motion-adaptive temporal accumulation against last frame's output,
+//      so static regions (terminal text, BIOS screens, a still desktop)
+//      keep gaining noise reduction over multiple frames while anything
+//      that moves falls back to the single-frame result (no ghosting).
+//   4. Gamma / contrast / saturation grade.
+//
+// uHistory doubles as this frame's output *and* next frame's temporal
+// reference: each invocation only ever touches its own texel (imageLoad then
+// imageStore at the same coord), so reading-then-writing the same storage
+// image within one dispatch is race-free -- no ping-pong buffer needed.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D uSrc;
+layout(set = 0, binding = 1, rgba8) uniform image2D uHistory;
+
+layout(push_constant) uniform PushConstants {
+    float sharpen;      // 0..1
+    float denoise;      // 0..1
+    float temporal;     // 0..1
+    float gamma;        // 0.2..3.0 (1.0 = neutral)
+    float contrast;     // 0..2 (1.0 = neutral)
+    float saturation;   // 0..2 (1.0 = neutral)
+    int   enabled;
+    int   width;
+    int   height;
+    int   radius;       // neighbor tap distance in source texels (see below)
+} pc;
+
+vec3 fetchClamped(ivec2 p) {
+    p.x = clamp(p.x, 0, pc.width - 1);
+    p.y = clamp(p.y, 0, pc.height - 1);
+    return texelFetch(uSrc, p, 0).rgb;
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= pc.width || coord.y >= pc.height) {
+        return;
+    }
+
+    if (pc.enabled == 0) {
+        imageStore(uHistory, coord, texelFetch(uSrc, coord, 0));
+        return;
+    }
+
+    // Neighbor taps are spaced pc.radius texels apart, not a fixed 1 pixel.
+    // The source frame is decoded at its native capture resolution and then
+    // shrunk (often 2-3x) by the final blit to fit the on-screen video rect,
+    // and that blit's linear filtering re-blurs anything a 1-texel-radius
+    // filter changes -- a naive radius of 1 washes out almost completely
+    // once downscaled. android_vk_try_submit's caller picks pc.radius from
+    // the actual source/display size ratio so the effect survives the blit.
+    int r = max(pc.radius, 1);
+    vec3 c = fetchClamped(coord);
+    vec3 n = fetchClamped(coord + ivec2(0, -r));
+    vec3 s = fetchClamped(coord + ivec2(0, r));
+    vec3 e = fetchClamped(coord + ivec2(r, 0));
+    vec3 w = fetchClamped(coord + ivec2(-r, 0));
+
+    // --- 1. Edge-aware spatial denoise ---
+    // Range sigma shrinks as denoise strength grows so more of each neighbor
+    // is let through the bilateral weight without crossing real edges.
+    float denoiseAmount = clamp(pc.denoise, 0.0, 1.0);
+    float rangeSigma = mix(0.35, 0.035, denoiseAmount);
+    float invSigma2 = 1.0 / max(rangeSigma * rangeSigma, 1e-4);
+    float wn = exp(-dot(n - c, n - c) * invSigma2);
+    float ws = exp(-dot(s - c, s - c) * invSigma2);
+    float we = exp(-dot(e - c, e - c) * invSigma2);
+    float ww = exp(-dot(w - c, w - c) * invSigma2);
+    vec3 blurred = (c + n * wn + s * ws + e * we + w * ww) / (1.0 + wn + ws + we + ww);
+    vec3 denoised = mix(c, blurred, denoiseAmount);
+
+    // --- 2. Unsharp-mask sharpen, applied to the denoised signal so noise
+    // that was just removed doesn't get re-amplified ---
+    vec3 lowFreq = (n + s + e + w) * 0.25;
+    float sharpenAmount = clamp(pc.sharpen, 0.0, 1.0) * 2.2;
+    vec3 sharpened = clamp(denoised + (denoised - lowFreq) * sharpenAmount, 0.0, 1.0);
+
+    // --- 3. Motion-adaptive temporal accumulation ---
+    vec3 hist = imageLoad(uHistory, coord).rgb;
+    float diff = length(sharpened - hist);
+    float motion = smoothstep(0.02, 0.18, diff);
+    float temporalWeight = clamp(pc.temporal, 0.0, 1.0) * (1.0 - motion) * 0.8;
+    vec3 accumulated = mix(sharpened, hist, temporalWeight);
+
+    // --- 4. Gamma / contrast / saturation grade ---
+    vec3 graded = pow(max(accumulated, vec3(0.0)), vec3(1.0 / max(pc.gamma, 0.05)));
+    graded = (graded - 0.5) * pc.contrast + 0.5;
+    float luma = dot(graded, vec3(0.299, 0.587, 0.114));
+    graded = mix(vec3(luma), graded, pc.saturation);
+    graded = clamp(graded, 0.0, 1.0);
+
+    imageStore(uHistory, coord, vec4(graded, 1.0));
+}

@@ -1398,6 +1398,10 @@ func (mw *MainWindow) showVideoMenu() {
 		},
 	}
 
+	if item := mw.vulkanPostprocessMenuItem(); item != nil {
+		items = append(items, *item)
+	}
+
 	if mw.videoWidget.IsStreaming() {
 		items = append(items, view.StyledMenuItem{
 			Label: i18n.Current.FullscreenAction,

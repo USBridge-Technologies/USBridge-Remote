@@ -71,6 +71,7 @@ func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, fullscreen bool) {
 		logrus.Infof("[Android/VK] Vulkan overlay created at (%d,%d) %dx%d px", px, py, pw, ph)
 		// Reinitialize cursor at the correct display density scale.
 		vw.initAndroidCursorScale(vw.androidCursorScale())
+		reapplyVulkanPostprocessSettings()
 		if view.OverlayActive() {
 			service.VKVideoAndroidSetHidden(true)
 		}

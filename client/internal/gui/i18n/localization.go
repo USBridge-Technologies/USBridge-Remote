@@ -251,6 +251,17 @@ type LocalizedStrings struct {
 	VideoDeviceCurrent          string
 	SettingsAction              string
 	FullscreenAction            string
+	VulkanAction                string
+	VulkanPostprocessTitle      string
+	VulkanPostprocessHint       string
+	VulkanEnable                string
+	VulkanSharpen               string
+	VulkanDenoise               string
+	VulkanTemporal              string
+	VulkanGamma                 string
+	VulkanContrast              string
+	VulkanSaturation            string
+	VulkanResetDefaults         string
 	VideoJPEGRTPHint            string
 	VideoRawYUYVHint            string
 	VideoModeH264Name           string
@@ -626,6 +637,17 @@ func EN() *LocalizedStrings {
 		VideoDeviceCurrent:          "Current",
 		SettingsAction:              "Settings",
 		FullscreenAction:            "Fullscreen",
+		VulkanAction:                "Vulkan",
+		VulkanPostprocessTitle:      "Vulkan post-processing",
+		VulkanPostprocessHint:       "GPU denoise, sharpen, and color grade applied to the video right before it's displayed.",
+		VulkanEnable:                "Enable post-processing",
+		VulkanSharpen:               "Sharpen",
+		VulkanDenoise:               "Denoise",
+		VulkanTemporal:              "Temporal smoothing",
+		VulkanGamma:                 "Gamma",
+		VulkanContrast:              "Contrast",
+		VulkanSaturation:            "Saturation",
+		VulkanResetDefaults:         "Reset to defaults",
 		VideoJPEGRTPHint:            "JPEG RTP: for MJPEG sources the server forwards JPEG directly; for YUYV sources it encodes JPEG before sending.",
 		VideoRawYUYVHint:            "RAW YUYV: uncompressed video over RTP. Very high bandwidth, use only on fast local links.",
 		VideoModeH264Name:           "H.264",
@@ -822,6 +844,17 @@ func ES() *LocalizedStrings {
 	locale.StartVideo = "Iniciar"
 	locale.SettingsAction = "Configuracion"
 	locale.FullscreenAction = "Pantalla completa"
+	locale.VulkanAction = "Vulkan"
+	locale.VulkanPostprocessTitle = "Postprocesado Vulkan"
+	locale.VulkanPostprocessHint = "Reduccion de ruido, nitidez y ajuste de color por GPU aplicados al video justo antes de mostrarlo."
+	locale.VulkanEnable = "Activar postprocesado"
+	locale.VulkanSharpen = "Nitidez"
+	locale.VulkanDenoise = "Reduccion de ruido"
+	locale.VulkanTemporal = "Suavizado temporal"
+	locale.VulkanGamma = "Gamma"
+	locale.VulkanContrast = "Contraste"
+	locale.VulkanSaturation = "Saturacion"
+	locale.VulkanResetDefaults = "Restablecer valores"
 	locale.Language = "Idioma"
 	locale.LanguageEnglish = "English"
 	locale.LanguageSpanish = "Spanish"
@@ -873,6 +906,17 @@ func UK() *LocalizedStrings {
 	locale.LanguageUkrainian = "Українська"
 	locale.SettingsAction = "Налаштування"
 	locale.FullscreenAction = "На весь екран"
+	locale.VulkanAction = "Vulkan"
+	locale.VulkanPostprocessTitle = "Постобробка Vulkan"
+	locale.VulkanPostprocessHint = "Придушення шуму, різкість і кольорокорекція на GPU перед показом відео."
+	locale.VulkanEnable = "Увімкнути постобробку"
+	locale.VulkanSharpen = "Різкість"
+	locale.VulkanDenoise = "Придушення шуму"
+	locale.VulkanTemporal = "Часове згладжування"
+	locale.VulkanGamma = "Гамма"
+	locale.VulkanContrast = "Контраст"
+	locale.VulkanSaturation = "Насиченість"
+	locale.VulkanResetDefaults = "Скинути налаштування"
 	locale.DeviceKeyboard = "Клавіатура"
 	locale.DeviceMouse = "Миша"
 	locale.DeviceTouch = "Дотик"
@@ -959,6 +1003,17 @@ func UKProper() *LocalizedStrings {
 	locale.StartVideo = "Запустити"
 	locale.SettingsAction = "Налаштування"
 	locale.FullscreenAction = "На весь екран"
+	locale.VulkanAction = "Vulkan"
+	locale.VulkanPostprocessTitle = "Постобробка Vulkan"
+	locale.VulkanPostprocessHint = "Придушення шуму, різкість і кольорокорекція на GPU перед показом відео."
+	locale.VulkanEnable = "Увімкнути постобробку"
+	locale.VulkanSharpen = "Різкість"
+	locale.VulkanDenoise = "Придушення шуму"
+	locale.VulkanTemporal = "Часове згладжування"
+	locale.VulkanGamma = "Гамма"
+	locale.VulkanContrast = "Контраст"
+	locale.VulkanSaturation = "Насиченість"
+	locale.VulkanResetDefaults = "Скинути налаштування"
 	locale.Language = "Мова"
 	locale.LanguageEnglish = "English"
 	locale.LanguageSpanish = "Spanish"

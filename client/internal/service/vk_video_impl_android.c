@@ -35,6 +35,8 @@
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO,  VTAG, __VA_ARGS__)
 #define VLOGE(...) __android_log_print(ANDROID_LOG_ERROR, VTAG, __VA_ARGS__)
 
+#include "vk_postprocess_spv.h"
+
 // ─── JNI bridge (cached class / JVM) ─────────────────────────────────────────
 
 static JavaVM *g_jvm           = NULL;
@@ -254,6 +256,68 @@ static VkBuffer       g_cursor_vk_buf = VK_NULL_HANDLE;
 static VkDeviceMemory g_cursor_vk_mem = VK_NULL_HANDLE;
 static void          *g_cursor_vk_ptr = NULL;
 
+// ─── Post-processing (Vulkan compute: denoise → sharpen → temporal → grade) ──
+// Off by default; enabled and tuned from the "Vulkan" popup in the Fyne UI
+// (see android_vk_set_postprocess). When disabled the renderer takes the
+// exact original blit-only path below — zero risk, zero extra cost.
+typedef struct {
+    float sharpen;
+    float denoise;
+    float temporal;
+    float gamma;
+    float contrast;
+    float saturation;
+} PPParams;
+
+typedef struct {
+    float   sharpen;
+    float   denoise;
+    float   temporal;
+    float   gamma;
+    float   contrast;
+    float   saturation;
+    int32_t enabled;
+    int32_t width;
+    int32_t height;
+    int32_t radius;
+} PPPushConstants;
+
+static atomic_int       g_pp_enabled;
+static atomic_int       g_pp_primed; // 0 = force temporal=0 next dispatch (history invalid/stale)
+static pthread_mutex_t  g_pp_mu = PTHREAD_MUTEX_INITIALIZER;
+static PPParams         g_pp_params = {0.35f, 0.35f, 0.5f, 1.0f, 1.0f, 1.0f};
+
+static int              g_pp_compute_capable = 0; // graphics queue family also supports VK_QUEUE_COMPUTE_BIT
+
+static VkSampler             g_pp_sampler  = VK_NULL_HANDLE;
+static VkShaderModule         g_pp_shader   = VK_NULL_HANDLE;
+static VkDescriptorSetLayout  g_pp_dsl      = VK_NULL_HANDLE;
+static VkPipelineLayout       g_pp_playout  = VK_NULL_HANDLE;
+static VkPipeline             g_pp_pipeline = VK_NULL_HANDLE;
+static VkDescriptorPool       g_pp_dpool    = VK_NULL_HANDLE;
+static VkDescriptorSet        g_pp_dset     = VK_NULL_HANDLE;
+static VkImageView            g_pp_dset_bound_view = VK_NULL_HANDLE;
+static long long              g_pp_dispatch_count = 0; // diagnostic: proves the compute pass actually ran
+
+// History image: doubles as this frame's post-processed output (blit source)
+// and the temporal reference for next frame. g_pp_hist_layout tracks its true
+// current layout across frames (unlike g_tex/hwimport source images, its
+// contents are deliberately persisted, so we can't use the VK_IMAGE_LAYOUT_
+// UNDEFINED discard trick used elsewhere in this file).
+static VkImage        g_pp_hist_img = VK_NULL_HANDLE;
+static VkDeviceMemory g_pp_hist_mem = VK_NULL_HANDLE;
+static VkImageView    g_pp_hist_view = VK_NULL_HANDLE;
+static int            g_pp_hist_w = 0, g_pp_hist_h = 0;
+static VkImageLayout  g_pp_hist_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+// Persistent sampled VkImageView for g_tex (CPU staging path). Recreated
+// alongside g_tex in vk_ensure_tex.
+static VkImageView g_tex_view = VK_NULL_HANDLE;
+
+// Persistent sampled VkImageViews for the two AHardwareBuffer-backed images
+// (zero-copy path), one per hwimport_get_or_create slot.
+static VkImageView g_hwimport_view[HWIMPORT_COUNT] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 static uint32_t vk_find_mem(VkPhysicalDeviceMemoryProperties *mp,
@@ -445,8 +509,13 @@ static int vk_select_device(void) {
     vkGetPhysicalDeviceQueueFamilyProperties(g_pdev, &qn, NULL);
     VkQueueFamilyProperties *qp = malloc(qn * sizeof(*qp));
     vkGetPhysicalDeviceQueueFamilyProperties(g_pdev, &qn, qp);
+    g_pp_compute_capable = 0;
     for (uint32_t j = 0; j < qn; j++)
-        if (qp[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) { g_qfam = j; break; }
+        if (qp[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            g_qfam = j;
+            g_pp_compute_capable = (qp[j].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+            break;
+        }
     free(qp);
     return 1;
 }
@@ -661,6 +730,7 @@ static int vk_ensure_tex(int w, int h) {
     if (g_tex != VK_NULL_HANDLE && g_tex_w == w && g_tex_h == h) return 1;
     if (g_tex != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(g_dev);
+        if (g_tex_view) { vkDestroyImageView(g_dev, g_tex_view, NULL); g_tex_view = VK_NULL_HANDLE; }
         vkFreeMemory(g_dev, g_tex_mem, NULL); g_tex_mem = VK_NULL_HANDLE;
         vkDestroyImage(g_dev, g_tex, NULL);   g_tex     = VK_NULL_HANDLE;
     }
@@ -672,7 +742,10 @@ static int vk_ensure_tex(int w, int h) {
     ici.arrayLayers = 1;
     ici.samples     = VK_SAMPLE_COUNT_1_BIT;
     ici.tiling      = VK_IMAGE_TILING_OPTIMAL;
-    ici.usage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    // SAMPLED_BIT is only needed by the post-processing compute pass, but it's
+    // always cheap to request so vk_pp_process can read g_tex as-is whenever
+    // the user turns the Vulkan popup's post-processing toggle on mid-session.
+    ici.usage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (vkCreateImage(g_dev, &ici, NULL, &g_tex) != VK_SUCCESS) return 0;
     VkMemoryRequirements mr;
@@ -686,6 +759,16 @@ static int vk_ensure_tex(int w, int h) {
     mai.memoryTypeIndex = mi;
     if (vkAllocateMemory(g_dev, &mai, NULL, &g_tex_mem) != VK_SUCCESS) return 0;
     vkBindImageMemory(g_dev, g_tex, g_tex_mem, 0);
+
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    vci.image    = g_tex;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format   = VK_FORMAT_R8G8B8A8_UNORM;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1;
+    vci.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(g_dev, &vci, NULL, &g_tex_view) != VK_SUCCESS) return 0;
+
     g_tex_w = w; g_tex_h = h;
     return 1;
 }
@@ -735,6 +818,301 @@ static void vk_image_barrier(VkCommandBuffer cb, VkImage img,
     b.srcAccessMask = src_acc;
     b.dstAccessMask = dst_acc;
     vkCmdPipelineBarrier(cb, src_st, dst_st, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+// ─── Post-processing pipeline setup ──────────────────────────────────────────
+
+// vk_pp_ensure_pipeline lazily creates the compute pipeline the first time
+// post-processing is used, and is a no-op on every call after that. Never
+// touches a command buffer -- safe to call before deciding which render path
+// (processed vs. plain blit) a frame will take.
+static int vk_pp_ensure_pipeline(void) {
+    if (g_pp_pipeline != VK_NULL_HANDLE) return 1;
+    if (!g_dev || !g_pp_compute_capable) return 0;
+
+    VkSamplerCreateInfo sci = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    sci.magFilter = VK_FILTER_NEAREST;
+    sci.minFilter = VK_FILTER_NEAREST;
+    sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    if (vkCreateSampler(g_dev, &sci, NULL, &g_pp_sampler) != VK_SUCCESS) {
+        VLOGE("pp: vkCreateSampler failed");
+        goto fail;
+    }
+
+    VkShaderModuleCreateInfo smci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    smci.codeSize = vk_postprocess_spv_len;
+    smci.pCode    = vk_postprocess_spv;
+    if (vkCreateShaderModule(g_dev, &smci, NULL, &g_pp_shader) != VK_SUCCESS) {
+        VLOGE("pp: vkCreateShaderModule failed");
+        goto fail;
+    }
+
+    VkDescriptorSetLayoutBinding bindings[2] = {0};
+    bindings[0].binding         = 0;
+    bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[1].binding         = 1;
+    bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo dslci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    dslci.bindingCount = 2;
+    dslci.pBindings    = bindings;
+    if (vkCreateDescriptorSetLayout(g_dev, &dslci, NULL, &g_pp_dsl) != VK_SUCCESS) {
+        VLOGE("pp: vkCreateDescriptorSetLayout failed");
+        goto fail;
+    }
+
+    VkPushConstantRange pcRange = {0};
+    pcRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pcRange.offset     = 0;
+    pcRange.size       = sizeof(PPPushConstants);
+
+    VkPipelineLayoutCreateInfo plci = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    plci.setLayoutCount         = 1;
+    plci.pSetLayouts            = &g_pp_dsl;
+    plci.pushConstantRangeCount = 1;
+    plci.pPushConstantRanges    = &pcRange;
+    if (vkCreatePipelineLayout(g_dev, &plci, NULL, &g_pp_playout) != VK_SUCCESS) {
+        VLOGE("pp: vkCreatePipelineLayout failed");
+        goto fail;
+    }
+
+    VkPipelineShaderStageCreateInfo stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+    stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = g_pp_shader;
+    stage.pName  = "main";
+
+    VkComputePipelineCreateInfo cpci = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+    cpci.stage  = stage;
+    cpci.layout = g_pp_playout;
+    if (vkCreateComputePipelines(g_dev, VK_NULL_HANDLE, 1, &cpci, NULL, &g_pp_pipeline) != VK_SUCCESS) {
+        VLOGE("pp: vkCreateComputePipelines failed");
+        goto fail;
+    }
+
+    VkDescriptorPoolSize poolSizes[2] = {0};
+    poolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[1].descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo dpci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    dpci.maxSets       = 1;
+    dpci.poolSizeCount = 2;
+    dpci.pPoolSizes    = poolSizes;
+    if (vkCreateDescriptorPool(g_dev, &dpci, NULL, &g_pp_dpool) != VK_SUCCESS) {
+        VLOGE("pp: vkCreateDescriptorPool failed");
+        goto fail;
+    }
+
+    VkDescriptorSetAllocateInfo dsai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    dsai.descriptorPool     = g_pp_dpool;
+    dsai.descriptorSetCount = 1;
+    dsai.pSetLayouts        = &g_pp_dsl;
+    if (vkAllocateDescriptorSets(g_dev, &dsai, &g_pp_dset) != VK_SUCCESS) {
+        VLOGE("pp: vkAllocateDescriptorSets failed");
+        goto fail;
+    }
+
+    VLOGI("pp: compute pipeline ready");
+    return 1;
+
+fail:
+    // Leave whatever partially-created objects behind; vk_full_cleanup tears
+    // them all down unconditionally (destroying VK_NULL_HANDLE is a no-op).
+    // Reset g_pp_pipeline to NULL so the "already created" check above
+    // continues retrying on future frames instead of wedging in a broken half
+    // state forever.
+    g_pp_pipeline = VK_NULL_HANDLE;
+    return 0;
+}
+
+// vk_pp_ensure_history (re)creates the history/output image when the frame
+// size changes. Also runs before any command buffer recording.
+static int vk_pp_ensure_history(int w, int h) {
+    if (g_pp_hist_img != VK_NULL_HANDLE && g_pp_hist_w == w && g_pp_hist_h == h) return 1;
+    if (g_pp_hist_img != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(g_dev);
+        if (g_pp_hist_view) { vkDestroyImageView(g_dev, g_pp_hist_view, NULL); g_pp_hist_view = VK_NULL_HANDLE; }
+        if (g_pp_hist_mem) { vkFreeMemory(g_dev, g_pp_hist_mem, NULL); g_pp_hist_mem = VK_NULL_HANDLE; }
+        if (g_pp_hist_img) { vkDestroyImage(g_dev, g_pp_hist_img, NULL); g_pp_hist_img = VK_NULL_HANDLE; }
+    }
+
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ici.imageType   = VK_IMAGE_TYPE_2D;
+    ici.format      = VK_FORMAT_R8G8B8A8_UNORM;
+    ici.extent      = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
+    ici.mipLevels   = 1;
+    ici.arrayLayers = 1;
+    ici.samples     = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling      = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage       = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult hist_res = vkCreateImage(g_dev, &ici, NULL, &g_pp_hist_img);
+    if (hist_res != VK_SUCCESS) {
+        VLOGE("pp: history vkCreateImage(%dx%d) failed: %d", w, h, (int)hist_res);
+        return 0;
+    }
+
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(g_dev, g_pp_hist_img, &mr);
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(g_pdev, &mp);
+    uint32_t mi = vk_find_mem(&mp, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mi == UINT32_MAX) {
+        VLOGE("pp: history no matching memory type");
+        vkDestroyImage(g_dev, g_pp_hist_img, NULL); g_pp_hist_img = VK_NULL_HANDLE; return 0;
+    }
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    mai.allocationSize  = mr.size;
+    mai.memoryTypeIndex = mi;
+    hist_res = vkAllocateMemory(g_dev, &mai, NULL, &g_pp_hist_mem);
+    if (hist_res != VK_SUCCESS) {
+        VLOGE("pp: history vkAllocateMemory failed: %d", (int)hist_res);
+        vkDestroyImage(g_dev, g_pp_hist_img, NULL); g_pp_hist_img = VK_NULL_HANDLE; return 0;
+    }
+    vkBindImageMemory(g_dev, g_pp_hist_img, g_pp_hist_mem, 0);
+
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    vci.image    = g_pp_hist_img;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format   = VK_FORMAT_R8G8B8A8_UNORM;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1;
+    vci.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(g_dev, &vci, NULL, &g_pp_hist_view) != VK_SUCCESS) {
+        VLOGE("pp: history vkCreateImageView failed");
+        vkFreeMemory(g_dev, g_pp_hist_mem, NULL); g_pp_hist_mem = VK_NULL_HANDLE;
+        vkDestroyImage(g_dev, g_pp_hist_img, NULL); g_pp_hist_img = VK_NULL_HANDLE;
+        return 0;
+    }
+
+    g_pp_hist_w = w; g_pp_hist_h = h;
+    g_pp_hist_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Fresh (or resized) history has no valid prior frame to blend against.
+    atomic_store(&g_pp_primed, 0);
+    VLOGI("pp: history image ready (%dx%d)", w, h);
+    return 1;
+}
+
+// vk_pp_process records the compute dispatch that turns srcImg (the frame
+// just decoded, fw x fh, R8G8B8A8) into the post-processed g_pp_hist_img and
+// returns that image, already transitioned to TRANSFER_SRC_OPTIMAL and ready
+// to use as a vkCmdBlitImage source exactly like the raw frame would have
+// been. srcLayout/srcAccess/srcStage describe srcImg's true current state so
+// the read barrier is correct for both the CPU staging path (coming from a
+// real TRANSFER_DST_OPTIMAL write) and the AHardwareBuffer zero-copy path
+// (which -- like the rest of this file's handling of that image -- uses the
+// VK_IMAGE_LAYOUT_UNDEFINED discard trick since GL owns it across frames).
+static VkImage vk_pp_process(VkCommandBuffer cb, VkImage srcImg, VkImageView srcView,
+                              VkImageLayout srcLayout, VkAccessFlags srcAccess,
+                              VkPipelineStageFlags srcStage, int fw, int fh) {
+    vk_image_barrier(cb, srcImg, srcLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        srcAccess, VK_ACCESS_SHADER_READ_BIT,
+        srcStage, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    VkAccessFlags histSrcAccess = 0;
+    VkPipelineStageFlags histSrcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    if (g_pp_hist_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        histSrcAccess = VK_ACCESS_TRANSFER_READ_BIT;
+        histSrcStage  = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    vk_image_barrier(cb, g_pp_hist_img, g_pp_hist_layout, VK_IMAGE_LAYOUT_GENERAL,
+        histSrcAccess, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        histSrcStage, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    g_pp_hist_layout = VK_IMAGE_LAYOUT_GENERAL;
+
+    if (g_pp_dset_bound_view != srcView) {
+        VkDescriptorImageInfo imgInfo0 = { g_pp_sampler, srcView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        VkDescriptorImageInfo imgInfo1 = { VK_NULL_HANDLE, g_pp_hist_view, VK_IMAGE_LAYOUT_GENERAL };
+        VkWriteDescriptorSet writes[2] = {0};
+        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet          = g_pp_dset;
+        writes[0].dstBinding      = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].pImageInfo      = &imgInfo0;
+        writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet          = g_pp_dset;
+        writes[1].dstBinding      = 1;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].pImageInfo      = &imgInfo1;
+        vkUpdateDescriptorSets(g_dev, 2, writes, 0, NULL);
+        g_pp_dset_bound_view = srcView;
+    }
+
+    PPPushConstants pc;
+    pthread_mutex_lock(&g_pp_mu);
+    pc.sharpen    = g_pp_params.sharpen;
+    pc.denoise    = g_pp_params.denoise;
+    pc.temporal   = g_pp_params.temporal;
+    pc.gamma      = g_pp_params.gamma;
+    pc.contrast   = g_pp_params.contrast;
+    pc.saturation = g_pp_params.saturation;
+    pthread_mutex_unlock(&g_pp_mu);
+    pc.enabled = 1;
+    pc.width   = fw;
+    pc.height  = fh;
+    if (!atomic_exchange(&g_pp_primed, 1)) {
+        pc.temporal = 0.0f; // history is stale/uninitialised for this one frame
+    }
+
+    // The final blit shrinks this frame (native capture/decode resolution)
+    // down to the on-screen video rect -- often by 2x or more -- and that
+    // blit's VK_FILTER_LINEAR resampling re-blurs anything a 1-texel-radius
+    // filter changed. Widen the shader's neighbor taps by roughly the same
+    // ratio so denoise/sharpen survive the downscale instead of washing out
+    // to invisible. g_swap_ext is the whole window, not just the fitted
+    // video rect, so this slightly under-estimates the true downscale when
+    // the video is letterboxed -- fine, it only needs to be in the right
+    // ballpark, not exact.
+    int radius = 1;
+    if (g_swap_ext.width > 0 && fw > (int)g_swap_ext.width) {
+        radius = (fw + (int)g_swap_ext.width / 2) / (int)g_swap_ext.width;
+        if (radius < 1) radius = 1;
+        if (radius > 4) radius = 4;
+    }
+    pc.radius = radius;
+
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_pp_pipeline);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, g_pp_playout, 0, 1, &g_pp_dset, 0, NULL);
+    vkCmdPushConstants(cb, g_pp_playout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    uint32_t gx = (uint32_t)((fw + 7) / 8);
+    uint32_t gy = (uint32_t)((fh + 7) / 8);
+    vkCmdDispatch(cb, gx, gy, 1);
+
+    vk_image_barrier(cb, g_pp_hist_img, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    g_pp_hist_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    g_pp_dispatch_count++;
+    if (g_pp_dispatch_count == 1 || g_pp_dispatch_count % 300 == 0) {
+        VLOGI("pp: dispatch #%lld gx=%u gy=%u radius=%d swap=%ux%u src=%p srcView=%p hist=%p sharpen=%.2f denoise=%.2f temporal=%.2f",
+              (long long)g_pp_dispatch_count, gx, gy, pc.radius, g_swap_ext.width, g_swap_ext.height,
+              (void*)srcImg, (void*)srcView, (void*)g_pp_hist_img,
+              (double)pc.sharpen, (double)pc.denoise, (double)pc.temporal);
+    }
+
+    return g_pp_hist_img;
+}
+
+// vk_pp_want_process reports whether post-processing should run this frame:
+// user-enabled, compute-capable device, and both the pipeline and the
+// history image (sized for this frame) were created successfully. Never
+// touches a command buffer.
+static int vk_pp_want_process(int fw, int fh) {
+    if (!atomic_load(&g_pp_enabled)) return 0;
+    if (!vk_pp_ensure_pipeline()) return 0;
+    if (!vk_pp_ensure_history(fw, fh)) return 0;
+    return 1;
 }
 
 // ─── render one frame ─────────────────────────────────────────────────────────
@@ -809,10 +1187,21 @@ static int vk_render_frame(int fw, int fh, int fs) {
     vkCmdCopyBufferToImage(g_cmdbuf, g_stage_buf, g_tex,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bic);
 
-    vk_image_barrier(g_cmdbuf, g_tex,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // When Vulkan post-processing (denoise/sharpen/temporal/grade) is enabled
+    // from the popup, run the compute pass and blit from its output instead
+    // of the raw decoded frame. Disabled (the default) takes the exact
+    // original path -- g_tex straight to the swapchain.
+    VkImage blitSrc = g_tex;
+    if (vk_pp_want_process(fw, fh)) {
+        blitSrc = vk_pp_process(g_cmdbuf, g_tex, g_tex_view,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, fw, fh);
+    } else {
+        vk_image_barrier(g_cmdbuf, g_tex,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    }
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -873,7 +1262,7 @@ static int vk_render_frame(int fw, int fh, int fs) {
     blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
     blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
     vkCmdBlitImage(g_cmdbuf,
-        g_tex,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        blitSrc,               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
 
@@ -975,6 +1364,7 @@ static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
             vkDeviceWaitIdle(g_dev);
         }
         for (int i = 0; i < HWIMPORT_COUNT; i++) {
+            if (g_hwimport_view[i] != VK_NULL_HANDLE) { vkDestroyImageView(g_dev, g_hwimport_view[i], NULL); g_hwimport_view[i] = VK_NULL_HANDLE; }
             if (g_hwimport_img[i] != VK_NULL_HANDLE) { vkDestroyImage(g_dev, g_hwimport_img[i], NULL); g_hwimport_img[i] = VK_NULL_HANDLE; }
             if (g_hwimport_mem[i] != VK_NULL_HANDLE) { vkFreeMemory(g_dev, g_hwimport_mem[i], NULL);  g_hwimport_mem[i] = VK_NULL_HANDLE; }
             g_hwimport_src[i] = NULL;
@@ -992,6 +1382,9 @@ static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
     for (int i = 0; i < HWIMPORT_COUNT; i++) if (g_hwimport_src[i] == NULL) { slot = i; break; }
     if (slot < 0) slot = 0; // shouldn't happen (GL only ever hands back one of 2 pointers)
 
+    if (g_hwimport_view[slot] != VK_NULL_HANDLE) {
+        vkDestroyImageView(g_dev, g_hwimport_view[slot], NULL); g_hwimport_view[slot] = VK_NULL_HANDLE;
+    }
     if (g_hwimport_img[slot] != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(g_dev);
         vkDestroyImage(g_dev, g_hwimport_img[slot], NULL); g_hwimport_img[slot] = VK_NULL_HANDLE;
@@ -1074,9 +1467,35 @@ static VkImage hwimport_get_or_create(void *ahb_void, int fw, int fh) {
     g_hwimport_img[slot] = img;
     g_hwimport_mem[slot] = mem;
     g_hwimport_src[slot] = ahb_void;
+
+    // Sampled view for the post-processing compute pass (vk_pp_process). Not
+    // required for the plain blit path, so a failure here is logged but not
+    // fatal -- vk_pp_process checks for VK_NULL_HANDLE and simply falls back
+    // to the unprocessed blit for frames sourced from this slot.
+    VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    vci.image    = img;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format   = fmtProps.format;
+    vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vci.subresourceRange.levelCount = 1;
+    vci.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(g_dev, &vci, NULL, &g_hwimport_view[slot]) != VK_SUCCESS) {
+        VLOGE("hwimport: vkCreateImageView failed (slot %d), postprocessing unavailable for this slot", slot);
+        g_hwimport_view[slot] = VK_NULL_HANDLE;
+    }
+
     VLOGI("hwimport: imported AHardwareBuffer %p as %dx%d VkImage (slot %d, fmt=%d)",
           ahb_void, fw, fh, slot, (int)fmtProps.format);
     return img;
+}
+
+// hwimport_get_view returns the cached sampled VkImageView for the VkImage
+// hwimport_get_or_create most recently returned for this ahb_void, or
+// VK_NULL_HANDLE if none (import failed or the view failed to create).
+static VkImageView hwimport_get_view(void *ahb_void) {
+    for (int i = 0; i < HWIMPORT_COUNT; i++)
+        if (g_hwimport_src[i] == ahb_void) return g_hwimport_view[i];
+    return VK_NULL_HANDLE;
 }
 
 static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
@@ -1102,6 +1521,7 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
 
     VkImage srcImg = hwimport_get_or_create(ahb_void, fw, fh);
     if (srcImg == VK_NULL_HANDLE) return 0;
+    VkImageView srcView = hwimport_get_view(ahb_void);
 
     uint32_t img_idx = 0;
     VkResult res = vkAcquireNextImageKHR(g_dev, g_swap, 2000000000ULL,
@@ -1123,13 +1543,21 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     // GL already wrote (and glFinish()'d) this frame's pixels straight into
     // srcImg's backing memory -- there's nothing for us to copy in, just a
     // layout transition before reading it. Treated as UNDEFINED->TRANSFER_SRC
-    // every frame rather than tracking Vulkan-side layout across GL/Vulkan API
+    // (or UNDEFINED->SHADER_READ_ONLY when post-processing) every frame
+    // rather than tracking Vulkan-side layout across GL/Vulkan API
     // boundaries: we never write to this image via Vulkan ourselves, only
-    // ever blit-read it, so there's no prior Vulkan-tracked content to lose.
-    vk_image_barrier(g_cmdbuf, srcImg,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        0, VK_ACCESS_TRANSFER_READ_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // ever read it, so there's no prior Vulkan-tracked content to lose.
+    VkImage blitSrc = srcImg;
+    if (srcView != VK_NULL_HANDLE && vk_pp_want_process(fw, fh)) {
+        blitSrc = vk_pp_process(g_cmdbuf, srcImg, srcView,
+            VK_IMAGE_LAYOUT_UNDEFINED, 0,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, fw, fh);
+    } else {
+        vk_image_barrier(g_cmdbuf, srcImg,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    }
 
     vk_image_barrier(g_cmdbuf, g_swap_imgs[img_idx],
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1188,7 +1616,7 @@ static int vk_render_frame_hw(void *ahb_void, int fw, int fh) {
     blt.dstOffsets[0] = (VkOffset3D){dx,      dy,      0};
     blt.dstOffsets[1] = (VkOffset3D){dx + dw, dy + dh, 1};
     vkCmdBlitImage(g_cmdbuf,
-        srcImg,                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        blitSrc,               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         g_swap_imgs[img_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &blt, VK_FILTER_LINEAR);
 
@@ -1386,8 +1814,16 @@ static void *vk_render_thread(void *unused) {
                 }
             }
             if (g_rendered % 300 == 0) {
-                VLOGI("rendered %lld frames, submitted %lld, fps=%.1f",
-                      (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps);
+                int pp_on = atomic_load(&g_pp_enabled);
+                PPParams pp_snapshot;
+                pthread_mutex_lock(&g_pp_mu);
+                pp_snapshot = g_pp_params;
+                pthread_mutex_unlock(&g_pp_mu);
+                VLOGI("rendered %lld frames, submitted %lld, fps=%.1f, pp=%s (pipeline=%s sharpen=%.2f denoise=%.2f temporal=%.2f gamma=%.2f contrast=%.2f saturation=%.2f)",
+                      (long long)g_rendered, (long long)g_submitted, (double)g_stat_fps,
+                      pp_on ? "on" : "off", g_pp_pipeline != VK_NULL_HANDLE ? "ready" : "not-created",
+                      (double)pp_snapshot.sharpen, (double)pp_snapshot.denoise, (double)pp_snapshot.temporal,
+                      (double)pp_snapshot.gamma, (double)pp_snapshot.contrast, (double)pp_snapshot.saturation);
             }
         }
     }
@@ -1411,16 +1847,36 @@ static void vk_full_cleanup(void) {
         if (g_stage_buf) { vkDestroyBuffer(g_dev, g_stage_buf, NULL); g_stage_buf = VK_NULL_HANDLE; }
         if (g_stage_mem) { vkFreeMemory(g_dev, g_stage_mem, NULL);   g_stage_mem = VK_NULL_HANDLE; }
         g_stage_sz = 0;
+        if (g_tex_view) { vkDestroyImageView(g_dev, g_tex_view, NULL); g_tex_view = VK_NULL_HANDLE; }
         if (g_tex)     { vkDestroyImage(g_dev, g_tex, NULL);   g_tex     = VK_NULL_HANDLE; }
         if (g_tex_mem) { vkFreeMemory(g_dev, g_tex_mem, NULL); g_tex_mem = VK_NULL_HANDLE; }
         g_tex_w = 0; g_tex_h = 0;
         for (int i = 0; i < HWIMPORT_COUNT; i++) {
+            if (g_hwimport_view[i]) { vkDestroyImageView(g_dev, g_hwimport_view[i], NULL); g_hwimport_view[i] = VK_NULL_HANDLE; }
             if (g_hwimport_img[i]) { vkDestroyImage(g_dev, g_hwimport_img[i], NULL); g_hwimport_img[i] = VK_NULL_HANDLE; }
             if (g_hwimport_mem[i]) { vkFreeMemory(g_dev, g_hwimport_mem[i], NULL);   g_hwimport_mem[i] = VK_NULL_HANDLE; }
             g_hwimport_src[i] = NULL;
         }
         g_hwimport_w = g_hwimport_h = 0;
         g_hw_import_supported = 0;
+
+        // Post-processing objects (compute pipeline + history image). User
+        // settings in g_pp_params/g_pp_enabled deliberately survive this --
+        // reapplied automatically the next time postprocessing runs, so a
+        // reconnect doesn't silently reset the popup's sliders.
+        if (g_pp_hist_view) { vkDestroyImageView(g_dev, g_pp_hist_view, NULL); g_pp_hist_view = VK_NULL_HANDLE; }
+        if (g_pp_hist_img)  { vkDestroyImage(g_dev, g_pp_hist_img, NULL);      g_pp_hist_img  = VK_NULL_HANDLE; }
+        if (g_pp_hist_mem)  { vkFreeMemory(g_dev, g_pp_hist_mem, NULL);        g_pp_hist_mem  = VK_NULL_HANDLE; }
+        g_pp_hist_w = 0; g_pp_hist_h = 0;
+        g_pp_hist_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        g_pp_dset_bound_view = VK_NULL_HANDLE;
+        atomic_store(&g_pp_primed, 0);
+        if (g_pp_dpool)   { vkDestroyDescriptorPool(g_dev, g_pp_dpool, NULL);        g_pp_dpool   = VK_NULL_HANDLE; g_pp_dset = VK_NULL_HANDLE; }
+        if (g_pp_pipeline){ vkDestroyPipeline(g_dev, g_pp_pipeline, NULL);           g_pp_pipeline= VK_NULL_HANDLE; }
+        if (g_pp_playout) { vkDestroyPipelineLayout(g_dev, g_pp_playout, NULL);      g_pp_playout = VK_NULL_HANDLE; }
+        if (g_pp_dsl)     { vkDestroyDescriptorSetLayout(g_dev, g_pp_dsl, NULL);     g_pp_dsl     = VK_NULL_HANDLE; }
+        if (g_pp_shader)  { vkDestroyShaderModule(g_dev, g_pp_shader, NULL);         g_pp_shader  = VK_NULL_HANDLE; }
+        if (g_pp_sampler) { vkDestroySampler(g_dev, g_pp_sampler, NULL);             g_pp_sampler = VK_NULL_HANDLE; }
         if (g_img_sem) { vkDestroySemaphore(g_dev, g_img_sem, NULL); g_img_sem = VK_NULL_HANDLE; }
         if (g_rnd_sem) { vkDestroySemaphore(g_dev, g_rnd_sem, NULL); g_rnd_sem = VK_NULL_HANDLE; }
         if (g_fence)   { vkDestroyFence(g_dev, g_fence, NULL);       g_fence   = VK_NULL_HANDLE; }
@@ -1848,6 +2304,43 @@ void android_vk_get_stats(float *fps, int *fps_ready,
     if (fps_ready) *fps_ready = g_stat_ready;
     if (rendered)  *rendered  = g_rendered;
     if (submitted) *submitted = g_submitted;
+}
+
+// android_vk_set_postprocess updates the Vulkan post-processing pipeline
+// (denoise → sharpen → temporal accumulation → gamma/contrast/saturation)
+// live from the Fyne "Vulkan" popup. Safe to call from any thread at any
+// time, including before the renderer is created (settings are just cached
+// and applied to the next frame that's actually rendered). When enabled is
+// 0, the render thread takes the exact original blit-only path -- this
+// function has zero effect on latency or output until the user opts in.
+void android_vk_set_postprocess(int enabled, float sharpen, float denoise, float temporal,
+                                 float gamma, float contrast, float saturation) {
+    if (sharpen < 0.0f) sharpen = 0.0f; if (sharpen > 1.0f) sharpen = 1.0f;
+    if (denoise < 0.0f) denoise = 0.0f; if (denoise > 1.0f) denoise = 1.0f;
+    if (temporal < 0.0f) temporal = 0.0f; if (temporal > 1.0f) temporal = 1.0f;
+    if (gamma < 0.2f) gamma = 0.2f; if (gamma > 3.0f) gamma = 3.0f;
+    if (contrast < 0.0f) contrast = 0.0f; if (contrast > 2.0f) contrast = 2.0f;
+    if (saturation < 0.0f) saturation = 0.0f; if (saturation > 2.0f) saturation = 2.0f;
+
+    pthread_mutex_lock(&g_pp_mu);
+    g_pp_params.sharpen    = sharpen;
+    g_pp_params.denoise    = denoise;
+    g_pp_params.temporal   = temporal;
+    g_pp_params.gamma      = gamma;
+    g_pp_params.contrast   = contrast;
+    g_pp_params.saturation = saturation;
+    pthread_mutex_unlock(&g_pp_mu);
+
+    int wasEnabled = atomic_exchange(&g_pp_enabled, enabled ? 1 : 0);
+    if (enabled && !wasEnabled) {
+        // Fresh enable: any history image left over from a previous session
+        // at the same resolution holds a stale frame -- skip temporal blend
+        // for one frame so it can't ghost in stale content.
+        atomic_store(&g_pp_primed, 0);
+    }
+    // Nudge the render thread awake so a paused/cursor-only stream picks up
+    // the new settings immediately instead of waiting for the next real frame.
+    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
 }
 
 #endif // __ANDROID__
