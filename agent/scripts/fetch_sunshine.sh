@@ -28,7 +28,7 @@ _sunshine_repo="itsme228/Sunshine"
 # deliberately marked prerelease and excluded from /releases/latest. Do not
 # merge this default to main — revert to the last stable tag
 # (v2026.719.4.usbridge) before merging.
-export USBRIDGE_SUNSHINE_VERSION="${USBRIDGE_SUNSHINE_VERSION:-v2026.722.2-test.usbridge}"
+export USBRIDGE_SUNSHINE_VERSION="${USBRIDGE_SUNSHINE_VERSION:-v2026.722.3-test.usbridge}"
 export USBRIDGE_SUNSHINE_FORCE="${USBRIDGE_SUNSHINE_FORCE:-1}"
 
 _sunshine_require() {

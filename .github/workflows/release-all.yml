@@ -140,7 +140,7 @@ jobs:
           # instead of the default "latest" release, since it's deliberately
           # marked prerelease and excluded from /releases/latest. Do not merge
           # this env line to main.
-          USBRIDGE_SUNSHINE_VERSION: "v2026.722.2-test.usbridge"
+          USBRIDGE_SUNSHINE_VERSION: "v2026.722.3-test.usbridge"
         run: ./scripts/build_macos.sh
 
       - name: Notarize macOS app archive
