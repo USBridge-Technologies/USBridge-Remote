@@ -47,9 +47,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strings"
-
-	"usbridge_agent/internal/sunshine"
 )
 
 type Service struct{}
@@ -60,37 +57,20 @@ func (s *Service) AccessibilityGranted() bool {
 	return C.usbridge_accessibility_trusted() != 0
 }
 
-// ScreenRecordingGranted returns true only when both USBridgeAgent (for
-// screencapture snapshots) and Sunshine (for actual video streaming) have
-// screen recording permission. Sunshine's status is detected by reading its
-// log: if the most recent startup contains "No screen capture permission"
-// then Sunshine was denied and we report false so the UI shows ❌.
+// ScreenRecordingGranted reports whether USBridgeAgent has screen recording
+// access. It used to also cross-check Sunshine's own log for "No screen
+// capture permission" (sunshineHasScreenCapture, now removed) on the theory
+// that Sunshine needed an independent grant — but tccd's own logs show
+// kTCCServiceScreenCapture is attributed to USBridgeAgent (the "responsible"
+// process), the same finding behind CameraGranted, so that check was
+// redundant. Worse, it was actively wrong in practice: sunshine.log is
+// written through a buffered sink that Sunshine's process routinely gets
+// killed/restarted before flushing, so it can sit stuck on a stale, long-past
+// session (sometimes still showing an old denial) for hours after the real
+// grant succeeded — which showed the ❌/Request button even while capture
+// was actively working.
 func (s *Service) ScreenRecordingGranted() bool {
-	if C.usbridge_screen_recording_granted() == 0 {
-		return false
-	}
-	return sunshineHasScreenCapture()
-}
-
-// sunshineHasScreenCapture reads Sunshine's log and checks whether the most
-// recent Sunshine startup succeeded in getting screen capture access.
-// Returns true (optimistic) if the log is absent or contains no startup yet.
-func sunshineHasScreenCapture() bool {
-	logPath := sunshine.LogPath()
-	if logPath == "" {
-		return true
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		return true // Sunshine hasn't started yet
-	}
-	content := string(data)
-	// Find the last startup entry so we only check the current session.
-	lastStart := strings.LastIndex(content, "Sunshine version:")
-	if lastStart == -1 {
-		lastStart = 0
-	}
-	return !strings.Contains(content[lastStart:], "No screen capture permission")
+	return C.usbridge_screen_recording_granted() != 0
 }
 
 func (s *Service) RequestAccessibility() bool {
@@ -142,22 +122,18 @@ func (s *Service) OpenScreenRecordingSettings() error {
 	).Run()
 }
 
-// CameraGranted reports whether the camera TCC grant USBridgeAgent and
-// Sunshine share is in place. Despite Sunshine being the process that
-// actually opens the camera, macOS's hardened-runtime "responsible process"
-// resolution attributes the kTCCServiceCamera check to USBridgeAgent (its
-// parent, launched via plain exec rather than Launch Services) — confirmed
-// via tccd's own logs — so usbridge_camera_authorized() (querying this
-// process's own AVFoundation authorization status) is authoritative, the
-// same way usbridge_screen_recording_granted() is for screen capture.
-// sunshineHasCameraCapture() is kept as a second, independent signal in case
-// Sunshine still fails to open the camera for some other reason (in use by
-// another app, hardware fault, etc.) even once authorized.
+// CameraGranted reports whether USBridgeAgent has camera access. Despite
+// Sunshine being the process that actually opens the camera, macOS's
+// hardened-runtime "responsible process" resolution attributes the
+// kTCCServiceCamera check to USBridgeAgent (its parent, launched via plain
+// exec rather than Launch Services) — confirmed via tccd's own logs — so
+// usbridge_camera_authorized() (querying this process's own AVFoundation
+// authorization status) is authoritative on its own; no need to also
+// cross-check Sunshine's log (see ScreenRecordingGranted's doc comment for
+// why that log is unreliable — same buffered-sink-never-flushes issue would
+// apply here too).
 func (s *Service) CameraGranted() bool {
-	if C.usbridge_camera_authorized() == 0 {
-		return false
-	}
-	return sunshineHasCameraCapture()
+	return C.usbridge_camera_authorized() != 0
 }
 
 // RequestCamera requests camera access for USBridgeAgent itself. Because TCC
@@ -167,23 +143,6 @@ func (s *Service) CameraGranted() bool {
 // immediately if a decision already exists from a prior run).
 func (s *Service) RequestCamera() bool {
 	return C.usbridge_request_camera() != 0
-}
-
-func sunshineHasCameraCapture() bool {
-	logPath := sunshine.LogPath()
-	if logPath == "" {
-		return true
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		return true
-	}
-	content := string(data)
-	lastStart := strings.LastIndex(content, "Sunshine version:")
-	if lastStart == -1 {
-		lastStart = 0
-	}
-	return !strings.Contains(content[lastStart:], "Camera setup failed")
 }
 
 // OpenCameraSettings opens the Camera privacy pane directly — used as a
