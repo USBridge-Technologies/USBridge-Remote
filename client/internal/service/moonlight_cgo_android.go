@@ -466,13 +466,29 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cfg.audioConfiguration     = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats  = videoFmt;
     cfg.clientRefreshRateX100  = fps * 100;
-    cfg.encryptionFlags        = ENCFLG_NONE;
+    // Opt into audio encryption exactly like the official Moonlight clients do
+    // (moonlight-android/moonlight-qt default to ENCFLG_AUDIO). Hosts that
+    // require encrypted audio turn it on regardless of this flag, so leaving it
+    // at ENCFLG_NONE only ever led to a negotiation mismatch, never to plaintext
+    // audio we could actually play.
+    cfg.encryptionFlags        = ENCFLG_AUDIO;
     if (key) {
         memcpy(cfg.remoteInputAesKey, key, 16);
-        cfg.remoteInputAesIv[0] = (char)( kid        & 0xff);
-        cfg.remoteInputAesIv[1] = (char)((kid >>  8) & 0xff);
-        cfg.remoteInputAesIv[2] = (char)((kid >> 16) & 0xff);
-        cfg.remoteInputAesIv[3] = (char)((kid >> 24) & 0xff);
+        // remoteInputAesIv holds the rikeyid in BIG-endian (network) byte
+        // order — that is what we sent as "rikeyid" in /launch and what
+        // AudioStream.c reads back via BE32() to build the per-packet audio
+        // AES-CBC IV. Writing it little-endian made the client's IV differ from
+        // the host's, and because CBC only feeds the IV into the *first* block,
+        // every audio packet decrypted with a corrupted first 16 bytes (the
+        // Opus TOC byte) and an otherwise intact tail: opus_multistream_decode
+        // still returned "success" but played garbled/alien noise. Video was
+        // unaffected (unencrypted) and remote input was unaffected too (the
+        // Sunshine control stream derives its own GCM IV from the sequence
+        // number), which is why only audio was broken.
+        cfg.remoteInputAesIv[0] = (char)((kid >> 24) & 0xff);
+        cfg.remoteInputAesIv[1] = (char)((kid >> 16) & 0xff);
+        cfg.remoteInputAesIv[2] = (char)((kid >>  8) & 0xff);
+        cfg.remoteInputAesIv[3] = (char)( kid        & 0xff);
     }
 
     DECODER_RENDERER_CALLBACKS dr;

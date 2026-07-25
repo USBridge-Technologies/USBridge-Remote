@@ -455,13 +455,20 @@ static int do_li_start(
     cfg.packetSize = 1200; cfg.streamingRemotely = STREAM_CFG_AUTO;
     cfg.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats = videoFormat ? videoFormat : VIDEO_FORMAT_H264;
-    cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_NONE;
+    // ENCFLG_AUDIO matches the official Moonlight clients' default.
+    cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_AUDIO;
     if (rikey) {
         memcpy(cfg.remoteInputAesKey, rikey, 16);
-        cfg.remoteInputAesIv[0] = (char)( rikeyid        & 0xff);
-        cfg.remoteInputAesIv[1] = (char)((rikeyid >>  8) & 0xff);
-        cfg.remoteInputAesIv[2] = (char)((rikeyid >> 16) & 0xff);
-        cfg.remoteInputAesIv[3] = (char)((rikeyid >> 24) & 0xff);
+        // remoteInputAesIv holds the rikeyid in BIG-endian (network) byte order —
+        // that is what we sent as "rikeyid" in /launch and what AudioStream.c
+        // reads back via BE32() to build the per-packet audio AES-CBC IV.
+        // Writing it little-endian corrupted the first 16 bytes (including the
+        // Opus TOC byte) of every decrypted audio packet, producing garbled
+        // audio while decode still reported success.
+        cfg.remoteInputAesIv[0] = (char)((rikeyid >> 24) & 0xff);
+        cfg.remoteInputAesIv[1] = (char)((rikeyid >> 16) & 0xff);
+        cfg.remoteInputAesIv[2] = (char)((rikeyid >>  8) & 0xff);
+        cfg.remoteInputAesIv[3] = (char)( rikeyid        & 0xff);
     }
 
     DECODER_RENDERER_CALLBACKS dr; LiInitializeVideoCallbacks(&dr);
