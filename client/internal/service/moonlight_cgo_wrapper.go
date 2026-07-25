@@ -14,6 +14,7 @@ extern int do_li_start(
     int width, int height, int fps, int bitrate,
     const unsigned char *rikey, int rikeyid, int pipeFd);
 extern void do_li_stop(void);
+extern void do_li_interrupt(void);
 extern void set_audio_pipe_fd(int fd);
 extern void set_audio_muted(int muted);
 extern void do_send_key(short vkCode, char action, char modifiers);
@@ -74,11 +75,27 @@ var (
 // detect whether it is still the "current" stream before touching shared state.
 var (
 	liStreamMu  sync.Mutex
+	liStartMu   sync.Mutex // Ensures C.do_li_start is never executed concurrently
 	liStreamGen atomic.Uint64
 )
 
 func closeActiveStreamDone() {
 	activeStreamOnce.Do(func() { close(activeStreamDone) })
+}
+
+// stopConnectionSafely tears down the current connection without racing an
+// in-flight LiStartConnection() on another goroutine. LiStartConnection()
+// and LiStopConnection() are documented (Limelight.h) as NOT safe to call
+// concurrently with each other -- only LiInterruptConnection() is safe to
+// call at any time. Interrupting first unblocks any in-progress
+// LiStartConnection() quickly, then waiting on liStartMu guarantees
+// do_li_start has fully returned before do_li_stop() touches
+// moonlight-common-c's shared static state.
+func stopConnectionSafely() {
+	C.do_li_interrupt()
+	liStartMu.Lock()
+	defer liStartMu.Unlock()
+	C.do_li_stop()
 }
 
 // MoonlightCgoWrapper wraps LiStartConnection from moonlight-common-c.
@@ -113,7 +130,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
 	// static state and causes SIGSEGV.
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
@@ -151,6 +168,15 @@ func (w *MoonlightCgoWrapper) StartStream(
 			C.set_audio_pipe_fd(C.int(audioPipeWrite.Fd()))
 		}
 
+		liStartMu.Lock()
+		// If another StartStream or StopStream occurred while we waited for
+		// the lock, abort this stale attempt.
+		if liStreamGen.Load() != myGen {
+			liStartMu.Unlock()
+			logrus.Info("🌕 [Moonlight/CGO] Aborting stale stream start")
+			return
+		}
+
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
 			C.int(serverCodecModeSupport), C.int(videoFormat),
@@ -158,6 +184,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 			cRikey, C.int(1),
 			pipeFd,
 		)
+		liStartMu.Unlock()
 
 		if int(ret) != 0 {
 			logrus.Errorf("🌕 [Moonlight/CGO] LiStartConnection FAILED: code=%d", int(ret))
@@ -191,7 +218,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// Call LiStopConnection under the mutex so that the next StartStream
 		// cannot call LiStartConnection until this stop is fully complete.
 		liStreamMu.Lock()
-		C.do_li_stop()
+		stopConnectionSafely()
 		liStreamMu.Unlock()
 
 		C.set_audio_pipe_fd(-1)
@@ -223,7 +250,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 func (w *MoonlightCgoWrapper) StopStream() {
 	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping")
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		closeActiveStreamDone()

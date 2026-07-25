@@ -591,6 +591,24 @@ func closeActiveStreamDone() {
 	activeStreamOnce.Do(func() { close(activeStreamDone) })
 }
 
+// stopConnectionSafely tears down the current connection without racing an
+// in-flight LiStartConnection() on another goroutine. LiStartConnection()
+// and LiStopConnection() are documented (Limelight.h) as NOT safe to call
+// concurrently with each other -- only LiInterruptConnection() is safe to
+// call at any time. liStreamMu alone does not prevent this race: do_li_start
+// runs under the separate liStartMu while holding liStreamMu only briefly
+// (or not at all, in the deferred-stop path), so a concurrent do_li_stop()
+// under liStreamMu could still overlap a do_li_start() in flight elsewhere.
+// Interrupting first unblocks any in-progress LiStartConnection() quickly,
+// then waiting on liStartMu guarantees do_li_start has fully returned before
+// do_li_stop() touches moonlight-common-c's shared static state.
+func stopConnectionSafely() {
+	C.do_li_interrupt()
+	liStartMu.Lock()
+	defer liStartMu.Unlock()
+	C.do_li_stop()
+}
+
 type MoonlightCgoWrapper struct {
 	host       string
 	audioMuted bool
@@ -617,7 +635,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
 	// static state and causes SIGSEGV.
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
@@ -690,7 +708,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// Call LiStopConnection under the mutex so that the next StartStream
 		// cannot call LiStartConnection until this stop is fully complete.
 		liStreamMu.Lock()
-		C.do_li_stop()
+		stopConnectionSafely()
 		liStreamMu.Unlock()
 
 		// Only clear shared state if we are still the current generation;
@@ -713,9 +731,8 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	logrus.Info("🌕 [Moonlight/CGO/Win] StopStream: stopping")
-	C.do_li_interrupt()
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		closeActiveStreamDone()

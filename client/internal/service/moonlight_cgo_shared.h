@@ -248,6 +248,13 @@ void do_li_stop(void) {
     platform_post_stop();
 }
 
+// Safe to call at any time, including while a LiStartConnection() is in
+// flight on another thread (unlike do_li_stop/LiStopConnection, which is
+// documented as not safe to call concurrently with LiStartConnection).
+void do_li_interrupt(void) {
+    LiInterruptConnection();
+}
+
 // ── Input forwarders ──────────────────────────────────────────────────────────
 
 void do_send_key(short vkCode, char action, char modifiers) {
