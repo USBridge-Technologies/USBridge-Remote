@@ -674,9 +674,15 @@ func (w *MoonlightCgoWrapper) StartStream(
 		}
 
 		logrus.Info("🌕 [Moonlight/CGO/Win] ✅ streams active")
-		if liStreamGen.Load() == myGen {
-			liStartConnectionActive.Store(true)
-		}
+		// Unconditionally true -- see the Android cgo file's identical fix
+		// for why gating this the same way as the generation-checked reset
+		// below caused a real bug: under reconnect races this branch could
+		// run for a stale generation and skip the store, leaving
+		// IsInputActive() stuck false (and every mouse/keyboard send, all
+		// gated on it, silently dropped) even though video/audio kept
+		// streaming fine. This goroutine's own do_li_start really did just
+		// succeed, so the store is always correct and idempotent here.
+		liStartConnectionActive.Store(true)
 
 		<-activeStreamDone
 
