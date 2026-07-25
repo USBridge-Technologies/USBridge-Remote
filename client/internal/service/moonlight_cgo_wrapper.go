@@ -274,7 +274,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifi
 		logrus.Warnf("🌕 [Moonlight/CGO] SendMoonlightKey failed: liStartConnectionActive is false")
 		return
 	}
-	logrus.Infof("🌕 [Moonlight/CGO] SendMoonlightKey vkCode=0x%04X action=%d modifiers=%d", uint16(vkCode), action, modifiers)
+	logrus.Debugf("🌕 [Moonlight/CGO] SendMoonlightKey vkCode=0x%04X action=%d modifiers=%d", uint16(vkCode), action, modifiers)
 	C.do_send_key(C.short(vkCode), C.char(action), C.char(modifiers))
 }
 

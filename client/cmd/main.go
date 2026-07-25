@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -46,6 +48,7 @@ func main() {
 	}
 
 	setupLogging(*logLevel)
+	startPprofIfEnabled()
 
 	logrus.Infof("Starting %s version %s", appName, version)
 
@@ -65,6 +68,23 @@ func main() {
 
 	logrus.Info("Starting GUI")
 	mainWindow.Show()
+}
+
+// startPprofIfEnabled starts a loopback-only net/http/pprof server when
+// USBRIDGE_PPROF_ADDR is set (e.g. "127.0.0.1:6060"), for profiling freezes
+// with `go tool pprof http://127.0.0.1:6060/debug/pprof/profile?seconds=10`
+// or capturing a goroutine dump mid-stutter via /debug/pprof/goroutine.
+func startPprofIfEnabled() {
+	addr := os.Getenv("USBRIDGE_PPROF_ADDR")
+	if addr == "" {
+		return
+	}
+	go func() {
+		logrus.Warnf("pprof debug server listening on http://%s/debug/pprof/", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			logrus.Errorf("pprof server failed: %v", err)
+		}
+	}()
 }
 
 func setupLogging(level string) {

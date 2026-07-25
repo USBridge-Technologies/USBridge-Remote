@@ -123,7 +123,7 @@ func (vw *VideoWidget) releaseAllMoonlightKeys() {
 	if mi != nil {
 		mods := widgetToMoonlightModifiers(int(vw.keyboardModifierState.Load()))
 		for vkCode := range vw.moonlightHeldVKs {
-			mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods)
+			vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
 		}
 	}
 	vw.moonlightHeldVKs = nil
@@ -134,26 +134,27 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
-	logrus.Infof("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
+	logrus.Debugf("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
 		for {
 			current := vw.keyboardModifierState.Load()
 			next := current | mask
 			if vw.keyboardModifierState.CompareAndSwap(current, next) {
-				logrus.Infof("⌨️ [INPUT][DOWN] modifiers=%d", next)
+				logrus.Debugf("⌨️ [INPUT][DOWN] modifiers=%d", next)
 				break
 			}
 		}
 	}
 	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
+			mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
 			if vw.moonlightTrackKeyDown(vkCode) {
 				// Fyne dropped the preceding KeyUp — key is stuck on the remote.
 				// Send a synthetic release so Sunshine/HID clears it before the new press.
 				logrus.Warnf("⌨️ [INPUT][DOWN] vk=0x%04X re-press without release — auto-releasing stuck key", uint16(vkCode))
-				mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
+				vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
 			}
-			mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, widgetToMoonlightModifiers(vw.currentHIDModifiers()))
+			vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionDown, mods) })
 		}
 	}
 }
@@ -162,13 +163,13 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
-	logrus.Infof("⌨️ [INPUT][UP] key=%q physical=%+v", event.Name, event.Physical)
+	logrus.Debugf("⌨️ [INPUT][UP] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
 		for {
 			current := vw.keyboardModifierState.Load()
 			next := current &^ mask
 			if vw.keyboardModifierState.CompareAndSwap(current, next) {
-				logrus.Infof("⌨️ [INPUT][UP] modifiers=%d", next)
+				logrus.Debugf("⌨️ [INPUT][UP] modifiers=%d", next)
 				break
 			}
 		}
@@ -185,10 +186,10 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 	}
 
 	mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
-	logrus.Infof("⌨️ [INPUT][UP] Moonlight sending vkCode=0x%04X, action=%d, mods=0x%02X", uint16(vkCode), service.LiKeyActionUp, uint8(mods))
+	logrus.Debugf("⌨️ [INPUT][UP] Moonlight sending vkCode=0x%04X, action=%d, mods=0x%02X", uint16(vkCode), service.LiKeyActionUp, uint8(mods))
 
 	vw.moonlightTrackKeyUp(vkCode)
-	mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods)
+	vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
 }
 
 // moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
@@ -334,8 +335,8 @@ func (vw *VideoWidget) handleVirtualKeyPress(keyCode int, modifiers int) {
 		return
 	}
 	moonlightMods := widgetToMoonlightModifiers(modifiers)
-	mi.SendMoonlightKey(vk, service.LiKeyActionDown, moonlightMods)
-	mi.SendMoonlightKey(vk, service.LiKeyActionUp, moonlightMods)
+	vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionDown, moonlightMods) })
+	vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionUp, moonlightMods) })
 }
 
 // startDesktopMousePolling starts the polling goroutine for smooth mouse control.
@@ -811,9 +812,9 @@ func (vw *VideoWidget) sendAbsoluteEventLocked(x, y int, scroll int) {
 		if cnt == 1 || cnt%100 == 0 {
 			logrus.Infof("🖱️ [Mouse] → LiSendMousePositionEvent cnt=%d x=%d y=%d active=%v", cnt, x, y, mi.IsInputActive())
 		}
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
 		if scroll != 0 {
-			mi.SendMoonlightScroll(int8(scroll))
+			vw.enqueueSend(func() { mi.SendMoonlightScroll(int8(scroll)) })
 		}
 	}
 }
@@ -842,8 +843,9 @@ func (vw *VideoWidget) PressAbsoluteButton(button int, x, y int) {
 		// Send button BEFORE position so the EV_SYN from the position event carries
 		// the updated button state. If position comes first, the button EV_SYN has
 		// no EV_ABS data and bridgeAbsMouse discards it (hasX/hasY both false).
-		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, absoluteButtonToMoonlight(button))
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		moonlightBtn := absoluteButtonToMoonlight(button)
+		vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return
@@ -855,8 +857,9 @@ func (vw *VideoWidget) ReleaseAbsoluteButton(button int, x, y int) {
 	defer vw.absSendMu.Unlock()
 	vw.updateAbsoluteButtonLocked(button, false)
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
-		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, absoluteButtonToMoonlight(button))
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		moonlightBtn := absoluteButtonToMoonlight(button)
+		vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return
@@ -868,16 +871,16 @@ func (vw *VideoWidget) ReleaseAllAbsoluteButtons(x, y int) {
 	defer vw.absSendMu.Unlock()
 	if mi := vw.moonlightInput(); mi != nil && mi.IsInputActive() {
 		if vw.absButtons&0x01 != 0 {
-			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonLeft)
+			vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonLeft) })
 		}
 		if vw.absButtons&0x02 != 0 {
-			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonRight)
+			vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonRight) })
 		}
 		if vw.absButtons&0x04 != 0 {
-			mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonMiddle)
+			vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, service.LiMouseButtonMiddle) })
 		}
 		vw.absButtons = 0
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return
@@ -892,10 +895,10 @@ func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 		moonlightBtn := absoluteButtonToMoonlight(button)
 		// Press then position (so position EV_SYN carries button=pressed),
 		// then release then position (EV_SYN carries button=released).
-		mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
-		mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
-		mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767)
+		vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
+		vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
+		vw.enqueueSend(func() { mi.SendMoonlightMousePosition(int16(x), int16(y), 32767, 32767) })
 		vw.lastAbsX = x
 		vw.lastAbsY = y
 		return
@@ -1014,7 +1017,12 @@ func (vw *VideoWidget) UpdateTouchpadAndContentRect(w, h float32, frame image.Im
 		vw.baseContentRectH = h
 	}
 	vw.recalculateViewport()
-	logrus.Infof("[ABS] UpdateTouchpadAndContentRect: touchpad=%.0fx%.0f img=%.0fx%.0f base=%.0fx%.0f standalone=%.0fx%.0f → contentRect=(%.1f,%.1f,%.1f,%.1f)",
+	// This runs on the UI goroutine on every widget Refresh/Layout — i.e. once
+	// per rendered video frame (see touchpadRenderer.Refresh in
+	// video_mouse_handler.go) — so an unconditional Info-level log here was a
+	// synchronous logcat/file write on every single frame, competing with
+	// actual layout work. Debug-gate it like the rest of the per-frame paths.
+	logrus.Debugf("[ABS] UpdateTouchpadAndContentRect: touchpad=%.0fx%.0f img=%.0fx%.0f base=%.0fx%.0f standalone=%.0fx%.0f → contentRect=(%.1f,%.1f,%.1f,%.1f)",
 		w, h, imgW, imgH, vw.baseContentRectW, vw.baseContentRectH,
 		vw.standaloneVKScreenDpW, vw.standaloneVKScreenDpH,
 		vw.contentRectX, vw.contentRectY, vw.contentRectW, vw.contentRectH)
