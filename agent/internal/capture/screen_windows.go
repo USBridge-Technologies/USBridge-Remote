@@ -65,17 +65,12 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 				name = d.DisplayName
 			}
 			out = append(out, api.VideoDeviceInfo{
-				Path:      fmt.Sprintf("winid:%s", d.DeviceID),
-				Name:      fmt.Sprintf("%s (%dx%d)", name, d.Info.Resolution.Width, d.Info.Resolution.Height),
-				Bus:       "dxgi",
-				Index:     i,
-				Connected: true,
-				SupportedModes: []api.VideoCaptureMode{{
-					Width:       d.Info.Resolution.Width,
-					Height:      d.Info.Resolution.Height,
-					FPS:         standardFPS,
-					PixelFormat: "BGRA",
-				}},
+				Path:           fmt.Sprintf("winid:%s", d.DeviceID),
+				Name:           fmt.Sprintf("%s (%dx%d)", name, d.Info.Resolution.Width, d.Info.Resolution.Height),
+				Bus:            "dxgi",
+				Index:          i,
+				Connected:      true,
+				SupportedModes: ModesForResolution(d.Info.Resolution.Width, d.Info.Resolution.Height),
 			})
 		}
 		return out

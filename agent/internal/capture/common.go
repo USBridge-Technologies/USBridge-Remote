@@ -52,7 +52,13 @@ func GetDisplayModes(index int) []api.VideoCaptureMode {
 	if nativeW <= 0 || nativeH <= 0 {
 		return GetCommonModes()
 	}
+	return ModesForResolution(nativeW, nativeH)
+}
 
+// ModesForResolution returns the standard resolution ladder filtered to those
+// that fit within the given native resolution, with the native resolution
+// itself included (prepended if it isn't already one of the standard sizes).
+func ModesForResolution(nativeW, nativeH int) []api.VideoCaptureMode {
 	var modes []api.VideoCaptureMode
 	for _, r := range standardResolutions {
 		if r.w <= nativeW && r.h <= nativeH {
