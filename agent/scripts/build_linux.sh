@@ -36,14 +36,7 @@ case "$STREAMER" in
 esac
 
 GO_TAGS=()
-if [[ "$STREAMER" == "rustshine" ]]; then
-    if [[ ! -f "$REPO_ROOT/internal/streamhost/factory_rustshine.go" ]]; then
-        echo -e "${RED}-streamer rustshine requested, but internal/streamhost/factory_rustshine.go is missing.${NC}"
-        echo "This open-source repo only ships the Sunshine backend — rustshine's Backend implementation lives in the private fork."
-        exit 1
-    fi
-    GO_TAGS=(-tags rustshine)
-fi
+[[ "$STREAMER" == "rustshine" ]] && GO_TAGS=(-tags rustshine)
 
 echo -e "${GREEN}Building usbridge_agent for Linux (streamer=$STREAMER)${NC}"
 
@@ -62,9 +55,12 @@ echo -e "${YELLOW}Compiling agent...${NC}"
 go build -trimpath "${GO_TAGS[@]}" -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
 chmod +x "$OUTPUT_PATH"
 
-if [[ "$STREAMER" != "sunshine" ]]; then
-    echo -e "${YELLOW}streamer=$STREAMER — skipping Sunshine/AppImage packaging (not implemented in this repo).${NC}"
+if [[ "$STREAMER" == "rustshine" ]]; then
+    source "$SCRIPT_DIR/fetch_rustshine.sh"
+    fetch_rustshine_linux "$DIST_DIR/rustshine"
+    echo -e "${YELLOW}streamer=rustshine — skipping the Sunshine-specific AppImage packaging below (bundling/branding for this streamer isn't implemented in these scripts yet).${NC}"
     echo "Binary: $OUTPUT_PATH"
+    echo "gamestream-server: $DIST_DIR/rustshine/gamestream-server"
     exit 0
 fi
 

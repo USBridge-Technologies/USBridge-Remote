@@ -42,14 +42,7 @@ case "$STREAMER" in
 esac
 
 GO_TAGS=()
-if [[ "$STREAMER" == "rustshine" ]]; then
-    if [[ ! -f "$REPO_ROOT/internal/streamhost/factory_rustshine.go" ]]; then
-        echo -e "${RED}-streamer rustshine requested, but internal/streamhost/factory_rustshine.go is missing.${NC}"
-        echo "This open-source repo only ships the Sunshine backend — rustshine's Backend implementation lives in the private fork."
-        exit 1
-    fi
-    GO_TAGS=(-tags rustshine)
-fi
+[[ "$STREAMER" == "rustshine" ]] && GO_TAGS=(-tags rustshine)
 
 echo -e "${GREEN}Building usbridge_agent for Windows (MSYS2 UCRT64, streamer=$STREAMER)${NC}"
 
@@ -289,12 +282,13 @@ else
     echo "   Install: pacman -S --needed mingw-w64-ucrt-x86_64-binutils"
 fi
 
-# ── Sunshine (Moonlight GameStream host) ──────────────────────────────────────
+# ── Streaming host (Sunshine or rust-shine) ───────────────────────────────────
 if [[ "$STREAMER" == "sunshine" ]]; then
     source "$SCRIPT_DIR/fetch_sunshine.sh"
     fetch_sunshine_windows "$DIST_DIR/sunshine"
 else
-    echo -e "${YELLOW}streamer=$STREAMER — skipping Sunshine bundling (not implemented in this repo).${NC}"
+    source "$SCRIPT_DIR/fetch_rustshine.sh"
+    fetch_rustshine_windows "$DIST_DIR/rustshine"
 fi
 
 # ── Tailscale + wintun.dll ────────────────────────────────────────────────────

@@ -40,14 +40,7 @@ case "$STREAMER" in
 esac
 
 GO_TAGS=()
-if [[ "$STREAMER" == "rustshine" ]]; then
-    if [[ ! -f "$REPO_ROOT/internal/streamhost/factory_rustshine.go" ]]; then
-        echo -e "${RED}-streamer rustshine requested, but internal/streamhost/factory_rustshine.go is missing.${NC}"
-        echo "This open-source repo only ships the Sunshine backend — rustshine's Backend implementation lives in the private fork."
-        exit 1
-    fi
-    GO_TAGS=(-tags rustshine)
-fi
+[[ "$STREAMER" == "rustshine" ]] && GO_TAGS=(-tags rustshine)
 
 # create_dmg_with_drag_layout <volname> <src_dir> <output_dmg> <app_bundle_name>
 # Builds a DMG with the classic drag-to-Applications Finder window: app icon
@@ -169,12 +162,13 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 PLIST
 sed -i '' "s/__VERSION__/$VERSION/g" "$APP_CONTENTS/Info.plist"
 
-# Bundle Sunshine before signing — adding files after signing breaks the seal.
+# Bundle the streaming host before signing — adding files after signing breaks the seal.
 if [[ "$STREAMER" == "sunshine" ]]; then
     source "$SCRIPT_DIR/fetch_sunshine.sh"
     fetch_sunshine_macos "$APP_MACOS/sunshine"
 else
-    echo -e "${YELLOW}streamer=$STREAMER — skipping Sunshine bundling (not implemented in this repo).${NC}"
+    source "$SCRIPT_DIR/fetch_rustshine.sh"
+    fetch_rustshine_macos "$APP_MACOS/rustshine"
 fi
 
 # Bundle Tailscale CLI (statically linked Go binary — no dylib deps to walk).
