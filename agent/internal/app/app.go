@@ -163,7 +163,7 @@ func New() (*App, error) {
 	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
 	// --headless engine never touches Fyne at all, so it never needs a
 	// display connection (see Run).
-	instance.stream = streamhost.NewSunshine(resolveExeDir(), cfg.StateDir, filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.stream = streamhost.NewDefault(resolveExeDir(), cfg.StateDir, filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	instance.screen = capture.New(instance.stream)
 	instance.syncSunshineCapExec()
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
