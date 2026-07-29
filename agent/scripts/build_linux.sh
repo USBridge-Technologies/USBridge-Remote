@@ -17,7 +17,35 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}Building usbridge_agent for Linux${NC}"
+# ── -streamer sunshine|rustshine (default: sunshine) ─────────────────────────
+# Selects which streamhost.Backend implementation gets compiled in via the Go
+# build tag of the same name (see internal/streamhost/factory_default.go).
+# This open-source repo only ships the Sunshine backend; rustshine only
+# builds if a sibling checkout has added its own factory_rustshine.go.
+STREAMER="sunshine"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -streamer|--streamer) STREAMER="$2"; shift 2 ;;
+        -streamer=*|--streamer=*) STREAMER="${1#*=}"; shift ;;
+        *) echo -e "${RED}Unknown argument: $1${NC}" >&2; exit 1 ;;
+    esac
+done
+case "$STREAMER" in
+    sunshine|rustshine) ;;
+    *) echo -e "${RED}Unknown -streamer '$STREAMER' (expected sunshine|rustshine)${NC}" >&2; exit 1 ;;
+esac
+
+GO_TAGS=()
+if [[ "$STREAMER" == "rustshine" ]]; then
+    if [[ ! -f "$REPO_ROOT/internal/streamhost/factory_rustshine.go" ]]; then
+        echo -e "${RED}-streamer rustshine requested, but internal/streamhost/factory_rustshine.go is missing.${NC}"
+        echo "This open-source repo only ships the Sunshine backend — rustshine's Backend implementation lives in the private fork."
+        exit 1
+    fi
+    GO_TAGS=(-tags rustshine)
+fi
+
+echo -e "${GREEN}Building usbridge_agent for Linux (streamer=$STREAMER)${NC}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo -e "${YELLOW}Warning: This script is intended to run on Linux.${NC}"
@@ -31,8 +59,14 @@ export GOOS=linux
 export GOARCH=amd64
 
 echo -e "${YELLOW}Compiling agent...${NC}"
-go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
+go build -trimpath "${GO_TAGS[@]}" -ldflags "-s -w -X main.version=$VERSION" -o "$OUTPUT_PATH" "$BUILD_PKG"
 chmod +x "$OUTPUT_PATH"
+
+if [[ "$STREAMER" != "sunshine" ]]; then
+    echo -e "${YELLOW}streamer=$STREAMER — skipping Sunshine/AppImage packaging (not implemented in this repo).${NC}"
+    echo "Binary: $OUTPUT_PATH"
+    exit 0
+fi
 
 # sunshine_capexec: a tiny, fully static (CGO_ENABLED=0 — zero dynamic deps)
 # launcher that carries the CAP_SYS_ADMIN file capability for Sunshine's KMS

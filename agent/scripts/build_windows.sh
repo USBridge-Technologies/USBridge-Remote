@@ -23,7 +23,35 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}Building usbridge_agent for Windows (MSYS2 UCRT64)${NC}"
+# ── -streamer sunshine|rustshine (default: sunshine) ─────────────────────────
+# Selects which streamhost.Backend implementation gets compiled in via the Go
+# build tag of the same name (see internal/streamhost/factory_default.go).
+# This open-source repo only ships the Sunshine backend; rustshine only
+# builds if a sibling checkout has added its own factory_rustshine.go.
+STREAMER="sunshine"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -streamer|--streamer) STREAMER="$2"; shift 2 ;;
+        -streamer=*|--streamer=*) STREAMER="${1#*=}"; shift ;;
+        *) echo -e "${RED}Unknown argument: $1${NC}" >&2; exit 1 ;;
+    esac
+done
+case "$STREAMER" in
+    sunshine|rustshine) ;;
+    *) echo -e "${RED}Unknown -streamer '$STREAMER' (expected sunshine|rustshine)${NC}" >&2; exit 1 ;;
+esac
+
+GO_TAGS=()
+if [[ "$STREAMER" == "rustshine" ]]; then
+    if [[ ! -f "$REPO_ROOT/internal/streamhost/factory_rustshine.go" ]]; then
+        echo -e "${RED}-streamer rustshine requested, but internal/streamhost/factory_rustshine.go is missing.${NC}"
+        echo "This open-source repo only ships the Sunshine backend — rustshine's Backend implementation lives in the private fork."
+        exit 1
+    fi
+    GO_TAGS=(-tags rustshine)
+fi
+
+echo -e "${GREEN}Building usbridge_agent for Windows (MSYS2 UCRT64, streamer=$STREAMER)${NC}"
 
 if [[ "${OS:-}" != "Windows_NT" ]] && [[ "$(uname -s 2>/dev/null || true)" != MINGW* ]] && [[ "$(uname -s 2>/dev/null || true)" != MSYS* ]]; then
     echo -e "${RED}Этот скрипт рассчитан на запуск в Windows/MSYS2 UCRT64${NC}"
@@ -137,7 +165,7 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui} -X main.version=$VERSION"
 
 echo -e "${YELLOW}Compiling...${NC}"
-go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
+go build -trimpath "${GO_TAGS[@]}" -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
 # ── DLL utilities ─────────────────────────────────────────────────────────────
 OBJDUMP_BIN="${OBJDUMP_BIN:-}"
@@ -262,8 +290,12 @@ else
 fi
 
 # ── Sunshine (Moonlight GameStream host) ──────────────────────────────────────
-source "$SCRIPT_DIR/fetch_sunshine.sh"
-fetch_sunshine_windows "$DIST_DIR/sunshine"
+if [[ "$STREAMER" == "sunshine" ]]; then
+    source "$SCRIPT_DIR/fetch_sunshine.sh"
+    fetch_sunshine_windows "$DIST_DIR/sunshine"
+else
+    echo -e "${YELLOW}streamer=$STREAMER — skipping Sunshine bundling (not implemented in this repo).${NC}"
+fi
 
 # ── Tailscale + wintun.dll ────────────────────────────────────────────────────
 # wintun.dll gives the embedded tsnet a real WireGuard kernel-mode TUN adapter
