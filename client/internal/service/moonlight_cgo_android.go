@@ -820,12 +820,13 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	liStreamMu.Lock()
-	if liConnected.Swap(false) {
-		logrus.Info("🌕 [Moonlight/Android] StopStream: calling do_li_force_stop")
-		stopConnectionSafely()
-	} else {
-		logrus.Info("🌕 [Moonlight/Android] StopStream: not connected (goroutine already stopped or never started)")
-	}
+	// Always call stopConnectionSafely to trigger LiStopConnection, which will
+	// interrupt LiStartConnection if it is blocking/looping inside C code.
+	logrus.Info("🌕 [Moonlight/Android] StopStream: calling do_li_force_stop")
+	stopConnectionSafely()
+
+	// Reset connected flag so next start can proceed cleanly.
+	liConnected.Store(false)
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })

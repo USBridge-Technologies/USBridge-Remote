@@ -1146,6 +1146,26 @@ func (vw *VideoWidget) updateFrameContentRect(frame image.Image) {
 		}
 	})
 
+	if vw.moonlightInput() != nil {
+		// A Moonlight stream is pure desktop capture (DXGI Desktop
+		// Duplication / DRM / X11 / ScreenCaptureKit on the host) -- unlike the
+		// legacy hardware-KVM HID path below (a physical HDMI capture card can
+		// genuinely receive a signal at a different aspect ratio than its
+		// capture mode, producing real letterbox/pillarbox bars), a desktop
+		// capture can never contain one: the frame IS the monitor, 1:1.
+		// Running the dark-bar heuristic anyway is actively harmful here --
+		// confirmed live: an ordinary dark application window (just a black
+		// terminal covering most of one edge, no letterboxing involved at all)
+		// was read as a letterbox bar, shrinking the absolute-mouse content
+		// rect down to whatever brighter region was left and turning mouse
+		// movement into what looked like a joystick centered on a tiny patch
+		// of the screen. Skip straight to "no crop" instead.
+		vw.frameMutex.Lock()
+		vw.frameContentX, vw.frameContentY, vw.frameContentW, vw.frameContentH = 0, 0, 1, 1
+		vw.frameMutex.Unlock()
+		return
+	}
+
 	left := detectDarkInset(frame, bounds, true, true)
 	right := detectDarkInset(frame, bounds, true, false)
 	top := detectDarkInset(frame, bounds, false, true)

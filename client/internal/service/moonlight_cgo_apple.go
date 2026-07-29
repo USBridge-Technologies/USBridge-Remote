@@ -199,12 +199,12 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
     if (byte_count <= (int)buf->mAudioDataBytesCapacity) {
         memcpy(buf->mAudioData, pcm, byte_count);
         buf->mAudioDataByteSize = (UInt32)byte_count;
-        AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
         g_ca_frame_count++;
         // Lazy start on first frame; property listener handles restarts after that.
         if (!g_ca_started) {
             g_ca_started = 1;
             g_ca_stats_start = mono_sec();
+            AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
             AudioQueueStart(g_ca_queue, NULL);
 #if TARGET_OS_MAC && !TARGET_OS_IPHONE
             ca_log_device();
@@ -216,6 +216,21 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             // IsRunning stays 1 on macOS even when the queue plays silence after
             // exhausting all buffers, so we must force stop+restart to get a fresh
             // hardware timeline. Without this the queue plays silence indefinitely.
+            //
+            // Order matters here: AudioQueueStop(..., true) is an *immediate*
+            // stop, which per Apple's docs returns every currently-queued
+            // buffer through the completion callback right away, whether or
+            // not it finished playing. Enqueueing this frame's buffer before
+            // calling Stop (as this used to do) meant Stop immediately handed
+            // it straight back to the free pool, unplayed -- so the very
+            // buffer this recovery was trying to get onto the speaker was
+            // discarded by the recovery itself. That left the queue looking
+            // just as starved on the next call, triggering another restart,
+            // which discarded that buffer too: a self-sustaining loop that
+            // never actually played audio and clicked on every Stop/Start
+            // transition. Restarting *before* enqueueing fixes it: Stop only
+            // flushes stale buffers, and this frame's fresh audio goes onto
+            // a queue that's already clean.
             g_ca_was_dropping = 0;
             g_ca_restart_count++;
             char rmsg[160];
@@ -228,9 +243,12 @@ void platform_ar_decode(const opus_int16 *pcm, int byte_count, int samples) {
             ca_log_device();
 #endif
             g_ca_force_restart = 1;            // suppress listener during stop/start
-            AudioQueueStop(g_ca_queue, true);  // synchronous: wait for current buf
+            AudioQueueStop(g_ca_queue, true);  // synchronous: flushes stale buffers only
+            AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL); // this frame's audio, onto the clean queue
             AudioQueueStart(g_ca_queue, NULL); // fresh hardware timeline
             g_ca_force_restart = 0;
+        } else {
+            AudioQueueEnqueueBuffer(g_ca_queue, buf, 0, NULL);
         }
         // Periodic audio health log every 5 seconds.
         {

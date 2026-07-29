@@ -241,6 +241,22 @@ int do_li_start(
     return 0;
 }
 
+// do_get_rtp_video_stats copies LiGetRTPVideoStats()'s 7 uint32 fields into
+// `out` (packetCountVideo, packetCountFec, packetCountFecRecovered,
+// packetCountFecFailed, packetCountOOS, packetCountInvalid,
+// packetCountFecInvalid, in that struct order) — lets the Go side log these
+// without a cgo binding per field.
+void do_get_rtp_video_stats(uint32_t *out) {
+    const RTP_VIDEO_STATS *stats = LiGetRTPVideoStats();
+    out[0] = stats->packetCountVideo;
+    out[1] = stats->packetCountFec;
+    out[2] = stats->packetCountFecRecovered;
+    out[3] = stats->packetCountFecFailed;
+    out[4] = stats->packetCountOOS;
+    out[5] = stats->packetCountInvalid;
+    out[6] = stats->packetCountFecInvalid;
+}
+
 void do_li_stop(void) {
     if (!g_li_active) return;
     g_li_active = 0;

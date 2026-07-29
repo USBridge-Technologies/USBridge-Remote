@@ -29,6 +29,7 @@ extern void do_send_multi_controller(
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY);
 extern void do_send_utf8_text(const char *text, unsigned int len);
+extern void do_get_rtp_video_stats(uint32_t *out);
 */
 import "C"
 
@@ -38,12 +39,73 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
 
 	"usbridge-client/internal/models"
 )
+
+// RTPVideoStats mirrors Limelight.h's RTP_VIDEO_STATS. FecFailed > 0 means a
+// frame's FEC redundancy wasn't enough to recover a lost packet -- the
+// depacketizer discards that decode unit and (per moonlight-common-c's
+// RtpVideoQueue) whatever reference-frame chain it belonged to, which is
+// exactly the failure mode that shows up as a corrupted P-frame on screen
+// until the next IDR.
+type RTPVideoStats struct {
+	PacketCountVideo        uint32
+	PacketCountFec          uint32
+	PacketCountFecRecovered uint32
+	PacketCountFecFailed    uint32
+	PacketCountOOS          uint32
+	PacketCountInvalid      uint32
+	PacketCountFecInvalid   uint32
+}
+
+// GetRTPVideoStats reads moonlight-common-c's running RTP video counters.
+// Safe to call at any time (even with no active session -- moonlight-common-c
+// zero-initializes these statics), but only meaningful once a stream is up.
+func GetRTPVideoStats() RTPVideoStats {
+	var raw [7]C.uint32_t
+	C.do_get_rtp_video_stats(&raw[0])
+	return RTPVideoStats{
+		PacketCountVideo:        uint32(raw[0]),
+		PacketCountFec:          uint32(raw[1]),
+		PacketCountFecRecovered: uint32(raw[2]),
+		PacketCountFecFailed:    uint32(raw[3]),
+		PacketCountOOS:          uint32(raw[4]),
+		PacketCountInvalid:      uint32(raw[5]),
+		PacketCountFecInvalid:   uint32(raw[6]),
+	}
+}
+
+// startRTPStatsLoggerIfEnabled logs GetRTPVideoStats() periodically for the
+// lifetime of `done` when USBRIDGE_LOG_RTP_STATS is set -- opt-in so it never
+// runs in normal client builds.
+func startRTPStatsLoggerIfEnabled(done <-chan struct{}) {
+	if os.Getenv("USBRIDGE_LOG_RTP_STATS") == "" {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var prev RTPVideoStats
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				s := GetRTPVideoStats()
+				logrus.Infof("🌕 [Moonlight/RTPStats] video=%d fec=%d recovered=%d failed=%d(+%d) oos=%d invalid=%d fecInvalid=%d",
+					s.PacketCountVideo, s.PacketCountFec, s.PacketCountFecRecovered,
+					s.PacketCountFecFailed, s.PacketCountFecFailed-prev.PacketCountFecFailed,
+					s.PacketCountOOS, s.PacketCountInvalid, s.PacketCountFecInvalid)
+				prev = s
+			}
+		}
+	}()
+}
 
 // vtFrameCallback receives decoded RGBA frames from the hardware decoder.
 // Set by the platform-specific player file before StartStream is called.
@@ -211,6 +273,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// streaming fine. This goroutine's own do_li_start really did just
 		// succeed, so the store is always correct and idempotent here.
 		liStartConnectionActive.Store(true)
+		startRTPStatsLoggerIfEnabled(activeStreamDone)
 
 		<-activeStreamDone
 
