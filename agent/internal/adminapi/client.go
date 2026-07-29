@@ -217,6 +217,12 @@ func (c *Client) SunshineStreamHost() string {
 	return body.Value
 }
 
+func (c *Client) StreamerName() string {
+	var body stringBody
+	_ = c.do(http.MethodGet, "/token/streamer-name", nil, &body)
+	return body.Value
+}
+
 // --- PermsBackend ---
 
 func (c *Client) AccessibilityGranted() bool {

@@ -721,6 +721,7 @@ func (a *App) Status() api.SystemStatus {
 		},
 		Timestamp: time.Now(),
 		OS:        runtime.GOOS,
+		Streamer:  a.StreamerName(),
 	}
 }
 
@@ -882,6 +883,17 @@ func (a *App) SunshineAdminPort() int {
 		return a.cfg.SunshinePort
 	}
 	return 47990
+}
+
+// StreamerName returns a short human-readable label for which streaming
+// host backend this build is actually running (e.g. "Sunshine (Open
+// Source)" or "RustShine (Proprietary)") — display only, see
+// streamhost.Identity.
+func (a *App) StreamerName() string {
+	if a.stream == nil {
+		return "unknown"
+	}
+	return a.stream.DisplayName()
 }
 
 // AdminUser returns the streaming host's admin-API username.

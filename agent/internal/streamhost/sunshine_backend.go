@@ -360,6 +360,10 @@ func copyDir(src, dst string) error {
 	})
 }
 
+// DisplayName identifies this backend for display purposes only (GUI
+// status, /api/status, logs) — see streamhost.Identity.
+func (b *sunshineBackend) DisplayName() string { return "Sunshine (Open Source)" }
+
 // BinaryPath returns the (staged-if-needed) path Sunshine is launched from.
 func (b *sunshineBackend) BinaryPath() string { return b.launchPath }
 

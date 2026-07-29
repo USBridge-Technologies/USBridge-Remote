@@ -36,6 +36,7 @@ type TokenBackend interface {
 	AdminUser() string
 	AdminPass() string
 	SunshineStreamHost() string
+	StreamerName() string
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -157,6 +158,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/sunshine-stream-addr", s.handleSunshineStreamAddr)
 	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
 	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
+	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -326,6 +328,10 @@ func (s *Server) handleAdminCredentials(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleSunshineStreamHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stringBody{Value: s.token.SunshineStreamHost()})
+}
+
+func (s *Server) handleStreamerName(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.StreamerName()})
 }
 
 func (s *Server) handlePermsBool(fn func() bool) http.HandlerFunc {

@@ -52,7 +52,6 @@ type DeviceStartBatchRequest struct {
 	Devices []DeviceRequest `json:"devices"`
 }
 
-
 type DeviceInfo struct {
 	ID           int       `json:"id"`
 	Device       string    `json:"device"`
@@ -138,6 +137,7 @@ type SystemStatus struct {
 	Service   ServiceStatus `json:"service"`
 	Timestamp time.Time     `json:"timestamp"`
 	OS        string        `json:"os,omitempty"`
+	Streamer  string        `json:"streamer,omitempty"`
 }
 
 type ScreenSnapshot struct {

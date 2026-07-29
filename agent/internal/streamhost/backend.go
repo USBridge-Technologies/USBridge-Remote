@@ -9,6 +9,16 @@ package streamhost
 
 import "time"
 
+// Identity reports which concrete backend is running, for display purposes
+// only (logs, GUI status, /api/status) — nothing in the agent branches
+// behavior on this, it exists so a human looking at the running agent can
+// tell which streaming host it's actually using.
+type Identity interface {
+	// DisplayName is a short human-readable label, e.g. "Sunshine (Open
+	// Source)" or "RustShine (Proprietary)".
+	DisplayName() string
+}
+
 // Lifecycle starts, stops, and health-checks the game-streaming host process.
 type Lifecycle interface {
 	Start(adminPort int) error
@@ -113,6 +123,7 @@ type NetworkPorts interface {
 // and agent/internal/api use instead of depending on any one concrete
 // game-streaming host implementation.
 type Backend interface {
+	Identity
 	Lifecycle
 	ConfigStore
 	CodecProbe

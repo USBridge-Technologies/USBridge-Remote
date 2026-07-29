@@ -61,6 +61,10 @@ func NewRustshine(exeDir, stateDir, logPath string) Backend {
 	}
 }
 
+// DisplayName identifies this backend for display purposes only (GUI
+// status, /api/status, logs) — see streamhost.Identity.
+func (b *rustshineBackend) DisplayName() string { return "RustShine (Proprietary)" }
+
 // binaryName is bin/gamestream-server's build output name, per its
 // Cargo.toml package name — "gamestream-server(.exe)", not "rust-shine".
 func binaryName() string {

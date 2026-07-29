@@ -53,6 +53,7 @@ type TokenProvider interface {
 	SunshineStreamHost() string
 	AdminUser() string
 	AdminPass() string
+	StreamerName() string
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -435,6 +436,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), widget.NewLabel(w.token.StreamerName()))
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -485,7 +487,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal),
 		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
 
-	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow))
+	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, sunWebRow))
 
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
