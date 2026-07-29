@@ -1,6 +1,6 @@
 //go:build !linux && !windows
 
-package sunshine
+package streamhost
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ func configureProcess(cmd *exec.Cmd) {}
 // separate OS process, not a goroutine: it keeps running and can still act
 // even if the agent itself is killed with SIGKILL and never gets a chance to
 // run its own cleanup code.
-func afterStart(p *Process, cmd *exec.Cmd) {
+func afterStart(b *sunshineBackend, cmd *exec.Cmd) {
 	agentPID := os.Getpid()
 	sunshinePID := cmd.Process.Pid
 	script := fmt.Sprintf(
@@ -32,6 +32,6 @@ func afterStart(p *Process, cmd *exec.Cmd) {
 		log.Printf("[sunshine] failed to start death-watchdog, Sunshine may survive an agent crash: %v", err)
 		return
 	}
-	p.watchdog = watchdog
+	b.watchdog = watchdog
 	go func() { _ = watchdog.Wait() }()
 }

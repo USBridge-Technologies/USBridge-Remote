@@ -120,6 +120,7 @@ func (s *stubApp) SunshineOutputName() string            { return "" }
 func (s *stubApp) SetSunshineOutputName(string) error    { return nil }
 func (s *stubApp) SunshineStreamHost() string            { return "" }
 func (s *stubApp) SunshineAdminPort() int                { return 0 }
+func (s *stubApp) SubmitMoonlightPIN(string) error       { return nil }
 func (s *stubApp) CurrentVideoCodec() string             { return "" }
 func (s *stubApp) SupportedVideoCodecs() []string        { return []string{"h264"} }
 func (s *stubApp) AudioSinks() ([]AudioSink, error)      { return nil, nil }

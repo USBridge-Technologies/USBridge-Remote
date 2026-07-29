@@ -58,3 +58,8 @@ type sunshineStreamAddrBody struct {
 type loginBody struct {
 	URL string `json:"url"`
 }
+
+type adminCredentialsBody struct {
+	User string `json:"user"`
+	Pass string `json:"pass"`
+}

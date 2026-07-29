@@ -28,7 +28,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/netutil"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 )
@@ -44,12 +44,15 @@ type TokenProvider interface {
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
 	RestartSunshine() error
-	ListSunshineClients() ([]sunshine.Client, error)
+	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
+	SunshineStreamHost() string
+	AdminUser() string
+	AdminPass() string
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -451,7 +454,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// Sunshine GameStream row — Moonlight clients connect here (port = web-1)
 	sunStreamPort := sunshinePort - 1
-	sunStreamIP := sunshine.ExternalIP()
+	sunStreamIP := w.token.SunshineStreamHost()
 	if sunStreamIP == "" {
 		sunStreamIP = "0.0.0.0"
 	}
@@ -1123,14 +1126,14 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 
 	// Password row: built dynamically so it reflects the value set by the
 	// async bootstrap goroutine even if the dialog opens before it completes.
-	passLabel := widget.NewLabel(sunshine.AdminPass())
+	passLabel := widget.NewLabel(w.token.AdminPass())
 	passLabel.Truncation = fyne.TextTruncateEllipsis
 	passLbl := canvas.NewText("Pass:", design.ColorTextMuted)
 	passLbl.TextSize = 11
 	passLbl.TextStyle.Bold = true
 	passLblBox := container.NewGridWrap(fyne.NewSize(52, 16), passLbl)
 	passCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
-		parent.Clipboard().SetContent(sunshine.AdminPass())
+		parent.Clipboard().SetContent(w.token.AdminPass())
 	})
 	passRow := container.NewBorder(nil, nil, passLblBox, passCopyBtn, passLabel)
 	// If password is not yet available (bootstrap still running), poll until ready.
@@ -1138,7 +1141,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		go func() {
 			for i := 0; i < 40; i++ {
 				time.Sleep(500 * time.Millisecond)
-				if p := sunshine.AdminPass(); p != "" {
+				if p := w.token.AdminPass(); p != "" {
 					fyne.Do(func() { passLabel.SetText(p) })
 					return
 				}
@@ -1151,7 +1154,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		minWidth,
 		widget.NewSeparator(),
 		copyRow("URL:", sunshineURL),
-		copyRow("Login:", sunshine.AdminUser),
+		copyRow("Login:", w.token.AdminUser()),
 		passRow,
 		widget.NewSeparator(),
 		container.NewCenter(openBtn),
@@ -1178,7 +1181,7 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *widget
 	if currentStreamPort <= 0 {
 		currentStreamPort = 47989
 	}
-	currentIP := sunshine.ExternalIP()
+	currentIP := w.token.SunshineStreamHost()
 	if currentIP == "" {
 		currentIP = "0.0.0.0"
 	}

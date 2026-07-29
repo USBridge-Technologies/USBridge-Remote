@@ -1,0 +1,650 @@
+// sunshineBackend locates the Sunshine (Moonlight GameStream host) binary
+// and manages the subset of sunshine.conf that the agent controls. On all
+// platforms Sunshine is bundled locally next to the agent binary: as
+// Sunshine.app on macOS, sunshine.exe on Windows, and sunshine.AppImage on
+// Linux. The agent sets web_bind_address=127.0.0.1 before each start so the
+// HTTPS admin UI only listens on localhost (requires itsme228/Sunshine fork).
+package streamhost
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"io"
+	"log"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// AdminUser is the fixed Sunshine web-UI username.
+const sunshineAdminUser = "sunshine"
+
+// sunshineBackend implements Backend against a bundled Sunshine instance.
+// All state that used to live as package-level globals is an instance field
+// here instead, so a Backend value is self-contained and safe to construct
+// more than once (e.g. in tests).
+type sunshineBackend struct {
+	mu          sync.Mutex
+	exeDir      string
+	stateDir    string
+	launchPath  string
+	capExecPath string
+	logPath     string
+	cmd         *exec.Cmd
+	// watchdog is only used on macOS (see sunshine_process_other.go) — a
+	// detached helper process that kills Sunshine if the agent disappears.
+	// Left nil, and never referenced, on Linux/Windows where the OS itself
+	// (Pdeathsig / a Job Object) enforces the same guarantee.
+	watchdog *exec.Cmd
+
+	// activeAdminPassword holds the per-session randomly generated admin
+	// password. Set in Start() via --creds before Sunshine launches.
+	activeAdminPassword string
+
+	// windowsDir holds the directory containing sunshine.exe. The Windows
+	// portable build resolves its default config path (like assets/)
+	// relative to itself — ./config/sunshine.conf next to the exe — not the
+	// traditional %LOCALAPPDATA%\Sunshine\config used by an installed build,
+	// so ConfigPath must match that on Windows.
+	windowsDir string
+
+	supportedCodecsCache struct {
+		mu        sync.Mutex
+		codecs    []string
+		fetchedAt time.Time
+	}
+}
+
+var _ Backend = (*sunshineBackend)(nil)
+
+// supportedCodecsCacheTTL is documented on SupportedVideoCodecs.
+const supportedCodecsCacheTTL = 30 * time.Minute
+
+// NewSunshine constructs the Sunshine-backed Backend implementation. exeDir
+// is the agent binary's own directory (used to locate the bundled Sunshine
+// tree); stateDir is the agent's persistent state directory (used to stage
+// a writable copy of Sunshine when running from a read-only AppImage mount,
+// and to persist the admin password across restarts); logPath captures
+// Sunshine's stdout/stderr.
+func NewSunshine(exeDir, stateDir, logPath string) Backend {
+	b := &sunshineBackend{
+		exeDir:   exeDir,
+		stateDir: stateDir,
+		logPath:  logPath,
+	}
+	b.launchPath = b.runtimeBinaryPath()
+	if runtime.GOOS == "windows" && b.launchPath != "" {
+		b.windowsDir = filepath.Dir(b.launchPath)
+	}
+	return b
+}
+
+// adminPass returns the in-memory admin password set this session (internal).
+func (b *sunshineBackend) adminPass() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.activeAdminPassword
+}
+
+// AdminUser returns the fixed Sunshine web-UI username.
+func (b *sunshineBackend) AdminUser() string { return sunshineAdminUser }
+
+// AdminPass returns the current session admin password. Falls back to the
+// persisted file from the previous session if bootstrap is still in
+// progress (it waits up to 20s for Sunshine to start).
+func (b *sunshineBackend) AdminPass() string {
+	if p := b.adminPass(); p != "" {
+		return p
+	}
+	if pf := b.adminPassFile(); pf != "" {
+		if data, err := os.ReadFile(pf); err == nil {
+			if p := strings.TrimSpace(string(data)); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+// adminPassFile returns the path where the current admin password is
+// persisted so the next launch can use it to rotate to a new one.
+func (b *sunshineBackend) adminPassFile() string {
+	cp := b.ConfigPath()
+	if cp == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(cp), "usbridge_admin_pass")
+}
+
+// generatePassword creates a cryptographically-random 20-character hex
+// password. crypto/rand.Read never fails on supported OS (macOS/Linux/
+// Windows all provide a reliable entropy source), so no fallback to a known
+// string is needed.
+func generatePassword() string {
+	b := make([]byte, 10)
+	if _, err := rand.Read(b); err != nil {
+		// Should be unreachable: OS-level RNG failure is fatal.
+		log.Panicf("[sunshine] crypto/rand unavailable: %v", err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// binaryPath returns the path to the sunshine binary, or "" if it can't be
+// found (not installed/bundled, or unsupported OS).
+func (b *sunshineBackend) binaryPath() string {
+	exeDir := b.exeDir
+	switch runtime.GOOS {
+	case "linux":
+		// Bundled alongside agent (cmake install tree: sunshine/usr/bin/sunshine).
+		// Built with SUNSHINE_BUILD_APPIMAGE=ON — assets are relative to cwd.
+		local := filepath.Join(exeDir, "sunshine", "usr", "bin", "sunshine")
+		if _, err := os.Stat(local); err == nil {
+			return local
+		}
+		// Inside our AppImage: both binaries share usr/bin/ under $APPDIR.
+		inBin := filepath.Join(exeDir, "sunshine")
+		if info, err := os.Stat(inBin); err == nil && !info.IsDir() {
+			return inBin
+		}
+		// Fall back to system PATH.
+		if path, err := exec.LookPath("sunshine"); err == nil {
+			return path
+		}
+		return ""
+	case "windows":
+		return filepath.Join(exeDir, "sunshine", "sunshine.exe")
+	case "darwin":
+		return filepath.Join(exeDir, "sunshine", "Sunshine.app", "Contents", "MacOS", "sunshine")
+	default:
+		return ""
+	}
+}
+
+// capExecPathFor returns the path to the bundled sunshine_capexec launcher
+// (cmd/sunshine_capexec), or "" if not bundled (non-Linux, or a dev build
+// without the AppImage layout). This is what actually carries the
+// CAP_SYS_ADMIN file capability for KMS screen capture — never sunshine
+// itself, since a file capability on sunshine would break its RPATH-based
+// dependency resolution. See RequestKMSCapture in internal/permissions.
+func (b *sunshineBackend) capExecPathFor() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	p := filepath.Join(b.exeDir, "sunshine-capexec")
+	if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		return p
+	}
+	return ""
+}
+
+// runtimeCapExecPath returns the path sunshine_capexec should actually be
+// setcap'd and launched from, mirroring runtimeBinaryPath: inside an
+// AppImage the bundled copy lives on the read-only squashfs mount, so
+// pkexec setcap needs the writable staged copy instead. Shares the same
+// staging pass as runtimeBinaryPath — both binaries are copied together by
+// stageSunshineRuntime — so the two are consistent as long as both are
+// called while stageSunshineRuntime's staleness check (keyed off the
+// sunshine binary) still holds.
+func (b *sunshineBackend) runtimeCapExecPath() string {
+	capexecSrc := b.capExecPathFor()
+	sunshineSrc := b.binaryPath()
+	if runtime.GOOS != "linux" || capexecSrc == "" || sunshineSrc == "" || b.stateDir == "" {
+		return capexecSrc
+	}
+	if os.Getenv("APPIMAGE") == "" {
+		return capexecSrc
+	}
+	if _, err := stageSunshineRuntime(sunshineSrc, b.stateDir); err != nil {
+		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
+		return capexecSrc
+	}
+	return filepath.Join(b.stateDir, "sunshine-runtime", "usr", "bin", "sunshine-capexec")
+}
+
+// runtimeBinaryPath returns the path Sunshine should actually be launched
+// from, and the path `setcap` should target for KMS capture. On Linux, when
+// running from inside an AppImage, the bundled binary lives on the
+// squashfs/FUSE mount that the AppImage runtime sets up — which is
+// read-only, so `pkexec setcap` on it always fails silently (the pkexec
+// prompt succeeds, but the capability is never actually written). To fix
+// that, the bundled Sunshine tree is copied once into stateDir, which is a
+// normal writable directory, and that copy is used instead.
+func (b *sunshineBackend) runtimeBinaryPath() string {
+	src := b.binaryPath()
+	if runtime.GOOS != "linux" || src == "" || b.stateDir == "" {
+		return src
+	}
+	if os.Getenv("APPIMAGE") == "" {
+		// Not running from an AppImage mount — the bundled path is already
+		// on a normal writable filesystem.
+		return src
+	}
+	dst, err := stageSunshineRuntime(src, b.stateDir)
+	if err != nil {
+		log.Printf("[sunshine] failed to stage writable copy for KMS setcap: %v", err)
+		return src
+	}
+	return dst
+}
+
+// stageSunshineRuntime copies the bundled Sunshine binary, its usr/local/assets
+// (shaders/web UI/config templates), and its usr/lib (shared libraries bundled
+// by linuxdeploy, which the binary's RPATH=$ORIGIN/../lib resolves against)
+// from src's read-only AppImage mount into stateDir/sunshine-runtime, skipping
+// the copy if a matching one is already there (compared by size + mtime).
+// Omitting usr/lib here would leave the staged binary unable to resolve its
+// bundled dependencies (e.g. libminiupnpc.so.17) once it's copied outside the
+// AppImage mount, since RPATH is resolved relative to the binary's own path.
+func stageSunshineRuntime(src, stateDir string) (string, error) {
+	root := filepath.Join(stateDir, "sunshine-runtime")
+	dstBin := filepath.Join(root, "usr", "bin", "sunshine")
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return "", err
+	}
+	if dstInfo, err := os.Stat(dstBin); err == nil &&
+		dstInfo.Size() == srcInfo.Size() && dstInfo.ModTime().Equal(srcInfo.ModTime()) {
+		return dstBin, nil
+	}
+
+	// Build the whole tree in a private tmp dir first and only make it
+	// visible at `root` via a final rename, instead of RemoveAll(root) +
+	// copy-in-place. Two agent instances (e.g. a locally built AppImage and
+	// the downloaded release, or two copies of the same one launched by
+	// mistake) can both reach this point around the same time; with
+	// copy-in-place, one instance's RemoveAll could fire while a Sunshine
+	// process spawned by the OTHER instance was mid-read of these same
+	// shader/asset files, handing it truncated/empty content (the
+	// "ConvertUV.frag: syntax error, unexpected end of file" corruption).
+	// Building off to the side means `root` is always either the prior
+	// complete tree or the new one, never a partially-written mix.
+	tmpRoot, err := os.MkdirTemp(stateDir, "sunshine-runtime.tmp-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpRoot) // no-op once renamed into place below
+
+	tmpBin := filepath.Join(tmpRoot, "usr", "bin", "sunshine")
+	if err := os.MkdirAll(filepath.Dir(tmpBin), 0o755); err != nil {
+		return "", err
+	}
+	if err := copyFile(src, tmpBin, srcInfo.Mode()); err != nil {
+		return "", err
+	}
+	if err := os.Chtimes(tmpBin, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
+		return "", err
+	}
+
+	// usr/local/assets and usr/lib sit 3 dirs up from usr/bin/sunshine in the
+	// source tree (see Start()'s cwd handling, which relies on the same layout).
+	appDir := filepath.Dir(filepath.Dir(filepath.Dir(src)))
+	srcAssets := filepath.Join(appDir, "usr", "local", "assets")
+	if info, err := os.Stat(srcAssets); err == nil && info.IsDir() {
+		if err := copyDir(srcAssets, filepath.Join(tmpRoot, "usr", "local", "assets")); err != nil {
+			return "", err
+		}
+	}
+	srcLib := filepath.Join(appDir, "usr", "lib")
+	if info, err := os.Stat(srcLib); err == nil && info.IsDir() {
+		if err := copyDir(srcLib, filepath.Join(tmpRoot, "usr", "lib")); err != nil {
+			return "", err
+		}
+	}
+
+	// sunshine_capexec (cmd/sunshine_capexec) sits alongside sunshine in
+	// usr/bin — stage it too so runtimeCapExecPath's writable copy exists
+	// for pkexec setcap.
+	srcCapExec := filepath.Join(appDir, "usr", "bin", "sunshine-capexec")
+	if info, err := os.Stat(srcCapExec); err == nil && !info.IsDir() {
+		if err := copyFile(srcCapExec, filepath.Join(tmpRoot, "usr", "bin", "sunshine-capexec"), info.Mode()); err != nil {
+			return "", err
+		}
+	}
+
+	// Swap the fully-built tree into place. os.Rename is atomic when both
+	// paths are on the same filesystem (guaranteed: both under stateDir),
+	// but can't replace a non-empty directory, so the old tree has to be
+	// removed first — this still leaves a brief window where `root` doesn't
+	// exist, but it's a single fast syscall pair rather than the many
+	// milliseconds a full asset copy used to hold `root` half-written for.
+	if err := os.RemoveAll(root); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpRoot, root); err != nil {
+		return "", err
+	}
+
+	return dstBin, nil
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return copyFile(path, target, info.Mode())
+	})
+}
+
+// BinaryPath returns the (staged-if-needed) path Sunshine is launched from.
+func (b *sunshineBackend) BinaryPath() string { return b.launchPath }
+
+// CapExecPath returns the (staged-if-needed) path to the bundled
+// sunshine_capexec launcher, or "" if not present.
+func (b *sunshineBackend) CapExecPath() string { return b.runtimeCapExecPath() }
+
+// SetCapExecPath sets the sunshine_capexec launcher path (see
+// runtimeCapExecPath) that Start uses to launch Sunshine with CAP_SYS_ADMIN
+// when the configured capture mode is "kms". A no-op path (empty, or the
+// launcher lacking the capability) just means Start launches Sunshine
+// directly, same as before KMS capture was requested/granted.
+func (b *sunshineBackend) SetCapExecPath(capExecPath string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.capExecPath = capExecPath
+}
+
+// Running reports whether this backend's Sunshine instance is currently alive.
+func (b *sunshineBackend) Running() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cmd != nil && b.cmd.Process != nil
+}
+
+// Start launches Sunshine if it isn't already running (by this backend, or
+// reachable on adminPort — e.g. a system-installed Sunshine service). No-op
+// if the launch path doesn't exist.
+func (b *sunshineBackend) Start(adminPort int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cmd != nil && b.cmd.Process != nil {
+		return nil
+	}
+	if b.launchPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(b.launchPath); err != nil {
+		log.Printf("[sunshine] launch path not found, skipping auto-start: %s", b.launchPath)
+		return nil
+	}
+	if adminPort > 0 && portReachable(adminPort, 300*time.Millisecond) {
+		log.Printf("[sunshine] admin port %d already reachable, assuming Sunshine is already running", adminPort)
+		// This backend never ran --creds this session, so activeAdminPassword
+		// is still empty. The already-running Sunshine still has whatever
+		// password was baked in via --creds the last time IT was launched
+		// fresh, which is exactly what's persisted in adminPassFile — load it
+		// so SubmitPIN/ListClients/UnpairClient (which read adminPass()
+		// directly, not the file-fallback AdminPass()) don't send an empty
+		// password and get every request rejected with 401.
+		if pf := b.adminPassFile(); pf != "" {
+			if data, err := os.ReadFile(pf); err == nil {
+				if pass := strings.TrimSpace(string(data)); pass != "" {
+					b.activeAdminPassword = pass
+				}
+			}
+		}
+		return nil
+	}
+
+	// Pin web_bind_address to 127.0.0.1 so the HTTPS admin UI is only reachable
+	// on localhost, independently of bind_address (which restricts streaming ports
+	// to the VPN/LAN interface). Requires our itsme228/Sunshine fork.
+	if err := b.setConfigKey("web_bind_address", "127.0.0.1"); err != nil {
+		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
+	}
+
+	// On Windows the portable build expects sunshine_state.json to already
+	// exist before --creds can write into it; create an empty-but-valid
+	// template so the file is there when --creds runs.
+	if runtime.GOOS == "windows" {
+		if err := b.ensureSunshineStateFile(); err != nil {
+			log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
+		}
+	}
+
+	// Set a fresh random admin password before starting Sunshine so the
+	// process always starts with credentials we generated (not a stale or
+	// default password). --creds writes directly to sunshine_state.json.
+	newPass := generatePassword()
+	credsCmd := exec.Command(b.launchPath, "--creds", sunshineAdminUser, newPass)
+	configureProcess(credsCmd)
+	// Sunshine resolves config paths (including sunshine_state.json) relative
+	// to its process CWD on Windows, not its exe path. Without setting Dir,
+	// --creds runs from the agent's CWD and writes to the wrong location while
+	// the main Sunshine process (which has Dir set below) reads from a different
+	// path — the credentials never match.
+	if sunshineDir := filepath.Dir(b.launchPath); sunshineDir != "" && sunshineDir != "." {
+		credsCmd.Dir = sunshineDir
+	}
+	if out, err := credsCmd.CombinedOutput(); err != nil {
+		log.Printf("[sunshine] --creds failed: %v: %s", err, out)
+	} else {
+		b.activeAdminPassword = newPass
+		if pf := b.adminPassFile(); pf != "" {
+			_ = os.WriteFile(pf, []byte(newPass), 0600)
+		}
+		log.Printf("[sunshine] admin password set (user=%s)", sunshineAdminUser)
+	}
+
+	// If a capability-granted sunshine_capexec launcher is set (Linux KMS
+	// capture only — see SetCapExecPath), launch Sunshine through it so it
+	// inherits CAP_SYS_ADMIN via ambient capabilities instead of carrying a
+	// file capability itself, which would break its RPATH-based library
+	// resolution. b.capExecPath is only ever set once the capability has
+	// actually been granted (internal/app), so this exec is expected to
+	// succeed whenever it's used.
+	var cmd *exec.Cmd
+	if b.capExecPath != "" {
+		cmd = exec.Command(b.capExecPath, b.launchPath)
+	} else {
+		cmd = exec.Command(b.launchPath)
+	}
+	configureProcess(cmd)
+	switch runtime.GOOS {
+	case "linux":
+		// Sunshine built with SUNSHINE_BUILD_APPIMAGE=ON uses ./usr/local/assets
+		// relative to cwd. Set cwd to the root of the install tree (3 dirs up from
+		// usr/bin/sunshine), which is either the AppImage $APPDIR or the staging dir.
+		sunshineRoot := filepath.Dir(filepath.Dir(filepath.Dir(b.launchPath)))
+		if sunshineRoot != "" && sunshineRoot != "." {
+			cmd.Dir = sunshineRoot
+		}
+	default:
+		// Windows (and macOS) Sunshine resolves assets/ relative to its process
+		// cwd, not its own exe path. Without this, launching from the agent
+		// (whose own cwd may differ) breaks shader/asset lookup with
+		// ERROR_PATH_NOT_FOUND while double-clicking sunshine.exe directly
+		// works by accident (Explorer sets cwd to the exe's own folder).
+		if dir := filepath.Dir(b.launchPath); dir != "" && dir != "." {
+			cmd.Dir = dir
+		}
+	}
+	if b.logPath != "" {
+		if err := os.MkdirAll(filepath.Dir(b.logPath), 0o755); err != nil {
+			log.Printf("[sunshine] failed to create log dir for %s: %v", b.logPath, err)
+		} else if f, err := os.OpenFile(b.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
+			log.Printf("[sunshine] failed to open log file %s: %v", b.logPath, err)
+		} else {
+			cmd.Stdout = f
+			cmd.Stderr = f
+		}
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	b.cmd = cmd
+	log.Printf("[sunshine] started pid=%d launch=%s", cmd.Process.Pid, b.launchPath)
+	afterStart(b, cmd)
+	go b.watchProcessExit(cmd)
+
+	return nil
+}
+
+// watchProcessExit blocks until cmd exits (however it exits — clean shutdown,
+// killed by Stop(), or a crash such as the ENet null-pointer-dereference bug
+// in Sunshine's host_create) and then clears b.cmd, so Start()'s "already
+// running, no-op" fast path stops believing a dead process is still alive.
+// Without this, a crashed Sunshine can only be recovered by restarting the
+// whole agent, since nothing else ever notices the child died.
+//
+// Only clears b.cmd if it's still THIS cmd: a concurrent Stop() or a newer
+// Start() may have already replaced it with a different process, and this
+// stale watcher must not clobber that.
+func (b *sunshineBackend) watchProcessExit(cmd *exec.Cmd) {
+	err := cmd.Wait()
+	log.Printf("[sunshine] process exited: %v", err)
+	b.mu.Lock()
+	if b.cmd == cmd {
+		b.cmd = nil
+	}
+	b.mu.Unlock()
+}
+
+// Stop terminates a Sunshine instance started by this backend. No-op if not
+// running or if Sunshine wasn't launched by us (e.g. system service).
+func (b *sunshineBackend) Stop() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var err error
+	if b.cmd != nil && b.cmd.Process != nil {
+		log.Printf("[sunshine] stopping pid=%d", b.cmd.Process.Pid)
+		err = b.cmd.Process.Kill()
+		b.cmd = nil
+	}
+	if b.watchdog != nil && b.watchdog.Process != nil {
+		// Stop the watchdog too: we're already terminating Sunshine
+		// ourselves, and leaving the watchdog running risks it waking up
+		// later and killing an unrelated process if that PID gets reused.
+		_ = b.watchdog.Process.Kill()
+		b.watchdog = nil
+	}
+	return err
+}
+
+func portReachable(port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(adminHost(), strconv.Itoa(port)), timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// WaitReady polls adminPort until Sunshine's HTTPS/NvHTTP listener (the same
+// one the client's Launch()/GetServerInfo() calls hit) accepts a connection,
+// or the deadline passes. Start only waits for the OS to fork the process,
+// not for Sunshine's own bootstrap (config parse, KMS/Wayland enumeration,
+// binding its listeners) to finish — a caller that restarts Sunshine and
+// then immediately lets a client reconnect (e.g. switching the captured
+// monitor) races that bootstrap. Returns true once reachable, false if it
+// never became reachable within deadline.
+func (b *sunshineBackend) WaitReady(adminPort int, deadline time.Duration) bool {
+	if adminPort <= 0 {
+		return true
+	}
+	start := time.Now()
+	for time.Since(start) < deadline {
+		if portReachable(adminPort, 250*time.Millisecond) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
+// adminHost returns the host for Sunshine admin API calls. web_bind_address
+// is always set to 127.0.0.1 before Sunshine starts, so the admin HTTPS
+// server only listens on localhost.
+func adminHost() string { return "127.0.0.1" }
+
+// ensureSunshineStateFile creates sunshine_state.json with a valid template
+// if it does not already exist. On Windows the portable Sunshine build will
+// not create this file itself — --creds only updates it, so the file must
+// pre-exist or credential bootstrap silently fails.
+//
+// uniqueid must be a non-empty UUID: Sunshine treats an empty uniqueid as
+// "first run" and regenerates the entire file on startup, wiping any
+// credentials that --creds wrote before the main process started.
+func (b *sunshineBackend) ensureSunshineStateFile() error {
+	if b.windowsDir == "" {
+		return nil
+	}
+	stateFile := filepath.Join(b.windowsDir, "config", "sunshine_state.json")
+	if _, err := os.Stat(stateFile); err == nil {
+		return nil // already exists
+	}
+	if err := os.MkdirAll(filepath.Dir(stateFile), 0o755); err != nil {
+		return err
+	}
+	uid, err := randomUUID()
+	if err != nil {
+		return err
+	}
+	content := `{
+    "username": "sunshine",
+    "salt": "",
+    "password": "",
+    "root": {
+        "uniqueid": "` + uid + `",
+        "named_devices": []
+    }
+}
+`
+	return os.WriteFile(stateFile, []byte(content), 0o644)
+}
+
+// randomUUID returns a random UUID v4 string (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx).
+func randomUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
+	return hex.EncodeToString(b[0:4]) + "-" + hex.EncodeToString(b[4:6]) + "-" +
+		hex.EncodeToString(b[6:8]) + "-" + hex.EncodeToString(b[8:10]) + "-" + hex.EncodeToString(b[10:16]), nil
+}
+
+// Ports returns Sunshine's fixed TCP ports (HTTPS, HTTP, web-UI HTTPS, RTSP)
+// and UDP ports (video, control, audio, mic) relative to its NvHTTP base
+// port (Sunshine's "port" config value), per Sunshine's documented
+// port-offset scheme.
+func (b *sunshineBackend) Ports(basePort int) (tcp []int, udp []int) {
+	tcp = []int{basePort - 5, basePort, basePort + 1, basePort + 21}
+	udp = []int{basePort + 9, basePort + 10, basePort + 11, basePort + 13}
+	return tcp, udp
+}

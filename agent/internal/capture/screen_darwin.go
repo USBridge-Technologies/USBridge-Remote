@@ -13,11 +13,18 @@ import (
 	"github.com/kbinani/screenshot"
 
 	"usbridge_agent/internal/api"
+	"usbridge_agent/internal/streamhost"
 )
 
-type Service struct{}
+// Service has no macOS Sunshine-log-derived device correlation (see
+// streamhost's darwin ListCaptureDevices, which always returns nil); devices
+// is accepted anyway so the constructor signature matches the other
+// platforms' build-tagged files, which all define the same exported Service/New.
+type Service struct {
+	devices streamhost.CaptureDeviceLister //nolint:unused
+}
 
-func New() *Service { return &Service{} }
+func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devices: devices} }
 
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	if screenshot.NumActiveDisplays() == 0 {

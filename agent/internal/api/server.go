@@ -48,6 +48,9 @@ type Application interface {
 	SunshineStreamHost() string
 	// SunshineAdminPort returns the Sunshine web admin / NvHTTP port (default 47990).
 	SunshineAdminPort() int
+	// SubmitMoonlightPIN sends the PIN shown by a Moonlight client to the
+	// streaming host to complete the pairing handshake.
+	SubmitMoonlightPIN(pin string) error
 	CurrentVideoCodec() string
 	// SupportedVideoCodecs returns which of h264/h265/av1 the host's hardware
 	// encoder can actually produce right now (Sunshine's live capability probe).

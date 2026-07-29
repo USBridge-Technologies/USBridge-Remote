@@ -12,12 +12,14 @@ import (
 	"github.com/kbinani/screenshot"
 
 	"usbridge_agent/internal/api"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 )
 
-type Service struct{}
+type Service struct {
+	devices streamhost.CaptureDeviceLister
+}
 
-func New() *Service { return &Service{} }
+func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devices: devices} }
 
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	if screenshot.NumActiveDisplays() == 0 {
@@ -57,20 +59,21 @@ func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 // up with Sunshine's own selection, so switching via it may not work until
 // Sunshine has started at least once.
 func (s *Service) Devices() []api.VideoDeviceInfo {
-	if devices := sunshine.WindowsDisplayDevices(); len(devices) > 0 {
+	var devices []streamhost.CaptureDevice
+	if s.devices != nil {
+		devices = s.devices.ListCaptureDevices()
+	}
+	if len(devices) > 0 {
 		out := make([]api.VideoDeviceInfo, 0, len(devices))
 		for i, d := range devices {
-			name := d.FriendlyName
-			if name == "" {
-				name = d.DisplayName
-			}
+			name := d.DisplayName
 			out = append(out, api.VideoDeviceInfo{
-				Path:           fmt.Sprintf("winid:%s", d.DeviceID),
-				Name:           fmt.Sprintf("%s (%dx%d)", name, d.Info.Resolution.Width, d.Info.Resolution.Height),
+				Path:           fmt.Sprintf("winid:%s", d.OutputName),
+				Name:           fmt.Sprintf("%s (%dx%d)", name, d.Width, d.Height),
 				Bus:            "dxgi",
 				Index:          i,
 				Connected:      true,
-				SupportedModes: ModesForResolution(d.Info.Resolution.Width, d.Info.Resolution.Height),
+				SupportedModes: ModesForResolution(d.Width, d.Height),
 			})
 		}
 		return out

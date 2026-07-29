@@ -7,17 +7,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image/png"
+	"strconv"
 	"time"
 
 	"github.com/kbinani/screenshot"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/display"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 )
 
-type Service struct{}
+type Service struct {
+	devices streamhost.CaptureDeviceLister
+}
 
-func New() *Service { return &Service{} }
+func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devices: devices} }
 
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	env := GetLinuxEnv()
@@ -72,11 +75,21 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 		// artifact of its own DRM plane-enumeration order, which depends on
 		// driver/hardware and isn't alphabetical in general — by luck. When
 		// Sunshine's log has already told us the real mapping (see
-		// MonitorIndexByName), prefer it so "drm:N" always means what
-		// Sunshine itself thinks index N means; otherwise keep the
+		// streamhost.CaptureDeviceLister), prefer it so "drm:N" always means
+		// what Sunshine itself thinks index N means; otherwise keep the
 		// alphabetical guess as the only information available (e.g. before
 		// Sunshine's first successful Wayland connection this session).
-		byName := sunshine.MonitorIndexByName()
+		byName := make(map[string]int)
+		if s.devices != nil {
+			for _, d := range s.devices.ListCaptureDevices() {
+				if d.Key == "" {
+					continue
+				}
+				if idx, err := strconv.Atoi(d.OutputName); err == nil {
+					byName[d.Key] = idx
+				}
+			}
+		}
 		out := make([]api.VideoDeviceInfo, 0, len(connectors))
 		for _, c := range connectors {
 			idx := c.Index

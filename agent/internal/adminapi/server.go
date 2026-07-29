@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"usbridge_agent/internal/config"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 )
 
@@ -27,12 +27,15 @@ type TokenBackend interface {
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
 	RestartSunshine() error
-	ListSunshineClients() ([]sunshine.Client, error)
+	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
+	AdminUser() string
+	AdminPass() string
+	SunshineStreamHost() string
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -152,6 +155,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/listen-addr", s.handleListenAddr)
 	mux.HandleFunc("POST /token/sunshine-port", s.handleSunshinePort)
 	mux.HandleFunc("POST /token/sunshine-stream-addr", s.handleSunshineStreamAddr)
+	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
+	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -313,6 +318,14 @@ func (s *Server) handleSunshineStreamAddr(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleAdminCredentials(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, adminCredentialsBody{User: s.token.AdminUser(), Pass: s.token.AdminPass()})
+}
+
+func (s *Server) handleSunshineStreamHost(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.SunshineStreamHost()})
 }
 
 func (s *Server) handlePermsBool(fn func() bool) http.HandlerFunc {
