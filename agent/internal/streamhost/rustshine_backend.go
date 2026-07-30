@@ -34,7 +34,7 @@ type rustshineBackend struct {
 	exeDir      string
 	stateDir    string
 	launchPath  string
-	capExecPath string // unused (no capability-launcher concept here); kept only to satisfy Lifecycle
+	capExecPath string // set via SetCapExecPath once CAP_SYS_ADMIN is granted; see Start
 	logPath     string
 	cmd         *exec.Cmd
 	watchdog    *exec.Cmd // macOS only, see rustshine_process_other.go
@@ -92,12 +92,62 @@ func (b *rustshineBackend) BinaryPath() string {
 	return ""
 }
 
-// CapExecPath: gamestream-server has no equivalent of Sunshine's separate
-// CAP_SYS_ADMIN capexec launcher documented yet; returns "" (no-op) until
-// one exists.
-func (b *rustshineBackend) CapExecPath() string { return "" }
+// capExecPathFor returns the path to the bundled sunshine-capexec launcher
+// (cmd/sunshine_capexec — a generic "raise CAP_SYS_ADMIN into ambient caps,
+// then exec <target>" wrapper, not Sunshine-specific despite the name), or
+// "" if not bundled (non-Linux, or a dev build without the AppImage/staged
+// layout). gamestream-server's KMS/DRM capture (crates/capture-kms in the
+// private rust-shine repo) needs CAP_SYS_ADMIN exactly like Sunshine's does,
+// and for the identical reason a file capability can't go directly on
+// gamestream-server itself: it resolves bundled shared libs (e.g.
+// libvulkan.so.1) via RPATH=$ORIGIN/../lib, and a file capability would put
+// it into secure-execution mode, breaking that resolution. See
+// internal/permissions.RequestKMSCapture.
+func (b *rustshineBackend) capExecPathFor() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	p := filepath.Join(b.exeDir, "sunshine-capexec")
+	if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		return p
+	}
+	return ""
+}
 
-// SetCapExecPath is a no-op: see CapExecPath.
+// runtimeCapExecPath returns the path sunshine-capexec should actually be
+// setcap'd from. Inside an AppImage the bundled copy lives on the read-only
+// squashfs mount, so `pkexec setcap` on it always fails silently (the
+// pkexec prompt succeeds, but the capability is never actually written) —
+// stage a writable copy into stateDir first, same fix as sunshineBackend's
+// runtimeCapExecPath. Unlike Sunshine, gamestream-server itself does NOT
+// need staging: only the file setcap actually writes to (capexec) has to be
+// writable — the target binary capexec execs stays wherever it already is,
+// its own RPATH resolution is unaffected by where capexec sits.
+func (b *rustshineBackend) runtimeCapExecPath() string {
+	capexecSrc := b.capExecPathFor()
+	if runtime.GOOS != "linux" || capexecSrc == "" || b.stateDir == "" {
+		return capexecSrc
+	}
+	if os.Getenv("APPIMAGE") == "" {
+		return capexecSrc
+	}
+	staged, err := stageCapExecBinary(capexecSrc, filepath.Join(b.stateDir, "rustshine-capexec-runtime"))
+	if err != nil {
+		log.Printf("[rustshine] failed to stage writable copy for KMS setcap: %v", err)
+		return capexecSrc
+	}
+	return staged
+}
+
+// CapExecPath returns the (staged-if-needed) path to the bundled
+// sunshine-capexec launcher, or "" if not present/granted yet.
+func (b *rustshineBackend) CapExecPath() string { return b.runtimeCapExecPath() }
+
+// SetCapExecPath sets the sunshine-capexec launcher path (see
+// runtimeCapExecPath) that Start uses to launch gamestream-server with
+// CAP_SYS_ADMIN via ambient capabilities. Only ever set once the capability
+// has actually been granted on that path (internal/app), mirroring
+// sunshineBackend's SetCapExecPath.
 func (b *rustshineBackend) SetCapExecPath(path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -199,6 +249,22 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		return nil
 	}
 
+	// Backfill adapter_name if capture=kms was persisted without one (e.g.
+	// a sunshine_capture_mode:"kms" preference inherited from a previous
+	// Sunshine session via app.syncSunshineCaptureMode, written straight
+	// into this backend's own conf without going through SetCaptureMode's
+	// auto-fill). Belt-and-suspenders: SetCaptureMode fills this in on the
+	// path that sets "capture" itself, but a config file that already had
+	// "capture = kms" on disk before this backend ever ran wouldn't have
+	// gone through that path at all.
+	if runtime.GOOS == "linux" && b.CaptureMode() == "kms" && b.ConfigKey("adapter_name") == "" {
+		if card := b.firstKmsCardPath(); card != "" {
+			if err := b.SetConfigKey("adapter_name", card); err != nil {
+				log.Printf("[rustshine] failed to backfill adapter_name: %v", err)
+			}
+		}
+	}
+
 	basePort := adminPort - 1 // gamestream-server's --http-port is the NvHTTP base port; admin listens on base+1.
 	credsPath := b.credentialsPath()
 
@@ -232,7 +298,17 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		args = append(args, "--credentials-path", credsPath)
 	}
 
-	cmd := exec.Command(launchPath, args...)
+	// If a capability-granted sunshine-capexec launcher is set (Linux KMS
+	// capture only — see SetCapExecPath), launch gamestream-server through
+	// it so it inherits CAP_SYS_ADMIN via ambient capabilities instead of
+	// carrying a file capability itself, which would break its RPATH-based
+	// library resolution. Mirrors sunshineBackend.Start()'s identical branch.
+	var cmd *exec.Cmd
+	if b.capExecPath != "" {
+		cmd = exec.Command(b.capExecPath, append([]string{launchPath}, args...)...)
+	} else {
+		cmd = exec.Command(launchPath, args...)
+	}
 	configureRustshineProcess(cmd)
 	if dir := filepath.Dir(launchPath); dir != "" && dir != "." {
 		cmd.Dir = dir

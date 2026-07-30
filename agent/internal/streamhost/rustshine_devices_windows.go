@@ -57,3 +57,6 @@ func (b *rustshineBackend) ListCaptureDevices() []CaptureDevice {
 	}
 	return devices
 }
+
+// firstKmsCardPath: KMS/DRM is Linux-only — see rustshine_devices_linux.go.
+func (b *rustshineBackend) firstKmsCardPath() string { return "" }

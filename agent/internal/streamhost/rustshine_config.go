@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // ConfigPath returns where this launcher keeps gamestream-server's config
@@ -68,8 +69,24 @@ func (b *rustshineBackend) BindAddress() string {
 // SetCaptureMode/CaptureMode map to the "capture" key, values "v4l2"
 // (default) or "kms" — confirmed key name, but different value set than
 // Sunshine's ("portal"/"x11"/"kms").
+//
+// Switching to "kms" also auto-fills `adapter_name` with the first
+// available /dev/dri/cardN if it isn't already set: gamestream-server's own
+// --capture-device default is /dev/video0 (its V4L2/SBC default), which is
+// never a valid KMS card path, so a bare `capture = kms` with no
+// adapter_name would otherwise capture from a nonexistent device and fail
+// outright. This only fills a gap — an adapter_name already set (e.g. via
+// SetOutputName picking a specific card/connector) is left untouched.
 func (b *rustshineBackend) SetCaptureMode(mode string) error {
-	return b.SetConfigKey("capture", mode)
+	if err := b.SetConfigKey("capture", mode); err != nil {
+		return err
+	}
+	if mode == "kms" && runtime.GOOS == "linux" && b.ConfigKey("adapter_name") == "" {
+		if card := b.firstKmsCardPath(); card != "" {
+			return b.SetConfigKey("adapter_name", card)
+		}
+	}
+	return nil
 }
 
 func (b *rustshineBackend) CaptureMode() string {
@@ -87,26 +104,32 @@ func (b *rustshineBackend) AudioSink() string {
 }
 
 // SetOutputName/OutputName: gamestream-server has no single "output_name"
-// key like Sunshine — device selection is either "kms_connector" (a
-// connector name string, e.g. "DP-2", when capture=kms on Linux) or
-// "monitor_index" (a numeric index, Windows only). This maps through to
-// whichever applies for the current OS; ListCaptureDevices' CaptureDevice
-// entries already carry the right value in OutputName for either case, so
-// callers don't need to know which key is really being written.
+// key like Sunshine. On Windows device selection is "monitor_index" (a
+// numeric index) alone. On Linux/KMS it needs BOTH "adapter_name" (the
+// /dev/dri/cardN a connector lives on — --capture-device; there is no
+// default that works on a desktop, see SetCaptureMode) and "kms_connector"
+// (the connector name), so ListCaptureDevices packs both into OutputName as
+// "cardPath|connector" (see its doc comment) for this to split back apart.
 func (b *rustshineBackend) SetOutputName(name string) error {
-	switch runtime.GOOS {
-	case "windows":
+	if runtime.GOOS == "windows" {
 		return b.SetConfigKey("monitor_index", name)
-	default:
+	}
+	card, connector, ok := strings.Cut(name, "|")
+	if !ok {
+		// Not our own "cardPath|connector" format (e.g. a caller passing a
+		// bare connector name directly) — fall back to just the connector,
+		// same as before this compound format existed.
 		return b.SetConfigKey("kms_connector", name)
 	}
+	if err := b.SetConfigKey("adapter_name", card); err != nil {
+		return err
+	}
+	return b.SetConfigKey("kms_connector", connector)
 }
 
 func (b *rustshineBackend) OutputName() string {
-	switch runtime.GOOS {
-	case "windows":
+	if runtime.GOOS == "windows" {
 		return b.ConfigKey("monitor_index")
-	default:
-		return b.ConfigKey("kms_connector")
 	}
+	return b.ConfigKey("adapter_name") + "|" + b.ConfigKey("kms_connector")
 }

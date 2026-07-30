@@ -165,6 +165,7 @@ func New() (*App, error) {
 	// display connection (see Run).
 	instance.stream = streamhost.NewDefault(resolveExeDir(), cfg.StateDir, filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
 	instance.screen = capture.New(instance.stream)
+	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.handler = handler
@@ -474,6 +475,29 @@ func (a *App) SunshineCapExecPath() string {
 		return ""
 	}
 	return path
+}
+
+// syncSunshineCaptureMode writes the persisted capture-mode preference
+// (cfg.SunshineCaptureMode) into the active backend's own config file if
+// that backend doesn't already have its own value set. Without this, a
+// preference persisted while one backend was active (e.g. Sunshine's
+// sunshine.conf capture=kms) would silently never reach a different
+// backend's own config format after switching streamers (e.g. to
+// rustshine's sunshine.conf capture=<key>) — SunshineCaptureMode() would
+// still report "kms" via the cfg fallback (so the GUI shows KMS selected
+// and KMS capability requests succeed), while the backend itself keeps
+// running with its own on-disk default (rustshine: "v4l2", meant for
+// embedded boards, not desktop Linux) because nothing ever wrote the key.
+func (a *App) syncSunshineCaptureMode() {
+	if a.stream == nil || a.cfg.SunshineCaptureMode == "" {
+		return
+	}
+	if a.stream.CaptureMode() != "" {
+		return
+	}
+	if err := a.stream.SetCaptureMode(a.cfg.SunshineCaptureMode); err != nil {
+		log.Printf("[app] failed to sync persisted capture mode %q to backend: %v", a.cfg.SunshineCaptureMode, err)
+	}
 }
 
 // syncSunshineCapExec sets or clears the backend's sunshine_capexec launcher

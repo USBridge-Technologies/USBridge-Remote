@@ -74,7 +74,10 @@
       "Bash(git merge *)",
       "Bash(git cherry-pick *)",
       "Bash(adb shell *)",
-      "Bash(adb logcat *)"
+      "Bash(adb logcat *)",
+      "Bash(gofmt -l internal/service/moonlight_cgo_android.go internal/service/moonlight_tsnet_proxy.go internal/service/moonlight_cgo_wrapper.go internal/gui/controller/video_widget_input.go)",
+      "Bash(git -C client/moonlight-common-c status --short)",
+      "Bash(git config *)"
     ]
   }
 }

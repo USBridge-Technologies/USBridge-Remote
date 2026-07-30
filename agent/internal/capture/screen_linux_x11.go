@@ -80,6 +80,15 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 		// alphabetical guess as the only information available (e.g. before
 		// Sunshine's first successful Wayland connection this session).
 		byName := make(map[string]int)
+		// rawOutputName holds a backend's OutputName verbatim for connectors
+		// whose value isn't Sunshine's plain numeric index (e.g. rustshine's
+		// "cardPath|connector" — see rustshineBackend.OutputName). For those,
+		// "drm:<alphabetical-guess-index>" would round-trip through
+		// videoSetDevice's numeric-index handling and silently corrupt the
+		// value (writing the bare index string as a literal connector name).
+		// Reporting the real OutputName as "raw:<value>" instead makes
+		// videoSetDevice pass it through unchanged — see its prefix list.
+		rawOutputName := make(map[string]string)
 		if s.devices != nil {
 			for _, d := range s.devices.ListCaptureDevices() {
 				if d.Key == "" {
@@ -87,6 +96,8 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 				}
 				if idx, err := strconv.Atoi(d.OutputName); err == nil {
 					byName[d.Key] = idx
+				} else if d.OutputName != "" {
+					rawOutputName[d.Key] = d.OutputName
 				}
 			}
 		}
@@ -95,6 +106,10 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 			idx := c.Index
 			if realIdx, ok := byName[c.Name]; ok {
 				idx = realIdx
+			}
+			path := fmt.Sprintf("drm:%d", idx)
+			if raw, ok := rawOutputName[c.Name]; ok {
+				path = "raw:" + raw
 			}
 			modes := make([]api.VideoCaptureMode, 0, len(c.Modes))
 			for _, r := range c.Modes {
@@ -106,7 +121,7 @@ func (s *Service) Devices() []api.VideoDeviceInfo {
 				})
 			}
 			out = append(out, api.VideoDeviceInfo{
-				Path:           fmt.Sprintf("drm:%d", idx),
+				Path:           path,
 				Name:           c.Name,
 				Bus:            "drm",
 				Index:          idx,
