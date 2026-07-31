@@ -88,6 +88,7 @@ func (s *Service) monitorLoop() {
 	defer ticker.Stop()
 
 	var lastState string
+	var lastAuthURL string
 	var lastPeers = make(map[string]string) // Peer IP -> Connection Type (Direct/Relay)
 
 	for {
@@ -103,6 +104,20 @@ func (s *Service) monitorLoop() {
 			if status.Backend != lastState {
 				logrus.Infof("🛰️ [Tailscale] Backend state changed: %s -> %s", lastState, status.Backend)
 				lastState = status.Backend
+			}
+
+			// Backstop AuthURL broadcast, independent of tsnet's own
+			// printAuthURLLoop (which SetAuthURLHandler's other caller,
+			// handleUserLogf, depends on). That loop is started once per
+			// tsnet.Server and exits for good the moment login first succeeds,
+			// so it never fires again for a later re-login within the same
+			// process (see StartLogin's doc comment). Polling Status here
+			// instead catches every AuthURL regardless of that loop's state,
+			// at the cost of up to one ticker interval of latency versus a
+			// caller that can poll faster itself (e.g. StartLogin).
+			if url := strings.TrimSpace(status.AuthURL); url != "" && url != lastAuthURL {
+				lastAuthURL = url
+				s.setLatestAuthURL(url)
 			}
 
 			if !status.Running {
@@ -190,11 +205,14 @@ func (s *Service) mapIpnPeer(st *ipnstate.Status, p *ipnstate.PeerStatus) Peer {
 }
 
 // StartLogin triggers (or nudges) an interactive login and waits briefly for
-// the resulting AuthURL, mainly so a caller (e.g. a UI button) can surface an
-// immediate error. The actual "open this in a browser" action should NOT be
-// driven by this return value — register an AuthURLHandler instead, since
-// tsnet can produce the same AuthURL from other triggers (first boot,
-// a remote client's sync/register request) that never call StartLogin.
+// the resulting AuthURL by polling status every 500ms for up to 30s. Callers
+// driven by a direct user action (e.g. a UI button) should open the browser
+// from this return value themselves — it doesn't depend on tsnet's
+// printAuthURLLoop (see SetAuthURLHandler's doc comment), so unlike that
+// handler it keeps working across repeated Sign Out + Sign In cycles within
+// the same process. AuthURLHandler still needs to stay registered separately
+// for triggers that never call StartLogin (first boot, a remote client's
+// sync/register request) and so have no return value to open from.
 func (s *Service) StartLogin(ctx context.Context) (string, error) {
 	lc, err := s.localClient()
 	if err != nil {

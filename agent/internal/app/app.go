@@ -377,7 +377,23 @@ func (a *App) initTailscale(ctx context.Context) {
 	}
 	if a.cfg.TailscaleEnabled {
 		go a.startTailscaleHTTP(ctx)
-		go a.startSunshineTSNetForwarding()
+		// startSunshineTSNetForwarding is NOT started here: it binds the same
+		// fixed ports (Sunshine/rustshine's NvHTTP/RTSP/control/video/audio
+		// set) on the same tsnet.Server as StreamProxy (see restartStreamProxy,
+		// called from startSunshine/sunshineWatchdog). Running both raced two
+		// independent ListenPacket registrations for 47998/47999/48000 --
+		// confirmed live: tsnet's netstack kept accepting the client's video/
+		// audio ping packets ("[v1] Accept: UDP{...:47998} ok" in the tsnet
+		// log) indefinitely, but gamestream-server never saw them ("waiting
+		// for client video ping" timing out every ~4.5s, forever) because
+		// forwardSunshineUDPPort's reader goroutine had silently died (no
+		// error logging on ReadFrom failure) the moment StreamProxy's own
+		// later bind attempt on the same port collided with it. StreamProxy
+		// alone already covers this port set (TCP http/https/rtsp directly,
+		// UDP control directly, UDP video/audio via RTSP SETUP-response
+		// snooping) and additionally retries through the ECONNREFUSED
+		// startup race -- this generic forwarder is redundant, and the two
+		// running together is strictly worse than StreamProxy alone.
 	}
 }
 

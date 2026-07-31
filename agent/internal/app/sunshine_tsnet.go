@@ -129,6 +129,7 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 	for {
 		n, clientAddr, err := pc.ReadFrom(buf)
 		if err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d ReadFrom failed, forwarder exiting: %v", port, err)
 			return
 		}
 		key := clientAddr.String()
@@ -142,6 +143,7 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 				log.Printf("[app] sunshine tsnet udp :%d dial backend failed: %v", port, err)
 				continue
 			}
+			log.Printf("[app] sunshine tsnet udp :%d new backend dialed for client=%s", port, key)
 			mu.Lock()
 			backends[key] = backend
 			mu.Unlock()
@@ -157,11 +159,13 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 // relaySunshineUDPReplies copies Sunshine's replies on a per-peer backend
 // socket back out to that peer over tsnet, until the backend goes idle.
 func relaySunshineUDPReplies(pc net.PacketConn, backend *net.UDPConn, clientAddr net.Addr, key string, mu *sync.Mutex, backends map[string]*net.UDPConn) {
+	backendPort := backend.RemoteAddr().(*net.UDPAddr).Port
 	defer func() {
 		mu.Lock()
 		delete(backends, key)
 		mu.Unlock()
 		backend.Close()
+		log.Printf("[app] sunshine tsnet udp :%d backend for client=%s torn down, next packet will redial", backendPort, key)
 	}()
 
 	buf := make([]byte, 65535)
@@ -169,9 +173,11 @@ func relaySunshineUDPReplies(pc net.PacketConn, backend *net.UDPConn, clientAddr
 		_ = backend.SetReadDeadline(time.Now().Add(2 * time.Minute))
 		n, err := backend.Read(buf)
 		if err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d backend read for client=%s failed: %v", backendPort, key, err)
 			return
 		}
 		if _, err := pc.WriteTo(buf[:n], clientAddr); err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d WriteTo client=%s failed: %v", backendPort, key, err)
 			return
 		}
 	}

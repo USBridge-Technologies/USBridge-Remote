@@ -525,9 +525,37 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 			w.awaitingLocalLogin.Store(true)
 			fyne.Do(func() { w.setTailscaleInfo("starting login flow...", "", "") })
-			if _, err := w.ts.StartLogin(ctx); err != nil {
+			authURL, err := w.ts.StartLogin(ctx)
+			if err != nil {
 				w.awaitingLocalLogin.Store(false)
 				fyne.Do(func() { w.setTailscaleInfo(fmt.Sprintf("error: %v", err), "", "") })
+				return
+			}
+			// Open directly from StartLogin's own return value instead of waiting
+			// on SetAuthURLHandler alone: that handler is fed by tsnet's
+			// printAuthURLLoop, a goroutine tsnet starts exactly once per Server
+			// lifetime and permanently exits the moment login first succeeds (see
+			// tsnet.Server.printAuthURLLoop — "state is Running; done"). After any
+			// Sign Out + Sign In cycle within the same agent run, that loop is
+			// already dead, so the handler never fires again and the button looked
+			// broken no matter how many times it was clicked. StartLogin's own
+			// 500ms status poll doesn't depend on that loop at all, so it keeps
+			// working across repeated login cycles. The CompareAndSwap still guards
+			// against double-opening if the (still-registered, occasionally still
+			// alive) handler also fires for the same click.
+			if authURL != "" && w.awaitingLocalLogin.CompareAndSwap(true, false) {
+				parsed, parseErr := url.Parse(strings.TrimSpace(authURL))
+				if parseErr != nil {
+					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
+					fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
+					return
+				}
+				fyne.Do(func() {
+					if w.app != nil {
+						_ = w.app.OpenURL(parsed)
+					}
+					w.setTailscaleInfo("login link opened in browser", "", "")
+				})
 			}
 		}()
 	})

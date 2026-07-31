@@ -358,8 +358,24 @@ export CGO_ENABLED=1
 export GO111MODULE=on
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
 
-# fyne uses aarch64-linux-android21-clang whose sysroot lacks libaaudio.so.
-# Add the API 26 sysroot explicitly so the linker can find it.
+# Without an explicit CC, Go's own cgo cross-compilation for GOOS=android
+# GOARCH=arm64 resolves its default clang wrapper to API 21
+# (aarch64-linux-android21-clang). NDK clang gates a handful of libraries by
+# their own minimum API level as part of its target triple, independently of
+# any extra -L search path: libaaudio.so (min API 26) and libvulkan.so (min
+# API 24) are NOT resolvable through a 21-targeted clang/lld invocation even
+# when their directory is manually added to CGO_LDFLAGS below — only
+# retargeting the compiler itself to API 26 (matching this project's actual
+# minSdkVersion, and the same api_level already used for the Tailscale build
+# a few steps above) makes clang's own availability check pass. Previously
+# only the extra -L was added here, which fixed nothing: the link still
+# failed with "unable to find library -laaudio"/"-lvulkan" even though the
+# files plainly exist at that path.
+setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
+
+# Belt-and-suspenders: also add the API 26 sysroot lib dir explicitly, in
+# case a future Go toolchain version stops honoring CC for this and needs
+# the extra search path again.
 _NDK_PREBUILT="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
     -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -1)"
 _NDK_API26_LIB="${_NDK_PREBUILT}/sysroot/usr/lib/aarch64-linux-android/26"

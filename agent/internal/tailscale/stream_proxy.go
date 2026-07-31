@@ -110,6 +110,18 @@ func (p *StreamProxy) run() {
 	p.startTCPRelay(httpPort, false)
 	p.startTCPRelay(httpsPort, false)
 	p.startTCPRelay(rtspPort, true)
+	// Mark controlPort seen before opening it directly: the "control" SETUP
+	// response also carries "server_port=<controlPort>" (handle_setup replies
+	// with the same Transport header for every stream type), so scanServerPorts
+	// would otherwise call ensureUDPRelay(controlPort) again once a session's
+	// RTSP SETUP is snooped -- seenUDP wasn't set by this direct call, so that
+	// second call always re-dialed ListenPacket on the same port and failed
+	// with "already in use" (harmless on its own, but see initTailscale's
+	// comment on startSunshineTSNetForwarding for why a bind collision here
+	// isn't always harmless).
+	p.mu.Lock()
+	p.seenUDP[controlPort] = true
+	p.mu.Unlock()
 	p.startUDPRelay(controlPort)
 }
 
@@ -253,9 +265,32 @@ func (p *StreamProxy) startUDPRelay(port int) {
 		return
 	}
 
-	local, err := net.Dial("udp4", fmt.Sprintf("127.0.0.1:%d", port))
+	// Deliberately *unconnected* (ListenUDP, not Dial): gamestream-server
+	// closes and rebinds its own local video/audio ping socket on every
+	// single session retry (each "starting video pipeline" cycle logs its
+	// own fresh "waiting for client video ping"), sometimes several times a
+	// minute while a client repeatedly retries a stalled connection. A
+	// *connected* UDP socket (`net.Dial`, what this used to be) latches
+	// onto that first bind and, once Windows delivers a delayed ICMP
+	// port-unreachable for a send that landed in the gap between the old
+	// socket's close and the new one's bind, keeps surfacing that same
+	// stale error on every future call -- confirmed live: after the first
+	// successful session on a freshly (re)started gamestream-server, every
+	// later retry within that same process's lifetime sat forever in
+	// "waiting for client video ping" even though `[v1] Accept: UDP{...}
+	// ok` in the tsnet log showed the client's ping packets still arriving.
+	// An unconnected socket has no single latched peer for the kernel to
+	// blame a stale ICMP on -- each send explicitly re-targets
+	// `backendAddr` fresh, so a rebind on gamestream-server's side is
+	// invisible here.
+	backendAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		logrus.Errorf("🛰️ [StreamProxy] dial local udp :%d: %v", port, err)
+		logrus.Errorf("🛰️ [StreamProxy] resolve local udp :%d: %v", port, err)
+		return
+	}
+	local, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		logrus.Errorf("🛰️ [StreamProxy] listen local udp :%d: %v", port, err)
 		return
 	}
 	if !p.addListener(local) {
@@ -287,7 +322,7 @@ func (p *StreamProxy) startUDPRelay(port int) {
 				remoteMu.Lock()
 				remoteAddr = addr
 				remoteMu.Unlock()
-				local.Write(buf[:n]) //nolint:errcheck
+				local.WriteToUDP(buf[:n], backendAddr) //nolint:errcheck
 			}
 		}
 	}()
@@ -296,7 +331,7 @@ func (p *StreamProxy) startUDPRelay(port int) {
 	go func() {
 		buf := make([]byte, 65536)
 		for {
-			n, err := local.Read(buf)
+			n, _, err := local.ReadFromUDP(buf)
 			if err != nil {
 				select {
 				case <-p.ctx.Done():
@@ -309,7 +344,9 @@ func (p *StreamProxy) startUDPRelay(port int) {
 				// ECONNREFUSED from an ICMP port-unreachable while Sunshine's
 				// own RTP socket for this session is still binding is a
 				// startup race, not a permanent failure — keep retrying
-				// (same fix as the client's tsnet proxy).
+				// (same fix as the client's tsnet proxy). On an unconnected
+				// socket this practically never fires (see the comment on
+				// `local`'s creation above) but costs nothing to keep.
 				continue
 			}
 			if n > 0 {
