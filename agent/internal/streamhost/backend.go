@@ -36,6 +36,11 @@ type Lifecycle interface {
 	// not bundled on this OS.
 	BinaryPath() string
 	CapExecPath() string
+	// Pid returns the running host process's PID, or 0 if not running --
+	// used by internal/permissions' Windows GPU-clock-lock helper (see
+	// service_windows.go), which needs a PID to watch so it knows when to
+	// release the NVML lock.
+	Pid() int
 }
 
 // ConfigStore reads/writes the subset of the backend's persistent config

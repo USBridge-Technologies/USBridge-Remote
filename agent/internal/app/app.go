@@ -60,6 +60,14 @@ type App struct {
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	adminSrv  *adminapi.Server
+
+	// gpuClockLockedPid is the stream-host PID applyGPUClockLock last
+	// successfully armed the elevated lock daemon for, so repeated calls
+	// (the sunshineWatchdog re-invokes startSunshine every 15s) don't
+	// relaunch the elevated helper -- and pop a fresh UAC prompt -- for a
+	// PID it's already armed.
+	gpuClockMu        sync.Mutex
+	gpuClockLockedPid int
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -295,6 +303,8 @@ func (a *App) startSunshine() {
 	}
 	if err := a.stream.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
+	} else {
+		a.applyGPUClockLock()
 	}
 	// startSunshine() is invoked unconditionally every sunshineWatchdogInterval
 	// (see sunshineWatchdog) and is a no-op whenever Sunshine is already
@@ -587,6 +597,9 @@ func (a *App) RestartSunshine() error {
 	_ = a.stream.Stop()
 	time.Sleep(time.Second)
 	err := a.stream.Start(a.cfg.SunshinePort)
+	if err == nil {
+		a.applyGPUClockLock()
+	}
 	// Start() only waits for the OS to fork the Sunshine process, not for its
 	// own bootstrap (config parse, KMS/Wayland monitor enumeration, binding
 	// its HTTPS/RTSP listeners) to finish. Callers of RestartSunshine (e.g.
@@ -657,6 +670,83 @@ func (a *App) RequestKMSCapture() bool {
 		}
 	}
 	return granted
+}
+
+// GPUClockLockSupported reports whether this platform's permissions backend
+// can attempt an NVML GPU-clock lock at all -- true only on Windows (see
+// internal/permissions/service_windows.go); every other platform's Service
+// stubs this to false since there's no equivalent NVML-idle-stall problem
+// documented there yet.
+func (a *App) GPUClockLockSupported() bool {
+	if a.perms == nil {
+		return false
+	}
+	return a.perms.GPUClockLockSupported()
+}
+
+// LockGPUClocksEnabled returns the persisted "Lock GPU clocks" setting.
+func (a *App) LockGPUClocksEnabled() bool {
+	return a.cfg.LockGPUClocksEnabled
+}
+
+// SetLockGPUClocksEnabled persists the "Lock GPU clocks" setting and, if
+// turning it on while a stream host is already running, immediately arms the
+// lock for the current session (see applyGPUClockLock) instead of waiting
+// for the next restart. Turning it off does NOT tear down an already-running
+// lock daemon -- it only stops future session starts from spawning one; the
+// daemon watches the streaming host's own PID and exits on its own once that
+// process does, see permissions.Service.RequestGPUClockLock.
+func (a *App) SetLockGPUClocksEnabled(enabled bool) error {
+	next := a.cfg
+	next.LockGPUClocksEnabled = enabled
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	if enabled {
+		a.applyGPUClockLock()
+	}
+	return nil
+}
+
+// applyGPUClockLock launches the elevated GPU-clock-lock daemon for the
+// currently-running stream host, if the setting is enabled and supported on
+// this platform. Called after every a.stream.Start() -- but startSunshine()
+// itself is invoked unconditionally every sunshineWatchdogInterval (15s) and
+// is a no-op (still returns a nil error) whenever the stream host is already
+// running, so this guards against re-launching the elevated helper (and
+// popping a fresh UAC prompt) on every single watchdog tick: it only acts
+// the first time it sees a given stream host PID, tracked in
+// gpuClockLockedPid. The daemon watches that PID and exits on its own once
+// the process does, so a genuinely new PID (real restart, or crash+relaunch)
+// correctly gets re-armed; a still-running PID we already armed does not.
+// Errors (including a declined UAC prompt) are logged only, never fatal to
+// starting the stream itself, and deliberately leave gpuClockLockedPid
+// unset so the next tick retries instead of giving up silently forever.
+func (a *App) applyGPUClockLock() {
+	if !a.cfg.LockGPUClocksEnabled || a.perms == nil || a.stream == nil {
+		return
+	}
+	if !a.perms.GPUClockLockSupported() {
+		return
+	}
+	binPath := a.stream.BinaryPath()
+	pid := a.stream.Pid()
+	if binPath == "" || pid == 0 {
+		return
+	}
+	a.gpuClockMu.Lock()
+	alreadyArmed := a.gpuClockLockedPid == pid
+	a.gpuClockMu.Unlock()
+	if alreadyArmed {
+		return
+	}
+	if err := a.perms.RequestGPUClockLock(binPath, pid); err != nil {
+		log.Printf("[app] failed to lock GPU clocks: %v", err)
+		return
+	}
+	a.gpuClockMu.Lock()
+	a.gpuClockLockedPid = pid
+	a.gpuClockMu.Unlock()
 }
 
 // TailscaleStatus returns the current Tailscale status in the format expected by /api/auth/sync.

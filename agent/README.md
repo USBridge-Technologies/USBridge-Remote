@@ -101,6 +101,26 @@ sudo rm -f /etc/systemd/system/usbridge-agent.service
 sudo systemctl daemon-reload
 ```
 
+## Lock GPU Clocks (Windows + NVIDIA)
+
+Windows-only, shown in the **Permissions** panel only on machines where it's
+supported. When checked, the agent launches an elevated helper
+(`gamestream-server.exe --gpu-clock-lock-daemon --watch-pid <PID>`) that holds
+an NVML max-clock lock for the life of the streaming session, so the GPU
+doesn't idle into a lower power state between frames and stall the encoder on
+the next one.
+
+There's no persistent, one-time grant for this on Windows (unlike Linux's
+`CAP_SYS_ADMIN` setcap for KMS capture) — NVML's clock-lock call requires the
+*calling process itself* to be elevated, so a fresh UAC prompt is required
+every time a streaming session actually (re)starts. Checking the box both
+arms the lock immediately (if a session is already running) and re-arms it
+automatically on every future session start; there's no separate "Request"
+button, since the checkbox itself is what triggers the request. Unchecking it
+only stops *future* sessions from spawning the helper — it doesn't kill one
+that's already running, since that would drop clocks mid-session; the helper
+exits on its own once the streaming process it's watching does.
+
 ## License
 
 GPLv3 — see [`LICENSE`](LICENSE). Bundles [Sunshine](https://github.com/LizardByte/Sunshine) (GPLv3).

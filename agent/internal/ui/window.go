@@ -43,6 +43,9 @@ type TokenProvider interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	GPUClockLockSupported() bool
+	LockGPUClocksEnabled() bool
+	SetLockGPUClocksEnabled(enabled bool) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -124,6 +127,9 @@ type Window struct {
 	tsAuthBtn *widget.Button
 
 	autostartCheck *widget.Check
+
+	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
+	gpuClockCheck *widget.Check
 }
 
 type uiStatus struct {
@@ -377,6 +383,44 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// permRows slice and silently dropped the Autostart checkbox with it.
 	autostartRow := container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck)
 
+	// Lock GPU Clocks: holds an NVML max-clock lock for the life of the
+	// stream host session so the GPU doesn't idle into a low-power state
+	// between frames and stall NVENC on the next one (see
+	// app.applyGPUClockLock). Windows+NVIDIA only -- entirely absent from the
+	// Permissions block on other platforms, where GPUClockLockSupported()
+	// returns false, rather than shown-but-disabled. No separate "Request"
+	// button: the checkbox itself triggers the (UAC-prompting) request, both
+	// immediately on check and again automatically on every stream-host
+	// (re)start -- a second manual trigger would just be redundant.
+	gpuClockSupported := w.token != nil && w.token.GPUClockLockSupported()
+	w.gpuClockCheck = widget.NewCheck("", nil)
+	if gpuClockSupported {
+		w.gpuClockCheck.Checked = w.token.LockGPUClocksEnabled()
+		w.gpuClockCheck.Refresh()
+	}
+	w.gpuClockCheck.OnChanged = func(checked bool) {
+		w.gpuClockCheck.Disable()
+		go func() {
+			var err error
+			if w.token != nil {
+				err = w.token.SetLockGPUClocksEnabled(checked)
+			}
+			fyne.Do(func() {
+				if w.gpuClockCheck == nil {
+					return
+				}
+				w.gpuClockCheck.Enable()
+				if err != nil {
+					logrus.Errorf("[ui] lock GPU clocks toggle failed: %v", err)
+					w.gpuClockCheck.Checked = !checked
+					w.gpuClockCheck.Refresh()
+					dialog.ShowError(err, win)
+				}
+			})
+		}()
+	}
+	gpuClockRow := container.NewHBox(widget.NewLabel("Lock GPU Clocks"), layout.NewSpacer(), w.gpuClockCheck)
+
 	var permRows []fyne.CanvasObject
 	if !showButtons && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
@@ -386,6 +430,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 			container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 			screenCaptureRow,
 		}
+	}
+	if gpuClockSupported {
+		permRows = append(permRows, gpuClockRow)
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.

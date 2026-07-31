@@ -162,6 +162,22 @@ func (c *Client) RequestKMSCapture() bool {
 	return body.Value
 }
 
+func (c *Client) GPUClockLockSupported() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/gpu-clock-lock-supported", nil, &body)
+	return body.Value
+}
+
+func (c *Client) LockGPUClocksEnabled() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/gpu-clock-lock-enabled", nil, &body)
+	return body.Value
+}
+
+func (c *Client) SetLockGPUClocksEnabled(enabled bool) error {
+	return c.do(http.MethodPost, "/token/gpu-clock-lock-enabled", boolBody{Value: enabled}, nil)
+}
+
 func (c *Client) RestartSunshine() error {
 	return c.do(http.MethodPost, "/token/restart-sunshine", nil, nil)
 }

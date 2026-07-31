@@ -160,6 +160,15 @@ func (b *rustshineBackend) Running() bool {
 	return b.cmd != nil && b.cmd.Process != nil
 }
 
+func (b *rustshineBackend) Pid() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cmd == nil || b.cmd.Process == nil {
+		return 0
+	}
+	return b.cmd.Process.Pid
+}
+
 // generatePassword creates a cryptographically-random 20-character hex
 // password, same scheme as sunshineBackend's.
 func generateRustshinePassword() string {

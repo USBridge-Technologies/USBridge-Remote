@@ -33,6 +33,15 @@ type Config struct {
 	// Clipboard sync (agent <-> client shared clipboard)
 	ClipboardSyncEnabled bool  `yaml:"clipboard_sync_enabled"`
 	ClipboardMaxBytes    int64 `yaml:"clipboard_max_bytes"` // cap per image/file payload
+	// LockGPUClocksEnabled: Windows+NVIDIA only. When true, every rustshine
+	// backend Start() also launches an elevated gamestream-server
+	// --gpu-clock-lock-daemon helper (see internal/permissions/
+	// service_windows.go) that holds an NVML max-clock lock for the life of
+	// the streaming session -- prevents the GPU idling into a low power
+	// state between frames and stalling NVENC 30-60ms on the next one.
+	// Requires a UAC consent prompt on every session start (Windows has no
+	// one-time-grant equivalent to Linux's CAP_SYS_ADMIN setcap).
+	LockGPUClocksEnabled bool `yaml:"lock_gpu_clocks_enabled"`
 }
 
 func Default() Config {

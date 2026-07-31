@@ -389,6 +389,18 @@ func (b *sunshineBackend) Running() bool {
 	return b.cmd != nil && b.cmd.Process != nil
 }
 
+// Pid always 0 for real Sunshine -- GPU clock locking (see
+// rustshineBackend.Pid's own docs) is a rustshine-only feature, real
+// Sunshine has no equivalent CLI mode to launch.
+func (b *sunshineBackend) Pid() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cmd == nil || b.cmd.Process == nil {
+		return 0
+	}
+	return b.cmd.Process.Pid
+}
+
 // Start launches Sunshine if it isn't already running (by this backend, or
 // reachable on adminPort — e.g. a system-installed Sunshine service). No-op
 // if the launch path doesn't exist.

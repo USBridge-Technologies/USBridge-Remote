@@ -26,6 +26,9 @@ type TokenBackend interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	GPUClockLockSupported() bool
+	LockGPUClocksEnabled() bool
+	SetLockGPUClocksEnabled(enabled bool) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -149,6 +152,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/capture-mode", s.handleSetCaptureMode)
 	mux.HandleFunc("GET /token/kms-granted", s.handleKMSGranted)
 	mux.HandleFunc("POST /token/request-kms", s.handleRequestKMS)
+	mux.HandleFunc("GET /token/gpu-clock-lock-supported", s.handleGPUClockLockSupported)
+	mux.HandleFunc("GET /token/gpu-clock-lock-enabled", s.handleGPUClockLockEnabled)
+	mux.HandleFunc("POST /token/gpu-clock-lock-enabled", s.handleSetGPUClockLockEnabled)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
 	mux.HandleFunc("POST /token/unpair", s.handleUnpair)
@@ -235,6 +241,27 @@ func (s *Server) handleKMSGranted(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRequestKMS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RequestKMSCapture()})
+}
+
+func (s *Server) handleGPUClockLockSupported(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.GPUClockLockSupported()})
+}
+
+func (s *Server) handleGPUClockLockEnabled(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.LockGPUClocksEnabled()})
+}
+
+func (s *Server) handleSetGPUClockLockEnabled(w http.ResponseWriter, r *http.Request) {
+	var body boolBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetLockGPUClocksEnabled(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (s *Server) handleRestartSunshine(w http.ResponseWriter, r *http.Request) {
