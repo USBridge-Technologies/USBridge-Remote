@@ -89,6 +89,8 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 **Shared Clipboard** — Copy and paste seamlessly between your local machine and remote targets. It fully supports text, images, and file transfers out-of-the-box.
 
+**Multi-Monitor Support** — I've added the ability to switch between multiple displays. If the target machine has several monitors, you can now easily select which one to view directly from the connection settings. 
+
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
 
