@@ -113,10 +113,22 @@ func Enable() error {
 	// that brings up a Wayland compositor from nothing on a true headless
 	// boot before any login, since unlike PipeWire it needs actual display
 	// hardware and a logged-in session.
+	//
+	// Deliberately After=network.target, not network-online.target: the
+	// latter blocks on NetworkManager-wait-online, which in turn blocks on
+	// every autoconnect profile settling — including Wi-Fi profiles whose
+	// secrets live in kwallet and aren't available until the desktop
+	// session's secret agent registers post-login. On a wired-plus-saved-
+	// Wi-Fi machine that race can eat 60+ seconds and made this unit look
+	// like it never started. Nothing here actually needs "online" at
+	// process start: Run() launches tsnet in a goroutine (see
+	// initTailscale/startTailscaleHTTP in app.go) that connects and retries
+	// on its own whenever the network shows up, so network.target (reached
+	// as soon as the stack exists, independent of DHCP/Wi-Fi/secrets) is
+	// sufficient.
 	unit := fmt.Sprintf(`[Unit]
 Description=USBridge Agent
-After=network-online.target
-Wants=network-online.target
+After=network.target
 
 [Service]
 Type=simple
@@ -154,8 +166,36 @@ WantedBy=multi-user.target
 	// capture both depend on) at boot, without requiring an interactive
 	// login — otherwise XDG_RUNTIME_DIR above points at a session that never
 	// comes up on a headless boot.
+	//
+	// usermod -aG render: /dev/dri/renderD128's static group is "render",
+	// but logind additionally grants it to whichever user's session is
+	// currently *active* on the seat via a dynamic "uaccess" ACL entry —
+	// and that entry names only one user at a time. This unit runs as
+	// u.Username unconditionally, including while a *different* session
+	// (SDDM's greeter, or another user via fast-user-switching) owns the
+	// active seat, at which point logind reassigns that ACL entry away
+	// from u.Username and the render node's group bit is the only
+	// remaining path in. Without static "render" membership, Sunshine's/
+	// rust-shine's Vulkan and GBM zero-copy capture paths can't open the
+	// render node at all during that window — confirmed live: every
+	// captured frame gets dropped ("not raster-valid ... zero-copy isn't
+	// supported") for as long as the seat's active session isn't
+	// u.Username, which is exactly why capture only starts working right
+	// after logging in (that's when the uaccess ACL — or now, this static
+	// group membership — actually grants access). Group changes only apply
+	// to *new* logins/processes, so a service that was already running
+	// under the old group list needs an explicit restart to pick it up —
+	// but only when the group was actually just added: `enable --now`
+	// alone is enough on every other (overwhelmingly common) re-Enable,
+	// and unconditionally restarting here would drop an in-progress stream
+	// every time the user merely re-toggles the autostart setting.
+	// `getent group render` guards systems with no DRM render node (no
+	// GPU, or a driver that doesn't expose one) where the group doesn't
+	// exist at all.
 	script := fmt.Sprintf(
-		"install -m 0644 %s %s && systemctl daemon-reload && systemctl enable --now %s && loginctl enable-linger %s",
+		`ADDED_RENDER=0; if getent group render >/dev/null && ! id -nG %[4]s | grep -qw render; then usermod -aG render %[4]s && ADDED_RENDER=1; fi; `+
+			`install -m 0644 %[1]s %[2]s && systemctl daemon-reload && systemctl enable --now %[3]s && loginctl enable-linger %[4]s && `+
+			`if [ "$ADDED_RENDER" = 1 ]; then systemctl restart %[3]s; fi`,
 		tmp.Name(), unitPath, unitName, systemdQuote(u.Username),
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
