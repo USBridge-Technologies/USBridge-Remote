@@ -265,7 +265,14 @@ func (w *Window) ShowAndRun(onClose func()) {
 					w.accessBtn.Enable()
 				}
 			})
-			_ = w.perms.RequestAccessibility()
+			granted := w.perms.RequestAccessibility()
+			if !granted {
+				if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+					if msg := e.LastAccessibilityError(); msg != "" {
+						fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+					}
+				}
+			}
 			w.performRefresh()
 		}()
 	})
