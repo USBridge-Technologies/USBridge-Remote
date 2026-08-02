@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -116,10 +117,30 @@ func (b *rustshineBackend) SetOutputName(name string) error {
 	}
 	card, connector, ok := strings.Cut(name, "|")
 	if !ok {
-		// Not our own "cardPath|connector" format (e.g. a caller passing a
-		// bare connector name directly) — fall back to just the connector,
-		// same as before this compound format existed.
-		return b.SetConfigKey("kms_connector", name)
+		// Not our own "cardPath|connector" format. A bare digit string is
+		// never a real connector name (real ones look like "HDMI-A-1") —
+		// it's Sunshine's numeric output_name scheme leaking through (e.g.
+		// a client/GUI still holding a stale "drm:<index>" device path from
+		// before it re-fetched the device list, or from a cross-backend
+		// switch — see videoSetDevice's "raw:" prefix handling). Blindly
+		// writing that digit string into kms_connector previously corrupted
+		// capture permanently (no connector is ever named "0"), breaking
+		// every future session regardless of fps/resolution until someone
+		// edited the config file by hand. Resolve it against the real
+		// device list instead, same index scheme rustshineBackend itself
+		// reports via ListCaptureDevices; anything else that isn't our
+		// compound format and isn't a resolvable index is ignored rather
+		// than written verbatim.
+		if idx, err := strconv.Atoi(name); err == nil {
+			devices := b.ListCaptureDevices()
+			if idx >= 0 && idx < len(devices) {
+				name = devices[idx].OutputName
+				card, connector, ok = strings.Cut(name, "|")
+			}
+		}
+		if !ok {
+			return nil
+		}
 	}
 	if err := b.SetConfigKey("adapter_name", card); err != nil {
 		return err
