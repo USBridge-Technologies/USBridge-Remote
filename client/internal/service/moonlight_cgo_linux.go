@@ -241,6 +241,48 @@ static void linux_av_teardown(void) {
     g_av_frame_cnt = 0;
 }
 
+// Frame dump for the netem/packet-loss diagnostic harness: opt-in via
+// USBRIDGE_FRAME_DUMP_DIR (unset in normal client runs, so this never touches
+// disk otherwise). Writes raw P6 PPM (no PNG encoder linked into this binary)
+// every dump_every_n-th frame -- close enough together to catch corruption
+// on the P-frames immediately following a keyframe, not just the keyframe
+// itself, which is where the FEC-block-loss bug upstream is documented to
+// show up.
+static void maybe_dump_frame_ppm(const uint8_t *rgba, int w, int h) {
+    static const char *dump_dir = NULL;
+    static int dump_dir_checked = 0;
+    static int dump_every_n = 15;
+    if (!dump_dir_checked) {
+        dump_dir_checked = 1;
+        dump_dir = getenv("USBRIDGE_FRAME_DUMP_DIR");
+        const char *n = getenv("USBRIDGE_FRAME_DUMP_EVERY_N");
+        if (n && atoi(n) > 0) dump_every_n = atoi(n);
+    }
+    if (!dump_dir) return;
+    if (g_av_frame_cnt % (uint64_t)dump_every_n != 0) return;
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/frame_%06llu.ppm", dump_dir, (unsigned long long)g_av_frame_cnt);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "P6\n%d %d\n255\n", w, h);
+    // RGBA -> RGB, dropping alpha (PPM has no alpha channel).
+    uint8_t *row = (uint8_t *)malloc((size_t)w * 3);
+    if (row) {
+        for (int y = 0; y < h; y++) {
+            const uint8_t *src = rgba + (size_t)y * w * 4;
+            for (int x = 0; x < w; x++) {
+                row[x * 3 + 0] = src[x * 4 + 0];
+                row[x * 3 + 1] = src[x * 4 + 1];
+                row[x * 3 + 2] = src[x * 4 + 2];
+            }
+            fwrite(row, 1, (size_t)w * 3, f);
+        }
+        free(row);
+    }
+    fclose(f);
+}
+
 static void deliver_frame(AVFrame *frame) {
     AVFrame *sw = NULL;
     if (frame->format == AV_PIX_FMT_VAAPI || frame->format == AV_PIX_FMT_CUDA) {
@@ -266,6 +308,7 @@ static void deliver_frame(AVFrame *frame) {
                       0, h, dst, dst_stride);
             if (++g_av_frame_cnt == 1)
                 goVTLog((char*)"libavcodec: first RGBA frame decoded");
+            maybe_dump_frame_ppm(rgba, w, h);
             // Native overlay fast path: VK preferred, GL fallback.
             // goVTFrame is still called so Go-side stats/callbacks run.
             if (vk_video_is_active())
@@ -290,7 +333,52 @@ void platform_set_video_format(int videoFormat) {
     g_video_format = videoFormat ? videoFormat : 0x0001;
 }
 
+// Real network frame-arrival cadence, independent of decode speed --
+// du->receiveTimeUs is stamped by moonlight-common-c when the first packet
+// of this frame arrived off the wire, so this measures actual RTP jitter,
+// unlike decoded-frame timing (which conflates it with local decode-side
+// slowness, e.g. software H.264 fallback when no VAAPI/NVDEC device is
+// available). Opt-in via USBRIDGE_LOG_FRAME_JITTER so it never runs in
+// normal client builds.
+static void maybe_log_frame_jitter(uint64_t receive_time_us) {
+    static int enabled = -1;
+    static uint64_t prev_us = 0;
+    static double min_ms = 1e18, max_ms = -1e18;
+    static int count = 0;
+    if (enabled < 0) enabled = getenv("USBRIDGE_LOG_FRAME_JITTER") ? 1 : 0;
+    if (!enabled) return;
+
+    if (prev_us != 0) {
+        double delta_ms = (double)(receive_time_us - prev_us) / 1000.0;
+        if (delta_ms < min_ms) min_ms = delta_ms;
+        if (delta_ms > max_ms) max_ms = delta_ms;
+        count++;
+        if (count >= 60) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "frame arrival cadence: min=%.1fms max=%.1fms jitter=%.1fms over %d frames",
+                     min_ms, max_ms, max_ms - min_ms, count);
+            goVTLog(msg);
+            min_ms = 1e18; max_ms = -1e18; count = 0;
+        }
+    }
+    prev_us = receive_time_us;
+}
+
 int platform_dr_submit(PDECODE_UNIT du) {
+    maybe_log_frame_jitter(du->receiveTimeUs);
+
+    // USBRIDGE_SKIP_DECODE: measure true producer-side (server encode/send)
+    // pacing, unpolluted by this harness's own decode speed. With
+    // CAPABILITY_DIRECT_SUBMIT, dr_submit runs synchronously on the RTP
+    // receive thread -- a slow consumer here delays draining the socket,
+    // which delays du->receiveTimeUs on the *next* frame too, making the
+    // receive thread's own slowness look like server-side jitter. Skipping
+    // the decode entirely makes this the fastest possible consumer, so
+    // receiveTimeUs deltas reflect genuine wire arrival timing.
+    static int skip_decode = -1;
+    if (skip_decode < 0) skip_decode = getenv("USBRIDGE_SKIP_DECODE") ? 1 : 0;
+    if (skip_decode) return DR_OK;
+
     pthread_mutex_lock(&g_av_mu);
     if (!g_avctx) linux_av_init();
     AVCodecContext *ctx = g_avctx;

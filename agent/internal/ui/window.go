@@ -28,7 +28,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/netutil"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
 )
@@ -43,13 +43,20 @@ type TokenProvider interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	GPUClockLockSupported() bool
+	LockGPUClocksEnabled() bool
+	SetLockGPUClocksEnabled(enabled bool) error
 	RestartSunshine() error
-	ListSunshineClients() ([]sunshine.Client, error)
+	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
+	SunshineStreamHost() string
+	AdminUser() string
+	AdminPass() string
+	StreamerName() string
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -120,6 +127,9 @@ type Window struct {
 	tsAuthBtn *widget.Button
 
 	autostartCheck *widget.Check
+
+	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
+	gpuClockCheck *widget.Check
 }
 
 type uiStatus struct {
@@ -373,6 +383,44 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// permRows slice and silently dropped the Autostart checkbox with it.
 	autostartRow := container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck)
 
+	// Lock GPU Clocks: holds an NVML max-clock lock for the life of the
+	// stream host session so the GPU doesn't idle into a low-power state
+	// between frames and stall NVENC on the next one (see
+	// app.applyGPUClockLock). Windows+NVIDIA only -- entirely absent from the
+	// Permissions block on other platforms, where GPUClockLockSupported()
+	// returns false, rather than shown-but-disabled. No separate "Request"
+	// button: the checkbox itself triggers the (UAC-prompting) request, both
+	// immediately on check and again automatically on every stream-host
+	// (re)start -- a second manual trigger would just be redundant.
+	gpuClockSupported := w.token != nil && w.token.GPUClockLockSupported()
+	w.gpuClockCheck = widget.NewCheck("", nil)
+	if gpuClockSupported {
+		w.gpuClockCheck.Checked = w.token.LockGPUClocksEnabled()
+		w.gpuClockCheck.Refresh()
+	}
+	w.gpuClockCheck.OnChanged = func(checked bool) {
+		w.gpuClockCheck.Disable()
+		go func() {
+			var err error
+			if w.token != nil {
+				err = w.token.SetLockGPUClocksEnabled(checked)
+			}
+			fyne.Do(func() {
+				if w.gpuClockCheck == nil {
+					return
+				}
+				w.gpuClockCheck.Enable()
+				if err != nil {
+					logrus.Errorf("[ui] lock GPU clocks toggle failed: %v", err)
+					w.gpuClockCheck.Checked = !checked
+					w.gpuClockCheck.Refresh()
+					dialog.ShowError(err, win)
+				}
+			})
+		}()
+	}
+	gpuClockRow := container.NewHBox(widget.NewLabel("Lock GPU Clocks"), layout.NewSpacer(), w.gpuClockCheck)
+
 	var permRows []fyne.CanvasObject
 	if !showButtons && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
@@ -382,6 +430,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 			container.NewHBox(w.accessLabel, layout.NewSpacer(), w.accessBtn),
 			screenCaptureRow,
 		}
+	}
+	if gpuClockSupported {
+		permRows = append(permRows, gpuClockRow)
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
@@ -432,6 +483,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), widget.NewLabel(w.token.StreamerName()))
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -451,7 +503,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// Sunshine GameStream row — Moonlight clients connect here (port = web-1)
 	sunStreamPort := sunshinePort - 1
-	sunStreamIP := sunshine.ExternalIP()
+	sunStreamIP := w.token.SunshineStreamHost()
 	if sunStreamIP == "" {
 		sunStreamIP = "0.0.0.0"
 	}
@@ -482,7 +534,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal),
 		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
 
-	statsBlock := newPanel("Status", newTightVBox(osLabel, httpRow, sunStreamRow, sunWebRow))
+	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, sunWebRow))
 
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
@@ -520,9 +572,37 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 			w.awaitingLocalLogin.Store(true)
 			fyne.Do(func() { w.setTailscaleInfo("starting login flow...", "", "") })
-			if _, err := w.ts.StartLogin(ctx); err != nil {
+			authURL, err := w.ts.StartLogin(ctx)
+			if err != nil {
 				w.awaitingLocalLogin.Store(false)
 				fyne.Do(func() { w.setTailscaleInfo(fmt.Sprintf("error: %v", err), "", "") })
+				return
+			}
+			// Open directly from StartLogin's own return value instead of waiting
+			// on SetAuthURLHandler alone: that handler is fed by tsnet's
+			// printAuthURLLoop, a goroutine tsnet starts exactly once per Server
+			// lifetime and permanently exits the moment login first succeeds (see
+			// tsnet.Server.printAuthURLLoop — "state is Running; done"). After any
+			// Sign Out + Sign In cycle within the same agent run, that loop is
+			// already dead, so the handler never fires again and the button looked
+			// broken no matter how many times it was clicked. StartLogin's own
+			// 500ms status poll doesn't depend on that loop at all, so it keeps
+			// working across repeated login cycles. The CompareAndSwap still guards
+			// against double-opening if the (still-registered, occasionally still
+			// alive) handler also fires for the same click.
+			if authURL != "" && w.awaitingLocalLogin.CompareAndSwap(true, false) {
+				parsed, parseErr := url.Parse(strings.TrimSpace(authURL))
+				if parseErr != nil {
+					logrus.Errorf("tailscale ui: failed to parse auth URL %q: %v", authURL, parseErr)
+					fyne.Do(func() { w.setTailscaleInfo("invalid login URL received", "", "") })
+					return
+				}
+				fyne.Do(func() {
+					if w.app != nil {
+						_ = w.app.OpenURL(parsed)
+					}
+					w.setTailscaleInfo("login link opened in browser", "", "")
+				})
 			}
 		}()
 	})
@@ -1123,14 +1203,14 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 
 	// Password row: built dynamically so it reflects the value set by the
 	// async bootstrap goroutine even if the dialog opens before it completes.
-	passLabel := widget.NewLabel(sunshine.AdminPass())
+	passLabel := widget.NewLabel(w.token.AdminPass())
 	passLabel.Truncation = fyne.TextTruncateEllipsis
 	passLbl := canvas.NewText("Pass:", design.ColorTextMuted)
 	passLbl.TextSize = 11
 	passLbl.TextStyle.Bold = true
 	passLblBox := container.NewGridWrap(fyne.NewSize(52, 16), passLbl)
 	passCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
-		parent.Clipboard().SetContent(sunshine.AdminPass())
+		parent.Clipboard().SetContent(w.token.AdminPass())
 	})
 	passRow := container.NewBorder(nil, nil, passLblBox, passCopyBtn, passLabel)
 	// If password is not yet available (bootstrap still running), poll until ready.
@@ -1138,7 +1218,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		go func() {
 			for i := 0; i < 40; i++ {
 				time.Sleep(500 * time.Millisecond)
-				if p := sunshine.AdminPass(); p != "" {
+				if p := w.token.AdminPass(); p != "" {
 					fyne.Do(func() { passLabel.SetText(p) })
 					return
 				}
@@ -1151,7 +1231,7 @@ func (w *Window) showSunshineWebDialog(parent fyne.Window, port int) {
 		minWidth,
 		widget.NewSeparator(),
 		copyRow("URL:", sunshineURL),
-		copyRow("Login:", sunshine.AdminUser),
+		copyRow("Login:", w.token.AdminUser()),
 		passRow,
 		widget.NewSeparator(),
 		container.NewCenter(openBtn),
@@ -1178,7 +1258,7 @@ func (w *Window) showEditSunStreamDialog(parent fyne.Window, streamLabel *widget
 	if currentStreamPort <= 0 {
 		currentStreamPort = 47989
 	}
-	currentIP := sunshine.ExternalIP()
+	currentIP := w.token.SunshineStreamHost()
 	if currentIP == "" {
 		currentIP = "0.0.0.0"
 	}

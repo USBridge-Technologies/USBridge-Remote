@@ -1,4 +1,4 @@
-package sunshine
+package streamhost
 
 import (
 	"fmt"
@@ -46,13 +46,13 @@ func realSession(codecEncoderLine string) string {
 [2026-07-19 09:30:06.855]: Info: CLIENT DISCONNECTED`
 }
 
-func newTestProcess(t *testing.T, logContent string) *Process {
+func newTestBackend(t *testing.T, logContent string) *sunshineBackend {
 	t.Helper()
 	logPath := filepath.Join(t.TempDir(), "sunshine.log")
 	if err := os.WriteFile(logPath, []byte(logContent), 0o644); err != nil {
 		t.Fatalf("write fixture log: %v", err)
 	}
-	return NewProcess("", logPath)
+	return &sunshineBackend{logPath: logPath}
 }
 
 // This is the exact regression this fix targets: on this fork, Sunshine logs
@@ -69,8 +69,8 @@ func TestCurrentVideoCodec_IgnoresProbeNoiseAfterRealSession(t *testing.T) {
 [2026-07-19 09:31:00.010]: Info: Creating encoder [h264_videotoolbox]
 [2026-07-19 09:31:00.180]: Info: Creating encoder [hevc_videotoolbox]`
 
-	p := newTestProcess(t, log)
-	if got := p.CurrentVideoCodec(); got != "h264" {
+	b := newTestBackend(t, log)
+	if got := b.CurrentVideoCodec(); got != "h264" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q (must reflect the real session, not the trailing HEVC probe noise)", got, "h264")
 	}
 }
@@ -78,8 +78,8 @@ func TestCurrentVideoCodec_IgnoresProbeNoiseAfterRealSession(t *testing.T) {
 func TestCurrentVideoCodec_RealSessionPickedHEVC(t *testing.T) {
 	log := realSession(`[2026-07-19 09:28:21.709]: Info: Creating encoder [hevc_videotoolbox]`)
 
-	p := newTestProcess(t, log)
-	if got := p.CurrentVideoCodec(); got != "h265" {
+	b := newTestBackend(t, log)
+	if got := b.CurrentVideoCodec(); got != "h265" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q", got, "h265")
 	}
 }
@@ -93,8 +93,8 @@ func TestCurrentVideoCodec_AV1UnavailableFallsBackToH264InRealSession(t *testing
 		t.Fatal("fixture sanity check failed: expected AV1 probe failure line")
 	}
 
-	p := newTestProcess(t, log)
-	if got := p.CurrentVideoCodec(); got != "h264" {
+	b := newTestBackend(t, log)
+	if got := b.CurrentVideoCodec(); got != "h264" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q", got, "h264")
 	}
 }
@@ -103,24 +103,24 @@ func TestCurrentVideoCodec_AV1UnavailableFallsBackToH264InRealSession(t *testing
 // the log) — there's no session to anchor on, so this exercises the
 // unanchored best-effort fallback path.
 func TestCurrentVideoCodec_NoSessionYetUsesUnanchoredFallback(t *testing.T) {
-	p := newTestProcess(t, realSessionPreamble)
+	b := newTestBackend(t, realSessionPreamble)
 	// Last "Creating encoder [...]" line in the preamble is the 10-bit HEVC
 	// re-probe, so the best-effort fallback should report h265.
-	if got := p.CurrentVideoCodec(); got != "h265" {
+	if got := b.CurrentVideoCodec(); got != "h265" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q", got, "h265")
 	}
 }
 
 func TestCurrentVideoCodec_EmptyLogDefaultsToH264(t *testing.T) {
-	p := newTestProcess(t, "")
-	if got := p.CurrentVideoCodec(); got != "h264" {
+	b := newTestBackend(t, "")
+	if got := b.CurrentVideoCodec(); got != "h264" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q", got, "h264")
 	}
 }
 
 func TestCurrentVideoCodec_NoLogPathDefaultsToH264(t *testing.T) {
-	p := NewProcess("", "")
-	if got := p.CurrentVideoCodec(); got != "h264" {
+	b := &sunshineBackend{}
+	if got := b.CurrentVideoCodec(); got != "h264" {
 		t.Fatalf("CurrentVideoCodec() = %q, want %q", got, "h264")
 	}
 }
@@ -228,17 +228,14 @@ func TestFetchSupportedVideoCodecs_UnreachableFallsBackToH264Only(t *testing.T) 
 }
 
 func TestSupportedVideoCodecs_Caches(t *testing.T) {
-	supportedCodecsCache.mu.Lock()
-	supportedCodecsCache.codecs = nil
-	supportedCodecsCache.fetchedAt = time.Time{}
-	supportedCodecsCache.mu.Unlock()
+	b := &sunshineBackend{}
 
 	calls := 0
 	adminPort, closeFn := newServerInfoStubCounting(t, scmH264|scmHEVC, &calls)
 	defer closeFn()
 
-	first := SupportedVideoCodecs(adminPort)
-	second := SupportedVideoCodecs(adminPort)
+	first := b.SupportedVideoCodecs(adminPort)
+	second := b.SupportedVideoCodecs(adminPort)
 
 	if !reflect.DeepEqual(first, second) {
 		t.Errorf("cached results differ: %v vs %v", first, second)
@@ -270,7 +267,7 @@ func newServerInfoStubCounting(t *testing.T, codecModeSupport int, calls *int) (
 
 // This is the exact bug behind "Sunshine crashed, and the popup/API just
 // silently stopped updating until the whole agent was restarted": Start()'s
-// "already running, no-op" fast path only reads p.cmd/p.cmd.Process, which
+// "already running, no-op" fast path only reads b.cmd/b.cmd.Process, which
 // exec.Cmd never clears on its own when the OS process dies out from under
 // it. Nothing used to notice the child had exited, so a crashed Sunshine
 // (e.g. the ENet null-pointer-dereference in host_create — see
@@ -280,14 +277,14 @@ func TestWatchProcessExit_ClearsCmdOnExit(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start test process: %v", err)
 	}
-	p := &Process{cmd: cmd}
-	if !p.Running() {
+	b := &sunshineBackend{cmd: cmd}
+	if !b.Running() {
 		t.Fatal("sanity check: Running() should be true immediately after Start()")
 	}
 
 	done := make(chan struct{})
 	go func() {
-		p.watchProcessExit(cmd)
+		b.watchProcessExit(cmd)
 		close(done)
 	}()
 
@@ -297,13 +294,13 @@ func TestWatchProcessExit_ClearsCmdOnExit(t *testing.T) {
 		t.Fatal("watchProcessExit did not return after the watched process exited")
 	}
 
-	if p.Running() {
+	if b.Running() {
 		t.Error("Running() should report false once the watched process has exited — this is what lets Start() relaunch a crashed Sunshine instead of believing it's still alive forever")
 	}
 }
 
 // A stale watcher for an OLD cmd (already replaced by Stop()+a fresh Start())
-// must not clobber the newer, still-running p.cmd.
+// must not clobber the newer, still-running b.cmd.
 func TestWatchProcessExit_DoesNotClobberNewerCmd(t *testing.T) {
 	oldCmd := exec.Command("/bin/sh", "-c", "exit 0")
 	if err := oldCmd.Start(); err != nil {
@@ -318,11 +315,11 @@ func TestWatchProcessExit_DoesNotClobberNewerCmd(t *testing.T) {
 		_, _ = newCmd.Process.Wait()
 	}()
 
-	p := &Process{cmd: newCmd} // simulates: oldCmd already replaced by a fresh Start()
+	b := &sunshineBackend{cmd: newCmd} // simulates: oldCmd already replaced by a fresh Start()
 
 	done := make(chan struct{})
 	go func() {
-		p.watchProcessExit(oldCmd)
+		b.watchProcessExit(oldCmd)
 		close(done)
 	}()
 
@@ -332,10 +329,10 @@ func TestWatchProcessExit_DoesNotClobberNewerCmd(t *testing.T) {
 		t.Fatal("watchProcessExit(oldCmd) did not return")
 	}
 
-	p.mu.Lock()
-	got := p.cmd
-	p.mu.Unlock()
+	b.mu.Lock()
+	got := b.cmd
+	b.mu.Unlock()
 	if got != newCmd {
-		t.Error("watchProcessExit for a stale/replaced cmd must not clear a newer p.cmd")
+		t.Error("watchProcessExit for a stale/replaced cmd must not clear a newer b.cmd")
 	}
 }

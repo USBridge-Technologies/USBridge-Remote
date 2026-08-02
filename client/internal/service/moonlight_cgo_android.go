@@ -466,13 +466,29 @@ int do_li_start(const char *address, const char *appV, const char *gfeV, const c
     cfg.audioConfiguration     = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats  = videoFmt;
     cfg.clientRefreshRateX100  = fps * 100;
-    cfg.encryptionFlags        = ENCFLG_NONE;
+    // Opt into audio encryption exactly like the official Moonlight clients do
+    // (moonlight-android/moonlight-qt default to ENCFLG_AUDIO). Hosts that
+    // require encrypted audio turn it on regardless of this flag, so leaving it
+    // at ENCFLG_NONE only ever led to a negotiation mismatch, never to plaintext
+    // audio we could actually play.
+    cfg.encryptionFlags        = ENCFLG_AUDIO;
     if (key) {
         memcpy(cfg.remoteInputAesKey, key, 16);
-        cfg.remoteInputAesIv[0] = (char)( kid        & 0xff);
-        cfg.remoteInputAesIv[1] = (char)((kid >>  8) & 0xff);
-        cfg.remoteInputAesIv[2] = (char)((kid >> 16) & 0xff);
-        cfg.remoteInputAesIv[3] = (char)((kid >> 24) & 0xff);
+        // remoteInputAesIv holds the rikeyid in BIG-endian (network) byte
+        // order — that is what we sent as "rikeyid" in /launch and what
+        // AudioStream.c reads back via BE32() to build the per-packet audio
+        // AES-CBC IV. Writing it little-endian made the client's IV differ from
+        // the host's, and because CBC only feeds the IV into the *first* block,
+        // every audio packet decrypted with a corrupted first 16 bytes (the
+        // Opus TOC byte) and an otherwise intact tail: opus_multistream_decode
+        // still returned "success" but played garbled/alien noise. Video was
+        // unaffected (unencrypted) and remote input was unaffected too (the
+        // Sunshine control stream derives its own GCM IV from the sequence
+        // number), which is why only audio was broken.
+        cfg.remoteInputAesIv[0] = (char)((kid >> 24) & 0xff);
+        cfg.remoteInputAesIv[1] = (char)((kid >> 16) & 0xff);
+        cfg.remoteInputAesIv[2] = (char)((kid >>  8) & 0xff);
+        cfg.remoteInputAesIv[3] = (char)( kid        & 0xff);
     }
 
     DECODER_RENDERER_CALLBACKS dr;
@@ -521,11 +537,38 @@ void do_li_stop(void) {
 // do_li_force_stop unconditionally calls LiStopConnection regardless of
 // g_li_active.  Go code that reliably tracks connection state calls this
 // instead of do_li_stop to avoid the g_li_active-is-mysteriously-zero bug.
+//
+// Limelight.h documents LiStartConnection()/LiStopConnection() as NOT
+// thread-safe against each other -- only LiInterruptConnection() is safe to
+// call while a LiStartConnection() is in flight on another thread ("this
+// interruption happens asynchronously so it is not safe to start another
+// connection before the first LiStartConnection() call returns"). The Go
+// side must call do_li_interrupt() immediately (safe, unsynchronized) and
+// then wait for any in-flight do_li_start() to actually return (by taking
+// the same liStartCallMu it runs under) before calling this function --
+// calling LiStopConnection() while LiStartConnection() is still running
+// races on moonlight-common-c's process-global `stage`/`initialized`
+// statics (Connection.c, InputStream.c), which can leave `initialized`
+// clobbered to false for a session that's actually still current: every
+// LiSendMousePositionEvent/LiSendKeyboardEvent2/etc. call after that
+// returns -2 and is silently dropped (callers here never checked the
+// return value), producing exactly "video/audio fine, no input reaches the
+// host, zero errors anywhere" -- confirmed against a live gamestream-server
+// with a raw ENet client: an out-of-band test packet decoded and injected
+// correctly every time, proving the server side was never the problem.
 void do_li_force_stop(void) {
     int prev = atomic_exchange(&g_li_active, 0);
     ALOGI("do_li_force_stop: was active=%d, calling LiStopConnection", prev);
     LiStopConnection();
     ALOGI("do_li_force_stop: LiStopConnection returned");
+}
+
+// See do_li_force_stop's docs -- call this immediately (before waiting for
+// any lock) to make an in-flight do_li_start() abort promptly, then wait
+// for that call to actually return before calling do_li_force_stop().
+void do_li_interrupt(void) {
+    ALOGI("do_li_interrupt: calling LiInterruptConnection");
+    LiInterruptConnection();
 }
 
 void set_audio_muted(int muted) { g_audio_muted = muted; }
@@ -535,9 +578,18 @@ void set_audio_pipe_fd(int fd)  { (void)fd; }
 
 void do_send_key(short code, char act, char mod) { LiSendKeyboardEvent(code, act, mod); }
 void do_send_utf8_text(const char *text, unsigned int len) { LiSendUtf8TextEvent(text, len); }
-void do_send_mouse_move(short dx, short dy) { LiSendMouseMoveEvent(dx, dy); }
-void do_send_mouse_position(short x, short y, short w, short h) { LiSendMousePositionEvent(x, y, w, h); }
-void do_send_mouse_button(char act, int btn) { LiSendMouseButtonEvent(act, btn); }
+void do_send_mouse_move(short dx, short dy) {
+    int ret = LiSendMouseMoveEvent(dx, dy);
+    if (ret != 0) ALOGE("LiSendMouseMoveEvent FAILED ret=%d dx=%d dy=%d", ret, (int)dx, (int)dy);
+}
+void do_send_mouse_position(short x, short y, short w, short h) {
+    int ret = LiSendMousePositionEvent(x, y, w, h);
+    if (ret != 0) ALOGE("LiSendMousePositionEvent FAILED ret=%d x=%d y=%d w=%d h=%d", ret, (int)x, (int)y, (int)w, (int)h);
+}
+void do_send_mouse_button(char act, int btn) {
+    int ret = LiSendMouseButtonEvent(act, btn);
+    if (ret != 0) ALOGE("LiSendMouseButtonEvent FAILED ret=%d act=%d btn=%d", ret, (int)act, btn);
+}
 void do_send_scroll(signed char c) { LiSendScrollEvent(c); }
 void do_send_multi_controller(unsigned short cn, unsigned short am, unsigned short b, unsigned char lt, unsigned char rt, short lx, short ly, short rx, short ry) {
     LiSendMultiControllerEvent(cn, am, b, lt, rt, lx, ly, rx, ry);
@@ -590,11 +642,20 @@ var (
 	// performRtspHandshake, plus a handful of JNI CallVoidMethod SIGABRTs from
 	// the resulting doubled-up native render/JNI threads.
 	//
-	// liStartCallMu wraps only the do_li_start() call itself (not the whole
-	// connected session) so it cannot deadlock with do_li_force_stop(): a
-	// concurrent LiStopConnection() call is designed to interrupt an in-flight
-	// LiStartConnection() from another thread, making the first call return
-	// promptly and release the lock for the next one.
+	// liStartCallMu wraps do_li_start() (LiStartConnection). do_li_force_stop()
+	// (LiStopConnection) must ALSO go through this same mutex now -- see
+	// stopConnectionSafely()'s docs. The previous design let do_li_force_stop()
+	// run concurrently with an in-flight do_li_start() on the theory that
+	// LiStopConnection() would "interrupt" it; Limelight.h actually documents
+	// LiStartConnection()/LiStopConnection() as NOT thread-safe against each
+	// other (only LiInterruptConnection() is safe to call concurrently), and
+	// that mismatch was a real bug: Connection.c's `stage`/InputStream.c's
+	// `initialized` are process-global statics with no generation awareness,
+	// so a stale session's concurrent LiStopConnection() could clobber
+	// `initialized` back to false for a session that had just legitimately
+	// started, silently breaking every mouse/keyboard send from that point on
+	// (confirmed live: server-side ENet decode/inject proven correct with a
+	// raw test packet, yet real client input never arrived after a reconnect).
 	liStartCallMu sync.Mutex
 
 	// liConnected tracks whether LiStartConnection succeeded and LiStopConnection
@@ -624,6 +685,21 @@ func NewMoonlightCgoWrapper(host string) *MoonlightCgoWrapper {
 	return &MoonlightCgoWrapper{host: host}
 }
 
+// stopConnectionSafely calls LiInterruptConnection() immediately (documented
+// safe to call while a LiStartConnection() is in flight on another
+// goroutine), then waits for liStartCallMu -- i.e. for that in-flight
+// do_li_start() to actually return -- before calling LiStopConnection()
+// itself. Every do_li_force_stop() call site must go through this instead
+// of calling it directly; see liStartCallMu's doc comment for why calling
+// LiStopConnection() concurrently with LiStartConnection() corrupts
+// moonlight-common-c's shared `stage`/`initialized` statics.
+func stopConnectionSafely() {
+	C.do_li_interrupt()
+	liStartCallMu.Lock()
+	defer liStartCallMu.Unlock()
+	C.do_li_force_stop()
+}
+
 func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, videoFormat, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
 	// Acquire the mutex and cleanly stop any in-progress connection before
 	// resetting state.  We use liConnected (Go-level atomic) as the reliable
@@ -632,7 +708,7 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 	liStreamMu.Lock()
 	if liConnected.Swap(false) {
 		logrus.Info("🌕 [Moonlight/Android] StartStream: stopping previous connection")
-		C.do_li_force_stop()
+		stopConnectionSafely()
 	}
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
@@ -699,9 +775,19 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 		// do_li_force_stop (i.e. LiStopConnection).
 		liConnected.Store(true)
 		logrus.Info("🌕 [Moonlight/CGO/Android] ✅ streams active")
-		if liStreamGen.Load() == myGen {
-			liStartConnectionActive.Store(true)
-		}
+		// Unconditionally true, unlike the liStreamGen-gated reset below: this
+		// goroutine's own do_li_start really did just succeed, so marking
+		// input active is always correct even if a newer generation started
+		// concurrently (harmless idempotent write -- the newer generation's
+		// own do_li_start sets it true again once it succeeds). Gating this
+		// the same way as the reset caused a real bug: under the reconnect
+		// races this app can hit (rapid StartStream calls, a process restart
+		// mid-handshake), this branch could run for a stale generation and
+		// skip the store, leaving IsInputActive() stuck false even though
+		// video/audio kept streaming fine -- every mouse/keyboard send (all
+		// gated on this flag) was then silently dropped with no visible
+		// error anywhere.
+		liStartConnectionActive.Store(true)
 		<-activeStreamDone
 
 		logrus.Infof("🌕 [Moonlight/Android] goroutine woke from activeStreamDone — gen=%d current=%d connected=%v",
@@ -712,7 +798,7 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 		liStreamMu.Lock()
 		if liConnected.Swap(false) {
 			logrus.Info("🌕 [Moonlight/Android] goroutine calling do_li_force_stop")
-			C.do_li_force_stop()
+			stopConnectionSafely()
 		} else {
 			logrus.Info("🌕 [Moonlight/Android] goroutine: StopStream already called LiStopConnection")
 		}
@@ -734,12 +820,13 @@ func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV str
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	liStreamMu.Lock()
-	if liConnected.Swap(false) {
-		logrus.Info("🌕 [Moonlight/Android] StopStream: calling do_li_force_stop")
-		C.do_li_force_stop()
-	} else {
-		logrus.Info("🌕 [Moonlight/Android] StopStream: not connected (goroutine already stopped or never started)")
-	}
+	// Always call stopConnectionSafely to trigger LiStopConnection, which will
+	// interrupt LiStartConnection if it is blocking/looping inside C code.
+	logrus.Info("🌕 [Moonlight/Android] StopStream: calling do_li_force_stop")
+	stopConnectionSafely()
+
+	// Reset connected flag so next start can proceed cleanly.
+	liConnected.Store(false)
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })

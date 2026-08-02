@@ -23,7 +23,28 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}Building usbridge_agent for Windows (MSYS2 UCRT64)${NC}"
+# ── -streamer sunshine|rustshine (default: sunshine) ─────────────────────────
+# Selects which streamhost.Backend implementation gets compiled in via the Go
+# build tag of the same name (see internal/streamhost/factory_default.go).
+# This open-source repo only ships the Sunshine backend; rustshine only
+# builds if a sibling checkout has added its own factory_rustshine.go.
+STREAMER="sunshine"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -streamer|--streamer) STREAMER="$2"; shift 2 ;;
+        -streamer=*|--streamer=*) STREAMER="${1#*=}"; shift ;;
+        *) echo -e "${RED}Unknown argument: $1${NC}" >&2; exit 1 ;;
+    esac
+done
+case "$STREAMER" in
+    sunshine|rustshine) ;;
+    *) echo -e "${RED}Unknown -streamer '$STREAMER' (expected sunshine|rustshine)${NC}" >&2; exit 1 ;;
+esac
+
+GO_TAGS=()
+[[ "$STREAMER" == "rustshine" ]] && GO_TAGS=(-tags rustshine)
+
+echo -e "${GREEN}Building usbridge_agent for Windows (MSYS2 UCRT64, streamer=$STREAMER)${NC}"
 
 if [[ "${OS:-}" != "Windows_NT" ]] && [[ "$(uname -s 2>/dev/null || true)" != MINGW* ]] && [[ "$(uname -s 2>/dev/null || true)" != MSYS* ]]; then
     echo -e "${RED}Этот скрипт рассчитан на запуск в Windows/MSYS2 UCRT64${NC}"
@@ -137,7 +158,7 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 LDFLAGS="${USBRIDGE_WINDOWS_LDFLAGS:--H=windowsgui} -X main.version=$VERSION"
 
 echo -e "${YELLOW}Compiling...${NC}"
-go build -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
+go build -trimpath "${GO_TAGS[@]}" -ldflags "$LDFLAGS" -o "$OUTPUT_PATH" "$BUILD_PKG"
 
 # ── DLL utilities ─────────────────────────────────────────────────────────────
 OBJDUMP_BIN="${OBJDUMP_BIN:-}"
@@ -176,7 +197,7 @@ is_system_dll() {
         dwrite.dll|usp10.dll|cfgmgr32.dll|wintrust.dll|\
         dbghelp.dll|psapi.dll|pdh.dll|wtsapi32.dll|\
         uxtheme.dll|ndfapi.dll|devobj.dll|hid.dll|\
-        tap-windows6.dll|vulkan-1.dll)
+        tap-windows6.dll|vulkan-1.dll|combase.dll)
             return 0 ;;
     esac
     return 1
@@ -215,7 +236,21 @@ _walk_deps() {
             _existing="$(find "$target_dir" -maxdepth 1 -iname "$dep" 2>/dev/null | head -1)"
             if [[ -z "$_existing" ]]; then
                 local resolved
-                resolved="$(_resolve_dll "$dep")"
+                # `|| true`: `_resolve_dll` returns non-zero when nothing
+                # matches (falls off the end of its search loop), and this
+                # is a plain (non-`local`-combined) assignment, so under
+                # `set -e` that exit status would otherwise abort the whole
+                # build right here instead of hitting the "not found"
+                # warning below -- confirmed live: gamestream-server.exe
+                # depends on `combase.dll` (now also added to
+                # `is_system_dll` since it's a real, always-present Windows
+                # component, never something to bundle), which isn't in any
+                # of `DLL_SEARCH_DIRS`, and silently killed the entire
+                # script (including every step after this one -- the
+                # rust-shine OpenSSL/opus DLL staging, Tailscale bundling,
+                # and final zip) with no error message beyond bash's own
+                # implicit exit.
+                resolved="$(_resolve_dll "$dep" || true)"
                 if [[ -n "$resolved" && -f "$resolved" ]]; then
                     cp -L "$resolved" "$target_dir/"
                     echo -e "   ${GREEN}✓${NC} $(basename "$resolved") (dep of $(basename "$file"))"
@@ -261,9 +296,70 @@ else
     echo "   Install: pacman -S --needed mingw-w64-ucrt-x86_64-binutils"
 fi
 
-# ── Sunshine (Moonlight GameStream host) ──────────────────────────────────────
-source "$SCRIPT_DIR/fetch_sunshine.sh"
-fetch_sunshine_windows "$DIST_DIR/sunshine"
+# ── Streaming host (Sunshine or rust-shine) ───────────────────────────────────
+if [[ "$STREAMER" == "sunshine" ]]; then
+    source "$SCRIPT_DIR/fetch_sunshine.sh"
+    fetch_sunshine_windows "$DIST_DIR/sunshine"
+else
+    source "$SCRIPT_DIR/fetch_rustshine.sh"
+    fetch_rustshine_windows "$DIST_DIR/rustshine"
+
+    # gamestream-server.exe dynamically links libssl-3-x64.dll/
+    # libcrypto-3-x64.dll (the `openssl` crate, non-vendored -- whichever
+    # OpenSSL dev files OPENSSL_DIR pointed the build at). The dep walk
+    # above (`_walk_deps "$DIST_DIR" "$OUTPUT_PATH"`) only covers the Go
+    # agent exe, and runs *before* this binary even exists -- confirmed
+    # live: gamestream-server.exe shipped with no OpenSSL DLLs next to it
+    # exits immediately with 0xc0000135 (STATUS_DLL_NOT_FOUND) the instant
+    # the agent launches it, which looked like "the whole rustshine
+    # backend does nothing" from the agent's own log (`--creds failed`,
+    # `process exited: exit status 0xc0000135`) with no further diagnostic
+    # -- the process never got far enough to log anything of its own.
+    # Worse if the build machine happens to have Strawberry Perl on PATH
+    # (as this project's own dev machine does, via OPENSSL_DIR=C:\Strawberry\c
+    # for its headers/import libs): Strawberry ships its OpenSSL runtime
+    # DLLs under deliberately mismatched filenames
+    # (libcrypto-3-x64__.dll, trailing double-underscore) specifically so
+    # other software won't pick them up off PATH by accident, so even a
+    # PATH-based fallback at runtime silently fails to find them. Reuse the
+    # same `_walk_deps`/`DLL_SEARCH_DIRS` machinery as the agent exe's own
+    # MinGW-runtime bundling above -- MSYS2 UCRT64's own `openssl` pacman
+    # package already ships correctly-named
+    # libssl-3-x64.dll/libcrypto-3-x64.dll in `/ucrt64/bin` (one of
+    # `DLL_SEARCH_DIRS`'s entries), so no rebuild is needed, just copying
+    # the right file to the right place.
+    if [[ -n "$OBJDUMP_BIN" ]]; then
+        echo -e "${YELLOW}Walking rust-shine gamestream-server.exe dependencies...${NC}"
+        _walk_deps "$DIST_DIR/rustshine" "$DIST_DIR/rustshine/gamestream-server.exe"
+        echo -e "${GREEN}✓${NC} rust-shine dep walk complete"
+    else
+        echo -e "${YELLOW}⚠${NC} objdump not found — skipping rust-shine dep walk (gamestream-server.exe may fail to start with STATUS_DLL_NOT_FOUND if its OpenSSL DLLs aren't already on PATH under their exact expected names)"
+    fi
+
+    # `audio::opus`'s Windows backend `dlopen`s libopus at runtime
+    # (`libloading::Library::new`, not a normal PE import) rather than
+    # linking it -- confirmed live: it isn't in gamestream-server.exe's own
+    # import table at all (the `_walk_deps` call above never touches it),
+    # so it silently doesn't get bundled even though the OpenSSL fix right
+    # above it does the analogous thing for a *linked* dependency. Every
+    # session hit "failed to load libopus: LoadLibraryExW failed" and its
+    # audio pipeline died on the spot -- and on real hardware this cascaded
+    # into the client tearing down and re-ANNOUNCEing the whole session
+    # every ~4s forever (never live long enough for video to visibly start),
+    # not just "no audio" as `audio::opus`'s own graceful-degradation
+    # contract intended. `opus.rs::libopus_candidates` already checks
+    # `exe_dir/libopus-0.dll` first, so just copying the file next to
+    # `gamestream-server.exe` is enough -- no code change needed. MSYS2
+    # UCRT64's own `opus` pacman package ships it pre-named exactly that in
+    # `/ucrt64/bin` (one of `DLL_SEARCH_DIRS`'s entries).
+    _opus_dll="$(_resolve_dll "libopus-0.dll")"
+    if [[ -n "$_opus_dll" && -f "$_opus_dll" ]]; then
+        cp -L "$_opus_dll" "$DIST_DIR/rustshine/"
+        echo -e "${GREEN}✓${NC} libopus-0.dll staged for rust-shine (audio encode)"
+    else
+        echo -e "${YELLOW}⚠${NC} libopus-0.dll not found — rust-shine's audio pipeline will fail to start on this machine (install MSYS2 UCRT64's mingw-w64-ucrt-x86_64-opus package, or place opus.dll/libopus-0.dll next to gamestream-server.exe manually)"
+    fi
+fi
 
 # ── Tailscale + wintun.dll ────────────────────────────────────────────────────
 # wintun.dll gives the embedded tsnet a real WireGuard kernel-mode TUN adapter

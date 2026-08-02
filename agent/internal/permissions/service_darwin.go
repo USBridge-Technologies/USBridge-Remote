@@ -140,3 +140,10 @@ func (s *Service) OpenScreenRecordingSettings() error {
 // capture); not applicable on macOS.
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
+
+// GPU clock locking is Windows-only (NVML clock lock via an elevated
+// gamestream-server --gpu-clock-lock-daemon helper -- see
+// service_windows.go's own docs); not applicable on macOS.
+func (s *Service) GPUClockLockSupported() bool                            { return false }
+func (s *Service) GPUClockLockElevated() bool                             { return false }
+func (s *Service) RequestGPUClockLock(binPath string, watchPID int) error { return nil }

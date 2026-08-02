@@ -21,6 +21,27 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# ── -streamer sunshine|rustshine (default: sunshine) ─────────────────────────
+# Selects which streamhost.Backend implementation gets compiled in via the Go
+# build tag of the same name (see internal/streamhost/factory_default.go).
+# This open-source repo only ships the Sunshine backend; rustshine only
+# builds if a sibling checkout has added its own factory_rustshine.go.
+STREAMER="sunshine"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -streamer|--streamer) STREAMER="$2"; shift 2 ;;
+        -streamer=*|--streamer=*) STREAMER="${1#*=}"; shift ;;
+        *) echo -e "${RED}Unknown argument: $1${NC}" >&2; exit 1 ;;
+    esac
+done
+case "$STREAMER" in
+    sunshine|rustshine) ;;
+    *) echo -e "${RED}Unknown -streamer '$STREAMER' (expected sunshine|rustshine)${NC}" >&2; exit 1 ;;
+esac
+
+GO_TAGS=()
+[[ "$STREAMER" == "rustshine" ]] && GO_TAGS=(-tags rustshine)
+
 # create_dmg_with_drag_layout <volname> <src_dir> <output_dmg> <app_bundle_name>
 # Builds a DMG with the classic drag-to-Applications Finder window: app icon
 # on the left, an /Applications symlink on the right (src_dir must already
@@ -74,7 +95,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-echo -e "${GREEN}Building usbridge_agent for macOS${NC}"
+echo -e "${GREEN}Building usbridge_agent for macOS (streamer=$STREAMER)${NC}"
 
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 rm -rf "$APP_BUNDLE"
@@ -83,7 +104,7 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 export CGO_ENABLED=1
 
 echo -e "${YELLOW}Compiling app bundle...${NC}"
-go build -ldflags "-X main.version=$VERSION" -o "$BIN_PATH" ./cmd/usbridge_agent
+go build "${GO_TAGS[@]+"${GO_TAGS[@]}"}" -ldflags "-X main.version=$VERSION" -o "$BIN_PATH" ./cmd/usbridge_agent
 chmod +x "$BIN_PATH"
 
 # Icon generation
@@ -141,9 +162,14 @@ cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 PLIST
 sed -i '' "s/__VERSION__/$VERSION/g" "$APP_CONTENTS/Info.plist"
 
-# Bundle Sunshine before signing — adding files after signing breaks the seal.
-source "$SCRIPT_DIR/fetch_sunshine.sh"
-fetch_sunshine_macos "$APP_MACOS/sunshine"
+# Bundle the streaming host before signing — adding files after signing breaks the seal.
+if [[ "$STREAMER" == "sunshine" ]]; then
+    source "$SCRIPT_DIR/fetch_sunshine.sh"
+    fetch_sunshine_macos "$APP_MACOS/sunshine"
+else
+    source "$SCRIPT_DIR/fetch_rustshine.sh"
+    fetch_rustshine_macos "$APP_MACOS/rustshine"
+fi
 
 # Bundle Tailscale CLI (statically linked Go binary — no dylib deps to walk).
 # The daemon itself is not bundled: on macOS we rely on a system-installed

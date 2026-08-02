@@ -14,6 +14,7 @@ extern int do_li_start(
     int width, int height, int fps, int bitrate,
     const unsigned char *rikey, int rikeyid, int pipeFd);
 extern void do_li_stop(void);
+extern void do_li_interrupt(void);
 extern void set_audio_pipe_fd(int fd);
 extern void set_audio_muted(int muted);
 extern void do_send_key(short vkCode, char action, char modifiers);
@@ -28,6 +29,7 @@ extern void do_send_multi_controller(
     short leftStickX, short leftStickY,
     short rightStickX, short rightStickY);
 extern void do_send_utf8_text(const char *text, unsigned int len);
+extern void do_get_rtp_video_stats(uint32_t *out);
 */
 import "C"
 
@@ -37,12 +39,73 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
 
 	"usbridge-client/internal/models"
 )
+
+// RTPVideoStats mirrors Limelight.h's RTP_VIDEO_STATS. FecFailed > 0 means a
+// frame's FEC redundancy wasn't enough to recover a lost packet -- the
+// depacketizer discards that decode unit and (per moonlight-common-c's
+// RtpVideoQueue) whatever reference-frame chain it belonged to, which is
+// exactly the failure mode that shows up as a corrupted P-frame on screen
+// until the next IDR.
+type RTPVideoStats struct {
+	PacketCountVideo        uint32
+	PacketCountFec          uint32
+	PacketCountFecRecovered uint32
+	PacketCountFecFailed    uint32
+	PacketCountOOS          uint32
+	PacketCountInvalid      uint32
+	PacketCountFecInvalid   uint32
+}
+
+// GetRTPVideoStats reads moonlight-common-c's running RTP video counters.
+// Safe to call at any time (even with no active session -- moonlight-common-c
+// zero-initializes these statics), but only meaningful once a stream is up.
+func GetRTPVideoStats() RTPVideoStats {
+	var raw [7]C.uint32_t
+	C.do_get_rtp_video_stats(&raw[0])
+	return RTPVideoStats{
+		PacketCountVideo:        uint32(raw[0]),
+		PacketCountFec:          uint32(raw[1]),
+		PacketCountFecRecovered: uint32(raw[2]),
+		PacketCountFecFailed:    uint32(raw[3]),
+		PacketCountOOS:          uint32(raw[4]),
+		PacketCountInvalid:      uint32(raw[5]),
+		PacketCountFecInvalid:   uint32(raw[6]),
+	}
+}
+
+// startRTPStatsLoggerIfEnabled logs GetRTPVideoStats() periodically for the
+// lifetime of `done` when USBRIDGE_LOG_RTP_STATS is set -- opt-in so it never
+// runs in normal client builds.
+func startRTPStatsLoggerIfEnabled(done <-chan struct{}) {
+	if os.Getenv("USBRIDGE_LOG_RTP_STATS") == "" {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var prev RTPVideoStats
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				s := GetRTPVideoStats()
+				logrus.Infof("🌕 [Moonlight/RTPStats] video=%d fec=%d recovered=%d failed=%d(+%d) oos=%d invalid=%d fecInvalid=%d",
+					s.PacketCountVideo, s.PacketCountFec, s.PacketCountFecRecovered,
+					s.PacketCountFecFailed, s.PacketCountFecFailed-prev.PacketCountFecFailed,
+					s.PacketCountOOS, s.PacketCountInvalid, s.PacketCountFecInvalid)
+				prev = s
+			}
+		}
+	}()
+}
 
 // vtFrameCallback receives decoded RGBA frames from the hardware decoder.
 // Set by the platform-specific player file before StartStream is called.
@@ -74,11 +137,27 @@ var (
 // detect whether it is still the "current" stream before touching shared state.
 var (
 	liStreamMu  sync.Mutex
+	liStartMu   sync.Mutex // Ensures C.do_li_start is never executed concurrently
 	liStreamGen atomic.Uint64
 )
 
 func closeActiveStreamDone() {
 	activeStreamOnce.Do(func() { close(activeStreamDone) })
+}
+
+// stopConnectionSafely tears down the current connection without racing an
+// in-flight LiStartConnection() on another goroutine. LiStartConnection()
+// and LiStopConnection() are documented (Limelight.h) as NOT safe to call
+// concurrently with each other -- only LiInterruptConnection() is safe to
+// call at any time. Interrupting first unblocks any in-progress
+// LiStartConnection() quickly, then waiting on liStartMu guarantees
+// do_li_start has fully returned before do_li_stop() touches
+// moonlight-common-c's shared static state.
+func stopConnectionSafely() {
+	C.do_li_interrupt()
+	liStartMu.Lock()
+	defer liStartMu.Unlock()
+	C.do_li_stop()
 }
 
 // MoonlightCgoWrapper wraps LiStartConnection from moonlight-common-c.
@@ -113,7 +192,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
 	// static state and causes SIGSEGV.
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
@@ -151,6 +230,15 @@ func (w *MoonlightCgoWrapper) StartStream(
 			C.set_audio_pipe_fd(C.int(audioPipeWrite.Fd()))
 		}
 
+		liStartMu.Lock()
+		// If another StartStream or StopStream occurred while we waited for
+		// the lock, abort this stale attempt.
+		if liStreamGen.Load() != myGen {
+			liStartMu.Unlock()
+			logrus.Info("🌕 [Moonlight/CGO] Aborting stale stream start")
+			return
+		}
+
 		ret := C.do_li_start(
 			host, appVer, gfeVer, rtsp,
 			C.int(serverCodecModeSupport), C.int(videoFormat),
@@ -158,6 +246,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 			cRikey, C.int(1),
 			pipeFd,
 		)
+		liStartMu.Unlock()
 
 		if int(ret) != 0 {
 			logrus.Errorf("🌕 [Moonlight/CGO] LiStartConnection FAILED: code=%d", int(ret))
@@ -175,9 +264,16 @@ func (w *MoonlightCgoWrapper) StartStream(
 		}
 
 		logrus.Info("🌕 [Moonlight/CGO] ✅ LiStartConnection setup done — streams active")
-		if liStreamGen.Load() == myGen {
-			liStartConnectionActive.Store(true)
-		}
+		// Unconditionally true -- see the Android cgo file's identical fix
+		// for why gating this the same way as the generation-checked reset
+		// below caused a real bug: under reconnect races this branch could
+		// run for a stale generation and skip the store, leaving
+		// IsInputActive() stuck false (and every mouse/keyboard send, all
+		// gated on it, silently dropped) even though video/audio kept
+		// streaming fine. This goroutine's own do_li_start really did just
+		// succeed, so the store is always correct and idempotent here.
+		liStartConnectionActive.Store(true)
+		startRTPStatsLoggerIfEnabled(activeStreamDone)
 
 		<-activeStreamDone
 
@@ -185,7 +281,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// Call LiStopConnection under the mutex so that the next StartStream
 		// cannot call LiStartConnection until this stop is fully complete.
 		liStreamMu.Lock()
-		C.do_li_stop()
+		stopConnectionSafely()
 		liStreamMu.Unlock()
 
 		C.set_audio_pipe_fd(-1)
@@ -217,7 +313,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 func (w *MoonlightCgoWrapper) StopStream() {
 	logrus.Info("🌕 [Moonlight/CGO] StopStream: stopping")
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		closeActiveStreamDone()
@@ -241,7 +337,7 @@ func (w *MoonlightCgoWrapper) SendMoonlightKey(vkCode int16, action int8, modifi
 		logrus.Warnf("🌕 [Moonlight/CGO] SendMoonlightKey failed: liStartConnectionActive is false")
 		return
 	}
-	logrus.Infof("🌕 [Moonlight/CGO] SendMoonlightKey vkCode=0x%04X action=%d modifiers=%d", uint16(vkCode), action, modifiers)
+	logrus.Debugf("🌕 [Moonlight/CGO] SendMoonlightKey vkCode=0x%04X action=%d modifiers=%d", uint16(vkCode), action, modifiers)
 	C.do_send_key(C.short(vkCode), C.char(action), C.char(modifiers))
 }
 

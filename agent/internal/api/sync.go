@@ -1,20 +1,15 @@
 package api
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
-
-	"usbridge_agent/internal/sunshine"
 )
 
 // MasterSyncRequest is the outer envelope sent by the client — AES-GCM encrypted payload.
@@ -129,7 +124,7 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 
 	sunshineStatus := "unknown"
 	if strings.TrimSpace(payload.MoonlightPIN) != "" {
-		if err := s.submitPinToSunshine(payload.MoonlightPIN); err != nil {
+		if err := s.app.SubmitMoonlightPIN(payload.MoonlightPIN); err != nil {
 			log.Printf("[api] sync: sunshine pin relay failed: %v", err)
 			sunshineStatus = "pin_relay_failed"
 		} else {
@@ -187,7 +182,7 @@ func (s *Server) MoonlightPIN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[api] moonlight_pin: relaying pin to sunshine")
-	if err := s.submitPinToSunshine(pin); err != nil {
+	if err := s.app.SubmitMoonlightPIN(pin); err != nil {
 		log.Printf("[api] moonlight_pin: sunshine relay failed: %v", err)
 		s.fail(w, http.StatusInternalServerError, "sunshine_pin_failed", err)
 		return
@@ -206,41 +201,4 @@ func (s *Server) AuthQRLink(w http.ResponseWriter, r *http.Request) {
 		link, masterKey = qr.QRLink()
 	}
 	s.ok(w, "qr_link", AuthQRResponse{Link: link, MasterKey: masterKey})
-}
-
-// submitPinToSunshine forwards the Moonlight pairing PIN to Sunshine's local web API.
-func (s *Server) submitPinToSunshine(pin string) error {
-	port := s.sunshinePort
-	if port == 0 {
-		port = 47990
-	}
-	url := fmt.Sprintf("https://127.0.0.1:%d/api/pin", port)
-
-	body, _ := json.Marshal(map[string]string{"pin": pin})
-
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Sunshine uses a self-signed cert on localhost
-		},
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(sunshine.AdminUser, sunshine.AdminPass())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("sunshine returned HTTP %d", resp.StatusCode)
-	}
-	return nil
 }

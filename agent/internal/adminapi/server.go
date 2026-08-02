@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"usbridge_agent/internal/config"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 )
 
@@ -26,13 +26,20 @@ type TokenBackend interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	GPUClockLockSupported() bool
+	LockGPUClocksEnabled() bool
+	SetLockGPUClocksEnabled(enabled bool) error
 	RestartSunshine() error
-	ListSunshineClients() ([]sunshine.Client, error)
+	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
 	SubmitMoonlightPIN(pin string) error
 	UpdateListenAddr(host string, port int) (config.Config, error)
 	UpdateSunshinePort(port int) (config.Config, error)
 	UpdateSunshineStreamAddr(host string, streamPort int) (config.Config, error)
+	AdminUser() string
+	AdminPass() string
+	SunshineStreamHost() string
+	StreamerName() string
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -145,6 +152,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/capture-mode", s.handleSetCaptureMode)
 	mux.HandleFunc("GET /token/kms-granted", s.handleKMSGranted)
 	mux.HandleFunc("POST /token/request-kms", s.handleRequestKMS)
+	mux.HandleFunc("GET /token/gpu-clock-lock-supported", s.handleGPUClockLockSupported)
+	mux.HandleFunc("GET /token/gpu-clock-lock-enabled", s.handleGPUClockLockEnabled)
+	mux.HandleFunc("POST /token/gpu-clock-lock-enabled", s.handleSetGPUClockLockEnabled)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
 	mux.HandleFunc("POST /token/unpair", s.handleUnpair)
@@ -152,6 +162,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/listen-addr", s.handleListenAddr)
 	mux.HandleFunc("POST /token/sunshine-port", s.handleSunshinePort)
 	mux.HandleFunc("POST /token/sunshine-stream-addr", s.handleSunshineStreamAddr)
+	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
+	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
+	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -228,6 +241,27 @@ func (s *Server) handleKMSGranted(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRequestKMS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RequestKMSCapture()})
+}
+
+func (s *Server) handleGPUClockLockSupported(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.GPUClockLockSupported()})
+}
+
+func (s *Server) handleGPUClockLockEnabled(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.LockGPUClocksEnabled()})
+}
+
+func (s *Server) handleSetGPUClockLockEnabled(w http.ResponseWriter, r *http.Request) {
+	var body boolBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetLockGPUClocksEnabled(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (s *Server) handleRestartSunshine(w http.ResponseWriter, r *http.Request) {
@@ -313,6 +347,18 @@ func (s *Server) handleSunshineStreamAddr(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleAdminCredentials(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, adminCredentialsBody{User: s.token.AdminUser(), Pass: s.token.AdminPass()})
+}
+
+func (s *Server) handleSunshineStreamHost(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.SunshineStreamHost()})
+}
+
+func (s *Server) handleStreamerName(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.StreamerName()})
 }
 
 func (s *Server) handlePermsBool(fn func() bool) http.HandlerFunc {

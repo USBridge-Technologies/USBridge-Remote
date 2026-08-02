@@ -30,6 +30,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -322,13 +324,73 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 		}
 	}()
 
+	// Try to set native socket buffers if possible (OS loopback socket)
+	ln.SetReadBuffer(4194304)
+	ln.SetWriteBuffer(4194304)
+	// Try to set native socket buffers on tsConn (Tailscale netstack)
+	if sb, ok := tsConn.(interface{ SetReadBuffer(int) error }); ok {
+		sb.SetReadBuffer(4194304)
+	}
+	if sb, ok := tsConn.(interface{ SetWriteBuffer(int) error }); ok {
+		sb.SetWriteBuffer(4194304)
+	}
+
 	// server → client (video/audio RTP frames)
+	// We use a buffered channel to avoid backpressure on the tsnet read loop
+	// when the IDR burst of 200 packets arrives. This effectively acts as a 4MB userspace UDP buffer.
+	s2cQueue := make(chan []byte, 4096)
+
+	// Write goroutine
 	go func() {
-		buf := make([]byte, 65536)
 		s2cCount := 0
-		s2cDropped := 0
-		s2cErrs := 0
+		// Pace packets to avoid overflowing Android's 127.0.0.1 UDP socket buffer.
+		// Limit to ~5000 packets/sec (approx 40 Mbps).
+		// Burst size 20 to allow small clumps but strictly prevent huge 300KB bursts.
+		limiter := rate.NewLimiter(rate.Limit(5000), 20)
 		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case packet, ok := <-s2cQueue:
+				if !ok {
+					return
+				}
+				limiter.Wait(p.ctx)
+				clientMu.Lock()
+				ca := clientAddr
+				clientMu.Unlock()
+				if ca != nil {
+					s2cCount++
+					if s2cCount <= 3 || s2cCount%200 == 0 {
+						logrus.Infof("🌕 [Moonlight/Proxy] s→c serverPort=%d pkt#%d %d bytes → %s", serverPort, s2cCount, len(packet), ca)
+					}
+					wStart := time.Now()
+					ln.WriteToUDP(packet, ca) //nolint:errcheck
+					if wElapsed := time.Since(wStart); wElapsed > 50*time.Millisecond {
+						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d SLOW WriteToUDP: %v (pkt#%d)", serverPort, wElapsed, s2cCount)
+					}
+				}
+			}
+		}
+	}()
+
+	// Read goroutine
+	go func() {
+		s2cErrs := 0
+		defer close(s2cQueue)
+
+		// Use a large preallocated slab to avoid per-packet allocations and GC pauses
+		slabSize := 1024 * 1024 // 1MB slab
+		slab := make([]byte, slabSize)
+		slabOffset := 0
+
+		for {
+			if slabOffset+2048 > slabSize {
+				slab = make([]byte, slabSize)
+				slabOffset = 0
+			}
+			buf := slab[slabOffset : slabOffset+2048]
+
 			tsConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			n, readErr := tsConn.Read(buf)
 			if readErr != nil {
@@ -340,23 +402,8 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 						continue
 					}
 					if errors.Is(readErr, net.ErrClosed) {
-						// The proxy (or the whole session) is shutting down —
-						// this fd is really gone, no point retrying.
 						return
 					}
-					// Anything else (observed: ECONNREFUSED, from an ICMP
-					// port-unreachable when the host's own audio/video RTP
-					// socket for this session hasn't finished binding yet —
-					// a startup race, not a permanent failure) used to be
-					// treated as fatal and returned here, permanently killing
-					// this port's relay for the rest of the session even
-					// though the host's socket becomes reachable moments
-					// later. That silently broke audio (and would have
-					// intermittently broken video too) specifically when
-					// streaming through this tsnet relay — the direct-LAN
-					// path never engages this code at all, which is why it
-					// only showed up over Tailscale/DERP. Log and keep
-					// retrying instead.
 					s2cErrs++
 					if s2cErrs <= 5 || s2cErrs%200 == 0 {
 						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d tsConn.Read error (retrying) #%d: %v", serverPort, s2cErrs, readErr)
@@ -365,24 +412,16 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				}
 			}
 			if n > 0 {
-				clientMu.Lock()
-				ca := clientAddr
-				clientMu.Unlock()
-				if ca != nil {
-					s2cCount++
-					if s2cCount <= 3 || s2cCount%200 == 0 {
-						logrus.Infof("🌕 [Moonlight/Proxy] s→c serverPort=%d pkt#%d %d bytes → %s", serverPort, s2cCount, n, ca)
-					}
-					wStart := time.Now()
-					ln.WriteToUDP(buf[:n], ca) //nolint:errcheck
-					if wElapsed := time.Since(wStart); wElapsed > 50*time.Millisecond {
-						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d SLOW WriteToUDP: %v (pkt#%d)", serverPort, wElapsed, s2cCount)
-					}
-				} else {
-					s2cDropped++
-					if s2cDropped <= 3 || s2cDropped%200 == 0 {
-						logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d DROPPED #%d (%d bytes) — no client addr known yet (client never sent a packet on this proxy)", serverPort, s2cDropped, n)
-					}
+				packet := buf[:n]
+				slabOffset += n
+
+				select {
+				case <-p.ctx.Done():
+					return
+				case s2cQueue <- packet:
+					// Enqueued successfully
+				default:
+					logrus.Warnf("🌕 [Moonlight/Proxy] s→c serverPort=%d DROPPED packet (s2cQueue is full!)", serverPort)
 				}
 			}
 		}

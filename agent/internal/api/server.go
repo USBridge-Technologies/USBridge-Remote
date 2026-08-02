@@ -48,6 +48,9 @@ type Application interface {
 	SunshineStreamHost() string
 	// SunshineAdminPort returns the Sunshine web admin / NvHTTP port (default 47990).
 	SunshineAdminPort() int
+	// SubmitMoonlightPIN sends the PIN shown by a Moonlight client to the
+	// streaming host to complete the pairing handshake.
+	SubmitMoonlightPIN(pin string) error
 	CurrentVideoCodec() string
 	// SupportedVideoCodecs returns which of h264/h265/av1 the host's hardware
 	// encoder can actually produce right now (Sunshine's live capability probe).
@@ -788,17 +791,22 @@ func (s *Server) videoSetDevice(w http.ResponseWriter, r *http.Request) {
 	// VideoDevices() reports "drm:<index>" on Linux (correlated to Sunshine's
 	// own KMS output index — see sunshine.MonitorIndexByName), "winid:<id>"
 	// on Windows (Sunshine's own EDID+instance-derived device_id — see
-	// sunshine.WindowsDisplayDevices), or "display:<index>" as a fallback on
+	// sunshine.WindowsDisplayDevices), "display:<index>" as a fallback on
 	// Windows/macOS/Linux-X11 before Sunshine has logged its real device list
 	// this session (see screen_windows.go, screen_darwin.go,
-	// screen_linux_x11.go). Sunshine's output_name wants just the bare
-	// value in every case, so whichever prefix is present must be stripped.
-	// Previously only "drm:" was handled, so on Windows the literal string
-	// "display:0" (or "winid:{...}") was written to output_name verbatim,
-	// which Sunshine can't parse and silently falls back to auto-pick —
-	// monitor switching had no effect.
+	// screen_linux_x11.go), or "raw:<value>" for a backend whose OutputName
+	// isn't a plain numeric index (e.g. rustshine's "cardPath|connector" —
+	// see screen_linux_x11.go's rawOutputName). Sunshine's/rustshine's
+	// output_name wants just the bare value in every case, so whichever
+	// prefix is present must be stripped — "raw:" specifically must pass
+	// its remainder through completely unchanged (no reinterpreting as a
+	// numeric index), since it already IS the exact string SetOutputName
+	// expects. Previously only "drm:" was handled, so on Windows the
+	// literal string "display:0" (or "winid:{...}") was written to
+	// output_name verbatim, which Sunshine can't parse and silently falls
+	// back to auto-pick — monitor switching had no effect.
 	outputName := req.Device
-	for _, prefix := range []string{"drm:", "winid:", "display:"} {
+	for _, prefix := range []string{"drm:", "winid:", "display:", "raw:"} {
 		if strings.HasPrefix(outputName, prefix) {
 			outputName = strings.TrimPrefix(outputName, prefix)
 			break

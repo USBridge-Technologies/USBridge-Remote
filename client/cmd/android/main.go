@@ -7,6 +7,8 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 
@@ -47,6 +49,7 @@ func main() {
 
 	// Set up logging for Android
 	setupAndroidLogging(*logLevel)
+	startPprofIfEnabled()
 
 	logrus.Infof("🚀 Starting %s version %s", appName, version)
 
@@ -81,6 +84,30 @@ func main() {
 	// Start the application
 	logrus.Info("🎨 Starting the GUI")
 	mainWindow.Show()
+}
+
+// startPprofIfEnabled starts a loopback-only net/http/pprof server, gated by
+// the presence of a marker file (rather than always-on, since other apps on
+// the same Android device *can* reach 127.0.0.1 — unlike iOS's per-app
+// network sandbox). Enable for a profiling session with:
+//
+//	adb shell touch /sdcard/usbridge_pprof
+//	adb forward tcp:6060 tcp:6060
+//	go tool pprof http://127.0.0.1:6060/debug/pprof/profile?seconds=10
+//
+// Disable again with `adb shell rm /sdcard/usbridge_pprof`.
+func startPprofIfEnabled() {
+	const marker = "/sdcard/usbridge_pprof"
+	if _, err := os.Stat(marker); err != nil {
+		return
+	}
+	const addr = "127.0.0.1:6060"
+	go func() {
+		logrus.Warnf("pprof debug server listening on http://%s/debug/pprof/ (marker file %s present)", addr, marker)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			logrus.Errorf("pprof server failed: %v", err)
+		}
+	}()
 }
 
 // checkStorageAccess checks access to external storage

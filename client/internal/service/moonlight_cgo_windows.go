@@ -455,13 +455,20 @@ static int do_li_start(
     cfg.packetSize = 1200; cfg.streamingRemotely = STREAM_CFG_AUTO;
     cfg.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     cfg.supportedVideoFormats = videoFormat ? videoFormat : VIDEO_FORMAT_H264;
-    cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_NONE;
+    // ENCFLG_AUDIO matches the official Moonlight clients' default.
+    cfg.clientRefreshRateX100 = fps * 100; cfg.encryptionFlags = ENCFLG_AUDIO;
     if (rikey) {
         memcpy(cfg.remoteInputAesKey, rikey, 16);
-        cfg.remoteInputAesIv[0] = (char)( rikeyid        & 0xff);
-        cfg.remoteInputAesIv[1] = (char)((rikeyid >>  8) & 0xff);
-        cfg.remoteInputAesIv[2] = (char)((rikeyid >> 16) & 0xff);
-        cfg.remoteInputAesIv[3] = (char)((rikeyid >> 24) & 0xff);
+        // remoteInputAesIv holds the rikeyid in BIG-endian (network) byte order —
+        // that is what we sent as "rikeyid" in /launch and what AudioStream.c
+        // reads back via BE32() to build the per-packet audio AES-CBC IV.
+        // Writing it little-endian corrupted the first 16 bytes (including the
+        // Opus TOC byte) of every decrypted audio packet, producing garbled
+        // audio while decode still reported success.
+        cfg.remoteInputAesIv[0] = (char)((rikeyid >> 24) & 0xff);
+        cfg.remoteInputAesIv[1] = (char)((rikeyid >> 16) & 0xff);
+        cfg.remoteInputAesIv[2] = (char)((rikeyid >>  8) & 0xff);
+        cfg.remoteInputAesIv[3] = (char)( rikeyid        & 0xff);
     }
 
     DECODER_RENDERER_CALLBACKS dr; LiInitializeVideoCallbacks(&dr);
@@ -584,6 +591,24 @@ func closeActiveStreamDone() {
 	activeStreamOnce.Do(func() { close(activeStreamDone) })
 }
 
+// stopConnectionSafely tears down the current connection without racing an
+// in-flight LiStartConnection() on another goroutine. LiStartConnection()
+// and LiStopConnection() are documented (Limelight.h) as NOT safe to call
+// concurrently with each other -- only LiInterruptConnection() is safe to
+// call at any time. liStreamMu alone does not prevent this race: do_li_start
+// runs under the separate liStartMu while holding liStreamMu only briefly
+// (or not at all, in the deferred-stop path), so a concurrent do_li_stop()
+// under liStreamMu could still overlap a do_li_start() in flight elsewhere.
+// Interrupting first unblocks any in-progress LiStartConnection() quickly,
+// then waiting on liStartMu guarantees do_li_start has fully returned before
+// do_li_stop() touches moonlight-common-c's shared static state.
+func stopConnectionSafely() {
+	C.do_li_interrupt()
+	liStartMu.Lock()
+	defer liStartMu.Unlock()
+	C.do_li_stop()
+}
+
 type MoonlightCgoWrapper struct {
 	host       string
 	audioMuted bool
@@ -610,7 +635,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 	// LiStartConnection + LiStopConnection which corrupts moonlight-common-c
 	// static state and causes SIGSEGV.
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	myGen := liStreamGen.Add(1)
 	activeStreamDone = make(chan struct{})
 	activeStreamOnce = sync.Once{}
@@ -667,9 +692,15 @@ func (w *MoonlightCgoWrapper) StartStream(
 		}
 
 		logrus.Info("🌕 [Moonlight/CGO/Win] ✅ streams active")
-		if liStreamGen.Load() == myGen {
-			liStartConnectionActive.Store(true)
-		}
+		// Unconditionally true -- see the Android cgo file's identical fix
+		// for why gating this the same way as the generation-checked reset
+		// below caused a real bug: under reconnect races this branch could
+		// run for a stale generation and skip the store, leaving
+		// IsInputActive() stuck false (and every mouse/keyboard send, all
+		// gated on it, silently dropped) even though video/audio kept
+		// streaming fine. This goroutine's own do_li_start really did just
+		// succeed, so the store is always correct and idempotent here.
+		liStartConnectionActive.Store(true)
 
 		<-activeStreamDone
 
@@ -677,7 +708,7 @@ func (w *MoonlightCgoWrapper) StartStream(
 		// Call LiStopConnection under the mutex so that the next StartStream
 		// cannot call LiStartConnection until this stop is fully complete.
 		liStreamMu.Lock()
-		C.do_li_stop()
+		stopConnectionSafely()
 		liStreamMu.Unlock()
 
 		// Only clear shared state if we are still the current generation;
@@ -700,9 +731,8 @@ func (w *MoonlightCgoWrapper) StartStream(
 
 func (w *MoonlightCgoWrapper) StopStream() {
 	logrus.Info("🌕 [Moonlight/CGO/Win] StopStream: stopping")
-	C.do_li_interrupt()
 	liStreamMu.Lock()
-	C.do_li_stop()
+	stopConnectionSafely()
 	liStreamMu.Unlock()
 	if activeStreamDone != nil {
 		closeActiveStreamDone()

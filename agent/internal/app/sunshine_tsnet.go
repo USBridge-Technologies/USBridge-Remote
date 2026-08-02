@@ -13,20 +13,6 @@ import (
 	"tailscale.com/tsnet"
 )
 
-// sunshineTCPPorts returns Sunshine's fixed TCP ports (HTTPS, HTTP, web-UI
-// HTTPS, RTSP) relative to its NvHTTP base port (Sunshine's "port" config
-// value, i.e. a.cfg.SunshinePort-1), per Sunshine's documented port-offset
-// scheme.
-func sunshineTCPPorts(basePort int) []int {
-	return []int{basePort - 5, basePort, basePort + 1, basePort + 21}
-}
-
-// sunshineUDPPorts returns Sunshine's fixed UDP ports (video, control,
-// audio, mic) relative to its NvHTTP base port.
-func sunshineUDPPorts(basePort int) []int {
-	return []int{basePort + 9, basePort + 10, basePort + 11, basePort + 13}
-}
-
 // startSunshineTSNetForwarding exposes Sunshine's GameStream ports over the
 // embedded tsnet node.
 //
@@ -44,7 +30,7 @@ func sunshineUDPPorts(basePort int) []int {
 // because Linux test machines happened to also run a real system tailscaled
 // whose kernel TUN route silently carried the traffic instead.
 func (a *App) startSunshineTSNetForwarding() {
-	if a.ts == nil {
+	if a.ts == nil || a.stream == nil {
 		return
 	}
 	tsSrv, err := a.ts.Server()
@@ -55,7 +41,7 @@ func (a *App) startSunshineTSNetForwarding() {
 
 	basePort := a.cfg.SunshinePort - 1
 
-	tcpPorts := sunshineTCPPorts(basePort)
+	tcpPorts, udpPorts := a.stream.Ports(basePort)
 	tcpSet := make(map[uint16]bool, len(tcpPorts))
 	for _, p := range tcpPorts {
 		tcpSet[uint16(p)] = true
@@ -69,7 +55,7 @@ func (a *App) startSunshineTSNetForwarding() {
 	})
 	log.Printf("[app] tsnet forwarding Sunshine TCP ports %v to 127.0.0.1", tcpPorts)
 
-	go a.startSunshineUDPForwarding(tsSrv, sunshineUDPPorts(basePort))
+	go a.startSunshineUDPForwarding(tsSrv, udpPorts)
 }
 
 // startSunshineUDPForwarding sets up a ListenPacket-based relay for each
@@ -143,6 +129,7 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 	for {
 		n, clientAddr, err := pc.ReadFrom(buf)
 		if err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d ReadFrom failed, forwarder exiting: %v", port, err)
 			return
 		}
 		key := clientAddr.String()
@@ -156,6 +143,7 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 				log.Printf("[app] sunshine tsnet udp :%d dial backend failed: %v", port, err)
 				continue
 			}
+			log.Printf("[app] sunshine tsnet udp :%d new backend dialed for client=%s", port, key)
 			mu.Lock()
 			backends[key] = backend
 			mu.Unlock()
@@ -171,11 +159,13 @@ func forwardSunshineUDPPort(tsSrv *tsnet.Server, selfIP string, port int) {
 // relaySunshineUDPReplies copies Sunshine's replies on a per-peer backend
 // socket back out to that peer over tsnet, until the backend goes idle.
 func relaySunshineUDPReplies(pc net.PacketConn, backend *net.UDPConn, clientAddr net.Addr, key string, mu *sync.Mutex, backends map[string]*net.UDPConn) {
+	backendPort := backend.RemoteAddr().(*net.UDPAddr).Port
 	defer func() {
 		mu.Lock()
 		delete(backends, key)
 		mu.Unlock()
 		backend.Close()
+		log.Printf("[app] sunshine tsnet udp :%d backend for client=%s torn down, next packet will redial", backendPort, key)
 	}()
 
 	buf := make([]byte, 65535)
@@ -183,9 +173,11 @@ func relaySunshineUDPReplies(pc net.PacketConn, backend *net.UDPConn, clientAddr
 		_ = backend.SetReadDeadline(time.Now().Add(2 * time.Minute))
 		n, err := backend.Read(buf)
 		if err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d backend read for client=%s failed: %v", backendPort, key, err)
 			return
 		}
 		if _, err := pc.WriteTo(buf[:n], clientAddr); err != nil {
+			log.Printf("[app] sunshine tsnet udp :%d WriteTo client=%s failed: %v", backendPort, key, err)
 			return
 		}
 	}

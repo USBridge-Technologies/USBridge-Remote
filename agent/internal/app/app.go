@@ -29,7 +29,7 @@ import (
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
@@ -52,7 +52,7 @@ type App struct {
 	screen    *capture.Service
 	perms     *permissions.Service
 	ts        *tailscale.Service
-	sunshine  *sunshine.Process
+	stream    streamhost.Backend
 	tsProxy   *tailscale.StreamProxy
 	server    *http.Server
 	tsHTTP    *http.Server
@@ -60,6 +60,14 @@ type App struct {
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	adminSrv  *adminapi.Server
+
+	// gpuClockLockedPid is the stream-host PID applyGPUClockLock last
+	// successfully armed the elevated lock daemon for, so repeated calls
+	// (the sunshineWatchdog re-invokes startSunshine every 15s) don't
+	// relaunch the elevated helper -- and pop a fresh UAC prompt -- for a
+	// PID it's already armed.
+	gpuClockMu        sync.Mutex
+	gpuClockLockedPid int
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -156,7 +164,6 @@ func New() (*App, error) {
 		cfg:       cfg,
 		state:     &deviceState{startedAt: time.Now()},
 		input:     input.New(),
-		screen:    capture.New(),
 		perms:     permissions.New(),
 		ts:        tailscale.New(cfg.StateDir),
 		clipboard: clipboardMgr,
@@ -164,7 +171,9 @@ func New() (*App, error) {
 	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
 	// --headless engine never touches Fyne at all, so it never needs a
 	// display connection (see Run).
-	instance.sunshine = sunshine.NewProcess(sunshine.RuntimeBinaryPath(resolveExeDir(), cfg.StateDir), filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.stream = streamhost.NewDefault(resolveExeDir(), cfg.StateDir, filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.screen = capture.New(instance.stream)
+	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
 	instance.handler = handler
@@ -276,7 +285,7 @@ func (a *App) Run(headless bool) error {
 }
 
 func (a *App) startSunshine() {
-	if a.sunshine == nil {
+	if a.stream == nil {
 		return
 	}
 	// Sync bind_address with external_ip so Sunshine only binds streaming
@@ -287,13 +296,15 @@ func (a *App) startSunshine() {
 	// Tailscale client. Reachability over tsnet is handled instead by
 	// restartStreamProxy, which relays tsnet's netstack to Sunshine's real
 	// 127.0.0.1 ports.
-	if tsIP := sunshine.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" && !a.isTsnetSelfIP(tsIP) {
-		if err := sunshine.SetBindAddress(tsIP); err != nil {
+	if tsIP := a.stream.ExternalIP(); tsIP != "" && tsIP != "0.0.0.0" && !a.isTsnetSelfIP(tsIP) {
+		if err := a.stream.SetBindAddress(tsIP); err != nil {
 			log.Printf("[app] warning: could not set Sunshine bind address: %v", err)
 		}
 	}
-	if err := a.sunshine.Start(a.cfg.SunshinePort); err != nil {
+	if err := a.stream.Start(a.cfg.SunshinePort); err != nil {
 		log.Printf("[app] failed to start Sunshine: %v", err)
+	} else {
+		a.applyGPUClockLock()
 	}
 	// startSunshine() is invoked unconditionally every sunshineWatchdogInterval
 	// (see sunshineWatchdog) and is a no-op whenever Sunshine is already
@@ -318,14 +329,14 @@ const sunshineWatchdogInterval = 15 * time.Second
 // sunshineWatchdog periodically re-invokes startSunshine so a crashed
 // Sunshine process gets relaunched automatically instead of leaving
 // streaming broken until the agent itself is restarted. This matters
-// because Process.Start()'s "already running" fast path only reflects
-// reality once the exited process's Wait() goroutine has cleared p.cmd
-// (see sunshine.Process.Start) -- after that, calling startSunshine() again
+// because the backend's Start()'s "already running" fast path only reflects
+// reality once the exited process's Wait() goroutine has cleared its cmd
+// (see streamhost.NewSunshine's Start) -- after that, calling startSunshine() again
 // here is what actually notices and relaunches it. startSunshine() itself
 // is always safe to call repeatedly: it no-ops whenever Sunshine (ours or
 // externally managed) is already reachable.
 func (a *App) sunshineWatchdog(ctx context.Context) {
-	if a.sunshine == nil {
+	if a.stream == nil {
 		return
 	}
 	ticker := time.NewTicker(sunshineWatchdogInterval)
@@ -376,7 +387,23 @@ func (a *App) initTailscale(ctx context.Context) {
 	}
 	if a.cfg.TailscaleEnabled {
 		go a.startTailscaleHTTP(ctx)
-		go a.startSunshineTSNetForwarding()
+		// startSunshineTSNetForwarding is NOT started here: it binds the same
+		// fixed ports (Sunshine/rustshine's NvHTTP/RTSP/control/video/audio
+		// set) on the same tsnet.Server as StreamProxy (see restartStreamProxy,
+		// called from startSunshine/sunshineWatchdog). Running both raced two
+		// independent ListenPacket registrations for 47998/47999/48000 --
+		// confirmed live: tsnet's netstack kept accepting the client's video/
+		// audio ping packets ("[v1] Accept: UDP{...:47998} ok" in the tsnet
+		// log) indefinitely, but gamestream-server never saw them ("waiting
+		// for client video ping" timing out every ~4.5s, forever) because
+		// forwardSunshineUDPPort's reader goroutine had silently died (no
+		// error logging on ReadFrom failure) the moment StreamProxy's own
+		// later bind attempt on the same port collided with it. StreamProxy
+		// alone already covers this port set (TCP http/https/rtsp directly,
+		// UDP control directly, UDP video/audio via RTSP SETUP-response
+		// snooping) and additionally retries through the ECONNREFUSED
+		// startup race -- this generic forwarder is redundant, and the two
+		// running together is strictly worse than StreamProxy alone.
 	}
 }
 
@@ -423,8 +450,8 @@ func (a *App) shutdownEngine() {
 	if a.ts != nil {
 		_ = a.ts.Close()
 	}
-	if a.sunshine != nil {
-		_ = a.sunshine.Stop()
+	if a.stream != nil {
+		_ = a.stream.Stop()
 	}
 	if a.adminSrv != nil {
 		_ = a.adminSrv.Close()
@@ -447,7 +474,10 @@ func (a *App) RegenerateMasterKey() (config.Config, error) {
 // SunshineBinaryPath returns the path to the bundled Sunshine binary, or ""
 // if it isn't present (not bundled, or unsupported OS).
 func (a *App) SunshineBinaryPath() string {
-	path := sunshine.RuntimeBinaryPath(resolveExeDir(), a.cfg.StateDir)
+	if a.stream == nil {
+		return ""
+	}
+	path := a.stream.BinaryPath()
 	if path == "" {
 		return ""
 	}
@@ -460,7 +490,10 @@ func (a *App) SunshineBinaryPath() string {
 // SunshineCapExecPath returns the path to the bundled sunshine_capexec
 // launcher (Linux KMS capture only), or "" if not present.
 func (a *App) SunshineCapExecPath() string {
-	path := sunshine.RuntimeCapExecPath(resolveExeDir(), a.cfg.StateDir)
+	if a.stream == nil {
+		return ""
+	}
+	path := a.stream.CapExecPath()
 	if path == "" {
 		return ""
 	}
@@ -470,21 +503,44 @@ func (a *App) SunshineCapExecPath() string {
 	return path
 }
 
-// syncSunshineCapExec sets or clears the Process's sunshine_capexec launcher
+// syncSunshineCaptureMode writes the persisted capture-mode preference
+// (cfg.SunshineCaptureMode) into the active backend's own config file if
+// that backend doesn't already have its own value set. Without this, a
+// preference persisted while one backend was active (e.g. Sunshine's
+// sunshine.conf capture=kms) would silently never reach a different
+// backend's own config format after switching streamers (e.g. to
+// rustshine's sunshine.conf capture=<key>) — SunshineCaptureMode() would
+// still report "kms" via the cfg fallback (so the GUI shows KMS selected
+// and KMS capability requests succeed), while the backend itself keeps
+// running with its own on-disk default (rustshine: "v4l2", meant for
+// embedded boards, not desktop Linux) because nothing ever wrote the key.
+func (a *App) syncSunshineCaptureMode() {
+	if a.stream == nil || a.cfg.SunshineCaptureMode == "" {
+		return
+	}
+	if a.stream.CaptureMode() != "" {
+		return
+	}
+	if err := a.stream.SetCaptureMode(a.cfg.SunshineCaptureMode); err != nil {
+		log.Printf("[app] failed to sync persisted capture mode %q to backend: %v", a.cfg.SunshineCaptureMode, err)
+	}
+}
+
+// syncSunshineCapExec sets or clears the backend's sunshine_capexec launcher
 // so Start launches Sunshine with CAP_SYS_ADMIN exactly when the capture
 // mode is "kms" AND the capability is actually granted on that launcher —
 // never based on mode alone, since sunshine_capexec exits with an error if
 // asked to raise a capability it doesn't have, which would stop Sunshine
 // from starting at all instead of gracefully running without KMS.
 func (a *App) syncSunshineCapExec() {
-	if a.sunshine == nil {
+	if a.stream == nil {
 		return
 	}
 	capexecPath := a.SunshineCapExecPath()
 	if a.SunshineCaptureMode() == "kms" && a.perms != nil && a.perms.KMSCaptureGranted(capexecPath) {
-		a.sunshine.SetCapExecPath(capexecPath)
+		a.stream.SetCapExecPath(capexecPath)
 	} else {
-		a.sunshine.SetCapExecPath("")
+		a.stream.SetCapExecPath("")
 	}
 }
 
@@ -492,8 +548,10 @@ func (a *App) syncSunshineCapExec() {
 // "portal", or "kms"), read from sunshine.conf if present, falling back to
 // the persisted agent config.
 func (a *App) SunshineCaptureMode() string {
-	if mode := sunshine.CaptureMode(); mode != "" {
-		return mode
+	if a.stream != nil {
+		if mode := a.stream.CaptureMode(); mode != "" {
+			return mode
+		}
 	}
 	return a.cfg.SunshineCaptureMode
 }
@@ -509,7 +567,10 @@ func (a *App) SunshineCaptureMode() string {
 // KMS — confusing, and pointless since RequestKMSCapture already restarts
 // once the capability is actually granted.
 func (a *App) SetSunshineCaptureMode(mode string) error {
-	if err := sunshine.SetCaptureMode(mode); err != nil {
+	if a.stream == nil {
+		return nil
+	}
+	if err := a.stream.SetCaptureMode(mode); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
 	next := a.cfg
@@ -530,12 +591,15 @@ func (a *App) SetSunshineCaptureMode(mode string) error {
 // RestartSunshine stops and relaunches the bundled Sunshine instance (if the
 // agent owns its lifecycle) so a config or capability change takes effect.
 func (a *App) RestartSunshine() error {
-	if a.sunshine == nil {
+	if a.stream == nil {
 		return nil
 	}
-	_ = a.sunshine.Stop()
+	_ = a.stream.Stop()
 	time.Sleep(time.Second)
-	err := a.sunshine.Start(a.cfg.SunshinePort)
+	err := a.stream.Start(a.cfg.SunshinePort)
+	if err == nil {
+		a.applyGPUClockLock()
+	}
 	// Start() only waits for the OS to fork the Sunshine process, not for its
 	// own bootstrap (config parse, KMS/Wayland monitor enumeration, binding
 	// its HTTPS/RTSP listeners) to finish. Callers of RestartSunshine (e.g.
@@ -547,8 +611,8 @@ func (a *App) RestartSunshine() error {
 	// Waiting here for the same admin port the client's own Launch() call
 	// hits closes that window.
 	if err == nil {
-		sunshine.WaitReady(a.cfg.SunshinePort, 5*time.Second)
-		waitForMonitorCorrelation()
+		a.stream.WaitReady(a.cfg.SunshinePort, 5*time.Second)
+		a.waitForMonitorCorrelation()
 	}
 	a.restartStreamProxy()
 	return err
@@ -567,13 +631,13 @@ func (a *App) RestartSunshine() error {
 // making the restart itself wait for correlation instead. Only meaningful
 // for the Linux KMS capture backend; a bounded poll elsewhere just times out
 // as a no-op.
-func waitForMonitorCorrelation() {
-	if runtime.GOOS != "linux" || sunshine.CaptureMode() != "kms" {
+func (a *App) waitForMonitorCorrelation() {
+	if a.stream == nil || runtime.GOOS != "linux" || a.stream.CaptureMode() != "kms" {
 		return
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if sunshine.MonitorIndexByName() != nil {
+		if len(a.stream.ListCaptureDevices()) > 0 {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -606,6 +670,83 @@ func (a *App) RequestKMSCapture() bool {
 		}
 	}
 	return granted
+}
+
+// GPUClockLockSupported reports whether this platform's permissions backend
+// can attempt an NVML GPU-clock lock at all -- true only on Windows (see
+// internal/permissions/service_windows.go); every other platform's Service
+// stubs this to false since there's no equivalent NVML-idle-stall problem
+// documented there yet.
+func (a *App) GPUClockLockSupported() bool {
+	if a.perms == nil {
+		return false
+	}
+	return a.perms.GPUClockLockSupported()
+}
+
+// LockGPUClocksEnabled returns the persisted "Lock GPU clocks" setting.
+func (a *App) LockGPUClocksEnabled() bool {
+	return a.cfg.LockGPUClocksEnabled
+}
+
+// SetLockGPUClocksEnabled persists the "Lock GPU clocks" setting and, if
+// turning it on while a stream host is already running, immediately arms the
+// lock for the current session (see applyGPUClockLock) instead of waiting
+// for the next restart. Turning it off does NOT tear down an already-running
+// lock daemon -- it only stops future session starts from spawning one; the
+// daemon watches the streaming host's own PID and exits on its own once that
+// process does, see permissions.Service.RequestGPUClockLock.
+func (a *App) SetLockGPUClocksEnabled(enabled bool) error {
+	next := a.cfg
+	next.LockGPUClocksEnabled = enabled
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	if enabled {
+		a.applyGPUClockLock()
+	}
+	return nil
+}
+
+// applyGPUClockLock launches the elevated GPU-clock-lock daemon for the
+// currently-running stream host, if the setting is enabled and supported on
+// this platform. Called after every a.stream.Start() -- but startSunshine()
+// itself is invoked unconditionally every sunshineWatchdogInterval (15s) and
+// is a no-op (still returns a nil error) whenever the stream host is already
+// running, so this guards against re-launching the elevated helper (and
+// popping a fresh UAC prompt) on every single watchdog tick: it only acts
+// the first time it sees a given stream host PID, tracked in
+// gpuClockLockedPid. The daemon watches that PID and exits on its own once
+// the process does, so a genuinely new PID (real restart, or crash+relaunch)
+// correctly gets re-armed; a still-running PID we already armed does not.
+// Errors (including a declined UAC prompt) are logged only, never fatal to
+// starting the stream itself, and deliberately leave gpuClockLockedPid
+// unset so the next tick retries instead of giving up silently forever.
+func (a *App) applyGPUClockLock() {
+	if !a.cfg.LockGPUClocksEnabled || a.perms == nil || a.stream == nil {
+		return
+	}
+	if !a.perms.GPUClockLockSupported() {
+		return
+	}
+	binPath := a.stream.BinaryPath()
+	pid := a.stream.Pid()
+	if binPath == "" || pid == 0 {
+		return
+	}
+	a.gpuClockMu.Lock()
+	alreadyArmed := a.gpuClockLockedPid == pid
+	a.gpuClockMu.Unlock()
+	if alreadyArmed {
+		return
+	}
+	if err := a.perms.RequestGPUClockLock(binPath, pid); err != nil {
+		log.Printf("[app] failed to lock GPU clocks: %v", err)
+		return
+	}
+	a.gpuClockMu.Lock()
+	a.gpuClockLockedPid = pid
+	a.gpuClockMu.Unlock()
 }
 
 // TailscaleStatus returns the current Tailscale status in the format expected by /api/auth/sync.
@@ -710,6 +851,7 @@ func (a *App) Status() api.SystemStatus {
 		},
 		Timestamp: time.Now(),
 		OS:        runtime.GOOS,
+		Streamer:  a.StreamerName(),
 	}
 }
 
@@ -845,8 +987,10 @@ func (a *App) AudioSinks() ([]api.AudioSink, error) {
 // CurrentAudioSink returns the sink Sunshine is configured to use, falling
 // back to the system default sink if Sunshine has no explicit override.
 func (a *App) CurrentAudioSink() (string, error) {
-	if sink := sunshine.AudioSink(); sink != "" {
-		return sink, nil
+	if a.stream != nil {
+		if sink := a.stream.AudioSink(); sink != "" {
+			return sink, nil
+		}
 	}
 	return audio.DefaultSink()
 }
@@ -854,7 +998,10 @@ func (a *App) CurrentAudioSink() (string, error) {
 // SunshineStreamHost returns the IP Sunshine advertises to Moonlight clients
 // (external_ip from sunshine.conf, or Tailscale IP if not explicitly set).
 func (a *App) SunshineStreamHost() string {
-	if ip := sunshine.ExternalIP(); ip != "" && ip != "0.0.0.0" {
+	if a.stream == nil {
+		return ""
+	}
+	if ip := a.stream.ExternalIP(); ip != "" && ip != "0.0.0.0" {
 		return ip
 	}
 	return ""
@@ -868,21 +1015,51 @@ func (a *App) SunshineAdminPort() int {
 	return 47990
 }
 
+// StreamerName returns a short human-readable label for which streaming
+// host backend this build is actually running (e.g. "Sunshine (Open
+// Source)" or "RustShine (Proprietary)") — display only, see
+// streamhost.Identity.
+func (a *App) StreamerName() string {
+	if a.stream == nil {
+		return "unknown"
+	}
+	return a.stream.DisplayName()
+}
+
+// AdminUser returns the streaming host's admin-API username.
+func (a *App) AdminUser() string {
+	if a.stream == nil {
+		return ""
+	}
+	return a.stream.AdminUser()
+}
+
+// AdminPass returns the streaming host's current session admin password.
+func (a *App) AdminPass() string {
+	if a.stream == nil {
+		return ""
+	}
+	return a.stream.AdminPass()
+}
+
 // ListSunshineClients returns Moonlight clients currently paired with the
 // bundled Sunshine instance.
-func (a *App) ListSunshineClients() ([]sunshine.Client, error) {
+func (a *App) ListSunshineClients() ([]streamhost.Client, error) {
+	if a.stream == nil {
+		return nil, nil
+	}
 	port := a.cfg.SunshinePort
 	if port == 0 {
 		port = 47990
 	}
-	return sunshine.ListClients(port)
+	return a.stream.ListClients(port)
 }
 
 // CurrentVideoCodec returns the codec negotiated by the most recent stream,
 // defaulting to "h264" if unable to determine.
 func (a *App) CurrentVideoCodec() string {
-	if a.sunshine != nil {
-		return a.sunshine.CurrentVideoCodec()
+	if a.stream != nil {
+		return a.stream.CurrentVideoCodec()
 	}
 	return "h264"
 }
@@ -891,21 +1068,27 @@ func (a *App) CurrentVideoCodec() string {
 // encoder can actually produce right now, per Sunshine's own live capability
 // probe (its /serverinfo ServerCodecModeSupport field) — not a static list.
 func (a *App) SupportedVideoCodecs() []string {
+	if a.stream == nil {
+		return []string{"h264"}
+	}
 	port := a.cfg.SunshinePort
 	if port == 0 {
 		port = 47990
 	}
-	return sunshine.SupportedVideoCodecs(port)
+	return a.stream.SupportedVideoCodecs(port)
 }
 
 // UnpairSunshineClient removes the Moonlight client with the given UUID from
 // Sunshine's authorized client list.
 func (a *App) UnpairSunshineClient(uniqueID string) error {
+	if a.stream == nil {
+		return nil
+	}
 	port := a.cfg.SunshinePort
 	if port == 0 {
 		port = 47990
 	}
-	return sunshine.UnpairClient(port, uniqueID)
+	return a.stream.UnpairClient(port, uniqueID)
 }
 
 // UpdateListenAddr updates the agent's HTTP listen host and port, persists the
@@ -952,7 +1135,9 @@ func (a *App) UpdateSunshinePort(port int) (config.Config, error) {
 	}
 	// Sunshine's `port` key is the NvHTTP base port; admin is at base+1.
 	// SunshinePort is the admin port, so write base = SunshinePort - 1.
-	_ = sunshine.SetConfigKey("port", strconv.Itoa(port-1))
+	if a.stream != nil {
+		_ = a.stream.SetConfigKey("port", strconv.Itoa(port-1))
+	}
 	_ = a.RestartSunshine()
 	return a.cfg, nil
 }
@@ -965,17 +1150,19 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 	if err := config.Save(a.cfgPath, a.cfg); err != nil {
 		return a.cfg, err
 	}
-	_ = sunshine.SetExternalIP(host)
-	// Only restrict Sunshine's kernel bind to this IP for real (LAN) hosts —
-	// never for the agent's own tsnet IP, which has no kernel interface to
-	// bind to. tsnet reachability is handled by restartStreamProxy instead.
-	if !a.isTsnetSelfIP(host) {
-		_ = sunshine.SetBindAddress(host)
-	} else {
-		_ = sunshine.SetBindAddress("")
+	if a.stream != nil {
+		_ = a.stream.SetExternalIP(host)
+		// Only restrict Sunshine's kernel bind to this IP for real (LAN) hosts —
+		// never for the agent's own tsnet IP, which has no kernel interface to
+		// bind to. tsnet reachability is handled by restartStreamProxy instead.
+		if !a.isTsnetSelfIP(host) {
+			_ = a.stream.SetBindAddress(host)
+		} else {
+			_ = a.stream.SetBindAddress("")
+		}
+		// Write streamPort (NvHTTP base) to sunshine.conf, not webPort (admin port).
+		_ = a.stream.SetConfigKey("port", strconv.Itoa(streamPort))
 	}
-	// Write streamPort (NvHTTP base) to sunshine.conf, not webPort (admin port).
-	_ = sunshine.SetConfigKey("port", strconv.Itoa(streamPort))
 	_ = a.RestartSunshine()
 	return a.cfg, nil
 }
@@ -983,11 +1170,14 @@ func (a *App) UpdateSunshineStreamAddr(host string, streamPort int) (config.Conf
 // SubmitMoonlightPIN sends the PIN shown by a Moonlight client to Sunshine
 // to complete the pairing handshake.
 func (a *App) SubmitMoonlightPIN(pin string) error {
+	if a.stream == nil {
+		return nil
+	}
 	port := a.cfg.SunshinePort
 	if port == 0 {
 		port = 47990
 	}
-	return sunshine.SubmitPIN(port, pin)
+	return a.stream.SubmitPIN(port, pin)
 }
 
 // SetAudioSink points Sunshine at the given audio device (sunshine.conf's
@@ -997,8 +1187,11 @@ func (a *App) SubmitMoonlightPIN(pin string) error {
 // when nothing changed, causing a needless restart (and brief capture
 // interruption) on every connect.
 func (a *App) SetAudioSink(sink string) error {
-	unchanged := sunshine.AudioSink() == sink && a.sunshine != nil && a.sunshine.Running()
-	if err := sunshine.SetAudioSink(sink); err != nil {
+	if a.stream == nil {
+		return nil
+	}
+	unchanged := a.stream.AudioSink() == sink && a.stream.Running()
+	if err := a.stream.SetAudioSink(sink); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
 	if unchanged {
@@ -1011,8 +1204,10 @@ func (a *App) SetAudioSink(sink string) error {
 // (Sunshine's own connected-output index, stringified), read from
 // sunshine.conf if present, falling back to the persisted agent config.
 func (a *App) SunshineOutputName() string {
-	if name := sunshine.OutputName(); name != "" {
-		return name
+	if a.stream != nil {
+		if name := a.stream.OutputName(); name != "" {
+			return name
+		}
 	}
 	return a.cfg.SunshineOutputName
 }
@@ -1022,8 +1217,11 @@ func (a *App) SunshineOutputName() string {
 // persists it into both sunshine.conf and the agent config, and restarts
 // Sunshine so the change takes effect.
 func (a *App) SetSunshineOutputName(name string) error {
-	unchanged := sunshine.OutputName() == name && a.sunshine != nil && a.sunshine.Running()
-	if err := sunshine.SetOutputName(name); err != nil {
+	if a.stream == nil {
+		return nil
+	}
+	unchanged := a.stream.OutputName() == name && a.stream.Running()
+	if err := a.stream.SetOutputName(name); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
 	}
 	next := a.cfg

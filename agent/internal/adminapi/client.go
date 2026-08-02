@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"usbridge_agent/internal/config"
-	"usbridge_agent/internal/sunshine"
+	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 )
 
@@ -162,12 +162,28 @@ func (c *Client) RequestKMSCapture() bool {
 	return body.Value
 }
 
+func (c *Client) GPUClockLockSupported() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/gpu-clock-lock-supported", nil, &body)
+	return body.Value
+}
+
+func (c *Client) LockGPUClocksEnabled() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/gpu-clock-lock-enabled", nil, &body)
+	return body.Value
+}
+
+func (c *Client) SetLockGPUClocksEnabled(enabled bool) error {
+	return c.do(http.MethodPost, "/token/gpu-clock-lock-enabled", boolBody{Value: enabled}, nil)
+}
+
 func (c *Client) RestartSunshine() error {
 	return c.do(http.MethodPost, "/token/restart-sunshine", nil, nil)
 }
 
-func (c *Client) ListSunshineClients() ([]sunshine.Client, error) {
-	var clients []sunshine.Client
+func (c *Client) ListSunshineClients() ([]streamhost.Client, error) {
+	var clients []streamhost.Client
 	err := c.do(http.MethodGet, "/token/clients", nil, &clients)
 	return clients, err
 }
@@ -196,6 +212,31 @@ func (c *Client) UpdateSunshineStreamAddr(host string, streamPort int) (config.C
 	var cfg config.Config
 	err := c.do(http.MethodPost, "/token/sunshine-stream-addr", sunshineStreamAddrBody{Host: host, StreamPort: streamPort}, &cfg)
 	return cfg, err
+}
+
+// adminCredentials caches the streaming host's admin user/pass fetched over
+// the socket, refreshed on every call — cheap, and the password can rotate
+// across a Restart on the engine side.
+func (c *Client) adminCredentials() adminCredentialsBody {
+	var body adminCredentialsBody
+	_ = c.do(http.MethodGet, "/token/admin-credentials", nil, &body)
+	return body
+}
+
+func (c *Client) AdminUser() string { return c.adminCredentials().User }
+
+func (c *Client) AdminPass() string { return c.adminCredentials().Pass }
+
+func (c *Client) SunshineStreamHost() string {
+	var body stringBody
+	_ = c.do(http.MethodGet, "/token/sunshine-stream-host", nil, &body)
+	return body.Value
+}
+
+func (c *Client) StreamerName() string {
+	var body stringBody
+	_ = c.do(http.MethodGet, "/token/streamer-name", nil, &body)
+	return body.Value
 }
 
 // --- PermsBackend ---

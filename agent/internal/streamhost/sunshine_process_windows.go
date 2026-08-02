@@ -1,6 +1,6 @@
 //go:build windows
 
-package sunshine
+package streamhost
 
 import (
 	"log"
@@ -63,7 +63,7 @@ func killOnCloseJob() windows.Handle {
 // kill-on-job-close Job Object, so Windows itself terminates Sunshine the
 // instant the agent process ends for any reason — crash, task-kill, normal
 // exit — instead of leaving it orphaned.
-func afterStart(p *Process, cmd *exec.Cmd) {
+func afterStart(b *sunshineBackend, cmd *exec.Cmd) {
 	job := killOnCloseJob()
 	if job == 0 {
 		return

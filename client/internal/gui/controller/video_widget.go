@@ -70,6 +70,18 @@ type VideoWidget struct {
 	videoOps              chan videoOperation
 	videoReconcilePending atomic.Bool
 
+	// sendQueueMu/sendQueue/sendQueueWake/sendWorkerStarted back a small FIFO
+	// worker (see video_widget_input_queue.go's enqueueSend) that moves every
+	// synchronous cgo call into moonlight-common-c (mouse position/button/
+	// scroll — an ENet reliable send that can block on socket/lock state) off
+	// whichever goroutine calls it. Fyne invokes Dragged/Touch callbacks
+	// synchronously on the UI goroutine, so without this a stalled ENet send
+	// freezes the entire UI, including tab switches, until it returns.
+	sendQueueMu       sync.Mutex
+	sendQueue         []func()
+	sendQueueWake     chan struct{}
+	sendWorkerStarted bool
+
 	// Video stream
 	currentFrame         image.Image
 	pendingFrame         atomic.Pointer[image.RGBA] // latest decoded frame, not yet displayed

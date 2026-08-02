@@ -1,6 +1,6 @@
 //go:build linux
 
-package sunshine
+package streamhost
 
 import (
 	"os/exec"
@@ -16,4 +16,4 @@ func configureProcess(cmd *exec.Cmd) {
 
 // afterStart is a no-op on Linux: Pdeathsig above already gives an
 // OS-enforced kill-on-parent-death guarantee before Sunshine even starts.
-func afterStart(p *Process, cmd *exec.Cmd) {}
+func afterStart(b *sunshineBackend, cmd *exec.Cmd) {}

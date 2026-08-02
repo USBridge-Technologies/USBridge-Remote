@@ -109,6 +109,65 @@ func takeAxisChunk(pending *int) int {
 	return value
 }
 
+// maxQueuedSends caps how many pending input-send closures can back up
+// before new ones are dropped with a warning — a genuinely stalled ENet
+// link (dead network, remote host hung) should degrade to dropped input
+// events, not an unbounded memory leak.
+const maxQueuedSends = 512
+
+// enqueueSend hands fn off to a dedicated single-goroutine worker so it never
+// runs on the calling goroutine. Used for every synchronous cgo call into
+// moonlight-common-c (mouse position/button/scroll) that would otherwise
+// block the Fyne UI goroutine when called directly from a Dragged/Touch
+// handler. Callers must preserve their own ordering requirements by only
+// relying on FIFO delivery, not by re-entering enqueueSend from within fn.
+func (vw *VideoWidget) enqueueSend(fn func()) {
+	vw.startSendWorker()
+
+	vw.sendQueueMu.Lock()
+	if len(vw.sendQueue) >= maxQueuedSends {
+		vw.sendQueueMu.Unlock()
+		logrus.Warn("🖱️ [Mouse] input send queue full — dropping event (remote link stalled?)")
+		return
+	}
+	vw.sendQueue = append(vw.sendQueue, fn)
+	wake := vw.sendQueueWake
+	vw.sendQueueMu.Unlock()
+
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
+}
+
+func (vw *VideoWidget) startSendWorker() {
+	vw.sendQueueMu.Lock()
+	if vw.sendWorkerStarted {
+		vw.sendQueueMu.Unlock()
+		return
+	}
+	vw.sendWorkerStarted = true
+	vw.sendQueueWake = make(chan struct{}, 1)
+	wake := vw.sendQueueWake
+	vw.sendQueueMu.Unlock()
+
+	go func() {
+		for range wake {
+			for {
+				vw.sendQueueMu.Lock()
+				if len(vw.sendQueue) == 0 {
+					vw.sendQueueMu.Unlock()
+					break
+				}
+				fn := vw.sendQueue[0]
+				vw.sendQueue = vw.sendQueue[1:]
+				vw.sendQueueMu.Unlock()
+				fn()
+			}
+		}
+	}()
+}
+
 func (vw *VideoWidget) enqueueMouseClick(button int) {
 	mi := vw.moonlightInput()
 	if mi == nil || !mi.IsInputActive() {
@@ -118,8 +177,8 @@ func (vw *VideoWidget) enqueueMouseClick(button int) {
 	if button == 2 {
 		moonlightBtn = service.LiMouseButtonRight
 	}
-	mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
-	mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
+	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
 }
 
 func (vw *VideoWidget) enqueueMouseButtonDown(button int) {
@@ -131,7 +190,7 @@ func (vw *VideoWidget) enqueueMouseButtonDown(button int) {
 	if button == 2 {
 		moonlightBtn = service.LiMouseButtonRight
 	}
-	mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn)
+	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonPress, moonlightBtn) })
 }
 
 func (vw *VideoWidget) enqueueMouseButtonUp(button int) {
@@ -143,7 +202,7 @@ func (vw *VideoWidget) enqueueMouseButtonUp(button int) {
 	if button == 2 {
 		moonlightBtn = service.LiMouseButtonRight
 	}
-	mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn)
+	vw.enqueueSend(func() { mi.SendMoonlightMouseButton(service.LiMouseButtonRelease, moonlightBtn) })
 }
 
 func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
@@ -152,7 +211,7 @@ func (vw *VideoWidget) enqueueMouseScroll(scroll int) {
 		return
 	}
 	clicks := int8(clamp(scroll, -127, 127))
-	mi.SendMoonlightScroll(clicks)
+	vw.enqueueSend(func() { mi.SendMoonlightScroll(clicks) })
 }
 
 // enqueueMouseAction — reset all buttons and state.

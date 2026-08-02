@@ -141,3 +141,10 @@ func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	}
 	return s.KMSCaptureGranted(capexecPath)
 }
+
+// GPU clock locking is Windows-only (NVML clock lock via an elevated
+// gamestream-server --gpu-clock-lock-daemon helper -- see
+// service_windows.go's own docs); not applicable on Linux.
+func (s *Service) GPUClockLockSupported() bool                            { return false }
+func (s *Service) GPUClockLockElevated() bool                             { return false }
+func (s *Service) RequestGPUClockLock(binPath string, watchPID int) error { return nil }
