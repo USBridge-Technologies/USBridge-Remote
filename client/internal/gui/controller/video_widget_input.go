@@ -145,6 +145,12 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 			}
 		}
 	}
+	if isTextRoutedKeystroke(event, vw.currentHIDModifiers()) {
+		// Fyne's TypedRune (handlePhysicalRunePress) will deliver this
+		// keystroke's actual character; sending the raw VK here too would
+		// double it up (once garbled through a layout guess, once correct).
+		return
+	}
 	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
 			mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
@@ -174,6 +180,9 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 			}
 		}
 	}
+	if isTextRoutedKeystroke(event, vw.currentHIDModifiers()) {
+		return
+	}
 	mi := vw.moonlightInput()
 	if mi == nil {
 		logrus.Warnf("⌨️ [INPUT][UP] MoonlightInputSender is nil! Not sending key.")
@@ -190,6 +199,44 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 
 	vw.moonlightTrackKeyUp(vkCode)
 	vw.enqueueSend(func() { mi.SendMoonlightKey(vkCode, service.LiKeyActionUp, mods) })
+}
+
+// isTextRoutedKeystroke reports whether this keystroke should be left to
+// Fyne's TypedRune (-> handlePhysicalRunePress -> SendMoonlightUtf8Text)
+// instead of being sent as a raw VK code here. True for a plain
+// character-producing key (letters/digits/symbols/space, Shift alone
+// doesn't disqualify it -- Fyne folds Shift into the resolved rune's case)
+// with no Ctrl/Alt/Super held: those are shortcuts, and Fyne doesn't fire
+// TypedRune for them anyway, so they must keep going through the VK path.
+func isTextRoutedKeystroke(event *fyne.KeyEvent, hidModifiers int) bool {
+	const ctrlAltSuperMask = 1 | 4 | 8 // widget bitmask: Ctrl=1, Alt=4, Super=8 (Shift=2 excluded on purpose)
+	if hidModifiers&ctrlAltSuperMask != 0 {
+		return false
+	}
+	return isCharacterScanCode(event.Physical.ScanCode)
+}
+
+// isCharacterScanCode reports whether a PS/2 scan code is a physical
+// character-key position (letter/digit/symbol row), regardless of what
+// layout is active -- unlike event.Name (blank/"KeyUnknown" on non-Latin
+// layouts) or IsPrintableKey (same problem), scan codes are always reported
+// correctly by GLFW for the physical key position pressed. Mirrors the same
+// four scan-code rows input.GetVKCodeFromScanCode maps.
+func isCharacterScanCode(scanCode int) bool {
+	switch {
+	case scanCode >= 0x02 && scanCode <= 0x0D: // number row + - =
+		return true
+	case scanCode >= 0x10 && scanCode <= 0x1B: // Q..P [ ]
+		return true
+	case scanCode >= 0x1E && scanCode <= 0x2B: // A..L ; ' ` \
+		return true
+	case scanCode >= 0x2C && scanCode <= 0x35: // Z..M , . /
+		return true
+	case scanCode == 0x39: // Space
+		return true
+	default:
+		return false
+	}
 }
 
 // moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
@@ -216,8 +263,19 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 	}
 }
 
-// handlePhysicalRunePress — rune events are not used in Moonlight-only mode.
-func (vw *VideoWidget) handlePhysicalRunePress(_ rune) {}
+// handlePhysicalRunePress sends the character Fyne resolved for this
+// keystroke (using whatever OS keyboard layout is active on the client) as
+// Unicode text via the Moonlight UTF8-text control channel, instead of
+// guessing a raw VK code for it. This is what makes typing correct on any
+// client layout (Cyrillic, etc.) and preserves case: handlePhysicalKeyDown/Up
+// skip sending for plain character keys (see isCharacterScanCode) precisely
+// so this is the only thing that sends printable text, avoiding a double
+// send of the same keystroke.
+func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
+	if mi := vw.moonlightInput(); mi != nil {
+		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
+	}
+}
 
 // hidKeyToVK converts a USB HID Usage Page 0x07 keycode (used by the virtual
 // keyboard layout) to a Windows Virtual Key code expected by LiSendKeyboardEvent.
@@ -409,152 +467,6 @@ func (vw *VideoWidget) processMouseMovement() {
 	vw.enqueueMouseMove(dx, dy)
 }
 
-// runeToMoonlightVK converts a printable rune to a Windows Virtual Key code and
-// Moonlight modifier byte (bit 0 = Shift). Returns (0, 0) when no mapping exists.
-//
-// Supports: printable ASCII (US QWERTY layout) and Russian Cyrillic (ЙЦУКЕН).
-// For Cyrillic the caller must ensure the target PC is in the matching layout.
-func runeToMoonlightVK(r rune) (vk int16, mods int8) {
-	const shiftMod = int8(0x01) // Moonlight: bit0 = Shift
-
-	// Lowercase Latin a–z → VK_A–VK_Z
-	if r >= 'a' && r <= 'z' {
-		return int16(0x41 + r - 'a'), 0
-	}
-	// Uppercase Latin A–Z → VK_A–VK_Z + Shift
-	if r >= 'A' && r <= 'Z' {
-		return int16(0x41 + r - 'A'), shiftMod
-	}
-	// Digits 0–9 → VK_0–VK_9
-	if r >= '0' && r <= '9' {
-		return int16(0x30 + r - '0'), 0
-	}
-
-	// Space and common OEM symbols (US QWERTY)
-	switch r {
-	case ' ':
-		return 0x20, 0
-	case '!':
-		return 0x31, shiftMod
-	case '@':
-		return 0x32, shiftMod
-	case '#':
-		return 0x33, shiftMod
-	case '$':
-		return 0x34, shiftMod
-	case '%':
-		return 0x35, shiftMod
-	case '^':
-		return 0x36, shiftMod
-	case '&':
-		return 0x37, shiftMod
-	case '*':
-		return 0x38, shiftMod
-	case '(':
-		return 0x39, shiftMod
-	case ')':
-		return 0x30, shiftMod
-	case '-':
-		return 0xBD, 0
-	case '_':
-		return 0xBD, shiftMod
-	case '=':
-		return 0xBB, 0
-	case '+':
-		return 0xBB, shiftMod
-	case '[':
-		return 0xDB, 0
-	case '{':
-		return 0xDB, shiftMod
-	case ']':
-		return 0xDD, 0
-	case '}':
-		return 0xDD, shiftMod
-	case '\\':
-		return 0xDC, 0
-	case '|':
-		return 0xDC, shiftMod
-	case ';':
-		return 0xBA, 0
-	case ':':
-		return 0xBA, shiftMod
-	case '\'':
-		return 0xDE, 0
-	case '"':
-		return 0xDE, shiftMod
-	case '`':
-		return 0xC0, 0
-	case '~':
-		return 0xC0, shiftMod
-	case ',':
-		return 0xBC, 0
-	case '<':
-		return 0xBC, shiftMod
-	case '.':
-		return 0xBE, 0
-	case '>':
-		return 0xBE, shiftMod
-	case '/':
-		return 0xBF, 0
-	case '?':
-		return 0xBF, shiftMod
-	}
-
-	// Russian Cyrillic JCUKEN layout → physical QWERTY key positions.
-	// Each mapping sends the VK code for the physical key that produces this
-	// Cyrillic character when the target PC is in Russian keyboard layout.
-	// Lowercase → no Shift; uppercase → Shift.
-	type cyrMap struct {
-		lower rune
-		upper rune
-		vk    int16
-	}
-	var cyrRows = [...]cyrMap{
-		{'й', 'Й', 0x51}, // Q
-		{'ц', 'Ц', 0x57}, // W
-		{'у', 'У', 0x45}, // E
-		{'к', 'К', 0x52}, // R
-		{'е', 'Е', 0x54}, // T
-		{'н', 'Н', 0x59}, // Y
-		{'г', 'Г', 0x55}, // U
-		{'ш', 'Ш', 0x49}, // I
-		{'щ', 'Щ', 0x4F}, // O
-		{'з', 'З', 0x50}, // P
-		{'х', 'Х', 0xDB}, // [
-		{'ъ', 'Ъ', 0xDD}, // ]
-		{'ф', 'Ф', 0x41}, // A
-		{'ы', 'Ы', 0x53}, // S
-		{'в', 'В', 0x44}, // D
-		{'а', 'А', 0x46}, // F
-		{'п', 'П', 0x47}, // G
-		{'р', 'Р', 0x48}, // H
-		{'о', 'О', 0x4A}, // J
-		{'л', 'Л', 0x4B}, // K
-		{'д', 'Д', 0x4C}, // L
-		{'ж', 'Ж', 0xBA}, // ;
-		{'э', 'Э', 0xDE}, // '
-		{'я', 'Я', 0x5A}, // Z
-		{'ч', 'Ч', 0x58}, // X
-		{'с', 'С', 0x43}, // C
-		{'м', 'М', 0x56}, // V
-		{'и', 'И', 0x42}, // B
-		{'т', 'Т', 0x4E}, // N
-		{'ь', 'Ь', 0x4D}, // M
-		{'б', 'Б', 0xBC}, // ,
-		{'ю', 'Ю', 0xBE}, // .
-		{'ё', 'Ё', 0xC0}, // `
-	}
-	for _, c := range cyrRows {
-		if r == c.lower {
-			return c.vk, 0
-		}
-		if r == c.upper {
-			return c.vk, shiftMod
-		}
-	}
-
-	return 0, 0 // no mapping for this rune
-}
 
 func (vw *VideoWidget) accumulateRelativeMove(rawDx, rawDy, sensitivity float32) (int, int) {
 	scaledDx := rawDx*sensitivity + vw.relativeRemainderX

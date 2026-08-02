@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"usbridge-client/internal/gui/graphics"
-	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -49,23 +48,17 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 			logrus.Warn("⚠️ Parent window is not set")
 			return
 		}
-		// IME runes go through onRuneTyped → runeToMoonlightVK → LiSendKeyboardEvent.
-		// This uses the same Sunshine evdev → bridgeKeyboard → /dev/hid_k path that
-		// works for physical keyboards on Mac/desktop. LiSendUtf8TextEvent is NOT used
-		// because the server reads only from the "Keyboard passthrough" evdev device and
-		// has no handler for the CTRL_CHANNEL_UTF8 control message.
+		// IME runes go through onRuneTyped → LiSendUtf8TextEvent, sent verbatim as
+		// Unicode text -- the server (gamestream-server) now maps this into the
+		// target OS's own input on the server side, so this works for any
+		// language/layout the Android IME produces without a client-side rune→VK
+		// guess table.
 		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, func(r rune) {
-			vk, mods := runeToMoonlightVK(r)
-			if vk == 0 {
-				logrus.Debugf("⌨️ [IME] rune %q (U+%04X): no VK mapping, skipped", r, r)
-				return
-			}
 			mi := vw.moonlightInput()
 			if mi == nil || !mi.IsInputActive() {
 				return
 			}
-			mi.SendMoonlightKey(vk, service.LiKeyActionDown, mods)
-			mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods)
+			mi.SendMoonlightUtf8Text(string(r))
 		})
 
 		// When the Android IME opens/closes, expand Vulkan upward under the tabs.

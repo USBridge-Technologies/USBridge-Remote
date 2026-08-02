@@ -77,8 +77,14 @@ func (fd *FullscreenDialog) handleKeyPress(event *fyne.KeyEvent) {
 	}
 }
 
-// handleRunePress — TypedRune is no longer used for sending input.
-func (fd *FullscreenDialog) handleRunePress(_ rune) {}
+// handleRunePress forwards the OS/layout-resolved character to the server as
+// Unicode text, bypassing raw-keycode/layout mapping entirely. See
+// VideoWidget.handlePhysicalRunePress's own doc comment for why.
+func (fd *FullscreenDialog) handleRunePress(r rune) {
+	if fd.videoWidget != nil {
+		fd.videoWidget.handlePhysicalRunePress(r)
+	}
+}
 
 // handleVirtualKeyPress handles virtual keyboard key presses via Moonlight.
 func (fd *FullscreenDialog) handleVirtualKeyPress(keyCode int, modifiers int) {
