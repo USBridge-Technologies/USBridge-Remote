@@ -288,6 +288,7 @@ func (a *App) Run(headless bool) error {
 	a.startSunshine()
 	autostart.RefreshX11SessionEnv()
 	go a.sunshineWatchdog(ctx)
+	go a.x11SessionEnvWatchdog(ctx)
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
@@ -386,14 +387,35 @@ func (a *App) sunshineWatchdog(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.startSunshine()
-			// Piggybacks on this same ticker rather than running its own --
-			// see RefreshX11SessionEnv's doc comment for why this needs to
-			// happen periodically at all (an X11 desktop session can appear,
-			// disappear, or swap places with a Wayland one at any time after
-			// login, long after the SDDM greeter hook's own one-shot write).
-			// No-op on non-Linux builds and cheap enough on Linux (a /proc
-			// scan plus, usually, no writes at all once settled) to just
-			// always call.
+		}
+	}
+}
+
+// x11SessionEnvRefreshInterval is how often x11SessionEnvWatchdog re-syncs
+// the X11 fallback's greeter-env files (see RefreshX11SessionEnv's doc
+// comment for why this needs to happen at all). Much shorter than
+// sunshineWatchdogInterval deliberately: this used to piggyback on that 15s
+// ticker, but every one of those 15 seconds is dead air on a connected
+// client's screen during the exact SDDM login/logout window this exists
+// for (confirmed live) -- a dedicated, much tighter interval is what
+// actually shrinks that window, and capture-kms's own
+// BLANK_RECHECK_INTERVAL (250ms, only engaged once the *capture* side has
+// independently noticed several seconds of blank content) is the other,
+// finer-grained half of that same fix. Still cheap enough (a /proc scan,
+// usually no writes at all once a session has settled) to run this often.
+const x11SessionEnvRefreshInterval = 2 * time.Second
+
+// x11SessionEnvWatchdog periodically re-syncs RefreshX11SessionEnv on its
+// own schedule (see x11SessionEnvRefreshInterval's doc comment for why this
+// isn't just folded into sunshineWatchdog). No-op on non-Linux builds.
+func (a *App) x11SessionEnvWatchdog(ctx context.Context) {
+	ticker := time.NewTicker(x11SessionEnvRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 			autostart.RefreshX11SessionEnv()
 		}
 	}
