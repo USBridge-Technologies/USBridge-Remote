@@ -65,6 +65,80 @@ func detectWaylandDisplay(uid string) string {
 	return "wayland-0"
 }
 
+// sddmXsetupPath is SDDM's root-run "before the login dialog appears" hook
+// script. Only present on systems actually using SDDM as their display
+// manager; xsetupHookScript below checks for it and no-ops otherwise.
+const sddmXsetupPath = "/usr/share/sddm/scripts/Xsetup"
+
+// xsetupHookMarker delimits the block xsetupHookScript appends to Xsetup, so
+// re-running Enable() (any later call, not just a fresh install) detects an
+// already-installed hook and skips re-appending a duplicate.
+const xsetupHookMarker = "# --- USBridge greeter-capture hook ---"
+
+// xsetupHookScript returns a shell fragment that appends a block to Xsetup
+// exposing the login greeter's own X11 auth cookie and DISPLAY to
+// username, via /run/usbridge-agent (root-owned tmpfs, recreated every
+// boot). No-ops if Xsetup doesn't exist (a display manager other than
+// SDDM) or the block is already present.
+//
+// Why this exists at all: KMS/DRM screen capture (see the render-group
+// comment above) reads connector/CRTC state directly from the kernel, which
+// works everywhere *except* on the nvidia proprietary driver once DRM
+// master is held by a session that isn't this agent's own — exactly the
+// case while the login greeter (a separate session, a separate user) is
+// showing and nobody's logged in yet. nvidia refuses to report that state
+// to any client that isn't the current master, capability grants
+// notwithstanding (confirmed live: CAP_SYS_ADMIN present and correct,
+// connector query still empty) — a limitation open-source drivers
+// (i915/amdgpu) don't share. Capture falls back to grabbing the greeter's
+// own X11 root window instead when this happens (see
+// rustshineBackend.greeterX11Env), which needs that session's auth cookie
+// to connect — Xsetup already has it in hand naturally (it runs as root,
+// inside that exact X session, before the login dialog appears), so
+// copying it to a location username can read is the only step this can't
+// do from inside the already-running (and, at exactly this moment,
+// KMS-blind) agent process itself.
+//
+// Ownership/perms: chown to username + chmod 0600 rather than leaving it
+// root-owned or world-readable — this is a real X11 auth cookie (control
+// over that X session), so it should be exactly as reachable as the rest of
+// what this agent already has access to (real root, CAP_SYS_ADMIN over the
+// framebuffer, uinput) and no more.
+func xsetupHookBlock(username string) string {
+	return fmt.Sprintf(`
+%s
+mkdir -p /run/usbridge-agent
+cp "$XAUTHORITY" /run/usbridge-agent/greeter-xauth 2>/dev/null
+echo "$DISPLAY" > /run/usbridge-agent/greeter-display
+chown %[2]s:%[2]s /run/usbridge-agent/greeter-xauth /run/usbridge-agent/greeter-display 2>/dev/null
+chmod 0600 /run/usbridge-agent/greeter-xauth /run/usbridge-agent/greeter-display 2>/dev/null
+# --- end USBridge greeter-capture hook ---
+`, xsetupHookMarker, systemdQuote(username))
+}
+
+// writeXsetupHookScript writes xsetupHookBlock's content to a temp file (same
+// pattern Enable() uses for the systemd unit itself) and returns a shell
+// fragment that, run as root, appends that file to Xsetup exactly once —
+// guarded on both "Xsetup exists at all" (no-ops on non-SDDM systems) and
+// "marker not already present" (idempotent across repeat Enable() calls).
+// The temp file is intentionally not cleaned up by the caller before the
+// pkexec script below has run; Enable() removes it after.
+func writeXsetupHookScript(username string) (script, tmpPath string, err error) {
+	tmp, err := os.CreateTemp("", "usbridge-xsetup-hook-*")
+	if err != nil {
+		return "", "", err
+	}
+	defer tmp.Close()
+	if _, err := tmp.WriteString(xsetupHookBlock(username)); err != nil {
+		return "", "", err
+	}
+	script = fmt.Sprintf(
+		`if [ -f %[1]s ] && ! grep -qF %[2]s %[1]s; then cat %[3]s >> %[1]s; fi`,
+		sddmXsetupPath, systemdQuote(xsetupHookMarker), tmp.Name(),
+	)
+	return script, tmp.Name(), nil
+}
+
 func IsEnabled() bool {
 	out, err := exec.Command("systemctl", "is-enabled", unitName).CombinedOutput()
 	if err != nil {
@@ -192,11 +266,24 @@ WantedBy=multi-user.target
 	// `getent group render` guards systems with no DRM render node (no
 	// GPU, or a driver that doesn't expose one) where the group doesn't
 	// exist at all.
+	xsetupScript, xsetupTmp, err := writeXsetupHookScript(u.Username)
+	if err != nil {
+		return fmt.Errorf("prepare greeter-capture hook: %w", err)
+	}
+	defer os.Remove(xsetupTmp)
+
+	// The greeter-capture hook append (xsetupScript) runs unconditionally
+	// after the main install chain regardless of that chain's outcome — it's
+	// an independent, best-effort step (and a no-op on non-SDDM systems) —
+	// but its own exit status must not clobber the real install chain's
+	// result, so that's captured into $STATUS first and re-asserted via the
+	// trailing `exit` rather than left as whatever ran last.
 	script := fmt.Sprintf(
 		`ADDED_RENDER=0; if getent group render >/dev/null && ! id -nG %[4]s | grep -qw render; then usermod -aG render %[4]s && ADDED_RENDER=1; fi; `+
 			`install -m 0644 %[1]s %[2]s && systemctl daemon-reload && systemctl enable --now %[3]s && loginctl enable-linger %[4]s && `+
-			`if [ "$ADDED_RENDER" = 1 ]; then systemctl restart %[3]s; fi`,
-		tmp.Name(), unitPath, unitName, systemdQuote(u.Username),
+			`if [ "$ADDED_RENDER" = 1 ]; then systemctl restart %[3]s; fi; `+
+			`STATUS=$?; %[5]s; exit $STATUS`,
+		tmp.Name(), unitPath, unitName, systemdQuote(u.Username), xsetupScript,
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()

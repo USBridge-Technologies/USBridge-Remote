@@ -26,6 +26,8 @@ type TokenBackend interface {
 	SetSunshineCaptureMode(mode string) error
 	KMSCaptureGranted() bool
 	RequestKMSCapture() bool
+	SunshineCapExecPath() string
+	RecheckKMSCapture() bool
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
 	SetLockGPUClocksEnabled(enabled bool) error
@@ -152,6 +154,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/capture-mode", s.handleSetCaptureMode)
 	mux.HandleFunc("GET /token/kms-granted", s.handleKMSGranted)
 	mux.HandleFunc("POST /token/request-kms", s.handleRequestKMS)
+	mux.HandleFunc("GET /token/kms-capexec-path", s.handleKMSCapExecPath)
+	mux.HandleFunc("POST /token/kms-recheck", s.handleKMSRecheck)
 	mux.HandleFunc("GET /token/gpu-clock-lock-supported", s.handleGPUClockLockSupported)
 	mux.HandleFunc("GET /token/gpu-clock-lock-enabled", s.handleGPUClockLockEnabled)
 	mux.HandleFunc("POST /token/gpu-clock-lock-enabled", s.handleSetGPUClockLockEnabled)
@@ -241,6 +245,22 @@ func (s *Server) handleKMSGranted(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRequestKMS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RequestKMSCapture()})
+}
+
+// handleKMSCapExecPath exposes the sunshine_capexec launcher path so a GUI
+// thin client can run the pkexec setcap grant itself, in its own session,
+// instead of asking this (headless, session-less) instance to do it — see
+// RecheckKMSCapture and cmd/usbridge_agent's runThinClientGUI.
+func (s *Server) handleKMSCapExecPath(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, stringBody{Value: s.token.SunshineCapExecPath()})
+}
+
+// handleKMSRecheck re-syncs the capexec launcher's capability from its
+// current on-disk state and restarts Sunshine if it's now granted. Used
+// after a GUI thin client grants CAP_SYS_ADMIN itself (via its own local
+// pkexec) so this instance picks up the change.
+func (s *Server) handleKMSRecheck(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.RecheckKMSCapture()})
 }
 
 func (s *Server) handleGPUClockLockSupported(w http.ResponseWriter, r *http.Request) {

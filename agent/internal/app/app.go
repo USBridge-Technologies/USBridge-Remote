@@ -123,10 +123,47 @@ func runThinClientGUI(client *adminapi.Client) error {
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
 
-	ui.NewWindow(fyneApp, cfg, client, client, client).ShowAndRun(func() {
+	// Permission grants (uinput udev rule, KMS CAP_SYS_ADMIN) run through
+	// pkexec, which needs a real polkit authentication agent for the
+	// caller's login session. The headless instance behind client is a
+	// systemd system service with no session of its own — pkexec run
+	// inside it can never reach one, it falls back to a textual agent and
+	// fails immediately ("Error opening current controlling terminal...").
+	// This process, by contrast, is launched interactively in the user's
+	// actual desktop session, where a polkit GUI agent (e.g.
+	// polkit-kde-authentication-agent-1) is reachable — so run pkexec here
+	// instead, against the same on-disk targets (/dev/uinput, the udev
+	// rule, the daemon's own capexec launcher path), then tell the daemon
+	// to notice and pick up the change.
+	localPerms := permissions.New()
+	token := &thinClientToken{Client: client, perms: localPerms}
+	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
+}
+
+// thinClientToken adapts *adminapi.Client for runThinClientGUI, overriding
+// only the KMS capability methods to grant locally instead of proxying the
+// pkexec call into the headless daemon — see runThinClientGUI for why.
+type thinClientToken struct {
+	*adminapi.Client
+	perms *permissions.Service
+}
+
+func (t *thinClientToken) KMSCaptureGranted() bool {
+	return t.perms.KMSCaptureGranted(t.Client.SunshineCapExecPath())
+}
+
+func (t *thinClientToken) RequestKMSCapture() bool {
+	path := t.Client.SunshineCapExecPath()
+	if path == "" {
+		return false
+	}
+	if !t.perms.RequestKMSCapture(path) {
+		return false
+	}
+	return t.Client.RecheckKMSCapture()
 }
 
 func New() (*App, error) {
@@ -667,6 +704,24 @@ func (a *App) RequestKMSCapture() bool {
 		a.syncSunshineCapExec()
 		if err := a.RestartSunshine(); err != nil {
 			log.Printf("[app] failed to restart Sunshine after granting KMS capability: %v", err)
+		}
+	}
+	return granted
+}
+
+// RecheckKMSCapture re-syncs the capexec launcher's CAP_SYS_ADMIN capability
+// from its current on-disk state and restarts Sunshine if it's now granted.
+// Unlike RequestKMSCapture, this never runs pkexec itself — it exists for
+// the case where something else already granted the capability on this
+// exact path (a GUI thin client's own local pkexec call, see
+// internal/adminapi.Server.handleKMSRecheck and cmd/usbridge_agent's
+// runThinClientGUI) and this instance just needs to notice and pick it up.
+func (a *App) RecheckKMSCapture() bool {
+	a.syncSunshineCapExec()
+	granted := a.KMSCaptureGranted()
+	if granted {
+		if err := a.RestartSunshine(); err != nil {
+			log.Printf("[app] failed to restart Sunshine after KMS recheck: %v", err)
 		}
 	}
 	return granted

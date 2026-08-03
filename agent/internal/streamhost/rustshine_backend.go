@@ -274,6 +274,40 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		}
 	}
 
+	// Repair a kms_connector that doesn't match any currently enumerable
+	// connector. This happens two ways: a bare numeric value written before
+	// SetOutputName's stale-index guard existed (efce4fc) is permanent —
+	// that guard only stops future bad writes, it never rewrites an
+	// already-corrupted config file — and a previously valid connector name
+	// can also go stale after a monitor/cable swap or across a distro/driver
+	// change (connector names like "HDMI-A-1" vs. "DP-2" vs. "eDP-1" aren't
+	// portable). capture-kms's own in-process "fall back to the first
+	// connected output" logic does not actually recover from this — it logs
+	// the fallback, then still fails the pipeline with "no connected DRM
+	// connector found" — so gamestream-server never captures a frame until
+	// the config is corrected on disk. There's no universal default
+	// connector name to hardcode, so resolve against ListCaptureDevices'
+	// live enumeration instead, the same source SetOutputName's numeric-index
+	// path already trusts.
+	if runtime.GOOS == "linux" && b.CaptureMode() == "kms" {
+		connector := b.ConfigKey("kms_connector")
+		devices := b.ListCaptureDevices()
+		valid := false
+		for _, d := range devices {
+			if _, c, ok := strings.Cut(d.OutputName, "|"); ok && c == connector {
+				valid = true
+				break
+			}
+		}
+		if !valid && len(devices) > 0 {
+			if err := b.SetOutputName(devices[0].OutputName); err != nil {
+				log.Printf("[rustshine] failed to repair invalid kms_connector %q: %v", connector, err)
+			} else {
+				log.Printf("[rustshine] kms_connector %q not found among live connectors, repaired to %q", connector, devices[0].OutputName)
+			}
+		}
+	}
+
 	basePort := adminPort - 1 // gamestream-server's --http-port is the NvHTTP base port; admin listens on base+1.
 	credsPath := b.credentialsPath()
 
