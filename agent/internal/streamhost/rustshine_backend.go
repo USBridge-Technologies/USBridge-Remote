@@ -38,6 +38,7 @@ type rustshineBackend struct {
 	logPath     string
 	cmd         *exec.Cmd
 	watchdog    *exec.Cmd // macOS only, see rustshine_process_other.go
+	onExit      func()    // see SetOnExit
 
 	activeAdminPassword string
 	adminPort           int // set by Start; CurrentVideoCodec needs it despite taking no args itself
@@ -382,10 +383,36 @@ func (b *rustshineBackend) watchProcessExit(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	log.Printf("[rustshine] process exited: %v", err)
 	b.mu.Lock()
-	if b.cmd == cmd {
+	wasOurs := b.cmd == cmd
+	if wasOurs {
 		b.cmd = nil
 	}
+	onExit := b.onExit
 	b.mu.Unlock()
+	// Fires outside the lock -- onExit (see SetOnExit) is app.startSunshine,
+	// which itself calls back into Start() and takes this same mutex;
+	// calling it while still holding b.mu here would deadlock.
+	if wasOurs && onExit != nil {
+		onExit()
+	}
+}
+
+// SetOnExit registers a callback fired the instant watchProcessExit notices
+// this backend's own child process has died (any reason: a normal Stop(),
+// a crash, or capture_kms's own X11 IOErrorHandler aborting on a dead
+// connection -- see that handler's doc comment). Without this, nothing
+// actually restarts a crashed gamestream-server until app.sunshineWatchdog's
+// own next periodic tick -- confirmed live, that meant up to
+// sunshineWatchdogInterval (15s) of a client staring at a frozen stream
+// after every crash, even though this backend itself knew the process had
+// died essentially instantly via cmd.Wait(). The periodic watchdog still
+// runs as a backstop (in case this callback itself is never set, or a
+// restart attempt right after exit fails for some transient reason), just
+// no longer the *only* path to recovery.
+func (b *rustshineBackend) SetOnExit(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onExit = fn
 }
 
 // Stop terminates a gamestream-server instance started by this backend.

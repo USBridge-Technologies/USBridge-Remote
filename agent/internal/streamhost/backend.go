@@ -19,6 +19,23 @@ type Identity interface {
 	DisplayName() string
 }
 
+// ProcessWatcher is implemented by backends that manage their own child OS
+// process (both bundled ones, rustshine and Sunshine, do) and can notify a
+// caller the instant that process exits, rather than that only ever being
+// reflected passively in Running(). Deliberately not folded into Lifecycle
+// itself: callers that care check for it via a type assertion (see
+// app.Run's own use), so a hypothetical future backend with no real child
+// process to watch (or a lifecycle managed entirely externally) doesn't
+// need a no-op implementation just to satisfy Backend.
+type ProcessWatcher interface {
+	// SetOnExit registers fn to run once, every time the backend's own
+	// child process exits for any reason (clean Stop(), crash, or an
+	// abort() from within the process itself) -- see each backend's own
+	// SetOnExit doc comment for the exact recovery-latency problem this
+	// solves.
+	SetOnExit(fn func())
+}
+
 // Lifecycle starts, stops, and health-checks the game-streaming host process.
 type Lifecycle interface {
 	Start(adminPort int) error

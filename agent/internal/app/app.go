@@ -287,6 +287,16 @@ func (a *App) Run(headless bool) error {
 
 	a.startSunshine()
 	autostart.RefreshX11SessionEnv()
+	// See streamhost.ProcessWatcher's doc comment: without this, a crashed
+	// stream host only gets noticed (and relaunched) on sunshineWatchdog's
+	// next periodic tick, up to sunshineWatchdogInterval (15s) of dead air
+	// on a connected client's screen -- confirmed live. startSunshine()
+	// itself is always safe to call from here: it no-ops if something else
+	// already restarted the process first (e.g. this same tick racing
+	// sunshineWatchdog).
+	if pw, ok := a.stream.(streamhost.ProcessWatcher); ok {
+		pw.SetOnExit(a.startSunshine)
+	}
 	go a.sunshineWatchdog(ctx)
 	go a.x11SessionEnvWatchdog(ctx)
 	go func() { _ = a.server.ListenAndServe() }()
