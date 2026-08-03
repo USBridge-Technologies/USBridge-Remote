@@ -1253,6 +1253,9 @@ func (vw *VideoWidget) startStatsLoop() {
 		for {
 			select {
 			case <-ticker.C:
+				if vw.IsStreaming() {
+					vw.checkVideoSilence()
+				}
 				fyne.Do(func() {
 					if vw.IsStreaming() {
 						vw.updateStats()

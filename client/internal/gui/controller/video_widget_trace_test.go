@@ -48,6 +48,40 @@ func TestBeginVideoTrace_RetryUsesShortTimeout(t *testing.T) {
 	t.Fatalf("consecutiveStuckReconnects did not reach 2 within %s of a retry trace -- short timeout did not fire", videoTraceRetryTimeout+500*time.Millisecond)
 }
 
+// TestCheckVideoSilence_IgnoresBeforeFirstFrame makes sure checkVideoSilence
+// stays out of beginVideoTrace's way while no frame has arrived yet --
+// lastFrameTime is zero until the first frame, and that startup window is
+// owned entirely by beginVideoTrace's own no-frame timeout.
+func TestCheckVideoSilence_IgnoresBeforeFirstFrame(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.checkVideoSilence()
+	if vw.videoSilenceReconnectFired.Load() {
+		t.Fatal("checkVideoSilence fired with no frame ever received; that window belongs to beginVideoTrace, not this watchdog")
+	}
+}
+
+// TestCheckVideoSilence_FiresOnceAfterStall simulates an established stream
+// (a frame already arrived) that then goes silent past
+// videoMidStreamSilenceTimeout -- this is exactly the SDDM-transition
+// scenario: the host recovers but the client, already past its initial
+// connect trace, had nothing watching for the mid-session gap until now.
+func TestCheckVideoSilence_FiresOnceAfterStall(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.frameMutex.Lock()
+	vw.lastFrameTime = time.Now().Add(-videoMidStreamSilenceTimeout - time.Second)
+	vw.frameMutex.Unlock()
+
+	vw.checkVideoSilence()
+	if !vw.videoSilenceReconnectFired.Load() {
+		t.Fatal("checkVideoSilence did not fire for a stall well past videoMidStreamSilenceTimeout")
+	}
+
+	// A second tick before the next beginVideoTrace/reconnect must not
+	// re-fire (avoids re-logging/re-scheduling every second while a
+	// reconcile is already in flight for the same stall).
+	vw.checkVideoSilence()
+}
+
 func TestNoteVideoTraceFirstFrame_ResetsStuckStreak(t *testing.T) {
 	vw := &VideoWidget{}
 	vw.consecutiveStuckReconnects.Store(3)

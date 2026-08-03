@@ -104,6 +104,12 @@ type VideoWidget struct {
 	// comment on why this shrinks the timeout on retries). Reset to 0 the
 	// instant a trace actually receives a frame.
 	consecutiveStuckReconnects atomic.Int32
+	// videoSilenceReconnectFired latches once checkVideoSilence has already
+	// forced a reconnect for the current stall, so the 1s stats-loop tick
+	// doesn't re-trigger (and re-log) it every second while the reconcile is
+	// still in flight. beginVideoTrace clears it when the next connection
+	// attempt starts.
+	videoSilenceReconnectFired atomic.Bool
 	fpsWindowStart             atomic.Int64 // for Go-level frame arrival FPS logging
 	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
 	isMetalFullscreen    atomic.Bool  // true while Metal overlay covers the full fullscreen window
@@ -286,6 +292,21 @@ const videoTraceFirstAttemptTimeout = 4 * time.Second
 // *first* connect, since that path always starts a streak at 0.
 const videoTraceRetryTimeout = 1500 * time.Millisecond
 
+// videoMidStreamSilenceTimeout guards an *already-established* stream (one
+// that already delivered at least one frame, so beginVideoTrace's own
+// no-frame timeout has long since fired and gone dormant) going silent
+// mid-session -- e.g. the host process dying/restarting under it. Confirmed
+// live: after the host side recovers almost instantly (rust-shine's own
+// capture-kms/gamestream-server crash fixes), the client still sat frozen
+// for ~18-20s, because nothing client-side was watching for silence during
+// an established session -- the only thing that eventually noticed was
+// moonlight-common-c's own ENet control-channel peer timeout
+// (enet_peer_timeout in ControlStream.c, deliberately set to 20s to tolerate
+// relay/DERP jitter on the control path -- see the comment there). Checked
+// via the existing 1s stats-loop tick (see startStatsLoop/checkVideoSilence),
+// so worst-case detection is this timeout plus ~1s.
+const videoMidStreamSilenceTimeout = 2 * time.Second
+
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	traceID := vw.videoTraceSeq.Add(1)
 	startedAt := time.Now()
@@ -293,6 +314,7 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.videoTraceStartedAt.Store(startedAt.UnixNano())
 	vw.videoTraceFirstFrame.Store(0)
 	vw.videoTraceFirstPaint.Store(0)
+	vw.videoSilenceReconnectFired.Store(false)
 	// Reset saved video dimensions so a new stream with different resolution
 	// doesn't inherit stale values from the previous session.
 	vw.lastVideoImgW = 0
@@ -365,6 +387,30 @@ func (vw *VideoWidget) forceReconnectStuckStream(reason string) {
 	vw.videoRestartPending = true
 	vw.videoOpMu.Unlock()
 	vw.scheduleVideoReconcile("stuck-no-frame:" + reason)
+}
+
+// checkVideoSilence is polled once a second (see startStatsLoop) while
+// streaming. It only looks at *established* streams -- lastFrameTime is zero
+// until the very first frame arrives, which is deliberately left to
+// beginVideoTrace's own no-frame timeout so the two watchdogs don't race
+// each other on a fresh/slow-starting connect.
+func (vw *VideoWidget) checkVideoSilence() {
+	vw.frameMutex.RLock()
+	last := vw.lastFrameTime
+	vw.frameMutex.RUnlock()
+
+	if last.IsZero() {
+		return
+	}
+	silence := time.Since(last)
+	if silence < videoMidStreamSilenceTimeout {
+		return
+	}
+	if !vw.videoSilenceReconnectFired.CompareAndSwap(false, true) {
+		return
+	}
+	logrus.Warnf("⚠️ [VideoWidget] no video frame for %s during an established stream — forcing reconnect", silence.Round(time.Millisecond))
+	vw.forceReconnectStuckStream("mid-stream-silence")
 }
 
 func (vw *VideoWidget) currentVideoTraceLabel() string {
