@@ -312,25 +312,29 @@ func (w *Window) ShowAndRun(onClose func()) {
 	w.permInfo = widget.NewLabel("")
 	w.permInfo.Wrapping = fyne.TextWrapWord
 
-	// Adjust for OS. Linux always gets the interactive Screen Capture row
-	// (the method dropdown and its request button are meaningful regardless
-	// of X11/Wayland — KMS bypasses the display server entirely); other
-	// platforms only show request buttons where the permission is actually
-	// requestable (macOS, or Wayland's portal flow).
-	showButtons := runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")
+	// Adjust for OS. Input Control (uinput access) is an OS-level grant with
+	// no dependency on which display server is running, so it's requestable
+	// on Linux unconditionally (X11 or Wayland), same as macOS's
+	// Accessibility permission — unlike Screen Capture below, whose own
+	// interactive request button is only meaningful for macOS's flow or
+	// Wayland's portal flow (X11/KMS capture needs no such request: the
+	// dropdown alone is enough, see linuxCapture below).
+	showAccessButton := runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	showScreenCaptureButton := runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")
 	linuxCapture := w.linuxCaptureUIEnabled()
 
-	if !showButtons && !linuxCapture {
+	if !showAccessButton {
 		w.accessBtn.Hide()
-		w.screenCaptureBtn.Hide()
 	} else {
 		w.accessBtn.Resize(fyne.NewSize(80, 24))
+		w.accessBtn.Show()
+	}
+
+	if !showScreenCaptureButton && !linuxCapture {
+		w.screenCaptureBtn.Hide()
+	} else {
 		w.screenCaptureBtn.Resize(fyne.NewSize(80, 24))
-		if showButtons {
-			w.accessBtn.Show()
-		} else {
-			w.accessBtn.Hide()
-		}
+		w.screenCaptureBtn.Show()
 	}
 
 	screenCaptureRow := container.NewHBox(w.screenCaptureLabel, layout.NewSpacer())
@@ -429,7 +433,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	gpuClockRow := container.NewHBox(widget.NewLabel("Lock GPU Clocks"), layout.NewSpacer(), w.gpuClockCheck)
 
 	var permRows []fyne.CanvasObject
-	if !showButtons && !linuxCapture {
+	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
 	} else {
 		permRows = []fyne.CanvasObject{
