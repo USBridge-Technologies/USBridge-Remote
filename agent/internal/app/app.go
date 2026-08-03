@@ -417,7 +417,13 @@ const x11SessionEnvRefreshInterval = 2 * time.Second
 
 // x11SessionEnvWatchdog periodically re-syncs RefreshX11SessionEnv on its
 // own schedule (see x11SessionEnvRefreshInterval's doc comment for why this
-// isn't just folded into sunshineWatchdog). No-op on non-Linux builds.
+// isn't just folded into sunshineWatchdog), and piggybacks
+// EnsureDisplayActive on the same tick -- confirmed live: a fresh SDDM login
+// can leave a physical output completely dark (no active mode at all) even
+// though the remote KMS capture keeps working fine, because the desktop
+// environment's own display auto-configuration on session start doesn't
+// reliably reapply whatever mode was working before. No-op on non-Linux
+// builds.
 func (a *App) x11SessionEnvWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(x11SessionEnvRefreshInterval)
 	defer ticker.Stop()
@@ -427,6 +433,7 @@ func (a *App) x11SessionEnvWatchdog(ctx context.Context) {
 			return
 		case <-ticker.C:
 			autostart.RefreshX11SessionEnv()
+			autostart.EnsureDisplayActive()
 		}
 	}
 }
