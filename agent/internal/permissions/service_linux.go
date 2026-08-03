@@ -15,7 +15,23 @@ import (
 )
 
 const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
-const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\"\n"
+
+// MODE="0666" is what actually makes this survive a reboot. Relying only on
+// TAG+="uaccess" (systemd-logind's *dynamic* per-session ACL, granted only
+// to whichever user's session is currently active on the seat) is what used
+// to make uinput access disappear after every restart: usbridge-agent.service
+// is a system unit that starts at boot unconditionally, independent of any
+// login (see autostart_linux.go's comment on why -- KMS capture needs to
+// come up before a display manager does), so it doesn't reliably have, or
+// keep, a session logind considers "active" the way an interactive desktop
+// process does -- and while SDDM's greeter (a different user) owns the
+// active seat, the uaccess ACL belongs to the greeter, not this agent's
+// user. A static on-disk MODE grant applies unconditionally every time the
+// kernel (re)creates the device node, with no session/login dependency at
+// all -- the same fix already applied to the render group in
+// autostart_linux.go for the identical class of problem. uaccess is kept
+// alongside as a harmless extra (and slightly tighter, while it's live).
+const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", MODE=\"0666\", TAG+=\"uaccess\"\n"
 
 type Service struct {
 	lastAccessErr string
@@ -38,7 +54,25 @@ func (s *Service) AccessibilityGranted() bool {
 		return false
 	}
 	f.Close()
-	return true
+	return uinputRuleUpToDate()
+}
+
+// uinputRuleUpToDate reports whether the persistent udev rule on disk
+// already grants the current (MODE=0666) content, not just the older,
+// uaccess-only version this project shipped before. The /dev/uinput open()
+// probe above can succeed right now purely because the *caller's own*
+// interactive session happens to hold a live uaccess ACL, even on a machine
+// whose on-disk rule -- the one usbridge-agent.service actually depends on
+// after the next reboot -- is still the old, fragile one. Checking the file
+// too makes RequestAccessibility keep firing (and upgrading the rule on
+// disk) for anyone who granted access before this fix, instead of only for
+// machines where access is visibly broken right this second.
+func uinputRuleUpToDate() bool {
+	data, err := os.ReadFile(uinputRulePath)
+	if err != nil {
+		return false
+	}
+	return string(data) == uinputRuleContent
 }
 
 func (s *Service) ScreenRecordingGranted() bool {
@@ -81,9 +115,19 @@ func (s *Service) RequestAccessibility() bool {
 	tmp.Close()
 	log.Printf("[permissions] temp rule at %s, running pkexec...", tmp.Name())
 
-	// Install persistent udev rule AND immediately apply chmod for current session
+	// Install persistent udev rule AND immediately apply chmod for current session.
+	// install -m 0644 (not cp): cp preserves the source file's mode, and the
+	// tmp file above was created by os.CreateTemp as 0600 owned by this
+	// (non-root) agent user, so a plain cp left the installed rule file
+	// unreadable by anyone but root. udevd itself runs as root so the rule
+	// still applied fine either way, but uinputRuleUpToDate() below reads
+	// this same path as the agent's own unprivileged user -- with a 0600
+	// file it always got EACCES and returned false, so AccessibilityGranted
+	// reported "broken" forever even on machines where /dev/uinput was
+	// already 0666 and working. Rule files under /etc/udev/rules.d are
+	// world-readable everywhere else on the system; match that.
 	script := fmt.Sprintf(
-		"cp %s %s && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
+		"install -m 0644 %s %s && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
 		tmp.Name(), uinputRulePath,
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
