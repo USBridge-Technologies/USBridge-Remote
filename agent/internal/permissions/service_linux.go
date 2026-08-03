@@ -17,9 +17,20 @@ import (
 const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
 const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\"\n"
 
-type Service struct{}
+type Service struct {
+	lastAccessErr string
+}
 
 func New() *Service { return &Service{} }
+
+// LastAccessibilityError returns a human-readable reason the last
+// RequestAccessibility call failed, or "" if it succeeded (or hasn't run
+// yet). Debian's default install neither adds the user to the sudo group
+// nor pulls in pkexec (it was split into its own package from policykit-1
+// around trixie), unlike Ubuntu where both are present out of the box --
+// so the pkexec-based flow below silently does nothing there unless we
+// surface why.
+func (s *Service) LastAccessibilityError() string { return s.lastAccessErr }
 
 func (s *Service) AccessibilityGranted() bool {
 	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY, 0)
@@ -38,13 +49,24 @@ func (s *Service) ScreenRecordingGranted() bool {
 }
 
 func (s *Service) RequestAccessibility() bool {
+	s.lastAccessErr = ""
 	log.Printf("[permissions] RequestAccessibility called, granted=%v", s.AccessibilityGranted())
 	if s.AccessibilityGranted() {
 		return true
 	}
 
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		s.lastAccessErr = "pkexec is not installed. Install it and try again:\n" +
+			"  su -c 'apt install pkexec'\n" +
+			"(on Debian, pkexec ships in its own package and the default user\n" +
+			"isn't in the sudo group, so plain \"sudo apt install\" may also fail)"
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
 	tmp, err := os.CreateTemp("", "usbridge-udev-*.rules")
 	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("could not create temp udev rule: %v", err)
 		log.Printf("[permissions] create temp udev rule: %v", err)
 		return false
 	}
@@ -52,6 +74,7 @@ func (s *Service) RequestAccessibility() bool {
 
 	if _, err := tmp.WriteString(uinputRuleContent); err != nil {
 		tmp.Close()
+		s.lastAccessErr = fmt.Sprintf("could not write temp udev rule: %v", err)
 		log.Printf("[permissions] write temp udev rule: %v", err)
 		return false
 	}
@@ -67,12 +90,26 @@ func (s *Service) RequestAccessibility() bool {
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] pkexec exit=%v output=%q", err, string(out))
 	if err != nil {
+		switch {
+		case strings.Contains(string(out), "No authentication agent found"):
+			s.lastAccessErr = "no polkit authentication agent is running for this session " +
+				"(pkexec needs one to prompt for the password). Log into a full desktop " +
+				"session and make sure its polkit agent is running, then retry."
+		case strings.Contains(err.Error(), "exit status 126"):
+			s.lastAccessErr = "authentication was cancelled or dismissed. Click Request again and approve the prompt."
+		default:
+			s.lastAccessErr = fmt.Sprintf("pkexec failed: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
 		return false
 	}
 
 	time.Sleep(300 * time.Millisecond)
 	granted := s.AccessibilityGranted()
 	log.Printf("[permissions] after pkexec granted=%v", granted)
+	if !granted {
+		s.lastAccessErr = "udev rule was installed but /dev/uinput is still inaccessible; " +
+			"try unplugging/replugging, or log out and back in."
+	}
 	return granted
 }
 
@@ -91,6 +128,24 @@ func (s *Service) RequestMissing()                    {}
 func (s *Service) OpenPrivacySettings() error         { return nil }
 func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
+// findCapTool resolves getcap/setcap to an absolute path. Both live in
+// /usr/sbin (libcap2-bin), which many non-login shells -- and pkexec's own
+// sanitized environment -- don't include in PATH, so a bare exec.LookPath
+// (or handing the bare name to pkexec) can fail with "not found" even
+// though the binary is installed.
+func findCapTool(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin"} {
+		p := dir + "/" + name
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return name
+}
+
 // KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
 // has the CAP_SYS_ADMIN capability needed for Sunshine's direct KMS screen
 // capture (root-level, no compositor/portal involved).
@@ -101,7 +156,7 @@ func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 	if strings.TrimSpace(capexecPath) == "" {
 		return false
 	}
-	out, err := exec.Command("getcap", capexecPath).CombinedOutput()
+	out, err := exec.Command(findCapTool("getcap"), capexecPath).CombinedOutput()
 	if err != nil {
 		return false
 	}
@@ -133,7 +188,7 @@ func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	if s.KMSCaptureGranted(capexecPath) {
 		return true
 	}
-	cmd := exec.Command("pkexec", "setcap", "cap_sys_admin=eip", capexecPath)
+	cmd := exec.Command("pkexec", findCapTool("setcap"), "cap_sys_admin=eip", capexecPath)
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] setcap pkexec exit=%v output=%q", err, string(out))
 	if err != nil {

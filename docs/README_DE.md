@@ -20,10 +20,10 @@
 
 ---
 
-**USBridge Remote** ist ein einheitlicher, leistungsstarker Client zur Verwaltung von Remote-Maschinen. Ich habe es entwickelt, um **Hardware-level BIOS-Zugriff** (über USBridge KVM-Geräte) und **softwarebasierten Remote-Desktop** in einer einzigen, optimierten Benutzeroberfläche zu kombinieren.
+**USBridge Remote** ist ein einheitlicher, leistungsstarker Client zur Verwaltung von Remote-Maschinen. Ich habe es entworfen, um **Hardware-BIOS-Zugriff auf Ebene** (über USBridge KVM-Geräte) und **softwarebasierten Remote-Desktop** in einer einzigen, optimierten Benutzeroberfläche zu kombinieren.
 
- 🖥️ **Benötigen Sie Hardware-level BIOS-Kontrolle, bevor das Betriebssystem bootet?**  
- USBridge Remote integriert sich nativ mit **USBridge-KVM 2.0** für Out-of-Band-Management auf Metallebene.
+ 🖥️ **Benötigen Sie Hardware-BIOS-Kontrolle, bevor das Betriebssystem bootet?**  
+ USBridge Remote integriert sich nativ mit **USBridge-KVM 2.0** für Out-of-Band-Management auf Metall-Ebene.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
@@ -31,7 +31,7 @@
 > ⚠️ **Beta-Software** — Dies ist eine frühe Version. Erwarten Sie Fehler. Bitte melden Sie Probleme über [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) oder treten Sie unserem [Discord](https://discord.com/invite/xqQ6ybkfWS) bei, um Unterstützung zu erhalten.
 > 
 > ℹ️ **Hinweis zu Windows Defender / Antivirus-Falschmeldungen:**  
-> Windows Defender kann `libva.dll` fälschlicherweise als Bedrohung (`Trojan:Win32/Wacatac.B!ml`) kennzeichnen, aufgrund von Heuristiken/machine-learning Erkennung bei nicht signierten Binärdateien. **Dies ist eine Falschmeldung.**  
+> Windows Defender kann `libva.dll` fälschlicherweise als Bedrohung (`Trojan:Win32/Wacatac.B!ml`) kennzeichnen, aufgrund von Heuristiken/machine-learning-Erkennung bei unsignierten Binärdateien. **Dies ist ein Fehlalarm.**  
 > Wir haben die Datei zur offiziellen Überprüfung und Whitelistung an Microsoft Security Intelligence übermittelt. In der Zwischenzeit, wenn Ihr Antivirus `libva.dll` entfernt, stellen Sie es bitte aus der Quarantäne wieder her oder fügen Sie den USBridge-Ordner zur Ausschlussliste Ihres Antivirus hinzu.
 
 ---
@@ -48,7 +48,7 @@ Der Client ist die Steueroberfläche — installiert auf Ihrem Arbeitsplatz oder
 
 ## Agent
 
-Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote zugreifen möchten. Er verarbeitet Bildschirmaufnahmen, Eingabeinjektionen und Tailscale-Netzwerke.
+Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote zugreifen möchten. Er verarbeitet Bildschirmaufnahmen, Eingabeinjektionen und Tailscale-Netzwerkverbindungen.
 
 | Architektur | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
@@ -69,9 +69,9 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 ## In den Medien
 
-| Medien | Höhepunkt | Link |
+| Medien | Highlight | Link |
 | :--- | :--- | :---: |
-| **IlSoftware.it** (Italien) | *"USBridge Remote stellt sich gegen RustDesk und AnyDesk..."* — Unabhängige tiefgehende Bewertung, die den Software-Agenten & die Hardware-KVM-Synergie, native Wayland-Unterstützung und P2P-Architektur lobt. | [Artikel lesen](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
+| **IlSoftware.it** (Italien) | *"USBridge Remote tritt gegen RustDesk und AnyDesk an..."* — Unabhängige tiefgehende Überprüfung, die den Software-Agenten & die Hardware-KVM-Synergie, native Wayland-Unterstützung und P2P-Architektur lobt. | [Artikel lesen](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
 
 ---
 
@@ -79,15 +79,17 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Ein Ort für alles** — Ich habe den Workflow vereinheitlicht. Verwalten Sie USBridge KVM-Hardware und Software-Agenten von einem einzigen Dashboard aus. Fügen Sie eine Maschine hinzu, verbinden Sie sich, und schon sind Sie drin.
+**Ein Ort für alles** — Ich habe den Workflow vereinheitlicht. Verwalten Sie USBridge KVM-Hardware und Software-Agenten von einem einzigen Dashboard aus. Fügen Sie eine Maschine hinzu, verbinden Sie sich, und Sie sind drin.
 
-**Keine Limits, keine Abonnements** — Vollständig kostenlos. Keine Sitzungslimits, keine Verbindungsobergrenzen und kein Konto auf der Zielmaschine erforderlich.
+**Keine Grenzen, keine Abonnements** — Vollständig kostenlos. Keine Sitzungszeitlimits, keine Verbindungsobergrenzen und kein Konto auf der Zielmaschine erforderlich.
 
-**Niedriglatente Videos & Moonlight-Integration** — Genießen Sie bis zu 2K Auflösung mit butterweichen 240 FPS und null spürbarem Lag. Mein adaptiver Streaming-Engine nutzt die native Moonlight-Integration, um unvergleichliche, ultra-niedriglatente Remote-Desktop-Leistung zu bieten.
+**Niedriglatente Video- & Moonlight-Integration** — Genießen Sie bis zu 2K Auflösung mit butterweichen 240 FPS und null wahrnehmbarer Verzögerung. Meine adaptive Streaming-Engine nutzt die native Moonlight-Integration, um unvergleichliche, ultra-niedriglatente Remote-Desktop-Leistung zu liefern.
 
-**Tailscale-Integration** — Eingebautes, verschlüsseltes P2P-Tunneling. Verbinden Sie sich global mit jeder Maschine, ohne sich mit Portweiterleitungen oder Firewall-Regeln herumschlagen zu müssen. Es funktioniert automatisch im LAN und über das Internet.
+**Tailscale-Integration** — Eingebautes, verschlüsseltes P2P-Tunneling. Verbinden Sie sich global mit jeder Maschine, ohne sich um Portweiterleitungen oder Firewall-Regeln kümmern zu müssen. Es funktioniert automatisch im LAN und über das Internet.
 
-**Geteilte Zwischenablage** — Kopieren und Einfügen nahtlos zwischen Ihrem lokalen Computer und den Remote-Zielen. Es unterstützt vollständig Text, Bilder und Dateiübertragungen sofort.
+**Geteilte Zwischenablage** — Kopieren und Einfügen nahtlos zwischen Ihrem lokalen Rechner und den Remote-Zielen. Es unterstützt vollständig Text, Bilder und Dateiübertragungen sofort.
+
+**Multi-Monitor-Unterstützung** — Ich habe die Möglichkeit hinzugefügt, zwischen mehreren Displays zu wechseln. Wenn die Zielmaschine mehrere Monitore hat, können Sie jetzt einfach auswählen, welchen Sie direkt aus den Verbindungseinstellungen anzeigen möchten. 
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -96,31 +98,31 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 ## Wayland-Unterstützung (Keine Aufforderungen)
 
-Die meisten Remote-Desktop-Agenten auf Linux haben Schwierigkeiten mit Wayland oder bombardieren Sie ständig mit Berechtigungsaufforderungen und Bestätigungs-Popups, jedes Mal, wenn eine Sitzung startet.
+Die meisten Remote-Desktop-Agenten auf Linux haben Schwierigkeiten mit Wayland oder spammen Sie ständig mit Berechtigungsaufforderungen und Bestätigungs-Popups, jedes Mal, wenn eine Sitzung startet. 
 
-Ich habe den USBridge-Agent so konzipiert, dass er Wayland nativ unterstützt. Er verarbeitet die vollständige Bildschirmaufnahme und Eingabeinjektionen sofort **ohne lästige Berechtigungsaufforderungen** oder manuelle Bestätigungen. Es funktioniert einfach.
+Ich habe den USBridge-Agenten so entworfen, dass er Wayland nativ unterstützt. Er verarbeitet die vollständige Bildschirmaufnahme und Eingabeinjektion sofort **ohne lästige Berechtigungsaufforderungen** oder manuelle Bestätigungen. Es funktioniert einfach.
 
 ---
 
 ## Schnellstart
 
-1. **Installieren Sie den Agenten** auf der Maschine, auf die Sie remote zugreifen möchten. Starten Sie ihn — er zeigt ein Verbindungstoken und eine Tailscale-Adresse an. Verbinden Sie Tailscale, wenn Sie über das Internet Zugriff benötigen.
+1. **Installieren Sie den Agenten** auf der Maschine, auf die Sie remote zugreifen möchten. Starten Sie ihn — er zeigt ein Verbindungstoken und eine Tailscale-Adresse an. Verbinden Sie Tailscale, wenn Sie über das Internet zugreifen müssen.
 
 2. **Installieren Sie den Client** auf Ihrem Arbeitsplatz, Laptop oder Telefon.
 
-3. **Fügen Sie eine Verbindung hinzu** — geben Sie die IP oder Tailscale-Adresse ein, die im Agentenfenster angezeigt wird. Das ist alles.
+3. **Fügen Sie eine Verbindung hinzu** — geben Sie die IP oder die Tailscale-Adresse ein, die im Agentenfenster angezeigt wird. Das ist alles.
 
 ---
 
 ## Projekt-Roadmap
 
-Ich verwalte die Softwareentwicklungspläne und kommenden Funktionen in einem offenen Dashboard. Wenn Sie sehen möchten, was derzeit entwickelt wird, was geplant ist oder den Status kommender Funktionen verfolgen möchten, schauen Sie sich die Live-Roadmap an:
+Ich verwalte die Softwareentwicklungspläne und bevorstehenden Funktionen in einem offenen Dashboard. Wenn Sie sehen möchten, was derzeit entwickelt wird, was geplant ist oder den Status bevorstehender Funktionen verfolgen möchten, schauen Sie sich die Live-Roadmap an:
 
  **[USBridge Remote Roadmap anzeigen](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
-## Community & Beta-Testing
+## Community & Beta-Tests
 
 Treten Sie unserem Discord bei, um die **Beta-Tester**-Rolle zu erhalten, Fehler zu melden und mir zu helfen, die Roadmap zu gestalten:
 

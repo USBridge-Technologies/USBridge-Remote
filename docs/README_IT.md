@@ -20,19 +20,19 @@
 
 ---
 
-**USBridge Remote** è un client unificato ad alte prestazioni per la gestione di macchine remote. L'ho progettato per combinare **accesso BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
+**USBridge Remote** è un client unificato ad alte prestazioni per la gestione di macchine remote. L'ho progettato per combinare **accesso al BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
 
- 🖥️ **Hai bisogno di controllo del BIOS a livello hardware prima che il sistema operativo si avvii?**  
- USBridge Remote si integra nativamente con **USBridge-KVM 2.0** per la gestione out-of-band a livello metallico.
+ 🖥️ **Hai bisogno di controllare il BIOS a livello hardware prima che il sistema operativo si avvii?**  
+ USBridge Remote si integra nativamente con **USBridge-KVM 2.0** per la gestione fuori banda a livello metallico. 
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
 > ⚠️ **Software Beta** — Questa è una versione preliminare. Aspettati bug. Si prega di segnalare problemi tramite [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) o unisciti al nostro [Discord](https://discord.com/invite/xqQ6ybkfWS) per supporto.
 > 
-> ℹ️ **Nota riguardo ai falsi positivi di Windows Defender / Antivirus:**  
+> ℹ️ **Nota riguardo i falsi positivi di Windows Defender / Antivirus:**  
 > Windows Defender potrebbe contrassegnare erroneamente `libva.dll` come una minaccia (`Trojan:Win32/Wacatac.B!ml`) a causa di rilevamenti euristici/apprendimento automatico su binari non firmati. **Questo è un falso positivo.**  
-> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e l'inserimento nella lista bianca. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ti preghiamo di ripristinarlo dalla quarantena o di aggiungere la cartella USBridge alla lista di esclusione del tuo antivirus.
+> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e inserimento nella whitelist. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ripristinalo dalla quarantena o aggiungi la cartella USBridge alla lista di esclusione del tuo antivirus.
 
 ---
 
@@ -48,7 +48,7 @@ Il Client è l'interfaccia di controllo — installata sulla tua workstation o l
 
 ## Agent
 
-L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri accedere in remoto. Gestisce la cattura dello schermo, l'iniezione degli input e la rete Tailscale.
+L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri accedere in remoto. Gestisce la cattura dello schermo, l'iniezione degli input e il networking Tailscale.
 
 | Architettura | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
@@ -67,15 +67,15 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ---
 
-## In the Media
+## Nei Media
 
-| Media | Highlight | Link |
+| Media | Evidenza | Link |
 | :--- | :--- | :---: |
-| **IlSoftware.it** (Italia) | *"USBridge Remote sfida RustDesk e AnyDesk..."* — Recensione approfondita indipendente che elogia la sinergia tra l'agente software e l'hardware KVM, il supporto nativo per Wayland e l'architettura P2P. | [Leggi l'articolo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
+| **IlSoftware.it** (Italia) | *"USBridge Remote sfida RustDesk e AnyDesk..."* — Recensione approfondita indipendente che elogia la sinergia tra l'agente software e l'hardware KVM, il supporto nativo per Wayland e l'architettura P2P. | [Leggi l'Articolo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
 
 ---
 
-## Features
+## Caratteristiche
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
@@ -83,11 +83,13 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 **Nessun limite, nessun abbonamento** — Completamente gratuito. Nessun limite di tempo per le sessioni, nessun limite di connessione e nessun account richiesto sulla macchina target.
 
-**Video a bassa latenza e integrazione con Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percepibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa di Moonlight per offrire prestazioni di desktop remoto senza pari e a ultra-bassa latenza.
+**Video a bassa latenza & Integrazione Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percepibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa di Moonlight per offrire prestazioni di desktop remoto senza pari e a ultra-bassa latenza.
 
 **Integrazione Tailscale** — Tunnel P2P crittografati integrati. Connettiti a qualsiasi macchina a livello globale senza dover gestire il port forwarding o le regole del firewall. Funziona automaticamente su LAN e su Internet.
 
 **Appunti condivisi** — Copia e incolla senza problemi tra la tua macchina locale e i target remoti. Supporta completamente testo, immagini e trasferimenti di file out-of-the-box.
+
+**Supporto Multi-Monitor** — Ho aggiunto la possibilità di passare tra più display. Se la macchina target ha più monitor, ora puoi facilmente selezionare quale visualizzare direttamente dalle impostazioni di connessione. 
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -96,7 +98,7 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ## Supporto Wayland (Nessun Prompt)
 
-La maggior parte degli agenti desktop remoti su Linux ha difficoltà con Wayland o ti riempie costantemente di richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione.
+La maggior parte degli agenti desktop remoti su Linux ha difficoltà con Wayland o ti inonda continuamente di richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione. 
 
 Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la cattura dello schermo e l'iniezione degli input out-of-the-box **senza alcun fastidioso prompt di autorizzazione** o conferme manuali. Funziona e basta.
 
@@ -104,7 +106,7 @@ Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la c
 
 ## Avvio Veloce
 
-1. **Installa l'Agent** sulla macchina a cui desideri accedere in remoto. Avvialo — mostrerà un token di connessione e un indirizzo Tailscale. Connetti Tailscale se hai bisogno di accesso su Internet.
+1. **Installa l'Agent** sulla macchina che desideri accedere in remoto. Avvialo — mostrerà un token di connessione e un indirizzo Tailscale. Connetti Tailscale se hai bisogno di accesso su Internet.
 
 2. **Installa il Client** sulla tua workstation, laptop o telefono.
 
@@ -114,13 +116,13 @@ Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la c
 
 ##  Roadmap del Progetto
 
-Gestisco i piani di sviluppo software e le funzionalità future in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità future, dai un'occhiata alla roadmap live:
+Gestisco i piani di sviluppo software e le funzionalità future in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità in arrivo, dai un'occhiata alla roadmap live:
 
  **[Visualizza la Roadmap di USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
-## Comunità e Beta Testing
+## Comunità & Beta Testing
 
 Unisciti al nostro Discord per ottenere il ruolo di **Beta Tester**, segnalare bug e aiutarmi a plasmare la roadmap:
 
