@@ -7,11 +7,11 @@ import (
 
 // Regression tests for the adaptive no-frame timeout (see beginVideoTrace's
 // own doc comment): a fresh connect keeps the conservative
-// videoTraceFirstAttemptTimeout (4s), but once a previous attempt already
-// timed out with no frame, subsequent retries switch to the much shorter
-// videoTraceRetryTimeout (1.5s) -- this is what actually shrinks the
-// SDDM login/logout recovery window from ~10-15s down to a couple of
-// seconds, without touching the first-connect case at all.
+// videoTraceFirstAttemptTimeout (4s), while a retry after a previous attempt
+// already timed out with no frame uses videoTraceRetryTimeout (10s) --
+// widened from an original 1.5s, which was too tight for hosts whose own
+// KMS-probe-then-X11-fallback handoff (see rust-shine's capture-kms) can
+// itself take over a second, without touching the first-connect case at all.
 //
 // A bare &VideoWidget{} is safe to drive beginVideoTrace on directly:
 // forceReconnectStuckStream's own no-op guard (!desiredStreaming) means
@@ -23,13 +23,13 @@ func TestBeginVideoTrace_FreshStartUsesLongTimeout(t *testing.T) {
 	vw := &VideoWidget{}
 	vw.beginVideoTrace("test")
 
-	// videoTraceRetryTimeout (1.5s) has already elapsed, but a fresh trace
-	// (streak starts at 0) must still be waiting out the full 4s
-	// videoTraceFirstAttemptTimeout -- the streak counter must not have
-	// incremented yet.
-	time.Sleep(videoTraceRetryTimeout + 200*time.Millisecond)
+	// A fresh trace (streak starts at 0) must wait out the full
+	// videoTraceFirstAttemptTimeout (4s) -- checked here just short of that
+	// deadline, since videoTraceRetryTimeout is no longer guaranteed to be
+	// shorter than it.
+	time.Sleep(videoTraceFirstAttemptTimeout - time.Second)
 	if got := vw.consecutiveStuckReconnects.Load(); got != 0 {
-		t.Fatalf("consecutiveStuckReconnects = %d after %s, want 0 (fresh start should use the long timeout, not fire yet)", got, videoTraceRetryTimeout)
+		t.Fatalf("consecutiveStuckReconnects = %d before videoTraceFirstAttemptTimeout (%s) elapsed, want 0 (fresh start should use the long timeout, not fire yet)", got, videoTraceFirstAttemptTimeout)
 	}
 }
 

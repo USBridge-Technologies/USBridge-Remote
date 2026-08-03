@@ -290,7 +290,16 @@ const videoTraceFirstAttemptTimeout = 4 * time.Second
 // to protect against, so polling much faster only shortens the time to
 // notice the host has recovered -- it can't misfire on a legitimately slow
 // *first* connect, since that path always starts a streak at 0.
-const videoTraceRetryTimeout = 1500 * time.Millisecond
+//
+// Was 1500ms, but on an nvidia host the KMS-probe-then-X11-greeter-fallback
+// handoff (capture-kms's run_capture -> x11_fallback::try_run, since nvidia
+// won't report CRTC state to a non-DRM-master client at all) routinely takes
+// 1.3-1.6s on its own -- confirmed live: that landed this retry right on top
+// of the host's own setup time, so every retry killed the host's session
+// before it ever got a frame out, forever (0 frames delivered across 65+
+// consecutive reconnects). 10s gives that handoff enough headroom to
+// actually land a frame before this watchdog fires again.
+const videoTraceRetryTimeout = 10 * time.Second
 
 // videoMidStreamSilenceTimeout guards an *already-established* stream (one
 // that already delivered at least one frame, so beginVideoTrace's own
