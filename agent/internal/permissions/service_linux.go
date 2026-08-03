@@ -33,6 +33,26 @@ const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
 // alongside as a harmless extra (and slightly tighter, while it's live).
 const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", MODE=\"0666\", TAG+=\"uaccess\"\n"
 
+// Even with the MODE=0666 rule above, /dev/uinput's permissions after a
+// reboot depend on *how* the node comes into existence. Without this file,
+// nothing forces the real "uinput" kernel module to load at boot: the node
+// that shows up early is typically just udev's "static_node" stand-in
+// (created by systemd-tmpfiles-setup-dev.service straight from the
+// distro's own default rule, e.g. /usr/lib/udev/rules.d/50-udev-default.rules
+// -- 0660, root:root there, not ours) — a full re-application of our own
+// rule only happens once the module actually registers for real and emits
+// a genuine uevent, which otherwise only happens lazily (whenever the
+// kernel first autoloads it, racing against whatever tries to open the
+// device first). /etc/modules-load.d makes systemd-modules-load.service
+// modprobe uinput unconditionally, early in sysinit, so that real
+// registration -- and with it, full udev rule processing -- always
+// happens well before anything (including this agent's own systemd unit)
+// tries to touch the device. See autostart_linux.go's dev-uinput.device
+// ordering for the other half of this: the agent unit not even starting
+// until udev has finished applying the rule to that real device.
+const uinputModulesLoadPath = "/etc/modules-load.d/usbridge-uinput.conf"
+const uinputModulesLoadContent = "uinput\n"
+
 type Service struct {
 	lastAccessErr string
 }
@@ -72,7 +92,14 @@ func uinputRuleUpToDate() bool {
 	if err != nil {
 		return false
 	}
-	return string(data) == uinputRuleContent
+	if string(data) != uinputRuleContent {
+		return false
+	}
+	modules, err := os.ReadFile(uinputModulesLoadPath)
+	if err != nil {
+		return false
+	}
+	return string(modules) == uinputModulesLoadContent
 }
 
 func (s *Service) ScreenRecordingGranted() bool {
@@ -113,7 +140,23 @@ func (s *Service) RequestAccessibility() bool {
 		return false
 	}
 	tmp.Close()
-	log.Printf("[permissions] temp rule at %s, running pkexec...", tmp.Name())
+
+	modulesTmp, err := os.CreateTemp("", "usbridge-modules-load-*.conf")
+	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("could not create temp modules-load file: %v", err)
+		log.Printf("[permissions] create temp modules-load file: %v", err)
+		return false
+	}
+	defer os.Remove(modulesTmp.Name())
+
+	if _, err := modulesTmp.WriteString(uinputModulesLoadContent); err != nil {
+		modulesTmp.Close()
+		s.lastAccessErr = fmt.Sprintf("could not write temp modules-load file: %v", err)
+		log.Printf("[permissions] write temp modules-load file: %v", err)
+		return false
+	}
+	modulesTmp.Close()
+	log.Printf("[permissions] temp rule at %s, temp modules-load at %s, running pkexec...", tmp.Name(), modulesTmp.Name())
 
 	// Install persistent udev rule AND immediately apply chmod for current session.
 	// install -m 0644 (not cp): cp preserves the source file's mode, and the
@@ -126,9 +169,16 @@ func (s *Service) RequestAccessibility() bool {
 	// reported "broken" forever even on machines where /dev/uinput was
 	// already 0666 and working. Rule files under /etc/udev/rules.d are
 	// world-readable everywhere else on the system; match that.
+	//
+	// Also install /etc/modules-load.d/usbridge-uinput.conf and modprobe
+	// uinput right now: this is the piece that actually makes the whole
+	// thing survive a reboot (see uinputModulesLoadPath's comment) -- without
+	// forcing a real module load, the udev rule above only gets applied to
+	// whatever bare-bones stand-in device node happens to exist at the
+	// moment the module finally, lazily, loads on its own.
 	script := fmt.Sprintf(
-		"install -m 0644 %s %s && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
-		tmp.Name(), uinputRulePath,
+		"install -m 0644 %s %s && install -m 0644 %s %s && modprobe uinput && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
+		tmp.Name(), uinputRulePath, modulesTmp.Name(), uinputModulesLoadPath,
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()

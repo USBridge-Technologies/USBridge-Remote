@@ -188,6 +188,21 @@ func Enable() error {
 	// boot before any login, since unlike PipeWire it needs actual display
 	// hardware and a logged-in session.
 	//
+	// After/Wants=dev-uinput.device: without this, the unit's own
+	// After=network.target ordering says nothing about /dev/uinput, so this
+	// service can start (and probe AccessibilityGranted/open the device) well
+	// before udev has finished creating and applying permissions to it --
+	// especially right after boot, when the real "uinput" kernel module
+	// (forced to load by permissions.uinputModulesLoadPath, see
+	// service_linux.go) is still racing against every other sysinit unit.
+	// systemd only marks a device unit active once udev has fully processed
+	// its rules (our MODE=0666 rule included), so waiting on it here is what
+	// actually makes the granted permission deterministic across a reboot
+	// instead of a race the agent sometimes loses. Wants= (not Requires=) so
+	// a machine where the module fails to load for some unrelated reason
+	// still starts the agent after systemd's device timeout, same as today,
+	// rather than being blocked forever.
+	//
 	// Deliberately After=network.target, not network-online.target: the
 	// latter blocks on NetworkManager-wait-online, which in turn blocks on
 	// every autoconnect profile settling — including Wi-Fi profiles whose
@@ -202,7 +217,8 @@ func Enable() error {
 	// sufficient.
 	unit := fmt.Sprintf(`[Unit]
 Description=USBridge Agent
-After=network.target
+After=network.target dev-uinput.device
+Wants=dev-uinput.device
 
 [Service]
 Type=simple
