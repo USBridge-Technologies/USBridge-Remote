@@ -99,7 +99,12 @@ type VideoWidget struct {
 	videoTraceFirstFrame atomic.Int64
 	videoTraceFirstPaint atomic.Int64
 	videoTraceLabel      atomic.Value
-	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
+	// consecutiveStuckReconnects counts how many beginVideoTrace attempts in
+	// a row have hit the no-frame timeout (see beginVideoTrace's own doc
+	// comment on why this shrinks the timeout on retries). Reset to 0 the
+	// instant a trace actually receives a frame.
+	consecutiveStuckReconnects atomic.Int32
+	fpsWindowStart             atomic.Int64 // for Go-level frame arrival FPS logging
 	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
 	isMetalFullscreen    atomic.Bool  // true while Metal overlay covers the full fullscreen window
 	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
@@ -259,6 +264,28 @@ func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 	logrus.Infof("Control device rebuilt; intentionally keeping video stream alive")
 }
 
+// videoTraceFirstAttemptTimeout is used for a trace that isn't already part
+// of a stuck-reconnect streak (see consecutiveStuckReconnects) -- kept
+// conservative so a *normal*, first-time connect (Sunshine's own launch/
+// negotiate can itself take a couple of seconds) is never mistaken for the
+// stuck-with-no-video case this watchdog exists to catch.
+const videoTraceFirstAttemptTimeout = 4 * time.Second
+
+// videoTraceRetryTimeout is used once beginVideoTrace already knows (via
+// consecutiveStuckReconnects) that the *previous* attempt hit the no-frame
+// timeout -- i.e. this reconnect is itself a recovery retry, not a fresh
+// connect. Confirmed live: retrying every videoTraceFirstAttemptTimeout
+// (4s) during an SDDM login/logout transition on the host meant several
+// missed cycles (each one racing whatever the host side was still doing
+// with its own recovery -- see rust-shine's capture-kms/gamestream-server
+// fixes) before one happened to land after the host was actually ready
+// again, adding up to a genuinely user-visible ~10-15s of frozen video.
+// Once a streak is confirmed stuck, there's no first-connect ambiguity left
+// to protect against, so polling much faster only shortens the time to
+// notice the host has recovered -- it can't misfire on a legitimately slow
+// *first* connect, since that path always starts a streak at 0.
+const videoTraceRetryTimeout = 1500 * time.Millisecond
+
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	traceID := vw.videoTraceSeq.Add(1)
 	startedAt := time.Now()
@@ -272,9 +299,13 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.lastVideoImgH = 0
 	label := fmt.Sprintf("vt-%d", traceID)
 	vw.videoTraceLabel.Store(label)
-	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s", traceID, label, reason)
+	timeout := videoTraceFirstAttemptTimeout
+	if vw.consecutiveStuckReconnects.Load() > 0 {
+		timeout = videoTraceRetryTimeout
+	}
+	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s timeout=%s", traceID, label, reason, timeout)
 
-	time.AfterFunc(4*time.Second, func() {
+	time.AfterFunc(timeout, func() {
 		if vw.videoTraceID.Load() != traceID {
 			return
 		}
@@ -288,7 +319,8 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), vw.safeVideoStats(), vw.safeRelayDebugInfo())
+			streak := vw.consecutiveStuckReconnects.Add(1)
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s (streak=%d) video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), streak, vw.safeVideoStats(), vw.safeRelayDebugInfo())
 			vw.forceReconnectStuckStream(reason)
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
@@ -361,6 +393,12 @@ func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {
 	if !vw.videoTraceFirstFrame.CompareAndSwap(0, now) {
 		return
 	}
+	// A frame actually arrived -- whatever server-side transition this
+	// client might have been retrying through (see beginVideoTrace's doc
+	// comment) is over, so the *next* trace (a genuinely fresh connect)
+	// should get the conservative first-attempt timeout again, not
+	// inherit a short one from a streak that just ended.
+	vw.consecutiveStuckReconnects.Store(0)
 	traceID := vw.videoTraceID.Load()
 	startNs := vw.videoTraceStartedAt.Load()
 	if startNs == 0 {
