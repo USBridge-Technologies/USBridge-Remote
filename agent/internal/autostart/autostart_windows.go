@@ -63,3 +63,7 @@ func Disable() error {
 	}
 	return err
 }
+
+// RefreshX11SessionEnv is a Linux/SDDM-only concept (see its doc comment on
+// the linux build) -- no-op everywhere else.
+func RefreshX11SessionEnv() {}

@@ -23,6 +23,7 @@ import (
 	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/audio"
+	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
@@ -285,6 +286,7 @@ func (a *App) Run(headless bool) error {
 	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
 
 	a.startSunshine()
+	autostart.RefreshX11SessionEnv()
 	go a.sunshineWatchdog(ctx)
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.clipboard != nil {
@@ -384,6 +386,15 @@ func (a *App) sunshineWatchdog(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.startSunshine()
+			// Piggybacks on this same ticker rather than running its own --
+			// see RefreshX11SessionEnv's doc comment for why this needs to
+			// happen periodically at all (an X11 desktop session can appear,
+			// disappear, or swap places with a Wayland one at any time after
+			// login, long after the SDDM greeter hook's own one-shot write).
+			// No-op on non-Linux builds and cheap enough on Linux (a /proc
+			// scan plus, usually, no writes at all once settled) to just
+			// always call.
+			autostart.RefreshX11SessionEnv()
 		}
 	}
 }
