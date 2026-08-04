@@ -103,6 +103,56 @@ func (vw *VideoWidget) stopMetalVideo() {
 	service.VKVideoAndroidDestroy()
 }
 
+// HandleAppBackgrounded hides the Vulkan SurfaceView the instant the app
+// leaves the foreground (registered against fyne.Lifecycle in
+// main_window.go). The SurfaceView is attached directly to the Activity,
+// not to any Fyne window (see keepNativeVideoAliveForFullscreenTransition's
+// doc comment), so it keeps rendering completely independently of whatever
+// Fyne screen is/was showing underneath -- including a screen the user has
+// since navigated away from.
+//
+// Exists for a real race confirmed live, especially without the
+// "unrestricted battery usage" exemption (Android's Doze/App Standby
+// throttles background network + goroutines much harder without it): a
+// ConnectToMoonlight call in flight when the app backgrounds can have its
+// underlying HTTP/socket work frozen mid-flight while a *different*
+// wall-clock timer (e.g. resolvePreferredVideoConfig's HTTP client
+// deadline) keeps ticking in real time regardless -- so by the time the
+// user reopens the app, that deadline has already fired (showing a
+// connect/error screen), and moments later the previously-frozen moonlight
+// connection thaws, catches up, and delivers frames -- passing
+// handleVideoFrame's `isStreaming` guard (which was never told this
+// attempt was superseded) and popping the video overlay up directly over
+// whatever screen the user is now looking at. Hiding proactively on
+// backgrounding closes that window: even if a stray frame lands while
+// backgrounded or just after resuming, there's nothing to show until
+// HandleAppForegrounded's reconcile explicitly decides it's still correct
+// to unhide.
+func (vw *VideoWidget) HandleAppBackgrounded() {
+	if service.VKVideoAndroidIsActive() {
+		service.VKVideoAndroidSetHidden(true)
+	}
+}
+
+// HandleAppForegrounded re-validates video state the instant the app
+// returns to the foreground (registered against fyne.Lifecycle in
+// main_window.go) -- see HandleAppBackgrounded's doc comment for the race
+// this closes the other half of.
+//
+// scheduleVideoReconcile only acts if desiredStreaming/isStreaming actually
+// disagree (or a restart is already pending), so this is a no-op on a
+// normal resume where nothing went stale while backgrounded. The overlay
+// itself is only unhidden if a Fyne overlay (menu/dialog) isn't *also*
+// currently covering it -- OnOverlayShow/OnOverlayHide already owns that
+// signal independently (see startMetalVideoOnWindow), so deferring to
+// view.OverlayActive() here avoids fighting that mechanism.
+func (vw *VideoWidget) HandleAppForegrounded() {
+	vw.scheduleVideoReconcile("app-resumed")
+	if service.VKVideoAndroidIsActive() && !view.OverlayActive() {
+		service.VKVideoAndroidSetHidden(false)
+	}
+}
+
 // onIMEHeightChanged is called when the Android system IME appears/disappears.
 // NavBar is ~20-50dp; real system keyboard is >150dp. Only expand for the real keyboard.
 func (vw *VideoWidget) onIMEHeightChanged(imeHeightDp float32) {

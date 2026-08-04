@@ -143,6 +143,15 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+	// See VideoWidget.HandleAppBackgrounded's doc comment (video_widget_android.go):
+	// closes a real race where a stray frame from a connection attempt that
+	// went stale while backgrounded (Android Doze/App Standby, especially
+	// without the battery-usage exemption, throttles the underlying
+	// network/goroutines much harder than the wall-clock timers racing
+	// against them) pops the native video overlay up over whatever screen
+	// the user is looking at after resuming. No-op on desktop.
+	a.Lifecycle().SetOnExitedForeground(mw.videoWidget.HandleAppBackgrounded)
+	a.Lifecycle().SetOnEnteredForeground(mw.videoWidget.HandleAppForegrounded)
 	mw.diskWidget.SetMoonlightProvider(mw.videoWidget.GetMoonlightInput)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.backupWidget.SetWindow(w)

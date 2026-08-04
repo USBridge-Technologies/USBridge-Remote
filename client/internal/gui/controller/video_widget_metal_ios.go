@@ -18,6 +18,26 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 	return service.MetalVideoIsActive()
 }
 
+// HandleAppBackgrounded / HandleAppForegrounded: unverified on a real iOS
+// device, but the same underlying race is plausible here too -- see
+// video_widget_android.go's HandleAppBackgrounded doc comment for the full
+// reasoning (iOS's Metal overlay is likewise attached directly to the
+// UIWindow, independent of whichever Fyne screen is showing underneath,
+// and iOS background execution is throttled similarly to Android's Doze
+// without the right entitlements/background modes).
+func (vw *VideoWidget) HandleAppBackgrounded() {
+	if service.MetalVideoIsActive() {
+		service.MetalVideoSetHidden(true)
+	}
+}
+
+func (vw *VideoWidget) HandleAppForegrounded() {
+	vw.scheduleVideoReconcile("app-resumed")
+	if service.MetalVideoIsActive() && !view.OverlayActive() {
+		service.MetalVideoSetHidden(false)
+	}
+}
+
 // getNativeFPS returns the current Metal render FPS.
 func (vw *VideoWidget) getNativeFPS() float64 {
 	return service.MetalVideoLastFPS()
