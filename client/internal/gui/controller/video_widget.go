@@ -313,7 +313,8 @@ const videoTraceRetryTimeout = 10 * time.Second
 // (enet_peer_timeout in ControlStream.c, deliberately set to 20s to tolerate
 // relay/DERP jitter on the control path -- see the comment there). Checked
 // via the existing 1s stats-loop tick (see startStatsLoop/checkVideoSilence),
-// so worst-case detection is this timeout plus ~1s.
+// so worst-case detection is this timeout plus videoSilenceGracePeriod plus
+// ~1s.
 const videoMidStreamSilenceTimeout = 2 * time.Second
 
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
@@ -398,6 +399,20 @@ func (vw *VideoWidget) forceReconnectStuckStream(reason string) {
 	vw.scheduleVideoReconcile("stuck-no-frame:" + reason)
 }
 
+// videoSilenceGracePeriod is how much longer checkVideoSilence waits, once
+// the stream has first crossed videoMidStreamSilenceTimeout, before actually
+// forcing a reconnect. A brief network stall (wifi handoff, DERP jitter) is
+// exactly the kind of gap moonlight-common-c's own loss recovery already
+// handles on its own via LiRequestIdrFrame -- confirmed live, a keyframe
+// landed ~150ms after the old immediate-fire version of this watchdog had
+// already torn the session down, so the reconnect it forced was pure waste:
+// it discarded recovery that was already in flight and paid for a brand-new
+// RTSP handshake plus that reconnect's own ~500ms first-keyframe cost
+// instead of just waiting a moment longer for the keyframe already on its
+// way. Worst case this adds ~1.5-2.5s to detecting a genuinely dead stream,
+// which is cheap compared to an unnecessary full reconnect.
+const videoSilenceGracePeriod = 1500 * time.Millisecond
+
 // checkVideoSilence is polled once a second (see startStatsLoop) while
 // streaming. It only looks at *established* streams -- lastFrameTime is zero
 // until the very first frame arrives, which is deliberately left to
@@ -412,7 +427,7 @@ func (vw *VideoWidget) checkVideoSilence() {
 		return
 	}
 	silence := time.Since(last)
-	if silence < videoMidStreamSilenceTimeout {
+	if silence < videoMidStreamSilenceTimeout+videoSilenceGracePeriod {
 		return
 	}
 	if !vw.videoSilenceReconnectFired.CompareAndSwap(false, true) {

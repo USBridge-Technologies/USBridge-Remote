@@ -62,24 +62,52 @@ func TestCheckVideoSilence_IgnoresBeforeFirstFrame(t *testing.T) {
 
 // TestCheckVideoSilence_FiresOnceAfterStall simulates an established stream
 // (a frame already arrived) that then goes silent past
-// videoMidStreamSilenceTimeout -- this is exactly the SDDM-transition
-// scenario: the host recovers but the client, already past its initial
-// connect trace, had nothing watching for the mid-session gap until now.
+// videoMidStreamSilenceTimeout *and* videoSilenceGracePeriod -- this is
+// exactly the SDDM-transition scenario: the host recovers but the client,
+// already past its initial connect trace, had nothing watching for the
+// mid-session gap until now.
 func TestCheckVideoSilence_FiresOnceAfterStall(t *testing.T) {
 	vw := &VideoWidget{}
 	vw.frameMutex.Lock()
-	vw.lastFrameTime = time.Now().Add(-videoMidStreamSilenceTimeout - time.Second)
+	vw.lastFrameTime = time.Now().Add(-videoMidStreamSilenceTimeout - videoSilenceGracePeriod - time.Second)
 	vw.frameMutex.Unlock()
 
 	vw.checkVideoSilence()
 	if !vw.videoSilenceReconnectFired.Load() {
-		t.Fatal("checkVideoSilence did not fire for a stall well past videoMidStreamSilenceTimeout")
+		t.Fatal("checkVideoSilence did not fire for a stall well past videoMidStreamSilenceTimeout + videoSilenceGracePeriod")
 	}
 
 	// A second tick before the next beginVideoTrace/reconnect must not
 	// re-fire (avoids re-logging/re-scheduling every second while a
 	// reconcile is already in flight for the same stall).
 	vw.checkVideoSilence()
+}
+
+// TestCheckVideoSilence_WaitsOutGracePeriodBeforeFiring makes sure a stall
+// that has *just* crossed videoMidStreamSilenceTimeout does not immediately
+// force a reconnect -- moonlight-common-c may already have an IDR request in
+// flight (see checkVideoSilence's own doc comment), and an immediate
+// reconnect would throw that recovery away for nothing.
+func TestCheckVideoSilence_WaitsOutGracePeriodBeforeFiring(t *testing.T) {
+	vw := &VideoWidget{}
+	vw.frameMutex.Lock()
+	vw.lastFrameTime = time.Now().Add(-videoMidStreamSilenceTimeout - time.Millisecond)
+	vw.frameMutex.Unlock()
+
+	vw.checkVideoSilence()
+	if vw.videoSilenceReconnectFired.Load() {
+		t.Fatal("checkVideoSilence fired immediately on first crossing videoMidStreamSilenceTimeout; it should wait out videoSilenceGracePeriod first")
+	}
+
+	// A frame arriving during the grace window (the in-flight recovery
+	// succeeding) must cancel the pending reconnect entirely.
+	vw.frameMutex.Lock()
+	vw.lastFrameTime = time.Now()
+	vw.frameMutex.Unlock()
+	vw.checkVideoSilence()
+	if vw.videoSilenceReconnectFired.Load() {
+		t.Fatal("checkVideoSilence fired even though a frame arrived within the grace window")
+	}
 }
 
 func TestNoteVideoTraceFirstFrame_ResetsStuckStreak(t *testing.T) {
