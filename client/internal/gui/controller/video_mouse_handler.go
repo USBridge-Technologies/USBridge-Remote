@@ -1038,7 +1038,6 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	cw := vw.contentRectW
 	ch := vw.contentRectH
 	vw.vcMu.Lock()
-	prevU, _ := vw.virtualCursorU, vw.virtualCursorV
 
 	frameX, frameY, frameW, frameH := vw.getFrameContentRect()
 	minU, maxU := float32(0), float32(1)
@@ -1056,7 +1055,6 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 	if ch > 0 {
 		vw.virtualCursorV = clampFloat(vw.virtualCursorV+rawDy/ch, minV, maxV)
 	}
-	currU, _ := vw.virtualCursorU, vw.virtualCursorV
 	vw.vcMu.Unlock()
 	// Only mark as dragging after significant movement so that touch noise
 	// doesn't prevent tap detection in TouchUp.
@@ -1106,15 +1104,6 @@ func (t *TouchpadWrapper) handleVirtualCursorMove(rawDx, rawDy float32) {
 		vw.updateNativeViewportAndCursor()
 		vw.refreshViewportViews()
 	}
-
-	// Log AFTER the update so pan/contentRect reflect what was actually sent to Vulkan.
-	// Watch contentRectX for oscillation: stable = no jitter, ±N dp flip = jitter.
-	logrus.Infof("🖱️ [VC] swipe=(%+.1f,%+.1f)dp uv=(%.4f→%.4f) pan=(%+.1f,%+.1f) contentXY=(%+.1f,%+.1f) zoom=%.2fx",
-		rawDx, rawDy,
-		prevU, currU,
-		vw.panOffsetX, vw.panOffsetY,
-		vw.contentRectX, vw.contentRectY,
-		vw.zoomScale)
 
 	// Rate-limit network sends to 8ms so ENet doesn't pile up stale reliable
 	// packets faster than they can be ACKed. When the finger stops,
