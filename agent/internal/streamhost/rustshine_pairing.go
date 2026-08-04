@@ -4,11 +4,9 @@ package streamhost
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // clientEntry mirrors gamestream-server's confirmed GET /api/clients/list
@@ -26,13 +24,12 @@ func (b *rustshineBackend) ListClients(adminPort int) ([]Client, error) {
 		return nil, err
 	}
 	req.SetBasicAuth(b.AdminUser(), b.AdminPass())
-	c := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	// Shared, package-level client — see rustshineAdminHTTPClient's doc
+	// comment (rustshine_codec.go) for why a fresh &http.Client{} per call
+	// leaks a connection: this exact function, polled by the UI's 2s
+	// refresh ticker, was the actual source of a real live fd exhaustion
+	// ("Too many open files" on gamestream-server) before this fix.
+	resp, err := rustshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -59,13 +56,7 @@ func (b *rustshineBackend) SubmitPIN(adminPort int, pin string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(b.AdminUser(), b.AdminPass())
-	c := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := rustshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("gamestream-server unreachable: %w", err)
 	}
@@ -88,13 +79,7 @@ func (b *rustshineBackend) UnpairClient(adminPort int, uniqueID string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(b.AdminUser(), b.AdminPass())
-	c := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := rustshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

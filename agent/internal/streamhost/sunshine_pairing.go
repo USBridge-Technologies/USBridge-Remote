@@ -9,6 +9,22 @@ import (
 	"time"
 )
 
+// sunshineAdminHTTPClient is shared across every ListClients/SubmitPIN/
+// UnpairClient call instead of a fresh `&http.Client{...}` per call -- see
+// rustshineAdminHTTPClient's doc comment (rustshine_codec.go) for why a
+// throwaway Client/Transport per call leaks a persistent connection instead
+// of reusing one (confirmed live: exhausted gamestream-server's 1024 fd
+// limit via the identical pattern in the rustshine backend's sibling
+// functions). Needs its own InsecureSkipVerify TLS config -- unlike
+// serverinfoHTTPClient (sunshine_codec.go), which hits the plain-HTTP
+// NvHTTP port, these hit Sunshine's self-signed HTTPS admin API.
+var sunshineAdminHTTPClient = &http.Client{
+	Timeout: 5 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	},
+}
+
 // ListClients returns the Moonlight clients currently paired with the
 // Sunshine instance running on adminPort. Requires valid admin credentials
 // to have been bootstrapped first.
@@ -19,13 +35,7 @@ func (b *sunshineBackend) ListClients(adminPort int) ([]Client, error) {
 		return nil, err
 	}
 	req.SetBasicAuth(b.AdminUser(), b.adminPass())
-	c := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := sunshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -50,13 +60,7 @@ func (b *sunshineBackend) SubmitPIN(adminPort int, pin string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(b.AdminUser(), b.adminPass())
-	c := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := sunshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("Sunshine unreachable: %w", err)
 	}
@@ -78,13 +82,7 @@ func (b *sunshineBackend) UnpairClient(adminPort int, uniqueID string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.SetBasicAuth(b.AdminUser(), b.adminPass())
-	c := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := sunshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
