@@ -106,6 +106,20 @@ type MainWindow struct {
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
 	isClosing                atomic.Bool
+	// videoOverlayHiddenByNav tracks whether syncVideoOverlayForNav (see
+	// its own doc comment) currently holds the native video overlay
+	// hidden via view.NotifyOverlayShow/NotifyOverlayHide -- the single
+	// authoritative flag for that pairing, read/written only from
+	// syncVideoOverlayForNav itself. Only ever touched on the Fyne main
+	// goroutine (every call site already runs inside fyne.Do or a tabs/
+	// window callback), so no separate lock/atomic needed.
+	videoOverlayHiddenByNav bool
+	// audioMutedByNav tracks whether syncAudioMuteForNav (see its own doc
+	// comment) force-muted audio for being on the connection-manager
+	// screen. Only ever unmutes-by-nav if it was the one that muted --
+	// never overrides an explicit user mute (toggleAudioMuted) set before
+	// or during that screen.
+	audioMutedByNav bool
 	onReadyCallback          func()
 }
 

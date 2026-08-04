@@ -6,6 +6,7 @@ import (
 	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui/controller"
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -61,6 +62,8 @@ func (mw *MainWindow) showConnectionManager() {
 			content.Refresh()
 			mw.window.Canvas().Refresh(content)
 		}
+		mw.syncVideoOverlayForNav()
+		mw.syncAudioMuteForNav()
 	})
 }
 
@@ -77,8 +80,69 @@ func (mw *MainWindow) showMainContent() {
 			mw.window.Canvas().Refresh(content)
 		}
 		mw.updateDeviceButtonsVisibility()
+		mw.syncVideoOverlayForNav()
+		mw.syncAudioMuteForNav()
 	})
 	mw.scheduleControlBootstrap()
+}
+
+// syncAudioMuteForNav force-mutes audio while the connection-manager screen
+// is showing -- unlike the video overlay (Control tab only, see
+// syncVideoOverlayForNav), audio is allowed on every tab of the main
+// content, just not here. Never overrides an explicit user mute
+// (toggleAudioMuted/the "audio_muted" preference): audioMutedByNav only
+// unmutes on return if navigation itself was what muted it.
+func (mw *MainWindow) syncAudioMuteForNav() {
+	ms, ok := mw.videoClient.(interface {
+		SetAudioMuted(bool)
+		GetAudioMuted() bool
+	})
+	if !ok {
+		return
+	}
+	onConnectionManager := mw.window.Content() == mw.connectionContent
+
+	if onConnectionManager && !ms.GetAudioMuted() {
+		ms.SetAudioMuted(true)
+		mw.audioMutedByNav = true
+	} else if !onConnectionManager && mw.audioMutedByNav {
+		ms.SetAudioMuted(false)
+		mw.audioMutedByNav = false
+	}
+}
+
+// syncVideoOverlayForNav is the single authoritative place deciding whether
+// the native video overlay (Vulkan/Metal — attached directly to the
+// Activity/UIWindow, not to any Fyne window, see
+// VideoWidget.HandleAppBackgrounded's doc comment) is allowed to be
+// visible: only when the main content is showing AND the Control tab is
+// the one selected -- never on the connection-manager screen, never on
+// any other tab (Devices/Snapshots/Scripts).
+//
+// view.NotifyOverlayShow/NotifyOverlayHide are a depth counter (see
+// overlay_hooks.go), not an idempotent boolean -- calling Show/Hide from
+// more than one independently-tracked call site risks over- or
+// under-counting it, which can leave the counter stuck above zero and the
+// video permanently hidden even once every caller thinks it's back to
+// "visible". mw.videoOverlayHiddenByNav is the one flag this whole file
+// touches for that pairing, so every navigation transition (tab switch,
+// connection-manager show/hide) MUST route through this function rather
+// than calling NotifyOverlayShow/Hide directly.
+func (mw *MainWindow) syncVideoOverlayForNav() {
+	if mw.videoWidget == nil {
+		return
+	}
+	shouldBeVisible := mw.tabs != nil &&
+		mw.window.Content() == mw.mainContent &&
+		mw.tabs.SelectedIndex() == mw.controlTabIndex()
+
+	if !shouldBeVisible && !mw.videoOverlayHiddenByNav {
+		view.NotifyOverlayShow()
+		mw.videoOverlayHiddenByNav = true
+	} else if shouldBeVisible && mw.videoOverlayHiddenByNav {
+		view.NotifyOverlayHide()
+		mw.videoOverlayHiddenByNav = false
+	}
 }
 
 func (mw *MainWindow) scheduleControlBootstrap() {

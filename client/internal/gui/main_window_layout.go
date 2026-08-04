@@ -326,7 +326,6 @@ func (mw *MainWindow) recreateContainers() {
 		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(mw.scriptsWidget.GetContainer(), design.NewBrandTheme())),
 	)
 	mw.applyTabVisualState(0)
-	videoWasPaused := false
 	mw.tabs.OnSelected = func(tab *container.TabItem) {
 		tabSwitchStart := time.Now()
 		tabName := "?"
@@ -335,6 +334,10 @@ func (mw *MainWindow) recreateContainers() {
 		}
 		mw.applyTabVisualState(mw.tabs.SelectedIndex())
 		mw.updateDeviceButtonsVisibility()
+		// syncVideoOverlayForNav is the single authoritative place that
+		// calls NotifyOverlayShow/Hide for tab/screen navigation — see its
+		// own doc comment for why this must not do so directly.
+		mw.syncVideoOverlayForNav()
 		if tab != nil && tab.Text == controlTabTitle {
 			if mw.videoWidget != nil {
 				mw.videoWidget.BootstrapControlSessionAsync()
@@ -343,19 +346,6 @@ func (mw *MainWindow) recreateContainers() {
 				// size yet at the point this callback runs, so retry shortly
 				// after — mirrors scheduleControlBootstrap's settle delays.
 				time.AfterFunc(150*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
-			}
-			if videoWasPaused {
-				view.NotifyOverlayHide()
-				videoWasPaused = false
-			}
-			logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
-			return
-		}
-		
-		if mw.videoWidget != nil {
-			if !videoWasPaused {
-				view.NotifyOverlayShow()
-				videoWasPaused = true
 			}
 		}
 		logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
