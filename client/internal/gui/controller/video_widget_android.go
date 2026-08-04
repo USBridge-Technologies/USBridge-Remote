@@ -306,16 +306,6 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	}
 
 	vw.recalculateViewport()
-
-	// Diagnostic: shows ideal vs actual pan and viewport mode on every cursor event.
-	// "EDGE" = cursor at content boundary, contentX should be stable near 0 or tw-cw.
-	// Rapid oscillation of contentX here is the jitter — compare with idealPanX vs maxPanX.
-	modeX := "centered"
-	if math.Abs(float64(idealPanX)) > float64(maxPanX) {
-		modeX = "EDGE"
-	}
-	logrus.Infof("🗺️ [VP] u=%.4f idealPanX=%+.1f maxPanX=%.1f → panX=%+.1f [%s] contentX=%+.1f",
-		u, idealPanX, maxPanX, vw.panOffsetX, modeX, vw.contentRectX)
 }
 
 // initAndroidCursorScale rasterizes cursor-pointer.svg at the requested pixel

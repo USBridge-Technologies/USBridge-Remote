@@ -844,8 +844,19 @@ func (vsd *VideoStartDialog) refreshFPSOptions() {
 		return
 	}
 
+	// Cap at 120: a server-reported capture mode can list far higher values
+	// (e.g. a virtual/display capture reporting 240) than the encode
+	// pipeline can actually sustain at this resolution/bitrate — picking
+	// one that high overloads the hardware encoder (multi-hundred-ms
+	// keyframe stalls, IDR-request storms) and can drive the session into
+	// a disconnect/reconnect loop that never recovers, since the request
+	// stays the same on every automatic retry.
+	const maxSelectableFPS = 120
 	options := make([]string, 0, len(mode.FPS))
 	for _, fps := range mode.FPS {
+		if fps > maxSelectableFPS {
+			continue
+		}
 		options = append(options, strconv.Itoa(fps))
 	}
 	if len(options) == 0 {

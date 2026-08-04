@@ -1228,7 +1228,12 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 				}
 			}
 		} else if isVirtualCursorLikeMode(mode) {
-			t.handleVirtualCursorMove(ev.Dragged.DX, ev.Dragged.DY)
+			// Raw finger delta felt too "slippery"/fast for precise pointing —
+			// scale it down before it reaches handleVirtualCursorMove's
+			// rawDx/cw mapping (which is otherwise a direct 1:1 finger-to-cursor
+			// fraction of the video width/height).
+			const virtualCursorTouchSensitivity = 0.6
+			t.handleVirtualCursorMove(ev.Dragged.DX*virtualCursorTouchSensitivity, ev.Dragged.DY*virtualCursorTouchSensitivity)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			vw := t.videoWidget
 			px, py := ev.Position.X, ev.Position.Y

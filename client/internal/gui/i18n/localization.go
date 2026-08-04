@@ -603,7 +603,7 @@ func EN() *LocalizedStrings {
 		InvalidBitrate:       "invalid bitrate value: %v",
 		WidthRange:           "width must be from 320 to 1920 pixels",
 		HeightRange:          "height must be from 240 to 1080 pixels",
-		FPSRange:             "FPS must be from 1 to 240",
+		FPSRange:             "FPS must be from 1 to 120",
 		QualityRange:         "quality must be from 1 to 100 percent",
 		BitrateRange:         "bitrate must be from 100 to 150000 kbps",
 
