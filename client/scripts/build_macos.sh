@@ -275,6 +275,9 @@ export CGO_CFLAGS="${CGO_CFLAGS:-} -Wno-format-security"
 rm -rf "$DIST_DIR"
 mkdir -p "$APP_MACOS_DIR" "$APP_RESOURCES_DIR" "$APP_FRAMEWORKS_DIR" "$APP_PLUGINS_DIR"
 APP_BINARY_PATH="$APP_MACOS_DIR/$BINARY_NAME"
+# Keep cmd/VERSION (go:embed'd by cmd/main.go as a fallback for build tools
+# without -ldflags passthrough) in sync with the repo-root VERSION file.
+cp "$REPO_ROOT/VERSION" "$REPO_ROOT/cmd/VERSION" 2>/dev/null || true
 VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
 go build -ldflags="-s -w -X main.version=$VERSION" -o "$APP_BINARY_PATH" ./cmd
 

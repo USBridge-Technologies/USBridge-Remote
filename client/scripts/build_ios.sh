@@ -55,6 +55,10 @@ echo -e "\n${YELLOW}🔨 fyne package --target ios...${NC}"
 find "$REPO_ROOT" -maxdepth 1 -name "*.app" -exec rm -rf {} + 2>/dev/null || true
 
 # Run fyne from cmd/ so it builds the correct main package (not repo root)
+# Keep cmd/VERSION (go:embed'd by cmd/main.go as the fallback for build
+# tools without -ldflags passthrough, e.g. `fyne package` below) in sync
+# with the repo-root VERSION file, the single source of truth.
+cp "$REPO_ROOT/VERSION" "$REPO_ROOT/cmd/VERSION" 2>/dev/null || true
 VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
 # CFBundleVersion (build number) must strictly increase across App Store Connect
 # uploads of the same CFBundleShortVersionString. Without --app-build, fyne falls
