@@ -166,6 +166,60 @@ func (s *TailscaleService) convertPeer(st *ipnstate.Status, p *ipnstate.PeerStat
 	}
 }
 
+// WaitForPeerReachable repeatedly tries to open (and immediately close) a
+// real TCP connection to tailscaleIP:port through tsnet, returning as soon
+// as one attempt succeeds or maxWait elapses. Meant to run right before the
+// *first* real network call after a reconnect, in place of just firing that
+// call straight away.
+//
+// This used to check ipnstate.PeerStatus's Online/CurAddr/Relay fields
+// instead of actually dialing -- cheaper, but confirmed live it was the
+// wrong signal: after a DERP home-relay change on our own node, Status()
+// already reported the peer Online (control-plane/netmap catches up fast)
+// while a real dial to it still hung for the full 20s (data-plane path
+// hadn't actually re-converged yet) -- so the old check returned instantly
+// and let GetServerInfo() eat that 20s timeout anyway, defeating the entire
+// point. A real bounded dial is the only way to ask the question that
+// actually matters: "would a connection right now actually work". This is
+// the synchronous version of WarmUpPeer, which already tried to pre-dial
+// for exactly this reason but never being awaited meant Moonlight's own
+// serverinfo call routinely won the race against it.
+//
+// Never blocks past maxWait even if every attempt fails: the real call that
+// follows afterward is still the source of truth and can succeed or fail on
+// its own -- this just avoids wasting a fixed 20s timeout when a cheap
+// bounded dial loop would have shown the path wasn't back yet after 1-2s.
+// In the common case (peer already reachable) this costs one fast dial, not
+// the full maxWait.
+func (s *TailscaleService) WaitForPeerReachable(ctx context.Context, tailscaleIP, port string, maxWait time.Duration) {
+	if tailscaleIP == "" {
+		return
+	}
+	srv, err := s.serverInstance()
+	if err != nil {
+		return
+	}
+	addr := net.JoinHostPort(tailscaleIP, port)
+	deadline := time.Now().Add(maxWait)
+	for {
+		dialCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		conn, dialErr := srv.Dial(dialCtx, "tcp", addr)
+		cancel()
+		if dialErr == nil {
+			conn.Close()
+			return
+		}
+		if !time.Now().Before(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+}
+
 func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 	refreshAndroidDefaultRouteInterface()
 	lc, err := s.localClient()

@@ -352,7 +352,29 @@ static void vt_callback(
     }
 
     // ── Metal fast path (zero CPU copy via IOSurface, macOS and iOS) ─────────
-    if (metal_video_try_submit(img)) return;
+    if (metal_video_try_submit(img)) {
+        // Still notify Go for frame counting/FPS/lastFrameTime stats, mirroring
+        // Android's zero-copy path (see moonlight_cgo_android.go's dr_submit,
+        // which always calls goVTFrame after android_vk_try_submit_hwbuffer).
+        // Without this, returning here left goVTFrame — and therefore
+        // VideoWidget.lastFrameTime — completely unvisited for the rest of the
+        // session the instant Metal took over (confirmed live: NULL was never
+        // reached, so it wasn't just skipping the image copy, it was skipping
+        // the callback outright). checkVideoSilence's watchdog only reads
+        // lastFrameTime, so a perfectly healthy 60fps Metal-rendered stream
+        // still looked frozen to it a few seconds after connecting, forcing a
+        // reconnect on a strict ~5s cadence (3.5-4.5s silence timeout + ~1s
+        // reconnect) forever — indistinguishable from real silence in the log
+        // but not: Metal's own fps counter kept reporting a steady 57-60fps
+        // the entire time. NULL is safe: goVTFrame's Go side already checks
+        // NativeVideoOverlayIsActive() and delivers nil to the callback
+        // instead of touching the pointer, so this costs nothing beyond the
+        // call itself.
+        int w = (int)CVPixelBufferGetWidth(img);
+        int h = (int)CVPixelBufferGetHeight(img);
+        goVTFrame(NULL, w, h, 0);
+        return;
+    }
 
     // ── CPU fallback: BGRA→RGBA conversion into pre-allocated buffer ──────────
     CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);

@@ -521,6 +521,22 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 		logrus.Infof("🎬 [Moonlight/HW] ✅ first RGBA frame — %dx%d", int(width), int(height))
 	}
 
+	// rgba is NULL on any call that exists purely to keep Go-side frame
+	// counting/FPS/lastFrameTime stats alive while a native overlay (Metal on
+	// macOS/iOS, Vulkan's AHardwareBuffer path on Android) already rendered
+	// this frame at the C level without ever producing a CPU-readable buffer
+	// -- there is no pixel data here to decode, checked first and
+	// unconditionally so it can never fall through to the array-pointer
+	// conversion below regardless of the frame-count logic (confirmed live:
+	// macOS's Metal path always passes NULL, including on frames 1-10 and
+	// every 120th, and it used to crash here with a nil-pointer SIGSEGV
+	// before this check existed, because that logic assumed a non-nil
+	// pointer always accompanied those specific counts).
+	if rgba == nil {
+		cb(nil)
+		return
+	}
+
 	// When the native GPU overlay (Metal/GL) is active it already received this
 	// frame at the C level via metal_video_try_submit / gl_video_try_submit.
 	// Skip the 3.5 MB Go image allocation most of the time — only the Go-level
@@ -529,7 +545,9 @@ func goVTFrame(rgba *C.uint8_t, width, height, stride C.int) {
 	// updateFrameContentRect → detectDarkInset to detect letterbox/pillarbox
 	// bars embedded in the video stream (e.g. Sunshine pillarboxing 4:3 content
 	// into a 16:9 stream). Without this, frameContentX/Y stays 0 and
-	// PositionToAbsolute never adjusts for in-stream black bars.
+	// PositionToAbsolute never adjusts for in-stream black bars. Only reachable
+	// with a real (non-nil) buffer, e.g. Android's non-hwbuffer GL readback
+	// path, which passes real pixels even while its own Vulkan overlay is active.
 	if NativeVideoOverlayIsActive() {
 		if cnt > 10 && cnt%120 != 0 {
 			// Deliver a nil frame to let handleVideoFrame update its own counter.

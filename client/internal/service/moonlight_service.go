@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -165,6 +166,11 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 				logrus.Info("🌕 [Moonlight] using Tailscale tsnet dialer for Sunshine HTTP")
 			}
 		}
+		// Confirm the data path to Sunshine's HTTP port is actually usable
+		// before firing the first real request -- see WaitForPeerReachable's
+		// doc comment for why a real dial (not just Status()) matters here,
+		// e.g. after a DERP relay change.
+		m.tailscaleSvc.WaitForPeerReachable(context.Background(), m.client.Host, "47989", 8*time.Second)
 	}
 
 	tConnect := time.Now()
