@@ -1,3 +1,4 @@
 logs/
 *.log
 .claude/*
+!.claude/HB.md
