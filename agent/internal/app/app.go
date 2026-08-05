@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -283,6 +284,8 @@ func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	keepDisplayAwake(ctx)
+
 	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
 
 	a.startSunshine()
@@ -332,6 +335,46 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
+}
+
+// keepDisplayAwake holds a system-wide power assertion for as long as the
+// agent runs, on macOS only. Without this, the only thing keeping the
+// display awake is Sunshine's own capture-session assertion (see
+// startSunshine's "Sunshine display capture" assertion) -- which only exists
+// once a capture session is already up, i.e. exactly when it's too late to
+// matter: if the display went to sleep (or the whole system slept) during
+// the idle stretch between the agent starting and the first incoming
+// connection, VTCompressionSessionCreate fails outright with "Cannot create
+// compression session: -12903" the moment Sunshine tries to start streaming,
+// because macOS revokes hardware H.264/HEVC encoder access while the display
+// isn't awake -- confirmed live against a Mac that had been running this
+// agent for ~21h idle: every hardware encoder creation attempt on the next
+// client connect failed with -12903 and streaming never started, while the
+// identical flow against a Windows/Linux host (software encode, no
+// "display must be awake" requirement) worked every time. That's also why it
+// silently looks like "no video" instead of an obvious error: the agent's
+// own HTTP API and Sunshine's process both stay up and keep answering
+// requests, so nothing about the connection *looks* down.
+//
+// Spawning `caffeinate` for the agent's own lifetime (rather than rolling a
+// cgo/IOKit power assertion) keeps this a plain subprocess, matching how the
+// rest of this package already shells out to tailscale/sunshine/ffmpeg.
+func keepDisplayAwake(ctx context.Context) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// -d: prevent display sleep -- the one VTCompressionSessionCreate actually
+	// needs. -i: prevent idle system sleep too, so the display assertion is
+	// never moot because the whole machine suspended around it. -s: also
+	// prevent sleep on AC power, the ordinary configuration for a machine
+	// left set up as a remote host.
+	cmd := exec.CommandContext(ctx, "caffeinate", "-d", "-i", "-s")
+	if err := cmd.Start(); err != nil {
+		log.Printf("[app] warning: could not start caffeinate — display may sleep and break hardware video encoding: %v", err)
+		return
+	}
+	log.Printf("[app] caffeinate started (pid=%d) — preventing display/system sleep while the agent runs", cmd.Process.Pid)
+	go func() { _ = cmd.Wait() }()
 }
 
 func (a *App) startSunshine() {
