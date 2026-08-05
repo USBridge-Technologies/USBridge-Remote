@@ -162,6 +162,18 @@ func (c *Client) RequestKMSCapture() bool {
 	return body.Value
 }
 
+func (c *Client) SunshineCapExecPath() string {
+	var body stringBody
+	_ = c.do(http.MethodGet, "/token/kms-capexec-path", nil, &body)
+	return body.Value
+}
+
+func (c *Client) RecheckKMSCapture() bool {
+	var body boolBody
+	_ = c.do(http.MethodPost, "/token/kms-recheck", nil, &body)
+	return body.Value
+}
+
 func (c *Client) GPUClockLockSupported() bool {
 	var body boolBody
 	_ = c.do(http.MethodGet, "/token/gpu-clock-lock-supported", nil, &body)

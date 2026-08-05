@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,7 @@ import (
 	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/audio"
+	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
@@ -123,10 +125,47 @@ func runThinClientGUI(client *adminapi.Client) error {
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
 
-	ui.NewWindow(fyneApp, cfg, client, client, client).ShowAndRun(func() {
+	// Permission grants (uinput udev rule, KMS CAP_SYS_ADMIN) run through
+	// pkexec, which needs a real polkit authentication agent for the
+	// caller's login session. The headless instance behind client is a
+	// systemd system service with no session of its own — pkexec run
+	// inside it can never reach one, it falls back to a textual agent and
+	// fails immediately ("Error opening current controlling terminal...").
+	// This process, by contrast, is launched interactively in the user's
+	// actual desktop session, where a polkit GUI agent (e.g.
+	// polkit-kde-authentication-agent-1) is reachable — so run pkexec here
+	// instead, against the same on-disk targets (/dev/uinput, the udev
+	// rule, the daemon's own capexec launcher path), then tell the daemon
+	// to notice and pick up the change.
+	localPerms := permissions.New()
+	token := &thinClientToken{Client: client, perms: localPerms}
+	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
+}
+
+// thinClientToken adapts *adminapi.Client for runThinClientGUI, overriding
+// only the KMS capability methods to grant locally instead of proxying the
+// pkexec call into the headless daemon — see runThinClientGUI for why.
+type thinClientToken struct {
+	*adminapi.Client
+	perms *permissions.Service
+}
+
+func (t *thinClientToken) KMSCaptureGranted() bool {
+	return t.perms.KMSCaptureGranted(t.Client.SunshineCapExecPath())
+}
+
+func (t *thinClientToken) RequestKMSCapture() bool {
+	path := t.Client.SunshineCapExecPath()
+	if path == "" {
+		return false
+	}
+	if !t.perms.RequestKMSCapture(path) {
+		return false
+	}
+	return t.Client.RecheckKMSCapture()
 }
 
 func New() (*App, error) {
@@ -245,10 +284,24 @@ func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	keepDisplayAwake(ctx)
+
 	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
 
 	a.startSunshine()
+	autostart.RefreshX11SessionEnv()
+	// See streamhost.ProcessWatcher's doc comment: without this, a crashed
+	// stream host only gets noticed (and relaunched) on sunshineWatchdog's
+	// next periodic tick, up to sunshineWatchdogInterval (15s) of dead air
+	// on a connected client's screen -- confirmed live. startSunshine()
+	// itself is always safe to call from here: it no-ops if something else
+	// already restarted the process first (e.g. this same tick racing
+	// sunshineWatchdog).
+	if pw, ok := a.stream.(streamhost.ProcessWatcher); ok {
+		pw.SetOnExit(a.startSunshine)
+	}
 	go a.sunshineWatchdog(ctx)
+	go a.x11SessionEnvWatchdog(ctx)
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
@@ -282,6 +335,46 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
+}
+
+// keepDisplayAwake holds a system-wide power assertion for as long as the
+// agent runs, on macOS only. Without this, the only thing keeping the
+// display awake is Sunshine's own capture-session assertion (see
+// startSunshine's "Sunshine display capture" assertion) -- which only exists
+// once a capture session is already up, i.e. exactly when it's too late to
+// matter: if the display went to sleep (or the whole system slept) during
+// the idle stretch between the agent starting and the first incoming
+// connection, VTCompressionSessionCreate fails outright with "Cannot create
+// compression session: -12903" the moment Sunshine tries to start streaming,
+// because macOS revokes hardware H.264/HEVC encoder access while the display
+// isn't awake -- confirmed live against a Mac that had been running this
+// agent for ~21h idle: every hardware encoder creation attempt on the next
+// client connect failed with -12903 and streaming never started, while the
+// identical flow against a Windows/Linux host (software encode, no
+// "display must be awake" requirement) worked every time. That's also why it
+// silently looks like "no video" instead of an obvious error: the agent's
+// own HTTP API and Sunshine's process both stay up and keep answering
+// requests, so nothing about the connection *looks* down.
+//
+// Spawning `caffeinate` for the agent's own lifetime (rather than rolling a
+// cgo/IOKit power assertion) keeps this a plain subprocess, matching how the
+// rest of this package already shells out to tailscale/sunshine/ffmpeg.
+func keepDisplayAwake(ctx context.Context) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// -d: prevent display sleep -- the one VTCompressionSessionCreate actually
+	// needs. -i: prevent idle system sleep too, so the display assertion is
+	// never moot because the whole machine suspended around it. -s: also
+	// prevent sleep on AC power, the ordinary configuration for a machine
+	// left set up as a remote host.
+	cmd := exec.CommandContext(ctx, "caffeinate", "-d", "-i", "-s")
+	if err := cmd.Start(); err != nil {
+		log.Printf("[app] warning: could not start caffeinate — display may sleep and break hardware video encoding: %v", err)
+		return
+	}
+	log.Printf("[app] caffeinate started (pid=%d) — preventing display/system sleep while the agent runs", cmd.Process.Pid)
+	go func() { _ = cmd.Wait() }()
 }
 
 func (a *App) startSunshine() {
@@ -347,6 +440,43 @@ func (a *App) sunshineWatchdog(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.startSunshine()
+		}
+	}
+}
+
+// x11SessionEnvRefreshInterval is how often x11SessionEnvWatchdog re-syncs
+// the X11 fallback's greeter-env files (see RefreshX11SessionEnv's doc
+// comment for why this needs to happen at all). Much shorter than
+// sunshineWatchdogInterval deliberately: this used to piggyback on that 15s
+// ticker, but every one of those 15 seconds is dead air on a connected
+// client's screen during the exact SDDM login/logout window this exists
+// for (confirmed live) -- a dedicated, much tighter interval is what
+// actually shrinks that window, and capture-kms's own
+// BLANK_RECHECK_INTERVAL (250ms, only engaged once the *capture* side has
+// independently noticed several seconds of blank content) is the other,
+// finer-grained half of that same fix. Still cheap enough (a /proc scan,
+// usually no writes at all once a session has settled) to run this often.
+const x11SessionEnvRefreshInterval = 2 * time.Second
+
+// x11SessionEnvWatchdog periodically re-syncs RefreshX11SessionEnv on its
+// own schedule (see x11SessionEnvRefreshInterval's doc comment for why this
+// isn't just folded into sunshineWatchdog), and piggybacks
+// EnsureDisplayActive on the same tick -- confirmed live: a fresh SDDM login
+// can leave a physical output completely dark (no active mode at all) even
+// though the remote KMS capture keeps working fine, because the desktop
+// environment's own display auto-configuration on session start doesn't
+// reliably reapply whatever mode was working before. No-op on non-Linux
+// builds.
+func (a *App) x11SessionEnvWatchdog(ctx context.Context) {
+	ticker := time.NewTicker(x11SessionEnvRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			autostart.RefreshX11SessionEnv()
+			autostart.EnsureDisplayActive()
 		}
 	}
 }
@@ -667,6 +797,24 @@ func (a *App) RequestKMSCapture() bool {
 		a.syncSunshineCapExec()
 		if err := a.RestartSunshine(); err != nil {
 			log.Printf("[app] failed to restart Sunshine after granting KMS capability: %v", err)
+		}
+	}
+	return granted
+}
+
+// RecheckKMSCapture re-syncs the capexec launcher's CAP_SYS_ADMIN capability
+// from its current on-disk state and restarts Sunshine if it's now granted.
+// Unlike RequestKMSCapture, this never runs pkexec itself — it exists for
+// the case where something else already granted the capability on this
+// exact path (a GUI thin client's own local pkexec call, see
+// internal/adminapi.Server.handleKMSRecheck and cmd/usbridge_agent's
+// runThinClientGUI) and this instance just needs to notice and pick it up.
+func (a *App) RecheckKMSCapture() bool {
+	a.syncSunshineCapExec()
+	granted := a.KMSCaptureGranted()
+	if granted {
+		if err := a.RestartSunshine(); err != nil {
+			log.Printf("[app] failed to restart Sunshine after KMS recheck: %v", err)
 		}
 	}
 	return granted

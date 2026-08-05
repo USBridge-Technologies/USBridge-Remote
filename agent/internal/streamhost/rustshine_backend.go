@@ -38,6 +38,7 @@ type rustshineBackend struct {
 	logPath     string
 	cmd         *exec.Cmd
 	watchdog    *exec.Cmd // macOS only, see rustshine_process_other.go
+	onExit      func()    // see SetOnExit
 
 	activeAdminPassword string
 	adminPort           int // set by Start; CurrentVideoCodec needs it despite taking no args itself
@@ -274,6 +275,40 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		}
 	}
 
+	// Repair a kms_connector that doesn't match any currently enumerable
+	// connector. This happens two ways: a bare numeric value written before
+	// SetOutputName's stale-index guard existed (efce4fc) is permanent —
+	// that guard only stops future bad writes, it never rewrites an
+	// already-corrupted config file — and a previously valid connector name
+	// can also go stale after a monitor/cable swap or across a distro/driver
+	// change (connector names like "HDMI-A-1" vs. "DP-2" vs. "eDP-1" aren't
+	// portable). capture-kms's own in-process "fall back to the first
+	// connected output" logic does not actually recover from this — it logs
+	// the fallback, then still fails the pipeline with "no connected DRM
+	// connector found" — so gamestream-server never captures a frame until
+	// the config is corrected on disk. There's no universal default
+	// connector name to hardcode, so resolve against ListCaptureDevices'
+	// live enumeration instead, the same source SetOutputName's numeric-index
+	// path already trusts.
+	if runtime.GOOS == "linux" && b.CaptureMode() == "kms" {
+		connector := b.ConfigKey("kms_connector")
+		devices := b.ListCaptureDevices()
+		valid := false
+		for _, d := range devices {
+			if _, c, ok := strings.Cut(d.OutputName, "|"); ok && c == connector {
+				valid = true
+				break
+			}
+		}
+		if !valid && len(devices) > 0 {
+			if err := b.SetOutputName(devices[0].OutputName); err != nil {
+				log.Printf("[rustshine] failed to repair invalid kms_connector %q: %v", connector, err)
+			} else {
+				log.Printf("[rustshine] kms_connector %q not found among live connectors, repaired to %q", connector, devices[0].OutputName)
+			}
+		}
+	}
+
 	basePort := adminPort - 1 // gamestream-server's --http-port is the NvHTTP base port; admin listens on base+1.
 	credsPath := b.credentialsPath()
 
@@ -348,10 +383,36 @@ func (b *rustshineBackend) watchProcessExit(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	log.Printf("[rustshine] process exited: %v", err)
 	b.mu.Lock()
-	if b.cmd == cmd {
+	wasOurs := b.cmd == cmd
+	if wasOurs {
 		b.cmd = nil
 	}
+	onExit := b.onExit
 	b.mu.Unlock()
+	// Fires outside the lock -- onExit (see SetOnExit) is app.startSunshine,
+	// which itself calls back into Start() and takes this same mutex;
+	// calling it while still holding b.mu here would deadlock.
+	if wasOurs && onExit != nil {
+		onExit()
+	}
+}
+
+// SetOnExit registers a callback fired the instant watchProcessExit notices
+// this backend's own child process has died (any reason: a normal Stop(),
+// a crash, or capture_kms's own X11 IOErrorHandler aborting on a dead
+// connection -- see that handler's doc comment). Without this, nothing
+// actually restarts a crashed gamestream-server until app.sunshineWatchdog's
+// own next periodic tick -- confirmed live, that meant up to
+// sunshineWatchdogInterval (15s) of a client staring at a frozen stream
+// after every crash, even though this backend itself knew the process had
+// died essentially instantly via cmd.Wait(). The periodic watchdog still
+// runs as a backstop (in case this callback itself is never set, or a
+// restart attempt right after exit fails for some transient reason), just
+// no longer the *only* path to recovery.
+func (b *rustshineBackend) SetOnExit(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onExit = fn
 }
 
 // Stop terminates a gamestream-server instance started by this backend.

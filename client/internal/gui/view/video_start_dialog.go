@@ -674,8 +674,12 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		vsd.captureModes = append(vsd.captureModes, info.CaptureModes...)
 	}
 
-	// Filter out duplicate resolutions by only keeping the "actual" pixel format.
-	// If a stream is active, use its SourceFormat. Otherwise, use DefaultPixelFormat.
+	// The capture card can offer the same resolution in multiple pixel
+	// formats (e.g. both MJPEG and YUYV) — every entry is kept and shown as
+	// its own option (formatResolutionBaseLabel appends "(FORMAT)" so they
+	// don't collide in the dropdown) rather than collapsing to just the
+	// server's current/default format, so the user can actually pick and
+	// apply a different format than whatever's currently active.
 	actualFormat := "YUYV"
 	if info != nil {
 		if info.SourceFormat != "" {
@@ -683,16 +687,6 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		} else if info.DefaultPixelFormat != "" {
 			actualFormat = normalizePixelFormat(info.DefaultPixelFormat)
 		}
-	}
-
-	filteredModes := make([]models.VideoCaptureMode, 0, len(vsd.captureModes))
-	for _, mode := range vsd.captureModes {
-		if normalizePixelFormat(mode.PixelFormat) == actualFormat {
-			filteredModes = append(filteredModes, mode)
-		}
-	}
-	if len(filteredModes) > 0 {
-		vsd.captureModes = filteredModes
 	}
 
 	if len(vsd.captureModes) == 0 {
@@ -844,8 +838,19 @@ func (vsd *VideoStartDialog) refreshFPSOptions() {
 		return
 	}
 
+	// Cap at 120: a server-reported capture mode can list far higher values
+	// (e.g. a virtual/display capture reporting 240) than the encode
+	// pipeline can actually sustain at this resolution/bitrate — picking
+	// one that high overloads the hardware encoder (multi-hundred-ms
+	// keyframe stalls, IDR-request storms) and can drive the session into
+	// a disconnect/reconnect loop that never recovers, since the request
+	// stays the same on every automatic retry.
+	const maxSelectableFPS = 120
 	options := make([]string, 0, len(mode.FPS))
 	for _, fps := range mode.FPS {
+		if fps > maxSelectableFPS {
+			continue
+		}
 		options = append(options, strconv.Itoa(fps))
 	}
 	if len(options) == 0 {

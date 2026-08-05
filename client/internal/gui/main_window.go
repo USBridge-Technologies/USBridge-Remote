@@ -106,6 +106,20 @@ type MainWindow struct {
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool
 	isClosing                atomic.Bool
+	// videoOverlayHiddenByNav tracks whether syncVideoOverlayForNav (see
+	// its own doc comment) currently holds the native video overlay
+	// hidden via view.NotifyOverlayShow/NotifyOverlayHide -- the single
+	// authoritative flag for that pairing, read/written only from
+	// syncVideoOverlayForNav itself. Only ever touched on the Fyne main
+	// goroutine (every call site already runs inside fyne.Do or a tabs/
+	// window callback), so no separate lock/atomic needed.
+	videoOverlayHiddenByNav bool
+	// audioMutedByNav tracks whether syncAudioMuteForNav (see its own doc
+	// comment) force-muted audio for being on the connection-manager
+	// screen. Only ever unmutes-by-nav if it was the one that muted --
+	// never overrides an explicit user mute (toggleAudioMuted) set before
+	// or during that screen.
+	audioMutedByNav bool
 	onReadyCallback          func()
 }
 
@@ -143,6 +157,15 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+	// See VideoWidget.HandleAppBackgrounded's doc comment (video_widget_android.go):
+	// closes a real race where a stray frame from a connection attempt that
+	// went stale while backgrounded (Android Doze/App Standby, especially
+	// without the battery-usage exemption, throttles the underlying
+	// network/goroutines much harder than the wall-clock timers racing
+	// against them) pops the native video overlay up over whatever screen
+	// the user is looking at after resuming. No-op on desktop.
+	a.Lifecycle().SetOnExitedForeground(mw.videoWidget.HandleAppBackgrounded)
+	a.Lifecycle().SetOnEnteredForeground(mw.videoWidget.HandleAppForegrounded)
 	mw.diskWidget.SetMoonlightProvider(mw.videoWidget.GetMoonlightInput)
 	mw.backupWidget = controller.NewBackupWidget(nil, mw.hostEntry, mw.updateStatus)
 	mw.backupWidget.SetWindow(w)

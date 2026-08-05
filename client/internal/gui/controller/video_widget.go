@@ -99,7 +99,18 @@ type VideoWidget struct {
 	videoTraceFirstFrame atomic.Int64
 	videoTraceFirstPaint atomic.Int64
 	videoTraceLabel      atomic.Value
-	fpsWindowStart       atomic.Int64 // for Go-level frame arrival FPS logging
+	// consecutiveStuckReconnects counts how many beginVideoTrace attempts in
+	// a row have hit the no-frame timeout (see beginVideoTrace's own doc
+	// comment on why this shrinks the timeout on retries). Reset to 0 the
+	// instant a trace actually receives a frame.
+	consecutiveStuckReconnects atomic.Int32
+	// videoSilenceReconnectFired latches once checkVideoSilence has already
+	// forced a reconnect for the current stall, so the 1s stats-loop tick
+	// doesn't re-trigger (and re-log) it every second while the reconcile is
+	// still in flight. beginVideoTrace clears it when the next connection
+	// attempt starts.
+	videoSilenceReconnectFired atomic.Bool
+	fpsWindowStart             atomic.Int64 // for Go-level frame arrival FPS logging
 	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
 	isMetalFullscreen    atomic.Bool  // true while Metal overlay covers the full fullscreen window
 	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
@@ -259,6 +270,53 @@ func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 	logrus.Infof("Control device rebuilt; intentionally keeping video stream alive")
 }
 
+// videoTraceFirstAttemptTimeout is used for a trace that isn't already part
+// of a stuck-reconnect streak (see consecutiveStuckReconnects) -- kept
+// conservative so a *normal*, first-time connect (Sunshine's own launch/
+// negotiate can itself take a couple of seconds) is never mistaken for the
+// stuck-with-no-video case this watchdog exists to catch.
+const videoTraceFirstAttemptTimeout = 4 * time.Second
+
+// videoTraceRetryTimeout is used once beginVideoTrace already knows (via
+// consecutiveStuckReconnects) that the *previous* attempt hit the no-frame
+// timeout -- i.e. this reconnect is itself a recovery retry, not a fresh
+// connect. Confirmed live: retrying every videoTraceFirstAttemptTimeout
+// (4s) during an SDDM login/logout transition on the host meant several
+// missed cycles (each one racing whatever the host side was still doing
+// with its own recovery -- see rust-shine's capture-kms/gamestream-server
+// fixes) before one happened to land after the host was actually ready
+// again, adding up to a genuinely user-visible ~10-15s of frozen video.
+// Once a streak is confirmed stuck, there's no first-connect ambiguity left
+// to protect against, so polling much faster only shortens the time to
+// notice the host has recovered -- it can't misfire on a legitimately slow
+// *first* connect, since that path always starts a streak at 0.
+//
+// Was 1500ms, but on an nvidia host the KMS-probe-then-X11-greeter-fallback
+// handoff (capture-kms's run_capture -> x11_fallback::try_run, since nvidia
+// won't report CRTC state to a non-DRM-master client at all) routinely takes
+// 1.3-1.6s on its own -- confirmed live: that landed this retry right on top
+// of the host's own setup time, so every retry killed the host's session
+// before it ever got a frame out, forever (0 frames delivered across 65+
+// consecutive reconnects). 10s gives that handoff enough headroom to
+// actually land a frame before this watchdog fires again.
+const videoTraceRetryTimeout = 10 * time.Second
+
+// videoMidStreamSilenceTimeout guards an *already-established* stream (one
+// that already delivered at least one frame, so beginVideoTrace's own
+// no-frame timeout has long since fired and gone dormant) going silent
+// mid-session -- e.g. the host process dying/restarting under it. Confirmed
+// live: after the host side recovers almost instantly (rust-shine's own
+// capture-kms/gamestream-server crash fixes), the client still sat frozen
+// for ~18-20s, because nothing client-side was watching for silence during
+// an established session -- the only thing that eventually noticed was
+// moonlight-common-c's own ENet control-channel peer timeout
+// (enet_peer_timeout in ControlStream.c, deliberately set to 20s to tolerate
+// relay/DERP jitter on the control path -- see the comment there). Checked
+// via the existing 1s stats-loop tick (see startStatsLoop/checkVideoSilence),
+// so worst-case detection is this timeout plus videoSilenceGracePeriod plus
+// ~1s.
+const videoMidStreamSilenceTimeout = 2 * time.Second
+
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	traceID := vw.videoTraceSeq.Add(1)
 	startedAt := time.Now()
@@ -266,15 +324,20 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.videoTraceStartedAt.Store(startedAt.UnixNano())
 	vw.videoTraceFirstFrame.Store(0)
 	vw.videoTraceFirstPaint.Store(0)
+	vw.videoSilenceReconnectFired.Store(false)
 	// Reset saved video dimensions so a new stream with different resolution
 	// doesn't inherit stale values from the previous session.
 	vw.lastVideoImgW = 0
 	vw.lastVideoImgH = 0
 	label := fmt.Sprintf("vt-%d", traceID)
 	vw.videoTraceLabel.Store(label)
-	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s", traceID, label, reason)
+	timeout := videoTraceFirstAttemptTimeout
+	if vw.consecutiveStuckReconnects.Load() > 0 {
+		timeout = videoTraceRetryTimeout
+	}
+	logrus.Infof("🎯 [VideoTrace #%d] start label=%s reason=%s timeout=%s", traceID, label, reason, timeout)
 
-	time.AfterFunc(4*time.Second, func() {
+	time.AfterFunc(timeout, func() {
 		if vw.videoTraceID.Load() != traceID {
 			return
 		}
@@ -288,7 +351,8 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 
 		switch {
 		case firstFrameNs == 0:
-			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), vw.safeVideoStats(), vw.safeRelayDebugInfo())
+			streak := vw.consecutiveStuckReconnects.Add(1)
+			logrus.Warnf("⚠️ [VideoTrace #%d] no frames reached client after %s (streak=%d) video_stats=%v relay=%s — forcing reconnect", traceID, time.Since(start).Round(time.Millisecond), streak, vw.safeVideoStats(), vw.safeRelayDebugInfo())
 			vw.forceReconnectStuckStream(reason)
 		case firstPaintNs == 0:
 			logrus.Warnf("⚠️ [VideoTrace #%d] client receives frames but UI has not painted after %s", traceID, time.Since(start).Round(time.Millisecond))
@@ -335,6 +399,44 @@ func (vw *VideoWidget) forceReconnectStuckStream(reason string) {
 	vw.scheduleVideoReconcile("stuck-no-frame:" + reason)
 }
 
+// videoSilenceGracePeriod is how much longer checkVideoSilence waits, once
+// the stream has first crossed videoMidStreamSilenceTimeout, before actually
+// forcing a reconnect. A brief network stall (wifi handoff, DERP jitter) is
+// exactly the kind of gap moonlight-common-c's own loss recovery already
+// handles on its own via LiRequestIdrFrame -- confirmed live, a keyframe
+// landed ~150ms after the old immediate-fire version of this watchdog had
+// already torn the session down, so the reconnect it forced was pure waste:
+// it discarded recovery that was already in flight and paid for a brand-new
+// RTSP handshake plus that reconnect's own ~500ms first-keyframe cost
+// instead of just waiting a moment longer for the keyframe already on its
+// way. Worst case this adds ~1.5-2.5s to detecting a genuinely dead stream,
+// which is cheap compared to an unnecessary full reconnect.
+const videoSilenceGracePeriod = 1500 * time.Millisecond
+
+// checkVideoSilence is polled once a second (see startStatsLoop) while
+// streaming. It only looks at *established* streams -- lastFrameTime is zero
+// until the very first frame arrives, which is deliberately left to
+// beginVideoTrace's own no-frame timeout so the two watchdogs don't race
+// each other on a fresh/slow-starting connect.
+func (vw *VideoWidget) checkVideoSilence() {
+	vw.frameMutex.RLock()
+	last := vw.lastFrameTime
+	vw.frameMutex.RUnlock()
+
+	if last.IsZero() {
+		return
+	}
+	silence := time.Since(last)
+	if silence < videoMidStreamSilenceTimeout+videoSilenceGracePeriod {
+		return
+	}
+	if !vw.videoSilenceReconnectFired.CompareAndSwap(false, true) {
+		return
+	}
+	logrus.Warnf("⚠️ [VideoWidget] no video frame for %s during an established stream — forcing reconnect", silence.Round(time.Millisecond))
+	vw.forceReconnectStuckStream("mid-stream-silence")
+}
+
 func (vw *VideoWidget) currentVideoTraceLabel() string {
 	if value, ok := vw.videoTraceLabel.Load().(string); ok {
 		return value
@@ -361,6 +463,12 @@ func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {
 	if !vw.videoTraceFirstFrame.CompareAndSwap(0, now) {
 		return
 	}
+	// A frame actually arrived -- whatever server-side transition this
+	// client might have been retrying through (see beginVideoTrace's doc
+	// comment) is over, so the *next* trace (a genuinely fresh connect)
+	// should get the conservative first-attempt timeout again, not
+	// inherit a short one from a streak that just ended.
+	vw.consecutiveStuckReconnects.Store(0)
 	traceID := vw.videoTraceID.Load()
 	startNs := vw.videoTraceStartedAt.Load()
 	if startNs == 0 {

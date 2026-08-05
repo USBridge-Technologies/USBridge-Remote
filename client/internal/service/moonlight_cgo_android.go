@@ -572,6 +572,39 @@ void do_li_interrupt(void) {
 }
 
 void set_audio_muted(int muted) { g_audio_muted = muted; }
+
+// force_av_shutdown unconditionally stops and releases the AAudio stream and
+// AMediaCodec decoder, independent of LiStopConnection ever actually calling
+// our registered ar.cleanup/dr.cleanup callbacks.
+//
+// Those callbacks only fire if moonlight-common-c's own internal `stage`
+// (Connection.c, a process-global with no generation awareness -- see
+// do_li_force_stop's docs for the sibling bug this same root cause already
+// produced on the *input* side) is not already STAGE_NONE by the time
+// LiStopConnection() runs. Observed live: hitting disconnect (or the host
+// stopping the stream) sometimes left audio/video still actively playing
+// afterward, exactly as if the stop had silently no-op'd -- with the Go
+// side's own liConnected/generation bookkeeping showing everything torn down
+// correctly, meaning the mismatch was inside the library's own state, not
+// ours. Calling this directly, unconditionally, right alongside every
+// do_li_force_stop() call, means the actual hardware output is silenced the
+// instant the client decides to stop, whatever moonlight-common-c's internal
+// stage happens to be.
+void force_av_shutdown(void) {
+    ALOGI("force_av_shutdown: unconditionally releasing AAudio + AMediaCodec");
+    if (g_aa_stream) {
+        AAudioStream_requestStop(g_aa_stream);
+        AAudioStream_close(g_aa_stream);
+        g_aa_stream = NULL;
+    }
+    if (g_amc) {
+        AMediaCodec_stop(g_amc);
+        AMediaCodec_delete(g_amc);
+        g_amc = NULL;
+    }
+    android_gl_release();
+}
+
 void set_audio_pipe_fd(int fd)  { (void)fd; }
 
 // ── Input ─────────────────────────────────────────────────────────────────────
@@ -698,6 +731,13 @@ func stopConnectionSafely() {
 	liStartCallMu.Lock()
 	defer liStartCallMu.Unlock()
 	C.do_li_force_stop()
+	// Belt-and-suspenders: do_li_force_stop only guarantees our own
+	// ar.cleanup/dr.cleanup callbacks fire if moonlight-common-c's internal
+	// `stage` isn't already STAGE_NONE by the time LiStopConnection() runs
+	// (see force_av_shutdown's doc comment) -- calling this directly here
+	// means audio/video hardware output actually stops the instant anything
+	// calls stopConnectionSafely, regardless of that internal state.
+	C.force_av_shutdown()
 }
 
 func (w *MoonlightCgoWrapper) StartStream(url string, key []byte, appV, gfeV string, codec, videoFormat, width, height, fps, bit int, pw, apw *os.File, onStop func(error)) error {
@@ -828,6 +868,18 @@ func (w *MoonlightCgoWrapper) StopStream() {
 	// Reset connected flag so next start can proceed cleanly.
 	liConnected.Store(false)
 	liStreamMu.Unlock()
+
+	// Unconditional, not gated on liStreamGen == myGen like the streaming
+	// goroutine's own cleanup below -- an explicit StopStream() call is
+	// authoritative regardless of which generation is "current": the user
+	// (or the app) asked for playback to stop, so the callback that would
+	// otherwise keep painting whatever frames are still in flight must be
+	// cleared right now, not only once that goroutine's generation check
+	// happens to agree.
+	vtFrameCallbackMu.Lock()
+	vtFrameCallback = nil
+	vtFrameCallbackMu.Unlock()
+
 	if activeStreamDone != nil {
 		activeStreamOnce.Do(func() { close(activeStreamDone) })
 	}

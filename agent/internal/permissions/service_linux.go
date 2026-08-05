@@ -15,11 +15,58 @@ import (
 )
 
 const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
-const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", TAG+=\"uaccess\"\n"
 
-type Service struct{}
+// MODE="0666" is what actually makes this survive a reboot. Relying only on
+// TAG+="uaccess" (systemd-logind's *dynamic* per-session ACL, granted only
+// to whichever user's session is currently active on the seat) is what used
+// to make uinput access disappear after every restart: usbridge-agent.service
+// is a system unit that starts at boot unconditionally, independent of any
+// login (see autostart_linux.go's comment on why -- KMS capture needs to
+// come up before a display manager does), so it doesn't reliably have, or
+// keep, a session logind considers "active" the way an interactive desktop
+// process does -- and while SDDM's greeter (a different user) owns the
+// active seat, the uaccess ACL belongs to the greeter, not this agent's
+// user. A static on-disk MODE grant applies unconditionally every time the
+// kernel (re)creates the device node, with no session/login dependency at
+// all -- the same fix already applied to the render group in
+// autostart_linux.go for the identical class of problem. uaccess is kept
+// alongside as a harmless extra (and slightly tighter, while it's live).
+const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", MODE=\"0666\", TAG+=\"uaccess\"\n"
+
+// Even with the MODE=0666 rule above, /dev/uinput's permissions after a
+// reboot depend on *how* the node comes into existence. Without this file,
+// nothing forces the real "uinput" kernel module to load at boot: the node
+// that shows up early is typically just udev's "static_node" stand-in
+// (created by systemd-tmpfiles-setup-dev.service straight from the
+// distro's own default rule, e.g. /usr/lib/udev/rules.d/50-udev-default.rules
+// -- 0660, root:root there, not ours) — a full re-application of our own
+// rule only happens once the module actually registers for real and emits
+// a genuine uevent, which otherwise only happens lazily (whenever the
+// kernel first autoloads it, racing against whatever tries to open the
+// device first). /etc/modules-load.d makes systemd-modules-load.service
+// modprobe uinput unconditionally, early in sysinit, so that real
+// registration -- and with it, full udev rule processing -- always
+// happens well before anything (including this agent's own systemd unit)
+// tries to touch the device. See autostart_linux.go's dev-uinput.device
+// ordering for the other half of this: the agent unit not even starting
+// until udev has finished applying the rule to that real device.
+const uinputModulesLoadPath = "/etc/modules-load.d/usbridge-uinput.conf"
+const uinputModulesLoadContent = "uinput\n"
+
+type Service struct {
+	lastAccessErr string
+}
 
 func New() *Service { return &Service{} }
+
+// LastAccessibilityError returns a human-readable reason the last
+// RequestAccessibility call failed, or "" if it succeeded (or hasn't run
+// yet). Debian's default install neither adds the user to the sudo group
+// nor pulls in pkexec (it was split into its own package from policykit-1
+// around trixie), unlike Ubuntu where both are present out of the box --
+// so the pkexec-based flow below silently does nothing there unless we
+// surface why.
+func (s *Service) LastAccessibilityError() string { return s.lastAccessErr }
 
 func (s *Service) AccessibilityGranted() bool {
 	f, err := os.OpenFile("/dev/uinput", os.O_WRONLY, 0)
@@ -27,7 +74,32 @@ func (s *Service) AccessibilityGranted() bool {
 		return false
 	}
 	f.Close()
-	return true
+	return uinputRuleUpToDate()
+}
+
+// uinputRuleUpToDate reports whether the persistent udev rule on disk
+// already grants the current (MODE=0666) content, not just the older,
+// uaccess-only version this project shipped before. The /dev/uinput open()
+// probe above can succeed right now purely because the *caller's own*
+// interactive session happens to hold a live uaccess ACL, even on a machine
+// whose on-disk rule -- the one usbridge-agent.service actually depends on
+// after the next reboot -- is still the old, fragile one. Checking the file
+// too makes RequestAccessibility keep firing (and upgrading the rule on
+// disk) for anyone who granted access before this fix, instead of only for
+// machines where access is visibly broken right this second.
+func uinputRuleUpToDate() bool {
+	data, err := os.ReadFile(uinputRulePath)
+	if err != nil {
+		return false
+	}
+	if string(data) != uinputRuleContent {
+		return false
+	}
+	modules, err := os.ReadFile(uinputModulesLoadPath)
+	if err != nil {
+		return false
+	}
+	return string(modules) == uinputModulesLoadContent
 }
 
 func (s *Service) ScreenRecordingGranted() bool {
@@ -38,13 +110,24 @@ func (s *Service) ScreenRecordingGranted() bool {
 }
 
 func (s *Service) RequestAccessibility() bool {
+	s.lastAccessErr = ""
 	log.Printf("[permissions] RequestAccessibility called, granted=%v", s.AccessibilityGranted())
 	if s.AccessibilityGranted() {
 		return true
 	}
 
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		s.lastAccessErr = "pkexec is not installed. Install it and try again:\n" +
+			"  su -c 'apt install pkexec'\n" +
+			"(on Debian, pkexec ships in its own package and the default user\n" +
+			"isn't in the sudo group, so plain \"sudo apt install\" may also fail)"
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
 	tmp, err := os.CreateTemp("", "usbridge-udev-*.rules")
 	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("could not create temp udev rule: %v", err)
 		log.Printf("[permissions] create temp udev rule: %v", err)
 		return false
 	}
@@ -52,27 +135,75 @@ func (s *Service) RequestAccessibility() bool {
 
 	if _, err := tmp.WriteString(uinputRuleContent); err != nil {
 		tmp.Close()
+		s.lastAccessErr = fmt.Sprintf("could not write temp udev rule: %v", err)
 		log.Printf("[permissions] write temp udev rule: %v", err)
 		return false
 	}
 	tmp.Close()
-	log.Printf("[permissions] temp rule at %s, running pkexec...", tmp.Name())
 
-	// Install persistent udev rule AND immediately apply chmod for current session
+	modulesTmp, err := os.CreateTemp("", "usbridge-modules-load-*.conf")
+	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("could not create temp modules-load file: %v", err)
+		log.Printf("[permissions] create temp modules-load file: %v", err)
+		return false
+	}
+	defer os.Remove(modulesTmp.Name())
+
+	if _, err := modulesTmp.WriteString(uinputModulesLoadContent); err != nil {
+		modulesTmp.Close()
+		s.lastAccessErr = fmt.Sprintf("could not write temp modules-load file: %v", err)
+		log.Printf("[permissions] write temp modules-load file: %v", err)
+		return false
+	}
+	modulesTmp.Close()
+	log.Printf("[permissions] temp rule at %s, temp modules-load at %s, running pkexec...", tmp.Name(), modulesTmp.Name())
+
+	// Install persistent udev rule AND immediately apply chmod for current session.
+	// install -m 0644 (not cp): cp preserves the source file's mode, and the
+	// tmp file above was created by os.CreateTemp as 0600 owned by this
+	// (non-root) agent user, so a plain cp left the installed rule file
+	// unreadable by anyone but root. udevd itself runs as root so the rule
+	// still applied fine either way, but uinputRuleUpToDate() below reads
+	// this same path as the agent's own unprivileged user -- with a 0600
+	// file it always got EACCES and returned false, so AccessibilityGranted
+	// reported "broken" forever even on machines where /dev/uinput was
+	// already 0666 and working. Rule files under /etc/udev/rules.d are
+	// world-readable everywhere else on the system; match that.
+	//
+	// Also install /etc/modules-load.d/usbridge-uinput.conf and modprobe
+	// uinput right now: this is the piece that actually makes the whole
+	// thing survive a reboot (see uinputModulesLoadPath's comment) -- without
+	// forcing a real module load, the udev rule above only gets applied to
+	// whatever bare-bones stand-in device node happens to exist at the
+	// moment the module finally, lazily, loads on its own.
 	script := fmt.Sprintf(
-		"cp %s %s && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
-		tmp.Name(), uinputRulePath,
+		"install -m 0644 %s %s && install -m 0644 %s %s && modprobe uinput && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
+		tmp.Name(), uinputRulePath, modulesTmp.Name(), uinputModulesLoadPath,
 	)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] pkexec exit=%v output=%q", err, string(out))
 	if err != nil {
+		switch {
+		case strings.Contains(string(out), "No authentication agent found"):
+			s.lastAccessErr = "no polkit authentication agent is running for this session " +
+				"(pkexec needs one to prompt for the password). Log into a full desktop " +
+				"session and make sure its polkit agent is running, then retry."
+		case strings.Contains(err.Error(), "exit status 126"):
+			s.lastAccessErr = "authentication was cancelled or dismissed. Click Request again and approve the prompt."
+		default:
+			s.lastAccessErr = fmt.Sprintf("pkexec failed: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
 		return false
 	}
 
 	time.Sleep(300 * time.Millisecond)
 	granted := s.AccessibilityGranted()
 	log.Printf("[permissions] after pkexec granted=%v", granted)
+	if !granted {
+		s.lastAccessErr = "udev rule was installed but /dev/uinput is still inaccessible; " +
+			"try unplugging/replugging, or log out and back in."
+	}
 	return granted
 }
 
@@ -91,6 +222,24 @@ func (s *Service) RequestMissing()                    {}
 func (s *Service) OpenPrivacySettings() error         { return nil }
 func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
+// findCapTool resolves getcap/setcap to an absolute path. Both live in
+// /usr/sbin (libcap2-bin), which many non-login shells -- and pkexec's own
+// sanitized environment -- don't include in PATH, so a bare exec.LookPath
+// (or handing the bare name to pkexec) can fail with "not found" even
+// though the binary is installed.
+func findCapTool(name string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin"} {
+		p := dir + "/" + name
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return name
+}
+
 // KMSCaptureGranted reports whether the bundled sunshine_capexec launcher
 // has the CAP_SYS_ADMIN capability needed for Sunshine's direct KMS screen
 // capture (root-level, no compositor/portal involved).
@@ -101,7 +250,7 @@ func (s *Service) KMSCaptureGranted(capexecPath string) bool {
 	if strings.TrimSpace(capexecPath) == "" {
 		return false
 	}
-	out, err := exec.Command("getcap", capexecPath).CombinedOutput()
+	out, err := exec.Command(findCapTool("getcap"), capexecPath).CombinedOutput()
 	if err != nil {
 		return false
 	}
@@ -133,7 +282,7 @@ func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	if s.KMSCaptureGranted(capexecPath) {
 		return true
 	}
-	cmd := exec.Command("pkexec", "setcap", "cap_sys_admin=eip", capexecPath)
+	cmd := exec.Command("pkexec", findCapTool("setcap"), "cap_sys_admin=eip", capexecPath)
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] setcap pkexec exit=%v output=%q", err, string(out))
 	if err != nil {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -165,6 +166,11 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 				logrus.Info("🌕 [Moonlight] using Tailscale tsnet dialer for Sunshine HTTP")
 			}
 		}
+		// Confirm the data path to Sunshine's HTTP port is actually usable
+		// before firing the first real request -- see WaitForPeerReachable's
+		// doc comment for why a real dial (not just Status()) matters here,
+		// e.g. after a DERP relay change.
+		m.tailscaleSvc.WaitForPeerReachable(context.Background(), m.client.Host, "47989", 8*time.Second)
 	}
 
 	tConnect := time.Now()
@@ -259,6 +265,9 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		fps = m.fps
 	} else if m.config.VideoFPS > 0 {
 		fps = m.config.VideoFPS
+	}
+	if fps > maxSupportedFPS {
+		fps = maxSupportedFPS
 	}
 	bitrate := 10000 // 10 Mbps default, overridden by SetBitrate (wired to the video-start dialog's slider)
 	if m.bitrate > 0 {
@@ -810,7 +819,21 @@ func (m *MoonlightService) SetExpectedVideoSize(width, height int) {
 	m.height = height
 }
 
+// maxSupportedFPS caps what this client will ever request from the encode
+// pipeline. Requesting more than the hardware encoder can sustain at the
+// negotiated resolution/bitrate causes multi-hundred-ms keyframe stalls and
+// IDR-request storms that can drive the session into a disconnect/reconnect
+// loop it never recovers from, since every automatic retry re-requests the
+// same unsustainable rate. Clamped here (not just in the start dialog's
+// dropdown) so a stale saved config or a leftover value from an earlier
+// session can't slip through on an automatic reconnect, which never
+// re-reads the dialog.
+const maxSupportedFPS = 120
+
 func (m *MoonlightService) SetFPS(fps int) {
+	if fps > maxSupportedFPS {
+		fps = maxSupportedFPS
+	}
 	m.fps = fps
 }
 

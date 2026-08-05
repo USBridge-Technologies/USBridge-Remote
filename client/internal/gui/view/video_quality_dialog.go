@@ -133,7 +133,7 @@ func (vqd *VideoQualityDialog) handleApply() {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.HeightRange), vqd.parent)
 		return
 	}
-	if fps < 1 || fps > 240 {
+	if fps < 1 || fps > 120 {
 		ShowErrorDialog(fmt.Errorf("%s", i18n.Current.FPSRange), vqd.parent)
 		return
 	}

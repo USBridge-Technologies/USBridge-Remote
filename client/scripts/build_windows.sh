@@ -325,6 +325,9 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
 mkdir -p "$GOCACHE" "$GOMODCACHE"
 export GOFLAGS="${GOFLAGS:-} -buildvcs=false"
+# Keep cmd/VERSION (go:embed'd by cmd/main.go as a fallback for build tools
+# without -ldflags passthrough) in sync with the repo-root VERSION file.
+cp "$REPO_ROOT/VERSION" "$REPO_ROOT/cmd/VERSION" 2>/dev/null || true
 VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
 BUILD_LDFLAGS="-H=windowsgui -X main.version=$VERSION -extldflags '-static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic'"
 BUILD_VARIANT="release"

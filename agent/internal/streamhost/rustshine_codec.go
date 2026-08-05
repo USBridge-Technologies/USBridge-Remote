@@ -17,6 +17,32 @@ type statusResponse struct {
 	ActiveVideoCodec string `json:"active_video_codec"`
 }
 
+// rustshineAdminHTTPClient is shared across every CurrentVideoCodec call --
+// deliberately package-level and constructed exactly once, NOT a fresh
+// `&http.Client{...}` per call the way this used to be written. An
+// `http.Transport` owns a persistent-connection pool that's meant to be
+// reused for exactly this "hit the same host repeatedly" polling pattern;
+// throwing the whole Client/Transport away after a single call (as the
+// window's own status-refresh ticker does every 2 seconds -- see
+// `ui.Window.ShowAndRun`'s `time.NewTicker(2 * time.Second)`) doesn't close
+// the connection it just used. `resp.Body.Close()` alone only returns the
+// connection to *that Transport's* idle pool for potential reuse -- with no
+// other reference to the Transport left (it was a local variable), nothing
+// ever calls `CloseIdleConnections`, and Go's GC has no finalizer that
+// proactively closes idle persistent connections, only ones on the raw fd
+// itself once (and if) the whole unreachable Transport is actually
+// collected. Confirmed live: a real multi-hour streaming session leaked
+// enough of these to exhaust gamestream-server's 1024 fd limit ("Too many
+// open files"), degrading the stream to a handful of fps with no client
+// reconnect able to fix it, since the leak was entirely in this polling
+// path, independent of any streaming session's own state.
+var rustshineAdminHTTPClient = &http.Client{
+	Timeout: 2 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+	},
+}
+
 // CurrentVideoCodec queries gamestream-server's own /api/status admin route
 // directly — unlike Sunshine, there's no documented log line to scrape as a
 // fallback, but the admin API is always reachable once the process is up
@@ -35,13 +61,7 @@ func (b *rustshineBackend) CurrentVideoCodec() string {
 		return "h264"
 	}
 	req.SetBasicAuth(b.AdminUser(), b.AdminPass())
-	c := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	resp, err := c.Do(req)
+	resp, err := rustshineAdminHTTPClient.Do(req)
 	if err != nil {
 		return "h264"
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
@@ -25,6 +27,27 @@ const (
 var (
 	version = "1.0.0"
 )
+
+// embeddedVersion mirrors the repo-root VERSION file (kept in sync at build
+// time — see each scripts/build_*.sh's copy step) baked in via go:embed as
+// a fallback for build tools that can't inject -ldflags -X main.version=...
+// the way a plain `go build` invocation does: build_ios.sh packages via
+// `fyne package`, which has no ldflags passthrough at all, so iOS builds
+// silently kept the "1.0.0" placeholder above forever instead of the real
+// version. Only used when ldflags didn't already override `version` (the
+// linker patches that in before any init() runs, so this check reliably
+// tells the two cases apart).
+//
+//go:embed VERSION
+var embeddedVersion string
+
+func init() {
+	if version == "1.0.0" {
+		if v := strings.TrimSpace(embeddedVersion); v != "" {
+			version = v
+		}
+	}
+}
 
 func main() {
 	defer func() {

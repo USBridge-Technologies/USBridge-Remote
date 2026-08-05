@@ -42,6 +42,7 @@ type sunshineBackend struct {
 	// Left nil, and never referenced, on Linux/Windows where the OS itself
 	// (Pdeathsig / a Job Object) enforces the same guarantee.
 	watchdog *exec.Cmd
+	onExit   func() // see SetOnExit
 
 	// activeAdminPassword holds the per-session randomly generated admin
 	// password. Set in Start() via --creds before Sunshine launches.
@@ -544,10 +545,32 @@ func (b *sunshineBackend) watchProcessExit(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	log.Printf("[sunshine] process exited: %v", err)
 	b.mu.Lock()
-	if b.cmd == cmd {
+	wasOurs := b.cmd == cmd
+	if wasOurs {
 		b.cmd = nil
 	}
+	onExit := b.onExit
 	b.mu.Unlock()
+	// Fires outside the lock -- onExit (see SetOnExit) is app.startSunshine,
+	// which itself calls back into Start() and takes this same mutex;
+	// calling it while still holding b.mu here would deadlock.
+	if wasOurs && onExit != nil {
+		onExit()
+	}
+}
+
+// SetOnExit registers a callback fired the instant watchProcessExit notices
+// this backend's own child process has died (any reason: a normal Stop() or
+// a crash). Without this, nothing actually restarts a crashed Sunshine until
+// app.sunshineWatchdog's own next periodic tick -- up to
+// sunshineWatchdogInterval (15s) of a client staring at a frozen stream
+// after every crash, even though this backend itself knew the process had
+// died essentially instantly via cmd.Wait(). The periodic watchdog still
+// runs as a backstop, just no longer the *only* path to recovery.
+func (b *sunshineBackend) SetOnExit(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onExit = fn
 }
 
 // Stop terminates a Sunshine instance started by this backend. No-op if not

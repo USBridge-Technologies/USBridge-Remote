@@ -232,7 +232,18 @@ ensure_go_tool() {
     fi
 
     echo -e "${YELLOW}Installing $tool...${NC}" >&2
-    if ! go install "$pkg"; then
+    # This tool (fyne, gomobile, ...) is a build-time binary that must run on
+    # *this* CI/dev machine, not the Android target -- but by the time this is
+    # called for fyne, setup_android_ndk_toolchain_env has already exported
+    # CC/CGO_ENABLED/etc. for cross-compiling the app itself (GOOS=android
+    # GOARCH=arm64). Left inherited, `go install` tries to build this tool's
+    # cgo runtime bits (e.g. runtime/cgo's host asm) using the NDK's
+    # arm64-targeted clang, which can't assemble the host's own architecture
+    # ("gcc_amd64.S: unknown token in expression" on an amd64 CI runner) --
+    # explicitly pin GOOS/GOARCH back to the host and drop the cross CC/CXX
+    # for this one invocation so it always builds for the host regardless of
+    # what's exported around it.
+    if ! env -u CC -u CXX -u CGO_LDFLAGS GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" go install "$pkg"; then
         echo -e "${RED}❌ Failed to install $tool${NC}" >&2
         echo "   Check network access and the command: go install $pkg" >&2
         exit 1

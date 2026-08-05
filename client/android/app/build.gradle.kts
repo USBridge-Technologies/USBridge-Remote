@@ -25,8 +25,7 @@ val detectedNdkVersion = ndkDirFromEnv
     ?.trim()
 
 // versionName mirrors the repo-wide VERSION file (single source of truth shared
-// with macOS/Linux/Windows/iOS builds); versionCode is the git commit count, a
-// simple monotonically increasing counter Google Play requires per upload.
+// with macOS/Linux/Windows/iOS builds).
 val appVersionName = rootProject.file("../VERSION")
     .takeIf { it.exists() }
     ?.readText()
@@ -34,16 +33,36 @@ val appVersionName = rootProject.file("../VERSION")
     ?.takeIf { it.isNotEmpty() }
     ?: "1.0.0"
 
-val appVersionCode = try {
-    val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
-        .directory(rootProject.projectDir)
-        .redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().readText().trim()
-    if (process.waitFor() == 0) output.toIntOrNull() ?: 1 else 1
-} catch (e: Exception) {
-    1
-}
+// versionCode used to be `git rev-list --count HEAD` -- a monotonically
+// increasing counter in theory, but one that's completely decoupled from
+// appVersionName above and fragile in exactly the ways that matter for a
+// release artifact: it doesn't move at all when VERSION is bumped without
+// also committing (a real build run against a dirty tree keeps the old
+// count), a shallow CI checkout (`git clone --depth=1`, `actions/checkout`'s
+// default) makes `rev-list --count HEAD` return 1 every single build
+// instead of an increasing number, and a rebase/squash can renumber or even
+// *decrease* it. Any of those silently reproduces "installed/shared build
+// shows the previous version": Google Play (and Android's own package
+// installer, outside of a plain `adb install -r`) refuses to treat an
+// upload/install as an update unless its versionCode is strictly greater
+// than what's already installed -- if it isn't, the old APK (and its old
+// versionName, old everything) is exactly what a user keeps seeing, with no
+// error surfaced anywhere.
+//
+// Deriving it from appVersionName itself instead removes that dependency
+// entirely: it's deterministic, reproducible from a shallow/fresh checkout,
+// and -- since it's parsed from the exact same file that already gates
+// every other platform's build -- guaranteed to move whenever the version
+// that's supposed to be new actually is. major.minor.patch each get two
+// decimal digits (i.e. capped at 99), which comfortably covers this
+// project's actual version history (2.1.x) with a lot of headroom left.
+val appVersionCode = appVersionName
+    .split(".")
+    .mapNotNull { it.toIntOrNull()?.coerceIn(0, 99) }
+    .let { parts ->
+        if (parts.size == 3) parts[0] * 10000 + parts[1] * 100 + parts[2] else null
+    }
+    ?: 1
 
 android {
     namespace = "io.usbridge.client"

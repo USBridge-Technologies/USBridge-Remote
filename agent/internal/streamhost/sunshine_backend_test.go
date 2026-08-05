@@ -336,3 +336,81 @@ func TestWatchProcessExit_DoesNotClobberNewerCmd(t *testing.T) {
 		t.Error("watchProcessExit for a stale/replaced cmd must not clear a newer b.cmd")
 	}
 }
+
+// The actual live latency bug SetOnExit fixes (see its own doc comment):
+// nothing used to notice a crashed process until sunshineWatchdog's next
+// periodic tick, up to sunshineWatchdogInterval (15s) later. Confirms the
+// callback fires, and specifically that it fires without deadlocking --
+// watchProcessExit must release b.mu *before* calling it, since a real
+// caller's callback (app.startSunshine) calls back into Start(), which
+// takes this same mutex.
+func TestWatchProcessExit_FiresOnExitCallback(t *testing.T) {
+	cmd := exec.Command("/bin/sh", "-c", "exit 1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start test process: %v", err)
+	}
+	b := &sunshineBackend{cmd: cmd}
+
+	fired := make(chan struct{})
+	b.SetOnExit(func() {
+		// Exercises the deadlock hazard directly: if watchProcessExit
+		// still held b.mu when invoking this, this would hang forever
+		// instead of the test passing.
+		b.mu.Lock()
+		b.mu.Unlock()
+		close(fired)
+	})
+
+	done := make(chan struct{})
+	go func() {
+		b.watchProcessExit(cmd)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watchProcessExit did not return")
+	}
+	select {
+	case <-fired:
+	case <-time.After(3 * time.Second):
+		t.Fatal("onExit callback was never invoked (or deadlocked)")
+	}
+}
+
+// A stale watcher's exit must not fire onExit at all -- only the current,
+// still-tracked process's exit should trigger a restart attempt.
+func TestWatchProcessExit_DoesNotFireOnExitForStaleCmd(t *testing.T) {
+	oldCmd := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := oldCmd.Start(); err != nil {
+		t.Fatalf("start old test process: %v", err)
+	}
+	newCmd := exec.Command("/bin/sh", "-c", "sleep 30")
+	if err := newCmd.Start(); err != nil {
+		t.Fatalf("start new test process: %v", err)
+	}
+	defer func() {
+		_ = newCmd.Process.Kill()
+		_, _ = newCmd.Process.Wait()
+	}()
+
+	b := &sunshineBackend{cmd: newCmd}
+	fired := false
+	b.SetOnExit(func() { fired = true })
+
+	done := make(chan struct{})
+	go func() {
+		b.watchProcessExit(oldCmd)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watchProcessExit(oldCmd) did not return")
+	}
+
+	if fired {
+		t.Error("onExit must not fire for a stale/replaced cmd's exit")
+	}
+}

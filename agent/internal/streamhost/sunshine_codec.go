@@ -216,6 +216,15 @@ func (b *sunshineBackend) SupportedVideoCodecs(adminPort int) []string {
 	return codecs
 }
 
+// serverinfoHTTPClient is shared across every fetchSupportedVideoCodecs
+// call (both backends use this function) rather than a fresh
+// `&http.Client{...}` per call -- see rustshineAdminHTTPClient's doc
+// comment in rustshine_codec.go for why a throwaway Client/Transport per
+// call leaks a persistent connection instead of reusing one. Lower-impact
+// here (this call is cached for supportedCodecsCacheTTL, 30 minutes, not
+// polled every 2 seconds like CurrentVideoCodec), but the same fix applies.
+var serverinfoHTTPClient = &http.Client{Timeout: 2 * time.Second}
+
 func fetchSupportedVideoCodecs(adminPort int) []string {
 	fallback := []string{"h264"}
 	if adminPort <= 0 {
@@ -226,8 +235,7 @@ func fetchSupportedVideoCodecs(adminPort int) []string {
 	// UpdateSunshineStreamAddr's "webPort := streamPort + 1" in app.go.
 	nvhttpPort := adminPort - 1
 
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/serverinfo", nvhttpPort))
+	resp, err := serverinfoHTTPClient.Get(fmt.Sprintf("http://127.0.0.1:%d/serverinfo", nvhttpPort))
 	if err != nil {
 		log.Printf("[sunshine] serverinfo query failed (%v) — reporting h264-only", err)
 		return fallback
