@@ -394,15 +394,17 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// permRows slice and silently dropped the Autostart checkbox with it.
 	autostartRow := container.NewHBox(widget.NewLabel("Autostart at Boot"), layout.NewSpacer(), w.autostartCheck)
 
-	// Lock GPU Clocks: holds an NVML max-clock lock for the life of the
-	// stream host session so the GPU doesn't idle into a low-power state
-	// between frames and stall NVENC on the next one (see
+	// Lock GPU Clocks: holds an NVML max-clock lock for the life of this
+	// agent process (once enabled) so the GPU doesn't idle into a low-power
+	// state between frames and stall NVENC on the next one (see
 	// app.applyGPUClockLock). Windows+NVIDIA only -- entirely absent from the
 	// Permissions block on other platforms, where GPUClockLockSupported()
 	// returns false, rather than shown-but-disabled. No separate "Request"
-	// button: the checkbox itself triggers the (UAC-prompting) request, both
-	// immediately on check and again automatically on every stream-host
-	// (re)start -- a second manual trigger would just be redundant.
+	// button: the checkbox itself triggers the one (UAC-prompting) request
+	// for this agent run -- deliberately upfront and one-time, not
+	// re-triggered on every stream-host restart, since a UAC prompt can't be
+	// dismissed from a remote session (it runs on the secure desktop) and
+	// would otherwise strand a remote client switching monitors mid-stream.
 	gpuClockSupported := w.token != nil && w.token.GPUClockLockSupported()
 	w.gpuClockCheck = widget.NewCheck("", nil)
 	if gpuClockSupported {
