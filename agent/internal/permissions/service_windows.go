@@ -76,11 +76,15 @@ const swHide = 0
 // `setcap`/CAP_SYS_ADMIN grant (see permissions.Service.RequestKMSCapture on
 // Linux for that contrast) -- NVML's clock-lock calls simply require the
 // *calling process itself* to be elevated, so this has to launch a fresh
-// elevated helper (and thus show a fresh UAC prompt) every time streaming
-// starts, for the life of watchPID (the running gamestream-server.exe's own
-// PID) -- once that process exits, the daemon notices and drops the lock,
-// see rust-shine's own `platform::windows::run_gpu_clock_lock_daemon` docs.
-// Returns once the helper has launched, not once it exits.
+// elevated helper (and thus show a fresh UAC prompt) every time it's armed.
+// Callers should pass a long-lived watchPID (the agent's own, not a
+// per-session stream host's) so that only happens once per agent run --
+// see app.applyGPUClockLock's doc for why: a UAC prompt runs on the secure
+// desktop, unreachable from a remote session, so re-arming on every
+// stream-host restart would strand a remote client mid-switch. The daemon
+// polls watchPID and drops the lock once it exits, see rust-shine's own
+// `platform::windows::run_gpu_clock_lock_daemon` docs. Returns once the
+// helper has launched, not once it exits.
 func RequestGPUClockLock(binPath string, watchPID int) error {
 	dir := filepath.Dir(binPath)
 	params := fmt.Sprintf("--gpu-clock-lock-daemon --watch-pid %d", watchPID)

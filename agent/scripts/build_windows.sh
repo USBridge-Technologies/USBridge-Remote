@@ -519,9 +519,17 @@ Logs:
 README
 
 ARCHIVE="$REPO_ROOT/dist/USBridgeAgent-Windows-x86_64-${VERSION}.zip"
-rm -f "$ARCHIVE"
+ARCHIVE_TMP="${ARCHIVE}.tmp.$$"
+rm -f "$ARCHIVE_TMP"
 echo -e "${YELLOW}Creating archive...${NC}"
-(cd "$DIST_DIR" && zip -r "$ARCHIVE" .)
+(cd "$DIST_DIR" && zip -r "$ARCHIVE_TMP" .)
+# Zip into a fresh temp name rather than straight into $ARCHIVE: Info-Zip's Windows
+# build renames its own temp file onto the target via plain rename(), which (unlike
+# POSIX) refuses to overwrite an existing file. If anything still holds a handle on
+# an old $ARCHIVE (AV scan, indexer, OneDrive under Desktop), that rename fails with
+# "Could not create output file" even right after `rm -f`. `mv -f` uses Windows'
+# overwrite-capable move instead, so it succeeds here.
+mv -f "$ARCHIVE_TMP" "$ARCHIVE"
 echo -e "${GREEN}✓${NC} Archive: $ARCHIVE"
 
 echo -e "${GREEN}Done.${NC}"

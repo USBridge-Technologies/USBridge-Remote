@@ -66,8 +66,14 @@ $missing = $requiredPkgs | Where-Object { $installed -notcontains $_ }
 
 if ($missing.Count -gt 0) {
     Write-Step "Installing missing packages: $($missing -join ', ')"
-    & $bashExe -lc "pacman -Sy --noconfirm"
-    if ($LASTEXITCODE -ne 0) { throw "pacman -Sy failed (exit $LASTEXITCODE)" }
+    # `-Sy` (sync db without upgrading installed packages) risks a "partial upgrade":
+    # newly resolved deps for the missing packages can conflict with older versions of
+    # already-installed packages (e.g. gcc-libs vs. gcc-libgfortran). `-Syu` upgrades
+    # everything together, which pacman/MSYS2 requires. A core-package update (e.g.
+    # msys2-runtime) can terminate this shell mid-upgrade, so run it twice.
+    & $bashExe -lc "pacman -Syu --noconfirm"
+    & $bashExe -lc "pacman -Syu --noconfirm"
+    if ($LASTEXITCODE -ne 0) { throw "pacman -Syu failed (exit $LASTEXITCODE)" }
     & $bashExe -lc "pacman -S --needed --noconfirm $($missing -join ' ')"
     if ($LASTEXITCODE -ne 0) { throw "pacman -S failed installing: $($missing -join ' ')" }
 } else {

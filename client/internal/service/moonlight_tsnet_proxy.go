@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -346,19 +347,22 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 	// Write goroutine
 	go func() {
 		s2cCount := 0
-		// Pace packets to protect Android's 127.0.0.1 UDP socket buffer from a
-		// truly pathological burst -- but the real destination isn't an OS
-		// default-sized buffer: moonlight-common-c's VideoStream.c sizes its
-		// RTP socket's SO_RCVBUF for RTP_RECV_PACKETS_BUFFERED=2048 packets
-		// specifically to absorb a full keyframe burst in one shot. A burst=20
-		// limiter fighting a receiver engineered for 2048 was pure added
-		// latency: a 600-900 packet keyframe (this stream's FEC settings can
-		// push it higher) got throttled to a steady trickle over 120ms+
-		// instead of landing in the one syscall burst the receiver was sized
-		// for. Raised to comfortably clear the largest realistic keyframe
-		// (up to 80% FEC redundancy, see rust-shine's adaptive_fec_percentage)
-		// while the rate cap remains as a backstop against runaway senders.
-		limiter := rate.NewLimiter(rate.Limit(20000), 2000)
+		// Pace packets to avoid overflowing Android's 127.0.0.1 UDP socket buffer
+		// (Android enforces a small loopback SO_RCVBUF regardless of the
+		// SetReadBuffer call above, so a fast IDR burst can get dropped at the
+		// kernel socket layer there). Every other platform's loopback socket
+		// honors the 4MB buffer we set, so pacing there only hurts: at 60fps a
+		// single frame can legitimately need 100+ packets (confirmed live —
+		// "Unrecoverable frame N: ... received < 111 needed" on a 1280x720@60
+		// stream), and this limiter's default 5000pps/burst-20 cap takes ~18ms
+		// to drain that alone -- longer than the ~16.7ms frame interval, so the
+		// backlog it creates never drains and keeps missing moonlight-common-c's
+		// FEC recovery window, which is what was actually forcing the repeated
+		// "no video frame ... forcing reconnect" cycle on desktop.
+		var limiter *rate.Limiter
+		if runtime.GOOS == "android" {
+			limiter = rate.NewLimiter(rate.Limit(5000), 20)
+		}
 		for {
 			select {
 			case <-p.ctx.Done():
@@ -367,7 +371,9 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				if !ok {
 					return
 				}
-				limiter.Wait(p.ctx)
+				if limiter != nil {
+					limiter.Wait(p.ctx)
+				}
 				ca := clientAddr.Load()
 				if ca != nil {
 					s2cCount++

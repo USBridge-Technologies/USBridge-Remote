@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -62,13 +63,20 @@ type App struct {
 	clipboard *clipboard.Manager
 	adminSrv  *adminapi.Server
 
-	// gpuClockLockedPid is the stream-host PID applyGPUClockLock last
-	// successfully armed the elevated lock daemon for, so repeated calls
-	// (the sunshineWatchdog re-invokes startSunshine every 15s) don't
-	// relaunch the elevated helper -- and pop a fresh UAC prompt -- for a
-	// PID it's already armed.
-	gpuClockMu        sync.Mutex
-	gpuClockLockedPid int
+	// gpuClockArmed records whether applyGPUClockLock has already launched
+	// the elevated lock daemon for this agent process, so repeated calls
+	// (the sunshineWatchdog re-invokes startSunshine every 15s, and every
+	// stream-host restart -- e.g. SetSunshineOutputName switching the
+	// captured monitor -- gets a brand new stream-host PID) don't relaunch
+	// the elevated helper, which would pop a fresh UAC prompt each time. The
+	// daemon watches this *agent's* PID (see applyGPUClockLock), not the
+	// stream host's, specifically so it only ever needs arming once per
+	// agent run regardless of how many times the stream host itself
+	// restarts -- a UAC prompt mid-switch can't be dismissed from a remote
+	// session (it runs on the secure desktop), so the whole point is to get
+	// consent once, up front, via the Permissions checkbox.
+	gpuClockMu    sync.Mutex
+	gpuClockArmed bool
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -283,6 +291,8 @@ func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	keepDisplayAwake(ctx)
+
 	log.Printf("[app] starting http=%s:%d headless=%v", a.cfg.EffectiveListenHost(), a.cfg.HTTPPort, headless)
 
 	a.startSunshine()
@@ -332,6 +342,46 @@ func (a *App) Run(headless bool) error {
 	go a.handleShutdown(ctx, cancel)
 	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
 	return nil
+}
+
+// keepDisplayAwake holds a system-wide power assertion for as long as the
+// agent runs, on macOS only. Without this, the only thing keeping the
+// display awake is Sunshine's own capture-session assertion (see
+// startSunshine's "Sunshine display capture" assertion) -- which only exists
+// once a capture session is already up, i.e. exactly when it's too late to
+// matter: if the display went to sleep (or the whole system slept) during
+// the idle stretch between the agent starting and the first incoming
+// connection, VTCompressionSessionCreate fails outright with "Cannot create
+// compression session: -12903" the moment Sunshine tries to start streaming,
+// because macOS revokes hardware H.264/HEVC encoder access while the display
+// isn't awake -- confirmed live against a Mac that had been running this
+// agent for ~21h idle: every hardware encoder creation attempt on the next
+// client connect failed with -12903 and streaming never started, while the
+// identical flow against a Windows/Linux host (software encode, no
+// "display must be awake" requirement) worked every time. That's also why it
+// silently looks like "no video" instead of an obvious error: the agent's
+// own HTTP API and Sunshine's process both stay up and keep answering
+// requests, so nothing about the connection *looks* down.
+//
+// Spawning `caffeinate` for the agent's own lifetime (rather than rolling a
+// cgo/IOKit power assertion) keeps this a plain subprocess, matching how the
+// rest of this package already shells out to tailscale/sunshine/ffmpeg.
+func keepDisplayAwake(ctx context.Context) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	// -d: prevent display sleep -- the one VTCompressionSessionCreate actually
+	// needs. -i: prevent idle system sleep too, so the display assertion is
+	// never moot because the whole machine suspended around it. -s: also
+	// prevent sleep on AC power, the ordinary configuration for a machine
+	// left set up as a remote host.
+	cmd := exec.CommandContext(ctx, "caffeinate", "-d", "-i", "-s")
+	if err := cmd.Start(); err != nil {
+		log.Printf("[app] warning: could not start caffeinate — display may sleep and break hardware video encoding: %v", err)
+		return
+	}
+	log.Printf("[app] caffeinate started (pid=%d) — preventing display/system sleep while the agent runs", cmd.Process.Pid)
+	go func() { _ = cmd.Wait() }()
 }
 
 func (a *App) startSunshine() {
@@ -795,12 +845,12 @@ func (a *App) LockGPUClocksEnabled() bool {
 }
 
 // SetLockGPUClocksEnabled persists the "Lock GPU clocks" setting and, if
-// turning it on while a stream host is already running, immediately arms the
-// lock for the current session (see applyGPUClockLock) instead of waiting
-// for the next restart. Turning it off does NOT tear down an already-running
-// lock daemon -- it only stops future session starts from spawning one; the
-// daemon watches the streaming host's own PID and exits on its own once that
-// process does, see permissions.Service.RequestGPUClockLock.
+// turning it on, immediately arms the lock (see applyGPUClockLock) instead of
+// waiting for the next stream-host start. Turning it off does NOT tear down
+// an already-armed lock daemon -- it only stops future arming; the daemon
+// watches this agent's own PID (not the stream host's -- see
+// applyGPUClockLock) and exits on its own once the agent process does, see
+// permissions.Service.RequestGPUClockLock.
 func (a *App) SetLockGPUClocksEnabled(enabled bool) error {
 	next := a.cfg
 	next.LockGPUClocksEnabled = enabled
@@ -813,20 +863,26 @@ func (a *App) SetLockGPUClocksEnabled(enabled bool) error {
 	return nil
 }
 
-// applyGPUClockLock launches the elevated GPU-clock-lock daemon for the
-// currently-running stream host, if the setting is enabled and supported on
-// this platform. Called after every a.stream.Start() -- but startSunshine()
-// itself is invoked unconditionally every sunshineWatchdogInterval (15s) and
-// is a no-op (still returns a nil error) whenever the stream host is already
-// running, so this guards against re-launching the elevated helper (and
-// popping a fresh UAC prompt) on every single watchdog tick: it only acts
-// the first time it sees a given stream host PID, tracked in
-// gpuClockLockedPid. The daemon watches that PID and exits on its own once
-// the process does, so a genuinely new PID (real restart, or crash+relaunch)
-// correctly gets re-armed; a still-running PID we already armed does not.
-// Errors (including a declined UAC prompt) are logged only, never fatal to
-// starting the stream itself, and deliberately leave gpuClockLockedPid
-// unset so the next tick retries instead of giving up silently forever.
+// applyGPUClockLock launches the elevated GPU-clock-lock daemon, if the
+// setting is enabled and supported on this platform, watching *this agent
+// process's own* PID rather than the stream host's. NVML's clock lock is
+// GPU-wide, not scoped to whichever process the daemon happens to watch --
+// watch-pid only exists so the daemon knows when to exit and release it --
+// so tying it to the agent's own (long-lived, restart-free) PID instead of
+// the stream host's means arming it once per agent run is enough: it keeps
+// holding the lock across every later stream-host restart (sunshineWatchdog
+// re-invoking startSunshine every 15s, or SetSunshineOutputName switching
+// the captured monitor, both of which hand the stream host a brand new PID)
+// without ever relaunching the elevated helper or popping a second UAC
+// prompt. That matters because a UAC prompt runs on the secure desktop and
+// can't be dismissed from a remote session -- switching monitors mid-stream
+// used to hard-lock the session behind an unreachable local prompt. The
+// trade-off: clocks now stay locked for as long as the agent runs with the
+// setting on, not just while a stream host happens to be alive.
+// gpuClockArmed guards against re-launching the helper (and prompting again)
+// on every call; errors (including a declined UAC prompt) are logged only,
+// never fatal to starting the stream, and deliberately leave gpuClockArmed
+// unset so the next call retries instead of giving up silently forever.
 func (a *App) applyGPUClockLock() {
 	if !a.cfg.LockGPUClocksEnabled || a.perms == nil || a.stream == nil {
 		return
@@ -835,22 +891,21 @@ func (a *App) applyGPUClockLock() {
 		return
 	}
 	binPath := a.stream.BinaryPath()
-	pid := a.stream.Pid()
-	if binPath == "" || pid == 0 {
+	if binPath == "" {
 		return
 	}
 	a.gpuClockMu.Lock()
-	alreadyArmed := a.gpuClockLockedPid == pid
+	alreadyArmed := a.gpuClockArmed
 	a.gpuClockMu.Unlock()
 	if alreadyArmed {
 		return
 	}
-	if err := a.perms.RequestGPUClockLock(binPath, pid); err != nil {
+	if err := a.perms.RequestGPUClockLock(binPath, os.Getpid()); err != nil {
 		log.Printf("[app] failed to lock GPU clocks: %v", err)
 		return
 	}
 	a.gpuClockMu.Lock()
-	a.gpuClockLockedPid = pid
+	a.gpuClockArmed = true
 	a.gpuClockMu.Unlock()
 }
 
