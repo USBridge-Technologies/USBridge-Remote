@@ -146,13 +146,18 @@ var captureModeLabels = map[string]string{
 	"":       "Portal",
 	"portal": "Portal",
 	"kms":    "KMS (root)",
+	"x11":    "X11",
 }
 
 func captureModeFromLabel(label string) string {
-	if label == "KMS (root)" {
+	switch label {
+	case "KMS (root)":
 		return "kms"
+	case "X11":
+		return "x11"
+	default:
+		return "portal"
 	}
-	return "portal"
 }
 
 // linuxCaptureUIEnabled reports whether the Screen Capture row should show
@@ -342,7 +347,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 		// Build without OnChanged so the initial SetSelected below (which Fyne
 		// fires through OnChanged like any other selection) doesn't trigger an
 		// unwanted sunshine.conf write on every app start.
-		w.screenCaptureSelect = widget.NewSelect([]string{"Portal", "KMS (root)"}, nil)
+		// X11 alongside Portal/KMS: Sunshine's KMS backend reads the DRM
+		// legacy CRTC/plane framebuffer fields, which the NVIDIA proprietary
+		// driver leaves unpopulated for any client that isn't the current
+		// DRM master -- normally whatever desktop session (Xorg) is already
+		// running (confirmed live: 12/12 planes and the connector's own
+		// encoder_id read back empty/zero on an otherwise fully working
+		// RTX 2080 Ti + driver 550 X11 session). KMS and Portal both fail
+		// in that situation; a direct X11 grab (XShm, no DRM ioctls at all)
+		// is the one capture path that still works on NVIDIA+Xorg.
+		w.screenCaptureSelect = widget.NewSelect([]string{"Portal", "KMS (root)", "X11"}, nil)
 		w.screenCaptureSelect.SetSelected(captureModeLabels[w.token.SunshineCaptureMode()])
 		w.screenCaptureSelect.OnChanged = w.applyCaptureMode
 		w.screenCaptureSelect.Resize(fyne.NewSize(120, 24))

@@ -28,9 +28,11 @@ import (
 type MoonlightService struct {
 	config *models.AppConfig
 
-	onFrameReceived func(image.Image)
-	onStateChanged  func(string)
-	onError         func(error)
+	onFrameReceived      func(image.Image)
+	onStateChanged       func(string)
+	onError              func(error)
+	onPairingPINRequired func(pin string) // fired when the usbridge auto-pair endpoint isn't available (e.g. a stock Sunshine/GameStream host) and the user must enter the PIN on the host themselves
+	onPairingPINResolved func()           // fired once Pair() returns (success or failure), so the UI can dismiss the PIN dialog raised via onPairingPINRequired
 
 	mu         sync.Mutex    // protects isRunning, connecting, stopPlayerCh, activeWrapper, abort
 	abort      chan struct{} // closed by Disconnect to cancel an in-progress ConnectToMoonlight
@@ -44,7 +46,7 @@ type MoonlightService struct {
 	// that has already moved on to (and possibly succeeded at) a newer
 	// attempt. Mirrors the liStreamGen guard already used at the CGO layer
 	// for the same reason.
-	connGen atomic.Uint64
+	connGen    atomic.Uint64
 	serverHost string
 	videoMode  string
 	width      int
@@ -201,10 +203,26 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 		time.Sleep(500 * time.Millisecond) // let Sunshine register the pending pairing
 
 		if submitErr := m.submitPinToService(pin); submitErr != nil {
-			logrus.Warnf("⚠️ [Moonlight] Auto-PIN failed (%v). Enter PIN manually on Sunshine host: %s", submitErr, pin)
+			// Not a usbridge agent (a stock Sunshine or real NVIDIA GameStream
+			// host returns 404 here -- it has no such endpoint at all): fall
+			// back to the standard Moonlight flow and let the human enter the
+			// PIN on the host themselves. m.client.Pair's getservercert
+			// request above is already blocked waiting for exactly that, so
+			// once the host operator accepts the PIN, pairErrCh below
+			// resolves and pairing completes with no further action here --
+			// same as the official Moonlight client against a host it isn't
+			// specially integrated with.
+			logrus.Warnf("⚠️ [Moonlight] Auto-PIN failed (%v). Enter PIN manually on host: %s", submitErr, pin)
+			if m.onPairingPINRequired != nil {
+				m.onPairingPINRequired(pin)
+			}
 		}
 
-		if err := <-pairErrCh; err != nil {
+		err = <-pairErrCh
+		if m.onPairingPINResolved != nil {
+			m.onPairingPINResolved()
+		}
+		if err != nil {
 			errStr := fmt.Errorf("pairing failed: %v", err)
 			logrus.Error(errStr)
 			if m.onError != nil {
@@ -764,6 +782,26 @@ func (m *MoonlightService) SetOnStateChanged(callback func(string)) {
 
 func (m *MoonlightService) SetOnError(callback func(error)) {
 	m.onError = callback
+}
+
+// SetOnPairingPINRequired registers a callback fired when this client's PIN
+// could not be auto-submitted to the host (the usbridge admin API's
+// /api/moonlight/pin endpoint returned an error -- e.g. HTTP 404 from a stock
+// Sunshine or real NVIDIA GameStream host, which has no such endpoint at
+// all). The callback receives the PIN so the UI can display it for the user
+// to type into the host's own pairing page, same as the official Moonlight
+// client against a host it isn't specially integrated with.
+func (m *MoonlightService) SetOnPairingPINRequired(callback func(pin string)) {
+	m.onPairingPINRequired = callback
+}
+
+// SetOnPairingPINResolved registers a callback fired once Pair() returns,
+// success or failure, so a PIN dialog raised via SetOnPairingPINRequired can
+// be dismissed. Always fires after onPairingPINRequired when pairing was
+// needed at all; never fires otherwise (already-paired hosts skip pairing
+// entirely).
+func (m *MoonlightService) SetOnPairingPINResolved(callback func()) {
+	m.onPairingPINResolved = callback
 }
 
 func (m *MoonlightService) IsConnected() bool {

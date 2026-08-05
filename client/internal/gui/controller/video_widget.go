@@ -15,6 +15,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -111,19 +112,20 @@ type VideoWidget struct {
 	// attempt starts.
 	videoSilenceReconnectFired atomic.Bool
 	fpsWindowStart             atomic.Int64 // for Go-level frame arrival FPS logging
-	metalFPSWarned       atomic.Bool  // gates the one-shot Metal FPS mismatch warning
-	isMetalFullscreen    atomic.Bool  // true while Metal overlay covers the full fullscreen window
-	onNativeReady        func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
-	lastVideoImgW        float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
-	lastVideoImgH        float32      // pixel height of the last decoded video frame
-	frameContentX        float32      // normalized active frame area on X without black bars
-	frameContentY        float32      // normalized active frame area on Y without black bars
-	frameContentW        float32      // normalized width of the active frame area
-	frameContentH        float32      // normalized height of the active frame area
+	metalFPSWarned             atomic.Bool  // gates the one-shot Metal FPS mismatch warning
+	isMetalFullscreen          atomic.Bool  // true while Metal overlay covers the full fullscreen window
+	onNativeReady              func()       // one-shot: called on main thread when native overlay (Metal/GL) is first created
+	lastVideoImgW              float32      // pixel width of the last decoded video frame (for resize recalc when frame=nil)
+	lastVideoImgH              float32      // pixel height of the last decoded video frame
+	frameContentX              float32      // normalized active frame area on X without black bars
+	frameContentY              float32      // normalized active frame area on Y without black bars
+	frameContentW              float32      // normalized width of the active frame area
+	frameContentH              float32      // normalized height of the active frame area
 
 	// Dialogs
 	fullscreenDialog      *FullscreenDialog
 	startDialog           *view.VideoStartDialog
+	pairingPINDialog      dialog.Dialog // shown by SetOnPairingPINRequired, dismissed by SetOnPairingPINResolved
 	parentWindow          fyne.Window
 	virtualKeyboard       *graphics.VirtualKeyboard
 	keyboardModifierState atomic.Int32

@@ -17,6 +17,14 @@ type VideoClient interface {
 	SetOnFrameReceived(callback func(image.Image))
 	SetOnStateChanged(callback func(string))
 	SetOnError(callback func(error))
+	// SetOnPairingPINRequired/SetOnPairingPINResolved: see MoonlightService's
+	// own doc comments. Together they bracket the window during which the
+	// UI should display the pairing PIN for the user to enter on the host
+	// themselves -- needed against any host that isn't this project's own
+	// agent (stock Sunshine, real NVIDIA GameStream), which has no endpoint
+	// to auto-submit the PIN to.
+	SetOnPairingPINRequired(callback func(pin string))
+	SetOnPairingPINResolved(callback func())
 
 	IsConnected() bool
 	GetStats() map[string]interface{}

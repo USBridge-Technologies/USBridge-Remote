@@ -61,6 +61,17 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 		videoClient.SetOnError(func(err error) {
 			logrus.Errorf("🎬 [VideoWidget] video error: %v", err)
 		})
+		videoClient.SetOnPairingPINRequired(func(pin string) {
+			logrus.Infof("🔐 [VideoWidget] showing manual pairing PIN (host has no usbridge auto-pair endpoint)")
+			fyne.Do(func() {
+				vw.showPairingPINDialog(pin)
+			})
+		})
+		videoClient.SetOnPairingPINResolved(func() {
+			fyne.Do(func() {
+				vw.dismissPairingPINDialog()
+			})
+		})
 	}
 
 	vw.createInterface()

@@ -374,6 +374,12 @@ type LocalizedStrings struct {
 	PCPanelPowerLED              string // "Power LED"
 	PCPanelHDDLED                string // "HDD LED"
 	PCPanelLongPressNotSupported string // "Long press: will be supported in future"
+
+	// Moonlight manual pairing (shown when the host has no usbridge auto-pair
+	// endpoint -- a stock Sunshine or real NVIDIA GameStream host)
+	PairingPINTitle   string // "Pairing Required"
+	PairingPINMessage string // "Enter this PIN on your host's pairing page:"
+	PairingPINWaiting string // "Waiting for the host to accept it..."
 }
 
 // EN returns English localization
@@ -749,6 +755,11 @@ func EN() *LocalizedStrings {
 		PCPanelPowerLED:              "Power LED",
 		PCPanelHDDLED:                "HDD LED",
 		PCPanelLongPressNotSupported: "Long press: will be supported in future",
+
+		// Moonlight manual pairing
+		PairingPINTitle:   "Pairing Required",
+		PairingPINMessage: "Enter this PIN on your host's pairing page:",
+		PairingPINWaiting: "Waiting for the host to accept it...",
 	}
 }
 
