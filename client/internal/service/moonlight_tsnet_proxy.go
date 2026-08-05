@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -278,8 +279,12 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 
 	logrus.Infof("🌕 [Moonlight/Proxy] UDP proxy: 127.0.0.1:%d ↔ tsnet ↔ %s", localPort, serverAddr)
 
-	var clientAddr *net.UDPAddr
-	var clientMu sync.Mutex
+	// clientAddr is written on every inbound client packet and read on every
+	// outbound one (the s→c write goroutine below) -- both video-direction
+	// hot paths processing hundreds of packets per keyframe burst.
+	// atomic.Pointer avoids a lock/unlock pair per packet on that path while
+	// keeping the same one-writer/many-readers safety a mutex gave it.
+	var clientAddr atomic.Pointer[net.UDPAddr]
 
 	// client → server (pings + control data)
 	go func() {
@@ -300,9 +305,7 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 				}
 			}
 			if n > 0 {
-				clientMu.Lock()
-				clientAddr = addr
-				clientMu.Unlock()
+				clientAddr.Store(addr)
 				c2sCount++
 				if c2sCount <= 3 || c2sCount%200 == 0 {
 					logrus.Infof("🌕 [Moonlight/Proxy] c→s serverPort=%d pkt#%d %d bytes from %s", serverPort, c2sCount, n, addr)
@@ -343,10 +346,19 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 	// Write goroutine
 	go func() {
 		s2cCount := 0
-		// Pace packets to avoid overflowing Android's 127.0.0.1 UDP socket buffer.
-		// Limit to ~5000 packets/sec (approx 40 Mbps).
-		// Burst size 20 to allow small clumps but strictly prevent huge 300KB bursts.
-		limiter := rate.NewLimiter(rate.Limit(5000), 20)
+		// Pace packets to protect Android's 127.0.0.1 UDP socket buffer from a
+		// truly pathological burst -- but the real destination isn't an OS
+		// default-sized buffer: moonlight-common-c's VideoStream.c sizes its
+		// RTP socket's SO_RCVBUF for RTP_RECV_PACKETS_BUFFERED=2048 packets
+		// specifically to absorb a full keyframe burst in one shot. A burst=20
+		// limiter fighting a receiver engineered for 2048 was pure added
+		// latency: a 600-900 packet keyframe (this stream's FEC settings can
+		// push it higher) got throttled to a steady trickle over 120ms+
+		// instead of landing in the one syscall burst the receiver was sized
+		// for. Raised to comfortably clear the largest realistic keyframe
+		// (up to 80% FEC redundancy, see rust-shine's adaptive_fec_percentage)
+		// while the rate cap remains as a backstop against runaway senders.
+		limiter := rate.NewLimiter(rate.Limit(20000), 2000)
 		for {
 			select {
 			case <-p.ctx.Done():
@@ -356,9 +368,7 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 					return
 				}
 				limiter.Wait(p.ctx)
-				clientMu.Lock()
-				ca := clientAddr
-				clientMu.Unlock()
+				ca := clientAddr.Load()
 				if ca != nil {
 					s2cCount++
 					if s2cCount <= 3 || s2cCount%200 == 0 {

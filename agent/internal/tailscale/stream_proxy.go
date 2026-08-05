@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -298,12 +299,35 @@ func (p *StreamProxy) startUDPRelay(port int) {
 		return
 	}
 
-	var (
-		remoteAddr net.Addr
-		remoteMu   sync.Mutex
-	)
+	// Match the client's moonlight_tsnet_proxy.go buffer sizing (see its
+	// createServerUDPProxy): a Sunshine keyframe lands as a burst of
+	// 200-600+ RTP packets sent back-to-back in single-digit milliseconds
+	// (see pipeline's "packetize_us"/"send_us" timing). The OS default UDP
+	// receive buffer (~208KB on Linux) can't absorb that burst, so without
+	// this the kernel silently drops the tail of every keyframe here —
+	// before it ever reaches tsnet — which is exactly the "received < N
+	// needed" FEC-unrecoverable pattern seen client-side. Widening the
+	// buffer alone doesn't fix it though; see the read/write split below.
+	local.SetReadBuffer(4194304)
+	local.SetWriteBuffer(4194304)
+	if sb, ok := pc.(interface{ SetReadBuffer(int) error }); ok {
+		sb.SetReadBuffer(4194304)
+	}
+	if sb, ok := pc.(interface{ SetWriteBuffer(int) error }); ok {
+		sb.SetWriteBuffer(4194304)
+	}
 
-	// remote (tsnet) → local (Sunshine)
+	// remoteAddr is written on every inbound client packet and read on every
+	// outbound one -- both video-direction hot paths (see pumpBurstTolerant
+	// below). A sync.Mutex lock/unlock pair per packet is cheap in absolute
+	// terms but still a needless syscall-adjacent op on a path processing
+	// hundreds of packets in single-digit milliseconds during a keyframe
+	// burst; atomic.Pointer gives the same one-writer/many-readers safety
+	// with a lock-free read.
+	var remoteAddr atomic.Pointer[net.Addr]
+
+	// remote (tsnet) → local (Sunshine): client pings and RTCP feedback,
+	// low volume and never bursty — a plain synchronous relay is fine.
 	go func() {
 		buf := make([]byte, 65536)
 		for {
@@ -319,44 +343,114 @@ func (p *StreamProxy) startUDPRelay(port int) {
 				return
 			}
 			if n > 0 {
-				remoteMu.Lock()
-				remoteAddr = addr
-				remoteMu.Unlock()
+				remoteAddr.Store(&addr)
 				local.WriteToUDP(buf[:n], backendAddr) //nolint:errcheck
 			}
 		}
 	}()
 
-	// local (Sunshine) → remote (tsnet)
-	go func() {
-		buf := make([]byte, 65536)
+	// local (Sunshine) → remote (tsnet): the video/audio RTP direction,
+	// where keyframe bursts happen. A single goroutine doing
+	// read-then-synchronously-push-through-tsnet couples the read rate to
+	// however long pc.WriteTo takes (userspace WireGuard encryption +
+	// netstack queueing, not a cheap syscall) — during a burst that stalls
+	// draining the kernel socket and the widened buffer above just delays
+	// the same overflow instead of preventing it. Splitting into a fast
+	// read loop feeding a buffered channel, drained by a separate write
+	// goroutine, decouples the two so a slow tsnet write never blocks the
+	// socket read — same shape as the client's s2cQueue for its mirror-image
+	// bottleneck (its downstream 127.0.0.1 loopback to the video decoder).
+	const relayQueueDepth = 4096
+	go pumpBurstTolerant(func(buf []byte) (int, error) {
 		for {
 			n, _, err := local.ReadFromUDP(buf)
-			if err != nil {
-				select {
-				case <-p.ctx.Done():
-					return
-				default:
-				}
-				if errors.Is(err, net.ErrClosed) {
-					return
-				}
-				// ECONNREFUSED from an ICMP port-unreachable while Sunshine's
-				// own RTP socket for this session is still binding is a
-				// startup race, not a permanent failure — keep retrying
-				// (same fix as the client's tsnet proxy). On an unconnected
-				// socket this practically never fires (see the comment on
-				// `local`'s creation above) but costs nothing to keep.
-				continue
+			if err == nil {
+				return n, nil
 			}
-			if n > 0 {
-				remoteMu.Lock()
-				ra := remoteAddr
-				remoteMu.Unlock()
-				if ra != nil {
-					pc.WriteTo(buf[:n], ra) //nolint:errcheck
-				}
+			select {
+			case <-p.ctx.Done():
+				return 0, err
+			default:
 			}
+			if errors.Is(err, net.ErrClosed) {
+				return 0, err
+			}
+			// ECONNREFUSED from an ICMP port-unreachable while Sunshine's
+			// own RTP socket for this session is still binding is a
+			// startup race, not a permanent failure — keep retrying (same
+			// fix as the client's tsnet proxy). On an unconnected socket
+			// this practically never fires (see the comment on `local`'s
+			// creation above) but costs nothing to keep.
+		}
+	}, func(packet []byte) {
+		if ra := remoteAddr.Load(); ra != nil {
+			pc.WriteTo(packet, *ra) //nolint:errcheck
+		}
+	}, relayQueueDepth, func(dropped int) {
+		if dropped <= 5 || dropped%200 == 0 {
+			logrus.Warnf("🛰️ [StreamProxy] udp :%d DROPPED packet, relayQueue full (#%d)", port, dropped)
+		}
+	})
+}
+
+// pumpBurstTolerant decouples a synchronous read loop from a synchronous
+// write loop via a bounded channel, so a burst of reads arriving faster than
+// write can drain doesn't block read — which would otherwise let the OS-level
+// receive buffer upstream of read overflow and silently drop datagrams before
+// this code ever sees them. See startUDPRelay's "local (Sunshine) → remote
+// (tsnet)" comment for the concrete keyframe-burst failure this fixes.
+//
+// read is called repeatedly, filling buf and returning the byte count; it
+// must handle its own transient-error retries internally (via its own loop)
+// and only return a non-nil error to signal the pump should stop. Each
+// returned packet is hard-copied out of buf (via a rotating slab, to avoid
+// a per-packet allocation) and queued for write on a separate goroutine.
+//
+// When the queue is full (write can't keep up), the packet is dropped and
+// onDrop is invoked with the running drop count instead of blocking read —
+// for a live RTP stream, timeliness for packets that do get through matters
+// far more than never dropping one.
+//
+// Returns once read returns a non-nil error, after the write goroutine has
+// drained and exited.
+func pumpBurstTolerant(read func(buf []byte) (int, error), write func(packet []byte), queueDepth int, onDrop func(dropped int)) {
+	queue := make(chan []byte, queueDepth)
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for packet := range queue {
+			write(packet)
 		}
 	}()
+
+	const slabSize = 1 << 20 // 1MB, sized well above any single RTP datagram
+	slab := make([]byte, slabSize)
+	slabOffset := 0
+	dropped := 0
+	for {
+		if slabOffset+2048 > slabSize {
+			slab = make([]byte, slabSize)
+			slabOffset = 0
+		}
+		buf := slab[slabOffset : slabOffset+2048]
+		n, err := read(buf)
+		if err != nil {
+			break
+		}
+		if n == 0 {
+			continue
+		}
+		packet := buf[:n]
+		slabOffset += n
+		select {
+		case queue <- packet:
+		default:
+			dropped++
+			if onDrop != nil {
+				onDrop(dropped)
+			}
+		}
+	}
+	close(queue)
+	<-writerDone
 }

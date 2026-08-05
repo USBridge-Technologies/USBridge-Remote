@@ -120,6 +120,27 @@ func (mw *MainWindow) resolveBootstrapHost(host string) string {
 	return ""
 }
 
+// connectionRecoveryRetryDelays is the backoff schedule
+// tryRecoverConnectionAfterLoss waits through after a transport loss before
+// giving up and tearing down the connection.
+//
+// This must comfortably outlast a real Tailscale/tsnet re-establishment
+// after a client-side network path change (Wi-Fi<->cellular handoff, AP
+// roam, DHCP renewal): observed field logs on Android show the netcheck
+// (probing every DERP region) plus WireGuard re-handshake taking 15-30s
+// after such a blip. The previous {1,2,5}s schedule (~8s budget) gave up
+// while tsnet was still mid-reconnect, surfacing every transient network
+// hiccup as a full "connection lost" dialog requiring the user to manually
+// reconnect -- see the investigation this schedule was widened for.
+var connectionRecoveryRetryDelays = []time.Duration{
+	1 * time.Second,
+	2 * time.Second,
+	4 * time.Second,
+	8 * time.Second,
+	15 * time.Second,
+	20 * time.Second,
+}
+
 func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastErr error) bool {
 	if client == nil || client != mw.usbClient || !mw.isConnected {
 		return false
@@ -132,7 +153,7 @@ func (mw *MainWindow) tryRecoverConnectionAfterLoss(client *api.USBClient, lastE
 
 	logrus.Infof("🔄 Attempting automatic connection recovery for host=%s protocol=%s", mw.hostEntry.Text, protocol)
 
-	retryDelays := []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second}
+	retryDelays := connectionRecoveryRetryDelays
 	for attempt, delay := range retryDelays {
 		if !mw.isConnected || client != mw.usbClient || mw.isClosing.Load() {
 			return false
