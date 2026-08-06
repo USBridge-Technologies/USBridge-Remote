@@ -1004,6 +1004,72 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
+    /**
+     * Self-update (internal/update/apply_android.go): path must already be
+     * a file this app owns (the update package downloads it under its own
+     * cache/temp dir — see file_paths.xml's cache-path covering the whole
+     * cache dir, same as clipboardSetFile above), already verified against
+     * the Ed25519-signed manifest's SHA-256 by the time this is called.
+     * Hands it to the system PackageInstaller directly via a content://
+     * URI (F-Droid's approach) instead of redirecting to a browser
+     * download — the OS still independently enforces that the APK is
+     * signed with the same signing certificate as the currently-installed
+     * app before it lets the install proceed, so this doesn't weaken that
+     * guarantee, it just skips a redundant manual re-download.
+     */
+    fun installApk(path: String): Boolean {
+        return try {
+            val file = java.io.File(path)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "io.usbridge.client.fileprovider", file
+            )
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "installApk failed", e)
+            false
+        }
+    }
+
+    /**
+     * Android 8+ (API 26+) requires this app to hold the
+     * REQUEST_INSTALL_PACKAGES permission — granted per-app by the user
+     * via Settings, not a runtime prompt — before the PackageInstaller
+     * will accept an APK installApk hands it. Pre-8 devices have no such
+     * per-app grant (just a single global "Unknown sources" toggle the
+     * installer itself prompts for), so this is vacuously true there.
+     */
+    fun canRequestPackageInstalls(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Opens this app's "Install unknown apps" settings screen so the user
+     * can grant REQUEST_INSTALL_PACKAGES — there is no runtime permission
+     * dialog for it, Settings is the only way. No-op before API 26 (see
+     * canRequestPackageInstalls).
+     */
+    fun requestInstallPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        }
+    }
+
     private fun queryDisplayName(uri: Uri): String? {
         return try {
             contentResolver.query(uri, null, null, null, null)?.use { cursor ->

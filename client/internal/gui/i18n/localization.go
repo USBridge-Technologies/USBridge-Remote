@@ -214,10 +214,12 @@ type LocalizedStrings struct {
 	ConnectionTitle              string
 
 	// Auto-update
-	UpdateAvailableTitle   string
-	UpdateAvailableMessage string // %s = new version, %s = current version
-	UpdateNowButton        string
-	UpdateLaterButton      string
+	UpdateAvailableTitle     string
+	UpdateAvailableMessage   string // %s = new version, %s = current version
+	UpdateNowButton          string
+	UpdateLaterButton        string
+	UpdateDownloadingTitle   string
+	UpdateDownloadingMessage string // %s = new version
 
 	// Video Settings/Dialogs
 	VideoQualitySettings string
@@ -601,10 +603,12 @@ func EN() *LocalizedStrings {
 		ConnectionTitle:              "Connection",
 
 		// Auto-update
-		UpdateAvailableTitle:   "Update Available",
-		UpdateAvailableMessage: "Version %s is available (you have %s). Update now?",
-		UpdateNowButton:        "Update",
-		UpdateLaterButton:      "Not Now",
+		UpdateAvailableTitle:     "Update Available",
+		UpdateAvailableMessage:   "Version %s is available (you have %s). Update now?",
+		UpdateNowButton:          "Update",
+		UpdateLaterButton:        "Not Now",
+		UpdateDownloadingTitle:   "Updating…",
+		UpdateDownloadingMessage: "Downloading version %s…",
 
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
@@ -842,6 +846,8 @@ func ES() *LocalizedStrings {
 	locale.UpdateAvailableMessage = "La version %s esta disponible (tienes %s). Actualizar ahora?"
 	locale.UpdateNowButton = "Actualizar"
 	locale.UpdateLaterButton = "Ahora no"
+	locale.UpdateDownloadingTitle = "Actualizando…"
+	locale.UpdateDownloadingMessage = "Descargando la version %s…"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
 	locale.FrameRate = "Frecuencia"
@@ -983,6 +989,8 @@ func UKProper() *LocalizedStrings {
 	locale.UpdateAvailableMessage = "Доступна версія %s (у вас %s). Оновити зараз?"
 	locale.UpdateNowButton = "Оновити"
 	locale.UpdateLaterButton = "Не зараз"
+	locale.UpdateDownloadingTitle = "Оновлення…"
+	locale.UpdateDownloadingMessage = "Завантаження версії %s…"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"

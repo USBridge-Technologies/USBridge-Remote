@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -412,5 +413,172 @@ func TestWatchProcessExit_DoesNotFireOnExitForStaleCmd(t *testing.T) {
 
 	if fired {
 		t.Error("onExit must not fire for a stale/replaced cmd's exit")
+	}
+}
+
+// sunshineDataDir must never collide with legacyDataDir (Sunshine's own
+// generic per-OS default, e.g. $HOME/.config/sunshine) — that collision,
+// shared with any independently-installed standalone Sunshine on the same
+// machine, is the actual reported bug this whole change fixes.
+func TestSunshineDataDir_NeverSharedWithLegacyDefault(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacyDataDir keys off b.windowsDir on Windows, not $HOME — trivially distinct from stateDir/sunshine by construction there")
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	b := &sunshineBackend{stateDir: t.TempDir()}
+	if got, legacy := b.sunshineDataDir(), b.legacyDataDir(); got == legacy {
+		t.Fatalf("sunshineDataDir() must never equal legacyDataDir(), both were %q", got)
+	}
+	if !strings.HasPrefix(b.sunshineDataDir(), b.stateDir) {
+		t.Errorf("sunshineDataDir() = %q, want it nested under this agent's own stateDir %q", b.sunshineDataDir(), b.stateDir)
+	}
+}
+
+// The config-file path must be sunshineConfigArgs' first element — verified
+// against the actual bundled Sunshine binary that passing it after --creds
+// silently drops it (CLI11 swallows it as extra input to --creds instead of
+// the separate positional config argument) and every path falls back to
+// Sunshine's own default directory, defeating the whole point of this
+// isolation. See sunshineConfigArgs' doc comment.
+func TestSunshineConfigArgs_ConfigPathFirstThenIsolatedOverrides(t *testing.T) {
+	b := &sunshineBackend{stateDir: t.TempDir()}
+	args := b.sunshineConfigArgs()
+
+	wantLen := 6 // config path + 5 "key=value" overrides
+	if len(args) != wantLen {
+		t.Fatalf("sunshineConfigArgs() = %v, want %d elements", args, wantLen)
+	}
+	if args[0] != b.ConfigPath() {
+		t.Errorf("args[0] = %q, want the config path %q (must be first, see doc comment)", args[0], b.ConfigPath())
+	}
+
+	dataDir := b.sunshineDataDir()
+	wantPrefixes := []string{"credentials_file=", "file_apps=", "log_path=", "pkey=", "cert="}
+	for i, prefix := range wantPrefixes {
+		got := args[i+1]
+		if !strings.HasPrefix(got, prefix) {
+			t.Errorf("args[%d] = %q, want prefix %q", i+1, got, prefix)
+			continue
+		}
+		if path := strings.TrimPrefix(got, prefix); !strings.HasPrefix(path, dataDir) {
+			t.Errorf("args[%d] = %q, want its path under sunshineDataDir() %q", i+1, got, dataDir)
+		}
+	}
+}
+
+// A backend with no stateDir (shouldn't happen via NewSunshine in practice,
+// but defensive) must produce no args at all rather than a partially-built
+// command line pointing at "" paths.
+func TestSunshineConfigArgs_EmptyWithoutStateDir(t *testing.T) {
+	b := &sunshineBackend{}
+	if args := b.sunshineConfigArgs(); args != nil {
+		t.Errorf("sunshineConfigArgs() with no stateDir = %v, want nil", args)
+	}
+}
+
+// The core migration guarantee: an upgrading install's existing
+// config/credentials get copied into the new isolated sunshineDataDir, and
+// the original legacy location is left completely untouched — required
+// both to preserve existing pairings across the upgrade and, more
+// importantly, because legacyDataDir might actually belong to a separate,
+// independent Sunshine install rather than this agent's own prior data (the
+// exact scenario the bug report describes), so it must never be modified.
+func TestMigrateLegacyData_CopiesWithoutTouchingOriginal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacyDataDir keys off b.windowsDir on Windows, not $HOME")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	legacyDir := filepath.Join(fakeHome, ".config", "sunshine")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const wantConf = "port = 47989\n"
+	if err := os.WriteFile(filepath.Join(legacyDir, "sunshine.conf"), []byte(wantConf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const wantState = `{"username":"sunshine"}`
+	if err := os.WriteFile(filepath.Join(legacyDir, "sunshine_state.json"), []byte(wantState), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &sunshineBackend{stateDir: t.TempDir()}
+	b.migrateLegacyData()
+
+	gotConf, err := os.ReadFile(b.ConfigPath())
+	if err != nil {
+		t.Fatalf("migrated sunshine.conf missing: %v", err)
+	}
+	if string(gotConf) != wantConf {
+		t.Errorf("migrated sunshine.conf = %q, want %q", gotConf, wantConf)
+	}
+	gotState, err := os.ReadFile(b.credentialsFilePath())
+	if err != nil {
+		t.Fatalf("migrated sunshine_state.json missing: %v", err)
+	}
+	if string(gotState) != wantState {
+		t.Errorf("migrated sunshine_state.json = %q, want %q", gotState, wantState)
+	}
+
+	// The original must be untouched — same content, still there.
+	origConf, err := os.ReadFile(filepath.Join(legacyDir, "sunshine.conf"))
+	if err != nil || string(origConf) != wantConf {
+		t.Errorf("legacy sunshine.conf must remain untouched: content=%q err=%v", origConf, err)
+	}
+}
+
+// No legacy data to migrate (fresh install, or a machine that never had
+// Sunshine's default location populated) must be a silent no-op, not an
+// error or a panic.
+func TestMigrateLegacyData_NoopWhenNothingToMigrate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacyDataDir keys off b.windowsDir on Windows, not $HOME")
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	b := &sunshineBackend{stateDir: t.TempDir()}
+	b.migrateLegacyData()
+
+	if _, err := os.Stat(b.ConfigPath()); err == nil {
+		t.Error("expected no sunshine.conf to appear when there was nothing to migrate")
+	}
+}
+
+// Once sunshineDataDir already has its own sunshine.conf (already migrated,
+// or a fresh install that already ran once), migrateLegacyData must not
+// overwrite it — even if a legacy location also happens to exist (e.g. a
+// separate standalone Sunshine install that appeared after this agent had
+// already started using its own isolated directory).
+func TestMigrateLegacyData_NoopWhenAlreadyMigrated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("legacyDataDir keys off b.windowsDir on Windows, not $HOME")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	legacyDir := filepath.Join(fakeHome, ".config", "sunshine")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "sunshine.conf"), []byte("port = 11111\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &sunshineBackend{stateDir: t.TempDir()}
+	if err := os.MkdirAll(b.sunshineDataDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const alreadyThere = "port = 47989\n"
+	if err := os.WriteFile(b.ConfigPath(), []byte(alreadyThere), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b.migrateLegacyData()
+
+	got, err := os.ReadFile(b.ConfigPath())
+	if err != nil || string(got) != alreadyThere {
+		t.Errorf("already-migrated sunshine.conf must not be overwritten: content=%q err=%v", got, err)
 	}
 }

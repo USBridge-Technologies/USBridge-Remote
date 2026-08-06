@@ -1,47 +1,183 @@
 package streamhost
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 )
 
-// ConfigPath returns the default sunshine.conf location Sunshine uses when
-// launched without an explicit config argument (matches Sunshine's own
-// platf::appdata() resolution: $HOME/.config/sunshine/sunshine.conf on Linux).
+// sunshineDataDir is where this agent keeps EVERY file its managed Sunshine
+// reads or writes — config, web-UI credentials, paired-app list, TLS
+// keypair, and Sunshine's own internal log — under the agent's own stateDir
+// (e.g. ~/Library/Application Support/usbridge-agent/sunshine on macOS,
+// %AppData%\usbridge-agent\sunshine on Windows), never Sunshine's own
+// generic per-OS default ($HOME/.config/sunshine, or a location relative to
+// wherever sunshine.exe happens to be running from).
+//
+// This is the fix for a real, reported bug: Sunshine's own default config
+// resolution has no idea it's running bundled inside USBridge Agent — if a
+// user separately/independently installs standalone Sunshine on the same
+// machine, both processes' default paths collide, and closing one and
+// starting the other silently overwrites the other's web UI password and
+// settings. stateDir's directory name ("usbridge-agent") is unique to this
+// app, so nothing else can ever default to the same place.
+func (b *sunshineBackend) sunshineDataDir() string {
+	if b.stateDir == "" {
+		return ""
+	}
+	return filepath.Join(b.stateDir, "sunshine")
+}
+
+// ConfigPath returns where this agent keeps sunshine.conf — always inside
+// sunshineDataDir, passed to Sunshine explicitly as its positional config
+// argument on every launch (see sunshineConfigArgs) rather than relying on
+// Sunshine's own default resolution.
 func (b *sunshineBackend) ConfigPath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "sunshine.conf")
+}
+
+// credentialsFilePath is where this agent keeps sunshine_state.json (web UI
+// username/password + pairing state) — passed explicitly via Sunshine's
+// "credentials_file=" config override. Without this override, Sunshine
+// writes sunshine_state.json to its own default appdata() directory
+// *regardless* of the config file path given on the command line (verified
+// against the actual bundled binary — the positional config argument alone
+// is not enough), so this one matters just as much as ConfigPath itself for
+// actually fixing the collision.
+func (b *sunshineBackend) credentialsFilePath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "sunshine_state.json")
+}
+
+// appsFilePath is where this agent keeps apps.json (the Moonlight app/game
+// list) — passed explicitly via Sunshine's "file_apps=" config override,
+// for the same reason as credentialsFilePath.
+func (b *sunshineBackend) appsFilePath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "apps.json")
+}
+
+// pkeyPath/certPath are where this agent keeps the TLS keypair Sunshine
+// generates for its HTTPS web UI/streaming — passed explicitly via
+// Sunshine's "pkey="/"cert=" config overrides, for the same reason as
+// credentialsFilePath.
+func (b *sunshineBackend) pkeyPath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "pkey.pem")
+}
+
+func (b *sunshineBackend) certPath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "cert.pem")
+}
+
+// LogPath returns where this agent keeps Sunshine's own internal
+// sunshine.log — always alongside sunshine.conf, passed explicitly via
+// Sunshine's "log_path=" config override (see sunshineConfigArgs). Distinct
+// from b.logPath, which is this agent's own capture of Sunshine's OS-level
+// stdout/stderr (see Start).
+func (b *sunshineBackend) LogPath() string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "sunshine.log")
+}
+
+// sunshineConfigArgs returns the CLI arguments that pin every file this
+// agent's managed Sunshine reads or writes to sunshineDataDir(), instead of
+// Sunshine's own default resolution. Order matters: verified against the
+// actual bundled binary, the config-file path must be the *first*
+// argument — passing it after --creds silently drops it (CLI11 swallows it
+// as extra input to --creds instead of the separate positional config
+// argument), and everything falls back to Sunshine's own default directory.
+// The "name=value" overrides can follow in any order.
+func (b *sunshineBackend) sunshineConfigArgs() []string {
+	dir := b.sunshineDataDir()
+	if dir == "" {
+		return nil
+	}
+	return []string{
+		b.ConfigPath(),
+		"credentials_file=" + b.credentialsFilePath(),
+		"file_apps=" + b.appsFilePath(),
+		"log_path=" + b.LogPath(),
+		"pkey=" + b.pkeyPath(),
+		"cert=" + b.certPath(),
+	}
+}
+
+// legacyDataDir returns the directory this agent's managed Sunshine used to
+// default to before sunshineDataDir existed — the same generic per-OS
+// location an independently-installed standalone Sunshine also defaults
+// to, which is exactly the bug sunshineDataDir fixes. Used only by
+// migrateLegacyData, to give upgrading installs (which had no choice but to
+// use this shared location) a one-time, copy-only path forward without
+// losing existing pairings/settings.
+func (b *sunshineBackend) legacyDataDir() string {
 	if runtime.GOOS == "windows" {
 		if b.windowsDir == "" {
 			return ""
 		}
-		return filepath.Join(b.windowsDir, "config", "sunshine.conf")
+		return filepath.Join(b.windowsDir, "config")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		return ""
 	}
-	switch runtime.GOOS {
-	case "linux":
-		return filepath.Join(home, ".config", "sunshine", "sunshine.conf")
-	case "darwin":
-		return filepath.Join(home, ".config", "sunshine", "sunshine.conf")
-	default:
-		return ""
-	}
+	return filepath.Join(home, ".config", "sunshine")
 }
 
-// LogPath returns the default sunshine.log location Sunshine writes to
-// alongside sunshine.conf (same appdata() dir, see ConfigPath) when launched
-// without an explicit log path override. This also covers Windows: the
-// portable build's config dir (windowsDir/config) holds both sunshine.conf
-// and sunshine.log, so deriving from ConfigPath works there too.
-func (b *sunshineBackend) LogPath() string {
-	dir := filepath.Dir(b.ConfigPath())
-	if dir == "" || dir == "." {
-		return ""
+// migrateLegacyData copies this agent's pre-existing Sunshine state from
+// legacyDataDir into sunshineDataDir, once, the first time sunshineDataDir
+// doesn't have a config yet — so upgrading installs keep their existing
+// pairings/settings instead of silently starting fresh. Deliberately a
+// *copy*, never a move or delete: legacyDataDir is a generic shared
+// location, so on a machine where it's actually a separate, independent
+// Sunshine install rather than this agent's own prior data, leaving it
+// completely untouched is what avoids the exact bug this whole change
+// fixes. Best-effort — any failure is logged and otherwise ignored, since
+// falling back to a fresh Sunshine state is always safe, just less
+// convenient than migrating.
+func (b *sunshineBackend) migrateLegacyData() {
+	newDir := b.sunshineDataDir()
+	oldDir := b.legacyDataDir()
+	if newDir == "" || oldDir == "" || oldDir == newDir {
+		return
 	}
-	return filepath.Join(dir, "sunshine.log")
+	if _, err := os.Stat(filepath.Join(newDir, "sunshine.conf")); err == nil {
+		return // already migrated (or already a fresh install of the new layout)
+	}
+	if _, err := os.Stat(filepath.Join(oldDir, "sunshine.conf")); err != nil {
+		return // nothing to migrate
+	}
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		log.Printf("[sunshine] could not create %s for legacy data migration: %v", newDir, err)
+		return
+	}
+	if err := copyDir(oldDir, newDir); err != nil {
+		log.Printf("[sunshine] legacy data migration from %s to %s failed (starting fresh): %v", oldDir, newDir, err)
+		return
+	}
+	log.Printf("[sunshine] migrated existing config/credentials/apps from %s to %s (leaving the original in place)", oldDir, newDir)
 }
 
 // SetConfigKey upserts a single "key = value" line in sunshine.conf.

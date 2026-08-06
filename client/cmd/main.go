@@ -110,8 +110,18 @@ func main() {
 				logrus.Info("update declined by user")
 				return
 			}
+			// A progress dialog while this downloads — a silent update
+			// that just sits there with no visible activity is
+			// indistinguishable from having frozen.
+			progress := mainWindow.ShowUpdateProgressDialog(manifest.Version)
 			go func() {
-				if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+				err := update.DownloadAndApply(context.Background(), manifest, progress.Update)
+				// A successful apply on desktop relaunches the app and
+				// never returns here at all — reaching this point means
+				// it didn't, so the dialog needs to be dismissed instead
+				// of sitting there looking stuck.
+				progress.Close()
+				if err != nil {
 					logrus.Errorf("failed to apply update: %v", err)
 				}
 			}()

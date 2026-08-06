@@ -71,9 +71,16 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 // (already signature-verified by Check), verifies its SHA-256, and applies
 // it in place — replacing this install and re-launching the new binary.
 // Only call this once the update has been approved; Check itself never
-// applies anything. A successful apply never returns — it hands off to a
-// helper/relaunch and calls os.Exit itself.
-func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
+// applies anything.
+//
+// onProgress, if non-nil, is called periodically during the download with
+// bytes-downloaded/total — see ProgressFunc's doc comment for threading
+// rules. Pass nil for a launch path with no UI to report to (e.g.
+// CheckAndApply below, used for the --headless service mode).
+//
+// A successful apply never returns — it hands off to a helper/relaunch and
+// calls os.Exit itself.
+func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress ProgressFunc) error {
 	log := logrus.WithField("component", "update")
 
 	asset, ok := manifest.Platforms[platformKey()]
@@ -90,7 +97,7 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
 	defer dlCancel()
 
 	dlClient := &http.Client{Timeout: 0} // context governs the overall deadline; large files stream
-	path, err := downloadArtifact(dlCtx, dlClient, releaseAssetURL(asset.Asset), asset.SHA256)
+	path, err := downloadArtifact(dlCtx, dlClient, releaseAssetURL(asset.Asset), asset.SHA256, onProgress)
 	if err != nil {
 		return fmt.Errorf("download/verify update: %w", err)
 	}
@@ -102,19 +109,20 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
 	return nil
 }
 
-// CheckAndApply is Check followed immediately by DownloadAndApply with no
-// user confirmation in between — used only for the agent's --headless
-// service launch, which has no GUI to ask through. Every failure is logged
-// and swallowed so the current, already-running version starts up exactly
-// as if this package didn't exist. Non-headless launches use Check +
-// DownloadAndApply directly, gated on a confirm dialog — see
-// internal/app.Start and internal/ui's ShowAndRun.
+// CheckAndApply is Check followed immediately by DownloadAndApply (no
+// progress reporting, no user confirmation in between) — used only for the
+// agent's --headless service launch, which has no GUI to ask/report
+// through. Every failure is logged and swallowed so the current,
+// already-running version starts up exactly as if this package didn't
+// exist. Non-headless launches use Check + DownloadAndApply directly,
+// gated on a confirm dialog and reporting progress — see internal/app.Start
+// and internal/ui's ShowAndRun.
 func CheckAndApply(ctx context.Context, currentVersion string) {
 	manifest := Check(ctx, currentVersion)
 	if manifest == nil {
 		return
 	}
-	if err := DownloadAndApply(ctx, manifest); err != nil {
+	if err := DownloadAndApply(ctx, manifest, nil); err != nil {
 		logrus.WithField("component", "update").WithError(err).Error("failed to apply update — staying on current version")
 	}
 }

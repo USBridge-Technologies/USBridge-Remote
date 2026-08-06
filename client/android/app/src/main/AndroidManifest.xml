@@ -22,6 +22,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Self-update (internal/update/apply_android.go): installs a
+         downloaded, Ed25519-manifest-and-SHA256-verified APK by handing it
+         to the system PackageInstaller directly (F-Droid-style), instead of
+         redirecting to a browser download of the GitHub release page. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Возможности устройства -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />

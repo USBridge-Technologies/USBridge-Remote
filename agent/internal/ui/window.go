@@ -759,8 +759,17 @@ func (w *Window) promptForUpdate(parent fyne.Window) {
 					logrus.WithField("component", "update").Info("update declined by user")
 					return
 				}
+				// A progress dialog while this downloads — a silent
+				// update that just sits there with no visible activity
+				// is indistinguishable from having frozen.
+				progress := showUpdateProgressDialog(parent, manifest.Version)
 				go func() {
-					if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+					err := update.DownloadAndApply(context.Background(), manifest, progress.Update)
+					// A successful apply never returns here at all (it
+					// hands off to a helper/relaunch and exits) —
+					// reaching this point means it didn't.
+					progress.Close()
+					if err != nil {
 						logrus.WithField("component", "update").WithError(err).Error("failed to apply update")
 						fyne.Do(func() { dialog.ShowError(err, parent) })
 					}
@@ -772,6 +781,48 @@ func (w *Window) promptForUpdate(parent fyne.Window) {
 		d.SetDismissText("Not Now")
 		d.Show()
 	})
+}
+
+// updateProgress is a live handle to an in-flight update's progress
+// dialog. Every method is safe to call from any goroutine (they hop to the
+// UI thread via fyne.Do) and safe to call on a nil receiver.
+type updateProgress struct {
+	dialog *dialog.CustomDialog
+	bar    *widget.ProgressBar
+}
+
+func showUpdateProgressDialog(parent fyne.Window, version string) *updateProgress {
+	up := &updateProgress{bar: widget.NewProgressBar()}
+	fyne.Do(func() {
+		content := container.NewVBox(
+			widget.NewLabel(fmt.Sprintf("Downloading version %s…", version)),
+			up.bar,
+		)
+		up.dialog = dialog.NewCustomWithoutButtons("Updating…", content, parent)
+		up.dialog.Resize(fyne.NewSize(360, 120))
+		up.dialog.Show()
+	})
+	return up
+}
+
+// Update sets the progress bar's fraction from downloaded/total bytes —
+// intended to be passed directly as internal/update's ProgressFunc.
+func (up *updateProgress) Update(downloaded, total int64) {
+	if up == nil || up.bar == nil || total <= 0 {
+		return
+	}
+	fraction := float64(downloaded) / float64(total)
+	fyne.Do(func() { up.bar.SetValue(fraction) })
+}
+
+// Close dismisses the progress dialog. A successful apply relaunches the
+// whole agent before this would ever run, but the error path needs it to
+// avoid leaving a stuck-looking dialog on screen.
+func (up *updateProgress) Close() {
+	if up == nil || up.dialog == nil {
+		return
+	}
+	fyne.Do(func() { up.dialog.Hide() })
 }
 
 func (w *Window) performRefresh() {

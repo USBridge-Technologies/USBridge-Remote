@@ -29,6 +29,14 @@ through:
   it's intentionally not wired up — restart the primary (headless) instance
   to pick up an update in that deployment shape.
 
+Once approved, the download itself reports live progress — `ProgressFunc`
+in `download.go`, wired to a determinate progress dialog
+(`MainWindow.ShowUpdateProgressDialog` / the agent's own
+`showUpdateProgressDialog`). A silent multi-second (or, for a large
+artifact on a slow connection, multi-minute) update with literally no
+visible activity is indistinguishable from having frozen — this is what
+fixes that, not just the confirm dialog.
+
 ## Why iOS is excluded
 
 Apple's App Store is the only sanctioned way to update an iOS app; sideloaded
@@ -71,11 +79,12 @@ each platform's own signing story:
   still isn't enough; the payload would also need to be signed with
   USBridge's real Apple Developer ID certificate.
 - **Android**: this package verifies the manifest signature and the APK's
-  SHA-256, then hands off to the OS's own installer UI (see below) — Android
-  refuses to install an update APK unless it's signed with the exact same
-  certificate as the currently-installed app (`ANDROID_KEYSTORE_BASE64` in
-  CI), which is a hard OS-level guarantee this update path leans on rather
-  than duplicates.
+  SHA-256, then hands the already-downloaded file straight to the system
+  `PackageInstaller` via a `content://` URI (see below) — Android refuses to
+  install an update APK unless it's signed with the exact same certificate
+  as the currently-installed app (`ANDROID_KEYSTORE_BASE64` in CI), which is
+  a hard OS-level guarantee this update path leans on rather than
+  duplicates.
 
 Windows and Linux have no equivalent OS-level trust chain available here
 (no purchased Authenticode certificate; Linux has no standard code-signing
@@ -105,7 +114,7 @@ produce a complete cross-platform manifest anyway.
 | Windows | Extracts the downloaded zip to a staging dir, then hands off to a detached PowerShell helper (embedded via `go:embed`) that waits for this process to exit, copies the new files over the install dir, and relaunches — Windows won't let a running process overwrite its own loaded exe/DLLs. If the install dir needs admin rights, the helper re-launches itself elevated (`Start-Process -Verb RunAs`), which triggers one UAC prompt — an OS security control, not an extra confirmation step this feature adds. |
 | Linux | AppImages are a single file: the new one is written next to the running one and swapped in with an atomic same-directory `os.Rename` — safe even though it's replacing the currently-executing binary, since Linux keeps the already-running process's inode alive until it exits. Then it re-execs itself and exits. |
 | macOS | Mounts the `.dmg`, verifies Apple code signature (see above), `ditto`-copies the new `.app` next to the installed one, atomically swaps them, relaunches with `open -n`. |
-| Android | Can't silently replace its own APK (no such permission, and doing so would forgo the OS's own signature check). After the user confirms, verifies manifest + APK hash, then opens the GitHub release page in the browser so the user completes the install through Android's normal `PackageInstaller` flow — a second, OS-owned confirmation on top of this package's own dialog, and one there's no unprivileged way to skip on stock Android. |
+| Android | Can't silently replace its own APK (no such permission, and doing so would forgo the OS's own signature check). After the user confirms and the (progress-bar-visible) download+verify finishes, checks the `REQUEST_INSTALL_PACKAGES` "install unknown apps" permission — opening this app's Settings screen to grant it if missing, since there's no runtime prompt for that one — then hands the file straight to the system `PackageInstaller` via a `content://` URI from the app's own `FileProvider` (`MainActivity.installApk`, called through `internal/platform`'s JNI bridge), the same approach F-Droid uses. No browser round-trip / second manual download. The installer's own signing-cert check is a second, OS-owned confirmation on top of this package's own dialog, and one there's no unprivileged way to skip on stock Android. |
 | iOS | Not applicable — see above. |
 
 Every failure mode (offline, GitHub unreachable, bad signature, corrupted

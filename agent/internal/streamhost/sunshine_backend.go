@@ -48,11 +48,10 @@ type sunshineBackend struct {
 	// password. Set in Start() via --creds before Sunshine launches.
 	activeAdminPassword string
 
-	// windowsDir holds the directory containing sunshine.exe. The Windows
-	// portable build resolves its default config path (like assets/)
-	// relative to itself — ./config/sunshine.conf next to the exe — not the
-	// traditional %LOCALAPPDATA%\Sunshine\config used by an installed build,
-	// so ConfigPath must match that on Windows.
+	// windowsDir holds the directory containing sunshine.exe. Only used for
+	// legacyDataDir (one-time migration off Sunshine's pre-sunshineDataDir
+	// default location, ./config/sunshine.conf next to the exe on Windows)
+	// — every other path now comes from sunshineDataDir instead.
 	windowsDir string
 
 	supportedCodecsCache struct {
@@ -437,6 +436,19 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		return nil
 	}
 
+	// One-time, copy-only migration from Sunshine's own default config
+	// location (shared with any independently-installed standalone
+	// Sunshine on the same machine — the actual bug being fixed here) into
+	// this agent's own isolated sunshineDataDir. See migrateLegacyData's
+	// doc comment for why this is safe to run unconditionally on every
+	// Start(): it's a no-op once already migrated (or on a fresh install).
+	b.migrateLegacyData()
+	if dir := b.sunshineDataDir(); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Printf("[sunshine] warning: could not create %s: %v", dir, err)
+		}
+	}
+
 	// Pin web_bind_address to 127.0.0.1 so the HTTPS admin UI is only reachable
 	// on localhost, independently of bind_address (which restricts streaming ports
 	// to the VPN/LAN interface). Requires our itsme228/Sunshine fork.
@@ -456,8 +468,13 @@ func (b *sunshineBackend) Start(adminPort int) error {
 	// Set a fresh random admin password before starting Sunshine so the
 	// process always starts with credentials we generated (not a stale or
 	// default password). --creds writes directly to sunshine_state.json.
+	// sunshineConfigArgs pins every path Sunshine touches (config,
+	// sunshine_state.json, apps.json, its own log, TLS keypair) to
+	// sunshineDataDir instead of Sunshine's own default resolution — see
+	// its doc comment for why the config path must come first, before
+	// --creds.
 	newPass := generatePassword()
-	credsCmd := exec.Command(b.launchPath, "--creds", sunshineAdminUser, newPass)
+	credsCmd := exec.Command(b.launchPath, append(b.sunshineConfigArgs(), "--creds", sunshineAdminUser, newPass)...)
 	configureProcess(credsCmd)
 	// Sunshine resolves config paths (including sunshine_state.json) relative
 	// to its process CWD on Windows, not its exe path. Without setting Dir,
@@ -486,9 +503,9 @@ func (b *sunshineBackend) Start(adminPort int) error {
 	// succeed whenever it's used.
 	var cmd *exec.Cmd
 	if b.capExecPath != "" {
-		cmd = exec.Command(b.capExecPath, b.launchPath)
+		cmd = exec.Command(b.capExecPath, append([]string{b.launchPath}, b.sunshineConfigArgs()...)...)
 	} else {
-		cmd = exec.Command(b.launchPath)
+		cmd = exec.Command(b.launchPath, b.sunshineConfigArgs()...)
 	}
 	configureProcess(cmd)
 	switch runtime.GOOS {
@@ -639,10 +656,10 @@ func adminHost() string { return "127.0.0.1" }
 // "first run" and regenerates the entire file on startup, wiping any
 // credentials that --creds wrote before the main process started.
 func (b *sunshineBackend) ensureSunshineStateFile() error {
-	if b.windowsDir == "" {
+	stateFile := b.credentialsFilePath()
+	if stateFile == "" {
 		return nil
 	}
-	stateFile := filepath.Join(b.windowsDir, "config", "sunshine_state.json")
 	if _, err := os.Stat(stateFile); err == nil {
 		return nil // already exists
 	}

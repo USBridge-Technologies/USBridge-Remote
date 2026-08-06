@@ -20,12 +20,6 @@ const checkTimeout = 8 * time.Second
 // user (or, for a headless launch, policy) has agreed to install it.
 const downloadTimeout = 5 * time.Minute
 
-// URLOpener, when set, lets platforms that can't self-replace their own
-// binary (currently only Android — see apply_android.go) hand an update
-// off to the OS's own installer UI instead. Desktop platforms self-replace
-// directly and never call this; it's nil there and that's fine.
-var URLOpener func(rawURL string) error
-
 // platformKey identifies this build in the manifest's "platforms" map.
 func platformKey() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
@@ -88,10 +82,15 @@ func Check(ctx context.Context, currentVersion string) *Manifest {
 // via a confirm dialog, or — for a non-interactive launch — by policy);
 // Check itself never applies anything.
 //
+// onProgress, if non-nil, is called periodically during the download with
+// bytes-downloaded/total — see ProgressFunc's doc comment for threading
+// rules. Pass nil for a launch path with no UI to report to (e.g. the
+// agent's --headless service mode via CheckAndApply below).
+//
 // A successful apply on desktop platforms (Windows/Linux/macOS) never
 // returns — it hands off to a helper/relaunch and calls os.Exit itself. On
 // Android it hands off to the system installer UI and returns normally.
-func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
+func DownloadAndApply(ctx context.Context, manifest *Manifest, onProgress ProgressFunc) error {
 	log := logrus.WithField("component", "update")
 
 	asset, ok := manifest.Platforms[platformKey()]
@@ -108,7 +107,7 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
 	defer dlCancel()
 
 	dlClient := &http.Client{Timeout: 0} // context governs the overall deadline; large files stream
-	path, err := downloadArtifact(dlCtx, dlClient, releaseAssetURL(asset.Asset), asset.SHA256)
+	path, err := downloadArtifact(dlCtx, dlClient, releaseAssetURL(asset.Asset), asset.SHA256, onProgress)
 	if err != nil {
 		return fmt.Errorf("download/verify update: %w", err)
 	}
@@ -120,17 +119,18 @@ func DownloadAndApply(ctx context.Context, manifest *Manifest) error {
 	return nil
 }
 
-// CheckAndApply is Check followed immediately by DownloadAndApply with no
-// user confirmation in between — for launch paths with no GUI to ask
-// through (e.g. the agent's --headless service mode). Every failure is
-// logged and swallowed so the current, already-running version starts up
-// exactly as if this package didn't exist.
+// CheckAndApply is Check followed immediately by DownloadAndApply (no
+// progress reporting, no user confirmation in between) — for launch paths
+// with no GUI to report through (e.g. the agent's --headless service
+// mode). Every failure is logged and swallowed so the current,
+// already-running version starts up exactly as if this package didn't
+// exist.
 func CheckAndApply(ctx context.Context, currentVersion string) {
 	manifest := Check(ctx, currentVersion)
 	if manifest == nil {
 		return
 	}
-	if err := DownloadAndApply(ctx, manifest); err != nil {
+	if err := DownloadAndApply(ctx, manifest, nil); err != nil {
 		logrus.WithField("component", "update").WithError(err).Error("failed to apply update — staying on current version")
 	}
 }

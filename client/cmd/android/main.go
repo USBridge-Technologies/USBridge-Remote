@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
-	"net/url"
 	"os"
 	"strings"
 
@@ -21,7 +20,6 @@ import (
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/update"
 
-	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -75,20 +73,19 @@ func main() {
 	// at, so this asks first via a "new version available, update now?"
 	// dialog. Android can't silently replace its own APK the way desktop
 	// platforms do even after a "yes": apply() (see
-	// internal/update/apply_android.go) hands off to the system installer
-	// UI via this URL opener once it has already verified the signed
-	// manifest and the update's SHA-256, so the OS's own signing-cert
-	// check on install is the final MITM/tamper gate. Run in the
-	// background rather than blocking startup like the desktop build
-	// does — Android is far more ANR-sensitive about a slow main-thread
-	// network call before the first frame is shown.
-	update.URLOpener = func(rawURL string) error {
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			return err
-		}
-		return fyne.CurrentApp().OpenURL(u)
-	}
+	// internal/update/apply_android.go) hands the already-downloaded,
+	// already-verified APK straight to the system PackageInstaller via
+	// these hooks (internal/platform's JNI bridge to MainActivity —
+	// F-Droid's approach), instead of redirecting to a browser download of
+	// the GitHub release page. Android's own signing-cert check on install
+	// is the final MITM/tamper gate on top of this package's Ed25519
+	// manifest + SHA256 checks. Run in the background rather than blocking
+	// startup like the desktop build does — Android is far more
+	// ANR-sensitive about a slow main-thread network call before the
+	// first frame is shown.
+	update.InstallAPK = platform.InstallAPK
+	update.CanRequestInstall = platform.CanRequestPackageInstalls
+	update.RequestInstallPermission = platform.RequestInstallPermission
 	go func() {
 		manifest := update.Check(context.Background(), version)
 		if manifest == nil {
@@ -99,8 +96,14 @@ func main() {
 				logrus.Info("update declined by user")
 				return
 			}
+			// A progress dialog while this downloads — Android APKs run
+			// tens of MB, and a self-update that just sits there with no
+			// visible activity is indistinguishable from having frozen.
+			progress := mainWindow.ShowUpdateProgressDialog(manifest.Version)
 			go func() {
-				if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+				err := update.DownloadAndApply(context.Background(), manifest, progress.Update)
+				progress.Close()
+				if err != nil {
 					logrus.Errorf("failed to apply update: %v", err)
 				}
 			}()
