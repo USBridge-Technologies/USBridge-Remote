@@ -31,6 +31,7 @@ import (
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui/design"
+	"usbridge_agent/internal/update"
 )
 
 // TokenProvider is whatever owns the agent's config/Sunshine lifecycle —
@@ -130,6 +131,22 @@ type Window struct {
 
 	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
 	gpuClockCheck *widget.Check
+
+	// ownsEngine is true only when this window's process itself started the
+	// engine (App.Run(headless=false)) — as opposed to a thin client
+	// attached to an already-running headless instance (runThinClientGUI).
+	// Gates the startup update prompt: applying an update from a thin
+	// client would replace the on-disk binary and relaunch this attach-only
+	// process without ever touching the separate headless instance that's
+	// actually running, so it's not offered there. Set via SetOwnsEngine.
+	ownsEngine bool
+}
+
+// SetOwnsEngine marks this window as backed by an engine this same process
+// started, rather than one it merely attached a GUI to. See the ownsEngine
+// field doc for why this matters.
+func (w *Window) SetOwnsEngine(owns bool) {
+	w.ownsEngine = owns
 }
 
 type uiStatus struct {
@@ -713,8 +730,48 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}
 		win.Close()
 	})
+	if w.ownsEngine {
+		go w.promptForUpdate(win)
+	}
+
 	win.Show()
 	w.app.Run()
+}
+
+// promptForUpdate runs the mandatory startup update check and, if a newer
+// signed version is available, asks before installing it — replacing a
+// forced silent update, which is jarring for a window the user is actively
+// looking at. Only called for an engine-owning window (see ownsEngine); a
+// --headless launch has no window to ask through and applies silently
+// instead (see app.Start).
+func (w *Window) promptForUpdate(parent fyne.Window) {
+	manifest := update.Check(context.Background(), appVersion)
+	if manifest == nil {
+		return
+	}
+
+	fyne.Do(func() {
+		d := dialog.NewConfirm(
+			"Update Available",
+			fmt.Sprintf("USBridge Agent %s is available (you have %s). Update now?", manifest.Version, appVersion),
+			func(confirmed bool) {
+				if !confirmed {
+					logrus.WithField("component", "update").Info("update declined by user")
+					return
+				}
+				go func() {
+					if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+						logrus.WithField("component", "update").WithError(err).Error("failed to apply update")
+						fyne.Do(func() { dialog.ShowError(err, parent) })
+					}
+				}()
+			},
+			parent,
+		)
+		d.SetConfirmText("Update")
+		d.SetDismissText("Not Now")
+		d.Show()
+	})
 }
 
 func (w *Window) performRefresh() {

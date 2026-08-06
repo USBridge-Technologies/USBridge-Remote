@@ -35,6 +35,7 @@ import (
 	"usbridge_agent/internal/tailscale"
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
+	"usbridge_agent/internal/update"
 )
 
 type deviceState struct {
@@ -87,7 +88,7 @@ type App struct {
 // a `--headless` systemd/launchd/autostart service and as the normal GUI
 // app without ever running two engines (and two Sunshine/tsnet instances)
 // at once on the same machine.
-func Start(headless bool) error {
+func Start(headless bool, version string) error {
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -108,6 +109,19 @@ func Start(headless bool) error {
 			return fmt.Errorf("usbridge-agent is already running (admin socket %s)", socketPath)
 		}
 		return runThinClientGUI(client)
+	}
+
+	// Mandatory startup update check — only here, not on a thin-GUI attach
+	// above: this is exactly the branch where this process is about to
+	// become the one actually owning the engine, so it's the only launch
+	// path where replacing the on-disk binary and re-exec'ing is
+	// safe/meaningful. A --headless launch has no GUI to ask through, so it
+	// applies silently like before (CheckAndApply); a normal GUI launch
+	// instead asks via a confirm dialog once the window exists — see
+	// internal/ui's ShowAndRun, which runs the same Check/DownloadAndApply
+	// pair gated on the user's answer.
+	if headless {
+		update.CheckAndApply(context.Background(), version)
 	}
 
 	instance, err := New()
@@ -340,7 +354,9 @@ func (a *App) Run(headless bool) error {
 	a.fyneApp.SetIcon(assets.AppIcon)
 
 	go a.handleShutdown(ctx, cancel)
-	ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a).ShowAndRun(cancel)
+	win := ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a)
+	win.SetOwnsEngine(true)
+	win.ShowAndRun(cancel)
 	return nil
 }
 

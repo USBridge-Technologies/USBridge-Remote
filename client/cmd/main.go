@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/update"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -88,6 +90,33 @@ func main() {
 	gui.SetAppVersion(version)
 	view.SetAppVersion(version)
 	mainWindow := gui.NewMainWindow(config)
+
+	// Mandatory startup update check, gated on user confirmation: a forced
+	// silent update was jarring for a window the user is actively looking
+	// at, so this asks first via a "new version available, update now?"
+	// dialog instead of relaunching out from under them. Runs once the
+	// window is ready (onReadyCallback already fires on its own goroutine),
+	// so the network round-trip in update.Check never delays first paint.
+	// See internal/update's package doc for the MITM-resistance design
+	// (Ed25519-signed manifest, then SHA-256-verified artifact) — that part
+	// is unchanged, only whether an approved update applies automatically.
+	mainWindow.SetOnReadyCallback(func() {
+		manifest := update.Check(context.Background(), version)
+		if manifest == nil {
+			return
+		}
+		mainWindow.ShowUpdateAvailableDialog(manifest.Version, version, func(confirmed bool) {
+			if !confirmed {
+				logrus.Info("update declined by user")
+				return
+			}
+			go func() {
+				if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+					logrus.Errorf("failed to apply update: %v", err)
+				}
+			}()
+		})
+	})
 
 	logrus.Info("Starting GUI")
 	mainWindow.Show()

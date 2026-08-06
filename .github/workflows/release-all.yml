@@ -27,6 +27,18 @@ name: release-all
 #                                                        keystore that's regenerated
 #                                                        (and re-signs with a new,
 #                                                        different key) on every runner.
+#   CLIENT_UPDATE_ED25519_PRIVATE_KEY                  - signs manifest-client.json,
+#   AGENT_UPDATE_ED25519_PRIVATE_KEY                     signs manifest-agent.json
+#                                                        (base64 32-byte Ed25519 seeds).
+#                                                        Powers self-update on every
+#                                                        platform except iOS — see
+#                                                        client|agent/internal/update
+#                                                        and scripts/sign_update_manifest.go.
+#                                                        Unrelated to the codesigning
+#                                                        certs above; generated
+#                                                        separately, see
+#                                                        ~/usbridge-update-keys/README.md
+#                                                        (kept outside this repo).
 
 on:
   workflow_dispatch:
@@ -786,6 +798,15 @@ jobs:
       - client-ios
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        # Needed for scripts/sign_update_manifest.go and agent/VERSION,
+        # client/VERSION below — this job otherwise only ever touched
+        # downloaded artifacts, no repo checkout.
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -810,6 +831,29 @@ jobs:
             [ "$f" != "$stable" ] && mv "$f" "$stable"
           done
           ls -la out
+
+      - name: Sign auto-update manifests (client + agent)
+        # Powers internal/update's self-update check in both apps (every
+        # platform except iOS, which has no artifact here and no self-update
+        # path — see client/internal/update's package doc). Signs with
+        # Ed25519 private keys that exist only as GitHub Actions secrets;
+        # see ~/usbridge-update-keys/README.md (outside this repo) for how
+        # those secrets were provisioned and how to rotate them.
+        env:
+          CLIENT_UPDATE_ED25519_PRIVATE_KEY: ${{ secrets.CLIENT_UPDATE_ED25519_PRIVATE_KEY }}
+          AGENT_UPDATE_ED25519_PRIVATE_KEY: ${{ secrets.AGENT_UPDATE_ED25519_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          CLIENT_VERSION="$(tr -d ' \t\n\r' < client/VERSION)"
+          AGENT_VERSION="$(tr -d ' \t\n\r' < agent/VERSION)"
+
+          UPDATE_SIGNING_KEY="$CLIENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
+            -app client -version "$CLIENT_VERSION" -dir out \
+            -manifest-out out/manifest-client.json -sig-out out/manifest-client.json.sig
+
+          UPDATE_SIGNING_KEY="$AGENT_UPDATE_ED25519_PRIVATE_KEY" go run scripts/sign_update_manifest.go \
+            -app agent -version "$AGENT_VERSION" -dir out \
+            -manifest-out out/manifest-agent.json -sig-out out/manifest-agent.json.sig
 
       - name: Create combined GitHub Release
         uses: softprops/action-gh-release@v2

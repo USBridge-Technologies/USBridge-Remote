@@ -4,11 +4,13 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"flag"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"strings"
 
@@ -17,7 +19,9 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
+	"usbridge-client/internal/update"
 
+	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,6 +69,43 @@ func main() {
 
 	// Create the main window
 	mainWindow := gui.NewMainWindow(config)
+
+	// Mandatory startup update check, gated on user confirmation — a forced
+	// silent update was jarring for a window the user is actively looking
+	// at, so this asks first via a "new version available, update now?"
+	// dialog. Android can't silently replace its own APK the way desktop
+	// platforms do even after a "yes": apply() (see
+	// internal/update/apply_android.go) hands off to the system installer
+	// UI via this URL opener once it has already verified the signed
+	// manifest and the update's SHA-256, so the OS's own signing-cert
+	// check on install is the final MITM/tamper gate. Run in the
+	// background rather than blocking startup like the desktop build
+	// does — Android is far more ANR-sensitive about a slow main-thread
+	// network call before the first frame is shown.
+	update.URLOpener = func(rawURL string) error {
+		u, err := url.Parse(rawURL)
+		if err != nil {
+			return err
+		}
+		return fyne.CurrentApp().OpenURL(u)
+	}
+	go func() {
+		manifest := update.Check(context.Background(), version)
+		if manifest == nil {
+			return
+		}
+		mainWindow.ShowUpdateAvailableDialog(manifest.Version, version, func(confirmed bool) {
+			if !confirmed {
+				logrus.Info("update declined by user")
+				return
+			}
+			go func() {
+				if err := update.DownloadAndApply(context.Background(), manifest); err != nil {
+					logrus.Errorf("failed to apply update: %v", err)
+				}
+			}()
+		})
+	}()
 
 	// Set up the network-change callback
 	platform.SetOnNetworkChangedCallback(func() {

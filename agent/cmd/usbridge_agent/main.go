@@ -24,7 +24,7 @@ func main() {
 	setupLogging()
 	ui.SetAppVersion(version)
 
-	if err := app.Start(*headless); err != nil {
+	if err := app.Start(*headless, version); err != nil {
 		log.Fatalf("start app: %v", err)
 	}
 }

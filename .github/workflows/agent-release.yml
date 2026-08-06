@@ -7,6 +7,12 @@ name: agent-release
 #   NOTARIZATION_PASSWORD     - App-Specific Password Apple ID для notarytool
 #   APPLE_ID                  - Apple ID разработчика (e-mail)
 #   APPLE_TEAM_ID             - Team ID из Apple Developer аккаунта
+#
+# No update-manifest signing here on purpose: this workflow's release always
+# sets make_latest: "false" below, so it's never what internal/update's
+# self-update check fetches from /releases/latest/download/... — only
+# release-all.yml's combined release can become /releases/latest, so that's
+# the only place manifest-agent.json/.sig get built and signed.
 
 on:
   push:

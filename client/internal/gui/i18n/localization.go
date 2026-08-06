@@ -213,6 +213,12 @@ type LocalizedStrings struct {
 	NBDStopError                 string
 	ConnectionTitle              string
 
+	// Auto-update
+	UpdateAvailableTitle   string
+	UpdateAvailableMessage string // %s = new version, %s = current version
+	UpdateNowButton        string
+	UpdateLaterButton      string
+
 	// Video Settings/Dialogs
 	VideoQualitySettings string
 	Width                string
@@ -594,6 +600,12 @@ func EN() *LocalizedStrings {
 		NBDStopError:                 "Error stopping: %v",
 		ConnectionTitle:              "Connection",
 
+		// Auto-update
+		UpdateAvailableTitle:   "Update Available",
+		UpdateAvailableMessage: "Version %s is available (you have %s). Update now?",
+		UpdateNowButton:        "Update",
+		UpdateLaterButton:      "Not Now",
+
 		// Video Settings/Dialogs
 		VideoQualitySettings: "Video Quality Settings",
 		Width:                "Width:",
@@ -826,6 +838,10 @@ func ES() *LocalizedStrings {
 	locale.Done = "Hecho"
 	locale.Close = "Cerrar"
 	locale.ConnectionTitle = "Conexion"
+	locale.UpdateAvailableTitle = "Actualizacion disponible"
+	locale.UpdateAvailableMessage = "La version %s esta disponible (tienes %s). Actualizar ahora?"
+	locale.UpdateNowButton = "Actualizar"
+	locale.UpdateLaterButton = "Ahora no"
 	locale.VideoQualitySettings = "Configuracion de calidad de video"
 	locale.Resolution = "Resolucion"
 	locale.FrameRate = "Frecuencia"
@@ -963,6 +979,10 @@ func UKProper() *LocalizedStrings {
 	locale.Done = "Готово"
 	locale.Close = "Закрити"
 	locale.ConnectionTitle = "З'єднання"
+	locale.UpdateAvailableTitle = "Доступне оновлення"
+	locale.UpdateAvailableMessage = "Доступна версія %s (у вас %s). Оновити зараз?"
+	locale.UpdateNowButton = "Оновити"
+	locale.UpdateLaterButton = "Не зараз"
 	locale.VideoQualitySettings = "Налаштування якості відео"
 	locale.Resolution = "Роздільна здатність"
 	locale.FrameRate = "Частота кадрів"

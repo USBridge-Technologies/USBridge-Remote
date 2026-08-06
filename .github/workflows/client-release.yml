@@ -25,6 +25,15 @@ name: client-release
 #                                      Distribution", see scripts/build_ios.sh),
 #                                      in Base64
 #
+# No update-manifest signing here on purpose, for two reasons: (1) this
+# workflow only ever builds macOS + iOS, never Windows/Linux/Android, so it
+# can't produce a *complete* client manifest anyway; (2) its release job
+# below never sets make_latest, so it's never what internal/update's
+# self-update check fetches from /releases/latest/download/... — only
+# release-all.yml's combined release (which builds every platform) can
+# become /releases/latest, so that's the only place manifest-client.json/.sig
+# get built and signed.
+#
 # client/scripts/build_ios.sh hardcodes the signing identity name
 # ("Apple Distribution: Amir Fatkulin (AJVY97F5QT)") and the provisioning
 # profile name ("USBridge Client iOS Distribution") — the imported
