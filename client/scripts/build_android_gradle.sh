@@ -749,13 +749,22 @@ if [ -f "$APK_OUT" ]; then
             echo -e "${RED}❌ AAB not found: $AAB_OUT${NC}"
             exit 1
         fi
-        # Unlike the APK above, Gradle already signed this directly (the
-        # "market" flavor's signingConfig, see build.gradle.kts) — nothing
-        # left to do here but place it in dist/android under a stable name.
+        if ! ensure_command_available jarsigner jarsigner; then
+            echo -e "${RED}❌ jarsigner not found (part of the JDK)${NC}"
+            exit 1
+        fi
         FINAL_AAB="$DIST_DIR/USBridgeClient-Android-arm64-market-${APK_VERSION}.aab"
         cp -f "$AAB_OUT" "$FINAL_AAB"
+        # Gradle's bundle task produces an unsigned .aab (no signingConfig
+        # attached to either flavor — see build.gradle.kts). apksigner is
+        # APK-only, so sign this one with jarsigner directly instead, same
+        # keystore/alias/passwords as the APK above; Play accepts a
+        # JAR-signed bundle.
+        jarsigner -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASS" \
+            -keypass "$KEY_PASS" "$FINAL_AAB" "$KEY_ALIAS"
+        jarsigner -verify -strict "$FINAL_AAB"
         if [ "$GRADLE_FLAVOR" != "market" ]; then
-            echo -e "${YELLOW}⚠ built an .aab for the \"$GRADLE_FLAVOR\" flavor, which has no signingConfig attached — it will be unsigned. --aab is meant for the market flavor (Play Store).${NC}"
+            echo -e "${YELLOW}⚠ built an .aab for the \"$GRADLE_FLAVOR\" flavor — --aab is meant for the market flavor (Play Store).${NC}"
         fi
     fi
 
