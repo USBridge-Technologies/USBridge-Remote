@@ -1,0 +1,91 @@
+# DRAFT build recipe for the official F-Droid repo (fdroiddata).
+#
+# NOT submitted anywhere yet. This is a starting point for a merge request
+# against https://gitlab.com/fdroid/fdroiddata — path there would be
+# metadata/io.usbridge.client.yml. Unlike IzzyOnDroid, F-Droid's own build
+# server compiles this from source in an isolated environment we don't
+# control, so this WILL need iteration with their reviewers/build logs
+# before it actually works — the Go + gomobile + NDK + native-submodule
+# toolchain this app needs is well outside a plain Gradle build, and
+# nothing here has been validated against F-Droid's real buildserver.
+# (Precedent worth comparing against: syncthing-android's real fdroiddata
+# recipe solves the same class of problem — Go core + gomobile + Android UI.)
+#
+# Targets the "market" flavor specifically (client/android/app/build.gradle.kts)
+# — no self-update, no REQUEST_INSTALL_PACKAGES — see
+# client/internal/update/update_disabled.go and docs/AUTO_UPDATE.md.
+
+Categories:
+  - Connectivity
+  - System
+License: GPL-3.0-only
+AuthorName: USBridge Technologies
+SourceCode: https://github.com/USBridge-Technologies/USBridge-Remote
+IssueTracker: https://github.com/USBridge-Technologies/USBridge-Remote/issues
+Changelog: https://github.com/USBridge-Technologies/USBridge-Remote/releases
+
+AutoName: USBridge Client
+Summary: Hybrid BIOS-level KVM + remote desktop client
+Description: |
+  USBridge Client is a hybrid remote-access app: BIOS-level control via
+  USBridge-KVM hardware (works even before the OS boots), plus lightweight
+  software remote desktop over the Moonlight streaming protocol —
+  interoperable with Sunshine and NVIDIA GameStream-compatible hosts.
+
+  This build has no self-update mechanism and requests no
+  install-unknown-apps permission; see client/internal/update in the
+  source tree.
+
+RepoType: git
+Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
+
+Builds:
+  - versionName: 2.1.13
+    versionCode: 20113
+    # TODO: pin to the actual tag/commit this version was released from
+    # once one exists (client/VERSION-driven; no per-version git tag
+    # convention for the client alone today -- may need one added, e.g.
+    # "client-v2.1.13", or pin a plain commit SHA instead).
+    commit: TODO_TAG_OR_COMMIT
+    subdir: client/android
+    submodules: true
+
+    # F-Droid's buildserver has no gomobile/Go-for-Android/NDK toolchain
+    # preinstalled -- these are best-effort placeholders for what
+    # client/scripts/build_android_gradle.sh does manually; the real
+    # values (Go version, NDK revision, exact env) need confirming against
+    # what actually works in their build container.
+    sudo:
+      - apt-get update
+      - apt-get install -y golang-go
+    init: |
+      go install golang.org/x/mobile/cmd/gomobile@latest
+      go install golang.org/x/mobile/cmd/gobind@latest
+      export PATH="$PATH:$(go env GOPATH)/bin"
+      gomobile init
+    prebuild: |
+      export PATH="$PATH:$(go env GOPATH)/bin"
+      export GOOS=android
+      export GOARCH=arm64
+      export CGO_ENABLED=1
+      # 16 KB page-size alignment -- see
+      # client/scripts/build_android_gradle.sh's NDK_PAGE_SIZE_LDFLAGS.
+      export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+      cd ..
+      MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
+      mkdir -p android/app/libs
+      gomobile bind -target android -androidapi 26 -o android/app/libs/androidbridge.aar ./androidbridge
+      # TODO: the fyne-packaged native library (libUSBridge_Client.so,
+      # extracted from a `fyne package` build in
+      # client/scripts/build_android_gradle.sh) still needs reproducing
+      # here too -- this is the part most likely to need real back-and-forth
+      # with F-Droid's build log before it actually links.
+      cd android
+
+    gradle:
+      - market
+
+    ndk: r27c # TODO: confirm against whatever's actually available/works
+
+AutoUpdateMode: None # manual for now -- versionName isn't a plain git tag yet
+UpdateCheckMode: None
