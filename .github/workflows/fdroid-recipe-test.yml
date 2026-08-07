@@ -74,9 +74,10 @@ jobs:
           echo "✓ tailscale libs built"
 
           go install fyne.io/tools/cmd/fyne@v1.7.2
+          FYNE_BIN="$(go env GOPATH)/bin/fyne"
           cp VERSION cmd/android/VERSION
           cd cmd/android
-          fyne package --target android/arm64 --tags "nosystray noselfupdate" \
+          "$FYNE_BIN" package --target android/arm64 --tags "nosystray noselfupdate" \
             --app-id io.usbridge.client --name "USBridge Client" \
             --app-version "$(cat ../../VERSION)" --icon ../../Icon.png --release
           cd ../..
