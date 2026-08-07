@@ -70,16 +70,49 @@ Builds:
       export CGO_ENABLED=1
       # 16 KB page-size alignment -- see
       # client/scripts/build_android_gradle.sh's NDK_PAGE_SIZE_LDFLAGS.
-      export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+      NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
+      # Target API 26 explicitly (matches minSdk) -- an untargeted NDK
+      # clang defaults to API 21, which gates out libaaudio/libvulkan
+      # entirely regardless of -L search paths (a real regression this
+      # project already hit once, see
+      # client/scripts/build_android_gradle.sh's comment on the same
+      # setup_android_ndk_toolchain_env call).
+      NDK_PREBUILT="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | sort | head -1)"
+      export CC="$NDK_PREBUILT/bin/aarch64-linux-android26-clang"
+      export CXX="$NDK_PREBUILT/bin/aarch64-linux-android26-clang++"
+      export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
       cd ..
       MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
       mkdir -p android/app/libs
       gomobile bind -target android -androidapi 26 -o android/app/libs/androidbridge.aar ./androidbridge
-      # TODO: the fyne-packaged native library (libUSBridge_Client.so,
-      # extracted from a `fyne package` build in
-      # client/scripts/build_android_gradle.sh) still needs reproducing
-      # here too -- this is the part most likely to need real back-and-forth
-      # with F-Droid's build log before it actually links.
+
+      # Tailscale CLI + daemon (client/scripts/build_android_gradle.sh's
+      # step 1.5) -- plain `go build` executables, not -buildmode=c-shared,
+      # so -linkmode=external is needed to make -extldflags apply at all.
+      mkdir -p android/app/src/main/jniLibs/arm64-v8a
+      go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" \
+        -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" \
+        -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so tailscale.com/cmd/tailscale
+      go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" \
+        -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" \
+        -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled
+
+      # Main app native library: fyne package builds cmd/android as a
+      # -buildmode=c-shared .so, wrapped in its own throwaway scaffold APK
+      # -- extract just the .so, same as
+      # client/scripts/build_android_gradle.sh's steps 3-4.
+      go install fyne.io/tools/cmd/fyne@v1.7.2
+      cp VERSION cmd/android/VERSION
+      cd cmd/android
+      fyne package --target android/arm64 --tags "nosystray noselfupdate" \
+        --app-id io.usbridge.client --name "USBridge Client" \
+        --app-version "$(cat ../../VERSION)" --icon ../../Icon.png --release
+      cd ../..
+      unzip -q -o cmd/android/USBridge_Client.apk -d /tmp/fyne-scaffold
+      cp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so \
+        android/app/src/main/jniLibs/arm64-v8a/
+      rm -rf /tmp/fyne-scaffold
+
       cd android
 
     gradle:
