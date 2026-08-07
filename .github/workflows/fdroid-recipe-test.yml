@@ -7,6 +7,11 @@ name: fdroid-recipe-test
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [test]
+    paths:
+      - ".github/workflows/fdroid-recipe-test.yml"
+      - "docs/fdroid/io.usbridge.client.yml"
 
 jobs:
   test-recipe:
@@ -16,7 +21,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: sudo (recipe's sudo: section)
+      - name: "sudo step (recipe's sudo section)"
         run: |
           sudo apt-get update
           sudo apt-get install -y golang-go
@@ -31,7 +36,7 @@ jobs:
           sdkmanager "platforms;android-26" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
 
-      - name: init (recipe's init: section)
+      - name: "init step (recipe's init section)"
         run: |
           set -euo pipefail
           go install golang.org/x/mobile/cmd/gomobile@latest
@@ -39,7 +44,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           gomobile init
 
-      - name: prebuild (recipe's prebuild: section)
+      - name: "prebuild step (recipe's prebuild section)"
         working-directory: client
         run: |
           set -euo pipefail
