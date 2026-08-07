@@ -73,7 +73,7 @@ jobs:
             -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled
           echo "✓ tailscale libs built"
 
-          go install fyne.io/tools/cmd/fyne@v1.7.2
+          env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2
           FYNE_BIN="$(go env GOPATH)/bin/fyne"
           cp VERSION cmd/android/VERSION
           cd cmd/android

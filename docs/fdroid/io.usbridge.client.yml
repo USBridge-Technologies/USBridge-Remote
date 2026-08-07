@@ -101,7 +101,7 @@ Builds:
       # -buildmode=c-shared .so, wrapped in its own throwaway scaffold APK
       # -- extract just the .so, same as
       # client/scripts/build_android_gradle.sh's steps 3-4.
-      go install fyne.io/tools/cmd/fyne@v1.7.2
+      env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2
       FYNE_BIN="$(go env GOPATH)/bin/fyne"
       cp VERSION cmd/android/VERSION
       cd cmd/android
