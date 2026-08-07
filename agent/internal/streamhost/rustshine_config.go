@@ -1,5 +1,3 @@
-//go:build rustshine
-
 package streamhost
 
 import (

@@ -27,6 +27,7 @@ import (
 	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
@@ -58,6 +59,13 @@ type TokenProvider interface {
 	AdminUser() string
 	AdminPass() string
 	StreamerName() string
+
+	// Patreon-gated RustShine entitlement (see internal/entitlement).
+	EntitlementStatus() entitlement.Status
+	StartPatreonLink() (string, error)
+	UnlinkPatreon() error
+	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	SetStreamBackend(kind string) error
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -131,6 +139,16 @@ type Window struct {
 
 	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
 	gpuClockCheck *widget.Check
+
+	// supportBtn opens showPatreonDialog -- a single, low-emphasis entry
+	// point for the whole Patreon/RustShine flow, deliberately never
+	// popped up on its own (unlike promptForUpdate's confirm dialog, which
+	// is functionally necessary on every launch) -- this is a monetization
+	// affordance, not something the agent should ever interrupt a session
+	// to push. Its text/importance reflect entitlement.Status live (see
+	// performRefresh), so a supporter sees at a glance that they're one
+	// without needing to open the dialog.
+	supportBtn *widget.Button
 
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
@@ -527,7 +545,12 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), widget.NewLabel(w.token.StreamerName()))
+
+	w.supportBtn = widget.NewButton("⚡ Support us", func() {
+		w.showPatreonDialog(win)
+	})
+	w.supportBtn.Importance = widget.LowImportance
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), widget.NewLabel(w.token.StreamerName()), layout.NewSpacer(), w.supportBtn)
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -825,6 +848,194 @@ func (up *updateProgress) Close() {
 	fyne.Do(func() { up.dialog.Hide() })
 }
 
+// refreshSupportButton keeps supportBtn's text/emphasis in sync with
+// entitlement.Status on every refresh tick -- a linked supporter sees at a
+// glance which backend they're on without opening the dialog; everyone
+// else sees the same quiet, low-importance invitation every time (this
+// button is the ONLY place this feature ever surfaces on its own — it
+// never pops a dialog, badge, or notification unprompted).
+func (w *Window) refreshSupportButton(st entitlement.Status) {
+	if w.supportBtn == nil {
+		return
+	}
+	switch {
+	case st.ActiveBackend == "rustshine":
+		w.supportBtn.SetText("⚡ RustShine active")
+	case st.Linked:
+		w.supportBtn.SetText("⚡ RustShine ready")
+	default:
+		w.supportBtn.SetText("⚡ Support us")
+	}
+}
+
+// showPatreonDialog is the single entry point for the whole Patreon-gated
+// RustShine flow: connect, wait, download, switch, unlink — all as one
+// dialog that re-renders itself as entitlement.Status changes, rather than
+// a sequence of separate popups. Opened only by an explicit click on
+// supportBtn — never shown automatically.
+func (w *Window) showPatreonDialog(parent fyne.Window) {
+	if parent == nil || w.token == nil {
+		return
+	}
+
+	var dlg *widget.PopUp
+	stopPoll := make(chan struct{})
+	closeDialog := func() {
+		select {
+		case <-stopPoll:
+		default:
+			close(stopPoll)
+		}
+		if dlg != nil {
+			dlg.Hide()
+		}
+	}
+
+	titleLabel := canvas.NewText("RUSTSHINE — FASTER STREAMING", design.ColorTextMuted)
+	titleLabel.TextSize = 11
+	titleLabel.TextStyle.Bold = true
+	xBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() { closeDialog() })
+	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
+
+	minWidth := canvas.NewRectangle(color.Transparent)
+	minWidth.SetMinSize(fyne.NewSize(380, 1))
+
+	body := container.NewVBox()
+
+	var render func(st entitlement.Status)
+	render = func(st entitlement.Status) {
+		body.RemoveAll()
+
+		switch {
+		case st.LinkInProgress:
+			body.Add(widget.NewLabel("Waiting for you to approve access in your browser…"))
+			body.Add(widget.NewProgressBarInfinite())
+
+		case st.DownloadInProgress:
+			body.Add(widget.NewLabel("Downloading RustShine…"))
+			pb := widget.NewProgressBar()
+			if st.Progress >= 0 {
+				pb.SetValue(st.Progress)
+			}
+			body.Add(pb)
+
+		case st.Linked && st.RustShineStaged:
+			tier := st.Tier
+			if tier == "" {
+				tier = "supporter"
+			}
+			body.Add(widget.NewRichTextFromMarkdown(fmt.Sprintf("**Thanks for supporting USBridge!** 🎉 (%s)", tier)))
+			switchBtn := widget.NewButton("", nil)
+			if st.ActiveBackend == "rustshine" {
+				switchBtn.SetText("Switch to Sunshine")
+				switchBtn.OnTapped = func() {
+					go func() {
+						_ = w.token.SetStreamBackend("sunshine")
+						fyne.Do(func() { render(w.token.EntitlementStatus()) })
+					}()
+				}
+			} else {
+				switchBtn.SetText("Switch to RustShine")
+				switchBtn.Importance = widget.HighImportance
+				switchBtn.OnTapped = func() {
+					go func() {
+						_ = w.token.SetStreamBackend("rustshine")
+						fyne.Do(func() { render(w.token.EntitlementStatus()) })
+					}()
+				}
+			}
+			body.Add(container.NewCenter(switchBtn))
+			unlinkBtn := widget.NewButton("Unlink Patreon Account", func() {
+				dialog.NewConfirm(
+					"Unlink Patreon?",
+					"This switches back to Sunshine and forgets your Patreon link. You can reconnect anytime.",
+					func(confirmed bool) {
+						if !confirmed {
+							return
+						}
+						go func() {
+							_ = w.token.UnlinkPatreon()
+							fyne.Do(func() { render(w.token.EntitlementStatus()) })
+						}()
+					},
+					parent,
+				).Show()
+			})
+			unlinkBtn.Importance = widget.LowImportance
+			body.Add(container.NewCenter(unlinkBtn))
+
+		case st.Linked && !st.RustShineStaged:
+			body.Add(widget.NewRichTextFromMarkdown("**You're a supporter — thank you!** 🎉\n\nReady to download RustShine?"))
+			dlBtn := widget.NewButton("Download RustShine", func() {
+				go func() {
+					_ = w.token.DownloadRustShine(nil)
+					fyne.Do(func() { render(w.token.EntitlementStatus()) })
+				}()
+			})
+			dlBtn.Importance = widget.HighImportance
+			body.Add(container.NewCenter(dlBtn))
+
+		default:
+			body.Add(widget.NewRichTextFromMarkdown(
+				"RustShine is our proprietary streaming engine — hardware AV1/HEVC encode, " +
+					"lower latency, tighter frame pacing, built from scratch for USBridge.\n\n" +
+					"- Streams the Linux login screen (SDDM) too — including on NVIDIA, X11 and Wayland\n" +
+					"- Hardware video encode on every platform\n\n" +
+					"Free for Sunshine (open source, unlimited). RustShine is a perk for **$5+/mo** " +
+					"Patreon supporters — switch back to Sunshine anytime, no strings attached.",
+			))
+			if st.LastError != "" {
+				errText := canvas.NewText(st.LastError, design.ColorTextMuted)
+				errText.TextStyle.Italic = true
+				body.Add(errText)
+			}
+			connectBtn := widget.NewButton("Connect Patreon Account", func() {
+				go func() {
+					authURL, err := w.token.StartPatreonLink()
+					if err != nil {
+						fyne.Do(func() { render(w.token.EntitlementStatus()) })
+						return
+					}
+					if parsed, err := url.Parse(authURL); err == nil {
+						_ = w.app.OpenURL(parsed)
+					}
+					fyne.Do(func() { render(w.token.EntitlementStatus()) })
+				}()
+			})
+			connectBtn.Importance = widget.HighImportance
+			body.Add(container.NewCenter(connectBtn))
+		}
+
+		body.Refresh()
+	}
+
+	render(w.token.EntitlementStatus())
+
+	content := container.NewVBox(titleRow, minWidth, widget.NewSeparator(), body)
+	cardBG := canvas.NewRectangle(design.ColorPanel)
+	card := container.NewStack(cardBG, container.NewPadded(content))
+	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
+	dlg.Show()
+
+	// Polls while the dialog is open so LinkInProgress/DownloadInProgress
+	// advance to their next state on their own (a link completing in the
+	// browser, a download finishing) without the user needing to close and
+	// reopen this dialog to see it.
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPoll:
+				return
+			case <-ticker.C:
+				st := w.token.EntitlementStatus()
+				fyne.Do(func() { render(st) })
+			}
+		}
+	}()
+}
+
 func (w *Window) performRefresh() {
 	go func() {
 		status := uiStatus{}
@@ -834,12 +1045,15 @@ func (w *Window) performRefresh() {
 		if w.perms != nil {
 			status.accessGranted = w.perms.AccessibilityGranted()
 		}
+		var entStatus entitlement.Status
 		if w.token != nil {
 			if clients, err := w.token.ListSunshineClients(); err == nil {
 				status.moonlightCount = len(clients)
 			}
+			entStatus = w.token.EntitlementStatus()
 		}
 		fyne.Do(func() {
+			w.refreshSupportButton(entStatus)
 			if w.accessLabel != nil {
 				accessName := "Accessibility"
 				if runtime.GOOS == "linux" {

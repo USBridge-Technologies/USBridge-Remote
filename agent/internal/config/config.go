@@ -42,6 +42,25 @@ type Config struct {
 	// Requires a UAC consent prompt on every session start (Windows has no
 	// one-time-grant equivalent to Linux's CAP_SYS_ADMIN setcap).
 	LockGPUClocksEnabled bool `yaml:"lock_gpu_clocks_enabled"`
+
+	// Patreon-gated RustShine entitlement (see agent/internal/entitlement).
+	// Same trust level as MasterKey above: plain YAML, no separate
+	// encryption -- consistent with the rest of this struct, and the
+	// entitlement token itself is Ed25519-signed and independently
+	// re-verified server-side, so a locally-forged value here can't be
+	// used to fake entitlement (see entitlement/pubkey.go's doc comment).
+	//
+	// ProviderRefreshToken is the only durable secret here: it's what
+	// lets the agent silently re-derive a fresh EntitlementToken (via
+	// entitlement.RefreshEntitlement) without asking the user to log into
+	// Patreon again on every launch.
+	ProviderRefreshToken string `yaml:"entitlement_provider_refresh_token,omitempty"`
+	EntitlementToken     string `yaml:"entitlement_token,omitempty"`
+	// PreferredBackend is the user's own explicit choice once entitled:
+	// "" (never linked / not entitled -- always Sunshine), "sunshine", or
+	// "rustshine". Only meaningful together with a currently-valid
+	// EntitlementToken; see App.applyPreferredBackend.
+	PreferredBackend string `yaml:"preferred_backend,omitempty"`
 }
 
 func Default() Config {

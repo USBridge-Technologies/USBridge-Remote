@@ -1,4 +1,4 @@
-//go:build rustshine && windows
+//go:build windows
 
 package streamhost
 

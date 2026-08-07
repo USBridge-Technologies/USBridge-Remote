@@ -21,6 +21,11 @@ type Service struct {
 
 func New(devices streamhost.CaptureDeviceLister) *Service { return &Service{devices: devices} }
 
+// SetDevices re-points device correlation at a different backend -- needed
+// after App.SetStreamBackend swaps streamhost.Backend, since New captured
+// the old one by value and nothing else here re-reads it.
+func (s *Service) SetDevices(devices streamhost.CaptureDeviceLister) { s.devices = devices }
+
 func (s *Service) Snapshot() (*api.ScreenSnapshot, error) {
 	if screenshot.NumActiveDisplays() == 0 {
 		return nil, fmt.Errorf("no active displays")

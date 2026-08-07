@@ -28,6 +28,7 @@ import (
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
@@ -78,6 +79,24 @@ type App struct {
 	// consent once, up front, via the Permissions checkbox.
 	gpuClockMu    sync.Mutex
 	gpuClockArmed bool
+
+	// exeDir/logPath are the same triple every streamhost.New* constructor
+	// takes (alongside cfg.StateDir), stashed here so SetStreamBackend can
+	// construct a replacement Backend on demand without New() needing to
+	// export them separately.
+	exeDir  string
+	logPath string
+	// streamMu serializes SetStreamBackend calls against each other (a GUI
+	// click racing the entitlement watchdog's own downgrade, say) --
+	// a.stream/a.streamKind must only ever be read/written while held.
+	streamMu   sync.Mutex
+	streamKind string // "sunshine" | "rustshine" -- bookkeeping only, mirrors which concrete type a.stream currently is
+
+	// entMu guards the fields below, all touched from both the GUI/adminapi
+	// goroutine (user clicks) and entitlementWatchdog's background goroutine.
+	entMu         sync.Mutex
+	entStatus     entitlement.Status
+	entPollCancel context.CancelFunc // cancels an in-flight StartPatreonLink's poll loop, if any
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -231,7 +250,30 @@ func New() (*App, error) {
 	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
 	// --headless engine never touches Fyne at all, so it never needs a
 	// display connection (see Run).
-	instance.stream = streamhost.NewDefault(resolveExeDir(), cfg.StateDir, filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log"))
+	instance.exeDir = resolveExeDir()
+	instance.logPath = filepath.Join(cfg.StateDir, "logs", "sunshine-stdout.log")
+	instance.streamKind = "sunshine"
+
+	// If this install was already switched to RustShine last run, pick it
+	// back up from a cold start too — but only via checks that need no
+	// network round-trip (Verify is pure Ed25519 signature+expiry, StagePath
+	// is a stat call), so this can never make boot depend on the
+	// entitlement backend being reachable. A background recheckEntitlement
+	// (see entitlementWatchdog, started from Run) re-verifies against the
+	// backend shortly after and downgrades to Sunshine if the cached token
+	// no longer holds up.
+	if cfg.PreferredBackend == "rustshine" {
+		if _, err := entitlement.Verify(cfg.EntitlementToken); err == nil {
+			if _, err := os.Stat(entitlement.StagePath(instance.exeDir)); err == nil {
+				instance.streamKind = "rustshine"
+			}
+		}
+	}
+	if instance.streamKind == "rustshine" {
+		instance.stream = streamhost.NewRustshine(instance.exeDir, cfg.StateDir, instance.logPath)
+	} else {
+		instance.stream = streamhost.NewDefault(instance.exeDir, cfg.StateDir, instance.logPath)
+	}
 	instance.screen = capture.New(instance.stream)
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
@@ -246,6 +288,7 @@ func New() (*App, error) {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	instance.refreshLocalEntitlementStatus()
 	return instance, nil
 }
 
@@ -323,6 +366,13 @@ func (a *App) Run(headless bool) error {
 	}
 	go a.sunshineWatchdog(ctx)
 	go a.x11SessionEnvWatchdog(ctx)
+	// Always started, even before ever linking -- recheckEntitlement no-ops
+	// immediately (no network call) whenever cfg.ProviderRefreshToken is
+	// empty, so this is cheap, and it means a link made mid-session (via
+	// StartPatreonLink, no restart) is covered by the same ticker without
+	// needing separate "start the watchdog now" bookkeeping.
+	go a.entitlementWatchdog(ctx)
+	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
@@ -769,6 +819,382 @@ func (a *App) RestartSunshine() error {
 	}
 	a.restartStreamProxy()
 	return err
+}
+
+// SetStreamBackend switches the active streamhost.Backend at runtime
+// between "sunshine" and "rustshine" -- stops whichever is running, builds
+// the other, and starts it. No-op if kind is already active. "rustshine"
+// requires the binary to already be staged (see entitlement.StageRustShine)
+// -- this method never downloads it itself, so callers (the GUI's Patreon
+// dialog) must download-then-switch, not switch-then-download.
+//
+// Persists the choice as cfg.PreferredBackend so a restart picks it back up
+// (see New()'s local, offline re-derivation of the initial backend) without
+// needing to ask the entitlement backend again just to boot.
+func (a *App) SetStreamBackend(kind string) error {
+	if kind != "sunshine" && kind != "rustshine" {
+		return fmt.Errorf("unknown stream backend %q", kind)
+	}
+
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+
+	if kind == a.streamKind {
+		return nil
+	}
+	if kind == "rustshine" {
+		if _, err := os.Stat(entitlement.StagePath(a.exeDir)); err != nil {
+			return fmt.Errorf("rustshine is not downloaded yet")
+		}
+	}
+
+	if a.stream != nil {
+		_ = a.stream.Stop()
+		// Mirrors RestartSunshine's own wait for the same reason: Start()'s
+		// "already running" fast path only reflects reality once the
+		// exited process's Wait() goroutine has cleared its cmd.
+		time.Sleep(time.Second)
+	}
+
+	var next streamhost.Backend
+	if kind == "rustshine" {
+		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
+	} else {
+		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
+	}
+	a.stream = next
+	a.streamKind = kind
+	if a.screen != nil {
+		a.screen.SetDevices(next)
+	}
+	a.syncSunshineCaptureMode()
+	a.syncSunshineCapExec()
+	if pw, ok := next.(streamhost.ProcessWatcher); ok {
+		pw.SetOnExit(a.startSunshine)
+	}
+
+	a.startSunshine() // generic despite the name -- starts whatever a.stream now is
+	a.waitForMonitorCorrelation()
+	a.restartStreamProxy()
+
+	saved := a.cfg
+	saved.PreferredBackend = kind
+	if err := a.SaveConfig(saved); err != nil {
+		log.Printf("[app] warning: failed to persist preferred stream backend: %v", err)
+	}
+	return nil
+}
+
+func (a *App) currentStreamKind() string {
+	a.streamMu.Lock()
+	defer a.streamMu.Unlock()
+	return a.streamKind
+}
+
+func (a *App) rustshineStaged() bool {
+	_, err := os.Stat(entitlement.StagePath(a.exeDir))
+	return err == nil
+}
+
+// refreshLocalEntitlementStatus re-derives entStatus's Linked/Tier/ExpiresAt
+// fields purely from cfg.EntitlementToken (local Ed25519 verify, no
+// network) -- called after anything that changes that token, and once at
+// startup. LinkInProgress/DownloadInProgress/LastError are process-only
+// state, untouched here.
+//
+// Also the single place that mirrors cfg.EntitlementToken out to
+// entitlement.TokenFilePath (see that function's doc comment) -- every
+// call site that changes the token already calls this afterward, so
+// centralizing the file write here means none of them need to remember to
+// do it themselves. Only written while the token verifies locally as
+// current -- there's no reason to hand a consumer something already
+// known-bad.
+func (a *App) refreshLocalEntitlementStatus() {
+	a.entMu.Lock()
+	defer a.entMu.Unlock()
+	if claims, err := entitlement.Verify(a.cfg.EntitlementToken); err == nil {
+		a.entStatus.Linked = true
+		a.entStatus.Tier = claims.Tier
+		a.entStatus.ExpiresAt = time.Unix(claims.ExpireAt, 0)
+		if err := entitlement.WriteTokenFile(a.cfg.StateDir, a.cfg.EntitlementToken); err != nil {
+			log.Printf("[app] warning: failed to write entitlement token file for rustshine: %v", err)
+		}
+	} else {
+		a.entStatus.Linked = false
+		a.entStatus.Tier = ""
+		a.entStatus.ExpiresAt = time.Time{}
+	}
+}
+
+// EntitlementStatus reports the current Patreon-entitlement state for the
+// GUI (and, over adminapi, a thin-client GUI attached to a separate
+// headless engine) to render the "Support us" affordance and, once linked,
+// the Sunshine/RustShine switch. Cheap enough to poll on the GUI's existing
+// 2s refresh ticker (see ui.Window.performRefresh) -- no push/SSE channel
+// needed for this.
+func (a *App) EntitlementStatus() entitlement.Status {
+	a.entMu.Lock()
+	st := a.entStatus
+	a.entMu.Unlock()
+	st.ActiveBackend = a.currentStreamKind()
+	st.RustShineStaged = a.rustshineStaged()
+	return st
+}
+
+func (a *App) setEntError(msg string) {
+	a.entMu.Lock()
+	a.entStatus.LinkInProgress = false
+	a.entStatus.LastError = msg
+	a.entMu.Unlock()
+}
+
+// StartPatreonLink begins a Patreon login attempt: asks the entitlement
+// backend for an authorize URL + correlation state, then polls for the
+// result in the background (see entitlement.StartOAuth/PollOAuth's own
+// docs on why this is a poll, not a local-loopback OAuth redirect).
+// Callers (the GUI) open the returned URL in the system browser;
+// EntitlementStatus reflects progress from here on -- no callback needed,
+// the GUI already polls it on its own refresh ticker.
+func (a *App) StartPatreonLink() (string, error) {
+	start, err := entitlement.StartOAuth(context.Background())
+	if err != nil {
+		a.setEntError(fmt.Sprintf("could not start login: %v", err))
+		return "", err
+	}
+
+	a.entMu.Lock()
+	if a.entPollCancel != nil {
+		a.entPollCancel() // a previous attempt's poll loop, if any, is now stale
+	}
+	pollCtx, cancel := context.WithCancel(context.Background())
+	a.entPollCancel = cancel
+	a.entStatus.LinkInProgress = true
+	a.entStatus.LastError = ""
+	a.entMu.Unlock()
+
+	go a.pollPatreonLink(pollCtx, start.State)
+	return start.AuthorizeURL, nil
+}
+
+func (a *App) pollPatreonLink(ctx context.Context, state string) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		res, err := entitlement.PollOAuth(ctx, state)
+		if err != nil {
+			continue // transient network hiccup -- keep polling until the state's own backend-side TTL expires (PollExpired) or ctx is cancelled
+		}
+		switch res.Status {
+		case entitlement.PollPending:
+			continue
+		case entitlement.PollComplete:
+			a.applyLinkSuccess(res.EntitlementToken, res.ProviderRefreshToken)
+			return
+		case entitlement.PollError:
+			a.setEntError(describePollError(res.Reason))
+			return
+		case entitlement.PollExpired:
+			a.setEntError("This login link expired — try again.")
+			return
+		}
+	}
+}
+
+func describePollError(reason string) string {
+	switch reason {
+	case "below_tier":
+		return "Your Patreon account isn't pledged at the required tier yet."
+	case "exchange_failed":
+		return "Could not complete Patreon login — try again."
+	default:
+		return "Login failed — try again."
+	}
+}
+
+func (a *App) applyLinkSuccess(entitlementToken, providerRefreshToken string) {
+	if _, err := entitlement.Verify(entitlementToken); err != nil {
+		a.setEntError("Received an invalid entitlement token — try again.")
+		return
+	}
+
+	next := a.cfg
+	next.EntitlementToken = entitlementToken
+	next.ProviderRefreshToken = providerRefreshToken
+	if err := a.SaveConfig(next); err != nil {
+		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
+	}
+
+	a.entMu.Lock()
+	a.entStatus.LinkInProgress = false
+	a.entStatus.LastError = ""
+	a.entMu.Unlock()
+	a.refreshLocalEntitlementStatus()
+}
+
+// DownloadRustShine downloads and stages the RustShine build for this
+// platform. onProgress mirrors entitlement.ProgressFunc's threading
+// contract exactly (internal/update.ProgressFunc's twin) — called from
+// this goroutine, GUI callers must hop to their own UI thread themselves.
+// Does not switch to it; call SetStreamBackend("rustshine") once this
+// returns successfully.
+func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
+	token := a.cfg.EntitlementToken
+	if _, err := entitlement.Verify(token); err != nil {
+		return fmt.Errorf("not currently entitled: %w", err)
+	}
+
+	a.entMu.Lock()
+	a.entStatus.DownloadInProgress = true
+	a.entStatus.Progress = -1
+	a.entMu.Unlock()
+	defer func() {
+		a.entMu.Lock()
+		a.entStatus.DownloadInProgress = false
+		a.entMu.Unlock()
+	}()
+
+	// Always update entStatus.Progress (so a thin-client GUI polling
+	// EntitlementStatus over adminapi sees it, per handleDownloadRustShine's
+	// doc comment on why that download call is fire-and-forget), and also
+	// forward to onProgress when the caller is an engine-owning GUI that
+	// wants lower-latency feedback than the 2s poll.
+	combined := func(downloaded, total int64) {
+		frac := -1.0
+		if total > 0 {
+			frac = float64(downloaded) / float64(total)
+		}
+		a.entMu.Lock()
+		a.entStatus.Progress = frac
+		a.entMu.Unlock()
+		if onProgress != nil {
+			onProgress(downloaded, total)
+		}
+	}
+
+	if err := entitlement.StageRustShine(context.Background(), a.exeDir, token, combined); err != nil {
+		a.setEntError(fmt.Sprintf("download failed: %v", err))
+		return err
+	}
+	return nil
+}
+
+// UnlinkPatreon clears the saved entitlement/refresh tokens and switches
+// back to Sunshine if RustShine was active. Does not delete the already-
+// staged RustShine binary -- a later re-link can reuse it without
+// re-downloading (see rustshineBackend.BinaryPath's staged-file check).
+func (a *App) UnlinkPatreon() error {
+	if a.currentStreamKind() == "rustshine" {
+		if err := a.SetStreamBackend("sunshine"); err != nil {
+			return err
+		}
+	}
+	next := a.cfg
+	next.EntitlementToken = ""
+	next.ProviderRefreshToken = ""
+	next.PreferredBackend = ""
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	a.refreshLocalEntitlementStatus()
+	return nil
+}
+
+// downgradeToSunshine clears the saved entitlement/refresh tokens and
+// switches back to Sunshine if RustShine was active -- the shared tail end
+// of every path that decides entitlement no longer holds up (a lapsed
+// Patreon membership, a locally-expired cached token while offline). Does
+// NOT delete the staged RustShine binary or its mirrored token file (see
+// entitlement.WriteTokenFile) -- a later re-link can reuse the binary
+// without re-downloading, and a stale token file is harmless either way,
+// since it just won't get launched again from the Go side until a fresh
+// link succeeds anyway.
+func (a *App) downgradeToSunshine() {
+	next := a.cfg
+	next.EntitlementToken = ""
+	next.ProviderRefreshToken = ""
+	next.PreferredBackend = ""
+	_ = a.SaveConfig(next)
+	a.refreshLocalEntitlementStatus()
+	if a.currentStreamKind() == "rustshine" {
+		_ = a.SetStreamBackend("sunshine")
+	}
+}
+
+// entitlementRecheckInterval is how often entitlementWatchdog re-verifies a
+// linked supporter's membership against the backend. Far longer than
+// sunshineWatchdogInterval deliberately: there's no reason to check
+// membership more than a few times a day, and Patreon's own rate limits
+// (100 req/min per access token) make anything tighter pointless anyway.
+const entitlementRecheckInterval = 6 * time.Hour
+
+// entitlementWatchdog periodically re-verifies entitlement and downgrades
+// to Sunshine the moment it no longer holds up (cancelled pledge, tier
+// dropped, revoked refresh token) -- mirrors sunshineWatchdog's shape. Run
+// also fires one immediate recheckEntitlement shortly after startup (not
+// gated on this ticker), so a lapsed subscription is caught quickly after a
+// restart instead of waiting up to a full interval.
+func (a *App) entitlementWatchdog(ctx context.Context) {
+	ticker := time.NewTicker(entitlementRecheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.recheckEntitlement(ctx)
+		}
+	}
+}
+
+// recheckEntitlement silently re-derives a fresh entitlement token from the
+// saved provider refresh token (no browser interaction) and downgrades to
+// Sunshine if it's no longer entitled. A no-op if there's no saved refresh
+// token (never linked, or already unlinked).
+//
+// A transient failure (network down, backend unreachable) does NOT
+// downgrade immediately by itself — but it also doesn't just do nothing:
+// it falls back to checking the *cached* token's own embedded expiry
+// locally (entitlement.Verify, no network needed) and downgrades once
+// *that* has passed. Without this fallback, a long-running agent process
+// that's offline for longer than the token's TTL would keep trusting an
+// already-locally-expired token forever (nothing else re-derives entStatus
+// continuously while already running — only at the next restart, via
+// New()'s own local check), silently breaking the "offline grace is
+// bounded by the token's TTL" guarantee this whole scheme is supposed to
+// provide. This closes that gap: the bound is enforced continuously, not
+// just at the next restart.
+func (a *App) recheckEntitlement(ctx context.Context) {
+	refreshToken := a.cfg.ProviderRefreshToken
+	if strings.TrimSpace(refreshToken) == "" {
+		return
+	}
+	res, err := entitlement.RefreshEntitlement(ctx, refreshToken)
+	if err != nil {
+		log.Printf("[app] entitlement recheck failed (will retry next interval): %v", err)
+		if _, verifyErr := entitlement.Verify(a.cfg.EntitlementToken); verifyErr != nil {
+			log.Printf("[app] cached entitlement token has now expired locally while offline — switching back to Sunshine: %v", verifyErr)
+			a.downgradeToSunshine()
+		}
+		return
+	}
+	if res.NotEntitled {
+		log.Printf("[app] entitlement lapsed (%s) — switching back to Sunshine", res.Reason)
+		a.downgradeToSunshine()
+		return
+	}
+
+	next := a.cfg
+	next.EntitlementToken = res.EntitlementToken
+	next.ProviderRefreshToken = res.ProviderRefreshToken
+	if err := a.SaveConfig(next); err != nil {
+		log.Printf("[app] warning: failed to persist refreshed entitlement: %v", err)
+	}
+	a.refreshLocalEntitlementStatus()
 }
 
 // waitForMonitorCorrelation blocks briefly for Sunshine's KMS/Wayland

@@ -1,4 +1,4 @@
-//go:build rustshine && linux
+//go:build linux
 
 package streamhost
 

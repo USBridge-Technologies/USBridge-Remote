@@ -1,11 +1,13 @@
-//go:build rustshine
-
 // rustshineBackend drives a private "rust-shine" gamestream-server instance
-// (bin/gamestream-server in the private itsme228/rust-shine repo) as this
-// build's streamhost.Backend. Only buildable with -tags rustshine, and only
-// useful if that binary is actually bundled next to the agent (see
-// agent/scripts/fetch_rustshine.sh) — this file contains no secrets or
-// bundled binary of its own, just an HTTP/CLI client for its admin API.
+// (bin/gamestream-server in the private itsme228/rust-shine repo) as an
+// alternate streamhost.Backend, constructed on demand by
+// App.SetStreamBackend once the agent's internal/entitlement package has
+// verified a paying Patreon supporter (see that package, and
+// agent/internal/entitlement/download.go for how the binary gets staged
+// into exeDir/rustshine/ in the first place). Always compiled in — no
+// build tag — because this file contains no secrets or bundled binary of
+// its own, just an HTTP/CLI client for its admin API; gating happens at
+// runtime via the entitlement check, not at compile time.
 //
 // Protocol facts below (routes, JSON field names, CLI flags, config keys,
 // port offsets) were confirmed directly against crates/gamestream-proto and
@@ -341,6 +343,11 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	if credsPath != "" {
 		args = append(args, "--credentials-path", credsPath)
 	}
+	// Path convention duplicated (not imported) from
+	// entitlement.TokenFilePath -- see that function's doc comment for why:
+	// this package stays entitlement-agnostic, entitlement stays
+	// streamhost-agnostic. Always passed; harmless if unused.
+	args = append(args, "--entitlement-file", filepath.Join(b.stateDir, "rustshine", "entitlement.token"))
 
 	// If a capability-granted sunshine-capexec launcher is set (Linux KMS
 	// capture only — see SetCapExecPath), launch gamestream-server through

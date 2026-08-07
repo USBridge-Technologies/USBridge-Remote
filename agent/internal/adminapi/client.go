@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 )
@@ -249,6 +250,37 @@ func (c *Client) StreamerName() string {
 	var body stringBody
 	_ = c.do(http.MethodGet, "/token/streamer-name", nil, &body)
 	return body.Value
+}
+
+func (c *Client) EntitlementStatus() entitlement.Status {
+	var status entitlement.Status
+	_ = c.do(http.MethodGet, "/token/entitlement-status", nil, &status)
+	return status
+}
+
+func (c *Client) StartPatreonLink() (string, error) {
+	var body stringBody
+	if err := c.do(http.MethodPost, "/token/patreon-link", nil, &body); err != nil {
+		return "", err
+	}
+	return body.Value, nil
+}
+
+func (c *Client) UnlinkPatreon() error {
+	return c.do(http.MethodPost, "/token/patreon-unlink", nil, nil)
+}
+
+// DownloadRustShine ignores onProgress over the thin-client path -- the
+// engine process runs the actual download and reports progress via
+// EntitlementStatus polling instead (see handleDownloadRustShine's doc
+// comment); onProgress exists only so this satisfies the same signature
+// App.DownloadRustShine has for an engine-owning ui.Window.
+func (c *Client) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
+	return c.do(http.MethodPost, "/token/download-rustshine", nil, nil)
+}
+
+func (c *Client) SetStreamBackend(kind string) error {
+	return c.do(http.MethodPost, "/token/set-stream-backend", map[string]string{"kind": kind}, nil)
 }
 
 // --- PermsBackend ---

@@ -13,6 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"usbridge_agent/internal/config"
+	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
 	"usbridge_agent/internal/tailscale"
 )
@@ -42,6 +43,13 @@ type TokenBackend interface {
 	AdminPass() string
 	SunshineStreamHost() string
 	StreamerName() string
+
+	// Patreon-gated RustShine entitlement (see internal/entitlement).
+	EntitlementStatus() entitlement.Status
+	StartPatreonLink() (string, error)
+	UnlinkPatreon() error
+	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	SetStreamBackend(kind string) error
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -169,6 +177,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/admin-credentials", s.handleAdminCredentials)
 	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
 	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
+	mux.HandleFunc("GET /token/entitlement-status", s.handleEntitlementStatus)
+	mux.HandleFunc("POST /token/patreon-link", s.handlePatreonLink)
+	mux.HandleFunc("POST /token/patreon-unlink", s.handlePatreonUnlink)
+	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
+	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -379,6 +392,59 @@ func (s *Server) handleSunshineStreamHost(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleStreamerName(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stringBody{Value: s.token.StreamerName()})
+}
+
+func (s *Server) handleEntitlementStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.token.EntitlementStatus())
+}
+
+func (s *Server) handlePatreonLink(w http.ResponseWriter, r *http.Request) {
+	url, err := s.token.StartPatreonLink()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stringBody{Value: url})
+}
+
+func (s *Server) handlePatreonUnlink(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.UnlinkPatreon(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleDownloadRustShine kicks the download off in the engine process and
+// returns immediately -- it can take tens of seconds to minutes, far longer
+// than this HTTP request should stay open, especially over a thin client's
+// connection to a separate engine process. Callers (both an engine-owning
+// and a thin-client GUI) poll /token/entitlement-status for
+// DownloadInProgress/Progress/RustShineStaged instead of waiting on this
+// response. 200 (not 202) so this fits adminapi.Client.do's existing
+// strict-200 success check without needing a special case there.
+func (s *Server) handleDownloadRustShine(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.DownloadRustShine(nil); err != nil {
+			logrus.WithError(err).Warn("rustshine download failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleSetStreamBackend(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Kind string `json:"kind"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetStreamBackend(body.Kind); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (s *Server) handlePermsBool(fn func() bool) http.HandlerFunc {
