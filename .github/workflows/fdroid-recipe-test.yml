@@ -33,7 +33,7 @@ jobs:
       - name: "init step (recipe's init section)"
         run: |
           set -euo pipefail
-          curl -sSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go.tgz
+          curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz
           sudo tar -C /usr/local -xzf /tmp/go.tgz
           rm /tmp/go.tgz
           echo "/usr/local/go/bin" >> "$GITHUB_PATH"

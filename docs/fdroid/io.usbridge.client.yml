@@ -55,7 +55,7 @@ Builds:
     # (gomobile) requires >=1.25 -- too old, don't rely on apt for Go at
     # all. Fetch a pinned upstream tarball directly instead.
     init: |
-      curl -sSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go.tgz
+      curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz
       sudo tar -C /usr/local -xzf /tmp/go.tgz
       rm /tmp/go.tgz
       export PATH="/usr/local/go/bin:$PATH"
