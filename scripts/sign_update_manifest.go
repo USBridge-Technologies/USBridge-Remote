@@ -160,7 +160,16 @@ func collectPlatforms(dir, app string) (map[string]platformAsset, error) {
 		// same "android-arm64" platform key below. .aab is never a
 		// self-update asset either way — Android app bundles aren't
 		// sideloadable.
-		if strings.Contains(e.Name(), "-market-") || strings.HasSuffix(e.Name(), ".aab") {
+		//
+		// "-market" without a trailing "-": by the time this runs, the
+		// calling workflow's "Flatten artifacts" step has already stripped
+		// the "-<version>" suffix (see release-all.yml), so the on-disk
+		// name here is "...-market.apk"/"...-market.aab" — a dot, not a
+		// dash, follows "market". A stricter "-market-" check silently
+		// stopped matching after stripping and let a same-platform-key
+		// collision through (confirmed live: "two assets both map to
+		// platform \"android-arm64\"").
+		if strings.Contains(e.Name(), "-market") || strings.HasSuffix(e.Name(), ".aab") {
 			continue
 		}
 
