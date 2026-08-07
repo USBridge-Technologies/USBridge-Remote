@@ -714,14 +714,17 @@ if [ -f "$APK_OUT" ]; then
     fi
 
     APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-    # "direct" keeps today's plain filename (unchanged, so the GitHub
-    # Releases / self-update manifest pipeline sees nothing new); "market"
-    # gets a distinguishing "-market-" infix so it can never collide with,
-    # or be mistaken by scripts/sign_update_manifest.go for, the
-    # self-update-capable asset (that script skips anything with "-market-"
-    # in the name, the same way it already skips "-iOS-").
+    # Distinguishing infix per flavor so the two are never confused at a
+    # glance on the releases page, and so scripts/sign_update_manifest.go
+    # can tell them apart (it skips anything with "-market-" in the name,
+    # the same way it already skips "-iOS-" — the self-update manifest
+    # must only ever point at the "-selfupdate-" asset). The self-update
+    # client itself doesn't care about the filename either way — it reads
+    # whatever name manifest-client.json records, generated fresh each
+    # release (see scripts/sign_update_manifest.go), so renaming this
+    # doesn't break already-installed clients' next update check.
     if [ "$GRADLE_FLAVOR" = "direct" ]; then
-        FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-${APK_VERSION}.apk"
+        FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-selfupdate-${APK_VERSION}.apk"
     else
         FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-market-${APK_VERSION}.apk"
     fi

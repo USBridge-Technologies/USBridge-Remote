@@ -155,10 +155,11 @@ func collectPlatforms(dir, app string) (map[string]platformAsset, error) {
 		// build, client/scripts/build_android_gradle.sh's default): it has
 		// no self-update code compiled in at all (see
 		// client/internal/update/update_disabled.go), and would otherwise
-		// collide with the "direct" flavor's plain
-		// USBridgeClient-Android-arm64-<version>.apk under the same
-		// "android-arm64" platform key below. .aab is never a self-update
-		// asset either way — Android app bundles aren't sideloadable.
+		// collide with the "direct" flavor's
+		// USBridgeClient-Android-arm64-selfupdate-<version>.apk under the
+		// same "android-arm64" platform key below. .aab is never a
+		// self-update asset either way — Android app bundles aren't
+		// sideloadable.
 		if strings.Contains(e.Name(), "-market-") || strings.HasSuffix(e.Name(), ".aab") {
 			continue
 		}
