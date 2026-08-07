@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Full USBridge Client build for Android
-# scripts/build_all_android.sh - Gradle APK with QR scanner and GStreamer (dynamic .so)
+# scripts/build_all_android.sh - Gradle APK with QR scanner (Moonlight-only)
 
 set -e
 

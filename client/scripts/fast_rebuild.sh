@@ -19,7 +19,7 @@ export GOCACHE="${GOCACHE:-$REPO_ROOT/.cache/go-build/windows-amd64}"
 export GOMODCACHE="${GOMODCACHE:-$REPO_ROOT/.cache/go-mod}"
 export GOMAXPROCS="${GOMAXPROCS:-12}"
 
-# Vulkan + GStreamer headers (ucrt64 native build)
+# Vulkan headers (ucrt64 native build)
 UCRT64_INC="${UCRT64_INC:-/ucrt64/include}"
 UCRT64_LIB="${UCRT64_LIB:-/ucrt64/lib}"
 # Fallback to msys64 path when running outside ucrt64 shell

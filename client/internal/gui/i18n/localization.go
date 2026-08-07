@@ -272,14 +272,8 @@ type LocalizedStrings struct {
 	VideoModeRawYUYVName        string
 	VideoModeRawYUYVDescription string
 
-	// GStreamer Status
-	GStreamerConnected    string
-	GStreamerPaused       string
-	GStreamerDisconnected string
-	GStreamerEndOfStream  string
-	GStreamerError        string
-	FramesDropped         string
-	LowLatencyMode        string
+	FramesDropped  string
+	LowLatencyMode string
 
 	// Language
 	Language          string
@@ -661,14 +655,8 @@ func EN() *LocalizedStrings {
 		VideoModeRawYUYVName:        "RAW YUYV",
 		VideoModeRawYUYVDescription: "YUYV (Uncompressed) → RTP → Direct Render",
 
-		// GStreamer Status
-		GStreamerConnected:    "GStreamer RTP/UDP connection established",
-		GStreamerPaused:       "GStreamer paused",
-		GStreamerDisconnected: "GStreamer disconnected",
-		GStreamerEndOfStream:  "GStreamer: end of stream",
-		GStreamerError:        "GStreamer error: %v",
-		FramesDropped:         "Dropped",
-		LowLatencyMode:        "Low latency mode",
+		FramesDropped:  "Dropped",
+		LowLatencyMode: "Low latency mode",
 
 		// Language
 		Language:          "Language",

@@ -96,10 +96,6 @@ jobs:
       - name: Install macOS build dependencies
         run: |
           brew list opus &>/dev/null || brew install opus
-          # go-gst (legacy RTP video path) carries a #cgo pkg-config:
-          # gstreamer-1.0 directive that's evaluated at compile time even
-          # though the feature is optional at runtime.
-          brew list gstreamer &>/dev/null || brew install gstreamer
 
       - name: Build & sign macOS app bundle
         working-directory: client

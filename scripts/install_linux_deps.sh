@@ -95,7 +95,6 @@ CLIENT_PKGS=(
     libgl1-mesa-dev xorg-dev libxkbcommon-dev
     libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
     libopus-dev libssl-dev libvulkan-dev
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 )
 
 case "$SCOPE" in

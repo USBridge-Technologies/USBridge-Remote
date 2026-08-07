@@ -73,23 +73,11 @@ echo ""
 # regardless of NDK revision.
 NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
 
-# 1. GStreamer — optional dynamic .so (only when WITH_GSTREAMER=1)
-# Skipped by default: the app uses Moonlight (AMediaCodec/AAudio),
-# GStreamer is not needed. To enable: ./scripts/build_android.sh --gstreamer
-if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    echo "📦 Step 1/5: GStreamer (dynamic .so)..."
-    "$SCRIPTS_DIR/build_gstreamer_dynamic_android.sh"
-    echo ""
-else
-    echo "⚡ Step 1/5: GStreamer — skipped (Moonlight-only build)"
-    echo ""
-fi
+# 1. gomobile bind for androidbridge
+echo "📦 Step 1/4: gomobile bind androidbridge..."
 
-# 2. gomobile bind for androidbridge
-echo "📦 Step 2/5: gomobile bind androidbridge..."
-
-# 2.5 Tailscale CLI & Daemon for Android
-echo "📦 Step 2.5/5: Building Tailscale binaries..."
+# 1.5 Tailscale CLI & Daemon for Android
+echo "📦 Step 1.5/4: Building Tailscale binaries..."
 mkdir -p android/app/src/main/jniLibs/arm64-v8a
 
 TS_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscale.so"
@@ -393,20 +381,13 @@ else
 fi
 echo ""
 
-# 3. Fyne build for the Go library
-echo "🔨 Step 3/5: Building the Go application (fyne)..."
+# 2. Fyne build for the Go library
+echo "🔨 Step 2/4: Building the Go application (fyne)..."
 ANDROID_SRC="$REPO_ROOT/cmd/android"
 # cmd/android/main.go embeds this copy (go:embed can't reach a parent dir) to
 # show the real app version in-UI; keep it in sync with the source of truth.
 cp "$REPO_ROOT/VERSION" "$ANDROID_SRC/VERSION"
 mkdir -p "$ANDROID_SRC/libs/arm64-v8a"
-# Only copy GStreamer .so files when WITH_GSTREAMER=1; otherwise they don't exist and aren't needed
-if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    for so_file in android/jniLibs/arm64-v8a/*.so; do
-        [ -f "$so_file" ] || continue
-        sync_file_if_needed "$so_file" "$ANDROID_SRC/libs/arm64-v8a/$(basename "$so_file")"
-    done
-fi
 
 if [ -z "${ANDROID_NDK_HOME:-}" ] || [ ! -d "$ANDROID_NDK_HOME" ]; then
     export_android_env
@@ -487,19 +468,16 @@ run_apksigner() {
     esac
 }
 
-# Compose build tags: base + gstreamer if enabled + noselfupdate unless this
-# is the self-update-enabled "direct" build (see GRADLE_FLAVOR above) — this
-# is what actually removes internal/update's network/install code from the
+# Compose build tags: base + noselfupdate unless this is the
+# self-update-enabled "direct" build (see GRADLE_FLAVOR above) — this is
+# what actually removes internal/update's network/install code from the
 # compiled binary, not just the Gradle flavor's manifest permission.
 FYNE_TAGS="nosystray"
-if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    FYNE_TAGS="$FYNE_TAGS,gstreamer"
-fi
 if [ "$WITH_SELF_UPDATE" != "1" ]; then
     FYNE_TAGS="$FYNE_TAGS,noselfupdate"
 fi
 
-# Stamp file to invalidate the cache when switching gstreamer/no-gstreamer mode
+# Stamp file to invalidate the cache when the build tags change
 FYNE_TAGS_STAMP="$REPO_ROOT/.build-cache/android/fyne_tags.stamp"
 mkdir -p "$(dirname "$FYNE_TAGS_STAMP")"
 PREV_FYNE_TAGS="$(cat "$FYNE_TAGS_STAMP" 2>/dev/null || true)"
@@ -509,7 +487,6 @@ NEED_FYNE_BUILD=0
 if [ "${FORCE_FYNE:-0}" = "1" ]; then
     NEED_FYNE_BUILD=1
 fi
-# Build mode changed (with GStreamer ↔ without)
 if [ "$NEED_FYNE_BUILD" -eq 0 ] && [ "$PREV_FYNE_TAGS" != "$FYNE_TAGS" ]; then
     echo "   Build tags changed ($PREV_FYNE_TAGS → $FYNE_TAGS) — rebuilding"
     NEED_FYNE_BUILD=1
@@ -552,8 +529,8 @@ else
 fi
 echo ""
 
-# 4. Extracting .so from the Fyne APK
-echo "📂 Step 4/5: Extracting native libraries..."
+# 3. Extracting .so from the Fyne APK
+echo "📂 Step 3/4: Extracting native libraries..."
 if ! ensure_command_available unzip unzip; then
     echo -e "${RED}❌ unzip not found${NC}"
     exit 1
@@ -582,17 +559,11 @@ if [ "$NEED_EXTRACT_FYNE_SO" -eq 1 ]; then
 else
     echo "⚡ libUSBridge_Client.so is already up to date"
 fi
-if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    for so_file in android/jniLibs/arm64-v8a/*.so; do
-        [ -f "$so_file" ] || continue
-        sync_file_if_needed "$so_file" "android/app/src/main/jniLibs/arm64-v8a/$(basename "$so_file")"
-    done
-fi
 echo -e "${GREEN}✓${NC} Native libraries synchronized"
 echo ""
 
-# 5. Gradle build
-echo "🔨 Step 5/5: Gradle assemble..."
+# 4. Gradle build
+echo "🔨 Step 4/4: Gradle assemble..."
 # Kotlin 1.9 does not support Java 25; use the JBR bundled with Android Studio
 if [ -z "$JAVA_HOME" ] || java -version 2>&1 | grep -q "version \"25"; then
     if [ -d "/Applications/Android Studio.app/Contents/jbr/Contents/Home" ]; then

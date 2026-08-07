@@ -5,9 +5,7 @@
 #
 # Requirements:
 #   Required:  Go, Xcode Command Line Tools
-#   Optional:  GStreamer (Homebrew) — bundled automatically if installed;
-#              needed only for legacy RTP video mode.
-#              Moonlight streaming uses VideoToolbox + CoreAudio (no GStreamer required).
+#   Moonlight streaming uses VideoToolbox + CoreAudio — no GStreamer needed.
 
 set -e
 
@@ -246,23 +244,7 @@ create_app_icon() {
 
 echo -e "${GREEN}🍎 Building USBridgeClient for macOS${NC}"
 
-# 1. Check optional GStreamer (needed only for legacy RTP video mode)
-
-GST_LAUNCH=""
-for p in "gst-launch-1.0" "/opt/homebrew/bin/gst-launch-1.0" "/usr/local/bin/gst-launch-1.0"; do
-    if command -v "$p" &>/dev/null || [ -x "$p" ]; then
-        GST_LAUNCH="$p"
-        break
-    fi
-done
-
-if [ -z "$GST_LAUNCH" ]; then
-    :
-else
-    echo -e "   ${GREEN}✓${NC} gst-launch: $GST_LAUNCH"
-fi
-
-# 2. Build binary
+# 1. Build binary
 rm -f "$REPO_ROOT/cmd/fyne_metadata_init.go"
 rm -rf "$REPO_ROOT/cmd/$APP_BUNDLE_NAME"
 
@@ -291,65 +273,7 @@ chmod +x "$APP_BINARY_PATH"
 echo -e "\n${YELLOW}📚 Bundling Homebrew dylibs → Contents/Frameworks/...${NC}"
 bundle_homebrew_dylibs "$APP_BINARY_PATH" "$APP_FRAMEWORKS_DIR"
 
-# 4. Bundle GStreamer plugins (optional — only needed for legacy RTP video mode)
-GST_PLUGIN_SRC=""
-for d in \
-    /opt/homebrew/lib/gstreamer-1.0 \
-    /opt/homebrew/opt/gstreamer/lib/gstreamer-1.0 \
-    /usr/local/lib/gstreamer-1.0; do
-    [ -d "$d" ] && GST_PLUGIN_SRC="$d" && break
-done
-
-if [ -n "$GST_PLUGIN_SRC" ]; then
-    # GStreamer plugins go directly into Contents/Frameworks/ as flat dylibs.
-    # codesign rejects any subdirectory inside Frameworks/ or PlugIns/ that lacks
-    # proper bundle structure (Info.plist etc). Flattening avoids that.
-    echo -e "\n${YELLOW}🔌 Bundling GStreamer plugins (RTP mode) → Contents/Frameworks/...${NC}"
-    GST_PLUGIN_DEST="$APP_FRAMEWORKS_DIR"
-    mkdir -p "$GST_PLUGIN_DEST"
-    GST_PLUGINS=(
-        libgstcoreelements.dylib
-        libgstapp.dylib
-        libgstrtp.dylib
-        libgstrtpmanager.dylib
-        libgstudp.dylib
-        libgstvideoconvertscale.dylib
-        libgstvideofilter.dylib
-        libgstplayback.dylib
-        libgsttypefindfunctions.dylib
-        libgstjpeg.dylib
-        libgstjpegformat.dylib
-        libgstlibav.dylib
-        libgstautodetect.dylib
-        libgstaudioconvert.dylib
-        libgstaudioresample.dylib
-        libgstosxaudio.dylib
-        libgstapplemedia.dylib
-        libgstvideoparsers.dylib
-        libgstvideoparsersbad.dylib
-    )
-    GST_PLUGIN_COUNT=0
-    for plugin in "${GST_PLUGINS[@]}"; do
-        if [ -f "$GST_PLUGIN_SRC/$plugin" ]; then
-            cp -L "$GST_PLUGIN_SRC/$plugin" "$GST_PLUGIN_DEST/"
-            chmod 755 "$GST_PLUGIN_DEST/$plugin"
-            install_name_tool -id "@rpath/$plugin" "$GST_PLUGIN_DEST/$plugin" 2>/dev/null || true
-            # Fix all Homebrew references inside the plugin
-            while IFS= read -r dep; do
-                [ -z "$dep" ] && continue
-                is_system_dylib "$dep" && continue
-                dep_name="$(basename "$dep")"
-                install_name_tool -change "$dep" "@rpath/$dep_name" "$GST_PLUGIN_DEST/$plugin" 2>/dev/null || true
-            done < <(otool -L "$GST_PLUGIN_SRC/$plugin" 2>/dev/null | awk 'NR>1 {print $1}')
-            echo -e "   ${GREEN}✓${NC} $plugin"
-            GST_PLUGIN_COUNT=$((GST_PLUGIN_COUNT + 1))
-        fi
-    done
-    echo -e "${GREEN}✓${NC} GStreamer plugins: $GST_PLUGIN_COUNT bundled (flat in Contents/Frameworks/)"
-    echo "   (set GST_PLUGIN_PATH=\$BUNDLE/Contents/Frameworks to use them)"
-fi
-
-# 5. Bundle QEMU (qemu-nbd, qemu-img — for VMDK/QCOW2/VDI image support)
+# 4. Bundle QEMU (qemu-nbd, qemu-img — for VMDK/QCOW2/VDI image support)
 echo -e "\n${YELLOW}📀 Bundling QEMU (qemu-nbd, qemu-img)...${NC}"
 QEMU_COPIED=0
 for _qtool in qemu-nbd qemu-img; do
@@ -498,8 +422,8 @@ if [ -n "$CODESIGN_IDENTITY" ] && command -v codesign >/dev/null 2>&1; then
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$APP_MACOS_DIR/$BINARY_NAME"
     # Sign the outer bundle WITHOUT --deep: all inner components are already signed above.
-    # --deep recurses into plain directories (e.g. gstreamer-1.0/) and fails treating them
-    # as bundles; signing everything explicitly first avoids that error.
+    # --deep recurses into any plain (non-bundle) subdirectory under Contents/ and fails
+    # treating it as a bundle; signing everything explicitly first avoids that error.
     codesign_retry --force --sign "$CODESIGN_IDENTITY" \
         --options runtime --timestamp --entitlements "$ENTITLEMENTS" \
         "$DIST_DIR/$APP_BUNDLE_NAME"
