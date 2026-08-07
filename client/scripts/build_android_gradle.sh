@@ -762,7 +762,13 @@ if [ -f "$APK_OUT" ]; then
         # JAR-signed bundle.
         jarsigner -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASS" \
             -keypass "$KEY_PASS" "$FINAL_AAB" "$KEY_ALIAS"
-        jarsigner -verify -strict "$FINAL_AAB"
+        # No -strict: jarsigner treats a self-signed cert (which is exactly
+        # what every Android app-signing key is — there's no CA chain to a
+        # trusted root, apksigner doesn't care either) as a verification
+        # "error" and -strict turns that into a nonzero exit. Plain -verify
+        # still prints "jar verified" and fails loudly on anything that's
+        # actually wrong (bad password, tampered file, ...).
+        jarsigner -verify "$FINAL_AAB"
         if [ "$GRADLE_FLAVOR" != "market" ]; then
             echo -e "${YELLOW}⚠ built an .aab for the \"$GRADLE_FLAVOR\" flavor — --aab is meant for the market flavor (Play Store).${NC}"
         fi

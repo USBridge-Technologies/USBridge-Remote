@@ -593,7 +593,9 @@ jobs:
           set -euo pipefail
           AAB="$(ls client/dist/android/USBridgeClient-Android-arm64-market-*.aab)"
           echo "AAB=$AAB" >> "$GITHUB_ENV"
-          jarsigner -verify -strict "$AAB"
+          # No -strict: a self-signed cert (every Android app-signing key)
+          # otherwise reads as a verification "error" to jarsigner.
+          jarsigner -verify "$AAB"
           CERT_INFO="$(keytool -printcert -jarfile "$AAB" 2>&1)"
           echo "$CERT_INFO" | grep -E "Owner|SHA256"
           echo "$CERT_INFO" | grep -q "CN=Android Debug" && { echo "::error::AAB is signed with the auto-generated debug keystore, not the release key — check ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD secrets"; exit 1; }
