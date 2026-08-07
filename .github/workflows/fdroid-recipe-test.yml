@@ -21,27 +21,27 @@ jobs:
         with:
           submodules: recursive
 
-      - name: "sudo step (recipe's sudo section)"
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y golang-go
-
-      - name: Check what apt's golang-go actually gives us
-        run: go version
-
       - name: Install Android SDK platform/build-tools/NDK
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platforms;android-26" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724"
+          SDKMANAGER="$(find "$ANDROID_HOME" -maxdepth 4 -name sdkmanager -type f 2>/dev/null | sort -V | tail -1)"
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-26" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
 
       - name: "init step (recipe's init section)"
         run: |
           set -euo pipefail
+          curl -sSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go.tgz
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          rm /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/local/go/bin:$PATH"
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile init
 
       - name: "prebuild step (recipe's prebuild section)"

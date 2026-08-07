@@ -50,21 +50,21 @@ Builds:
     subdir: client/android
     submodules: true
 
-    # F-Droid's buildserver has no gomobile/Go-for-Android/NDK toolchain
-    # preinstalled -- these are best-effort placeholders for what
-    # client/scripts/build_android_gradle.sh does manually; the real
-    # values (Go version, NDK revision, exact env) need confirming against
-    # what actually works in their build container.
-    sudo:
-      - apt-get update
-      - apt-get install -y golang-go
+    # Confirmed live (own x86_64 CI run, not their buildserver, but same
+    # arch/distro family): apt's golang-go is 1.22, and golang.org/x/mobile
+    # (gomobile) requires >=1.25 -- too old, don't rely on apt for Go at
+    # all. Fetch a pinned upstream tarball directly instead.
     init: |
+      curl -sSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -o /tmp/go.tgz
+      sudo tar -C /usr/local -xzf /tmp/go.tgz
+      rm /tmp/go.tgz
+      export PATH="/usr/local/go/bin:$PATH"
       go install golang.org/x/mobile/cmd/gomobile@latest
       go install golang.org/x/mobile/cmd/gobind@latest
       export PATH="$PATH:$(go env GOPATH)/bin"
       gomobile init
     prebuild: |
-      export PATH="$PATH:$(go env GOPATH)/bin"
+      export PATH="/usr/local/go/bin:$PATH:$(go env GOPATH)/bin"
       export GOOS=android
       export GOARCH=arm64
       export CGO_ENABLED=1
