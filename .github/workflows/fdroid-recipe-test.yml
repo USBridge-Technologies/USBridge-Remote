@@ -1,0 +1,65 @@
+name: fdroid-recipe-test
+
+# TEMPORARY scratch workflow to validate docs/fdroid/io.usbridge.client.yml's
+# init/prebuild/gradle steps on real x86_64 hardware (matching F-Droid's
+# actual buildserver architecture) without fighting local QEMU emulation.
+# Not meant to stay in the repo long-term -- delete once the recipe works.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test-recipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: sudo (recipe's sudo: section)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go
+
+      - name: Check what apt's golang-go actually gives us
+        run: go version
+
+      - name: Install Android SDK platform/build-tools/NDK
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-26" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+
+      - name: init (recipe's init: section)
+        run: |
+          set -euo pipefail
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          gomobile init
+
+      - name: prebuild (recipe's prebuild: section)
+        working-directory: client
+        run: |
+          set -euo pipefail
+          export GOOS=android
+          export GOARCH=arm64
+          export CGO_ENABLED=1
+          export CGO_LDFLAGS="-Wl,-z,max-page-size=16384"
+          MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
+          mkdir -p android/app/libs
+          gomobile bind -target android -androidapi 26 -o android/app/libs/androidbridge.aar ./androidbridge
+          echo "✓ androidbridge.aar built:"
+          ls -la android/app/libs/androidbridge.aar
+
+      - name: gradle (market flavor assemble)
+        working-directory: client/android
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew assembleMarketRelease --no-daemon
+
+      - name: Report result
+        run: |
+          find client/android/app/build/outputs -name "*.apk" -exec ls -la {} \;

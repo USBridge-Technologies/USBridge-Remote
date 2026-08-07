@@ -42,11 +42,11 @@ Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
 Builds:
   - versionName: 2.1.13
     versionCode: 20113
-    # TODO: pin to the actual tag/commit this version was released from
-    # once one exists (client/VERSION-driven; no per-version git tag
-    # convention for the client alone today -- may need one added, e.g.
-    # "client-v2.1.13", or pin a plain commit SHA instead).
-    commit: TODO_TAG_OR_COMMIT
+    # Pinned to the commit on the `test` branch that has this exact
+    # versionName/versionCode (client/VERSION-driven). TODO: repin once
+    # this lands on `main` -- F-Droid's buildserver should track the
+    # public release branch, not a working branch.
+    commit: 39b027509d0c69d4100e2440b4316bbb3d5e949e
     subdir: client/android
     submodules: true
 
@@ -85,7 +85,7 @@ Builds:
     gradle:
       - market
 
-    ndk: r27c # TODO: confirm against whatever's actually available/works
+    ndk: r27c  # TODO: confirm against whatever's actually available/works
 
-AutoUpdateMode: None # manual for now -- versionName isn't a plain git tag yet
+AutoUpdateMode: None  # manual for now -- versionName isn't a plain git tag yet
 UpdateCheckMode: None
