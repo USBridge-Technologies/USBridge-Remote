@@ -361,11 +361,15 @@ fi
 
 if [ "$NEED_GOMOBILE" -eq 1 ]; then
     rm -f "$AAR_OUT"
-    $GOMOBILE_CMD bind -target android -androidapi 26 -o "$AAR_OUT" ./androidbridge || {
+    # -target android/arm64, not just "android" (which silently builds all
+    # four ABIs -- arm/arm64/x86/x86_64 -- since gomobile defaults to
+    # every ABI it knows when none is named). This project only ever
+    # ships arm64-v8a; the other three were pure wasted build time here.
+    $GOMOBILE_CMD bind -target android/arm64 -androidapi 26 -o "$AAR_OUT" ./androidbridge || {
         echo -e "${RED}❌ gomobile bind failed. Install it manually:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
-        echo "   $GOMOBILE_CMD bind -target android -o $AAR_OUT ./androidbridge"
+        echo "   $GOMOBILE_CMD bind -target android/arm64 -o $AAR_OUT ./androidbridge"
         exit 1
     }
 fi
