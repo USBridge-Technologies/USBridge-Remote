@@ -264,7 +264,7 @@ func New() (*App, error) {
 	// no longer holds up.
 	if cfg.PreferredBackend == "rustshine" {
 		if _, err := entitlement.Verify(cfg.EntitlementToken); err == nil {
-			if _, err := os.Stat(entitlement.StagePath(instance.exeDir)); err == nil {
+			if _, err := os.Stat(entitlement.StagePath(cfg.StateDir)); err == nil {
 				instance.streamKind = "rustshine"
 			}
 		}
@@ -843,7 +843,7 @@ func (a *App) SetStreamBackend(kind string) error {
 		return nil
 	}
 	if kind == "rustshine" {
-		if _, err := os.Stat(entitlement.StagePath(a.exeDir)); err != nil {
+		if _, err := os.Stat(entitlement.StagePath(a.cfg.StateDir)); err != nil {
 			return fmt.Errorf("rustshine is not downloaded yet")
 		}
 	}
@@ -892,7 +892,7 @@ func (a *App) currentStreamKind() string {
 }
 
 func (a *App) rustshineStaged() bool {
-	_, err := os.Stat(entitlement.StagePath(a.exeDir))
+	_, err := os.Stat(entitlement.StagePath(a.cfg.StateDir))
 	return err == nil
 }
 
@@ -1051,6 +1051,7 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 	a.entMu.Lock()
 	a.entStatus.DownloadInProgress = true
 	a.entStatus.Progress = -1
+	a.entStatus.LastError = ""
 	a.entMu.Unlock()
 	defer func() {
 		a.entMu.Lock()
@@ -1076,7 +1077,7 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 		}
 	}
 
-	if err := entitlement.StageRustShine(context.Background(), a.exeDir, token, combined); err != nil {
+	if err := entitlement.StageRustShine(context.Background(), a.cfg.StateDir, token, combined); err != nil {
 		a.setEntError(fmt.Sprintf("download failed: %v", err))
 		return err
 	}

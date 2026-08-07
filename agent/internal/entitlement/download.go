@@ -42,18 +42,33 @@ func binaryName() string {
 // StagePath is exactly what streamhost.rustshineBackend.BinaryPath()
 // resolves to (see rustshine_backend.go) -- staging here means zero
 // changes needed on that side once a download completes.
-func StagePath(exeDir string) string {
-	return filepath.Join(exeDir, "rustshine", binaryName())
+//
+// Deliberately under stateDir (e.g. ~/Library/Application Support/
+// usbridge-agent on macOS), never under exeDir/the app's own install
+// directory: on macOS exeDir is inside the signed, notarized .app bundle
+// (Contents/MacOS), and writing a new file into it post-install breaks the
+// bundle's code signature seal (`codesign --verify` reports "a sealed
+// resource is missing or invalid" the moment a staged binary lands there --
+// confirmed live). A bundle with a broken seal is treated as tampered by
+// macOS's TCC subsystem, which silently denies every permission check
+// (Screen Recording, etc.) for it and everything it launches, no matter how
+// many times the user grants access in System Settings -- this was the
+// actual root cause behind RustShine's ScreenCaptureKit captures always
+// failing, not a missing permission. stateDir is never part of any signed
+// bundle on any platform, so this can't happen there. Same directory
+// TokenFilePath already uses, for the same reason.
+func StagePath(stateDir string) string {
+	return filepath.Join(stateDir, "rustshine", binaryName())
 }
 
 // StageRustShine resolves, downloads, verifies, and extracts the RustShine
 // build for this platform, atomically replacing whatever's already staged
-// at StagePath(exeDir). entitlementToken must already have passed Verify
+// at StagePath(stateDir). entitlementToken must already have passed Verify
 // locally; ResolveDownload also independently re-checks it against the
 // backend, which is the actual authority (a token can be locally
 // well-formed and unexpired but the backend may still refuse to serve a
 // download for other reasons).
-func StageRustShine(ctx context.Context, exeDir, entitlementToken string, onProgress ProgressFunc) error {
+func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onProgress ProgressFunc) error {
 	platform := Platform()
 	if platform == "" {
 		return fmt.Errorf("entitlement: no RustShine build for this platform (%s/%s)", runtime.GOOS, runtime.GOARCH)
@@ -72,7 +87,7 @@ func StageRustShine(ctx context.Context, exeDir, entitlementToken string, onProg
 	}
 	defer os.Remove(archivePath)
 
-	dest := StagePath(exeDir)
+	dest := StagePath(stateDir)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("entitlement: create rustshine dir: %w", err)
 	}

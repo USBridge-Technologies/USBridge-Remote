@@ -150,6 +150,13 @@ type Window struct {
 	// without needing to open the dialog.
 	supportBtn *widget.Button
 
+	// streamerNameLabel shows StreamerName() ("Sunshine (Open Source)" /
+	// "RustShine (Proprietary)") -- kept as a field (not a one-off local in
+	// the constructor) so performRefresh can keep it in sync with the
+	// active backend after a runtime SetStreamBackend switch; otherwise it
+	// would freeze at whatever was active when the window was built.
+	streamerNameLabel *widget.Label
+
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
 	// attached to an already-running headless instance (runThinClientGUI).
@@ -550,7 +557,8 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showPatreonDialog(win)
 	})
 	w.supportBtn.Importance = widget.LowImportance
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), widget.NewLabel(w.token.StreamerName()), layout.NewSpacer(), w.supportBtn)
+	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, layout.NewSpacer(), w.supportBtn)
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -966,6 +974,11 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 
 		case st.Linked && !st.RustShineStaged:
 			body.Add(widget.NewRichTextFromMarkdown("**You're a supporter — thank you!** 🎉\n\nReady to download RustShine?"))
+			if st.LastError != "" {
+				errText := canvas.NewText(st.LastError, design.ColorTextMuted)
+				errText.TextStyle.Italic = true
+				body.Add(errText)
+			}
 			dlBtn := widget.NewButton("Download RustShine", func() {
 				go func() {
 					_ = w.token.DownloadRustShine(nil)
@@ -1054,6 +1067,9 @@ func (w *Window) performRefresh() {
 		}
 		fyne.Do(func() {
 			w.refreshSupportButton(entStatus)
+			if w.streamerNameLabel != nil && w.token != nil {
+				w.streamerNameLabel.SetText(w.token.StreamerName())
+			}
 			if w.accessLabel != nil {
 				accessName := "Accessibility"
 				if runtime.GOOS == "linux" {

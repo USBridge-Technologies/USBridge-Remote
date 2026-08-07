@@ -4,7 +4,11 @@
 // App.SetStreamBackend once the agent's internal/entitlement package has
 // verified a paying Patreon supporter (see that package, and
 // agent/internal/entitlement/download.go for how the binary gets staged
-// into exeDir/rustshine/ in the first place). Always compiled in — no
+// into stateDir/rustshine/ in the first place -- deliberately not
+// exeDir/rustshine/, see that package's StagePath doc comment on why:
+// writing into exeDir post-install breaks the signed macOS .app bundle's
+// code signature seal, which then breaks TCC permission checks for the
+// whole app). Always compiled in — no
 // build tag — because this file contains no secrets or bundled binary of
 // its own, just an HTTP/CLI client for its admin API; gating happens at
 // runtime via the entitlement check, not at compile time.
@@ -77,22 +81,30 @@ func binaryName() string {
 	return "gamestream-server"
 }
 
-// BinaryPath resolves the bundled gamestream-server binary: exeDir/rustshine/
-// next to the agent (mirrors Sunshine's exeDir/sunshine/ layout — see
-// agent/scripts/fetch_rustshine.sh for how it gets staged there), falling
-// back to PATH for local dev where it's just been cargo-built and symlinked.
+// BinaryPath resolves the staged gamestream-server binary: stateDir/rustshine/
+// (see entitlement.StagePath's doc comment for why stateDir and not exeDir),
+// falling back to exeDir/rustshine/ for anything staged there by an older
+// build of this agent before that fix, then PATH for local dev where it's
+// just been cargo-built and symlinked.
 func (b *rustshineBackend) BinaryPath() string {
 	if b.launchPath != "" {
 		return b.launchPath
 	}
-	local := filepath.Join(b.exeDir, "rustshine", binaryName())
-	if _, err := os.Stat(local); err == nil {
-		return local
+	if p := filepath.Join(b.stateDir, "rustshine", binaryName()); fileExists(p) {
+		return p
+	}
+	if p := filepath.Join(b.exeDir, "rustshine", binaryName()); fileExists(p) {
+		return p
 	}
 	if path, err := exec.LookPath(binaryName()); err == nil {
 		return path
 	}
 	return ""
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // capExecPathFor returns the path to the bundled sunshine-capexec launcher
