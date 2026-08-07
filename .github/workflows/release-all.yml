@@ -601,6 +601,24 @@ jobs:
           echo "$CERT_INFO" | grep -q "CN=Android Debug" && { echo "::error::AAB is signed with the auto-generated debug keystore, not the release key — check ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD secrets"; exit 1; }
           echo "✓ market AAB signed with release key"
 
+      - name: Verify release APK signature
+        # The market flavor's assemble task runs unconditionally (WITH_AAB
+        # only adds the bundle task on top) and produces a real,
+        # apksigner-signed APK too — published for self-built third-party
+        # repos (IzzyOnDroid) and as a reference build for the official
+        # F-Droid recipe, neither of which want the .aab (F-Droid doesn't
+        # build/accept AAB at all — see docs/AUTO_UPDATE.md's neighbors).
+        run: |
+          set -euo pipefail
+          APK="$(ls client/dist/android/USBridgeClient-Android-arm64-market-*.apk)"
+          echo "MARKET_APK=$APK" >> "$GITHUB_ENV"
+          NDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+          "$NDK_BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          CERT_INFO="$(keytool -printcert -jarfile "$APK" 2>&1)"
+          echo "$CERT_INFO" | grep -E "Owner|SHA256"
+          echo "$CERT_INFO" | grep -q "CN=Android Debug" && { echo "::error::market APK is signed with the auto-generated debug keystore, not the release key"; exit 1; }
+          echo "✓ market APK signed with release key"
+
       - name: Remove decoded keystore
         if: always()
         run: rm -f "${ANDROID_KEYSTORE_PATH:-}"
@@ -608,10 +626,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-client-android-market
-          # Only the .aab — the market flavor also produces a plain APK as
-          # a side effect of the build, but nothing publishes or ships it;
-          # this channel is .aab-only (Play Store).
-          path: client/dist/android/USBridgeClient-Android-arm64-market-*.aab
+          # Both the .aab (Play Store) and the plain APK (IzzyOnDroid /
+          # F-Droid reference — F-Droid itself builds its own from source,
+          # but doesn't accept or build .aab either way).
+          path: |
+            client/dist/android/USBridgeClient-Android-arm64-market-*.aab
+            client/dist/android/USBridgeClient-Android-arm64-market-*.apk
           if-no-files-found: error
 
       - name: Authenticate to Google Cloud (Workload Identity Federation)
