@@ -1,13 +1,16 @@
-# DRAFT build recipe for the official F-Droid repo (fdroiddata).
+# Build recipe for the official F-Droid repo (fdroiddata).
 #
 # NOT submitted anywhere yet. This is a starting point for a merge request
 # against https://gitlab.com/fdroid/fdroiddata — path there would be
-# metadata/io.usbridge.client.yml. Unlike IzzyOnDroid, F-Droid's own build
-# server compiles this from source in an isolated environment we don't
-# control, so this WILL need iteration with their reviewers/build logs
-# before it actually works — the Go + gomobile + NDK + native-submodule
-# toolchain this app needs is well outside a plain Gradle build, and
-# nothing here has been validated against F-Droid's real buildserver.
+# metadata/io.usbridge.client.yml. The init/prebuild/gradle steps below
+# are confirmed working end-to-end (real, full-size, functional APK with
+# libUSBridge_Client.so + Tailscale + androidbridge.aar all correctly
+# built and linked) via a scratch GitHub Actions run on real x86_64 —
+# same architecture family as F-Droid's actual buildserver, though not
+# literally it, so some iteration with their reviewers' build logs should
+# still be expected once this is actually submitted (their buildserver
+# has its own quirks: network restrictions during build, a specific NDK
+# provisioning mechanism, etc. — see the `ndk:` field's TODO below).
 # (Precedent worth comparing against: syncthing-android's real fdroiddata
 # recipe solves the same class of problem — Go core + gomobile + Android UI.)
 #
@@ -46,7 +49,7 @@ Builds:
     # versionName/versionCode (client/VERSION-driven). TODO: repin once
     # this lands on `main` -- F-Droid's buildserver should track the
     # public release branch, not a working branch.
-    commit: 39b027509d0c69d4100e2440b4316bbb3d5e949e
+    commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
     subdir: client/android
     submodules: true
 
