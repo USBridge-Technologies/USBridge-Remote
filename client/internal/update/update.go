@@ -1,3 +1,12 @@
+//go:build !noselfupdate
+
+// This file is the real self-update implementation. It's compiled out
+// entirely (see update_disabled.go) when built with `-tags noselfupdate` —
+// the Android "market" flavor (Play Store / F-Droid / any other channel
+// that must not fetch or install executable code on its own) uses that tag
+// via client/scripts/build_android_gradle.sh's default (no self-update
+// unless the build explicitly opts in with WITH_SELF_UPDATE=1, which is
+// what the GitHub-Releases "direct" flavor passes). See docs/AUTO_UPDATE.md.
 package update
 
 import (

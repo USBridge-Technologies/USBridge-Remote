@@ -1,4 +1,4 @@
-//go:build android
+//go:build android && !noselfupdate
 
 // Self-update support (internal/update/apply_android.go) calls plain
 // MainActivity instance methods through driver.RunNative + JNI, exactly

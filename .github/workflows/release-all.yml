@@ -39,6 +39,38 @@ name: release-all
 #                                                        separately, see
 #                                                        ~/usbridge-update-keys/README.md
 #                                                        (kept outside this repo).
+#   PLAY_WIF_PROVIDER, PLAY_WIF_SERVICE_ACCOUNT        - Keyless auth to Google Play for
+#                                                        client-android-market's publish step
+#                                                        (Workload Identity Federation, not a
+#                                                        downloadable service-account key —
+#                                                        this GCP org enforces
+#                                                        iam.disableServiceAccountKeyCreation,
+#                                                        so no such key can exist). PROVIDER
+#                                                        is the full
+#                                                        projects/.../workloadIdentityPools/.../providers/...
+#                                                        resource name; SERVICE_ACCOUNT is
+#                                                        that pool's service account email
+#                                                        (needs "Release manager" access on
+#                                                        io.usbridge.client in Play Console).
+#                                                        See google-github-actions/auth's
+#                                                        README for the one-time gcloud setup
+#                                                        (workload identity pool + OIDC
+#                                                        provider scoped to this repo). Play's
+#                                                        API refuses an app's very first
+#                                                        release — this only works because
+#                                                        io.usbridge.client already has at
+#                                                        least one manually-uploaded release
+#                                                        in Play Console.
+#
+# The Android client is built twice per release, from the same source, as two
+# Gradle product flavors (client/android/app/build.gradle.kts):
+#   - "direct" (client-android job): today's self-update-enabled APK,
+#     unchanged, published to this GitHub Release.
+#   - "market" (client-android-market job): no self-update, no
+#     REQUEST_INSTALL_PACKAGES permission (client/internal/update/update_disabled.go)
+#     — built as an .aab and uploaded to Google Play. Also the flavor
+#     F-Droid's own build recipe should target once submitted there, since
+#     F-Droid builds from source itself rather than taking a CI artifact.
 
 on:
   workflow_dispatch:
@@ -455,12 +487,17 @@ jobs:
           echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
-      - name: Build (Android, Moonlight-only, release-signed)
+      - name: Build (Android, Moonlight-only, release-signed, self-update on)
+        # build_android_gradle.sh now defaults to the "market" flavor (no
+        # self-update) — this is the one job that explicitly opts back into
+        # the "direct" flavor's self-update flow, so the off-market APK
+        # published to this GitHub Release keeps behaving exactly as before.
         working-directory: client
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          WITH_SELF_UPDATE: "1"
         run: ./scripts/build_android_gradle.sh
 
       - name: Verify release signature
@@ -492,6 +529,116 @@ jobs:
           # alongside), so upload it directly rather than the whole dir.
           path: client/dist/android/USBridgeClient-Android-*.apk
           if-no-files-found: error
+
+  client-android-market:
+    name: Android (market flavor .aab, no self-update, → Play Store)
+    runs-on: ubuntu-latest
+    # id-token: write is what lets google-github-actions/auth mint the OIDC
+    # token this job trades for short-lived Google credentials (Workload
+    # Identity Federation) — no downloadable service-account key involved,
+    # since this GCP org enforces iam.disableServiceAccountKeyCreation.
+    # Job-level permissions replace, not merge with, the workflow-level
+    # block above, so contents: read is repeated here for checkout.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build Moonlight Core for Android
+        working-directory: client
+        run: |
+          set -euo pipefail
+          NDK_DIR="$(find "$ANDROID_HOME/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)"
+          [ -z "$NDK_DIR" ] && { echo "::error::No Android NDK found under \$ANDROID_HOME/ndk"; exit 1; }
+          export ANDROID_NDK_HOME="$NDK_DIR"
+          echo "Using NDK: $ANDROID_NDK_HOME"
+          MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
+
+      - name: Decode release keystore
+        # Same release key as the "direct" flavor (client-android job) —
+        # Gradle uses it directly (signingConfigs.release in
+        # app/build.gradle.kts) to sign the .aab this job produces, since
+        # Play requires a signed bundle.
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/usbridge-release.keystore"
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Build (Android, market flavor, .aab, no self-update)
+        working-directory: client
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          WITH_AAB: "1"
+        run: ./scripts/build_android_gradle.sh
+
+      - name: Verify release AAB signature
+        # jarsigner/keytool read an .aab's signature the same way they read
+        # an APK's (it's still a signed zip container) — apksigner itself
+        # is APK-only and can't be used here.
+        run: |
+          set -euo pipefail
+          AAB="$(ls client/dist/android/USBridgeClient-Android-arm64-market-*.aab)"
+          echo "AAB=$AAB" >> "$GITHUB_ENV"
+          jarsigner -verify -strict "$AAB"
+          CERT_INFO="$(keytool -printcert -jarfile "$AAB" 2>&1)"
+          echo "$CERT_INFO" | grep -E "Owner|SHA256"
+          echo "$CERT_INFO" | grep -q "CN=Android Debug" && { echo "::error::AAB is signed with the auto-generated debug keystore, not the release key — check ANDROID_KEYSTORE_BASE64/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD secrets"; exit 1; }
+          echo "✓ market AAB signed with release key"
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "${ANDROID_KEYSTORE_PATH:-}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-client-android-market
+          # Only the .aab — the market flavor also produces a plain APK as
+          # a side effect of the build, but nothing publishes or ships it;
+          # this channel is .aab-only (Play Store).
+          path: client/dist/android/USBridgeClient-Android-arm64-market-*.aab
+          if-no-files-found: error
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        # No service-account key file involved — this org enforces
+        # iam.disableServiceAccountKeyCreation, so one can't even be created.
+        # This mints short-lived Google credentials by trading the job's own
+        # GitHub OIDC token (id-token: write above) for them, scoped to the
+        # PLAY_WIF_SERVICE_ACCOUNT via the workload identity pool/provider
+        # set up for this exact repo.
+        if: ${{ !inputs.prerelease }}
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.PLAY_WIF_PROVIDER }}
+          service_account: ${{ secrets.PLAY_WIF_SERVICE_ACCOUNT }}
+
+      - name: Publish to Google Play (production track)
+        # Skipped for prerelease/test builds (release-all-test.yml, tags
+        # prefixed "test-") — those should never auto-publish to real users.
+        # The .aab still gets built and verified above either way; it's
+        # just this one step, the actual Play Console upload, that's gated.
+        if: ${{ !inputs.prerelease }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
+          packageName: io.usbridge.client
+          releaseFiles: client/dist/android/USBridgeClient-Android-arm64-market-*.aab
+          track: production
+          status: completed
           retention-days: 7
 
   client-macos:
@@ -794,6 +941,7 @@ jobs:
       - client-linux
       - client-windows
       - client-android
+      - client-android-market
       - client-macos
       - client-ios
     runs-on: ubuntu-latest

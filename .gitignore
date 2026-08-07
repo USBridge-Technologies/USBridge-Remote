@@ -2,3 +2,4 @@ logs/
 *.log
 .claude/*
 !.claude/HB.md
+.DS_Store

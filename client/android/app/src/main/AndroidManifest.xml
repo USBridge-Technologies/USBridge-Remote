@@ -22,11 +22,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <!-- Self-update (internal/update/apply_android.go): installs a
-         downloaded, Ed25519-manifest-and-SHA256-verified APK by handing it
-         to the system PackageInstaller directly (F-Droid-style), instead of
-         redirecting to a browser download of the GitHub release page. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Self-update's REQUEST_INSTALL_PACKAGES permission is NOT declared
+         here on purpose: this base manifest is shared by every build
+         flavor, and only the "direct" flavor (off-market GitHub Releases
+         build, self-update compiled in via the `noselfupdate` Go build tag
+         being absent) needs it — see src/direct/AndroidManifest.xml. The
+         "market" flavor (Play Store, F-Droid, ...) never requests it and
+         never compiles the self-update code path in at all
+         (internal/update/apply_android.go / internal/platform/update_android.go). -->
 
     <!-- Возможности устройства -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

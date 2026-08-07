@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flavor overlay for "direct" (off-market GitHub Releases build) only.
+     AGP merges this additively into the shared src/main/AndroidManifest.xml
+     — it does not replace it. This is the only manifest difference between
+     the "direct" and "market" flavors; see AndroidManifest.xml's own
+     comment and internal/update/apply_android.go. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Self-update (internal/update/apply_android.go): installs a
+         downloaded, Ed25519-manifest-and-SHA256-verified APK by handing it
+         to the system PackageInstaller directly (F-Droid-style), instead of
+         redirecting to a browser download of the GitHub release page. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+</manifest>

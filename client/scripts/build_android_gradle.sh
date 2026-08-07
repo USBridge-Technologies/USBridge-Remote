@@ -27,8 +27,37 @@ fi
 DIST_DIR="$REPO_ROOT/dist/android"
 mkdir -p "$DIST_DIR"
 
+# Distribution channel: which flavor (client/android/app/build.gradle.kts)
+# and Go build tag (client/internal/update/update_disabled.go) this build
+# gets.
+#   - Default (no flag): "market" — no self-update, no
+#     REQUEST_INSTALL_PACKAGES permission. This is what Play Store and
+#     F-Droid must get.
+#   - --self-update / WITH_SELF_UPDATE=1: "direct" — today's behavior,
+#     unchanged. Used for the off-market APK published to GitHub Releases;
+#     CI opts into it explicitly for that job only.
+# --aab / WITH_AAB=1 additionally builds the .aab (Play Store upload) —
+# only meaningful for the market flavor, since that's the only flavor with
+# a signingConfig attached (see build.gradle.kts).
+WITH_SELF_UPDATE="${WITH_SELF_UPDATE:-0}"
+WITH_AAB="${WITH_AAB:-0}"
+for arg in "$@"; do
+    case "$arg" in
+        --self-update)    WITH_SELF_UPDATE=1 ;;
+        --no-self-update) WITH_SELF_UPDATE=0 ;;
+        --aab)            WITH_AAB=1 ;;
+    esac
+done
+if [ "$WITH_SELF_UPDATE" = "1" ]; then
+    GRADLE_FLAVOR="direct"
+else
+    GRADLE_FLAVOR="market"
+fi
+GRADLE_FLAVOR_CAP="$(printf '%s' "${GRADLE_FLAVOR:0:1}" | tr '[:lower:]' '[:upper:]')${GRADLE_FLAVOR:1}"
+
 echo "=============================================="
 echo "  USBridge Client - Gradle build (camera)"
+echo "  Distribution: $GRADLE_FLAVOR (self-update: $WITH_SELF_UPDATE, aab: $WITH_AAB)"
 echo "=============================================="
 echo ""
 
@@ -434,10 +463,16 @@ run_apksigner() {
     esac
 }
 
-# Compose build tags: base + gstreamer if enabled
+# Compose build tags: base + gstreamer if enabled + noselfupdate unless this
+# is the self-update-enabled "direct" build (see GRADLE_FLAVOR above) — this
+# is what actually removes internal/update's network/install code from the
+# compiled binary, not just the Gradle flavor's manifest permission.
 FYNE_TAGS="nosystray"
 if [ "${WITH_GSTREAMER:-0}" = "1" ]; then
-    FYNE_TAGS="nosystray,gstreamer"
+    FYNE_TAGS="$FYNE_TAGS,gstreamer"
+fi
+if [ "$WITH_SELF_UPDATE" != "1" ]; then
+    FYNE_TAGS="$FYNE_TAGS,noselfupdate"
 fi
 
 # Stamp file to invalidate the cache when switching gstreamer/no-gstreamer mode
@@ -571,7 +606,7 @@ for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
     sync_file_if_needed "$REPO_ROOT/Icon.png" "app/src/main/res/$d/ic_launcher.png"
 done
 
-APK_OUT="app/build/outputs/apk/release/app-release-unsigned.apk"
+APK_OUT="app/build/outputs/apk/$GRADLE_FLAVOR/release/app-$GRADLE_FLAVOR-release-unsigned.apk"
 NEED_GRADLE=0
 [ ! -f "$APK_OUT" ] && NEED_GRADLE=1
 if [ "${FORCE_GRADLE:-0}" = "1" ]; then
@@ -598,16 +633,34 @@ if [ "${FORCE_GRADLE_CLEAN:-0}" = "1" ]; then
 fi
 
 if [ "$NEED_GRADLE" -eq 1 ]; then
-    ./gradlew assembleRelease --no-daemon
+    ./gradlew "assemble${GRADLE_FLAVOR_CAP}Release" --no-daemon
     echo -e "${GREEN}✓${NC} Gradle APK rebuilt"
 else
     echo "⚡ Gradle APK is already up to date"
+fi
+
+AAB_OUT=""
+if [ "$WITH_AAB" = "1" ]; then
+    AAB_OUT="app/build/outputs/bundle/${GRADLE_FLAVOR}Release/app-${GRADLE_FLAVOR}-release.aab"
+    NEED_BUNDLE=0
+    [ ! -f "$AAB_OUT" ] && NEED_BUNDLE=1
+    [ "$NEED_GRADLE" -eq 1 ] && NEED_BUNDLE=1
+    if [ "${FORCE_GRADLE:-0}" = "1" ]; then
+        NEED_BUNDLE=1
+    fi
+
+    if [ "$NEED_BUNDLE" -eq 1 ]; then
+        ./gradlew "bundle${GRADLE_FLAVOR_CAP}Release" --no-daemon
+        echo -e "${GREEN}✓${NC} Gradle AAB rebuilt"
+    else
+        echo "⚡ Gradle AAB is already up to date"
+    fi
 fi
 cd "$REPO_ROOT"
 echo ""
 
 # Result
-APK_OUT="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+APK_OUT="android/app/build/outputs/apk/$GRADLE_FLAVOR/release/app-$GRADLE_FLAVOR-release-unsigned.apk"
 if [ -f "$APK_OUT" ]; then
     # Sign it
     if ! ensure_command_available keytool keytool; then
@@ -637,7 +690,17 @@ if [ -f "$APK_OUT" ]; then
     fi
 
     APK_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "1.0.0")
-    FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-${APK_VERSION}.apk"
+    # "direct" keeps today's plain filename (unchanged, so the GitHub
+    # Releases / self-update manifest pipeline sees nothing new); "market"
+    # gets a distinguishing "-market-" infix so it can never collide with,
+    # or be mistaken by scripts/sign_update_manifest.go for, the
+    # self-update-capable asset (that script skips anything with "-market-"
+    # in the name, the same way it already skips "-iOS-").
+    if [ "$GRADLE_FLAVOR" = "direct" ]; then
+        FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-${APK_VERSION}.apk"
+    else
+        FINAL_APK="$DIST_DIR/USBridgeClient-Android-arm64-market-${APK_VERSION}.apk"
+    fi
     # Look for apksigner: first in ANDROID_HOME (Linux), then in the standard macOS path
     APKSIGNER=""
     if [ -n "$ANDROID_HOME" ]; then
@@ -679,10 +742,31 @@ if [ -f "$APK_OUT" ]; then
         cp -f "$APK_OUT.idsig" "$FINAL_APK.idsig" 2>/dev/null || true
     fi
 
+    FINAL_AAB=""
+    if [ "$WITH_AAB" = "1" ]; then
+        AAB_OUT="android/$AAB_OUT"
+        if [ ! -f "$AAB_OUT" ]; then
+            echo -e "${RED}❌ AAB not found: $AAB_OUT${NC}"
+            exit 1
+        fi
+        # Unlike the APK above, Gradle already signed this directly (the
+        # "market" flavor's signingConfig, see build.gradle.kts) — nothing
+        # left to do here but place it in dist/android under a stable name.
+        FINAL_AAB="$DIST_DIR/USBridgeClient-Android-arm64-market-${APK_VERSION}.aab"
+        cp -f "$AAB_OUT" "$FINAL_AAB"
+        if [ "$GRADLE_FLAVOR" != "market" ]; then
+            echo -e "${YELLOW}⚠ built an .aab for the \"$GRADLE_FLAVOR\" flavor, which has no signingConfig attached — it will be unsigned. --aab is meant for the market flavor (Play Store).${NC}"
+        fi
+    fi
+
     echo "=============================================="
     echo -e "${GREEN}🎉 Build complete!${NC}"
     echo "   APK: $FINAL_APK"
     echo "   Size: $(du -h "$FINAL_APK" | cut -f1)"
+    if [ -n "$FINAL_AAB" ]; then
+        echo "   AAB: $FINAL_AAB"
+        echo "   Size: $(du -h "$FINAL_AAB" | cut -f1)"
+    fi
     echo ""
     echo "📱 Install: adb install -r \"$FINAL_APK\""
     echo "=============================================="

@@ -64,6 +64,13 @@ val appVersionCode = appVersionName
     }
     ?: 1
 
+// Set by CI (client/scripts/build_android_gradle.sh, via
+// ANDROID_KEYSTORE_PATH/_PASSWORD, ANDROID_KEY_ALIAS/_PASSWORD — the same
+// release keystore that already signs the "direct" flavor's APK through an
+// external `apksigner sign` step). Only wired up when present, so a local
+// dev build with no keystore configured doesn't fail Gradle configuration.
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+
 android {
     namespace = "io.usbridge.client"
     compileSdk = 34
@@ -77,6 +84,42 @@ android {
         targetSdk = 34
         versionCode = appVersionCode
         versionName = appVersionName
+    }
+
+    if (releaseKeystorePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").getOrElse("android")
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").getOrElse("androiddebugkey")
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").getOrElse("android")
+            }
+        }
+    }
+
+    // Two distribution channels, one codebase — see
+    // src/main/AndroidManifest.xml's comment and
+    // client/internal/update/update_disabled.go.
+    //   - "market": Play Store / F-Droid / any channel that must not fetch
+    //     or install executable code on its own. Default; no self-update.
+    //     Its release signingConfig is only used for `bundleMarketRelease`
+    //     (the .aab CI uploads to Play) — this project never ships a
+    //     market-flavor APK.
+    //   - "direct": the existing off-market GitHub Releases build, with the
+    //     in-app self-update flow intact. Gradle-signing is intentionally
+    //     NOT attached here: the script's existing external `apksigner
+    //     sign` step keeps doing that job, unchanged.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("market") {
+            dimension = "distribution"
+            if (releaseKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        create("direct") {
+            dimension = "distribution"
+        }
     }
 
     buildTypes {
