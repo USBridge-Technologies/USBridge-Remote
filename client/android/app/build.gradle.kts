@@ -66,7 +66,10 @@ val appVersionCode = appVersionName
 
 android {
     namespace = "io.usbridge.client"
-    compileSdk = 34
+    // Play Console rejects uploads targeting below API 35 (Android 15) as
+    // of the current rolling requirement — bump both together since
+    // targetSdk can't exceed compileSdk.
+    compileSdk = 35
     if (!detectedNdkVersion.isNullOrBlank()) {
         ndkVersion = detectedNdkVersion
     }
@@ -74,7 +77,7 @@ android {
     defaultConfig {
         applicationId = "io.usbridge.client"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
     }

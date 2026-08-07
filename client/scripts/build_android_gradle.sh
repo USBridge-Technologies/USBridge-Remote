@@ -61,6 +61,18 @@ echo "  Distribution: $GRADLE_FLAVOR (self-update: $WITH_SELF_UPDATE, aab: $WITH
 echo "=============================================="
 echo ""
 
+# Google Play requires every native library in the app to support 16 KB
+# memory pages (developer.android.com/guide/practices/page-sizes) — recent
+# NDKs emit 16 KB-aligned ELF LOAD segments by default, but which NDK
+# actually gets picked (setup_android_ndk_toolchain_env / android_env.sh's
+# auto-detection, or CI's own preset ANDROID_NDK_HOME) isn't guaranteed to
+# be one of those, and silently regressing this per-runner isn't
+# acceptable for a Play Store upload. Pass the flag explicitly everywhere
+# a .so ends up in jniLibs (Tailscale below, gomobile bind's
+# androidbridge.aar, and the fyne-packaged main library), so it's correct
+# regardless of NDK revision.
+NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
+
 # 1. GStreamer — optional dynamic .so (only when WITH_GSTREAMER=1)
 # Skipped by default: the app uses Moonlight (AMediaCodec/AAudio),
 # GStreamer is not needed. To enable: ./scripts/build_android.sh --gstreamer
@@ -108,8 +120,13 @@ if [ "$NEED_TAILSCALE" -eq 1 ]; then
 
         BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
 
-        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o "$TS_SO"  tailscale.com/cmd/tailscale
-        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w" -o "$TSD_SO" tailscale.com/cmd/tailscaled
+        # -linkmode=external forces the NDK's own linker (lld, via CC) to
+        # do the final link instead of Go's internal linker -- required
+        # for -extldflags to have any effect at all, and these two are
+        # plain `go build` executables (not -buildmode=c-shared like the
+        # androidbridge/fyne .so below), so nothing else already forces it.
+        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o "$TS_SO"  tailscale.com/cmd/tailscale
+        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o "$TSD_SO" tailscale.com/cmd/tailscaled
     )
     echo -e "${GREEN}✓${NC} Tailscale binaries built"
 else
@@ -331,6 +348,13 @@ fi
 mkdir -p android/app/libs
 # gomobile requires the NDK; pick up the system Android SDK/NDK automatically
 export_android_env
+# gomobile bind's -target android always produces a c-shared-style JNI
+# library (external linking, no -linkmode flag needed to force it, unlike
+# the plain tailscale/tailscaled executables above) -- CGO_LDFLAGS is all
+# it needs. Exported (not just set) so it also reaches the later fyne
+# package step below, which appends its own -L flag onto this same
+# variable rather than overwriting it.
+export CGO_LDFLAGS="${CGO_LDFLAGS:-} $NDK_PAGE_SIZE_LDFLAGS"
 AAR_OUT="android/app/libs/androidbridge.aar"
 NEED_GOMOBILE=0
 [ ! -f "$AAR_OUT" ] && NEED_GOMOBILE=1
