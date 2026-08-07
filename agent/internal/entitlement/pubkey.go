@@ -28,8 +28,11 @@ import (
 	"encoding/base64"
 )
 
-// backendBaseURL is the usbridge-entitlement Worker's deployed URL.
-const backendBaseURL = "https://usbridge-entitlement.fatkulinamir80.workers.dev"
+// backendBaseURL is the usbridge-entitlement Worker's deployed URL. A var,
+// not a const, purely so tests can point it at a local httptest.Server for
+// the duration of a single test (see app_test.go) and restore it after --
+// every production caller only ever sees the real URL.
+var backendBaseURL = "https://usbridge-entitlement.fatkulinamir80.workers.dev"
 
 // publicKeyB64 is the Ed25519 public half of the entitlement-signing
 // keypair. The private half lives only as that Worker's own
@@ -41,6 +44,18 @@ const backendBaseURL = "https://usbridge-entitlement.fatkulinamir80.workers.dev"
 const publicKeyB64 = "BOr0FAQyGQhmg6CZdgcRDekKrP2A++60WKvhW52tV58="
 
 var publicKey = mustDecodePublicKey(publicKeyB64)
+
+// TestSetBackendBaseURL points every entitlement backend call at url
+// (typically a local httptest.Server) and returns the previous value so
+// the caller can restore it -- exported only so internal/app's tests (a
+// different package) can exercise recheckEntitlement against a fake
+// backend instead of the real deployed one. Not meant to be called from
+// production code; nothing in this repo does.
+func TestSetBackendBaseURL(url string) string {
+	prev := backendBaseURL
+	backendBaseURL = url
+	return prev
+}
 
 func mustDecodePublicKey(b64 string) ed25519.PublicKey {
 	raw, err := base64.StdEncoding.DecodeString(b64)

@@ -31,6 +31,17 @@ const tokenPrefix = "usbent1"
 // single field (see that package's doc comment for the full MITM-defense
 // rationale, identical here).
 func Verify(token string) (*Claims, error) {
+	return verifyWithKey(token, publicKey)
+}
+
+// verifyWithKey is Verify's actual implementation, parameterized on the
+// public key purely so tests can pass a throwaway keypair instead of the
+// real compiled-in one -- that's the only way to test a genuinely
+// valid-signature token (e.g. one with a controlled, near-future exp)
+// without the real backend's private key, which by design never exists in
+// this repo. Verify itself is the only production caller, always with the
+// real publicKey; this split changes no production behavior.
+func verifyWithKey(token string, pub ed25519.PublicKey) (*Claims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 || parts[0] != tokenPrefix {
 		return nil, fmt.Errorf("entitlement: malformed token")
@@ -46,7 +57,7 @@ func Verify(token string) (*Claims, error) {
 	// exactly: `crypto.subtle.sign("Ed25519", key, new
 	// TextEncoder().encode(payload))` where payload is already
 	// base64url-encoded at that point.
-	if !ed25519.Verify(publicKey, []byte(payloadB64), sig) {
+	if !ed25519.Verify(pub, []byte(payloadB64), sig) {
 		return nil, fmt.Errorf("entitlement: signature verification failed — refusing to trust it")
 	}
 
