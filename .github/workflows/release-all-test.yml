@@ -19,6 +19,11 @@ on:
 
 permissions:
   contents: write
+  # Reusable-workflow jobs can't request a permission the caller didn't
+  # grant — client-android-market (release-all.yml) needs id-token: write
+  # for its Workload Identity Federation step (google-github-actions/auth).
+  # Without this, the whole run fails at startup before any job is created.
+  id-token: write
 
 jobs:
   build-and-release:
