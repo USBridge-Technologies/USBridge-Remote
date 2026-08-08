@@ -11,8 +11,6 @@ AutoName: USBridge Client
 
 RepoType: git
 Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
-Binaries: 
-  https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v%v/USBridgeClient-Android-arm64-market.apk
 
 Builds:
   - versionName: 2.1.16
@@ -87,8 +85,6 @@ Builds:
       - cd android
     ndk: r27c
 
-AllowedAPKSigningKeys: 7a13f4c1516d02e413f6287f80b5624d5d527a6e14f42e199874d8cf4978a228
-
 MaintainerNotes: |
   This build targets the "market" Gradle flavor specifically -- no
   self-update, no REQUEST_INSTALL_PACKAGES -- see
@@ -103,7 +99,18 @@ MaintainerNotes: |
   published as a GitHub Release (superseded by 2.1.14 before release, see
   the versionCode-collision fix in that version's changelog), so there was
   no real release asset for Binaries: reproducible-build verification to
-  compare against. Also requested inclusion in IzzyOnDroid in parallel: see
+  compare against.
+
+  Reproducible builds (Binaries:/AllowedAPKSigningKeys:) were tried and
+  reverted: F-Droid's buildserver output didn't byte-match the officially
+  released APK (classes.dex, baseline profiles, and the Go/cgo-built
+  arm64 .so libraries -- libUSBridge_Client.so, libgojni.so,
+  libtailscale(d).so -- all differed). Matching a Go/cgo/NDK cross-compile
+  toolchain's output byte-for-byte across two different build machines
+  needs real reproducibility engineering (pinned toolchain versions,
+  SOURCE_DATE_EPOCH, deterministic linker flags, etc.) this project
+  hasn't done yet -- worth revisiting later, not required for inclusion.
+  Also requested inclusion in IzzyOnDroid in parallel: see
   https://codeberg.org/IzzyOnDroid/repodata/issues/437
 
 AutoUpdateMode: None
