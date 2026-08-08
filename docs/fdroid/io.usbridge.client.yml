@@ -34,7 +34,8 @@ Builds:
     gradle:
       - market
     prebuild:
-      - export PATH="$HOME/goroot/bin:$PATH:$(go env GOPATH)/bin"
+      - export PATH="$HOME/goroot/bin:$PATH"
+      - export PATH="$PATH:$(go env GOPATH)/bin"
       - export GOOS=android
       - export GOARCH=arm64
       - export CGO_ENABLED=1
