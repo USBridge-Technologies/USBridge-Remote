@@ -33,7 +33,9 @@ Builds:
       - gomobile init
     gradle:
       - market
-    prebuild:
+    scandelete:
+      - client/internal/anet/mobile/libs/mobile-sources.jar
+    build:
       - export PATH="$HOME/goroot/bin:$PATH"
       - export PATH="$PATH:$(go env GOPATH)/bin"
       - export GOOS=android
@@ -87,7 +89,7 @@ MaintainerNotes: |
   client/internal/update/update_disabled.go and docs/AUTO_UPDATE.md in the
   source tree.
 
-  The init/prebuild/gradle steps below were validated end-to-end (real,
+  The init/build/gradle steps below were validated end-to-end (real,
   full-size, functional APK) via a scratch GitHub Actions run on x86_64 --
   same architecture family as this buildserver, though not literally it, so
   some iteration against build logs here is expected. Also requested
