@@ -18,13 +18,14 @@ Builds:
     commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
     subdir: client/android
     submodules: true
-    init: "curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz\n\
-      tar -C /usr/local -xzf /tmp/go.tgz\nrm /tmp/go.tgz\nexport PATH=\"/usr/local/go/bin:$PATH\"\
-      \ngo install golang.org/x/mobile/cmd/gomobile@latest\ngo install golang.org/x/mobile/cmd/gobind@latest\n\
-      export PATH=\"$PATH:$(go env GOPATH)/bin\"\ngomobile init\n"
+    init: "mkdir -p $HOME/goroot\ncurl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz\
+      \ -o /tmp/go.tgz\ntar -C $HOME/goroot --strip-components=1 -xzf /tmp/go.tgz\n\
+      rm /tmp/go.tgz\nexport PATH=\"$HOME/goroot/bin:$PATH\"\ngo install golang.org/x/mobile/cmd/gomobile@latest\n\
+      go install golang.org/x/mobile/cmd/gobind@latest\nexport PATH=\"$PATH:$(go env\
+      \ GOPATH)/bin\"\ngomobile init\n"
     gradle:
       - market
-    prebuild: "export PATH=\"/usr/local/go/bin:$PATH:$(go env GOPATH)/bin\"\nexport\
+    prebuild: "export PATH=\"$HOME/goroot/bin:$PATH:$(go env GOPATH)/bin\"\nexport\
       \ GOOS=android\nexport GOARCH=arm64\nexport CGO_ENABLED=1\nNDK_PAGE_SIZE_LDFLAGS=\"\
       -Wl,-z,max-page-size=16384\"\nNDK_PREBUILT=\"$(find \"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt\"\
       \ -mindepth 1 -maxdepth 1 -type d | sort | head -1)\"\nexport CC=\"$NDK_PREBUILT/bin/aarch64-linux-android26-clang\"\
