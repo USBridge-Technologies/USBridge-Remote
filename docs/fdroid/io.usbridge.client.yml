@@ -11,80 +11,10 @@ AutoName: USBridge Client
 
 RepoType: git
 Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
+Binaries: 
+  https://github.com/USBridge-Technologies/USBridge-Remote/releases/download/v%v/USBridgeClient-Android-arm64-market.apk
 
 Builds:
-  - versionName: 2.1.13
-    versionCode: 20113
-    commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
-    subdir: client/android
-    submodules: true
-    sudo:
-      - apt-get update
-      - apt-get install -y build-essential cmake
-    init:
-      - mkdir -p $HOME/goroot
-      - curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz
-      - tar -C $HOME/goroot --strip-components=1 -xzf /tmp/go.tgz
-      - rm /tmp/go.tgz
-      - export PATH="$HOME/goroot/bin:$PATH"
-      - go install golang.org/x/mobile/cmd/gomobile@latest
-      - go install golang.org/x/mobile/cmd/gobind@latest
-      - export PATH="$PATH:$(go env GOPATH)/bin"
-      - gomobile init
-    gradle:
-      - market
-    output: app/build/outputs/apk/market/release/*.apk
-    scandelete:
-      - client/internal/anet/mobile/libs/mobile-sources.jar
-      - client/android/app/libs/androidbridge-sources.jar
-    build:
-      - export PATH="$HOME/goroot/bin:$PATH"
-      - export PATH="$PATH:$(go env GOPATH)/bin"
-      - export GOOS=android
-      - export GOARCH=arm64
-      - export CGO_ENABLED=1
-      - NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
-      - NDK_PREBUILT="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth
-        1 -maxdepth 1 -type d | sort | head -1)"
-      - export CC="$NDK_PREBUILT/bin/aarch64-linux-android26-clang"
-      - export CXX="$NDK_PREBUILT/bin/aarch64-linux-android26-clang++"
-      - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
-      - cd ..
-      - mkdir -p $HOME/cmdline-tools
-      - CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip"
-      - curl -sSL "$CMDLINE_TOOLS_URL" -o /tmp/cmdline-tools.zip
-      - unzip -q -o /tmp/cmdline-tools.zip -d $HOME/cmdline-tools
-      - rm /tmp/cmdline-tools.zip
-      - SDKMANAGER="$HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
-      - '"$SDKMANAGER" --sdk_root=/opt/android-sdk "platforms;android-26" "platforms;android-35"
-        "build-tools;35.0.0"'
-      - MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
-        >/tmp/moonlight-build.log 2>&1 || (tail -c 300000 /tmp/moonlight-build.log;
-        exit 1)
-      - mkdir -p android/app/libs
-      - gomobile bind -target android/arm64 -androidapi 26 -o android/app/libs/androidbridge.aar
-        ./androidbridge
-      - mkdir -p android/app/src/main/jniLibs/arm64-v8a
-      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
-        -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so
-        tailscale.com/cmd/tailscale
-      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
-        -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so
-        tailscale.com/cmd/tailscaled
-      - env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2
-      - FYNE_BIN="$(go env GOPATH)/bin/fyne"
-      - cp VERSION cmd/android/VERSION
-      - cd cmd/android
-      - '"$FYNE_BIN" package --target android/arm64 --tags "nosystray noselfupdate"
-        --app-id io.usbridge.client --name "USBridge Client" --app-version "$(cat
-        ../../VERSION)" --icon ../../Icon.png --release'
-      - cd ../..
-      - unzip -q -o cmd/android/USBridge_Client.apk -d /tmp/fyne-scaffold
-      - cp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so android/app/src/main/jniLibs/arm64-v8a/
-      - rm -rf /tmp/fyne-scaffold
-      - cd android
-    ndk: r27c
-
   - versionName: 2.1.16
     versionCode: 20116
     commit: 1006d7fe0ba1a231e527110fb4be7ab0f1210624
@@ -157,6 +87,8 @@ Builds:
       - cd android
     ndk: r27c
 
+AllowedAPKSigningKeys: 7a13f4c1516d02e413f6287f80b5624d5d527a6e14f42e199874d8cf4978a228
+
 MaintainerNotes: |
   This build targets the "market" Gradle flavor specifically -- no
   self-update, no REQUEST_INSTALL_PACKAGES -- see
@@ -166,10 +98,13 @@ MaintainerNotes: |
   The init/build/gradle steps were validated end-to-end (real, full-size,
   functional APK) against F-Droid's own real buildserver via GitLab CI on
   MR !45184 (fdroid rewritemeta / lint / build / check apk all green).
-  2.1.16 reuses the exact same steps as 2.1.13, only commit/versionName/
-  versionCode changed -- no build-process changes were needed. Also
-  requested inclusion in IzzyOnDroid in parallel: see
-  https://codeberg.org/IzzyOnDroid/repodata/issues/435
+  Only one Builds: entry is kept (2.1.16) -- an earlier 2.1.13 entry was
+  dropped since that version was bumped in git but never actually
+  published as a GitHub Release (superseded by 2.1.14 before release, see
+  the versionCode-collision fix in that version's changelog), so there was
+  no real release asset for Binaries: reproducible-build verification to
+  compare against. Also requested inclusion in IzzyOnDroid in parallel: see
+  https://codeberg.org/IzzyOnDroid/repodata/issues/437
 
 AutoUpdateMode: None
 UpdateCheckMode: None
