@@ -35,6 +35,7 @@ Builds:
       - market
     scandelete:
       - client/internal/anet/mobile/libs/mobile-sources.jar
+      - client/android/app/libs/androidbridge-sources.jar
     build:
       - export PATH="$HOME/goroot/bin:$PATH"
       - export PATH="$PATH:$(go env GOPATH)/bin"
