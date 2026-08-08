@@ -1,0 +1,3 @@
+USBridge Client is a hybrid remote-access app: BIOS-level control via USBridge-KVM hardware (works even before the OS boots), plus lightweight software remote desktop over the Moonlight streaming protocol -- interoperable with Sunshine and NVIDIA GameStream-compatible hosts.
+
+This build has no self-update mechanism and requests no install-unknown-apps permission; see client/internal/update in the source tree.

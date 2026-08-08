@@ -1,23 +1,3 @@
-# Build recipe for the official F-Droid repo (fdroiddata).
-#
-# Submitted as a merge request against https://gitlab.com/fdroid/fdroiddata
-# (from fork gitlab.com/itsme228/fdroiddata, branch add-io-usbridge-client) —
-# path there is metadata/io.usbridge.client.yml. The init/prebuild/gradle
-# steps below are confirmed working end-to-end (real, full-size, functional APK with
-# libUSBridge_Client.so + Tailscale + androidbridge.aar all correctly
-# built and linked) via a scratch GitHub Actions run on real x86_64 —
-# same architecture family as F-Droid's actual buildserver, though not
-# literally it, so some iteration with their reviewers' build logs should
-# still be expected once this is actually submitted (their buildserver
-# has its own quirks: network restrictions during build, a specific NDK
-# provisioning mechanism, etc. — see the `ndk:` field's TODO below).
-# (Precedent worth comparing against: syncthing-android's real fdroiddata
-# recipe solves the same class of problem — Go core + gomobile + Android UI.)
-#
-# Targets the "market" flavor specifically (client/android/app/build.gradle.kts)
-# — no self-update, no REQUEST_INSTALL_PACKAGES — see
-# client/internal/update/update_disabled.go and docs/AUTO_UPDATE.md.
-
 Categories:
   - Connectivity
   - System
@@ -28,16 +8,6 @@ IssueTracker: https://github.com/USBridge-Technologies/USBridge-Remote/issues
 Changelog: https://github.com/USBridge-Technologies/USBridge-Remote/releases
 
 AutoName: USBridge Client
-Summary: Hybrid BIOS-level KVM + remote desktop client
-Description: |
-  USBridge Client is a hybrid remote-access app: BIOS-level control via
-  USBridge-KVM hardware (works even before the OS boots), plus lightweight
-  software remote desktop over the Moonlight streaming protocol —
-  interoperable with Sunshine and NVIDIA GameStream-compatible hosts.
-
-  This build has no self-update mechanism and requests no
-  install-unknown-apps permission; see client/internal/update in the
-  source tree.
 
 RepoType: git
 Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
@@ -45,83 +15,52 @@ Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
 Builds:
   - versionName: 2.1.13
     versionCode: 20113
-    # Pinned to the commit that introduced this exact versionName/versionCode
-    # (client/VERSION-driven). Now reachable from `main` (the working branch
-    # it was made on has since been merged in), so no repin needed.
     commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
     subdir: client/android
     submodules: true
-
-    # Confirmed live (own x86_64 CI run, not their buildserver, but same
-    # arch/distro family): apt's golang-go is 1.22, and golang.org/x/mobile
-    # (gomobile) requires >=1.25 -- too old, don't rely on apt for Go at
-    # all. Fetch a pinned upstream tarball directly instead.
-    init: |
-      curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz
-      sudo tar -C /usr/local -xzf /tmp/go.tgz
-      rm /tmp/go.tgz
-      export PATH="/usr/local/go/bin:$PATH"
-      go install golang.org/x/mobile/cmd/gomobile@latest
-      go install golang.org/x/mobile/cmd/gobind@latest
-      export PATH="$PATH:$(go env GOPATH)/bin"
-      gomobile init
-    prebuild: |
-      export PATH="/usr/local/go/bin:$PATH:$(go env GOPATH)/bin"
-      export GOOS=android
-      export GOARCH=arm64
-      export CGO_ENABLED=1
-      # 16 KB page-size alignment -- see
-      # client/scripts/build_android_gradle.sh's NDK_PAGE_SIZE_LDFLAGS.
-      NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
-      # Target API 26 explicitly (matches minSdk) -- an untargeted NDK
-      # clang defaults to API 21, which gates out libaaudio/libvulkan
-      # entirely regardless of -L search paths (a real regression this
-      # project already hit once, see
-      # client/scripts/build_android_gradle.sh's comment on the same
-      # setup_android_ndk_toolchain_env call).
-      NDK_PREBUILT="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | sort | head -1)"
-      export CC="$NDK_PREBUILT/bin/aarch64-linux-android26-clang"
-      export CXX="$NDK_PREBUILT/bin/aarch64-linux-android26-clang++"
-      export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
-      cd ..
-      MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
-      mkdir -p android/app/libs
-      gomobile bind -target android/arm64 -androidapi 26 -o android/app/libs/androidbridge.aar ./androidbridge
-
-      # Tailscale CLI + daemon (client/scripts/build_android_gradle.sh's
-      # step 1.5) -- plain `go build` executables, not -buildmode=c-shared,
-      # so -linkmode=external is needed to make -extldflags apply at all.
-      mkdir -p android/app/src/main/jniLibs/arm64-v8a
-      go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" \
-        -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" \
-        -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so tailscale.com/cmd/tailscale
-      go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" \
-        -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" \
-        -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled
-
-      # Main app native library: fyne package builds cmd/android as a
-      # -buildmode=c-shared .so, wrapped in its own throwaway scaffold APK
-      # -- extract just the .so, same as
-      # client/scripts/build_android_gradle.sh's steps 3-4.
-      env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2
-      FYNE_BIN="$(go env GOPATH)/bin/fyne"
-      cp VERSION cmd/android/VERSION
-      cd cmd/android
-      "$FYNE_BIN" package --target android/arm64 --tags "nosystray noselfupdate" \
-        --app-id io.usbridge.client --name "USBridge Client" \
-        --app-version "$(cat ../../VERSION)" --icon ../../Icon.png --release
-      cd ../..
-      unzip -q -o cmd/android/USBridge_Client.apk -d /tmp/fyne-scaffold
-      cp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so \
-        android/app/src/main/jniLibs/arm64-v8a/
-      rm -rf /tmp/fyne-scaffold
-
-      cd android
-
+    init: "curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz\n\
+      tar -C /usr/local -xzf /tmp/go.tgz\nrm /tmp/go.tgz\nexport PATH=\"/usr/local/go/bin:$PATH\"\
+      \ngo install golang.org/x/mobile/cmd/gomobile@latest\ngo install golang.org/x/mobile/cmd/gobind@latest\n\
+      export PATH=\"$PATH:$(go env GOPATH)/bin\"\ngomobile init\n"
     gradle:
       - market
+    prebuild: "export PATH=\"/usr/local/go/bin:$PATH:$(go env GOPATH)/bin\"\nexport\
+      \ GOOS=android\nexport GOARCH=arm64\nexport CGO_ENABLED=1\nNDK_PAGE_SIZE_LDFLAGS=\"\
+      -Wl,-z,max-page-size=16384\"\nNDK_PREBUILT=\"$(find \"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt\"\
+      \ -mindepth 1 -maxdepth 1 -type d | sort | head -1)\"\nexport CC=\"$NDK_PREBUILT/bin/aarch64-linux-android26-clang\"\
+      \nexport CXX=\"$NDK_PREBUILT/bin/aarch64-linux-android26-clang++\"\nexport CGO_LDFLAGS=\"\
+      $NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26\"\
+      \ncd ..\nMOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh\n\
+      mkdir -p android/app/libs\ngomobile bind -target android/arm64 -androidapi 26\
+      \ -o android/app/libs/androidbridge.aar ./androidbridge\nmkdir -p android/app/src/main/jniLibs/arm64-v8a\n\
+      go build -trimpath -tags=\"omitgui,ts_omit_gui,nosystray,ts_omit_systray\" -ldflags=\"\
+      -s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS\" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so\
+      \ tailscale.com/cmd/tailscale\ngo build -trimpath -tags=\"omitgui,ts_omit_gui,nosystray,ts_omit_systray\"\
+      \ -ldflags=\"-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS\" -o\
+      \ android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled\n\
+      env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2\n\
+      FYNE_BIN=\"$(go env GOPATH)/bin/fyne\"\ncp VERSION cmd/android/VERSION\ncd cmd/android\n\
+      \"$FYNE_BIN\" package --target android/arm64 --tags \"nosystray noselfupdate\"\
+      \ --app-id io.usbridge.client --name \"USBridge Client\" --app-version \"$(cat\
+      \ ../../VERSION)\" --icon ../../Icon.png --release\ncd ../..\nunzip -q -o cmd/android/USBridge_Client.apk\
+      \ -d /tmp/fyne-scaffold\ncp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so\
+      \ android/app/src/main/jniLibs/arm64-v8a/\nrm -rf /tmp/fyne-scaffold\ncd android\n"
+    ndk: r27c
 
-    ndk: r27c  # TODO: confirm against whatever's actually available/works
+MaintainerNotes: |
+  This build targets the "market" Gradle flavor specifically -- no
+  self-update, no REQUEST_INSTALL_PACKAGES -- see
+  client/internal/update/update_disabled.go and docs/AUTO_UPDATE.md in the
+  source tree.
 
-AutoUpdateMode: None  # manual for now -- versionName isn't a plain git tag yet
+  The init/prebuild/gradle steps below were validated end-to-end (real,
+  full-size, functional APK) via a scratch GitHub Actions run on x86_64 --
+  same architecture family as this buildserver, though not literally it, so
+  some iteration against build logs here is expected. Also requested
+  inclusion in IzzyOnDroid in parallel: see
+  https://codeberg.org/IzzyOnDroid/repodata/issues/435
+
+AutoUpdateMode: None
 UpdateCheckMode: None
+CurrentVersion: 2.1.13
+CurrentVersionCode: 20113
