@@ -1,0 +1,1 @@
+- Fixed keyboard input on real (non-Sunshine-modifiers-aware) Moonlight hosts: printable characters now send as raw keycode + Shift instead of Moonlight's UTF8-text channel, fixing wrong/dropped characters on some hosts.
