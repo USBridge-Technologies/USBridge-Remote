@@ -46,8 +46,10 @@ Builds:
       - export CXX="$NDK_PREBUILT/bin/aarch64-linux-android26-clang++"
       - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
       - cd ..
-      - SDKMANAGER="$(find /opt/android-sdk -maxdepth 4 -name sdkmanager -type f |
-        sort -V | tail -1)"
+      - SDKMANAGER="$(find /opt/android-sdk/cmdline-tools -name sdkmanager -type f
+        2>/dev/null | sort -V | tail -1)"
+      - test -n "$SDKMANAGER" || SDKMANAGER="$(find /opt/android-sdk -maxdepth 4 -name
+        sdkmanager -type f | sort -V | tail -1)"
       - '"$SDKMANAGER" "platforms;android-26" "platforms;android-35" "build-tools;35.0.0"'
       - MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
         >/tmp/moonlight-build.log 2>&1 || (tail -c 300000 /tmp/moonlight-build.log;
