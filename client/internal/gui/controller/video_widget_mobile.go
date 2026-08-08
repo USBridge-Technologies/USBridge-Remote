@@ -48,17 +48,18 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 			logrus.Warn("⚠️ Parent window is not set")
 			return
 		}
-		// IME runes go through onRuneTyped → LiSendUtf8TextEvent, sent verbatim as
-		// Unicode text -- the server (gamestream-server) now maps this into the
-		// target OS's own input on the server side, so this works for any
-		// language/layout the Android IME produces without a client-side rune→VK
-		// guess table.
+		// IME runes go through onRuneTyped → handlePhysicalRunePress, which
+		// prefers a raw HID keycode + Shift bit over Moonlight's UTF8-text
+		// control channel whenever the rune maps onto a normal key (see
+		// handlePhysicalRunePress's doc comment in video_widget_input.go for
+		// why: real Sunshine's Linux Unicode-text injection depends on an
+		// IBus/GTK IME convention that most apps don't implement, so it only
+		// reliably works for genuinely non-Latin runes with no key mapping).
 		vw.virtualKeyboard = graphics.NewVirtualKeyboard(vw.parentWindow, vw.handleVirtualKeyPress, func(r rune) {
-			mi := vw.moonlightInput()
-			if mi == nil || !mi.IsInputActive() {
+			if mi := vw.moonlightInput(); mi == nil || !mi.IsInputActive() {
 				return
 			}
-			mi.SendMoonlightUtf8Text(string(r))
+			vw.handlePhysicalRunePress(r)
 		})
 
 		// When the Android IME opens/closes, expand Vulkan upward under the tabs.

@@ -264,17 +264,64 @@ func (vw *VideoWidget) handlePhysicalKeyPress(event *fyne.KeyEvent) {
 }
 
 // handlePhysicalRunePress sends the character Fyne resolved for this
-// keystroke (using whatever OS keyboard layout is active on the client) as
-// Unicode text via the Moonlight UTF8-text control channel, instead of
-// guessing a raw VK code for it. This is what makes typing correct on any
-// client layout (Cyrillic, etc.) and preserves case: handlePhysicalKeyDown/Up
-// skip sending for plain character keys (see isCharacterScanCode) precisely
-// so this is the only thing that sends printable text, avoiding a double
-// send of the same keystroke.
+// keystroke (using whatever OS keyboard layout is active on the client).
+// handlePhysicalKeyDown/Up skip sending for plain character keys (see
+// isCharacterScanCode) precisely so this is the only thing that sends
+// printable text, avoiding a double send of the same keystroke.
+//
+// Prefer a raw HID keycode + Shift bit (via GetRuneKeyCodeWithModifiers)
+// over Moonlight's UTF8-text control channel whenever the resolved rune maps
+// onto a normal key position -- which covers essentially all ASCII, plus
+// Cyrillic folded onto its ЙЦУКЕН/QWERTY physical position. Falls back to
+// SendMoonlightUtf8Text only for runes with no such mapping (other
+// non-Latin scripts, emoji, ...).
+//
+// This isn't just a style preference: confirmed live against real Sunshine
+// (itsme228/Sunshine fork, i.e. stock LizardByte Sunshine here) on Linux,
+// its Unicode-text injection (platform/linux/input/inputtino_keyboard.cpp,
+// unicode()) works by holding Shift and "typing" a Ctrl+Shift+U <hex digits>
+// sequence -- the standard IBus/GTK Unicode-entry convention. That sequence
+// only actually composes into the target character inside apps that
+// implement it; anywhere else (most non-GTK apps, games, terminals) the
+// keystrokes land literally, WITH SHIFT HELD, for every character in the
+// whole run. E.g. digit '1' is U+0031, hex "31" -- typed as Shift+3 Shift+1
+// on a US layout, i.e. "#!" instead of "1". A raw keycode+Shift press avoids
+// that fragile IME dependency entirely and is understood by every Moonlight
+// host (Sunshine, RustShine, GeForce Experience...) the same way, so use it
+// whenever available -- EXCEPT on a Windows agent, where Sunshine's unicode()
+// uses SendInput+KEYEVENTF_UNICODE (a low-level OS facility, not dependent on
+// IME/app support, same reliability class as this VK+Shift path) -- so there's
+// nothing broken to work around, and UTF8 text stays the original, simpler
+// send for that target. See platform/linux/input/inputtino_keyboard.cpp's
+// unicode() (Linux, the IBus hack above) vs. platform/windows/input.cpp's
+// unicode() (Windows, SendInput) vs. platform/macos/input.cpp's unicode()
+// (macOS -- now also CGEventKeyboardSetUnicodeString, itself just as
+// reliable, but the client-side route below is still used there too since
+// it doesn't depend on the agent shipping that fix).
 func (vw *VideoWidget) handlePhysicalRunePress(r rune) {
-	if mi := vw.moonlightInput(); mi != nil {
-		vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
+	mi := vw.moonlightInput()
+	if mi == nil {
+		return
 	}
+	if !vw.isWindowsAgent() {
+		if hidCode, hidMods := input.GetRuneKeyCodeWithModifiers(r); hidCode != 0 {
+			vk := hidKeyToVK(hidCode)
+			mods := widgetToMoonlightModifiers(hidMods)
+			vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionDown, mods) })
+			vw.enqueueSend(func() { mi.SendMoonlightKey(vk, service.LiKeyActionUp, mods) })
+			return
+		}
+	}
+	vw.enqueueSend(func() { mi.SendMoonlightUtf8Text(string(r)) })
+}
+
+// isWindowsAgent reports whether the connected agent's OS (reported via
+// SetAgentEnvironment) is Windows. Defaults to false (i.e. treated the same
+// as Linux/macOS) when the agent hasn't reported its OS yet, since the
+// VK+Shift route in handlePhysicalRunePress is safe there too -- it's only
+// Windows that has an equally-reliable alternative worth preserving as-is.
+func (vw *VideoWidget) isWindowsAgent() bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(vw.agentOS)), "windows")
 }
 
 // hidKeyToVK converts a USB HID Usage Page 0x07 keycode (used by the virtual
