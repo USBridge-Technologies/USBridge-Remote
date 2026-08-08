@@ -110,8 +110,6 @@ MaintainerNotes: |
   needs real reproducibility engineering (pinned toolchain versions,
   SOURCE_DATE_EPOCH, deterministic linker flags, etc.) this project
   hasn't done yet -- worth revisiting later, not required for inclusion.
-  Also requested inclusion in IzzyOnDroid in parallel: see
-  https://codeberg.org/IzzyOnDroid/repodata/issues/437
 
 AutoUpdateMode: None
 UpdateCheckMode: None
