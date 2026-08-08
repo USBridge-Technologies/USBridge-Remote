@@ -1,9 +1,9 @@
 # Build recipe for the official F-Droid repo (fdroiddata).
 #
-# NOT submitted anywhere yet. This is a starting point for a merge request
-# against https://gitlab.com/fdroid/fdroiddata — path there would be
-# metadata/io.usbridge.client.yml. The init/prebuild/gradle steps below
-# are confirmed working end-to-end (real, full-size, functional APK with
+# Submitted as a merge request against https://gitlab.com/fdroid/fdroiddata
+# (from fork gitlab.com/itsme228/fdroiddata, branch add-io-usbridge-client) —
+# path there is metadata/io.usbridge.client.yml. The init/prebuild/gradle
+# steps below are confirmed working end-to-end (real, full-size, functional APK with
 # libUSBridge_Client.so + Tailscale + androidbridge.aar all correctly
 # built and linked) via a scratch GitHub Actions run on real x86_64 —
 # same architecture family as F-Droid's actual buildserver, though not
