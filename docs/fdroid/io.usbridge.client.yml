@@ -45,10 +45,9 @@ Repo: https://github.com/USBridge-Technologies/USBridge-Remote.git
 Builds:
   - versionName: 2.1.13
     versionCode: 20113
-    # Pinned to the commit on the `test` branch that has this exact
-    # versionName/versionCode (client/VERSION-driven). TODO: repin once
-    # this lands on `main` -- F-Droid's buildserver should track the
-    # public release branch, not a working branch.
+    # Pinned to the commit that introduced this exact versionName/versionCode
+    # (client/VERSION-driven). Now reachable from `main` (the working branch
+    # it was made on has since been merged in), so no repin needed.
     commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
     subdir: client/android
     submodules: true
