@@ -47,8 +47,8 @@ Builds:
       - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
       - cd ..
       - mkdir -p $HOME/cmdline-tools
-      - curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip
-        -o /tmp/cmdline-tools.zip
+      - CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip"
+      - curl -sSL "$CMDLINE_TOOLS_URL" -o /tmp/cmdline-tools.zip
       - unzip -q /tmp/cmdline-tools.zip -d $HOME/cmdline-tools
       - rm /tmp/cmdline-tools.zip
       - SDKMANAGER="$HOME/cmdline-tools/cmdline-tools/bin/sdkmanager"
