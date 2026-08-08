@@ -47,7 +47,7 @@ Builds:
       - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
       - cd ..
       - SDKMANAGER="$(find /opt/android-sdk/cmdline-tools -name sdkmanager -type f
-        2>/dev/null | sort -V | tail -1)"
+        2>/dev/null | sort -V | tail -1)" || true
       - test -n "$SDKMANAGER" || SDKMANAGER="$(find /opt/android-sdk -maxdepth 4 -name
         sdkmanager -type f | sort -V | tail -1)"
       - '"$SDKMANAGER" "platforms;android-26" "platforms;android-35" "build-tools;35.0.0"'
