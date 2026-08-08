@@ -46,6 +46,8 @@ Builds:
       - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
       - cd ..
       - MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
+        >/tmp/moonlight-build.log 2>&1 || (tail -c 300000 /tmp/moonlight-build.log;
+        exit 1)
       - mkdir -p android/app/libs
       - gomobile bind -target android/arm64 -androidapi 26 -o android/app/libs/androidbridge.aar
         ./androidbridge
