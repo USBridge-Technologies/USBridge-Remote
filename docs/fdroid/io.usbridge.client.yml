@@ -18,34 +18,56 @@ Builds:
     commit: 38b70a46d16b47fab691672a7b1ef4c31b760fa6
     subdir: client/android
     submodules: true
-    init: "mkdir -p $HOME/goroot\ncurl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz\
-      \ -o /tmp/go.tgz\ntar -C $HOME/goroot --strip-components=1 -xzf /tmp/go.tgz\n\
-      rm /tmp/go.tgz\nexport PATH=\"$HOME/goroot/bin:$PATH\"\ngo install golang.org/x/mobile/cmd/gomobile@latest\n\
-      go install golang.org/x/mobile/cmd/gobind@latest\nexport PATH=\"$PATH:$(go env\
-      \ GOPATH)/bin\"\ngomobile init\n"
+    sudo:
+      - apt-get update
+      - apt-get install -y build-essential cmake
+    init:
+      - mkdir -p $HOME/goroot
+      - curl -sSL https://go.dev/dl/go1.25.12.linux-amd64.tar.gz -o /tmp/go.tgz
+      - tar -C $HOME/goroot --strip-components=1 -xzf /tmp/go.tgz
+      - rm /tmp/go.tgz
+      - export PATH="$HOME/goroot/bin:$PATH"
+      - go install golang.org/x/mobile/cmd/gomobile@latest
+      - go install golang.org/x/mobile/cmd/gobind@latest
+      - export PATH="$PATH:$(go env GOPATH)/bin"
+      - gomobile init
     gradle:
       - market
-    prebuild: "export PATH=\"$HOME/goroot/bin:$PATH:$(go env GOPATH)/bin\"\nexport\
-      \ GOOS=android\nexport GOARCH=arm64\nexport CGO_ENABLED=1\nNDK_PAGE_SIZE_LDFLAGS=\"\
-      -Wl,-z,max-page-size=16384\"\nNDK_PREBUILT=\"$(find \"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt\"\
-      \ -mindepth 1 -maxdepth 1 -type d | sort | head -1)\"\nexport CC=\"$NDK_PREBUILT/bin/aarch64-linux-android26-clang\"\
-      \nexport CXX=\"$NDK_PREBUILT/bin/aarch64-linux-android26-clang++\"\nexport CGO_LDFLAGS=\"\
-      $NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26\"\
-      \ncd ..\nMOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh\n\
-      mkdir -p android/app/libs\ngomobile bind -target android/arm64 -androidapi 26\
-      \ -o android/app/libs/androidbridge.aar ./androidbridge\nmkdir -p android/app/src/main/jniLibs/arm64-v8a\n\
-      go build -trimpath -tags=\"omitgui,ts_omit_gui,nosystray,ts_omit_systray\" -ldflags=\"\
-      -s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS\" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so\
-      \ tailscale.com/cmd/tailscale\ngo build -trimpath -tags=\"omitgui,ts_omit_gui,nosystray,ts_omit_systray\"\
-      \ -ldflags=\"-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS\" -o\
-      \ android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so tailscale.com/cmd/tailscaled\n\
-      env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2\n\
-      FYNE_BIN=\"$(go env GOPATH)/bin/fyne\"\ncp VERSION cmd/android/VERSION\ncd cmd/android\n\
-      \"$FYNE_BIN\" package --target android/arm64 --tags \"nosystray noselfupdate\"\
-      \ --app-id io.usbridge.client --name \"USBridge Client\" --app-version \"$(cat\
-      \ ../../VERSION)\" --icon ../../Icon.png --release\ncd ../..\nunzip -q -o cmd/android/USBridge_Client.apk\
-      \ -d /tmp/fyne-scaffold\ncp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so\
-      \ android/app/src/main/jniLibs/arm64-v8a/\nrm -rf /tmp/fyne-scaffold\ncd android\n"
+    prebuild:
+      - export PATH="$HOME/goroot/bin:$PATH:$(go env GOPATH)/bin"
+      - export GOOS=android
+      - export GOARCH=arm64
+      - export CGO_ENABLED=1
+      - NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
+      - NDK_PREBUILT="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth
+        1 -maxdepth 1 -type d | sort | head -1)"
+      - export CC="$NDK_PREBUILT/bin/aarch64-linux-android26-clang"
+      - export CXX="$NDK_PREBUILT/bin/aarch64-linux-android26-clang++"
+      - export CGO_LDFLAGS="$NDK_PAGE_SIZE_LDFLAGS -L$NDK_PREBUILT/sysroot/usr/lib/aarch64-linux-android/26"
+      - cd ..
+      - MOONLIGHT_ANDROID_TARGET=1 MOONLIGHT_SKIP_HOST=1 ./scripts/build_moonlight.sh
+      - mkdir -p android/app/libs
+      - gomobile bind -target android/arm64 -androidapi 26 -o android/app/libs/androidbridge.aar
+        ./androidbridge
+      - mkdir -p android/app/src/main/jniLibs/arm64-v8a
+      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
+        -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so
+        tailscale.com/cmd/tailscale
+      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
+        -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so
+        tailscale.com/cmd/tailscaled
+      - env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2
+      - FYNE_BIN="$(go env GOPATH)/bin/fyne"
+      - cp VERSION cmd/android/VERSION
+      - cd cmd/android
+      - '"$FYNE_BIN" package --target android/arm64 --tags "nosystray noselfupdate"
+        --app-id io.usbridge.client --name "USBridge Client" --app-version "$(cat
+        ../../VERSION)" --icon ../../Icon.png --release'
+      - cd ../..
+      - unzip -q -o cmd/android/USBridge_Client.apk -d /tmp/fyne-scaffold
+      - cp /tmp/fyne-scaffold/lib/arm64-v8a/libUSBridge_Client.so android/app/src/main/jniLibs/arm64-v8a/
+      - rm -rf /tmp/fyne-scaffold
+      - cd android
     ndk: r27c
 
 MaintainerNotes: |
