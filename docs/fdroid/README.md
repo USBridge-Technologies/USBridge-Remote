@@ -162,6 +162,16 @@ glab api "projects/itsme228%2Ffdroiddata/jobs/<job_id>/trace"   # full log if a 
   `fyne`) while Android cross-compile env vars are still active silently
   produces an Android binary at the wrong path. Use `env -u CC -u CXX -u
   CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install ...` for host-side tools.
+- **When `Builds:` has more than one entry, F-Droid's CI builds every one
+  of them in the same job/VM/`$HOME`, back to back** — anything that
+  extracts an archive with a tool that prompts on a file collision (`unzip`
+  without `-o`) hangs on stdin (no TTY) and fails the *second* build with
+  a confusing "Could not build app ... Error running build command",
+  no matter how correct that build's own steps are in isolation. Always
+  pass the force/overwrite flag (`unzip -q -o`, not just `-q`) on anything
+  that writes into a path a previous entry's steps might have already
+  populated (`$HOME/cmdline-tools`, `$HOME/goroot`, etc.) — `tar` already
+  overwrites by default, this only bit `unzip`.
 
 ## IzzyOnDroid
 
