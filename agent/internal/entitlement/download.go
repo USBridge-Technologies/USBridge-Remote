@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,64 @@ func StagePath(stateDir string) string {
 	return filepath.Join(stateDir, "rustshine", binaryName())
 }
 
+// stagedVersionPath is a plain-text marker file recording which release
+// (the backend's release tag, e.g. "gamestream-server-v0.2.2") was most
+// recently staged at StagePath -- written by StageRustShine, read by
+// CheckRustShineUpdate so a later check can tell whether a newer build
+// exists without downloading anything just to find out.
+func stagedVersionPath(stateDir string) string {
+	return filepath.Join(filepath.Dir(StagePath(stateDir)), "VERSION")
+}
+
+// StagedVersion returns whichever version string StageRustShine last
+// recorded, or "" if RustShine has never been staged, or was staged by a
+// build of this agent that predated version tracking.
+func StagedVersion(stateDir string) string {
+	b, err := os.ReadFile(stagedVersionPath(stateDir))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// CheckRustShineUpdate asks the backend for the latest RustShine version
+// (the same cheap metadata call StageRustShine itself makes first, without
+// downloading the actual multi-MB archive) and reports whether it's newer
+// than what's already staged. A no-op (false, "", nil) when nothing is
+// staged yet -- that first download is the explicit "Download RustShine"
+// button's job (see ui/window.go), not this background check's.
+//
+// This exists so a fix that only lives in a newer RustShine build (like the
+// NV_KEYBOARD_PACKET modifiers-byte fix this was added alongside) actually
+// reaches an agent that already staged RustShine before that fix shipped --
+// previously nothing ever re-checked after the first download, so an old
+// binary would sit there indefinitely regardless of how many new releases
+// were published. See App.checkRustShineUpdate (agent/internal/app) for the
+// periodic caller.
+func CheckRustShineUpdate(ctx context.Context, stateDir, entitlementToken string) (needsUpdate bool, latestVersion string, err error) {
+	if _, statErr := os.Stat(StagePath(stateDir)); statErr != nil {
+		return false, "", nil
+	}
+	platform := Platform()
+	if platform == "" {
+		return false, "", nil
+	}
+	info, err := ResolveDownload(ctx, entitlementToken, platform)
+	if err != nil {
+		return false, "", fmt.Errorf("entitlement: resolve download: %w", err)
+	}
+	if info.Version == "" {
+		// Backend couldn't determine a version (e.g. GitHub release lookup
+		// failed transiently) -- don't force an update off degraded
+		// metadata, just wait for the next check.
+		return false, "", nil
+	}
+	if info.Version == StagedVersion(stateDir) {
+		return false, info.Version, nil
+	}
+	return true, info.Version, nil
+}
+
 // StageRustShine resolves, downloads, verifies, and extracts the RustShine
 // build for this platform, atomically replacing whatever's already staged
 // at StagePath(stateDir). entitlementToken must already have passed Verify
@@ -92,9 +151,21 @@ func StageRustShine(ctx context.Context, stateDir, entitlementToken string, onPr
 		return fmt.Errorf("entitlement: create rustshine dir: %w", err)
 	}
 	if runtime.GOOS == "windows" {
-		return extractFromZip(archivePath, binaryName(), dest)
+		err = extractFromZip(archivePath, binaryName(), dest)
+	} else {
+		err = extractFromTarGz(archivePath, binaryName(), dest)
 	}
-	return extractFromTarGz(archivePath, binaryName(), dest)
+	if err != nil {
+		return err
+	}
+	if info.Version != "" {
+		// Best-effort -- a failure to record the version just means the
+		// next CheckRustShineUpdate can't tell this build apart from an
+		// older one and treats it as needing another update, which costs
+		// one redundant re-download, not a wrong or stuck state.
+		_ = os.WriteFile(stagedVersionPath(stateDir), []byte(info.Version), 0o644)
+	}
+	return nil
 }
 
 func downloadArchive(ctx context.Context, url, wantSHA256Hex string, onProgress ProgressFunc) (path string, err error) {

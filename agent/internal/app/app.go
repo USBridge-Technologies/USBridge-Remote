@@ -1196,6 +1196,52 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 		log.Printf("[app] warning: failed to persist refreshed entitlement: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
+	a.checkRustShineUpdate(ctx, res.EntitlementToken)
+}
+
+// checkRustShineUpdate re-stages RustShine if the backend has published a
+// newer build than whatever's currently staged. Called from
+// recheckEntitlement, so it rides the exact same cadence (entitlementWatchdog's
+// 6h ticker, plus the one immediate check shortly after startup) as the
+// membership re-verification it runs right after -- no separate ticker
+// needed. A no-op if RustShine was never staged (CheckRustShineUpdate's
+// own job, not this one) or nothing newer is available.
+//
+// This is what makes a RustShine-only fix (one that ships in a new
+// gamestream-server release but not a new agent build -- e.g. the
+// NV_KEYBOARD_PACKET modifiers-byte fix this mechanism was added for)
+// actually reach an agent that already downloaded RustShine before that
+// fix existed. Before this, StageRustShine only ever ran once, from the
+// UI's explicit "Download RustShine" button -- nothing re-checked
+// afterward, so a stale binary would sit there indefinitely no matter how
+// many newer releases were published.
+func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string) {
+	if strings.TrimSpace(entitlementToken) == "" {
+		return
+	}
+	needsUpdate, version, err := entitlement.CheckRustShineUpdate(ctx, a.cfg.StateDir, entitlementToken)
+	if err != nil {
+		log.Printf("[app] rustshine update check failed (will retry next interval): %v", err)
+		return
+	}
+	if !needsUpdate {
+		return
+	}
+	log.Printf("[app] rustshine update available (%s) — downloading", version)
+	if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+		// Most likely cause if this ever fires: RustShine is the active
+		// backend and currently running, and the platform won't let its
+		// binary be replaced out from under it (Windows in particular
+		// locks a running .exe against rename). Non-fatal -- retried at
+		// the next watchdog interval, and will succeed once RustShine
+		// isn't actively streaming.
+		log.Printf("[app] rustshine auto-update to %s failed (will retry next interval): %v", version, err)
+		return
+	}
+	log.Printf("[app] rustshine updated to %s", version)
+	a.entMu.Lock()
+	a.entStatus.RustShineStaged = a.rustshineStaged()
+	a.entMu.Unlock()
 }
 
 // waitForMonitorCorrelation blocks briefly for Sunshine's KMS/Wayland
