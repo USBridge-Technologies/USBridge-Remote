@@ -33,6 +33,7 @@ Builds:
       - gomobile init
     gradle:
       - market
+    output: app/build/outputs/apk/market/release/*.apk
     scandelete:
       - client/internal/anet/mobile/libs/mobile-sources.jar
       - client/android/app/libs/androidbridge-sources.jar
