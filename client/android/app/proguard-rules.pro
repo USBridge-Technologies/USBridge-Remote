@@ -22,4 +22,4 @@
 -keep class io.usbridge.client.CameraHelper { *; }
 -keep class io.usbridge.client.VulkanOverlayBridge { *; }
 -keep class io.usbridge.client.HapticBridge { *; }
--keep class io.usbridge.client.NbdBridge { *; }
+-keep class io.usbridge.client.SafBridge { *; }

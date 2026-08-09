@@ -2,6 +2,13 @@ module usbridge-client
 
 go 1.26.1
 
+// gostor/gotgt v0.2.2 doesn't compile on Windows: pkg/util/util.go calls
+// syscall.Syscall6 with a Linux-only SYS_FADVISE64 raw syscall number,
+// unconditionally (no build tag). Patched locally — see
+// third_party/gotgt/pkg/util/{util.go,util_linux.go,util_darwin.go,util_other.go}
+// — until that's fixed upstream.
+replace github.com/gostor/gotgt => ./third_party/gotgt
+
 require (
 	fyne.io/fyne/v2 v2.7.3
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674

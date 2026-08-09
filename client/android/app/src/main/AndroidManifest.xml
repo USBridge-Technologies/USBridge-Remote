@@ -90,12 +90,5 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- NBD Foreground Service -->
-        <service
-            android:name="io.usbridge.client.NbdForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync|connectedDevice" />
     </application>
 </manifest>

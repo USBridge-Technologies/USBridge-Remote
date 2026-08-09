@@ -11,11 +11,11 @@ import androidx.documentfile.provider.DocumentFile
 import androidbridge.Androidbridge
 
 /**
- * Bridge between Android SAF and Go NBD backend
+ * Bridge between Android SAF and the Go side (file picking, persistent permissions, fd extraction)
  * Handles file picking, persistent permissions, and fd extraction
  */
-object NbdBridge {
-    private const val TAG = "NbdBridge"
+object SafBridge {
+    private const val TAG = "SafBridge"
 
     // Static result fields (for reliable access via JNI)
     @JvmStatic @Volatile var lastUri: String = ""
@@ -352,79 +352,6 @@ object NbdBridge {
         return -1
     }
 
-    /**
-     * Start NBD server with given parameters.
-     * readOnly=true is the safe default when caller does not specify export mode.
-     */
-    @JvmStatic
-    fun startNbd(fd: Int, size: Long, addr: String, readOnly: Boolean = true): Int {
-        return try {
-            Log.i(TAG, "Starting NBD: fd=$fd, size=$size, addr=$addr, readOnly=$readOnly")
-            Androidbridge.startNBD(fd.toLong(), size, addr, readOnly)
-            Log.i(TAG, "NBD started successfully")
-            0
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start NBD: $e", e)
-            -1
-        }
-    }
-
-    /**
-     * Stop NBD server
-     */
-    @JvmStatic
-    fun stopNbd() {
-        try {
-            Log.i(TAG, "Stopping NBD")
-            Androidbridge.stopNBD()
-            Log.i(TAG, "NBD stopped")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop NBD: $e", e)
-        }
-    }
-
-    /**
-     * Get NBD server status
-     */
-    @JvmStatic
-    fun nbdStatus(): String {
-        return try {
-            Androidbridge.status()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get NBD status: $e", e)
-            "error: $e"
-        }
-    }
-
-    /**
-     * Start NBD foreground service
-     */
-    @JvmStatic
-    fun startNbdService(fd: Int, size: Long, addr: String) {
-        val activity = MainActivity.getInstance()
-        if (activity == null) {
-            Log.e(TAG, "Cannot start service: MainActivity instance is null")
-            return
-        }
-
-        Log.i(TAG, "Starting NBD foreground service")
-        NbdForegroundService.startNbdService(activity, fd, size, addr)
-    }
-
-    /**
-     * Stop NBD foreground service
-     */
-    @JvmStatic
-    fun stopNbdService() {
-        val activity = MainActivity.getInstance()
-        if (activity == null) {
-            Log.e(TAG, "Cannot stop service: MainActivity instance is null")
-            return
-        }
-
-        Log.i(TAG, "Stopping NBD foreground service")
-        NbdForegroundService.stopNbdService(activity)
-    }
 }
 
 // Extension to get context from ContentResolver

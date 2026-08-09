@@ -77,7 +77,7 @@ class MainActivity : GoNativeActivity() {
                     activity.startActivityForResult(intent, FYNE_FILE_OPEN_REQUEST_CODE)
                 } catch (e: Exception) {
                     Log.e(TAG, "showFileOpen: failed to start picker", e)
-                    NbdBridge.onSAFPickerError("File picker unavailable: ${e.message}")
+                    SafBridge.onSAFPickerError("File picker unavailable: ${e.message}")
                 }
             }
         }
@@ -399,14 +399,14 @@ class MainActivity : GoNativeActivity() {
 
         when (requestCode) {
             SAF_PICK_REQUEST_CODE -> {
-                Log.i(TAG, "📤 [ACTIVITY-RESULT] Forwarding to NbdBridge.handleActivityResult()...")
-                NbdBridge.handleActivityResult(requestCode, resultCode, data, contentResolver)
+                Log.i(TAG, "📤 [ACTIVITY-RESULT] Forwarding to SafBridge.handleActivityResult()...")
+                SafBridge.handleActivityResult(requestCode, resultCode, data, contentResolver)
                 val elapsed = System.currentTimeMillis() - startTime
-                Log.i(TAG, "✅ [ACTIVITY-RESULT] NbdBridge.handleActivityResult() returned after ${elapsed}ms")
+                Log.i(TAG, "✅ [ACTIVITY-RESULT] SafBridge.handleActivityResult() returned after ${elapsed}ms")
             }
             FYNE_FILE_OPEN_REQUEST_CODE -> {
-                Log.i(TAG, "📤 [ACTIVITY-RESULT] Fyne showFileOpen result — forwarding to NbdBridge...")
-                NbdBridge.handleActivityResult(SAF_PICK_REQUEST_CODE, resultCode, data, contentResolver)
+                Log.i(TAG, "📤 [ACTIVITY-RESULT] Fyne showFileOpen result — forwarding to SafBridge...")
+                SafBridge.handleActivityResult(SAF_PICK_REQUEST_CODE, resultCode, data, contentResolver)
                 val elapsed = System.currentTimeMillis() - startTime
                 Log.i(TAG, "✅ [ACTIVITY-RESULT] Fyne showFileOpen handled in ${elapsed}ms")
             }
@@ -672,7 +672,7 @@ class MainActivity : GoNativeActivity() {
                 Log.e(TAG, "❌ [SAF-PICKER-ERROR] Failed to start SAF picker after ${elapsed}ms")
                 Log.e(TAG, "❌ [SAF-PICKER-ERROR] Exception: ${e.javaClass.simpleName}: ${e.message}", e)
                 // Notify Go about error
-                NbdBridge.onSAFPickerError("Failed to start SAF picker: ${e.message}")
+                SafBridge.onSAFPickerError("Failed to start SAF picker: ${e.message}")
             }
         }
     }
@@ -914,7 +914,7 @@ class MainActivity : GoNativeActivity() {
      * Resolves the current primary clip and returns "text"|"image"|"file"|
      * "none"|"blocked". For image/file kinds, clipboardReadFd() returns a
      * detached fd (transferred to native code, same detachFd() pattern as
-     * NbdBridge.handleActivityResult) that the Go side reads to EOF and
+     * SafBridge.handleActivityResult) that the Go side reads to EOF and
      * closes; for text, clipboardReadText() carries it directly.
      *
      * "blocked" vs "none": Android 10+ returns a null primaryClip for any app
