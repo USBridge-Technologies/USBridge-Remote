@@ -10,11 +10,15 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"usbridge-client/internal/platform"
+
+	"fyne.io/fyne/v2"
 	"github.com/gostor/gotgt/pkg/config"
 	"github.com/gostor/gotgt/pkg/scsi"
 	"github.com/sirupsen/logrus"
@@ -39,6 +43,7 @@ type IscsiTargetRunner struct {
 	bindHost  string
 	allowedIP string
 	iqn       string
+	app       fyne.App // for Android SAF access; nil on desktop
 
 	mu            sync.RWMutex
 	driver        scsi.SCSITargetDriver
@@ -47,6 +52,7 @@ type IscsiTargetRunner struct {
 	readyChan     chan struct{}
 	proxyListener net.Listener
 	proxyCancel   context.CancelFunc
+	safFile       *os.File // set when serving an Android content:// URI
 }
 
 // BuildTargetIQN derives a stable, RFC-3720-friendly target IQN from an
@@ -84,6 +90,15 @@ func NewIscsiTargetRunner(filePath string, readOnly bool, bindHost, iqn string) 
 	}
 }
 
+// NewIscsiTargetRunnerWithApp is like NewIscsiTargetRunner but also carries
+// the fyne.App needed to reach platform.SAFHelper — required when filePath
+// is an Android content:// URI (see the SAF branch in Start()).
+func NewIscsiTargetRunnerWithApp(filePath string, readOnly bool, bindHost, iqn string, app fyne.App) *IscsiTargetRunner {
+	r := NewIscsiTargetRunner(filePath, readOnly, bindHost, iqn)
+	r.app = app
+	return r
+}
+
 // SetAllowedIP restricts iSCSI connections to a single remote IP, mirroring
 // NBDServer.SetAllowedIP / QemuNBDRunner.SetAllowedIP. Call before Start().
 func (r *IscsiTargetRunner) SetAllowedIP(ip string) {
@@ -116,9 +131,53 @@ func (r *IscsiTargetRunner) Start(port int) error {
 		bindHost = "127.0.0.1"
 	}
 
-	servePath := r.filePath
-	if _, err := os.Stat(servePath); os.IsNotExist(err) {
-		return fmt.Errorf("file %s does not exist", servePath)
+	isAndroidSAF := runtime.GOOS == "android" && strings.HasPrefix(r.filePath, "content://")
+	defer func() {
+		// If we opened a SAF fd above but Start() is returning without
+		// having reached r.running = true, don't leak it.
+		if isAndroidSAF && !r.running && r.safFile != nil {
+			unregisterSAFBackingFile(r.iqn)
+			platform.GetSAFHelper(r.app).CloseFD(r.filePath)
+			r.safFile = nil
+		}
+	}()
+
+	var storagePath string
+	if isAndroidSAF {
+		// gotgt's stock "file" backing store calls os.OpenFile(path) itself,
+		// which can't work for a SAF content:// URI (no real filesystem
+		// path). Open it ourselves via platform.SAFHelper (same call the
+		// old NBD path used) and hand gotgt the already-open fd through the
+		// "androidsaf" backing store (iscsi_backingstore_saf.go), keyed by
+		// this export's IQN.
+		if r.app == nil {
+			return fmt.Errorf("iSCSI SAF export: fyne.App not set (use NewIscsiTargetRunnerWithApp)")
+		}
+		safHelper := platform.GetSAFHelper(r.app)
+		mode := "rw"
+		if r.readOnly {
+			mode = "r"
+		}
+		f, err := safHelper.OpenFileDescriptor(r.filePath, mode)
+		if err != nil && mode == "rw" {
+			// Some SAF providers (e.g. Google Drive) only allow read-only
+			// access; fall back rather than fail outright.
+			logrus.Warnf("⚠️ [ISCSI] SAF open in rw mode failed (%v), retrying read-only", err)
+			f, err = safHelper.OpenFileDescriptor(r.filePath, "r")
+			r.readOnly = true
+		}
+		if err != nil {
+			return fmt.Errorf("opening SAF file %s: %w", r.filePath, err)
+		}
+		r.safFile = f
+		registerSAFBackingFile(r.iqn, f)
+		storagePath = AndroidSAFBackingStorage + ":" + r.iqn
+		logrus.Infof("📍 [ISCSI] Serving Android SAF file %s via androidsaf backing store (key=%s)", r.filePath, r.iqn)
+	} else {
+		if _, err := os.Stat(r.filePath); os.IsNotExist(err) {
+			return fmt.Errorf("file %s does not exist", r.filePath)
+		}
+		storagePath = "file:" + r.filePath
 	}
 	// KNOWN LIMITATION: unlike the old NBD path (where qemu-nbd decoded
 	// qcow2/vmdk/vdi into a raw MBR/GPT view on the wire), gotgt's flat-file
@@ -126,26 +185,29 @@ func (r *IscsiTargetRunner) Start(port int) error {
 	// The qcow2-overlay-for-RW trick (overlay.go, still used for the old
 	// NBD/qemu-nbd path if it's ever revived) would therefore hand the
 	// initiator a qcow2 container as if it were the raw disk — not usable.
-	// So for now the iSCSI target always serves r.filePath directly, with
-	// no overlay: correct for genuinely raw-format sources (.iso/.img/.raw)
-	// in both RO and RW; vmdk/qcow2/vdi *source* images are not properly
-	// supported over iSCSI yet (same root cause — no decode step) and will
-	// serve their container bytes as-is, which is not a valid disk to the
-	// initiator. Revisit if/when gotgt gains format-aware backing stores.
-	if r.readOnly {
-		// KNOWN LIMITATION: gotgt v0.2.2's file backing store always opens
-		// with O_RDWR internally and has no read-only LUN concept — unlike
-		// the old NBD/qemu-nbd path which enforced this via file open flags
-		// or a -r CLI flag. A malicious/misbehaving initiator could still
-		// write. Acceptable for now (trusted LAN initiator, no untrusted
-		// third parties); revisit if gotgt gains WRITE PROTECT support.
-		logrus.Warnf("⚠️ [ISCSI] Read-only requested for %s, but gotgt v0.2.2 has no read-only LUN enforcement — the underlying file remains writable by the initiator", servePath)
+	// So for now the iSCSI target always serves the source file directly,
+	// with no overlay: correct for genuinely raw-format sources
+	// (.iso/.img/.raw) in both RO and RW; vmdk/qcow2/vdi *source* images
+	// are not properly supported over iSCSI yet (same root cause — no
+	// decode step) and will serve their container bytes as-is, which is
+	// not a valid disk to the initiator. Revisit if/when gotgt gains
+	// format-aware backing stores.
+	if r.readOnly && !isAndroidSAF {
+		// KNOWN LIMITATION: gotgt v0.2.2's stock "file" backing store always
+		// opens with O_RDWR internally and has no read-only LUN concept —
+		// unlike the old NBD/qemu-nbd path which enforced this via file
+		// open flags or a -r CLI flag. A malicious/misbehaving initiator
+		// could still write. Acceptable for now (trusted LAN initiator, no
+		// untrusted third parties); revisit if gotgt gains WRITE PROTECT
+		// support. (The androidsaf backing store above does honor
+		// read-only: it simply never gets a writable fd in that case.)
+		logrus.Warnf("⚠️ [ISCSI] Read-only requested for %s, but gotgt v0.2.2 has no read-only LUN enforcement — the underlying file remains writable by the initiator", r.filePath)
 	}
 
 	deviceID := nextIscsiDeviceID()
 	cfg := &config.Config{
 		Storages: []config.BackendStorage{
-			{DeviceID: deviceID, Path: "file:" + servePath, Online: true},
+			{DeviceID: deviceID, Path: storagePath, Online: true},
 		},
 		// ISCSIPortals is required even though the actual bind address is
 		// determined by driver.Run(listenPort) below — TPGTs references
@@ -305,6 +367,15 @@ func (r *IscsiTargetRunner) Stop() error {
 			logrus.Warnf("⚠️ [ISCSI] error closing target driver: %v", err)
 		}
 		r.driver = nil
+	}
+	if r.safFile != nil {
+		unregisterSAFBackingFile(r.iqn)
+		if r.app != nil {
+			if err := platform.GetSAFHelper(r.app).CloseFD(r.filePath); err != nil {
+				logrus.Warnf("⚠️ [ISCSI] error closing SAF fd for %s: %v", r.filePath, err)
+			}
+		}
+		r.safFile = nil
 	}
 
 	r.running = false

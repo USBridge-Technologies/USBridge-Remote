@@ -105,17 +105,20 @@ func (dw *DiskWidget) resolveExportBindHost() string {
 func (dw *DiskWidget) startExportServer(diskInfo *models.DiskInfo, port int, exportName string, readOnly bool) (service.BlockExportRunner, error) {
 	logrus.Infof("🔧 [ISCSI] Creating target: file=%q port=%d export=%s ro=%v", diskInfo.Name, port, exportName, readOnly)
 
-	if runtime.GOOS == "android" || strings.HasPrefix(diskInfo.Path, "content://") {
-		// gotgt's backing store needs a real filesystem path; it cannot
-		// open an Android SAF content:// URI. Android also has no iSCSI
-		// initiator story on the other end today, so this is a hard
-		// no-go for now rather than a silent failure deep in gotgt.
-		return nil, fmt.Errorf("iSCSI disk export is not supported on Android yet (SAF content:// paths aren't usable by the iSCSI target library)")
-	}
-
 	bindHost := dw.resolveExportBindHost()
 	iqn := service.BuildTargetIQN(exportName, fmt.Sprintf("%d", port))
-	runner := service.NewIscsiTargetRunner(diskInfo.Path, readOnly, bindHost, iqn)
+
+	var runner *service.IscsiTargetRunner
+	if runtime.GOOS == "android" && strings.HasPrefix(diskInfo.Path, "content://") {
+		// gotgt's stock backing store needs a real filesystem path; the
+		// androidsaf backing store (registered in
+		// iscsi_backingstore_saf.go) bridges an already-open SAF fd instead
+		// — NewIscsiTargetRunnerWithApp needs dw.app to reach
+		// platform.SAFHelper.
+		runner = service.NewIscsiTargetRunnerWithApp(diskInfo.Path, readOnly, bindHost, iqn, dw.app)
+	} else {
+		runner = service.NewIscsiTargetRunner(diskInfo.Path, readOnly, bindHost, iqn)
+	}
 	if deviceIP := dw.getDeviceIP(); deviceIP != "" {
 		runner.SetAllowedIP(deviceIP)
 	}
