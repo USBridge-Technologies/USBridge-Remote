@@ -88,9 +88,9 @@ import (
 	"strings"
 	"time"
 
+	"usbridge-client/androidbridge"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
-	"usbridge-client/androidbridge"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver"

@@ -34,24 +34,25 @@ func (dw *DiskWidget) getLocalIP() (string, error) {
 	return localAddr.IP.String(), nil
 }
 
-// getAvailablePort finds a free TCP port for an NBD server.
+// getAvailablePort finds a free TCP port for a disk-export server, starting
+// from the standard iSCSI portal port (3260).
 func (dw *DiskWidget) getAvailablePort() (int, error) {
-	const basePort = 10809
+	const basePort = 3260
 	const maxAttempts = 100
 
 	logrus.Infof("🔍 Searching for a free port starting from %d...", basePort)
 	for i := 0; i < maxAttempts; i++ {
 		port := basePort + i
 		portInUse := false
-		dw.nbdServersMu.Lock()
-		for exportName, server := range dw.nbdServers {
+		dw.exportServersMu.Lock()
+		for exportName, server := range dw.exportServers {
 			if server.IsRunning() && server.GetServerStatus()["server_port"] == port {
-				logrus.Debugf("🔍 Port %d is in use by NBD server %s", port, exportName)
+				logrus.Debugf("🔍 Port %d is in use by export server %s", port, exportName)
 				portInUse = true
 				break
 			}
 		}
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Unlock()
 		if !portInUse {
 			if listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
 				listener.Close()
@@ -64,7 +65,8 @@ func (dw *DiskWidget) getAvailablePort() (int, error) {
 }
 
 // getDeviceIP returns the IP of the usbridge device we are connected to.
-// This is used to restrict NBD connections to that specific host only.
+// This is used to restrict the export server to connections from that
+// specific host only.
 func (dw *DiskWidget) getDeviceIP() string {
 	if dw.usbClient == nil {
 		return ""
@@ -78,9 +80,9 @@ func (dw *DiskWidget) getDeviceIP() string {
 	return strings.TrimSpace(host)
 }
 
-// resolveNBDBindHost returns the address the NBD server should listen on.
-// Tailscale → 100.x.x.x interface; default → 127.0.0.1.
-func (dw *DiskWidget) resolveNBDBindHost() string {
+// resolveExportBindHost returns the address the export server should listen
+// on. Tailscale → 100.x.x.x interface; default → 127.0.0.1.
+func (dw *DiskWidget) resolveExportBindHost() string {
 	ifaces, _ := net.Interfaces()
 	for _, iface := range ifaces {
 		name := strings.ToLower(iface.Name)
@@ -99,52 +101,27 @@ func (dw *DiskWidget) resolveNBDBindHost() string {
 	return "127.0.0.1"
 }
 
-// startNBDServer starts an NBD server for the given disk file.
-// VMDK/QCOW2/VDI on desktop use qemu-nbd; ISO/raw/img use the go-nbd path.
-func (dw *DiskWidget) startNBDServer(diskInfo *models.DiskInfo, port int, exportName string, readOnly bool) (service.NBDRunner, error) {
-	logrus.Infof("🔧 [NBD] Creating: file=%q port=%d export=%s ro=%v", diskInfo.Name, port, exportName, readOnly)
+// startExportServer starts an iSCSI target server for the given disk file.
+func (dw *DiskWidget) startExportServer(diskInfo *models.DiskInfo, port int, exportName string, readOnly bool) (service.BlockExportRunner, error) {
+	logrus.Infof("🔧 [ISCSI] Creating target: file=%q port=%d export=%s ro=%v", diskInfo.Name, port, exportName, readOnly)
 
-	useQemuNbd := runtime.GOOS != "android" &&
-		!strings.HasPrefix(diskInfo.Path, "content://") &&
-		service.IsQemuNbdFormatForPath(diskInfo.Path)
-
-	if useQemuNbd {
-		bindHost := dw.resolveNBDBindHost()
-		runner := service.NewQemuNBDRunner(diskInfo.Path, readOnly, bindHost)
-		if deviceIP := dw.getDeviceIP(); deviceIP != "" {
-			runner.SetAllowedIP(deviceIP)
-		}
-		if err := runner.EnsureQemuNbdForExport(); err != nil {
-			return nil, fmt.Errorf("VMDK/QCOW2/VDI images require qemu-nbd: %w", err)
-		}
-		if err := runner.Start(port); err != nil {
-			return nil, fmt.Errorf("VMDK/QCOW2/VDI images require qemu-nbd (install QEMU): %w", err)
-		}
-		logrus.Infof("✅ [NBD-QEMU] started on %s:%d for %s", bindHost, port, diskInfo.Name)
-		return runner, nil
+	if runtime.GOOS == "android" || strings.HasPrefix(diskInfo.Path, "content://") {
+		// gotgt's backing store needs a real filesystem path; it cannot
+		// open an Android SAF content:// URI. Android also has no iSCSI
+		// initiator story on the other end today, so this is a hard
+		// no-go for now rather than a silent failure deep in gotgt.
+		return nil, fmt.Errorf("iSCSI disk export is not supported on Android yet (SAF content:// paths aren't usable by the iSCSI target library)")
 	}
 
-	bindHost := dw.resolveNBDBindHost()
-	nbdServer := service.NewNBDServerWithApp(bindHost, dw.app)
+	bindHost := dw.resolveExportBindHost()
+	iqn := service.BuildTargetIQN(exportName, fmt.Sprintf("%d", port))
+	runner := service.NewIscsiTargetRunner(diskInfo.Path, readOnly, bindHost, iqn)
 	if deviceIP := dw.getDeviceIP(); deviceIP != "" {
-		nbdServer.SetAllowedIP(deviceIP)
+		runner.SetAllowedIP(deviceIP)
 	}
-	if err := nbdServer.Start(port); err != nil {
-		return nil, fmt.Errorf("error starting NBD server: %v", err)
+	if err := runner.Start(port); err != nil {
+		return nil, fmt.Errorf("error starting iSCSI target: %v", err)
 	}
-	export := &models.DiskExport{
-		Name:        diskInfo.Name,
-		FilePath:    diskInfo.Path,
-		Size:        diskInfo.Size,
-		ReadOnly:    readOnly,
-		Description: diskInfo.Description,
-		IsActive:    true,
-		ExportName:  exportName,
-	}
-	if err := nbdServer.AddExport(export); err != nil {
-		nbdServer.Stop()
-		return nil, fmt.Errorf("error adding NBD export: %v", err)
-	}
-	logrus.Infof("✅ [NBD] server for %q on %s:%d", diskInfo.Name, bindHost, port)
-	return nbdServer, nil
+	logrus.Infof("✅ [ISCSI] target %q for %q on %s:%d", iqn, diskInfo.Name, bindHost, port)
+	return runner, nil
 }

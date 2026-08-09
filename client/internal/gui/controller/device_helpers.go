@@ -35,7 +35,7 @@ func IsStorageDeviceType(deviceType string, deviceName string) bool {
 	switch {
 	case deviceType == "local" && !strings.Contains(deviceName, "data"):
 		return true
-	case deviceType == "nbd":
+	case deviceType == "iscsi":
 		return true
 	case strings.HasPrefix(deviceType, "disk:"):
 		return true
@@ -51,7 +51,7 @@ func IsBackupDeviceType(deviceType string, deviceName string, productName string
 
 // IsSnapshotDeviceType checks if the device represents a storage snapshot.
 func IsSnapshotDeviceType(deviceType string, deviceName string, productName string) bool {
-	if deviceType == "nbd" {
+	if deviceType == "iscsi" {
 		return true
 	}
 	return deviceType == "mtp" && (strings.Contains(productName, "snapshot") || strings.Contains(deviceName, "snapshot"))

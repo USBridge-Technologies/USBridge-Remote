@@ -9,7 +9,7 @@ The project uses the new secure **Master QR Sync** protocol for authorization an
 - **Master QR Sync**: Fast one-scan connection. A single API Secret is passed via QR code and used to sign all requests.
 - **Security**: Full API protection against interception and spoofing on the local network.
 - **Device control**: keyboard, mouse/touchscreen (Touchpad/Absolute), RNDIS, CD-ROM images.
-- **NBD export**: streaming local images (`.iso`, `.img`, etc.) to the remote machine.
+- **iSCSI export**: streaming local images (`.iso`, `.img`, etc.) to the remote machine.
 - **Hardware-Accelerated Video**: Ultra-low latency streaming using Sunshine/Moonlight stack directly over Vulkan and Metal. 
 - **Android & iOS support**: Full support for high-performance streaming and input on mobile devices.
 

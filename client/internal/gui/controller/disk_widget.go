@@ -86,10 +86,10 @@ type DiskWidget struct {
 	cardsCache map[string]fyne.CanvasObject
 
 	// Services
-	nbdServersMu sync.Mutex
-	nbdServers   map[string]service.NBDRunner
-	usbClient    *api.USBClient
-	updateStatus func()
+	exportServersMu sync.Mutex
+	exportServers   map[string]service.BlockExportRunner
+	usbClient       *api.USBClient
+	updateStatus    func()
 
 	// Configuration
 	config         *models.AppConfig
@@ -193,7 +193,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 		}
 	}
 	dw := &DiskWidget{
-		nbdServers:            make(map[string]service.NBDRunner),
+		exportServers:         make(map[string]service.BlockExportRunner),
 		usbClient:             usbClient,
 		updateStatus:          updateStatus,
 		app:                   app,
@@ -713,7 +713,7 @@ func (dw *DiskWidget) hasMountedStorageDevicesActual() bool {
 			continue
 		}
 		switch device.Type {
-		case "local", "nbd", "mtp":
+		case "local", "iscsi", "mtp":
 			return true
 		}
 	}

@@ -514,7 +514,6 @@ func (vw *VideoWidget) processMouseMovement() {
 	vw.enqueueMouseMove(dx, dy)
 }
 
-
 func (vw *VideoWidget) accumulateRelativeMove(rawDx, rawDy, sensitivity float32) (int, int) {
 	scaledDx := rawDx*sensitivity + vw.relativeRemainderX
 	scaledDy := rawDy*sensitivity + vw.relativeRemainderY

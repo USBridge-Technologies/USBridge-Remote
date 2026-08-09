@@ -119,7 +119,6 @@ func main() {
 	mainWindow.SetOnReadyCallback(platform.SetAppReady)
 
 	logrus.Infof("📋 Configuration:")
-	logrus.Infof("  NBD port: %d", config.NBDPort)
 	logrus.Infof("  Video UDP bind: %s:%d", config.VideoBindHost, config.VideoUDPPort)
 
 	// Check access to the SD card

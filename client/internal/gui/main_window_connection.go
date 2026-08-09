@@ -828,7 +828,6 @@ func (mw *MainWindow) handleDisconnect() {
 	client := mw.usbClient
 	video := mw.videoWidget
 	backup := mw.backupWidget
-	nbd := mw.nbdServer
 	diskWidget := mw.diskWidget
 
 	// Must happen synchronously, before anything else: a pending
@@ -859,7 +858,6 @@ func (mw *MainWindow) handleDisconnect() {
 	mw.connectedProtocol = ""
 	mw.appState.IsConnected = false
 	mw.appState.IsStreaming = false
-	mw.appState.IsNBDRunning = false
 	mw.connectionLossInProgress.Store(false)
 	mw.appState.LastDisconnected = time.Now()
 
@@ -940,16 +938,11 @@ func (mw *MainWindow) handleDisconnect() {
 			client.Disconnect()
 		}
 
-		if nbd != nil && nbd.IsRunning() {
-			logrus.Info("🛑 [shutdown] Stopping NBD server...")
-			_ = nbd.Stop()
-		}
-
-		// Stop per-disk NBD servers created by the disk widget (these are separate from mw.nbdServer).
+		// Stop per-disk iSCSI target servers created by the disk widget.
 		// Without this, ports remain occupied after a main-window disconnect and reconnection fails.
 		if diskWidget != nil {
-			logrus.Info("🛑 [shutdown] Stopping disk widget NBD servers...")
-			diskWidget.StopAllNBDServers()
+			logrus.Info("🛑 [shutdown] Stopping disk widget iSCSI target servers...")
+			diskWidget.StopAllExportServers()
 		}
 	}()
 }
@@ -970,13 +963,6 @@ func (mw *MainWindow) handleRefresh() {
 
 // updateStatus updates the status in the UI
 func (mw *MainWindow) updateStatus() {
-	nbdConnected := false
-	if mw.nbdServer.IsRunning() {
-		clients := mw.nbdServer.GetClients()
-		nbdConnected = len(clients) > 0
-	}
-	mw.appState.IsNBDRunning = nbdConnected
-
 	if mw.videoWidget != nil && mw.videoWidget.IsStreaming() {
 		mw.appState.IsStreaming = true
 		mw.isStreaming = true

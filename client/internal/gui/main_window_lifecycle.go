@@ -190,8 +190,7 @@ func (mw *MainWindow) handleClose() {
 
 		needsDisconnect := mw.isConnected ||
 			mw.usbClient != nil ||
-			(mw.videoWidget != nil && mw.videoWidget.IsStreaming()) ||
-			(mw.nbdServer != nil && mw.nbdServer.IsRunning())
+			(mw.videoWidget != nil && mw.videoWidget.IsStreaming())
 
 		if needsDisconnect {
 			logrus.Info("[shutdown] handleClose: calling handleDisconnect")

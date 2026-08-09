@@ -1,5 +1,6 @@
-// Package service: creating qcow2-overlay for NBD export in RW mode without corrupting the base image.
-// Desktop only (not Android); requires qemu-img in PATH.
+// Package service: creating a qcow2 overlay for read-write disk exports
+// without corrupting the base image. Transport-agnostic (used by the iSCSI
+// target). Desktop only (not Android); requires qemu-img in PATH.
 
 package service
 
@@ -116,7 +117,7 @@ func createOverlay(basePath string) (overlayPath string, virtualSize int64, err 
 		if err != nil {
 			return "", 0, fmt.Errorf("getting size of existing overlay: %w", err)
 		}
-		logrus.Infof("✅ [NBD-OVERLAY] Using existing overlay %s (backing %s)", overlayPath, baseAbs)
+		logrus.Infof("✅ [OVERLAY] Using existing overlay %s (backing %s)", overlayPath, baseAbs)
 		return overlayPath, virtualSize, nil
 	}
 	format := backingFormat(ext)
@@ -128,7 +129,7 @@ func createOverlay(basePath string) (overlayPath string, virtualSize int64, err 
 		// We do not delete Overlay even on error - do not touch existing files
 		return "", 0, fmt.Errorf("qemu-img create overlay: %s: %w", string(out), err)
 	}
-	logrus.Infof("✅ [NBD-OVERLAY] Overlay created %s (backing %s, format %s)", overlayPath, baseAbs, format)
+	logrus.Infof("✅ [OVERLAY] Overlay created %s (backing %s, format %s)", overlayPath, baseAbs, format)
 	virtualSize, err = qemuImgVirtualSize(overlayPath)
 	if err != nil {
 		// We do not delete Overlay - leave the created file

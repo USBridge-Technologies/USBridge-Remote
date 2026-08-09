@@ -42,7 +42,6 @@ type MainWindow struct {
 	connectionFooterBar *fyne.Container
 
 	// Services
-	nbdServer        *service.NBDServer
 	videoClient      service.VideoClient
 	usbClient        *api.USBClient
 	tailscaleService *service.TailscaleService
@@ -89,7 +88,6 @@ type MainWindow struct {
 
 	// Status icons
 	connectionIcon *widget.Button
-	nbdIcon        *widget.Button
 	videoIcon      *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button
@@ -120,7 +118,7 @@ type MainWindow struct {
 	// never overrides an explicit user mute (toggleAudioMuted) set before
 	// or during that screen.
 	audioMutedByNav bool
-	onReadyCallback          func()
+	onReadyCallback func()
 }
 
 func NewMainWindow(cfg *models.AppConfig) *MainWindow {
@@ -142,7 +140,6 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 		lifecycleOps: make(chan func(), 32),
 	}
 
-	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()
 	ms := service.NewMoonlightService(cfg)
 	ms.SetTailscaleService(mw.tailscaleService)

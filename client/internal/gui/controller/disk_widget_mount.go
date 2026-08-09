@@ -35,9 +35,11 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 		}
 		lastErr = err
 		errStr := err.Error()
-		isRetryable := strings.Contains(errStr, "EOF") || strings.Contains(errStr, "NBD") ||
-			strings.Contains(errStr, "Failed to connect NBD") || strings.Contains(errStr, "connection reset") ||
-			strings.Contains(errStr, "connection refused")
+		// Transient network conditions only — deliberately NOT retrying on
+		// login/auth failures (e.g. CHAP mismatch), which won't self-resolve.
+		isRetryable := strings.Contains(errStr, "EOF") ||
+			strings.Contains(errStr, "connection reset") || strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "timeout") || strings.Contains(errStr, "timed out")
 		if !isRetryable || attempt == maxAttempts {
 			return nil, err
 		}
@@ -226,7 +228,7 @@ func (dw *DiskWidget) handleMount() {
 			dw.endOperation()
 		}()
 
-		// Build requests, start NBD servers
+		// Build requests, start iSCSI target servers
 		var deviceRequests []models.DeviceStartRequest
 		startedMouseMode := ""
 
@@ -249,11 +251,11 @@ func (dw *DiskWidget) handleMount() {
 			return
 		}
 
-		// Determine NBD export names for the mounting animation
-		mountingExportNames := dw.nbdExportNamesForRequests(deviceRequests)
+		// Determine export names for the mounting animation
+		mountingExportNames := dw.exportNamesForRequests(deviceRequests)
 
-		// Wait for the NBD servers to be ready
-		if err := dw.waitForNBDServers(30 * time.Second); err != nil {
+		// Wait for the iSCSI target servers to be ready
+		if err := dw.waitForExportServers(30 * time.Second); err != nil {
 			dw.showErrorAsync(err)
 			return
 		}
@@ -294,7 +296,7 @@ func (dw *DiskWidget) handleMount() {
 }
 
 // buildMountRequest builds a DeviceStartRequest for the device being mounted.
-// Starts an NBD server for NBD devices.
+// Starts an iSCSI target server for disk devices.
 // Returns (request, mouseType, error).
 func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartRequest, string, error) {
 	switch sel.Source {
@@ -342,53 +344,56 @@ func (dw *DiskWidget) buildMountRequest(sel DriveItem) (*models.DeviceStartReque
 		if err != nil {
 			return nil, "", fmt.Errorf("error getting local IP: %v", err)
 		}
-		nbdPort, err := dw.getAvailablePort()
+		portalPort, err := dw.getAvailablePort()
 		if err != nil {
 			return nil, "", fmt.Errorf("error getting a free port: %v", err)
 		}
 		exportName := sel.DiskInfo.Name
-		dw.nbdServersMu.Lock()
-		if existing, ok := dw.nbdServers[exportName]; ok {
+		dw.exportServersMu.Lock()
+		if existing, ok := dw.exportServers[exportName]; ok {
 			if existing.IsRunning() {
 				_ = existing.Stop()
 			}
-			delete(dw.nbdServers, exportName)
+			delete(dw.exportServers, exportName)
 		}
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Unlock()
 		// cdrom mode is always read-only
 		readOnly := sel.ReadOnly
 		if sel.DriveMode == "cdrom" {
 			readOnly = true
 		}
-		nbdServer, err := dw.startNBDServer(sel.DiskInfo, nbdPort, exportName, readOnly)
+		exportServer, err := dw.startExportServer(sel.DiskInfo, portalPort, exportName, readOnly)
 		if err != nil {
-			return nil, "", fmt.Errorf("error starting NBD server: %v", err)
+			return nil, "", fmt.Errorf("error starting iSCSI target server: %v", err)
 		}
-		dw.nbdServersMu.Lock()
-		dw.nbdServers[exportName] = nbdServer
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Lock()
+		dw.exportServers[exportName] = exportServer
+		dw.exportServersMu.Unlock()
+		iqn := exportServer.ExportNameForAPI()
 		return &models.DeviceStartRequest{
-			Device:                  "drive",
-			Server:                  localIP,
-			Port:                    nbdPort,
-			ExportName:              nbdServer.NBDExportNameForAPI(),
-			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
-			ReadOnly:                readOnly,
-			DriveMode:               sel.DriveMode,
+			Device:     "drive",
+			Server:     localIP,
+			Port:       portalPort,
+			ExportName: iqn,
+			ReadOnly:   readOnly,
+			DriveMode:  sel.DriveMode,
+			Transport:  "iscsi",
+			TargetIQN:  iqn,
+			LUN:        0,
 		}, "", nil
 	}
 	return nil, "", fmt.Errorf("unknown device type: %s (source=%s)", sel.Name, sel.Source)
 }
 
-// nbdExportNamesForRequests returns the NBD export names for the requests — used for the mounting animation.
-func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartRequest) map[string]bool {
+// exportNamesForRequests returns the export names for the requests — used for the mounting animation.
+func (dw *DiskWidget) exportNamesForRequests(requests []models.DeviceStartRequest) map[string]bool {
 	names := make(map[string]bool)
 	for _, req := range requests {
 		if req.Device != "drive" || req.Port == 0 {
 			continue
 		}
-		dw.nbdServersMu.Lock()
-		for name, srv := range dw.nbdServers {
+		dw.exportServersMu.Lock()
+		for name, srv := range dw.exportServers {
 			if !srv.IsRunning() {
 				continue
 			}
@@ -413,30 +418,30 @@ func (dw *DiskWidget) nbdExportNamesForRequests(requests []models.DeviceStartReq
 				break
 			}
 		}
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Unlock()
 	}
 	return names
 }
 
-// waitForNBDServers signals the NBD servers to accept connections and waits for them to be ready.
-func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
-	dw.nbdServersMu.Lock()
-	if len(dw.nbdServers) == 0 {
-		dw.nbdServersMu.Unlock()
+// waitForExportServers signals the iSCSI target servers to accept connections and waits for them to be ready.
+func (dw *DiskWidget) waitForExportServers(timeout time.Duration) error {
+	dw.exportServersMu.Lock()
+	if len(dw.exportServers) == 0 {
+		dw.exportServersMu.Unlock()
 		return nil
 	}
 
-	logrus.Infof("📡 [NBD] Signaling readiness to %d servers", len(dw.nbdServers))
-	for name, srv := range dw.nbdServers {
-		logrus.Infof("  📡 [NBD] SignalReady: %s", name)
+	logrus.Infof("📡 [ISCSI] Signaling readiness to %d servers", len(dw.exportServers))
+	for name, srv := range dw.exportServers {
+		logrus.Infof("  📡 [ISCSI] SignalReady: %s", name)
 		srv.SignalReady()
 	}
 
-	remaining := make(map[string]service.NBDRunner, len(dw.nbdServers))
-	for k, v := range dw.nbdServers {
+	remaining := make(map[string]service.BlockExportRunner, len(dw.exportServers))
+	for k, v := range dw.exportServers {
 		remaining[k] = v
 	}
-	dw.nbdServersMu.Unlock()
+	dw.exportServersMu.Unlock()
 
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -449,18 +454,18 @@ func (dw *DiskWidget) waitForNBDServers(timeout time.Duration) error {
 			for n := range remaining {
 				names = append(names, n)
 			}
-			return fmt.Errorf("timed out waiting for NBD servers: %v", names)
+			return fmt.Errorf("timed out waiting for iSCSI target servers: %v", names)
 		case <-ticker.C:
 			for name, srv := range remaining {
 				select {
 				case <-srv.WaitReady():
-					logrus.Infof("✅ [NBD] Server %s ready", name)
+					logrus.Infof("✅ [ISCSI] Server %s ready", name)
 					delete(remaining, name)
 				default:
 				}
 			}
 			if len(remaining) == 0 {
-				logrus.Infof("✅ [NBD] All servers ready")
+				logrus.Infof("✅ [ISCSI] All servers ready")
 				return nil
 			}
 		}
@@ -573,7 +578,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		} else {
 			logrus.Infof("✅ [UNMOUNT-ALL] All devices stopped")
 		}
-		dw.stopNBDAndCleanup(mountedDrives, true)
+		dw.stopExportsAndCleanup(mountedDrives, true)
 		dw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
 		return
 	}
@@ -627,57 +632,57 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		}
 	}
 
-	dw.stopNBDAndCleanup(drivesToUnmount, false)
+	dw.stopExportsAndCleanup(drivesToUnmount, false)
 	dw.updateStatusAsync(i18n.Current.AllDevicesUnmounted)
 	logrus.Infof("✅ [UNMOUNT-SEL] Partial unmount complete")
 }
 
-// StopAllNBDServers stops all running NBD servers and clears the map.
+// StopAllExportServers stops all running iSCSI target servers and clears the map.
 // Called from the main disconnect flow to release ports even when the disk widget
 // unmount button was not used.
-func (dw *DiskWidget) StopAllNBDServers() {
-	dw.stopNBDAndCleanup(nil, true)
+func (dw *DiskWidget) StopAllExportServers() {
+	dw.stopExportsAndCleanup(nil, true)
 }
 
-// stopNBDAndCleanup stops NBD servers and releases resources.
-func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
-	dw.updateStatusAsync(i18n.Current.StoppingNBDServers)
+// stopExportsAndCleanup stops iSCSI target servers and releases resources.
+func (dw *DiskWidget) stopExportsAndCleanup(drives []DriveItem, stopAll bool) {
+	dw.updateStatusAsync(i18n.Current.StoppingExportServers)
 	toStop := make(map[string]bool)
-	dw.nbdServersMu.Lock()
+	dw.exportServersMu.Lock()
 	if stopAll {
-		for exportName := range dw.nbdServers {
+		for exportName := range dw.exportServers {
 			toStop[exportName] = true
 		}
 	} else {
 		for _, drive := range drives {
 			if drive.DiskInfo != nil {
 				exportName := drive.DiskInfo.Name
-				if _, exists := dw.nbdServers[exportName]; exists {
+				if _, exists := dw.exportServers[exportName]; exists {
 					toStop[exportName] = true
 				}
 			}
 		}
 	}
-	dw.nbdServersMu.Unlock()
+	dw.exportServersMu.Unlock()
 	for exportName := range toStop {
-		dw.nbdServersMu.Lock()
-		nbdServer, exists := dw.nbdServers[exportName]
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Lock()
+		exportServer, exists := dw.exportServers[exportName]
+		dw.exportServersMu.Unlock()
 		if exists {
-			if nbdServer.IsRunning() {
-				if err := nbdServer.Stop(); err != nil {
-					logrus.Warnf("⚠️ Error stopping NBD server %s: %v", exportName, err)
+			if exportServer.IsRunning() {
+				if err := exportServer.Stop(); err != nil {
+					logrus.Warnf("⚠️ Error stopping iSCSI target server %s: %v", exportName, err)
 				}
 			}
-			dw.nbdServersMu.Lock()
-			delete(dw.nbdServers, exportName)
-			dw.nbdServersMu.Unlock()
+			dw.exportServersMu.Lock()
+			delete(dw.exportServers, exportName)
+			dw.exportServersMu.Unlock()
 		}
 	}
 	if stopAll {
-		dw.nbdServersMu.Lock()
-		dw.nbdServers = make(map[string]service.NBDRunner)
-		dw.nbdServersMu.Unlock()
+		dw.exportServersMu.Lock()
+		dw.exportServers = make(map[string]service.BlockExportRunner)
+		dw.exportServersMu.Unlock()
 	}
 	if runtime.GOOS == "android" && dw.safHelper != nil {
 		for _, drive := range drives {
@@ -689,8 +694,8 @@ func (dw *DiskWidget) stopNBDAndCleanup(drives []DriveItem, stopAll bool) {
 }
 
 // buildDeviceRequestForDrive builds a DeviceStartRequest for an already-mounted device
-// (uses existing NBD servers).
-func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD bool) (*models.DeviceStartRequest, error) {
+// (uses existing iSCSI target servers).
+func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingExport bool) (*models.DeviceStartRequest, error) {
 	if drive.Source == "keyboard" {
 		req := newKeyboardStartRequest()
 		return &req, nil
@@ -726,18 +731,18 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 			Device: "drive", Server: drive.LocalDrive.Name, DriveMode: drive.DriveMode,
 		}, nil
 	}
-	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingNBD {
+	if (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil && useExistingExport {
 		exportName := drive.DiskInfo.Name
-		dw.nbdServersMu.Lock()
-		nbdServer, exists := dw.nbdServers[exportName]
-		dw.nbdServersMu.Unlock()
-		if !exists || !nbdServer.IsRunning() {
-			return nil, fmt.Errorf("NBD server for %s not found or not running", exportName)
+		dw.exportServersMu.Lock()
+		exportServer, exists := dw.exportServers[exportName]
+		dw.exportServersMu.Unlock()
+		if !exists || !exportServer.IsRunning() {
+			return nil, fmt.Errorf("iSCSI target server for %s not found or not running", exportName)
 		}
-		status := nbdServer.GetServerStatus()
+		status := exportServer.GetServerStatus()
 		portVal, ok := status["server_port"]
 		if !ok {
-			return nil, fmt.Errorf("port for NBD server %s not found", exportName)
+			return nil, fmt.Errorf("port for iSCSI target server %s not found", exportName)
 		}
 		var port int
 		switch p := portVal.(type) {
@@ -754,14 +759,16 @@ func (dw *DiskWidget) buildDeviceRequestForDrive(drive DriveItem, useExistingNBD
 		if err != nil {
 			return nil, err
 		}
-		exportNameForAPI := nbdServer.NBDExportNameForAPI()
+		iqn := exportServer.ExportNameForAPI()
 		return &models.DeviceStartRequest{
-			Device:                  "drive",
-			Server:                  localIP,
-			Port:                    port,
-			ExportName:              exportNameForAPI,
-			NBDHandshakeEmptyExport: nbdServer.NBDHandshakeEmptyExport(),
-			ReadOnly:                drive.ReadOnly,
+			Device:     "drive",
+			Server:     localIP,
+			Port:       port,
+			ExportName: iqn,
+			ReadOnly:   drive.ReadOnly,
+			Transport:  "iscsi",
+			TargetIQN:  iqn,
+			LUN:        0,
 		}, nil
 	}
 	return nil, fmt.Errorf("unknown device type: %s", drive.Name)

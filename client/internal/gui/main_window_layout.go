@@ -993,8 +993,6 @@ func hasVisibleContent(obj fyne.CanvasObject) bool {
 func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.connectionIcon = widget.NewButton("🔌", func() {})
 	mw.connectionIcon.Importance = widget.LowImportance
-	mw.nbdIcon = widget.NewButton("💿", func() {})
-	mw.nbdIcon.Importance = widget.LowImportance
 	mw.videoIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
 		mw.showVideoMenu()
 	})

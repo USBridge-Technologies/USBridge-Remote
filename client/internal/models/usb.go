@@ -33,7 +33,9 @@ type ServiceStatus struct {
 	Uptime    string    `json:"uptime"`
 }
 
-// NBDStatus NBD connection status
+// NBDStatus mirrors the USBridge hardware's own status field name (the
+// physical bridge still runs nbd-client today; this is its self-reported
+// state, unrelated to the client's own export transport which is iSCSI).
 type NBDStatus struct {
 	Connected bool   `json:"connected"`
 	Device    string `json:"device"`
@@ -60,24 +62,24 @@ type KernelInfo struct {
 
 // VideoStatus video status
 type VideoStatus struct {
-	Enabled           bool                 `json:"enabled"`
-	Device            string               `json:"device"`
-	Width             int                  `json:"width"`
-	Height            int                  `json:"height"`
-	FPS               int                  `json:"fps"`
-	Quality           int                  `json:"quality"`
-	Bitrate           string               `json:"bitrate"`
-	BufferSize        int                  `json:"buffer_size"`
-	Mode              string               `json:"mode"`
-	Transport         string               `json:"transport"`
-	Encoding          string               `json:"encoding"`
-	SourceFormat      string               `json:"source_format"`
-	DefaultPixelFormat string              `json:"default_pixel_format,omitempty"`
-	ServerDecodesJPEG bool                 `json:"server_decodes_jpeg"`
-	CaptureModes      []VideoCaptureMode   `json:"capture_modes,omitempty"`
-	SupportedModes    []VideoTransportMode `json:"supported_modes,omitempty"`
-	ClientsCount      int                  `json:"clients_count"`
-	Streaming         bool                 `json:"streaming"`
+	Enabled            bool                 `json:"enabled"`
+	Device             string               `json:"device"`
+	Width              int                  `json:"width"`
+	Height             int                  `json:"height"`
+	FPS                int                  `json:"fps"`
+	Quality            int                  `json:"quality"`
+	Bitrate            string               `json:"bitrate"`
+	BufferSize         int                  `json:"buffer_size"`
+	Mode               string               `json:"mode"`
+	Transport          string               `json:"transport"`
+	Encoding           string               `json:"encoding"`
+	SourceFormat       string               `json:"source_format"`
+	DefaultPixelFormat string               `json:"default_pixel_format,omitempty"`
+	ServerDecodesJPEG  bool                 `json:"server_decodes_jpeg"`
+	CaptureModes       []VideoCaptureMode   `json:"capture_modes,omitempty"`
+	SupportedModes     []VideoTransportMode `json:"supported_modes,omitempty"`
+	ClientsCount       int                  `json:"clients_count"`
+	Streaming          bool                 `json:"streaming"`
 }
 
 const (
@@ -220,22 +222,26 @@ type GamepadRequest struct {
 
 // DeviceStartRequest device start request (old format - deprecated)
 type DeviceStartRequest struct {
-	Device                  string `json:"device"`                               // keyboard, drive, mouse, etc.
-	Type                    string `json:"type,omitempty"`                       // For mouse: "mouse" (touchpad), "touchscreen" or "absolute"
-	DisplayIndex            int    `json:"display_index,omitempty"`              // For mouse absolute: 0-based display index
-	DisplayCount            int    `json:"display_count,omitempty"`              // For mouse absolute: total display count (0/1 = single)
-	RNDISMode               string `json:"rndis_mode,omitempty"`                 // For RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
-	Server                  string `json:"server,omitempty"`                     // Server IP for NBD
-	Port                    int    `json:"port,omitempty"`                       // Server port for NBD
-	ExportName              string `json:"export_name,omitempty"`                // Export name for API
-	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"` // true = empty name in NBD handshake (qemu-nbd)
-	ReadOnly                bool   `json:"read_only"`                            // true = read-only
-	DriveMode               string `json:"drive_mode,omitempty"`                 // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
-	VendorID                string `json:"vendor_id"`                            // Vendor ID
-	ProductID               string `json:"product_id"`                           // Product ID
-	ProductName             string `json:"product_name"`                         // Product name
-	Manufacturer            string `json:"manufacturer"`                         // Manufacturer
-	KeyboardMode            bool   `json:"keyboard_mode,omitempty"`              // Use -k parameter for keyboard
+	Device       string `json:"device"`                  // keyboard, drive, mouse, etc.
+	Type         string `json:"type,omitempty"`          // For mouse: "mouse" (touchpad), "touchscreen" or "absolute"
+	DisplayIndex int    `json:"display_index,omitempty"` // For mouse absolute: 0-based display index
+	DisplayCount int    `json:"display_count,omitempty"` // For mouse absolute: total display count (0/1 = single)
+	RNDISMode    string `json:"rndis_mode,omitempty"`    // For RNDIS: "auto", "wifirouter", "etherouter", "etherbridge"
+	Server       string `json:"server,omitempty"`        // iSCSI portal IP
+	Port         int    `json:"port,omitempty"`          // iSCSI portal port
+	ExportName   string `json:"export_name,omitempty"`   // Export name for API (mirrors TargetIQN for drives)
+	ReadOnly     bool   `json:"read_only"`               // true = read-only
+	DriveMode    string `json:"drive_mode,omitempty"`    // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
+	Transport    string `json:"transport,omitempty"`     // "iscsi" for drives (only transport supported today)
+	TargetIQN    string `json:"target_iqn,omitempty"`    // iSCSI target IQN
+	LUN          int    `json:"lun,omitempty"`           // iSCSI LUN number (default 0)
+	CHAPUsername string `json:"chap_username,omitempty"` // iSCSI CHAP username (optional)
+	CHAPSecret   string `json:"chap_secret,omitempty"`   // iSCSI CHAP secret (optional)
+	VendorID     string `json:"vendor_id"`               // Vendor ID
+	ProductID    string `json:"product_id"`              // Product ID
+	ProductName  string `json:"product_name"`            // Product name
+	Manufacturer string `json:"manufacturer"`            // Manufacturer
+	KeyboardMode bool   `json:"keyboard_mode,omitempty"` // Use -k parameter for keyboard
 }
 
 // DeviceStartBatchRequest request to start multiple devices (old API - deprecated)
@@ -243,7 +249,7 @@ type DeviceStartBatchRequest []DeviceStartRequest
 
 // DeviceStartRequestNew new format for device start request via sources
 type DeviceStartRequestNew struct {
-	Sources  []string `json:"sources"`  // List of sources (nbd://, mtp://, /path/to/file)
+	Sources  []string `json:"sources"`  // List of sources (iscsi://, mtp://, /path/to/file)
 	Keyboard bool     `json:"keyboard"` // Enable keyboard
 	Mouse    bool     `json:"mouse"`    // Enable mouse
 	RNDIS    bool     `json:"rndis"`    // Enable network card
@@ -256,17 +262,19 @@ type DeviceStopRequest struct {
 
 // DeviceInfo device information
 type DeviceInfo struct {
-	ID           int       `json:"id"`
-	Device       string    `json:"device"` // disk:file_name, keyboard, etc.
-	Status       string    `json:"status"` // connected, disconnected
-	VendorID     string    `json:"vendor_id"`
-	ProductID    string    `json:"product_id"`
-	ProductName  string    `json:"product_name"`
-	Manufacturer string    `json:"manufacturer"`
-	CreatedAt    time.Time `json:"created_at"`
-	Type         string    `json:"type"`                 // nbd, local, keyboard
-	Name         string    `json:"name"`                 // Device/file name
-	DriveMode    string    `json:"drive_mode,omitempty"` // "cdrom" or "disk"
+	ID              int       `json:"id"`
+	Device          string    `json:"device"` // disk:file_name, keyboard, etc.
+	Status          string    `json:"status"` // connected, disconnected
+	VendorID        string    `json:"vendor_id"`
+	ProductID       string    `json:"product_id"`
+	ProductName     string    `json:"product_name"`
+	Manufacturer    string    `json:"manufacturer"`
+	CreatedAt       time.Time `json:"created_at"`
+	Type            string    `json:"type"`                        // iscsi, local, keyboard
+	Name            string    `json:"name"`                        // Device/file name
+	DriveMode       string    `json:"drive_mode,omitempty"`        // "cdrom" or "disk"
+	Transport       string    `json:"transport,omitempty"`         // "iscsi" — echoed back from the request
+	LocalDevicePath string    `json:"local_device_path,omitempty"` // agent-local block device path after iSCSI login (e.g. /dev/sdb)
 }
 
 // DeviceInfoResponse device information response
@@ -330,13 +338,13 @@ type AudioInfoResponse struct {
 
 // VideoDeviceConfig video start config saved by client for a specific /dev/video*.
 type VideoDeviceConfig struct {
-	DevicePath    string `json:"device_path"`
-	DeviceName    string `json:"device_name,omitempty"`
-	VideoWidth    int    `json:"video_width"`
-	VideoHeight   int    `json:"video_height"`
-	VideoFPS      int    `json:"video_fps"`
-	VideoQuality  int    `json:"video_quality"`
-	VideoBitrate  string `json:"video_bitrate"`
+	DevicePath         string `json:"device_path"`
+	DeviceName         string `json:"device_name,omitempty"`
+	VideoWidth         int    `json:"video_width"`
+	VideoHeight        int    `json:"video_height"`
+	VideoFPS           int    `json:"video_fps"`
+	VideoQuality       int    `json:"video_quality"`
+	VideoBitrate       string `json:"video_bitrate"`
 	VideoMode          string `json:"video_mode"`
 	CapturePixelFormat string `json:"capture_pixel_format,omitempty"`
 	ShowMouse          bool   `json:"show_mouse,omitempty"`
@@ -346,11 +354,11 @@ type VideoDeviceConfig struct {
 
 func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 	return &VideoStartRequest{
-		VideoDevice:  c.DevicePath,
-		VideoWidth:   c.VideoWidth,
-		VideoHeight:  c.VideoHeight,
-		VideoFPS:     c.VideoFPS,
-		VideoQuality: c.VideoQuality,
+		VideoDevice:        c.DevicePath,
+		VideoWidth:         c.VideoWidth,
+		VideoHeight:        c.VideoHeight,
+		VideoFPS:           c.VideoFPS,
+		VideoQuality:       c.VideoQuality,
 		VideoBitrate:       c.VideoBitrate,
 		VideoMode:          c.VideoMode,
 		CapturePixelFormat: c.CapturePixelFormat,
@@ -361,9 +369,6 @@ func (c VideoDeviceConfig) ToVideoStartRequest() *VideoStartRequest {
 
 // ConfigRequest configuration update request
 type ConfigRequest struct {
-	NBDDevice       string           `json:"nbd_device,omitempty"`
-	NBDServer       string           `json:"nbd_server,omitempty"`
-	NBDPort         int              `json:"nbd_port,omitempty"`
 	ExportName      string           `json:"export_name,omitempty"`
 	GadgetName      string           `json:"gadget_name,omitempty"`
 	UDCName         string           `json:"udc_name,omitempty"`

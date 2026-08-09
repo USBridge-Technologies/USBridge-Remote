@@ -461,7 +461,7 @@ static int vt_create_session(void) {
         char errBuf[256];
         snprintf(errBuf, sizeof(errBuf), "VT: CMVideoFormatDescription FAILED (err=%d, isHEVC=%d, spsLen=%zu, ppsLen=%zu)", (int)s, isHEVC, g_sps_len, g_pps_len);
         goVTLog(errBuf);
-        
+
         char hexDump[512] = "SPS: ";
         for (size_t i = 0; i < (g_sps_len < 16 ? g_sps_len : 16); i++) {
             snprintf(hexDump + strlen(hexDump), sizeof(hexDump) - strlen(hexDump), "%02X ", g_sps_data[i]);
@@ -471,7 +471,7 @@ static int vt_create_session(void) {
             snprintf(hexDump + strlen(hexDump), sizeof(hexDump) - strlen(hexDump), "%02X ", g_pps_data[i]);
         }
         goVTLog(hexDump);
-        
+
         return -1;
     }
 
@@ -565,7 +565,7 @@ static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
                 // Apply Moonlight SPS Fixup for VideoToolbox compatibility
                 h264_stream_t* stream = h264_new();
                 read_nal_unit(stream, (uint8_t*)nal, len);
-                
+
                 stream->sps->num_ref_frames = 1;
                 stream->sps->vui.max_dec_frame_buffering = 1;
                 if (!stream->sps->vui.bitstream_restriction_flag) {
@@ -577,15 +577,15 @@ static void vt_handle_nal(const uint8_t *nal, int len, void *ptr) {
                     stream->sps->vui.log2_max_mv_length_vertical = 16;
                     stream->sps->vui.num_reorder_frames = 0;
                 }
-                
+
                 uint8_t out[1024];
                 int out_len = write_nal_unit(stream, out, sizeof(out));
                 if (out_len > 1 && out_len - 1 <= (int)sizeof(g_sps_data)) {
                     int final_len = out_len - 1;
                     uint8_t *final_sps = out + 1;
                     if (g_sps_len != (size_t)final_len || memcmp(g_sps_data, final_sps, final_len) != 0) {
-                        memcpy(g_sps_data, final_sps, final_len); 
-                        g_sps_len = final_len; 
+                        memcpy(g_sps_data, final_sps, final_len);
+                        g_sps_len = final_len;
                         ctx->new_params = 1;
                     }
                 }

@@ -30,6 +30,7 @@ import (
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/input"
+	"usbridge_agent/internal/iscsi"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
 	"usbridge_agent/internal/streamhost"
@@ -45,6 +46,9 @@ type deviceState struct {
 	devices         []api.DeviceInfo
 	mountInProgress bool
 	lastMountError  string
+	// iscsiSessions tracks logged-in targets (keyed by TargetIQN) so
+	// ClearDevices/ReplaceDevices can log them out again on unmount/replace.
+	iscsiSessions map[string]iscsi.LoginOptions
 }
 
 type App struct {
@@ -52,6 +56,7 @@ type App struct {
 	cfg     config.Config
 
 	state     *deviceState
+	iscsiInit iscsi.Initiator
 	input     *input.Controller
 	screen    *capture.Service
 	perms     *permissions.Service
@@ -241,7 +246,8 @@ func New() (*App, error) {
 	instance := &App{
 		cfgPath:   cfgPath,
 		cfg:       cfg,
-		state:     &deviceState{startedAt: time.Now()},
+		state:     &deviceState{startedAt: time.Now(), iscsiSessions: make(map[string]iscsi.LoginOptions)},
+		iscsiInit: iscsi.New(),
 		input:     input.New(),
 		perms:     permissions.New(),
 		ts:        tailscale.New(cfg.StateDir),
@@ -1519,9 +1525,25 @@ func (a *App) DeviceInfo() api.DeviceInfoResponse {
 	}
 }
 
+// ReplaceDevices replaces the active device set. For drives with
+// Transport=="iscsi" this actually logs into the client's iSCSI target
+// (github.com/gostor/gotgt on the client side) via a.iscsiInit, discovers
+// the resulting local block device, and reports it back as
+// DeviceInfo.LocalDevicePath. Sessions no longer present in reqs are
+// logged out of first, so replacing the device set never leaks sessions.
 func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 	now := time.Now()
+
+	wantIQNs := make(map[string]bool, len(reqs))
+	for _, req := range reqs {
+		if req.Transport == "iscsi" && req.TargetIQN != "" {
+			wantIQNs[req.TargetIQN] = true
+		}
+	}
+	a.logoutStaleSessions(wantIQNs)
+
 	devices := make([]api.DeviceInfo, 0, len(reqs))
+	var mountErrs []string
 	for _, req := range reqs {
 		if req.Device == "rndis" {
 			continue
@@ -1535,7 +1557,7 @@ func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 			deviceName = req.Device
 		}
 
-		devices = append(devices, api.DeviceInfo{
+		info := api.DeviceInfo{
 			ID:           len(devices) + 1,
 			Device:       req.Device,
 			Status:       "connected",
@@ -1548,13 +1570,85 @@ func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 			Port:         req.Port,
 			Type:         deviceType,
 			Name:         deviceName,
-		})
+			Transport:    req.Transport,
+		}
+
+		if req.Device == "drive" && req.Transport == "iscsi" {
+			path, err := a.loginIscsiDrive(req)
+			if err != nil {
+				log.Printf("[app] iSCSI login failed for target=%s: %v", req.TargetIQN, err)
+				info.Status = "error"
+				mountErrs = append(mountErrs, fmt.Sprintf("%s: %v", req.TargetIQN, err))
+			} else {
+				info.LocalDevicePath = path
+			}
+		}
+
+		devices = append(devices, info)
 	}
 	log.Printf("[app] devices active=%d", len(devices))
+
 	a.state.mu.Lock()
 	a.state.devices = devices
+	a.state.mountInProgress = false
+	if len(mountErrs) > 0 {
+		a.state.lastMountError = strings.Join(mountErrs, "; ")
+	} else {
+		a.state.lastMountError = ""
+	}
 	a.state.mu.Unlock()
+
+	if len(mountErrs) > 0 {
+		return fmt.Errorf("iSCSI login failed: %s", strings.Join(mountErrs, "; "))
+	}
 	return nil
+}
+
+// loginIscsiDrive logs into req's iSCSI target and records the session for
+// later logout (in logoutStaleSessions / ClearDevices).
+func (a *App) loginIscsiDrive(req api.DeviceRequest) (string, error) {
+	if !a.iscsiInit.Available() {
+		return "", fmt.Errorf("iSCSI initiator is not available on this platform")
+	}
+	opts := iscsi.LoginOptions{
+		Portal:       fmt.Sprintf("%s:%d", req.Server, req.Port),
+		TargetIQN:    req.TargetIQN,
+		LUN:          req.LUN,
+		CHAPUsername: req.CHAPUsername,
+		CHAPSecret:   req.CHAPSecret,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	result, err := a.iscsiInit.Login(ctx, opts)
+	if err != nil {
+		return "", err
+	}
+	a.state.mu.Lock()
+	a.state.iscsiSessions[req.TargetIQN] = opts
+	a.state.mu.Unlock()
+	return result.DevicePath, nil
+}
+
+// logoutStaleSessions logs out of every tracked iSCSI session whose target
+// IQN is not in keep.
+func (a *App) logoutStaleSessions(keep map[string]bool) {
+	a.state.mu.Lock()
+	var stale []iscsi.LoginOptions
+	for iqn, opts := range a.state.iscsiSessions {
+		if !keep[iqn] {
+			stale = append(stale, opts)
+			delete(a.state.iscsiSessions, iqn)
+		}
+	}
+	a.state.mu.Unlock()
+
+	for _, opts := range stale {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.iscsiInit.Logout(ctx, opts); err != nil {
+			log.Printf("[app] iSCSI logout failed for target=%s: %v", opts.TargetIQN, err)
+		}
+		cancel()
+	}
 }
 
 func normalizeDeviceType(req api.DeviceRequest) string {
@@ -1569,8 +1663,8 @@ func normalizeDeviceType(req api.DeviceRequest) string {
 	case "mtp":
 		return "mtp"
 	case "drive":
-		if req.Port > 0 {
-			return "nbd"
+		if req.Transport == "iscsi" {
+			return "iscsi"
 		}
 		return "local"
 	default:
@@ -1582,6 +1676,7 @@ func normalizeDeviceType(req api.DeviceRequest) string {
 }
 
 func (a *App) ClearDevices() error {
+	a.logoutStaleSessions(nil) // nil keep-set: log out of everything
 	a.state.mu.Lock()
 	a.state.devices = nil
 	a.state.mountInProgress = false

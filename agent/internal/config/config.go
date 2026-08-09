@@ -17,7 +17,6 @@ type Config struct {
 	ListenHost       string `yaml:"listen_host"`
 	HTTPPort         int    `yaml:"http_port"`
 	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
-	NBDMountCommand  string `yaml:"nbd_mount_command"`
 	StateDir         string `yaml:"state_dir"`
 	// Moonlight/Sunshine protocol
 	MasterKey    string `yaml:"master_key"`
@@ -69,7 +68,6 @@ func Default() Config {
 		ListenHost:       "0.0.0.0",
 		HTTPPort:         8080,
 		TailscaleEnabled: true,
-		NBDMountCommand:  "",
 		StateDir:         defaultStateDir(),
 		SunshinePort:     47990,
 

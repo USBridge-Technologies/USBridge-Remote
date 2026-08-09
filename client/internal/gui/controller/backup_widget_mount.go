@@ -117,7 +117,7 @@ func (bw *BackupWidget) canConnectBackupOrSnapshot() (bool, string) {
 		if device.Type == "mtp" && strings.Contains(device.Name, "data") && !strings.Contains(device.ProductName, "snapshot") {
 			hasBackupOrSnapshot = true
 		}
-		if device.Type == "nbd" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
+		if device.Type == "iscsi" || (device.Type == "mtp" && (strings.Contains(device.ProductName, "snapshot") || strings.Contains(device.Name, "snapshot"))) {
 			hasBackupOrSnapshot = true
 		}
 	}

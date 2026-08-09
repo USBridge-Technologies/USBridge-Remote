@@ -19,21 +19,6 @@ type DiskInfo struct {
 	LastUsed    string `json:"last_used"`
 }
 
-// DiskExport export for the NBD server or a local file
-type DiskExport struct {
-	Name        string `json:"name"`
-	FilePath    string `json:"file_path"`
-	Size        int64  `json:"size"`
-	ReadOnly    bool   `json:"read_only"`
-	Description string `json:"description"`
-	IsActive    bool   `json:"is_active"`
-	ExportName  string `json:"export_name"` // Export name in NBD
-	DeviceID    int    `json:"device_id"`   // Device ID for disconnecting
-	SourceType  string `json:"source_type"` // "nbd" or "local"
-	NBDHost     string `json:"nbd_host"`    // NBD server IP address (NBD only)
-	NBDPort     int    `json:"nbd_port"`    // NBD server port (NBD only)
-}
-
 // NewDiskInfo creates new device information
 func NewDiskInfo(path string) (*DiskInfo, error) {
 	info, err := os.Stat(path)
@@ -55,7 +40,7 @@ func NewDiskInfo(path string) (*DiskInfo, error) {
 }
 
 // getDiskType determines the device type from the file extension.
-// Supported: ISO, IMG, VMDK, VDI, QCOW/QCOW2, RAW, VMI (images for NBD).
+// Supported: ISO, IMG, VMDK, VDI, QCOW/QCOW2, RAW, VMI (images for iSCSI export).
 func getDiskType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {

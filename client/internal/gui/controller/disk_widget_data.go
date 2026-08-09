@@ -544,17 +544,17 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			device.Name, device.Device, device.Type, device.Status)
 	}
 
-	nbdExportToDriveName := make(map[string]string)
-	dw.nbdServersMu.Lock()
-	for name, srv := range dw.nbdServers {
+	exportToDriveName := make(map[string]string)
+	dw.exportServersMu.Lock()
+	for name, srv := range dw.exportServers {
 		if srv != nil && srv.IsRunning() {
-			apiName := srv.NBDExportNameForAPI()
+			apiName := srv.ExportNameForAPI()
 			if apiName != "" {
-				nbdExportToDriveName[apiName] = name
+				exportToDriveName[apiName] = name
 			}
 		}
 	}
-	dw.nbdServersMu.Unlock()
+	dw.exportServersMu.Unlock()
 
 	var currentVideoPath string
 	videoStreaming := false
@@ -674,7 +674,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					expectedServerType = "local"
 				}
 			case "local", "user":
-				expectedServerType = "nbd"
+				expectedServerType = "iscsi"
 			}
 
 			if expectedServerType == "" || device.Type != expectedServerType {
@@ -690,8 +690,8 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				driveName = drive.Name
 			}
 
-			if device.Type == "nbd" && device.Name != "" {
-				expectedName := nbdExportToDriveName[device.Name]
+			if device.Type == "iscsi" && device.Name != "" {
+				expectedName := exportToDriveName[device.Name]
 				matchesDrive := expectedName != "" && (driveName == expectedName || drive.Name == expectedName ||
 					(drive.DiskInfo != nil && drive.DiskInfo.Name == expectedName))
 				if matchesDrive {
@@ -700,7 +700,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					if device.DriveMode != "" {
 						drive.DriveMode = device.DriveMode
 					}
-					logrus.Debugf("🌐 Found connected NBD disk (by export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+					logrus.Debugf("🌐 Found connected iSCSI disk (by export_name): %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 					break
 				}
 			}
@@ -722,13 +722,13 @@ func (dw *DiskWidget) updateDevicesStatus() {
 				}
 			}
 
-			if device.Type == "nbd" && (strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name)) {
+			if device.Type == "iscsi" && (strings.Contains(device.Name, driveName) || strings.Contains(driveName, device.Name)) {
 				isMounted = true
 				usedMountedIdx[j] = true
 				if device.DriveMode != "" {
 					drive.DriveMode = device.DriveMode
 				}
-				logrus.Debugf("🌐 Found connected NBD disk: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
+				logrus.Debugf("🌐 Found connected iSCSI disk: %s (device: %s, API name: %s)", drive.Name, device.Device, device.Name)
 				break
 			}
 		}

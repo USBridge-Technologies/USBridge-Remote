@@ -25,7 +25,7 @@ var (
 	// Mutex to protect SAF callbacks
 	callbackMu sync.RWMutex
 
-	// QR result — polling. Result comes via JNI (QRResultBridge → main app), not via nbdbridge.aar
+	// QR result — polling. Result comes via JNI (QRResultBridge → main app), not via androidbridge (gomobile bind)
 	qrResultMu    sync.Mutex
 	qrResult      *QRScanResult
 	qrResultReady bool
@@ -45,11 +45,11 @@ func SetSAFCallbacks(onSuccess func(uri string, fd int, size int64), onError fun
 	defer callbackMu.Unlock()
 	safSuccessCallback = onSuccess
 	safErrorCallback = onError
-	logrus.Infof("📍 [NBDBRIDGE] SAF callbacks set (success: %v, error: %v)", onSuccess != nil, onError != nil)
+	logrus.Infof("📍 [ANDROIDBRIDGE] SAF callbacks set (success: %v, error: %v)", onSuccess != nil, onError != nil)
 }
 
 // OnSAFSuccess is called from Kotlin when a file is selected
-// This function is exported via gomobile and available as Nbdbridge.onSAFSuccess()
+// This function is exported via gomobile and available as Androidbridge.onSAFSuccess()
 func OnSAFSuccess(uri string, fd int64, size int64) {
 	logrus.Infof("🏁 [SAF-CALLBACK-ENTRY] OnSAFSuccess triggered: uri=%s, fd=%d, size=%d", uri, fd, size)
 
@@ -84,7 +84,7 @@ func OnSAFSuccess(uri string, fd int64, size int64) {
 			logrus.Info("✅ [SAF-CALLBACK-INVOKE-DONE] Go success callback completed")
 		}(callback, uriCopy, int(fd), size)
 	} else {
-		logrus.Warn("⚠️ [SAF-CALLBACK-WARN] No success callback registered in nbdbridge!")
+		logrus.Warn("⚠️ [SAF-CALLBACK-WARN] No success callback registered in androidbridge!")
 	}
 
 	// Attempt to call global handler (injected)
@@ -125,7 +125,7 @@ func OnSAFError(errorMsg string) {
 }
 
 // SetQRResultFromJNI is called from main app via JNI (QRResultBridge.deliverQRResult).
-// Does not use nbdbridge.aar — result comes directly to main app.
+// Does not use androidbridge (gomobile bind) — result comes directly to main app.
 func SetQRResultFromJNI(contents string) {
 	contentsCopy := strings.Clone(contents)
 	logrus.Infof("Go: QR result from JNI - %s", contentsCopy)
@@ -171,7 +171,7 @@ func IsQRResultReady() bool {
 	return qrResultReady
 }
 
-// OnQRScanSuccess — for nbdbridge.aar (SAF/other scenarios). QR now goes through QRResultBridge/JNI.
+// OnQRScanSuccess — for androidbridge (gomobile bind) (SAF/other scenarios). QR now goes through QRResultBridge/JNI.
 func OnQRScanSuccess(contents string) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -183,7 +183,7 @@ func OnQRScanSuccess(contents string) {
 	qrResultMu.Unlock()
 }
 
-// OnCameraImageReceived — for nbdbridge.aar
+// OnCameraImageReceived — for androidbridge (gomobile bind)
 func OnCameraImageReceived(data []byte) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -196,7 +196,7 @@ func OnCameraImageReceived(data []byte) {
 	qrResultMu.Unlock()
 }
 
-// OnQRScanCancel — for nbdbridge.aar
+// OnQRScanCancel — for androidbridge (gomobile bind)
 func OnQRScanCancel() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

@@ -35,9 +35,9 @@ func GetVolumeLabelFromImage(imagePath string) string {
 	format := backingFormat(ext)
 
 	// qemu-img dd -f vdi -O raw if=image of=temp count=N
-	tmpFile, err := os.CreateTemp("", "usbridge-nbd-label-*.bin")
+	tmpFile, err := os.CreateTemp("", "usbridge-disk-label-*.bin")
 	if err != nil {
-		logrus.Debugf("[NBD-LABEL] temp file: %v", err)
+		logrus.Debugf("[DISK-LABEL] temp file: %v", err)
 		return "disk"
 	}
 	tmpPath := tmpFile.Name()
@@ -49,7 +49,7 @@ func GetVolumeLabelFromImage(imagePath string) string {
 	maybeHideWindow(cmd)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
-		logrus.Debugf("[NBD-LABEL] qemu-img dd: %s: %v", string(out), err)
+		logrus.Debugf("[DISK-LABEL] qemu-img dd: %s: %v", string(out), err)
 		return "disk"
 	}
 
@@ -124,7 +124,7 @@ func sanitizeExportName(s string) string {
 	if out == "" {
 		return "disk"
 	}
-	// Limit length (NBD/API may have a limit)
+	// Limit length (export-name field may have a limit)
 	if len(out) > 64 {
 		out = out[:64]
 	}

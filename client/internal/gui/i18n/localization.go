@@ -131,7 +131,7 @@ type LocalizedStrings struct {
 	NoMountedDevices                  string // "No mounted devices to unmount"
 	SelectDevicesToMount              string // "Select devices to mount"
 	StoppingAllDevices                string // "Stopping all devices..."
-	StoppingNBDServers                string // "Stopping NBD servers..."
+	StoppingExportServers             string // "Stopping export servers..."
 	AllDevicesUnmounted               string // "All devices disconnected"
 
 	// Status Messages
@@ -199,18 +199,6 @@ type LocalizedStrings struct {
 	SAFFilePicker                string
 	SAFInstructions              string
 	FileSelected                 string
-	NBDImageSelectedGB           string
-	NBDAllowLAN                  string
-	NBDStarted                   string
-	NBDStartedInstructions       string
-	NBDStopped                   string
-	NBDStoppedSuccess            string
-	NBDStatusStopped             string
-	NBDStatusRunning             string
-	NBDStatusError               string
-	NBDInstructions              string
-	NBDStartFailed               string
-	NBDStopError                 string
 	ConnectionTitle              string
 
 	// Auto-update
@@ -289,17 +277,6 @@ type LocalizedStrings struct {
 	PromoFeatureSnapshots    string
 	PromoFeaturePowerControl string
 	PromoFeatureL0Control    string
-
-	// NBD Server (Android)
-	NBDServerManagement string // "NBD Server - Management"
-	NBDServerForAndroid string // "NBD Server for Android"
-	NBDImageNotSelected string // "Image not selected"
-	NBDImageSelected    string // "Selected: %s\nSize: %d MB"
-	NBDSelectImage      string // "Select image (.iso/.img)"
-	NBDStartServer      string // "Start NBD server"
-	NBDStopServer       string // "Stop NBD server"
-	NBDRefreshStatus    string // "Refresh status"
-	NBDListenAddress    string // "Listen address:"
 
 	// Virtual keyboard
 	VirtualKeyboard string // "Virtual keyboard"
@@ -514,7 +491,7 @@ func EN() *LocalizedStrings {
 		NoMountedDevices:                  "No connected devices to unmount",
 		SelectDevicesToMount:              "Select devices to connect",
 		StoppingAllDevices:                "Stopping all devices...",
-		StoppingNBDServers:                "Stopping NBD servers...",
+		StoppingExportServers:             "Stopping export servers...",
 		AllDevicesUnmounted:               "All devices unmounted",
 
 		// Status Messages
@@ -582,18 +559,6 @@ func EN() *LocalizedStrings {
 		SAFFilePicker:                "SAF File Picker",
 		SAFInstructions:              "To select file:\n\n1. Press OK\n2. In Android file manager select .iso/.img file\n3. The app will receive fd and call callback\n\nAfter selecting the file you will see its info here.",
 		FileSelected:                 "File selected",
-		NBDImageSelectedGB:           "Image: %s\nSize: %.2f GB",
-		NBDAllowLAN:                  "Allow LAN access (0.0.0.0)",
-		NBDStarted:                   "NBD started",
-		NBDStartedInstructions:       "NBD server started on %s\n\nConnect from computer:\nsudo nbd-client PHONE_IP 10809 /dev/nbd0 -read-only\n\nPhone IP can be found in: Settings → Network → Wi-Fi",
-		NBDStopped:                   "NBD stopped",
-		NBDStoppedSuccess:            "NBD server successfully stopped",
-		NBDStatusStopped:             "Status: Stopped",
-		NBDStatusRunning:             "Status: Running on %s",
-		NBDStatusError:               "Status: Error - %s",
-		NBDInstructions:              "Instructions:\n\n1. Select image file (.iso/.img) from microSD via SAF\n2. Configure address (default 127.0.0.1:10809)\n3. Press 'Start NBD server'\n4. On computer connect:\n   sudo nbd-client PHONE_IP 10809 /dev/nbd0 -read-only\n\nSecurity:\n• Default: local access only (127.0.0.1)\n• For network access enable 'LAN mode'\n• Image is mounted read-only\n\nServer runs in background even when screen is off",
-		NBDStartFailed:               "Failed to start NBD backend: %v",
-		NBDStopError:                 "Error stopping: %v",
 		ConnectionTitle:              "Connection",
 
 		// Auto-update
@@ -672,17 +637,6 @@ func EN() *LocalizedStrings {
 		PromoFeatureSnapshots:    "Snapshots",
 		PromoFeaturePowerControl: "Power Control",
 		PromoFeatureL0Control:    "L0 Control",
-
-		// NBD Server (Android)
-		NBDServerManagement: "NBD Server - Management",
-		NBDServerForAndroid: "NBD Server for Android",
-		NBDImageNotSelected: "Image not selected",
-		NBDImageSelected:    "Selected: %s\nSize: %d MB",
-		NBDSelectImage:      "Select image (.iso/.img)",
-		NBDStartServer:      "Start NBD server",
-		NBDStopServer:       "Stop NBD server",
-		NBDRefreshStatus:    "Refresh status",
-		NBDListenAddress:    "Listen address:",
 
 		// Virtual keyboard
 		VirtualKeyboard: "Virtual keyboard",

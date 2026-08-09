@@ -244,9 +244,9 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 // handleVideoStartWithParams handles video start with parameters from the dialog.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
 	cfg := models.VideoDeviceConfig{
-		DevicePath:   request.VideoDevice,
-		VideoWidth:   request.VideoWidth,
-		VideoHeight:  request.VideoHeight,
+		DevicePath:         request.VideoDevice,
+		VideoWidth:         request.VideoWidth,
+		VideoHeight:        request.VideoHeight,
 		VideoFPS:           request.VideoFPS,
 		VideoQuality:       request.VideoQuality,
 		VideoBitrate:       request.VideoBitrate,
@@ -545,7 +545,7 @@ func isConnectedStorageDevice(device models.DeviceInfo) bool {
 		return true
 	case device.Type == "mtp":
 		return true
-	case device.Type == "nbd":
+	case device.Type == "iscsi":
 		return true
 	case strings.HasPrefix(device.Device, "disk:"):
 		return true

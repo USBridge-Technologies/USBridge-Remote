@@ -34,18 +34,24 @@ type AudioSink struct {
 }
 
 type DeviceRequest struct {
-	Device                  string `json:"device"`
-	Type                    string `json:"type,omitempty"`
-	Server                  string `json:"server,omitempty"`
-	Port                    int    `json:"port,omitempty"`
-	ExportName              string `json:"export_name,omitempty"`
-	NBDHandshakeEmptyExport bool   `json:"nbd_handshake_empty_export,omitempty"`
-	ReadOnly                bool   `json:"read_only,omitempty"`
-	VendorID                string `json:"vendor_id,omitempty"`
-	ProductID               string `json:"product_id,omitempty"`
-	ProductName             string `json:"product_name,omitempty"`
-	Manufacturer            string `json:"manufacturer,omitempty"`
-	RNDISMode               string `json:"rndis_mode,omitempty"`
+	Device       string `json:"device"`
+	Type         string `json:"type,omitempty"`
+	Server       string `json:"server,omitempty"` // iSCSI portal IP
+	Port         int    `json:"port,omitempty"`   // iSCSI portal port
+	ExportName   string `json:"export_name,omitempty"`
+	ReadOnly     bool   `json:"read_only,omitempty"`
+	VendorID     string `json:"vendor_id,omitempty"`
+	ProductID    string `json:"product_id,omitempty"`
+	ProductName  string `json:"product_name,omitempty"`
+	Manufacturer string `json:"manufacturer,omitempty"`
+	RNDISMode    string `json:"rndis_mode,omitempty"`
+
+	// iSCSI (Transport == "iscsi", the only drive transport today)
+	Transport    string `json:"transport,omitempty"`
+	TargetIQN    string `json:"target_iqn,omitempty"`
+	LUN          int    `json:"lun,omitempty"`
+	CHAPUsername string `json:"chap_username,omitempty"`
+	CHAPSecret   string `json:"chap_secret,omitempty"`
 }
 
 type DeviceStartBatchRequest struct {
@@ -53,18 +59,20 @@ type DeviceStartBatchRequest struct {
 }
 
 type DeviceInfo struct {
-	ID           int       `json:"id"`
-	Device       string    `json:"device"`
-	Status       string    `json:"status"`
-	VendorID     string    `json:"vendor_id,omitempty"`
-	ProductID    string    `json:"product_id,omitempty"`
-	ProductName  string    `json:"product_name,omitempty"`
-	Manufacturer string    `json:"manufacturer,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	Server       string    `json:"server,omitempty"`
-	Port         int       `json:"port,omitempty"`
-	Type         string    `json:"type,omitempty"`
-	Name         string    `json:"name,omitempty"`
+	ID              int       `json:"id"`
+	Device          string    `json:"device"`
+	Status          string    `json:"status"`
+	VendorID        string    `json:"vendor_id,omitempty"`
+	ProductID       string    `json:"product_id,omitempty"`
+	ProductName     string    `json:"product_name,omitempty"`
+	Manufacturer    string    `json:"manufacturer,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	Server          string    `json:"server,omitempty"`
+	Port            int       `json:"port,omitempty"`
+	Type            string    `json:"type,omitempty"`
+	Name            string    `json:"name,omitempty"`
+	Transport       string    `json:"transport,omitempty"`
+	LocalDevicePath string    `json:"local_device_path,omitempty"`
 }
 
 type DeviceInfoResponse struct {

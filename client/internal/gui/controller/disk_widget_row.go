@@ -251,9 +251,9 @@ func (dw *DiskWidget) configureDriveRow(id int, obj fyne.CanvasObject) {
 	modeTitleLabel.Hide()
 
 	isAPIISODrive := drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType != "mtp"
-	isNBDISODrive := (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil &&
+	isIscsiISODrive := (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil &&
 		isISOCompatibleExt(strings.ToLower(filepath.Ext(drive.DiskInfo.Path)))
-	isDriveModeSelect := isAPIISODrive || isNBDISODrive
+	isDriveModeSelect := isAPIISODrive || isIscsiISODrive
 	if drive.Source == "mouse" || drive.Source == "rndis" || drive.Source == "gamepad" || drive.Source == "usbaudio" || isDriveModeSelect {
 		modeSelect.Show()
 		modeSelect.SetDisabled(controlsLocked)

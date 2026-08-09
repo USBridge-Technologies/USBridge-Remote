@@ -85,7 +85,6 @@ func main() {
 	}
 
 	logrus.Infof("Configuration loaded")
-	logrus.Infof("NBD port: %d", config.NBDPort)
 
 	gui.SetAppVersion(version)
 	view.SetAppVersion(version)

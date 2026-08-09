@@ -29,12 +29,9 @@ type AppConfig struct {
 	// Tailscale settings (always runs in userspace/tsnet mode, on every platform)
 	TailscaleEnabled bool `json:"tailscale_enabled" mapstructure:"tailscale_enabled"`
 
-	// NBD server (as server)
-	NBDPort           int      `json:"nbd_port" mapstructure:"nbd_port"`                         // NBD server port (10809)
-	MaxClients        int      `json:"max_clients" mapstructure:"max_clients"`                   // Maximum NBD clients
-	ScanPaths         []string `json:"scan_paths" mapstructure:"scan_paths"`                     // Paths to scan for devices
-	SupportedTypes    []string `json:"supported_types" mapstructure:"supported_types"`           // Supported file types
-	NBDExportReadOnly bool     `json:"nbd_export_read_only" mapstructure:"nbd_export_read_only"` // true = read-only export (safe default), false = RW via overlay
+	// Disk image export (as iSCSI target)
+	ScanPaths      []string `json:"scan_paths" mapstructure:"scan_paths"`           // Paths to scan for devices
+	SupportedTypes []string `json:"supported_types" mapstructure:"supported_types"` // Supported file types
 
 	// Video stream host (set from the address bar; not stored in the config)
 	VideoHost     string `json:"-"`
@@ -83,12 +80,9 @@ func DefaultConfig() *AppConfig {
 
 		TailscaleEnabled: true,
 
-		// NBD server
-		NBDPort:           10809,
-		MaxClients:        5,
-		ScanPaths:         []string{"./isos", "/home/user/isos", "/mnt/isos"},
-		SupportedTypes:    []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
-		NBDExportReadOnly: true, // safe default: RO; false = RW export via overlay (base image stays intact)
+		// Disk image export
+		ScanPaths:      []string{"./isos", "/home/user/isos", "/mnt/isos"},
+		SupportedTypes: []string{".iso", ".img", ".vmdk", ".vdi", ".qcow", ".qcow2", ".raw", ".vmi"},
 
 		// Video protocol (moonlight by default)
 		VideoProtocol: VideoProtocolMoonlight,
@@ -137,7 +131,6 @@ func modelsafeProtocol(protocol string) string {
 type AppState struct {
 	IsConnected      bool      `json:"is_connected"`
 	IsStreaming      bool      `json:"is_streaming"`
-	IsNBDRunning     bool      `json:"is_nbd_running"`
 	CurrentISO       string    `json:"current_iso"`
 	LastConnected    time.Time `json:"last_connected"`
 	LastDisconnected time.Time `json:"last_disconnected"`

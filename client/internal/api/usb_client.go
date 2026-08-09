@@ -311,7 +311,7 @@ func (c *USBClient) StartDevicesBatchWithMerge(requests models.DeviceStartBatchR
 		}
 		if req.Device == "drive" {
 			if req.Port > 0 {
-				logrus.Infof("      NBD: server=%s, port=%d, export=%s", req.Server, req.Port, req.ExportName)
+				logrus.Infof("      iSCSI: portal=%s:%d, target=%s", req.Server, req.Port, req.ExportName)
 			} else {
 				logrus.Infof("      Local: %s", req.Server)
 			}
@@ -814,8 +814,6 @@ func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
 
 	return payload.Devices, nil
 }
-
-
 
 // GetAudioDevices returns available ALSA audio capture devices.
 func (c *USBClient) GetAudioDevices() ([]models.SystemDevice, error) {
