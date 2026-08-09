@@ -13,11 +13,17 @@ func (s *Service) RequestAccessibility() bool { return true }
 func (s *Service) RequestScreenRecording() bool {
 	return true
 }
-func (s *Service) RequestMissing()                        {}
-func (s *Service) OpenPrivacySettings() error             { return nil }
-func (s *Service) OpenScreenRecordingSettings() error     { return nil }
-func (s *Service) KMSCaptureGranted(binPath string) bool  { return false }
-func (s *Service) RequestKMSCapture(binPath string) bool  { return false }
+func (s *Service) RequestMissing()                       {}
+func (s *Service) OpenPrivacySettings() error            { return nil }
+func (s *Service) OpenScreenRecordingSettings() error    { return nil }
+func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
+func (s *Service) RequestKMSCapture(binPath string) bool { return false }
+
+// DiskMountGranted/RequestDiskMount: no iSCSI initiator on this platform
+// (see agent/internal/iscsi's otherInitiator) — nothing to grant.
+func (s *Service) DiskMountSupported() bool { return false }
+func (s *Service) DiskMountGranted() bool   { return false }
+func (s *Service) RequestDiskMount() bool   { return false }
 
 // GPUClockLockSupported reports whether this platform can even attempt an
 // NVML GPU clock lock at all -- see service_windows.go's own docs; every

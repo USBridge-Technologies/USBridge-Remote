@@ -31,25 +31,55 @@ func (linuxInitiator) Available() bool {
 	return err == nil
 }
 
-// ensureIscsidRunning best-effort starts the open-iscsi userspace daemon.
-// Without it running (e.g. a minimal/container host, or a systemd unit
+// diskMountNotGrantedHint is appended to the first error caused by lacking
+// root (iscsiadm needs it — writing /run/lock/iscsi/lock and talking to
+// the kernel's netlink iSCSI transport are both root-only). Deliberately
+// NOT auto-elevated here (no pkexec/sudo password prompt mid-mount) — the
+// user grants this once, upfront, via the "Request" button in the agent's
+// Permissions panel (permissions.Service.RequestDiskMount), same pattern
+// as every other privileged capability this agent needs.
+const diskMountNotGrantedHint = " — grant disk-mount permission in the agent's Permissions panel first"
+
+// ensureIscsidRunning best-effort starts the open-iscsi userspace daemon
+// via the same sudo grant iscsiadm itself uses (see runPrivileged).
+// Without iscsid running (e.g. a minimal/container host, or a systemd unit
 // that's installed but not enabled), the kernel iSCSI session can be
 // negotiated but isn't kept alive/scanned properly — it gets logged out
 // again within seconds of login, and the LUN's block device never appears.
 // Errors are intentionally ignored: many real hosts already have iscsid
 // running via systemd socket activation (started transparently by the
-// first `iscsiadm -m discovery` call) and don't need this at all.
-func ensureIscsidRunning(ctx context.Context) {
+// first `iscsiadm -m discovery` call) and don't need this at all; and this
+// must never itself trigger an interactive password prompt (see
+// runPrivileged) — if the grant isn't there yet, the discovery call right
+// after this will fail with a clear, actionable error instead.
+func ensureIscsidRunning(parent context.Context) {
+	// Bounded to a short timeout of its own, independent of the caller's
+	// overall Login() deadline: `sudo systemctl start iscsid` occasionally
+	// hangs past its context's cancellation without actually dying —
+	// exec.CommandContext only SIGKILLs the direct child (sudo itself),
+	// not whatever it spawned, so a stuck grandchild can keep our own
+	// CombinedOutput() call blocked reading its pipe well past the
+	// context deadline. This is best-effort anyway (see doc below); it's
+	// not worth blocking the whole login flow over.
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+
 	if _, err := exec.LookPath("systemctl"); err == nil {
-		exec.CommandContext(ctx, "systemctl", "start", "iscsid").Run()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runPrivileged(ctx, "systemctl", "start", "iscsid")
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
 		return
 	}
-	if _, err := exec.LookPath("service"); err == nil {
-		exec.CommandContext(ctx, "service", "iscsid", "start").Run()
-		return
-	}
-	// No init system (e.g. a bare container) — start iscsid directly if
-	// it isn't already running.
+	// No systemd — start iscsid directly if it isn't already running.
+	// (Deliberately not through sudo: this path is for non-systemd hosts
+	// like a bare container, where the process typically already has the
+	// privilege it needs, e.g. our own Docker-based integration test.)
 	if out, err := exec.CommandContext(ctx, "pgrep", "-x", "iscsid").CombinedOutput(); err != nil || len(out) == 0 {
 		if bin, err := exec.LookPath("iscsid"); err == nil {
 			cmd := exec.Command(bin)
@@ -58,25 +88,39 @@ func ensureIscsidRunning(ctx context.Context) {
 	}
 }
 
-func iscsiadmPath() (string, error) {
-	path, err := exec.LookPath("iscsiadm")
+// runPrivileged runs name with args as root: directly if this process is
+// already root (e.g. inside the Docker-based integration test), otherwise
+// via `sudo -n` against the sudoers grant permissions.Service.RequestDiskMount
+// installs — "-n" (non-interactive) is the crucial bit: if that grant
+// isn't there yet, this fails immediately with a clear error instead of
+// hanging on (or silently swallowing) a password prompt with no TTY/polkit
+// agent attached to it.
+func runPrivileged(ctx context.Context, name string, args ...string) (string, error) {
+	bin, err := exec.LookPath(name)
 	if err != nil {
-		return "", fmt.Errorf("iscsiadm not found in PATH (install open-iscsi)")
+		return "", fmt.Errorf("%s not found in PATH", name)
 	}
-	return path, nil
+	var cmd *exec.Cmd
+	if os.Geteuid() == 0 {
+		cmd = exec.CommandContext(ctx, bin, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, "sudo", append([]string{"-n", bin}, args...)...)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		if os.Geteuid() != 0 && (strings.Contains(string(out), "a password is required") ||
+			strings.Contains(string(out), "sudo: a terminal is required") ||
+			strings.Contains(string(out), "lock file")) {
+			return string(out), fmt.Errorf("%w%s", msg, diskMountNotGrantedHint)
+		}
+		return string(out), msg
+	}
+	return string(out), nil
 }
 
 func runIscsiadm(ctx context.Context, args ...string) (string, error) {
-	bin, err := iscsiadmPath()
-	if err != nil {
-		return "", err
-	}
-	cmd := exec.CommandContext(ctx, bin, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("iscsiadm %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
+	return runPrivileged(ctx, "iscsiadm", args...)
 }
 
 func (l *linuxInitiator) Login(ctx context.Context, opts LoginOptions) (LoginResult, error) {
@@ -86,11 +130,22 @@ func (l *linuxInitiator) Login(ctx context.Context, opts LoginOptions) (LoginRes
 
 	ensureIscsidRunning(ctx)
 
-	// Discovery registers a node record for the target so `-m node --login`
-	// below has something to log into. sendtargets discovery is idempotent —
-	// safe to repeat on every mount.
-	if _, err := runIscsiadm(ctx, "-m", "discovery", "-t", "sendtargets", "-p", opts.Portal); err != nil {
-		return LoginResult{}, fmt.Errorf("discovery: %w", err)
+	// Deliberately skip `-m discovery -t sendtargets`: SendTargets discovery
+	// registers its node record keyed by whatever portal address the
+	// TARGET advertises in its own response, not the address iscsiadm
+	// actually dialed to reach it — normally the same thing, but not when
+	// the client is reached through the agent's tsnet dial proxy (see
+	// TsnetDialProxy's doc comment): the target's advertised portal is
+	// still its own real bind address (e.g. "0.0.0.0:3260"), while we
+	// dialed a local proxy port instead, so the discovered record and the
+	// portal we can actually use never match ("iscsiadm: No records
+	// found" on --login). We already know the target IQN and portal from
+	// this agent's own protocol (the client tells us directly) — no
+	// discovery step is needed at all. `--op=new` creates the node record
+	// directly, keyed by exactly the portal we're about to log into;
+	// idempotent, safe to repeat on every mount.
+	if _, err := runIscsiadm(ctx, "-m", "node", "-T", opts.TargetIQN, "-p", opts.Portal, "--op=new"); err != nil {
+		return LoginResult{}, fmt.Errorf("creating node record: %w", err)
 	}
 
 	if opts.CHAPUsername != "" {

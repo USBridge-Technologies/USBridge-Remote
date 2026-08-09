@@ -32,6 +32,8 @@ type TokenBackend interface {
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
 	SetLockGPUClocksEnabled(enabled bool) error
+	DiskMountEnabled() bool
+	SetDiskMountEnabled(enabled bool) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -60,6 +62,9 @@ type PermsBackend interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+	DiskMountSupported() bool
+	DiskMountGranted() bool
+	RequestDiskMount() bool
 }
 
 // TSBackend mirrors internal/tailscale.Service's methods used by the GUI.
@@ -167,6 +172,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/gpu-clock-lock-supported", s.handleGPUClockLockSupported)
 	mux.HandleFunc("GET /token/gpu-clock-lock-enabled", s.handleGPUClockLockEnabled)
 	mux.HandleFunc("POST /token/gpu-clock-lock-enabled", s.handleSetGPUClockLockEnabled)
+	mux.HandleFunc("GET /token/disk-mount-enabled", s.handleDiskMountEnabled)
+	mux.HandleFunc("POST /token/disk-mount-enabled", s.handleSetDiskMountEnabled)
 	mux.HandleFunc("POST /token/restart-sunshine", s.handleRestartSunshine)
 	mux.HandleFunc("GET /token/clients", s.handleListClients)
 	mux.HandleFunc("POST /token/unpair", s.handleUnpair)
@@ -189,6 +196,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /perms/request-screen-recording", s.handlePermsBool(func() bool { return s.perms.RequestScreenRecording() }))
 	mux.HandleFunc("POST /perms/open-privacy-settings", s.handlePermsErr(func() error { return s.perms.OpenPrivacySettings() }))
 	mux.HandleFunc("POST /perms/open-screen-recording-settings", s.handlePermsErr(func() error { return s.perms.OpenScreenRecordingSettings() }))
+	mux.HandleFunc("GET /perms/disk-mount-supported", s.handlePermsBool(func() bool { return s.perms.DiskMountSupported() }))
+	mux.HandleFunc("GET /perms/disk-mount", s.handlePermsBool(func() bool { return s.perms.DiskMountGranted() }))
+	mux.HandleFunc("POST /perms/request-disk-mount", s.handlePermsBool(func() bool { return s.perms.RequestDiskMount() }))
 
 	mux.HandleFunc("GET /ts/status", s.handleTSStatus)
 	mux.HandleFunc("POST /ts/login", s.handleTSLogin)
@@ -291,6 +301,23 @@ func (s *Server) handleSetGPUClockLockEnabled(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := s.token.SetLockGPUClocksEnabled(body.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleDiskMountEnabled(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, boolBody{Value: s.token.DiskMountEnabled()})
+}
+
+func (s *Server) handleSetDiskMountEnabled(w http.ResponseWriter, r *http.Request) {
+	var body boolBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetDiskMountEnabled(body.Value); err != nil {
 		writeError(w, err)
 		return
 	}

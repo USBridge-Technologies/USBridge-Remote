@@ -296,6 +296,22 @@ func (s *TailscaleService) WaitUntilReady(ctx context.Context) error {
 
 func (s *TailscaleService) ValidateAddress(raw string) error { return nil }
 
+// Listen accepts inbound connections arriving over this client's tailnet
+// identity (tsnet.Server.Listen) — NOT the OS's regular socket API. Since
+// tsnet is a userspace WireGuard/netstack embedded in this process, the
+// kernel has no route to our tailnet IP at all; a plain net.Listen (even
+// on "0.0.0.0") only ever sees real OS network interfaces and never
+// receives traffic that arrives over the tsnet tunnel. Anything a peer
+// needs to reach at our TailnetIPv4() address — e.g. the iSCSI target
+// proxy in disk_widget_export.go — must bind through this instead.
+func (s *TailscaleService) Listen(network, addr string) (net.Listener, error) {
+	srv, err := s.serverInstance()
+	if err != nil {
+		return nil, err
+	}
+	return srv.Listen(network, addr)
+}
+
 func (s *TailscaleService) TailnetIPv4(ctx context.Context) (ip string, err error) {
 	defer func() {
 		if r := recover(); r != nil {

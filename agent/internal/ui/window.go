@@ -48,6 +48,8 @@ type TokenProvider interface {
 	GPUClockLockSupported() bool
 	LockGPUClocksEnabled() bool
 	SetLockGPUClocksEnabled(enabled bool) error
+	DiskMountEnabled() bool
+	SetDiskMountEnabled(enabled bool) error
 	RestartSunshine() error
 	ListSunshineClients() ([]streamhost.Client, error)
 	UnpairSunshineClient(uniqueID string) error
@@ -77,6 +79,9 @@ type PermsProvider interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+	DiskMountSupported() bool
+	DiskMountGranted() bool
+	RequestDiskMount() bool
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -139,6 +144,19 @@ type Window struct {
 
 	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
 	gpuClockCheck *widget.Check
+
+	// Disk Mounting: iSCSI drive-mount support (agent/internal/iscsi).
+	// diskMountBtn requests the one-time OS-level privilege grant
+	// (permissions.Service.RequestDiskMount — root on Linux, via
+	// pkexec/sudoers; nothing to grant on Windows); diskMountCheck is the
+	// separate "Allow disk mounting" policy toggle (App.DiskMountEnabled)
+	// that gates whether a paired client's mount requests are honored at
+	// all. Both are upfront, in this panel — never triggered automatically
+	// mid-mount, so a client's mount attempt never blocks on an unexpected
+	// password prompt with nowhere to answer it.
+	diskMountLabel *widget.Label
+	diskMountBtn   *widget.Button
+	diskMountCheck *widget.Check
 
 	// supportBtn opens showPatreonDialog -- a single, low-emphasis entry
 	// point for the whole Patreon/RustShine flow, deliberately never
@@ -502,6 +520,81 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	if gpuClockSupported {
 		permRows = append(permRows, gpuClockRow)
+	}
+
+	// Disk Mounting: iSCSI drive mounts requested by a paired client (see
+	// this field group's own doc comment above). diskMountBtn's "Request"
+	// installs the OS-level grant once; diskMountCheck is the separate
+	// on/off policy switch. Both requested upfront in this panel, on
+	// purpose — see the field doc comment for why.
+	diskMountSupported := w.perms != nil && w.perms.DiskMountSupported()
+	if diskMountSupported {
+		w.diskMountLabel = widget.NewLabel("Disk Mounting")
+		w.diskMountBtn = widget.NewButton("Request", func() {
+			if w.perms == nil {
+				return
+			}
+			w.diskMountBtn.Disable()
+			go func() {
+				defer fyne.Do(func() {
+					if w.diskMountBtn != nil {
+						w.diskMountBtn.Enable()
+					}
+				})
+				granted := w.perms.RequestDiskMount()
+				fyne.Do(func() {
+					if w.diskMountLabel != nil {
+						if granted {
+							w.diskMountLabel.SetText("Disk Mounting: ✅")
+						} else {
+							w.diskMountLabel.SetText("Disk Mounting")
+						}
+					}
+				})
+				if !granted {
+					if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+						if msg := e.LastAccessibilityError(); msg != "" {
+							fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+						}
+					}
+				}
+			}()
+		})
+		w.diskMountBtn.Importance = widget.HighImportance
+		if w.perms.DiskMountGranted() {
+			w.diskMountLabel.SetText("Disk Mounting: ✅")
+		}
+
+		w.diskMountCheck = widget.NewCheck("", nil)
+		if w.token != nil {
+			w.diskMountCheck.Checked = w.token.DiskMountEnabled()
+			w.diskMountCheck.Refresh()
+		}
+		w.diskMountCheck.OnChanged = func(checked bool) {
+			w.diskMountCheck.Disable()
+			go func() {
+				var err error
+				if w.token != nil {
+					err = w.token.SetDiskMountEnabled(checked)
+				}
+				fyne.Do(func() {
+					if w.diskMountCheck == nil {
+						return
+					}
+					w.diskMountCheck.Enable()
+					if err != nil {
+						logrus.Errorf("[ui] allow disk mounting toggle failed: %v", err)
+						w.diskMountCheck.Checked = !checked
+						w.diskMountCheck.Refresh()
+						dialog.ShowError(err, win)
+					}
+				})
+			}()
+		}
+		permRows = append(permRows,
+			container.NewHBox(w.diskMountLabel, layout.NewSpacer(), w.diskMountBtn),
+			container.NewHBox(widget.NewLabel("Allow Disk Mounting"), layout.NewSpacer(), w.diskMountCheck),
+		)
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.

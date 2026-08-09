@@ -49,6 +49,10 @@ type deviceState struct {
 	// iscsiSessions tracks logged-in targets (keyed by TargetIQN) so
 	// ClearDevices/ReplaceDevices can log them out again on unmount/replace.
 	iscsiSessions map[string]iscsi.LoginOptions
+	// iscsiTsProxies tracks the tsnet dial proxy (if any — see
+	// loginIscsiDrive) started for each session, keyed the same way, so it
+	// gets torn down alongside the session.
+	iscsiTsProxies map[string]*iscsi.TsnetDialProxy
 }
 
 type App struct {
@@ -244,9 +248,12 @@ func New() (*App, error) {
 	clipboardMgr.SetEnabled(cfg.ClipboardSyncEnabled)
 
 	instance := &App{
-		cfgPath:   cfgPath,
-		cfg:       cfg,
-		state:     &deviceState{startedAt: time.Now(), iscsiSessions: make(map[string]iscsi.LoginOptions)},
+		cfgPath: cfgPath,
+		cfg:     cfg,
+		state: &deviceState{startedAt: time.Now(),
+			iscsiSessions:  make(map[string]iscsi.LoginOptions),
+			iscsiTsProxies: make(map[string]*iscsi.TsnetDialProxy),
+		},
 		iscsiInit: iscsi.New(),
 		input:     input.New(),
 		perms:     permissions.New(),
@@ -1334,6 +1341,21 @@ func (a *App) GPUClockLockSupported() bool {
 	return a.perms.GPUClockLockSupported()
 }
 
+// DiskMountEnabled returns the persisted "Allow disk mounting" setting.
+func (a *App) DiskMountEnabled() bool {
+	return a.cfg.DiskMountEnabled
+}
+
+// SetDiskMountEnabled persists the "Allow disk mounting" setting. Turning
+// it off does not tear down any already-mounted iSCSI session — only stops
+// future ones (a client's next ReplaceDevices call for that drive will get
+// a clear "disk mounting is disabled" error instead of a login attempt).
+func (a *App) SetDiskMountEnabled(enabled bool) error {
+	next := a.cfg
+	next.DiskMountEnabled = enabled
+	return a.SaveConfig(next)
+}
+
 // LockGPUClocksEnabled returns the persisted "Lock GPU clocks" setting.
 func (a *App) LockGPUClocksEnabled() bool {
 	return a.cfg.LockGPUClocksEnabled
@@ -1607,11 +1629,40 @@ func (a *App) ReplaceDevices(reqs []api.DeviceRequest) error {
 // loginIscsiDrive logs into req's iSCSI target and records the session for
 // later logout (in logoutStaleSessions / ClearDevices).
 func (a *App) loginIscsiDrive(req api.DeviceRequest) (string, error) {
+	if !a.cfg.DiskMountEnabled {
+		return "", fmt.Errorf("disk mounting is disabled — enable \"Allow disk mounting\" in the agent's Permissions panel")
+	}
 	if !a.iscsiInit.Available() {
 		return "", fmt.Errorf("iSCSI initiator is not available on this platform")
 	}
+	if a.perms != nil && !a.perms.DiskMountGranted() {
+		return "", fmt.Errorf("disk-mount permission not granted — click \"Request\" next to Disk Mounting in the agent's Permissions panel")
+	}
+	portal := fmt.Sprintf("%s:%d", req.Server, req.Port)
+
+	// When the client is reached over Tailscale, route iscsiadm's real OS
+	// socket connection through this agent's own embedded tsnet identity
+	// instead of letting it fall through to whatever the host's regular
+	// networking happens to be (a different tailnet, a system Tailscale
+	// install, or nothing at all) — see TsnetDialProxy's doc comment for
+	// why iscsiadm can't use tsnet directly itself.
+	var tsProxy *iscsi.TsnetDialProxy
+	if isLikelyTailscaleAddr(req.Server) && a.ts != nil {
+		if srv, err := a.ts.Server(); err == nil {
+			p, localAddr, err := iscsi.StartTsnetDialProxy(srv, portal)
+			if err != nil {
+				log.Printf("[app] tsnet dial proxy for %s failed, falling back to direct connection: %v", portal, err)
+			} else {
+				tsProxy = p
+				portal = localAddr
+			}
+		} else {
+			log.Printf("[app] tsnet server unavailable for iSCSI dial proxy, falling back to direct connection: %v", err)
+		}
+	}
+
 	opts := iscsi.LoginOptions{
-		Portal:       fmt.Sprintf("%s:%d", req.Server, req.Port),
+		Portal:       portal,
 		TargetIQN:    req.TargetIQN,
 		LUN:          req.LUN,
 		CHAPUsername: req.CHAPUsername,
@@ -1621,12 +1672,26 @@ func (a *App) loginIscsiDrive(req api.DeviceRequest) (string, error) {
 	defer cancel()
 	result, err := a.iscsiInit.Login(ctx, opts)
 	if err != nil {
+		if tsProxy != nil {
+			tsProxy.Stop()
+		}
 		return "", err
 	}
 	a.state.mu.Lock()
 	a.state.iscsiSessions[req.TargetIQN] = opts
+	if tsProxy != nil {
+		a.state.iscsiTsProxies[req.TargetIQN] = tsProxy
+	}
 	a.state.mu.Unlock()
 	return result.DevicePath, nil
+}
+
+// isLikelyTailscaleAddr reports whether host looks like a Tailscale
+// address (100.x CGNAT range or a *.ts.net MagicDNS name) — mirrors the
+// client's identically-named check in disk_widget_export.go.
+func isLikelyTailscaleAddr(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host != "" && (strings.HasSuffix(host, ".ts.net") || strings.HasPrefix(host, "100."))
 }
 
 // logoutStaleSessions logs out of every tracked iSCSI session whose target
@@ -1634,10 +1699,15 @@ func (a *App) loginIscsiDrive(req api.DeviceRequest) (string, error) {
 func (a *App) logoutStaleSessions(keep map[string]bool) {
 	a.state.mu.Lock()
 	var stale []iscsi.LoginOptions
+	var staleProxies []*iscsi.TsnetDialProxy
 	for iqn, opts := range a.state.iscsiSessions {
 		if !keep[iqn] {
 			stale = append(stale, opts)
 			delete(a.state.iscsiSessions, iqn)
+			if p, ok := a.state.iscsiTsProxies[iqn]; ok {
+				staleProxies = append(staleProxies, p)
+				delete(a.state.iscsiTsProxies, iqn)
+			}
 		}
 	}
 	a.state.mu.Unlock()
@@ -1648,6 +1718,11 @@ func (a *App) logoutStaleSessions(keep map[string]bool) {
 			log.Printf("[app] iSCSI logout failed for target=%s: %v", opts.TargetIQN, err)
 		}
 		cancel()
+	}
+	// Stop the tsnet dial proxies only after iscsiadm has logged out —
+	// logout still needs the portal reachable.
+	for _, p := range staleProxies {
+		p.Stop()
 	}
 }
 

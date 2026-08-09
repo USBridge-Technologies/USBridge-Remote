@@ -13,16 +13,25 @@ import (
 
 type Service struct{}
 
-func New() *Service                             { return &Service{} }
-func (s *Service) AccessibilityGranted() bool    { return true }
-func (s *Service) ScreenRecordingGranted() bool  { return true }
-func (s *Service) RequestAccessibility() bool    { return true }
-func (s *Service) RequestScreenRecording() bool  { return true }
-func (s *Service) RequestMissing()               {}
-func (s *Service) OpenPrivacySettings() error    { return nil }
+func New() *Service                                      { return &Service{} }
+func (s *Service) AccessibilityGranted() bool            { return true }
+func (s *Service) ScreenRecordingGranted() bool          { return true }
+func (s *Service) RequestAccessibility() bool            { return true }
+func (s *Service) RequestScreenRecording() bool          { return true }
+func (s *Service) RequestMissing()                       {}
+func (s *Service) OpenPrivacySettings() error            { return nil }
 func (s *Service) OpenScreenRecordingSettings() error    { return nil }
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
+
+// DiskMountGranted/RequestDiskMount: the Windows iSCSI initiator
+// (agent/internal/iscsi/initiator_windows.go) drives the built-in MSiSCSI
+// service via PowerShell, which a standard user can normally already
+// operate (no elevation prompt to design around here, unlike iscsiadm on
+// Linux needing root) — nothing to grant up front today.
+func (s *Service) DiskMountSupported() bool { return true }
+func (s *Service) DiskMountGranted() bool   { return true }
+func (s *Service) RequestDiskMount() bool   { return true }
 
 // GPUClockLockSupported is always true on Windows -- whether it actually
 // *works* on a given machine depends on having an NVIDIA GPU and a driver

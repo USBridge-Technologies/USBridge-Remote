@@ -151,6 +151,7 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 	// Initialize widgets
 	mw.diskWidget = controller.NewDiskWidget(nil, mw.updateStatus, a, cfg)
 	mw.diskWidget.SetWindow(w)
+	mw.diskWidget.SetTailscaleService(mw.tailscaleService)
 	mw.videoWidget = controller.NewVideoWidget(w, nil, mw.videoClient, mw.updateStatus)
 	mw.videoWidget.SetShowMouseCursor(a.Preferences().BoolWithFallback("show_mouse_cursor", false))
 	mw.videoWidget.SetTailscaleService(mw.tailscaleService)

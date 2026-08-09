@@ -11,9 +11,9 @@ import "context"
 
 // LoginOptions describes an iSCSI target to log into.
 type LoginOptions struct {
-	Portal   string // host:port, e.g. "192.168.1.50:3260"
+	Portal    string // host:port, e.g. "192.168.1.50:3260"
 	TargetIQN string
-	LUN      int
+	LUN       int
 
 	CHAPUsername string // optional
 	CHAPSecret   string // optional

@@ -109,6 +109,17 @@ type DiskWidget struct {
 	safHelper *platform.SAFHelper
 
 	agentOS string
+
+	tailscaleService *service.TailscaleService
+}
+
+// SetTailscaleService wires the client's own Tailscale (tsnet) service in,
+// used by getLocalIP to advertise this device's tailnet IP as the iSCSI
+// portal address when connected to the agent over Tailscale — see
+// getLocalIP's doc comment for why a plain net.Dial-derived local address
+// is wrong in that case.
+func (dw *DiskWidget) SetTailscaleService(ts *service.TailscaleService) {
+	dw.tailscaleService = ts
 }
 
 // MaxDevicesToMount maximum number of devices that can be selected at once

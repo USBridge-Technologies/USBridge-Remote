@@ -42,6 +42,15 @@ type Config struct {
 	// one-time-grant equivalent to Linux's CAP_SYS_ADMIN setcap).
 	LockGPUClocksEnabled bool `yaml:"lock_gpu_clocks_enabled"`
 
+	// DiskMountEnabled: when true, the agent honors iSCSI drive-mount
+	// requests from a paired client (see agent/internal/iscsi and
+	// App.loginIscsiDrive). Off by default — mounting a remote disk image
+	// is a distinct, opt-in capability from the rest of what a paired
+	// client can already do, on top of which the OS-level privilege grant
+	// (permissions.Service.RequestDiskMount, "Permissions" panel) is still
+	// required either way.
+	DiskMountEnabled bool `yaml:"disk_mount_enabled"`
+
 	// Patreon-gated RustShine entitlement (see agent/internal/entitlement).
 	// Same trust level as MasterKey above: plain YAML, no separate
 	// encryption -- consistent with the rest of this struct, and the

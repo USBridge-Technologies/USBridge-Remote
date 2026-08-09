@@ -141,6 +141,12 @@ func (s *Service) OpenScreenRecordingSettings() error {
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
 
+// DiskMountGranted/RequestDiskMount: no iSCSI initiator on macOS (see
+// agent/internal/iscsi's otherInitiator) — nothing to grant.
+func (s *Service) DiskMountSupported() bool { return false }
+func (s *Service) DiskMountGranted() bool   { return false }
+func (s *Service) RequestDiskMount() bool   { return false }
+
 // GPU clock locking is Windows-only (NVML clock lock via an elevated
 // gamestream-server --gpu-clock-lock-daemon helper -- see
 // service_windows.go's own docs); not applicable on macOS.

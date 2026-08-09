@@ -89,9 +89,9 @@ func (c *Client) do(method, path string, body any, out any) error {
 	} else {
 		reader = bytes.NewReader(nil)
 	}
-	// 90s covers the slowest calls (RequestAccessibility/RequestKMSCapture
-	// wait on an interactive pkexec/polkit prompt) with headroom; ordinary
-	// calls return in milliseconds.
+	// 90s covers the slowest calls (RequestAccessibility/RequestKMSCapture/
+	// RequestDiskMount wait on an interactive pkexec/polkit prompt) with
+	// headroom; ordinary calls return in milliseconds.
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
@@ -189,6 +189,16 @@ func (c *Client) LockGPUClocksEnabled() bool {
 
 func (c *Client) SetLockGPUClocksEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/gpu-clock-lock-enabled", boolBody{Value: enabled}, nil)
+}
+
+func (c *Client) DiskMountEnabled() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/token/disk-mount-enabled", nil, &body)
+	return body.Value
+}
+
+func (c *Client) SetDiskMountEnabled(enabled bool) error {
+	return c.do(http.MethodPost, "/token/disk-mount-enabled", boolBody{Value: enabled}, nil)
 }
 
 func (c *Client) RestartSunshine() error {
@@ -315,6 +325,24 @@ func (c *Client) OpenPrivacySettings() error {
 
 func (c *Client) OpenScreenRecordingSettings() error {
 	return c.do(http.MethodPost, "/perms/open-screen-recording-settings", nil, nil)
+}
+
+func (c *Client) DiskMountSupported() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/perms/disk-mount-supported", nil, &body)
+	return body.Value
+}
+
+func (c *Client) DiskMountGranted() bool {
+	var body boolBody
+	_ = c.do(http.MethodGet, "/perms/disk-mount", nil, &body)
+	return body.Value
+}
+
+func (c *Client) RequestDiskMount() bool {
+	var body boolBody
+	_ = c.do(http.MethodPost, "/perms/request-disk-mount", nil, &body)
+	return body.Value
 }
 
 // --- TSBackend ---

@@ -65,15 +65,15 @@ void jni_setContext(uintptr_t jni_vm_ptr, uintptr_t jni_env_ptr, uintptr_t ctx_p
     LOGI("✅ [JNI-SAF] Global context and VM stored");
 }
 
-// Finds the NbdBridge class
-static jclass get_nbd_bridge_class(JNIEnv *env) {
-    jclass cls = (*env)->FindClass(env, "io/usbridge/client/NbdBridge");
+// Finds the SafBridge class
+static jclass get_saf_bridge_class(JNIEnv *env) {
+    jclass cls = (*env)->FindClass(env, "io/usbridge/client/SafBridge");
     if (cls == NULL) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
         
         if (g_ctx == NULL) {
             LOGW("⚠️ [JNI-SAF] g_ctx is NULL, falling back to FindClass");
-            return (*env)->FindClass(env, "io/usbridge/client/NbdBridge");
+            return (*env)->FindClass(env, "io/usbridge/client/SafBridge");
         }
         
         jclass activityClass = (*env)->GetObjectClass(env, g_ctx);
@@ -82,7 +82,7 @@ static jclass get_nbd_bridge_class(JNIEnv *env) {
         jclass classLoaderClass = (*env)->FindClass(env, "java/lang/ClassLoader");
         jmethodID loadClassMethod = (*env)->GetMethodID(env, classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
         
-        jstring className = (*env)->NewStringUTF(env, "io.usbridge.client.NbdBridge");
+        jstring className = (*env)->NewStringUTF(env, "io.usbridge.client.SafBridge");
         cls = (jclass)(*env)->CallObjectMethod(env, classLoader, loadClassMethod, className);
         
         (*env)->DeleteLocalRef(env, className);
@@ -180,17 +180,17 @@ int jni_startSAFPicker() {
     JNIEnv *env = get_env();
     if (env == NULL) return -1;
 
-    jclass nbdBridgeClass = get_nbd_bridge_class(env);
-    if (nbdBridgeClass == NULL) return -1;
+    jclass safBridgeClass = get_saf_bridge_class(env);
+    if (safBridgeClass == NULL) return -1;
 
-    jmethodID method = (*env)->GetStaticMethodID(env, nbdBridgeClass, "startSAFPicker", "()V");
+    jmethodID method = (*env)->GetStaticMethodID(env, safBridgeClass, "startSAFPicker", "()V");
     if (method == NULL) {
-        (*env)->DeleteLocalRef(env, nbdBridgeClass);
+        (*env)->DeleteLocalRef(env, safBridgeClass);
         return -1;
     }
 
-    (*env)->CallStaticVoidMethod(env, nbdBridgeClass, method);
-    (*env)->DeleteLocalRef(env, nbdBridgeClass);
+    (*env)->CallStaticVoidMethod(env, safBridgeClass, method);
+    (*env)->DeleteLocalRef(env, safBridgeClass);
     return 0;
 }
 
@@ -198,7 +198,7 @@ int jni_hasSAFResult() {
     JNIEnv *env = get_env();
     if (env == NULL) return 0;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return 0;
 
     jfieldID fid = (*env)->GetStaticFieldID(env, cls, "hasNewResult", "Z");
@@ -215,7 +215,7 @@ char* jni_getSAFFileName() {
     JNIEnv *env = get_env();
     if (env == NULL) return NULL;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return NULL;
 
     jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastFileName", "Ljava/lang/String;");
@@ -240,7 +240,7 @@ char* jni_getSAFUri() {
     JNIEnv *env = get_env();
     if (env == NULL) return NULL;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return NULL;
 
     jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastUri", "Ljava/lang/String;");
@@ -265,7 +265,7 @@ int jni_getSAFFd() {
     JNIEnv *env = get_env();
     if (env == NULL) return -1;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return -1;
 
     jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastFd", "I");
@@ -282,7 +282,7 @@ long jni_getSAFSize() {
     JNIEnv *env = get_env();
     if (env == NULL) return 0;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return 0;
 
     jfieldID fid = (*env)->GetStaticFieldID(env, cls, "lastSize", "J");
@@ -299,7 +299,7 @@ void jni_clearSAFResult() {
     JNIEnv *env = get_env();
     if (env == NULL) return;
 
-    jclass cls = get_nbd_bridge_class(env);
+    jclass cls = get_saf_bridge_class(env);
     if (cls == NULL) return;
 
     jmethodID method = (*env)->GetStaticMethodID(env, cls, "clearSAFResult", "()V");

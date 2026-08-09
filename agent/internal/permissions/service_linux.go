@@ -291,6 +291,110 @@ func (s *Service) RequestKMSCapture(capexecPath string) bool {
 	return s.KMSCaptureGranted(capexecPath)
 }
 
+// diskMountSudoersPath grants this agent's user passwordless sudo for
+// exactly the two commands the iSCSI initiator (agent/internal/iscsi)
+// needs root for: iscsiadm itself (kernel iSCSI session management —
+// needs to write /run/lock/iscsi/lock and talk to the kernel's netlink
+// iSCSI transport) and starting the iscsid daemon it depends on. Scoped to
+// those two binaries only — not blanket sudo — same "narrowest possible
+// grant" approach as the uinput udev rule and the KMS capture file
+// capability above.
+const diskMountSudoersPath = "/etc/sudoers.d/usbridge-agent-iscsi"
+
+func diskMountSudoersContent(user string) string {
+	return fmt.Sprintf(
+		"%s ALL=(root) NOPASSWD: /usr/sbin/iscsiadm, /usr/bin/systemctl start iscsid, /usr/bin/systemctl status iscsid\n",
+		user,
+	)
+}
+
+// DiskMountGranted reports whether the sudoers grant iSCSI disk mounting
+// needs is installed and currently valid for this user.
+func (s *Service) DiskMountSupported() bool { return true }
+
+func (s *Service) DiskMountGranted() bool {
+	// NOTE: deliberately does NOT os.ReadFile(diskMountSudoersPath) to
+	// check its content first — sudoers.d files are mode 0440 root:root
+	// by design (visudo enforces this), so this agent's own unprivileged
+	// process can never read it back, permission-denied every time,
+	// independent of whether the grant is actually valid. sudo itself
+	// reads it fine (it's setuid root); the live probe below is the only
+	// reliable check.
+	out, err := exec.Command("sudo", "-n", "/usr/sbin/iscsiadm", "-m", "session").CombinedOutput()
+	// "No active sessions"/"No session found" is a non-zero exit from
+	// iscsiadm itself (nothing mounted yet), not from sudo refusing to
+	// run it — still counts as "granted".
+	if err != nil && !strings.Contains(string(out), "No active sessions") && !strings.Contains(string(out), "No session found") {
+		return false
+	}
+	return true
+}
+
+// RequestDiskMount installs the sudoers grant above via a single pkexec
+// prompt (interactive, meant to be triggered from a "Request" button in
+// the agent's Permissions panel — never automatically at mount time: a
+// live iscsiadm call blocking on an unexpected password prompt mid-mount
+// is exactly what this exists to avoid).
+func (s *Service) RequestDiskMount() bool {
+	s.lastAccessErr = ""
+	if s.DiskMountGranted() {
+		return true
+	}
+	user := os.Getenv("USER")
+	if user == "" {
+		s.lastAccessErr = "could not determine the current user ($USER is empty)"
+		return false
+	}
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		s.lastAccessErr = "pkexec is not installed. Install it and try again:\n  su -c 'apt install pkexec'"
+		return false
+	}
+
+	content := diskMountSudoersContent(user)
+	tmp, err := os.CreateTemp("", "usbridge-iscsi-sudoers-*")
+	if err != nil {
+		s.lastAccessErr = fmt.Sprintf("could not create temp sudoers file: %v", err)
+		return false
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		s.lastAccessErr = fmt.Sprintf("could not write temp sudoers file: %v", err)
+		return false
+	}
+	tmp.Close()
+
+	// install -m 0440 (sudoers requires exactly this mode or it's ignored)
+	// then visudo -cf validates the *installed* file before trusting it —
+	// a malformed sudoers.d file can lock sudo out entirely, so this
+	// checks before, not after, and removes it again on failure.
+	script := fmt.Sprintf(
+		"install -m 0440 %s %s && visudo -cf %s || rm -f %s",
+		tmp.Name(), diskMountSudoersPath, diskMountSudoersPath, diskMountSudoersPath,
+	)
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
+	out, err := cmd.CombinedOutput()
+	log.Printf("[permissions] disk-mount pkexec exit=%v output=%q", err, string(out))
+	if err != nil {
+		switch {
+		case strings.Contains(string(out), "No authentication agent found"):
+			s.lastAccessErr = "no polkit authentication agent is running for this session " +
+				"(pkexec needs one to prompt for the password)."
+		case strings.Contains(err.Error(), "exit status 126"):
+			s.lastAccessErr = "authentication was cancelled or dismissed. Click Request again and approve the prompt."
+		default:
+			s.lastAccessErr = fmt.Sprintf("pkexec failed: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+		return false
+	}
+
+	granted := s.DiskMountGranted()
+	if !granted {
+		s.lastAccessErr = "sudoers rule was installed but iscsiadm still isn't runnable; check /var/log/auth.log"
+	}
+	return granted
+}
+
 // GPU clock locking is Windows-only (NVML clock lock via an elevated
 // gamestream-server --gpu-clock-lock-daemon helper -- see
 // service_windows.go's own docs); not applicable on Linux.

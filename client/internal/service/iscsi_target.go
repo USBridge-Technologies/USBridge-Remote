@@ -53,6 +53,23 @@ type IscsiTargetRunner struct {
 	proxyListener net.Listener
 	proxyCancel   context.CancelFunc
 	safFile       *os.File // set when serving an Android content:// URI
+
+	// listenFunc, if set, is used instead of net.Listen for the outward-
+	// facing proxy listener — needed when the agent reaches this client
+	// over Tailscale's userspace tsnet stack (see
+	// TailscaleService.Listen's doc comment for why a plain net.Listen
+	// can't see that traffic at all). Set via SetTailscaleListenFunc.
+	listenFunc func(network, addr string) (net.Listener, error)
+}
+
+// SetTailscaleListenFunc wires in TailscaleService.Listen so the proxy
+// listener (startProxy) can accept connections arriving over this
+// client's tsnet identity. Call before Start(); leave unset for a plain
+// LAN/loopback bind (net.Listen).
+func (r *IscsiTargetRunner) SetTailscaleListenFunc(fn func(network, addr string) (net.Listener, error)) {
+	r.mu.Lock()
+	r.listenFunc = fn
+	r.mu.Unlock()
 }
 
 // BuildTargetIQN derives a stable, RFC-3720-friendly target IQN from an
@@ -260,8 +277,13 @@ func (r *IscsiTargetRunner) Start(port int) error {
 			driver.Close()
 			return err
 		}
-		logrus.Infof("✅ [ISCSI] target %q started with IP-filter proxy: %s:%d → 127.0.0.1:%d (allowed: %s)",
-			r.iqn, bindHost, port, listenPort, r.allowedIP)
+		if r.listenFunc != nil {
+			logrus.Infof("✅ [ISCSI] target %q started via tsnet proxy: :%d → 127.0.0.1:%d (access controlled by Tailscale peer identity, not IP filtering)",
+				r.iqn, port, listenPort)
+		} else {
+			logrus.Infof("✅ [ISCSI] target %q started with IP-filter proxy: %s:%d → 127.0.0.1:%d (allowed: %s)",
+				r.iqn, bindHost, port, listenPort, r.allowedIP)
+		}
 	} else {
 		logrus.Infof("✅ [ISCSI] target %q started on %s:%d (no IP filter)", r.iqn, bindHost, port)
 	}
@@ -288,9 +310,19 @@ func (r *IscsiTargetRunner) Start(port int) error {
 // 127.0.0.1:loopPort, where the real gotgt target is listening.
 func (r *IscsiTargetRunner) startProxy(bindHost string, port, loopPort int) error {
 	listenAddr := fmt.Sprintf("%s:%d", bindHost, port)
-	ln, err := net.Listen("tcp", listenAddr)
+	listen := net.Listen
+	via := "net.Listen"
+	if r.listenFunc != nil {
+		listen = r.listenFunc
+		via = "tsnet"
+		// tsnet.Server.Listen binds on this client's own tailnet IP
+		// automatically — it takes just ":port", not "bindHost:port"
+		// (bindHost here is "0.0.0.0", meaningless to it).
+		listenAddr = fmt.Sprintf(":%d", port)
+	}
+	ln, err := listen("tcp", listenAddr)
 	if err != nil {
-		return fmt.Errorf("proxy listen %s: %w", listenAddr, err)
+		return fmt.Errorf("proxy listen (%s) %s: %w", via, listenAddr, err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -310,22 +342,38 @@ func (r *IscsiTargetRunner) startProxy(bindHost string, port, loopPort int) erro
 				}
 				return
 			}
-			go r.proxyConn(ctx, conn, targetAddr)
+			go r.proxyConn(ctx, conn, targetAddr, r.listenFunc != nil)
 		}
 	}()
 	return nil
 }
 
-func (r *IscsiTargetRunner) proxyConn(ctx context.Context, conn net.Conn, targetAddr string) {
+// proxyConn forwards conn to targetAddr. skipIPFilter is true when conn
+// arrived via the tsnet listener: Tailscale's own WireGuard-authenticated
+// peer identity is already a stronger access-control boundary than a
+// source-IP string match, and matching by IP here is actively wrong for
+// this path anyway — an external process like iscsiadm (run by the agent
+// to make the actual data-plane TCP connection) has no way to route
+// through the agent's own in-process tsnet stack, so its connection
+// arrives from the agent host's OS-level Tailscale IP, which is a
+// different address than the one the agent's embedded tsnet identity used
+// for the HTTP control-plane call that told this client which agent to
+// expect (see getLocalIP/SetTailscaleListenFunc's doc comments) — the two
+// addresses are both this same agent, just via different network stacks
+// on its side, and there's no reliable way for the client to know the
+// data-plane one in advance to filter on it.
+func (r *IscsiTargetRunner) proxyConn(ctx context.Context, conn net.Conn, targetAddr string, skipIPFilter bool) {
 	defer conn.Close()
 
-	remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	r.mu.RLock()
-	allowed := r.allowedIP
-	r.mu.RUnlock()
-	if remoteIP != allowed {
-		logrus.Warnf("🚫 [ISCSI] Rejected connection from %s (only %s is allowed)", remoteIP, allowed)
-		return
+	if !skipIPFilter {
+		remoteIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		r.mu.RLock()
+		allowed := r.allowedIP
+		r.mu.RUnlock()
+		if remoteIP != allowed {
+			logrus.Warnf("🚫 [ISCSI] Rejected connection from %s (only %s is allowed)", remoteIP, allowed)
+			return
+		}
 	}
 
 	target, err := net.Dial("tcp", targetAddr)
