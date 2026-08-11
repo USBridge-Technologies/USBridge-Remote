@@ -40,7 +40,15 @@
      test page did) is exactly why long-press-to-paste silently did nothing
      on Android: there was no real input for the OS paste gesture to target.
      Position/size copied from Fyne's own cmd/fyne packaging template. -->
-<input id="dummyEntry" style="position: absolute; left: 0; top: -100pt; z-index: -10; font-size: 32pt;" />
+<!-- autocomplete/name/type below discourage (not guarantee -- this is a
+     Chrome/Gboard heuristic, not something a page can force off) the
+     password/card/address autofill suggestion strip Gboard shows above
+     its own keyboard: Chrome's heuristics key heavily off autocomplete
+     values and field names that look like login/payment fields, so an
+     explicit "off" plus a name that doesn't resemble "password"/"card"
+     steers away from that classification for what's really just a plain
+     text-relay input. -->
+<input id="dummyEntry" type="text" name="usbridge-remote-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="position: absolute; left: 0; top: -100pt; z-index: -10; font-size: 32pt;" />
 <script src="wasm_exec.js"></script>
 <script>
   // Keeps the Fyne canvas (and therefore the whole app's layout -- video,

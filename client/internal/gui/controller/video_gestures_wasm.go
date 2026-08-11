@@ -231,6 +231,8 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 	// outside the video area can ever dispatch through this listener.
 	event.Call("preventDefault")
 
+	requestBrowserFullscreenOnce()
+
 	// A tap on the video area routes into TouchDown/Dragged below, which
 	// gives the touchpad wrapper Fyne focus so it can receive physical
 	// keyboard events -- but Fyne's own wasm driver treats *any* Focusable
@@ -446,4 +448,76 @@ func dist(x0, y0, x1, y1 float32) float32 {
 	dx := float64(x1 - x0)
 	dy := float64(y1 - y0)
 	return float32(math.Sqrt(dx*dx + dy*dy))
+}
+
+// fullscreenRequested latches once so we only ever ask the browser to go
+// fullscreen a single time per page load, not on every subsequent touch.
+var fullscreenRequested bool
+
+// requestBrowserFullscreenOnce asks the browser to hide its own chrome
+// (address bar, tab strip, everything outside the page) via the real
+// Fullscreen API. This is the only reliable way to reclaim that space --
+// web/index.html's 100dvh canvas sizing already fills whatever space the
+// browser happens to be giving the page, but nothing short of genuine
+// Fullscreen actually gets the browser to stop reserving space for its
+// own address bar in the first place.
+//
+// Must be called synchronously from within a real, direct user-gesture
+// event handler (a genuine 'touchstart'/'click' DOM event) -- browsers
+// reject requestFullscreen() calls that aren't part of that same call
+// stack (a timer, a resize/visualViewport event, anything indirect), even
+// if that indirect call was itself originally triggered by a user action
+// moments earlier. onTouchStart already is such a handler, so this is
+// called from there -- see this file's own top doc comment for why a real
+// DOM touchstart (not Fyne's own synthesized click dispatch) is used at
+// all under wasm.
+//
+// Deliberately never auto-exits: unlike the window-content swap (which
+// only needs the extra room while the IME is actually up), the browser
+// address bar is dead space for this app in every state, so staying
+// immersive for the rest of the session is the desired behavior, not
+// something to toggle in and out along with the IME. The user can still
+// leave fullscreen through the OS's own affordance (edge swipe / back)
+// at any time; that's standard, expected fullscreen-video-app UX.
+func requestBrowserFullscreenOnce() {
+	if fullscreenRequested {
+		return
+	}
+	doc := js.Global().Get("document")
+	if !doc.Get("fullscreenElement").IsNull() {
+		fullscreenRequested = true
+		return
+	}
+	root := doc.Get("documentElement")
+	reqFn := root.Get("requestFullscreen")
+	if reqFn.IsUndefined() {
+		// Older WebKit/Chrome still expose this under the vendor-prefixed
+		// name; documentElement is the same element either way.
+		reqFn = root.Get("webkitRequestFullscreen")
+	}
+	if reqFn.IsUndefined() {
+		return
+	}
+	fullscreenRequested = true
+	// requestFullscreen() returns a Promise that rejects if the browser
+	// refuses (e.g. called outside a genuine user-gesture stack, or the
+	// user has fullscreen disabled by policy) -- attach a .catch so a
+	// rejection surfaces as a log line instead of an unhandled-promise
+	// console error, and let it silently no-op either way: losing the
+	// address-bar space is cosmetic, not worth failing the touch over.
+	promise := reqFn.Invoke()
+	if promise.Type() == js.TypeObject {
+		catchFn := promise.Get("catch")
+		if !catchFn.IsUndefined() {
+			promise.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+				defer recoverTouchPanic("requestFullscreen catch")
+				reason := ""
+				if len(args) > 0 {
+					reason = args[0].String()
+				}
+				logrus.Debugf("🖥️ requestFullscreen() rejected (non-fatal): %s", reason)
+				return nil
+			}))
+		}
+	}
 }
