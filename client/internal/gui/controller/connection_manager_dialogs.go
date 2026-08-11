@@ -627,7 +627,7 @@ func showAdaptiveConnectionDialog(parent fyne.Window, dialogTitle string, feedba
 			return connectionDialogPanelSize(panel, canvasSize)
 		},
 		PanelPos: func(canvasSize fyne.Size, panelSize fyne.Size) fyne.Position {
-			if fyne.CurrentDevice().IsMobile() {
+			if view.UseCompactLayout(canvasSize.Width) {
 				topMargin := clampFloat32(canvasSize.Height*0.10, 80, 110)
 				return fyne.NewPos((canvasSize.Width-panelSize.Width)/2, topMargin)
 			}
@@ -689,9 +689,10 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 		gap.SetMinSize(fyne.NewSize(20, 1))
 		iconRow := container.NewCenter(container.NewHBox(qrBlock, gap, linkBlock))
 
-		if fyne.CurrentDevice().IsMobile() {
-			// On Android: icon row floats OUTSIDE the popup panel, below it.
-			// The panel itself stays compact and never moves when keyboard opens.
+		if view.UseCompactLayout(parent.Canvas().Size().Width) {
+			// On Android/narrow browser viewports: icon row floats OUTSIDE
+			// the popup panel, below it. The panel itself stays compact and
+			// never moves when keyboard opens.
 			mobileFooter = iconRow
 		} else {
 			// On desktop: add inside the scroll area, below the form fields.

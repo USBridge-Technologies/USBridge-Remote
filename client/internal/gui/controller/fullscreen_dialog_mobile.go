@@ -1,5 +1,14 @@
-//go:build android || ios
+//go:build android || ios || (js && wasm)
 
+// Also compiled for the browser build: a browser tab can't spawn a second
+// OS-level fyne.Window the way fullscreen_dialog_desktop.go's strategy
+// needs (there is no such thing under GOOS=js), so wasm reuses the mobile
+// strategy of swapping the *same* window's content instead. The
+// IME-specific bits below (RegisterAsIMETarget/SetOnIMEChanged) are
+// harmless under wasm: VirtualKeyboard there is still
+// graphics/virtual_keyboard_desktop.go's no-op stub (its own build tag,
+// `!android && !ios`, still matches wasm), so these calls are no-ops, not
+// a real Android/iOS JNI/UIKit bridge.
 package controller
 
 import (

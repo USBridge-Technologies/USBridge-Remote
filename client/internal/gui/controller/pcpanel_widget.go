@@ -1271,8 +1271,8 @@ func (p *PCPanelWidget) showProtectedActionDialog(title, hint, expectedWord stri
 	inner := container.NewVBox(contentItems...)
 
 	var minW float32 = 360
-	if fyne.CurrentDevice().IsMobile() {
-		sz := p.window.Canvas().Size()
+	sz := p.window.Canvas().Size()
+	if view.UseCompactLayout(sz.Width) {
 		minW = sz.Width * 0.85
 		if minW < 280 {
 			minW = 280

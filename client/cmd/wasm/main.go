@@ -38,6 +38,7 @@ func main() {
 	gui.SetAppVersion("web")
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
+	gui.InitIMEBridge()
 	mainWindow.Show()
 }
 

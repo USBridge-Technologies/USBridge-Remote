@@ -92,6 +92,20 @@ func (q *QRCameraScanner) openAndCapture(videoImg *canvas.Image, closeUI func())
 	constraints := js.Global().Get("Object").New()
 	videoConstraints := js.Global().Get("Object").New()
 	videoConstraints.Set("facingMode", "environment") // prefer the rear/world camera on phones; desktops only have one anyway
+	// Without explicit resolution hints, some phone browsers hand back a
+	// low-res, low-framerate profile by default (optimized for video calls,
+	// not for reading a small printed pattern) -- ask for a real capture
+	// resolution. "ideal" is a soft constraint: getUserMedia still succeeds
+	// on hardware that can't hit it, just picks the closest it can.
+	videoConstraints.Set("width", map[string]interface{}{"ideal": 1280})
+	videoConstraints.Set("height", map[string]interface{}{"ideal": 720})
+	// Continuous autofocus is a Chrome-only capability (advanced constraint,
+	// silently ignored elsewhere) -- default camera behavior on many phones
+	// otherwise locks focus at first frame, which is exactly wrong for a
+	// handheld QR scan where distance keeps changing.
+	videoConstraints.Set("advanced", []interface{}{
+		map[string]interface{}{"focusMode": "continuous"},
+	})
 	constraints.Set("video", videoConstraints)
 	constraints.Set("audio", false)
 
@@ -119,8 +133,32 @@ func (q *QRCameraScanner) openAndCapture(videoImg *canvas.Image, closeUI func())
 	video.Set("autoplay", true)
 	video.Set("muted", true)
 	video.Set("playsInline", true)
+	// Off-screen but still attached to the document and laid out (1x1,
+	// clipped) rather than display:none -- confirmed live: a <video> that's
+	// never inserted into the DOM (or is display:none) never actually
+	// decodes frames in Chrome/Firefox even though srcObject/play() report
+	// success and the browser's own getUserMedia permission-prompt preview
+	// shows a live picture (that preview is the browser chrome's own
+	// element, unrelated to this one). videoWidth/videoHeight and drawImage
+	// only start producing real pixel data once the element is part of a
+	// rendered (if invisible) layout.
+	style := video.Get("style")
+	style.Set("position", "fixed")
+	style.Set("left", "-9999px")
+	style.Set("width", "1px")
+	style.Set("height", "1px")
 	video.Set("srcObject", stream)
+	doc.Get("body").Call("appendChild", video)
 	q.videoEl = video
+	playPromise := video.Call("play")
+	if !playPromise.IsUndefined() {
+		playPromise.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			if len(args) > 0 {
+				logrus.Warnf("[QRCamera/wasm] video.play() rejected: %v", args[0])
+			}
+			return nil
+		}))
+	}
 
 	// Wait for the video element to report real dimensions (loadedmetadata)
 	// before sizing the capture canvas -- videoWidth/videoHeight read 0
@@ -141,11 +179,22 @@ func (q *QRCameraScanner) openAndCapture(videoImg *canvas.Image, closeUI func())
 		return
 	}
 
-	width := video.Get("videoWidth").Int()
-	height := video.Get("videoHeight").Int()
-	if width == 0 || height == 0 {
-		width, height = 640, 480
+	srcWidth := video.Get("videoWidth").Int()
+	srcHeight := video.Get("videoHeight").Int()
+	if srcWidth == 0 || srcHeight == 0 {
+		srcWidth, srcHeight = 1280, 720
 	}
+
+	// Draw into a downscaled capture canvas rather than the source
+	// resolution: confirmed live on Android Chrome that piping a full
+	// 1280x720 frame through getImageData -> CopyBytesToGo -> a new
+	// image.NewRGBA on every tick is what actually made the preview feel
+	// laggy (that's ~3.6MB copied and re-allocated per frame), not the
+	// camera itself. A QR code held at arm's length doesn't need native
+	// resolution to decode -- <canvas>'s own drawImage does the downscale
+	// on the GPU/native side for free, which is far cheaper than reading
+	// back full-res pixels into Go just to throw most of them away.
+	width, height := qrCameraCaptureDimensions(srcWidth, srcHeight)
 
 	canvasEl := doc.Call("createElement", "canvas")
 	canvasEl.Set("width", width)
@@ -153,23 +202,64 @@ func (q *QRCameraScanner) openAndCapture(videoImg *canvas.Image, closeUI func())
 	q.canvasEl = canvasEl
 	q.ctx2d = canvasEl.Call("getContext", "2d")
 
-	logrus.Infof("[QRCamera/wasm] camera stream open: %dx%d", width, height)
+	logrus.Infof("[QRCamera/wasm] camera stream open: source=%dx%d capture=%dx%d", srcWidth, srcHeight, width, height)
 	q.captureLoop(videoImg, width, height, closeUI)
 }
+
+// qrCameraCaptureDimensions downscales to a capped width while preserving
+// aspect ratio. Capped at the getUserMedia "ideal" request above (720p) --
+// this only ever kicks in if the camera handed back something even
+// higher-res than requested, so in practice it's a no-op on most hardware;
+// the real cost saving here is skipping the decode on 2 out of 3 ticks
+// below, not downscaling pixels the QR decoder actually needs. Confirmed
+// live: without an explicit width/height getUserMedia constraint at all,
+// phone browsers can negotiate a much lower-res, denoised/compressed
+// video-call-oriented profile that's too soft at the pixel level for a
+// printed QR code's fine modules to survive -- that's the actual root
+// cause of "scans on native, doesn't scan on web", not this downscale.
+func qrCameraCaptureDimensions(srcWidth, srcHeight int) (width, height int) {
+	const maxWidth = 1280
+	if srcWidth <= maxWidth {
+		return srcWidth, srcHeight
+	}
+	scale := float64(maxWidth) / float64(srcWidth)
+	return maxWidth, int(float64(srcHeight) * scale)
+}
+
+// qrCameraDecodeEveryNTicks: the QR decode itself (pattern-finding across
+// the whole frame) costs meaningfully more than the drawImage+readback
+// above, especially at the higher end of phone hardware variance --
+// running it every tick was the other half of the "laggy" complaint.
+// Refreshing the visible preview every tick still feels smooth (~6-7fps at
+// qrCameraFrameInterval); decoding at a third of that rate is still fast
+// enough that scanning a held-up code feels instant, without spending CPU
+// on pattern-matching against near-duplicate consecutive frames.
+const qrCameraDecodeEveryNTicks = 3
 
 func (q *QRCameraScanner) captureLoop(videoImg *canvas.Image, width, height int, closeUI func()) {
 	qrReader := qrcode.NewQRCodeReader()
 	ticker := time.NewTicker(qrCameraFrameInterval)
 	defer ticker.Stop()
 
+	tickCount := 0
 	for {
 		select {
 		case <-q.stopChan:
 			return
 		case <-ticker.C:
 		}
+		tickCount++
 
 		q.ctx2d.Call("drawImage", q.videoEl, 0, 0, width, height)
+
+		// Readback (getImageData -> Go pixels) happens every tick: Fyne's
+		// canvas.Image needs real Go-side image.Image bytes to texture-
+		// upload, there's no way to hand it the HTML canvas directly, so
+		// the preview needs this regardless of whether this tick also
+		// decodes. Only the zxing pattern-search below is skipped on most
+		// ticks -- it's the more expensive of the two, and consecutive
+		// frames from a held phone rarely differ enough to make decoding
+		// every single one worth the extra CPU.
 		imageData := q.ctx2d.Call("getImageData", 0, 0, width, height)
 		jsPixels := imageData.Get("data") // Uint8ClampedArray, RGBA
 
@@ -180,6 +270,10 @@ func (q *QRCameraScanner) captureLoop(videoImg *canvas.Image, width, height int,
 			videoImg.Image = img
 			videoImg.Refresh()
 		})
+
+		if tickCount%qrCameraDecodeEveryNTicks != 0 {
+			continue
+		}
 
 		if contents, ok := decodeQRImage(qrReader, img); ok {
 			logrus.Infof("QR detected: %s", contents)
@@ -208,6 +302,13 @@ func (q *QRCameraScanner) Stop() {
 		length := tracks.Get("length").Int()
 		for i := 0; i < length; i++ {
 			tracks.Index(i).Call("stop")
+		}
+	}
+
+	if !q.videoEl.IsUndefined() && !q.videoEl.IsNull() {
+		q.videoEl.Set("srcObject", js.Null())
+		if parent := q.videoEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
+			parent.Call("removeChild", q.videoEl)
 		}
 	}
 

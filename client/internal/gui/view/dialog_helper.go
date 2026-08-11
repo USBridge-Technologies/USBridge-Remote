@@ -172,8 +172,8 @@ func showConfirmDialog(title, message string, callback func(bool), parent fyne.W
 	panelContent := body
 	if parent != nil {
 		var minW float32 = 408
-		if fyne.CurrentDevice().IsMobile() {
-			canvasSize := parent.Canvas().Size()
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
 			minW = canvasSize.Width * 0.85
 			if minW < 280 {
 				minW = 280
@@ -271,8 +271,8 @@ func ShowErrorDialog(err error, parent fyne.Window) {
 	panelContent := fyne.CanvasObject(body)
 	if parent != nil {
 		var minW float32 = 408
-		if fyne.CurrentDevice().IsMobile() {
-			canvasSize := parent.Canvas().Size()
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
 			minW = canvasSize.Width * 0.85
 			if minW < 280 {
 				minW = 280
@@ -350,8 +350,8 @@ func ShowInfoDialog(title, message string, parent fyne.Window) {
 	panelContent := fyne.CanvasObject(body)
 	if parent != nil {
 		var minW float32 = 408
-		if fyne.CurrentDevice().IsMobile() {
-			canvasSize := parent.Canvas().Size()
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
 			minW = canvasSize.Width * 0.85
 			if minW < 280 {
 				minW = 280
@@ -415,8 +415,8 @@ func ShowBusyDialog(title, message string, parent fyne.Window) *widget.PopUp {
 
 	panelContent := fyne.CanvasObject(body)
 	var minW float32 = 408
-	if fyne.CurrentDevice().IsMobile() {
-		canvasSize := parent.Canvas().Size()
+	canvasSize := parent.Canvas().Size()
+	if UseCompactLayout(canvasSize.Width) {
 		minW = canvasSize.Width * 0.85
 		if minW < 280 {
 			minW = 280
@@ -533,8 +533,8 @@ func ShowDeleteImageConfirm(fileName string, safeRemove bool, callback func(bool
 	panelContent := body
 	if parent != nil {
 		var minW float32 = 408
-		if fyne.CurrentDevice().IsMobile() {
-			canvasSize := parent.Canvas().Size()
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
 			minW = canvasSize.Width * 0.85
 			if minW < 280 {
 				minW = 280
@@ -643,8 +643,8 @@ func ShowUploadImageConfirm(fileName string, callback func(bool), parent fyne.Wi
 	panelContent := body
 	if parent != nil {
 		var minW float32 = 408
-		if fyne.CurrentDevice().IsMobile() {
-			canvasSize := parent.Canvas().Size()
+		canvasSize := parent.Canvas().Size()
+		if UseCompactLayout(canvasSize.Width) {
 			minW = canvasSize.Width * 0.85
 			if minW < 280 {
 				minW = 280
