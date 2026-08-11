@@ -157,6 +157,14 @@ func syncCursorDot(vw *VideoWidget) {
 		style.Set("display", "none")
 		return
 	}
+	// Same "actually on the Control tab / no dialog up" guard
+	// syncTouchOverlay applies (video_gestures_wasm.go) -- this dot itself
+	// is pointer-events:none so it was never the thing eating taps, but it
+	// has no business being visibly painted over another tab's UI either.
+	if videoOverlayForceHidden {
+		style.Set("display", "none")
+		return
+	}
 	wrapper := vw.activeViewportWrapper()
 	if wrapper == nil || !wrapper.Visible() {
 		style.Set("display", "none")
