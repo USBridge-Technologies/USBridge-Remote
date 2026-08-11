@@ -132,7 +132,15 @@ func InitTouchGestureBridge() {
 		// positioned at rest, not just while actively dragging -- e.g.
 		// right after switching into cursor mode, before any drag has
 		// happened yet.
-		syncCursorDot(activeGestureVideoWidget())
+		vw := activeGestureVideoWidget()
+		syncCursorDot(vw)
+		// Self-healing window-content invariant for the keyboard panel --
+		// see syncKeyboardWindowContent's own doc comment
+		// (video_widget_web.go) for why this can't just be a one-shot
+		// check at toggle time.
+		fyne.Do(func() {
+			syncKeyboardWindowContent(vw)
+		})
 		return nil
 	}), 150)
 }

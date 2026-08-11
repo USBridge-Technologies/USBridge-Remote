@@ -9,6 +9,26 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// webKeyboardOriginalContent/webKeyboardContentSwapped save what the window
+// was showing before the real IME took it over (see
+// syncKeyboardWindowContent) so it can be restored exactly when the IME
+// closes. Package-level, not per-VideoWidget: same one-window assumption
+// already made by webTouch/touchOverlayEl/cursorDotEl.
+var (
+	webKeyboardOriginalContent fyne.CanvasObject
+	webKeyboardContentSwapped  bool
+)
+
+// webRestCanvasHeight tracks the largest canvas height observed while the
+// real IME was NOT considered open -- i.e. the window's normal, at-rest
+// height (itself already live-tracking the browser's own address-bar
+// show/hide via web/index.html's 100dvh canvas sizing, so this baseline
+// moves with that on its own). Comparing the *current* canvas height
+// against this running max is how syncKeyboardWindowContent tells "the
+// real browser IME is currently extended" apart from "the address bar
+// just changed" -- see that function's own doc comment for the threshold.
+var webRestCanvasHeight float32
+
 // platformHandleVirtualKeyboard shows/hides the on-screen keyboard inside
 // vw.contentContainer, bottom-docked below the video -- the same layout
 // mechanism video_widget_mobile.go's Android/iOS version uses (see its own
@@ -30,23 +50,13 @@ import (
 // visibility -- this widget is Fyne's own drawn keyboard layout, only
 // useful for the explicit "show keyboard" button tap.
 //
-// A previous version of this file also tried to swap the *window's*
-// content to vw.container while the real IME was open, so video would
-// take over the tab strip/address-bar area too (matching how Android's
-// separate Vulkan SurfaceView overlay can paint over its own tab strip
-// with zero Fyne layout involvement -- see video_widget_android.go's
-// videoCanvasFrame doc comment). Confirmed live that this badly regressed
-// the normal (in-tab) layout instead: after the IME closed and the swap
-// reverted, the video widget stayed pinned at a tiny stale size with a
-// large dead black area below it, worse than not swapping at all --
-// AppTabs' own child-content relayout apparently doesn't reliably
-// recompute vw.container back to full size after it's been detached and
-// reattached as a plain child. Reverted back to this simpler, previously-
-// confirmed-working version: video/keyboard panel only ever use the
-// space within their normal tab slot (still fully solves the "panel
-// rises above the IME, video expands to fill what's left above it"
-// behavior -- just without also reclaiming the tab strip/address-bar's
-// own space).
+// This function only manages the *panel's* own visibility. The full-
+// window takeover (giving video the tab strip/address-bar's own space
+// too, matching native Android's Vulkan SurfaceView overlay) is handled
+// separately by syncKeyboardWindowContent, gated on the real IME being
+// extended -- not on this panel's own visibility, since opening the panel
+// via its toggle button doesn't by itself open the real IME (only tapping
+// an actual text field does), and the two can close in either order.
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 	if vw.virtualKeyboard == nil {
 		if vw.parentWindow == nil {
@@ -87,5 +97,86 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 	if vw.virtualKeyboard == nil || !vw.virtualKeyboard.IsVisible() {
 		vw.platformHandleVirtualKeyboard()
+	}
+}
+
+// realIMEOpenThresholdDp mirrors Android's own onIMEHeightChanged
+// threshold (minRealIMEDp = 100): a shrink smaller than this is normal
+// address-bar/rounding noise, not a real keyboard.
+const realIMEOpenThresholdDp = 100
+
+// isRealIMEOpen reports whether the browser's actual on-screen keyboard is
+// currently extended, purely from the Go side: web/index.html shrinks the
+// canvas element's own CSS height to window.visualViewport.height whenever
+// it decides the real IME is covering the page, and restores it to 100dvh
+// (which already tracks the address bar's own show/hide) when it isn't --
+// so a canvas height that has dropped well below its own recent at-rest
+// maximum (webRestCanvasHeight) means the real IME is open, and anything
+// smaller than that means the address bar is just doing its normal thing.
+// No JS->Go bridge call needed: the canvas size Fyne already observes on
+// every resize is signal enough.
+func isRealIMEOpen(vw *VideoWidget) bool {
+	if vw.parentWindow == nil {
+		return false
+	}
+	h := vw.parentWindow.Canvas().Size().Height
+	if h <= 0 {
+		return false
+	}
+	if webRestCanvasHeight <= 0 || h > webRestCanvasHeight {
+		webRestCanvasHeight = h
+	}
+	return webRestCanvasHeight-h > realIMEOpenThresholdDp
+}
+
+// syncKeyboardWindowContent is the self-healing invariant that gives video
+// the whole window (tab strip, app's own address-bar widget, and all)
+// while -- and only while -- the real browser IME is extended, matching
+// what native Android does via its own Vulkan SurfaceView overlay (see
+// video_widget_android.go's videoCanvasFrame doc comment for how that
+// overlay can paint over the tab strip with zero Fyne layout involvement;
+// wasm has no such overlay, so the only way to get video the same space
+// is to remove everything else from the window's content tree while the
+// IME needs that space). Runs every tick from video_gestures_wasm.go's
+// existing 150ms overlay-sync loop (alongside syncTouchOverlay/
+// syncCursorDot) rather than once at some single trigger point, so it
+// self-heals regardless of what caused window content to drift from the
+// correct state -- comparing the window's *actual current* content
+// against vw.container/webKeyboardOriginalContent by reference is what
+// makes this self-healing rather than trusting one-shot bookkeeping that
+// could go stale.
+//
+// An earlier version of this was shipped, then reverted after appearing
+// to badly regress the layout (video pinned at a tiny stale size with a
+// large dead area below it after the IME closed). Root-caused since:
+// that breakage was actually web/index.html's canvas.style.height getting
+// deleted entirely on IME close (removeProperty('height') has no
+// "previous value" to fall back to -- see that file's own fix), which
+// collapsed the *whole canvas*, not something specific to this swap. With
+// that CSS bug fixed, this is safe to re-enable.
+func syncKeyboardWindowContent(vw *VideoWidget) {
+	if vw == nil || vw.parentWindow == nil || vw.container == nil {
+		return
+	}
+	imeOpen := isRealIMEOpen(vw)
+	current := vw.parentWindow.Content()
+
+	if imeOpen {
+		if current != vw.container {
+			if !webKeyboardContentSwapped || webKeyboardOriginalContent == nil {
+				webKeyboardOriginalContent = current
+			}
+			vw.parentWindow.SetContent(vw.container)
+			webKeyboardContentSwapped = true
+			vw.RefreshViewportGeometry()
+		}
+		return
+	}
+
+	if webKeyboardContentSwapped && webKeyboardOriginalContent != nil && current == vw.container {
+		vw.parentWindow.SetContent(webKeyboardOriginalContent)
+		webKeyboardContentSwapped = false
+		webKeyboardOriginalContent = nil
+		vw.RefreshViewportGeometry()
 	}
 }
