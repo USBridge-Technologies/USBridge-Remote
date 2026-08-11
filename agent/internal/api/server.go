@@ -66,10 +66,6 @@ type Application interface {
 	// ClipboardMaxBytes returns the configured per-transfer size cap for
 	// clipboard image/file payloads (0 means "use the built-in default").
 	ClipboardMaxBytes() int64
-	// WebRTCOffer processes a browser client's SDP offer for the low-latency
-	// WebRTC stream (see agent/internal/webrtcbridge) and returns the SDP
-	// answer. sessionID identifies the connection for reconnect handling.
-	WebRTCOffer(sessionID, offerSDP string) (answerSDP string, err error)
 }
 
 type Server struct {
@@ -180,11 +176,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
 	mux.HandleFunc("/api/pcpanel/button", sec.LimitPolling(s.button))
-	// Low-latency WebRTC signaling for the browser/WASM web client (stage 1:
-	// see the webrtcbridge package doc comment). Rate-limited like other
-	// realtime endpoints; each call carries a full SDP offer so it's not
-	// hot-path-frequent, but LimitRealtime's generous burst is fine.
-	mux.HandleFunc("/api/webrtc/offer", sec.LimitRealtime(s.webrtcOffer))
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
 }

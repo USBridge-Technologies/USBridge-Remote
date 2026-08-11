@@ -37,7 +37,6 @@ import (
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
-	"usbridge_agent/internal/webrtcbridge"
 )
 
 type deviceState struct {
@@ -66,7 +65,6 @@ type App struct {
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	adminSrv  *adminapi.Server
-	webrtc    *webrtcbridge.Bridge
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
@@ -249,10 +247,7 @@ func New() (*App, error) {
 		perms:     permissions.New(),
 		ts:        tailscale.New(cfg.StateDir),
 		clipboard: clipboardMgr,
-		webrtc:    webrtcbridge.New(),
 	}
-	instance.webrtc.OnInputMessage = instance.handleWebRTCInput
-	instance.webrtc.StartSession = instance.startWebRTCVideoSession
 	// fyneApp is created lazily in Run(), only for a GUI-owning process — a
 	// --headless engine never touches Fyne at all, so it never needs a
 	// display connection (see Run).
@@ -666,9 +661,6 @@ func (a *App) shutdownEngine() {
 	}
 	if a.adminSrv != nil {
 		_ = a.adminSrv.Close()
-	}
-	if a.webrtc != nil {
-		a.webrtc.Close()
 	}
 }
 
@@ -1866,14 +1858,6 @@ func (a *App) SubmitMoonlightPIN(pin string) error {
 		port = 47990
 	}
 	return a.stream.SubmitPIN(port, pin)
-}
-
-// WebRTCOffer implements api.Application for the browser/WASM web client's
-// low-latency WebRTC path (see agent/internal/webrtcbridge). Stage 1 only
-// wires up signaling + a DataChannel; video/audio/input get layered on in
-// later stages per the implementation plan.
-func (a *App) WebRTCOffer(sessionID, offerSDP string) (string, error) {
-	return a.webrtc.Offer(sessionID, offerSDP)
 }
 
 // SetAudioSink points Sunshine at the given audio device (sunshine.conf's

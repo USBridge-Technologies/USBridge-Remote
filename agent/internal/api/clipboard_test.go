@@ -14,7 +14,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"usbridge_agent/internal/clipboard"
-	"usbridge_agent/internal/webrtcbridge"
 )
 
 // fakeBackend is an in-memory clipboard.Backend so this test never touches
@@ -92,8 +91,7 @@ func (stubScreen) Snapshot() (*ScreenSnapshot, error) { return nil, nil }
 // stubApp implements Application with just enough behavior to exercise the
 // clipboard transport in isolation.
 type stubApp struct {
-	clip   *clipboard.Manager
-	webrtc *webrtcbridge.Bridge
+	clip *clipboard.Manager
 }
 
 func (s *stubApp) Status() SystemStatus                 { return SystemStatus{} }
@@ -134,16 +132,6 @@ func (s *stubApp) RegisterTailscale(context.Context, string, string) (*Tailscale
 }
 func (s *stubApp) Clipboard() *clipboard.Manager { return s.clip }
 func (s *stubApp) ClipboardMaxBytes() int64      { return 0 }
-// WebRTCOffer lazily creates a real webrtcbridge.Bridge so tests that
-// exercise /api/webrtc/offer (see webrtc_test.go) get a genuine SDP answer
-// instead of an empty stub — the whole point of that endpoint's tests is to
-// drive a real offer/answer/DataChannel handshake through the HTTP layer.
-func (s *stubApp) WebRTCOffer(sessionID, offerSDP string) (string, error) {
-	if s.webrtc == nil {
-		s.webrtc = webrtcbridge.New()
-	}
-	return s.webrtc.Offer(sessionID, offerSDP)
-}
 
 // testClipboardClient plays the "other side" of the protocol using the same
 // signing/framing rules as the real client's ClipboardSync, without
