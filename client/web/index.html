@@ -135,10 +135,52 @@
     apply();
   }
 
+  // Requests real browser Fullscreen (hiding the address bar -- the one
+  // piece of screen space no amount of page-level CSS/JS sizing can ever
+  // reclaim) on the first genuine tap anywhere on the page.
+  //
+  // This is deliberately plain JS attached directly here, NOT routed
+  // through Go/wasm (internal/gui/controller/video_gestures_wasm.go used
+  // to call requestFullscreen() from its own touchend handler) -- confirmed
+  // live via CDP that requestFullscreen() invoked from inside a Go
+  // js.FuncOf callback is reliably rejected with "TypeError: Permissions
+  // check failed", even for the *exact same* DOM touchend event that a
+  // plain JS listener with zero Go involvement succeeds with every time.
+  // Something about routing through Go's wasm callback dispatch breaks the
+  // browser's "still within the original user-gesture call stack" check
+  // the Fullscreen API depends on -- calling it here, as the very first
+  // thing a real 'touchend' handler does, sidesteps that entirely.
+  //
+  // Fires once (removes itself after the first attempt, success or not)
+  // and deliberately never auto-exits fullscreen: the address bar is dead
+  // space in every state this app has, not just while the IME is open, so
+  // staying immersive for the rest of the session is what's wanted -- the
+  // user can still leave fullscreen via the OS's own affordance at any
+  // time.
+  function installFullscreenOnFirstTap() {
+    function tryFullscreen() {
+      document.removeEventListener('touchend', tryFullscreen, true);
+      document.removeEventListener('click', tryFullscreen, true);
+      if (document.fullscreenElement) return;
+      var root = document.documentElement;
+      var req = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!req) return;
+      var p = req.call(root);
+      if (p && p.catch) {
+        p.catch(function (err) {
+          console.log('[fullscreen] request rejected: ' + err);
+        });
+      }
+    }
+    document.addEventListener('touchend', tryFullscreen, true);
+    document.addEventListener('click', tryFullscreen, true);
+  }
+
   const go = new Go();
   WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
     go.run(result.instance);
     installViewportFollow();
+    installFullscreenOnFirstTap();
   });
 </script>
 </body>
