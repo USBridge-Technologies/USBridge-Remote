@@ -39,12 +39,13 @@ func main() {
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
-	// TEMP: disabled -- suspected of crashing the wasm runtime on a real
-	// device (uncaught panic inside a js.FuncOf callback kills the whole
-	// module) or of claiming touches app-wide instead of only within the
-	// video widget, either of which would explain "nothing on screen is
-	// clickable" after this landed. Re-enable once root-caused.
-	// gui.InitTouchGestureBridge()
+	// Re-enabled: every js.FuncOf callback in the touch bridge
+	// (video_gestures_wasm.go) now defers recoverTouchPanic, so a panic
+	// inside a touch handler can no longer take down the whole wasm
+	// runtime the way it's suspected to have caused "nothing on screen is
+	// clickable" after this first landed -- see recoverTouchPanic's doc
+	// comment for the failure mode this guards against.
+	gui.InitTouchGestureBridge()
 	mainWindow.Show()
 }
 

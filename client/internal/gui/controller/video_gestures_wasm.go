@@ -32,7 +32,25 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/mobile"
+	"github.com/sirupsen/logrus"
 )
+
+// recoverTouchPanic must be deferred at the top of every js.FuncOf callback
+// in this file. An unrecovered panic inside a js.FuncOf callback is fatal
+// to the *entire* wasm program, not just that one call -- Go's wasm runtime
+// has no isolation between the goroutine a JS callback runs on and the rest
+// of the program, so a single bad touch event anywhere (a nil pointer off
+// a widget that isn't laid out yet, a stale wrapper mid-teardown, etc.)
+// silently kills every future callback, including totally unrelated ones
+// (button clicks, taps on other screens) -- this is suspected to be exactly
+// what caused "nothing on screen is clickable after reload": one panic in a
+// touch handler, and the whole module went dark with no error visible to
+// the user. Recovering here trades a crashed app for a dropped gesture.
+func recoverTouchPanic(where string) {
+	if r := recover(); r != nil {
+		logrus.Errorf("🖐️ recovered panic in %s (touch bridge would otherwise have crashed the wasm runtime): %v", where, r)
+	}
+}
 
 // webTouchState tracks the handful of values needed to turn a raw
 // touchstart/touchmove/touchend sequence into the same
@@ -70,6 +88,7 @@ func InitTouchGestureBridge() {
 		// (fyne-io/glfw-js's CreateWindow) -- if this runs before that,
 		// retry shortly rather than silently never attaching at all.
 		js.Global().Call("setTimeout", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			defer recoverTouchPanic("InitTouchGestureBridge retry")
 			InitTouchGestureBridge()
 			return nil
 		}), 200)
@@ -131,6 +150,7 @@ func touchStartsInsideWrapper(vw *VideoWidget, pageX, pageY float32) bool {
 }
 
 func onTouchStart(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onTouchStart")
 	event := args[0]
 	touches := event.Get("touches")
 	count := touches.Length()
@@ -194,6 +214,7 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 }
 
 func onTouchMove(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onTouchMove")
 	event := args[0]
 	touches := event.Get("touches")
 	count := touches.Length()
@@ -288,6 +309,7 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 }
 
 func onTouchEnd(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onTouchEnd")
 	event := args[0]
 	remaining := event.Get("touches").Length()
 
