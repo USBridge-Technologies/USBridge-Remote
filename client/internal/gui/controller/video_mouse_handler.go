@@ -1134,12 +1134,29 @@ func (vw *VideoWidget) sendVirtualCursorToHost() {
 	hostU = clampFloat(hostU, 0, 1)
 	hostV = clampFloat(hostV, 0, 1)
 
-	absX := int(math.Round(float64(hostU * 32767)))
-	absY := int(math.Round(float64(hostV * 32767)))
+	absX := int16(math.Round(float64(hostU * 32767)))
+	absY := int16(math.Round(float64(hostV * 32767)))
 	mi := vw.moonlightInput()
 	if mi != nil && mi.IsInputActive() {
-		mi.SendMoonlightMousePosition(int16(absX), int16(absY), 32767, 32767)
 		vw.lastVirtualCursorSentTime = time.Now()
+		// Off the calling (Fyne UI/touch-handler) goroutine, same reason
+		// every other mouse send already goes through enqueueSend: this
+		// was previously a direct, synchronous call right here, blocking
+		// whatever touchmove callback invoked it (handleVirtualCursorMove
+		// calls this, then rate-limits to at most once per 8ms) for
+		// however long the underlying send takes -- a WebRTC DataChannel
+		// send under wasm, an ENet reliable send elsewhere. Since the same
+		// call also drives updateNativeViewportAndCursor()'s local visual
+		// cursor/viewport update just before this in
+		// handleVirtualCursorMove, any latency here directly stalled the
+		// on-screen cursor too, reading as "the local cursor waits for
+		// network round-trips" instead of moving with the finger
+		// immediately. Decoupling the network send from the local visual
+		// update is what actually fixes that: the UI updates instantly
+		// off vw.virtualCursorU/V regardless of how the send is queued.
+		vw.enqueueSend(func() {
+			mi.SendMoonlightMousePosition(absX, absY, 32767, 32767)
+		})
 	} else {
 		connected := vw.videoClient != nil && vw.videoClient.IsConnected()
 		logrus.Warnf("🖱️ [VC] DROPPED send: mi_nil=%v input_active=%v client_nil=%v client_connected=%v",
