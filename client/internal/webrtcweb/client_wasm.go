@@ -26,10 +26,17 @@ import (
 	"time"
 )
 
-// WebRTCClient drives a browser RTCPeerConnection against the agent's
-// /api/webrtc/offer signaling endpoint. One instance per session.
+// WebRTCClient drives a browser RTCPeerConnection against rustshine's own
+// native WebRTC signaling endpoint (POST /webrtc/offer, on rustshine's own
+// port -- see ConnectToMoonlight's doc comment), NOT the agent's /api/*
+// surface. One instance per session.
 type WebRTCClient struct {
-	baseURL   string
+	baseURL string
+	// masterKey/signHMAC are currently unused: rustshine's signaling
+	// endpoint doesn't authenticate requests at all yet (see
+	// postOffer's doc comment) -- kept in case that changes, rather than
+	// ripping out working HMAC plumbing that's identical to every other
+	// platform's /api/* auth.
 	masterKey string
 
 	pc      *js.Value
@@ -268,26 +275,39 @@ func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) error {
 	}
 }
 
-// postOffer signs and POSTs the SDP offer to the agent's
-// /api/webrtc/offer, exactly like the desktop client signs any other
-// /api/* call (see client/docs/api_endpoints.md) — reuses the browser's
-// fetch() rather than net/http, since GOOS=js has no real network stack of
-// its own to run net/http's transport over.
+// postOffer POSTs the SDP offer straight to rustshine's own native WebRTC
+// signaling endpoint (crates/webrtc-video/src/signaling.rs's
+// POST /webrtc/offer) — NOT the agent's /api/* surface: rustshine's
+// webrtc-video crate is a separate, additional server surface alongside
+// its classic Sunshine/GameStream-compatible protocol, reachable directly
+// on its own port (c.baseURL already points there, see
+// WebRTCVideoClient.ConnectToMoonlight's doc comment on how that base URL
+// is built), not proxied through the agent's HMAC-signed /api/* scheme at
+// all. Reuses the browser's fetch() rather than net/http, since GOOS=js
+// has no real network stack of its own to run net/http's transport over.
+//
+// Deliberately NOT signHMAC'd (unlike every /api/* call the desktop client
+// makes) -- rustshine's signaling endpoint doesn't check for or expect
+// that scheme; it authenticates nothing yet (tracked as a known gap, see
+// this crate's own doc comments). The request/response shapes here match
+// rustshine's actual wire format exactly: {"sdp": "..."} in both
+// directions, no success/error envelope -- a prior version of this file
+// assumed the agent's own envelope shape ({"success", "error", "data":
+// {"sdp"}}), which silently failed against rustshine's flat response
+// (parsed.Success stayed false, masking a perfectly good SDP answer as a
+// rejected offer) once the client was pointed at rustshine directly.
 func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
+	_ = sessionID // rustshine's endpoint doesn't take a session id -- one PeerConnection per POST, matching its own signaling.rs
 	reqBody, err := json.Marshal(map[string]string{
-		"session_id": sessionID,
-		"sdp":        offerSDP,
+		"sdp": offerSDP,
 	})
 	if err != nil {
 		return "", err
 	}
-	path := "/api/webrtc/offer"
-	ts, sig := c.signHMAC("POST", path, string(reqBody))
+	path := "/webrtc/offer"
 
 	headers := js.Global().Get("Object").New()
 	headers.Set("Content-Type", "application/json")
-	headers.Set("X-Auth-Timestamp", ts)
-	headers.Set("X-Auth-Signature", sig)
 
 	opts := js.Global().Get("Object").New()
 	opts.Set("method", "POST")
@@ -297,31 +317,27 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	fetchPromise := js.Global().Call("fetch", c.baseURL+path, opts)
 	respVal, err := awaitPromise(fetchPromise)
 	if err != nil {
-		return "", fmt.Errorf("webrtc: fetch /api/webrtc/offer: %w", err)
-	}
-	if !respVal.Get("ok").Bool() {
-		return "", fmt.Errorf("webrtc: agent returned HTTP %d", respVal.Get("status").Int())
+		return "", fmt.Errorf("webrtc: fetch /webrtc/offer: %w", err)
 	}
 	textPromise := respVal.Call("text")
 	textVal, err := awaitPromise(textPromise)
 	if err != nil {
 		return "", fmt.Errorf("webrtc: reading response body: %w", err)
 	}
+	if !respVal.Get("ok").Bool() {
+		return "", fmt.Errorf("webrtc: rustshine returned HTTP %d: %s", respVal.Get("status").Int(), textVal.String())
+	}
 
 	var parsed struct {
-		Success bool   `json:"success"`
-		Error   string `json:"error"`
-		Data    struct {
-			SDP string `json:"sdp"`
-		} `json:"data"`
+		SDP string `json:"sdp"`
 	}
 	if err := json.Unmarshal([]byte(textVal.String()), &parsed); err != nil {
-		return "", fmt.Errorf("webrtc: decoding agent response: %w", err)
+		return "", fmt.Errorf("webrtc: decoding rustshine response: %w", err)
 	}
-	if !parsed.Success {
-		return "", fmt.Errorf("webrtc: agent rejected offer: %s", parsed.Error)
+	if parsed.SDP == "" {
+		return "", fmt.Errorf("webrtc: rustshine response had no sdp")
 	}
-	return parsed.Data.SDP, nil
+	return parsed.SDP, nil
 }
 
 // StartFrameCapture begins pulling decoded video frames off the hidden

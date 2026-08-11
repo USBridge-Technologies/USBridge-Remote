@@ -91,15 +91,28 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
 	}
-	if secret == "" {
-		return fmt.Errorf("webrtc video: no API secret set")
-	}
+	// secret is NOT required here (unlike every other /api/* call this
+	// client makes elsewhere) -- rustshine's own native WebRTC signaling
+	// endpoint doesn't authenticate requests at all yet, see
+	// webrtcweb.WebRTCClient's doc comment on masterKey/signHMAC being
+	// unused for that reason. Still passed through below so
+	// webrtcweb.NewWebRTCClient's signature doesn't need to special-case
+	// an empty string, and so it's a one-line change to wire real auth in
+	// later.
 
-	port := 8080
-	if c.config != nil && c.config.USBPort > 0 {
-		port = c.config.USBPort
-	}
-	baseURL := "http://" + host + ":" + strconv.Itoa(port)
+	// rustshine's own --webrtc-port default -- a genuinely separate port
+	// from the agent's REST API (c.config.USBPort), since this hits
+	// rustshine's webrtc-video crate directly, not a route on the agent
+	// (there is no such route: an earlier version of this code posted to
+	// the agent's own now-removed /api/webrtc/offer, which silently
+	// worked only because a stale agent build still had that Go bridge
+	// compiled in -- see webrtcweb.WebRTCClient.postOffer's doc comment
+	// for the full story). Not yet configurable from the UI/QR payload;
+	// tracked as a follow-up once rustshine's webrtc port becomes
+	// something the agent reports rather than a fixed default both sides
+	// happen to agree on.
+	const rustshineWebRTCPort = 8443
+	baseURL := "http://" + host + ":" + strconv.Itoa(rustshineWebRTCPort)
 
 	client := webrtcweb.NewWebRTCClient(baseURL, secret)
 	sessionID := uuid.NewString()
