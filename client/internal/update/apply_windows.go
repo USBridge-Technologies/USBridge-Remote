@@ -38,8 +38,25 @@ func apply(ctx context.Context, artifactPath, version string) error {
 	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
 		exePath = resolved
 	}
-	installDir := filepath.Dir(exePath)
-	exeName := filepath.Base(exePath)
+	exeDir := filepath.Dir(exePath)
+
+	// build_windows.sh places the exe (+ DLLs) in a "bin" subfolder of the
+	// portable install root, while the release zip mirrors that whole root
+	// (bin/, README.txt, config.yaml, the .lnk shortcut — see
+	// DIST_WIN/DIST_WIN_BIN there). If the update were extracted straight
+	// into exeDir (== .../bin), it would land one level too deep
+	// (.../bin/bin/...) and the exe actually being run would never get
+	// overwritten — the update would silently no-op on relaunch. Install
+	// into the parent of "bin" instead, so the staging dir's layout lines
+	// up with the zip's.
+	installDir := exeDir
+	if filepath.Base(exeDir) == "bin" {
+		installDir = filepath.Dir(exeDir)
+	}
+	exeName, err := filepath.Rel(installDir, exePath)
+	if err != nil {
+		exeName = filepath.Base(exePath)
+	}
 
 	stagingDir, err := os.MkdirTemp("", "usbridge-client-update-*")
 	if err != nil {
