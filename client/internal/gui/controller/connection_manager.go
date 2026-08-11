@@ -498,6 +498,13 @@ func (cm *ConnectionManager) HeaderAccessory() fyne.CanvasObject {
 	if cm == nil || cm.ui == nil {
 		return nil
 	}
+	if runtime.GOOS == "js" {
+		// No embedded tsnet in a browser tab (tailscale_service_wasm.go is
+		// a stub) -- the "Sign In With Google" Tailscale toggle has nothing
+		// to do here, so don't show it at all rather than show a button
+		// that can't function.
+		return nil
+	}
 	return cm.ui.HeaderAccessory()
 }
 

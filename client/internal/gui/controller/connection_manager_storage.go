@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/storage"
@@ -84,7 +85,20 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 			if masterKey != "" {
 				cm.connections[i].MasterKey = masterKey
 			}
-			cm.connections[i].Protocol = normalizeConnectionProtocol("tailscale")
+			// Record the discovered Tailscale address as an *option* on this
+			// connection, but don't silently flip the active protocol to it.
+			// On native builds this used to always switch to "tailscale"
+			// the moment the agent reported one, even for a connection the
+			// user picked/entered as plain LAN -- surprising on its own,
+			// and actively broken in the browser build (runtime.GOOS=="js"
+			// has no embedded tsnet, see tailscale_service_wasm.go: a
+			// browser tab can only ever reach a Tailscale IP the same way
+			// it reaches a LAN IP, via a plain fetch() -- which only works
+			// if the phone/desktop the browser itself is running on is
+			// separately on that tailnet, something this code has no way
+			// to know). Leave whatever protocol was already selected
+			// alone; the user can still explicitly switch to "TS" from the
+			// dropdown now that the address is known.
 			cm.connections[i].TailscaleRegister = false
 			cm.connections[i].Host = fallbackText(cm.connections[i].TailscaleHost, cm.connections[i].InternalHost)
 			cm.saveConnections()
@@ -96,9 +110,14 @@ func (cm *ConnectionManager) RememberResolvedTailscaleHost(currentHost, internal
 		}
 	}
 
+	// No existing row matched -- this is a brand-new connection. Default it
+	// to Auto (prefers the LAN address when present, same as every other
+	// freshly-added connection) rather than hard-forcing "tailscale": for
+	// the reasons above, an auto-selected Tailscale protocol isn't safe to
+	// assume works, especially in the browser build.
 	logrus.Warnf("⚠️ [TS] No matching connection found for currentHost=%q; saving as NEW connection", currentHost)
-	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, "tailscale", false)
-	logrus.Infof("Saved new tailscale connection %q with host=%s", name, tailscaleHost)
+	name := cm.SaveConnection("", internalHost, tailscaleHost, masterKey, models.ConnectionProtocolAuto, false)
+	logrus.Infof("Saved new connection %q with resolved tailscale host=%s", name, tailscaleHost)
 }
 
 // UpdateConnectionOS updates the RemoteOS field for a saved connection by host.

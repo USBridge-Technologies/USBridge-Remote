@@ -157,7 +157,25 @@
   // staying immersive for the rest of the session is what's wanted -- the
   // user can still leave fullscreen via the OS's own affordance at any
   // time.
+  // Mobile-only gate: desktop browsers (mouse/keyboard, Windows/macOS/Linux)
+  // must NEVER be auto-fullscreened -- there's no address-bar-eats-the-video
+  // problem to solve there (desktop windows aren't viewport-constrained the
+  // way a phone's browser chrome is), and silently yanking a desktop user's
+  // whole browser into fullscreen on their first click would be a jarring,
+  // unwanted surprise, not a fix. iPadOS reports navigator.platform as
+  // "MacIntel" (Apple's own long-standing UA-spoofing quirk for iPad Safari)
+  // so it's told apart from real Macs via maxTouchPoints > 1, the same
+  // heuristic Apple's own docs recommend for this exact ambiguity.
+  function isMobilePlatform() {
+    var ua = navigator.userAgent || '';
+    if (/Android/i.test(ua)) return true;
+    if (/iPhone|iPod|iPad/i.test(ua)) return true;
+    if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true; // iPadOS
+    return false;
+  }
+
   function installFullscreenOnFirstTap() {
+    if (!isMobilePlatform()) return;
     function tryFullscreen() {
       document.removeEventListener('touchend', tryFullscreen, true);
       document.removeEventListener('click', tryFullscreen, true);
