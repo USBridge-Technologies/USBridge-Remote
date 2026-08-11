@@ -61,6 +61,7 @@ type App struct {
 	server    *http.Server
 	tsHTTP    *http.Server
 	handler   http.Handler
+	apiServer *api.Server
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
 	adminSrv  *adminapi.Server
@@ -277,7 +278,9 @@ func New() (*App, error) {
 	instance.screen = capture.New(instance.stream)
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
-	handler := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort).Routes()
+	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
+	instance.apiServer = apiServer
+	handler := apiServer.Routes()
 	instance.handler = handler
 	instance.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.EffectiveListenHost(), cfg.HTTPPort),
@@ -670,6 +673,34 @@ func (a *App) RegenerateMasterKey() (config.Config, error) {
 	next.MasterKey = key
 	if err := a.SaveConfig(next); err != nil {
 		return a.cfg, fmt.Errorf("save config: %w", err)
+	}
+	// Apply to the already-running HTTP server too — without this, the new
+	// key only takes effect after a manual restart (SecurityMiddleware and
+	// the Sync/AES-GCM handler both keep verifying against whatever key was
+	// baked in at process start), even though config.yaml and a.cfg already
+	// hold the new one.
+	if a.apiServer != nil {
+		a.apiServer.SetMasterKey([]byte(key))
+	}
+	// A regenerated master key is meant to revoke access wholesale, but
+	// Sunshine's Moonlight pairing is its own cert-based handshake that the
+	// master key never governed — a client paired under the old key would
+	// otherwise keep streaming right through the rotation. Best-effort and
+	// non-fatal: the key has already been rotated above regardless of
+	// whether any of this succeeds.
+	if clients, err := a.ListSunshineClients(); err == nil {
+		for _, c := range clients {
+			_ = a.UnpairSunshineClient(c.UniqueID)
+		}
+	}
+	// Unpairing alone only stops *future* pairing/reconnect attempts — a
+	// session that was already streaming keeps going, since Sunshine
+	// doesn't re-check its authorized-client list against connections it
+	// already accepted. Restarting the stream host is what actually drops
+	// those live sessions, so the key rotation above can't be quietly
+	// undermined by a session that predates it.
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] failed to restart stream host after master key regeneration: %v", err)
 	}
 	return a.cfg, nil
 }

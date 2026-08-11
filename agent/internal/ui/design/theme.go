@@ -22,6 +22,24 @@ var (
 	ColorShadow          = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x38}
 	ColorHover           = color.NRGBA{R: 0x53, G: 0x53, B: 0x53, A: 0xFF}
 	ColorError           = color.NRGBA{R: 0xFF, G: 0x4B, B: 0x4B, A: 0xFF}
+
+	// ColorHoverOverlay is what ColorNameHover actually resolves to for
+	// stock widget.Button — Fyne blends it over the button's own background
+	// with the "over" operator (see fyne's widget/button.go
+	// buttonRenderer.applyTheme/blendColor), so it must stay translucent.
+	// ColorHover above is fully opaque and is only safe as a hover fill for
+	// widgets that set it directly as their background (e.g.
+	// iconActionButtonRenderer) rather than blending it over an existing
+	// color — reusing ColorHover here would flatten every hovered button
+	// (including colored ones like supportButton/HighImportance) to solid
+	// gray, masking its real color entirely.
+	ColorHoverOverlay = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x1A}
+
+	// ColorBrandAccent/ColorBrandAccentHover back the supportButton widget
+	// (agent/internal/ui.newSupportButton) — brand green #bafc81, black
+	// text, a touch lighter on hover.
+	ColorBrandAccent      = color.NRGBA{R: 0xBA, G: 0xFC, B: 0x81, A: 0xFF}
+	ColorBrandAccentHover = color.NRGBA{R: 0xC7, G: 0xFD, B: 0x9B, A: 0xFF}
 )
 
 const RadiusMD float32 = 6
@@ -51,7 +69,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNameHeaderBackground:
 		return ColorPanel
 	case fynetheme.ColorNameHover:
-		return ColorHover
+		return ColorHoverOverlay
 	case fynetheme.ColorNameInputBackground:
 		return ColorInputBackground
 	case fynetheme.ColorNameInputBorder:

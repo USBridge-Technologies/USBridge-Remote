@@ -69,11 +69,15 @@ type Application interface {
 }
 
 type Server struct {
-	app            Application
-	upgrader       websocket.Upgrader
-	masterKey      []byte
-	sunshinePort   int
-	sec            *SecurityMiddleware
+	app      Application
+	upgrader websocket.Upgrader
+
+	// keyMu guards masterKey — see SetMasterKey.
+	keyMu        sync.RWMutex
+	masterKey    []byte
+	sunshinePort int
+	sec          *SecurityMiddleware
+
 	clipboardBlobs *clipboardBlobStore
 }
 
@@ -98,6 +102,24 @@ func NewServerWithAuth(app Application, masterKey []byte, sunshinePort int) *Ser
 		sec:            NewSecurityMiddleware(masterKey),
 		clipboardBlobs: newClipboardBlobStore(),
 	}
+}
+
+// SetMasterKey swaps in a freshly rotated master key on an already-running
+// server (both the HMAC/AES-GCM secret used directly by handlers like Sync,
+// and the copy SecurityMiddleware verifies incoming requests against) — so a
+// regenerated key takes effect immediately instead of requiring an agent
+// restart to reload it from disk.
+func (s *Server) SetMasterKey(key []byte) {
+	s.keyMu.Lock()
+	s.masterKey = key
+	s.keyMu.Unlock()
+	s.sec.SetMasterKey(key)
+}
+
+func (s *Server) currentMasterKey() []byte {
+	s.keyMu.RLock()
+	defer s.keyMu.RUnlock()
+	return s.masterKey
 }
 
 func (s *Server) Routes() http.Handler {
