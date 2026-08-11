@@ -110,3 +110,45 @@ func (vw *VideoWidget) platformShowVirtualKeyboardIfMobile() {
 		vw.platformHandleVirtualKeyboard()
 	}
 }
+
+// syncKeyboardWindowContent is a self-healing invariant check, called every
+// tick from video_gestures_wasm.go's existing 150ms overlay-sync loop
+// (alongside syncTouchOverlay/syncCursorDot): "panel visible => window
+// shows vw.container", "panel hidden => window shows whatever it showed
+// before". platformHandleVirtualKeyboard already applies this immediately
+// on the explicit toggle tap; this is the fallback for every other way the
+// invariant could go stale -- e.g. anything elsewhere in the app calling
+// window.SetContent() while the panel happens to be open (main_window_
+// lifecycle.go's showMainContent/showConnectionManager are the only other
+// callers today, but this makes the panel's own layout correct regardless
+// of whether some future caller does too), or the keyboard's visibility
+// changing through a path other than platformHandleVirtualKeyboard.
+// Comparing against the exact vw.container/webKeyboardOriginalContent
+// reference (not just the boolean) is what makes this self-healing rather
+// than just re-trusting the same bookkeeping that could itself have gone
+// stale.
+func syncKeyboardWindowContent(vw *VideoWidget) {
+	if vw == nil || vw.parentWindow == nil || vw.virtualKeyboard == nil || vw.container == nil {
+		return
+	}
+	open := vw.virtualKeyboard.IsVisible()
+	current := vw.parentWindow.Content()
+
+	if open {
+		if current != vw.container {
+			if !webKeyboardContentSwapped || webKeyboardOriginalContent == nil {
+				webKeyboardOriginalContent = current
+			}
+			vw.parentWindow.SetContent(vw.container)
+			webKeyboardContentSwapped = true
+			vw.RefreshViewportGeometry()
+		}
+		return
+	}
+
+	if webKeyboardContentSwapped && webKeyboardOriginalContent != nil && current == vw.container {
+		vw.parentWindow.SetContent(webKeyboardOriginalContent)
+		webKeyboardContentSwapped = false
+		webKeyboardOriginalContent = nil
+	}
+}
