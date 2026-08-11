@@ -152,8 +152,24 @@ func (b *sunshineBackend) binaryPath() string {
 		if info, err := os.Stat(inBin); err == nil && !info.IsDir() {
 			return inBin
 		}
-		// Fall back to system PATH.
+		// A previously-staged runtime copy (see stageSunshineRuntime) is still
+		// our own bundled build, just relocated out of a read-only AppImage
+		// mount — prefer it over anything on system PATH. This also covers
+		// dev/test runs of the agent binary launched from outside its normal
+		// install tree (e.g. /tmp), where neither check above finds anything,
+		// but a real bundled binary was staged here by an earlier run.
+		if b.stateDir != "" {
+			staged := filepath.Join(b.stateDir, "sunshine-runtime", "usr", "bin", "sunshine")
+			if info, err := os.Stat(staged); err == nil && !info.IsDir() {
+				return staged
+			}
+		}
+		// Last resort: a system-installed sunshine (e.g. an apt/distro
+		// package). This is NOT built from our fork — it will have upstream
+		// defaults (tray icon enabled, no web_bind_address localhost patch,
+		// etc.) — so only ever reached when no bundled copy exists anywhere.
 		if path, err := exec.LookPath("sunshine"); err == nil {
+			log.Printf("[sunshine] WARNING: no bundled Sunshine found near %s or in staged runtime; falling back to system PATH: %s (this is NOT our fork's build and may misbehave, e.g. show a tray icon)", exeDir, path)
 			return path
 		}
 		return ""
