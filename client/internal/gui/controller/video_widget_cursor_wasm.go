@@ -37,8 +37,10 @@ const cursorPointerSVGDataURI = "data:image/svg+xml;utf8," +
 	"fill='%2393c572' stroke='%23000000' stroke-width='1.5' " +
 	"stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E"
 
-const cursorDotWidthPx = 18 * 2
-const cursorDotHeightPx = 24 * 2
+// 0.8x scale (down from an earlier 2x that looked oversized on a real
+// phone) -- 2.5x smaller than that first attempt.
+const cursorDotWidthPx = 14
+const cursorDotHeightPx = 19
 
 // updateNativeViewportAndCursor re-centers the viewport on the virtual
 // cursor (when in cursor/gyro mode) and refreshes the on-screen dot -- the
@@ -112,6 +114,17 @@ func ensureCursorDot() {
 	el.Set("id", "usbridge-virtual-cursor")
 	style := el.Get("style")
 	style.Set("position", "fixed")
+	// left/top stay at 0 permanently; all movement happens via `transform`
+	// below. Unlike left/top (which trigger layout on every update),
+	// transform is compositor-only -- the browser can animate it smoothly
+	// on the GPU, same as Android's Vulkan renderer moving the cursor
+	// quad every frame. Combined with the short transition below, this is
+	// what actually fixes the jerkiness: syncCursorDot only runs on
+	// discrete events (touchmove callbacks, a 150ms poll tick), but the
+	// transition interpolates the visual position smoothly between them
+	// instead of snapping.
+	style.Set("left", "0px")
+	style.Set("top", "0px")
 	style.Set("width", strconv.Itoa(cursorDotWidthPx)+"px")
 	style.Set("height", strconv.Itoa(cursorDotHeightPx)+"px")
 	style.Set("backgroundImage", "url(\""+cursorPointerSVGDataURI+"\")")
@@ -121,6 +134,8 @@ func ensureCursorDot() {
 	style.Set("pointerEvents", "none")
 	style.Set("zIndex", "11")
 	style.Set("display", "none")
+	style.Set("willChange", "transform")
+	style.Set("transition", "transform 60ms linear")
 	body.Call("appendChild", el)
 	cursorDotEl = el
 }
@@ -160,7 +175,6 @@ func syncCursorDot(vw *VideoWidget) {
 	localY := vw.contentRectY + v*vw.contentRectH
 
 	abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(wrapper)
-	style.Set("left", pxf(abs.X+localX))
-	style.Set("top", pxf(abs.Y+localY))
+	style.Set("transform", "translate("+pxf(abs.X+localX)+","+pxf(abs.Y+localY)+")")
 	style.Set("display", "block")
 }
