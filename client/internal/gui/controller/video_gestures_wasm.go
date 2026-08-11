@@ -136,9 +136,25 @@ func wrapperLocalPos(vw *VideoWidget, pageX, pageY float32) (fyne.Position, bool
 // target -- confirmed live: after adding the raw touch bridge, tapping the
 // Connect button (well outside any video widget, since no session was
 // even active yet) stopped working entirely.
+//
+// The size/position bounds check alone is NOT enough: Fyne lays out the
+// video tab's content (including touchpadWrapper) even while that tab is
+// hidden behind the connection manager, so the wrapper can carry a stale
+// nonzero size/position from a previous layout pass that happens to cover
+// the exact same screen region the connection manager is now drawn in --
+// confirmed live: after adding this bridge, the wrapper's cached rect
+// matched the full window, so *every* tap anywhere (including on the
+// connection manager, before any session ever started) was wrongly judged
+// "inside video" and swallowed via preventDefault. Requiring an actually
+// live, visible session closes that hole: only claim a touch once there is
+// a real stream to receive it, exactly matching where a native video
+// overlay would be the only thing physically present to touch.
 func touchStartsInsideWrapper(vw *VideoWidget, pageX, pageY float32) bool {
+	if !vw.IsStreaming() {
+		return false
+	}
 	wrapper := vw.activeViewportWrapper()
-	if wrapper == nil {
+	if wrapper == nil || !wrapper.Visible() {
 		return false
 	}
 	size := wrapper.Size()
