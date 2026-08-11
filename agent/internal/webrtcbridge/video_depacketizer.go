@@ -81,17 +81,25 @@ func (d *moonlightVideoDepacketizer) pushPacket(payload []byte) {
 		d.frameBuf = d.frameBuf[:0]
 		d.inFrame = true
 
-		if len(rest) == 0 {
+		// Instead of trusting VideoDepacketizer.c's marker-byte-selected
+		// frameHeaderSize table (8 vs 24/41/44 bytes depending on exact
+		// Sunshine APP_VERSION bracket): search for the real Annex-B start
+		// code directly. Confirmed live against this agent's actual
+		// Sunshine build (a fork, "itsme228/Sunshine" -- see
+		// sunshine_backend.go) that the marker-byte table's assumptions
+		// don't hold (logged "unexpected marker byte" on nearly every
+		// packet, meaning the guessed header size was wrong far too often
+		// to be a version-bracket edge case) -- searching for the actual
+		// 00 00 00 01 / 00 00 01 prefix is what every Annex-B-aware
+		// decoder does anyway when parsing frame headers of unknown/
+		// variable length, and doesn't depend on correctly guessing which
+		// Sunshine build's exact header layout applies.
+		offset, found := findAnnexBStartCode(rest)
+		if !found {
 			d.inFrame = false
 			return
 		}
-		frameHeaderSize := moonlightFrameHeaderSize(rest[0])
-		if len(rest) < frameHeaderSize {
-			// Malformed/truncated -- drop this frame attempt.
-			d.inFrame = false
-			return
-		}
-		rest = rest[frameHeaderSize:]
+		rest = rest[offset:]
 	}
 
 	if !d.inFrame {
@@ -113,24 +121,26 @@ func (d *moonlightVideoDepacketizer) pushPacket(payload []byte) {
 	}
 }
 
-// moonlightFrameHeaderSize mirrors VideoDepacketizer.c's frameHeaderSize
-// selection for Sunshine's protocol version range this package targets
-// (see moonlightclient's own doc comments -- APP_VERSION [7.1.415,
-// 7.1.446), matching the "amir-pc" Sunshine build's reported
-// appversion 7.1.431 seen in serverinfo during development): the first
-// byte of the post-NV_VIDEO_PACKET data selects between an 8-byte and a
-// 24-byte frame header. Falls back to the 8-byte size for any other value
-// on the (reasonable) assumption that a byte-for-byte frame-header format
-// change is far less likely across nearby Sunshine versions than this
-// specific two-way switch, which moonlight-common-c documents as stable
-// across a wide version range.
-func moonlightFrameHeaderSize(firstByte byte) int {
-	if firstByte == 0x01 {
-		return 8
+// findAnnexBStartCode returns the offset of the first Annex-B NAL start
+// code (00 00 01, or its more common 00 00 00 01 variant) in data, scanning
+// only the first 64 bytes -- Sunshine's per-frame header (whatever its
+// exact length, which varies by build/version, see the doc comment above)
+// is always much shorter than that in practice, so this bounds the search
+// instead of accidentally matching a start-code-shaped byte sequence deep
+// inside actual NAL payload data.
+func findAnnexBStartCode(data []byte) (offset int, found bool) {
+	limit := len(data) - 3
+	if scanLimit := 64; limit > scanLimit {
+		limit = scanLimit
 	}
-	if firstByte == 0x81 {
-		return 24
+	for i := 0; i <= limit; i++ {
+		if data[i] == 0 && data[i+1] == 0 && data[i+2] == 1 {
+			return i, true
+		}
+		if i+3 < len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1 {
+			return i, true
+		}
 	}
-	log.Printf("[webrtcbridge] unexpected video frame header marker byte 0x%02x, assuming 8-byte header", firstByte)
-	return 8
+	log.Printf("[webrtcbridge] no Annex-B start code found in first %d bytes of video frame data", limit+3)
+	return 0, false
 }
