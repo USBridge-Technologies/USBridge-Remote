@@ -99,12 +99,13 @@ func (s *Server) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(s.masterKey) == 0 {
+	masterKey := s.currentMasterKey()
+	if len(masterKey) == 0 {
 		s.fail(w, http.StatusInternalServerError, "master_key_not_configured", nil)
 		return
 	}
 
-	aesKey := deriveKey(s.masterKey)
+	aesKey := deriveKey(masterKey)
 	plaintext, err := decryptAESGCM(env.Payload, env.IV, aesKey)
 	if err != nil {
 		log.Printf("[api] sync: decrypt failed: %v", err)

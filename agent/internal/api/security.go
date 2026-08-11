@@ -79,7 +79,13 @@ type SecurityMiddleware struct {
 	pollingLimiter  *ipRateLimiter
 	authLimiter     *ipRateLimiter
 	pinLimiter      *ipRateLimiter
-	masterKey       []byte
+
+	// keyMu guards masterKey — HTTP handlers read it concurrently, and
+	// RegenerateMasterKey (server.SetMasterKey) writes it in place on an
+	// already-running server rather than requiring a process restart to
+	// pick up a freshly rotated key.
+	keyMu     sync.RWMutex
+	masterKey []byte
 }
 
 // NewSecurityMiddleware creates middleware with the given master key (raw bytes).
@@ -91,6 +97,20 @@ func NewSecurityMiddleware(masterKey []byte) *SecurityMiddleware {
 		pinLimiter:      newIPRateLimiter(rate.Limit(0.5), 3),
 		masterKey:       masterKey,
 	}
+}
+
+// SetMasterKey swaps in a freshly rotated master key so already-running
+// requests are verified against it immediately, without needing a restart.
+func (m *SecurityMiddleware) SetMasterKey(key []byte) {
+	m.keyMu.Lock()
+	m.masterKey = key
+	m.keyMu.Unlock()
+}
+
+func (m *SecurityMiddleware) currentMasterKey() []byte {
+	m.keyMu.RLock()
+	defer m.keyMu.RUnlock()
+	return m.masterKey
 }
 
 func (m *SecurityMiddleware) clientIP(r *http.Request) string {
@@ -127,8 +147,9 @@ func isSyncPath(path string) bool {
 func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, body []byte) bool {
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")
+	masterKey := m.currentMasterKey()
 
-	if sig == "" || tsStr == "" || len(m.masterKey) == 0 {
+	if sig == "" || tsStr == "" || len(masterKey) == 0 {
 		log.Printf("[security] unauthorized from %s: missing signature or master key not set", m.clientIP(r))
 		http.Error(w, "Unauthorized: signature required", http.StatusUnauthorized)
 		return false
@@ -155,7 +176,7 @@ func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	expected := CalculateHMAC(r.Method, r.URL.RequestURI(), tsStr, string(body), m.masterKey)
+	expected := CalculateHMAC(r.Method, r.URL.RequestURI(), tsStr, string(body), masterKey)
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
 		log.Printf("[security] unauthorized from %s: signature mismatch path=%s", m.clientIP(r), r.URL.Path)
 		http.Error(w, "Unauthorized: invalid signature", http.StatusUnauthorized)
@@ -173,8 +194,9 @@ func (m *SecurityMiddleware) verifyHMAC(w http.ResponseWriter, r *http.Request, 
 func (m *SecurityMiddleware) verifyHMACNoBody(w http.ResponseWriter, r *http.Request) bool {
 	sig := r.Header.Get("X-Auth-Signature")
 	tsStr := r.Header.Get("X-Auth-Timestamp")
+	masterKey := m.currentMasterKey()
 
-	if sig == "" || tsStr == "" || len(m.masterKey) == 0 {
+	if sig == "" || tsStr == "" || len(masterKey) == 0 {
 		log.Printf("[security] unauthorized from %s: missing signature or master key not set", m.clientIP(r))
 		http.Error(w, "Unauthorized: signature required", http.StatusUnauthorized)
 		return false
@@ -193,7 +215,7 @@ func (m *SecurityMiddleware) verifyHMACNoBody(w http.ResponseWriter, r *http.Req
 		return false
 	}
 
-	expected := CalculateHMAC(r.Method, r.URL.RequestURI(), tsStr, "", m.masterKey)
+	expected := CalculateHMAC(r.Method, r.URL.RequestURI(), tsStr, "", masterKey)
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
 		log.Printf("[security] unauthorized from %s: signature mismatch path=%s", m.clientIP(r), r.URL.Path)
 		http.Error(w, "Unauthorized: invalid signature", http.StatusUnauthorized)
