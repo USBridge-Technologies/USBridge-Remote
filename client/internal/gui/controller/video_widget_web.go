@@ -9,6 +9,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// webKeyboardOriginalContent/webKeyboardContentSwapped save what the window
+// was showing before the keyboard panel took it over (see
+// platformHandleVirtualKeyboard) so it can be restored exactly when the
+// panel closes. Package-level, not per-VideoWidget: same one-window
+// assumption already made by webTouch/touchOverlayEl/cursorDotEl.
+var (
+	webKeyboardOriginalContent fyne.CanvasObject
+	webKeyboardContentSwapped  bool
+)
+
 // platformHandleVirtualKeyboard shows/hides the on-screen keyboard inside
 // vw.contentContainer, bottom-docked below the video -- the same layout
 // mechanism video_widget_mobile.go's Android/iOS version uses (see its own
@@ -29,6 +39,24 @@ import (
 // events) that has nothing to do with this on-screen keyboard's own
 // visibility -- this widget is Fyne's own drawn keyboard layout, only
 // useful for the explicit "show keyboard" button tap.
+//
+// Also swaps the *window's* content to vw.container itself while the
+// panel is open: normally vw.container only occupies the Control tab's
+// slot inside AppTabs, below the tab strip and the app's own address-bar
+// widget (main_window_layout.go's mainContent = Stack(bg,
+// Border(mainAddressBar, Stack(tabsWithTheme, ...)))) -- there is no
+// native overlay under wasm (unlike Android's Vulkan SurfaceView, which
+// is a separate Activity-level View that can paint over the tab strip
+// with zero Fyne layout involvement, see video_widget_android.go's own
+// videoCanvasFrame doc comment) to make the video visually extend over
+// that chrome the way Android does. Making vw.container -- the same
+// Border(video, keyboard-at-bottom) already used for the normal in-tab
+// layout -- the window's *entire* content for as long as the panel is
+// open removes the tab strip and address-bar widget from the tree
+// entirely, so Fyne's own Border layout hands 100% of whatever height the
+// browser gives the window above the keyboard panel to the video, with
+// no coordinate math needed on our side. Restored to the original content
+// verbatim when the panel closes.
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 	if vw.virtualKeyboard == nil {
 		if vw.parentWindow == nil {
@@ -41,10 +69,21 @@ func (vw *VideoWidget) platformHandleVirtualKeyboard() {
 	if vw.virtualKeyboard.IsVisible() {
 		vw.virtualKeyboard.Hide()
 		vw.contentContainer.Hide()
+		if webKeyboardContentSwapped && webKeyboardOriginalContent != nil && vw.parentWindow != nil {
+			vw.parentWindow.SetContent(webKeyboardOriginalContent)
+			webKeyboardContentSwapped = false
+			webKeyboardOriginalContent = nil
+		}
 		vw.container.Refresh()
 		vw.forceCanvasRefresh.Store(true)
 		logrus.Info("⌨️ Virtual keyboard hidden (web mode)")
 		return
+	}
+
+	if vw.parentWindow != nil && !webKeyboardContentSwapped {
+		webKeyboardOriginalContent = vw.parentWindow.Content()
+		vw.parentWindow.SetContent(vw.container)
+		webKeyboardContentSwapped = true
 	}
 
 	keyboardLayout := vw.virtualKeyboard.GetKeyboardLayout()

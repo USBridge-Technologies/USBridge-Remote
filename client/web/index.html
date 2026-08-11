@@ -99,6 +99,17 @@
     }
     vv.addEventListener('resize', apply);
     vv.addEventListener('scroll', apply);
+    // Fallback poll: some mobile Chrome builds (confirmed on at least one
+    // real Samsung device) don't reliably fire visualViewport
+    // resize/scroll when the IME closes via certain dismiss paths (tapping
+    // outside the field rather than the keyboard's own dismiss control) --
+    // the panel/video were observed staying stuck in their "IME open"
+    // layout even after the keyboard was long gone. A cheap periodic
+    // recheck closes that gap: apply() is a no-op (bails via the
+    // shouldBeOpen===imeOpen guard) on every tick where nothing actually
+    // changed, so this doesn't fight the event-driven path, just backstops
+    // it.
+    setInterval(apply, 400);
     apply();
   }
 
