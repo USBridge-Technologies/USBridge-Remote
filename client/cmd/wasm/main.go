@@ -39,14 +39,7 @@ func main() {
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
-	// TEMP: disabled again -- two rounds of fixes (panic recovery, gating
-	// the claim on vw.IsStreaming()) still weren't enough: taps on the
-	// connection manager screen (before any video session exists) remain
-	// dead with this bridge attached, on a real device. Root cause is
-	// still open; see video_gestures_wasm.go's own notes. Re-enable once
-	// confirmed fixed against a live device via CDP console output, not
-	// just a clean build.
-	// gui.InitTouchGestureBridge()
+	gui.InitTouchGestureBridge()
 	mainWindow.Show()
 }
 

@@ -16,17 +16,31 @@
 // input message ever reached the server from a real phone browser
 // session, for taps or swipes alike.
 //
-// This file attaches its own raw touchstart/touchmove/touchend/touchcancel
-// listeners directly to the canvas element via syscall/js, entirely
-// bypassing Fyne's own event dispatch, and drives exactly the same
-// TouchpadWrapper (mobile.Touchable/fyne.Draggable) methods and
-// VideoWidget.applyViewportGesture the native platforms' own gesture
-// bridges do -- same target API, same semantics, different (and for this
-// platform, the only available) event source.
+// Earlier attempts attached these listeners directly to Fyne's shared
+// <canvas> element and filtered in Go (bounds-checking against the video
+// wrapper's on-screen rect, later also requiring vw.IsStreaming()).
+// Confirmed live, twice, on a real device: that approach kept breaking
+// ordinary taps everywhere on the page, including the connection manager
+// screen before any video session existed -- because *any* non-passive
+// touchstart listener on the same element Fyne's own click synthesis
+// depends on is enough to interfere with it, independent of whether our
+// handler actually claims (preventDefault's) the event or not, and
+// independent of whatever Go-side bug might also be at fault.
+//
+// This version instead creates its own transparent DOM overlay <div>,
+// entirely separate from the canvas, sized and positioned (via inline
+// CSS) to exactly cover the video widget's on-screen rect only while a
+// session is actually streaming -- otherwise it's 0x0 and
+// pointer-events:none. Touch listeners live on *that* element. Because
+// browsers hit-test DOM elements natively, a tap on the Connect button or
+// any other UI chrel simply never reaches this element at all: there is
+// no Go-side filtering left to get wrong, and the canvas itself never has
+// a competing listener on it.
 package controller
 
 import (
 	"math"
+	"strconv"
 	"syscall/js"
 	"time"
 
@@ -42,13 +56,11 @@ import (
 // of the program, so a single bad touch event anywhere (a nil pointer off
 // a widget that isn't laid out yet, a stale wrapper mid-teardown, etc.)
 // silently kills every future callback, including totally unrelated ones
-// (button clicks, taps on other screens) -- this is suspected to be exactly
-// what caused "nothing on screen is clickable after reload": one panic in a
-// touch handler, and the whole module went dark with no error visible to
-// the user. Recovering here trades a crashed app for a dropped gesture.
+// (button clicks, taps on other screens). Recovering here trades a crashed
+// app for a dropped gesture.
 func recoverTouchPanic(where string) {
 	if r := recover(); r != nil {
-		logrus.Errorf("🖐️ recovered panic in %s (touch bridge would otherwise have crashed the wasm runtime): %v", where, r)
+		logrus.Errorf("🖐️ recovered panic in %s: %v", where, r)
 	}
 }
 
@@ -57,36 +69,34 @@ func recoverTouchPanic(where string) {
 // TouchDown/Dragged/TouchUp (single finger) or
 // applyViewportGesture/scroll (two fingers) calls the native gesture
 // bridges make. Package-level, not per-VideoWidget: there's only one
-// live touch surface in a wasm build (a single browser tab/canvas), same
+// live touch surface in a wasm build (a single browser tab/overlay), same
 // assumption activeMobileGestureTarget already makes.
 var webTouch struct {
-	// Single-finger drag tracking (browser touch identifier -> last
-	// position), mirroring what TouchDown/Dragged need to compute deltas
-	// between consecutive move events -- Fyne's own DragEvent carries a
-	// delta, not an absolute position, unlike TouchEvent.
 	activeID  int
 	haveTouch bool
 	lastX     float32
 	lastY     float32
 
-	// Two-finger pinch/pan tracking, mirroring the Android/iOS native
-	// recognizers' own running state between gesture update callbacks.
 	twoFinger bool
 	prevDist  float32
 	prevMidX  float32
 	prevMidY  float32
 }
 
-// InitTouchGestureBridge attaches the real DOM touch listeners. Called
-// once at wasm startup (see cmd/wasm/main.go), same convention as
+// touchOverlayEl is the lazily-created transparent <div> touch listeners
+// are attached to -- see this file's top doc comment for why it exists
+// instead of listening on Fyne's own canvas.
+var touchOverlayEl js.Value
+
+// InitTouchGestureBridge creates the touch overlay div, attaches listeners
+// to it, and starts the geometry-sync loop that keeps it positioned over
+// the video widget (and only over the video widget) while streaming.
+// Called once at wasm startup (see cmd/wasm/main.go), same convention as
 // InitIMEBridge.
 func InitTouchGestureBridge() {
 	doc := js.Global().Get("document")
-	canvasEl := doc.Call("querySelector", "canvas")
-	if canvasEl.IsNull() || canvasEl.IsUndefined() {
-		// Fyne creates its single canvas element lazily on window creation
-		// (fyne-io/glfw-js's CreateWindow) -- if this runs before that,
-		// retry shortly rather than silently never attaching at all.
+	body := doc.Get("body")
+	if body.IsNull() || body.IsUndefined() {
 		js.Global().Call("setTimeout", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 			defer recoverTouchPanic("InitTouchGestureBridge retry")
 			InitTouchGestureBridge()
@@ -95,18 +105,82 @@ func InitTouchGestureBridge() {
 		return
 	}
 
-	canvasEl.Call("addEventListener", "touchstart", js.FuncOf(onTouchStart), map[string]interface{}{"passive": false})
-	canvasEl.Call("addEventListener", "touchmove", js.FuncOf(onTouchMove), map[string]interface{}{"passive": false})
-	canvasEl.Call("addEventListener", "touchend", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
-	canvasEl.Call("addEventListener", "touchcancel", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
+	el := doc.Call("createElement", "div")
+	el.Set("id", "usbridge-touch-overlay")
+	style := el.Get("style")
+	style.Set("position", "fixed")
+	style.Set("left", "0px")
+	style.Set("top", "0px")
+	style.Set("width", "0px")
+	style.Set("height", "0px")
+	style.Set("pointerEvents", "none")
+	style.Set("touchAction", "none")
+	style.Set("zIndex", "10")
+	style.Set("background", "transparent")
+	body.Call("appendChild", el)
+	touchOverlayEl = el
+
+	el.Call("addEventListener", "touchstart", js.FuncOf(onTouchStart), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "touchmove", js.FuncOf(onTouchMove), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "touchend", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "touchcancel", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
+
+	js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		defer recoverTouchPanic("syncTouchOverlay")
+		syncTouchOverlay()
+		return nil
+	}), 150)
+}
+
+// syncTouchOverlay repositions/resizes the overlay to exactly match the
+// active viewport wrapper's on-screen rect while a session is actually
+// streaming, and collapses it to nothing (0x0, pointer-events:none)
+// otherwise -- the only thing keeping this element from ever intercepting
+// a tap meant for the rest of the UI.
+func syncTouchOverlay() {
+	if touchOverlayEl.IsUndefined() || touchOverlayEl.IsNull() {
+		return
+	}
+	style := touchOverlayEl.Get("style")
+
+	vw := activeGestureVideoWidget()
+	if vw == nil || !vw.IsStreaming() {
+		style.Set("pointerEvents", "none")
+		style.Set("width", "0px")
+		style.Set("height", "0px")
+		return
+	}
+	wrapper := vw.activeViewportWrapper()
+	if wrapper == nil || !wrapper.Visible() {
+		style.Set("pointerEvents", "none")
+		style.Set("width", "0px")
+		style.Set("height", "0px")
+		return
+	}
+	size := wrapper.Size()
+	if size.Width <= 0 || size.Height <= 0 {
+		style.Set("pointerEvents", "none")
+		style.Set("width", "0px")
+		style.Set("height", "0px")
+		return
+	}
+	abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(wrapper)
+	style.Set("left", pxf(abs.X))
+	style.Set("top", pxf(abs.Y))
+	style.Set("width", pxf(size.Width))
+	style.Set("height", pxf(size.Height))
+	style.Set("pointerEvents", "auto")
+}
+
+// pxf formats a dp value as a CSS px string; sub-pixel precision doesn't
+// matter for a touch hit-test overlay.
+func pxf(v float32) string {
+	return strconv.Itoa(int(v)) + "px"
 }
 
 // jsTouch reads one JS Touch object's page coordinates -- clientX/clientY
 // are already in CSS pixels, the same space Fyne's own dp coordinates use
-// under wasm (unlike Android's raw MotionEvent, which reports physical
-// pixels and needs dividing by canvas.Scale() -- see
-// deliverViewportGestureUpdateFromJNI's doc comment for that platform's
-// equivalent conversion, not needed here).
+// under wasm.
 func jsTouch(t js.Value) (id int, x, y float32) {
 	return t.Get("identifier").Int(), float32(t.Get("clientX").Float()), float32(t.Get("clientY").Float())
 }
@@ -123,77 +197,31 @@ func wrapperLocalPos(vw *VideoWidget, pageX, pageY float32) (fyne.Position, bool
 	return fyne.NewPos(pageX-abs.X, pageY-abs.Y), true
 }
 
-// touchStartsInsideWrapper reports whether (pageX, pageY) falls within the
-// active viewport wrapper's actual on-screen rect. Required in
-// onTouchStart before claiming a touch at all: activeGestureVideoWidget()
-// returns non-nil from the moment createInterface() runs (app startup,
-// see platformRegisterGestureTarget's own doc comment), not just while a
-// session is connected -- and this listener is attached to the single
-// canvas element covering the *entire* app, not scoped to the video area.
-// Without this check every touch anywhere (the Connect button, tabs,
-// dialogs) was being swallowed via preventDefault and misrouted into
-// TouchDown/Dragged on the touchpad wrapper instead of reaching its real
-// target -- confirmed live: after adding the raw touch bridge, tapping the
-// Connect button (well outside any video widget, since no session was
-// even active yet) stopped working entirely.
-//
-// The size/position bounds check alone is NOT enough: Fyne lays out the
-// video tab's content (including touchpadWrapper) even while that tab is
-// hidden behind the connection manager, so the wrapper can carry a stale
-// nonzero size/position from a previous layout pass that happens to cover
-// the exact same screen region the connection manager is now drawn in --
-// confirmed live: after adding this bridge, the wrapper's cached rect
-// matched the full window, so *every* tap anywhere (including on the
-// connection manager, before any session ever started) was wrongly judged
-// "inside video" and swallowed via preventDefault. Requiring an actually
-// live, visible session closes that hole: only claim a touch once there is
-// a real stream to receive it, exactly matching where a native video
-// overlay would be the only thing physically present to touch.
-func touchStartsInsideWrapper(vw *VideoWidget, pageX, pageY float32) bool {
-	if !vw.IsStreaming() {
-		return false
-	}
-	wrapper := vw.activeViewportWrapper()
-	if wrapper == nil || !wrapper.Visible() {
-		return false
-	}
-	size := wrapper.Size()
-	if size.Width <= 0 || size.Height <= 0 {
-		return false
-	}
-	abs := fyne.CurrentApp().Driver().AbsolutePositionForObject(wrapper)
-	return pageX >= abs.X && pageX < abs.X+size.Width && pageY >= abs.Y && pageY < abs.Y+size.Height
-}
-
 func onTouchStart(this js.Value, args []js.Value) interface{} {
 	defer recoverTouchPanic("onTouchStart")
 	event := args[0]
 	touches := event.Get("touches")
 	count := touches.Length()
+	if count == 0 {
+		return nil
+	}
 
 	vw := activeGestureVideoWidget()
 	if vw == nil {
 		return nil
 	}
-	t0 := touches.Index(0)
-	_, x0check, y0check := jsTouch(t0)
-	if !touchStartsInsideWrapper(vw, x0check, y0check) {
-		// Outside the video widget's actual rect (a UI button, tab, or
-		// dialog elsewhere on the page) -- don't claim it, see
-		// touchStartsInsideWrapper's own doc comment.
-		return nil
-	}
-	// Only claim the event (preventDefault, stopping the browser's own
-	// scroll/zoom/refresh gestures on this element) once we know it's
-	// actually going to a live session -- an unclaimed touch still reaches
-	// any real DOM controls (buttons, dialogs) normally.
+	// The overlay only exists (pointer-events:auto, nonzero size) over the
+	// video rect while streaming -- see syncTouchOverlay -- so reaching
+	// this handler at all already means the touch is where it should be.
+	// preventDefault stops the browser's own scroll/zoom/refresh gestures
+	// on this element; safe to call unconditionally here since nothing
+	// outside the video area can ever dispatch through this listener.
 	event.Call("preventDefault")
 
+	t0 := touches.Index(0)
+	_, x0, y0 := jsTouch(t0)
+
 	if count >= 2 {
-		// Transitioning into (or continuing) a multi-touch gesture --
-		// cancel any single-finger state in progress, matching
-		// deliverViewportGestureStateFromJNI(active=true)'s own doc
-		// comment on why.
 		if webTouch.haveTouch {
 			webTouch.haveTouch = false
 		}
@@ -204,16 +232,14 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 		t1 := touches.Index(1)
 		_, x1, y1 := jsTouch(t1)
 		webTouch.twoFinger = true
-		webTouch.prevDist = dist(x0check, y0check, x1, y1)
-		webTouch.prevMidX = (x0check + x1) / 2
-		webTouch.prevMidY = (y0check + y1) / 2
+		webTouch.prevDist = dist(x0, y0, x1, y1)
+		webTouch.prevMidX = (x0 + x1) / 2
+		webTouch.prevMidY = (y0 + y1) / 2
 		return nil
 	}
 
-	// First finger down, not (yet) a multi-touch gesture.
 	id, _, _ := jsTouch(t0)
-	x, y := x0check, y0check
-	local, ok := wrapperLocalPos(vw, x, y)
+	local, ok := wrapperLocalPos(vw, x0, y0)
 	if !ok {
 		return nil
 	}
@@ -224,7 +250,7 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 
 	wrapper := vw.activeViewportWrapper()
 	if wrapper != nil {
-		wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x, y)}})
+		wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x0, y0)}})
 	}
 	return nil
 }
@@ -251,10 +277,6 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 		curMidY := (y0 + y1) / 2
 
 		if !webTouch.twoFinger || webTouch.prevDist <= 0 {
-			// Gained a second finger without going through onTouchStart's
-			// own >=2 branch (e.g. a third finger landing while two were
-			// already down) -- just (re)baseline instead of computing a
-			// bogus scaleFactor off a zero/missing previous distance.
 			webTouch.twoFinger = true
 			webTouch.prevDist = curDist
 			webTouch.prevMidX = curMidX
@@ -294,9 +316,6 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
-	// Single finger drag -- only meaningful if we're not mid-multi-touch
-	// (a lifted-back-to-one-finger move after a pinch shouldn't suddenly
-	// start dragging).
 	if webTouch.twoFinger || !webTouch.haveTouch {
 		return nil
 	}
