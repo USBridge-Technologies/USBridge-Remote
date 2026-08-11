@@ -139,6 +139,12 @@ func InitTouchGestureBridge() {
 		// happened yet.
 		vw := activeGestureVideoWidget()
 		syncCursorDot(vw)
+		// Keeps the DOM <video> overlay (video_widget_dom_overlay_wasm.go)
+		// positioned even when nothing is actively being dragged -- e.g.
+		// right after a resize/IME toggle/orientation change, before any
+		// gesture has happened yet to trigger updateNativeViewportAndCursor's
+		// own immediate sync.
+		syncVideoOverlay(vw)
 		// Self-healing window-content invariant for the keyboard panel --
 		// see syncKeyboardWindowContent's own doc comment
 		// (video_widget_web.go) for why this can't just be a one-shot

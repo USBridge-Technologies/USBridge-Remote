@@ -140,11 +140,31 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 	videoEl.Set("autoplay", true)
 	videoEl.Set("muted", true) // audio plays through a separate <audio> element below; browsers block autoplay with sound without a user gesture, but always allow it muted
 	videoEl.Set("playsInline", true)
+	videoEl.Set("id", "usbridge-video-overlay")
 	style := videoEl.Get("style")
+	// position:fixed + an explicit z-index makes this a *positioned* element,
+	// which per normal CSS stacking rules always paints above Fyne's own
+	// wasm <canvas> (a plain, non-positioned element with implicit z-index
+	// "auto") regardless of DOM append order -- no need to fight over
+	// whether the canvas is transparent or opaque underneath. Sits below
+	// the touch-overlay div (z-index 10, video_gestures_wasm.go) and the
+	// virtual-cursor dot (z-index 11, video_widget_cursor_wasm.go), which
+	// both need to stay clickable/visible above the actual video pixels.
+	// object-fit:fill + an exact-letterboxed-size box (set by
+	// video_widget_dom_overlay_wasm.go's syncVideoOverlay, mirroring the
+	// same scale-to-fit math VideoWidget already does for every other
+	// platform) means this never needs its own aspect-ratio logic -- the
+	// box handed to it is already the right shape.
 	style.Set("position", "fixed")
-	style.Set("left", "-9999px")
-	style.Set("width", "1px")
-	style.Set("height", "1px")
+	style.Set("left", "0px")
+	style.Set("top", "0px")
+	style.Set("width", "0px")
+	style.Set("height", "0px")
+	style.Set("zIndex", "5")
+	style.Set("objectFit", "fill")
+	style.Set("pointerEvents", "none")
+	style.Set("visibility", "hidden")
+	style.Set("background", "#000")
 	doc.Get("body").Call("appendChild", videoEl)
 	c.videoEl = videoEl
 
@@ -338,6 +358,74 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 		return "", fmt.Errorf("webrtc: rustshine response had no sdp")
 	}
 	return parsed.SDP, nil
+}
+
+// VideoElement returns the underlying <video> DOM element, so the gui
+// controller layer (video_widget_dom_overlay_wasm.go) can position/size it
+// directly as a CSS overlay and read its videoWidth/videoHeight -- both
+// free JS property reads, no pixel readback involved. Returns the zero
+// js.Value before Connect has run.
+func (c *WebRTCClient) VideoElement() js.Value {
+	return c.videoEl
+}
+
+// WatchVideoFrames drives onFrame once per real presented video frame
+// using HTMLVideoElement.requestVideoFrameCallback -- a browser API built
+// exactly for this (Chrome/Edge 79+, Safari 15.4+): it fires in step with
+// the decoder/compositor's own timing, carries no pixel payload, and costs
+// nothing beyond a JS→Go callback hop, unlike the drawImage+getImageData
+// readback StartFrameCapture below does. Falls back to a plain 30Hz
+// setInterval poll on engines that don't support it (older
+// Firefox/WebKit); either way, onFrame is only ever called to drive
+// VideoWidget's existing frame-arrival bookkeeping (frame counters, FPS,
+// IsStreaming freshness) with a nil image.Image, the same convention every
+// native GPU-overlay platform (Android/Metal) already uses -- see
+// handleVideoFrame's doc comment. Returns a stop function.
+func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
+	if c.videoEl.IsUndefined() || c.videoEl.IsNull() {
+		return func() {}
+	}
+	stopped := false
+	var stopMu sync.Mutex
+	isStopped := func() bool {
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		return stopped
+	}
+
+	if rvfc := c.videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
+		var tick js.Func
+		tick = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			if isStopped() {
+				return nil
+			}
+			onFrame()
+			c.videoEl.Call("requestVideoFrameCallback", tick)
+			return nil
+		})
+		c.videoEl.Call("requestVideoFrameCallback", tick)
+		return func() {
+			stopMu.Lock()
+			stopped = true
+			stopMu.Unlock()
+			tick.Release()
+		}
+	}
+
+	// Fallback path: no requestVideoFrameCallback support.
+	handle := js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if isStopped() {
+			return nil
+		}
+		onFrame()
+		return nil
+	}), 1000/30)
+	return func() {
+		stopMu.Lock()
+		stopped = true
+		stopMu.Unlock()
+		js.Global().Call("clearInterval", handle)
+	}
 }
 
 // StartFrameCapture begins pulling decoded video frames off the hidden

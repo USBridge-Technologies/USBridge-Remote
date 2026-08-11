@@ -54,6 +54,7 @@ func (vw *VideoWidget) updateNativeViewportAndCursor() {
 		vw.centerViewportOnVirtualCursor(targetU, targetV)
 	}
 	syncCursorDot(vw)
+	syncVideoOverlay(vw)
 }
 
 // centerViewportOnVirtualCursor pans the viewport so the virtual cursor

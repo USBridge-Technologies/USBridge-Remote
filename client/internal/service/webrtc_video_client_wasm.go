@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall/js"
 
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/webrtcweb"
@@ -25,11 +26,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// webrtcVideoFPS is the rate StartFrameCapture pulls decoded frames off the
-// hidden <video> element at. 24fps balances CPU cost (a full-frame pixel
-// readback through Go on every tick, see StartFrameCapture's doc comment)
-// against visible smoothness for a remote-desktop use case -- not a
-// twitch-shooter target, this is "read a doc / watch a build run" motion.
+// webrtcVideoFPS is the rate the legacy StartFrameCapture pixel-readback
+// path pulls decoded frames at, kept only as a manual fallback (see its
+// own doc comment) -- the default path is the DOM `<video>` overlay
+// (video_widget_dom_overlay_wasm.go), which needs no fixed capture rate at
+// all since the browser itself renders every frame directly.
 const webrtcVideoFPS = 24
 
 // WebRTCVideoClient implements service.VideoClient over WebRTC for the
@@ -37,11 +38,12 @@ const webrtcVideoFPS = 24
 type WebRTCVideoClient struct {
 	config *models.AppConfig
 
-	mu        sync.Mutex
-	host      string
-	apiSecret string // hex, same format webrtcweb.NewWebRTCClient expects
-	client    *webrtcweb.WebRTCClient
-	connected atomic.Bool
+	mu             sync.Mutex
+	host           string
+	apiSecret      string // hex, same format webrtcweb.NewWebRTCClient expects
+	client         *webrtcweb.WebRTCClient
+	connected      atomic.Bool
+	stopFrameWatch func()
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -49,6 +51,22 @@ type WebRTCVideoClient struct {
 
 	autoReconnect     bool
 	maxReconnectTries int
+}
+
+// VideoElement exposes the underlying <video> DOM element so
+// video_widget_dom_overlay_wasm.go can position it as a CSS overlay
+// directly over the video widget's on-screen rect and read its
+// videoWidth/videoHeight -- both free JS property reads, no relation to
+// the onFrame(image.Image) callback path at all. Returns the zero js.Value
+// before a connection has been established.
+func (c *WebRTCVideoClient) VideoElement() js.Value {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return js.Value{}
+	}
+	return client.VideoElement()
 }
 
 // NewWebRTCVideoClient mirrors NewMoonlightService(cfg)'s shape.
@@ -137,21 +155,28 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	})
 
 	client.OnVideoTrack(func() {
-		logrus.Info("[webrtc-video] video track ready, starting frame capture")
-		client.StartFrameCapture(webrtcVideoFPS, func(w, h int, rgba []byte) {
+		logrus.Info("[webrtc-video] video track ready -- browser renders it directly (DOM overlay), no pixel readback")
+		// No pixel data crosses into Go at all on this path (see
+		// video_widget_dom_overlay_wasm.go, which positions
+		// client.VideoElement() as a CSS overlay directly over the video
+		// widget's on-screen rect and reads videoWidth/videoHeight as
+		// plain JS properties for the aspect-ratio/content-rect math).
+		// onFrame(nil) is still driven off WatchVideoFrames purely to keep
+		// VideoWidget's existing frame-arrival bookkeeping (counters, FPS,
+		// IsStreaming freshness) alive -- the same nil-frame convention
+		// every native GPU-overlay platform (Android/Metal) already uses,
+		// see handleVideoFrame's doc comment.
+		stop := client.WatchVideoFrames(func() {
 			c.mu.Lock()
 			cb := c.onFrame
 			c.mu.Unlock()
-			if cb == nil {
-				return
+			if cb != nil {
+				cb(nil)
 			}
-			img := &image.RGBA{
-				Pix:    rgba,
-				Stride: w * 4,
-				Rect:   image.Rect(0, 0, w, h),
-			}
-			cb(img)
 		})
+		c.mu.Lock()
+		c.stopFrameWatch = stop
+		c.mu.Unlock()
 	})
 
 	if err := client.Connect(sessionID); err != nil {
@@ -173,7 +198,12 @@ func (c *WebRTCVideoClient) Disconnect() error {
 	c.mu.Lock()
 	client := c.client
 	c.client = nil
+	stop := c.stopFrameWatch
+	c.stopFrameWatch = nil
 	c.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 	if client != nil {
 		client.Close()
 	}
