@@ -39,7 +39,12 @@ func main() {
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
-	gui.InitTouchGestureBridge()
+	// TEMP: disabled -- suspected of crashing the wasm runtime on a real
+	// device (uncaught panic inside a js.FuncOf callback kills the whole
+	// module) or of claiming touches app-wide instead of only within the
+	// video widget, either of which would explain "nothing on screen is
+	// clickable" after this landed. Re-enable once root-caused.
+	// gui.InitTouchGestureBridge()
 	mainWindow.Show()
 }
 

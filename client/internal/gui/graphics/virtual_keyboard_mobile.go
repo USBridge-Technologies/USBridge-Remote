@@ -1,5 +1,16 @@
-//go:build android || ios
+//go:build android || ios || (js && wasm)
 
+// This file's special-keys panel layout (Esc/Enter/arrows and friends,
+// not a full QWERTY) is also what the web client wants -- see
+// video_widget_web.go (client/internal/gui/controller) for why plain
+// desktop's ShowInSeparateWindow()-based full keyboard was wrong for a
+// browser tab in the first place. RegisterAsIMETarget (called from
+// textHint.onFocused below) has no wasm implementation of its own here --
+// see keyboard_ime_web.go for why a no-op is correct for this platform
+// (there's no native OS IME to register with), and why FocusInput/
+// BlurInput's plain Canvas.Focus()/Focus(nil) calls already trigger the
+// browser's real on-screen keyboard on their own, with no wasm-specific
+// wiring needed.
 package graphics
 
 import (
