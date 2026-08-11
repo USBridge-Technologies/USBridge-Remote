@@ -80,6 +80,7 @@
       // own onIMEHeightChanged (minRealIMEDp = 100).
       var covered = window.innerHeight - vv.height;
       var shouldBeOpen = covered > 100;
+      console.log('[viewport-follow] innerHeight=' + window.innerHeight + ' vv.height=' + vv.height + ' covered=' + covered + ' shouldBeOpen=' + shouldBeOpen + ' imeOpen=' + imeOpen);
       if (shouldBeOpen === imeOpen && !shouldBeOpen) return; // already at rest, dvh handles it
       imeOpen = shouldBeOpen;
       if (shouldBeOpen) {

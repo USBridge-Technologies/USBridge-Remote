@@ -223,6 +223,21 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 	// outside the video area can ever dispatch through this listener.
 	event.Call("preventDefault")
 
+	// A tap on the video area routes into TouchDown/Dragged below, which
+	// gives the touchpad wrapper Fyne focus so it can receive physical
+	// keyboard events -- but Fyne's own wasm driver treats *any* Focusable
+	// widget gaining focus as a request to pop the real browser IME
+	// (internal/driver/glfw/keyboard.go's handleKeyboard, wired as
+	// Canvas.OnFocus), with no way to opt a specific widget out of that
+	// from application code (it's an unexported field on an internal
+	// package). Confirmed live: tapping the video (not the keyboard
+	// panel's actual text field) was popping the on-screen keyboard.
+	// Blurring the hidden #dummyEntry input Fyne uses as its IME target
+	// immediately after closes it back down without touching Fyne's own
+	// (separate, in-memory) focus state -- the touchpad wrapper stays
+	// Fyne-focused for physical-keyboard routing either way.
+	blurDummyIMEInput()
+
 	t0 := touches.Index(0)
 	_, x0, y0 := jsTouch(t0)
 
@@ -399,6 +414,24 @@ func onTouchEnd(this js.Value, args []js.Value) interface{} {
 		}
 	}
 	return nil
+}
+
+// blurDummyIMEInput blurs Fyne's own hidden #dummyEntry IME-target input
+// (see ime_bridge_wasm.go / onTouchStart's doc comment above) if it's
+// currently focused, closing the real on-screen keyboard the browser just
+// opened in response to Fyne's own focus-triggered handleKeyboard hook.
+// A no-op if dummyEntry isn't the active element, so this is safe to call
+// on every video touch regardless of whether the IME actually popped.
+func blurDummyIMEInput() {
+	doc := js.Global().Get("document")
+	active := doc.Get("activeElement")
+	if active.IsNull() || active.IsUndefined() {
+		return
+	}
+	if active.Get("id").String() != "dummyEntry" {
+		return
+	}
+	active.Call("blur")
 }
 
 func dist(x0, y0, x1, y1 float32) float32 {
