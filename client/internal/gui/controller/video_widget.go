@@ -172,18 +172,34 @@ type VideoWidget struct {
 	zoomScale        float32
 	panOffsetX       float32
 	panOffsetY       float32
-	multiTouchActive bool
-	lastMultiTouchAt time.Time
-	scrollDragAxis   string
-	scrollDragLastX  float32
-	scrollDragLastY  float32
-	lastTouchX       int // last sent touch coordinates (to avoid duplicating in MouseMoved)
-	lastTouchY       int
-	lastAbsX         int // last sent absolute (touch_position) coordinates, to avoid spamming
-	lastAbsY         int
-	lastAbsSentTime  time.Time // time of the last absolute send (for debounce)
-	absSendMu        sync.Mutex
-	absButtons       uint8 // bitmask of buttons for absolute mode
+	// bottomAnchorContentVertically switches recalculateViewport's "content
+	// shorter than available area" branch from vertically centering the
+	// video to anchoring it flush against the bottom of the available
+	// area. False (preserving the original centering behavior) on every
+	// platform except wasm, which sets this once the real IME's own
+	// window-content swap logic starts running (see
+	// syncKeyboardWindowContent in video_widget_web.go) -- without it,
+	// centering meant the video visibly jumped/re-centered every time the
+	// available height changed (IME open/close swapping window content in
+	// or out), since a fixed-size video centered in a small box sits in a
+	// very different screen position than the same video centered in a
+	// much taller one. Bottom-anchoring keeps the video's position stable
+	// relative to the keyboard panel that's always docked right below it,
+	// so opening/closing the IME only ever reveals or hides space above
+	// the video, never moves the video itself.
+	bottomAnchorContentVertically bool
+	multiTouchActive              bool
+	lastMultiTouchAt              time.Time
+	scrollDragAxis                string
+	scrollDragLastX               float32
+	scrollDragLastY               float32
+	lastTouchX                    int // last sent touch coordinates (to avoid duplicating in MouseMoved)
+	lastTouchY                    int
+	lastAbsX                      int // last sent absolute (touch_position) coordinates, to avoid spamming
+	lastAbsY                      int
+	lastAbsSentTime               time.Time // time of the last absolute send (for debounce)
+	absSendMu                     sync.Mutex
+	absButtons                    uint8 // bitmask of buttons for absolute mode
 	// Stats for periodic log (atomics — written from capture goroutine, read from log timer).
 	statAbsMoonlight  atomic.Int64 // absolute events sent via Moonlight LiSendMousePositionEvent
 	statAbsWS         atomic.Int64 // absolute events sent via WebSocket

@@ -158,6 +158,10 @@ func syncKeyboardWindowContent(vw *VideoWidget) {
 	if vw == nil || vw.parentWindow == nil || vw.container == nil {
 		return
 	}
+	// See bottomAnchorContentVertically's own doc comment (video_widget.go)
+	// -- idempotent, cheap to set unconditionally every tick rather than
+	// wiring a separate one-time init hook.
+	vw.bottomAnchorContentVertically = true
 	imeOpen := isRealIMEOpen(vw)
 	current := vw.parentWindow.Content()
 

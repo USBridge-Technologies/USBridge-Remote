@@ -514,7 +514,6 @@ func (vw *VideoWidget) processMouseMovement() {
 	vw.enqueueMouseMove(dx, dy)
 }
 
-
 func (vw *VideoWidget) accumulateRelativeMove(rawDx, rawDy, sensitivity float32) (int, int) {
 	scaledDx := rawDx*sensitivity + vw.relativeRemainderX
 	scaledDy := rawDy*sensitivity + vw.relativeRemainderY
@@ -1299,6 +1298,15 @@ func (vw *VideoWidget) recalculateViewport() {
 		maxPanY := contentH - availableH
 		vw.panOffsetY = clampFloat(vw.panOffsetY, 0, maxPanY)
 		contentY += vw.panOffsetY
+	} else if vw.bottomAnchorContentVertically {
+		// wasm only (see the field's own doc comment): anchor flush
+		// against the bottom of the available area, right above the
+		// keyboard panel, instead of centering -- keeps the video's own
+		// position stable as availableH changes (IME open/close), so any
+		// extra/freed height only ever reveals or hides space *above* the
+		// video, never moves the video itself.
+		contentY = availableH - contentH
+		vw.panOffsetY = 0
 	} else {
 		// Video is smaller than the available area - center it within it
 		contentY = (availableH - contentH) / 2
