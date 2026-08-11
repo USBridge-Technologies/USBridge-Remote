@@ -313,13 +313,13 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		r.Resize(fyne.NewSize(dpadSize, dpadSize))
 		return r
 	}
-	upBtn := vk.createKey("↑", 82, 0)
+	upBtn := vk.createIconKey(theme.MoveUpIcon(), 82, 0)
 	upBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	leftBtn := vk.createKey("←", 80, 0)
+	leftBtn := vk.createIconKey(theme.NavigateBackIcon(), 80, 0)
 	leftBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	downBtn := vk.createKey("↓", 81, 0)
+	downBtn := vk.createIconKey(theme.MoveDownIcon(), 81, 0)
 	downBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
-	rightBtn := vk.createKey("→", 79, 0)
+	rightBtn := vk.createIconKey(theme.NavigateNextIcon(), 79, 0)
 	rightBtn.Resize(fyne.NewSize(dpadSize, dpadSize))
 	dpad := container.NewGridWithColumns(3,
 		ph(), upBtn, ph(),

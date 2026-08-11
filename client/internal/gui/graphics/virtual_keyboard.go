@@ -130,6 +130,22 @@ func (vk *VirtualKeyboard) createKey(label string, keyCode int, modifiers int) *
 	return btn
 }
 
+// createIconKey creates a key button rendered as a theme icon instead of a
+// text label. Fyne's wasm build rasterizes glyphs with its own bundled font
+// rather than the browser/OS text stack, and that font's coverage of the
+// arrow-direction codepoints (U+2190-2193) turned out to render as tofu
+// ("?") in the browser even though the same characters are fine on
+// Android/iOS/desktop. Theme icons are vector resources drawn directly, so
+// they sidestep font/glyph availability entirely -- used for the arrow keys,
+// which have no text to type anyway (they only ever send a keyCode).
+func (vk *VirtualKeyboard) createIconKey(icon fyne.Resource, keyCode int, modifiers int) *widget.Button {
+	btn := widget.NewButtonWithIcon("", icon, func() {
+		vk.handleKeyPress(keyCode, modifiers)
+	})
+	btn.Resize(fyne.NewSize(40, 35))
+	return btn
+}
+
 // createModifierKey creates a modifier button with toggle
 func (vk *VirtualKeyboard) createModifierKey(label string, keyCode int) *widget.Button {
 	btn := widget.NewButton(label, func() {

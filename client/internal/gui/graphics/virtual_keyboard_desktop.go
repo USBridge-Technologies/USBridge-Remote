@@ -176,7 +176,7 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	}
 	vk.placeKey(grid, vk.createModifierKey("Shift", 229), 4, col, 1.5)
 	col += 1.5
-	vk.placeKey(grid, vk.createKey("↑", 82, 0), 4, col, 1)
+	vk.placeKey(grid, vk.createIconKey(theme.MoveUpIcon(), 82, 0), 4, col, 1)
 	col++
 	vk.placeInvisiblePlaceholder(grid, 4, col)
 
@@ -201,11 +201,11 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	col++
 	vk.placeKey(grid, vk.createModifierKey("Ctrl", 228), 5, col, 1.25)
 	col += 1.25
-	vk.placeKey(grid, vk.createKey("←", 80, 0), 5, col, 1)
+	vk.placeKey(grid, vk.createIconKey(theme.NavigateBackIcon(), 80, 0), 5, col, 1)
 	col++
-	vk.placeKey(grid, vk.createKey("↓", 81, 0), 5, col, 1)
+	vk.placeKey(grid, vk.createIconKey(theme.MoveDownIcon(), 81, 0), 5, col, 1)
 	col++
-	vk.placeKey(grid, vk.createKey("→", 79, 0), 5, col, 1)
+	vk.placeKey(grid, vk.createIconKey(theme.NavigateNextIcon(), 79, 0), 5, col, 1)
 
 	background.Move(fyne.NewPos(0, 0))
 	background.Resize(fyne.NewSize(keyboardW, keyboardH))
