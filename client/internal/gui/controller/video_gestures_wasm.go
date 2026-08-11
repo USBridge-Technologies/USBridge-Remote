@@ -124,6 +124,7 @@ func InitTouchGestureBridge() {
 	el.Call("addEventListener", "touchmove", js.FuncOf(onTouchMove), map[string]interface{}{"passive": false})
 	el.Call("addEventListener", "touchend", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
 	el.Call("addEventListener", "touchcancel", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "pointermove", js.FuncOf(onPointerMove), map[string]interface{}{"passive": true})
 	// No 'click' listener here for requestFullscreen(): onTouchStart's own
 	// preventDefault() (needed to stop the browser's scroll/pinch-zoom)
 	// suppresses the synthetic 'click' event a real tap would otherwise
@@ -382,18 +383,91 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 			// refreshes the on-screen dot or re-centers the viewport --
 			// on Android that happens because the Vulkan render thread
 			// polls the shared cursor state every frame on its own.
-			// Without an equivalent render loop here, the dot/viewport
-			// were only ever catching up on video_gestures_wasm.go's
-			// 150ms poll tick, which reads as a stutter: a 60ms glide to
-			// the last known position, then a ~90ms stall waiting for
-			// the next tick, repeating for as long as the finger moves.
-			// Driving it from every touchmove instead removes that
-			// stall -- this now updates at the same rate the browser
-			// delivers touch events, same as Android's Vulkan thread
-			// updates every render frame.
+			// Driving it from every touchmove keeps that in sync for this
+			// (primary, ~60Hz-capped) sample; see onPointerMove below for
+			// the supplementary higher-frequency path used specifically
+			// in cursor mode.
 			vw.updateNativeViewportAndCursor()
 		})
 	}
+	return nil
+}
+
+// onPointerMove supplements onTouchMove's single-finger path with
+// PointerEvent's getCoalescedEvents(): Chrome dispatches touchmove at most
+// once per animation frame (~60Hz) even though most Android digitizers
+// sample the physical touch at 120-240Hz -- confirmed live this reads as
+// visibly choppier cursor tracking than native Android's own MotionEvent
+// handling (which reads every raw sample) and vk_video_impl_android.c's
+// immediate decoupled re-render on every position write (there is no
+// velocity/fling/spring physics anywhere in this codebase or the
+// commercial fork -- native's smoothness is capture fidelity + zero-
+// latency rendering, not a simulated physics model; confirmed by reading
+// that file directly).
+//
+// Deliberately does NOT call the full Dragged() dispatch per sample (an
+// earlier version of this did, and was confirmed live to make tracking
+// *worse* -- Dragged() carries touchpad/absolute/touchscreen-mode
+// branching, scrollbar-drag handling, and a cursor-overlay refresh that
+// can trigger a real Fyne canvas repaint, none of which is free to repeat
+// several times within one JS callback). Instead calls
+// handleVirtualCursorMove directly -- the lightweight, cursor-mode-only
+// delta accumulator Dragged() itself calls internally -- and only while
+// actually in a cursor-like mode, matching the one thing this
+// supplementary path exists to smooth.
+func onPointerMove(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onPointerMove")
+	if webTouch.twoFinger || !webTouch.haveTouch {
+		return nil
+	}
+	vw := activeGestureVideoWidget()
+	if vw == nil || !isVirtualCursorLikeMode(vw.GetMouseInputMode()) {
+		return nil
+	}
+	wrapper := vw.activeViewportWrapper()
+	if wrapper == nil {
+		return nil
+	}
+	event := args[0]
+	if event.Get("pointerType").String() != "touch" {
+		// Ignore mouse/pen/trackpad pointer events entirely -- this
+		// overlay only exists to smooth finger-drag tracking; a real
+		// mouse is handled by Fyne's own desktop-style event dispatch.
+		return nil
+	}
+
+	var coalesced js.Value
+	if getFn := event.Get("getCoalescedEvents"); getFn.Type() == js.TypeFunction {
+		coalesced = event.Call("getCoalescedEvents")
+	}
+	samples := []js.Value{event}
+	if coalesced.Truthy() && coalesced.Length() > 0 {
+		n := coalesced.Length()
+		samples = make([]js.Value, n)
+		for i := 0; i < n; i++ {
+			samples[i] = coalesced.Index(i)
+		}
+	}
+
+	fyne.Do(func() {
+		for _, s := range samples {
+			x := float32(s.Get("clientX").Float())
+			y := float32(s.Get("clientY").Float())
+			local, ok := wrapperLocalPos(vw, x, y)
+			if !ok {
+				continue
+			}
+			dx := local.X - webTouch.lastX
+			dy := local.Y - webTouch.lastY
+			webTouch.lastX = local.X
+			webTouch.lastY = local.Y
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			wrapper.handleVirtualCursorMove(dx, dy)
+		}
+		vw.updateNativeViewportAndCursor()
+	})
 	return nil
 }
 
