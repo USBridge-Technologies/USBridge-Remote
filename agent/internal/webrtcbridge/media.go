@@ -3,9 +3,11 @@ package webrtcbridge
 import (
 	"log"
 	"net"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 // VideoSource is the subset of agent/internal/moonlightclient.Session the
@@ -27,7 +29,18 @@ type VideoSource interface {
 // down when the session ends. Must be called before CreateAnswer so the
 // tracks' m-lines make it into the SDP answer.
 func (b *Bridge) addMediaTracks(sessionID string, pc *webrtc.PeerConnection) (VideoSource, error) {
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
+	// Video uses TrackLocalStaticSample, not TrackLocalStaticRTP: Sunshine's
+	// video RTP packets are NOT standard RFC 6184 H.264-over-RTP (they
+	// carry a proprietary 16-byte NV_VIDEO_PACKET header + a per-frame
+	// header on top of the usual 12-byte RTP header — see
+	// video_depacketizer.go's doc comment for how this was actually
+	// diagnosed: forwarding the raw bytes let the RTCPeerConnection reach
+	// "connected" and the MediaStreamTrack report readyState="live", but
+	// the browser's H.264 decoder never produced a single frame, silently).
+	// WriteSample hands pion a clean per-frame Annex-B buffer and lets its
+	// own H.264 payloader re-packetize it correctly for the codec/profile
+	// actually negotiated in the SDP answer.
+	videoTrack, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
 		"video", "usbridge-"+sessionID,
 	)
@@ -63,7 +76,7 @@ func (b *Bridge) addMediaTracks(sessionID string, pc *webrtc.PeerConnection) (Vi
 		return nil, err
 	}
 
-	go pumpRTP(sessionID, "video", src.VideoRTPAddr(), videoTrack)
+	go pumpVideoSamples(sessionID, src.VideoRTPAddr(), videoTrack)
 	go pumpRTP(sessionID, "audio", src.AudioRTPAddr(), audioTrack)
 
 	return src, nil
@@ -76,6 +89,50 @@ func drainRTCP(sessionID, kind string, sender *webrtc.RTPSender) {
 			log.Printf("[webrtcbridge] session=%s %s: RTCP reader stopped: %v", sessionID, kind, err)
 			return
 		}
+	}
+}
+
+// pumpVideoSamples listens on udpAddr for Sunshine's raw video RTP packets,
+// runs each one through moonlightVideoDepacketizer to strip the
+// Moonlight/GameStream-specific per-packet framing, and hands each
+// reassembled frame to track.WriteSample as a clean Annex-B buffer — see
+// addMediaTracks' doc comment for why this can't be a plain RTP-to-RTP
+// passthrough the way audio's pumpRTP is.
+func pumpVideoSamples(sessionID, udpAddr string, track *webrtc.TrackLocalStaticSample) {
+	addr, err := net.ResolveUDPAddr("udp", udpAddr)
+	if err != nil {
+		log.Printf("[webrtcbridge] session=%s video: resolve %s: %v", sessionID, udpAddr, err)
+		return
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		log.Printf("[webrtcbridge] session=%s video: listen %s: %v", sessionID, udpAddr, err)
+		return
+	}
+	defer conn.Close()
+
+	var frameCount int
+	depacketizer := newMoonlightVideoDepacketizer(func(annexB []byte) {
+		if err := track.WriteSample(media.Sample{Data: annexB, Duration: time.Second / 60}); err != nil {
+			return // no readers / track closed at session teardown
+		}
+		frameCount++
+		if frameCount == 1 {
+			log.Printf("[webrtcbridge] session=%s video: first Annex-B frame forwarded (%d bytes)", sessionID, len(annexB))
+		}
+	})
+
+	buf := make([]byte, 65535) // a full video frame can span a jumbo-sized UDP datagram on loopback
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return // socket closed by Bridge on session teardown
+		}
+		pkt := &rtp.Packet{}
+		if err := pkt.Unmarshal(buf[:n]); err != nil {
+			continue
+		}
+		depacketizer.pushPacket(pkt.Payload)
 	}
 }
 

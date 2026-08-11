@@ -54,8 +54,14 @@ func (f *fakeVideoSource) Stop() error {
 	return nil
 }
 
-// sendFakeRTP fires a handful of synthetic RTP packets at addr, standing in
-// for Sunshine's real video/audio RTP stream.
+// sendFakeRTP fires a handful of synthetic video RTP packets at addr,
+// standing in for Sunshine's real video RTP stream. Each packet's payload
+// is shaped like a real (single-packet, SOF|EOF) Moonlight/GameStream
+// video frame -- 16-byte NV_VIDEO_PACKET header + 8-byte frame header
+// (marker byte 0x01) + a minimal Annex-B NAL -- matching exactly what
+// moonlightVideoDepacketizer (video_depacketizer.go) expects to strip, so
+// this test exercises the real depacketize-then-WriteSample path instead
+// of bypassing it.
 func sendFakeRTP(t *testing.T, addr string, payloadType uint8, count int) {
 	t.Helper()
 	raddr, err := net.ResolveUDPAddr("udp", addr)
@@ -69,6 +75,16 @@ func sendFakeRTP(t *testing.T, addr string, payloadType uint8, count int) {
 	defer conn.Close()
 
 	for i := 0; i < count; i++ {
+		nvVideoPacketHeader := make([]byte, 16)
+		nvVideoPacketHeader[8] = flagSOF | flagEOF // single-packet frame
+
+		frameHeader := make([]byte, 8)
+		frameHeader[0] = 0x01 // selects the 8-byte frame-header format
+
+		annexB := []byte{0x00, 0x00, 0x00, 0x01, 0x65, byte(i)} // start code + fake IDR-slice NAL
+
+		payload := append(append(nvVideoPacketHeader, frameHeader...), annexB...)
+
 		pkt := &rtp.Packet{
 			Header: rtp.Header{
 				Version:        2,
@@ -77,7 +93,7 @@ func sendFakeRTP(t *testing.T, addr string, payloadType uint8, count int) {
 				Timestamp:      uint32(i * 3000),
 				SSRC:           0xC0FFEE,
 			},
-			Payload: []byte{0x00, 0x00, 0x00, 0x01, byte(i)}, // fake NAL-ish bytes
+			Payload: payload,
 		}
 		b, err := pkt.Marshal()
 		if err != nil {

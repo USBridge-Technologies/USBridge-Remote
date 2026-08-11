@@ -7,12 +7,11 @@
 // directly via syscall/js instead of a vendored C library, mirroring how
 // the desktop build drives moonlight-common-c.
 //
-// Stage 1 of the web-client rollout (see the implementation plan) only
-// needs signaling + a DataChannel round trip working end-to-end through a
-// real browser, so WebRTCClient below intentionally does not implement the
-// full VideoClient interface yet (video/audio tracks land in stage 2/3,
-// wired into VideoClient once internal/gui itself is made wasm-buildable in
-// stage 7) — it's a standalone, directly test-and-driveable building block.
+// WebRTCClient itself is signaling + media plumbing only, not a
+// service.VideoClient -- see webrtc_video_client_wasm.go for the adapter
+// that wires this into the same VideoClient interface every other platform
+// implements, so internal/gui's VideoWidget needs no wasm-specific code of
+// its own.
 package webrtcweb
 
 import (
@@ -33,14 +32,18 @@ type WebRTCClient struct {
 	baseURL   string
 	masterKey string
 
-	pc *js.Value
-	dc *js.Value
+	pc      *js.Value
+	dc      *js.Value
+	videoEl js.Value // hidden <video>, srcObject set from the video ontrack event
 
-	mu          sync.Mutex
-	onOpen      func()
-	onMessage   func(data []byte)
-	onStateChg  func(state string)
-	closeCalled bool
+	mu           sync.Mutex
+	onOpen       func()
+	onMessage    func(data []byte)
+	onStateChg   func(state string)
+	onVideoTrack func()
+	closeCalled  bool
+
+	frameStop chan struct{}
 }
 
 // NewWebRTCClient creates a client bound to the agent at baseURL (e.g.
@@ -83,6 +86,16 @@ func (c *WebRTCClient) OnStateChange(fn func(state string)) {
 	c.mu.Unlock()
 }
 
+// OnVideoTrack registers a callback fired once the browser's video
+// <video>/track element is ready to read frames from (i.e. once the remote
+// video track has actually arrived and been wired up) — the signal to
+// start calling StartFrameCapture.
+func (c *WebRTCClient) OnVideoTrack(fn func()) {
+	c.mu.Lock()
+	c.onVideoTrack = fn
+	c.mu.Unlock()
+}
+
 // Connect performs the full stage-1 handshake: create RTCPeerConnection,
 // open the "input" DataChannel, create+set a local offer, wait for ICE
 // gathering to finish (no trickle-ICE signaling channel yet — matches the
@@ -103,6 +116,63 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 		c.mu.Unlock()
 		if cb != nil {
 			cb(state)
+		}
+		return nil
+	}))
+
+	// recvonly video+audio transceivers: this client only ever receives
+	// media from the agent (Sunshine's own capture), never sends any --
+	// matching the webrtcbridge.Bridge.addMediaTracks on the agent side,
+	// which expects these m-lines to already exist in the offer (JSEP: an
+	// answer can't add new m-lines the offer didn't have).
+	pc.Call("addTransceiver", "video", map[string]interface{}{"direction": "recvonly"})
+	pc.Call("addTransceiver", "audio", map[string]interface{}{"direction": "recvonly"})
+
+	doc := js.Global().Get("document")
+	videoEl := doc.Call("createElement", "video")
+	videoEl.Set("autoplay", true)
+	videoEl.Set("muted", true) // audio plays through a separate <audio> element below; browsers block autoplay with sound without a user gesture, but always allow it muted
+	videoEl.Set("playsInline", true)
+	style := videoEl.Get("style")
+	style.Set("position", "fixed")
+	style.Set("left", "-9999px")
+	style.Set("width", "1px")
+	style.Set("height", "1px")
+	doc.Get("body").Call("appendChild", videoEl)
+	c.videoEl = videoEl
+
+	audioEl := doc.Call("createElement", "audio")
+	audioEl.Set("autoplay", true)
+	doc.Get("body").Call("appendChild", audioEl)
+
+	pc.Call("addEventListener", "track", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		event := args[0]
+		track := event.Get("track")
+		streams := event.Get("streams")
+		var stream js.Value
+		if streams.Get("length").Int() > 0 {
+			stream = streams.Index(0)
+		} else {
+			stream = js.Global().Get("MediaStream").New([]interface{}{track})
+		}
+		if track.Get("kind").String() == "video" {
+			videoEl.Set("srcObject", stream)
+			playPromise := videoEl.Call("play")
+			if !playPromise.IsUndefined() {
+				playPromise.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} { return nil }))
+			}
+			c.mu.Lock()
+			cb := c.onVideoTrack
+			c.mu.Unlock()
+			if cb != nil {
+				cb()
+			}
+		} else {
+			audioEl.Set("srcObject", stream)
+			playPromise := audioEl.Call("play")
+			if !playPromise.IsUndefined() {
+				playPromise.Call("catch", js.FuncOf(func(this js.Value, args []js.Value) interface{} { return nil }))
+			}
 		}
 		return nil
 	}))
@@ -254,6 +324,84 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	return parsed.Data.SDP, nil
 }
 
+// StartFrameCapture begins pulling decoded video frames off the hidden
+// <video> element and delivering them to onFrame as image.Image, at
+// roughly targetFPS. This is the "software rendering" path VideoWidget
+// already knows how to draw (see service.VideoClient.SetOnFrameReceived) --
+// the browser does the actual H.264/VP8/etc. decode natively inside the
+// <video> element (hardware-accelerated where available), this just reads
+// the already-decoded RGBA pixels back into Go via an offscreen <canvas>,
+// the same drawImage+getImageData technique
+// qr_camera_scanner_wasm.go uses for its camera preview. This has real CPU
+// cost (a full-frame pixel readback every tick) compared to a native
+// GPU-composited video overlay, but works today without needing to solve
+// DOM-canvas z-index compositing with Fyne's own canvas -- see the
+// implementation plan's note on this being the higher-risk piece deferred
+// to a later pass.
+func (c *WebRTCClient) StartFrameCapture(targetFPS int, onFrame func(w, h int, rgba []byte)) {
+	if c.videoEl.IsUndefined() || c.videoEl.IsNull() {
+		return
+	}
+	c.mu.Lock()
+	if c.frameStop != nil {
+		c.mu.Unlock()
+		return // already capturing
+	}
+	stop := make(chan struct{})
+	c.frameStop = stop
+	c.mu.Unlock()
+
+	go func() {
+		doc := js.Global().Get("document")
+		var canvasEl, ctx2d js.Value
+		var w, h int
+
+		interval := time.Second / time.Duration(targetFPS)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
+
+			vw := c.videoEl.Get("videoWidth").Int()
+			vh := c.videoEl.Get("videoHeight").Int()
+			if vw == 0 || vh == 0 {
+				continue // no frame decoded yet
+			}
+			if vw != w || vh != h {
+				w, h = vw, vh
+				canvasEl = doc.Call("createElement", "canvas")
+				canvasEl.Set("width", w)
+				canvasEl.Set("height", h)
+				ctx2d = canvasEl.Call("getContext", "2d")
+			}
+
+			ctx2d.Call("drawImage", c.videoEl, 0, 0, w, h)
+			imageData := ctx2d.Call("getImageData", 0, 0, w, h)
+			jsPixels := imageData.Get("data")
+
+			buf := make([]byte, w*h*4)
+			js.CopyBytesToGo(buf, jsPixels)
+			onFrame(w, h, buf)
+		}
+	}()
+}
+
+// StopFrameCapture stops the goroutine started by StartFrameCapture, if any.
+func (c *WebRTCClient) StopFrameCapture() {
+	c.mu.Lock()
+	stop := c.frameStop
+	c.frameStop = nil
+	c.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+}
+
 // Send writes a message on the "input" DataChannel.
 func (c *WebRTCClient) Send(data []byte) error {
 	if c.dc == nil {
@@ -265,6 +413,7 @@ func (c *WebRTCClient) Send(data []byte) error {
 
 // Close tears down the RTCPeerConnection.
 func (c *WebRTCClient) Close() {
+	c.StopFrameCapture()
 	c.mu.Lock()
 	if c.closeCalled {
 		c.mu.Unlock()
@@ -277,6 +426,12 @@ func (c *WebRTCClient) Close() {
 	}
 	if c.pc != nil {
 		c.pc.Call("close")
+	}
+	if !c.videoEl.IsUndefined() && !c.videoEl.IsNull() {
+		c.videoEl.Set("srcObject", js.Null())
+		if parent := c.videoEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
+			parent.Call("removeChild", c.videoEl)
+		}
 	}
 }
 

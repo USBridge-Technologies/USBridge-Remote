@@ -144,9 +144,11 @@ func NewMainWindow(cfg *models.AppConfig) *MainWindow {
 
 	mw.nbdServer = service.NewNBDServer("127.0.0.1")
 	mw.tailscaleService = service.NewTailscaleService()
-	ms := service.NewMoonlightService(cfg)
-	ms.SetTailscaleService(mw.tailscaleService)
-	mw.videoClient = ms
+	vc := newPlatformVideoClient(cfg)
+	if ts, ok := vc.(interface{ SetTailscaleService(*service.TailscaleService) }); ok {
+		ts.SetTailscaleService(mw.tailscaleService)
+	}
+	mw.videoClient = vc
 
 	// Initialize UI fields
 	mw.createInterface()

@@ -56,7 +56,14 @@ func buildSDP(rtspClientVersion int, host string, videoPort, width, height, fps,
 			"a=x-nv-vqos[0].bllFec.enable:0 \r\n"+
 			"a=x-nv-vqos[0].drc.enable:0 \r\n"+
 			"a=x-nv-general.enableRecoveryMode:0 \r\n"+
-			"a=x-nv-vqos[0].fec.enable:1 \r\n"+
+			// FEC disabled: webrtcbridge's video depacketizer (see its
+			// buildAnnexBFrame) only understands the plain per-packet
+			// NV_VIDEO_PACKET framing, not FEC redundancy blocks (which
+			// would need Reed-Solomon recovery logic ported from
+			// RtpFecQueue.c to be useful) -- loopback UDP on 127.0.0.1
+			// never drops/reorders packets in practice, so FEC recovery
+			// has nothing to actually protect against here anyway.
+			"a=x-nv-vqos[0].fec.enable:0 \r\n"+
 			"a=x-nv-vqos[0].videoQualityScoreUpdateTime:5000 \r\n"+
 			"a=x-nv-vqos[0].qosTrafficType:5 \r\n"+
 			"a=x-nv-aqos.qosTrafficType:4 \r\n"+
