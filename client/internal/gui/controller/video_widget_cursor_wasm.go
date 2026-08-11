@@ -20,10 +20,25 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// cursorDotEl is the lazily-created green dot overlay div.
+// cursorDotEl is the lazily-created cursor overlay div.
 var cursorDotEl js.Value
 
-const cursorDotSizePx = 16
+// cursorPointerSVGDataURI embeds the exact same arrow SVG the native
+// Android build rasterizes into its Vulkan cursor buffer
+// (assets.CursorPointerSVG / cursor-pointer.svg), so the web client's
+// cursor matches the native one pixel-for-pixel instead of being an
+// arbitrary placeholder dot. viewBox is 18x24; the tip of the arrow sits
+// at the SVG's origin corner (~1,1 of the viewBox), which is why the
+// overlay div below is positioned with no centering transform -- its
+// top-left corner *is* the cursor's hotspot, same as a real OS pointer.
+const cursorPointerSVGDataURI = "data:image/svg+xml;utf8," +
+	"%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 24'%3E" +
+	"%3Cpath d='M 1 1 L 1 18 L 5 14 L 8 22 L 11 21 L 8 13 L 14 13 Z' " +
+	"fill='%2393c572' stroke='%23000000' stroke-width='1.5' " +
+	"stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E"
+
+const cursorDotWidthPx = 18 * 2
+const cursorDotHeightPx = 24 * 2
 
 // updateNativeViewportAndCursor re-centers the viewport on the virtual
 // cursor (when in cursor/gyro mode) and refreshes the on-screen dot -- the
@@ -97,16 +112,15 @@ func ensureCursorDot() {
 	el.Set("id", "usbridge-virtual-cursor")
 	style := el.Get("style")
 	style.Set("position", "fixed")
-	style.Set("width", strconv.Itoa(cursorDotSizePx)+"px")
-	style.Set("height", strconv.Itoa(cursorDotSizePx)+"px")
-	style.Set("borderRadius", "50%")
-	style.Set("background", "#39ff6a")
-	style.Set("border", "2px solid rgba(0,0,0,0.55)")
-	style.Set("boxShadow", "0 0 4px rgba(0,0,0,0.6)")
+	style.Set("width", strconv.Itoa(cursorDotWidthPx)+"px")
+	style.Set("height", strconv.Itoa(cursorDotHeightPx)+"px")
+	style.Set("backgroundImage", "url(\""+cursorPointerSVGDataURI+"\")")
+	style.Set("backgroundSize", "contain")
+	style.Set("backgroundRepeat", "no-repeat")
+	style.Set("filter", "drop-shadow(0 0 2px rgba(0,0,0,0.7))")
 	style.Set("pointerEvents", "none")
 	style.Set("zIndex", "11")
 	style.Set("display", "none")
-	style.Set("transform", "translate(-50%, -50%)")
 	body.Call("appendChild", el)
 	cursorDotEl = el
 }
