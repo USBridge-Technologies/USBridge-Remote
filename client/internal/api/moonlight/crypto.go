@@ -76,16 +76,24 @@ func GetConfigDir() (string, error) {
 
 // LoadOrGenerateIdentity loads the identity from disk or generates a new one
 func LoadOrGenerateIdentity() (*Identity, error) {
-	dir, err := GetConfigDir()
-	if err != nil {
-		return nil, err
+	// No writable config directory is available in some sandboxed
+	// environments (notably wasm/js in a browser, where the os package has
+	// no real filesystem at all). Rather than failing client startup
+	// entirely, fall straight through to generating a fresh in-memory-only
+	// identity below — it just won't survive a page reload there.
+	dir, dirErr := GetConfigDir()
+	var keyPath, certPath string
+	if dirErr == nil {
+		keyPath = filepath.Join(dir, "client.key")
+		certPath = filepath.Join(dir, "client.pem")
 	}
 
-	keyPath := filepath.Join(dir, "client.key")
-	certPath := filepath.Join(dir, "client.pem")
-
-	keyBytes, err1 := os.ReadFile(keyPath)
-	certBytes, err2 := os.ReadFile(certPath)
+	var err1, err2 error = fmt.Errorf("no config dir"), fmt.Errorf("no config dir")
+	var keyBytes, certBytes []byte
+	if dirErr == nil {
+		keyBytes, err1 = os.ReadFile(keyPath)
+		certBytes, err2 = os.ReadFile(certPath)
+	}
 
 	if err1 == nil && err2 == nil {
 		// Parse existing
@@ -139,8 +147,10 @@ func LoadOrGenerateIdentity() (*Identity, error) {
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)})
 
-	_ = os.WriteFile(certPath, certPEM, 0600)
-	_ = os.WriteFile(keyPath, keyPEM, 0600)
+	if dirErr == nil {
+		_ = os.WriteFile(certPath, certPEM, 0600)
+		_ = os.WriteFile(keyPath, keyPEM, 0600)
+	}
 
 	return &Identity{
 		PrivateKey: privKey,

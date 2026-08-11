@@ -1,3 +1,5 @@
+//go:build !(js && wasm)
+
 package service
 
 // moonlightTSNetProxy enables Moonlight streaming over userspace tsnet (DERP-only

@@ -66,6 +66,10 @@ type Application interface {
 	// ClipboardMaxBytes returns the configured per-transfer size cap for
 	// clipboard image/file payloads (0 means "use the built-in default").
 	ClipboardMaxBytes() int64
+	// WebRTCOffer processes a browser client's SDP offer for the low-latency
+	// WebRTC stream (see agent/internal/webrtcbridge) and returns the SDP
+	// answer. sessionID identifies the connection for reconnect handling.
+	WebRTCOffer(sessionID, offerSDP string) (answerSDP string, err error)
 }
 
 type Server struct {
@@ -176,8 +180,44 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/devices", sec.LimitPolling(s.devicesLegacy))
 	mux.HandleFunc("/api/pcpanel/leds", sec.LimitPolling(s.leds))
 	mux.HandleFunc("/api/pcpanel/button", sec.LimitPolling(s.button))
+	// Low-latency WebRTC signaling for the browser/WASM web client (stage 1:
+	// see the webrtcbridge package doc comment). Rate-limited like other
+	// realtime endpoints; each call carries a full SDP offer so it's not
+	// hot-path-frequent, but LimitRealtime's generous burst is fine.
+	mux.HandleFunc("/api/webrtc/offer", sec.LimitRealtime(s.webrtcOffer))
 
-	return s.withLogging(s.withRecovery(mux))
+	return s.withCORS(s.withLogging(s.withRecovery(mux)))
+}
+
+// withCORS lets the browser/WASM web client (served from its own origin —
+// either a separate static host, or the agent's own /app/ route once that
+// lands, which would still count as a distinct origin from the page's point
+// of view whenever it's opened via a different scheme/port during
+// development) call this API with fetch(). Every other USBridge client
+// (desktop, Android, iOS) talks over net/http with no browser CORS
+// enforcement at all, so this is purely additive — it doesn't change what
+// the HMAC/AES-GCM auth layer already guards. Reflecting the request's
+// Origin (rather than a fixed "*") keeps this compatible with credentialed
+// fetch() calls in case a later stage needs those; the actual auth secret
+// still lives in the HMAC signature/AES-GCM payload, never in a cookie, so
+// there's nothing CORS itself needs to protect against here.
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Auth-Signature, X-Auth-Timestamp, X-USBridge-Video-Trace")
+		w.Header().Set("Access-Control-Max-Age", "600")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) withRecovery(next http.Handler) http.Handler {
