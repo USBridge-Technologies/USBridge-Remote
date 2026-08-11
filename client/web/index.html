@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Without this, mobile browsers use a virtual ~980px "layout viewport" and
+     scale the page down to fit -- window.innerWidth (what Fyne's wasm driver
+     sizes its canvas from) then reports 980 instead of the phone's real
+     width, so every IsMobile()/canvas-width-driven responsive branch in the
+     app never sees a narrow screen and the whole UI renders desktop-wide.
+     width=device-width + initial-scale=1 makes the layout viewport match the
+     real device width, same as Fyne's own cmd/fyne packaging does. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>USBridge Client (web)</title>
+<style>
+  /* 100dvh (dynamic viewport height) instead of a fixed 100vh/100%: on
+     mobile Chrome, 100vh is pinned to the *largest* possible viewport (bar
+     hidden), so a page that's exactly 100vh tall never needs to scroll and
+     Chrome never gets a reason to auto-hide its address bar while browsing
+     this app -- confirmed live. 100dvh instead tracks whatever the *current*
+     visual viewport actually is, shrinking/growing live as the address bar
+     shows/hides, so the canvas continuously fills whatever space Chrome is
+     currently giving the page. Falls back to 100vh on older browsers/engines
+     that don't support dvh (the @supports block below is skipped there,
+     leaving the plain 100vh rule as-is).
+  */
+  html, body { margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden; background: #000; }
+  @supports (height: 100dvh) {
+    html, body { height: 100dvh; }
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<!-- Fyne's wasm/js driver looks up #dummyEntry by ID (see
+     internal/driver/glfw/device_wasm.go) and uses it as a real, native
+     <input> element to host IME composition, on-screen-keyboard triggering,
+     and OS clipboard paste for every Fyne text Entry widget -- none of
+     which work on a canvas-rendered "fake" text field without a genuine
+     native input backing it. Omitting this element (as our earlier minimal
+     test page did) is exactly why long-press-to-paste silently did nothing
+     on Android: there was no real input for the OS paste gesture to target.
+     Position/size copied from Fyne's own cmd/fyne packaging template. -->
+<input id="dummyEntry" style="position: absolute; left: 0; top: -100pt; z-index: -10; font-size: 32pt;" />
+<script src="wasm_exec.js"></script>
+<script>
+  // Keeps the Fyne canvas (and therefore the whole app's layout -- video,
+  // the on-screen keyboard panel, everything) sized to the *visual*
+  // viewport instead of the full page, so that when the browser's real IME
+  // keyboard opens, the canvas shrinks to sit entirely above it instead of
+  // extending behind it. See internal/gui/controller/video_widget_web.go
+  // for how the keyboard panel itself is docked at the bottom of this same
+  // canvas -- once the canvas stops extending behind the IME, that panel is
+  // automatically above it, and Fyne's own Border layout automatically
+  // gives the video widget whatever extra height that frees up, with zero
+  // Go-side layout code needed for either -- this page-level resize is the
+  // entire fix.
+  //
+  // Why this works: fyne-io/glfw-js's own resize handling
+  // (browser_wasm.go's `resize` listener) derives the canvas's Fyne-visible
+  // size from `canvas.clientWidth/clientHeight` (a CSS layout query), not
+  // from window.innerWidth/innerHeight directly. Shrinking the canvas
+  // element's own CSS height to the current visualViewport height, then
+  // firing a synthetic `resize` event, makes Fyne re-run its entire layout
+  // against that smaller size through its completely normal resize path --
+  // no private/undocumented API needed, just triggering the same mechanism
+  // an actual window resize would.
+  function installViewportFollow() {
+    var vv = window.visualViewport;
+    if (!vv) return; // older engines: no IME-aware resize, falls back to 100dvh's own behavior
+    var canvas = document.querySelector('canvas');
+    if (!canvas) {
+      setTimeout(installViewportFollow, 150);
+      return;
+    }
+    var imeOpen = false;
+    function apply() {
+      // A small nonzero gap between window.innerHeight and vv.height is
+      // normal (scrollbars, minor engine rounding) -- only treat this as
+      // "the IME is open" past a real threshold, same idea as Android's
+      // own onIMEHeightChanged (minRealIMEDp = 100).
+      var covered = window.innerHeight - vv.height;
+      var shouldBeOpen = covered > 100;
+      if (shouldBeOpen === imeOpen && !shouldBeOpen) return; // already at rest, dvh handles it
+      imeOpen = shouldBeOpen;
+      if (shouldBeOpen) {
+        canvas.style.height = vv.height + 'px';
+        document.body.style.height = vv.height + 'px';
+      } else {
+        // Drop the inline override entirely instead of freezing it at a
+        // stale window.innerHeight snapshot -- this restores glfw-js's own
+        // 100dvh rule (set at canvas creation), which keeps tracking the
+        // address bar's own show/hide live, the same as before the IME
+        // ever opened.
+        canvas.style.removeProperty('height');
+        document.body.style.removeProperty('height');
+      }
+      window.dispatchEvent(new Event('resize'));
+    }
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    apply();
+  }
+
+  const go = new Go();
+  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
+    go.run(result.instance);
+    installViewportFollow();
+  });
+</script>
+</body>
+</html>
