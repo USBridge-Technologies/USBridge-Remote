@@ -760,6 +760,22 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 		mw.showMainContent()
 		if mw.videoWidget != nil {
 			mw.videoWidget.ShowVirtualKeyboardIfMobile()
+			// showMainContent()'s SetContent() doesn't necessarily finish
+			// cascading a real layout pass down to the touchpad wrapper
+			// synchronously within this same callback -- confirmed live
+			// (via device screenshot) that opening the keyboard panel
+			// right here, immediately after SetContent, can leave the
+			// video widget laid out against a stale/default size (a tiny
+			// video with a large unclaimed gap below it, instead of
+			// filling the Control tab's actual available height). Same
+			// root cause and same fix already established for the
+			// tab-switch case in main_window_layout.go's own
+			// time.AfterFunc(150ms, RefreshViewportGeometry) — give the
+			// layout a moment to settle, then force the geometry to be
+			// recomputed against whatever the touchpad wrapper's real,
+			// final size turned out to be.
+			time.AfterFunc(200*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
+			time.AfterFunc(800*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
 		}
 	})
 

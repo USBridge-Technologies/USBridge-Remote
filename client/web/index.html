@@ -73,6 +73,11 @@
       return;
     }
     var imeOpen = false;
+    // Matches the CSS @supports(height: 100dvh) gate: on an engine without
+    // dvh support, setting canvas.style.height to an invalid value is
+    // simply ignored by the CSS engine, so fall back to 100vh there (the
+    // same fallback the stylesheet itself already uses).
+    var restHeight = (window.CSS && CSS.supports && CSS.supports('height', '100dvh')) ? '100dvh' : '100vh';
     function apply() {
       // A small nonzero gap between window.innerHeight and vv.height is
       // normal (scrollbars, minor engine rounding) -- only treat this as
@@ -87,13 +92,23 @@
         canvas.style.height = vv.height + 'px';
         document.body.style.height = vv.height + 'px';
       } else {
-        // Drop the inline override entirely instead of freezing it at a
-        // stale window.innerHeight snapshot -- this restores glfw-js's own
-        // 100dvh rule (set at canvas creation), which keeps tracking the
-        // address bar's own show/hide live, the same as before the IME
-        // ever opened.
-        canvas.style.removeProperty('height');
-        document.body.style.removeProperty('height');
+        // Explicitly re-apply 100dvh rather than removeProperty('height'):
+        // inline styles don't have a "previous value" to fall back to once
+        // overwritten -- glfw-js's own 100dvh rule (set once at canvas
+        // creation) was already replaced the moment the `if` branch above
+        // first set an explicit px height, so removeProperty just deleted
+        // the height rule entirely, leaving the canvas with *no* height
+        // rule at all. Confirmed live via CDP: canvas.getAttribute('style')
+        // read back as "width: 100dvw;" with no height property whatsoever
+        // after an IME open/close cycle, and the canvas's own
+        // getBoundingClientRect() had collapsed to some small browser
+        // fallback height completely disconnected from the viewport --
+        // this was the actual root cause of every "panel/video stuck small
+        // after the IME closes" report, not a Fyne/Go-side layout bug at
+        // all. Re-setting the same 100dvh string every time sidesteps the
+        // whole "was there a previous value" question.
+        canvas.style.height = restHeight;
+        document.body.style.height = restHeight;
       }
       window.dispatchEvent(new Event('resize'));
     }
