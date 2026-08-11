@@ -4,7 +4,6 @@ package controller
 
 import (
 	"math"
-	"sync"
 	"sync/atomic"
 	"usbridge-client/internal/gui/graphics"
 
@@ -12,15 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	activeMobileGestureTargetMu sync.RWMutex
-	activeMobileGestureTarget   *VideoWidget
-
-	// imeExpandBits stores math.Float32bits(imeHeightDp) atomically.
-	// Non-zero means the system IME is open and the video should expand
-	// to cover everything above the IME (tabs, custom keyboard panel, etc.).
-	imeExpandBits atomic.Int32
-)
+// imeExpandBits stores math.Float32bits(imeHeightDp) atomically. Non-zero
+// means the system IME is open and the video should expand to cover
+// everything above the IME (tabs, custom keyboard panel, etc.).
+//
+// activeMobileGestureTarget/activeGestureVideoWidget/
+// platformRegisterGestureTarget moved to video_widget_gesture_target.go
+// (shared with the wasm build) -- everything below here is genuinely
+// native-Android/iOS-IME-specific and stays android/ios-only.
+var imeExpandBits atomic.Int32
 
 func setImeExpandHeightDp(h float32) {
 	imeExpandBits.Store(int32(math.Float32bits(h)))
@@ -28,18 +27,6 @@ func setImeExpandHeightDp(h float32) {
 
 func getImeExpandHeightDp() float32 {
 	return math.Float32frombits(uint32(imeExpandBits.Load()))
-}
-
-func activeGestureVideoWidget() *VideoWidget {
-	activeMobileGestureTargetMu.RLock()
-	defer activeMobileGestureTargetMu.RUnlock()
-	return activeMobileGestureTarget
-}
-
-func (vw *VideoWidget) platformRegisterGestureTarget() {
-	activeMobileGestureTargetMu.Lock()
-	activeMobileGestureTarget = vw
-	activeMobileGestureTargetMu.Unlock()
 }
 
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {

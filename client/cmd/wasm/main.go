@@ -39,6 +39,7 @@ func main() {
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
+	gui.InitTouchGestureBridge()
 	mainWindow.Show()
 }
 

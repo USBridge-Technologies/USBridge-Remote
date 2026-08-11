@@ -278,3 +278,81 @@ func (c *WebRTCVideoClient) SetMaxReconnectAttempts(max int) {
 	c.maxReconnectTries = max
 	c.mu.Unlock()
 }
+
+// MoonlightInputSender implementation -- VideoWidget (internal/gui/
+// controller/video_widget_input.go) type-asserts every VideoClient for
+// this interface and, when present, routes mouse/keyboard input through
+// it exactly like the desktop/mobile cgo builds do via LiSend*Event. This
+// is what was actually missing before (not a bug in VideoWidget's own
+// input handling, which is shared and platform-agnostic) -- mouse/
+// keyboard input over the web client silently did nothing because
+// WebRTCVideoClient never implemented this interface at all, so the type
+// assertion always failed and every input call was a no-op.
+//
+// Each method here builds the exact same NV_INPUT_HEADER-prefixed wire
+// packet a real Moonlight client would send over the ENet control channel
+// (see webrtcweb/input_wasm.go's doc comment) and writes it as a binary
+// message on the "input" DataChannel. rustshine's crates/enet-input/src/
+// input_decode.rs::decode_input_packet on the other end parses this same
+// byte layout and injects it via uinput -- there is no separate "WebRTC
+// input protocol"; it's the real protocol, just carried over a DataChannel
+// instead of ENet.
+func (c *WebRTCVideoClient) sendInput(packet []byte) {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return
+	}
+	if err := client.SendBinary(packet); err != nil {
+		logrus.Debugf("[webrtc-video] input send failed: %v", err)
+	}
+}
+
+func (c *WebRTCVideoClient) SendMoonlightKey(vkCode int16, action int8, modifiers int8) {
+	c.sendInput(webrtcweb.EncodeKey(uint8(vkCode), uint8(modifiers), action == LiKeyActionDown))
+}
+
+func (c *WebRTCVideoClient) SendMoonlightMouseMove(dx, dy int16) {
+	c.sendInput(webrtcweb.EncodeMouseMoveRelative(dx, dy))
+}
+
+func (c *WebRTCVideoClient) SendMoonlightMousePosition(x, y, refW, refH int16) {
+	c.sendInput(webrtcweb.EncodeMouseMoveAbsolute(x, y, refW, refH))
+}
+
+func (c *WebRTCVideoClient) SendMoonlightMouseButton(action int8, button int) {
+	c.sendInput(webrtcweb.EncodeMouseButton(uint8(button), action == LiMouseButtonPress))
+}
+
+func (c *WebRTCVideoClient) SendMoonlightScroll(clicks int8) {
+	// Real Moonlight clients send scroll amount in WHEEL_DELTA (120) units
+	// per notch -- LiSendScrollEvent(clicks) internally does this same
+	// clicks*WHEEL_DELTA multiply before it reaches the wire (see
+	// Limelight-common's own client.c); this client's callers already pass
+	// "clicks" the same way every other platform's LiSendScrollEvent call
+	// site does, so match that convention here rather than sending clicks
+	// directly (which decode_input_packet's ScrollVertical would then
+	// mis-scale by 120x relative to a real client's notches).
+	const wheelDelta = 120
+	c.sendInput(webrtcweb.EncodeScroll(int16(clicks) * wheelDelta))
+}
+
+func (c *WebRTCVideoClient) SendMoonlightControllerEvent(controllerNumber uint16, activeGamepadMask uint16, buttons uint16, leftTrigger uint8, rightTrigger uint8, leftStickX int16, leftStickY int16, rightStickX int16, rightStickY int16) {
+	// Not implemented yet -- input_wasm.go only encodes the packet types
+	// VideoWidget's mouse/keyboard paths actually exercise today (see its
+	// own doc comment). No gamepad UI is wired up to the web client yet
+	// either, so there's nothing that would call this in practice.
+}
+
+func (c *WebRTCVideoClient) SendMoonlightUtf8Text(text string) {
+	c.sendInput(webrtcweb.EncodeUtf8Text(text))
+}
+
+// IsInputActive: real Moonlight builds gate this on the underlying stream
+// being fully set up (LiSend* would silently fail/no-op before that).
+// Here that's simply "DataChannel open", which IsConnected already tracks
+// via the OnStateChange "connected" callback.
+func (c *WebRTCVideoClient) IsInputActive() bool {
+	return c.connected.Load()
+}

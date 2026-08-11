@@ -418,12 +418,31 @@ func (c *WebRTCClient) StopFrameCapture() {
 	}
 }
 
-// Send writes a message on the "input" DataChannel.
+// Send writes a text message on the "input" DataChannel -- fine for JSON,
+// but NOT for the raw binary NV_INPUT_HEADER-prefixed packets
+// input_wasm.go builds (see SendBinary): a Go string is decoded as UTF-8
+// on the way into a JS string by syscall/js's own marshaling, which
+// silently mangles arbitrary non-UTF8-valid byte sequences -- exactly what
+// a binary protocol full of raw magic/keycode/coordinate bytes is.
 func (c *WebRTCClient) Send(data []byte) error {
 	if c.dc == nil {
 		return fmt.Errorf("webrtc: DataChannel not open")
 	}
 	c.dc.Call("send", string(data))
+	return nil
+}
+
+// SendBinary writes a binary message on the "input" DataChannel as a real
+// JS Uint8Array (RTCDataChannel.send(ArrayBufferView)), not a JS string --
+// see Send's doc comment for why that distinction matters for raw input
+// packet bytes.
+func (c *WebRTCClient) SendBinary(data []byte) error {
+	if c.dc == nil {
+		return fmt.Errorf("webrtc: DataChannel not open")
+	}
+	array := js.Global().Get("Uint8Array").New(len(data))
+	js.CopyBytesToJS(array, data)
+	c.dc.Call("send", array)
 	return nil
 }
 
