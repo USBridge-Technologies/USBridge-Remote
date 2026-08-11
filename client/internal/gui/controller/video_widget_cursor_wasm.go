@@ -135,7 +135,7 @@ func ensureCursorDot() {
 	style.Set("zIndex", "11")
 	style.Set("display", "none")
 	style.Set("willChange", "transform")
-	style.Set("transition", "transform 60ms linear")
+	style.Set("transition", "transform 40ms linear")
 	body.Call("appendChild", el)
 	cursorDotEl = el
 }

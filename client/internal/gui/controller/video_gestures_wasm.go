@@ -255,7 +255,10 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 
 	wrapper := vw.activeViewportWrapper()
 	if wrapper != nil {
-		wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x0, y0)}})
+		fyne.Do(func() {
+			wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x0, y0)}})
+			vw.updateNativeViewportAndCursor()
+		})
 	}
 	return nil
 }
@@ -343,7 +346,25 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 
 	wrapper := vw.activeViewportWrapper()
 	if wrapper != nil {
-		wrapper.Dragged(&fyne.DragEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x, y)}, Dragged: fyne.Delta{DX: dx, DY: dy}})
+		fyne.Do(func() {
+			wrapper.Dragged(&fyne.DragEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x, y)}, Dragged: fyne.Delta{DX: dx, DY: dy}})
+			// Dragged() (video_mouse_handler.go) updates
+			// vw.virtualCursorU/V synchronously in cursor mode via
+			// handleVirtualCursorMove, but nothing in that call chain
+			// refreshes the on-screen dot or re-centers the viewport --
+			// on Android that happens because the Vulkan render thread
+			// polls the shared cursor state every frame on its own.
+			// Without an equivalent render loop here, the dot/viewport
+			// were only ever catching up on video_gestures_wasm.go's
+			// 150ms poll tick, which reads as a stutter: a 60ms glide to
+			// the last known position, then a ~90ms stall waiting for
+			// the next tick, repeating for as long as the finger moves.
+			// Driving it from every touchmove instead removes that
+			// stall -- this now updates at the same rate the browser
+			// delivers touch events, same as Android's Vulkan thread
+			// updates every render frame.
+			vw.updateNativeViewportAndCursor()
+		})
 	}
 	return nil
 }
