@@ -682,6 +682,26 @@ func (a *App) RegenerateMasterKey() (config.Config, error) {
 	if a.apiServer != nil {
 		a.apiServer.SetMasterKey([]byte(key))
 	}
+	// A regenerated master key is meant to revoke access wholesale, but
+	// Sunshine's Moonlight pairing is its own cert-based handshake that the
+	// master key never governed — a client paired under the old key would
+	// otherwise keep streaming right through the rotation. Best-effort and
+	// non-fatal: the key has already been rotated above regardless of
+	// whether any of this succeeds.
+	if clients, err := a.ListSunshineClients(); err == nil {
+		for _, c := range clients {
+			_ = a.UnpairSunshineClient(c.UniqueID)
+		}
+	}
+	// Unpairing alone only stops *future* pairing/reconnect attempts — a
+	// session that was already streaming keeps going, since Sunshine
+	// doesn't re-check its authorized-client list against connections it
+	// already accepted. Restarting the stream host is what actually drops
+	// those live sessions, so the key rotation above can't be quietly
+	// undermined by a session that predates it.
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] failed to restart stream host after master key regeneration: %v", err)
+	}
 	return a.cfg, nil
 }
 

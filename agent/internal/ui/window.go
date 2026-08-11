@@ -148,7 +148,7 @@ type Window struct {
 	// to push. Its text/importance reflect entitlement.Status live (see
 	// performRefresh), so a supporter sees at a glance that they're one
 	// without needing to open the dialog.
-	supportBtn *widget.Button
+	supportBtn *supportButton
 
 	// streamerNameLabel shows StreamerName() ("Sunshine (Open Source)" /
 	// "RustShine (Proprietary)") -- kept as a field (not a one-off local in
@@ -526,6 +526,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 					for _, c := range clients {
 						_ = w.token.UnpairSunshineClient(c.UniqueID)
 					}
+					// Unpairing only blocks future reconnects — a client
+					// already mid-stream keeps going until the stream host
+					// itself is restarted (same reasoning as
+					// RegenerateMasterKey's own client wipe).
+					_ = w.token.RestartSunshine()
 					fyne.Do(func() {
 						if w.moonlightBtn != nil {
 							w.moonlightBtn.SetText("0")
@@ -553,10 +558,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
 
-	w.supportBtn = widget.NewButton("⚡ Support us", func() {
+	w.supportBtn = newSupportButton("Support us", func() {
 		w.showPatreonDialog(win)
 	})
-	w.supportBtn.Importance = widget.LowImportance
 	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
 	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, layout.NewSpacer(), w.supportBtn)
 
@@ -868,11 +872,11 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	}
 	switch {
 	case st.ActiveBackend == "rustshine":
-		w.supportBtn.SetText("⚡ RustShine active")
+		w.supportBtn.SetText("RustShine active")
 	case st.Linked:
-		w.supportBtn.SetText("⚡ RustShine ready")
+		w.supportBtn.SetText("RustShine ready")
 	default:
-		w.supportBtn.SetText("⚡ Support us")
+		w.supportBtn.SetText("Support us")
 	}
 }
 
@@ -906,7 +910,7 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 	titleRow := container.NewBorder(nil, nil, titleLabel, xBtn, nil)
 
 	minWidth := canvas.NewRectangle(color.Transparent)
-	minWidth.SetMinSize(fyne.NewSize(380, 1))
+	minWidth.SetMinSize(fyne.NewSize(420, 1))
 
 	body := container.NewVBox()
 
@@ -989,14 +993,39 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 			body.Add(container.NewCenter(dlBtn))
 
 		default:
-			body.Add(widget.NewRichTextFromMarkdown(
-				"RustShine is our proprietary streaming engine — hardware AV1/HEVC encode, " +
-					"lower latency, tighter frame pacing, built from scratch for USBridge.\n\n" +
-					"- Streams the Linux login screen (SDDM) too — including on NVIDIA, X11 and Wayland\n" +
-					"- Hardware video encode on every platform\n\n" +
-					"Free for Sunshine (open source, unlimited). RustShine is a perk for **$5+/mo** " +
+			// Split into short, visually separate blocks (what it is / what
+			// you get / pricing) rather than one long paragraph — a single
+			// wall of text stayed hard to scan even once it wrapped
+			// correctly. Wrapping is set on each piece for the same reason
+			// noted on tsInfo/tsPeers below: without it, a widget reports
+			// its unwrapped single-line width as its MinSize, which —
+			// since nothing else here constrains width except minWidth's
+			// 420px *minimum* — stretches the whole popup out to fit it on
+			// one line instead of wrapping within the intended width.
+			intro := widget.NewLabel(
+				"RustShine is our proprietary streaming engine, built from " +
+					"scratch for USBridge — hardware AV1/HEVC encode, lower " +
+					"latency, and tighter frame pacing.",
+			)
+			intro.Wrapping = fyne.TextWrapWord
+			body.Add(intro)
+
+			features := widget.NewRichTextFromMarkdown(
+				"- Streams the Linux login screen (SDDM) too — including on NVIDIA, X11 and Wayland\n" +
+					"- Hardware video encode on every platform",
+			)
+			features.Wrapping = fyne.TextWrapWord
+			body.Add(features)
+
+			body.Add(widget.NewSeparator())
+
+			pricing := widget.NewRichTextFromMarkdown(
+				"Free for Sunshine (open source, unlimited). RustShine is a perk for **$5+/mo** " +
 					"Patreon supporters — switch back to Sunshine anytime, no strings attached.",
-			))
+			)
+			pricing.Wrapping = fyne.TextWrapWord
+			body.Add(pricing)
+
 			if st.LastError != "" {
 				errText := canvas.NewText(st.LastError, design.ColorTextMuted)
 				errText.TextStyle.Italic = true
@@ -1411,6 +1440,12 @@ func (w *Window) showMoonlightClientsDialog(parent fyne.Window) {
 							go func() {
 								if err := w.token.UnpairSunshineClient(c.UniqueID); err != nil {
 									log.Printf("[ui] unpair moonlight client: %v", err)
+								} else {
+									// Unpairing only blocks future reconnects
+									// — a client already mid-stream keeps
+									// going until the stream host itself is
+									// restarted.
+									_ = w.token.RestartSunshine()
 								}
 								refreshList()
 							}()
@@ -2415,4 +2450,124 @@ func (b *closeButton) Tapped(*fyne.PointEvent) {
 	if b.OnTapped != nil {
 		b.OnTapped()
 	}
+}
+
+// supportButton is a filled brand-green (#bafc81) button with black text,
+// lightening slightly on hover — used for supportBtn. A stock widget.Button
+// can't do this: Importance only ever picks from the theme's fixed palette,
+// and its hover state blends theme.ColorNameHover over whatever background
+// it has (see design.ColorHoverOverlay's doc comment), so a plain
+// widget.Button here would still flip to that blended color on hover rather
+// than a lightened version of its own green.
+type supportButton struct {
+	widget.BaseWidget
+	Text     string
+	OnTapped func()
+	hovered  bool
+}
+
+func newSupportButton(label string, tapped func()) *supportButton {
+	b := &supportButton{Text: label, OnTapped: tapped}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *supportButton) SetText(text string) {
+	b.Text = text
+	b.Refresh()
+}
+
+// boltIconResource is a plain lightning-bolt glyph drawn as an SVG, not the
+// "⚡" emoji character — the emoji depends on the OS/font having a color-emoji
+// glyph for it, which Fyne's bundled Windows font doesn't, so it rendered as
+// a blank tofu box (looking like a stray leading space pushing the button's
+// text off-center). An SVG resource is rasterized by Fyne itself, so it
+// always renders identically on every platform.
+var boltIconResource = fyne.NewStaticResource("bolt.svg",
+	[]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#000000" d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>`))
+
+func (b *supportButton) CreateRenderer() fyne.WidgetRenderer {
+	bg := canvas.NewRectangle(design.ColorBrandAccent)
+	bg.CornerRadius = design.RadiusMD
+
+	icon := canvas.NewImageFromResource(boltIconResource)
+	icon.FillMode = canvas.ImageFillContain
+
+	text := canvas.NewText(b.Text, color.Black)
+	text.TextStyle.Bold = true
+	text.TextSize = 13
+
+	return &supportButtonRenderer{
+		bg:      bg,
+		icon:    icon,
+		text:    text,
+		button:  b,
+		objects: []fyne.CanvasObject{bg, icon, text},
+	}
+}
+
+func (b *supportButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+func (b *supportButton) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+func (b *supportButton) MouseMoved(*desktop.MouseEvent) {}
+func (b *supportButton) Tapped(*fyne.PointEvent) {
+	if b.OnTapped != nil {
+		b.OnTapped()
+	}
+}
+
+type supportButtonRenderer struct {
+	bg      *canvas.Rectangle
+	icon    *canvas.Image
+	text    *canvas.Text
+	button  *supportButton
+	objects []fyne.CanvasObject
+}
+
+func (r *supportButtonRenderer) Destroy() {}
+
+func (r *supportButtonRenderer) Layout(size fyne.Size) {
+	r.bg.Resize(size)
+
+	iconSize := float32(14)
+	gap := float32(6)
+	textSize := r.text.MinSize()
+	contentWidth := iconSize + gap + textSize.Width
+	startX := (size.Width - contentWidth) / 2
+
+	r.icon.Resize(fyne.NewSize(iconSize, iconSize))
+	r.icon.Move(fyne.NewPos(startX, (size.Height-iconSize)/2))
+	r.text.Resize(textSize)
+	r.text.Move(fyne.NewPos(startX+iconSize+gap, (size.Height-textSize.Height)/2))
+}
+
+func (r *supportButtonRenderer) MinSize() fyne.Size {
+	paddingX := float32(16)
+	paddingY := float32(8)
+	iconSize := float32(14)
+	gap := float32(6)
+	textSize := r.text.MinSize()
+	return fyne.NewSize(iconSize+gap+textSize.Width+paddingX*2, fyne.Max(iconSize, textSize.Height)+paddingY*2)
+}
+
+func (r *supportButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *supportButtonRenderer) Refresh() {
+	r.text.Text = r.button.Text
+	if r.button.hovered {
+		r.bg.FillColor = design.ColorBrandAccentHover
+	} else {
+		r.bg.FillColor = design.ColorBrandAccent
+	}
+	r.bg.Refresh()
+	r.text.Refresh()
+	r.icon.Refresh()
+	r.Layout(r.button.Size())
 }
