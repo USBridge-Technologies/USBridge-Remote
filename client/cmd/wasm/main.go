@@ -39,13 +39,14 @@ func main() {
 	view.SetAppVersion("web")
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
-	// Re-enabled: every js.FuncOf callback in the touch bridge
-	// (video_gestures_wasm.go) now defers recoverTouchPanic, so a panic
-	// inside a touch handler can no longer take down the whole wasm
-	// runtime the way it's suspected to have caused "nothing on screen is
-	// clickable" after this first landed -- see recoverTouchPanic's doc
-	// comment for the failure mode this guards against.
-	gui.InitTouchGestureBridge()
+	// TEMP: disabled again -- two rounds of fixes (panic recovery, gating
+	// the claim on vw.IsStreaming()) still weren't enough: taps on the
+	// connection manager screen (before any video session exists) remain
+	// dead with this bridge attached, on a real device. Root cause is
+	// still open; see video_gestures_wasm.go's own notes. Re-enable once
+	// confirmed fixed against a live device via CDP console output, not
+	// just a clean build.
+	// gui.InitTouchGestureBridge()
 	mainWindow.Show()
 }
 
