@@ -128,6 +128,11 @@ func InitTouchGestureBridge() {
 	js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		defer recoverTouchPanic("syncTouchOverlay")
 		syncTouchOverlay()
+		// Also keep the virtual-cursor dot (video_widget_cursor_wasm.go)
+		// positioned at rest, not just while actively dragging -- e.g.
+		// right after switching into cursor mode, before any drag has
+		// happened yet.
+		syncCursorDot(activeGestureVideoWidget())
 		return nil
 	}), 150)
 }
