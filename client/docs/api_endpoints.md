@@ -151,3 +151,30 @@ POST /api/iso/upload
 GET /api/healthz
 ```
 **Description**: Only endpoint that does **not** require a signature. Returns 200 OK if service is alive.
+
+---
+
+## Transport & scope notes
+
+- This API is served over **plain HTTP/WS** (not HTTPS/WSS) — `agent/internal/app/app.go` calls
+  plain `http.Server.ListenAndServe`, no TLS. The HMAC signature above gives every request
+  authenticity/integrity (only someone holding `API_SECRET` can produce a valid signature, and a
+  tampered body invalidates it) but **not confidentiality** — request/response bodies are
+  readable in plaintext by anything else on the same LAN. Confidentiality for off-LAN access
+  comes from the optional Tailscale (WireGuard) tunnel, not from this API layer itself.
+- `X-Auth-Timestamp` skew tolerance is ±60s (`agent/internal/api/security.go`'s `verifyHMAC`) —
+  the replay window for a captured, still-valid signature.
+- This document covers only the agent's own `/api/*` surface. Two other, completely separate
+  protocol surfaces exist and are **not** covered by this HMAC scheme at all:
+  - **Classic GameStream/Moonlight** (rustshine's own ports: HTTPS 47984, HTTP 47989, RTSP 48010,
+    ENet control 47999, RTP audio/video) — its own PIN-pairing + self-signed-certificate trust
+    model (mirrors NVIDIA GameStream/Sunshine's `nvhttp.cpp` handshake exactly). Control channel
+    is AES-128-GCM encrypted; audio RTP is AES-128-CBC encrypted; **video is not encrypted** (see
+    rust-shine's `README.md` "Known gaps").
+  - **Native WebRTC signaling** (rustshine's `POST /webrtc/offer`, its own port, used by the
+    browser/WASM client) — **has no authentication at all today**: anyone who can reach that port
+    can open a video/audio/input session, unrelated to and unauthenticated by the master key above.
+    The actual media/input payloads are DTLS-SRTP-encrypted (mandatory, non-optional part of the
+    WebRTC spec), so traffic in transit is protected once a session exists — the open hole is in
+    who's allowed to *start* one. See rust-shine's `docs/WEBRTC.md` for the planned fix (reusing
+    this same master-key HMAC scheme to sign the offer request).
