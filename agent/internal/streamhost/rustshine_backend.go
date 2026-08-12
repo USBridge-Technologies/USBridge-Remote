@@ -20,8 +20,10 @@
 package streamhost
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -377,13 +379,31 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		cmd.Dir = dir
 	}
 	if b.logPath != "" {
+		// Truncate a log that's grown past a sane cap instead of appending
+		// forever -- this file used to reach 1.3GB+ across long-running
+		// agent uptimes even before the noisy-line filter above existed,
+		// since every start appends on top of whatever the previous
+		// run(s) left behind with no rotation at all. A fresh start is a
+		// natural, low-risk point to reset it: nothing still running
+		// depends on the old content, and the alternative (real
+		// size-based rotation with .1/.2/... suffixes) is more machinery
+		// than a debug log needs.
+		const rustshineLogMaxBytesBeforeTruncate = 20 * 1024 * 1024
+		if info, statErr := os.Stat(b.logPath); statErr == nil && info.Size() > rustshineLogMaxBytesBeforeTruncate {
+			if err := os.Truncate(b.logPath, 0); err != nil {
+				log.Printf("[rustshine] failed to truncate oversized log %s (%d bytes): %v", b.logPath, info.Size(), err)
+			} else {
+				log.Printf("[rustshine] truncated oversized log %s (was %d bytes)", b.logPath, info.Size())
+			}
+		}
 		if err := os.MkdirAll(filepath.Dir(b.logPath), 0o755); err != nil {
 			log.Printf("[rustshine] failed to create log dir for %s: %v", b.logPath, err)
 		} else if f, err := os.OpenFile(b.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			log.Printf("[rustshine] failed to open log file %s: %v", b.logPath, err)
 		} else {
-			cmd.Stdout = f
-			cmd.Stderr = f
+			filtered := newNoisyLineFilterWriter(f)
+			cmd.Stdout = filtered
+			cmd.Stderr = filtered
 		}
 	}
 	if err := cmd.Start(); err != nil {
@@ -476,4 +496,71 @@ func (b *rustshineBackend) Ports(basePort int) (tcp []int, udp []int) {
 	tcp = []int{basePort - 5, basePort, basePort + 1, basePort + 21}
 	udp = []int{basePort + 9, basePort + 10, basePort + 11}
 	return tcp, udp
+}
+
+// noisyLinePrefixes match gamestream-server's per-encoded-frame VAAPI debug
+// prints -- raw stdout printf-style lines (no timestamp, no log-level,
+// unlike its `tracing`-based INFO/WARN lines), one set per frame at up to
+// ~60/sec: "vaBeginPicture returned 0", "VPP vaRenderPicture success",
+// "vpp_out_surface: N, ...", "encode_surface returned",
+// "Encoded frame size: N bytes (looks good)", and so on. None of these
+// carry any diagnostic value beyond confirming "yes, another frame was
+// encoded" -- they were the entire reason the log file reached 1.3GB.
+// Filtered out here at the point they're written, since there's no
+// verbosity flag on gamestream-server's own CLI to ask it not to print
+// these (see --help). "suspiciously small ... might be a black screen" is
+// deliberately NOT in this list -- that's the one line from the same
+// prefix that's actually a real diagnostic signal, and stays.
+var noisyLinePrefixes = []string{
+	"[gamestream-server] va",
+	"[gamestream-server] vpp_out_surface:",
+	"[gamestream-server] encode_surface returned",
+	"[gamestream-server] Encoded frame size:",
+	"[gamestream-server] VPP va",
+}
+
+func isNoisyRustshineLogLine(line string) bool {
+	for _, p := range noisyLinePrefixes {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// noisyLineFilterWriter wraps the log file destination and drops lines
+// matched by isNoisyRustshineLogLine before they ever hit disk. Writes
+// from exec.Cmd's stdout/stderr pipe arrive in arbitrary-sized chunks, not
+// necessarily line-aligned, so incomplete lines are buffered until a
+// newline completes them; any trailing partial line still in the buffer
+// when the process exits is simply dropped (acceptable for a debug log --
+// not worth the complexity of a Close/Flush path for one possibly-partial
+// line).
+type noisyLineFilterWriter struct {
+	dest io.Writer
+	buf  bytes.Buffer
+}
+
+func newNoisyLineFilterWriter(dest io.Writer) *noisyLineFilterWriter {
+	return &noisyLineFilterWriter{dest: dest}
+}
+
+func (w *noisyLineFilterWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.buf.Write(p)
+	for {
+		data := w.buf.Bytes()
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			break
+		}
+		line := data[:idx+1]
+		if !isNoisyRustshineLogLine(string(bytes.TrimRight(line, "\r\n"))) {
+			if _, err := w.dest.Write(line); err != nil {
+				return n, err
+			}
+		}
+		w.buf.Next(idx + 1)
+	}
+	return n, nil
 }
