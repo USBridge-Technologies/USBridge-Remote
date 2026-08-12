@@ -181,4 +181,4 @@ GET /api/healthz
     DTLS-SRTP-encrypted (mandatory, non-optional part of the WebRTC spec). Only unset for
     standalone/dev use of `gamestream-server` outside the agent, where the endpoint stays
     unauthenticated (logs a startup warning) — see rust-shine's `docs/WEBRTC.md` "Authentication"
-    section.
+    section, which also has the live-verification notes (real agent install, real device).
