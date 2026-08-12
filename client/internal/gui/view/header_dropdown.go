@@ -771,12 +771,30 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		// attachTouchScroll's doc comment for why this is needed at all
 		// (Fyne's wasm driver has no touch-to-scroll translation) and a
 		// no-op on every other platform (real touch/mouse dispatch
-		// already scrolls container.Scroll there). Read scroll's rect
-		// only now, after ShowAtPosition has actually laid it out --
-		// querying it any earlier would still reflect stale/zero
-		// geometry.
-		scrollPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(scroll)
-		attachTouchScroll(scroll, rows, rowCallbacks, scrollPos, scroll.Size())
+		// already scrolls container.Scroll there).
+		//
+		// Deliberately reusing popupPos/(width,height) -- the exact
+		// values ShowAtPosition itself was just called with, so
+		// guaranteed correct since they're what actually put the popup
+		// on screen -- rather than re-deriving scroll's own rect via
+		// Driver().AbsolutePositionForObject(scroll). That looked like
+		// the more precise choice (covers only the list, not the
+		// popup's padding/border too) but consistently returned (0,0)
+		// here -- confirmed live via CDP against a real Android Chrome
+		// session: the touch overlay ended up pinned to the screen's
+		// top-left corner instead of over the list, so every swipe
+		// landed on Fyne's canvas instead of the overlay and did
+		// nothing. dropdownPopup is this package's own custom overlay
+		// widget (canvas.Overlays().Add(p), not Fyne's built-in
+		// widget.PopUp), and whatever AbsolutePositionForObject needs to
+		// resolve position through overlay content apparently isn't
+		// satisfied for an object nested this deep inside it at the
+		// point ShowAtPosition returns. Covering the whole popup panel
+		// instead of just the list viewport is harmless: a touch
+		// landing on the padding/border either scrolls (no visible
+		// content there to scroll into, clamped at the bounds) or misses
+		// every row's hit-test in onScrollTouchEnd and is a no-op.
+		attachTouchScroll(scroll, rows, rowCallbacks, popupPos, fyne.NewSize(width, height))
 	}
 }
 
