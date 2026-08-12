@@ -51,6 +51,13 @@ type rustshineBackend struct {
 	activeAdminPassword string
 	adminPort           int // set by Start; CurrentVideoCodec needs it despite taking no args itself
 
+	// sharedSecret is the agent's own master key, handed to gamestream-server
+	// via --webrtc-shared-secret so its native WebRTC signaling endpoint
+	// (POST /webrtc/offer) authenticates requests the same way every other
+	// agent /api/* endpoint does — see SetSharedSecret's doc comment for how
+	// this gets set/refreshed.
+	sharedSecret []byte
+
 	supportedCodecsCache struct {
 		mu        sync.Mutex
 		codecs    []string
@@ -73,6 +80,20 @@ func NewRustshine(exeDir, stateDir, logPath string) Backend {
 // DisplayName identifies this backend for display purposes only (GUI
 // status, /api/status, logs) — see streamhost.Identity.
 func (b *rustshineBackend) DisplayName() string { return "RustShine (Proprietary)" }
+
+// SetSharedSecret sets the secret Start() passes to gamestream-server as
+// --webrtc-shared-secret. Called via an optional-interface probe from
+// app.go right after construction (initial boot / SetStreamBackend) and
+// again from RegenerateMasterKey — mirrors api.SecurityMiddleware's
+// SetMasterKey hot-swap shape so a rotated master key reaches rustshine on
+// the very next Start()/RestartSunshine() without needing a fresh
+// rustshineBackend to be constructed (RestartSunshine reuses the existing
+// backend object, it doesn't rebuild one — see its own doc comment).
+func (b *rustshineBackend) SetSharedSecret(secret []byte) {
+	b.mu.Lock()
+	b.sharedSecret = secret
+	b.mu.Unlock()
+}
 
 // binaryName is bin/gamestream-server's build output name, per its
 // Cargo.toml package name — "gamestream-server(.exe)", not "rust-shine".
@@ -362,6 +383,18 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	// this package stays entitlement-agnostic, entitlement stays
 	// streamhost-agnostic. Always passed; harmless if unused.
 	args = append(args, "--entitlement-file", filepath.Join(b.stateDir, "rustshine", "entitlement.token"))
+	// Authenticates rustshine's own native WebRTC signaling endpoint
+	// (POST /webrtc/offer) against this agent's master key -- see
+	// SetSharedSecret's doc comment for how/when this gets set. Omitted
+	// entirely (not passed as an empty string) when unset, matching
+	// gamestream-server's own --webrtc-shared-secret doc comment: absent
+	// means "standalone/dev use, endpoint stays unauthenticated" there,
+	// not "authenticate against an empty secret". Read directly (not via
+	// SetSharedSecret's own locking) -- Start already holds b.mu for its
+	// whole duration, see the top of this function.
+	if len(b.sharedSecret) > 0 {
+		args = append(args, "--webrtc-shared-secret", string(b.sharedSecret))
+	}
 
 	// If a capability-granted sunshine-capexec launcher is set (Linux KMS
 	// capture only — see SetCapExecPath), launch gamestream-server through

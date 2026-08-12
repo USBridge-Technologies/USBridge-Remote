@@ -111,14 +111,10 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	if host == "" {
 		return fmt.Errorf("webrtc video: no host set")
 	}
-	// secret is NOT required here (unlike every other /api/* call this
-	// client makes elsewhere) -- rustshine's own native WebRTC signaling
-	// endpoint doesn't authenticate requests at all yet, see
-	// webrtcweb.WebRTCClient's doc comment on masterKey/signHMAC being
-	// unused for that reason. Still passed through below so
-	// webrtcweb.NewWebRTCClient's signature doesn't need to special-case
-	// an empty string, and so it's a one-line change to wire real auth in
-	// later.
+	// secret is signed into every /webrtc/offer request the same way it's
+	// signed into every other /api/* call this client makes -- see
+	// webrtcweb.WebRTCClient's doc comment on masterKey/signHMAC and
+	// postOffer's doc comment for how rustshine verifies it.
 
 	// rustshine's own --webrtc-port default -- a genuinely separate port
 	// from the agent's REST API (c.config.USBPort), since this hits

@@ -272,6 +272,7 @@ func New() (*App, error) {
 	}
 	if instance.streamKind == "rustshine" {
 		instance.stream = streamhost.NewRustshine(instance.exeDir, cfg.StateDir, instance.logPath)
+		applyStreamSharedSecret(instance.stream, masterKeyBytes)
 	} else {
 		instance.stream = streamhost.NewDefault(instance.exeDir, cfg.StateDir, instance.logPath)
 	}
@@ -682,6 +683,12 @@ func (a *App) RegenerateMasterKey() (config.Config, error) {
 	if a.apiServer != nil {
 		a.apiServer.SetMasterKey([]byte(key))
 	}
+	// rustshine's own native WebRTC signaling endpoint (POST /webrtc/offer)
+	// authenticates against a copy of the master key handed to it at launch
+	// (see rustshineBackend.SetSharedSecret's doc comment) -- refresh it
+	// here too, before RestartSunshine below picks it up on the next
+	// Start(), same as apiServer.SetMasterKey does for the agent's own API.
+	applyStreamSharedSecret(a.stream, []byte(key))
 	// A regenerated master key is meant to revoke access wholesale, but
 	// Sunshine's Moonlight pairing is its own cert-based handshake that the
 	// master key never governed — a client paired under the old key would
@@ -890,6 +897,7 @@ func (a *App) SetStreamBackend(kind string) error {
 	var next streamhost.Backend
 	if kind == "rustshine" {
 		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
+		applyStreamSharedSecret(next, []byte(a.cfg.MasterKey))
 	} else {
 		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
 	}
@@ -1490,6 +1498,19 @@ func (a *App) QRLink() (string, string) {
 	}
 	link := buildQRLink(internalHost, tailscaleHost, masterKey)
 	return link, masterKey
+}
+
+// applyStreamSharedSecret hands secret to stream if it implements the
+// optional interface{ SetSharedSecret([]byte) } -- only rustshineBackend
+// does today (see its own doc comment). Same optional-interface probe
+// pattern the client GUI layer already uses for SetAPISecret/
+// SetTailscaleService on service.VideoClient implementations; a no-op for
+// sunshineBackend, which has no equivalent (real Sunshine's own protocol
+// has nothing this key would authenticate).
+func applyStreamSharedSecret(stream streamhost.Backend, secret []byte) {
+	if setter, ok := stream.(interface{ SetSharedSecret([]byte) }); ok {
+		setter.SetSharedSecret(secret)
+	}
 }
 
 func buildQRLink(internalHost, tailscaleHost, masterKey string) string {

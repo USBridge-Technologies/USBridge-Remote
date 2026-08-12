@@ -32,11 +32,13 @@ import (
 // surface. One instance per session.
 type WebRTCClient struct {
 	baseURL string
-	// masterKey/signHMAC are currently unused: rustshine's signaling
-	// endpoint doesn't authenticate requests at all yet (see
-	// postOffer's doc comment) -- kept in case that changes, rather than
-	// ripping out working HMAC plumbing that's identical to every other
-	// platform's /api/* auth.
+	// masterKey/signHMAC sign every /webrtc/offer request the same way
+	// every other platform's /api/* call is signed (see postOffer) --
+	// rustshine's signaling endpoint verifies this when its own
+	// --webrtc-shared-secret is configured (see rust-shine's
+	// docs/WEBRTC.md "Authentication" section); an empty masterKey still
+	// produces headers, they just won't match anything rustshine expects,
+	// same as any other wrong/missing key.
 	masterKey string
 
 	pc      *js.Value
@@ -334,11 +336,13 @@ func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) {
 // all. Reuses the browser's fetch() rather than net/http, since GOOS=js
 // has no real network stack of its own to run net/http's transport over.
 //
-// Deliberately NOT signHMAC'd (unlike every /api/* call the desktop client
-// makes) -- rustshine's signaling endpoint doesn't check for or expect
-// that scheme; it authenticates nothing yet (tracked as a known gap, see
-// this crate's own doc comments). The request/response shapes here match
-// rustshine's actual wire format exactly: {"sdp": "..."} in both
+// Signed via signHMAC the same way every /api/* call the desktop client
+// makes is signed -- rustshine's signaling endpoint verifies
+// X-Auth-Timestamp/X-Auth-Signature against its own --webrtc-shared-secret
+// when configured (see rust-shine's docs/WEBRTC.md "Authentication"
+// section and crates/webrtc-video/src/signaling.rs's verify_offer_auth).
+// The request/response shapes here match rustshine's actual wire format
+// exactly: {"sdp": "..."} in both
 // directions, no success/error envelope -- a prior version of this file
 // assumed the agent's own envelope shape ({"success", "error", "data":
 // {"sdp"}}), which silently failed against rustshine's flat response
@@ -354,8 +358,12 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	}
 	path := "/webrtc/offer"
 
+	ts, sig := c.signHMAC("POST", path, string(reqBody))
+
 	headers := js.Global().Get("Object").New()
 	headers.Set("Content-Type", "application/json")
+	headers.Set("X-Auth-Timestamp", ts)
+	headers.Set("X-Auth-Signature", sig)
 
 	opts := js.Global().Get("Object").New()
 	opts.Set("method", "POST")

@@ -172,9 +172,13 @@ GET /api/healthz
     is AES-128-GCM encrypted; audio RTP is AES-128-CBC encrypted; **video is not encrypted** (see
     rust-shine's `README.md` "Known gaps").
   - **Native WebRTC signaling** (rustshine's `POST /webrtc/offer`, its own port, used by the
-    browser/WASM client) — **has no authentication at all today**: anyone who can reach that port
-    can open a video/audio/input session, unrelated to and unauthenticated by the master key above.
-    The actual media/input payloads are DTLS-SRTP-encrypted (mandatory, non-optional part of the
-    WebRTC spec), so traffic in transit is protected once a session exists — the open hole is in
-    who's allowed to *start* one. See rust-shine's `docs/WEBRTC.md` for the planned fix (reusing
-    this same master-key HMAC scheme to sign the offer request).
+    browser/WASM client) — authenticated by the same `X-Auth-Timestamp`/`X-Auth-Signature` HMAC
+    scheme described above, reusing this same master key: the agent hands rustshine a copy of its
+    master key at launch (`--webrtc-shared-secret`), and `client/internal/webrtcweb/client_wasm.go`
+    signs every offer request with it (`signHMAC`), so it authenticates *this* agent's master key,
+    not the agent's `/api/*` HTTP path itself — this is a separate server surface on rustshine's
+    own port, not a route the agent's HTTP server serves. The actual media/input payloads are also
+    DTLS-SRTP-encrypted (mandatory, non-optional part of the WebRTC spec). Only unset for
+    standalone/dev use of `gamestream-server` outside the agent, where the endpoint stays
+    unauthenticated (logs a startup warning) — see rust-shine's `docs/WEBRTC.md` "Authentication"
+    section.
