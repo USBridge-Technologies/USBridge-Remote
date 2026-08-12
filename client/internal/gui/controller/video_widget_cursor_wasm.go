@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"syscall/js"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 )
 
@@ -157,11 +159,11 @@ func syncCursorDot(vw *VideoWidget) {
 		style.Set("display", "none")
 		return
 	}
-	// Same "actually on the Control tab / no dialog up" guard
-	// syncTouchOverlay applies (video_gestures_wasm.go) -- this dot itself
-	// is pointer-events:none so it was never the thing eating taps, but it
-	// has no business being visibly painted over another tab's UI either.
-	if videoOverlayForceHidden {
+	// Same "actually on the Control tab" guard syncTouchOverlay applies
+	// (video_gestures_wasm.go) -- this dot itself is pointer-events:none
+	// so it was never the thing eating taps, but it has no business being
+	// visibly painted over another tab's UI either.
+	if view.NavVideoHidden() {
 		style.Set("display", "none")
 		return
 	}

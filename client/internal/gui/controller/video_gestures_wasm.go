@@ -44,6 +44,8 @@ import (
 	"syscall/js"
 	"time"
 
+	"usbridge-client/internal/gui/view"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/mobile"
 	"github.com/sirupsen/logrus"
@@ -174,15 +176,17 @@ func syncTouchOverlay() {
 		style.Set("height", "0px")
 		return
 	}
-	// videoOverlayForceHidden (video_widget_dom_overlay_wasm.go) is the
-	// same "are we actually looking at the Control tab / no dialog is up"
-	// signal the video overlay hides on -- wrapper.Visible() alone stays
-	// true even while a different app tab (Devices/Snapshots/Scripts) is
+	// view.NavVideoHidden() (set from MainWindow.syncVideoOverlayForNav,
+	// polled fresh here rather than cached -- see
+	// video_widget_dom_overlay_wasm.go's doc comment on why a cached/
+	// push-callback copy of this can get stuck) is "are we actually
+	// looking at the Control tab" -- wrapper.Visible() alone stays true
+	// even while a different app tab (Devices/Snapshots/Scripts) is
 	// selected, since Fyne keeps the Control tab's widget tree mounted, it
 	// just isn't the one on screen. Without this guard this transparent,
 	// pointer-events:auto div kept covering (and eating every tap on)
 	// whichever tab the user actually switched to -- confirmed live.
-	if videoOverlayForceHidden {
+	if view.NavVideoHidden() {
 		style.Set("pointerEvents", "none")
 		style.Set("width", "0px")
 		style.Set("height", "0px")

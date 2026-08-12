@@ -31,21 +31,6 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 	return !el.IsUndefined() && !el.IsNull() && vw.IsStreaming()
 }
 
-// videoOverlayForceHidden mirrors what every native GPU-overlay platform
-// (VKVideoAndroidSetHidden/MetalVideoSetHidden/VKVideoSetHidden) does when
-// a Fyne overlay (menu/dialog) or app-level navigation (switching off the
-// Control tab, opening the connection-manager screen — see
-// MainWindow.syncVideoOverlayForNav) wants the video hidden without
-// actually tearing the stream down: those platforms hide the native
-// surface so it doesn't paint over the dialog/other screen; the DOM
-// overlay needs the exact same guard, since it's a position:fixed element
-// that paints above Fyne's own canvas regardless of which Fyne screen is
-// logically "on top". Read/written only from the Fyne main goroutine
-// (view.OnOverlayShow/Hide and syncVideoOverlay's own callers are all
-// invoked from there), so a plain bool is enough -- wasm has no real
-// parallelism anyway (single OS thread, cooperatively scheduled goroutines).
-var videoOverlayForceHidden bool
-
 // startMetalVideoOnWindow/stopMetalVideo/updateMetalVideoFrame/
 // metalVideoEnterFullscreen/metalVideoExitFullscreen exist purely so wasm
 // satisfies the same method set the cross-platform code in
@@ -57,69 +42,33 @@ var videoOverlayForceHidden bool
 // frame!=nil branch, and every frame wasm ever delivers is nil (see
 // webrtc_video_client_wasm.go's OnVideoTrack: WebRTC decode never produces
 // a Go-side image.Image at all), so that call site is dead code here.
-// ensureOverlayHooksRegistered below (called from syncVideoOverlay
-// instead) is the real registration point for wasm.
+//
+// Hiding the DOM <video> overlay (and the touch/cursor layers stacked on
+// top of it, video_gestures_wasm.go / video_widget_cursor_wasm.go) when
+// app-level navigation moves off the Control tab used to be wired through
+// view.OnOverlayShow/OnOverlayHide -- the same push-callback hooks the
+// native GPU-overlay platforms register once per session. That doesn't fit
+// wasm: stopMetalVideo below is called far more often than a real
+// teardown (every fullscreen toggle, every reconnect -- see its callers in
+// fullscreen_dialog.go and video_widget_ui.go), and each call nil'd the
+// hooks out. A Show/Hide pairing that straddled one of those calls (e.g. a
+// dropdown opened, then a reconnect happened, then the dropdown closed)
+// lost its Hide -- the callback it would have fired was nil at that
+// moment -- leaving the touch overlay's pointer-events permanently
+// disabled until something else happened to re-register and reset it.
+// Confirmed as the cause of mouse input silently stopping on the Control
+// tab with no further errors.
+//
+// Reading view.NavVideoHidden() directly on every poll tick instead (see
+// syncVideoOverlay/syncTouchOverlay/syncCursorDot) removes the whole
+// class: there's no registration to straddle and no callback to lose,
+// just a plain flag that's at most one ~150ms tick stale and self-heals
+// the moment MainWindow.syncVideoOverlayForNav next runs.
 func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, _ bool) {}
-func (vw *VideoWidget) stopMetalVideo() {
-	view.OnOverlayShow = nil
-	view.OnOverlayHide = nil
-	videoOverlayHooksRegistered = false
-}
-func (vw *VideoWidget) updateMetalVideoFrame()                  { syncVideoOverlay(vw) }
-func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window) {}
-func (vw *VideoWidget) metalVideoExitFullscreen()               {}
-
-// videoOverlayHooksRegistered guards ensureOverlayHooksRegistered below so
-// it only wires view.OnOverlayShow/OnOverlayHide once per session, not on
-// every syncVideoOverlay tick.
-var videoOverlayHooksRegistered bool
-
-// ensureOverlayHooksRegistered wires the same view.OnOverlayShow/
-// OnOverlayHide hooks every native platform's own startMetalVideoOnWindow
-// registers (see video_widget_android.go's version for the pattern this
-// mirrors), lazily on the first syncVideoOverlay call that finds a real
-// video element -- see startMetalVideoOnWindow's doc comment for why that
-// method itself is never actually invoked under wasm and can't be the
-// registration point here. Without this,
-// MainWindow.syncVideoOverlayForNav's NotifyOverlayShow/Hide calls on tab
-// switches and dialog open/close are no-ops under wasm (OnOverlayShow/Hide
-// stay nil), leaving the DOM <video> overlay visibly painted over every
-// other tab/screen -- confirmed live (switching to the Devices tab left
-// the video on top).
-func ensureOverlayHooksRegistered(vw *VideoWidget) {
-	if videoOverlayHooksRegistered {
-		return
-	}
-	videoOverlayHooksRegistered = true
-	view.OnOverlayShow = func() {
-		videoOverlayForceHidden = true
-		syncVideoOverlay(vw)
-	}
-	view.OnOverlayHide = func() {
-		videoOverlayForceHidden = false
-		syncVideoOverlay(vw)
-	}
-	// Deliberately NOT seeded from view.OverlayActive() (unlike
-	// video_widget_android.go's equivalent registration point): that depth
-	// counter is shared ambient state touched by every unrelated
-	// popup/dropdown in the whole app, not scoped to "is something
-	// covering the video right now" -- reading it here risked snapshotting
-	// a stale "hidden" state and setting visibility:hidden on the <video>
-	// element. That's far more damaging under wasm than it sounds: Chrome
-	// stops firing requestVideoFrameCallback entirely on a hidden <video>
-	// (confirmed live), which starves WatchVideoFrames' onFrame(nil) loop,
-	// which starves VideoWidget's lastFrameTime bookkeeping, which trips
-	// checkVideoSilence's 4s mid-stream watchdog into forcing a full
-	// reconnect -- whose teardown (stopMetalVideo) resets
-	// videoOverlayHooksRegistered, so the *next* session's registration
-	// re-reads the same racy counter and can repeat the exact same
-	// hidden-video/no-rVFC/watchdog-reconnect cycle indefinitely. Confirmed
-	// live as the actual cause of a client reconnecting every ~4s
-	// indefinitely with "frame=1" and never another frame logged.
-	// Starting visible and trusting the two hooks above for every real
-	// state change from here on avoids the whole class of bug.
-	videoOverlayForceHidden = false
-}
+func (vw *VideoWidget) stopMetalVideo()                               {}
+func (vw *VideoWidget) updateMetalVideoFrame()                        { syncVideoOverlay(vw) }
+func (vw *VideoWidget) metalVideoEnterFullscreen(_ fyne.Window)       {}
+func (vw *VideoWidget) metalVideoExitFullscreen()                     {}
 
 // videoCanvasFrame mirrors video_widget_metal_stub.go's generic
 // implementation (Fyne's own videoCanvas widget geometry) -- nothing in
@@ -169,10 +118,9 @@ func syncVideoOverlay(vw *VideoWidget) {
 	if el.IsUndefined() || el.IsNull() {
 		return
 	}
-	ensureOverlayHooksRegistered(vw)
 	style := el.Get("style")
 
-	if videoOverlayForceHidden {
+	if view.NavVideoHidden() {
 		style.Set("visibility", "hidden")
 		return
 	}

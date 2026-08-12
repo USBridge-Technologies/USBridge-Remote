@@ -136,6 +136,12 @@ func (mw *MainWindow) syncVideoOverlayForNav() {
 		mw.window.Content() == mw.mainContent &&
 		mw.tabs.SelectedIndex() == mw.controlTabIndex()
 
+	// Drift-proof nav signal for wasm (see view.NavVideoHidden's doc
+	// comment): a plain last-write, set unconditionally on every call
+	// regardless of the depth-counter dance below, so it can never get
+	// stuck by a lost Show/Hide pairing the way overlayDepth can.
+	view.SetNavVideoHidden(!shouldBeVisible)
+
 	if !shouldBeVisible && !mw.videoOverlayHiddenByNav {
 		view.NotifyOverlayShow()
 		mw.videoOverlayHiddenByNav = true

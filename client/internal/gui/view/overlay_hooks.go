@@ -51,3 +51,36 @@ func OverlayActive() bool {
 	logrus.Infof("📌 [OVERLAY] active check=%v (depth=%d)", active, overlayDepth.Load())
 	return active
 }
+
+// navVideoHidden is a plain last-write-wins flag for "app-level navigation
+// (tab switch, connection-manager screen) currently wants the video hidden"
+// -- deliberately separate from overlayDepth above. That counter composes
+// contributions from independently-tracked call sites (nav, dropdownPopup,
+// VideoStartDialog) and is only as correct as every one of those pairings;
+// a single lost Hide call (e.g. a caller's hook getting nil'd out between a
+// Show and its matching Hide -- see MainWindow.stopMetalVideo callers on
+// wasm) leaves it stuck above zero indefinitely, forcing whatever reads it
+// permanently hidden until something else happens to reset it. Nav state
+// itself never has that failure mode: SetNavVideoHidden is called with the
+// live boolean on every navigation transition (see
+// MainWindow.syncVideoOverlayForNav), so a reader that polls NavVideoHidden
+// on every tick (rather than caching a copy pushed via a callback) is
+// always at most one tick stale and self-heals the moment nav state
+// changes again -- no registration/teardown pairing to get wrong.
+var navVideoHidden atomic.Bool
+
+// SetNavVideoHidden records whether app-level navigation currently wants the
+// video (and anything layered on top of it, e.g. wasm's touch/cursor
+// overlays) hidden. Call on every navigation transition, unconditionally --
+// see navVideoHidden's doc comment for why this is safe to call redundantly
+// and why it's the drift-proof alternative to NotifyOverlayShow/Hide for
+// this specific purpose.
+func SetNavVideoHidden(hidden bool) {
+	navVideoHidden.Store(hidden)
+}
+
+// NavVideoHidden reports the current value set by SetNavVideoHidden. Poll
+// this directly on every check rather than caching the result across ticks.
+func NavVideoHidden() bool {
+	return navVideoHidden.Load()
+}
