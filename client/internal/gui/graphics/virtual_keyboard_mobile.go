@@ -260,9 +260,17 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	var showNormal, showFKeys func()
 	keysSwitch := container.NewStack()
 
-	// F-key panel: one row of F1-F12, replaces the normal panel in-place.
-	f1_12_Codes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
-	f1_12_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
+	// F-key panel: F1-F12 split across two rows of 6 -- a single row of 12
+	// plus the "Back" row below it used to overflow the screen width on a
+	// phone browser (confirmed live on Android: the F-key row and/or the
+	// "Back" row rendered wider than the viewport, forcing horizontal
+	// scroll/clipping). Back sits in the second row, after F12, rather than
+	// its own row, so the panel is exactly two rows tall like the F-key
+	// grid it replaces.
+	f1_6_Codes := []int{58, 59, 60, 61, 62, 63}
+	f1_6_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6"}
+	f7_12_Codes := []int{64, 65, 66, 67, 68, 69}
+	f7_12_Labels := []string{"F7", "F8", "F9", "F10", "F11", "F12"}
 	makeRow := func(labels []string, codes []int) *fyne.Container {
 		row := container.NewGridWithColumns(len(labels))
 		for i, label := range labels {
@@ -277,10 +285,15 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 		return row
 	}
 	backBtn := widget.NewButton("Back", func() { showNormal() })
+	secondRow := container.NewGridWithColumns(len(f7_12_Labels) + 1)
+	for _, obj := range makeRow(f7_12_Labels, f7_12_Codes).Objects {
+		secondRow.Add(obj)
+	}
+	secondRow.Add(backBtn)
 	fPanel := container.NewThemeOverride(
 		container.NewVBox(
-			makeRow(f1_12_Labels, f1_12_Codes),
-			backBtn,
+			makeRow(f1_6_Labels, f1_6_Codes),
+			secondRow,
 		),
 		design.NewBrandTheme(),
 	)
