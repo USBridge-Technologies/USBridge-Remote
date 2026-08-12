@@ -121,7 +121,20 @@ func syncVideoOverlay(vw *VideoWidget) {
 	}
 	style := el.Get("style")
 
-	if view.VideoShouldBeHidden() {
+	// Nav-hidden (off the Control tab) is the one case that gets a real
+	// visibility:hidden -- deliberately NOT view.VideoShouldBeHidden()
+	// (nav OR popup), unlike the touch/cursor overlays below. Chrome
+	// stops firing requestVideoFrameCallback entirely on a hidden
+	// <video> (see ensureOverlayHooksRegistered's old doc comment, still
+	// true here), which starves the watchdog and forces a reconnect --
+	// tolerable when the user has actually navigated away (they're not
+	// watching anyway), but not when they've just opened a settings
+	// popup while still sitting on the Control tab: confirmed live,
+	// coupling this to view.VideoShouldBeHidden() (as an earlier version
+	// of this fix did) brought back a reconnect every few seconds
+	// whenever *any* popup was open. Popups get the softer opacity:0
+	// below instead -- invisible without ever pausing rVFC.
+	if view.NavVideoHidden() {
 		style.Set("visibility", "hidden")
 		return
 	}
@@ -165,4 +178,19 @@ func syncVideoOverlay(vw *VideoWidget) {
 	style.Set("width", pxf(vw.contentRectW))
 	style.Set("height", pxf(vw.contentRectH))
 	style.Set("visibility", "visible")
+
+	// A popup/dialog open on top of the video (view.PopupActive(), the
+	// same overlayDepth counter dropdownPopup/VideoStartDialog already
+	// maintain) still needs to visually disappear -- it's a
+	// position:fixed element that paints above Fyne's own canvas
+	// regardless of what's logically on top -- but opacity:0 rather than
+	// visibility:hidden: the element is still considered "rendered" with
+	// opacity 0, so Chrome keeps calling requestVideoFrameCallback on it
+	// (unlike visibility:hidden, see the nav-hidden branch above), and no
+	// reconnect gets triggered just from opening a settings popup.
+	if view.PopupActive() {
+		style.Set("opacity", "0")
+	} else {
+		style.Set("opacity", "1")
+	}
 }

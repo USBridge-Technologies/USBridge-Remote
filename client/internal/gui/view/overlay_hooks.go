@@ -86,11 +86,24 @@ func NavVideoHidden() bool {
 }
 
 // overlayDepthActive is the unlogged twin of OverlayActive, for callers that
-// poll several times a second (VideoShouldBeHidden below) where
-// OverlayActive's own Infof on every call would flood the log for no
+// poll several times a second (VideoShouldBeHidden, PopupActive below)
+// where OverlayActive's own Infof on every call would flood the log for no
 // diagnostic benefit.
 func overlayDepthActive() bool {
 	return overlayDepth.Load() > 0
+}
+
+// PopupActive is the nav-free half of VideoShouldBeHidden below: true only
+// when a managed overlay (dropdownPopup, VideoStartDialog, an
+// OverlayPopupSpec-based popup/settings screen) is open, regardless of
+// which tab is selected. Exists as its own call because the real <video>
+// element (video_widget_dom_overlay_wasm.go's syncVideoOverlay) needs to
+// treat "off the Control tab" and "a popup is open" differently -- see
+// that function's own doc comment: coupling both to one visibility:hidden
+// brought back a reconnect-every-few-seconds regression -- the exact
+// class of bug this package already paid once to fix.
+func PopupActive() bool {
+	return overlayDepthActive()
 }
 
 // VideoShouldBeHidden reports whether wasm's video/touch/cursor overlays
