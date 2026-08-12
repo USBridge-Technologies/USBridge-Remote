@@ -59,11 +59,12 @@ func (vw *VideoWidget) isNativeVideoActive() bool {
 // Confirmed as the cause of mouse input silently stopping on the Control
 // tab with no further errors.
 //
-// Reading view.NavVideoHidden() directly on every poll tick instead (see
-// syncVideoOverlay/syncTouchOverlay/syncCursorDot) removes the whole
+// Reading view.VideoShouldBeHidden() directly on every poll tick instead
+// (see syncVideoOverlay/syncTouchOverlay/syncCursorDot) removes the whole
 // class: there's no registration to straddle and no callback to lose,
-// just a plain flag that's at most one ~150ms tick stale and self-heals
-// the moment MainWindow.syncVideoOverlayForNav next runs.
+// just a plain flag composed live from nav state and the same
+// overlayDepth counter dropdownPopup/VideoStartDialog already maintain,
+// at most one ~150ms tick stale and self-healing on the very next one.
 func (vw *VideoWidget) startMetalVideoOnWindow(_ fyne.Window, _ bool) {}
 func (vw *VideoWidget) stopMetalVideo()                               {}
 func (vw *VideoWidget) updateMetalVideoFrame()                        { syncVideoOverlay(vw) }
@@ -120,7 +121,7 @@ func syncVideoOverlay(vw *VideoWidget) {
 	}
 	style := el.Get("style")
 
-	if view.NavVideoHidden() {
+	if view.VideoShouldBeHidden() {
 		style.Set("visibility", "hidden")
 		return
 	}

@@ -176,17 +176,18 @@ func syncTouchOverlay() {
 		style.Set("height", "0px")
 		return
 	}
-	// view.NavVideoHidden() (set from MainWindow.syncVideoOverlayForNav,
-	// polled fresh here rather than cached -- see
-	// video_widget_dom_overlay_wasm.go's doc comment on why a cached/
+	// view.VideoShouldBeHidden() (polled fresh here rather than cached --
+	// see video_widget_dom_overlay_wasm.go's doc comment on why a cached/
 	// push-callback copy of this can get stuck) is "are we actually
-	// looking at the Control tab" -- wrapper.Visible() alone stays true
-	// even while a different app tab (Devices/Snapshots/Scripts) is
-	// selected, since Fyne keeps the Control tab's widget tree mounted, it
-	// just isn't the one on screen. Without this guard this transparent,
-	// pointer-events:auto div kept covering (and eating every tap on)
-	// whichever tab the user actually switched to -- confirmed live.
-	if view.NavVideoHidden() {
+	// looking at the Control tab, with no popup/settings screen open on
+	// top of it" -- wrapper.Visible() alone stays true even while a
+	// different app tab (Devices/Snapshots/Scripts) is selected, since
+	// Fyne keeps the Control tab's widget tree mounted, it just isn't the
+	// one on screen, and stays true under an open dropdown/dialog too.
+	// Without this guard this transparent, pointer-events:auto div kept
+	// covering (and eating every tap on) whichever tab/popup the user
+	// actually had on screen -- confirmed live.
+	if view.VideoShouldBeHidden() {
 		style.Set("pointerEvents", "none")
 		style.Set("width", "0px")
 		style.Set("height", "0px")

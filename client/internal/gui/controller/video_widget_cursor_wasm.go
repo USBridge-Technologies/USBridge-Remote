@@ -159,11 +159,12 @@ func syncCursorDot(vw *VideoWidget) {
 		style.Set("display", "none")
 		return
 	}
-	// Same "actually on the Control tab" guard syncTouchOverlay applies
-	// (video_gestures_wasm.go) -- this dot itself is pointer-events:none
-	// so it was never the thing eating taps, but it has no business being
-	// visibly painted over another tab's UI either.
-	if view.NavVideoHidden() {
+	// Same "actually on the Control tab, no popup/settings screen open"
+	// guard syncTouchOverlay applies (video_gestures_wasm.go) -- this dot
+	// itself is pointer-events:none so it was never the thing eating
+	// taps, but it has no business being visibly painted over another
+	// tab's UI, or under a popup, either.
+	if view.VideoShouldBeHidden() {
 		style.Set("display", "none")
 		return
 	}

@@ -84,3 +84,26 @@ func SetNavVideoHidden(hidden bool) {
 func NavVideoHidden() bool {
 	return navVideoHidden.Load()
 }
+
+// overlayDepthActive is the unlogged twin of OverlayActive, for callers that
+// poll several times a second (VideoShouldBeHidden below) where
+// OverlayActive's own Infof on every call would flood the log for no
+// diagnostic benefit.
+func overlayDepthActive() bool {
+	return overlayDepth.Load() > 0
+}
+
+// VideoShouldBeHidden reports whether wasm's video/touch/cursor overlays
+// should currently be hidden, for any reason: app-level navigation
+// (NavVideoHidden, off the Control tab) OR a managed overlay -- the
+// header dropdown, VideoStartDialog, or any OverlayPopupSpec-based
+// popup/settings screen -- currently shown on top of it (the same
+// overlayDepth counter those already maintain via overlayShow/overlayHide
+// above). Poll this fresh on every tick rather than caching it, same
+// reasoning as NavVideoHidden's own doc comment: nothing here is a
+// registered callback that can be nil'd out and lost mid-pairing, so even
+// a momentarily wrong depth or nav flag self-heals on the very next
+// ~150ms poll instead of getting stuck.
+func VideoShouldBeHidden() bool {
+	return navVideoHidden.Load() || overlayDepthActive()
+}
