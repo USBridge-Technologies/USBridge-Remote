@@ -42,6 +42,7 @@ type WebRTCClient struct {
 	pc      *js.Value
 	dc      *js.Value
 	videoEl js.Value // hidden <video>, srcObject set from the video ontrack event
+	audioEl js.Value // <audio>, srcObject set from the audio ontrack event -- see Close()'s doc comment on why this must be torn down alongside videoEl
 
 	mu           sync.Mutex
 	onOpen       func()
@@ -171,6 +172,7 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 	audioEl := doc.Call("createElement", "audio")
 	audioEl.Set("autoplay", true)
 	doc.Get("body").Call("appendChild", audioEl)
+	c.audioEl = audioEl
 
 	pc.Call("addEventListener", "track", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		event := args[0]
@@ -554,6 +556,23 @@ func (c *WebRTCClient) Close() {
 		c.videoEl.Set("srcObject", js.Null())
 		if parent := c.videoEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
 			parent.Call("removeChild", c.videoEl)
+		}
+	}
+	// audioEl used to be a Connect()-local variable never referenced again
+	// after being appended to <body> -- every reconnect (and this app has
+	// reconnected a lot, chasing the capture-kms bug and ICE flapping
+	// above) left the *previous* session's <audio autoplay> element
+	// orphaned in the DOM, still playing whatever it last had a track for.
+	// Multiple overlapping, slightly time-shifted copies of the same audio
+	// stream stacking up is exactly what produces a growing echo/warble --
+	// confirmed as the actual cause of the "echo like a mic into a
+	// speaker, with something warbling in between" report, not a real
+	// PulseAudio loopback on the host (pactl showed none). Tear it down
+	// the same way videoEl already is.
+	if !c.audioEl.IsUndefined() && !c.audioEl.IsNull() {
+		c.audioEl.Set("srcObject", js.Null())
+		if parent := c.audioEl.Get("parentNode"); !parent.IsNull() && !parent.IsUndefined() {
+			parent.Call("removeChild", c.audioEl)
 		}
 	}
 }
