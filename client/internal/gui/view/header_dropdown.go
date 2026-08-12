@@ -640,17 +640,26 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 	}
 
 	rows := make([]fyne.CanvasObject, 0, len(items))
+	// rowCallbacks mirrors rows 1:1 -- the exact same tap closure each row
+	// is built with below, kept separately so the wasm touch-scroll bridge
+	// (attachTouchScroll) can invoke the right one directly by index when
+	// it hit-tests a non-drag touch, instead of depending on Fyne's own
+	// (missing, under wasm) touch-to-tap dispatch. See that function's doc
+	// comment.
+	rowCallbacks := make([]func(), 0, len(items))
 	var popup *dropdownPopup
 	for _, item := range items {
 		menuItem := item
-		rows = append(rows, newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, func() {
+		onTap := func() {
 			if popup != nil {
 				popup.Hide()
 			}
 			if menuItem.OnTap != nil {
 				menuItem.OnTap()
 			}
-		}))
+		}
+		rows = append(rows, newDropdownItem(menuItem.Label, menuItem.SecondaryLabel, menuItem.Selected, onTap))
+		rowCallbacks = append(rowCallbacks, onTap)
 	}
 
 	menuBG := canvas.NewRectangle(design.ColorGray950)
@@ -699,9 +708,10 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		maxHeight = 80
 	}
 
+	var scroll *container.Scroll
 	content := fyne.CanvasObject(menu)
 	if height > maxHeight {
-		scroll := container.NewVScroll(menuList)
+		scroll = container.NewVScroll(menuList)
 		scroll.SetMinSize(fyne.NewSize(width-18, maxHeight-12))
 		menuContent = NewInset(scroll, 6, 10, 6, 6)
 		content = container.NewThemeOverride(container.NewStack(menuBG, menuContent, menuBorder), &dropdownMenuTheme{base: design.NewBrandTheme()})
@@ -712,7 +722,10 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		content,
 		canvasForObj,
 		fyne.NewSize(width, height),
-		nil,
+		// detachTouchScroll is a no-op if attachTouchScroll (below) was
+		// never called for this popup, i.e. the plain (non-scrolling)
+		// case -- safe to call unconditionally on every dismiss.
+		detachTouchScroll,
 	)
 
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
@@ -752,6 +765,19 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 		popupPos.Y = 8
 	}
 	popup.ShowAtPosition(popupPos)
+
+	if scroll != nil {
+		// Wire up swipe-to-scroll for this popup's list -- see
+		// attachTouchScroll's doc comment for why this is needed at all
+		// (Fyne's wasm driver has no touch-to-scroll translation) and a
+		// no-op on every other platform (real touch/mouse dispatch
+		// already scrolls container.Scroll there). Read scroll's rect
+		// only now, after ShowAtPosition has actually laid it out --
+		// querying it any earlier would still reflect stale/zero
+		// geometry.
+		scrollPos := fyne.CurrentApp().Driver().AbsolutePositionForObject(scroll)
+		attachTouchScroll(scroll, rows, rowCallbacks, scrollPos, scroll.Size())
+	}
 }
 
 func (p *dropdownPopup) CreateRenderer() fyne.WidgetRenderer {

@@ -132,6 +132,57 @@ func InitIMEBridge() {
 	})
 	dummyEntry.Call("addEventListener", "focus", focusListener)
 
+	// Paste (Ctrl+V / Cmd+V, or a native "Paste" context-menu action) gets
+	// its own direct listener rather than relying purely on the `input`
+	// diff above or on Fyne's own TypedShortcut(*fyne.ShortcutPaste) path
+	// (glfw-js's GetClipboardString: an async navigator.clipboard.readText()
+	// call that blocks the wasm main goroutine on its Promise -- confirmed
+	// unreliable across browsers, and effectively dead on Safari/macOS
+	// where that permission prompt is denied by default outside a very
+	// narrow synchronous-gesture window, silently yielding an empty
+	// string). A native `paste` event, by contrast, only ever fires as a
+	// direct result of the user's own paste action, carries the clipboard
+	// text synchronously via ClipboardEvent.clipboardData with no
+	// permission prompt at all, and -- listened for on `document` rather
+	// than on #dummyEntry specifically -- doesn't depend on #dummyEntry
+	// actually holding real DOM focus at that moment either: confirmed
+	// live as inconsistent on Safari/macOS for an offscreen input
+	// (position: absolute; top: -100pt in web/index.html), unlike Chrome/
+	// Android where the `input` path above already covers paste fine on
+	// its own. preventDefault stops the browser's own default insertion,
+	// which would otherwise land in #dummyEntry's value too and double
+	// the text once the `input` listener above also saw it change.
+	pasteListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if len(args) == 0 {
+			return nil
+		}
+		event := args[0]
+		cd := event.Get("clipboardData")
+		if cd.IsUndefined() || cd.IsNull() {
+			return nil
+		}
+		text := cd.Call("getData", "text/plain").String()
+		if text == "" {
+			return nil
+		}
+		event.Call("preventDefault")
+		fyne.Do(func() {
+			focused := currentFocusable()
+			if focused == nil {
+				return
+			}
+			for _, r := range text {
+				if r == '\n' || r == '\r' {
+					focused.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
+					continue
+				}
+				focused.TypedRune(r)
+			}
+		})
+		return nil
+	})
+	doc.Call("addEventListener", "paste", pasteListener, map[string]interface{}{"passive": false})
+
 	logrus.Info("[ime-bridge] #dummyEntry input listener installed")
 }
 
