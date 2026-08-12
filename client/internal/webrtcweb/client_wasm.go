@@ -266,9 +266,7 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 		return fmt.Errorf("webrtc: setLocalDescription: %w", err)
 	}
 
-	if err := c.waitForICEGatheringComplete(pc); err != nil {
-		return err
-	}
+	c.waitForICEGatheringComplete(pc)
 
 	localSDP := pc.Get("localDescription").Get("sdp").String()
 
@@ -291,9 +289,22 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 // waitForICEGatheringComplete polls iceGatheringState via an event
 // listener + a channel — there's no direct promise for this in the WebRTC
 // API, unlike pion's GatheringCompletePromise on the agent side.
-func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) error {
+//
+// The timeout below is a soft cap, not a hard failure: it always returns
+// nil, just possibly before gathering actually reached "complete". Since
+// adding a default STUN server (see NewWebRTCClient's iceServers config),
+// a network with no route to the public internet (STUN request never
+// gets a response, confirmed live: no ICE failure event ever fires
+// either, gathering just never leaves "gathering") used to make every
+// single connection attempt fail outright after the timeout, even though
+// the same host-only LAN candidates that worked fine before STUN was
+// added were already sitting there gathered and perfectly usable. This
+// still gives STUN up to the timeout to produce a usable reflexive
+// candidate when the network *can* reach it, without holding a same-LAN
+// connection hostage to an unreachable STUN server.
+func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) {
 	if pc.Get("iceGatheringState").String() == "complete" {
-		return nil
+		return
 	}
 	done := make(chan struct{})
 	var listener js.Func
@@ -308,9 +319,7 @@ func (c *WebRTCClient) waitForICEGatheringComplete(pc js.Value) error {
 	pc.Call("addEventListener", "icegatheringstatechange", listener)
 	select {
 	case <-done:
-		return nil
 	case <-time.After(15 * time.Second):
-		return fmt.Errorf("webrtc: timed out waiting for ICE gathering to complete")
 	}
 }
 
