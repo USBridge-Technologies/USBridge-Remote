@@ -194,11 +194,56 @@
     document.addEventListener('click', tryFullscreen, true);
   }
 
+  // Paste (Ctrl+V / Cmd+V) bridge -- same "plain JS, zero Go involvement
+  // for the part that needs a live user-gesture context" pattern as
+  // installFullscreenOnFirstTap above, for the same underlying reason:
+  // confirmed live that a Go js.FuncOf callback is unreliable here too,
+  // not just for requestFullscreen. Two independent problems, actually:
+  //
+  //   1. Fyne's own paste path (glfw-js's GetClipboardString) calls
+  //      navigator.clipboard.readText() and *blocks the wasm main
+  //      goroutine* on that Promise -- async work started from inside a
+  //      synchronous Go call, which is a bad sign on its own even before
+  //      Safari's permission model gets involved.
+  //   2. A previous fix routed paste through a Go-registered `paste` DOM
+  //      event listener instead (see internal/gui/ime_bridge_wasm.go's
+  //      git history) -- confirmed live that this fixed Chrome/Linux but
+  //      NOT Safari/macOS: Safari's clipboard-read permission is tied to
+  //      still being inside the *original synchronous call stack* of a
+  //      trusted user-gesture event, same rule the Fullscreen API above
+  //      enforces, and routing the event listener itself through Go's
+  //      wasm callback dispatch apparently breaks that the same way it
+  //      breaks requestFullscreen.
+  //
+  // Calling navigator.clipboard.readText() here -- directly inside a
+  // plain JS `keydown` listener, the instant Ctrl+V/Cmd+V is detected,
+  // before any Go code runs at all -- keeps the *call* synchronously
+  // inside the real gesture. The Promise it returns resolving later is
+  // fine; only the initiating call needs to be in-gesture. The resolved
+  // text is handed to Go via window.usbridgePasteText, a plain callback
+  // internal/gui/ime_bridge_wasm.go registers once wasm has loaded --
+  // that hand-off has no gesture requirement of its own to preserve.
+  function installClipboardPasteBridge() {
+    document.addEventListener('keydown', function (e) {
+      var isPaste = (e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V');
+      if (!isPaste) return;
+      if (!navigator.clipboard || !navigator.clipboard.readText) return;
+      navigator.clipboard.readText().then(function (text) {
+        if (text && window.usbridgePasteText) {
+          window.usbridgePasteText(text);
+        }
+      }).catch(function (err) {
+        console.log('[paste] readText rejected: ' + err);
+      });
+    }, true);
+  }
+
   const go = new Go();
   WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject).then((result) => {
     go.run(result.instance);
     installViewportFollow();
     installFullscreenOnFirstTap();
+    installClipboardPasteBridge();
   });
 </script>
 </body>

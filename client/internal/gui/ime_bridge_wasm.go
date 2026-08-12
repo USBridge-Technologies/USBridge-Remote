@@ -132,40 +132,30 @@ func InitIMEBridge() {
 	})
 	dummyEntry.Call("addEventListener", "focus", focusListener)
 
-	// Paste (Ctrl+V / Cmd+V, or a native "Paste" context-menu action) gets
-	// its own direct listener rather than relying purely on the `input`
-	// diff above or on Fyne's own TypedShortcut(*fyne.ShortcutPaste) path
-	// (glfw-js's GetClipboardString: an async navigator.clipboard.readText()
-	// call that blocks the wasm main goroutine on its Promise -- confirmed
-	// unreliable across browsers, and effectively dead on Safari/macOS
-	// where that permission prompt is denied by default outside a very
-	// narrow synchronous-gesture window, silently yielding an empty
-	// string). A native `paste` event, by contrast, only ever fires as a
-	// direct result of the user's own paste action, carries the clipboard
-	// text synchronously via ClipboardEvent.clipboardData with no
-	// permission prompt at all, and -- listened for on `document` rather
-	// than on #dummyEntry specifically -- doesn't depend on #dummyEntry
-	// actually holding real DOM focus at that moment either: confirmed
-	// live as inconsistent on Safari/macOS for an offscreen input
-	// (position: absolute; top: -100pt in web/index.html), unlike Chrome/
-	// Android where the `input` path above already covers paste fine on
-	// its own. preventDefault stops the browser's own default insertion,
-	// which would otherwise land in #dummyEntry's value too and double
-	// the text once the `input` listener above also saw it change.
-	pasteListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	// Paste (Ctrl+V / Cmd+V) is handled by web/index.html's
+	// installClipboardPasteBridge, not here -- see that function's own
+	// doc comment for the full history (two independent things tried and
+	// rejected first: Fyne's own TypedShortcut(*fyne.ShortcutPaste) path,
+	// and an earlier version of this file's own `document`-level `paste`
+	// DOM event listener, which fixed Chrome/Linux but not Safari/macOS).
+	// index.html calls navigator.clipboard.readText() directly inside a
+	// plain JS keydown listener with zero Go involvement -- confirmed
+	// live that even a Go js.FuncOf listener attached directly to the
+	// same event breaks Safari's "still within the original user-gesture
+	// call stack" requirement for clipboard-read permission, the same
+	// way it breaks requestFullscreen (see installFullscreenOnFirstTap's
+	// own doc comment in index.html for that first, load-bearing
+	// discovery). usbridgePasteText is the hand-off point once
+	// index.html already has the text in hand -- no gesture requirement
+	// left to preserve at that point, so a plain Go callback is fine.
+	pasteTextListener := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		if len(args) == 0 {
 			return nil
 		}
-		event := args[0]
-		cd := event.Get("clipboardData")
-		if cd.IsUndefined() || cd.IsNull() {
-			return nil
-		}
-		text := cd.Call("getData", "text/plain").String()
+		text := args[0].String()
 		if text == "" {
 			return nil
 		}
-		event.Call("preventDefault")
 		fyne.Do(func() {
 			focused := currentFocusable()
 			if focused == nil {
@@ -181,7 +171,7 @@ func InitIMEBridge() {
 		})
 		return nil
 	})
-	doc.Call("addEventListener", "paste", pasteListener, map[string]interface{}{"passive": false})
+	js.Global().Set("usbridgePasteText", pasteTextListener)
 
 	logrus.Info("[ime-bridge] #dummyEntry input listener installed")
 }
