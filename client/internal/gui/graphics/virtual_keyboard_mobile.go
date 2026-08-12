@@ -271,10 +271,12 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	// exact fixed size as its MinSize, and the row is an HBox of those
 	// (HBox packs children at their own MinSize instead of stretching them
 	// to fill the row, unlike GridWithColumns -- see this func's earlier
-	// history for why that stretch was the original overflow bug). fKeySize
-	// matches the "make function keys smaller" convention already used for
-	// the desktop F-key layout in createKey (35x30).
-	fKeySize := fyne.NewSize(35, 30)
+	// history for why that stretch was the original overflow bug). Wider
+	// than createKey's desktop F-key convention (35x30) on purpose -- at
+	// that size 7 cells left a visible empty gap on the right of the row
+	// (confirmed live); this fills the same available width the row
+	// already had to itself instead of leaving it unused.
+	fKeySize := fyne.NewSize(44, 34)
 	backSize := fyne.NewSize(fKeySize.Width*2, fKeySize.Height)
 	newFKey := func(label string, code int) *fyne.Container {
 		btn := widget.NewButton(label, func() {
