@@ -362,6 +362,85 @@ func (c *WebRTCClient) postOffer(sessionID, offerSDP string) (string, error) {
 	return parsed.SDP, nil
 }
 
+// StartStatsLogging polls RTCPeerConnection.getStats() every interval and
+// logs the inbound-rtp video track's packetsReceived/framesDecoded/
+// packetsLost/jitter via the provided logFn, plus an explicit warning the
+// moment framesDecoded stalls (stops increasing) between two consecutive
+// polls -- the exact signal that diagnosed a real, previously invisible
+// server-side stall live: packetsReceived and framesDecoded both went
+// completely flat for several consecutive polls with packetsLost staying
+// at 0 (ruling out ordinary packet loss/jitter -- the server was
+// genuinely not sending any RTP for that stretch, root-caused to
+// rust-shine's capture-kms hitting a sustained "framebuffer has no
+// exportable plane-0 handle" condition). Previously diagnosing this
+// required manually attaching Chrome DevTools Protocol and calling
+// getStats() by hand; this bakes the same visibility into the ordinary
+// client log stream so a future stall of this kind is diagnosable from
+// logs alone. Returns a stop function; safe to call from OnVideoTrack's
+// callback once per session.
+func (c *WebRTCClient) StartStatsLogging(interval time.Duration, logFn func(msg string)) func() {
+	if c.pc == nil {
+		return func() {}
+	}
+	pc := *c.pc
+	stopped := false
+	var stopMu sync.Mutex
+	isStopped := func() bool {
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		return stopped
+	}
+
+	go func() {
+		var lastFramesDecoded float64 = -1
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for !isStopped() {
+			<-ticker.C
+			if isStopped() {
+				return
+			}
+			statsPromise := pc.Call("getStats")
+			statsVal, err := awaitPromise(statsPromise)
+			if err != nil {
+				continue
+			}
+			var packetsReceived, framesDecoded, framesDropped, packetsLost, jitter float64
+			found := false
+			forEach := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+				report := args[0]
+				if report.Get("type").String() == "inbound-rtp" && report.Get("kind").String() == "video" {
+					found = true
+					packetsReceived = report.Get("packetsReceived").Float()
+					framesDecoded = report.Get("framesDecoded").Float()
+					framesDropped = report.Get("framesDropped").Float()
+					packetsLost = report.Get("packetsLost").Float()
+					jitter = report.Get("jitter").Float()
+				}
+				return nil
+			})
+			statsVal.Call("forEach", forEach)
+			forEach.Release()
+			if !found {
+				continue
+			}
+			stalled := lastFramesDecoded >= 0 && framesDecoded <= lastFramesDecoded
+			if stalled {
+				logFn(fmt.Sprintf("webrtc stats: STALLED (no new decoded frames) packetsReceived=%.0f framesDecoded=%.0f framesDropped=%.0f packetsLost=%.0f jitter=%.3f", packetsReceived, framesDecoded, framesDropped, packetsLost, jitter))
+			} else {
+				logFn(fmt.Sprintf("webrtc stats: packetsReceived=%.0f framesDecoded=%.0f framesDropped=%.0f packetsLost=%.0f jitter=%.3f", packetsReceived, framesDecoded, framesDropped, packetsLost, jitter))
+			}
+			lastFramesDecoded = framesDecoded
+		}
+	}()
+
+	return func() {
+		stopMu.Lock()
+		stopped = true
+		stopMu.Unlock()
+	}
+}
+
 // VideoElement returns the underlying <video> DOM element, so the gui
 // controller layer (video_widget_dom_overlay_wasm.go) can position/size it
 // directly as a CSS overlay and read its videoWidth/videoHeight -- both
@@ -395,6 +474,15 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 		return stopped
 	}
 
+	// Both paths below are started unconditionally, not "rVFC if
+	// supported, else the interval poll" -- confirmed live on a real
+	// target device (Android Chrome) that requestVideoFrameCallback
+	// EXISTS as a method (feature-detection via IsUndefined() below passes)
+	// but never actually invokes its callback for a WebRTC-received
+	// MediaStreamTrack's <video>: registered a callback directly via
+	// DevTools with nothing else involved and it fired zero times over
+	// 6+ seconds on a video that was demonstrably still playing
+	// (currentTime advancing, visibly rendering).
 	if rvfc := c.videoEl.Get("requestVideoFrameCallback"); !rvfc.IsUndefined() {
 		var tick js.Func
 		tick = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
@@ -406,18 +494,42 @@ func (c *WebRTCClient) WatchVideoFrames(onFrame func()) func() {
 			return nil
 		})
 		c.videoEl.Call("requestVideoFrameCallback", tick)
-		return func() {
-			stopMu.Lock()
-			stopped = true
-			stopMu.Unlock()
-			tick.Release()
-		}
 	}
 
-	// Fallback path: no requestVideoFrameCallback support.
+	// The interval fallback must NOT call onFrame() blindly on a fixed
+	// schedule -- confirmed live that doing so masks a genuinely stalled
+	// stream from VideoWidget's mid-stream-silence watchdog: the poll kept
+	// firing onFrame() every 33ms regardless of whether the video was
+	// actually still receiving frames, so a real freeze (currentTime
+	// provably stuck across repeated checks, confirmed via CDP) never
+	// tripped the watchdog and the client just sat on a frozen frame
+	// forever instead of reconnecting. Only report a frame when
+	// getVideoPlaybackQuality().totalVideoFrames has genuinely increased
+	// since the last tick -- a real signal of decoded output, independent
+	// of whether rVFC itself ever fires. Falls back to comparing
+	// currentTime if getVideoPlaybackQuality isn't available at all
+	// (older engines) -- coarser (misses a same-frame currentTime tick),
+	// but still tied to real playback progress rather than a blind timer.
+	lastFrameCount := -1.0
+	lastCurrentTime := -1.0
+	hasPlaybackQuality := !c.videoEl.Get("getVideoPlaybackQuality").IsUndefined()
 	handle := js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		if isStopped() {
 			return nil
+		}
+		if hasPlaybackQuality {
+			quality := c.videoEl.Call("getVideoPlaybackQuality")
+			total := quality.Get("totalVideoFrames").Float()
+			if total <= lastFrameCount {
+				return nil
+			}
+			lastFrameCount = total
+		} else {
+			ct := c.videoEl.Get("currentTime").Float()
+			if ct <= lastCurrentTime {
+				return nil
+			}
+			lastCurrentTime = ct
 		}
 		onFrame()
 		return nil

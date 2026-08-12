@@ -431,6 +431,13 @@ func (vw *VideoWidget) forceReconnectStuckStream(reason string) {
 // which is cheap compared to an unnecessary full reconnect.
 const videoSilenceGracePeriod = 1500 * time.Millisecond
 
+// videoSilenceThreshold returns how long checkVideoSilence tolerates zero
+// new frames during an established stream before forcing a reconnect --
+// implemented per-platform (video_widget_silence_default.go for every
+// platform except wasm, video_widget_silence_wasm.go for wasm) rather than
+// as a single shared constant here; see either file's own doc comment for
+// why wasm needs a longer tolerance than the rest.
+
 // checkVideoSilence is polled once a second (see startStatsLoop) while
 // streaming. It only looks at *established* streams -- lastFrameTime is zero
 // until the very first frame arrives, which is deliberately left to
@@ -445,7 +452,7 @@ func (vw *VideoWidget) checkVideoSilence() {
 		return
 	}
 	silence := time.Since(last)
-	if silence < videoMidStreamSilenceTimeout+videoSilenceGracePeriod {
+	if silence < vw.videoSilenceThreshold() {
 		return
 	}
 	if !vw.videoSilenceReconnectFired.CompareAndSwap(false, true) {

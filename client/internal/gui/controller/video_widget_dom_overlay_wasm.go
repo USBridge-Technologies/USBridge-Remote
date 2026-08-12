@@ -99,11 +99,26 @@ func ensureOverlayHooksRegistered(vw *VideoWidget) {
 		videoOverlayForceHidden = false
 		syncVideoOverlay(vw)
 	}
-	// Pick up any overlay/nav-hidden state that was already active before
-	// this session's first frame arrived -- same guard
-	// video_widget_android.go's version applies at its own registration
-	// point.
-	videoOverlayForceHidden = view.OverlayActive()
+	// Deliberately NOT seeded from view.OverlayActive() (unlike
+	// video_widget_android.go's equivalent registration point): that depth
+	// counter is shared ambient state touched by every unrelated
+	// popup/dropdown in the whole app, not scoped to "is something
+	// covering the video right now" -- reading it here risked snapshotting
+	// a stale "hidden" state and setting visibility:hidden on the <video>
+	// element. That's far more damaging under wasm than it sounds: Chrome
+	// stops firing requestVideoFrameCallback entirely on a hidden <video>
+	// (confirmed live), which starves WatchVideoFrames' onFrame(nil) loop,
+	// which starves VideoWidget's lastFrameTime bookkeeping, which trips
+	// checkVideoSilence's 4s mid-stream watchdog into forcing a full
+	// reconnect -- whose teardown (stopMetalVideo) resets
+	// videoOverlayHooksRegistered, so the *next* session's registration
+	// re-reads the same racy counter and can repeat the exact same
+	// hidden-video/no-rVFC/watchdog-reconnect cycle indefinitely. Confirmed
+	// live as the actual cause of a client reconnecting every ~4s
+	// indefinitely with "frame=1" and never another frame logged.
+	// Starting visible and trusting the two hooks above for every real
+	// state change from here on avoids the whole class of bug.
+	videoOverlayForceHidden = false
 }
 
 // videoCanvasFrame mirrors video_widget_metal_stub.go's generic

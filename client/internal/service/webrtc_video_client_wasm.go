@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall/js"
+	"time"
 
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/webrtcweb"
@@ -44,6 +45,7 @@ type WebRTCVideoClient struct {
 	client         *webrtcweb.WebRTCClient
 	connected      atomic.Bool
 	stopFrameWatch func()
+	stopStatsLog   func()
 
 	onFrame        func(image.Image)
 	onStateChanged func(string)
@@ -174,8 +176,20 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 				cb(nil)
 			}
 		})
+		// See StartStatsLogging's own doc comment -- this is what
+		// diagnosed the real, previously-invisible server-side capture
+		// stall (rust-shine's capture-kms hitting a sustained
+		// "framebuffer has no exportable plane-0 handle" condition) that
+		// was masquerading as flaky WebRTC/ICE instability. Kept running
+		// for the rest of this session so any recurrence shows up in the
+		// ordinary client log stream without needing to reattach Chrome
+		// DevTools Protocol by hand.
+		stopStats := client.StartStatsLogging(2*time.Second, func(msg string) {
+			logrus.Info("[webrtc-video] " + msg)
+		})
 		c.mu.Lock()
 		c.stopFrameWatch = stop
+		c.stopStatsLog = stopStats
 		c.mu.Unlock()
 	})
 
@@ -200,9 +214,14 @@ func (c *WebRTCVideoClient) Disconnect() error {
 	c.client = nil
 	stop := c.stopFrameWatch
 	c.stopFrameWatch = nil
+	stopStats := c.stopStatsLog
+	c.stopStatsLog = nil
 	c.mu.Unlock()
 	if stop != nil {
 		stop()
+	}
+	if stopStats != nil {
+		stopStats()
 	}
 	if client != nil {
 		client.Close()
