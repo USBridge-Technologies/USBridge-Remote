@@ -260,34 +260,41 @@ func (vk *VirtualKeyboard) createKeyboardLayout() *fyne.Container {
 	var showNormal, showFKeys func()
 	keysSwitch := container.NewStack()
 
-	// F-key panel: F1-F12 + Back, laid out with GridWrap instead of
-	// GridWithColumns. GridWithColumns divides the *container's own width*
-	// evenly among however many columns it's given -- with 6-7 columns
-	// that stretched each button well past its natural size on a phone
-	// screen (confirmed live: still overflowed/looked stretched even after
-	// splitting into two rows of 6-7, see this func's earlier history).
-	// GridWrap instead gives every cell the same *fixed* size and wraps to
-	// as many rows as the available width needs -- exactly "small buttons,
-	// wrap automatically" with no manual row-splitting required. fKeySize
-	// matches the "make function keys smaller" convention already used
-	// for the desktop F-key layout in createKey (35x30).
+	// F-key panel: two fixed rows of 7 cell-widths each -- F1-F7 on row
+	// one, F8-F12 + a double-width Back on row two (5 + 2 = 7, same total
+	// width as row one, so the two rows line up like the top of a Tetris
+	// board rather than Back trailing off at some arbitrary width). Plain
+	// GridWithColumns can't do this on its own (every column in one grid
+	// is forced equal width, so there's no way to make Back span two
+	// columns' worth of width) -- each key is instead individually wrapped
+	// in its own container.NewGridWrap(size, ...), which reports that
+	// exact fixed size as its MinSize, and the row is an HBox of those
+	// (HBox packs children at their own MinSize instead of stretching them
+	// to fill the row, unlike GridWithColumns -- see this func's earlier
+	// history for why that stretch was the original overflow bug). fKeySize
+	// matches the "make function keys smaller" convention already used for
+	// the desktop F-key layout in createKey (35x30).
 	fKeySize := fyne.NewSize(35, 30)
-	f1_12_Codes := []int{58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69}
-	f1_12_Labels := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"}
-	fGrid := container.NewGridWrap(fKeySize)
-	for i, label := range f1_12_Labels {
-		code := f1_12_Codes[i]
+	backSize := fyne.NewSize(fKeySize.Width*2, fKeySize.Height)
+	newFKey := func(label string, code int) *fyne.Container {
 		btn := widget.NewButton(label, func() {
 			if vk.onKeyPress != nil {
 				vk.onKeyPress(code, 0)
 			}
 		})
-		fGrid.Add(btn)
+		return container.NewGridWrap(fKeySize, btn)
 	}
+	row1 := container.NewHBox(
+		newFKey("F1", 58), newFKey("F2", 59), newFKey("F3", 60), newFKey("F4", 61),
+		newFKey("F5", 62), newFKey("F6", 63), newFKey("F7", 64),
+	)
 	backBtn := widget.NewButton("Back", func() { showNormal() })
-	fGrid.Add(backBtn)
+	row2 := container.NewHBox(
+		newFKey("F8", 65), newFKey("F9", 66), newFKey("F10", 67), newFKey("F11", 68), newFKey("F12", 69),
+		container.NewGridWrap(backSize, backBtn),
+	)
 	fPanel := container.NewThemeOverride(
-		fGrid,
+		container.NewVBox(row1, row2),
 		design.NewBrandTheme(),
 	)
 
