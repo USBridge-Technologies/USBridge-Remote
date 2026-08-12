@@ -114,7 +114,24 @@ func (c *WebRTCClient) Connect(sessionID string) error {
 	if rtcCtor.IsUndefined() {
 		return fmt.Errorf("webrtc: RTCPeerConnection unavailable in this browser")
 	}
-	pc := rtcCtor.New(map[string]interface{}{})
+	pc := rtcCtor.New(map[string]interface{}{
+		// Must mirror rustshine's own --webrtc-ice-servers default (see
+		// rust-shine's signaling.rs doc comment on ice_server_urls_to_ice_servers
+		// and docs/WEBRTC.md's NAT-traversal section) -- without any ICE
+		// servers here, gathering only ever produces local host candidates,
+		// which is fine on the same LAN but leaves ICE with no way to build a
+		// working candidate pair once the two peers are behind different
+		// NATs (the common off-LAN case). Same "hardcoded, not yet
+		// negotiated" caveat as rustshineWebRTCPort in
+		// webrtc_video_client_wasm.go -- both ends happen to agree on this
+		// today, not discovered from the server. If a TURN relay is ever
+		// configured server-side, its URL/credentials need to be fetched and
+		// added here too (TURN, unlike STUN, requires per-session
+		// credentials -- see docs/WEBRTC.md).
+		"iceServers": []interface{}{
+			map[string]interface{}{"urls": "stun:stun.l.google.com:19302"},
+		},
+	})
 	c.pc = &pc
 
 	pc.Call("addEventListener", "connectionstatechange", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
