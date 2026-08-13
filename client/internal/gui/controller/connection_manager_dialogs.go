@@ -648,10 +648,10 @@ func showConnectionEditorDialog(parent fyne.Window, window fyne.Window, spec con
 	masterKeyEntry := newConnectionMasterKeyEntry(spec.masterKeyValue, nil)
 
 	registerCheck := widget.NewCheck(i18n.Current.TailscaleRegisterLabel, nil)
-	registerCheck.Checked = spec.tailscaleRegisterValue
+	registerCheck.Checked = spec.tailscaleRegisterValue && tailscaleRegisterUISupported()
 	registerCheckContainer := container.NewVBox(registerCheck)
 	updateRegisterVisibility := func(tsHost string) {
-		if strings.TrimSpace(tsHost) == "" {
+		if tailscaleRegisterUISupported() && strings.TrimSpace(tsHost) == "" {
 			registerCheckContainer.Show()
 		} else {
 			registerCheckContainer.Hide()
@@ -985,7 +985,7 @@ func (cm *ConnectionManager) showPrefilledAddDialog(name, internalHost, tailscal
 		internalHostValue:      internalHost,
 		tailscaleHostValue:     tailscaleHost,
 		masterKeyValue:         masterKey, // from QR scan or prefill — treated as master key
-		tailscaleRegisterValue: strings.TrimSpace(tailscaleHost) == "",
+		tailscaleRegisterValue: strings.TrimSpace(tailscaleHost) == "" && tailscaleRegisterUISupported(),
 		feedbackText:           feedbackText,
 		feedbackColor:          design.ColorAccent,
 		onConnect: func(name, internalHost, tailscaleHost, masterKey string, tailscaleRegister bool) bool {

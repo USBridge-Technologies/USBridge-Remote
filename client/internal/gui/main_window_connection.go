@@ -15,7 +15,6 @@ import (
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
-	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
@@ -389,7 +388,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 	// attempt, including before the user has ever pressed the Tailscale button,
 	// which triggers an unauthenticated tsnet login and pops an auth browser
 	// window on top of the app.
-	if mw.tailscaleService != nil &&
+	if usesTsnetTransport() && mw.tailscaleService != nil &&
 		(isLikelyTailscaleHost(host) || selectedProtocol == models.ConnectionProtocolTailscale) {
 		// Deliberately not derived from ctx (which is bounded by the short
 		// APITimeout meant for the actual API calls below): tsnet coming up
@@ -440,7 +439,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 		// On Android userspace Tailscale (tsnet), wait for the node to be
 		// online before sending the sync request to a Tailscale host.
 		// tsnet.Up() blocks until Running state (~4s on first launch).
-		if isLikelyTailscaleHost(host) && mw.tailscaleService != nil {
+		if usesTsnetTransport() && isLikelyTailscaleHost(host) && mw.tailscaleService != nil {
 			logrus.Info("🛰️ [SYNC] Waiting for Tailscale to be ready...")
 			// Own budget, not ctx (see the identical rationale above) — otherwise
 			// this wait alone can exhaust the API timeout, leaving the sync
@@ -487,7 +486,7 @@ func (mw *MainWindow) doConnect(ctx context.Context, host, masterKey string) err
 	logrus.Infof("🔗 [CONNECT] start host=%s protocol=%s timeout=%ds",
 		strings.TrimSpace(host), protocol, mw.config.APITimeout)
 
-	if mw.pendingTailscaleRegister {
+	if mw.pendingTailscaleRegister && tailscaleRegisterSupported() {
 		mw.pollTailscaleRegistration(host, masterKey, protocol)
 	}
 
@@ -594,88 +593,26 @@ func (mw *MainWindow) doConnectWithProtocol(ctx context.Context, host, protocol 
 			return fmt.Errorf("no tailscale address available for bridge (do a fresh sync to register)")
 		}
 
-		if !mw.config.TailscaleEnabled {
-			return fmt.Errorf("Tailscale disabled in config")
-		}
-		if mw.tailscaleService == nil {
-			mw.tailscaleService = service.NewTailscaleService()
+		if resolvedHost == "" || !isLikelyTailscaleHost(resolvedHost) {
+			return fmt.Errorf("no tailscale address available for bridge (do a fresh sync to register)")
 		}
 
-		status, err := mw.tailscaleService.Status(ctx)
+		// dialTailscaleTarget is platform-split: tsnet on desktop/Android
+		// (main_window_connection_tailscale_default.go), a plain direct HTTP
+		// dial in the browser (main_window_connection_tailscale_wasm.go —
+		// wasm has no tsnet to speak of, a Tailscale address is just an
+		// ordinary reachable hostname there).
+		client, err := mw.dialTailscaleTarget(ctx, resolvedHost)
 		if err != nil {
-			return fmt.Errorf("tailscale is not ready: %w", err)
-		}
-		if !status.LoggedIn {
-			return fmt.Errorf("tailscale is signed out, use Google login in Connection Manager first")
+			return fmt.Errorf("tailscale connect failed: %w", err)
 		}
 
-		tryDirect := func(ctx context.Context, target string) error {
-			if target == "" {
-				return fmt.Errorf("target host is empty")
-			}
-			if !isLikelyTailscaleHost(target) {
-				return fmt.Errorf("not a tailscale host")
-			}
-			if err := mw.tailscaleService.ValidateAddress(target); err != nil {
-				return err
-			}
-			httpClient, err := mw.tailscaleService.HTTPClient()
-			if err != nil {
-				return err
-			}
-
-			tsClient := api.NewUSBClientWithHTTPClient(target, mw.config.USBPort, mw.config.APITimeout, httpClient)
-
-			// On Android userspace Tailscale (tsnet), the first request can fail
-			// until tsnet has established a route to the peer.
-			var connErr error
-			const maxConnAttempts = 6
-			for attempt := 1; attempt <= maxConnAttempts; attempt++ {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				connErr = tsClient.TestConnectionWithContext(ctx)
-				if connErr == nil {
-					break
-				}
-				if attempt < maxConnAttempts {
-					pause := time.Duration(attempt*attempt) * time.Second
-					if pause > 10*time.Second {
-						pause = 10 * time.Second
-					}
-					select {
-					case <-time.After(pause):
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-				}
-			}
-
-			if connErr != nil {
-				return fmt.Errorf("tailscale direct connect: bridge unreachable at %s: %w", target, connErr)
-			}
-
-			mw.usbClient = mw.attachUSBClient(tsClient)
-			mw.videoClient.UpdateHost(target)
-			// Pre-warm the tsnet WireGuard session to the peer so it's established
-			// before Moonlight HTTP calls (pairing, serverinfo) happen a moment later.
-			if mw.tailscaleService != nil {
-				mw.tailscaleService.WarmUpPeer(target)
-			}
-			mw.connectedProtocol = models.ConnectionProtocolTailscale
-			mw.videoWidget.SetTailscaleService(mw.tailscaleService)
-			mw.videoWidget.SetTailscaleVideoEnabled(true)
-			return nil
-		}
-
-		if resolvedHost != "" && isLikelyTailscaleHost(resolvedHost) {
-			if err := tryDirect(ctx, resolvedHost); err == nil {
-				return nil
-			}
-			return fmt.Errorf("tailscale direct connect failed: %w", err)
-		}
-
-		return fmt.Errorf("no tailscale address available for bridge (do a fresh sync to register)")
+		mw.usbClient = mw.attachUSBClient(client)
+		mw.videoClient.UpdateHost(resolvedHost)
+		mw.connectedProtocol = models.ConnectionProtocolTailscale
+		mw.videoWidget.SetTailscaleService(mw.tailscaleService)
+		mw.videoWidget.SetTailscaleVideoEnabled(true)
+		return nil
 	}
 
 	logrus.Infof("🔗 [CONNECT] protocol=%s host=%s", protocol, host)
