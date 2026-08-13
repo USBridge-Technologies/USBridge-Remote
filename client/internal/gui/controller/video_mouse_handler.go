@@ -613,6 +613,69 @@ func (t *TouchpadWrapper) MouseIn(ev *desktop.MouseEvent) {
 	}
 }
 
+// ForceReleaseStuckButton unconditionally clears any held mouse/touch
+// button state and tells the remote to release it too, regardless of
+// whether normal event delivery (MouseUp) is expected to still arrive.
+//
+// This is deliberately NOT the same thing MouseOut does for
+// IsAbsoluteLikeInputMode: MouseOut skips releasing while dragButton != 0
+// because it trusts Fyne's implicit mouse capture to still deliver the
+// real MouseUp to this widget later, even once the cursor is outside its
+// bounds. That assumption breaks under wasm on a right-click: the
+// browser's native context menu (see InitTouchGestureBridge's
+// "contextmenu" listener) can swallow the DOM mouseup event for the
+// button that opened it entirely, so Fyne's driver never calls MouseUp at
+// all -- dragButton/absButtons then stay stuck "held" forever, and every
+// later click looks like it's happening on top of an already-down right
+// button. Confirmed live: right-click on the video would show the
+// browser's own context menu and the stream would stop responding to any
+// further input until the page was reloaded.
+//
+// `reason` is only for the log line (e.g. "contextmenu", "window-blur") --
+// this same safety net is reused for more than one trigger.
+func (t *TouchpadWrapper) ForceReleaseStuckButton(reason string) {
+	if !t.videoWidget.isMouseConnected {
+		return
+	}
+	if t.videoWidget.GetMouseInputMode() == "touchscreen" {
+		t.videoWidget.CancelTouchDownDelay()
+		if t.videoWidget.touchActive {
+			t.videoWidget.touchActive = false
+			x, y := t.videoWidget.lastTouchX, t.videoWidget.lastTouchY
+			button := t.videoWidget.dragButton
+			t.videoWidget.dragButton = 0
+			t.videoWidget.isDragging = false
+			if button == 2 {
+				t.videoWidget.enqueueTouchPositionOnly(x, y, false)
+			} else {
+				t.videoWidget.enqueueTouch(x, y, false)
+			}
+		} else {
+			t.videoWidget.dragButton = 0
+			t.videoWidget.isDragging = false
+		}
+		return
+	}
+	if t.videoWidget.IsAbsoluteLikeInputMode() {
+		if t.videoWidget.dragButton == 0 && t.videoWidget.absButtons == 0 {
+			return
+		}
+		logrus.Infof("🖱️ [Drag] %s: force-releasing stuck button(s) dragButton=%d absButtons=%d", reason, t.videoWidget.dragButton, t.videoWidget.absButtons)
+		x, y := t.videoWidget.lastAbsX, t.videoWidget.lastAbsY
+		t.videoWidget.dragButton = 0
+		t.videoWidget.isDragging = false
+		t.videoWidget.resetRelativeMoveAccumulator()
+		t.videoWidget.ReleaseAllAbsoluteButtons(x, y)
+		return
+	}
+	if t.videoWidget.isDragging {
+		t.videoWidget.isDragging = false
+		t.videoWidget.dragButton = 0
+		t.videoWidget.resetRelativeMoveAccumulator()
+		t.videoWidget.enqueueMouseAction(0, 0, 0, 0)
+	}
+}
+
 // MouseOut handles the cursor leaving the area (desktop)
 func (t *TouchpadWrapper) MouseOut() {
 	if !t.videoWidget.isMouseConnected {

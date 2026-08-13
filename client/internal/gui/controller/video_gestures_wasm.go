@@ -132,6 +132,46 @@ func InitTouchGestureBridge() {
 	// produce, so a click handler on this element would never fire. The
 	// actual call lives in onTouchEnd instead -- see its own comment.
 
+	// Right-click on the video used to open the browser's own native
+	// context menu -- which, confirmed live, can swallow the DOM mouseup
+	// event for the button that triggered it entirely, so Fyne's wasm
+	// driver never delivers MouseUp and the remote's right button stays
+	// stuck "held" forever (every later click looks like it's landing on
+	// top of an already-down right button; the stream stops responding
+	// until the page is reloaded). Suppressing the native menu outright
+	// (document-level, capturing every right-click anywhere in the app,
+	// not just over the video) is the actual fix -- this is a remote-input
+	// surface, a native browser context menu never makes sense on it
+	// anyway. ForceReleaseStuckMouseButton right after is a second,
+	// independent safety net for any button state that got stuck before
+	// this listener existed, or that some other browser/OS combination
+	// manages to leak past preventDefault some other way.
+	doc.Call("addEventListener", "contextmenu", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		defer recoverTouchPanic("contextmenu")
+		if len(args) > 0 {
+			args[0].Call("preventDefault")
+		}
+		if vw := activeGestureVideoWidget(); vw != nil {
+			vw.ForceReleaseStuckMouseButton("contextmenu")
+		}
+		return nil
+	}), false)
+
+	// Same stuck-button class of bug, different trigger: alt-tabbing away,
+	// clicking the browser's own chrome (address bar, another tab), or an
+	// OS-level window switch all fire "blur" on the window without ever
+	// delivering a matching mouseup/touchend for a button that was down at
+	// the time -- release proactively rather than leaving the remote
+	// thinking a button is still held for however long the tab stays
+	// unfocused.
+	js.Global().Call("addEventListener", "blur", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		defer recoverTouchPanic("window-blur")
+		if vw := activeGestureVideoWidget(); vw != nil {
+			vw.ForceReleaseStuckMouseButton("window-blur")
+		}
+		return nil
+	}))
+
 	js.Global().Call("setInterval", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		defer recoverTouchPanic("syncTouchOverlay")
 		syncTouchOverlay()

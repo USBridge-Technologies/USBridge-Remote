@@ -863,6 +863,19 @@ func (vw *VideoWidget) ClickAbsoluteButton(button int, x, y int) {
 	}
 }
 
+// ForceReleaseStuckMouseButton delegates to TouchpadWrapper's own method of
+// the same name -- see its doc comment (video_mouse_handler.go) for why
+// this exists as a distinct thing from the ordinary MouseUp/MouseOut path.
+// Exported here (not called directly on touchpadWrapper) so wasm-only
+// callers outside this package's Fyne-widget machinery (video_gestures_wasm.go's
+// global "contextmenu"/"blur" listeners) don't need touchpadWrapper's own
+// unexported type.
+func (vw *VideoWidget) ForceReleaseStuckMouseButton(reason string) {
+	if vw.touchpadWrapper != nil {
+		vw.touchpadWrapper.ForceReleaseStuckButton(reason)
+	}
+}
+
 // CancelTouchDownDelay cancels the deferred touch(down) send.
 func (vw *VideoWidget) CancelTouchDownDelay() {
 	vw.touchDownDelayMu.Lock()

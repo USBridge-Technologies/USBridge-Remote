@@ -194,47 +194,54 @@
     document.addEventListener('click', tryFullscreen, true);
   }
 
-  // Paste (Ctrl+V / Cmd+V) bridge -- same "plain JS, zero Go involvement
-  // for the part that needs a live user-gesture context" pattern as
-  // installFullscreenOnFirstTap above, for the same underlying reason:
-  // confirmed live that a Go js.FuncOf callback is unreliable here too,
-  // not just for requestFullscreen. Two independent problems, actually:
+  // Paste (Ctrl+V / Cmd+V, or a real OS-level "Paste" context-menu/Edit-menu
+  // action) bridge -- same "plain JS, zero Go involvement for the part that
+  // needs a live user-gesture context" pattern as installFullscreenOnFirstTap
+  // above, for the same underlying reason: confirmed live that a Go
+  // js.FuncOf callback is unreliable here too, not just for
+  // requestFullscreen. Three approaches were tried, in order:
   //
   //   1. Fyne's own paste path (glfw-js's GetClipboardString) calls
   //      navigator.clipboard.readText() and *blocks the wasm main
   //      goroutine* on that Promise -- async work started from inside a
   //      synchronous Go call, which is a bad sign on its own even before
   //      Safari's permission model gets involved.
-  //   2. A previous fix routed paste through a Go-registered `paste` DOM
-  //      event listener instead (see internal/gui/ime_bridge_wasm.go's
-  //      git history) -- confirmed live that this fixed Chrome/Linux but
-  //      NOT Safari/macOS: Safari's clipboard-read permission is tied to
-  //      still being inside the *original synchronous call stack* of a
-  //      trusted user-gesture event, same rule the Fullscreen API above
-  //      enforces, and routing the event listener itself through Go's
-  //      wasm callback dispatch apparently breaks that the same way it
-  //      breaks requestFullscreen.
+  //   2. Routing paste through a Go-registered `paste` DOM event listener
+  //      (see internal/gui/ime_bridge_wasm.go's git history) -- confirmed
+  //      live this fixed Chrome/Linux but NOT Safari/macOS: routing the
+  //      event listener itself through Go's wasm callback dispatch
+  //      apparently breaks whatever in-gesture guarantee the browser's
+  //      clipboard permission model needs, the same way it breaks
+  //      requestFullscreen.
+  //   3. A plain-JS `keydown` listener calling
+  //      navigator.clipboard.readText() directly (this function's
+  //      previous version) fixed Safari/macOS by staying in a real JS
+  //      gesture, but silently did nothing at all on Firefox --
+  //      navigator.clipboard.readText() isn't implemented there for
+  //      arbitrary pages, so `!navigator.clipboard.readText` short-circuited
+  //      out before ever attempting a read.
   //
-  // Calling navigator.clipboard.readText() here -- directly inside a
-  // plain JS `keydown` listener, the instant Ctrl+V/Cmd+V is detected,
-  // before any Go code runs at all -- keeps the *call* synchronously
-  // inside the real gesture. The Promise it returns resolving later is
-  // fine; only the initiating call needs to be in-gesture. The resolved
-  // text is handed to Go via window.usbridgePasteText, a plain callback
-  // internal/gui/ime_bridge_wasm.go registers once wasm has loaded --
-  // that hand-off has no gesture requirement of its own to preserve.
+  // This version listens for the native `paste` DOM event instead (still
+  // plain JS, not routed through Go -- approach 2's actual failure mode)
+  // and reads `event.clipboardData` directly, which every engine
+  // (Chromium, Firefox, WebKit/Safari) populates synchronously on a
+  // trusted paste event -- no navigator.clipboard permission prompt, no
+  // Promise, no async gesture-context requirement to preserve at all,
+  // since the data arrives as part of the event itself rather than via a
+  // separate page-initiated read. Covers every paste trigger a browser
+  // recognizes (Ctrl+V/Cmd+V, right-click "Paste", the OS Edit menu),
+  // across Windows/macOS/Linux and Chrome/Firefox/Safari alike. The
+  // extracted text is handed to Go via window.usbridgePasteText, a plain
+  // callback internal/gui/ime_bridge_wasm.go registers once wasm has
+  // loaded -- that hand-off has no gesture requirement of its own.
   function installClipboardPasteBridge() {
-    document.addEventListener('keydown', function (e) {
-      var isPaste = (e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V');
-      if (!isPaste) return;
-      if (!navigator.clipboard || !navigator.clipboard.readText) return;
-      navigator.clipboard.readText().then(function (text) {
-        if (text && window.usbridgePasteText) {
-          window.usbridgePasteText(text);
-        }
-      }).catch(function (err) {
-        console.log('[paste] readText rejected: ' + err);
-      });
+    document.addEventListener('paste', function (e) {
+      if (!e.clipboardData) return;
+      var text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text');
+      if (text && window.usbridgePasteText) {
+        e.preventDefault();
+        window.usbridgePasteText(text);
+      }
     }, true);
   }
 
