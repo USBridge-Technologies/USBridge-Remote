@@ -434,6 +434,7 @@ func (t *TouchpadWrapper) TappedSecondary(ev *fyne.PointEvent) {
 
 // MouseDown handles a mouse button press (desktop)
 func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
+	logrus.Infof("[QUEST-DIAG] MouseDown pos=(%.0f,%.0f) mode=%s", ev.Position.X, ev.Position.Y, t.videoWidget.GetMouseInputMode())
 	t.requestFocus()
 	if !t.videoWidget.isMouseConnected {
 		return
@@ -488,6 +489,7 @@ func (t *TouchpadWrapper) MouseDown(ev *desktop.MouseEvent) {
 
 // MouseUp handles a mouse button release (desktop)
 func (t *TouchpadWrapper) MouseUp(ev *desktop.MouseEvent) {
+	logrus.Infof("[QUEST-DIAG] MouseUp pos=(%.0f,%.0f) mode=%s", ev.Position.X, ev.Position.Y, t.videoWidget.GetMouseInputMode())
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -759,6 +761,7 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	// the only interface a real mouse drag drives everywhere else. Flag
 	// this for Dragged() below (see its own doc comment).
 	t.videoWidget.touchDrivenGesture = true
+	logrus.Infof("[QUEST-DIAG] TouchDown pos=(%.0f,%.0f) mode=%s", ev.Position.X, ev.Position.Y, t.videoWidget.GetMouseInputMode())
 	if !t.videoWidget.isMouseConnected {
 		// On mobile there is no overlay event dispatch to trigger checkMouseConnected.
 		// Retry it here on the first touch so the move worker starts promptly.
@@ -868,6 +871,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 	// Matches TouchDown's own set of this flag -- deferred so every return
 	// path below (there are several) clears it, not just the common one.
 	defer func() { t.videoWidget.touchDrivenGesture = false }()
+	logrus.Infof("[QUEST-DIAG] TouchUp pos=(%.0f,%.0f) mode=%s lmbHeld=%v lmbPendingHold=%v isDragging=%v", ev.Position.X, ev.Position.Y, t.videoWidget.GetMouseInputMode(), t.videoWidget.lmbHeld, t.videoWidget.lmbPendingHold, t.videoWidget.isDragging)
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -1272,6 +1276,7 @@ func (t *TouchpadWrapper) TouchCancel(ev *mobile.TouchEvent) {
 // Dragged handles a drag (implementation of fyne.Draggable)
 // On desktop — updates the position for polling. On Android — the primary way finger movement is tracked.
 func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
+	logrus.Infof("[QUEST-DIAG] Dragged pos=(%.0f,%.0f) mode=%s touchDrivenGesture=%v isMobile=%v", ev.Position.X, ev.Position.Y, t.videoWidget.GetMouseInputMode(), t.videoWidget.touchDrivenGesture, fyne.CurrentDevice().IsMobile())
 	if !t.videoWidget.isMouseConnected {
 		if atomic.CompareAndSwapInt32(&touchMouseCheckPending, 0, 1) {
 			go func() {
@@ -1328,6 +1333,7 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 			// rawDx/cw mapping (which is otherwise a direct 1:1 finger-to-cursor
 			// fraction of the video width/height).
 			const virtualCursorTouchSensitivity = 0.6
+			logrus.Infof("[QUEST-DIAG] Dragged->handleVirtualCursorMove dx=%.2f dy=%.2f", ev.Dragged.DX, ev.Dragged.DY)
 			t.handleVirtualCursorMove(ev.Dragged.DX*virtualCursorTouchSensitivity, ev.Dragged.DY*virtualCursorTouchSensitivity)
 		} else if t.videoWidget.IsAbsoluteLikeInputMode() {
 			vw := t.videoWidget
