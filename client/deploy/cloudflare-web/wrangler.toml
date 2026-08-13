@@ -1,0 +1,28 @@
+# Deploys the browser/WASM web client to web.usbridge.io as a Cloudflare
+# Worker with static assets, per docs/CLOUDFLARE_WEB_DEPLOY.md. No secrets
+# live in this file -- account id and bucket name aren't sensitive, only
+# the API token that authenticates `wrangler deploy` is (CLOUDFLARE_API_TOKEN
+# env var, sourced from a GitHub Actions secret in CI, never committed).
+#
+# `directory` here assumes the caller has already run scripts/build_web.sh
+# and copied index.html/gui.html/wasm_exec.js into ./public next to this
+# file (see the "client-web-deploy" job in .github/workflows/release-all.yml,
+# or docs/CLOUDFLARE_WEB_DEPLOY.md for the equivalent manual steps) -- app.wasm
+# itself is NOT in that directory: it's 46MiB+, over Cloudflare's 25MiB
+# static-asset file limit, so it's uploaded straight to R2 instead and
+# worker.js streams it from there on every /app.wasm request.
+name = "usbridge-web-client"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[r2_buckets]]
+binding = "WASM_BUCKET"
+bucket_name = "usbridge-web-client-assets"
+
+[[routes]]
+pattern = "web.usbridge.io"
+custom_domain = true

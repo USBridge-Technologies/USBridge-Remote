@@ -1037,3 +1037,66 @@ jobs:
           # opt out of it too, and a prerelease (test) build must never take
           # over /releases/latest from the last real release.
           make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
+
+  # Deploys the browser/WASM web client to web.usbridge.io — see
+  # docs/CLOUDFLARE_WEB_DEPLOY.md for the full architecture (Cloudflare
+  # Worker + R2, why R2: app.wasm is 46MiB+, over Workers' 25MiB static-asset
+  # file limit) and how this exact job was first stood up manually before
+  # being wired into CI here. Gated on `!inputs.prerelease`: a `test-*`
+  # pre-release build must never overwrite the public site, same reasoning
+  # release's own make_latest gate above uses.
+  #
+  # CLOUDFLARE_API_TOKEN (repo secret, Settings > Secrets and variables >
+  # Actions) is the only sensitive value this job touches — scoped to
+  # exactly Zone:DNS:Edit + Zone:Firewall Services:Edit (for the initial
+  # WAF allowlist entry, a one-time manual step, not something this job
+  # re-touches) + Account:Cloudflare Workers:Edit for this one zone
+  # (usbridge.io), nothing broader. Account id and R2 bucket name below
+  # aren't secret (only the token authenticates anything) so they're plain
+  # env vars, not secrets — no Cloudflare credential of any kind is ever
+  # written to a file this repo tracks or a log line this job prints.
+  client-web-deploy:
+    needs: release
+    if: ${{ !inputs.prerelease }}
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: a8e647507553ba57609773213ae46f27
+      CF_R2_BUCKET: usbridge-web-client-assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build web client
+        working-directory: client
+        run: ./scripts/build_web.sh
+
+      - name: Upload app.wasm to R2
+        # Straight REST API call, not `wrangler r2 object put` -- one fewer
+        # tool invocation for a single PUT, and keeps the token's only use
+        # site in this job visually obvious in one place per step.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sf -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$CF_R2_BUCKET/objects/app.wasm" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/wasm" \
+            --data-binary @client/web/app.wasm
+
+      - name: Deploy Worker (static assets + custom domain)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p client/deploy/cloudflare-web/public
+          cp client/web/index.html client/web/gui.html client/web/wasm_exec.js client/deploy/cloudflare-web/public/
+          cd client/deploy/cloudflare-web
+          npx --yes wrangler@3 deploy
