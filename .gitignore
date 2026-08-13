@@ -5,3 +5,6 @@ logs/
 .DS_Store
 client/deploy/cloudflare-web/wrangler.toml
 client/deploy/cloudflare-web/public/
+client/web/app.wasm
+client/web/wasm_exec.js
+client/web/gui.html

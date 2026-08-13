@@ -16,8 +16,13 @@
 #   web/wasm_exec.js   -- Go's wasm bootstrap shim, copied from this
 #                          module's own toolchain (see below on why that
 #                          matters) -- NOT downloaded or hand-maintained.
-#   web/index.html / web/gui.html -- already committed, untouched by this
-#                          script; both load app.wasm the same way.
+#   web/index.html      -- committed, untouched by this script.
+#   web/gui.html        -- NOT committed (build artifact, gitignored): a
+#                          plain mirror of index.html this script
+#                          regenerates on every run, loads app.wasm the
+#                          same way. Two filenames exist so either can be
+#                          used as the served entry point without one
+#                          clobbering the other.
 #
 # wasm_exec.js MUST come from the exact Go toolchain that built app.wasm --
 # the wire format between the two changes across Go versions, and a
@@ -66,6 +71,15 @@ fi
 rm -f "$WEB_DIR/wasm_exec.js"
 cp "$WASM_EXEC_SRC" "$WEB_DIR/wasm_exec.js"
 echo -e "${GREEN}✓${NC} wasm_exec.js <- $WASM_EXEC_SRC"
+
+# gui.html is just index.html under a second name (see this script's top
+# doc comment) -- regenerated here rather than committed so there's only
+# ever one real source file to keep in sync. Confirmed missing in CI
+# (client-web-deploy's own "Deploy Worker" step failing to `cp` it) before
+# this line existed -- it only ever got created by hand, locally, during
+# this project's own dev-server testing.
+cp "$WEB_DIR/index.html" "$WEB_DIR/gui.html"
+echo -e "${GREEN}✓${NC} gui.html <- index.html"
 
 echo -e "${GREEN}✓${NC} Web client built: $WEB_DIR"
 echo "  Serve $WEB_DIR with any static file server and open index.html (or gui.html)."
