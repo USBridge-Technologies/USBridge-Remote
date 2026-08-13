@@ -169,7 +169,26 @@ func InitTouchGestureBridge() {
 		}
 		event.Call("preventDefault")
 		if vw := activeGestureVideoWidget(); vw != nil {
-			vw.ForceReleaseStuckMouseButton("contextmenu")
+			// Skip the force-release while a real touch/ray drag is
+			// currently being held (touchDrivenGesture, set for the
+			// duration of any TouchDown..TouchUp pair -- see TouchDown's
+			// own doc comment in video_mouse_handler.go). Confirmed live
+			// on Quest 3: the same held controller trigger that drives an
+			// absolute-mode drag ALSO fires this 'contextmenu' event
+			// mid-hold (see the isEditableEventTarget comment above) --
+			// force-releasing on it used to yank the button back up in
+			// the middle of a legitimate drag, then TouchDown would grab
+			// it again on the next movement, reading as the drag
+			// randomly letting go and re-grabbing partway through. Our
+			// own TouchUp already releases the button correctly once the
+			// touch genuinely ends; this safety net is for the case it
+			// doesn't (a stuck real mouse button after a real desktop
+			// right-click's context menu swallows the mouseup -- see this
+			// listener's own top doc comment), which by definition can't
+			// be happening while a touch is still actively held.
+			if !vw.touchDrivenGesture {
+				vw.ForceReleaseStuckMouseButton("contextmenu")
+			}
 		}
 		return nil
 	}), false)
