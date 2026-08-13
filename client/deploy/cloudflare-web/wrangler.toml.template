@@ -1,0 +1,21 @@
+# Template — CI fills in the placeholders from repo secrets at deploy time
+# (see the "client-web-deploy" job in .github/workflows/release-all.yml) and
+# writes the result to wrangler.toml, which is gitignored and never
+# committed. `directory` assumes scripts/build_web.sh already ran and
+# index.html/gui.html/wasm_exec.js were copied into ./public next to this
+# file — app.wasm itself is NOT in that directory, see worker.js.
+name = "usbridge-web-client"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[r2_buckets]]
+binding = "WASM_BUCKET"
+bucket_name = "__R2_BUCKET__"
+
+[[routes]]
+pattern = "__WEB_DOMAIN__"
+custom_domain = true

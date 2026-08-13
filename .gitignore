@@ -3,3 +3,5 @@ logs/
 .claude/*
 !.claude/HB.md
 .DS_Store
+client/deploy/cloudflare-web/wrangler.toml
+client/deploy/cloudflare-web/public/

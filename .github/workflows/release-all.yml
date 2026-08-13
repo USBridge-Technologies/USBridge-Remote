@@ -1038,30 +1038,15 @@ jobs:
           # over /releases/latest from the last real release.
           make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
 
-  # Deploys the browser/WASM web client to web.usbridge.io — see
-  # docs/CLOUDFLARE_WEB_DEPLOY.md for the full architecture (Cloudflare
-  # Worker + R2, why R2: app.wasm is 46MiB+, over Workers' 25MiB static-asset
-  # file limit) and how this exact job was first stood up manually before
-  # being wired into CI here. Gated on `!inputs.prerelease`: a `test-*`
-  # pre-release build must never overwrite the public site, same reasoning
-  # release's own make_latest gate above uses.
-  #
-  # CLOUDFLARE_API_TOKEN (repo secret, Settings > Secrets and variables >
-  # Actions) is the only sensitive value this job touches — scoped to
-  # exactly Zone:DNS:Edit + Zone:Firewall Services:Edit (for the initial
-  # WAF allowlist entry, a one-time manual step, not something this job
-  # re-touches) + Account:Cloudflare Workers:Edit for this one zone
-  # (usbridge.io), nothing broader. Account id and R2 bucket name below
-  # aren't secret (only the token authenticates anything) so they're plain
-  # env vars, not secrets — no Cloudflare credential of any kind is ever
-  # written to a file this repo tracks or a log line this job prints.
+  # Deploys the browser/WASM web client. All account-specific config (account
+  # id, R2 bucket, target domain) comes from repo secrets and is templated
+  # into wrangler.toml at deploy time — nothing account-identifying is
+  # committed. Gated on `!inputs.prerelease`, same as release's own
+  # make_latest gate: a test-* pre-release must never overwrite the live site.
   client-web-deploy:
     needs: release
     if: ${{ !inputs.prerelease }}
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_ACCOUNT_ID: a8e647507553ba57609773213ae46f27
-      CF_R2_BUCKET: usbridge-web-client-assets
     steps:
       - uses: actions/checkout@v4
 
@@ -1078,11 +1063,13 @@ jobs:
         run: ./scripts/build_web.sh
 
       - name: Upload app.wasm to R2
-        # Straight REST API call, not `wrangler r2 object put` -- one fewer
-        # tool invocation for a single PUT, and keeps the token's only use
-        # site in this job visually obvious in one place per step.
+        # app.wasm bypasses wrangler/the Worker's static assets entirely
+        # (over Cloudflare's per-file size limit there) -- uploaded directly
+        # via the R2 API instead; worker.js streams it back out on request.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
         run: |
           set -euo pipefail
           curl -sf -X PUT \
@@ -1094,9 +1081,14 @@ jobs:
       - name: Deploy Worker (static assets + custom domain)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
+          CF_WEB_DOMAIN: ${{ secrets.CLOUDFLARE_WEB_DOMAIN }}
         run: |
           set -euo pipefail
-          mkdir -p client/deploy/cloudflare-web/public
-          cp client/web/index.html client/web/gui.html client/web/wasm_exec.js client/deploy/cloudflare-web/public/
           cd client/deploy/cloudflare-web
+          mkdir -p public
+          cp ../../web/index.html ../../web/gui.html ../../web/wasm_exec.js public/
+          sed -e "s/__R2_BUCKET__/$CF_R2_BUCKET/" -e "s/__WEB_DOMAIN__/$CF_WEB_DOMAIN/" \
+            wrangler.toml.template > wrangler.toml
           npx --yes wrangler@3 deploy
