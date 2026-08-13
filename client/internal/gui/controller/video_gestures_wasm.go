@@ -83,6 +83,26 @@ var webTouch struct {
 	prevDist  float32
 	prevMidX  float32
 	prevMidY  float32
+	// secondID is the pointerId of the 2nd concurrent pointer during a
+	// pinch/pan -- Pointer Events (unlike Touch Events' TouchList) don't
+	// hand every simultaneously-down pointer to each callback, so this
+	// file has to track them itself via pointerPositions below.
+	secondID int
+}
+
+// pointerPositions holds the last known page (client) coordinates of every
+// currently-down pointer on the overlay, keyed by pointerId. A pointermove
+// event only carries its own pointer's position, not any other
+// concurrently-down pointer's -- needed to recompute the pinch
+// distance/midpoint from both fingers on every move, matching what
+// event.touches used to hand over as a single TouchList.
+var pointerPositions = map[int][2]float32{}
+
+// pointerXY reads a PointerEvent's id and page coordinates -- clientX/
+// clientY are already in CSS pixels, the same space Fyne's own dp
+// coordinates use under wasm.
+func pointerXY(event js.Value) (id int, x, y float32) {
+	return event.Get("pointerId").Int(), float32(event.Get("clientX").Float()), float32(event.Get("clientY").Float())
 }
 
 // touchOverlayEl is the lazily-created transparent <div> touch listeners
@@ -122,15 +142,38 @@ func InitTouchGestureBridge() {
 	body.Call("appendChild", el)
 	touchOverlayEl = el
 
-	el.Call("addEventListener", "touchstart", js.FuncOf(onTouchStart), map[string]interface{}{"passive": false})
-	el.Call("addEventListener", "touchmove", js.FuncOf(onTouchMove), map[string]interface{}{"passive": false})
-	el.Call("addEventListener", "touchend", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
-	el.Call("addEventListener", "touchcancel", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
-	// No 'click' listener here for requestFullscreen(): onTouchStart's own
+	// Pointer Events, not Touch Events: covers the same touchscreen taps/
+	// drags/pinches this overlay always has, but also -- critically --
+	// whatever the Meta Quest Browser's controller-ray cursor generates in
+	// its flat 2D panel window. Confirmed live: taps register fine there
+	// (a touchstart+touchend pair with no travel in between needs nothing
+	// extra), but nothing that has to stay "held" across any movement ever
+	// does -- dragging a remote window felt like it "didn't want to grab"
+	// at all. Two independently-documented Quest Browser quirks explain
+	// that with plain Touch Events: (1) a real, reported bug where its
+	// touch-pointer synthesis leaks/misfires mid-gesture, and (2) hand
+	// tremor on a held trigger is enough physical drift for the browser to
+	// decide the touch point left the element and end the sequence early.
+	// setPointerCapture below is the standard fix for exactly this shape
+	// of problem: once called, the browser keeps routing pointermove/
+	// pointerup for that pointerId to *this* element regardless of where
+	// it geometrically wanders to afterward, no more re-hit-testing every
+	// move. Touch Events have no equivalent guarantee.
+	//
+	// Restricted to non-"mouse" pointerType (see onPointerDown) so this
+	// changes nothing for a real desktop mouse: those events still fall
+	// through untouched to Fyne's own native mouse dispatch exactly as
+	// before this file's touch-only listeners never intercepted them.
+	el.Call("addEventListener", "pointerdown", js.FuncOf(onPointerDown), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "pointermove", js.FuncOf(onPointerMove), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "pointerup", js.FuncOf(onPointerUp), map[string]interface{}{"passive": false})
+	el.Call("addEventListener", "pointercancel", js.FuncOf(onPointerUp), map[string]interface{}{"passive": false})
+	// No 'click' listener here for requestFullscreen(): onPointerDown's own
 	// preventDefault() (needed to stop the browser's scroll/pinch-zoom)
 	// suppresses the synthetic 'click' event a real tap would otherwise
 	// produce, so a click handler on this element would never fire. The
-	// actual call lives in onTouchEnd instead -- see its own comment.
+	// actual call lives in web/index.html's own touchend listener instead
+	// -- see onPointerUp's doc comment.
 
 	// Right-click on the video used to open the browser's own native
 	// context menu -- which, confirmed live, can swallow the DOM mouseup
@@ -278,13 +321,6 @@ func pxf(v float32) string {
 	return strconv.Itoa(int(v)) + "px"
 }
 
-// jsTouch reads one JS Touch object's page coordinates -- clientX/clientY
-// are already in CSS pixels, the same space Fyne's own dp coordinates use
-// under wasm.
-func jsTouch(t js.Value) (id int, x, y float32) {
-	return t.Get("identifier").Int(), float32(t.Get("clientX").Float()), float32(t.Get("clientY").Float())
-}
-
 // wrapperLocalPos converts page coordinates into the active viewport
 // wrapper's own local coordinate space, matching what Fyne's real pointer
 // dispatch would have handed TouchDown/Dragged directly.
@@ -297,12 +333,25 @@ func wrapperLocalPos(vw *VideoWidget, pageX, pageY float32) (fyne.Position, bool
 	return fyne.NewPos(pageX-abs.X, pageY-abs.Y), true
 }
 
-func onTouchStart(this js.Value, args []js.Value) interface{} {
-	defer recoverTouchPanic("onTouchStart")
+// isMousePointerEvent reports whether a PointerEvent came from a real
+// mouse, as opposed to a touch or pen contact (or, on the Meta Quest
+// Browser, a controller-ray cursor -- confirmed live it's classified as
+// "touch", matching an independently-reported Quest Browser bug about its
+// touch-pointer synthesis). Gates onPointerDown so real desktop mice are
+// left completely alone: those events fall through untouched to Fyne's own
+// native mouse dispatch, exactly as before this file ever listened for
+// pointer/touch events at all.
+func isMousePointerEvent(event js.Value) bool {
+	return event.Get("pointerType").String() == "mouse"
+}
+
+func onPointerDown(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onPointerDown")
+	if len(args) == 0 {
+		return nil
+	}
 	event := args[0]
-	touches := event.Get("touches")
-	count := touches.Length()
-	if count == 0 {
+	if isMousePointerEvent(event) {
 		return nil
 	}
 
@@ -333,28 +382,38 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 	// Fyne-focused for physical-keyboard routing either way.
 	blurDummyIMEInput()
 
-	t0 := touches.Index(0)
-	_, x0, y0 := jsTouch(t0)
+	id, x, y := pointerXY(event)
+	pointerPositions[id] = [2]float32{x, y}
+	// Guarantees this element keeps receiving pointermove/pointerup for
+	// this pointerId even if it geometrically strays off the element
+	// afterward -- see this file's addEventListener comment above for why
+	// that matters here specifically.
+	this.Call("setPointerCapture", event.Get("pointerId"))
 
-	if count >= 2 {
-		if webTouch.haveTouch {
-			webTouch.haveTouch = false
-		}
+	if webTouch.haveTouch && id != webTouch.activeID {
+		// A second concurrent pointer came down mid-gesture -- switch into
+		// the two-finger pinch/pan path, seeded from both pointers'
+		// current positions.
+		p0 := pointerPositions[webTouch.activeID]
+		webTouch.haveTouch = false
+		webTouch.twoFinger = true
+		webTouch.secondID = id
 		vw.multiTouchActive = true
 		vw.lastMultiTouchAt = time.Now()
 		vw.cancelLocalTouchState()
-
-		t1 := touches.Index(1)
-		_, x1, y1 := jsTouch(t1)
-		webTouch.twoFinger = true
-		webTouch.prevDist = dist(x0, y0, x1, y1)
-		webTouch.prevMidX = (x0 + x1) / 2
-		webTouch.prevMidY = (y0 + y1) / 2
+		webTouch.prevDist = dist(p0[0], p0[1], x, y)
+		webTouch.prevMidX = (p0[0] + x) / 2
+		webTouch.prevMidY = (p0[1] + y) / 2
 		return nil
 	}
 
-	id, _, _ := jsTouch(t0)
-	local, ok := wrapperLocalPos(vw, x0, y0)
+	if webTouch.twoFinger {
+		// A third pointer landing mid-pinch -- ignored, matching the old
+		// Touch Events path (which only ever looked at touches[0]/[1]).
+		return nil
+	}
+
+	local, ok := wrapperLocalPos(vw, x, y)
 	if !ok {
 		return nil
 	}
@@ -366,36 +425,52 @@ func onTouchStart(this js.Value, args []js.Value) interface{} {
 	wrapper := vw.activeViewportWrapper()
 	if wrapper != nil {
 		fyne.Do(func() {
-			wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x0, y0)}})
+			wrapper.TouchDown(&mobile.TouchEvent{PointEvent: fyne.PointEvent{Position: local, AbsolutePosition: fyne.NewPos(x, y)}})
 			vw.updateNativeViewportAndCursor()
 		})
 	}
 	return nil
 }
 
-func onTouchMove(this js.Value, args []js.Value) interface{} {
-	defer recoverTouchPanic("onTouchMove")
+func onPointerMove(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onPointerMove")
+	if len(args) == 0 {
+		return nil
+	}
 	event := args[0]
-	touches := event.Get("touches")
-	count := touches.Length()
+	if isMousePointerEvent(event) {
+		return nil
+	}
 
 	vw := activeGestureVideoWidget()
 	if vw == nil {
 		return nil
 	}
+
+	id, x, y := pointerXY(event)
+	if _, tracked := pointerPositions[id]; !tracked {
+		// A move from a pointer this overlay never saw a pointerdown for
+		// (e.g. it started outside the overlay's bounds before streaming
+		// began) -- ignore rather than act on stale/unrelated state.
+		return nil
+	}
 	event.Call("preventDefault")
+	pointerPositions[id] = [2]float32{x, y}
 
-	if count >= 2 {
-		t0 := touches.Index(0)
-		t1 := touches.Index(1)
-		_, x0, y0 := jsTouch(t0)
-		_, x1, y1 := jsTouch(t1)
-		curDist := dist(x0, y0, x1, y1)
-		curMidX := (x0 + x1) / 2
-		curMidY := (y0 + y1) / 2
+	if webTouch.twoFinger {
+		if id != webTouch.activeID && id != webTouch.secondID {
+			return nil
+		}
+		p0, ok0 := pointerPositions[webTouch.activeID]
+		p1, ok1 := pointerPositions[webTouch.secondID]
+		if !ok0 || !ok1 {
+			return nil
+		}
+		curDist := dist(p0[0], p0[1], p1[0], p1[1])
+		curMidX := (p0[0] + p1[0]) / 2
+		curMidY := (p0[1] + p1[1]) / 2
 
-		if !webTouch.twoFinger || webTouch.prevDist <= 0 {
-			webTouch.twoFinger = true
+		if webTouch.prevDist <= 0 {
 			webTouch.prevDist = curDist
 			webTouch.prevMidX = curMidX
 			webTouch.prevMidY = curMidY
@@ -434,12 +509,7 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
-	if webTouch.twoFinger || !webTouch.haveTouch {
-		return nil
-	}
-	t := touches.Index(0)
-	id, x, y := jsTouch(t)
-	if id != webTouch.activeID {
+	if !webTouch.haveTouch || id != webTouch.activeID {
 		return nil
 	}
 	local, ok := wrapperLocalPos(vw, x, y)
@@ -469,9 +539,9 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 			// 150ms poll tick, which reads as a stutter: a 60ms glide to
 			// the last known position, then a ~90ms stall waiting for
 			// the next tick, repeating for as long as the finger moves.
-			// Driving it from every touchmove instead removes that
+			// Driving it from every pointermove instead removes that
 			// stall -- this now updates at the same rate the browser
-			// delivers touch events, same as Android's Vulkan thread
+			// delivers pointer events, same as Android's Vulkan thread
 			// updates every render frame.
 			vw.updateNativeViewportAndCursor()
 		})
@@ -479,31 +549,44 @@ func onTouchMove(this js.Value, args []js.Value) interface{} {
 	return nil
 }
 
-func onTouchEnd(this js.Value, args []js.Value) interface{} {
-	defer recoverTouchPanic("onTouchEnd")
+func onPointerUp(this js.Value, args []js.Value) interface{} {
+	defer recoverTouchPanic("onPointerUp")
+	if len(args) == 0 {
+		return nil
+	}
 	event := args[0]
-	remaining := event.Get("touches").Length()
+	if isMousePointerEvent(event) {
+		return nil
+	}
 
 	vw := activeGestureVideoWidget()
 	if vw == nil {
 		return nil
 	}
+
+	id, _, _ := pointerXY(event)
+	if _, tracked := pointerPositions[id]; !tracked {
+		return nil
+	}
 	event.Call("preventDefault")
+	delete(pointerPositions, id)
 
 	// Deliberately NOT calling requestFullscreen() from here (or anywhere
 	// else in Go/wasm) -- see web/index.html's own fullscreen-request
 	// script for why: confirmed live via CDP that requestFullscreen()
-	// invoked from inside a Go js.FuncOf touchend callback is reliably
+	// invoked from inside a Go js.FuncOf pointerup callback is reliably
 	// REJECTED ("TypeError: Permissions check failed") even though the
-	// exact same DOM touchend event, handled by a plain JS listener with
-	// zero Go involvement, succeeds every time. Something about routing
-	// through Go's wasm callback dispatch breaks the browser's "still
-	// within the original user-gesture call stack" check the Fullscreen
-	// API depends on. The fix is a plain JS listener in index.html itself,
-	// entirely bypassing this file for that one call.
+	// exact same DOM event, handled by a plain JS listener with zero Go
+	// involvement, succeeds every time. Something about routing through
+	// Go's wasm callback dispatch breaks the browser's "still within the
+	// original user-gesture call stack" check the Fullscreen API depends
+	// on. The fix is a plain JS listener in index.html itself, entirely
+	// bypassing this file for that one call.
 
 	if webTouch.twoFinger {
-		if remaining < 2 {
+		if id == webTouch.activeID || id == webTouch.secondID {
+			// Either pointer lifting ends the gesture -- matches the old
+			// Touch Events path (remaining < 2).
 			webTouch.twoFinger = false
 			vw.multiTouchActive = false
 			vw.lastMultiTouchAt = time.Now()
@@ -512,7 +595,7 @@ func onTouchEnd(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
-	if webTouch.haveTouch && remaining == 0 {
+	if webTouch.haveTouch && id == webTouch.activeID {
 		webTouch.haveTouch = false
 		wrapper := vw.activeViewportWrapper()
 		if wrapper != nil {
@@ -524,7 +607,7 @@ func onTouchEnd(this js.Value, args []js.Value) interface{} {
 }
 
 // blurDummyIMEInput blurs Fyne's own hidden #dummyEntry IME-target input
-// (see ime_bridge_wasm.go / onTouchStart's doc comment above) if it's
+// (see ime_bridge_wasm.go / onPointerDown's doc comment above) if it's
 // currently focused, closing the real on-screen keyboard the browser just
 // opened in response to Fyne's own focus-triggered handleKeyboard hook.
 // A no-op if dummyEntry isn't the active element, so this is safe to call
@@ -571,7 +654,7 @@ func dist(x0, y0, x1, y1 float32) float32 {
 }
 
 // Fullscreen is requested by a plain JS listener in web/index.html, not
-// from here -- see this file's onTouchEnd doc comment for why: confirmed
+// from here -- see this file's onPointerUp doc comment for why: confirmed
 // live via CDP that requestFullscreen() invoked from inside a Go
 // js.FuncOf callback is reliably rejected even for the exact same DOM
 // event a plain JS listener succeeds with.
