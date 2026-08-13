@@ -29,14 +29,22 @@ import (
 // plumbing the *webrtcweb.WebRTCClient through JS values.
 var activeClient *webrtcweb.WebRTCClient
 
+// version is patched at build time via `-ldflags "-X main.version=..."`
+// (see scripts/build_web.sh), same mechanism client/cmd/main.go uses for
+// every other platform. Left as a literal "web" here used to render the
+// version corner label as the nonsensical "vweb" instead of a real version
+// number -- this placeholder is only ever seen if a build didn't go
+// through build_web.sh's ldflags injection.
+var version = "web"
+
 func main() {
 	js.Global().Set("usbridgeConnect", js.FuncOf(connect))
 	js.Global().Set("usbridgeSendInput", js.FuncOf(sendInput))
 
 	i18n.Init("en")
 	config := models.DefaultConfig()
-	gui.SetAppVersion("web")
-	view.SetAppVersion("web")
+	gui.SetAppVersion(version)
+	view.SetAppVersion(version)
 	mainWindow := gui.NewMainWindow(config)
 	gui.InitIMEBridge()
 	gui.InitTouchGestureBridge()

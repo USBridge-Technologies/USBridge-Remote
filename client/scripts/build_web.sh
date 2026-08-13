@@ -41,8 +41,15 @@ NC='\033[0m'
 
 cd "$CLIENT_DIR"
 
-echo -e "${YELLOW}==> Building app.wasm (GOOS=js GOARCH=wasm)...${NC}"
-GOOS=js GOARCH=wasm go build -o "$WEB_DIR/app.wasm" ./cmd/wasm
+CLIENT_VERSION="$(tr -d ' \t\n\r' < "$CLIENT_DIR/VERSION" 2>/dev/null || echo "0.0.0")"
+
+echo -e "${YELLOW}==> Building app.wasm (GOOS=js GOARCH=wasm, version=$CLIENT_VERSION)...${NC}"
+# -X main.version=... patches cmd/wasm/main.go's `version` var, same
+# ldflags-injection mechanism every other platform's build_*.sh uses (see
+# client/cmd/main.go's own doc comment on it) -- without this the version
+# corner label falls back to cmd/wasm/main.go's literal "web" placeholder,
+# rendering as the nonsensical "vweb".
+GOOS=js GOARCH=wasm go build -ldflags "-X main.version=$CLIENT_VERSION" -o "$WEB_DIR/app.wasm" ./cmd/wasm
 ls -lh "$WEB_DIR/app.wasm"
 
 # Resolve wasm_exec.js from whatever toolchain `go build` above actually
