@@ -200,10 +200,19 @@ func InitTouchGestureBridge() {
 	// the time -- release proactively rather than leaving the remote
 	// thinking a button is still held for however long the tab stays
 	// unfocused.
+	//
+	// releaseAllMoonlightKeys is the same idea for the keyboard side --
+	// its own doc comment already says "call on window focus loss" but
+	// nothing actually did until now: confirmed live, a real key can be
+	// left stuck held on the remote (Escape, in the wild) the same way a
+	// mouse button used to be, for the same reason -- some browser/OS
+	// focus-switch swallows the matching keyup the way a native context
+	// menu used to swallow a mouseup.
 	js.Global().Call("addEventListener", "blur", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		defer recoverTouchPanic("window-blur")
 		if vw := activeGestureVideoWidget(); vw != nil {
 			vw.ForceReleaseStuckMouseButton("window-blur")
+			vw.releaseAllMoonlightKeys()
 		}
 		return nil
 	}))
