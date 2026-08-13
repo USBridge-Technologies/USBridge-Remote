@@ -148,9 +148,26 @@ func InitTouchGestureBridge() {
 	// manages to leak past preventDefault some other way.
 	doc.Call("addEventListener", "contextmenu", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		defer recoverTouchPanic("contextmenu")
-		if len(args) > 0 {
-			args[0].Call("preventDefault")
+		if len(args) == 0 {
+			return nil
 		}
+		event := args[0]
+		if isEditableEventTarget(event) {
+			// Over a real editable field (host/master-key entries, the
+			// on-screen keyboard panel's #dummyEntry) -- let the browser's
+			// own context menu through instead of swallowing it. This is
+			// the only Paste affordance some browsers offer at all:
+			// confirmed live, the Meta Quest Browser on Quest 3 maps a held
+			// controller trigger to a synthesized 'contextmenu' event (its
+			// long-press equivalent, allowing for hand tremor) with no
+			// keyboard shortcut to fall back on, and it fully honors
+			// preventDefault here (unlike mobile Chrome/Safari's separate,
+			// native edit-menu UI, which isn't gated by this event at all --
+			// that's why phones and desktops were never affected by the
+			// unconditional preventDefault below).
+			return nil
+		}
+		event.Call("preventDefault")
 		if vw := activeGestureVideoWidget(); vw != nil {
 			vw.ForceReleaseStuckMouseButton("contextmenu")
 		}
@@ -522,6 +539,29 @@ func blurDummyIMEInput() {
 		return
 	}
 	active.Call("blur")
+}
+
+// isEditableEventTarget reports whether a DOM event's target is (or is
+// inside) a text-editable element -- an <input>/<textarea> (in particular
+// #dummyEntry, the hidden element every Fyne Entry's real keyboard input
+// routes through, see ime_bridge_wasm.go) or anything with
+// contentEditable. Used to exempt real text fields from the app-wide
+// contextmenu suppression above.
+func isEditableEventTarget(event js.Value) bool {
+	target := event.Get("target")
+	if target.IsUndefined() || target.IsNull() {
+		return false
+	}
+	if tag := target.Get("tagName"); !tag.IsUndefined() && !tag.IsNull() {
+		switch tag.String() {
+		case "INPUT", "TEXTAREA":
+			return true
+		}
+	}
+	if editable := target.Get("isContentEditable"); !editable.IsUndefined() && !editable.IsNull() && editable.Bool() {
+		return true
+	}
+	return false
 }
 
 func dist(x0, y0, x1, y1 float32) float32 {
