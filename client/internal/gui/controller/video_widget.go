@@ -293,6 +293,11 @@ func (vw *VideoWidget) RecoverAfterControlDeviceRebuildAsync() {
 // conservative so a *normal*, first-time connect (Sunshine's own launch/
 // negotiate can itself take a couple of seconds) is never mistaken for the
 // stuck-with-no-video case this watchdog exists to catch.
+//
+// This is the value every platform except wasm uses (see
+// videoTraceFirstAttemptTimeout method's own per-platform override files,
+// video_widget_trace_timeout_default.go / _wasm.go) -- unchanged from
+// before that split existed.
 const videoTraceFirstAttemptTimeout = 4 * time.Second
 
 // videoTraceRetryTimeout is used once beginVideoTrace already knows (via
@@ -349,7 +354,7 @@ func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
 	vw.lastVideoImgH = 0
 	label := fmt.Sprintf("vt-%d", traceID)
 	vw.videoTraceLabel.Store(label)
-	timeout := videoTraceFirstAttemptTimeout
+	timeout := vw.videoTraceFirstAttemptTimeout()
 	if vw.consecutiveStuckReconnects.Load() > 0 {
 		timeout = videoTraceRetryTimeout
 	}
