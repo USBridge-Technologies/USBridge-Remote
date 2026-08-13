@@ -1342,13 +1342,25 @@ func showPasteLinkDialog(parent fyne.Window, onApply func(internalHost, tailscal
 	})
 	titleBar := container.New(&connectionDialogTitleLayout{}, title, closeBtn)
 
+	// This entry has no icon/copy/paste input-group chrome the way the
+	// address/key fields in the main editor do (see fieldActions) -- it's a
+	// bare multi-line textarea meant to be filled by pasting a whole
+	// usbridge:// link, so a Paste button matters here even more than on
+	// those. Same platform-split pasteClipboardInto (Fyne's own Clipboard()
+	// on desktop/mobile, navigator.clipboard.readText() on wasm) that
+	// powers the Copy/Paste pair everywhere else.
+	pasteBtn := newConnectionDialogIconButton(theme.ContentPasteIcon(), func() {
+		pasteClipboardInto(entry, parent)
+	})
+	pasteRow := container.NewHBox(layout.NewSpacer(), pasteBtn)
+
 	applyBtn := view.NewConnectionPrimaryButton("Apply", applyFn)
 	applyBtn.SetAccent(true)
 
 	body := container.NewVBox(
 		view.NewInset(titleBar, 0, 0, 0, 10),
 		widget.NewSeparator(),
-		view.NewInset(container.NewVBox(entry, errLabel), 0, 0, 8, 8),
+		view.NewInset(container.NewVBox(pasteRow, entry, errLabel), 0, 0, 8, 8),
 		widget.NewSeparator(),
 		view.NewInset(applyBtn, 0, 0, 8, 0),
 	)
