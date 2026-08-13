@@ -126,18 +126,6 @@ func InitTouchGestureBridge() {
 	el.Call("addEventListener", "touchmove", js.FuncOf(onTouchMove), map[string]interface{}{"passive": false})
 	el.Call("addEventListener", "touchend", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
 	el.Call("addEventListener", "touchcancel", js.FuncOf(onTouchEnd), map[string]interface{}{"passive": false})
-
-	// TEMPORARY diagnostic instrumentation for the Meta Quest Browser drag
-	// investigation -- purely observational (document-level, capture,
-	// passive: true, never calls preventDefault, never touches any of this
-	// file's actual gesture state), logged via logrus so it shows up in
-	// the same browser Console a remote chrome://inspect session already
-	// reads. Answers the one open question that doc-only guessing kept
-	// getting wrong: does a held controller trigger even reach the page as
-	// pointer/mouse/touch events at all, and of what type/target -- rather
-	// than guessing again and shipping another unverified "fix". Remove
-	// once that's answered.
-	installDragDiagnostics(doc)
 	// No 'click' listener here for requestFullscreen(): onTouchStart's own
 	// preventDefault() (needed to stop the browser's scroll/pinch-zoom)
 	// suppresses the synthetic 'click' event a real tap would otherwise

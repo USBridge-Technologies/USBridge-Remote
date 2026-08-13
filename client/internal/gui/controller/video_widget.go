@@ -142,6 +142,14 @@ type VideoWidget struct {
 	relativeRemainderY float32 // accumulated fractional remainder of relative movement on Y
 	isDragging         bool
 	dragButton         int
+	// touchDrivenGesture is true for the duration of a TouchDown..TouchUp
+	// sequence -- i.e. real device touch input, or (under wasm) our own
+	// video_gestures_wasm.go bridge, which only ever calls TouchDown for a
+	// non-"mouse" pointerType. Used by Dragged() to tell a genuine touch/
+	// touch-like drag apart from a real desktop mouse drag on platforms
+	// where fyne.CurrentDevice().IsMobile() alone isn't reliable for that
+	// -- see Dragged()'s own doc comment on why.
+	touchDrivenGesture bool
 	touchStartX        float32
 	touchStartY        float32
 	touchStartTime     time.Time

@@ -753,6 +753,12 @@ func (t *TouchpadWrapper) Scrolled(ev *fyne.ScrollEvent) {
 
 // TouchDown handles the start of a touch (mobile)
 func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
+	// TouchDown is only ever reached via genuine touch/touch-like input --
+	// Fyne's wasm driver never synthesizes it for a real mouse (see
+	// video_gestures_wasm.go's top doc comment), and desktop.Mouseable is
+	// the only interface a real mouse drag drives everywhere else. Flag
+	// this for Dragged() below (see its own doc comment).
+	t.videoWidget.touchDrivenGesture = true
 	if !t.videoWidget.isMouseConnected {
 		// On mobile there is no overlay event dispatch to trigger checkMouseConnected.
 		// Retry it here on the first touch so the move worker starts promptly.
@@ -859,6 +865,9 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 
 // TouchUp handles the end of a touch (mobile)
 func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
+	// Matches TouchDown's own set of this flag -- deferred so every return
+	// path below (there are several) clears it, not just the common one.
+	defer func() { t.videoWidget.touchDrivenGesture = false }()
 	if !t.videoWidget.isMouseConnected {
 		return
 	}
@@ -1283,7 +1292,24 @@ func (t *TouchpadWrapper) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 
-	isAndroid := fyne.CurrentDevice().IsMobile()
+	// fyne.CurrentDevice().IsMobile() under wasm is real User-Agent
+	// sniffing for Android|iPhone|iPad|iPod (see video_widget_web.go's own
+	// doc comment on it) -- confirmed live on a real Quest 3 that the Meta
+	// Quest Browser's UA is "...Linux x86_64; Quest 3) ... OculusBrowser/
+	// ... Chrome/... VR Safari/...", matching none of those tokens. So
+	// IsMobile() alone reports false there, routing every touch-driven
+	// drag (the controller-ray cursor, which video_gestures_wasm.go's
+	// bridge only ever calls TouchDown/Dragged/TouchUp for) into this
+	// function's desktop-mouse branch below -- which does nothing at all
+	// for the touchpad's relative/virtual-cursor modes (only absolute
+	// mode gets a position update), silently dropping every drag: taps
+	// still worked (TouchDown/TouchUp's own click logic isn't gated on
+	// this), but nothing that needed continuous movement during a hold
+	// ever reached the remote side. touchDrivenGesture (set for the
+	// duration of any TouchDown..TouchUp pair, see TouchDown's own doc
+	// comment) is the reliable signal instead: real desktop mouse drags
+	// never go through TouchDown at all, so this changes nothing for them.
+	isAndroid := fyne.CurrentDevice().IsMobile() || t.videoWidget.touchDrivenGesture
 
 	if isAndroid {
 		mode := t.videoWidget.GetMouseInputMode()
