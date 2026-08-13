@@ -58,6 +58,29 @@ var webRestCanvasHeight float32
 // via its toggle button doesn't by itself open the real IME (only tapping
 // an actual text field does), and the two can close in either order.
 func (vw *VideoWidget) platformHandleVirtualKeyboard() {
+	// Desktop browser: no on-screen panel at all, matching the native
+	// desktop build's own UX (video_widget_desktop.go) instead of the
+	// mobile-style docked panel below. Real typing already reaches the app
+	// without it -- Fyne's wasm driver auto-focuses the hidden #dummyEntry
+	// input whenever the canvas itself gets focus, independent of this
+	// panel's visibility (see fyne's internal/driver/glfw/device_wasm.go
+	// connectKeyboard/handleKeyboard) -- so a physical keyboard just works
+	// exactly like it does everywhere else. Desktop's own
+	// platformHandleVirtualKeyboard opens a *separate OS window*
+	// (ShowInSeparateWindow) for its equivalent on-screen keyboard, which a
+	// single browser tab can't do (see this file's top doc comment) -- the
+	// honest equivalent here isn't approximating that with the mobile
+	// panel, it's simply not needing one.
+	//
+	// fyne.CurrentDevice().IsMobile() under wasm is real User-Agent
+	// sniffing (Android|iPhone|iPad|iPod), not a build-time guess -- see
+	// that function in fyne's glfw/device_wasm.go -- so this correctly
+	// tells a phone's browser apart from a laptop's even though both run
+	// the exact same wasm binary.
+	if !fyne.CurrentDevice().IsMobile() {
+		logrus.Debug("⌨️ Virtual keyboard toggle ignored on desktop browser -- physical keyboard already works")
+		return
+	}
 	if vw.virtualKeyboard == nil {
 		if vw.parentWindow == nil {
 			logrus.Warn("⚠️ Parent window is not set")
