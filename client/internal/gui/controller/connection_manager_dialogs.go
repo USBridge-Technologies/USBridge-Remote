@@ -373,15 +373,51 @@ func newConnectionDialogCopyAction(entry *connectionDialogEntry, window fyne.Win
 	return btn
 }
 
+// newConnectionDialogPasteAction is the Copy button's counterpart, sitting
+// right next to it in every field's trailing-action group -- see
+// connection_dialog_paste_wasm.go/connection_dialog_paste_default.go for
+// the platform-split clipboard read behind it.
+func newConnectionDialogPasteAction(entry *connectionDialogEntry, window fyne.Window) *connectionDialogIconButton {
+	btn := &connectionDialogIconButton{
+		resource: theme.ContentPasteIcon(),
+		onTapped: func() {
+			pasteClipboardInto(entry, window)
+		},
+		buttonSize: fyne.NewSize(28, 28),
+		iconSize:   fyne.NewSize(15, 15),
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+// applyPastedText replaces entry's whole content with text and fires its
+// OnChanged the same way a real keystroke/native paste would, so anything
+// wired to the field (live validation, draft persistence) still runs.
+func applyPastedText(entry *connectionDialogEntry, text string) {
+	entry.SetText(text)
+	if entry.OnChanged != nil {
+		entry.OnChanged(text)
+	}
+}
+
+// fieldActions bundles the Copy and Paste buttons for one field into a
+// single trailing-action group.
+func fieldActions(entry *connectionDialogEntry, window fyne.Window) fyne.CanvasObject {
+	return container.NewHBox(
+		newConnectionDialogCopyAction(entry, window),
+		newConnectionDialogPasteAction(entry, window),
+	)
+}
+
 func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry, masterKeyEntry *connectionDialogEntry, registerCheck fyne.CanvasObject, window fyne.Window) fyne.CanvasObject {
 	masterKeyEntry.ActionItem = nil
 	masterKeyEntry.Refresh()
 
 	items := []fyne.CanvasObject{
 		newConnectionDialogIconEntry(theme.AccountIcon(), nameEntry, nil),
-		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, newConnectionDialogCopyAction(internalHostEntry, window)),
-		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, newConnectionDialogCopyAction(tailscaleHostEntry, window)),
-		newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, newConnectionDialogCopyAction(masterKeyEntry, window)),
+		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, fieldActions(internalHostEntry, window)),
+		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, fieldActions(tailscaleHostEntry, window)),
+		newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, fieldActions(masterKeyEntry, window)),
 	}
 	if registerCheck != nil {
 		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
