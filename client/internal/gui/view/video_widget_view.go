@@ -1,8 +1,6 @@
 package view
 
 import (
-	"image/color"
-
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 
@@ -59,28 +57,21 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 	// rather than depending on incidental browser default styling.
 	videoBackground := canvas.NewRectangle(design.ColorBackground)
 
+	// The spinner's own SVG frames (assets.VideoConnectingFrames /
+	// VideoConnectingGearFrames) already bake in a soft, semi-transparent
+	// dark backdrop disc behind the dots/gear shape -- see
+	// spinnerBackdropSVG in assets/onboarding.go. That replaced an
+	// earlier attempt to layer a separate canvas.Circle (sized via a
+	// nil-resource canvas.Image MinSize hack) underneath the icon here,
+	// which instead produced a stray opaque white square in the wasm
+	// canvas backend. Sizing the icon up to 84x84 (vs. the underlying
+	// 16x16 viewBox's icon-only content) is what makes that baked-in
+	// backdrop actually read as a badge rather than a tight halo.
 	spinnerIcon := canvas.NewImageFromResource(nil)
 	spinnerIcon.FillMode = canvas.ImageFillContain
-	spinnerIcon.SetMinSize(fyne.NewSize(48, 48))
+	spinnerIcon.SetMinSize(fyne.NewSize(84, 84))
 
-	// A soft, semi-transparent dark disc behind the spinner icon --
-	// purely cosmetic (the icon itself already reads fine on the plain
-	// background above), but it's what turns "some dots floating in an
-	// empty rect" into a deliberate, modern-looking loading badge, and
-	// keeps the spinner readable even mid-transition (e.g. the instant
-	// the DOM video overlay reveals a bright frame right where the
-	// spinner still sits, one paint before it's hidden).
-	//
-	// canvas.Circle has no SetMinSize of its own (unlike canvas.Image) --
-	// badgeSizer is an invisible (nil-resource) Image purely to give the
-	// surrounding Stack something with an explicit MinSize to size
-	// itself to; Stack then resizes every child, Circle included, to
-	// match that.
-	badgeSizer := canvas.NewImageFromResource(nil)
-	badgeSizer.SetMinSize(fyne.NewSize(84, 84))
-	spinnerBackdrop := canvas.NewCircle(color.NRGBA{A: 0x90})
-	spinnerBadge := container.NewStack(badgeSizer, spinnerBackdrop, container.NewCenter(spinnerIcon))
-	spinnerOverlay := container.NewCenter(spinnerBadge)
+	spinnerOverlay := container.NewCenter(spinnerIcon)
 	spinnerOverlay.Hide()
 
 	videoObjects := []fyne.CanvasObject{videoBackground, touchpad}

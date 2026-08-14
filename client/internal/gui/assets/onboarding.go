@@ -240,6 +240,24 @@ func boldenServerIcon(source []byte, stroke string, width string) []byte {
 // is also visually a gear+"R" combination) -- redistributing that mark in
 // a commercial client risks a trademark issue neither this shape nor its
 // use here needs to run.
+// spinnerBackdropSVG is a soft, semi-transparent dark disc baked directly
+// into every connecting-spinner frame (gear and dot variants alike), behind
+// the actual icon shape. Turns "some dots/a gear floating in an empty rect"
+// into a deliberate, modern-looking loading badge, and keeps the spinner
+// readable mid-transition (e.g. the instant the DOM video overlay reveals a
+// bright frame right where the spinner still sits, one paint before it's
+// hidden).
+//
+// This lives inside the icon's own SVG rather than as a separate Fyne
+// canvas.Circle/canvas.Image layered underneath it in
+// video_widget_view.go -- an earlier version tried that and produced a
+// stray opaque white square around the spinner (a nil-resource
+// canvas.Image used purely to give the surrounding Stack a MinSize
+// apparently doesn't render as invisible in the wasm canvas backend).
+// Baking the backdrop into the same already-proven SVG-resource pipeline
+// used for the dots/gear themselves sidesteps that entirely.
+const spinnerBackdropSVG = `<circle cx="8" cy="8" r="7.6" fill="#000000" fill-opacity="0.55"/>`
+
 func buildGearFrames(fill string) []fyne.Resource {
 	const steps = 12 // animation frames per full rotation
 	const teeth = 8  // gear teeth
@@ -272,6 +290,7 @@ func buildGearFrames(fill string) []fyne.Resource {
 			fmt.Sprintf("gear-spinner-%02d.svg", frame),
 			[]byte(fmt.Sprintf(
 				`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`+
+					spinnerBackdropSVG+
 					`<mask id="hole"><rect width="16" height="16" fill="white"/>`+
 					`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="black"/></mask>`+
 					`<polygon points="%s" fill="%s" mask="url(#hole)"/>`+
@@ -305,6 +324,7 @@ func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {
 	for frame := range frames {
 		var sb strings.Builder
 		sb.WriteString(`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`)
+		sb.WriteString(spinnerBackdropSVG)
 		for idx, point := range dots {
 			alpha := alphas[(idx-frame+len(dots))%len(dots)]
 			sb.WriteString(fmt.Sprintf(
