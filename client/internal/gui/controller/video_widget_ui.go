@@ -57,6 +57,7 @@ func (vw *VideoWidget) handleStartVideo() {
 	}
 	go func() {
 		defer vw.endVideoOperation()
+		vw.debugLogSpinner("handleStartVideo-begin")
 
 		if vw.usbClient == nil {
 			logrus.Warn("⚠️ USB client is not initialized")
@@ -151,7 +152,9 @@ func (vw *VideoWidget) handleStartVideo() {
 			vw.startDialog.SetDeviceLabel("")
 			vw.startDialog.SetPrimaryAction(i18n.Current.StartVideo)
 			vw.startDialog.SetExtraAction("", nil)
+			vw.debugLogSpinner("startDialog-shown")
 			vw.startDialog.Show(func(request *models.VideoStartRequest) {
+				vw.debugLogSpinner("startDialog-submitted")
 				if vw.usbClient == nil {
 					logrus.Warn("⚠️ video start dialog submitted but USB client is gone (disconnected)")
 					return
@@ -319,6 +322,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	}
 
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToMoonlight (Moonlight)")
+	vw.debugLogSpinner("before-ConnectToMoonlight")
 	var connectErr error
 	for attempt := 1; attempt <= 20; attempt++ {
 		connectErr = vw.videoClient.ConnectToMoonlight()
@@ -360,6 +364,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	}
 	vw.isStreaming = true
 	vw.isVideoConnected = true
+	vw.debugLogSpinner("ConnectToMoonlight-succeeded")
 	logrus.Info("✅ Moonlight stream started")
 
 	// Re-check right after marking the session live: ConnectToMoonlight()
