@@ -154,6 +154,24 @@ func syncVideoOverlay(vw *VideoWidget) {
 		return
 	}
 
+	// vw.IsStreaming() alone goes true as soon as WebRTC signaling
+	// completes (WebRTCVideoClient.ConnectToMoonlight returns right after
+	// client.Connect(sessionID), well before OnVideoTrack/any real frame)
+	// -- revealing this <video> element at that point paints an empty,
+	// opaque black rectangle over VideoWidget's own Fyne-rendered
+	// connecting spinner underneath (video_widget_spinner.go) for however
+	// long negotiation/first-keyframe takes, instead of letting it show
+	// through. videoWidth/videoHeight only become nonzero once the
+	// element actually has real decoded dimensions to report (per the
+	// HTMLVideoElement spec, 0 until the first frame's metadata loads),
+	// so gate visibility on that too -- the spinner keeps showing through
+	// this same overlay's hidden state until there's an actual picture to
+	// replace it with.
+	if el.Get("videoWidth").Int() <= 0 {
+		style.Set("visibility", "hidden")
+		return
+	}
+
 	// Pick up a real stream resolution change (e.g. the host changed
 	// display mode mid-session) -- videoWidth/videoHeight are plain JS
 	// property reads on the <video> element, no readback involved. Feeding
