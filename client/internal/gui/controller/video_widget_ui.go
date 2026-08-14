@@ -323,6 +323,19 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 	logrus.Info("🌕 startVideoWithParamsInternal: calling ConnectToMoonlight (Moonlight)")
 	vw.debugLogSpinner("before-ConnectToMoonlight")
+	// ConnectToMoonlight itself blocks for the entire negotiation --
+	// classic Moonlight's LiStartConnection (RTSP/handshake) or, on web,
+	// WebRTCVideoClient's ICE-gathering + /webrtc/offer POST/answer round
+	// trip, plus up to 20 retries at 500ms apart on failure below -- and
+	// only returns once that's done. beginVideoTrace (which normally
+	// shows this spinner) doesn't run until *after* this returns
+	// successfully, triggered by a later, asynchronous "connected"
+	// state-change callback -- so without this, the entire blocking
+	// window here had no visible feedback at all. Confirmed live via the
+	// spinner debug HUD (?debug=1): a real web/WebRTC connection attempt
+	// sat at exactly this checkpoint, spinner-less, for the whole
+	// negotiation.
+	vw.showConnectingSpinner()
 	var connectErr error
 	for attempt := 1; attempt <= 20; attempt++ {
 		connectErr = vw.videoClient.ConnectToMoonlight()
@@ -337,6 +350,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 
 	if connectErr != nil {
 		logrus.Errorf("❌ Moonlight ConnectToMoonlight ultimately failed: %v", connectErr)
+		vw.hideConnectingSpinner()
 
 		// Stop trying to reconnect, otherwise the reconcile loop will spam the server
 		vw.videoOpMu.Lock()
@@ -358,6 +372,7 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 	// appearing on the connection-manager screen.
 	if !vw.desiredStreamingState() {
 		logrus.Info("🛑 ConnectToMoonlight succeeded but streaming no longer desired — aborting session")
+		vw.hideConnectingSpinner()
 		go func() { <-hidDone }() // drain so the goroutine can exit
 		go func() { _ = vw.videoClient.Disconnect() }()
 		return
