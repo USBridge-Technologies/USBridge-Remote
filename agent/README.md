@@ -17,7 +17,7 @@ One lightweight binary for Windows, macOS, and Linux. It shares the exact same c
 
 ---
 
-> 💖 **Patreon Exclusive:** Early access to cutting-edge features—such as **WebRTC support for the Web Client**, **Sunshine performance optimizations for macOS**, **working Linux login screens on NVIDIA**, and more—is available to our supporters on [Patreon](https://www.patreon.com/USBridge_Technologies). *(Note: The standard upstream Sunshine build does not support WebRTC, so the web client requires this custom build).*
+> 💖 **Patreon Exclusive:** Early access to our custom **Rust-based streaming engine** (Rust-shine). This cutting-edge rewrite includes exclusive features—such as **WebRTC support for the Web Client**, **performance optimizations for macOS**, **working Linux login screens on NVIDIA**, and more—available to our supporters on [Patreon](https://www.patreon.com/USBridge_Technologies). *(Note: The standard upstream C++ Sunshine build does not support WebRTC, so the web client requires this Rust-based version).*
 
 ---
 
