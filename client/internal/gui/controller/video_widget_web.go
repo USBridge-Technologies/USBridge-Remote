@@ -184,18 +184,26 @@ func syncKeyboardWindowContent(vw *VideoWidget) {
 	imeOpen := isRealIMEOpen(vw)
 	current := vw.parentWindow.Content()
 	// See bottomAnchorContentVertically's own doc comment (video_widget.go)
-	// -- only actually relevant while the IME is genuinely open or the
-	// window content is still in the post-swap arrangement (between IME
-	// open and the swap-back below finishing); previously this was set
-	// unconditionally on every 150ms tick regardless of IME state, which
-	// meant it stayed true for the entire session even with no keyboard
-	// ever involved. Since a pinch-zoomed video's own base size rarely
-	// grows tall enough to hit recalculateViewport's *other* (overflow)
-	// anchoring, that left this the only anchoring rule actually in play
-	// during a pinch -- confirmed live as the real cause of a "video jumps
-	// to the bottom when zooming" report that had nothing to do with the
-	// keyboard at all.
-	vw.bottomAnchorContentVertically = imeOpen || webKeyboardContentSwapped
+	// -- tied directly to imeOpen, not to webKeyboardContentSwapped below.
+	// An earlier version of this line was `imeOpen ||
+	// webKeyboardContentSwapped`, meant to cover the brief window between
+	// the IME actually closing and this function's own swap-back running
+	// a tick later -- but SetBottomInset (video_widget.go) is driven by a
+	// *separate*, faster IME-height callback
+	// (fullscreen_dialog_mobile.go's SetOnIMEChanged) that isn't
+	// synchronized with this 150ms poll loop at all, and typically
+	// reaches 0 (keyboard closed, no inset) well before this function's
+	// next tick clears webKeyboardContentSwapped. That gap meant one real,
+	// visible frame of bottom-anchoring (contentY = availableH-contentH)
+	// against the now-*already*-full availableH -- a lower, wrong position
+	// -- immediately followed by this function's own next-tick correction
+	// to centered, i.e. exactly the extra "jumps down, then a moment later
+	// snaps to center" reported live on IME close. Tying this to imeOpen
+	// alone removes that race: it flips the moment the IME itself is
+	// reported closed, matching (not trailing) SetBottomInset's own
+	// timing, so there's only the one real transition to centered, not
+	// two.
+	vw.bottomAnchorContentVertically = imeOpen
 
 	if imeOpen {
 		if current != vw.container {
