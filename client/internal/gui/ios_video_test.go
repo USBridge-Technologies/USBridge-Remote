@@ -24,7 +24,7 @@ func TestIOSVideoStreamingLaunch(t *testing.T) {
 
 	// Simulate clicking connect from the manager with a dummy host that doesn't exist.
 	// This will trigger the connection logic.
-	mw.handleConnectionFromManager("192.0.2.1", "dummy_secret", "", "Direct", 0, false)
+	mw.handleConnectionFromManager("192.0.2.1", "dummy_secret", "Direct", false)
 
 	// Wait for the connection logic to process. In a real app this takes some time.
 	// We wait 3 seconds to let goroutines try connecting.

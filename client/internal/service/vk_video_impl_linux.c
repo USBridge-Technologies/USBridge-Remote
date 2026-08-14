@@ -31,6 +31,20 @@
 
 extern void goVKLog(char *msg, int level);
 
+// g_pipe_{r,w} is a self-pipe used purely to wake select() (or break the
+// render thread out of it on teardown) -- see gl_video_impl_linux.c's
+// identical helper for why write()/read()'s return value is routed through
+// a variable instead of discarded directly (both are warn_unused_result).
+static void pipe_wake(int fd, char c) {
+    ssize_t n = write(fd, &c, 1);
+    (void)n;
+}
+static void pipe_drain(int fd) {
+    char buf[64];
+    ssize_t n = read(fd, buf, sizeof(buf));
+    (void)n;
+}
+
 // ─── X11 window state (CGO thread only) ──────────────────────────────────────
 
 static Display *g_dpy        = NULL;
@@ -597,7 +611,7 @@ static void *vk_render_thread(void *unused) {
         fd_set fds; FD_ZERO(&fds); FD_SET(g_pipe_r, &fds);
         select(g_pipe_r + 1, &fds, NULL, NULL, &tv);
         if (FD_ISSET(g_pipe_r, &fds)) {
-            char tmp[64]; read(g_pipe_r, tmp, sizeof(tmp));
+            pipe_drain(g_pipe_r);
         }
         g_render_hb++;
         if (!atomic_load(&g_active)) break;
@@ -689,7 +703,7 @@ int vk_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
         g_ready = 1; g_submitted++;
     }
     pthread_mutex_unlock(&g_mu);
-    if (g_pipe_w >= 0) { char c = 1; write(g_pipe_w, &c, 1); }
+    if (g_pipe_w >= 0) { pipe_wake(g_pipe_w, 1); }
     return 1;
 }
 
@@ -734,7 +748,7 @@ void vk_video_set_hidden(int hidden) {
 
 static void vk_full_cleanup(void) {
     atomic_store(&g_active, 0);
-    if (g_pipe_w >= 0) { char c = 0; write(g_pipe_w, &c, 1); }
+    if (g_pipe_w >= 0) { pipe_wake(g_pipe_w, 0); }
     if (g_thread) { pthread_join(g_thread, NULL); g_thread = 0; }
     if (g_pipe_r >= 0) { close(g_pipe_r); g_pipe_r = -1; }
     if (g_pipe_w >= 0) { close(g_pipe_w); g_pipe_w = -1; }
