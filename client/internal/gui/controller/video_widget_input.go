@@ -1299,18 +1299,26 @@ func (vw *VideoWidget) recalculateViewport() {
 	// Vertical positioning logic:
 	var contentY float32
 	if contentH > availableH {
-		// Video is larger than the available area.
-		// Base position: bottom of the video aligns with the bottom of the available area.
-		contentY = availableH - contentH
-
-		// Allow dragging in both directions:
-		//   panOffsetY < 0: video moves up (gap between video and keyboard)
-		//   panOffsetY > 0: video moves down (top of the video comes into view)
-		// Max down: top of the video at the top of the screen (contentY = 0)
-		// Max up: bottom of the video at the bottom of the available area (panOffsetY = 0)
-		maxPanY := contentH - availableH
-		vw.panOffsetY = clampFloat(vw.panOffsetY, 0, maxPanY)
-		contentY += vw.panOffsetY
+		// Video is larger than the available area. Default (panOffsetY ==
+		// 0): center it vertically -- the same reference point used when
+		// the video fits (the "else" branch below), and matching the X
+		// axis a few lines down, which already centers by default
+		// (contentX starts at (touchpadSizeW-contentW)/2, panOffsetX
+		// clamped symmetrically to ±maxPanX). panOffsetY is a delta from
+		// that centered position, only pushed toward the top or bottom
+		// edge by an explicit user pan or an off-center pinch-zoom anchor
+		// (applyViewportGesture) -- and even then, clamped so it never
+		// reveals empty space past the video's own top/bottom edge.
+		//
+		// Previously this defaulted to bottom-anchored (contentY =
+		// availableH-contentH, panOffsetY clamped to [0, maxPanY]) --
+		// confirmed live as the cause of a jarring jump the instant a
+		// pinch-zoom pushed contentH past availableH: the video would
+		// snap from centered straight to "see the bottom of the source
+		// picture" with no user-initiated pan to justify it.
+		maxPanY := (contentH - availableH) / 2
+		vw.panOffsetY = clampFloat(vw.panOffsetY, -maxPanY, maxPanY)
+		contentY = (availableH-contentH)/2 + vw.panOffsetY
 	} else if vw.bottomAnchorContentVertically {
 		// wasm only (see the field's own doc comment): anchor flush
 		// against the bottom of the available area, right above the
@@ -1395,9 +1403,24 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 			baseX := (vw.touchpadSizeW - newW) / 2
 			vw.panOffsetX = localFocusX - u*newW - baseX
 		}
-		if newH > vw.touchpadSizeH {
-			baseY := (vw.touchpadSizeH - newH) / 2
-			vw.panOffsetY = localFocusY - v*newH - baseY
+		// availableH (not the raw touchpad height) is what
+		// recalculateViewport actually centers/clamps against -- using
+		// touchpadSizeH here (as this used to) put the pinch anchor in a
+		// different reference frame than the one panOffsetY gets clamped
+		// in below, off by roughly bottomInset.
+		availableH := vw.touchpadSizeH - vw.bottomInset
+		if newH > availableH {
+			// Same "delta from centered position" convention
+			// recalculateViewport now uses (see its own doc comment):
+			// pick panOffsetY so the content point under the pinch focus
+			// (fraction v of the content height) lands back under the
+			// same on-screen Y after the zoom just applied above:
+			// desired contentY = localFocusY - v*newH; panOffsetY is that
+			// minus the centered baseline. recalculateViewport's
+			// symmetric clamp then keeps it from revealing empty space
+			// past either edge.
+			centerY := (availableH - newH) / 2
+			vw.panOffsetY = localFocusY - v*newH - centerY
 		}
 	}
 

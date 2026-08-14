@@ -311,12 +311,16 @@ func (vw *VideoWidget) centerViewportOnVirtualCursor(u, v float32) {
 	}
 
 	// Y: cursor-centering pan (only when content taller than screen).
+	// Same "delta from centered" convention as the X pan above and as
+	// recalculateViewport's own default -- see that function's doc
+	// comment on why this can't be an independent [0, maxPanY] range
+	// biased toward the bottom edge.
 	availH := vw.touchpadSizeH - vw.bottomInset
 	if ch > availH {
-		idealPanY := availH/2 - (availH - ch) - v*ch
-		maxPanY := ch - availH
+		idealPanY := ch * (0.5 - v)
+		maxPanY := (ch - availH) / 2
 		zoneY := availH * 0.15
-		vw.panOffsetY = softClampEdgePan(idealPanY, 0, maxPanY, zoneY)
+		vw.panOffsetY = softClampEdgePan(idealPanY, -maxPanY, maxPanY, zoneY)
 	} else {
 		vw.panOffsetY = 0
 	}
