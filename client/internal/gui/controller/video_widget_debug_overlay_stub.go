@@ -8,3 +8,5 @@ package controller
 func (vw *VideoWidget) debugLogViewport(tag string) {}
 
 func (vw *VideoWidget) debugLogGesture(scaleFactor, focusX, focusY, panDx, panDy float32) {}
+
+func (vw *VideoWidget) debugLogSpinner(tag string) {}

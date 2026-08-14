@@ -22,7 +22,11 @@ const spinnerFrameInterval = 140 * time.Millisecond
 // generic/manually-added Sunshine host, using the same isUSBridgeAgentOS
 // signal already gating scripts/backup/pcpanel elsewhere in this package.
 func (vw *VideoWidget) showConnectingSpinner() {
-	if vw == nil || vw.ui == nil || vw.ui.SpinnerIcon == nil || vw.ui.SpinnerOverlay == nil {
+	if vw == nil {
+		return
+	}
+	vw.debugLogSpinner("showConnectingSpinner-called")
+	if vw.ui == nil || vw.ui.SpinnerIcon == nil || vw.ui.SpinnerOverlay == nil {
 		return
 	}
 
@@ -44,6 +48,7 @@ func (vw *VideoWidget) showConnectingSpinner() {
 			vw.ui.SpinnerIcon.Resource = frames[0]
 			vw.ui.SpinnerIcon.Refresh()
 			vw.ui.SpinnerOverlay.Show()
+			vw.debugLogSpinner("show(already-running)")
 		})
 		return
 	}
@@ -55,6 +60,7 @@ func (vw *VideoWidget) showConnectingSpinner() {
 		vw.ui.SpinnerIcon.Resource = frames[0]
 		vw.ui.SpinnerIcon.Refresh()
 		vw.ui.SpinnerOverlay.Show()
+		vw.debugLogSpinner("show")
 	})
 
 	go func() {
@@ -75,6 +81,7 @@ func (vw *VideoWidget) showConnectingSpinner() {
 					}
 					vw.ui.SpinnerIcon.Resource = frame
 					vw.ui.SpinnerIcon.Refresh()
+					vw.debugLogSpinner("tick")
 				})
 			case <-stop:
 				return
@@ -104,5 +111,6 @@ func (vw *VideoWidget) hideConnectingSpinner() {
 	}
 	fyne.Do(func() {
 		vw.ui.SpinnerOverlay.Hide()
+		vw.debugLogSpinner("hide")
 	})
 }

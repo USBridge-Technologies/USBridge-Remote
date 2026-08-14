@@ -96,3 +96,65 @@ func (vw *VideoWidget) debugLogGesture(scaleFactor, focusX, focusY, panDx, panDy
 	prefix := fmt.Sprintf("[gesture in] scale=%.4f focus=(%.1f,%.1f) pan=(%.1f,%.1f)\n", scaleFactor, focusX, focusY, panDx, panDy)
 	debugOverlayEl.Set("innerText", prefix+debugOverlayEl.Get("innerText").String())
 }
+
+// spinnerDebugEl is a second, independent HUD (top-right, separate from
+// debugOverlayEl's top-left viewport HUD so the two don't clobber each
+// other) showing the connecting-spinner's actual on-screen state -- added
+// to track down a "no spinner visible at all on web" report after two
+// rounds of fixes (isStreaming-gated DOM overlay, videoWidth gate) that
+// should have made it visible but apparently didn't.
+var spinnerDebugEl js.Value
+
+// debugLogSpinner updates the spinner HUD. Called from
+// showConnectingSpinner/hideConnectingSpinner (video_widget_spinner.go)
+// and once per frame-cycle tick, so the *current* live state is always
+// on screen, not just a snapshot from whenever Show()/Hide() was last
+// called -- if the overlay's own Visible()/Size() disagrees with what
+// the calls intended, that's directly visible here.
+func (vw *VideoWidget) debugLogSpinner(tag string) {
+	if !debugOverlayEnabled() {
+		return
+	}
+	if spinnerDebugEl.IsUndefined() || spinnerDebugEl.IsNull() {
+		doc := js.Global().Get("document")
+		el := doc.Call("createElement", "div")
+		style := el.Get("style")
+		style.Set("position", "fixed")
+		style.Set("top", "0")
+		style.Set("right", "0")
+		style.Set("zIndex", "999999")
+		style.Set("background", "rgba(0,0,0,0.85)")
+		style.Set("color", "#0ff")
+		style.Set("font", "10px monospace")
+		style.Set("padding", "4px")
+		style.Set("whiteSpace", "pre")
+		style.Set("pointerEvents", "none")
+		style.Set("maxWidth", "50vw")
+		doc.Get("body").Call("appendChild", el)
+		spinnerDebugEl = el
+	}
+
+	overlayVisible := "no-ui"
+	overlayPos := ""
+	if vw.ui != nil && vw.ui.SpinnerOverlay != nil {
+		overlayVisible = fmt.Sprintf("%v", vw.ui.SpinnerOverlay.Visible())
+		pos := vw.ui.SpinnerOverlay.Position()
+		sz := vw.ui.SpinnerOverlay.Size()
+		overlayPos = fmt.Sprintf("pos=(%.0f,%.0f) size=%.0fx%.0f", pos.X, pos.Y, sz.Width, sz.Height)
+	}
+	wrapperInfo := "nil"
+	if tw := vw.activeViewportWrapper(); tw != nil {
+		sz := tw.Size()
+		wrapperInfo = fmt.Sprintf("%.0fx%.0f visible=%v", sz.Width, sz.Height, tw.Visible())
+	}
+	containerInfo := "nil"
+	if vw.container != nil {
+		sz := vw.container.Size()
+		containerInfo = fmt.Sprintf("%.0fx%.0f visible=%v", sz.Width, sz.Height, vw.container.Visible())
+	}
+	text := fmt.Sprintf(
+		"[spinner %s]\noverlay visible=%s %s\nwrapper=%s\ncontainer=%s\nisStreaming=%v agentOS=%q",
+		tag, overlayVisible, overlayPos, wrapperInfo, containerInfo, vw.isStreaming, vw.agentOS,
+	)
+	spinnerDebugEl.Set("innerText", text)
+}
