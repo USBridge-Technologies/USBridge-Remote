@@ -1,6 +1,9 @@
 package view
 
 import (
+	"image/color"
+
+	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 
 	"fyne.io/fyne/v2"
@@ -42,13 +45,45 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 	contentContainer := container.NewStack()
 	contentContainer.Hide()
 
+	// videoBackground: a solid, always-present dark backdrop for the video
+	// area. Before this existed, "dark background while connecting" was
+	// just an accident of the DOM <video> element itself defaulting to
+	// black even with no source -- true right up until the fix that
+	// hides that element until it actually has decoded pixels
+	// (video_widget_dom_overlay_wasm.go's videoWidth gate), which then
+	// left nothing painting anything behind the spinner overlay below,
+	// so whatever's behind the Fyne canvas (the page's own white
+	// background) showed through instead. This rectangle is the video
+	// area's real background now, independent of stream/DOM-overlay
+	// state, matching the app's own dark theme (design.ColorBackground)
+	// rather than depending on incidental browser default styling.
+	videoBackground := canvas.NewRectangle(design.ColorBackground)
+
 	spinnerIcon := canvas.NewImageFromResource(nil)
 	spinnerIcon.FillMode = canvas.ImageFillContain
-	spinnerIcon.SetMinSize(fyne.NewSize(56, 56))
-	spinnerOverlay := container.NewCenter(spinnerIcon)
+	spinnerIcon.SetMinSize(fyne.NewSize(48, 48))
+
+	// A soft, semi-transparent dark disc behind the spinner icon --
+	// purely cosmetic (the icon itself already reads fine on the plain
+	// background above), but it's what turns "some dots floating in an
+	// empty rect" into a deliberate, modern-looking loading badge, and
+	// keeps the spinner readable even mid-transition (e.g. the instant
+	// the DOM video overlay reveals a bright frame right where the
+	// spinner still sits, one paint before it's hidden).
+	//
+	// canvas.Circle has no SetMinSize of its own (unlike canvas.Image) --
+	// badgeSizer is an invisible (nil-resource) Image purely to give the
+	// surrounding Stack something with an explicit MinSize to size
+	// itself to; Stack then resizes every child, Circle included, to
+	// match that.
+	badgeSizer := canvas.NewImageFromResource(nil)
+	badgeSizer.SetMinSize(fyne.NewSize(84, 84))
+	spinnerBackdrop := canvas.NewCircle(color.NRGBA{A: 0x90})
+	spinnerBadge := container.NewStack(badgeSizer, spinnerBackdrop, container.NewCenter(spinnerIcon))
+	spinnerOverlay := container.NewCenter(spinnerBadge)
 	spinnerOverlay.Hide()
 
-	videoObjects := []fyne.CanvasObject{touchpad}
+	videoObjects := []fyne.CanvasObject{videoBackground, touchpad}
 	if keyboardCapture != nil {
 		videoObjects = append(videoObjects, keyboardCapture)
 	}
