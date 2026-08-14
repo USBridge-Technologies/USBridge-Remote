@@ -3,6 +3,7 @@ package assets
 import (
 	_ "embed"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -89,18 +90,26 @@ var (
 )
 
 var (
-	ArrowLeftGray              = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#353535", true))
-	ArrowLeftWhite             = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#656565", true))
-	ArrowRightGray             = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#353535", false))
-	ArrowRightWhite            = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#656565", false))
-	DiscordIconDim             = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
-	DiscordIcon                = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
-	DiscordIconActive          = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
-	LanguageIconDim            = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
-	LanguageIconMuted          = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
-	LanguageIcon               = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
-	LanguageIconActive         = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
-	LoadingGrayFrames          = buildLoadingFrames(loadingIcon, "#111111")
+	ArrowLeftGray      = fyne.NewStaticResource("arrow-left-gray.svg", colorizeArrow(arrowRightIcon, "#353535", true))
+	ArrowLeftWhite     = fyne.NewStaticResource("arrow-left-white.svg", colorizeArrow(arrowRightIcon, "#656565", true))
+	ArrowRightGray     = fyne.NewStaticResource("arrow-right-gray.svg", colorizeArrow(arrowRightIcon, "#353535", false))
+	ArrowRightWhite    = fyne.NewStaticResource("arrow-right-white.svg", colorizeArrow(arrowRightIcon, "#656565", false))
+	DiscordIconDim     = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
+	DiscordIcon        = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
+	DiscordIconActive  = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
+	LanguageIconDim    = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
+	LanguageIconMuted  = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
+	LanguageIcon       = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
+	LanguageIconActive = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
+	LoadingGrayFrames  = buildLoadingFrames(loadingIcon, "#111111")
+	// VideoConnectingFrames/VideoConnectingGearFrames are the same
+	// spinner shapes as LoadingGrayFrames but sized and colored for the
+	// video overlay shown while a stream is connecting (VideoWidget's
+	// spinnerIcon, see video_widget_spinner.go) -- white-on-transparent
+	// rather than the header button's dark fill, since this sits over a
+	// black video area rather than a light button background.
+	VideoConnectingFrames      = buildLoadingFrames(loadingIcon, "#F5F5F5")
+	VideoConnectingGearFrames  = buildGearFrames("#F5F5F5")
 	QuestionIconDim            = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorStrokeIcon(questionIcon, "#8E8E8E", "2.6"))
 	QuestionIconMuted          = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
 	QuestionIcon               = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
@@ -214,6 +223,64 @@ func boldenServerIcon(source []byte, stroke string, width string) []byte {
 	svg := strings.ReplaceAll(string(source), `stroke="#000000"`, fmt.Sprintf(`stroke="%s"`, stroke))
 	svg = strings.ReplaceAll(svg, `stroke-width="1"`, fmt.Sprintf(`stroke-width="%s"`, width))
 	return []byte(svg)
+}
+
+// buildGearFrames renders a simple rotating gear/cog icon as a sequence of
+// SVG frames, one per step around a full rotation -- the same
+// procedural-frames approach buildLoadingFrames already uses, so it drives
+// through the exact same frame-cycling code (see
+// video_widget_spinner.go). Shown in place of the plain dot spinner while
+// connecting to a device identified as USBridge/rust-shine hardware
+// (isUSBridgeAgentOS) rather than a generic/manual Sunshine host, per the
+// distinction that already exists for scripts/backup/pcpanel gating
+// elsewhere in this package -- rust-shine is this project's own backend,
+// so it gets its own icon instead of the generic Moonlight-style dots.
+//
+// Deliberately a plain generic gear, not the trademarked Rust logo (which
+// is also visually a gear+"R" combination) -- redistributing that mark in
+// a commercial client risks a trademark issue neither this shape nor its
+// use here needs to run.
+func buildGearFrames(fill string) []fyne.Resource {
+	const steps = 12 // animation frames per full rotation
+	const teeth = 8  // gear teeth
+	const cx, cy = 8.0, 8.0
+	const outerR, innerR = 6.6, 4.6 // tooth tip / root radius
+	const holeCutoutR = 2.0         // punched-out center hole
+
+	// Simple zigzag-ring gear silhouette: 2*teeth points alternating
+	// between outerR (tooth tip) and innerR (tooth root) around the
+	// circle, connected by straight lines -- robust and easy to verify by
+	// construction, unlike a proper CAD-style tooth-flank gear outline
+	// (unnecessary detail at 16x16).
+	frames := make([]fyne.Resource, steps)
+	for frame := range frames {
+		angleOffset := float64(frame) * (360.0 / float64(steps))
+		var pts strings.Builder
+		for t := 0; t < teeth*2; t++ {
+			angle := (angleOffset + float64(t)*(360.0/float64(teeth*2))) * math.Pi / 180
+			r := outerR
+			if t%2 == 1 {
+				r = innerR
+			}
+			if t > 0 {
+				pts.WriteString(" ")
+			}
+			pts.WriteString(fmt.Sprintf("%.2f,%.2f", cx+r*math.Cos(angle), cy+r*math.Sin(angle)))
+		}
+
+		frames[frame] = fyne.NewStaticResource(
+			fmt.Sprintf("gear-spinner-%02d.svg", frame),
+			[]byte(fmt.Sprintf(
+				`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`+
+					`<mask id="hole"><rect width="16" height="16" fill="white"/>`+
+					`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="black"/></mask>`+
+					`<polygon points="%s" fill="%s" mask="url(#hole)"/>`+
+					`</svg>`,
+				cx, cy, holeCutoutR, pts.String(), fill,
+			)),
+		)
+	}
+	return frames
 }
 
 func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {

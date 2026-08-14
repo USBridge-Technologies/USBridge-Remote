@@ -443,6 +443,16 @@ func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protoc
 }
 
 func normalizeConnectionProtocol(protocol string) string {
+	if runtime.GOOS == "js" {
+		// No embedded tsnet in a browser tab (tailscale_service_wasm.go is
+		// a stub, same reasoning as HeaderAccessory's own Tailscale-toggle
+		// omission above) -- always dial over plain LAN, regardless of
+		// what a connection saved on a native client set this to, or what
+		// a stale saved value in localStorage says. Single choke point:
+		// every caller (resolveHostForProtocol, connectionProtocolBadge,
+		// ...) goes through this, so the badge always reads "LAN" too.
+		return models.ConnectionProtocolDirect
+	}
 	switch strings.TrimSpace(protocol) {
 	case models.ConnectionProtocolTailscale:
 		return models.ConnectionProtocolTailscale

@@ -55,9 +55,18 @@ type ConnectionRowData struct {
 	AddressSummary  string
 	ProtocolBadge   string
 	ProtocolOptions []string
-	RegisterChecked bool
-	RegisterVisible bool
-	RemoteOS        string
+	// HideProtocolSelector omits the AUTO/TS/LAN dropdown entirely (set by
+	// the controller on wasm -- see connection_manager_ui.go's
+	// createConnectionRow) instead of just disabling it: a browser tab has
+	// no embedded tsnet to dial Tailscale with at all (same reasoning as
+	// ConnectionManager.HeaderAccessory's own Tailscale-toggle omission),
+	// so every web connection is LAN-only regardless of what this control
+	// shows -- leaving it visible but non-functional would just be a
+	// dropdown users could fiddle with for no effect.
+	HideProtocolSelector bool
+	RegisterChecked      bool
+	RegisterVisible      bool
+	RemoteOS             string
 }
 
 type ConnectionRowState struct {
@@ -1067,15 +1076,6 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	nameBlock := newConnectionNameButton(data.Name, data.AddressSummary, data.RemoteOS, actions.OnEdit)
 	nameBlock.SetDisabled(state.Disabled)
 
-	protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
-		if actions.OnProtocolChange != nil {
-			actions.OnProtocolChange(value)
-		}
-	})
-	protocolBtn.Compact = true
-	protocolBtn.SetSelected(data.ProtocolBadge)
-	protocolBtn.SetDisabled(state.Disabled)
-
 	useBtn := newConnectionActionIconButton(actions.OnUse)
 	useBtn.SetDisabled(state.Disabled)
 	useBtn.SetLoading(state.Loading)
@@ -1084,7 +1084,18 @@ func NewConnectionRow(data ConnectionRowData, state ConnectionRowState, actions 
 	left.SetMinSize(fyne.NewSize(1, 1))
 	center := container.New(&connectionCompactContentLayout{}, nameBlock)
 
-	rightItems := []fyne.CanvasObject{protocolBtn}
+	var rightItems []fyne.CanvasObject
+	if !data.HideProtocolSelector {
+		protocolBtn := NewHeaderDropdown(data.ProtocolOptions, data.ProtocolBadge, func(value string) {
+			if actions.OnProtocolChange != nil {
+				actions.OnProtocolChange(value)
+			}
+		})
+		protocolBtn.Compact = true
+		protocolBtn.SetSelected(data.ProtocolBadge)
+		protocolBtn.SetDisabled(state.Disabled)
+		rightItems = append(rightItems, protocolBtn)
+	}
 	rightItems = append(rightItems, useBtn)
 
 	right := container.New(&DeviceRowControlsLayout{Gap: deviceControlGap}, rightItems...)

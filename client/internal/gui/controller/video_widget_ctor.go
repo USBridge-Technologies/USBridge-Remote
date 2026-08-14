@@ -26,6 +26,7 @@ func NewVideoWidget(parent fyne.Window, usbClient *api.USBClient, videoClient se
 			case "disconnected", "error", "stopped":
 				vw.isStreaming = false
 				vw.isVideoConnected = false
+				vw.hideConnectingSpinner()
 				// Tear down the native overlay immediately instead of leaving it frozen
 				// on its last rendered frame. On Android the Vulkan SurfaceView keeps its
 				// own render thread looping (repainting the same last-good frame, FPS

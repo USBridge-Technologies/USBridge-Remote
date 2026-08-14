@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"net/url"
+	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
@@ -416,9 +417,17 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 	items := []fyne.CanvasObject{
 		newConnectionDialogIconEntry(theme.AccountIcon(), nameEntry, nil),
 		newConnectionDialogIconEntry(theme.ComputerIcon(), internalHostEntry, fieldActions(internalHostEntry, window)),
-		newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, fieldActions(tailscaleHostEntry, window)),
-		newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, fieldActions(masterKeyEntry, window)),
 	}
+	// No embedded tsnet in a browser tab (tailscale_service_wasm.go is a
+	// stub, same reasoning as normalizeConnectionProtocol's wasm override
+	// in connection_manager.go) -- every web connection is LAN-only, so
+	// this field has nothing to actually do there and just invites users
+	// to fill in an address that will never be dialed. Native builds
+	// (desktop/Android/iOS) keep it.
+	if runtime.GOOS != "js" {
+		items = append(items, newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, fieldActions(tailscaleHostEntry, window)))
+	}
+	items = append(items, newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, fieldActions(masterKeyEntry, window)))
 	if registerCheck != nil {
 		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
 	}

@@ -32,6 +32,12 @@ type VideoWidget struct {
 	ui               *view.VideoWidgetUI
 	statsTickerStop  chan struct{}
 
+	// spinnerStop/spinnerMu drive the connecting-spinner frame-cycling
+	// goroutine -- see video_widget_spinner.go. Same stop-channel-swap
+	// pattern HeaderActionButton.startSpinner already uses.
+	spinnerMu   sync.Mutex
+	spinnerStop chan struct{}
+
 	// clearVideoMu serializes clearVideo() (and therefore stopMetalVideo() /
 	// the native overlay teardown). Needed because the native Android destroy
 	// path (android_vk_destroy in vk_video_impl_android.c) only guards against
@@ -364,6 +370,7 @@ const videoTraceRetryTimeout = 10 * time.Second
 const videoMidStreamSilenceTimeout = 2 * time.Second
 
 func (vw *VideoWidget) beginVideoTrace(reason string) uint64 {
+	vw.showConnectingSpinner()
 	traceID := vw.videoTraceSeq.Add(1)
 	startedAt := time.Now()
 	vw.videoTraceID.Store(traceID)
@@ -516,6 +523,7 @@ func (vw *VideoWidget) noteVideoTraceFirstFrame(frameNum int64) {
 	if !vw.videoTraceFirstFrame.CompareAndSwap(0, now) {
 		return
 	}
+	vw.hideConnectingSpinner()
 	// A frame actually arrived -- whatever server-side transition this
 	// client might have been retrying through (see beginVideoTrace's doc
 	// comment) is over, so the *next* trace (a genuinely fresh connect)

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"runtime"
 	"strings"
 
 	"usbridge-client/internal/gui/view"
@@ -138,9 +139,15 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				connectionProtocolBadge(models.ConnectionProtocolTailscale),
 				connectionProtocolBadge(models.ConnectionProtocolDirect),
 			},
-			RegisterChecked: conn.TailscaleRegister && tailscaleRegisterUISupported(),
-			RegisterVisible: tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
-			RemoteOS:        conn.RemoteOS,
+			// No embedded tsnet in a browser tab (tailscale_service_wasm.go
+			// is a stub) -- every web connection is LAN-only regardless
+			// (see normalizeConnectionProtocol's own wasm override), so
+			// this selector has nothing to actually select on this
+			// platform. Native builds (desktop/Android/iOS) keep it.
+			HideProtocolSelector: runtime.GOOS == "js",
+			RegisterChecked:      conn.TailscaleRegister && tailscaleRegisterUISupported(),
+			RegisterVisible:      tailscaleRegisterUISupported() && internalHost != "" && tailscaleHost == "",
+			RemoteOS:             conn.RemoteOS,
 		},
 		rowState,
 		view.ConnectionRowActions{

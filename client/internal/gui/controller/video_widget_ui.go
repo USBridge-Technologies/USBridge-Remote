@@ -244,9 +244,9 @@ func (vw *VideoWidget) fetchVideoInfoForStartDialog(devicePath string) *models.V
 // handleVideoStartWithParams handles video start with parameters from the dialog.
 func (vw *VideoWidget) handleVideoStartWithParams(request *models.VideoStartRequest) {
 	cfg := models.VideoDeviceConfig{
-		DevicePath:   request.VideoDevice,
-		VideoWidth:   request.VideoWidth,
-		VideoHeight:  request.VideoHeight,
+		DevicePath:         request.VideoDevice,
+		VideoWidth:         request.VideoWidth,
+		VideoHeight:        request.VideoHeight,
 		VideoFPS:           request.VideoFPS,
 		VideoQuality:       request.VideoQuality,
 		VideoBitrate:       request.VideoBitrate,
@@ -466,6 +466,7 @@ func (vw *VideoWidget) stopVideoInternal() {
 		}
 	})
 	resetVideoInfoCache()
+	vw.hideConnectingSpinner()
 
 	vw.isStreaming = false
 	vw.isVideoConnected = false
@@ -1125,6 +1126,7 @@ func (vw *VideoWidget) HandleConnectionLost() {
 	vw.isStreaming = false
 	vw.isVideoConnected = false
 	vw.isMouseConnected = false
+	vw.hideConnectingSpinner()
 	vw.clearVideo()
 
 	fyne.Do(func() {
