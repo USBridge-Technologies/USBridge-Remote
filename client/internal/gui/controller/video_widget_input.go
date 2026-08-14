@@ -1358,6 +1358,7 @@ func (vw *VideoWidget) recalculateViewport() {
 	vw.contentRectW = contentW
 	vw.contentRectH = contentH
 
+	vw.debugLogViewport("recalc")
 }
 
 func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {
@@ -1366,6 +1367,7 @@ func (vw *VideoWidget) GetViewportRect() (float32, float32, float32, float32) {
 }
 
 func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, panDy float32) {
+	vw.debugLogGesture(scaleFactor, focusX, focusY, panDx, panDy)
 	if vw.touchpadSizeW <= 0 || vw.touchpadSizeH <= 0 {
 		return
 	}
