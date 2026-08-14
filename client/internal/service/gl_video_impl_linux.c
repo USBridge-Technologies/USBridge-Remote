@@ -29,6 +29,22 @@ static int g_vsync = 0;
 // NEVER called from the render thread (native pthread — would deadlock Go GC).
 extern void goGLLog(char *msg, int level);
 
+// g_pipe_{r,w} is a self-pipe used purely to wake select() below (or to break
+// the render thread out of it on teardown) -- the byte's value and the read
+// byte count are both irrelevant, only "something arrived" matters. write()/
+// read() are declared warn_unused_result; routing the return value through a
+// variable (rather than discarding it directly) silences that without
+// pretending the result is checked for anything meaningful.
+static void pipe_wake(int fd, char c) {
+    ssize_t n = write(fd, &c, 1);
+    (void)n;
+}
+static void pipe_drain(int fd) {
+    char buf[64];
+    ssize_t n = read(fd, buf, sizeof(buf));
+    (void)n;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 static Display   *g_dpy  = NULL;
@@ -175,7 +191,7 @@ static void *render_thread_fn(void *unused) {
         fd_set fds; FD_ZERO(&fds); FD_SET(g_pipe_r, &fds);
         select(g_pipe_r+1, &fds, NULL, NULL, &tv);
         if (FD_ISSET(g_pipe_r, &fds)) {
-            char buf[64]; read(g_pipe_r, buf, sizeof(buf));
+            pipe_drain(g_pipe_r);
         }
         if (!atomic_load(&g_active)) break;
         if (g_ready) gl_render_frame();
@@ -206,7 +222,7 @@ int gl_video_try_submit(uint8_t *rgba, int width, int height, int stride) {
         g_ready=1; g_submitted++;
     }
     pthread_mutex_unlock(&g_mu);
-    if (g_pipe_w >= 0) { char c=1; write(g_pipe_w, &c, 1); }
+    if (g_pipe_w >= 0) { pipe_wake(g_pipe_w, 1); }
     return 1;
 }
 
@@ -217,7 +233,7 @@ int gl_video_create(uintptr_t parent_xwin, int x, int y, int w, int h, int vsync
     // Tear down previous.
     if (atomic_load(&g_active)) {
         atomic_store(&g_active, 0);
-        if (g_pipe_w>=0) { char c=0; write(g_pipe_w,&c,1); }
+        if (g_pipe_w>=0) { pipe_wake(g_pipe_w, 0); }
         if (g_thread) { pthread_join(g_thread, NULL); g_thread=0; }
         if (g_pipe_r>=0) { close(g_pipe_r); g_pipe_r=-1; }
         if (g_pipe_w>=0) { close(g_pipe_w); g_pipe_w=-1; }
@@ -307,7 +323,7 @@ void gl_video_update_frame(int x, int y, int w, int h) {
 void gl_video_destroy(void) {
     if (!atomic_load(&g_active)) return;
     atomic_store(&g_active, 0);
-    if (g_pipe_w>=0) { char c=0; write(g_pipe_w,&c,1); }
+    if (g_pipe_w>=0) { pipe_wake(g_pipe_w, 0); }
     if (g_thread) { pthread_join(g_thread, NULL); g_thread=0; }
     if (g_pipe_r>=0) { close(g_pipe_r); g_pipe_r=-1; }
     if (g_pipe_w>=0) { close(g_pipe_w); g_pipe_w=-1; }

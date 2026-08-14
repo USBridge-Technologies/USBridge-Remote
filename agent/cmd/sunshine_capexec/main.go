@@ -1,5 +1,15 @@
+//go:build linux
+
 // sunshine_capexec grants CAP_SYS_ADMIN to a target process without that
 // process's own binary ever carrying a file capability.
+//
+// Linux-only by construction (Linux capabilities, PR_SET_PDEATHSIG) --
+// golang.org/x/sys/unix.Prctl/the capability calls below only exist under
+// GOOS=linux in that package, so `go vet ./...`/`go build ./...` on any
+// other OS would otherwise fail trying to compile this file at all, even
+// though nothing else in this module ever builds or invokes this binary
+// outside Linux (see internal/permissions/service_linux.go, the only
+// caller).
 //
 // Linux puts any binary with a file capability (or setuid/setgid bit) into
 // "secure execution" mode, in which the dynamic linker ignores
