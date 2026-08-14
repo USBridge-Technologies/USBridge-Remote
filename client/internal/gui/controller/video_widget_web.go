@@ -181,12 +181,21 @@ func syncKeyboardWindowContent(vw *VideoWidget) {
 	if vw == nil || vw.parentWindow == nil || vw.container == nil {
 		return
 	}
-	// See bottomAnchorContentVertically's own doc comment (video_widget.go)
-	// -- idempotent, cheap to set unconditionally every tick rather than
-	// wiring a separate one-time init hook.
-	vw.bottomAnchorContentVertically = true
 	imeOpen := isRealIMEOpen(vw)
 	current := vw.parentWindow.Content()
+	// See bottomAnchorContentVertically's own doc comment (video_widget.go)
+	// -- only actually relevant while the IME is genuinely open or the
+	// window content is still in the post-swap arrangement (between IME
+	// open and the swap-back below finishing); previously this was set
+	// unconditionally on every 150ms tick regardless of IME state, which
+	// meant it stayed true for the entire session even with no keyboard
+	// ever involved. Since a pinch-zoomed video's own base size rarely
+	// grows tall enough to hit recalculateViewport's *other* (overflow)
+	// anchoring, that left this the only anchoring rule actually in play
+	// during a pinch -- confirmed live as the real cause of a "video jumps
+	// to the bottom when zooming" report that had nothing to do with the
+	// keyboard at all.
+	vw.bottomAnchorContentVertically = imeOpen || webKeyboardContentSwapped
 
 	if imeOpen {
 		if current != vw.container {

@@ -184,17 +184,23 @@ type VideoWidget struct {
 	// shorter than available area" branch from vertically centering the
 	// video to anchoring it flush against the bottom of the available
 	// area. False (preserving the original centering behavior) on every
-	// platform except wasm, which sets this once the real IME's own
-	// window-content swap logic starts running (see
-	// syncKeyboardWindowContent in video_widget_web.go) -- without it,
-	// centering meant the video visibly jumped/re-centered every time the
-	// available height changed (IME open/close swapping window content in
-	// or out), since a fixed-size video centered in a small box sits in a
-	// very different screen position than the same video centered in a
-	// much taller one. Bottom-anchoring keeps the video's position stable
-	// relative to the keyboard panel that's always docked right below it,
-	// so opening/closing the IME only ever reveals or hides space above
-	// the video, never moves the video itself.
+	// platform except wasm, which sets this true only while the real IME
+	// is open (or the window content is still in its post-swap
+	// arrangement -- see syncKeyboardWindowContent in
+	// video_widget_web.go, which is also what flips it back to false the
+	// moment neither is true anymore) -- without it, centering meant the
+	// video visibly jumped/re-centered every time the available height
+	// changed (IME open/close swapping window content in or out), since a
+	// fixed-size video centered in a small box sits in a very different
+	// screen position than the same video centered in a much taller one.
+	// Bottom-anchoring keeps the video's position stable relative to the
+	// keyboard panel that's docked right below it while it's open, so
+	// opening/closing the IME only ever reveals or hides space above the
+	// video, never moves the video itself. Previously this was set
+	// unconditionally regardless of IME state, which meant it silently
+	// stayed true for an entire session with no keyboard ever involved --
+	// confirmed live as the actual cause of a pinch-zoomed video
+	// bottom-anchoring instead of staying centered.
 	bottomAnchorContentVertically bool
 	multiTouchActive              bool
 	lastMultiTouchAt              time.Time
