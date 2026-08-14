@@ -226,7 +226,7 @@ type VideoWidget struct {
 	touchDownDelayMu    sync.Mutex
 	touchActive         bool // touch(true) has already been sent and touch(false) not yet; MouseMoved only sends while true
 	// Tap-then-hold LMB drag for virtual cursor.
-	// lastVirtualTapAt is set when a quick tap completes; second TouchDown within 600ms holds LMB.
+	// lastVirtualTapAt is set when a quick tap completes; second TouchDown within virtualTapHoldWindow holds LMB.
 	lastVirtualTapAt time.Time
 	lmbHeld          bool
 	// Android LMB-hold gesture helpers:

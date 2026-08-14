@@ -17,6 +17,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// virtualTapHoldWindow is how long after a quick tap completes a second
+// TouchDown still counts as "place second finger to hold LMB" (the
+// tap-then-hold-drag gesture — see lastVirtualTapAt's own doc comment).
+// Was 600ms; halved on user feedback that it felt like waiting "almost a
+// second" between the two touches in practice — the perceived gap is this
+// window plus the up-to-500ms quick-tap duration threshold above it (see
+// where lastVirtualTapAt gets armed, below), so 600ms alone already read
+// as much longer than it sounds.
+const virtualTapHoldWindow = 300 * time.Millisecond
+
 // touchMouseCheckPending prevents concurrent checkMouseConnected calls from touch events.
 // On mobile there is no overlay event dispatch to trigger checkMouseConnected automatically,
 // so TouchDown/Dragged do it on first touch when isMouseConnected is false.
@@ -787,12 +797,13 @@ func (t *TouchpadWrapper) TouchDown(ev *mobile.TouchEvent) {
 	t.videoWidget.isDragging = false
 
 	if isVirtualCursorLikeMode(t.videoWidget.GetMouseInputMode()) {
-		// If a quick tap just fired and second finger comes down within 600ms → potential LMB hold.
+		// If a quick tap just fired and second finger comes down within
+		// virtualTapHoldWindow → potential LMB hold.
 		// On Android: arm a 200ms timer — if finger stays (hold) activate lmbHeld; if lifts quickly (double-click) send Down2+Up2.
 		if !t.videoWidget.lmbHeld &&
 			!t.videoWidget.lmbPendingHold &&
 			!t.videoWidget.lastVirtualTapAt.IsZero() &&
-			time.Since(t.videoWidget.lastVirtualTapAt) < 600*time.Millisecond {
+			time.Since(t.videoWidget.lastVirtualTapAt) < virtualTapHoldWindow {
 			t.videoWidget.lastVirtualTapAt = time.Time{}
 
 			if runtime.GOOS == "android" {
@@ -954,7 +965,7 @@ func (t *TouchpadWrapper) TouchUp(ev *mobile.TouchEvent) {
 			if duration >= time.Second {
 				t.videoWidget.enqueueMouseClick(2) // right click (long press)
 			} else if duration < 500*time.Millisecond {
-				// Quick tap → left click, arm the drag window (600ms to place second finger).
+				// Quick tap → left click, arm the drag window (virtualTapHoldWindow to place second finger).
 				// On Android: send Down immediately and delay Up by 100ms so that a quick
 				// second touch can cancel the Up and keep Down held (instant LMB drag, no
 				// gap between the two events that would trigger a double-click on the target).
