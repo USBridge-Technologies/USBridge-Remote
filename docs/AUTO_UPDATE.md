@@ -122,10 +122,39 @@ download, no write permission to the install dir, ...) is logged and
 swallowed; the app just starts up normally on its current version. A
 mandatory update check must never be able to brick a working install.
 
-## TODO(rustshine)
+## RustShine's own update channel
 
-This only covers the open-source Sunshine-based agent build actually
-published via GitHub Releases today. A closed-source "Rustshine"
-streaming-host variant isn't published on GitHub yet and has no release
-channel for this package to check against — revisit once that build gets
-its own distribution/signing pipeline.
+Everything above covers `internal/update`, which only ever updates the
+Client and Agent binaries themselves via GitHub Releases. The closed-source
+RustShine streaming-host variant (Patreon-gated, `agent/internal/entitlement`)
+is a **separate binary with a separate update path** — it's fetched from a
+private GitHub repo (`itsme228/rust-shine`) through the entitlement
+backend, not from this repo's own `/releases/latest`, so `internal/update`
+never touches it.
+
+- **Auto-check/apply**: `entitlement.CheckRustShineUpdate` /
+  `StageRustShine` (`agent/internal/entitlement/download.go`), driven by
+  `App.checkRustShineUpdate` (`agent/internal/app/app.go`) on the same 6h
+  cadence as `recheckEntitlement` — no separate ticker. Fully automatic,
+  no confirmation dialog (unlike the Client/Agent path above): there's no
+  install-dir binary swap here, just a download into `stateDir`.
+- **Trust chain**: `usbridge-entitlement.fatkulinamir80.workers.dev`'s
+  `/v1/download/rustshine` resolves a bearer-token-gated download URL and a
+  SHA-256 for the requesting platform, which `StageRustShine` re-verifies
+  against the downloaded archive before staging it. That SHA-256 is now
+  itself only ever read from an Ed25519-signed release manifest the Worker
+  independently verifies (`usbridge-entitlement-backend`'s `src/manifest.ts`,
+  keypair generated for and dedicated to this purpose — see
+  `rust-shine/docs/RELEASE_SIGNING.md` for the CI signing side and
+  `~/usbridge-rustshine-release-keys/README.md` for the key's provenance).
+  This is a **third, independent Ed25519 keypair** from both the
+  Client/Agent update keys above and the Patreon entitlement-token key —
+  compromising any one of the three can't be used to forge either of the
+  others.
+- **Known failure mode on Windows**: if RustShine is the currently-running
+  active backend, Windows won't let its `.exe` be replaced out from under
+  the running process — `StageRustShine` fails, logs
+  `rustshine auto-update to ... failed`, and retries at the next 6h tick.
+  If RustShine is effectively always active, that window to update may
+  never open on its own; restarting the agent (so RustShine isn't holding
+  the file) lets the next check succeed.
