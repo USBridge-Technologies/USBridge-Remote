@@ -265,37 +265,39 @@ func buildGearFrames(fill string) []fyne.Resource {
 	const outerR, innerR = 6.6, 4.6 // tooth tip / root radius
 	const holeCutoutR = 2.0         // punched-out center hole
 
-	// Simple zigzag-ring gear silhouette: 2*teeth points alternating
-	// between outerR (tooth tip) and innerR (tooth root) around the
-	// circle, connected by straight lines -- robust and easy to verify by
-	// construction, unlike a proper CAD-style tooth-flank gear outline
-	// (unnecessary detail at 16x16).
 	frames := make([]fyne.Resource, steps)
 	for frame := range frames {
 		angleOffset := float64(frame) * (360.0 / float64(steps))
-		var pts strings.Builder
+		var path strings.Builder
 		for t := 0; t < teeth*2; t++ {
 			angle := (angleOffset + float64(t)*(360.0/float64(teeth*2))) * math.Pi / 180
 			r := outerR
 			if t%2 == 1 {
 				r = innerR
 			}
-			if t > 0 {
-				pts.WriteString(" ")
+			x := cx + r*math.Cos(angle)
+			y := cy + r*math.Sin(angle)
+			if t == 0 {
+				path.WriteString(fmt.Sprintf("M%.2f %.2f", x, y))
+			} else {
+				path.WriteString(fmt.Sprintf(" L%.2f %.2f", x, y))
 			}
-			pts.WriteString(fmt.Sprintf("%.2f,%.2f", cx+r*math.Cos(angle), cy+r*math.Sin(angle)))
 		}
+		path.WriteString(" Z")
+		// Add inner hole. sweep-flag=0 (CCW) punches a hole using nonzero winding.
+		path.WriteString(fmt.Sprintf(" M%.2f %.2f", cx+holeCutoutR, cy))
+		path.WriteString(fmt.Sprintf(" A%.2f %.2f 0 1 0 %.2f %.2f", holeCutoutR, holeCutoutR, cx-holeCutoutR, cy))
+		path.WriteString(fmt.Sprintf(" A%.2f %.2f 0 1 0 %.2f %.2f", holeCutoutR, holeCutoutR, cx+holeCutoutR, cy))
+		path.WriteString(" Z")
 
 		frames[frame] = fyne.NewStaticResource(
 			fmt.Sprintf("gear-spinner-%02d.svg", frame),
 			[]byte(fmt.Sprintf(
 				`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`+
 					spinnerBackdropSVG+
-					`<mask id="hole"><rect width="16" height="16" fill="white"/>`+
-					`<circle cx="%.1f" cy="%.1f" r="%.1f" fill="black"/></mask>`+
-					`<polygon points="%s" fill="%s" mask="url(#hole)"/>`+
+					`<path d="%s" fill="%s" fill-rule="evenodd"/>`+
 					`</svg>`,
-				cx, cy, holeCutoutR, pts.String(), fill,
+				path.String(), fill,
 			)),
 		)
 	}
