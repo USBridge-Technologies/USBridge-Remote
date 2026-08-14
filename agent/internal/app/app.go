@@ -1073,6 +1073,14 @@ func (a *App) applyLinkSuccess(entitlementToken, providerRefreshToken string) {
 	a.entStatus.LastError = ""
 	a.entMu.Unlock()
 	a.refreshLocalEntitlementStatus()
+
+	// Start the first RustShine download immediately -- no "Download
+	// RustShine" button click required -- rather than waiting for
+	// whatever's left of entitlementWatchdog's 6h cadence. Backgrounded:
+	// applyLinkSuccess returns to pollPatreonLink's polling loop, which a
+	// GUI is actively waiting on to stop showing its login spinner: it
+	// shouldn't also block on a multi-MB download completing first.
+	go a.ensureRustShineFresh(context.Background(), entitlementToken)
 }
 
 // DownloadRustShine downloads and stages the RustShine build for this
@@ -1235,25 +1243,51 @@ func (a *App) recheckEntitlement(ctx context.Context) {
 		log.Printf("[app] warning: failed to persist refreshed entitlement: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
-	a.checkRustShineUpdate(ctx, res.EntitlementToken)
+	a.ensureRustShineFresh(ctx, res.EntitlementToken)
+}
+
+// ensureRustShineFresh makes sure a linked supporter always has the latest
+// staged RustShine build, with no manual "Download RustShine" click
+// required: called both right after a link succeeds (applyLinkSuccess, so a
+// brand-new supporter's download starts within seconds, not on whatever the
+// next 6h watchdog tick happens to be) and from recheckEntitlement's own
+// cadence afterward (so later releases keep reaching them). A no-op with no
+// observable effect whenever entitlementToken is empty -- i.e. never linked,
+// or already downgraded to Sunshine -- so an unentitled install never
+// downloads or updates RustShine at all, only ever runs Sunshine, exactly
+// like DownloadRustShine's own explicit entitlement.Verify gate.
+func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string) {
+	if strings.TrimSpace(entitlementToken) == "" {
+		return
+	}
+	if !a.rustshineStaged() {
+		log.Printf("[app] entitlement linked — downloading rustshine")
+		if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, entitlementToken, nil); err != nil {
+			// Non-fatal -- retried at the next watchdog interval (offline,
+			// transient backend error, ...). Until it succeeds, this install
+			// simply keeps running Sunshine.
+			log.Printf("[app] rustshine initial download failed (will retry next interval): %v", err)
+			return
+		}
+		log.Printf("[app] rustshine downloaded")
+		a.entMu.Lock()
+		a.entStatus.RustShineStaged = a.rustshineStaged()
+		a.entMu.Unlock()
+		return
+	}
+	a.checkRustShineUpdate(ctx, entitlementToken)
 }
 
 // checkRustShineUpdate re-stages RustShine if the backend has published a
-// newer build than whatever's currently staged. Called from
-// recheckEntitlement, so it rides the exact same cadence (entitlementWatchdog's
-// 6h ticker, plus the one immediate check shortly after startup) as the
-// membership re-verification it runs right after -- no separate ticker
-// needed. A no-op if RustShine was never staged (CheckRustShineUpdate's
-// own job, not this one) or nothing newer is available.
+// newer build than whatever's currently staged -- called only via
+// ensureRustShineFresh above, once RustShine is already known to be staged
+// (a no-op otherwise, see CheckRustShineUpdate's own doc comment).
 //
 // This is what makes a RustShine-only fix (one that ships in a new
 // gamestream-server release but not a new agent build -- e.g. the
 // NV_KEYBOARD_PACKET modifiers-byte fix this mechanism was added for)
 // actually reach an agent that already downloaded RustShine before that
-// fix existed. Before this, StageRustShine only ever ran once, from the
-// UI's explicit "Download RustShine" button -- nothing re-checked
-// afterward, so a stale binary would sit there indefinitely no matter how
-// many newer releases were published.
+// fix existed.
 func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string) {
 	if strings.TrimSpace(entitlementToken) == "" {
 		return
