@@ -1,52 +1,152 @@
-# USBridge Client
+# 🚀 USBridge Remote Client
 
-Native cross-platform Go client for controlling USBridge 2.
+<p align="center">
+  <strong>The ultimate high-performance, cross-platform remote control client for USBridge 2.</strong><br>
+  Built from the ground up in Go, featuring a zero-copy hardware video rendering pipeline, seamless Tailscale/WebRTC networking, and uncompromised security.
+</p>
 
-The project uses the new secure **Master QR Sync** protocol for authorization and control. All commands are signed with HMAC-SHA256, and sensitive data (PIN codes, keys) is encrypted with AES-GCM.
+## ✨ Why it's Awesome
 
-## Features
+- **Pure Native & Cross-Platform**: Runs natively on **Windows, macOS, Linux, Android, iOS**, and directly in the browser via **WebAssembly (WASM)**.
+- **Ultra-Low Latency Video**: Integrates the Moonlight/Sunshine streaming stack directly into native UI using **Vulkan** and **Metal**. Pure hardware decoding and rendering with zero subprocess or IPC overhead.
+- **Secure Master QR Sync**: Instant one-scan connection. Scan the QR code to securely exchange API secrets, pair Moonlight, and bring up a direct Tailscale tunnel automatically.
+- **NBD Virtual Media**: Mount local `.iso` or `.img` files and stream them directly as virtual USB drives to the remote host via the NBD protocol.
+- **Uncompromised Input Control**: Complete translation of keyboards, multi-touch gestures, gamepads, and relative/absolute mouse positioning across all platforms.
 
-- **Master QR Sync**: Fast one-scan connection. A single API Secret is passed via QR code and used to sign all requests.
-- **Security**: Full API protection against interception and spoofing on the local network.
-- **Device control**: keyboard, mouse/touchscreen (Touchpad/Absolute), RNDIS, CD-ROM images.
-- **NBD export**: streaming local images (`.iso`, `.img`, etc.) to the remote machine.
-- **Hardware-Accelerated Video**: Ultra-low latency streaming using Sunshine/Moonlight stack directly over Vulkan and Metal. 
-- **Android & iOS support**: Full support for high-performance streaming and input on mobile devices.
+---
 
-## How the client connects (Protocol v2)
+## 🌐 Zero-Install Web Client (WASM + WebRTC)
 
-1. On the server (Agent/Bridge), the **Master Sync QR** screen is opened.
-2. In the client, the QR scanner icon is tapped.
-3. After scanning, the client:
-   - Extracts the **API Secret** and stores it for signing requests.
-   - Performs a secure sync (Sunshine PIN exchange, Tailscale registration).
-   - Brings up a direct connection or a Tailscale tunnel.
-4. All subsequent actions (mouse movement, key presses) are automatically signed with the key.
+The USBridge Client doesn't just run as a desktop app—it compiles entirely to **WebAssembly** so you can control your devices directly from any modern web browser without installing anything.
 
-## Video & Rendering
+- **WebRTC Streaming**: Bypasses traditional UDP Moonlight streams by utilizing **WebRTC**. Encoded video frames traverse NATs and firewalls seamlessly via STUN/TURN, delivering ultra-low latency video straight to the HTML5 `<video>` element without requiring any VPN software.
+- **Browser-Native Decoding**: WebRTC leans on the browser's own hardware-accelerated MediaCapabilities, meaning the web client achieves native-level decoding performance and battery life.
 
-- Protocol: **Sunshine / Moonlight Stack**.
-- Rendering: **Vulkan** (Linux/Windows/Android) and **Metal** (macOS/iOS).
-- Performance: Pure native hardware decoding and rendering, no subprocess or IPC overhead.
+---
 
-## Mouse modes
+## 🏎️ The Hardware-Accelerated Video Pipeline
 
-Two main modes are supported:
-- **Touchpad** (relative) — emulates a standard touchpad.
-- **Absolute** — direct cursor positioning on screen.
+Unlike typical remote desktop clients that decode frames to system RAM and copy them back to the GPU for display, the USBridge Client keeps everything entirely on the GPU. From the moment a frame is decoded to the moment it hits your screen, it never leaves video memory.
 
-> Multi-monitor modes (Abs L/2, Abs R/2) are temporarily disabled.
+### Frame Processing & Rendering Architecture
 
-## Build & dependencies
+```mermaid
+graph TD
+    subgraph Network Layer
+        UDP[Moonlight / WebRTC UDP Stream] -->|RTP Packets| Depacketizer
+        Depacketizer -->|H.264 / HEVC / AV1 Payload| FrameQueue[Frame Queue]
+    end
 
-Detailed build instructions for all platforms (Linux, macOS, Windows, Android, iOS) are in the `scripts/` folder.
+    subgraph Decoding Layer
+        FrameQueue -->|Encoded Frame| Decoder[Hardware Video Decoder]
+        Decoder -->|YUV / NV12 Pixels| VRAM[(GPU VRAM)]
+    end
 
-## Documentation
+    subgraph Presentation Layer
+        VRAM -->|Zero-Copy Texture Binding| Renderer[Vulkan / Metal / WebGL Renderer]
+        Renderer -->|Hardware Color Space Conversion| Swapchain
+        Swapchain --> Display[Final Display]
+    end
+    
+    classDef hardware fill:#0f3460,stroke:#e94560,stroke-width:2px,color:#fff;
+    classDef network fill:#16213e,stroke:#43cfb6,stroke-width:2px,color:#fff;
+    classDef render fill:#1a1a2e,stroke:#f8b500,stroke-width:2px,color:#fff;
 
-- `docs/api_endpoints.md` — description of the secure API and sync protocol.
-- `docs/MOUSE_TOUCHPAD.md` — details of pointer control modes.
-- `docs/NATIVE_VIDEO_AUDIO.md` — details of the Vulkan/Metal and Moonlight integration.
+    class UDP,Depacketizer,FrameQueue network;
+    class Decoder,VRAM hardware;
+    class Renderer,Swapchain,Display render;
+```
 
-## License
+**How it works:**
+1. **Network**: Encoded frames arrive over ultra-low latency UDP (via the Moonlight protocol or WebRTC data channels for the web client).
+2. **Decode**: Native OS hardware decoders (MediaFoundation, VideoToolbox, V4L2, MediaCodec) slice through the HEVC/H.264 stream.
+3. **Render**: The decoded NV12/YUV textures in VRAM are bound directly to **Vulkan** (Linux/Windows/Android) or **Metal** (macOS/iOS) framebuffers. Custom shaders handle YUV-to-RGB conversion on the fly. No CPU overhead, zero frame drops.
 
-GPLv3 (see `LICENSE`). The project uses moonlight-common-c (GPLv3).
+---
+
+## 🔐 Connection Flow (Protocol v2)
+
+```mermaid
+flowchart LR
+    Client(["🚀 USBridge Client"])
+
+    subgraph Software [ ]
+        Agent["💻 Software Agent<br>(Windows, macOS, Linux)"]
+        S_Vid["📺 Screen Capture (Software)"]
+        S_Inp["⌨️ Virtual Input Hooks"]
+        S_Aud["🔊 System Audio Capture"]
+        S_Pow["❌ No Power Control"]
+        S_Drv["❌ No Virtual Media"]
+        S_Net["❌ No Internet Sharing"]
+        S_Bak["❌ No Backup Storage"]
+        S_MCP["❌ No MCP Server"]
+        S_Scr["❌ No Script Execution"]
+        Agent --- S_Vid & S_Inp & S_Aud & S_Pow & S_Drv & S_Net & S_Bak & S_MCP & S_Scr
+    end
+
+    subgraph Hardware [ ]
+        KVM["🎛️ USBridge Hardware KVM<br>(Dedicated Device)"]
+        H_Vid["🔌 Direct HDMI Capture (BIOS-level)"]
+        H_Inp["🕹️ Physical USB Emulation (Gadget)"]
+        H_Aud["🔊 HDMI Audio Extraction"]
+        H_Pow["⚡ ATX Power Control (Hard Reset)"]
+        H_Drv["💾 Virtual Drive Mounts (.iso/.img)"]
+        H_Net["🌐 Internet Sharing"]
+        H_Bak["📦 Versioned Backup Storage"]
+        H_MCP["🤖 Built-in MCP Server"]
+        H_Scr["📜 Remote Script Execution"]
+        KVM --- H_Vid & H_Inp & H_Aud & H_Pow & H_Drv & H_Net & H_Bak & H_MCP & H_Scr
+    end
+
+    Client ==> Agent
+    Client ==> KVM
+
+    %% Aligning nodes symmetrically
+    S_Vid ~~~ H_Vid
+    S_Pow ~~~ H_Pow
+    S_Bak ~~~ H_Bak
+
+    %% Styling
+    classDef clientNode fill:#e63946,stroke:#fff,stroke-width:3px,color:#fff,font-weight:bold;
+    classDef targetNode fill:#1d3557,stroke:#fff,stroke-width:2px,color:#fff,font-weight:bold;
+    classDef standardFeature fill:#457b9d,stroke:#fff,stroke-width:1px,color:#fff;
+    classDef missingFeature fill:#2d2d2d,stroke:#555,stroke-width:1px,color:#888,stroke-dasharray: 5 5;
+    classDef advancedFeature fill:#2a9d8f,stroke:#fff,stroke-width:2px,color:#fff,font-weight:bold;
+    style Software fill:none,stroke:none;
+    style Hardware fill:none,stroke:none;
+
+    class Client clientNode;
+    class Agent,KVM targetNode;
+    class S_Vid,S_Inp,S_Aud standardFeature;
+    class S_Pow,S_Drv,S_Net,S_Bak,S_MCP,S_Scr missingFeature;
+    class H_Vid,H_Inp,H_Aud,H_Pow,H_Drv,H_Net,H_Bak,H_MCP,H_Scr advancedFeature;
+```
+
+---
+
+## 🖱️ Advanced Input & Mouse Modes
+
+The client bridges the gap between touch devices and physical hardware interfaces:
+- **Touchpad Mode (Relative)**: Emulates a high-precision laptop touchpad, converting screen swipes into relative USB mouse movements.
+- **Absolute Mode**: Maps the client screen directly to the remote screen coordinate space for instantaneous 1:1 pointing (great for tablets and styluses).
+- **Virtual On-Screen Controls**: Dynamic IME tracking and custom gamepad layouts for mobile devices.
+
+## 🛠️ Build & Dependencies
+
+Detailed compilation instructions and environment setup for all target platforms (Linux, macOS, Windows, Android, iOS, WASM) are located in the `scripts/` folder.
+
+To trigger a quick WASM web build:
+```bash
+./scripts/build_web.sh
+```
+
+## 📚 Documentation
+
+Deep-dive architectural documentation is available in the `docs/` directory:
+- [`docs/api_endpoints.md`](docs/api_endpoints.md) — The secure API and Master QR sync protocol specification.
+- [`docs/MOUSE_TOUCHPAD.md`](docs/MOUSE_TOUCHPAD.md) — Mathematical specifics of relative/absolute pointer translation.
+- [`docs/NATIVE_VIDEO_AUDIO.md`](docs/NATIVE_VIDEO_AUDIO.md) — Comprehensive details on the Vulkan, Metal, and Moonlight integration stack.
+
+## 📜 License
+
+This project is licensed under **GPLv3** (see `LICENSE`). The client incorporates code from `moonlight-common-c` (also GPLv3).
