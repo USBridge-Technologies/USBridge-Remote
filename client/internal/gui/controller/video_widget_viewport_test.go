@@ -83,25 +83,48 @@ func TestRecalculateViewport_FitsBranchStillCenters(t *testing.T) {
 	}
 }
 
-// applyViewportGesture's pinch-anchor math must reference availableH
-// (touchpadSizeH minus bottomInset), not the raw touchpad height -- using
-// the wrong reference frame put the anchor point off by roughly
-// bottomInset from where recalculateViewport actually clamps it.
-func TestApplyViewportGesture_PinchAnchorUsesAvailableHeight(t *testing.T) {
+// applyViewportGesture must NOT anchor vertically to the pinch focus
+// point -- an earlier version did, and that made the picture visibly
+// crawl toward wherever the fingers happened to rest as zoom increased
+// (reported live as the video "jumping down" on a real phone, where a
+// natural two-hand pinch grip rarely lands exactly at screen center).
+// Pinching off-center must leave the video exactly as centered as
+// pinching dead-center would -- only an explicit two-finger drag (panDy)
+// may move it off center.
+func TestApplyViewportGesture_DoesNotAnchorVerticallyToPinchFocus(t *testing.T) {
 	const bottomInset = float32(100)
 	vw := newTestViewportWidget(1000, 500, bottomInset) // availableH = 400
 	vw.zoomScale = 1
 	vw.recalculateViewport()
 
-	// Pinch centered at the middle of the *available* area (not the raw
-	// touchpad) with enough scale to overflow: the content point under
-	// the finger should land back under the same on-screen Y.
-	focusX, focusY := float32(500), float32(200) // middle of the 1000x400 available area
+	// Pinch focused low on the screen (a realistic two-hand grip on a
+	// phone, well below center) with enough scale to overflow -- must
+	// still land centered, not anchored toward the focus point.
+	focusX, focusY := float32(500), float32(380) // near the bottom of the 1000x400 available area
 	vw.applyViewportGesture(2.0, focusX, focusY, 0, 0)
 
 	availableH := vw.touchpadSizeH - vw.bottomInset
-	wantContentY := (availableH - vw.contentRectH) / 2 // scaleFactor=2 focused at dead center -> stays centered
+	wantContentY := (availableH - vw.contentRectH) / 2
 	if diff := vw.contentRectY - wantContentY; diff > 0.01 || diff < -0.01 {
-		t.Errorf("contentRectY = %v, want ~%v (pinch centered on the available area's own center should stay centered)", vw.contentRectY, wantContentY)
+		t.Errorf("contentRectY = %v, want ~%v (off-center pinch focus must not pull the video off center)", vw.contentRectY, wantContentY)
+	}
+	if vw.panOffsetY != 0 {
+		t.Errorf("panOffsetY = %v, want 0 (no explicit drag happened, only a pinch)", vw.panOffsetY)
+	}
+}
+
+// An explicit two-finger drag alongside a pinch still moves the video, and
+// recalculateViewport's clamp still keeps it from revealing empty space
+// past either edge.
+func TestApplyViewportGesture_PanDyStillMovesVideo(t *testing.T) {
+	vw := newTestViewportWidget(1000, 500, 0) // availableH = 500
+	vw.zoomScale = 1
+	vw.recalculateViewport()
+
+	// Zoom in and drag down by a large amount -- should clamp to the top edge (contentY = 0).
+	vw.applyViewportGesture(2.0, 500, 250, 0, 10000)
+
+	if vw.contentRectY != 0 {
+		t.Errorf("contentRectY = %v, want 0 (dragged to the top-edge clamp)", vw.contentRectY)
 	}
 }

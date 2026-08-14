@@ -1370,7 +1370,7 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 		return
 	}
 
-	oldX, oldY, oldW, oldH := vw.GetViewportRect()
+	oldX, _, oldW, oldH := vw.GetViewportRect()
 	if oldW <= 0 || oldH <= 0 {
 		return
 	}
@@ -1393,35 +1393,29 @@ func (vw *VideoWidget) applyViewportGesture(scaleFactor, focusX, focusY, panDx, 
 
 	if scaleFactor > 0 && !almostEqual(scaleFactor, 1) {
 		localFocusX := clampFloat(focusX, 0, vw.touchpadSizeW)
-		localFocusY := clampFloat(focusY, 0, vw.touchpadSizeH)
 		u := clampFloat((localFocusX-oldX)/oldW, 0, 1)
-		v := clampFloat((localFocusY-oldY)/oldH, 0, 1)
 
 		newW := vw.contentRectW
-		newH := vw.contentRectH
 		if newW > vw.touchpadSizeW {
 			baseX := (vw.touchpadSizeW - newW) / 2
 			vw.panOffsetX = localFocusX - u*newW - baseX
 		}
-		// availableH (not the raw touchpad height) is what
-		// recalculateViewport actually centers/clamps against -- using
-		// touchpadSizeH here (as this used to) put the pinch anchor in a
-		// different reference frame than the one panOffsetY gets clamped
-		// in below, off by roughly bottomInset.
-		availableH := vw.touchpadSizeH - vw.bottomInset
-		if newH > availableH {
-			// Same "delta from centered position" convention
-			// recalculateViewport now uses (see its own doc comment):
-			// pick panOffsetY so the content point under the pinch focus
-			// (fraction v of the content height) lands back under the
-			// same on-screen Y after the zoom just applied above:
-			// desired contentY = localFocusY - v*newH; panOffsetY is that
-			// minus the centered baseline. recalculateViewport's
-			// symmetric clamp then keeps it from revealing empty space
-			// past either edge.
-			centerY := (availableH - newH) / 2
-			vw.panOffsetY = localFocusY - v*newH - centerY
-		}
+		// Deliberately NOT anchoring vertically to the pinch focus point
+		// the way the X axis (and an earlier version of this function)
+		// does. Two-finger pinches naturally land wherever the user's
+		// hands happen to rest -- often well below screen center on a
+		// phone -- and anchoring to that point on every scale step made
+		// the picture visibly crawl toward whatever's under the fingers
+		// as zoom increased, reported live as the video "jumping down".
+		// recalculateViewport's own default (centered, panOffsetY == 0)
+		// already is the desired behavior here: zoom always stays
+		// centered, and the only way to look at the video's top/bottom
+		// edge is an explicit two-finger drag (panDy below), which
+		// recalculateViewport's symmetric clamp keeps from ever revealing
+		// empty space past either edge. So: no panOffsetY assignment here
+		// at all -- leave it exactly as recalculateViewport already set
+		// it a few lines up (0, unless a previous drag pushed it off
+		// center).
 	}
 
 	vw.panOffsetX += panDx
