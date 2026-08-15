@@ -51,6 +51,19 @@ type QRCameraScanner struct {
 	previewCanvas, decodeCanvas js.Value
 	previewCtx, decodeCtx       js.Value
 
+	// barcodeDetector/useNativeDetector: when the browser implements the
+	// Shape Detection API's BarcodeDetector for qr_code (Chrome/Edge,
+	// desktop and Android -- on Android specifically this is backed by
+	// the same on-device ML Kit model the native Camera/Lens app uses,
+	// real NPU/GPU-accelerated detection, not just "faster JS"), decode
+	// ticks call it directly on the live <video> element instead of the
+	// gozxing software path below -- see detectNative's docs. Firefox and
+	// Safari implement neither as of this writing, so useNativeDetector
+	// stays false there and every tick falls through to gozxing exactly
+	// as before this existed.
+	barcodeDetector   js.Value
+	useNativeDetector bool
+
 	stopChan chan struct{}
 	popup    *widget.PopUp
 }
@@ -149,6 +162,13 @@ func (q *QRCameraScanner) openAndCapture(videoImg *canvas.Image, closeUI func())
 	}
 	q.stream = stream
 	applyContinuousFocus(stream)
+
+	q.barcodeDetector, q.useNativeDetector = setUpNativeBarcodeDetector()
+	if q.useNativeDetector {
+		logrus.Info("[QRCamera/wasm] using native BarcodeDetector (hardware/OS-accelerated qr_code detection)")
+	} else {
+		logrus.Info("[QRCamera/wasm] native BarcodeDetector unavailable for qr_code -- using gozxing (software) decode")
+	}
 
 	doc := js.Global().Get("document")
 	video := doc.Call("createElement", "video")
@@ -265,6 +285,84 @@ const qrCameraPreviewMaxWidth = 480
 // extra readback cost here is bounded.
 const qrCameraDecodeMaxWidth = 1920
 
+// setUpNativeBarcodeDetector feature-detects the Shape Detection API's
+// window.BarcodeDetector and confirms it actually supports the "qr_code"
+// format (Chrome/Edge implement the interface but a given UA/OS build could
+// in principle only back other 1D formats), returning a ready-to-use
+// detector instance and true when both hold. The canonical, spec-documented
+// way to check format support is the constructor's own static async
+// getSupportedFormats() -- not just "does the constructor throw," which is
+// under-specified across implementations -- so this awaits that once, up
+// front, rather than probing per-tick. Returns the zero js.Value and false
+// on any browser that lacks the API entirely (Firefox, Safari as of this
+// writing) or doesn't list qr_code, in which case every caller falls
+// through to the existing gozxing (software) decode path unchanged.
+func setUpNativeBarcodeDetector() (js.Value, bool) {
+	ctor := js.Global().Get("BarcodeDetector")
+	if ctor.IsUndefined() || ctor.IsNull() {
+		return js.Value{}, false
+	}
+	getSupported := ctor.Get("getSupportedFormats")
+	if getSupported.IsUndefined() {
+		return js.Value{}, false
+	}
+
+	result, err := awaitJSPromise(ctor.Call("getSupportedFormats"))
+	if err != nil {
+		logrus.Debugf("[QRCamera/wasm] BarcodeDetector.getSupportedFormats() failed: %v", err)
+		return js.Value{}, false
+	}
+	supportsQR := false
+	for i := 0; i < result.Get("length").Int(); i++ {
+		if result.Index(i).String() == "qr_code" {
+			supportsQR = true
+			break
+		}
+	}
+	if !supportsQR {
+		return js.Value{}, false
+	}
+
+	opts := js.Global().Get("Object").New()
+	opts.Set("formats", []interface{}{"qr_code"})
+	detector := ctor.New(opts)
+	return detector, true
+}
+
+// detectNative runs one native BarcodeDetector pass directly on the live
+// <video> element (no manual drawImage/getImageData/CopyBytesToGo round
+// trip needed -- the browser's own implementation reads the frame itself,
+// which is both simpler and cheaper than the gozxing path below it).
+// Returns (contents, true, nil) on a match, ("", false, nil) when the
+// detector ran fine but found nothing this frame (the common case, not an
+// error), and ("", false, err) only when the call itself failed -- callers
+// treat that last case as "this browser's native detector isn't reliable
+// after all" and fall back to gozxing for the rest of the session.
+func (q *QRCameraScanner) detectNative() (contents string, found bool, err error) {
+	defer func() {
+		// detect() throwing synchronously (rather than rejecting its
+		// Promise) would otherwise panic this goroutine -- defensive only,
+		// no implementation is known to do this for a live <video> source,
+		// but the fallback path exists precisely for surprises like this.
+		if r := recover(); r != nil {
+			err = fmt.Errorf("BarcodeDetector.detect() panicked: %v", r)
+		}
+	}()
+
+	result, callErr := awaitJSPromise(q.barcodeDetector.Call("detect", q.videoEl))
+	if callErr != nil {
+		return "", false, callErr
+	}
+	if result.Get("length").Int() == 0 {
+		return "", false, nil
+	}
+	rawValue := result.Index(0).Get("rawValue")
+	if rawValue.IsUndefined() || rawValue.IsNull() {
+		return "", false, nil
+	}
+	return rawValue.String(), true, nil
+}
+
 // applyContinuousFocus re-requests continuous autofocus directly on the
 // live video track via applyConstraints, on top of the "advanced"
 // getUserMedia constraint already asked for above. Confirmed live as
@@ -379,10 +477,39 @@ func (q *QRCameraScanner) captureLoop(videoImg *canvas.Image, previewWidth, prev
 			continue
 		}
 
-		// Full decode-resolution path, only on the ticks above: draws the
-		// same live video frame again, this time into decodeCanvas (see
-		// its own doc comment on why this is a second, separate,
-		// higher-res canvas rather than reusing previewImg here).
+		if q.useNativeDetector {
+			contents, found, err := q.detectNative()
+			if err != nil {
+				// Real failure (not just "nothing found this frame"):
+				// this browser advertised qr_code support via
+				// getSupportedFormats() but detect() itself isn't
+				// actually working -- disable native detection for the
+				// rest of this scan session rather than retrying a
+				// broken call every tick, and let this same tick fall
+				// through to gozxing below instead of wasting it.
+				logrus.Warnf("[QRCamera/wasm] native detect() failed, falling back to gozxing for the rest of this session: %v", err)
+				q.useNativeDetector = false
+			} else if found {
+				logrus.Infof("QR detected (native): %s", contents)
+				fyne.Do(func() {
+					q.Stop()
+					if closeUI != nil {
+						closeUI()
+					}
+					q.qrScanner.parseAndApply(contents, q.parent)
+				})
+				return
+			} else {
+				continue
+			}
+		}
+
+		// gozxing (software) fallback path -- only reached when this
+		// browser has no working native BarcodeDetector for qr_code (see
+		// useNativeDetector above). Draws the same live video frame
+		// again, this time into decodeCanvas (see its own doc comment on
+		// why this is a second, separate, higher-res canvas rather than
+		// reusing previewImg here).
 		q.decodeCtx.Call("drawImage", q.videoEl, 0, 0, decodeWidth, decodeHeight)
 		decodeData := q.decodeCtx.Call("getImageData", 0, 0, decodeWidth, decodeHeight)
 		decodePixels := decodeData.Get("data")
