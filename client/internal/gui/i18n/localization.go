@@ -164,6 +164,7 @@ type LocalizedStrings struct {
 	PointCameraAtQR         string
 	QRScanning              string
 	ErrorStartingCamera     string
+	ErrorSunshineNoWebRTC   string
 
 	// Dialogs
 	Yes                          string
@@ -547,6 +548,7 @@ func EN() *LocalizedStrings {
 		PointCameraAtQR:         "Point the camera at QR code...",
 		QRScanning:              "QR code scanning",
 		ErrorStartingCamera:     "Failed to start camera: %v",
+		ErrorSunshineNoWebRTC:   "This device is running Sunshine, which doesn't support WebRTC video in the browser. Switch it to RustShine (available with a subscription) to watch and control it from the web client.",
 
 		// Dialogs
 		Yes:                          "Yes",

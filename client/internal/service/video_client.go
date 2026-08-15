@@ -1,11 +1,24 @@
 package service
 
 import (
+	"errors"
 	"image"
 	"os"
 
 	"usbridge-client/internal/models"
 )
+
+// ErrStreamerUnsupportedWebRTC is wrapped into ConnectToMoonlight's
+// returned error (web/wasm build only -- see webrtc_video_client_wasm.go)
+// when the agent's active streamer backend doesn't implement WebRTC at
+// all: plain Sunshine has no WebRTC support whatsoever, only RustShine
+// does. Declared here rather than in the wasm-only file so
+// video_widget_ui.go's connect-retry loop (shared across every platform)
+// can check for it via errors.Is without a build-tag split of its own, to
+// fail fast with a clear message instead of retrying 20x, 500ms apart,
+// against a /webrtc/offer endpoint that will never start responding on a
+// Sunshine-backed agent.
+var ErrStreamerUnsupportedWebRTC = errors.New("agent streamer does not support WebRTC")
 
 // VideoClient defines the common interface for video receiving and rendering services.
 type VideoClient interface {

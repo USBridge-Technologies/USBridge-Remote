@@ -130,6 +130,20 @@ func (c *WebRTCVideoClient) ConnectToMoonlight() error {
 	const rustshineWebRTCPort = 8443
 	baseURL := "http://" + host + ":" + strconv.Itoa(rustshineWebRTCPort)
 
+	// Preflight against the agent's ordinary REST API (a route every
+	// backend answers, Sunshine included) before ever touching rustshine's
+	// WebRTC-only port above -- tells "this agent is running Sunshine,
+	// which never speaks WebRTC" apart from "this agent is just
+	// unreachable right now", which the raw fetch failure against
+	// rustshineWebRTCPort alone can't distinguish. Best-effort: if the
+	// probe itself fails (network hiccup, older agent build without
+	// /api/status's streamer field, whatever), fall through to the normal
+	// WebRTC attempt below rather than blocking on it -- this is purely an
+	// early, friendlier error path, not a hard gate.
+	if streamer, err := webrtcweb.FetchStreamerName(host, c.config.USBPort, secret); err == nil && streamer != "" && !webrtcweb.StreamerSupportsWebRTC(streamer) {
+		return fmt.Errorf("%s: %w", streamer, ErrStreamerUnsupportedWebRTC)
+	}
+
 	client := webrtcweb.NewWebRTCClient(baseURL, secret)
 	sessionID := uuid.NewString()
 
