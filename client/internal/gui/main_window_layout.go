@@ -435,11 +435,23 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
 	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
-	middleScroll := container.NewHScroll(middleGroup)
+	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
+	// run out of horizontal space for the SD-progress + status readout,
+	// but they're passive indicators, not something worth navigating to --
+	// an HScroll here used to leave a persistent thin scrollbar sitting
+	// right above the video/Control-tab content whenever that happened
+	// (Fyne's scroll-bar-area renders any time content overflows its
+	// viewport, not just on hover/drag -- see internal/widget/scroller.go's
+	// handleAreaVisibility), which read as a stray UI glitch since nobody
+	// was ever meant to actually scroll this row. Clip keeps
+	// mainHeaderBarLayout.Layout's existing width-capping math (below)
+	// working exactly the same way, it just quietly clips whatever
+	// overflows instead of exposing a scrollbar for it.
+	middleClip := container.NewClip(middleGroup)
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		mw.pcpanelWidget.GetContainer(),
-		middleScroll,
+		middleClip,
 		rightGroup,
 	)
 	return view.NewHeaderBand("", row)
@@ -669,7 +681,12 @@ func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 
 	leftMin := left.MinSize()
 	rightMin := right.MinSize()
-	centerMin := center.MinSize()
+	// centerMin comes from the wrapped content's own MinSize, not center's
+	// (the Clip wrapper) -- Clip.MinSize() always reports a degenerate
+	// {1,1} since it has no natural size of its own (see container/clip.go),
+	// so using it directly here would collapse both this row's height and
+	// centerY's vertical centering down to that same 1px.
+	centerMin := headerCenterContentMinSize(center)
 
 	leftY := maxFloat32(0, (size.Height-leftMin.Height)/2)
 	left.Move(fyne.NewPos(l.edgeInset, leftY))
@@ -684,11 +701,7 @@ func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	if centerMaxWidth < 0 {
 		centerMaxWidth = 0
 	}
-	centerPrefWidth := centerMin.Width
-	if sc, ok := center.(*container.Scroll); ok && sc.Content != nil {
-		centerPrefWidth = sc.Content.MinSize().Width
-	}
-	centerWidth := minFloat32(centerPrefWidth, centerMaxWidth)
+	centerWidth := minFloat32(centerMin.Width, centerMaxWidth)
 	centerMinX := leftMin.Width + l.edgeInset + l.sideGap
 	centerMaxX := rightX - l.sideGap - centerWidth
 	centerX := maxFloat32(centerMinX, (size.Width-centerWidth)/2)
@@ -706,10 +719,22 @@ func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	}
 
 	leftMin := objects[0].MinSize()
-	centerMin := objects[1].MinSize()
+	centerMin := headerCenterContentMinSize(objects[1])
 	rightMin := objects[2].MinSize()
 	height := maxFloat32(leftMin.Height, maxFloat32(centerMin.Height, rightMin.Height))
 	return fyne.NewSize(leftMin.Width+centerMin.Width+rightMin.Width+l.edgeInset*2+l.sideGap*2, height)
+}
+
+// headerCenterContentMinSize reports the natural size of the header bar's
+// center slot -- unwrapping container.Clip if that's what's actually
+// there (see createMainAddressBar's middleClip) rather than trusting
+// Clip.MinSize() itself, which always degenerates to {1,1} since a Clip
+// has no natural size of its own.
+func headerCenterContentMinSize(center fyne.CanvasObject) fyne.Size {
+	if cl, ok := center.(*container.Clip); ok && cl.Content != nil {
+		return cl.Content.MinSize()
+	}
+	return center.MinSize()
 }
 
 func (l *exitStatusOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
