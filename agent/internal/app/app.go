@@ -1327,11 +1327,41 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 // near its edges for that whole session. A *second*, later reconnect (e.g.
 // triggered by an unrelated codec change) picks up the by-then-finished
 // correlation and looks like it "fixed" the mouse — this closes that gap by
-// making the restart itself wait for correlation instead. Only meaningful
-// for the Linux KMS capture backend; a bounded poll elsewhere just times out
-// as a no-op.
+// making the restart itself wait for correlation instead.
+//
+// Also required on Windows, for a different reason: Sunshine's Windows
+// display_device backend identifies monitors by a device_id GUID that only
+// becomes knowable by parsing "Currently available display devices:" back
+// out of Sunshine's own log (see sunshine_devices_windows.go) — there is no
+// way to predict it in advance. Without this wait, a monitor pick made in
+// the tiny window between Sunshine's admin port coming up (WaitReady) and
+// that log block actually being appended falls back to capture.Service's
+// generic display:N enumeration; videoSetDevice strips its prefix the same
+// as a real winid:, so a bare numeric index (e.g. "0") gets written into
+// output_name. Sunshine's Windows backend only accepts the GUID form, so it
+// can't resolve a plain "0" to any device and silently falls back to
+// auto-pick (== the primary/first monitor) from then on, regardless of what
+// the client asks for — this is what made monitor switching look like a
+// permanent no-op on Windows w/ Sunshine while the same flow worked fine on
+// RustShine (whose "monitor_index" key genuinely does take a small numeric
+// index).
+//
+// No-op on macOS: its Sunshine backend has no log-derived device list to
+// wait for (ListCaptureDevices always returns nil there — see
+// sunshine_devices_other.go), and a bounded poll would just time out doing
+// nothing.
 func (a *App) waitForMonitorCorrelation() {
-	if a.stream == nil || runtime.GOOS != "linux" || a.stream.CaptureMode() != "kms" {
+	if a.stream == nil {
+		return
+	}
+	switch runtime.GOOS {
+	case "linux":
+		if a.stream.CaptureMode() != "kms" {
+			return
+		}
+	case "windows":
+		// fall through to the poll below
+	default:
 		return
 	}
 	deadline := time.Now().Add(2 * time.Second)
