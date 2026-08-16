@@ -452,6 +452,21 @@ func (p *moonlightTSNetProxy) createServerUDPProxy(serverPort int) (localPort in
 
 // runControlProxy proxies ENet UDP control traffic between the C library (at
 // 127.0.0.1:47999) and the Sunshine server via tsnet.
+//
+// Redials the tsnet side whenever it goes bad instead of giving up after the
+// first dial, the way this used to work (a single sync.Once dial for the
+// whole proxy's lifetime, with its reader goroutine just returning silently
+// -- no log line, nothing -- on any non-timeout error). Confirmed live over
+// a DERP-relayed tsnet path: once that single tsConn went quiet, every ENet
+// control packet the C library still thought it was sending (including its
+// own keepalive pings) silently never left this process, so the *server*
+// side's ENet peer -- not this one -- was what eventually declared the
+// disconnect, ~10s later (ControlStream.c's enet_peer_timeout). From the
+// user's side that looked like "video plays a moment then stops": the whole
+// session (video+audio) tears down right along with the control channel,
+// moonlight-common-c reconnects fresh, and the exact same thing happens
+// again on the new (equally un-redialed) tsConn a few seconds later -- a
+// tight, indefinite retry loop, never actually recovering on its own.
 func (p *moonlightTSNetProxy) runControlProxy() {
 	srv, err := p.ts.serverInstance()
 	if err != nil {
@@ -462,13 +477,79 @@ func (p *moonlightTSNetProxy) runControlProxy() {
 	serverAddr := net.JoinHostPort(p.serverHost, "47999")
 
 	var (
+		connMu   sync.Mutex
 		tsConn   net.Conn
 		enetAddr *net.UDPAddr
-		once     sync.Once
-		dialErr  error
+		dialing  bool
 	)
 
+	// redial (re)establishes tsConn and starts its own read-pump goroutine,
+	// relaying server -> local. Safe to call repeatedly (e.g. once per
+	// reader-goroutine failure) -- `dialing` collapses concurrent callers
+	// (a failing read and a failing write can both notice around the same
+	// moment) into a single in-flight redial attempt.
+	var redial func()
+	redial = func() {
+		connMu.Lock()
+		if dialing {
+			connMu.Unlock()
+			return
+		}
+		dialing = true
+		if tsConn != nil {
+			tsConn.Close()
+			tsConn = nil
+		}
+		connMu.Unlock()
+
+		conn, dialErr := srv.Dial(p.ctx, "udp", serverAddr)
+
+		connMu.Lock()
+		dialing = false
+		if dialErr != nil {
+			connMu.Unlock()
+			select {
+			case <-p.ctx.Done():
+			default:
+				logrus.Errorf("🌕 [Moonlight/Proxy] control: tsnet dial %s: %v", serverAddr, dialErr)
+			}
+			return
+		}
+		tsConn = conn
+		connMu.Unlock()
+		logrus.Infof("🌕 [Moonlight/Proxy] ENet control via tsnet to %s", serverAddr)
+
+		localConn := p.ctrlListener
+		go func() {
+			rbuf := make([]byte, 65536)
+			for {
+				conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+				rn, rerr := conn.Read(rbuf)
+				if rerr != nil {
+					select {
+					case <-p.ctx.Done():
+						return
+					default:
+						if netErr, ok := rerr.(net.Error); ok && netErr.Timeout() {
+							continue
+						}
+						logrus.Warnf("🌕 [Moonlight/Proxy] control: tsnet connection lost (%v), redialing", rerr)
+						redial()
+						return
+					}
+				}
+				connMu.Lock()
+				dst := enetAddr
+				connMu.Unlock()
+				if dst != nil && rn > 0 {
+					localConn.WriteToUDP(rbuf[:rn], dst) //nolint:errcheck
+				}
+			}
+		}()
+	}
+
 	buf := make([]byte, 65536)
+	first := true
 	for {
 		p.ctrlListener.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 		n, addr, err := p.ctrlListener.ReadFromUDP(buf)
@@ -485,43 +566,27 @@ func (p *moonlightTSNetProxy) runControlProxy() {
 			}
 		}
 
-		// Lazily create tsnet UDP connection on first ENet packet.
-		once.Do(func() {
-			enetAddr = addr
-			tsConn, dialErr = srv.Dial(p.ctx, "udp", serverAddr)
-			if dialErr != nil {
-				logrus.Errorf("🌕 [Moonlight/Proxy] control: tsnet dial %s: %v", serverAddr, dialErr)
-				return
-			}
-			logrus.Infof("🌕 [Moonlight/Proxy] ENet control via tsnet to %s, enet_client=%v", serverAddr, addr)
+		connMu.Lock()
+		enetAddr = addr
+		connMu.Unlock()
+		if first {
+			first = false
+			redial()
+		}
 
-			localConn := p.ctrlListener
-			go func() {
-				rbuf := make([]byte, 65536)
-				for {
-					tsConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-					rn, rerr := tsConn.Read(rbuf)
-					if rerr != nil {
-						select {
-						case <-p.ctx.Done():
-							return
-						default:
-							if netErr, ok := rerr.(net.Error); ok && netErr.Timeout() {
-								continue
-							}
-							return
-						}
-					}
-					if enetAddr != nil && rn > 0 {
-						localConn.WriteToUDP(rbuf[:rn], enetAddr)
-					}
-				}
-			}()
-		})
-
-		if dialErr != nil || tsConn == nil {
+		connMu.Lock()
+		conn := tsConn
+		connMu.Unlock()
+		if conn == nil {
 			continue
 		}
-		tsConn.Write(buf[:n]) //nolint:errcheck
+		if _, werr := conn.Write(buf[:n]); werr != nil {
+			select {
+			case <-p.ctx.Done():
+			default:
+				logrus.Warnf("🌕 [Moonlight/Proxy] control write: %v, redialing", werr)
+				redial()
+			}
+		}
 	}
 }
