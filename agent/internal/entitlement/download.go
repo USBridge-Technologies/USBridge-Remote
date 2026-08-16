@@ -237,11 +237,19 @@ func (w *progressWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// extractFromTarGz pulls the single entry named wantBase (matched by
-// filepath.Base, ignoring whatever directory prefix the CI packaging step
-// wrapped it in -- see rust-shine's release-gamestream-server.yml, which
-// always wraps the binary in a same-named directory before archiving) out
-// of a .tar.gz and atomically installs it at dest.
+// extractFromTarGz installs every regular file entry from a .tar.gz next to
+// dest (flattened by filepath.Base, ignoring whatever directory prefix the
+// CI packaging step wrapped it all in -- see rust-shine's
+// release-gamestream-server.yml, which always wraps the binary in a
+// same-named directory before archiving): the entry named wantBase becomes
+// dest itself (the binary streamhost.rustshineBackend.BinaryPath() expects),
+// and every other entry (e.g. a bundled opus.dll the Windows build needs at
+// runtime -- see gamestream-server's own "failed to load libopus:
+// LoadLibraryExW failed" if it's missing) is staged alongside it in the same
+// directory, since LoadLibraryExW resolves a bare DLL name by first
+// searching the calling process's own directory. Previously this discarded
+// every entry except wantBase, so a sibling DLL shipped in the release
+// archive never survived staging even though the archive had it all along.
 func extractFromTarGz(archivePath, wantBase, dest string) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -254,22 +262,41 @@ func extractFromTarGz(archivePath, wantBase, dest string) error {
 	}
 	defer gz.Close()
 
+	destDir := filepath.Dir(dest)
+	foundBinary := false
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return fmt.Errorf("entitlement: archive has no entry named %q", wantBase)
+			break
 		}
 		if err != nil {
 			return fmt.Errorf("entitlement: read tar: %w", err)
 		}
-		if hdr.Typeflag != tar.TypeReg || filepath.Base(hdr.Name) != wantBase {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
-		return writeAtomic(dest, tr, 0o755)
+		base := filepath.Base(hdr.Name)
+		if base == wantBase {
+			if err := writeAtomic(dest, tr, 0o755); err != nil {
+				return err
+			}
+			foundBinary = true
+			continue
+		}
+		if err := writeAtomic(filepath.Join(destDir, base), tr, 0o644); err != nil {
+			return fmt.Errorf("entitlement: stage sibling file %q: %w", base, err)
+		}
 	}
+	if !foundBinary {
+		return fmt.Errorf("entitlement: archive has no entry named %q", wantBase)
+	}
+	return nil
 }
 
+// extractFromZip is extractFromTarGz's .zip counterpart -- same
+// stage-everything-not-just-the-binary behavior, same reasoning (see its
+// doc comment).
 func extractFromZip(archivePath, wantBase, dest string) error {
 	zr, err := zip.OpenReader(archivePath)
 	if err != nil {
@@ -277,18 +304,36 @@ func extractFromZip(archivePath, wantBase, dest string) error {
 	}
 	defer zr.Close()
 
+	destDir := filepath.Dir(dest)
+	foundBinary := false
 	for _, zf := range zr.File {
-		if zf.FileInfo().IsDir() || filepath.Base(zf.Name) != wantBase {
+		if zf.FileInfo().IsDir() {
 			continue
 		}
+		base := filepath.Base(zf.Name)
 		rc, err := zf.Open()
 		if err != nil {
 			return fmt.Errorf("entitlement: open zip entry: %w", err)
 		}
-		defer rc.Close()
-		return writeAtomic(dest, rc, 0o755)
+		if base == wantBase {
+			err = writeAtomic(dest, rc, 0o755)
+			rc.Close()
+			if err != nil {
+				return err
+			}
+			foundBinary = true
+			continue
+		}
+		err = writeAtomic(filepath.Join(destDir, base), rc, 0o644)
+		rc.Close()
+		if err != nil {
+			return fmt.Errorf("entitlement: stage sibling file %q: %w", base, err)
+		}
 	}
-	return fmt.Errorf("entitlement: archive has no entry named %q", wantBase)
+	if !foundBinary {
+		return fmt.Errorf("entitlement: archive has no entry named %q", wantBase)
+	}
+	return nil
 }
 
 // writeAtomic streams src into a temp file next to dest, then renames it
