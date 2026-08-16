@@ -18,7 +18,17 @@ on:
   push:
     tags:
       - "agent-v*"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version to release (e.g. 2.2.0) -- becomes tag agent-v<version>.
+          Required for a manual run: unlike a "push: tags" run, there's no
+          tag to derive this from (GITHUB_REF_NAME is just the branch name),
+          and the release step used to fail outright with "GitHub Releases
+          requires a tag" when this was left unset. Ignored on a real
+          agent-v* tag push, which still derives the version the old way.
+        required: false
 
 permissions:
   contents: write
@@ -300,15 +310,33 @@ jobs:
           done
           ls -la out
 
-      - name: Derive release version
+      - name: Derive release version and tag
         id: version
         # Тег вида "agent-v2.0.5" -> "v2.0.5", чтобы не дублировать "agent"
-        # в имени релиза ("USBridge Agent agent-v2.0.5").
-        run: echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"
+        # в имени релиза ("USBridge Agent agent-v2.0.5"). A manual
+        # workflow_dispatch run has no tag to derive this from at all
+        # (GITHUB_REF_NAME is just the triggering branch name) — use the
+        # explicit `version` input instead, and fail fast with a clear
+        # message rather than letting the release step die later with an
+        # opaque "GitHub Releases requires a tag".
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -z "${{ inputs.version }}" ]; then
+              echo "::error::workflow_dispatch requires the 'version' input (e.g. 2.2.0) -- there's no tag to derive it from on a manual run."
+              exit 1
+            fi
+            echo "tag=agent-v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "version=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: out/*
           name: USBridge Agent ${{ steps.version.outputs.version }}
           generate_release_notes: true
