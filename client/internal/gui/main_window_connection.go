@@ -886,10 +886,19 @@ func (mw *MainWindow) handleDisconnect() {
 		}
 
 		if client != nil {
-			logrus.Info("🛑 [shutdown] Stopping remote devices...")
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = client.StopAllDevicesWithContext(cleanupCtx)
-			cancel()
+			// Never call StopAllDevicesWithContext here, on any disconnect
+			// path (plain Disconnect, reconnect cycle, or the app actually
+			// closing) -- it tears down the *device's* whole USB gadget:
+			// every mounted drive, keyboard, mouse, RNDIS, not just this
+			// client's own local resources (video/NBD/ports, cleaned up
+			// below). This client disconnecting must never drop the
+			// remote's disk or HID control -- those stay mounted exactly as
+			// the user left them, for this client's own next reconnect or
+			// for any other consumer (e.g. the device's own SSH-KVM
+			// session) using the same gadget in the meantime. Previously
+			// unconditional here, so every disconnect (and every app close)
+			// silently unmounted whatever was mounted -- confirmed live.
+			logrus.Info("ℹ️ [shutdown] Disconnecting without touching the remote gadget")
 			client.Disconnect()
 		}
 
