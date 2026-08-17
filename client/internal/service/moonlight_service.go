@@ -372,7 +372,27 @@ func (m *MoonlightService) ConnectToMoonlight() error {
 			}
 		},
 		func(playerErr error) {
+			// This fires for the OLD decoder too: reconnecting closes
+			// prevStopCh (below) to shut down whichever decoder the
+			// previous ConnectToMoonlight call started, and that decoder's
+			// own async stop lands here some time later — potentially
+			// *after* this newer attempt has already run past its own
+			// `m.isRunning = true` (top of this function) and is streaming
+			// happily. Without this guard, the stale callback's
+			// unconditional `m.isRunning = false` clobbers that back to
+			// false with nothing left to ever set it true again, and
+			// IsConnected() stays false for the rest of the session —
+			// silently dropping every keyboard/mouse input send despite
+			// video/audio still visibly working. Same fix, same reasoning
+			// as the wrapper.StartStream callback's own connGen check
+			// below; this one just didn't have it.
+			if m.connGen.Load() != myConnGen {
+				logrus.Debugf("🌕 [Moonlight/Player] stop callback for superseded connGen=%d (current=%d) ignored", myConnGen, m.connGen.Load())
+				return
+			}
+			m.mu.Lock()
 			m.isRunning = false
+			m.mu.Unlock()
 			if playerErr != nil {
 				logrus.Errorf("🌕 [Moonlight/Player] stopped with error: %v", playerErr)
 				if m.onError != nil {
