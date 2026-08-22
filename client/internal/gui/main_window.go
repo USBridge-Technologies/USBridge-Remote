@@ -98,10 +98,13 @@ type MainWindow struct {
 	rndisIcon      *widget.Button
 	gamepadIcon    *widget.Button
 	cdromIcon      *widget.Button
-	backupIcon     fyne.CanvasObject
-	snapshotIcon   *widget.Button
-	statusPanel    *fyne.Container
-	protocolPanel  *fyne.Container
+	backupIcon          fyne.CanvasObject
+	snapshotIcon        *widget.Button
+	scriptIcon          *widget.Button
+	runningScriptPath   string
+	runningScriptName   string
+	statusPanel         *fyne.Container
+	protocolPanel       *fyne.Container
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool

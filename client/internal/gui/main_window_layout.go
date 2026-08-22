@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1078,6 +1079,11 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.snapshotIcon.Importance = widget.LowImportance
 	mw.snapshotIcon.Hide()
+	mw.scriptIcon = widget.NewButtonWithIcon("", fynetheme.MediaPlayIcon(), func() {
+		mw.showScriptRunningMenu()
+	})
+	mw.scriptIcon.Importance = widget.LowImportance
+	mw.scriptIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
@@ -1090,6 +1096,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.rndisIcon,
 		mw.gamepadIcon,
 		mw.snapshotIcon,
+		mw.scriptIcon,
 	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
@@ -1134,7 +1141,7 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton, scriptButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
@@ -1145,6 +1152,7 @@ func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cd
 		rndisButton,
 		gamepadButton,
 		snapshotButton,
+		scriptButton,
 	}
 }
 
@@ -1236,6 +1244,29 @@ func (mw *MainWindow) updateStatusBar() {
 			audioStreaming = info.Streaming
 		}
 		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming)
+
+		if scriptStatuses, err := client.GetScriptStatus(); err == nil {
+			var runningPath, runningName string
+			for _, st := range scriptStatuses {
+				if st.Running {
+					runningPath = st.Path
+					runningName = filepath.Base(st.Path)
+					break
+				}
+			}
+			fyne.Do(func() {
+				mw.runningScriptPath = runningPath
+				mw.runningScriptName = runningName
+				if mw.scriptIcon != nil {
+					if runningPath != "" {
+						mw.scriptIcon.Show()
+					} else {
+						mw.scriptIcon.Hide()
+					}
+					mw.scriptIcon.Refresh()
+				}
+			})
+		}
 
 		// Fetch detailed storage status
 		storageStatus, err := client.GetStorageStatus()
@@ -1589,6 +1620,38 @@ func (mw *MainWindow) showRNDISModeMenu() {
 	}
 
 	view.ShowStyledMenu(mw.rndisIcon, items)
+}
+
+func (mw *MainWindow) showScriptRunningMenu() {
+	if mw.scriptIcon == nil || mw.runningScriptPath == "" {
+		return
+	}
+
+	scriptPath := mw.runningScriptPath
+	scriptName := mw.runningScriptName
+
+	items := []view.StyledMenuItem{
+		{
+			Label: "Stop Script",
+			OnTap: func() {
+				if mw.usbClient != nil {
+					go func() {
+						if err := mw.usbClient.StopScript(scriptPath); err != nil {
+							view.ShowErrorDialog(err, mw.window)
+						}
+					}()
+				}
+			},
+		},
+		{
+			Label: "Log",
+			OnTap: func() {
+				view.ShowScriptLogDialog(mw.window, mw.usbClient, scriptPath, scriptName)
+			},
+		},
+	}
+
+	view.ShowStyledMenu(mw.scriptIcon, items)
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {
