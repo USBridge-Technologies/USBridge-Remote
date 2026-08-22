@@ -5,76 +5,91 @@ package autostart
 import (
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
+	"syscall"
+	"unsafe"
 
-	"golang.org/x/sys/windows/registry"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
-const runValueName = "USBridgeAgent"
+const serviceName = "USBridgeAgent"
 
-func openRunKey(access uint32) (registry.Key, error) {
-	return registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, access)
-}
-
-func commandLine() (string, error) {
-	exe, args, err := LaunchTarget()
-	if err != nil {
-		return "", err
-	}
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, fmt.Sprintf("\"%s\"", exe))
-	for _, a := range args {
-		if strings.ContainsRune(a, ' ') {
-			parts = append(parts, fmt.Sprintf("\"%s\"", a))
-		} else {
-			parts = append(parts, a)
-		}
-	}
-	return strings.Join(parts, " "), nil
-}
+var (
+	shell32           = syscall.NewLazyDLL("shell32.dll")
+	procShellExecuteW = shell32.NewProc("ShellExecuteW")
+)
 
 func IsEnabled() bool {
-	key, err := openRunKey(registry.QUERY_VALUE)
+	m, err := mgr.Connect()
 	if err != nil {
 		return false
 	}
-	defer key.Close()
-	_, _, err = key.GetStringValue(runValueName)
-	return err == nil
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return false
+	}
+	defer s.Close()
+
+	cfg, err := s.Config()
+	if err != nil {
+		return false
+	}
+	return cfg.StartType == mgr.StartAutomatic
 }
 
 func Enable() error {
-	cmd, err := commandLine()
+	// Request UAC elevation to run `--install-service`
+	exe, _, err := LaunchTarget()
 	if err != nil {
 		return err
 	}
-
-	// Unblock the file (remove Mark of the Web) so Windows doesn't show a security
-	// confirmation prompt during automatic launch at login.
-	exe, _, err := LaunchTarget()
-	if err == nil && exe != "" {
+	if exe != "" {
 		_ = os.Remove(exe + ":Zone.Identifier")
 	}
 
-	key, err := openRunKey(registry.SET_VALUE)
-	if err != nil {
-		return err
-	}
-	defer key.Close()
-	return key.SetStringValue(runValueName, cmd)
+	return runElevated(exe, "--install-service")
 }
 
 func Disable() error {
-	key, err := openRunKey(registry.SET_VALUE)
+	exe, _, err := LaunchTarget()
 	if err != nil {
 		return err
 	}
-	defer key.Close()
-	err = key.DeleteValue(runValueName)
-	if err == registry.ErrNotExist {
-		return nil
+	return runElevated(exe, "--uninstall-service")
+}
+
+func runElevated(exe string, args string) error {
+	verbPtr, err := syscall.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
 	}
-	return err
+	filePtr, err := syscall.UTF16PtrFromString(exe)
+	if err != nil {
+		return err
+	}
+	paramsPtr, err := syscall.UTF16PtrFromString(args)
+	if err != nil {
+		return err
+	}
+	dirPtr, err := syscall.UTF16PtrFromString(filepath.Dir(exe))
+	if err != nil {
+		return err
+	}
+
+	ret, _, _ := procShellExecuteW.Call(
+		0,
+		uintptr(unsafe.Pointer(verbPtr)),
+		uintptr(unsafe.Pointer(filePtr)),
+		uintptr(unsafe.Pointer(paramsPtr)),
+		uintptr(unsafe.Pointer(dirPtr)),
+		0, // SW_HIDE
+	)
+	if ret <= 32 {
+		return fmt.Errorf("ShellExecuteW(runas) failed with code %d (the UAC prompt may have been declined)", ret)
+	}
+	return nil
 }
 
 // RefreshX11SessionEnv is a Linux/SDDM-only concept (see its doc comment on

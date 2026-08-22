@@ -6,9 +6,9 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/sirupsen/logrus"
 	"usbridge_agent/internal/app"
 	"usbridge_agent/internal/ui"
-	"github.com/sirupsen/logrus"
 )
 
 // version is injected at build time via -ldflags "-X main.version=...";
@@ -19,12 +19,31 @@ func main() {
 	forceXWaylandIfNeeded()
 
 	headless := flag.Bool("headless", false, "run without a GUI (HTTP server, Sunshine, Tailscale only); a later normal launch attaches a GUI to this instance instead of starting a second one")
+	installService := flag.Bool("install-service", false, "install Windows service (requires elevation)")
+	uninstallService := flag.Bool("uninstall-service", false, "uninstall Windows service (requires elevation)")
 	flag.Parse()
 
 	setupLogging()
 	ui.SetAppVersion(version)
 
-	if err := app.Start(*headless, version); err != nil {
+	if *installService {
+		if err := manageService("install"); err != nil {
+			log.Fatalf("install service: %v", err)
+		}
+		return
+	}
+	if *uninstallService {
+		if err := manageService("uninstall"); err != nil {
+			log.Fatalf("uninstall service: %v", err)
+		}
+		return
+	}
+
+	runMain(*headless)
+}
+
+func doStart(headless bool) {
+	if err := app.Start(headless, version); err != nil {
 		log.Fatalf("start app: %v", err)
 	}
 }
@@ -81,11 +100,11 @@ func setupLogging() {
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.SetOutput(output)
-	
+
 	// Configure logrus to use the same output
 	logrus.SetOutput(output)
 	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
+		FullTimestamp:   true,
 		TimestampFormat: "2006/01/02 15:04:05.000000",
 	})
 
