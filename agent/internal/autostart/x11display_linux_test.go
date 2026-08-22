@@ -80,9 +80,9 @@ func TestParseXrandrOutputs_DisconnectedOutputHasNoModes(t *testing.T) {
 
 func TestParseXrandrResolution(t *testing.T) {
 	cases := []struct {
-		in      string
-		w, h    int
-		wantOk  bool
+		in     string
+		w, h   int
+		wantOk bool
 	}{
 		{"1600x900", 1600, 900, true},
 		{"1920x1080_60.00", 1920, 1080, true},

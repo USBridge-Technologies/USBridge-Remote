@@ -4,6 +4,7 @@ package autostart
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -21,9 +22,13 @@ func commandLine() (string, error) {
 		return "", err
 	}
 	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, fmt.Sprintf("%q", exe))
+	parts = append(parts, fmt.Sprintf("\"%s\"", exe))
 	for _, a := range args {
-		parts = append(parts, fmt.Sprintf("%q", a))
+		if strings.ContainsRune(a, ' ') {
+			parts = append(parts, fmt.Sprintf("\"%s\"", a))
+		} else {
+			parts = append(parts, a)
+		}
 	}
 	return strings.Join(parts, " "), nil
 }
@@ -43,6 +48,14 @@ func Enable() error {
 	if err != nil {
 		return err
 	}
+
+	// Unblock the file (remove Mark of the Web) so Windows doesn't show a security
+	// confirmation prompt during automatic launch at login.
+	exe, _, err := LaunchTarget()
+	if err == nil && exe != "" {
+		_ = os.Remove(exe + ":Zone.Identifier")
+	}
+
 	key, err := openRunKey(registry.SET_VALUE)
 	if err != nil {
 		return err
