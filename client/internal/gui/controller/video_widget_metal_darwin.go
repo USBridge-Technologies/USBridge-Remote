@@ -4,6 +4,7 @@ package controller
 
 import (
 	"image"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,14 +23,23 @@ import (
 // them. This goroutine polls metal_video_next_event at ~250 Hz and dispatches
 // to TouchpadWrapper via fyne.Do — same pattern as Linux X11 / Windows Vulkan.
 
-var metalMouseQuit chan struct{}
-var metalFullscreenWindow fyne.Window
-var metalMouseCheckPending int32 // atomic
+var (
+	metalMouseMu             sync.Mutex
+	metalMouseQuit           chan struct{}
+	metalFullscreenWindow    fyne.Window
+	metalMouseCheckPending   int32 // atomic
+	lastMetalFrameMu         sync.Mutex
+	lastMetalFrameX, lastMetalFrameY float32
+	lastMetalFrameW, lastMetalFrameH float32
+)
 
 func (vw *VideoWidget) startMetalMouseForwarding() {
 	vw.stopMetalMouseForwarding()
+	metalMouseMu.Lock()
 	quit := make(chan struct{})
 	metalMouseQuit = quit
+	metalMouseMu.Unlock()
+
 	logrus.Info("[Metal/Mac] mouse forwarding started")
 	go func() {
 		ticker := time.NewTicker(4 * time.Millisecond) // ~250 Hz
@@ -58,6 +68,8 @@ func (vw *VideoWidget) startMetalMouseForwarding() {
 }
 
 func (vw *VideoWidget) stopMetalMouseForwarding() {
+	metalMouseMu.Lock()
+	defer metalMouseMu.Unlock()
 	if metalMouseQuit != nil {
 		close(metalMouseQuit)
 		metalMouseQuit = nil
@@ -215,11 +227,6 @@ func (vw *VideoWidget) stopMetalVideo() {
 	vw.metalFPSWarned.Store(false)
 }
 
-var (
-	lastMetalFrameX, lastMetalFrameY float32
-	lastMetalFrameW, lastMetalFrameH float32
-)
-
 // updateMetalVideoFrame repositions the Metal overlay to track videoCanvas.
 // Called from updateStats() at 1 Hz to follow window resizes.
 // Also emits a one-shot FPS mismatch warning when Metal FPS < 75% of configured.
@@ -231,8 +238,14 @@ func (vw *VideoWidget) updateMetalVideoFrame() {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if x != lastMetalFrameX || y != lastMetalFrameY || w != lastMetalFrameW || h != lastMetalFrameH {
+	lastMetalFrameMu.Lock()
+	changed := (x != lastMetalFrameX || y != lastMetalFrameY || w != lastMetalFrameW || h != lastMetalFrameH)
+	if changed {
 		lastMetalFrameX, lastMetalFrameY, lastMetalFrameW, lastMetalFrameH = x, y, w, h
+	}
+	lastMetalFrameMu.Unlock()
+
+	if changed {
 		service.MetalVideoUpdateFrame(x, y, w, h)
 	}
 

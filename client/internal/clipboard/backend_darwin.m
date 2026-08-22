@@ -33,6 +33,7 @@ char *clipboard_get_text(void) {
 
 int clipboard_set_text(const char *text) {
     @autoreleasepool {
+        g_lastFileURLs = nil;
         NSString *s = [NSString stringWithUTF8String:text];
         NSPasteboard *pb = [NSPasteboard generalPasteboard];
         [pb clearContents];
@@ -68,6 +69,7 @@ unsigned char *clipboard_get_image_png(size_t *outLen) {
 
 int clipboard_set_image_png(const unsigned char *data, size_t len) {
     @autoreleasepool {
+        g_lastFileURLs = nil;
         NSData *pngData = [NSData dataWithBytes:data length:len];
         NSPasteboard *pb = [NSPasteboard generalPasteboard];
         [pb clearContents];
@@ -111,6 +113,7 @@ char *clipboard_get_file_path(int index) {
 
 int clipboard_set_files(const char **paths, int count) {
     @autoreleasepool {
+        g_lastFileURLs = nil;
         NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:count];
         for (int i = 0; i < count; i++) {
             NSString *p = [NSString stringWithUTF8String:paths[i]];

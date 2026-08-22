@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -435,11 +436,23 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
 	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
-	middleScroll := container.NewHScroll(middleGroup)
+	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
+	// run out of horizontal space for the SD-progress + status readout,
+	// but they're passive indicators, not something worth navigating to --
+	// an HScroll here used to leave a persistent thin scrollbar sitting
+	// right above the video/Control-tab content whenever that happened
+	// (Fyne's scroll-bar-area renders any time content overflows its
+	// viewport, not just on hover/drag -- see internal/widget/scroller.go's
+	// handleAreaVisibility), which read as a stray UI glitch since nobody
+	// was ever meant to actually scroll this row. Clip keeps
+	// mainHeaderBarLayout.Layout's existing width-capping math (below)
+	// working exactly the same way, it just quietly clips whatever
+	// overflows instead of exposing a scrollbar for it.
+	middleClip := container.NewClip(middleGroup)
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
 		mw.pcpanelWidget.GetContainer(),
-		middleScroll,
+		middleClip,
 		rightGroup,
 	)
 	return view.NewHeaderBand("", row)
@@ -669,7 +682,12 @@ func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 
 	leftMin := left.MinSize()
 	rightMin := right.MinSize()
-	centerMin := center.MinSize()
+	// centerMin comes from the wrapped content's own MinSize, not center's
+	// (the Clip wrapper) -- Clip.MinSize() always reports a degenerate
+	// {1,1} since it has no natural size of its own (see container/clip.go),
+	// so using it directly here would collapse both this row's height and
+	// centerY's vertical centering down to that same 1px.
+	centerMin := headerCenterContentMinSize(center)
 
 	leftY := maxFloat32(0, (size.Height-leftMin.Height)/2)
 	left.Move(fyne.NewPos(l.edgeInset, leftY))
@@ -684,11 +702,7 @@ func (l *mainHeaderBarLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	if centerMaxWidth < 0 {
 		centerMaxWidth = 0
 	}
-	centerPrefWidth := centerMin.Width
-	if sc, ok := center.(*container.Scroll); ok && sc.Content != nil {
-		centerPrefWidth = sc.Content.MinSize().Width
-	}
-	centerWidth := minFloat32(centerPrefWidth, centerMaxWidth)
+	centerWidth := minFloat32(centerMin.Width, centerMaxWidth)
 	centerMinX := leftMin.Width + l.edgeInset + l.sideGap
 	centerMaxX := rightX - l.sideGap - centerWidth
 	centerX := maxFloat32(centerMinX, (size.Width-centerWidth)/2)
@@ -706,10 +720,22 @@ func (l *mainHeaderBarLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	}
 
 	leftMin := objects[0].MinSize()
-	centerMin := objects[1].MinSize()
+	centerMin := headerCenterContentMinSize(objects[1])
 	rightMin := objects[2].MinSize()
 	height := maxFloat32(leftMin.Height, maxFloat32(centerMin.Height, rightMin.Height))
 	return fyne.NewSize(leftMin.Width+centerMin.Width+rightMin.Width+l.edgeInset*2+l.sideGap*2, height)
+}
+
+// headerCenterContentMinSize reports the natural size of the header bar's
+// center slot -- unwrapping container.Clip if that's what's actually
+// there (see createMainAddressBar's middleClip) rather than trusting
+// Clip.MinSize() itself, which always degenerates to {1,1} since a Clip
+// has no natural size of its own.
+func headerCenterContentMinSize(center fyne.CanvasObject) fyne.Size {
+	if cl, ok := center.(*container.Clip); ok && cl.Content != nil {
+		return cl.Content.MinSize()
+	}
+	return center.MinSize()
 }
 
 func (l *exitStatusOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -1053,6 +1079,11 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.snapshotIcon.Importance = widget.LowImportance
 	mw.snapshotIcon.Hide()
+	mw.scriptIcon = widget.NewButtonWithIcon("", fynetheme.MediaPlayIcon(), func() {
+		mw.showScriptRunningMenu()
+	})
+	mw.scriptIcon.Importance = widget.LowImportance
+	mw.scriptIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
@@ -1065,6 +1096,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		mw.rndisIcon,
 		mw.gamepadIcon,
 		mw.snapshotIcon,
+		mw.scriptIcon,
 	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
@@ -1109,7 +1141,7 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton, scriptButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
 		captureButton,
@@ -1120,6 +1152,7 @@ func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cd
 		rndisButton,
 		gamepadButton,
 		snapshotButton,
+		scriptButton,
 	}
 }
 
@@ -1211,6 +1244,29 @@ func (mw *MainWindow) updateStatusBar() {
 			audioStreaming = info.Streaming
 		}
 		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming)
+
+		if scriptStatuses, err := client.GetScriptStatus(); err == nil {
+			var runningPath, runningName string
+			for _, st := range scriptStatuses {
+				if st.Running {
+					runningPath = st.Path
+					runningName = filepath.Base(st.Path)
+					break
+				}
+			}
+			fyne.Do(func() {
+				mw.runningScriptPath = runningPath
+				mw.runningScriptName = runningName
+				if mw.scriptIcon != nil {
+					if runningPath != "" {
+						mw.scriptIcon.Show()
+					} else {
+						mw.scriptIcon.Hide()
+					}
+					mw.scriptIcon.Refresh()
+				}
+			})
+		}
 
 		// Fetch detailed storage status
 		storageStatus, err := client.GetStorageStatus()
@@ -1564,6 +1620,38 @@ func (mw *MainWindow) showRNDISModeMenu() {
 	}
 
 	view.ShowStyledMenu(mw.rndisIcon, items)
+}
+
+func (mw *MainWindow) showScriptRunningMenu() {
+	if mw.scriptIcon == nil || mw.runningScriptPath == "" {
+		return
+	}
+
+	scriptPath := mw.runningScriptPath
+	scriptName := mw.runningScriptName
+
+	items := []view.StyledMenuItem{
+		{
+			Label: "Stop Script",
+			OnTap: func() {
+				if mw.usbClient != nil {
+					go func() {
+						if err := mw.usbClient.StopScript(scriptPath); err != nil {
+							view.ShowErrorDialog(err, mw.window)
+						}
+					}()
+				}
+			},
+		},
+		{
+			Label: "Log",
+			OnTap: func() {
+				view.ShowScriptLogDialog(mw.window, mw.usbClient, scriptPath, scriptName)
+			},
+		},
+	}
+
+	view.ShowStyledMenu(mw.scriptIcon, items)
 }
 
 func protocolButtonState(protocol string) (string, color.Color, color.Color) {

@@ -134,6 +134,7 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	if event == nil {
 		return
 	}
+	
 	logrus.Debugf("⌨️ [INPUT][DOWN] key=%q physical=%+v", event.Name, event.Physical)
 	if mask := modifierMaskForKeyName(event.Name); mask != 0 {
 		for {
@@ -153,6 +154,9 @@ func (vw *VideoWidget) handlePhysicalKeyDown(event *fyne.KeyEvent) {
 	}
 	if mi := vw.moonlightInput(); mi != nil {
 		if vkCode := moonlightVKCode(event); vkCode != 0 {
+			if vkCode == 0x0D {
+				logrus.Infof("⌨️ [INPUT][ENTER] sending VK_RETURN (0x0D) to Moonlight (key=%q, scan=%d)", event.Name, event.Physical.ScanCode)
+			}
 			mods := widgetToMoonlightModifiers(vw.currentHIDModifiers())
 			if vw.moonlightTrackKeyDown(vkCode) {
 				// Fyne dropped the preceding KeyUp — key is stuck on the remote.
@@ -209,6 +213,12 @@ func (vw *VideoWidget) handlePhysicalKeyUp(event *fyne.KeyEvent) {
 // with no Ctrl/Alt/Super held: those are shortcuts, and Fyne doesn't fire
 // TypedRune for them anyway, so they must keep going through the VK path.
 func isTextRoutedKeystroke(event *fyne.KeyEvent, hidModifiers int) bool {
+	// Never route special control keys as text, even if their OS scancode happens to fall
+	// into the character scancode ranges (which is the case on macOS).
+	if event.Name == fyne.KeyReturn || event.Name == fyne.KeyEnter || event.Name == fyne.KeyTab || event.Name == fyne.KeyBackspace || event.Name == fyne.KeyEscape || event.Name == fyne.KeyUp || event.Name == fyne.KeyDown || event.Name == fyne.KeyLeft || event.Name == fyne.KeyRight || event.Name == fyne.KeyDelete {
+		return false
+	}
+
 	const ctrlAltSuperMask = 1 | 4 | 8 // widget bitmask: Ctrl=1, Alt=4, Super=8 (Shift=2 excluded on purpose)
 	if hidModifiers&ctrlAltSuperMask != 0 {
 		return false
@@ -245,6 +255,10 @@ func isCharacterScanCode(scanCode int) bool {
 // Ukrainian, etc.) where GLFW returns KeyUnknown as the key name but still reports
 // the correct PS/2 scan code for the physical key position.
 func moonlightVKCode(event *fyne.KeyEvent) int16 {
+	keyStr := strings.ToLower(string(event.Name))
+	if keyStr == "return" || keyStr == "enter" || keyStr == "keyenter" || event.Physical.ScanCode == 0x1C || event.Physical.ScanCode == 0x11C {
+		return 0x0D // VK_RETURN
+	}
 	if vk := input.GetVKCode(event.Name); vk != 0 {
 		return vk
 	}

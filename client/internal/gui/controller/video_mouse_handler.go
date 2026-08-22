@@ -1457,6 +1457,7 @@ func (t *TouchpadWrapper) DragEnd() {
 // TypedKey handles a key press
 // On macOS Canvas.SetOnTypedKey is unreliable, so we forward via the focused widget
 func (t *TouchpadWrapper) TypedKey(key *fyne.KeyEvent) {
+	logrus.Infof("TouchpadWrapper.TypedKey: %v", key)
 	if key != nil && key.Name == fyne.KeyF11 && t.videoWidget != nil && t.videoWidget.isStreaming {
 		logrus.Info("⌨️ [TOUCHPAD][PRESS] opening fullscreen")
 		t.videoWidget.ShowFullscreen()
@@ -1475,12 +1476,14 @@ func (t *TouchpadWrapper) TypedRune(r rune) {
 }
 
 func (t *TouchpadWrapper) KeyDown(key *fyne.KeyEvent) {
+	logrus.Infof("TouchpadWrapper.KeyDown: %v", key)
 	if t.onKeyDown != nil {
 		t.onKeyDown(key)
 	}
 }
 
 func (t *TouchpadWrapper) KeyUp(key *fyne.KeyEvent) {
+	logrus.Infof("TouchpadWrapper.KeyUp: %v", key)
 	if t.onKeyUp != nil {
 		t.onKeyUp(key)
 	}
@@ -1513,4 +1516,9 @@ func clamp(value, min, max int) int {
 		return max
 	}
 	return value
+}
+
+// AcceptsTab returns true so Fyne's focus manager doesn't steal the Tab key.
+func (t *TouchpadWrapper) AcceptsTab() bool {
+	return true
 }

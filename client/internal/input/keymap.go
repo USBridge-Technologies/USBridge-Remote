@@ -74,7 +74,7 @@ func GetKeyCode(keyName fyne.KeyName) int {
 		fyne.Key1: 30, fyne.Key2: 31, fyne.Key3: 32, fyne.Key4: 33, fyne.Key5: 34,
 		fyne.Key6: 35, fyne.Key7: 36, fyne.Key8: 37, fyne.Key9: 38, fyne.Key0: 39,
 
-		fyne.KeyReturn: 40, fyne.KeyEscape: 41, fyne.KeyBackspace: 42, fyne.KeyTab: 43, fyne.KeySpace: 44,
+		fyne.KeyReturn: 40, fyne.KeyName("Enter"): 40, fyne.KeyName("KeyEnter"): 40, fyne.KeyEscape: 41, fyne.KeyBackspace: 42, fyne.KeyTab: 43, fyne.KeySpace: 44,
 		fyne.KeyMinus: 45, fyne.KeyEqual: 46, fyne.KeyLeftBracket: 47, fyne.KeyRightBracket: 48,
 		fyne.KeyBackslash: 49, fyne.KeySemicolon: 51, fyne.KeyApostrophe: 52, fyne.KeyBackTick: 53,
 		fyne.KeyComma: 54, fyne.KeyPeriod: 55, fyne.KeySlash: 56,
@@ -207,6 +207,8 @@ func GetVKCodeFromScanCode(scanCode int) int16 {
 		return 0xBE // . (VK_OEM_PERIOD)
 	case 0x35:
 		return 0xBF // / (VK_OEM_2)
+	case 0x1C, 0x11C:
+		return 0x0D // Enter / Return (VK_RETURN)
 	// Extended: navigation cluster (scan + 0x100)
 	case 0x147:
 		return 0x24 // Home
@@ -274,6 +276,8 @@ func GetVKCode(keyName fyne.KeyName) int16 {
 		fyne.Key5: 0x35, fyne.Key6: 0x36, fyne.Key7: 0x37, fyne.Key8: 0x38, fyne.Key9: 0x39,
 
 		fyne.KeyReturn:    0x0D,
+		fyne.KeyName("Enter"): 0x0D,
+		fyne.KeyName("KeyEnter"): 0x0D,
 		fyne.KeyEscape:    0x1B,
 		fyne.KeyBackspace: 0x08,
 		fyne.KeyTab:       0x09,

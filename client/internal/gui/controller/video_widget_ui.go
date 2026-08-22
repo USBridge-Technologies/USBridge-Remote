@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -343,6 +344,16 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 			break
 		}
 		logrus.Warnf("⚠️ Moonlight ConnectToMoonlight failed (attempt %d/20): %v", attempt, connectErr)
+		// errors.Is(connectErr, service.ErrStreamerUnsupportedWebRTC): the
+		// agent answered and is simply running Sunshine, which has no
+		// WebRTC support at all -- retrying another 19 times 500ms apart
+		// (originally here to give Sunshine time to bind its RTSP port on
+		// a fresh launch) can't ever change that outcome, so stop
+		// immediately instead of leaving the user staring at a blank
+		// Control tab for ~10s before the same message finally appears.
+		if errors.Is(connectErr, service.ErrStreamerUnsupportedWebRTC) {
+			break
+		}
 		if attempt < 20 {
 			time.Sleep(500 * time.Millisecond) // Give Sunshine time to bind port 47989
 		}
@@ -360,6 +371,10 @@ func (vw *VideoWidget) startVideoWithParamsInternal(request *models.VideoStartRe
 		go func() { <-hidDone }() // drain so the goroutine can exit
 		fyne.Do(func() {
 			if vw.statusLabel != nil {
+				if errors.Is(connectErr, service.ErrStreamerUnsupportedWebRTC) {
+					vw.statusLabel.SetText("❌ " + i18n.Current.ErrorSunshineNoWebRTC)
+					return
+				}
 				vw.statusLabel.SetText(fmt.Sprintf("❌ %v", connectErr))
 			}
 		})
