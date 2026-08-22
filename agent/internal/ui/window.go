@@ -648,8 +648,9 @@ func (w *Window) ShowAndRun(onClose func()) {
 				w.performRefresh()
 				return
 			}
-
-			w.awaitingLocalLogin.Store(true)
+			if !w.awaitingLocalLogin.CompareAndSwap(false, true) {
+				return
+			}
 			fyne.Do(func() { w.setTailscaleInfo("starting login flow...", "", "") })
 			authURL, err := w.ts.StartLogin(ctx)
 			if err != nil {
