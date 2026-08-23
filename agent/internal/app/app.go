@@ -164,7 +164,6 @@ func runThinClientGUI(client *adminapi.Client) error {
 
 	restoreXWayland := forceXWaylandForGUI()
 	fyneApp := fyneapp.NewWithID("io.usbridge.agent")
-	restoreXWayland()
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
 
@@ -182,7 +181,9 @@ func runThinClientGUI(client *adminapi.Client) error {
 	// to notice and pick up the change.
 	localPerms := permissions.New()
 	token := &thinClientToken{Client: client, perms: localPerms}
-	ui.NewWindow(fyneApp, cfg, localPerms, client, token).ShowAndRun(func() {
+	win := ui.NewWindow(fyneApp, cfg, localPerms, client, token)
+	win.SetAfterWindowCreated(restoreXWayland)
+	win.ShowAndRun(func() {
 		client.Close()
 	})
 	return nil
@@ -407,13 +408,13 @@ func (a *App) Run(headless bool) error {
 
 	restoreXWayland := forceXWaylandForGUI()
 	a.fyneApp = fyneapp.NewWithID("io.usbridge.agent")
-	restoreXWayland()
 	a.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	a.fyneApp.SetIcon(assets.AppIcon)
 
 	go a.handleShutdown(ctx, cancel)
 	win := ui.NewWindow(a.fyneApp, a.cfg, a.perms, a.ts, a)
 	win.SetOwnsEngine(true)
+	win.SetAfterWindowCreated(restoreXWayland)
 	win.ShowAndRun(cancel)
 	return nil
 }

@@ -187,6 +187,10 @@ type Window struct {
 	// process without ever touching the separate headless instance that's
 	// actually running, so it's not offered there. Set via SetOwnsEngine.
 	ownsEngine bool
+
+	// afterWindowCreated, if set, runs immediately after ShowAndRun creates
+	// the native window (w.app.NewWindow below) -- see SetAfterWindowCreated.
+	afterWindowCreated func()
 }
 
 // SetOwnsEngine marks this window as backed by an engine this same process
@@ -194,6 +198,23 @@ type Window struct {
 // field doc for why this matters.
 func (w *Window) SetOwnsEngine(owns bool) {
 	w.ownsEngine = owns
+}
+
+// SetAfterWindowCreated registers fn to run right after ShowAndRun creates
+// the actual native window (GLFW's CreateWindow, via w.app.NewWindow) --
+// not at NewWindow/NewApp time, which is too early. Linux's
+// forceXWaylandForGUI (see internal/app) needs WAYLAND_DISPLAY cleared all
+// the way through that native creation call, not just through the earlier
+// fyne.App constructor: GLFW's native-Wayland backend queries the window's
+// content scale at *surface* creation time, which happens here, inside
+// ShowAndRun, in a different package than where the app is constructed --
+// restoring the env var too early (right after app.New) left it back to
+// its real value by the time this window actually gets created, silently
+// reintroducing the stale-content-scale/mismatched-click-hit-testing bug
+// forceXWaylandForGUI exists to prevent (confirmed live: a Screen Capture
+// "Request" button that visually released without registering the click).
+func (w *Window) SetAfterWindowCreated(fn func()) {
+	w.afterWindowCreated = fn
 }
 
 type uiStatus struct {
@@ -323,6 +344,9 @@ func (w *Window) refreshClipboardToolUI() {
 
 func (w *Window) ShowAndRun(onClose func()) {
 	win := w.app.NewWindow("USBridge Agent")
+	if w.afterWindowCreated != nil {
+		w.afterWindowCreated()
+	}
 	win.SetPadded(false)
 	win.Resize(fyne.NewSize(640, 400))
 	win.CenterOnScreen()

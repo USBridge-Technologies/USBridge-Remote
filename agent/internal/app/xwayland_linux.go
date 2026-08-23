@@ -26,10 +26,21 @@ import "os"
 // --headless mode, which never touches Fyne/GLFW at all and so gained
 // nothing from the unset.
 //
-// Scoping the clear tightly around the one call that actually needs it (the
-// Fyne app constructor, where GLFW's driver bootstraps and picks a
-// platform) avoids all of that: every other subsystem, running before or
-// after this narrow window, still sees the real value.
+// Scoping the clear around only GUI creation -- not the whole process --
+// avoids all of that. Callers must NOT call the returned restore() right
+// after the fyne.App constructor, though: GLFW queries the window's
+// content scale at *window* (surface) creation time, inside
+// ui.Window.ShowAndRun's w.app.NewWindow call, not at app-constructor time.
+// Confirmed live the hard way: restoring right after fyneapp.NewWithID left
+// WAYLAND_DISPLAY back to its real value well before ShowAndRun ever ran,
+// so the window still picked up native Wayland and hit the stale-scale bug
+// anyway -- symptom was mouse clicks silently landing on the wrong widget
+// (a Screen Capture "Request" button that visually released without its
+// handler ever firing -- confirmed by the total absence of its own
+// unconditional log line). Callers must instead pass restore to
+// Window.SetAfterWindowCreated, which ShowAndRun calls immediately after
+// creating the real window, keeping WAYLAND_DISPLAY cleared across the
+// whole app-constructor-through-window-creation span.
 func forceXWaylandForGUI() (restore func()) {
 	orig, had := os.LookupEnv("WAYLAND_DISPLAY")
 	os.Unsetenv("WAYLAND_DISPLAY")
