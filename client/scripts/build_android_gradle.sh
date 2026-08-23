@@ -106,7 +106,7 @@ if [ "$NEED_TAILSCALE" -eq 1 ]; then
         export GOARCH=arm64
         export CGO_ENABLED=1
 
-        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
+        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray,ts_omit_ssh"
 
         # -linkmode=external forces the NDK's own linker (lld, via CC) to
         # do the final link instead of Go's internal linker -- required
