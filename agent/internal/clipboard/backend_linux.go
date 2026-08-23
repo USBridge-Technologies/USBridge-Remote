@@ -79,7 +79,23 @@ func (t xclipTool) targetsHash(ctx context.Context) (string, error) {
 		// that's a normal state, not a failure worth surfacing.
 		return "", nil
 	}
-	return hashBytes(out), nil
+	// TARGETS alone lists *type names* (TEXT, STRING, UTF8_STRING, ...),
+	// which stay byte-for-byte identical across any two plain-text copies
+	// -- confirmed live: copying "AAAA" then "BBBBBBBB" produced the exact
+	// same TARGETS hash both times, so the poll loop's stamp!=lastStamp
+	// check never fired for the second copy, silently dropping every
+	// same-kind clipboard change after the first. Folding the actual text
+	// in fixes this for text (cheap: same one extra `xclip -o` call
+	// getText already needs) without needing a real per-change sequence
+	// number, which X11 selections don't expose. Deliberately NOT doing
+	// the equivalent for images/files here: that would mean reading the
+	// full image/file bytes on every ~800ms poll tick just to fingerprint
+	// them, which manager.go's ChangeStamp contract explicitly calls out
+	// as required to stay cheap -- a second same-kind image/file copy can
+	// still go undetected, a narrower, lower-frequency version of the same
+	// class of bug, not covered by this fix.
+	text, _, _ := t.getText(ctx)
+	return hashBytes(append(append([]byte{}, out...), []byte("|"+text)...)), nil
 }
 
 func (t xclipTool) getText(ctx context.Context) (string, bool, error) {
@@ -119,7 +135,13 @@ func (t wlTool) targetsHash(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	return hashBytes(out), nil
+	// See xclipTool.targetsHash's doc comment: --list-types alone is just
+	// the offered MIME type names, identical across any two plain-text
+	// copies (confirmed live the same way: "wl-paste --list-types" hashed
+	// identically for two different texts), so folding in the actual text
+	// is needed for the poll loop to ever notice a second text change.
+	text, _, _ := t.getText(ctx)
+	return hashBytes(append(append([]byte{}, out...), []byte("|"+text)...)), nil
 }
 
 func (t wlTool) getText(ctx context.Context) (string, bool, error) {
