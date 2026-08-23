@@ -77,6 +77,13 @@ type PermsProvider interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+
+	// ClipboardToolAvailable/RequestClipboardTool: Linux only (a CLI
+	// clipboard helper -- xclip/wl-clipboard/xsel -- is what clipboard sync
+	// actually shells out to there, see internal/clipboard/backend_linux.go);
+	// every other platform's implementation just returns true/true.
+	ClipboardToolAvailable() bool
+	RequestClipboardTool() bool
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -127,6 +134,14 @@ type Window struct {
 	screenCaptureLabel  *widget.Label
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
+
+	// clipboardToolRow: Linux only, shown only while no CLI clipboard helper
+	// (xclip/wl-clipboard/xsel) is installed -- see
+	// permissions.RequestClipboardTool. Hidden entirely (not just the
+	// button) once one is found, since there's nothing actionable left to
+	// show once clipboard sync just works.
+	clipboardToolRow *fyne.Container
+	clipboardToolBtn *widget.Button
 
 	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
 	moonlightBtn *widget.Button
@@ -281,6 +296,21 @@ func (w *Window) refreshScreenCaptureUI() {
 		if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.screenCaptureBtn != nil {
 			w.screenCaptureBtn.Show()
 		}
+	}
+}
+
+// refreshClipboardToolUI hides the whole clipboard-tool row (not just its
+// button) once a CLI clipboard helper is found -- there's nothing left to
+// act on at that point, unlike the Accessibility/Screen Capture rows above
+// which keep showing a ✅/❌ status permanently.
+func (w *Window) refreshClipboardToolUI() {
+	if w.clipboardToolRow == nil || w.perms == nil {
+		return
+	}
+	if w.perms.ClipboardToolAvailable() {
+		w.clipboardToolRow.Hide()
+	} else {
+		w.clipboardToolRow.Show()
 	}
 }
 
@@ -490,6 +520,38 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	gpuClockRow := container.NewHBox(widget.NewLabel("Lock GPU Clocks"), layout.NewSpacer(), w.gpuClockCheck)
 
+	// Clipboard sync (Linux only): internal/clipboard's Linux backend shells
+	// out to xclip/wl-clipboard/xsel, none of which every distro ships by
+	// default (confirmed live: a Debian machine with wl-clipboard installed
+	// but not xclip still failed every clipboard apply until one was
+	// present). Offer a one-click pkexec install instead of a silent,
+	// permanent "no clipboard tool available" failure the user has no way
+	// to self-diagnose from this UI.
+	w.clipboardToolBtn = widget.NewButton("Install", func() {
+		if w.perms == nil {
+			return
+		}
+		w.clipboardToolBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.clipboardToolBtn != nil {
+					w.clipboardToolBtn.Enable()
+				}
+			})
+			granted := w.perms.RequestClipboardTool()
+			if !granted {
+				if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+					if msg := e.LastAccessibilityError(); msg != "" {
+						fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+					}
+				}
+			}
+			fyne.Do(w.refreshClipboardToolUI)
+		}()
+	})
+	w.clipboardToolBtn.Importance = widget.HighImportance
+	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool (xclip)"), layout.NewSpacer(), w.clipboardToolBtn)
+
 	var permRows []fyne.CanvasObject
 	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
@@ -502,6 +564,10 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	if gpuClockSupported {
 		permRows = append(permRows, gpuClockRow)
+	}
+	if runtime.GOOS == "linux" {
+		permRows = append(permRows, w.clipboardToolRow)
+		w.refreshClipboardToolUI()
 	}
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
@@ -1120,6 +1186,7 @@ func (w *Window) performRefresh() {
 				w.moonlightBtn.SetText(fmt.Sprintf("%d", status.moonlightCount))
 			}
 			w.refreshScreenCaptureUI()
+			w.refreshClipboardToolUI()
 			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenCaptureLabel != nil {
 				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenCaptureLabel.Text))
 			}

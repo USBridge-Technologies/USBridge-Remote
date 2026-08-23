@@ -162,7 +162,9 @@ func runThinClientGUI(client *adminapi.Client) error {
 		return fmt.Errorf("fetch config from running instance: %w", err)
 	}
 
+	restoreXWayland := forceXWaylandForGUI()
 	fyneApp := fyneapp.NewWithID("io.usbridge.agent")
+	restoreXWayland()
 	fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	fyneApp.SetIcon(assets.AppIcon)
 
@@ -403,7 +405,9 @@ func (a *App) Run(headless bool) error {
 		return nil
 	}
 
+	restoreXWayland := forceXWaylandForGUI()
 	a.fyneApp = fyneapp.NewWithID("io.usbridge.agent")
+	restoreXWayland()
 	a.fyneApp.Settings().SetTheme(design.NewBrandTheme())
 	a.fyneApp.SetIcon(assets.AppIcon)
 

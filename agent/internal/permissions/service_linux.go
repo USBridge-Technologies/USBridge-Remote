@@ -222,6 +222,154 @@ func (s *Service) RequestMissing()                    {}
 func (s *Service) OpenPrivacySettings() error         { return nil }
 func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
+// clipboardToolFound reports whether a CLI clipboard helper
+// internal/clipboard's Linux backend knows how to drive is installed --
+// mirrors detect()'s preference order there (wl-clipboard needs both
+// halves present; xclip and xsel are single binaries).
+func clipboardToolFound() bool {
+	if _, err := exec.LookPath("wl-copy"); err == nil {
+		if _, err := exec.LookPath("wl-paste"); err == nil {
+			return true
+		}
+	}
+	if _, err := exec.LookPath("xclip"); err == nil {
+		return true
+	}
+	if _, err := exec.LookPath("xsel"); err == nil {
+		return true
+	}
+	return false
+}
+
+// ClipboardToolAvailable reports whether clipboard sync has a working CLI
+// helper to shell out to. Wayland sessions typically ship wl-clipboard
+// preinstalled, but plenty of X11/XWayland desktops -- this project's own
+// Debian test machine included -- ship neither xclip nor xsel by default,
+// which silently and permanently disables clipboard sync (both directions)
+// until one is installed: confirmed live via
+// "clipboard: no clipboard tool available" on every apply.
+func (s *Service) ClipboardToolAvailable() bool {
+	return clipboardToolFound()
+}
+
+// pkgManager describes one Linux package manager capable of installing
+// xclip -- the package is named "xclip" identically across every one of
+// these, unlike e.g. wl-clipboard (wl-clipboard vs wl-clipboard-x11 vs
+// clipboard depending on distro), which is why RequestClipboardTool always
+// installs xclip specifically rather than trying to pick per-distro.
+type pkgManager struct {
+	name string
+	// probe is the binary whose presence on PATH identifies this manager.
+	probe string
+	// script is run as root (via pkexec /bin/sh -c) to install xclip
+	// non-interactively. Checked/ordered so a system with more than one
+	// manager installed (e.g. Debian derivatives sometimes carry a leftover
+	// snap/flatpak-only pacman shim) still picks its *actual* one first.
+	script string
+}
+
+// pkgManagers covers every package manager on the popular Linux desktop
+// distro families: apt (Debian/Ubuntu/Mint/Pop!_OS), dnf (Fedora/RHEL 8+/
+// Rocky/Alma), yum (older RHEL/CentOS 7), pacman (Arch/Manjaro/EndeavourOS),
+// zypper (openSUSE), apk (Alpine).
+var pkgManagers = []pkgManager{
+	{
+		name:  "apt",
+		probe: "apt-get",
+		// apt-get update first: a fresh install/container image commonly
+		// has an empty or stale package index, which makes a bare
+		// "apt-get install" fail with "Unable to locate package" even
+		// though xclip is really available -- confirmed the failure mode
+		// this project's own fresh Debian netinst hits. -qq keeps the
+		// pkexec output free of the (harmless but noisy) progress bars.
+		script: "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " +
+			"DEBIAN_FRONTEND=noninteractive apt-get install -y xclip",
+	},
+	{name: "dnf", probe: "dnf", script: "dnf install -y xclip"},
+	{name: "yum", probe: "yum", script: "yum install -y xclip"},
+	// -Sy (not plain -S): like apt above, pacman needs its local sync
+	// database refreshed first or a perfectly valid package name can come
+	// back "target not found" on a system that hasn't run pacman -Sy
+	// recently (containers, minimal installs).
+	{name: "pacman", probe: "pacman", script: "pacman -Sy --noconfirm xclip"},
+	{name: "zypper", probe: "zypper", script: "zypper --non-interactive install xclip"},
+	{name: "apk", probe: "apk", script: "apk add --no-cache xclip"},
+}
+
+// detectPkgManager returns the first package manager from pkgManagers whose
+// probe binary is on PATH, or nil if none of them are (an unsupported/
+// exotic distro, or a minimal container image with no package manager at
+// all).
+func detectPkgManager() *pkgManager {
+	return detectPkgManagerWith(exec.LookPath)
+}
+
+// detectPkgManagerWith is detectPkgManager with its PATH lookup injected, so
+// the distro-selection logic (order, first-match) is testable without
+// depending on which package managers happen to be installed on whatever
+// machine runs `go test`.
+func detectPkgManagerWith(lookPath func(string) (string, error)) *pkgManager {
+	for i := range pkgManagers {
+		if _, err := lookPath(pkgManagers[i].probe); err == nil {
+			return &pkgManagers[i]
+		}
+	}
+	return nil
+}
+
+// RequestClipboardTool installs xclip via pkexec, using whichever package
+// manager this distro actually has (see pkgManagers) -- the same pkexec
+// pattern as RequestAccessibility. xclip specifically (not wl-clipboard):
+// it talks to the X11 clipboard selection directly, which XWayland bridges
+// to the native Wayland clipboard on every compositor this app realistically
+// runs under, so it's the one no-extra-config choice that fixes clipboard
+// sync regardless of which desktop this button gets clicked on.
+func (s *Service) RequestClipboardTool() bool {
+	s.lastAccessErr = ""
+	if clipboardToolFound() {
+		return true
+	}
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		s.lastAccessErr = "pkexec is not installed. Install xclip manually instead, e.g.:\n" +
+			"  su -c 'apt install xclip -y'   (Debian/Ubuntu)\n" +
+			"  su -c 'dnf install -y xclip'   (Fedora/RHEL)\n" +
+			"  su -c 'pacman -S xclip'        (Arch)"
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
+	pm := detectPkgManager()
+	if pm == nil {
+		s.lastAccessErr = "no supported package manager found (looked for apt, dnf, yum, pacman, " +
+			"zypper, apk). Install xclip manually for this distro."
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", pm.script)
+	out, err := cmd.CombinedOutput()
+	log.Printf("[permissions] install xclip via %s pkexec exit=%v output=%q", pm.name, err, string(out))
+	if err != nil {
+		switch {
+		case strings.Contains(string(out), "No authentication agent found"):
+			s.lastAccessErr = "no polkit authentication agent is running for this session " +
+				"(pkexec needs one to prompt for the password). Log into a full desktop " +
+				"session and make sure its polkit agent is running, then retry."
+		case strings.Contains(err.Error(), "exit status 126"):
+			s.lastAccessErr = "authentication was cancelled or dismissed. Click Install again and approve the prompt."
+		default:
+			s.lastAccessErr = fmt.Sprintf("xclip install via %s failed: %v (%s)", pm.name, err, strings.TrimSpace(string(out)))
+		}
+		return false
+	}
+
+	granted := clipboardToolFound()
+	if !granted {
+		s.lastAccessErr = fmt.Sprintf("%s reported success but xclip still isn't on PATH; try again or install manually.", pm.name)
+	}
+	return granted
+}
+
 // findCapTool resolves getcap/setcap to an absolute path. Both live in
 // /usr/sbin (libcap2-bin), which many non-login shells -- and pkexec's own
 // sanitized environment -- don't include in PATH, so a bare exec.LookPath

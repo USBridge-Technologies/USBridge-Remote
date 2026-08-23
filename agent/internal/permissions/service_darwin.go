@@ -141,6 +141,13 @@ func (s *Service) OpenScreenRecordingSettings() error {
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
 
+// ClipboardToolAvailable/RequestClipboardTool are Linux-only (a CLI
+// clipboard helper is only needed there -- see service_linux.go); macOS
+// clipboard sync talks to NSPasteboard directly, so there's nothing to
+// install.
+func (s *Service) ClipboardToolAvailable() bool { return true }
+func (s *Service) RequestClipboardTool() bool   { return true }
+
 // GPU clock locking is Windows-only (NVML clock lock via an elevated
 // gamestream-server --gpu-clock-lock-daemon helper -- see
 // service_windows.go's own docs); not applicable on macOS.

@@ -24,6 +24,12 @@ func (s *Service) OpenScreenRecordingSettings() error    { return nil }
 func (s *Service) KMSCaptureGranted(binPath string) bool { return false }
 func (s *Service) RequestKMSCapture(binPath string) bool { return false }
 
+// ClipboardToolAvailable/RequestClipboardTool are Linux-only -- see
+// service_linux.go; Windows clipboard sync talks to the Win32 clipboard
+// API directly, so there's nothing to install.
+func (s *Service) ClipboardToolAvailable() bool { return true }
+func (s *Service) RequestClipboardTool() bool   { return true }
+
 // GPUClockLockSupported is always true on Windows -- whether it actually
 // *works* on a given machine depends on having an NVIDIA GPU and a driver
 // new enough for NVML's clock-lock calls, which

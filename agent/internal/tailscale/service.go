@@ -241,6 +241,26 @@ func (s *Service) StartLogin(ctx context.Context) (string, error) {
 // payload carries a pre-issued auth key. With an empty authKey it behaves
 // like StartLogin, triggering an interactive login and returning the AuthURL
 // for the caller (a remote client) to open in a browser.
+//
+// When the node is already logged in and Running, an empty-authKey call is a
+// no-op that just returns the current status instead of touching login state
+// at all. Without this short-circuit, /api/auth/sync's TailscaleRegister path
+// (see api/sync.go) calls this on every client reconnect regardless of
+// whether Tailscale is already up -- and lc.Start + StartLoginInteractive on
+// an already-Running backend isn't a harmless no-op on tsnet's side: it can
+// interrupt the backend's in-flight control-plane cycle ("context canceled"
+// fetching the control key) and, once in that state, tsnet decides the node
+// needs to re-register from scratch and generates a *brand new node key* --
+// confirmed live: RegisterReq logging a fresh node key mid-session, followed
+// by the connected client's WireGuard endpoint spending the next couple
+// minutes silently retrying handshakes against the now-stale old key
+// ("Handshake did not complete after 5 seconds, retrying") because nothing
+// told it the peer's identity just changed underneath it. From the outside
+// that looks exactly like the agent hanging or losing connectivity after a
+// few connect/disconnect cycles, even though the process itself is fine.
+// An explicit authKey still always goes through Start (a caller passing one
+// means they intend an unattended re-register, e.g. a fresh auth key from
+// the sync payload), and this only short-circuits the no-authKey path.
 func (s *Service) Register(ctx context.Context, authKey, hostname string) (*Status, error) {
 	srv, err := s.Server()
 	if err != nil {
@@ -250,13 +270,18 @@ func (s *Service) Register(ctx context.Context, authKey, hostname string) (*Stat
 	if hostname != "" {
 		srv.Hostname = hostname
 	}
+	authKey = strings.TrimSpace(authKey)
+
+	if status, err := s.Status(ctx); err == nil && status != nil && skipRegister(authKey, status) {
+		return status, nil
+	}
 
 	lc, err := srv.LocalClient()
 	if err != nil {
 		return nil, err
 	}
 
-	opts := ipn.Options{AuthKey: strings.TrimSpace(authKey)}
+	opts := ipn.Options{AuthKey: authKey}
 	if hostname != "" {
 		opts.UpdatePrefs = &ipn.Prefs{Hostname: hostname, WantRunning: true}
 	}
@@ -264,7 +289,7 @@ func (s *Service) Register(ctx context.Context, authKey, hostname string) (*Stat
 		return nil, fmt.Errorf("tsnet start: %w", err)
 	}
 
-	if strings.TrimSpace(authKey) == "" {
+	if authKey == "" {
 		// No auth key: fall back to interactive login so the caller gets an AuthURL.
 		if _, err := s.StartLogin(ctx); err != nil {
 			logrus.Warnf("⚠️ [Tailscale] register: interactive login failed: %v", err)
@@ -272,6 +297,17 @@ func (s *Service) Register(ctx context.Context, authKey, hostname string) (*Stat
 	}
 
 	return s.Status(ctx)
+}
+
+// skipRegister reports whether Register can skip touching login state
+// entirely and just hand back the current status. Only applies to the
+// no-authKey (interactive) path: an explicit authKey is the caller
+// deliberately asking for an unattended re-register (e.g. a fresh key from
+// the sync payload), which must always go through regardless of current
+// state. See Register's doc comment for why re-running Start/StartLogin on
+// an already-Running node is unsafe rather than merely redundant.
+func skipRegister(authKey string, status *Status) bool {
+	return authKey == "" && status.LoggedIn && status.Running
 }
 
 func (s *Service) Logout(ctx context.Context) error {
