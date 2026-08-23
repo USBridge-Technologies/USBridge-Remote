@@ -276,23 +276,41 @@ var pkgManagers = []pkgManager{
 	{
 		name:  "apt",
 		probe: "apt-get",
-		// apt-get update first: a fresh install/container image commonly
-		// has an empty or stale package index, which makes a bare
-		// "apt-get install" fail with "Unable to locate package" even
-		// though xclip is really available -- confirmed the failure mode
-		// this project's own fresh Debian netinst hits. -qq keeps the
-		// pkexec output free of the (harmless but noisy) progress bars.
-		script: "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " +
-			"DEBIAN_FRONTEND=noninteractive apt-get install -y xclip",
+		// Try the install straight away first -- on any system that's ever
+		// run "apt update" before (i.e. virtually every real desktop, as
+		// opposed to a brand new container image), the local package index
+		// already has xclip in it, so this alone succeeds without touching
+		// the network's repo signing keys at all.
+		//
+		// Only fall back to "apt-get update" (with its own failure
+		// tolerated via ";" not "&&") if that plain install fails --
+		// confirmed live: a machine with an expired/misconfigured repo
+		// signing key makes "apt-get update" hard-fail with exit 100 ("...
+		// couldn't be verified because the public key is not available"),
+		// which used to abort the whole install even when the existing
+		// cached index already had a perfectly installable xclip in it.
+		// --no-install-recommends keeps this to just xclip and its two
+		// tiny real deps (libc6, libx11-6 -- already present on this
+		// project's own XWayland-forced GUI, see forceXWaylandForGUI) --
+		// no extra desktop/display-server packages get pulled in either way.
+		script: "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xclip || " +
+			"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; " +
+			"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xclip)",
 	},
-	{name: "dnf", probe: "dnf", script: "dnf install -y xclip"},
+	// install_weak_deps=False is dnf's --no-install-recommends equivalent;
+	// yum has no such knob (it predates weak deps as a concept) so it's
+	// omitted there -- xclip pulls in nothing extra either way.
+	{name: "dnf", probe: "dnf", script: "dnf install -y --setopt=install_weak_deps=False xclip"},
 	{name: "yum", probe: "yum", script: "yum install -y xclip"},
 	// -Sy (not plain -S): like apt above, pacman needs its local sync
 	// database refreshed first or a perfectly valid package name can come
 	// back "target not found" on a system that hasn't run pacman -Sy
-	// recently (containers, minimal installs).
+	// recently (containers, minimal installs). Pacman never auto-installs
+	// optdepends on its own, so there's no recommends-equivalent flag needed.
 	{name: "pacman", probe: "pacman", script: "pacman -Sy --noconfirm xclip"},
-	{name: "zypper", probe: "zypper", script: "zypper --non-interactive install xclip"},
+	{name: "zypper", probe: "zypper", script: "zypper --non-interactive install --no-recommends xclip"},
+	// Alpine's apk has no recommends concept either -- add only installs
+	// what's actually required.
 	{name: "apk", probe: "apk", script: "apk add --no-cache xclip"},
 }
 
