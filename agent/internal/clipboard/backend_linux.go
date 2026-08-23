@@ -186,36 +186,60 @@ func (t xselTool) setMime(context.Context, string, []byte) error {
 }
 
 var (
-	detectOnce sync.Once
-	activeTool clipboardTool
+	detectMu     sync.Mutex
+	activeTool   clipboardTool
+	loggedNoTool bool
 )
 
 // detect picks the clipboard CLI tool available on this session, preferring
 // wl-clipboard under Wayland and xclip under X11 (both support arbitrary
-// targets), falling back to xsel (text only), and logging once if nothing
-// usable is installed — clipboard sync then just no-ops instead of crashing.
+// targets), falling back to xsel (text only).
+//
+// Once a tool is found it's cached for the rest of the process's life --
+// found binaries don't uninstall themselves mid-session. Until then, every
+// call re-probes instead of caching "not found" forever: exec.LookPath only
+// stats PATH's directories, no subprocess spawn, so this stays cheap even
+// at the clipboard poll loop's ~800ms cadence (see manager.go's
+// pollInterval). This matters because permissions.RequestClipboardTool
+// installs xclip via a live pkexec call while this very process is already
+// running (the UI's "Install" button, see internal/ui/window.go's
+// clipboardToolRow) -- with a one-shot cache, that install would silently
+// never take effect until the whole agent was restarted, confirmed live:
+// the agent's own log showed "no xclip/xsel/wl-clipboard found" cached from
+// 2 seconds after launch, well before xclip got installed mid-session.
 func detect() clipboardTool {
-	detectOnce.Do(func() {
-		if os.Getenv("WAYLAND_DISPLAY") != "" {
-			copyPath, errC := exec.LookPath("wl-copy")
-			pastePath, errP := exec.LookPath("wl-paste")
-			if errC == nil && errP == nil {
-				activeTool = wlTool{copyPath: copyPath, pastePath: pastePath}
-				return
-			}
-		}
-		if p, err := exec.LookPath("xclip"); err == nil {
-			activeTool = xclipTool{path: p}
-			return
-		}
-		if p, err := exec.LookPath("xsel"); err == nil {
-			log.Printf("[clipboard] only xsel found (text-only); install xclip or wl-clipboard for image/file clipboard sync")
-			activeTool = xselTool{path: p}
-			return
-		}
+	detectMu.Lock()
+	defer detectMu.Unlock()
+	if activeTool != nil {
+		return activeTool
+	}
+	activeTool = probeTool()
+	if activeTool == nil && !loggedNoTool {
 		log.Printf("[clipboard] no xclip/xsel/wl-clipboard found; clipboard sync disabled on this Linux session")
-	})
+		loggedNoTool = true
+	}
 	return activeTool
+}
+
+// probeTool runs the actual PATH lookups behind detect(). Split out so
+// detect() only has to hold detectMu around this call, not around any
+// caller's use of the returned clipboardTool.
+func probeTool() clipboardTool {
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		copyPath, errC := exec.LookPath("wl-copy")
+		pastePath, errP := exec.LookPath("wl-paste")
+		if errC == nil && errP == nil {
+			return wlTool{copyPath: copyPath, pastePath: pastePath}
+		}
+	}
+	if p, err := exec.LookPath("xclip"); err == nil {
+		return xclipTool{path: p}
+	}
+	if p, err := exec.LookPath("xsel"); err == nil {
+		log.Printf("[clipboard] only xsel found (text-only); install xclip or wl-clipboard for image/file clipboard sync")
+		return xselTool{path: p}
+	}
+	return nil
 }
 
 type linuxBackend struct{}
