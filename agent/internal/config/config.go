@@ -61,6 +61,12 @@ type Config struct {
 	// "rustshine". Only meaningful together with a currently-valid
 	// EntitlementToken; see App.applyPreferredBackend.
 	PreferredBackend string `yaml:"preferred_backend,omitempty"`
+	// RustShineWebRTCDisabled turns off gamestream-server's native WebRTC
+	// signaling endpoint (--webrtc-disable) -- the surface USBridge's
+	// browser/WASM web client connects through. Defaults to false (enabled,
+	// matching gamestream-server's own default) so existing installs keep
+	// the web client working without needing to opt in.
+	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
 }
 
 func Default() Config {

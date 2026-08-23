@@ -283,6 +283,10 @@ func (c *Client) SetStreamBackend(kind string) error {
 	return c.do(http.MethodPost, "/token/set-stream-backend", map[string]string{"kind": kind}, nil)
 }
 
+func (c *Client) SetRustShineWebRTCEnabled(enabled bool) error {
+	return c.do(http.MethodPost, "/token/set-rustshine-webrtc-enabled", map[string]bool{"enabled": enabled}, nil)
+}
+
 // --- PermsBackend ---
 
 func (c *Client) AccessibilityGranted() bool {

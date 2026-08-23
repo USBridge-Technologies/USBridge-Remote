@@ -23,12 +23,14 @@ One lightweight binary for Windows, macOS, and Linux. It shares the exact same c
 
 ## ✨ Why it's Awesome
 
-- **Hardware-Accelerated Sunshine Streaming**: Sunshine handles the capture and encoding, seamlessly bundled and auto-launched. The agent leverages Vulkan/Metal for optimal performance and pairs with Sunshine's admin API to relay Moonlight PINs flawlessly.
+- **Hardware-Accelerated Sunshine/RustShine Streaming**: Sunshine handles the capture and encoding, seamlessly bundled and auto-launched. The agent leverages Vulkan/Metal for optimal performance. Patreon supporters can unlock our custom **RustShine** engine with WebRTC support.
+- **WebRTC Control & Customization**: Enable/disable RustShine's WebRTC signaling endpoint directly from the main window's Permissions column. The setting is persisted in the configuration (`rustshine_webrtc_disabled`), allowing quick activation of the web client link.
+- **Streamlined Backend Switching**: An elegant iOS-style toggle switch allows supporters to seamlessly switch between Sunshine and RustShine streaming backends.
 - **Built-in Tailscale**: Whether system-wide or userspace, the agent registers itself on your Tailnet on boot. Connect directly on your LAN or securely over Tailscale—nothing else in between.
 - **Bank-Grade Security**: API requests are HMAC-SHA256 signed over the master key with a ±60s replay window. The pairing handshake is AES-256-GCM encrypted, using the same robust scheme as the client and the hardware unit.
 - **Native Input Injection**: Uses `SendInput` on Windows, `CGEvent`/Quartz on macOS, and direct injection on Linux for 1:1 precise, latency-free mouse and keyboard emulation.
 - **Wayland Native**: On Linux, switching Sunshine to KMS capture only needs a single `pkexec` grant. It sets `CAP_SYS_ADMIN` on the binary and persists across reboots—meaning the annoying portal permission dialog never comes back.
-- **Unified Dashboard**: The control window neatly displays your LAN/Tailscale addresses, Sunshine health, permission statuses, and Tailscale sign-in all in one place.
+- **Unified Dashboard**: The control window neatly displays your LAN/Tailscale addresses, streaming backend status (including copy-to-clipboard, quick launch, and informational tooltips for WebRTC client links), permission statuses, and Tailscale sign-in all in one place.
 
 ## 🚀 Quick Start
 

@@ -50,6 +50,7 @@ type TokenBackend interface {
 	UnlinkPatreon() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	SetStreamBackend(kind string) error
+	SetRustShineWebRTCEnabled(enabled bool) error
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -182,6 +183,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/patreon-unlink", s.handlePatreonUnlink)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
+	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -441,6 +443,21 @@ func (s *Server) handleSetStreamBackend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.token.SetStreamBackend(body.Kind); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleSetRustShineWebRTCEnabled(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetRustShineWebRTCEnabled(body.Enabled); err != nil {
 		writeError(w, err)
 		return
 	}

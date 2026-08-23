@@ -275,6 +275,7 @@ func New() (*App, error) {
 	if instance.streamKind == "rustshine" {
 		instance.stream = streamhost.NewRustshine(instance.exeDir, cfg.StateDir, instance.logPath)
 		applyStreamSharedSecret(instance.stream, masterKeyBytes)
+		applyStreamWebRTCEnabled(instance.stream, !cfg.RustShineWebRTCDisabled)
 	} else {
 		instance.stream = streamhost.NewDefault(instance.exeDir, cfg.StateDir, instance.logPath)
 	}
@@ -902,6 +903,7 @@ func (a *App) SetStreamBackend(kind string) error {
 	if kind == "rustshine" {
 		next = streamhost.NewRustshine(a.exeDir, a.cfg.StateDir, a.logPath)
 		applyStreamSharedSecret(next, []byte(a.cfg.MasterKey))
+		applyStreamWebRTCEnabled(next, !a.cfg.RustShineWebRTCDisabled)
 	} else {
 		next = streamhost.NewSunshine(a.exeDir, a.cfg.StateDir, a.logPath)
 	}
@@ -981,7 +983,37 @@ func (a *App) EntitlementStatus() entitlement.Status {
 	a.entMu.Unlock()
 	st.ActiveBackend = a.currentStreamKind()
 	st.RustShineStaged = a.rustshineStaged()
+	st.WebRTCEnabled = !a.cfg.RustShineWebRTCDisabled
 	return st
+}
+
+// SetRustShineWebRTCEnabled persists cfg.RustShineWebRTCDisabled and, if
+// RustShine is the currently active backend, restarts it so the new
+// --webrtc-disable flag (or its absence) actually takes effect --
+// gamestream-server has no live toggle for this, it's read once at
+// startup. A no-op on the running process while Sunshine is active: the
+// preference is still saved either way, so switching to RustShine later
+// picks it up without needing to touch this checkbox again.
+func (a *App) SetRustShineWebRTCEnabled(enabled bool) error {
+	saved := a.cfg
+	saved.RustShineWebRTCDisabled = !enabled
+	if err := a.SaveConfig(saved); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+
+	a.streamMu.Lock()
+	kind := a.streamKind
+	stream := a.stream
+	a.streamMu.Unlock()
+	if kind != "rustshine" || stream == nil {
+		return nil
+	}
+
+	applyStreamWebRTCEnabled(stream, enabled)
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] failed to restart rustshine after webrtc toggle: %v", err)
+	}
+	return nil
 }
 
 func (a *App) setEntError(msg string) {
@@ -1578,6 +1610,16 @@ func (a *App) QRLink() (string, string) {
 func applyStreamSharedSecret(stream streamhost.Backend, secret []byte) {
 	if setter, ok := stream.(interface{ SetSharedSecret([]byte) }); ok {
 		setter.SetSharedSecret(secret)
+	}
+}
+
+// applyStreamWebRTCEnabled hands enabled to stream if it implements the
+// optional interface{ SetWebRTCEnabled(bool) } -- only rustshineBackend
+// does today, same optional-interface probe pattern as
+// applyStreamSharedSecret above; a no-op for sunshineBackend.
+func applyStreamWebRTCEnabled(stream streamhost.Backend, enabled bool) {
+	if setter, ok := stream.(interface{ SetWebRTCEnabled(bool) }); ok {
+		setter.SetWebRTCEnabled(enabled)
 	}
 }
 

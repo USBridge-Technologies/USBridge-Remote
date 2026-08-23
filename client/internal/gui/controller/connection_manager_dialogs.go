@@ -426,12 +426,36 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 	// (desktop/Android/iOS) keep it.
 	if runtime.GOOS != "js" {
 		items = append(items, newConnectionDialogIconEntry(assets.NetworkIcon, tailscaleHostEntry, fieldActions(tailscaleHostEntry, window)))
+	} else {
+		items = append(items, newWebTailscaleHint(window))
 	}
 	items = append(items, newConnectionDialogIconEntry(theme.VisibilityOffIcon(), masterKeyEntry, fieldActions(masterKeyEntry, window)))
 	if registerCheck != nil {
 		items = append(items, view.NewInset(registerCheck, 10, 0, 0, 0))
 	}
 	return container.NewVBox(items...)
+}
+
+// newWebTailscaleHint replaces the Tailscale-address field in the browser
+// build (see buildConnectionDialogForm's own doc comment on why that field
+// is omitted there): a Tailscale/100.x.x.x address typed into "internal ip
+// address" above still works from a browser tab -- dialTailscaleTarget
+// (main_window_connection_tailscale_wasm.go) just dials it as a plain host,
+// same as any LAN address -- but only if a real Tailscale client is
+// already running on this device, since the wasm sandbox can't embed tsnet
+// itself. This note exists so that requirement isn't silently discovered
+// as a connection failure.
+func newWebTailscaleHint(window fyne.Window) fyne.CanvasObject {
+	text := canvas.NewText("Tailscale addresses need Tailscale installed on this device:", design.ColorTextMuted)
+	text.TextSize = 11
+
+	link := newConnectionDialogSecondaryButton("tailscale.com/download", func() {
+		if u, err := url.Parse("https://tailscale.com/download"); err == nil {
+			_ = fyne.CurrentApp().OpenURL(u)
+		}
+	})
+
+	return view.NewInset(container.NewHBox(text, link), 10, 0, 0, 0)
 }
 
 func newConnectionDialogFeedback(text string, fill color.Color) fyne.CanvasObject {

@@ -26,6 +26,11 @@ type Status struct {
 	// downloaded and verified onto disk -- switching to RustShine before
 	// this is true requires a download first.
 	RustShineStaged bool `json:"rustshine_staged"`
+	// WebRTCEnabled mirrors cfg.RustShineWebRTCDisabled (inverted) -- the
+	// GUI's RustShine web-client checkbox reflects and toggles this.
+	// Meaningful only when ActiveBackend == "rustshine"; Sunshine has no
+	// WebRTC endpoint of its own.
+	WebRTCEnabled bool `json:"webrtc_enabled"`
 
 	// LinkInProgress/DownloadInProgress + Progress (0..1, -1 if
 	// indeterminate/unknown total) describe an in-flight operation the GUI

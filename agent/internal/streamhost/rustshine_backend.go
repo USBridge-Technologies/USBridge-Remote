@@ -58,6 +58,14 @@ type rustshineBackend struct {
 	// this gets set/refreshed.
 	sharedSecret []byte
 
+	// webrtcDisabled mirrors config.Config.RustShineWebRTCDisabled -- when
+	// true, Start passes --webrtc-disable so gamestream-server never opens
+	// the WebRTC signaling port at all. Set via SetWebRTCEnabled before
+	// Start; a change while already running only takes effect on the next
+	// Start (gamestream-server has no live toggle for this, it's a
+	// startup-only CLI flag).
+	webrtcDisabled bool
+
 	supportedCodecsCache struct {
 		mu        sync.Mutex
 		codecs    []string
@@ -92,6 +100,16 @@ func (b *rustshineBackend) DisplayName() string { return "RustShine (Proprietary
 func (b *rustshineBackend) SetSharedSecret(secret []byte) {
 	b.mu.Lock()
 	b.sharedSecret = secret
+	b.mu.Unlock()
+}
+
+// SetWebRTCEnabled sets whether Start passes --webrtc-disable. Called via
+// the same optional-interface probe pattern as SetSharedSecret (see
+// app.applyStreamWebRTCEnabled) -- a no-op for sunshineBackend, which has
+// no WebRTC endpoint to disable.
+func (b *rustshineBackend) SetWebRTCEnabled(enabled bool) {
+	b.mu.Lock()
+	b.webrtcDisabled = !enabled
 	b.mu.Unlock()
 }
 
@@ -394,6 +412,9 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	// whole duration, see the top of this function.
 	if len(b.sharedSecret) > 0 {
 		args = append(args, "--webrtc-shared-secret", string(b.sharedSecret))
+	}
+	if b.webrtcDisabled {
+		args = append(args, "--webrtc-disable")
 	}
 
 	// If a capability-granted sunshine-capexec launcher is set (Linux KMS
