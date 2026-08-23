@@ -496,6 +496,13 @@ func (b *rustshineBackend) Stop() error {
 		log.Printf("[rustshine] stopping pid=%d", b.cmd.Process.Pid)
 		err = b.cmd.Process.Kill()
 		b.cmd = nil
+	} else {
+		log.Printf("[rustshine] stopping orphaned process by name")
+		if runtime.GOOS == "windows" {
+			_ = exec.Command("taskkill", "/F", "/IM", "gamestream-server.exe").Run()
+		} else {
+			_ = exec.Command("killall", "gamestream-server").Run()
+		}
 	}
 	if b.watchdog != nil && b.watchdog.Process != nil {
 		_ = b.watchdog.Process.Kill()
