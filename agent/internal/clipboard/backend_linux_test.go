@@ -3,6 +3,8 @@
 package clipboard
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,5 +93,109 @@ func TestDetectCachesOnceFound(t *testing.T) {
 	second := detect()
 	if _, ok := second.(xclipTool); !ok {
 		t.Fatalf("detect() after PATH changed = %#v, want cached xclipTool", second)
+	}
+}
+
+// TestProbeToolPrefersDualOnWayland reproduces the second half of the same
+// live bug report: with only xclip installed, an XWayland app's clipboard
+// writes didn't reliably reach native Wayland apps' paste on a real
+// KDE/kwin_wayland session. Once both wl-clipboard and xclip are on PATH
+// under a Wayland session, probeTool must wrap both in a dualTool instead of
+// picking just one, so both selections get written on every apply.
+func TestProbeToolPrefersDualOnWayland(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
+	dir := t.TempDir()
+	writeFakeExecutable(t, dir, "wl-copy")
+	writeFakeExecutable(t, dir, "wl-paste")
+	writeFakeExecutable(t, dir, "xclip")
+	t.Setenv("PATH", dir)
+
+	got := probeTool()
+	if _, ok := got.(dualTool); !ok {
+		t.Fatalf("probeTool() with wl-clipboard+xclip on a Wayland PATH = %#v, want dualTool", got)
+	}
+}
+
+// fakeClipboardTool is a minimal in-memory clipboardTool for exercising
+// dualTool's fan-out logic without shelling out to real CLI tools.
+type fakeClipboardTool struct {
+	text    string
+	hasText bool
+	setErr  error
+}
+
+func (f *fakeClipboardTool) supportsMime() bool                          { return true }
+func (f *fakeClipboardTool) targetsHash(context.Context) (string, error) { return f.text, nil }
+func (f *fakeClipboardTool) getMime(context.Context, string) ([]byte, bool, error) {
+	return nil, false, nil
+}
+func (f *fakeClipboardTool) setMime(context.Context, string, []byte) error { return nil }
+
+func (f *fakeClipboardTool) getText(context.Context) (string, bool, error) {
+	return f.text, f.hasText, nil
+}
+
+func (f *fakeClipboardTool) setText(_ context.Context, text string) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.text, f.hasText = text, true
+	return nil
+}
+
+// TestDualToolSetTextWritesBothSides is the core guarantee dualTool exists
+// for: an apply must land on both the primary and secondary selection, not
+// just whichever one happened to already have content -- otherwise an app
+// reading the other selection never sees it, exactly the failure mode
+// reported live (xclip alone left native-Wayland-app pastes empty).
+func TestDualToolSetTextWritesBothSides(t *testing.T) {
+	primary := &fakeClipboardTool{}
+	secondary := &fakeClipboardTool{}
+	dt := dualTool{primary: primary, secondary: secondary}
+
+	if err := dt.setText(context.Background(), "hello"); err != nil {
+		t.Fatalf("setText: %v", err)
+	}
+	if primary.text != "hello" {
+		t.Errorf("primary.text = %q, want %q", primary.text, "hello")
+	}
+	if secondary.text != "hello" {
+		t.Errorf("secondary.text = %q, want %q", secondary.text, "hello")
+	}
+}
+
+// TestDualToolSetTextReturnsPrimaryErrorButStillWritesSecondary ensures one
+// side failing (e.g. wl-copy erroring because no compositor is attached to
+// this particular headless test) doesn't silently drop the write on the
+// other, still-working side.
+func TestDualToolSetTextReturnsPrimaryErrorButStillWritesSecondary(t *testing.T) {
+	primary := &fakeClipboardTool{setErr: errors.New("boom")}
+	secondary := &fakeClipboardTool{}
+	dt := dualTool{primary: primary, secondary: secondary}
+
+	if err := dt.setText(context.Background(), "hello"); err == nil {
+		t.Fatal("setText: want error surfaced from primary, got nil")
+	}
+	if secondary.text != "hello" {
+		t.Errorf("secondary.text = %q, want %q (secondary write must not be skipped)", secondary.text, "hello")
+	}
+}
+
+// TestDualToolGetTextFallsBackToSecondary covers content that an external
+// app only wrote to one side (the realistic case: a native Wayland app sets
+// the Wayland selection only, an XWayland/X11 app sets the X11 selection
+// only) -- dualTool must still surface it instead of only ever looking at
+// primary.
+func TestDualToolGetTextFallsBackToSecondary(t *testing.T) {
+	primary := &fakeClipboardTool{}
+	secondary := &fakeClipboardTool{text: "only-on-secondary", hasText: true}
+	dt := dualTool{primary: primary, secondary: secondary}
+
+	text, ok, err := dt.getText(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("getText: text=%q ok=%v err=%v", text, ok, err)
+	}
+	if text != "only-on-secondary" {
+		t.Errorf("getText() = %q, want %q", text, "only-on-secondary")
 	}
 }

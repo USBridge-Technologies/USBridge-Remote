@@ -550,7 +550,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.clipboardToolBtn.Importance = widget.HighImportance
-	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool (xclip)"), layout.NewSpacer(), w.clipboardToolBtn)
+	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool"), layout.NewSpacer(), w.clipboardToolBtn)
 
 	var permRows []fyne.CanvasObject
 	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {

@@ -65,15 +65,22 @@ func TestDetectPkgManagerWith(t *testing.T) {
 	}
 }
 
-// TestPkgManagersInstallXclip is a lightweight sanity check that every
-// registered package manager's install script actually targets the xclip
-// package -- a copy/paste mistake here (e.g. a stray "wl-clipboard") would
-// otherwise only surface live, on whatever distro that entry corresponds
-// to, days after the fact.
-func TestPkgManagersInstallXclip(t *testing.T) {
+// TestPkgManagersInstallRequestedPackages is a lightweight sanity check
+// that every registered package manager's install script actually targets
+// whatever packages it was asked to install -- a copy/paste mistake here
+// (e.g. a dropped package, or a stray unrelated one) would otherwise only
+// surface live, on whatever distro that entry corresponds to, days after
+// the fact. Covers both the xclip-only call (X11 sessions) and the
+// xclip+wl-clipboard call RequestClipboardTool makes on Wayland.
+func TestPkgManagersInstallRequestedPackages(t *testing.T) {
 	for _, pm := range pkgManagers {
-		if !containsWord(pm.script, "xclip") {
-			t.Errorf("pkgManager %q script does not mention xclip: %q", pm.name, pm.script)
+		for _, pkgs := range [][]string{{"xclip"}, {"xclip", "wl-clipboard"}} {
+			script := pm.install(pkgs)
+			for _, pkg := range pkgs {
+				if !containsWord(script, pkg) {
+					t.Errorf("pkgManager %q install(%v) does not mention %q: %q", pm.name, pkgs, pkg, script)
+				}
+			}
 		}
 	}
 }

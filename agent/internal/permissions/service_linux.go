@@ -252,66 +252,81 @@ func (s *Service) ClipboardToolAvailable() bool {
 	return clipboardToolFound()
 }
 
-// pkgManager describes one Linux package manager capable of installing
-// xclip -- the package is named "xclip" identically across every one of
-// these, unlike e.g. wl-clipboard (wl-clipboard vs wl-clipboard-x11 vs
-// clipboard depending on distro), which is why RequestClipboardTool always
-// installs xclip specifically rather than trying to pick per-distro.
+// pkgManager describes one Linux package manager. Package names are
+// identical across every one of these for both packages RequestClipboardTool
+// installs -- "xclip" and "wl-clipboard" -- so a plain space-joined package
+// list works for all of them; no per-distro name mapping needed.
 type pkgManager struct {
 	name string
 	// probe is the binary whose presence on PATH identifies this manager.
 	probe string
-	// script is run as root (via pkexec /bin/sh -c) to install xclip
-	// non-interactively. Checked/ordered so a system with more than one
-	// manager installed (e.g. Debian derivatives sometimes carry a leftover
-	// snap/flatpak-only pacman shim) still picks its *actual* one first.
-	script string
+	// install builds the script run as root (via pkexec /bin/sh -c) to
+	// install pkgs non-interactively. pkgs is always a compile-time
+	// constant slice from RequestClipboardTool, never user input.
+	install func(pkgs []string) string
 }
 
 // pkgManagers covers every package manager on the popular Linux desktop
 // distro families: apt (Debian/Ubuntu/Mint/Pop!_OS), dnf (Fedora/RHEL 8+/
 // Rocky/Alma), yum (older RHEL/CentOS 7), pacman (Arch/Manjaro/EndeavourOS),
-// zypper (openSUSE), apk (Alpine).
+// zypper (openSUSE), apk (Alpine). Checked/ordered so a system with more
+// than one manager installed (e.g. a distro-hopper's leftover binaries)
+// still picks its *actual* one first.
 var pkgManagers = []pkgManager{
 	{
 		name:  "apt",
 		probe: "apt-get",
-		// Try the install straight away first -- on any system that's ever
-		// run "apt update" before (i.e. virtually every real desktop, as
-		// opposed to a brand new container image), the local package index
-		// already has xclip in it, so this alone succeeds without touching
-		// the network's repo signing keys at all.
-		//
-		// Only fall back to "apt-get update" (with its own failure
-		// tolerated via ";" not "&&") if that plain install fails --
-		// confirmed live: a machine with an expired/misconfigured repo
-		// signing key makes "apt-get update" hard-fail with exit 100 ("...
-		// couldn't be verified because the public key is not available"),
-		// which used to abort the whole install even when the existing
-		// cached index already had a perfectly installable xclip in it.
-		// --no-install-recommends keeps this to just xclip and its two
-		// tiny real deps (libc6, libx11-6 -- already present on this
-		// project's own XWayland-forced GUI, see forceXWaylandForGUI) --
-		// no extra desktop/display-server packages get pulled in either way.
-		script: "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xclip || " +
-			"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; " +
-			"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xclip)",
+		install: func(pkgs []string) string {
+			list := strings.Join(pkgs, " ")
+			// Try the install straight away first -- on any system that's
+			// ever run "apt update" before (i.e. virtually every real
+			// desktop, as opposed to a brand new container image), the
+			// local package index already has these in it, so this alone
+			// succeeds without touching the network's repo signing keys at
+			// all.
+			//
+			// Only fall back to "apt-get update" (with its own failure
+			// tolerated via ";" not "&&") if that plain install fails --
+			// confirmed live: a machine with an expired/misconfigured repo
+			// signing key makes "apt-get update" hard-fail with exit 100
+			// ("... couldn't be verified because the public key is not
+			// available"), which used to abort the whole install even when
+			// the existing cached index already had a perfectly installable
+			// xclip in it. --no-install-recommends keeps this to just the
+			// requested packages and their real deps (for xclip: libc6,
+			// libx11-6 -- already present on this project's own
+			// XWayland-forced GUI, see forceXWaylandForGUI) -- no extra
+			// desktop/display-server packages get pulled in either way.
+			return "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + list + " || " +
+				"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; " +
+				"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + list + ")"
+		},
 	},
 	// install_weak_deps=False is dnf's --no-install-recommends equivalent;
 	// yum has no such knob (it predates weak deps as a concept) so it's
-	// omitted there -- xclip pulls in nothing extra either way.
-	{name: "dnf", probe: "dnf", script: "dnf install -y --setopt=install_weak_deps=False xclip"},
-	{name: "yum", probe: "yum", script: "yum install -y xclip"},
+	// omitted there -- neither package pulls in anything extra either way.
+	{name: "dnf", probe: "dnf", install: func(pkgs []string) string {
+		return "dnf install -y --setopt=install_weak_deps=False " + strings.Join(pkgs, " ")
+	}},
+	{name: "yum", probe: "yum", install: func(pkgs []string) string {
+		return "yum install -y " + strings.Join(pkgs, " ")
+	}},
 	// -Sy (not plain -S): like apt above, pacman needs its local sync
 	// database refreshed first or a perfectly valid package name can come
 	// back "target not found" on a system that hasn't run pacman -Sy
 	// recently (containers, minimal installs). Pacman never auto-installs
 	// optdepends on its own, so there's no recommends-equivalent flag needed.
-	{name: "pacman", probe: "pacman", script: "pacman -Sy --noconfirm xclip"},
-	{name: "zypper", probe: "zypper", script: "zypper --non-interactive install --no-recommends xclip"},
+	{name: "pacman", probe: "pacman", install: func(pkgs []string) string {
+		return "pacman -Sy --noconfirm " + strings.Join(pkgs, " ")
+	}},
+	{name: "zypper", probe: "zypper", install: func(pkgs []string) string {
+		return "zypper --non-interactive install --no-recommends " + strings.Join(pkgs, " ")
+	}},
 	// Alpine's apk has no recommends concept either -- add only installs
 	// what's actually required.
-	{name: "apk", probe: "apk", script: "apk add --no-cache xclip"},
+	{name: "apk", probe: "apk", install: func(pkgs []string) string {
+		return "apk add --no-cache " + strings.Join(pkgs, " ")
+	}},
 }
 
 // detectPkgManager returns the first package manager from pkgManagers whose
@@ -335,23 +350,30 @@ func detectPkgManagerWith(lookPath func(string) (string, error)) *pkgManager {
 	return nil
 }
 
-// RequestClipboardTool installs xclip via pkexec, using whichever package
-// manager this distro actually has (see pkgManagers) -- the same pkexec
-// pattern as RequestAccessibility. xclip specifically (not wl-clipboard):
-// it talks to the X11 clipboard selection directly, which XWayland bridges
-// to the native Wayland clipboard on every compositor this app realistically
-// runs under, so it's the one no-extra-config choice that fixes clipboard
-// sync regardless of which desktop this button gets clicked on.
+// RequestClipboardTool installs xclip (and, on a Wayland session, also
+// wl-clipboard) via pkexec, using whichever package manager this distro
+// actually has (see pkgManagers) -- the same pkexec pattern as
+// RequestAccessibility.
+//
+// Both, not just xclip: whether a given app's paste actually observes
+// XWayland's bridged X11 CLIPBOARD selection depends on the app's toolkit
+// and how well the compositor bridges X11<->native-Wayland clipboards --
+// not reliable enough to assume. Confirmed live: text and file clipboard
+// sync stayed broken in both directions on a real KDE/kwin_wayland session
+// with only xclip installed. clipboard.detect() dual-writes through both
+// once both are present (see backend_linux.go's dualTool), so installing
+// both here is what actually makes the "Install" button fix clipboard sync
+// end to end on Wayland, not just get xclip onto the disk.
 func (s *Service) RequestClipboardTool() bool {
 	s.lastAccessErr = ""
 	if clipboardToolFound() {
 		return true
 	}
 	if _, err := exec.LookPath("pkexec"); err != nil {
-		s.lastAccessErr = "pkexec is not installed. Install xclip manually instead, e.g.:\n" +
-			"  su -c 'apt install xclip -y'   (Debian/Ubuntu)\n" +
-			"  su -c 'dnf install -y xclip'   (Fedora/RHEL)\n" +
-			"  su -c 'pacman -S xclip'        (Arch)"
+		s.lastAccessErr = "pkexec is not installed. Install a clipboard tool manually instead, e.g.:\n" +
+			"  su -c 'apt install xclip wl-clipboard -y'   (Debian/Ubuntu)\n" +
+			"  su -c 'dnf install -y xclip wl-clipboard'   (Fedora/RHEL)\n" +
+			"  su -c 'pacman -S xclip wl-clipboard'        (Arch)"
 		log.Printf("[permissions] %s", s.lastAccessErr)
 		return false
 	}
@@ -359,14 +381,19 @@ func (s *Service) RequestClipboardTool() bool {
 	pm := detectPkgManager()
 	if pm == nil {
 		s.lastAccessErr = "no supported package manager found (looked for apt, dnf, yum, pacman, " +
-			"zypper, apk). Install xclip manually for this distro."
+			"zypper, apk). Install xclip (and wl-clipboard, on Wayland) manually for this distro."
 		log.Printf("[permissions] %s", s.lastAccessErr)
 		return false
 	}
 
-	cmd := exec.Command("pkexec", "/bin/sh", "-c", pm.script)
+	pkgs := []string{"xclip"}
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		pkgs = append(pkgs, "wl-clipboard")
+	}
+
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", pm.install(pkgs))
 	out, err := cmd.CombinedOutput()
-	log.Printf("[permissions] install xclip via %s pkexec exit=%v output=%q", pm.name, err, string(out))
+	log.Printf("[permissions] install %v via %s pkexec exit=%v output=%q", pkgs, pm.name, err, string(out))
 	if err != nil {
 		switch {
 		case strings.Contains(string(out), "No authentication agent found"):
@@ -376,14 +403,14 @@ func (s *Service) RequestClipboardTool() bool {
 		case strings.Contains(err.Error(), "exit status 126"):
 			s.lastAccessErr = "authentication was cancelled or dismissed. Click Install again and approve the prompt."
 		default:
-			s.lastAccessErr = fmt.Sprintf("xclip install via %s failed: %v (%s)", pm.name, err, strings.TrimSpace(string(out)))
+			s.lastAccessErr = fmt.Sprintf("clipboard tool install via %s failed: %v (%s)", pm.name, err, strings.TrimSpace(string(out)))
 		}
 		return false
 	}
 
 	granted := clipboardToolFound()
 	if !granted {
-		s.lastAccessErr = fmt.Sprintf("%s reported success but xclip still isn't on PATH; try again or install manually.", pm.name)
+		s.lastAccessErr = fmt.Sprintf("%s reported success but no clipboard tool is on PATH yet; try again or install manually.", pm.name)
 	}
 	return granted
 }

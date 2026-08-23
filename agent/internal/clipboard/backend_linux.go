@@ -185,6 +185,73 @@ func (t xselTool) setMime(context.Context, string, []byte) error {
 	return fmt.Errorf("clipboard: xsel does not support non-text clipboard formats (install xclip or wl-clipboard)")
 }
 
+// dualTool wraps two clipboardTools -- normally wl-clipboard as primary and
+// xclip as secondary, see probeTool -- writing to and reading from both.
+//
+// Whether a given app's paste actually observes XWayland's bridged X11
+// CLIPBOARD selection, versus the native Wayland selection, depends on the
+// app's toolkit and on how well the compositor bridges the two -- not
+// something this project can assume works. Confirmed live: on a real
+// KDE/kwin_wayland session with only xclip installed, clipboard sync (both
+// text and files, both directions) stayed silently broken despite
+// kwin_wayland's Xwayland integration supposedly bridging the two
+// automatically. Writing to both sides on every apply, and checking both on
+// every read, means a paste works regardless of which bridge (if either) is
+// actually functioning on a given desktop -- at the cost of running two
+// tiny CLI calls instead of one, which is negligible next to the poll
+// loop's own 800ms cadence.
+type dualTool struct {
+	primary, secondary clipboardTool
+}
+
+func (t dualTool) supportsMime() bool { return true }
+
+// targetsHash combines both sides' hashes so a change on *either* selection
+// (ours or an external app's) is detected, even if the two have drifted out
+// of sync because whatever bridge might normally reconcile them isn't
+// working.
+func (t dualTool) targetsHash(ctx context.Context) (string, error) {
+	h1, _ := t.primary.targetsHash(ctx)
+	h2, _ := t.secondary.targetsHash(ctx)
+	return hashBytes([]byte(h1 + "|" + h2)), nil
+}
+
+// getText/getMime try primary first, falling back to secondary -- content
+// set by an external app normally only lands on whichever selection that
+// app's toolkit actually uses, not both, so unlike setText/setMime this
+// isn't "do both", it's "check both, use whichever has it".
+func (t dualTool) getText(ctx context.Context) (string, bool, error) {
+	if text, ok, err := t.primary.getText(ctx); ok {
+		return text, ok, err
+	}
+	return t.secondary.getText(ctx)
+}
+
+func (t dualTool) setText(ctx context.Context, text string) error {
+	err1 := t.primary.setText(ctx, text)
+	err2 := t.secondary.setText(ctx, text)
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
+func (t dualTool) getMime(ctx context.Context, mime string) ([]byte, bool, error) {
+	if data, ok, err := t.primary.getMime(ctx, mime); ok {
+		return data, ok, err
+	}
+	return t.secondary.getMime(ctx, mime)
+}
+
+func (t dualTool) setMime(ctx context.Context, mime string, data []byte) error {
+	err1 := t.primary.setMime(ctx, mime, data)
+	err2 := t.secondary.setMime(ctx, mime, data)
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
 var (
 	detectMu     sync.Mutex
 	activeTool   clipboardTool
@@ -224,17 +291,35 @@ func detect() clipboardTool {
 // probeTool runs the actual PATH lookups behind detect(). Split out so
 // detect() only has to hold detectMu around this call, not around any
 // caller's use of the returned clipboardTool.
+//
+// On a Wayland session with both wl-clipboard and xclip installed, wraps
+// both in a dualTool instead of picking just one -- see its doc comment for
+// why relying on the compositor to bridge the two isn't good enough.
 func probeTool() clipboardTool {
+	var wl *wlTool
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
 		copyPath, errC := exec.LookPath("wl-copy")
 		pastePath, errP := exec.LookPath("wl-paste")
 		if errC == nil && errP == nil {
-			return wlTool{copyPath: copyPath, pastePath: pastePath}
+			t := wlTool{copyPath: copyPath, pastePath: pastePath}
+			wl = &t
 		}
 	}
+	var xc *xclipTool
 	if p, err := exec.LookPath("xclip"); err == nil {
-		return xclipTool{path: p}
+		t := xclipTool{path: p}
+		xc = &t
 	}
+
+	switch {
+	case wl != nil && xc != nil:
+		return dualTool{primary: *wl, secondary: *xc}
+	case wl != nil:
+		return *wl
+	case xc != nil:
+		return *xc
+	}
+
 	if p, err := exec.LookPath("xsel"); err == nil {
 		log.Printf("[clipboard] only xsel found (text-only); install xclip or wl-clipboard for image/file clipboard sync")
 		return xselTool{path: p}
