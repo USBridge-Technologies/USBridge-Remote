@@ -796,12 +796,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// above, which it mirrors) -- a left/right slot only ever gets its
 	// MinSize, and a truncated Label's MinSize collapses to just the
 	// ellipsis glyph, so this rendered as a bare "…" instead of the URL.
-	sunWebLinkVal := widget.NewLabel(rustshineWebURL)
-	sunWebLinkOpenBtn := widget.NewButtonWithIcon("", theme.ComputerIcon(), func() {
-		if parsed, err := url.Parse(rustshineWebURL); err == nil {
-			_ = w.app.OpenURL(parsed)
-		}
-	})
+	var webURL *url.URL
+	if parsed, err := url.Parse(rustshineWebURL); err == nil {
+		webURL = parsed
+	}
+	sunWebLinkVal := widget.NewHyperlink(rustshineWebURL, webURL)
 	sunWebLinkCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
 		win.Clipboard().SetContent(rustshineWebURL)
 	})
@@ -814,7 +813,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	})
 	w.sunWebRustshineRow = container.NewBorder(nil, nil,
 		container.NewHBox(makeStatusLabel("Web:"), sunWebLinkVal),
-		container.NewHBox(sunWebLinkInfoBtn, sunWebLinkOpenBtn, sunWebLinkCopyBtn), nil)
+		container.NewHBox(sunWebLinkInfoBtn, sunWebLinkCopyBtn), nil)
 	w.sunWebRustshineRow.Hide()
 
 	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
