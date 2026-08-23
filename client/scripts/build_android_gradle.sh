@@ -106,7 +106,18 @@ if [ "$NEED_TAILSCALE" -eq 1 ]; then
         export GOARCH=arm64
         export CGO_ENABLED=1
 
-        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray"
+        # ts_omit_ssh: tailscale v1.102.3's cmd/tailscale{,d} unconditionally
+        # import tailscale.com/feature/ssh, whose own build constraint
+        # (feature/ssh/ssh.go) already excludes android outright -- leaving
+        # zero buildable files in that package for GOOS=android and failing
+        # the whole build with "build constraints exclude all Go files"
+        # regardless of this tag existing at all. Confirmed live (this
+        # exact CI failure) and reproduced/fixed locally: adding
+        # ts_omit_ssh here makes cmd/tailscale/cmd/tailscaled's own
+        # feature-registration code skip importing feature/ssh in the first
+        # place, matching how ts_omit_gui/ts_omit_systray already sidestep
+        # the same class of android-unsupported-feature problem below.
+        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray,ts_omit_ssh"
 
         # -linkmode=external forces the NDK's own linker (lld, via CC) to
         # do the final link instead of Go's internal linker -- required
