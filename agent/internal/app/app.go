@@ -983,6 +983,7 @@ func (a *App) EntitlementStatus() entitlement.Status {
 	a.entMu.Unlock()
 	st.ActiveBackend = a.currentStreamKind()
 	st.RustShineStaged = a.rustshineStaged()
+	st.RustShineVersion = entitlement.StagedVersion(a.cfg.StateDir)
 	st.WebRTCEnabled = !a.cfg.RustShineWebRTCDisabled
 	return st
 }
@@ -1351,6 +1352,99 @@ func (a *App) checkRustShineUpdate(ctx context.Context, entitlementToken string)
 	a.entMu.Lock()
 	a.entStatus.RustShineStaged = a.rustshineStaged()
 	a.entMu.Unlock()
+	a.restartRustShineIfActive()
+}
+
+// restartRustShineIfActive re-execs the running RustShine subprocess (via
+// the same generic RestartSunshine plumbing every other capability/config
+// change already uses -- see that method's doc comment on why the name is
+// legacy but the behavior isn't Sunshine-specific) so a version that was
+// just staged onto disk actually takes effect immediately, instead of
+// silently sitting there unused until the next unrelated restart. A no-op
+// whenever Sunshine is the active backend -- the freshly staged binary
+// isn't running yet either way, so there's nothing to hot-swap; it'll be
+// picked up the next time something switches to RustShine (SetStreamBackend
+// always re-resolves BinaryPath, it doesn't cache the old one).
+//
+// Called from both the silent background watchdog (checkRustShineUpdate
+// above) and the GUI's explicit "Check for updates" button
+// (CheckRustShineUpdateNow) -- same contract either way: whichever one
+// staged a newer build, the active session should never keep running the
+// old bytes just because nobody happened to flip backends or restart the
+// whole agent afterward.
+func (a *App) restartRustShineIfActive() {
+	if a.currentStreamKind() != "rustshine" {
+		return
+	}
+	log.Printf("[app] rustshine is the active backend — restarting it to pick up the update")
+	if err := a.RestartSunshine(); err != nil {
+		// Non-fatal: the newer binary is already staged and will be used
+		// on the next restart regardless of how it's triggered (manual
+		// backend toggle, agent restart, ...) -- this only means *this*
+		// attempt at an immediate, no-agent-restart hot-swap didn't land.
+		log.Printf("[app] restarting rustshine to apply the update failed (will still be picked up on the next restart): %v", err)
+	}
+}
+
+// CheckRustShineUpdateNow is the GUI's explicit "Check for updates" button
+// (as opposed to ensureRustShineFresh/checkRustShineUpdate's own silent
+// background cadence) -- same entitlement.CheckRustShineUpdate +
+// StageRustShine pair, but synchronous-enough to report a real error back
+// to the click that triggered it, and unconditional on whether RustShine is
+// currently staged at all (the very first "Download RustShine" click in the
+// Patreon dialog covers that case already; this one is a no-op, not an
+// error, if nothing's staged yet -- see CheckRustShineUpdate's own doc
+// comment). Hot-swaps in place via restartRustShineIfActive if an update
+// was actually found and applied.
+func (a *App) CheckRustShineUpdateNow() error {
+	// Deliberately not a local entitlement.Verify call the way
+	// DownloadRustShine's does one -- this button is conceptually "run the
+	// same check checkRustShineUpdate's background watchdog already does,
+	// right now instead of waiting for the next interval", and that
+	// watchdog has never required local verification either (see its own
+	// and ensureRustShineFresh's doc comments): ResolveDownload's backend
+	// round-trip is the actual authority on whether this token still
+	// grants access, same as it is for every other RustShine download
+	// path. A locally well-formed-but-since-revoked token still gets a
+	// real error here -- just from the backend response, one network
+	// round-trip later, not from this local shortcut.
+	token := a.cfg.EntitlementToken
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("not currently entitled: no entitlement token")
+	}
+
+	a.entMu.Lock()
+	a.entStatus.RustShineUpdateInProgress = true
+	a.entStatus.LastError = ""
+	a.entMu.Unlock()
+	defer func() {
+		a.entMu.Lock()
+		a.entStatus.RustShineUpdateInProgress = false
+		a.entMu.Unlock()
+	}()
+
+	ctx := context.Background()
+	needsUpdate, version, err := entitlement.CheckRustShineUpdate(ctx, a.cfg.StateDir, token)
+	if err != nil {
+		a.setEntError(fmt.Sprintf("update check failed: %v", err))
+		return err
+	}
+	if !needsUpdate {
+		log.Printf("[app] rustshine is already up to date")
+		return nil
+	}
+
+	log.Printf("[app] rustshine update available (%s) — downloading (manual check)", version)
+	if err := entitlement.StageRustShine(ctx, a.cfg.StateDir, token, nil); err != nil {
+		a.setEntError(fmt.Sprintf("update failed: %v", err))
+		return err
+	}
+	log.Printf("[app] rustshine updated to %s", version)
+	a.entMu.Lock()
+	a.entStatus.RustShineStaged = a.rustshineStaged()
+	a.entMu.Unlock()
+	a.restartRustShineIfActive()
+	return nil
 }
 
 // waitForMonitorCorrelation blocks briefly for Sunshine's KMS/Wayland

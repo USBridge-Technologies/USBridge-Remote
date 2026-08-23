@@ -49,6 +49,7 @@ type TokenBackend interface {
 	StartPatreonLink() (string, error)
 	UnlinkPatreon() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
 }
@@ -182,6 +183,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/patreon-link", s.handlePatreonLink)
 	mux.HandleFunc("POST /token/patreon-unlink", s.handlePatreonUnlink)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
+	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 
@@ -429,6 +431,19 @@ func (s *Server) handleDownloadRustShine(w http.ResponseWriter, r *http.Request)
 	go func() {
 		if err := s.token.DownloadRustShine(nil); err != nil {
 			logrus.WithError(err).Warn("rustshine download failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+// handleCheckRustShineUpdateNow mirrors handleDownloadRustShine's own
+// fire-and-forget shape and doc comment -- the GUI's "Check for updates"
+// button polls /token/entitlement-status for RustShineUpdateInProgress/
+// RustShineVersion/LastError instead of waiting on this response.
+func (s *Server) handleCheckRustShineUpdateNow(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.CheckRustShineUpdateNow(); err != nil {
+			logrus.WithError(err).Warn("rustshine update check failed")
 		}
 	}()
 	writeJSON(w, http.StatusOK, struct{}{})

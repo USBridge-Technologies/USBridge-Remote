@@ -65,6 +65,7 @@ type TokenProvider interface {
 	StartPatreonLink() (string, error)
 	UnlinkPatreon() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
 }
@@ -195,6 +196,21 @@ type Window struct {
 	// active backend after a runtime SetStreamBackend switch; otherwise it
 	// would freeze at whatever was active when the window was built.
 	streamerNameLabel *widget.Label
+
+	// streamerVersionLabel shows whichever version applies to the active
+	// backend -- appVersion (this agent build's own version) while
+	// Sunshine is active, since Sunshine ships bundled with the agent and
+	// has no independent version/update of its own, or
+	// entitlement.Status.RustShineVersion while RustShine is active. Kept
+	// in sync by refreshRustShineUI, same as streamerNameLabel above.
+	streamerVersionLabel *widget.Label
+	// rustshineUpdateBtn is a small "check for updates" affordance shown
+	// only while RustShine is both active and already staged (see
+	// refreshRustShineUI) -- there's nothing to "update" before the first
+	// "Download RustShine" click in the Patreon dialog, and Sunshine has
+	// no manual update path at all (see streamerVersionLabel's doc
+	// comment on why), so this button never applies to it.
+	rustshineUpdateBtn *widget.Button
 
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
@@ -350,6 +366,35 @@ const rustshineWebURL = "https://web.usbridge.io"
 // refresh tick.
 func (w *Window) refreshRustShineUI(st entitlement.Status) {
 	active := st.ActiveBackend == "rustshine"
+
+	if w.streamerVersionLabel != nil {
+		version := "v" + appVersion
+		if active {
+			version = st.RustShineVersion
+			if version != "" {
+				version = "v" + version
+			}
+		}
+		if w.streamerVersionLabel.Text != version {
+			w.streamerVersionLabel.SetText(version)
+		}
+	}
+	if w.rustshineUpdateBtn != nil {
+		switch {
+		case !active || !st.RustShineStaged:
+			// Sunshine has no manual update path (see
+			// streamerVersionLabel's own doc comment), and there's
+			// nothing to check an update *against* before RustShine has
+			// even been downloaded once.
+			w.rustshineUpdateBtn.Hide()
+		case st.RustShineUpdateInProgress:
+			w.rustshineUpdateBtn.Show()
+			w.rustshineUpdateBtn.Disable()
+		default:
+			w.rustshineUpdateBtn.Show()
+			w.rustshineUpdateBtn.Enable()
+		}
+	}
 
 	if w.rustshineWebRTCRow != nil {
 		if active {
@@ -734,7 +779,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showPatreonDialog(win)
 	})
 	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, layout.NewSpacer(), w.supportBtn)
+	w.streamerVersionLabel = widget.NewLabel("")
+	w.streamerVersionLabel.TextStyle.Italic = true
+	// Fires the check in the engine process and returns immediately --
+	// refreshRustShineUI's own 2s poll of EntitlementStatus is what shows
+	// the "checking…"/new-version/error result, the same fire-and-forget
+	// shape the "Download RustShine" button in showPatreonDialog already
+	// uses (see CheckRustShineUpdateNow's doc comment for why this is safe
+	// to not wait on here).
+	w.rustshineUpdateBtn = widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
+		go func() {
+			if err := w.token.CheckRustShineUpdateNow(); err != nil {
+				logrus.WithError(err).Warn("rustshine update check failed")
+			}
+		}()
+	})
+	w.rustshineUpdateBtn.Importance = widget.LowImportance
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn, layout.NewSpacer(), w.supportBtn)
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))

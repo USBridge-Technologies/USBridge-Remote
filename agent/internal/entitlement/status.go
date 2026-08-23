@@ -26,6 +26,20 @@ type Status struct {
 	// downloaded and verified onto disk -- switching to RustShine before
 	// this is true requires a download first.
 	RustShineStaged bool `json:"rustshine_staged"`
+	// RustShineVersion is whatever StagedVersion(stateDir) currently
+	// reports -- "" if never staged, or staged by a build of this agent
+	// that predated version tracking. Shown next to the RustShine row so a
+	// supporter can see what's actually installed without opening the
+	// Patreon dialog; the GUI's "Check for updates" button
+	// (CheckRustShineUpdateNow) is what refreshes this to a newer value.
+	RustShineVersion string `json:"rustshine_version,omitempty"`
+	// RustShineUpdateInProgress mirrors DownloadInProgress but specifically
+	// for a check triggered by the "Check for updates" button (as opposed
+	// to the very first "Download RustShine" click, or the silent
+	// background watchdog) -- kept separate so the GUI can show "Checking
+	// for updates…" instead of the first-download copy without the two
+	// call sites racing each other's spinner text.
+	RustShineUpdateInProgress bool `json:"rustshine_update_in_progress"`
 	// WebRTCEnabled mirrors cfg.RustShineWebRTCDisabled (inverted) -- the
 	// GUI's RustShine web-client checkbox reflects and toggles this.
 	// Meaningful only when ActiveBackend == "rustshine"; Sunshine has no
