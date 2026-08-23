@@ -30,6 +30,7 @@ One lightweight binary for Windows, macOS, and Linux. It shares the exact same c
 - **Bank-Grade Security**: API requests are HMAC-SHA256 signed over the master key with a ±60s replay window. The pairing handshake is AES-256-GCM encrypted, using the same robust scheme as the client and the hardware unit.
 - **Native Input Injection**: Uses `SendInput` on Windows, `CGEvent`/Quartz on macOS, and direct injection on Linux for 1:1 precise, latency-free mouse and keyboard emulation.
 - **Wayland Native**: On Linux, switching Sunshine to KMS capture only needs a single `pkexec` grant. It sets `CAP_SYS_ADMIN` on the binary and persists across reboots—meaning the annoying portal permission dialog never comes back.
+- **One-Click Clipboard Setup on Linux**: If neither `xclip` nor `wl-clipboard` is present, the Permissions column offers a one-click, distro-aware install (a "?" button previews the exact `pkexec` command first). On Wayland, both tools get installed and written to together, since desktop compositors don't always mirror the clipboard between native Wayland apps and XWayland ones.
 - **Unified Dashboard**: The control window neatly displays your LAN/Tailscale addresses, streaming backend status (including copy-to-clipboard, quick launch, and informational tooltips for WebRTC client links), permission statuses, and Tailscale sign-in all in one place.
 
 ## 🚀 Quick Start
