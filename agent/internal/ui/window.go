@@ -84,6 +84,13 @@ type PermsProvider interface {
 	// every other platform's implementation just returns true/true.
 	ClipboardToolAvailable() bool
 	RequestClipboardTool() bool
+
+	// ClipboardInstallPreview returns the exact command the "Install"
+	// button's click would run (via pkexec), for its "?" tooltip -- "" if
+	// nothing would actually run (no pkexec / no supported package manager
+	// found), in which case the tooltip is skipped and the button's own
+	// click surfaces that reason instead.
+	ClipboardInstallPreview() string
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -550,7 +557,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.clipboardToolBtn.Importance = widget.HighImportance
-	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool"), layout.NewSpacer(), w.clipboardToolBtn)
+
+	// "?" info button: shows the literal pkexec command Install would run,
+	// before it runs it -- clicking Install itself pops a polkit password
+	// prompt, which isn't the moment to first learn what's about to execute
+	// as root.
+	clipboardInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		preview := ""
+		if w.perms != nil {
+			preview = w.perms.ClipboardInstallPreview()
+		}
+		if preview == "" {
+			preview = "No supported package manager (or pkexec) was found on this system -- " +
+				"clicking Install will show why, instead of a command preview."
+		}
+		dialog.ShowInformation("Clipboard Tool Install", preview, win)
+	})
+	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool"), layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
 
 	var permRows []fyne.CanvasObject
 	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {

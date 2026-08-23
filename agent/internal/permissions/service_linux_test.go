@@ -4,6 +4,9 @@ package permissions
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +86,67 @@ func TestPkgManagersInstallRequestedPackages(t *testing.T) {
 			}
 		}
 	}
+}
+
+func writeFakeExecutable(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
+	}
+}
+
+// TestClipboardInstallPreviewMatchesWhatRequestClipboardToolWouldRun covers
+// the UI's "?" tooltip: it must show the real pkexec command (including
+// wl-clipboard on a Wayland session, not just xclip), and must come back
+// empty -- not a broken/misleading command -- when nothing would actually
+// run at all.
+func TestClipboardInstallPreviewMatchesWhatRequestClipboardToolWouldRun(t *testing.T) {
+	s := &Service{}
+
+	t.Run("no pkexec: empty preview", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if got := s.ClipboardInstallPreview(); got != "" {
+			t.Fatalf("ClipboardInstallPreview() = %q, want \"\" (no pkexec on PATH)", got)
+		}
+	})
+
+	t.Run("pkexec but no known package manager: empty preview", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFakeExecutable(t, dir, "pkexec")
+		t.Setenv("PATH", dir)
+		if got := s.ClipboardInstallPreview(); got != "" {
+			t.Fatalf("ClipboardInstallPreview() = %q, want \"\" (no package manager on PATH)", got)
+		}
+	})
+
+	t.Run("X11 session: xclip only", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFakeExecutable(t, dir, "pkexec")
+		writeFakeExecutable(t, dir, "apt-get")
+		t.Setenv("PATH", dir)
+		t.Setenv("WAYLAND_DISPLAY", "")
+
+		got := s.ClipboardInstallPreview()
+		if !strings.Contains(got, "pkexec") || !strings.Contains(got, "xclip") {
+			t.Fatalf("ClipboardInstallPreview() = %q, want it to mention pkexec and xclip", got)
+		}
+		if strings.Contains(got, "wl-clipboard") {
+			t.Fatalf("ClipboardInstallPreview() = %q, should not mention wl-clipboard off Wayland", got)
+		}
+	})
+
+	t.Run("Wayland session: xclip and wl-clipboard", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFakeExecutable(t, dir, "pkexec")
+		writeFakeExecutable(t, dir, "apt-get")
+		t.Setenv("PATH", dir)
+		t.Setenv("WAYLAND_DISPLAY", "wayland-0")
+
+		got := s.ClipboardInstallPreview()
+		if !strings.Contains(got, "xclip") || !strings.Contains(got, "wl-clipboard") {
+			t.Fatalf("ClipboardInstallPreview() = %q, want it to mention both xclip and wl-clipboard", got)
+		}
+	})
 }
 
 func containsWord(s, word string) bool {

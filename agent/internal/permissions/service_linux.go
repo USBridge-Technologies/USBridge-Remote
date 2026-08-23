@@ -350,6 +350,36 @@ func detectPkgManagerWith(lookPath func(string) (string, error)) *pkgManager {
 	return nil
 }
 
+// clipboardPkgs is the package list RequestClipboardTool installs: xclip
+// always, plus wl-clipboard on a Wayland session -- see RequestClipboardTool
+// for why both. Shared with ClipboardInstallPreview so the UI's "what will
+// this do?" tooltip can never drift from what actually gets installed.
+func clipboardPkgs() []string {
+	pkgs := []string{"xclip"}
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		pkgs = append(pkgs, "wl-clipboard")
+	}
+	return pkgs
+}
+
+// ClipboardInstallPreview returns the exact command RequestClipboardTool
+// would run right now (as pkexec would run it), for the UI's "Install"
+// button to show in a tooltip/info dialog before the user clicks it and
+// hits a polkit password prompt sight-unseen. Returns "" if nothing would
+// actually run (no pkexec, or no supported package manager) -- the caller
+// falls back to RequestClipboardTool's own LastAccessibilityError message
+// in that case, surfaced only once the button is actually clicked.
+func (s *Service) ClipboardInstallPreview() string {
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return ""
+	}
+	pm := detectPkgManager()
+	if pm == nil {
+		return ""
+	}
+	return "pkexec /bin/sh -c \"" + pm.install(clipboardPkgs()) + "\""
+}
+
 // RequestClipboardTool installs xclip (and, on a Wayland session, also
 // wl-clipboard) via pkexec, using whichever package manager this distro
 // actually has (see pkgManagers) -- the same pkexec pattern as
@@ -386,10 +416,7 @@ func (s *Service) RequestClipboardTool() bool {
 		return false
 	}
 
-	pkgs := []string{"xclip"}
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		pkgs = append(pkgs, "wl-clipboard")
-	}
+	pkgs := clipboardPkgs()
 
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", pm.install(pkgs))
 	out, err := cmd.CombinedOutput()

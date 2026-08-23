@@ -145,8 +145,9 @@ func (s *Service) RequestKMSCapture(binPath string) bool { return false }
 // clipboard helper is only needed there -- see service_linux.go); macOS
 // clipboard sync talks to NSPasteboard directly, so there's nothing to
 // install.
-func (s *Service) ClipboardToolAvailable() bool { return true }
-func (s *Service) RequestClipboardTool() bool   { return true }
+func (s *Service) ClipboardToolAvailable() bool    { return true }
+func (s *Service) RequestClipboardTool() bool      { return true }
+func (s *Service) ClipboardInstallPreview() string { return "" }
 
 // GPU clock locking is Windows-only (NVML clock lock via an elevated
 // gamestream-server --gpu-clock-lock-daemon helper -- see
