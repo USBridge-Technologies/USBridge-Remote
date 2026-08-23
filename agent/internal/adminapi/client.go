@@ -279,6 +279,14 @@ func (c *Client) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 	return c.do(http.MethodPost, "/token/download-rustshine", nil, nil)
 }
 
+// CheckRustShineUpdateNow mirrors DownloadRustShine's own thin-client shape
+// (fire-and-forget; the GUI polls EntitlementStatus for
+// RustShineUpdateInProgress/RustShineVersion/LastError instead of waiting
+// on this response) -- see handleCheckRustShineUpdateNow's doc comment.
+func (c *Client) CheckRustShineUpdateNow() error {
+	return c.do(http.MethodPost, "/token/check-rustshine-update", nil, nil)
+}
+
 func (c *Client) SetStreamBackend(kind string) error {
 	return c.do(http.MethodPost, "/token/set-stream-backend", map[string]string{"kind": kind}, nil)
 }
