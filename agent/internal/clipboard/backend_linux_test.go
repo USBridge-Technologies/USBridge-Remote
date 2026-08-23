@@ -5,9 +5,11 @@ package clipboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // resetDetectState clears detect()'s one piece of persistent state (the
@@ -198,5 +200,102 @@ func TestDualToolGetTextFallsBackToSecondary(t *testing.T) {
 	}
 	if text != "only-on-secondary" {
 		t.Errorf("getText() = %q, want %q", text, "only-on-secondary")
+	}
+}
+
+// TestRunCmdDoesNotHangOnDaemonizingProcess reproduces the live bug behind
+// "clipboard stopped working in both directions": xclip's "set" invocation
+// forks a background process to keep serving the X11 selection, which
+// inherits our Stdout pipe -- Go's Cmd.Wait() then blocks until that pipe
+// sees EOF, which never happens as long as the daemonized process holds it
+// open, *regardless* of the outer context's own timeout already having
+// killed the directly-exec'd process. Confirmed live against the real
+// xclip binary: without cmd.WaitDelay, a single "xclip -selection
+// clipboard <text" call hung for 100+ seconds; Manager.Apply/Run both hold
+// backendMu around runCmd, so one hung call froze clipboard sync in both
+// directions. This fake script reproduces the same fd-inheritance shape
+// (a backgrounded subshell that outlives the script and keeps stdout open)
+// without depending on a real X11/Wayland session being available.
+func TestRunCmdDoesNotHangOnDaemonizingProcess(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat >/dev/null\n(sleep 5) &\nexit 0\n"
+	path := filepath.Join(dir, "daemonizing-tool")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake tool: %v", err)
+	}
+
+	start := time.Now()
+	_, err := runCmd(context.Background(), path, nil, []byte("hello"))
+	elapsed := time.Since(start)
+
+	if elapsed > 3*time.Second {
+		t.Fatalf("runCmd took %v against a daemonizing process, want well under 3s (WaitDelay should cap this)", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("runCmd returned an error for a process that exited successfully: %v (ErrWaitDelay must be treated as success)", err)
+	}
+}
+
+// writeFakeXclipWithTargets writes a fake `xclip` whose "-o -t TARGETS"
+// response is exactly `targets` (not derived from what was "set"), so a
+// test can simulate xclip's real, confirmed-live misbehavior: answering a
+// getMime(mime) request with real data even when that mime was never
+// actually offered. Any other invocation (get without -t, or a set with
+// stdin) echoes back / stores `content` unconditionally, matching a real
+// xclip selection owner that doesn't validate the requested target at all.
+func writeFakeXclipWithTargets(t *testing.T, dir, targets, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, "xclip")
+	script := fmt.Sprintf(
+		"#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = \"TARGETS\" ] && { printf '%s'; exit 0; }; done\nprintf '%s'\n",
+		targets, content,
+	)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake xclip: %v", err)
+	}
+	return path
+}
+
+// TestXclipGetMimeRejectsUnofferedType reproduces the live bug behind
+// plain-text clipboard content getting silently misdelivered as a bogus
+// "image": xclip's selection owner doesn't validate the requested target at
+// all -- confirmed live, "echo -n hi | xclip -selection clipboard" then
+// "xclip -o -t image/png" prints "hi" instead of refusing. linuxBackend.Read
+// checks image/png (and text/uri-list) *before* falling back to plain text,
+// so without cross-checking TARGETS first, xclipTool.getMime always
+// (wrongly) "succeeded" for image/png whenever xclip held plain text,
+// making Read() report KindImage garbage for ordinary text -- breaking
+// clipboard sync any time xclip ended up answering that call (dualTool's
+// secondary, whenever wl-clipboard correctly refused first).
+func TestXclipGetMimeRejectsUnofferedType(t *testing.T) {
+	dir := t.TempDir()
+	// TARGETS lists only UTF8_STRING (plain text) -- image/png was never
+	// actually offered, even though this fake (like the real xclip binary)
+	// would happily echo the text back if asked for it directly.
+	path := writeFakeXclipWithTargets(t, dir, "TARGETS\\nUTF8_STRING", "just plain text")
+	tool := xclipTool{path: path}
+
+	data, ok, err := tool.getMime(context.Background(), mimePNG)
+	if err != nil {
+		t.Fatalf("getMime: unexpected error %v", err)
+	}
+	if ok {
+		t.Fatalf("getMime(image/png) = %q, ok=true; want ok=false since TARGETS never offered it", data)
+	}
+}
+
+// TestXclipGetMimeAcceptsOfferedType is the positive-path sibling of the
+// above: a mime that genuinely *is* listed in TARGETS must still work.
+func TestXclipGetMimeAcceptsOfferedType(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFakeXclipWithTargets(t, dir, "TARGETS\\nimage/png", "fake-png-bytes")
+	tool := xclipTool{path: path}
+
+	data, ok, err := tool.getMime(context.Background(), mimePNG)
+	if err != nil || !ok {
+		t.Fatalf("getMime(image/png): data=%q ok=%v err=%v, want ok=true", data, ok, err)
+	}
+	if string(data) != "fake-png-bytes" {
+		t.Errorf("getMime(image/png) = %q, want %q", data, "fake-png-bytes")
 	}
 }

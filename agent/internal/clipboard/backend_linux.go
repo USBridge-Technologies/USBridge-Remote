@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -45,16 +46,40 @@ type clipboardTool interface {
 	setMime(ctx context.Context, mime string, data []byte) error
 }
 
+// runCmd's whole clipboard-tool-hangs-forever story: xclip/wl-copy "set"
+// invocations fork into the background to keep serving the selection after
+// the process we exec'd exits, and inherit our Stdout pipe in the process.
+// Confirmed live: with only the outer 3s context timeout below, "xclip
+// -selection clipboard <text" reliably hung for 100+ seconds -- the timeout
+// does kill the direct child, but Go's Cmd.Wait() still blocks forever
+// waiting for the *inherited stdout pipe* to see EOF, which never happens
+// as long as the daemonized grandchild (the one actually holding the X11
+// selection open) keeps that fd around. Manager.Apply/Run both hold
+// backendMu around exactly this call, so one hung xclip invocation froze
+// clipboard sync end to end -- both directions, exactly the live symptom
+// this fixes.
+//
+// cmd.WaitDelay (Go 1.20+) is the sanctioned fix for this: once the
+// process itself has exited, Wait() only waits this much longer for the
+// I/O pipes to close before force-closing them itself and returning
+// exec.ErrWaitDelay -- confirmed live: with WaitDelay set, the same call
+// returns in ~1s instead of hanging. Per ErrWaitDelay's own doc, it's only
+// ever returned when the process "exits with a successful status code" --
+// so it's not a real failure, just Go giving up on waiting for a daemon
+// that was never going to close that fd; treated as success below rather
+// than surfaced as a set/get failure to callers.
 func runCmd(ctx context.Context, path string, args []string, stdin []byte) ([]byte, error) {
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, path, args...)
+	cmd.WaitDelay = 1 * time.Second
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return nil, err
 	}
 	return out.Bytes(), nil
@@ -96,6 +121,23 @@ func (t xclipTool) setText(ctx context.Context, text string) error {
 }
 
 func (t xclipTool) getMime(ctx context.Context, mime string) ([]byte, bool, error) {
+	// xclip's selection owner doesn't validate the requested target at all:
+	// asking a plain-text clipboard for "-t image/png" (or any other mime
+	// it never actually offered) just echoes back the text bytes instead of
+	// refusing -- confirmed live: "echo -n hi | xclip -selection clipboard"
+	// then "xclip -o -t image/png" prints "hi". Read()'s own mime-first
+	// probing order (uri-list, then png, then plain text) means that bug
+	// alone made linuxBackend.Read misclassify *every* plain-text clipboard
+	// as KindImage whenever xclip ended up answering the getMime(png) call
+	// (dualTool's secondary, whenever wl-clipboard correctly refused
+	// first) -- silently breaking clipboard sync in both directions any
+	// time the actual content was text. Cross-checking TARGETS (which
+	// xclip *does* populate honestly -- confirmed live too) before trusting
+	// the data closes this off.
+	targets, err := runCmd(ctx, t.path, []string{"-selection", "clipboard", "-o", "-t", "TARGETS"}, nil)
+	if err != nil || !bytes.Contains(targets, []byte(mime)) {
+		return nil, false, nil
+	}
 	out, err := runCmd(ctx, t.path, []string{"-selection", "clipboard", "-o", "-t", mime}, nil)
 	if err != nil || len(out) == 0 {
 		return nil, false, nil
