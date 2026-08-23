@@ -796,11 +796,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// above, which it mirrors) -- a left/right slot only ever gets its
 	// MinSize, and a truncated Label's MinSize collapses to just the
 	// ellipsis glyph, so this rendered as a bare "…" instead of the URL.
-	var webURL *url.URL
-	if parsed, err := url.Parse(rustshineWebURL); err == nil {
-		webURL = parsed
-	}
-	sunWebLinkVal := widget.NewHyperlink(rustshineWebURL, webURL)
+	sunWebLinkVal := newClickableText(rustshineWebURL, func() {
+		if parsed, err := url.Parse(rustshineWebURL); err == nil {
+			_ = w.app.OpenURL(parsed)
+		}
+	})
 	sunWebLinkCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
 		win.Clipboard().SetContent(rustshineWebURL)
 	})
@@ -2780,3 +2780,55 @@ func (r *supportButtonRenderer) Refresh() {
 	r.icon.Refresh()
 	r.Layout(r.button.Size())
 }
+
+// clickableText is a simple custom text label that implements fyne.Tappable,
+// allowing it to act like a hyperlink button without default browser/Fyne link
+// hover styles (such as strikethroughs or underlines).
+type clickableText struct {
+	widget.BaseWidget
+	text     *canvas.Text
+	onTapped func()
+}
+
+func newClickableText(label string, onTapped func()) *clickableText {
+	t := &clickableText{
+		text:     canvas.NewText(label, design.ColorAccent),
+		onTapped: onTapped,
+	}
+	t.text.TextSize = 13
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (c *clickableText) Tapped(_ *fyne.PointEvent) {
+	if c.onTapped != nil {
+		c.onTapped()
+	}
+}
+
+func (c *clickableText) CreateRenderer() fyne.WidgetRenderer {
+	return &clickableTextRenderer{c: c}
+}
+
+type clickableTextRenderer struct {
+	c *clickableText
+}
+
+func (r *clickableTextRenderer) Layout(size fyne.Size) {
+	r.c.text.Resize(size)
+}
+
+func (r *clickableTextRenderer) MinSize() fyne.Size {
+	return r.c.text.MinSize()
+}
+
+func (r *clickableTextRenderer) Refresh() {
+	r.c.text.Refresh()
+}
+
+func (r *clickableTextRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.c.text}
+}
+
+func (r *clickableTextRenderer) Destroy() {}
+
