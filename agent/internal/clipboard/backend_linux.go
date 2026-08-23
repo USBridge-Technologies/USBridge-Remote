@@ -253,39 +253,44 @@ func (t dualTool) setMime(ctx context.Context, mime string, data []byte) error {
 }
 
 var (
-	detectMu     sync.Mutex
-	activeTool   clipboardTool
+	logMu        sync.Mutex
 	loggedNoTool bool
 )
 
 // detect picks the clipboard CLI tool available on this session, preferring
-// wl-clipboard under Wayland and xclip under X11 (both support arbitrary
-// targets), falling back to xsel (text only).
+// a dualTool (wl-clipboard + xclip together) under Wayland when both are
+// installed, a single wl-clipboard or xclip when only one is, and falling
+// back to xsel (text only) -- see probeTool.
 //
-// Once a tool is found it's cached for the rest of the process's life --
-// found binaries don't uninstall themselves mid-session. Until then, every
-// call re-probes instead of caching "not found" forever: exec.LookPath only
-// stats PATH's directories, no subprocess spawn, so this stays cheap even
-// at the clipboard poll loop's ~800ms cadence (see manager.go's
-// pollInterval). This matters because permissions.RequestClipboardTool
-// installs xclip via a live pkexec call while this very process is already
-// running (the UI's "Install" button, see internal/ui/window.go's
-// clipboardToolRow) -- with a one-shot cache, that install would silently
-// never take effect until the whole agent was restarted, confirmed live:
-// the agent's own log showed "no xclip/xsel/wl-clipboard found" cached from
-// 2 seconds after launch, well before xclip got installed mid-session.
+// Every call re-probes from scratch rather than caching a result for the
+// process's life: exec.LookPath only stats PATH's directories, no
+// subprocess spawn, so this stays cheap even at the clipboard poll loop's
+// ~800ms cadence (see manager.go's pollInterval). This isn't just about
+// picking up a tool that wasn't there before -- caching *any* successful
+// result, even just "found xclip", is its own bug: confirmed live,
+// permissions.RequestClipboardTool (the UI's "Install" button) installing
+// wl-clipboard *in addition to* an xclip that was already found and cached
+// earlier never took effect without a full agent restart, because a cached
+// non-nil result short-circuited before ever reconsidering whether a better
+// combination (dualTool) had since become available. Re-probing every tick
+// means any change in what's installed -- newly appearing, newly gone, or
+// newly able to upgrade a single tool into a dualTool -- is picked up on
+// the very next poll, no restart, no explicit cache invalidation needed
+// anywhere.
 func detect() clipboardTool {
-	detectMu.Lock()
-	defer detectMu.Unlock()
-	if activeTool != nil {
-		return activeTool
+	tool := probeTool()
+
+	logMu.Lock()
+	defer logMu.Unlock()
+	if tool == nil {
+		if !loggedNoTool {
+			log.Printf("[clipboard] no xclip/xsel/wl-clipboard found; clipboard sync disabled on this Linux session")
+			loggedNoTool = true
+		}
+	} else {
+		loggedNoTool = false // if it later disappears again, log that too
 	}
-	activeTool = probeTool()
-	if activeTool == nil && !loggedNoTool {
-		log.Printf("[clipboard] no xclip/xsel/wl-clipboard found; clipboard sync disabled on this Linux session")
-		loggedNoTool = true
-	}
-	return activeTool
+	return tool
 }
 
 // probeTool runs the actual PATH lookups behind detect(). Split out so

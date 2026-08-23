@@ -10,21 +10,20 @@ import (
 	"testing"
 )
 
-// resetDetectState clears detect()'s package-level cache so each subtest
-// starts from a clean slate -- these fields would otherwise leak state
-// between tests (and between a real process's own calls) by design, see
-// detect()'s doc comment.
+// resetDetectState clears detect()'s one piece of persistent state (the
+// "already logged 'not found' once" flag) so each subtest starts from a
+// clean slate -- it would otherwise leak between tests (and between a real
+// process's own calls) by design, see detect()'s doc comment. detect()
+// itself no longer caches the *tool* it finds -- every call re-probes.
 func resetDetectState(t *testing.T) {
 	t.Helper()
-	detectMu.Lock()
-	activeTool = nil
+	logMu.Lock()
 	loggedNoTool = false
-	detectMu.Unlock()
+	logMu.Unlock()
 	t.Cleanup(func() {
-		detectMu.Lock()
-		activeTool = nil
+		logMu.Lock()
 		loggedNoTool = false
-		detectMu.Unlock()
+		logMu.Unlock()
 	})
 }
 
@@ -69,14 +68,16 @@ func TestDetectDoesNotCacheNotFoundForever(t *testing.T) {
 	}
 }
 
-// TestDetectCachesOnceFound ensures a successful detection *is* still
-// cached (not re-probed on every call) -- detect() is called on every
-// clipboard poll tick (~800ms, see manager.go's pollInterval), and a found
-// binary doesn't uninstall itself mid-session, so re-running exec.LookPath
-// forever once satisfied would just be wasted work.
-func TestDetectCachesOnceFound(t *testing.T) {
+// TestDetectUpgradesFromSingleToolToDualWithoutRestart reproduces the live
+// bug report this replaced sync.Once-style caching entirely to fix: xclip
+// alone gets found and (with any positive caching at all) locked in: later
+// installing wl-clipboard too -- via the UI's "Install" button, while the
+// agent is still running -- must upgrade the very next poll tick to a
+// dualTool that actually writes both selections, not keep silently using
+// just the xclip it found first.
+func TestDetectUpgradesFromSingleToolToDualWithoutRestart(t *testing.T) {
 	resetDetectState(t)
-	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
 
 	dir := t.TempDir()
 	writeFakeExecutable(t, dir, "xclip")
@@ -84,15 +85,15 @@ func TestDetectCachesOnceFound(t *testing.T) {
 
 	first := detect()
 	if _, ok := first.(xclipTool); !ok {
-		t.Fatalf("detect() = %#v, want xclipTool", first)
+		t.Fatalf("detect() with only xclip on PATH = %#v, want xclipTool", first)
 	}
 
-	// Empty the PATH entirely -- if detect() were re-probing instead of
-	// returning its cache, it would now (wrongly) report nothing found.
-	t.Setenv("PATH", t.TempDir())
+	writeFakeExecutable(t, dir, "wl-copy")
+	writeFakeExecutable(t, dir, "wl-paste")
+
 	second := detect()
-	if _, ok := second.(xclipTool); !ok {
-		t.Fatalf("detect() after PATH changed = %#v, want cached xclipTool", second)
+	if _, ok := second.(dualTool); !ok {
+		t.Fatalf("detect() after wl-clipboard also appeared = %#v, want dualTool", second)
 	}
 }
 
