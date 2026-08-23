@@ -446,7 +446,7 @@ func buildConnectionDialogForm(nameEntry, internalHostEntry, tailscaleHostEntry,
 // itself. This note exists so that requirement isn't silently discovered
 // as a connection failure.
 func newWebTailscaleHint(window fyne.Window) fyne.CanvasObject {
-	text := widget.NewLabel("Tailscale requires a local client:")
+	text := widget.NewLabel("Tailscale requires a local client to connect from an external network:")
 	text.Wrapping = fyne.TextWrapWord
 
 	u, _ := url.Parse("https://tailscale.com/download")
