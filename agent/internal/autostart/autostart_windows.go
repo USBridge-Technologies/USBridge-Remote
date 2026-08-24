@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -19,23 +20,42 @@ var (
 	procShellExecuteW = shell32.NewProc("ShellExecuteW")
 )
 
+// IsEnabled reports whether the USBridgeAgent service is registered with
+// AUTO_START. Deliberately opens the SCM/service with read-only access
+// (SC_MANAGER_CONNECT / SERVICE_QUERY_CONFIG) instead of going through
+// mgr.Connect()+Mgr.OpenService, which request SC_MANAGER_ALL_ACCESS and
+// SERVICE_ALL_ACCESS respectively -- both of those need an elevated token
+// against a LocalSystem-owned service, so calling them from the normal
+// (non-elevated) tray/UI process that runs after a plain login always fails
+// with "Access is denied", and the error path above made IsEnabled() return
+// false unconditionally. That silently mismatched reality: the checkbox
+// showed unchecked even with the service correctly registered as
+// AUTO_START and running (confirmed live from a non-admin session on this
+// exact box). Read-only rights need no elevation and are enough to answer
+// this question.
 func IsEnabled() bool {
-	m, err := mgr.Connect()
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return false
 	}
-	defer m.Disconnect()
+	defer windows.CloseServiceHandle(scm)
 
-	s, err := m.OpenService(serviceName)
+	namePtr, err := windows.UTF16PtrFromString(serviceName)
 	if err != nil {
 		return false
 	}
-	defer s.Close()
+	h, err := windows.OpenService(scm, namePtr, windows.SERVICE_QUERY_CONFIG)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseServiceHandle(h)
 
-	cfg, err := s.Config()
-	if err != nil {
+	n := uint32(4096)
+	buf := make([]byte, n)
+	if err := windows.QueryServiceConfig(h, (*windows.QUERY_SERVICE_CONFIG)(unsafe.Pointer(&buf[0])), n, &n); err != nil {
 		return false
 	}
+	cfg := (*windows.QUERY_SERVICE_CONFIG)(unsafe.Pointer(&buf[0]))
 	return cfg.StartType == mgr.StartAutomatic
 }
 

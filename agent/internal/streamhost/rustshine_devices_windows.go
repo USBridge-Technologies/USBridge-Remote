@@ -4,11 +4,15 @@ package streamhost
 
 import (
 	"bufio"
+	"log"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"usbridge_agent/internal/sessionlaunch"
 )
 
 // rustshineDeviceLineRe matches one row of
@@ -30,13 +34,33 @@ func (b *rustshineBackend) ListCaptureDevices() []CaptureDevice {
 	if binPath == "" {
 		return nil
 	}
-	ctx, cancel := execTimeout(3 * time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, binPath, "--list-capture-devices")
-	configureRustshineProcess(cmd) // hide the console window this pops up
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
+
+	var out []byte
+	if useSessionBroker() {
+		// Same reasoning as Start()'s session-broker branch: this process
+		// (the USBridgeAgent service) is confined to Session 0, so a plain
+		// exec.Command here would shell out --list-capture-devices from
+		// Session 0 too and get the same wrong/virtualized monitor list
+		// Start() used to (confirmed live) -- this is exactly what fed the
+		// "only 2 resolutions" list into /api/video/info's available_devices
+		// even after Start()'s own launch was already fixed to use the
+		// session broker, since this is a wholly separate subprocess call.
+		o, err := sessionlaunch.RunAndCaptureOutput(binPath, []string{"--list-capture-devices"}, filepath.Dir(binPath), gamestreamServerCompatEnv, 3*time.Second)
+		if err != nil {
+			log.Printf("[rustshine] --list-capture-devices via session broker failed: %v", err)
+			return nil
+		}
+		out = o
+	} else {
+		ctx, cancel := execTimeout(3 * time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, binPath, "--list-capture-devices")
+		configureRustshineProcess(cmd) // hide the console window this pops up
+		o, err := cmd.Output()
+		if err != nil {
+			return nil
+		}
+		out = o
 	}
 
 	var devices []CaptureDevice

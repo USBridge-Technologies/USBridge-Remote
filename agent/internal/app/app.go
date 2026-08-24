@@ -211,6 +211,48 @@ func (t *thinClientToken) RequestKMSCapture() bool {
 	return t.Client.RecheckKMSCapture()
 }
 
+// currentInstance holds the most recently started App, set by Run just
+// before it blocks -- the only external reader is NotifySessionChange
+// (called from cmd/usbridge_agent/service_windows.go's SessionChange
+// handler), which otherwise has no way to reach the *App that Start()
+// constructs internally and never returns out to main.
+var currentInstance struct {
+	mu sync.Mutex
+	a  *App
+}
+
+// NotifySessionChange restarts the active stream backend (see
+// RestartSunshine) so it picks up whichever session Windows now reports as
+// the active console session. Called by the USBridgeAgent Windows service's
+// SessionChange handler on WTS_SESSION_LOGON/WTS_CONSOLE_CONNECT: a
+// LocalSystem service never automatically re-homes an already-running
+// gamestream-server child into a session that only becomes interactive
+// after the service itself started (see internal/sessionlaunch's package
+// doc, and internal/streamhost's rustshineProcess/useSessionBroker) -- this
+// is what actually notices "a session just became available/changed" and
+// forces the kill+relaunch that picks it up, instead of waiting on
+// sunshineWatchdog's blind 15s poll (which would otherwise leave a client
+// staring at dead/wrong-resolution video for up to that long after every
+// login). No-op if no App is running yet (e.g. the notification races the
+// service's own startup) or if RustShine isn't actually the active backend
+// (Sunshine's own Windows service tooling, unused by this agent, handles
+// this differently and doesn't need the restart).
+func NotifySessionChange() {
+	currentInstance.mu.Lock()
+	a := currentInstance.a
+	currentInstance.mu.Unlock()
+	if a == nil {
+		return
+	}
+	if a.currentStreamKind() != "rustshine" {
+		return
+	}
+	log.Printf("[app] Windows session change detected, restarting rustshine to pick it up")
+	if err := a.RestartSunshine(); err != nil {
+		log.Printf("[app] restart after session change failed: %v", err)
+	}
+}
+
 func New() (*App, error) {
 	cfgPath := resolveConfigPath()
 	cfg, err := config.Load(cfgPath)
@@ -354,6 +396,12 @@ func resolveConfigPath() string {
 func (a *App) Run(headless bool) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// See NotifySessionChange's doc comment for why this needs to be
+	// reachable from outside the normal Start()->New()->Run() call chain.
+	currentInstance.mu.Lock()
+	currentInstance.a = a
+	currentInstance.mu.Unlock()
 
 	keepDisplayAwake(ctx)
 

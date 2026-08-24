@@ -7,8 +7,11 @@ import (
 	"log"
 	"os"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"usbridge_agent/internal/app"
 )
 
 const serviceName = "USBridgeAgent"
@@ -32,7 +35,13 @@ func runMain(headless bool) {
 type agentService struct{}
 
 func (m *agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
+	// AcceptSessionChange is what lets Windows notify this service of
+	// WTS_SESSION_LOGON/WTS_CONSOLE_CONNECT below -- see the SessionChange
+	// case and app.NotifySessionChange's doc comment for why a LocalSystem
+	// service needs this at all: it never automatically re-homes an
+	// already-running gamestream-server child into a session that only
+	// becomes interactive after this service itself started.
+	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown | svc.AcceptSessionChange
 	changes <- svc.Status{State: svc.StartPending}
 
 	// Start headless mode in background
@@ -44,6 +53,22 @@ loop:
 		c := <-r
 		switch c.Cmd {
 		case svc.Interrogate:
+			changes <- c.CurrentStatus
+		case svc.SessionChange:
+			// EventType is one of the WTS_* constants (windows package);
+			// only react to "a session just became the active console
+			// session" -- WTS_SESSION_LOGOFF/WTS_CONSOLE_DISCONNECT need no
+			// handling here since the process that was running in that
+			// session dies on its own, which rustshineBackend's own
+			// watchProcessExit -> onExit -> startSunshine chain already
+			// notices and reacts to; WTS_SESSION_UNLOCK is deliberately
+			// excluded too -- a locked (not logged-off) session is still a
+			// real interactive session DXGI capture already works fine
+			// against, so restarting on unlock would just interrupt an
+			// otherwise-fine stream for no reason.
+			if c.EventType == windows.WTS_SESSION_LOGON || c.EventType == windows.WTS_CONSOLE_CONNECT {
+				go app.NotifySessionChange()
+			}
 			changes <- c.CurrentStatus
 		case svc.Stop, svc.Shutdown:
 			break loop

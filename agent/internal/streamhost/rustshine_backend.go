@@ -23,6 +23,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -35,6 +37,67 @@ import (
 	"time"
 )
 
+// rustshineProcess abstracts the two ways gamestream-server can end up
+// running under this backend: as a plain child process (exec.Cmd -- every
+// platform, and the normal Windows case where this agent itself is already
+// running interactively) or, on Windows when this agent is running as the
+// LocalSystem USBridgeAgent service, as a process re-homed into the active
+// console session via internal/sessionlaunch (see
+// rustshine_process_windows.go's sessionBrokerLaunchImpl). A LocalSystem
+// service is permanently confined to the non-interactive Session 0 -- a
+// user logging in later does not move it into their session -- so
+// gamestream-server's DXGI Desktop Duplication capture, started directly
+// under the service, can only ever see a wrong/fallback monitor list
+// (confirmed live: falls back to a 2-entry generic resolution list and
+// produces no video, vs. the real monitor list at their native resolution
+// when launched inside the actual interactive session). Routing
+// Start/Stop/watchProcessExit/Running/Pid through this interface instead
+// of *exec.Cmd directly keeps this file buildable on every platform
+// despite the second launch path being Windows-only.
+type rustshineProcess interface {
+	Pid() int
+	Kill() error
+	Wait() error
+}
+
+// execCmdProcess adapts *exec.Cmd to rustshineProcess -- the ordinary path,
+// used everywhere except the Windows-service session-broker case above.
+type execCmdProcess struct{ cmd *exec.Cmd }
+
+func (p execCmdProcess) Pid() int    { return p.cmd.Process.Pid }
+func (p execCmdProcess) Kill() error { return p.cmd.Process.Kill() }
+func (p execCmdProcess) Wait() error { return p.cmd.Wait() }
+
+// useSessionBroker reports whether Start should launch gamestream-server via
+// sessionBrokerLaunch (re-homing it into the active console session)
+// instead of a plain child process. Always false except on Windows when
+// this agent is running as the LocalSystem USBridgeAgent service -- see
+// rustshine_process_windows.go's init, which overrides both this and
+// sessionBrokerLaunch.
+var useSessionBroker = func() bool { return false }
+
+// sessionBrokerLaunch launches gamestream-server inside the currently
+// active console session instead of whatever (non-interactive) session
+// this agent process itself is running in. Only ever called when
+// useSessionBroker() is true; nil on every platform except Windows. Returns
+// an error satisfying errors.Is(err, sessionlaunch.ErrNoActiveSession) --
+// duplicated here as errNoActiveSessionMarker rather than importing
+// internal/sessionlaunch (a Windows-only package) into this cross-platform
+// file -- when nobody is currently attached to the console (e.g. still at
+// boot, before the very first login).
+var sessionBrokerLaunch func(exe string, args []string, workDir string, stdout, stderr *os.File) (rustshineProcess, error)
+
+// errNoActiveSessionMarker lets Start() recognize "no active console
+// session yet" (see sessionBrokerLaunch's doc comment) without importing
+// the Windows-only package that actually defines it -- rustshine_process_windows.go's
+// sessionBrokerLaunchImpl wraps sessionlaunch.ErrNoActiveSession so that
+// errors.Is(err, errNoActiveSessionMarker) succeeds. This lets Start()
+// treat "nobody logged in yet" the same quiet, retry-on-next-tick way it
+// already treats other not-ready-yet conditions (e.g. the binary not being
+// staged yet), instead of logging it as a real failure every
+// sunshineWatchdogInterval until someone logs in.
+var errNoActiveSessionMarker = fmt.Errorf("rustshine: no active console session")
+
 const rustshineAdminUser = "usbridge"
 
 type rustshineBackend struct {
@@ -44,8 +107,8 @@ type rustshineBackend struct {
 	launchPath  string
 	capExecPath string // set via SetCapExecPath once CAP_SYS_ADMIN is granted; see Start
 	logPath     string
-	cmd         *exec.Cmd
-	watchdog    *exec.Cmd // macOS only, see rustshine_process_other.go
+	proc        rustshineProcess // see the rustshineProcess doc comment above
+	watchdog    *exec.Cmd        // macOS only, see rustshine_process_other.go
 	onExit      func()    // see SetOnExit
 
 	activeAdminPassword string
@@ -213,16 +276,16 @@ func (b *rustshineBackend) SetCapExecPath(path string) {
 func (b *rustshineBackend) Running() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.cmd != nil && b.cmd.Process != nil
+	return b.proc != nil
 }
 
 func (b *rustshineBackend) Pid() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.cmd == nil || b.cmd.Process == nil {
+	if b.proc == nil {
 		return 0
 	}
-	return b.cmd.Process.Pid
+	return b.proc.Pid()
 }
 
 // generatePassword creates a cryptographically-random 20-character hex
@@ -291,7 +354,7 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.adminPort = adminPort
-	if b.cmd != nil && b.cmd.Process != nil {
+	if b.proc != nil {
 		return nil
 	}
 	launchPath := b.BinaryPath()
@@ -417,31 +480,19 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		args = append(args, "--webrtc-disable")
 	}
 
-	// If a capability-granted sunshine-capexec launcher is set (Linux KMS
-	// capture only — see SetCapExecPath), launch gamestream-server through
-	// it so it inherits CAP_SYS_ADMIN via ambient capabilities instead of
-	// carrying a file capability itself, which would break its RPATH-based
-	// library resolution. Mirrors sunshineBackend.Start()'s identical branch.
-	var cmd *exec.Cmd
-	if b.capExecPath != "" {
-		cmd = exec.Command(b.capExecPath, append([]string{launchPath}, args...)...)
-	} else {
-		cmd = exec.Command(launchPath, args...)
-	}
-	configureRustshineProcess(cmd)
-	if dir := filepath.Dir(launchPath); dir != "" && dir != "." {
-		cmd.Dir = dir
-	}
+	launchDir := filepath.Dir(launchPath)
+
+	// Shared log destination for both launch paths below. Truncates a log
+	// that's grown past a sane cap instead of appending forever -- this
+	// file used to reach 1.3GB+ across long-running agent uptimes even
+	// before the noisy-line filter existed, since every start appends on
+	// top of whatever the previous run(s) left behind with no rotation at
+	// all. A fresh start is a natural, low-risk point to reset it: nothing
+	// still running depends on the old content, and the alternative (real
+	// size-based rotation with .1/.2/... suffixes) is more machinery than
+	// a debug log needs.
+	var logDest *noisyLineFilterWriter
 	if b.logPath != "" {
-		// Truncate a log that's grown past a sane cap instead of appending
-		// forever -- this file used to reach 1.3GB+ across long-running
-		// agent uptimes even before the noisy-line filter above existed,
-		// since every start appends on top of whatever the previous
-		// run(s) left behind with no rotation at all. A fresh start is a
-		// natural, low-risk point to reset it: nothing still running
-		// depends on the old content, and the alternative (real
-		// size-based rotation with .1/.2/... suffixes) is more machinery
-		// than a debug log needs.
 		const rustshineLogMaxBytesBeforeTruncate = 20 * 1024 * 1024
 		if info, statErr := os.Stat(b.logPath); statErr == nil && info.Size() > rustshineLogMaxBytesBeforeTruncate {
 			if err := os.Truncate(b.logPath, 0); err != nil {
@@ -455,30 +506,101 @@ func (b *rustshineBackend) Start(adminPort int) error {
 		} else if f, err := os.OpenFile(b.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			log.Printf("[rustshine] failed to open log file %s: %v", b.logPath, err)
 		} else {
-			filtered := newNoisyLineFilterWriter(f)
-			cmd.Stdout = filtered
-			cmd.Stderr = filtered
+			logDest = newNoisyLineFilterWriter(f)
 		}
 	}
-	if err := cmd.Start(); err != nil {
-		return err
+
+	var proc rustshineProcess
+	if useSessionBroker() {
+		sp, err := b.startViaSessionBroker(launchPath, args, launchDir, logDest)
+		if err != nil {
+			if errors.Is(err, errNoActiveSessionMarker) {
+				// Nobody has reached the logon screen's active session
+				// yet (fresh boot, fast-user-switch mid-transition, ...).
+				// Not a failure -- Start() gets called again on the next
+				// sunshineWatchdog tick, and immediately on the next
+				// WTS_SESSION_LOGON/WTS_CONSOLE_CONNECT via
+				// app.NotifySessionChange -- so this quietly waits rather
+				// than logging a "failure" every 15s until someone logs in.
+				log.Printf("[rustshine] no active console session yet, deferring start")
+				return nil
+			}
+			return err
+		}
+		proc = sp
+	} else {
+		// If a capability-granted sunshine-capexec launcher is set (Linux
+		// KMS capture only — see SetCapExecPath), launch gamestream-server
+		// through it so it inherits CAP_SYS_ADMIN via ambient capabilities
+		// instead of carrying a file capability itself, which would break
+		// its RPATH-based library resolution. Mirrors
+		// sunshineBackend.Start()'s identical branch.
+		var cmd *exec.Cmd
+		if b.capExecPath != "" {
+			cmd = exec.Command(b.capExecPath, append([]string{launchPath}, args...)...)
+		} else {
+			cmd = exec.Command(launchPath, args...)
+		}
+		configureRustshineProcess(cmd)
+		if launchDir != "" && launchDir != "." {
+			cmd.Dir = launchDir
+		}
+		if logDest != nil {
+			cmd.Stdout = logDest
+			cmd.Stderr = logDest
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		log.Printf("[rustshine] started pid=%d launch=%s", cmd.Process.Pid, launchPath)
+		rustshineAfterStart(b, cmd)
+		proc = execCmdProcess{cmd}
 	}
+
 	b.launchPath = launchPath
-	b.cmd = cmd
-	log.Printf("[rustshine] started pid=%d launch=%s", cmd.Process.Pid, launchPath)
-	rustshineAfterStart(b, cmd)
-	go b.watchProcessExit(cmd)
+	b.proc = proc
+	go b.watchProcessExit(proc)
 
 	return nil
 }
 
-func (b *rustshineBackend) watchProcessExit(cmd *exec.Cmd) {
-	err := cmd.Wait()
+// startViaSessionBroker launches gamestream-server into the active console
+// session (see sessionBrokerLaunch's doc comment) instead of directly under
+// this (Session-0-bound) service process. logDest, if non-nil, receives
+// gamestream-server's stdout/stderr through an OS pipe -- CreateProcessAsUser
+// hands the child a real inherited file handle, so there's no Go-side
+// io.Writer to redirect into the way exec.Cmd.Stdout/Stderr work; a pipe
+// read-end pumped into logDest on a background goroutine gets the same
+// noisy-line filtering and log-truncation behavior back for this path too.
+func (b *rustshineBackend) startViaSessionBroker(launchPath string, args []string, workDir string, logDest *noisyLineFilterWriter) (rustshineProcess, error) {
+	var stdout, stderr *os.File
+	if logDest != nil {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			return nil, fmt.Errorf("create log pipe: %w", err)
+		}
+		stdout, stderr = pw, pw
+		go func() {
+			_, _ = io.Copy(logDest, pr)
+			_ = pr.Close()
+		}()
+		defer pw.Close() // our copy; the child inherits its own duplicate at launch
+	}
+	proc, err := sessionBrokerLaunch(launchPath, args, workDir, stdout, stderr)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[rustshine] started (session-broker) pid=%d launch=%s", proc.Pid(), launchPath)
+	return proc, nil
+}
+
+func (b *rustshineBackend) watchProcessExit(proc rustshineProcess) {
+	err := proc.Wait()
 	log.Printf("[rustshine] process exited: %v", err)
 	b.mu.Lock()
-	wasOurs := b.cmd == cmd
+	wasOurs := b.proc == proc
 	if wasOurs {
-		b.cmd = nil
+		b.proc = nil
 	}
 	onExit := b.onExit
 	b.mu.Unlock()
@@ -513,10 +635,10 @@ func (b *rustshineBackend) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var err error
-	if b.cmd != nil && b.cmd.Process != nil {
-		log.Printf("[rustshine] stopping pid=%d", b.cmd.Process.Pid)
-		err = b.cmd.Process.Kill()
-		b.cmd = nil
+	if b.proc != nil {
+		log.Printf("[rustshine] stopping pid=%d", b.proc.Pid())
+		err = b.proc.Kill()
+		b.proc = nil
 	} else {
 		log.Printf("[rustshine] stopping orphaned process by name")
 		if runtime.GOOS == "windows" {
