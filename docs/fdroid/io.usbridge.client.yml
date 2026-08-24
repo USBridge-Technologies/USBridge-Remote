@@ -65,10 +65,10 @@ Builds:
       - gomobile bind -target android/arm64 -androidapi 26 -o android/app/libs/androidbridge.aar
         ./androidbridge
       - mkdir -p android/app/src/main/jniLibs/arm64-v8a
-      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
+      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray,ts_omit_ssh" -ldflags="-s
         -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscale.so
         tailscale.com/cmd/tailscale
-      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray" -ldflags="-s
+      - go build -trimpath -tags="omitgui,ts_omit_gui,nosystray,ts_omit_systray,ts_omit_ssh" -ldflags="-s
         -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so
         tailscale.com/cmd/tailscaled
       - env -u CC -u CXX -u CGO_LDFLAGS GOOS=linux GOARCH=amd64 go install fyne.io/tools/cmd/fyne@v1.7.2

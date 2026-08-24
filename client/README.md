@@ -21,6 +21,7 @@ The USBridge Client doesn't just run as a desktop app—it compiles entirely to 
 
 - **WebRTC Streaming**: Bypasses traditional UDP Moonlight streams by utilizing **WebRTC**. Encoded video frames traverse NATs and firewalls seamlessly via STUN/TURN, delivering ultra-low latency video straight to the HTML5 `<video>` element without requiring any VPN software.
 - **Browser-Native Decoding**: WebRTC leans on the browser's own hardware-accelerated MediaCapabilities, meaning the web client achieves native-level decoding performance and battery life.
+- **Tailscale on the Web**: Because the browser sandbox restricts direct raw network socket control (meaning we cannot run a user-space Tailscale node directly inside the WASM environment), the client replaces the Tailscale IP entry field with a notice prompting users to download and run the native Tailscale client on their host device (`tailscale.com/download`). Once active on the host, Tailscale-routed IPs can be entered directly into the primary IP input field.
 
 ---
 

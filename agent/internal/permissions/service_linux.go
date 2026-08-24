@@ -222,6 +222,226 @@ func (s *Service) RequestMissing()                    {}
 func (s *Service) OpenPrivacySettings() error         { return nil }
 func (s *Service) OpenScreenRecordingSettings() error { return nil }
 
+// clipboardToolFound reports whether a CLI clipboard helper
+// internal/clipboard's Linux backend knows how to drive is installed --
+// mirrors detect()'s preference order there (wl-clipboard needs both
+// halves present; xclip and xsel are single binaries).
+func clipboardToolFound() bool {
+	if _, err := exec.LookPath("wl-copy"); err == nil {
+		if _, err := exec.LookPath("wl-paste"); err == nil {
+			return true
+		}
+	}
+	if _, err := exec.LookPath("xclip"); err == nil {
+		return true
+	}
+	if _, err := exec.LookPath("xsel"); err == nil {
+		return true
+	}
+	return false
+}
+
+// ClipboardToolAvailable reports whether clipboard sync has a working CLI
+// helper to shell out to. Wayland sessions typically ship wl-clipboard
+// preinstalled, but plenty of X11/XWayland desktops -- this project's own
+// Debian test machine included -- ship neither xclip nor xsel by default,
+// which silently and permanently disables clipboard sync (both directions)
+// until one is installed: confirmed live via
+// "clipboard: no clipboard tool available" on every apply.
+func (s *Service) ClipboardToolAvailable() bool {
+	return clipboardToolFound()
+}
+
+// pkgManager describes one Linux package manager. Package names are
+// identical across every one of these for both packages RequestClipboardTool
+// installs -- "xclip" and "wl-clipboard" -- so a plain space-joined package
+// list works for all of them; no per-distro name mapping needed.
+type pkgManager struct {
+	name string
+	// probe is the binary whose presence on PATH identifies this manager.
+	probe string
+	// install builds the script run as root (via pkexec /bin/sh -c) to
+	// install pkgs non-interactively. pkgs is always a compile-time
+	// constant slice from RequestClipboardTool, never user input.
+	install func(pkgs []string) string
+}
+
+// pkgManagers covers every package manager on the popular Linux desktop
+// distro families: apt (Debian/Ubuntu/Mint/Pop!_OS), dnf (Fedora/RHEL 8+/
+// Rocky/Alma), yum (older RHEL/CentOS 7), pacman (Arch/Manjaro/EndeavourOS),
+// zypper (openSUSE), apk (Alpine). Checked/ordered so a system with more
+// than one manager installed (e.g. a distro-hopper's leftover binaries)
+// still picks its *actual* one first.
+var pkgManagers = []pkgManager{
+	{
+		name:  "apt",
+		probe: "apt-get",
+		install: func(pkgs []string) string {
+			list := strings.Join(pkgs, " ")
+			// Try the install straight away first -- on any system that's
+			// ever run "apt update" before (i.e. virtually every real
+			// desktop, as opposed to a brand new container image), the
+			// local package index already has these in it, so this alone
+			// succeeds without touching the network's repo signing keys at
+			// all.
+			//
+			// Only fall back to "apt-get update" (with its own failure
+			// tolerated via ";" not "&&") if that plain install fails --
+			// confirmed live: a machine with an expired/misconfigured repo
+			// signing key makes "apt-get update" hard-fail with exit 100
+			// ("... couldn't be verified because the public key is not
+			// available"), which used to abort the whole install even when
+			// the existing cached index already had a perfectly installable
+			// xclip in it. --no-install-recommends keeps this to just the
+			// requested packages and their real deps (for xclip: libc6,
+			// libx11-6 -- already present on this project's own
+			// XWayland-forced GUI, see forceXWaylandForGUI) -- no extra
+			// desktop/display-server packages get pulled in either way.
+			return "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + list + " || " +
+				"(DEBIAN_FRONTEND=noninteractive apt-get update -qq; " +
+				"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + list + ")"
+		},
+	},
+	// install_weak_deps=False is dnf's --no-install-recommends equivalent;
+	// yum has no such knob (it predates weak deps as a concept) so it's
+	// omitted there -- neither package pulls in anything extra either way.
+	{name: "dnf", probe: "dnf", install: func(pkgs []string) string {
+		return "dnf install -y --setopt=install_weak_deps=False " + strings.Join(pkgs, " ")
+	}},
+	{name: "yum", probe: "yum", install: func(pkgs []string) string {
+		return "yum install -y " + strings.Join(pkgs, " ")
+	}},
+	// -Sy (not plain -S): like apt above, pacman needs its local sync
+	// database refreshed first or a perfectly valid package name can come
+	// back "target not found" on a system that hasn't run pacman -Sy
+	// recently (containers, minimal installs). Pacman never auto-installs
+	// optdepends on its own, so there's no recommends-equivalent flag needed.
+	{name: "pacman", probe: "pacman", install: func(pkgs []string) string {
+		return "pacman -Sy --noconfirm " + strings.Join(pkgs, " ")
+	}},
+	{name: "zypper", probe: "zypper", install: func(pkgs []string) string {
+		return "zypper --non-interactive install --no-recommends " + strings.Join(pkgs, " ")
+	}},
+	// Alpine's apk has no recommends concept either -- add only installs
+	// what's actually required.
+	{name: "apk", probe: "apk", install: func(pkgs []string) string {
+		return "apk add --no-cache " + strings.Join(pkgs, " ")
+	}},
+}
+
+// detectPkgManager returns the first package manager from pkgManagers whose
+// probe binary is on PATH, or nil if none of them are (an unsupported/
+// exotic distro, or a minimal container image with no package manager at
+// all).
+func detectPkgManager() *pkgManager {
+	return detectPkgManagerWith(exec.LookPath)
+}
+
+// detectPkgManagerWith is detectPkgManager with its PATH lookup injected, so
+// the distro-selection logic (order, first-match) is testable without
+// depending on which package managers happen to be installed on whatever
+// machine runs `go test`.
+func detectPkgManagerWith(lookPath func(string) (string, error)) *pkgManager {
+	for i := range pkgManagers {
+		if _, err := lookPath(pkgManagers[i].probe); err == nil {
+			return &pkgManagers[i]
+		}
+	}
+	return nil
+}
+
+// clipboardPkgs is the package list RequestClipboardTool installs: xclip
+// always, plus wl-clipboard on a Wayland session -- see RequestClipboardTool
+// for why both. Shared with ClipboardInstallPreview so the UI's "what will
+// this do?" tooltip can never drift from what actually gets installed.
+func clipboardPkgs() []string {
+	pkgs := []string{"xclip"}
+	if os.Getenv("WAYLAND_DISPLAY") != "" {
+		pkgs = append(pkgs, "wl-clipboard")
+	}
+	return pkgs
+}
+
+// ClipboardInstallPreview returns the exact command RequestClipboardTool
+// would run right now (as pkexec would run it), for the UI's "Install"
+// button to show in a tooltip/info dialog before the user clicks it and
+// hits a polkit password prompt sight-unseen. Returns "" if nothing would
+// actually run (no pkexec, or no supported package manager) -- the caller
+// falls back to RequestClipboardTool's own LastAccessibilityError message
+// in that case, surfaced only once the button is actually clicked.
+func (s *Service) ClipboardInstallPreview() string {
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return ""
+	}
+	pm := detectPkgManager()
+	if pm == nil {
+		return ""
+	}
+	return "pkexec /bin/sh -c \"" + pm.install(clipboardPkgs()) + "\""
+}
+
+// RequestClipboardTool installs xclip (and, on a Wayland session, also
+// wl-clipboard) via pkexec, using whichever package manager this distro
+// actually has (see pkgManagers) -- the same pkexec pattern as
+// RequestAccessibility.
+//
+// Both, not just xclip: whether a given app's paste actually observes
+// XWayland's bridged X11 CLIPBOARD selection depends on the app's toolkit
+// and how well the compositor bridges X11<->native-Wayland clipboards --
+// not reliable enough to assume. Confirmed live: text and file clipboard
+// sync stayed broken in both directions on a real KDE/kwin_wayland session
+// with only xclip installed. clipboard.detect() dual-writes through both
+// once both are present (see backend_linux.go's dualTool), so installing
+// both here is what actually makes the "Install" button fix clipboard sync
+// end to end on Wayland, not just get xclip onto the disk.
+func (s *Service) RequestClipboardTool() bool {
+	s.lastAccessErr = ""
+	if clipboardToolFound() {
+		return true
+	}
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		s.lastAccessErr = "pkexec is not installed. Install a clipboard tool manually instead, e.g.:\n" +
+			"  su -c 'apt install xclip wl-clipboard -y'   (Debian/Ubuntu)\n" +
+			"  su -c 'dnf install -y xclip wl-clipboard'   (Fedora/RHEL)\n" +
+			"  su -c 'pacman -S xclip wl-clipboard'        (Arch)"
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
+	pm := detectPkgManager()
+	if pm == nil {
+		s.lastAccessErr = "no supported package manager found (looked for apt, dnf, yum, pacman, " +
+			"zypper, apk). Install xclip (and wl-clipboard, on Wayland) manually for this distro."
+		log.Printf("[permissions] %s", s.lastAccessErr)
+		return false
+	}
+
+	pkgs := clipboardPkgs()
+
+	cmd := exec.Command("pkexec", "/bin/sh", "-c", pm.install(pkgs))
+	out, err := cmd.CombinedOutput()
+	log.Printf("[permissions] install %v via %s pkexec exit=%v output=%q", pkgs, pm.name, err, string(out))
+	if err != nil {
+		switch {
+		case strings.Contains(string(out), "No authentication agent found"):
+			s.lastAccessErr = "no polkit authentication agent is running for this session " +
+				"(pkexec needs one to prompt for the password). Log into a full desktop " +
+				"session and make sure its polkit agent is running, then retry."
+		case strings.Contains(err.Error(), "exit status 126"):
+			s.lastAccessErr = "authentication was cancelled or dismissed. Click Install again and approve the prompt."
+		default:
+			s.lastAccessErr = fmt.Sprintf("clipboard tool install via %s failed: %v (%s)", pm.name, err, strings.TrimSpace(string(out)))
+		}
+		return false
+	}
+
+	granted := clipboardToolFound()
+	if !granted {
+		s.lastAccessErr = fmt.Sprintf("%s reported success but no clipboard tool is on PATH yet; try again or install manually.", pm.name)
+	}
+	return granted
+}
+
 // findCapTool resolves getcap/setcap to an absolute path. Both live in
 // /usr/sbin (libcap2-bin), which many non-login shells -- and pkexec's own
 // sanitized environment -- don't include in PATH, so a bare exec.LookPath

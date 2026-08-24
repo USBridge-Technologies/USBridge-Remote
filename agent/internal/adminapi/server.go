@@ -49,7 +49,9 @@ type TokenBackend interface {
 	StartPatreonLink() (string, error)
 	UnlinkPatreon() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
+	SetRustShineWebRTCEnabled(enabled bool) error
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -181,7 +183,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/patreon-link", s.handlePatreonLink)
 	mux.HandleFunc("POST /token/patreon-unlink", s.handlePatreonUnlink)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
+	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
+	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -432,6 +436,19 @@ func (s *Server) handleDownloadRustShine(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
+// handleCheckRustShineUpdateNow mirrors handleDownloadRustShine's own
+// fire-and-forget shape and doc comment -- the GUI's "Check for updates"
+// button polls /token/entitlement-status for RustShineUpdateInProgress/
+// RustShineVersion/LastError instead of waiting on this response.
+func (s *Server) handleCheckRustShineUpdateNow(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		if err := s.token.CheckRustShineUpdateNow(); err != nil {
+			logrus.WithError(err).Warn("rustshine update check failed")
+		}
+	}()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
 func (s *Server) handleSetStreamBackend(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Kind string `json:"kind"`
@@ -441,6 +458,21 @@ func (s *Server) handleSetStreamBackend(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.token.SetStreamBackend(body.Kind); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleSetRustShineWebRTCEnabled(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.SetRustShineWebRTCEnabled(body.Enabled); err != nil {
 		writeError(w, err)
 		return
 	}

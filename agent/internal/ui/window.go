@@ -65,7 +65,9 @@ type TokenProvider interface {
 	StartPatreonLink() (string, error)
 	UnlinkPatreon() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
+	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
+	SetRustShineWebRTCEnabled(enabled bool) error
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -77,6 +79,20 @@ type PermsProvider interface {
 	RequestScreenRecording() bool
 	OpenPrivacySettings() error
 	OpenScreenRecordingSettings() error
+
+	// ClipboardToolAvailable/RequestClipboardTool: Linux only (a CLI
+	// clipboard helper -- xclip/wl-clipboard/xsel -- is what clipboard sync
+	// actually shells out to there, see internal/clipboard/backend_linux.go);
+	// every other platform's implementation just returns true/true.
+	ClipboardToolAvailable() bool
+	RequestClipboardTool() bool
+
+	// ClipboardInstallPreview returns the exact command the "Install"
+	// button's click would run (via pkexec), for its "?" tooltip -- "" if
+	// nothing would actually run (no pkexec / no supported package manager
+	// found), in which case the tooltip is skipped and the button's own
+	// click surfaces that reason instead.
+	ClipboardInstallPreview() string
 }
 
 // TailscaleProvider is satisfied by *tailscale.Service (embedded engine) or
@@ -128,6 +144,30 @@ type Window struct {
 	screenCaptureSelect *widget.Select
 	screenCaptureBtn    *widget.Button
 
+	// clipboardToolRow: Linux only, shown only while no CLI clipboard helper
+	// (xclip/wl-clipboard/xsel) is installed -- see
+	// permissions.RequestClipboardTool. Hidden entirely (not just the
+	// button) once one is found, since there's nothing actionable left to
+	// show once clipboard sync just works.
+	clipboardToolRow *fyne.Container
+	clipboardToolBtn *widget.Button
+
+	// rustshineWebRTCRow: shown only while RustShine is the active backend
+	// -- lets a supporter turn USBridge's browser/WASM web client on or off
+	// without needing to reopen the Patreon dialog. Sunshine has no
+	// equivalent surface (no WebRTC endpoint of its own).
+	rustshineWebRTCRow   *fyne.Container
+	rustshineWebRTCCheck *widget.Check
+
+	// sunWebSunshineRow/sunWebRustshineRow are mutually exclusive: the
+	// Status panel's "web UI" row shows Sunshine's local admin UI address
+	// while Sunshine is active, or a link to the RustShine web client
+	// (rustshineWebURL) while RustShine is active and its WebRTC endpoint
+	// is enabled -- and neither (an empty gap) when RustShine is active
+	// with WebRTC turned off, since there's nothing reachable to show.
+	sunWebSunshineRow  *fyne.Container
+	sunWebRustshineRow *fyne.Container
+
 	// moonlightBtn shows the paired-device count; clicking opens the clients dialog.
 	moonlightBtn *widget.Button
 
@@ -156,6 +196,21 @@ type Window struct {
 	// active backend after a runtime SetStreamBackend switch; otherwise it
 	// would freeze at whatever was active when the window was built.
 	streamerNameLabel *widget.Label
+
+	// streamerVersionLabel shows whichever version applies to the active
+	// backend -- appVersion (this agent build's own version) while
+	// Sunshine is active, since Sunshine ships bundled with the agent and
+	// has no independent version/update of its own, or
+	// entitlement.Status.RustShineVersion while RustShine is active. Kept
+	// in sync by refreshRustShineUI, same as streamerNameLabel above.
+	streamerVersionLabel *widget.Label
+	// rustshineUpdateBtn is a small "check for updates" affordance shown
+	// only while RustShine is both active and already staged (see
+	// refreshRustShineUI) -- there's nothing to "update" before the first
+	// "Download RustShine" click in the Patreon dialog, and Sunshine has
+	// no manual update path at all (see streamerVersionLabel's doc
+	// comment on why), so this button never applies to it.
+	rustshineUpdateBtn *widget.Button
 
 	// ownsEngine is true only when this window's process itself started the
 	// engine (App.Run(headless=false)) — as opposed to a thin client
@@ -280,6 +335,92 @@ func (w *Window) refreshScreenCaptureUI() {
 		w.screenCaptureLabel.SetText("Screen Capture: ❌")
 		if (runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && capture.GetLinuxEnv() == "Wayland")) && w.screenCaptureBtn != nil {
 			w.screenCaptureBtn.Show()
+		}
+	}
+}
+
+// refreshClipboardToolUI hides the whole clipboard-tool row (not just its
+// button) once a CLI clipboard helper is found -- there's nothing left to
+// act on at that point, unlike the Accessibility/Screen Capture rows above
+// which keep showing a ✅/❌ status permanently.
+func (w *Window) refreshClipboardToolUI() {
+	if w.clipboardToolRow == nil || w.perms == nil {
+		return
+	}
+	if w.perms.ClipboardToolAvailable() {
+		w.clipboardToolRow.Hide()
+	} else {
+		w.clipboardToolRow.Show()
+	}
+}
+
+// rustshineWebURL is USBridge's browser/WASM web client -- shown in the
+// Status panel's web-UI row in place of Sunshine's local admin address
+// whenever RustShine is active and its WebRTC endpoint is enabled (see
+// refreshRustShineUI).
+const rustshineWebURL = "https://web.usbridge.io"
+
+// refreshRustShineUI keeps the standalone WebRTC checkbox (moved out of
+// showPatreonDialog so it's visible without opening that popup) and the
+// Status panel's web-UI row in sync with entitlement.Status on every
+// refresh tick.
+func (w *Window) refreshRustShineUI(st entitlement.Status) {
+	active := st.ActiveBackend == "rustshine"
+
+	if w.streamerVersionLabel != nil {
+		version := "v" + appVersion
+		if active {
+			version = st.RustShineVersion
+			if version != "" {
+				version = "v" + version
+			}
+		}
+		if w.streamerVersionLabel.Text != version {
+			w.streamerVersionLabel.SetText(version)
+		}
+	}
+	if w.rustshineUpdateBtn != nil {
+		switch {
+		case !active || !st.RustShineStaged:
+			// Sunshine has no manual update path (see
+			// streamerVersionLabel's own doc comment), and there's
+			// nothing to check an update *against* before RustShine has
+			// even been downloaded once.
+			w.rustshineUpdateBtn.Hide()
+		case st.RustShineUpdateInProgress:
+			w.rustshineUpdateBtn.Show()
+			w.rustshineUpdateBtn.Disable()
+		default:
+			w.rustshineUpdateBtn.Show()
+			w.rustshineUpdateBtn.Enable()
+		}
+	}
+
+	if w.rustshineWebRTCRow != nil {
+		if active {
+			w.rustshineWebRTCRow.Show()
+			if w.rustshineWebRTCCheck != nil && w.rustshineWebRTCCheck.Checked != st.WebRTCEnabled {
+				w.rustshineWebRTCCheck.Checked = st.WebRTCEnabled
+				w.rustshineWebRTCCheck.Refresh()
+			}
+		} else {
+			w.rustshineWebRTCRow.Hide()
+		}
+	}
+
+	if w.sunWebSunshineRow != nil && w.sunWebRustshineRow != nil {
+		switch {
+		case active && st.WebRTCEnabled:
+			w.sunWebSunshineRow.Hide()
+			w.sunWebRustshineRow.Show()
+		case active:
+			// RustShine active but its WebRTC endpoint is off -- nothing
+			// reachable to show here at all.
+			w.sunWebSunshineRow.Hide()
+			w.sunWebRustshineRow.Hide()
+		default:
+			w.sunWebRustshineRow.Hide()
+			w.sunWebSunshineRow.Show()
 		}
 	}
 }
@@ -490,6 +631,77 @@ func (w *Window) ShowAndRun(onClose func()) {
 	}
 	gpuClockRow := container.NewHBox(widget.NewLabel("Lock GPU Clocks"), layout.NewSpacer(), w.gpuClockCheck)
 
+	// Clipboard sync (Linux only): internal/clipboard's Linux backend shells
+	// out to xclip/wl-clipboard/xsel, none of which every distro ships by
+	// default (confirmed live: a Debian machine with wl-clipboard installed
+	// but not xclip still failed every clipboard apply until one was
+	// present). Offer a one-click pkexec install instead of a silent,
+	// permanent "no clipboard tool available" failure the user has no way
+	// to self-diagnose from this UI.
+	w.clipboardToolBtn = widget.NewButton("Install", func() {
+		if w.perms == nil {
+			return
+		}
+		w.clipboardToolBtn.Disable()
+		go func() {
+			defer fyne.Do(func() {
+				if w.clipboardToolBtn != nil {
+					w.clipboardToolBtn.Enable()
+				}
+			})
+			granted := w.perms.RequestClipboardTool()
+			if !granted {
+				if e, ok := w.perms.(interface{ LastAccessibilityError() string }); ok {
+					if msg := e.LastAccessibilityError(); msg != "" {
+						fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s", msg), win) })
+					}
+				}
+			}
+			fyne.Do(w.refreshClipboardToolUI)
+		}()
+	})
+	w.clipboardToolBtn.Importance = widget.HighImportance
+
+	// "?" info button: shows the literal pkexec command Install would run,
+	// before it runs it -- clicking Install itself pops a polkit password
+	// prompt, which isn't the moment to first learn what's about to execute
+	// as root.
+	clipboardInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		preview := ""
+		if w.perms != nil {
+			preview = w.perms.ClipboardInstallPreview()
+		}
+		if preview == "" {
+			preview = "No supported package manager (or pkexec) was found on this system -- " +
+				"clicking Install will show why, instead of a command preview."
+		}
+		dialog.ShowInformation("Clipboard Tool Install", preview, win)
+	})
+	w.clipboardToolRow = container.NewHBox(widget.NewLabel("Clipboard Tool"), layout.NewSpacer(), clipboardInfoBtn, w.clipboardToolBtn)
+
+	// RustShine web client (WebRTC) toggle -- shown only while RustShine is
+	// the active backend (see refreshRustShineUI). Built unconditionally
+	// here (not gated by OS or entitlement) since it starts hidden and
+	// refreshRustShineUI is what actually decides visibility on every tick,
+	// same shape as clipboardToolRow above.
+	w.rustshineWebRTCCheck = widget.NewCheck("", func(checked bool) {
+		if w.token == nil {
+			return
+		}
+		go func() {
+			if err := w.token.SetRustShineWebRTCEnabled(checked); err != nil {
+				fyne.Do(func() {
+					if w.rustshineWebRTCCheck != nil {
+						w.rustshineWebRTCCheck.Checked = !checked
+						w.rustshineWebRTCCheck.Refresh()
+					}
+				})
+			}
+		}()
+	})
+	w.rustshineWebRTCRow = container.NewHBox(widget.NewLabel("RustShine Web (WebRTC)"), layout.NewSpacer(), w.rustshineWebRTCCheck)
+	w.rustshineWebRTCRow.Hide()
+
 	var permRows []fyne.CanvasObject
 	if !showAccessButton && !showScreenCaptureButton && !linuxCapture {
 		permRows = []fyne.CanvasObject{autostartRow, w.permInfo}
@@ -503,6 +715,11 @@ func (w *Window) ShowAndRun(onClose func()) {
 	if gpuClockSupported {
 		permRows = append(permRows, gpuClockRow)
 	}
+	if runtime.GOOS == "linux" {
+		permRows = append(permRows, w.clipboardToolRow)
+		w.refreshClipboardToolUI()
+	}
+	permRows = append(permRows, w.rustshineWebRTCRow)
 
 	// Moonlight Clients — add (+) opens PIN dialog; icon+count opens list; ✕ removes all.
 	moonlightAddBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), func() {
@@ -562,7 +779,23 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.showPatreonDialog(win)
 	})
 	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, layout.NewSpacer(), w.supportBtn)
+	w.streamerVersionLabel = widget.NewLabel("")
+	w.streamerVersionLabel.TextStyle.Italic = true
+	// Fires the check in the engine process and returns immediately --
+	// refreshRustShineUI's own 2s poll of EntitlementStatus is what shows
+	// the "checking…"/new-version/error result, the same fire-and-forget
+	// shape the "Download RustShine" button in showPatreonDialog already
+	// uses (see CheckRustShineUpdateNow's doc comment for why this is safe
+	// to not wait on here).
+	w.rustshineUpdateBtn = widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
+		go func() {
+			if err := w.token.CheckRustShineUpdateNow(); err != nil {
+				logrus.WithError(err).Warn("rustshine update check failed")
+			}
+		}()
+	})
+	w.rustshineUpdateBtn.Importance = widget.LowImportance
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn, layout.NewSpacer(), w.supportBtn)
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))
@@ -609,11 +842,42 @@ func (w *Window) ShowAndRun(onClose func()) {
 	sunWebEditBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 		w.showEditSunPortDialog(win, sunWebVal, sunStreamVal)
 	})
-	sunWebRow := container.NewBorder(nil, nil,
+	w.sunWebSunshineRow = container.NewBorder(nil, nil,
 		container.NewHBox(makeStatusLabel("Sun web:"), sunWebVal),
 		container.NewHBox(sunWebEyeBtn, sunWebEditBtn), nil)
 
-	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, sunWebRow))
+	// RustShine web-client row -- replaces sunWebSunshineRow above whenever
+	// RustShine is active and its WebRTC endpoint is enabled (see
+	// refreshRustShineUI); hidden by default until the first refresh tick
+	// decides which of the two applies.
+	// No Truncation here (unlike e.g. showSunshineWebDialog's copyRow
+	// labels): those labels sit in a Border's *stretched* center slot, so
+	// truncation shrinks them gracefully. This one sits in the Border's
+	// *left* slot alongside "Web:" (see sunWebSunshineRow's own layout
+	// above, which it mirrors) -- a left/right slot only ever gets its
+	// MinSize, and a truncated Label's MinSize collapses to just the
+	// ellipsis glyph, so this rendered as a bare "…" instead of the URL.
+	var webURL *url.URL
+	if parsed, err := url.Parse(rustshineWebURL); err == nil {
+		webURL = parsed
+	}
+	sunWebLinkVal := widget.NewHyperlink(rustshineWebURL, webURL)
+	sunWebLinkCopyBtn := widget.NewButtonWithIcon("", theme.ContentCopyIcon(), func() {
+		win.Clipboard().SetContent(rustshineWebURL)
+	})
+	sunWebLinkInfoBtn := widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		dialog.ShowInformation("RustShine Web Client",
+			"Open this link in a browser on any device to stream via RustShine's "+
+				"built-in WebRTC client -- no Moonlight app needed. Uses the same "+
+				"pairing/master key as everything else in this agent.",
+			win)
+	})
+	w.sunWebRustshineRow = container.NewBorder(nil, nil,
+		container.NewHBox(makeStatusLabel("Web:"), sunWebLinkVal),
+		container.NewHBox(sunWebLinkInfoBtn, sunWebLinkCopyBtn), nil)
+	w.sunWebRustshineRow.Hide()
+
+	statsBlock := newPanel("Status", newTightVBox(osLabel, streamerLabel, httpRow, sunStreamRow, w.sunWebSunshineRow, w.sunWebRustshineRow))
 
 	w.tsInfo = widget.NewLabel("Status: checking...\nAccount: not connected\nAddress: unavailable")
 	w.tsInfo.Wrapping = fyne.TextWrapWord
@@ -938,26 +1202,30 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 				tier = "supporter"
 			}
 			body.Add(widget.NewRichTextFromMarkdown(fmt.Sprintf("**Thanks for supporting USBridge!** 🎉 (%s)", tier)))
-			switchBtn := widget.NewButton("", nil)
-			if st.ActiveBackend == "rustshine" {
-				switchBtn.SetText("Switch to Sunshine")
-				switchBtn.OnTapped = func() {
-					go func() {
-						_ = w.token.SetStreamBackend("sunshine")
-						fyne.Do(func() { render(w.token.EntitlementStatus()) })
-					}()
+
+			rustshineOn := st.ActiveBackend == "rustshine"
+			backendSwitch := newToggleSwitch(rustshineOn, func(on bool) {
+				kind := "sunshine"
+				if on {
+					kind = "rustshine"
 				}
+				go func() {
+					_ = w.token.SetStreamBackend(kind)
+					fyne.Do(func() { render(w.token.EntitlementStatus()) })
+				}()
+			})
+			sunshineLbl := widget.NewLabel("Sunshine")
+			rustshineLbl := widget.NewLabel("RustShine")
+			if rustshineOn {
+				rustshineLbl.TextStyle.Bold = true
 			} else {
-				switchBtn.SetText("Switch to RustShine")
-				switchBtn.Importance = widget.HighImportance
-				switchBtn.OnTapped = func() {
-					go func() {
-						_ = w.token.SetStreamBackend("rustshine")
-						fyne.Do(func() { render(w.token.EntitlementStatus()) })
-					}()
-				}
+				sunshineLbl.TextStyle.Bold = true
 			}
-			body.Add(container.NewCenter(switchBtn))
+			body.Add(container.NewCenter(container.NewHBox(sunshineLbl, backendSwitch, rustshineLbl)))
+			// The "Web client (WebRTC)" toggle for RustShine lives in the
+			// main window's Permissions column now (w.rustshineWebRTCRow),
+			// not here -- it's useful to reach without opening this dialog.
+
 			unlinkBtn := widget.NewButton("Unlink Patreon Account", func() {
 				dialog.NewConfirm(
 					"Unlink Patreon?",
@@ -1097,6 +1365,7 @@ func (w *Window) performRefresh() {
 		}
 		fyne.Do(func() {
 			w.refreshSupportButton(entStatus)
+			w.refreshRustShineUI(entStatus)
 			if w.streamerNameLabel != nil && w.token != nil {
 				w.streamerNameLabel.SetText(w.token.StreamerName())
 			}
@@ -1121,6 +1390,7 @@ func (w *Window) performRefresh() {
 				w.moonlightBtn.SetText(fmt.Sprintf("%d", status.moonlightCount))
 			}
 			w.refreshScreenCaptureUI()
+			w.refreshClipboardToolUI()
 			if runtime.GOOS != "darwin" && w.permInfo != nil && w.accessLabel != nil && w.screenCaptureLabel != nil {
 				w.permInfo.SetText(fmt.Sprintf("%s\n%s", w.accessLabel.Text, w.screenCaptureLabel.Text))
 			}
