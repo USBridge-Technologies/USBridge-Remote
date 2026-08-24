@@ -780,11 +780,15 @@ func (w *Window) ShowAndRun(onClose func()) {
 		sunshinePort = 47990
 	}
 
-	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()))
-
+	// supportBtn sits on the OS row (not the Streamer row below it) so it's
+	// the first thing visible in the Status panel, one level up from the
+	// per-streamer details -- an entitlement/Patreon affordance, not
+	// specific to whichever streamer happens to be active.
 	w.supportBtn = newSupportButton("Support us", func() {
 		w.showPatreonDialog(win)
 	})
+	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()), layout.NewSpacer(), w.supportBtn)
+
 	w.streamerNameLabel = widget.NewLabel(w.token.StreamerName())
 	w.streamerVersionLabel = widget.NewLabel("")
 	w.streamerVersionLabel.TextStyle.Italic = true
@@ -802,7 +806,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 		}()
 	})
 	w.rustshineUpdateBtn.Importance = widget.LowImportance
-	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn, layout.NewSpacer(), w.supportBtn)
+	streamerLabel := container.NewHBox(makeStatusLabel("Streamer:"), w.streamerNameLabel, w.streamerVersionLabel, w.rustshineUpdateBtn)
 
 	// HTTP listen row
 	httpVal := widget.NewLabel(fmt.Sprintf("%s:%d", w.cfg.EffectiveListenHost(), w.cfg.HTTPPort))

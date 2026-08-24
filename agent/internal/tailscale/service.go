@@ -48,6 +48,22 @@ type Service struct {
 	authURLHandler func(string)
 	ctx            context.Context
 	cancel         context.CancelFunc
+
+	// lastStartErr/lastStartAttempt implement a cooldown on retrying a
+	// failed tsnet.Server.Start() -- see Server()'s own doc comment on
+	// why this exists: without it, a persistently failing Start() (e.g. an
+	// inaccessible state directory) gets retried from scratch on every
+	// single caller, including the UI's own 2s status-polling ticker
+	// (window.go), spamming a full tsnet engine construction/teardown
+	// every 2 seconds forever with no diagnostic trace of why (Status()
+	// swallows the error). The cooldown bounds that to one real attempt
+	// per interval; every call in between just replays the cached error.
+	lastStartErr     error
+	lastStartAttempt time.Time
+	// loggedFallbackDir avoids re-logging the same "using a fallback
+	// directory" warning on every retry once it's already been reported
+	// once for this process's lifetime.
+	loggedFallbackDir bool
 }
 
 func New(stateDir string) *Service {
@@ -329,22 +345,26 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// startRetryCooldown bounds how often a failing Server() actually retries
+// tsnet.Server.Start() -- see lastStartErr's own doc comment on the Service
+// struct for why this exists at all.
+const startRetryCooldown = 15 * time.Second
+
 func (s *Service) Server() (*tsnet.Server, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.server != nil {
 		return s.server, nil
 	}
-
-	stateDir := s.stateDir
-	if stateDir == "" {
-		base, _ := os.UserConfigDir()
-		stateDir = filepath.Join(base, "usbridge-agent", "tailscale")
-	} else {
-		stateDir = filepath.Join(stateDir, "tailscale")
+	if s.lastStartErr != nil && time.Since(s.lastStartAttempt) < startRetryCooldown {
+		return nil, s.lastStartErr
 	}
+	s.lastStartAttempt = time.Now()
+
+	stateDir := s.resolveWritableStateDir()
 
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		s.lastStartErr = err
 		return nil, err
 	}
 
@@ -397,10 +417,79 @@ func (s *Service) Server() (*tsnet.Server, error) {
 		// fixing) means the next Server() call constructs and starts a
 		// completely fresh *tsnet.Server instead of reusing the broken one.
 		s.server = nil
+		s.lastStartErr = err
+		// Status() (the UI's own 2s-polling call path) deliberately
+		// swallows this error into a plain "Initializing" Backend string
+		// with no log line of its own -- confirmed live, this previously
+		// meant a persistently failing Start() (broken state-directory
+		// permissions, in the one real case seen so far) left literally no
+		// trace anywhere of *why* Sign In never produced an AuthURL. Log it
+		// here, the one place in this call chain that actually sees the
+		// real error, gated by the same cooldown as the retry itself so
+		// this doesn't spam once every 2s right along with it.
+		logrus.Errorf("🛰️ [Tailscale] tsnet failed to start (dir=%s): %v", stateDir, err)
 		return nil, err
 	}
 
+	s.lastStartErr = nil
 	return s.server, nil
+}
+
+// resolveWritableStateDir returns the directory tsnet.Server.Dir should use
+// -- normally stateDir/tailscale, but falls back to a differently-named
+// sibling if that one exists and isn't actually usable. Needed because
+// os.MkdirAll happily no-ops (no error) against a directory that already
+// exists, even if its ACLs make it otherwise inaccessible to this process --
+// confirmed live: a stray earlier run (elevated, or under a different
+// account) left %AppData%/usbridge-agent/tailscale in exactly that state,
+// where even Get-Acl/takeown from this same user account fail with "Access
+// is denied" -- unfixable here without an admin elevation this process
+// doesn't have. Silently retrying the same unusable directory forever (the
+// previous behavior) meant tsnet could never start and Sign In could never
+// produce an AuthURL, with no way to recover short of a human manually
+// fixing permissions or deleting the directory as admin. Falling back
+// instead costs only the previously persisted node identity (one more
+// interactive re-login) -- not data loss -- and self-heals the moment this
+// runs, no admin action required.
+func (s *Service) resolveWritableStateDir() string {
+	base := s.stateDir
+	if base == "" {
+		b, _ := os.UserConfigDir()
+		base = filepath.Join(b, "usbridge-agent")
+	}
+	primary := filepath.Join(base, "tailscale")
+	if dirIsWritable(primary) {
+		return primary
+	}
+	fallback := filepath.Join(base, "tailscale2")
+	if dirIsWritable(fallback) {
+		if !s.loggedFallbackDir {
+			s.loggedFallbackDir = true
+			logrus.Warnf("🛰️ [Tailscale] %s is not writable by this process (broken permissions from a stray elevated run?) -- using %s instead. This starts fresh (one more Sign In needed); an admin can restore the original by deleting %s once elevated.", primary, fallback, primary)
+		}
+		return fallback
+	}
+	// Both unusable -- return primary anyway so Start()'s own error names
+	// the directory a human would actually go looking at first.
+	return primary
+}
+
+// dirIsWritable creates dir if missing, then actually probes it with a
+// throwaway file -- MkdirAll alone reports success against an existing but
+// unreadable/unwritable directory (see resolveWritableStateDir's own doc
+// comment), so that alone isn't sufficient evidence tsnet can use it.
+func dirIsWritable(dir string) bool {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return false
+	}
+	probe := filepath.Join(dir, ".write-probe")
+	f, err := os.Create(probe)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(probe)
+	return true
 }
 
 func (s *Service) handleUserLogf(format string, args ...any) {
