@@ -4,8 +4,8 @@
     Builds usbridge_agent for Windows, driving MSYS2 UCRT64 entirely from PowerShell.
 
 .DESCRIPTION
-    build_windows.sh (the actual build logic: Go build, DLL bundling, rust-shine build,
-    Tailscale staging) still runs inside the UCRT64 toolchain -- Go's cgo (needed for
+    build_windows.sh (the actual build logic: Go build, DLL bundling, Sunshine
+    staging) still runs inside the UCRT64 toolchain -- Go's cgo (needed for
     Fyne/OpenGL) requires a GCC-compatible compiler, which on Windows means mingw-w64.
     This script just removes the manual steps around that: no more opening an "MSYS2
     UCRT64" terminal by hand and running pacman yourself. It installs MSYS2 itself (via
@@ -13,19 +13,13 @@
     present, then invokes build_windows.sh non-interactively inside UCRT64 and streams
     its output back here.
 
-.PARAMETER Streamer
-    sunshine or rustshine (default: rustshine).
-
 .PARAMETER Msys2Root
     Path to the MSYS2 install. Defaults to $env:MSYS2_ROOT or C:\msys64.
 
 .EXAMPLE
     ./agent/scripts/build_windows.ps1
-    ./agent/scripts/build_windows.ps1 -Streamer sunshine
 #>
 param(
-    [ValidateSet("sunshine", "rustshine")]
-    [string]$Streamer = "rustshine",
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" })
 )
 
@@ -84,16 +78,8 @@ if ($missing.Count -gt 0) {
 # one level up, matching how that script locates itself.
 $AgentDir = Split-Path -Parent $PSScriptRoot
 
-if ($Streamer -eq "rustshine") {
-    $checkoutRoot = Split-Path -Parent $AgentDir
-    $rustShineDir = Join-Path (Split-Path -Parent $checkoutRoot) "rust-shine"
-    if (-not (Test-Path $rustShineDir)) {
-        throw "rust-shine checkout not found at $rustShineDir (expected as a sibling of this repo's checkout). Clone itsme228/rust-shine there, or set RUSTSHINE_SRC_DIR before running."
-    }
-}
-
-Write-Step "Building usbridge_agent (streamer=$Streamer) inside MSYS2 UCRT64"
-& $msys2Shell -ucrt64 -defterm -no-start -where $AgentDir -c "./scripts/build_windows.sh -streamer $Streamer"
+Write-Step "Building usbridge_agent inside MSYS2 UCRT64"
+& $msys2Shell -ucrt64 -defterm -no-start -where $AgentDir -c "./scripts/build_windows.sh"
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed (exit $LASTEXITCODE)"
 }

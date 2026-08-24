@@ -79,6 +79,26 @@ func (p *StreamProxy) Stop() {
 }
 
 func (p *StreamProxy) run() {
+	// Belt-and-suspenders alongside Service.Server()'s own fix (see that
+	// method's doc comment on why a failed tsnet.Server.Start() used to get
+	// permanently cached and handed back here as if healthy, crashing the
+	// whole agent process the moment TailscaleIPs() below touched its
+	// never-initialized internals): an unrecovered panic in any goroutine,
+	// this one included, is fatal to the entire process, not just this
+	// stream-relay session -- confirmed live (see git history for this
+	// comment) that exactly that happened every time SetStreamBackend
+	// restarted this proxy against a broken cached server. This can't
+	// un-crash whatever underlying tsnet state caused a panic, but it keeps
+	// one broken stream-proxy attempt from taking Sunshine/RustShine, the
+	// admin API, and every other in-process service down with it -- the
+	// same reasoning internal/api/server.go's withRecovery middleware
+	// already applies to HTTP handlers.
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.Errorf("🛰️ [StreamProxy] PANIC in run(): %v", r)
+		}
+	}()
+
 	srv, err := p.svc.Server()
 	if err != nil {
 		logrus.Errorf("🛰️ [StreamProxy] tsnet server unavailable: %v", err)

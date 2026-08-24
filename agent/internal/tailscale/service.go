@@ -377,6 +377,26 @@ func (s *Service) Server() (*tsnet.Server, error) {
 	}
 
 	if err := s.server.Start(); err != nil {
+		// Must NOT leave s.server pointing at this failed instance: every
+		// caller above (including StreamProxy.run, spawned fresh by
+		// SetStreamBackend/restartStreamProxy each time the user switches
+		// stream backend) only ever checks `s.server != nil` above, not
+		// whether Start() previously succeeded on it -- confirmed live: a
+		// transient MkdirAll/Start failure here (e.g. "creating state
+		// directory: Access is denied") used to get permanently cached,
+		// so every later Server() call short-circuited straight to
+		// `return s.server, nil` and handed back this same never-started
+		// server as if it were healthy. tsnet.Server methods (TailscaleIPs
+		// in particular, via ipnlocal.LocalBackend.currentNode) assume a
+		// successful Start() already ran and crash the whole process with
+		// a nil-pointer panic otherwise -- not a recoverable per-goroutine
+		// error, since nothing here recovers it. Dropping the reference
+		// (not calling s.server.Close() on it -- Start() failed before or
+		// during setting up internal state Close() itself might assume is
+		// present, same risk class as the TailscaleIPs panic this is
+		// fixing) means the next Server() call constructs and starts a
+		// completely fresh *tsnet.Server instead of reusing the broken one.
+		s.server = nil
 		return nil, err
 	}
 

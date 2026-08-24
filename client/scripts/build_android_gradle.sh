@@ -68,69 +68,24 @@ echo ""
 # auto-detection, or CI's own preset ANDROID_NDK_HOME) isn't guaranteed to
 # be one of those, and silently regressing this per-runner isn't
 # acceptable for a Play Store upload. Pass the flag explicitly everywhere
-# a .so ends up in jniLibs (Tailscale below, gomobile bind's
-# androidbridge.aar, and the fyne-packaged main library), so it's correct
-# regardless of NDK revision.
+# a .so ends up in jniLibs (gomobile bind's androidbridge.aar and the
+# fyne-packaged main library), so it's correct regardless of NDK revision.
 NDK_PAGE_SIZE_LDFLAGS="-Wl,-z,max-page-size=16384"
 
 # 1. gomobile bind for androidbridge
 echo "📦 Step 1/4: gomobile bind androidbridge..."
 
-# 1.5 Tailscale CLI & Daemon for Android
-echo "📦 Step 1.5/4: Building Tailscale binaries..."
-mkdir -p android/app/src/main/jniLibs/arm64-v8a
-
-TS_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscale.so"
-TSD_SO="android/app/src/main/jniLibs/arm64-v8a/libtailscaled.so"
-
-# Rebuild only if the .so is missing or go.mod/go.sum changed
-NEED_TAILSCALE=0
-[ ! -f "$TS_SO" ] || [ ! -f "$TSD_SO" ] && NEED_TAILSCALE=1
-if [ "$NEED_TAILSCALE" -eq 0 ] && path_is_newer_than "$TS_SO" \
-    "$REPO_ROOT/go.mod" "$REPO_ROOT/go.sum"; then
-    NEED_TAILSCALE=1
-fi
-if [ "${FORCE_TAILSCALE:-0}" = "1" ]; then NEED_TAILSCALE=1; fi
-
-if [ "$NEED_TAILSCALE" -eq 1 ]; then
-    (
-        export_android_env
-        if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
-            setup_android_ndk_toolchain_env "$ANDROID_NDK_HOME" 26
-            echo "   Using NDK toolchain: $CC"
-        else
-            echo -e "${RED}❌ ANDROID_NDK_HOME not set, CGO build may fail${NC}"
-        fi
-
-        export GOOS=android
-        export GOARCH=arm64
-        export CGO_ENABLED=1
-
-        # ts_omit_ssh: tailscale v1.102.3's cmd/tailscale{,d} unconditionally
-        # import tailscale.com/feature/ssh, whose own build constraint
-        # (feature/ssh/ssh.go) already excludes android outright -- leaving
-        # zero buildable files in that package for GOOS=android and failing
-        # the whole build with "build constraints exclude all Go files"
-        # regardless of this tag existing at all. Confirmed live (this
-        # exact CI failure) and reproduced/fixed locally: adding
-        # ts_omit_ssh here makes cmd/tailscale/cmd/tailscaled's own
-        # feature-registration code skip importing feature/ssh in the first
-        # place, matching how ts_omit_gui/ts_omit_systray already sidestep
-        # the same class of android-unsupported-feature problem below.
-        BUILD_TAGS="omitgui,ts_omit_gui,nosystray,ts_omit_systray,ts_omit_ssh"
-
-        # -linkmode=external forces the NDK's own linker (lld, via CC) to
-        # do the final link instead of Go's internal linker -- required
-        # for -extldflags to have any effect at all, and these two are
-        # plain `go build` executables (not -buildmode=c-shared like the
-        # androidbridge/fyne .so below), so nothing else already forces it.
-        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o "$TS_SO"  tailscale.com/cmd/tailscale
-        go build -trimpath -tags="$BUILD_TAGS" -ldflags="-s -w -linkmode=external -extldflags=$NDK_PAGE_SIZE_LDFLAGS" -o "$TSD_SO" tailscale.com/cmd/tailscaled
-    )
-    echo -e "${GREEN}✓${NC} Tailscale binaries built"
-else
-    echo "⚡ Tailscale binaries are already up to date"
-fi
+# No separate Tailscale CLI/daemon .so build here (there used to be one,
+# cross-compiling tailscale.com/cmd/tailscale + cmd/tailscaled into
+# libtailscale.so/libtailscaled.so and shipping them in jniLibs) --
+# androidbridge talks Tailscale entirely through the embedded tsnet.Server
+# library (internal/service/tailscale_service.go, the same tsnet the
+# desktop client and usbridge-agent both already use), never by exec'ing or
+# JNI-calling an external tailscale/tailscaled process. Nothing in this
+# repo (Go, Kotlin, or the Android manifest) ever referenced those two
+# binaries after they were built -- pure dead weight bloating every APK by
+# their combined size for a code path that never ran. See internal/service/
+# tailscale_deps_stub.go's own removal for the go.mod side of this cleanup.
 if ! ensure_command_available go Go; then
     echo -e "${RED}❌ Go not found${NC}"
     exit 1

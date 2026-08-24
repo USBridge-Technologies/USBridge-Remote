@@ -370,10 +370,17 @@ func (w *Window) refreshRustShineUI(st entitlement.Status) {
 	if w.streamerVersionLabel != nil {
 		version := "v" + appVersion
 		if active {
-			version = st.RustShineVersion
-			if version != "" {
-				version = "v" + version
-			}
+			// st.RustShineVersion is the raw release tag
+			// entitlement.StagedVersion recorded (e.g.
+			// "gamestream-server-v0.3.16", see that function's own doc
+			// comment) -- showing that whole tag next to "RustShine
+			// (Proprietary)" visibly stretched/wrapped this row (confirmed
+			// live: "RustShine(Proprietary)   vgamestream-server-v0.3.16").
+			// Strip the known release-tag prefix down to the bare version
+			// for display; if some future tag ever doesn't have it, this
+			// just falls back to showing the raw tag untouched rather than
+			// hiding real version info.
+			version = strings.TrimPrefix(st.RustShineVersion, "gamestream-server-v")
 		}
 		if w.streamerVersionLabel.Text != version {
 			w.streamerVersionLabel.SetText(version)

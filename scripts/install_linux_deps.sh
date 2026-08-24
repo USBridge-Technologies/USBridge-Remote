@@ -77,16 +77,6 @@ AGENT_PKGS=(
     # `setcap`/`getcap` (KMSCaptureGranted/RequestKMSCapture) and `pkexec`
     # (both permission requests) — see comment above.
     libcap2-bin "$POLKIT_PKG"
-    # rust-shine's vulkan-tonemap crate shells out to glslangValidator at
-    # build time to compile its compute shaders to SPIR-V. Needed only for
-    # `build_linux.sh -streamer rustshine`. See
-    # rust-shine/crates/vulkan-tonemap/build.rs. rust-shine itself is built
-    # with cargo/rustup, which this script does not install — see
-    # https://rustup.rs.
-    glslang-tools
-    # rust-shine's v4l2-sys-mit crate uses bindgen at build time, which needs
-    # libclang.so to parse C headers.
-    libclang-dev
 )
 
 # client: Fyne GUI + Moonlight HW decode/core libs. See release-all.yml
