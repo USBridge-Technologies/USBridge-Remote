@@ -96,6 +96,10 @@ Unlike Linux's permanent `CAP_SYS_ADMIN` setcap, there is no persistent one-time
 
 Checking the box arms the lock immediately (if a session is already running) and re-arms it automatically for all future sessions. There's no separate "Request" button because the checkbox itself triggers the UAC request. Unchecking it only stops *future* sessions from spawning the helper; it won't kill an already-running helper to avoid dropping clocks mid-session (the helper exits on its own once the streaming process it's watching exits).
 
+## 📚 Documentation
+
+**[docs/README.md](docs/README.md)** — full reference, including exactly what the Agent can and can't do compared to the physical [USBridge-KVM 2.0](https://github.com/USBridge-Technologies/USBridge-KVM-2.0) hardware.
+
 ## 📜 License
 
 **GPLv3** — see [`LICENSE`](LICENSE). The agent automatically bundles and interfaces with [Sunshine](https://github.com/LizardByte/Sunshine) (GPLv3).
