@@ -66,10 +66,13 @@ val appVersionCode = appVersionName
 
 android {
     namespace = "io.usbridge.client"
-    // Play Console rejects uploads targeting below API 35 (Android 15) as
-    // of the current rolling requirement — bump both together since
-    // targetSdk can't exceed compileSdk.
-    compileSdk = 35
+    // Play Console requires new/updated apps to target API 36 (Android 16)
+    // from 2026-08-31 (prior threshold was API 35) — bump both together
+    // since targetSdk can't exceed compileSdk. Needs AGP >= 8.13 (see
+    // build.gradle.kts) and SDK platform 36 installed; F-Droid's recipe
+    // (metadata/io.usbridge.client.yml in fdroiddata) fetches this via
+    // sdkmanager itself.
+    compileSdk = 36
     if (!detectedNdkVersion.isNullOrBlank()) {
         ndkVersion = detectedNdkVersion
     }
@@ -77,7 +80,7 @@ android {
     defaultConfig {
         applicationId = "io.usbridge.client"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
     }
