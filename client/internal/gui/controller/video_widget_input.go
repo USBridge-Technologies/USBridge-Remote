@@ -226,13 +226,41 @@ func isTextRoutedKeystroke(event *fyne.KeyEvent, hidModifiers int) bool {
 	return isCharacterScanCode(event.Physical.ScanCode)
 }
 
-// isCharacterScanCode reports whether a PS/2 scan code is a physical
+// isCharacterScanCode reports whether a scan code is a physical
 // character-key position (letter/digit/symbol row), regardless of what
 // layout is active -- unlike event.Name (blank/"KeyUnknown" on non-Latin
 // layouts) or IsPrintableKey (same problem), scan codes are always reported
 // correctly by GLFW for the physical key position pressed. Mirrors the same
-// four scan-code rows input.GetVKCodeFromScanCode maps.
+// scan-code rows input.GetVKCodeFromScanCode maps.
+//
+// GLFW's scan code is NOT a single universal number space: on Windows it's
+// the raw hardware (PS/2 Set-1) scancode from the WM_KEYDOWN message; on
+// Linux (X11 and Wayland alike) it's the platform keycode, which is the
+// evdev keycode + 8. The two disagree for exactly the letters this function
+// cares about -- e.g. T is 0x14 on Windows but 0x1C on Linux, which
+// coincides with the *Windows* PS/2 code for Enter, so treating Linux
+// scancodes with the Windows ranges silently reclassified T (and Y/U/I/O/P)
+// as non-character keys. Confirmed live: physical T on a Linux client sent
+// VK_RETURN to the remote host instead of the letter t (see moonlightVKCode's
+// scanCode==0x1C special case below, which then took over).
 func isCharacterScanCode(scanCode int) bool {
+	if runtime.GOOS == "linux" {
+		switch {
+		case scanCode >= 0x0A && scanCode <= 0x15: // number row + - =
+			return true
+		case scanCode >= 0x18 && scanCode <= 0x23: // Q..P [ ]
+			return true
+		case scanCode >= 0x26 && scanCode <= 0x33: // A..L ; ' ` \
+			return true
+		case scanCode >= 0x34 && scanCode <= 0x3D: // Z..M , . /
+			return true
+		case scanCode == 0x41: // Space
+			return true
+		default:
+			return false
+		}
+	}
+	// Windows (and, as before, everything else -- unconfirmed but unchanged).
 	switch {
 	case scanCode >= 0x02 && scanCode <= 0x0D: // number row + - =
 		return true
@@ -249,6 +277,19 @@ func isCharacterScanCode(scanCode int) bool {
 	}
 }
 
+// isEnterScanCode reports whether a scan code is the physical Return/Enter
+// key position, in whichever scan-code space GLFW reports for the current
+// OS (see isCharacterScanCode's doc comment). Used only as a fallback for
+// when event.Name fails to resolve to "Return"/"Enter" -- e.g. numpad Enter
+// on some layouts. Must stay platform-gated: the Windows PS/2 code for
+// Enter (0x1C) is the Linux X11/xkb keycode for the letter T.
+func isEnterScanCode(scanCode int) bool {
+	if runtime.GOOS == "linux" {
+		return scanCode == 0x24 || scanCode == 0x68 // Return / KP_Enter (X11 keycodes)
+	}
+	return scanCode == 0x1C || scanCode == 0x11C // Windows PS/2 Return / extended (numpad) Return
+}
+
 // moonlightVKCode resolves the Windows Virtual Key code for a physical key event.
 // Primary: look up by Fyne key name (works for all layouts that produce ASCII names).
 // Fallback: use the hardware scan code — this handles non-Latin layouts (Russian,
@@ -256,7 +297,7 @@ func isCharacterScanCode(scanCode int) bool {
 // the correct PS/2 scan code for the physical key position.
 func moonlightVKCode(event *fyne.KeyEvent) int16 {
 	keyStr := strings.ToLower(string(event.Name))
-	if keyStr == "return" || keyStr == "enter" || keyStr == "keyenter" || event.Physical.ScanCode == 0x1C || event.Physical.ScanCode == 0x11C {
+	if keyStr == "return" || keyStr == "enter" || keyStr == "keyenter" || isEnterScanCode(event.Physical.ScanCode) {
 		return 0x0D // VK_RETURN
 	}
 	if vk := input.GetVKCode(event.Name); vk != 0 {
