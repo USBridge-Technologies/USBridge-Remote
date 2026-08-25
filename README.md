@@ -138,3 +138,9 @@ Join our Discord to get the **Beta Tester** role, report bugs, and help me shape
 - ❤️ [Patreon Page](https://www.patreon.com/USBridge_Technologies)
 - 🛒 [USBridge KVM 2.0 on Crowd Supply](https://crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 - 💬 [Discord](https://discord.com/invite/xqQ6ybkfWS)
+
+---
+
+## 📜 License
+
+This project is licensed under **GPLv3** (see [`LICENSE`](LICENSE)). The Android/Windows/macOS/Linux client incorporates code from `moonlight-common-c` (also GPLv3).
