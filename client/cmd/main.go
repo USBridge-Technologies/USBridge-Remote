@@ -123,6 +123,7 @@ func main() {
 				progress.Close()
 				if err != nil {
 					logrus.Errorf("failed to apply update: %v", err)
+					mainWindow.ShowUpdateFailedDialog(err)
 				}
 			}()
 		})

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"usbridge-client/internal/gui/i18n"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -90,4 +91,16 @@ func (up *UpdateProgress) Close() {
 		return
 	}
 	fyne.Do(func() { up.dialog.Hide() })
+}
+
+// ShowUpdateFailedDialog surfaces a failed DownloadAndApply to the user.
+// Without this, a failure after the progress dialog closes (e.g. the
+// install directory wasn't writable) looked identical to nothing having
+// happened at all — the download visibly ran, then silence, with only a
+// log line nobody but a developer would see.
+func (mw *MainWindow) ShowUpdateFailedDialog(err error) {
+	if mw == nil || mw.window == nil || err == nil {
+		return
+	}
+	fyne.Do(func() { view.ShowErrorDialog(err, mw.window) })
 }

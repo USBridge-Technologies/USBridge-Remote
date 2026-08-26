@@ -12,6 +12,41 @@ import (
 	"syscall"
 )
 
+// installTargetPath returns the file to overwrite and re-exec: the real
+// on-disk .AppImage, never the path os.Executable() reports while running
+// from one.
+//
+// A running AppImage self-mounts its squashfs payload via FUSE under
+// /tmp/.mount_<random>/ and re-execs itself from inside that mountpoint —
+// so /proc/self/exe (what os.Executable() reads) resolves to something like
+// /tmp/.mount_USBridjHDnKB/usr/bin/usbridge-client. That path is on a
+// read-only FUSE filesystem no matter who owns it or what the containing
+// .AppImage file's permissions are, so staging a new binary there always
+// fails with a read-only-filesystem error (and, before apply() surfaced
+// that error anywhere the GUI could show it, just silently did nothing
+// after the download finished) — even though the real .AppImage (e.g.
+// ~/Desktop/USBridgeClient-*.AppImage) is perfectly writable. Every
+// AppImage runtime sets $APPIMAGE to that real file's absolute path before
+// exec'ing in, so prefer it whenever present.
+func installTargetPath() (string, error) {
+	if p := os.Getenv("APPIMAGE"); p != "" {
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return resolved, nil
+		}
+		return p, nil
+	}
+	// Not running from an AppImage (e.g. a bare binary during development) —
+	// fall back to the previous behavior.
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = resolved
+	}
+	return exePath, nil
+}
+
 // apply replaces the running AppImage in place and re-execs it.
 //
 // artifactPath is a single downloaded, already SHA-256-verified AppImage
@@ -25,12 +60,9 @@ import (
 func apply(ctx context.Context, artifactPath, version string) error {
 	defer os.Remove(artifactPath)
 
-	exePath, err := os.Executable()
+	exePath, err := installTargetPath()
 	if err != nil {
 		return fmt.Errorf("resolve current executable: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = resolved
 	}
 	installDir := filepath.Dir(exePath)
 

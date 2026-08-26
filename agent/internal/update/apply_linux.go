@@ -10,7 +10,37 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"usbridge_agent/internal/autostart"
 )
+
+// installTargetPath returns the file to overwrite and re-exec: the real
+// on-disk .AppImage, never the path os.Executable() reports while running
+// from one.
+//
+// A running AppImage self-mounts its squashfs payload via FUSE under
+// /tmp/.mount_<random>/ and re-execs itself from inside that mountpoint —
+// so /proc/self/exe (what os.Executable() reads) resolves to something like
+// /tmp/.mount_USBridjHDnKB/usr/bin/usbridge-agent. That path is on a
+// read-only FUSE filesystem no matter who owns it or what the containing
+// .AppImage file's permissions are, so staging a new binary there always
+// fails with a read-only-filesystem error — even though the real
+// .AppImage (e.g. ~/Desktop/USBridgeAgent-*.AppImage) is perfectly
+// writable. autostart.LaunchTarget already resolves this same $APPIMAGE-vs-
+// os.Executable() distinction for the autostart registration path — reuse
+// it here instead of a second copy of the same trick, discarding its
+// --headless args (this caller needs to preserve the current process's own
+// os.Args, not force headless).
+func installTargetPath() (string, error) {
+	exePath, _, err := autostart.LaunchTarget()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = resolved
+	}
+	return exePath, nil
+}
 
 // apply replaces the running AppImage in place and re-execs it.
 //
@@ -25,12 +55,9 @@ import (
 func apply(ctx context.Context, artifactPath, version string) error {
 	defer os.Remove(artifactPath)
 
-	exePath, err := os.Executable()
+	exePath, err := installTargetPath()
 	if err != nil {
 		return fmt.Errorf("resolve current executable: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = resolved
 	}
 	installDir := filepath.Dir(exePath)
 
