@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"usbridge_agent/internal/permissions"
 )
 
 // unitName/unitPath: a system-wide (not --user) systemd unit. This is
@@ -386,12 +388,23 @@ WantedBy=multi-user.target
 	// but its own exit status must not clobber the real install chain's
 	// result, so that's captured into $STATUS first and re-asserted via the
 	// trailing `exit` rather than left as whatever ran last.
+	// ADDED_UINPUT mirrors ADDED_RENDER exactly, for the same reason: this
+	// unit runs as u.Username unconditionally, including at boot before any
+	// login and while a different session (SDDM's greeter) owns the active
+	// seat, so /dev/uinput's dynamic uaccess ACL can't be relied on -- static
+	// membership in permissions.UinputGroupName (the group the udev rule in
+	// internal/permissions/service_linux.go actually grants) is what makes
+	// input injection work reliably from this unit. Unlike "render", that
+	// group isn't provided by the kernel/distro, so it's created here too
+	// (idempotently) rather than just checked for, in case autostart is
+	// enabled before RequestAccessibility has ever run.
 	script := fmt.Sprintf(
 		`ADDED_RENDER=0; if getent group render >/dev/null && ! id -nG %[4]s | grep -qw render; then usermod -aG render %[4]s && ADDED_RENDER=1; fi; `+
+			`ADDED_UINPUT=0; getent group %[6]s >/dev/null || groupadd %[6]s; if ! id -nG %[4]s | grep -qw %[6]s; then usermod -aG %[6]s %[4]s && ADDED_UINPUT=1; fi; `+
 			`install -m 0644 %[1]s %[2]s && systemctl daemon-reload && systemctl enable --now %[3]s && loginctl enable-linger %[4]s && `+
-			`if [ "$ADDED_RENDER" = 1 ]; then systemctl restart %[3]s; fi; `+
+			`if [ "$ADDED_RENDER" = 1 ] || [ "$ADDED_UINPUT" = 1 ]; then systemctl restart %[3]s; fi; `+
 			`STATUS=$?; %[5]s; exit $STATUS`,
-		tmp.Name(), unitPath, unitName, systemdQuote(u.Username), xsetupScript,
+		tmp.Name(), unitPath, unitName, systemdQuote(u.Username), xsetupScript, permissions.UinputGroupName,
 	)
 	ensurePolkitAuthAgent()
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)

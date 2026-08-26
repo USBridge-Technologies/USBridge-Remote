@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 	"time"
 
@@ -16,22 +17,71 @@ import (
 
 const uinputRulePath = "/etc/udev/rules.d/99-usbridge-input.rules"
 
-// MODE="0666" is what actually makes this survive a reboot. Relying only on
-// TAG+="uaccess" (systemd-logind's *dynamic* per-session ACL, granted only
-// to whichever user's session is currently active on the seat) is what used
-// to make uinput access disappear after every restart: usbridge-agent.service
-// is a system unit that starts at boot unconditionally, independent of any
-// login (see autostart_linux.go's comment on why -- KMS capture needs to
-// come up before a display manager does), so it doesn't reliably have, or
-// keep, a session logind considers "active" the way an interactive desktop
-// process does -- and while SDDM's greeter (a different user) owns the
-// active seat, the uaccess ACL belongs to the greeter, not this agent's
-// user. A static on-disk MODE grant applies unconditionally every time the
-// kernel (re)creates the device node, with no session/login dependency at
-// all -- the same fix already applied to the render group in
-// autostart_linux.go for the identical class of problem. uaccess is kept
-// alongside as a harmless extra (and slightly tighter, while it's live).
-const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", MODE=\"0666\", TAG+=\"uaccess\"\n"
+// UinputGroupName is the dedicated system group that owns /dev/uinput (see
+// uinputRuleContent below). Exported so autostart_linux.go's Enable() can
+// add its systemd unit's fixed User=%s into it -- the identical pattern
+// that file already uses for the "render" GPU group, applied here to close
+// the same class of gap for uinput.
+const UinputGroupName = "usbridge-input"
+
+// shellQuoteUsername double-quotes s for safe interpolation into the
+// /bin/sh -c script below (same escaping rule as autostart_linux.go's
+// systemdQuote, which happens to satisfy POSIX double-quote rules too).
+func shellQuoteUsername(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
+	return `"` + replacer.Replace(s) + `"`
+}
+
+// buildUinputGrantScript builds the /bin/sh -c script RequestAccessibility
+// runs under pkexec: creates UinputGroupName if needed, adds currentUser to
+// it (the static, reboot-proof grant), installs the persistent udev rule +
+// modules-load file, and chgrp/chmod's the live device node to 0660 for an
+// immediate effect this session (see uinputRuleContent's doc comment for why
+// both the static group and the live chmod matter). Pulled out of
+// RequestAccessibility as a pure function so its exact shape — in
+// particular, that it never falls back to a world-writable chmod — has a
+// test that doesn't need root or a real polkit agent to run.
+func buildUinputGrantScript(rulePath, modulesPath, currentUser string) string {
+	return fmt.Sprintf(
+		"(getent group %[5]s >/dev/null || groupadd %[5]s) && usermod -aG %[5]s %[6]s && "+
+			"install -m 0644 %[1]s %[2]s && install -m 0644 %[3]s %[4]s && modprobe uinput && "+
+			"chgrp %[5]s /dev/uinput && chmod 0660 /dev/uinput && "+
+			"udevadm control --reload-rules && udevadm trigger --subsystem-match=misc; "+
+			"STATUS=$?; command -v setfacl >/dev/null 2>&1 && setfacl -m u:%[6]s:rw- /dev/uinput; exit $STATUS",
+		rulePath, uinputRulePath, modulesPath, uinputModulesLoadPath, UinputGroupName, currentUser,
+	)
+}
+
+// GROUP="usbridge-input", MODE="0660" (not MODE="0666") is what makes this
+// survive a reboot *without* making /dev/uinput world-writable -- letting
+// literally any local user, any process, synthesize keyboard/mouse input
+// system-wide is a real local-privilege-escalation primitive (it can drive
+// a pkexec prompt, an unlocked terminal, anything with focus) and Wayland's
+// stricter security model does nothing to stop it: uinput operates at the
+// kernel evdev level, below any display protocol, so both X11 and Wayland
+// compositors read a uinput-created device exactly like real hardware.
+//
+// Relying only on TAG+="uaccess" (systemd-logind's *dynamic* per-session
+// ACL, granted only to whichever user's session is currently active on the
+// seat) is what used to make uinput access disappear after every restart:
+// usbridge-agent.service is a system unit that starts at boot
+// unconditionally, independent of any login (see autostart_linux.go's
+// comment on why -- KMS capture needs to come up before a display manager
+// does), so it doesn't reliably have, or keep, a session logind considers
+// "active" the way an interactive desktop process does -- and while SDDM's
+// greeter (a different user) owns the active seat, the uaccess ACL belongs
+// to the greeter, not this agent's user. A static GROUP grant applies
+// unconditionally every time the kernel (re)creates the device node, with
+// no session/login dependency at all -- but unlike MODE=0666, it only
+// grants access to whichever specific user(s) this agent actually adds to
+// the group (see RequestAccessibility and autostart_linux.go's Enable),
+// not every local account. uaccess is kept alongside as an immediate-effect
+// path: a foreground, interactively-run agent in an active graphical
+// session gets access the instant the rule is (re)applied, without needing
+// to wait for its own group membership to take effect on next login/spawn
+// -- which is exactly the same combination already used for the "render"
+// GPU group in autostart_linux.go for the identical class of problem.
+const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", GROUP=\"" + UinputGroupName + "\", MODE=\"0660\", TAG+=\"uaccess\"\n"
 
 // Even with the MODE=0666 rule above, /dev/uinput's permissions after a
 // reboot depend on *how* the node comes into existence. Without this file,
@@ -158,7 +208,21 @@ func (s *Service) RequestAccessibility() bool {
 	modulesTmp.Close()
 	log.Printf("[permissions] temp rule at %s, temp modules-load at %s, running pkexec...", tmp.Name(), modulesTmp.Name())
 
-	// Install persistent udev rule AND immediately apply chmod for current session.
+	// The user this (unprivileged) process is actually running as -- the one
+	// that needs adding to UinputGroupName. Falls back to "$(whoami)" inside
+	// the privileged script itself (still the same real user, just resolved
+	// as root sees it) if the lookup fails for some reason, rather than
+	// silently skipping usermod. Double-quoted (shellQuoteUsername) the same
+	// way autostart_linux.go's systemdQuote guards its own usermod line for
+	// the render group -- usernames are practically always plain, but this
+	// costs nothing and avoids trusting that assumption in a root-run script.
+	currentUser := "$(whoami)"
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		currentUser = shellQuoteUsername(u.Username)
+	}
+
+	// Install persistent udev rule AND immediately apply chgrp/chmod for
+	// current session.
 	// install -m 0644 (not cp): cp preserves the source file's mode, and the
 	// tmp file above was created by os.CreateTemp as 0600 owned by this
 	// (non-root) agent user, so a plain cp left the installed rule file
@@ -176,10 +240,34 @@ func (s *Service) RequestAccessibility() bool {
 	// forcing a real module load, the udev rule above only gets applied to
 	// whatever bare-bones stand-in device node happens to exist at the
 	// moment the module finally, lazily, loads on its own.
-	script := fmt.Sprintf(
-		"install -m 0644 %s %s && install -m 0644 %s %s && modprobe uinput && chmod 0666 /dev/uinput && udevadm control --reload-rules && udevadm trigger --subsystem-match=misc",
-		tmp.Name(), uinputRulePath, modulesTmp.Name(), uinputModulesLoadPath,
-	)
+	//
+	// getent/groupadd + usermod -aG: creates UinputGroupName if it doesn't
+	// exist yet and adds the current user to it -- the static, reboot-proof
+	// half of the grant (see uinputRuleContent's comment): a *future*
+	// process for this user (next login, or this agent's own systemd unit
+	// after a restart) picks up that group membership automatically and can
+	// just open the device via the plain 0660 permission bits.
+	//
+	// setfacl -m u:<user>:rw is the *other* half, and turned out to be
+	// necessary, not optional: confirmed live that neither the group
+	// membership just added nor `udevadm trigger` re-tagging the device
+	// with uaccess makes the process that's *already running right now*
+	// (this one, mid-RequestAccessibility-call) able to open() the device --
+	// a process's supplementary group list is fixed at exec/login time in
+	// Unix, unaffected by a usermod that happens after it's already
+	// running, and re-triggering the uevent didn't cause logind to apply a
+	// fresh uaccess ACL either (getfacl showed none). A direct, explicit
+	// per-user ACL entry is checked at open() time against the file's
+	// current ACL list, independent of the calling process's cached
+	// credentials, so it's what actually delivers the "works immediately,
+	// this session, without restarting" guarantee the old chmod 0666 had --
+	// but scoped to this one user instead of everyone. chgrp/chmod 0660
+	// (rather than leaving the node's mode as whatever modprobe/udev just
+	// created) still matters on its own for the *reboot* case: it's what
+	// the persistent udev rule reproduces every time the module reloads,
+	// so a fresh boot or a restarted systemd unit under the also-now-group-
+	// member user gets in via the plain permission bits, no ACL required.
+	script := buildUinputGrantScript(tmp.Name(), modulesTmp.Name(), currentUser)
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
 	log.Printf("[permissions] pkexec exit=%v output=%q", err, string(out))
