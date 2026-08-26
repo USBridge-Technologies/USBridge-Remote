@@ -740,6 +740,28 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// isLoopbackRequest reports whether r reached this server from the loopback
+// interface itself, regardless of what interface the server is actually
+// bound to (ListenHost defaults to 0.0.0.0, and the same handler is also
+// served over the Tailscale/tsnet listener — see app.go). It additionally
+// refuses any request carrying an Origin header, since that always means
+// the caller is browser JS (native HTTP clients never set it) — a page
+// open in the user's own browser could otherwise read a loopback-bound
+// response just as easily as a LAN attacker could read a 0.0.0.0-bound one.
+// Used to gate handlers whose response must never leave the machine that
+// owns it, such as AuthQRLink (see sync.go), which hands back the master
+// key — the sole credential for every other endpoint in this API.
+func isLoopbackRequest(r *http.Request) bool {
+	if r.Header.Get("Origin") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return isLoopbackHost(host)
+}
+
 func (s *Server) screen(w http.ResponseWriter, r *http.Request) {
 	snap, err := s.app.Screen().Snapshot()
 	if err != nil {

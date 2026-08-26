@@ -192,10 +192,18 @@ func (s *Server) MoonlightPIN(w http.ResponseWriter, r *http.Request) {
 }
 
 // AuthQRLink implements GET /api/auth/qr/link.
-// Returns the quick-connect link so a remote UI can display or scan it programmatically.
+// Returns the quick-connect link so a local UI can display or scan it programmatically.
 // This endpoint is public (no HMAC) — the response contains the master key, which is the
-// shared secret itself; exposing it over local HTTP is equivalent to reading the QR code.
+// shared secret itself. That's only safe because it's also loopback-only (see
+// isLoopbackRequest): the master key must never be reachable over the LAN or Tailscale,
+// no matter what ListenHost is configured to, so any request that didn't originate on
+// this machine — or that carries an Origin header, meaning it came from browser JS — is
+// refused before the key is ever read.
 func (s *Server) AuthQRLink(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRequest(r) {
+		s.fail(w, http.StatusForbidden, "loopback_only", nil)
+		return
+	}
 	link := ""
 	masterKey := ""
 	if qr, ok := s.app.(interface{ QRLink() (string, string) }); ok {
