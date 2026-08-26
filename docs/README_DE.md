@@ -11,7 +11,7 @@
 [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#)
 [![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#)
-[![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)](#)
+[![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)](https://play.google.com/store/apps/details?id=io.usbridge.client)
 [![iOS](https://img.shields.io/badge/iOS-000000?logo=apple&logoColor=white)](#)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/xqQ6ybkfWS)
 <a href="https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0"><img src="https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?logo=crowdsupply&logoColor=white" alt="Crowd Supply"></a>
@@ -20,7 +20,7 @@
 
 ---
 
-**USBridge Remote** ist ein einheitlicher Hochleistungs-Client zur Verwaltung von Remote-Maschinen. Ich habe es entwickelt, um **Hardware-Level-BIOS-Zugriff** (über USBridge KVM-Geräte) und **softwarebasierten Remote-Desktop** in einer einzigen, schlanken Benutzeroberfläche zu kombinieren.
+**USBridge Remote** ist ein einheitlicher Hochleistungs-Client zur Verwaltung von Remote-Maschinen. Ich habe es so konzipiert, dass es **Hardware-Level-BIOS-Zugriff** (über USBridge KVM-Geräte) und **softwarebasierten Remote-Desktop** in einer einzigen, optimierten Benutzeroberfläche kombiniert.
 
  🖥️ **Benötigen Sie Hardware-Level-BIOS-Kontrolle, bevor das Betriebssystem bootet?**  
  USBridge Remote integriert sich nativ mit **USBridge-KVM 2.0** für Out-of-Band-Management auf Metall-Ebene.
@@ -31,7 +31,7 @@
 > ⚠️ **Beta-Software** — Dies ist eine frühe Version. Erwarten Sie Fehler. Bitte melden Sie Probleme über [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) oder treten Sie unserem [Discord](https://discord.com/invite/xqQ6ybkfWS) für Unterstützung bei.
 > 
 > ℹ️ **Hinweis zu Windows Defender / Antivirus-Falschmeldungen:**  
-> Windows Defender kann `libva.dll` fälschlicherweise als Bedrohung (`Trojan:Win32/Wacatac.B!ml`) kennzeichnen, aufgrund von Heuristik/Maschinenlernen bei der Erkennung von nicht signierten Binärdateien. **Dies ist eine Falschmeldung.**  
+> Windows Defender kann `libva.dll` fälschlicherweise als Bedrohung (`Trojan:Win32/Wacatac.B!ml`) kennzeichnen, aufgrund von Heuristik-/Maschinenlernerkennung bei nicht signierten Binärdateien. **Dies ist eine Falschmeldung.**  
 > Wir haben die Datei zur offiziellen Überprüfung und Whitelistung an Microsoft Security Intelligence übermittelt. In der Zwischenzeit, wenn Ihr Antivirus `libva.dll` entfernt, stellen Sie es bitte aus der Quarantäne wieder her oder fügen Sie den USBridge-Ordner zur Ausschlussliste Ihres Antivirus hinzu.
 
 ---
@@ -39,23 +39,25 @@
 ## Download
 
 ### Client
-Der Client ist die Steueroberfläche — installiert auf Ihrem Arbeitsplatzrechner oder Laptop (oder direkt in Ihrem Browser ausgeführt). Er verwaltet Verbindungen, Live-Remote-Desktop, virtuellen Geräte-Passthrough und Snapshot-Registry.
+Der Client ist die Steueroberfläche — installiert auf Ihrem Arbeitsplatz oder Laptop (oder direkt in Ihrem Browser ausgeführt). Er verwaltet Verbindungen, Live-Remote-Desktop, virtuellen Geräte-Passthrough und Snapshot-Registry.
 
 | Architektur | Windows | macOS | Linux | Android | iOS | Webbrowser |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [App öffnen](https://web.usbridge.io) |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Android-arm64-selfupdate.apk) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [App öffnen](https://web.usbridge.io) |
+| **x86_64** | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [App öffnen](https://web.usbridge.io) |
+| **ARM64** | — | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [App öffnen](https://web.usbridge.io) |
 
-🌐 **Zero-Install Web-Client**: Keine Installation erforderlich. Öffnen Sie einfach [web.usbridge.io](https://web.usbridge.io), um sofort zu verbinden. *(Hinweis: Der Web-Client funktioniert mit einigen Einschränkungen bei Funktionen und Leistung aufgrund von Browsersicherheits-Sandbox und WebRTC-Beschränkungen. Für das vollständige, unkompromittierte Erlebnis verwenden Sie die nativen Apps).*
+Bevorzugen Sie eine direkte APK ohne ein Play Store-Konto? Ein selbstaktualisierender Build wird ebenfalls in der [neuesten Version](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest) veröffentlicht.
+
+🌐 **Zero-Install Web-Client**: Keine Installation erforderlich. Öffnen Sie einfach [web.usbridge.io](https://web.usbridge.io), um sofort eine Verbindung herzustellen. *(Hinweis: Der Web-Client funktioniert mit einigen Funktionen und Leistungsbeschränkungen aufgrund von Browsersicherheits-Sandbox und WebRTC-Beschränkungen. Für das volle, unkompromittierte Erlebnis verwenden Sie die nativen Apps).*
 
 ## Agent
 
-Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote zugreifen möchten. Er verarbeitet Bildschirmaufnahmen, Eingabeinjektionen und Tailscale-Netzwerke.
+Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote zugreifen möchten. Er kümmert sich um Bildschirmaufnahme, Eingabeinjektion und Tailscale-Netzwerk.
 
 | Architektur | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
-| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Linux-x86_64.AppImage) |
-| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-macOS-arm64.dmg) | — |
+| **x86_64** | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Windows-x86_64.zip) | — | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Linux-x86_64.AppImage) |
+| **ARM64** | — | [Herunterladen](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-macOS-arm64.dmg) | — |
 
 ---
 
@@ -73,7 +75,7 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 | Medien | Highlight | Link |
 | :--- | :--- | :---: |
-| **IlSoftware.it** (Italien) | *"USBridge Remote fordert RustDesk und AnyDesk heraus..."* — Unabhängige tiefgehende Überprüfung, die den Software-Agenten & die Hardware-KVM-Synergie, native Wayland-Unterstützung und P2P-Architektur lobt. | [Artikel lesen](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
+| **IlSoftware.it** (Italien) | *"USBridge Remote stellt sich RustDesk und AnyDesk..."* — Unabhängige tiefgehende Bewertung, die den Software-Agenten & die Hardware-KVM-Synergie, native Wayland-Unterstützung und P2P-Architektur lobt. | [Artikel lesen](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
 
 ---
 
@@ -81,17 +83,17 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Ein Ort für alles** — Ich habe den Workflow vereinheitlicht. Verwalten Sie USBridge KVM-Hardware und Software-Agenten von einem einzigen Dashboard aus. Fügen Sie eine Maschine hinzu, verbinden Sie sich, und schon sind Sie drin.
+**Ein Ort für alles** — Ich habe den Workflow vereinheitlicht. Verwalten Sie USBridge KVM-Hardware und Software-Agenten von einem einzigen Dashboard aus. Fügen Sie eine Maschine hinzu, verbinden Sie sich, und Sie sind drin.
 
-**Keine Grenzen, keine Abonnements** — Völlig kostenlos. Keine Sitzungslimits, keine Verbindungsobergrenzen und kein Konto auf der Zielmaschine erforderlich.
+**Keine Grenzen, keine Abonnements** — Vollständig kostenlos. Keine Sitzungszeitlimits, keine Verbindungsobergrenzen und kein Konto auf der Zielmaschine erforderlich.
 
-**Niedriglatente Video- & Moonlight-Integration** — Genießen Sie bis zu 2K Auflösung mit butterweichen 240 FPS und null spürbarer Verzögerung. Mein adaptiver Streaming-Engine nutzt die native Moonlight-Integration, um unvergleichliche, ultra-niedriglatente Remote-Desktop-Leistung zu bieten.
+**Niedriglatente Video- & Moonlight-Integration** — Genießen Sie bis zu 2K Auflösung mit butterweichen 240 FPS und null spürbarem Lag. Mein adaptiver Streaming-Engine nutzt die native Moonlight-Integration, um unvergleichliche, ultra-niedriglatente Remote-Desktop-Leistung zu bieten.
 
-**Tailscale-Integration** — Eingebaute verschlüsselte P2P-Tunneling. Verbinden Sie sich global mit jeder Maschine, ohne sich um Portweiterleitungen oder Firewall-Regeln kümmern zu müssen. Es funktioniert automatisch im LAN und über das Internet.
+**Tailscale-Integration** — Eingebautes verschlüsseltes P2P-Tunneling. Stellen Sie eine Verbindung zu jeder Maschine weltweit her, ohne sich mit Portweiterleitungen oder Firewall-Regeln herumzuschlagen. Es funktioniert automatisch im LAN und über das Internet.
 
-**Geteilte Zwischenablage** — Kopieren und Einfügen nahtlos zwischen Ihrem lokalen Computer und den Remote-Zielen. Es unterstützt vollständig Text, Bilder und Dateiübertragungen sofort.
+**Geteilte Zwischenablage** — Kopieren und Einfügen nahtlos zwischen Ihrem lokalen Gerät und den Remote-Zielen. Es unterstützt vollständig Text, Bilder und Dateiübertragungen sofort.
 
-**Multi-Monitor-Unterstützung** — Ich habe die Möglichkeit hinzugefügt, zwischen mehreren Displays zu wechseln. Wenn die Zielmaschine mehrere Monitore hat, können Sie jetzt einfach auswählen, welchen Sie direkt aus den Verbindungseinstellungen anzeigen möchten. 
+**Multi-Monitor-Unterstützung** — Ich habe die Möglichkeit hinzugefügt, zwischen mehreren Displays zu wechseln. Wenn die Zielmaschine mehrere Monitore hat, können Sie jetzt einfach auswählen, welchen Sie direkt aus den Verbindungseinstellungen anzeigen möchten.
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -100,9 +102,9 @@ Der Agent läuft auf der Zielmaschine — dem Server oder PC, auf den Sie remote
 
 ## Wayland-Unterstützung (Keine Aufforderungen)
 
-Die meisten Remote-Desktop-Agenten unter Linux haben Schwierigkeiten mit Wayland oder spammen Sie ständig mit Berechtigungsaufforderungen und Bestätigungs-Popups, jedes Mal, wenn eine Sitzung startet. 
+Die meisten Remote-Desktop-Agenten auf Linux haben Schwierigkeiten mit Wayland oder spammen Sie ständig mit Berechtigungsaufforderungen und Bestätigungs-Popups, jedes Mal, wenn eine Sitzung beginnt.
 
-Ich habe den USBridge-Agent so konzipiert, dass er Wayland nativ unterstützt. Er verarbeitet die vollständige Bildschirmaufnahme und Eingabeinjektionen sofort **ohne lästige Berechtigungsaufforderungen** oder manuelle Bestätigungen. Es funktioniert einfach.
+Ich habe den USBridge-Agent so konzipiert, dass er Wayland nativ unterstützt. Er verarbeitet die vollständige Bildschirmaufnahme und Eingabeinjektion sofort **ohne lästige Berechtigungsaufforderungen** oder manuelle Bestätigungen. Es funktioniert einfach.
 
 ---
 
@@ -110,21 +112,21 @@ Ich habe den USBridge-Agent so konzipiert, dass er Wayland nativ unterstützt. E
 
 1. **Installieren Sie den Agenten** auf der Maschine, auf die Sie remote zugreifen möchten. Starten Sie ihn — er zeigt ein Verbindungstoken und eine Tailscale-Adresse an. Verbinden Sie Tailscale, wenn Sie über das Internet zugreifen müssen.
 
-2. **Installieren Sie den Client** auf Ihrem Arbeitsplatzrechner, Laptop oder Telefon.
+2. **Installieren Sie den Client** auf Ihrem Arbeitsplatz, Laptop oder Telefon.
 
-3. **Fügen Sie eine Verbindung hinzu** — geben Sie die IP oder die Tailscale-Adresse ein, die im Agentenfenster angezeigt wird. Das ist alles.
+3. **Fügen Sie eine Verbindung hinzu** — geben Sie die IP oder Tailscale-Adresse ein, die im Agentenfenster angezeigt wird. Das ist alles.
 
 ---
 
-## Projekt-Roadmap
+##  Projekt-Roadmap
 
-Ich verwalte die Softwareentwicklungspläne und bevorstehenden Funktionen in einem offenen Dashboard. Wenn Sie sehen möchten, was derzeit entwickelt wird, was geplant ist oder den Status bevorstehender Funktionen verfolgen möchten, werfen Sie einen Blick auf die Live-Roadmap:
+Ich verwalte die Softwareentwicklungspläne und bevorstehenden Funktionen in einem offenen Dashboard. Wenn Sie sehen möchten, was derzeit entwickelt wird, was geplant ist oder den Status bevorstehender Funktionen verfolgen möchten, schauen Sie sich die Live-Roadmap an:
 
  **[USBridge Remote Roadmap anzeigen](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
-## Community & Beta-Testing
+## Community & Beta-Tests
 
 Treten Sie unserem Discord bei, um die **Beta-Tester**-Rolle zu erhalten, Fehler zu melden und mir zu helfen, die Roadmap zu gestalten:
 
@@ -138,3 +140,9 @@ Treten Sie unserem Discord bei, um die **Beta-Tester**-Rolle zu erhalten, Fehler
 - ❤️ [Patreon-Seite](https://www.patreon.com/USBridge_Technologies)
 - 🛒 [USBridge KVM 2.0 auf Crowd Supply](https://crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 - 💬 [Discord](https://discord.com/invite/xqQ6ybkfWS)
+
+---
+
+## 📜 Lizenz
+
+Dieses Projekt ist lizenziert unter **GPLv3** (siehe [`LICENSE`](LICENSE)). Der Android/Windows/macOS/Linux-Client enthält Code von `moonlight-common-c` (ebenfalls GPLv3).

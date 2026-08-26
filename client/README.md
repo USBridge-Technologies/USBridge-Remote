@@ -143,7 +143,8 @@ To trigger a quick WASM web build:
 
 ## 📚 Documentation
 
-Deep-dive architectural documentation is available in the `docs/` directory:
+**[docs/README.md](docs/README.md)** is the full index — interface guide (what each tab does, and what's hardware-KVM-only vs. available on a software Agent), platform notes, and the protocol/security reference:
+- [`docs/interface-guide.md`](docs/interface-guide.md) — Control, Devices, Snapshots, and Scripts tabs explained.
 - [`docs/api_endpoints.md`](docs/api_endpoints.md) — The secure API and Master QR sync protocol specification.
 - [`docs/MOUSE_TOUCHPAD.md`](docs/MOUSE_TOUCHPAD.md) — Mathematical specifics of relative/absolute pointer translation.
 - [`docs/NATIVE_VIDEO_AUDIO.md`](docs/NATIVE_VIDEO_AUDIO.md) — Comprehensive details on the Vulkan, Metal, and Moonlight integration stack.
