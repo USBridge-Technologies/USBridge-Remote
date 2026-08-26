@@ -9,6 +9,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // unitName/unitPath: a system-wide (not --user) systemd unit. This is
@@ -137,6 +139,96 @@ func writeXsetupHookScript(username string) (script, tmpPath string, err error) 
 		sddmXsetupPath, systemdQuote(xsetupHookMarker), tmp.Name(),
 	)
 	return script, tmp.Name(), nil
+}
+
+// pkexecAuthAgentProcessPattern matches any already-running standalone
+// polkit authentication agent's process name, across desktop environments —
+// used by ensurePolkitAuthAgent to tell "nothing registered yet" apart from
+// "one's already up, do nothing". A var (not a const) purely so tests can
+// point it at a known-running process instead of a real polkit agent.
+var pkexecAuthAgentProcessPattern = `polkit-(gnome|mate|kde)-authentication-agent|polkit-kde-agent|lxqt-policykit-agent|xfce-polkit|lxpolkit`
+
+// pkexecAuthAgentCandidates lists known standalone polkit authentication
+// agent binaries across desktop environments and common distro path
+// layouts. Tried in a fixed order rather than picked by $XDG_CURRENT_DESKTOP
+// (more than one is often installed side by side — e.g. Mint's Cinnamon
+// ships both mate-polkit and GNOME's agent — and polkit only needs *one*
+// registered for the session, so the first candidate that exists on disk is
+// enough).
+var pkexecAuthAgentCandidates = []string{
+	"/usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1",
+	"/usr/libexec/polkit-gnome-authentication-agent-1",
+	"/usr/lib/x86_64-linux-gnu/libexec/polkit-gnome-authentication-agent-1",
+	"/usr/libexec/polkit-mate-authentication-agent-1",
+	"/usr/lib/x86_64-linux-gnu/polkit-mate/polkit-mate-authentication-agent-1",
+	"/usr/lib/x86_64-linux-gnu/libexec/polkit-kde-authentication-agent-1",
+	"/usr/lib/polkit-kde-authentication-agent-1",
+	"/usr/bin/lxqt-policykit-agent",
+	"/usr/lib/x86_64-linux-gnu/xfce-polkit/xfce-polkit",
+	"/usr/lib/xfce-polkit/xfce-polkit",
+	"/usr/bin/lxpolkit",
+	"/usr/lib/lxpolkit/lxpolkit",
+}
+
+// ensurePolkitAuthAgent makes a best-effort attempt to have a graphical
+// polkit authentication agent registered for this session before Enable/
+// Disable call pkexec, working around a gap confirmed live on Linux Mint
+// (Cinnamon): its MATE polkit agent is restricted to MATE only
+// (OnlyShowIn=MATE; in polkit-mate-authentication-agent-1.desktop) and the
+// GNOME one that does list Cinnamon (OnlyShowIn=...;X-Cinnamon;) isn't
+// always actually running for a given login. Without any agent registered,
+// pkexec falls back to text-mode authentication, which needs a controlling
+// terminal — something this GUI process never has — and fails outright with
+// a cryptic "Error opening current controlling terminal for the process
+// (`/dev/tty')" instead of ever showing a password prompt.
+//
+// No-ops whenever an agent is already running — confirmed by every desktop
+// environment this already works fine on (GNOME, KDE, XFCE, ...) never
+// matching the spawn branch below. Best-effort throughout: any failure here
+// is silently ignored and the caller proceeds to invoke pkexec exactly as
+// before, so a distro missing every candidate binary (or missing pgrep) sees
+// no behavior change at all — this can only ever help, never regress an
+// already-working setup.
+func ensurePolkitAuthAgent() {
+	if out, err := exec.Command("pgrep", "-f", pkexecAuthAgentProcessPattern).Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+		return
+	}
+	for _, candidate := range pkexecAuthAgentCandidates {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		cmd := exec.Command(candidate)
+		// New session, detached from this process's own lifetime: the agent
+		// needs to keep running and registered for as long as the desktop
+		// session lasts, not just for this one pkexec call.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			continue
+		}
+		// Give it a moment to register with the session bus before pkexec
+		// asks polkitd who's listening — registration is one async D-Bus
+		// call, so this is generous headroom, not a real readiness wait.
+		time.Sleep(300 * time.Millisecond)
+		return
+	}
+}
+
+// friendlyPkexecError turns pkexec's own stderr/exit-status into an
+// actionable message for the two failure modes actually seen live, instead
+// of surfacing raw polkit internals — same convention as
+// permissions.Service's pkexec error handling (service_linux.go).
+func friendlyPkexecError(err error, out []byte) string {
+	text := string(out)
+	switch {
+	case strings.Contains(text, "/dev/tty") || strings.Contains(text, "No authentication agent found"):
+		return "no polkit authentication agent is running for this session " +
+			"(pkexec needs one to prompt for the password). Log into a full desktop " +
+			"session and make sure its polkit agent is running, then retry."
+	case strings.Contains(err.Error(), "exit status 126"):
+		return "authentication was cancelled or dismissed. Try again and approve the prompt."
+	default:
+		return fmt.Sprintf("%v (%s)", err, strings.TrimSpace(text))
+	}
 }
 
 func IsEnabled() bool {
@@ -301,10 +393,11 @@ WantedBy=multi-user.target
 			`STATUS=$?; %[5]s; exit $STATUS`,
 		tmp.Name(), unitPath, unitName, systemdQuote(u.Username), xsetupScript,
 	)
+	ensurePolkitAuthAgent()
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("install systemd service: %w (%s)", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("install systemd service: %s", friendlyPkexecError(err, out))
 	}
 	return nil
 }
@@ -314,10 +407,11 @@ func Disable() error {
 		"systemctl disable --now %s >/dev/null 2>&1; rm -f %s && systemctl daemon-reload",
 		unitName, unitPath,
 	)
+	ensurePolkitAuthAgent()
 	cmd := exec.Command("pkexec", "/bin/sh", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("remove systemd service: %w (%s)", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("remove systemd service: %s", friendlyPkexecError(err, out))
 	}
 	return nil
 }
