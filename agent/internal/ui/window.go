@@ -136,13 +136,15 @@ type Window struct {
 	permInfo    *widget.Label
 
 	// Screen Capture: a single unified control for how video gets captured.
-	// On Linux this is Sunshine's capture backend (Portal vs. KMS/root); on
-	// other platforms it's just the OS screen-recording permission. The
-	// status label and request button always reflect whichever method is
-	// currently selected — there is only ever one active method at a time.
-	screenCaptureLabel  *widget.Label
-	screenCaptureSelect *widget.Select
-	screenCaptureBtn    *widget.Button
+	// On Linux this is Sunshine's capture backend, picked automatically from
+	// the live session (capture.AutoCaptureMode) — no user choice, since a
+	// manual "KMS (root)" pick on an X11 desktop session (esp. NVIDIA) is a
+	// known-broken combination; see capture.AutoCaptureMode's doc. On other
+	// platforms it's just the OS screen-recording permission. The status
+	// label and request button always reflect whichever method is currently
+	// active — there is only ever one active method at a time.
+	screenCaptureLabel *widget.Label
+	screenCaptureBtn   *widget.Button
 
 	// clipboardToolRow: Linux only, shown only while no CLI clipboard helper
 	// (xclip/wl-clipboard/xsel) is installed -- see
@@ -239,42 +241,12 @@ func NewWindow(app fyne.App, cfg config.Config, perms PermsProvider, ts Tailscal
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
 
-var captureModeLabels = map[string]string{
-	"":       "Portal",
-	"portal": "Portal",
-	"kms":    "KMS (root)",
-	"x11":    "X11",
-}
-
-func captureModeFromLabel(label string) string {
-	switch label {
-	case "KMS (root)":
-		return "kms"
-	case "X11":
-		return "x11"
-	default:
-		return "portal"
-	}
-}
-
-// linuxCaptureUIEnabled reports whether the Screen Capture row should show
-// the Linux method dropdown (Sunshine capture backend) rather than the
-// simple OS screen-recording permission toggle used on other platforms.
+// linuxCaptureUIEnabled reports whether the Screen Capture row should use
+// the Linux capture-mode status (Sunshine's auto-detected backend) rather
+// than the simple OS screen-recording permission toggle used on other
+// platforms.
 func (w *Window) linuxCaptureUIEnabled() bool {
 	return runtime.GOOS == "linux" && w.token != nil
-}
-
-func (w *Window) applyCaptureMode(label string) {
-	if w.token == nil {
-		return
-	}
-	mode := captureModeFromLabel(label)
-	if err := w.token.SetSunshineCaptureMode(mode); err != nil {
-		logrus.Errorf("🎥 [UI] Failed to set Sunshine capture mode: %v", err)
-		return
-	}
-	logrus.Infof("🎥 [UI] Sunshine capture mode changed to %s (restart Sunshine to apply)", mode)
-	w.refreshScreenCaptureUI()
 }
 
 // refreshScreenCaptureUI updates the status label and shows/hides the
@@ -532,26 +504,16 @@ func (w *Window) ShowAndRun(onClose func()) {
 		w.screenCaptureBtn.Show()
 	}
 
+	// No manual method picker here: on Linux the capture backend is always
+	// capture.AutoCaptureMode()'s pick for the live session (kept in sync by
+	// app.syncSunshineCaptureMode/SetSunshineCaptureMode) — a user-selectable
+	// "KMS (root)" on an X11 desktop session (esp. NVIDIA) was a known-broken
+	// combination in practice (confirmed live: 12/12 DRM planes and the
+	// connector's own encoder_id read back empty/zero on an otherwise fully
+	// working RTX 2080 Ti + driver 550 X11 session — KMS needs DRM master,
+	// which Xorg already holds). The row below just reports which method
+	// ended up active and, on Wayland, offers the portal permission request.
 	screenCaptureRow := container.NewHBox(w.screenCaptureLabel, layout.NewSpacer())
-	if linuxCapture {
-		// Build without OnChanged so the initial SetSelected below (which Fyne
-		// fires through OnChanged like any other selection) doesn't trigger an
-		// unwanted sunshine.conf write on every app start.
-		// X11 alongside Portal/KMS: Sunshine's KMS backend reads the DRM
-		// legacy CRTC/plane framebuffer fields, which the NVIDIA proprietary
-		// driver leaves unpopulated for any client that isn't the current
-		// DRM master -- normally whatever desktop session (Xorg) is already
-		// running (confirmed live: 12/12 planes and the connector's own
-		// encoder_id read back empty/zero on an otherwise fully working
-		// RTX 2080 Ti + driver 550 X11 session). KMS and Portal both fail
-		// in that situation; a direct X11 grab (XShm, no DRM ioctls at all)
-		// is the one capture path that still works on NVIDIA+Xorg.
-		w.screenCaptureSelect = widget.NewSelect([]string{"Portal", "KMS (root)", "X11"}, nil)
-		w.screenCaptureSelect.SetSelected(captureModeLabels[w.token.SunshineCaptureMode()])
-		w.screenCaptureSelect.OnChanged = w.applyCaptureMode
-		w.screenCaptureSelect.Resize(fyne.NewSize(120, 24))
-		screenCaptureRow.Add(w.screenCaptureSelect)
-	}
 	screenCaptureRow.Add(w.screenCaptureBtn)
 
 	// Autostart at Boot: installs the OS-native autostart mechanism (a

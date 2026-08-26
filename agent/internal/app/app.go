@@ -797,26 +797,38 @@ func (a *App) SunshineCapExecPath() string {
 	return path
 }
 
-// syncSunshineCaptureMode writes the persisted capture-mode preference
-// (cfg.SunshineCaptureMode) into the active backend's own config file if
-// that backend doesn't already have its own value set. Without this, a
-// preference persisted while one backend was active (e.g. Sunshine's
-// sunshine.conf capture=kms) would silently never reach a different
-// backend's own config format after switching streamers (e.g. to
-// rustshine's sunshine.conf capture=<key>) — SunshineCaptureMode() would
-// still report "kms" via the cfg fallback (so the GUI shows KMS selected
-// and KMS capability requests succeed), while the backend itself keeps
-// running with its own on-disk default (rustshine: "v4l2", meant for
-// embedded boards, not desktop Linux) because nothing ever wrote the key.
+// syncSunshineCaptureMode writes the capture mode into the active backend's
+// own config file. On Linux this is never taken from user input or a stale
+// persisted preference — it's unconditionally re-derived from the live
+// session via capture.AutoCaptureMode() and (re)written on every start, even
+// over an existing on-disk value, so a value written by some earlier version
+// of this agent (back when the mode was user-selectable, e.g. a leftover
+// "capture = kms" in sunshine.conf from a desktop X11 session) self-heals on
+// the next start instead of staying wrong forever. See capture.AutoCaptureMode's
+// doc for why Wayland/headless/SDDM/console all keep getting "kms" while a
+// live X11 desktop session gets "x11".
+//
+// Non-Linux platforms have no such concept (AutoCaptureMode returns ""
+// there): there, the old behavior is kept exactly — only fill in the
+// backend's capture mode from the persisted cfg value when the backend
+// doesn't already have its own value set, so switching streamers still
+// propagates a preference instead of overwriting it every start.
 func (a *App) syncSunshineCaptureMode() {
-	if a.stream == nil || a.cfg.SunshineCaptureMode == "" {
+	if a.stream == nil {
 		return
 	}
-	if a.stream.CaptureMode() != "" {
+	if mode := capture.AutoCaptureMode(); mode != "" {
+		if err := a.stream.SetCaptureMode(mode); err != nil {
+			log.Printf("[app] failed to sync capture mode %q to backend: %v", mode, err)
+		}
 		return
 	}
-	if err := a.stream.SetCaptureMode(a.cfg.SunshineCaptureMode); err != nil {
-		log.Printf("[app] failed to sync persisted capture mode %q to backend: %v", a.cfg.SunshineCaptureMode, err)
+	if a.stream.CaptureMode() != "" || a.cfg.SunshineCaptureMode == "" {
+		return
+	}
+	mode := a.cfg.SunshineCaptureMode
+	if err := a.stream.SetCaptureMode(mode); err != nil {
+		log.Printf("[app] failed to sync capture mode %q to backend: %v", mode, err)
 	}
 }
 
@@ -850,10 +862,15 @@ func (a *App) SunshineCaptureMode() string {
 	return a.cfg.SunshineCaptureMode
 }
 
-// SetSunshineCaptureMode persists the capture backend choice into both the
-// agent config and Sunshine's own sunshine.conf, then restarts the bundled
+// SetSunshineCaptureMode re-applies the capture backend into both the agent
+// config and Sunshine's own sunshine.conf, then restarts the bundled
 // Sunshine instance so the change actually takes effect — a config edit
 // alone is silently ignored by an already-running Sunshine process.
+//
+// On Linux the requested mode is not a free-form choice: it's overridden by
+// capture.AutoCaptureMode() so this can't be pointed at a combination known
+// not to work (see its doc). The mode argument only takes effect on other
+// platforms, where AutoCaptureMode returns "" and has no opinion.
 //
 // Switching to "kms" without the capability granted yet is deliberately NOT
 // restarted here: Sunshine would immediately fail KMS and fall back to
@@ -863,6 +880,9 @@ func (a *App) SunshineCaptureMode() string {
 func (a *App) SetSunshineCaptureMode(mode string) error {
 	if a.stream == nil {
 		return nil
+	}
+	if auto := capture.AutoCaptureMode(); auto != "" {
+		mode = auto
 	}
 	if err := a.stream.SetCaptureMode(mode); err != nil {
 		return fmt.Errorf("write sunshine.conf: %w", err)
