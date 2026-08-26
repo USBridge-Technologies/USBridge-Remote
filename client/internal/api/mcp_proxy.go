@@ -94,6 +94,23 @@ func (p *MCPProxy) Port() int {
 }
 
 func (p *MCPProxy) handle(w http.ResponseWriter, r *http.Request) {
+	// This proxy exists so a local AI tool (a native process on this same
+	// machine) can reach the device's MCP endpoint without signing requests
+	// itself — every request it forwards comes back out already HMAC-signed
+	// with the paired device's master key (see PostRaw below). That makes an
+	// Origin header a hard stop rather than something to just not echo back:
+	// native HTTP clients never set it, only browser JS does, and any page
+	// open in the user's browser could otherwise POST here and have its
+	// request silently signed and relayed to the device — a CSRF-style
+	// drive-by that doesn't need to know the master key at all, since this
+	// proxy already holds it. Rejecting Origin outright (not just omitting
+	// Access-Control-Allow-Origin) also blocks a same-origin fetch a page
+	// might make to 127.0.0.1, which CORS alone wouldn't stop.
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "forbidden: browser requests are not allowed", http.StatusForbidden)
+		return
+	}
+
 	p.mu.Lock()
 	client := p.client
 	p.mu.Unlock()
@@ -120,6 +137,5 @@ func (p *MCPProxy) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(resp)
 }
