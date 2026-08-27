@@ -83,7 +83,7 @@ func buildUinputGrantScript(rulePath, modulesPath, currentUser string) string {
 // GPU group in autostart_linux.go for the identical class of problem.
 const uinputRuleContent = "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", GROUP=\"" + UinputGroupName + "\", MODE=\"0660\", TAG+=\"uaccess\"\n"
 
-// Even with the MODE=0666 rule above, /dev/uinput's permissions after a
+// Even with the GROUP/MODE rule above, /dev/uinput's permissions after a
 // reboot depend on *how* the node comes into existence. Without this file,
 // nothing forces the real "uinput" kernel module to load at boot: the node
 // that shows up early is typically just udev's "static_node" stand-in
@@ -128,15 +128,18 @@ func (s *Service) AccessibilityGranted() bool {
 }
 
 // uinputRuleUpToDate reports whether the persistent udev rule on disk
-// already grants the current (MODE=0666) content, not just the older,
-// uaccess-only version this project shipped before. The /dev/uinput open()
-// probe above can succeed right now purely because the *caller's own*
-// interactive session happens to hold a live uaccess ACL, even on a machine
-// whose on-disk rule -- the one usbridge-agent.service actually depends on
-// after the next reboot -- is still the old, fragile one. Checking the file
-// too makes RequestAccessibility keep firing (and upgrading the rule on
-// disk) for anyone who granted access before this fix, instead of only for
-// machines where access is visibly broken right this second.
+// already grants the current (GROUP=usbridge-input, MODE=0660) content, not
+// an older version this project shipped before -- either the bare
+// uaccess-only rule, or the briefly-shipped world-writable MODE=0666 one.
+// The /dev/uinput open() probe above can succeed right now purely because
+// the *caller's own* interactive session happens to hold a live uaccess ACL
+// (or the one-time setfacl grant from a previous RequestAccessibility call),
+// even on a machine whose on-disk rule -- the one usbridge-agent.service
+// actually depends on after the next reboot -- is still an old, weaker one.
+// Checking the file too makes RequestAccessibility keep firing (and
+// upgrading the rule on disk) for anyone who granted access before this
+// fix, instead of only for machines where access is visibly broken right
+// this second.
 func uinputRuleUpToDate() bool {
 	data, err := os.ReadFile(uinputRulePath)
 	if err != nil {
@@ -231,8 +234,12 @@ func (s *Service) RequestAccessibility() bool {
 	// this same path as the agent's own unprivileged user -- with a 0600
 	// file it always got EACCES and returned false, so AccessibilityGranted
 	// reported "broken" forever even on machines where /dev/uinput was
-	// already 0666 and working. Rule files under /etc/udev/rules.d are
-	// world-readable everywhere else on the system; match that.
+	// already working (this predates the MODE=0660/GROUP=usbridge-input
+	// grant above -- back when this comment was written, that meant
+	// world-writable 0666, but the observation about the rule *file*'s own
+	// readability holds regardless of what mode the device node itself
+	// ends up at). Rule files under /etc/udev/rules.d are world-readable
+	// everywhere else on the system; match that.
 	//
 	// Also install /etc/modules-load.d/usbridge-uinput.conf and modprobe
 	// uinput right now: this is the piece that actually makes the whole

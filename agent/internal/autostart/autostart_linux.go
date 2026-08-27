@@ -290,7 +290,8 @@ func Enable() error {
 	// (forced to load by permissions.uinputModulesLoadPath, see
 	// service_linux.go) is still racing against every other sysinit unit.
 	// systemd only marks a device unit active once udev has fully processed
-	// its rules (our MODE=0666 rule included), so waiting on it here is what
+	// its rules (our GROUP=usbridge-input, MODE=0660 rule included -- see
+	// permissions.uinputRuleContent), so waiting on it here is what
 	// actually makes the granted permission deterministic across a reboot
 	// instead of a race the agent sometimes loses. Wants= (not Requires=) so
 	// a machine where the module fails to load for some unrelated reason
