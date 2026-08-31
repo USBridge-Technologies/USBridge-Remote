@@ -20,7 +20,7 @@
 
 ---
 
-**USBridge Remote** è un client unificato ad alte prestazioni per la gestione di macchine remote. L'ho progettato per combinare **accesso al BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
+**USBridge Remote** è un client unificato ad alte prestazioni per gestire macchine remote. L'ho progettato per combinare **accesso al BIOS a livello hardware** (tramite dispositivi USBridge KVM) e **desktop remoto basato su software** in un'unica interfaccia semplificata.
 
  🖥️ **Hai bisogno di controllare il BIOS a livello hardware prima che il sistema operativo si avvii?**  
  USBridge Remote si integra nativamente con **USBridge-KVM 2.0** per la gestione out-of-band a livello metallico.
@@ -28,31 +28,31 @@
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Software Beta** — Questa è una versione preliminare. Aspettati bug. Si prega di segnalare problemi tramite [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) o unisciti al nostro [Discord](https://discord.com/invite/xqQ6ybkfWS) per supporto.
+> ⚠️ **Software Beta** — Questa è una versione preliminare. Aspettati bug. Si prega di segnalare problemi tramite [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) o unisciti al nostro [Discord](https://discord.com/invite/xqQ6ybkfWS) per assistenza.
 > 
 > ℹ️ **Nota riguardo ai falsi positivi di Windows Defender / Antivirus:**  
 > Windows Defender potrebbe contrassegnare erroneamente `libva.dll` come una minaccia (`Trojan:Win32/Wacatac.B!ml`) a causa della rilevazione euristica/apprendimento automatico su binari non firmati. **Questo è un falso positivo.**  
-> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e per la whitelist. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ti preghiamo di ripristinarlo dalla quarantena o di aggiungere la cartella USBridge all'elenco delle esclusioni del tuo antivirus.
+> Abbiamo inviato il file a Microsoft Security Intelligence per una revisione ufficiale e per la whitelist. Nel frattempo, se il tuo antivirus rimuove `libva.dll`, ripristinalo dalla quarantena o aggiungi la cartella USBridge all'elenco delle esclusioni del tuo antivirus.
 
 ---
 
 ## Download
 
 ### Client
-Il Client è l'interfaccia di controllo — installata sulla tua workstation o laptop (o eseguita direttamente nel tuo browser). Gestisce le connessioni, il desktop remoto live, il passthrough dei dispositivi virtuali e il registro degli snapshot.
+Il Client è l'interfaccia di controllo — installata sulla tua workstation o laptop (o eseguita direttamente nel tuo browser). Gestisce connessioni, desktop remoto live, passthrough di dispositivi virtuali e registri degli snapshot.
 
 | Architettura | Windows | macOS | Linux | Android | iOS | Web Browser |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Open App](https://web.usbridge.io) |
 | **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Open App](https://web.usbridge.io) |
 
-Preferisci un APK diretto senza un account Play Store? Una build auto-aggiornante è anche pubblicata nell'[ultima release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+Preferisci un APK diretto senza un account Play Store? Una build auto-aggiornante è anche pubblicata sulla [ultima release](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
 🌐 **Client Web Zero-Install**: Nessuna installazione richiesta. Basta aprire [web.usbridge.io](https://web.usbridge.io) per connettersi istantaneamente. *(Nota: Il client web opera con alcune limitazioni di funzionalità e prestazioni a causa della sandbox di sicurezza del browser e delle restrizioni di WebRTC. Per un'esperienza completa e senza compromessi, utilizza le app native).*
 
 ## Agent
 
-L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri accedere in remoto. Gestisce la cattura dello schermo, l'iniezione di input e la rete Tailscale.
+L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri accedere in remoto. Gestisce la cattura dello schermo, l'iniezione di input e il networking Tailscale.
 
 | Architettura | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
@@ -71,23 +71,15 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ---
 
-## In the Media
-
-| Media | Evidenza | Link |
-| :--- | :--- | :---: |
-| **IlSoftware.it** (Italia) | *"USBridge Remote sfida RustDesk e AnyDesk..."* — Recensione approfondita indipendente che elogia la sinergia tra l'agente software e l'hardware KVM, il supporto nativo per Wayland e l'architettura P2P. | [Leggi l'articolo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
-
----
-
 ## Features
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
 **Un posto per tutto** — Ho unificato il flusso di lavoro. Gestisci l'hardware USBridge KVM e gli agenti software da un'unica dashboard. Aggiungi una macchina, connettiti e sei dentro.
 
-**Nessun limite, nessun abbonamento** — Completamente gratuito. Nessun limite di tempo per le sessioni, nessun limite di connessione e nessun account richiesto sulla macchina target.
+**Nessun limite, nessun abbonamento** — Completamente gratuito. Nessun limite di tempo di sessione, nessun limite di connessione e nessun account richiesto sulla macchina target.
 
-**Video a bassa latenza e integrazione Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percepibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa di Moonlight per offrire prestazioni di desktop remoto senza pari e a ultra-bassa latenza.
+**Video a bassa latenza e integrazione Moonlight** — Goditi una risoluzione fino a 2K con 240 FPS fluidi e zero ritardi percettibili. Il mio motore di streaming adattivo sfrutta l'integrazione nativa di Moonlight per offrire prestazioni di desktop remoto senza pari e ultra-bassa latenza.
 
 **Integrazione Tailscale** — Tunnel P2P crittografati integrati. Connettiti a qualsiasi macchina a livello globale senza dover gestire il port forwarding o le regole del firewall. Funziona automaticamente su LAN e su Internet.
 
@@ -102,13 +94,13 @@ L'Agent viene eseguito sulla macchina target — il server o PC a cui desideri a
 
 ## Supporto Wayland (Nessun Prompt)
 
-La maggior parte degli agenti desktop remoti su Linux ha difficoltà con Wayland o ti riempie costantemente di richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione. 
+La maggior parte degli agenti di desktop remoto su Linux ha difficoltà con Wayland o ti riempie costantemente di richieste di autorizzazione e popup di conferma ogni volta che inizia una sessione. 
 
 Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la cattura dello schermo e l'iniezione di input out-of-the-box **senza alcun fastidioso prompt di autorizzazione** o conferme manuali. Funziona e basta.
 
 ---
 
-## Quick Start
+## Inizio Rapido
 
 1. **Installa l'Agent** sulla macchina a cui desideri accedere in remoto. Avvialo — mostrerà un token di connessione e un indirizzo Tailscale. Connetti Tailscale se hai bisogno di accesso su Internet.
 
@@ -118,9 +110,9 @@ Ho progettato l'Agent USBridge per supportare Wayland nativamente. Gestisce la c
 
 ---
 
-##  Project Roadmap
+##  Roadmap del Progetto
 
-Gestisco i piani di sviluppo software e le funzionalità in arrivo in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità in arrivo, controlla la roadmap dal vivo:
+Gestisco i piani di sviluppo software e le funzionalità in arrivo in un dashboard aperto. Se vuoi vedere cosa è attualmente in fase di sviluppo, cosa è pianificato o seguire lo stato delle funzionalità in arrivo, dai un'occhiata alla roadmap live:
 
  **[Visualizza la Roadmap di USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
@@ -134,7 +126,7 @@ Unisciti al nostro Discord per ottenere il ruolo di **Beta Tester**, segnalare b
 
 ---
 
-## Links
+## Link
 
 - 🌐 [Sito Ufficiale](https://usbridge.io)
 - ❤️ [Pagina Patreon](https://www.patreon.com/USBridge_Technologies)

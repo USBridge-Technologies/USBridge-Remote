@@ -1,4 +1,4 @@
-# USBridge Remote (Beta)
+# USBridge Remote (Bêta)
 
 ![USBridge Remote](https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/assets/banner.png)
 
@@ -20,26 +20,26 @@
 
 ---
 
-**USBridge Remote** est un client unifié haute performance pour gérer des machines distantes. Je l'ai conçu pour combiner **l'accès BIOS au niveau matériel** (via les appareils USBridge KVM) et **le bureau à distance basé sur logiciel** dans une seule interface simplifiée.
+**USBridge Remote** est un client unifié haute performance pour gérer des machines distantes. Je l'ai conçu pour combiner **l'accès BIOS au niveau matériel** (via les dispositifs USBridge KVM) et **le bureau à distance basé sur logiciel** dans une interface unique et rationalisée.
 
- 🖥️ **Besoin d'un contrôle BIOS au niveau matériel avant le démarrage du système d'exploitation ?**  
+ 🖥️ **Besoin d'un contrôle BIOS au niveau matériel avant le démarrage de l'OS ?**  
  USBridge Remote s'intègre nativement avec **USBridge-KVM 2.0** pour une gestion hors bande, au niveau métal.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Logiciel Beta** — Il s'agit d'une version précoce. Attendez-vous à des bugs. Veuillez signaler les problèmes via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou rejoignez notre [Discord](https://discord.com/invite/xqQ6ybkfWS) pour obtenir de l'aide.
+> ⚠️ **Logiciel Bêta** — Il s'agit d'une version préliminaire. Attendez-vous à des bugs. Veuillez signaler les problèmes via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou rejoignez notre [Discord](https://discord.com/invite/xqQ6ybkfWS) pour obtenir de l'aide.
 > 
-> ℹ️ **Remarque concernant les faux positifs de Windows Defender / Antivirus :**  
-> Windows Defender peut signaler à tort `libva.dll` comme une menace (`Trojan:Win32/Wacatac.B!ml`) en raison de la détection heuristique / apprentissage automatique sur des binaires non signés. **C'est un faux positif.**  
-> Nous avons soumis le fichier à Microsoft Security Intelligence pour un examen officiel et une mise sur liste blanche. En attendant, si votre antivirus supprime `libva.dll`, veuillez le restaurer depuis la Quarantaine ou ajouter le dossier USBridge à la liste d'exclusion de votre antivirus.
+> ℹ️ **Note concernant les faux positifs de Windows Defender / Antivirus :**  
+> Windows Defender peut signaler à tort `libva.dll` comme une menace (`Trojan:Win32/Wacatac.B!ml`) en raison de la détection heuristique/apprentissage automatique sur des binaires non signés. **C'est un faux positif.**  
+> Nous avons soumis le fichier à Microsoft Security Intelligence pour un examen officiel et une liste blanche. En attendant, si votre antivirus supprime `libva.dll`, veuillez le restaurer depuis la quarantaine ou ajouter le dossier USBridge à votre liste d'exclusion antivirus.
 
 ---
 
-## Télécharger
+## Téléchargement
 
 ### Client
-Le Client est l'interface de contrôle — installé sur votre station de travail ou votre ordinateur portable (ou exécuté directement dans votre navigateur). Il gère les connexions, le bureau à distance en direct, le passage à travers des dispositifs virtuels et l'enregistrement des instantanés.
+Le Client est l'interface de contrôle — installé sur votre station de travail ou votre ordinateur portable (ou exécuté directement dans votre navigateur). Il gère les connexions, le bureau à distance en direct, le passage de périphériques virtuels et l'enregistrement des instantanés.
 
 | Architecture | Windows | macOS | Linux | Android | iOS | Navigateur Web |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -48,7 +48,7 @@ Le Client est l'interface de contrôle — installé sur votre station de travai
 
 Vous préférez un APK direct sans compte Play Store ? Une version auto-mise à jour est également publiée sur la [dernière version](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Client Web sans installation** : Aucune installation requise. Ouvrez simplement [web.usbridge.io](https://web.usbridge.io) pour vous connecter instantanément. *(Remarque : Le client web fonctionne avec certaines limitations de fonctionnalités et de performances en raison de la sécurité du navigateur et des contraintes WebRTC. Pour une expérience complète sans compromis, utilisez les applications natives).*
+🌐 **Client Web sans installation** : Aucune installation requise. Ouvrez simplement [web.usbridge.io](https://web.usbridge.io) pour vous connecter instantanément. *(Remarque : Le client web fonctionne avec certaines limitations de fonctionnalités et de performances en raison de la sécurité du navigateur et des contraintes WebRTC. Pour une expérience complète et sans compromis, utilisez les applications natives).*
 
 ## Agent
 
@@ -71,29 +71,21 @@ L'Agent s'exécute sur la machine cible — le serveur ou le PC que vous souhait
 
 ---
 
-## Dans les Médias
-
-| Média | Mise en avant | Lien |
-| :--- | :--- | :---: |
-| **IlSoftware.it** (Italie) | *"USBridge Remote défie RustDesk et AnyDesk..."* — Revue indépendante approfondie louant la synergie entre l'agent logiciel et le matériel KVM, le support natif de Wayland et l'architecture P2P. | [Lire l'article](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
-
----
-
 ## Fonctionnalités
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Un seul endroit pour tout** — J'ai unifié le flux de travail. Gérez le matériel USBridge KVM et les agents logiciels depuis un seul tableau de bord. Ajoutez une machine, connectez-vous et vous y êtes.
+**Un seul endroit pour tout** — J'ai unifié le flux de travail. Gérez le matériel USBridge KVM et les agents logiciels depuis un tableau de bord unique. Ajoutez une machine, connectez-vous et vous y êtes.
 
-**Pas de limites, pas d'abonnements** — Entièrement gratuit. Pas de limites de temps de session, pas de plafonds de connexion, et aucun compte requis sur la machine cible.
+**Pas de limites, pas d'abonnements** — Complètement gratuit. Pas de limites de temps de session, pas de plafonds de connexion, et aucun compte requis sur la machine cible.
 
-**Vidéo à faible latence & Intégration Moonlight** — Profitez d'une résolution allant jusqu'à 2K avec un fluide 240 FPS et zéro latence perceptible. Mon moteur de streaming adaptatif tire parti de l'intégration native de Moonlight pour offrir des performances de bureau à distance inégalées et ultra-basse latence.
+**Vidéo à faible latence & Intégration Moonlight** — Profitez d'une résolution allant jusqu'à 2K avec un 240 FPS fluide et zéro latence perceptible. Mon moteur de streaming adaptatif tire parti de l'intégration native de Moonlight pour offrir des performances de bureau à distance inégalées et ultra-basse latence.
 
-**Intégration Tailscale** — Tunneling P2P chiffré intégré. Connectez-vous à n'importe quelle machine dans le monde sans vous soucier du transfert de port ou des règles de pare-feu. Cela fonctionne sur LAN et via Internet automatiquement.
+**Intégration Tailscale** — Tunnel P2P chiffré intégré. Connectez-vous à n'importe quelle machine dans le monde sans vous soucier du transfert de port ou des règles de pare-feu. Cela fonctionne sur le LAN et sur Internet automatiquement.
 
 **Presse-papiers partagé** — Copiez et collez sans effort entre votre machine locale et les cibles distantes. Il prend en charge entièrement le texte, les images et les transferts de fichiers dès la sortie de la boîte.
 
-**Support Multi-Écrans** — J'ai ajouté la possibilité de basculer entre plusieurs affichages. Si la machine cible a plusieurs moniteurs, vous pouvez maintenant facilement sélectionner lequel visualiser directement depuis les paramètres de connexion. 
+**Support Multi-Écrans** — J'ai ajouté la possibilité de basculer entre plusieurs affichages. Si la machine cible a plusieurs moniteurs, vous pouvez maintenant facilement sélectionner celui à visualiser directement depuis les paramètres de connexion. 
 
 <img width="2080" height="1170" alt="Capture d'écran 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -102,15 +94,15 @@ L'Agent s'exécute sur la machine cible — le serveur ou le PC que vous souhait
 
 ## Support Wayland (Sans invites)
 
-La plupart des agents de bureau à distance sur Linux ont du mal avec Wayland ou vous inondent constamment de demandes de permission et de pop-ups de confirmation chaque fois qu'une session commence.
+La plupart des agents de bureau à distance sur Linux ont des difficultés avec Wayland ou vous bombardent constamment d'invites de permission et de fenêtres de confirmation chaque fois qu'une session commence.
 
-J'ai conçu l'Agent USBridge pour prendre en charge Wayland nativement. Il gère la capture d'écran complète et l'injection d'entrée dès la sortie de la boîte **sans aucune demande de permission ennuyeuse** ou confirmations manuelles. Ça fonctionne tout simplement.
+J'ai conçu l'Agent USBridge pour prendre en charge Wayland nativement. Il gère la capture d'écran complète et l'injection d'entrée dès la sortie de la boîte **sans aucune invite de permission ennuyeuse** ou confirmations manuelles. Ça fonctionne tout simplement.
 
 ---
 
 ## Démarrage rapide
 
-1. **Installez l'Agent** sur la machine que vous souhaitez accéder à distance. Lancez-le — il affichera un jeton de connexion et une adresse Tailscale. Connectez Tailscale si vous avez besoin d'accès via Internet.
+1. **Installez l'Agent** sur la machine que vous souhaitez accéder à distance. Lancez-le — il affichera un jeton de connexion et une adresse Tailscale. Connectez Tailscale si vous avez besoin d'un accès sur Internet.
 
 2. **Installez le Client** sur votre station de travail, ordinateur portable ou téléphone.
 
@@ -118,7 +110,7 @@ J'ai conçu l'Agent USBridge pour prendre en charge Wayland nativement. Il gère
 
 ---
 
-##  Feuille de route du projet
+## Feuille de route du projet
 
 Je gère les plans de développement logiciel et les fonctionnalités à venir dans un tableau de bord ouvert. Si vous souhaitez voir ce qui est actuellement en cours de développement, ce qui est prévu, ou suivre l'état des fonctionnalités à venir, consultez la feuille de route en direct :
 
@@ -126,9 +118,9 @@ Je gère les plans de développement logiciel et les fonctionnalités à venir d
 
 ---
 
-## Communauté & Tests Beta
+## Communauté & Test Beta
 
-Rejoignez notre Discord pour obtenir le rôle de **Testeur Beta**, signaler des bugs et m'aider à façonner la feuille de route :
+Rejoignez notre Discord pour obtenir le rôle de **Testeur Bêta**, signaler des bugs et m'aider à façonner la feuille de route :
 
 **[discord.com/invite/xqQ6ybkfWS](https://discord.com/invite/xqQ6ybkfWS)**
 
@@ -145,4 +137,4 @@ Rejoignez notre Discord pour obtenir le rôle de **Testeur Beta**, signaler des 
 
 ## 📜 Licence
 
-Ce projet est sous licence **GPLv3** (voir [`LICENSE`](LICENSE)). Le client Android/Windows/macOS/Linux intègre du code de `moonlight-common-c` (également GPLv3).
+Ce projet est sous licence **GPLv3** (voir [`LICENSE`](LICENSE)). Le client Android/Windows/macOS/Linux incorpore du code de `moonlight-common-c` (également GPLv3).

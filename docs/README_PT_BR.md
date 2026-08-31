@@ -22,33 +22,33 @@
 
 **USBridge Remote** é um cliente unificado de alto desempenho para gerenciar máquinas remotas. Eu o projetei para combinar **acesso ao BIOS em nível de hardware** (via dispositivos USBridge KVM) e **desktop remoto baseado em software** em uma única interface simplificada.
 
- 🖥️ **Precisa de controle do BIOS em nível de hardware antes do boot do SO?**  
+ 🖥️ **Precisa de controle do BIOS em nível de hardware antes do sistema operacional iniciar?**  
  O USBridge Remote se integra nativamente com **USBridge-KVM 2.0** para gerenciamento fora de banda, em nível de metal.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Software Beta** — Esta é uma versão inicial. Espere bugs. Por favor, relate problemas via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou junte-se ao nosso [Discord](https://discord.com/invite/xqQ6ybkfWS) para suporte.
+> ⚠️ **Software Beta** — Esta é uma versão inicial. Espere por bugs. Por favor, relate problemas através de [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou junte-se ao nosso [Discord](https://discord.com/invite/xqQ6ybkfWS) para suporte.
 > 
 > ℹ️ **Nota sobre Falsos Positivos do Windows Defender / Antivirus:**  
-> O Windows Defender pode sinalizar incorretamente `libva.dll` como uma ameaça (`Trojan:Win32/Wacatac.B!ml`) devido à detecção heurística/aprendizagem de máquina em binários não assinados. **Isso é um falso positivo.**  
-> Enviamos o arquivo para a Microsoft Security Intelligence para revisão oficial e inclusão na lista de permissões. Enquanto isso, se o seu antivirus remover `libva.dll`, por favor, restaure-o da Quarentena ou adicione a pasta USBridge à sua lista de exclusão do antivirus.
+> O Windows Defender pode sinalizar incorretamente `libva.dll` como uma ameaça (`Trojan:Win32/Wacatac.B!ml`) devido à detecção heurística/aprendizagem de máquina em binários não assinados. **Este é um falso positivo.**  
+> Nós enviamos o arquivo para a Microsoft Security Intelligence para revisão oficial e inclusão na lista de permissões. Enquanto isso, se seu antivírus remover `libva.dll`, por favor, restaure-o da Quarentena ou adicione a pasta USBridge à sua lista de exclusão do antivírus.
 
 ---
 
 ## Download
 
 ### Cliente
-O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passthrough de dispositivos virtuais e registro de snapshots.
+O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passagem de dispositivos virtuais e registro de instantâneas.
 
 | Arquitetura | Windows | macOS | Linux | Android | iOS | Navegador Web |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **x86_64** | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Abrir App](https://web.usbridge.io) |
-| **ARM64** | — | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Abrir App](https://web.usbridge.io) |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [Open App](https://web.usbridge.io) |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [Open App](https://web.usbridge.io) |
 
-Prefere um APK direto sem uma conta do Play Store? Uma versão autoatualizável também é publicada na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
+Prefere um APK direto sem uma conta da Play Store? Uma versão autoatualizável também é publicada na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e às restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).*
+🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para se conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).*
 
 ## Agente
 
@@ -56,8 +56,8 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
 
 | Arquitetura | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
-| **x86_64** | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Windows-x86_64.zip) | — | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Linux-x86_64.AppImage) |
-| **ARM64** | — | [Baixar](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-macOS-arm64.dmg) | — |
+| **x86_64** | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Windows-x86_64.zip) | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-Linux-x86_64.AppImage) |
+| **ARM64** | — | [Download](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeAgent-macOS-arm64.dmg) | — |
 
 ---
 
@@ -65,17 +65,9 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
 
 <div align="center">
   <a href="https://youtu.be/1pV9PJeBr7M">
-    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="Demonstração do USBridge Remote" style="max-width: 100%; border-radius: 8px;">
+    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote Demo" style="max-width: 100%; border-radius: 8px;">
   </a>
 </div>
-
----
-
-## Na Mídia
-
-| Mídia | Destaque | Link |
-| :--- | :--- | :---: |
-| **IlSoftware.it** (Itália) | *"USBridge Remote desafia RustDesk e AnyDesk..."* — Revisão independente elogiando a sinergia do agente de software e hardware KVM, suporte nativo ao Wayland e arquitetura P2P. | [Leia o Artigo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
 
 ---
 
@@ -87,13 +79,13 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
 
 **Sem limites, sem assinaturas** — Totalmente gratuito. Sem limites de tempo de sessão, sem limites de conexão e sem conta necessária na máquina alvo.
 
-**Vídeo de baixa latência & Integração com Moonlight** — Aproveite até 2K de resolução com 240 FPS suaves como manteiga e zero lag perceptível. Meu mecanismo de streaming adaptativo aproveita a integração nativa do Moonlight para oferecer um desempenho de desktop remoto ultra-baixa latência incomparável.
+**Vídeo de baixa latência & Integração com Moonlight** — Desfrute de até 2K de resolução com 240 FPS suaves como manteiga e zero lag perceptível. Meu mecanismo de streaming adaptativo aproveita a integração nativa com o Moonlight para oferecer um desempenho de desktop remoto incomparável e de ultra-baixa latência.
 
-**Integração com Tailscale** — Tunelamento P2P criptografado embutido. Conecte-se a qualquer máquina globalmente sem se preocupar com encaminhamento de portas ou regras de firewall. Funciona na LAN e pela internet automaticamente.
+**Integração com Tailscale** — Túnel P2P criptografado embutido. Conecte-se a qualquer máquina globalmente sem se preocupar com encaminhamento de portas ou regras de firewall. Funciona na LAN e pela internet automaticamente.
 
-**Área de Transferência Compartilhada** — Copie e cole perfeitamente entre sua máquina local e os alvos remotos. Suporta totalmente texto, imagens e transferências de arquivos de forma nativa.
+**Área de Transferência Compartilhada** — Copie e cole sem problemas entre sua máquina local e os alvos remotos. Suporta totalmente texto, imagens e transferências de arquivos diretamente.
 
-**Suporte a Múltiplos Monitores** — Eu adicionei a capacidade de alternar entre várias telas. Se a máquina alvo tiver vários monitores, você agora pode selecionar facilmente qual deseja visualizar diretamente nas configurações de conexão. 
+**Suporte a Múltiplos Monitores** — Eu adicionei a capacidade de alternar entre várias telas. Se a máquina alvo tiver vários monitores, você pode agora selecionar facilmente qual deseja visualizar diretamente nas configurações de conexão. 
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -102,9 +94,9 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
 
 ## Suporte a Wayland (Sem Prompts)
 
-A maioria dos agentes de desktop remoto no Linux tem dificuldades com Wayland ou constantemente inundam você com prompts de permissão e pop-ups de confirmação toda vez que uma sessão começa. 
+A maioria dos agentes de desktop remoto no Linux tem dificuldades com Wayland ou constantemente o incomodam com prompts de permissão e pop-ups de confirmação toda vez que uma sessão começa. 
 
-Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele lida com captura de tela completa e injeção de entrada de forma nativa **sem nenhum prompt de permissão irritante** ou confirmações manuais. Funciona perfeitamente.
+Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele lida com captura de tela completa e injeção de entrada diretamente **sem prompts de permissão irritantes** ou confirmações manuais. Funciona perfeitamente.
 
 ---
 
@@ -114,13 +106,13 @@ Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele lida com ca
 
 2. **Instale o Cliente** em sua estação de trabalho, laptop ou telefone.
 
-3. **Adicione uma conexão** — insira o IP ou o endereço Tailscale mostrado na janela do Agente. É isso.
+3. **Adicione uma conexão** — insira o IP ou endereço Tailscale mostrado na janela do Agente. É isso.
 
 ---
 
 ##  Roteiro do Projeto
 
-Eu gerencio os planos de desenvolvimento de software e os recursos futuros em um painel aberto. Se você quiser ver o que está sendo desenvolvido atualmente, o que está planejado ou acompanhar o status dos recursos futuros, confira o roteiro ao vivo:
+Eu gerencio os planos de desenvolvimento de software e os recursos futuros em um painel aberto. Se você deseja ver o que está sendo desenvolvido atualmente, o que está planejado ou acompanhar o status dos recursos futuros, confira o roteiro ao vivo:
 
  **[Ver Roteiro do USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
@@ -145,4 +137,4 @@ Junte-se ao nosso Discord para obter o papel de **Beta Tester**, relatar bugs e 
 
 ## 📜 Licença
 
-Este projeto está licenciado sob a **GPLv3** (veja [`LICENSE`](LICENSE)). O cliente Android/Windows/macOS/Linux incorpora código de `moonlight-common-c` (também GPLv3).
+Este projeto está licenciado sob **GPLv3** (veja [`LICENSE`](LICENSE)). O cliente Android/Windows/macOS/Linux incorpora código de `moonlight-common-c` (também GPLv3).
