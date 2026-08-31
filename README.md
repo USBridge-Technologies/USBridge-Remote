@@ -71,14 +71,6 @@ The Agent runs on the target machine — the server or PC you want to access rem
 
 ---
 
-## In the Media
-
-| Media | Highlight | Link |
-| :--- | :--- | :---: |
-| **IlSoftware.it** (Italy) | *"USBridge Remote challenges RustDesk and AnyDesk..."* — Independent deep-dive review praising the software agent & hardware KVM synergy, native Wayland support, and P2P architecture. | [Read Article](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
-
----
-
 ## Features
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
