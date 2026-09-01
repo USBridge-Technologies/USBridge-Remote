@@ -23,23 +23,23 @@
 **USBridge Remote** to zintegrowany, wysokowydajny klient do zarządzania zdalnymi maszynami. Został zaprojektowany, aby połączyć **dostęp do BIOS-u na poziomie sprzętowym** (za pomocą urządzeń USBridge KVM) oraz **zdalny pulpit oparty na oprogramowaniu** w jednym, uproszczonym interfejsie.
 
  🖥️ **Potrzebujesz kontroli BIOS-u na poziomie sprzętowym przed uruchomieniem systemu operacyjnego?**  
- USBridge Remote integruje się natywnie z **USBridge-KVM 2.0** dla zarządzania poza pasmem, na poziomie metalu.
+ USBridge Remote integruje się natywnie z **USBridge-KVM 2.0** w celu zarządzania zdalnego na poziomie metalu.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Oprogramowanie beta** — To wczesna wersja. Oczekuj błędów. Proszę zgłaszać problemy za pośrednictwem [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) lub dołącz do naszego [Discord](https://discord.com/invite/xqQ6ybkfWS) w celu uzyskania wsparcia.
+> ⚠️ **Oprogramowanie Beta** — To wczesna wersja. Oczekuj błędów. Proszę zgłaszać problemy za pośrednictwem [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) lub dołącz do naszego [Discorda](https://discord.com/invite/xqQ6ybkfWS) w celu uzyskania wsparcia.
 > 
-> ℹ️ **Uwaga dotycząca fałszywych alarmów Windows Defender / programów antywirusowych:**  
-> Windows Defender może błędnie oznaczyć `libva.dll` jako zagrożenie (`Trojan:Win32/Wacatac.B!ml`) z powodu heurystyki/wykrywania uczenia maszynowego na niepodpisanych binariach. **To jest fałszywy alarm.**  
-> Przesłaliśmy plik do Microsoft Security Intelligence w celu oficjalnej weryfikacji i dodania do białej listy. W międzyczasie, jeśli twój program antywirusowy usunie `libva.dll`, przywróć go z kwarantanny lub dodaj folder USBridge do listy wyjątków w swoim programie antywirusowym.
+> ℹ️ **Uwaga dotycząca fałszywych alarmów Windows Defender / Antywirusów:**  
+> Windows Defender może błędnie oznaczyć `libva.dll` jako zagrożenie (`Trojan:Win32/Wacatac.B!ml`) z powodu heurystyki/wykrywania opartego na uczeniu maszynowym w przypadku niepodpisanych binariów. **To jest fałszywy alarm.**  
+> Przesłaliśmy plik do Microsoft Security Intelligence w celu oficjalnej weryfikacji i dodania do białej listy. W międzyczasie, jeśli twój program antywirusowy usunie `libva.dll`, przywróć go z kwarantanny lub dodaj folder USBridge do listy wyjątków swojego programu antywirusowego.
 
 ---
 
 ## Pobierz
 
 ### Klient
-Klient to interfejs sterujący — zainstalowany na twoim komputerze stacjonarnym lub laptopie (lub uruchomiony bezpośrednio w przeglądarce). Zarządza połączeniami, zdalnym pulpitem na żywo, przekazywaniem wirtualnych urządzeń i rejestrem migawkowym.
+Klient to interfejs sterujący — zainstalowany na twoim komputerze stacjonarnym lub laptopie (lub uruchamiany bezpośrednio w przeglądarce). Zarządza połączeniami, zdalnym pulpitem na żywo, przekazywaniem wirtualnych urządzeń oraz rejestrem migawkowym.
 
 | Architektura | Windows | macOS | Linux | Android | iOS | Przeglądarka internetowa |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -48,11 +48,11 @@ Klient to interfejs sterujący — zainstalowany na twoim komputerze stacjonarny
 
 Preferujesz bezpośredni plik APK bez konta w Sklepie Play? Samoaktualizująca się wersja jest również publikowana w [najnowszym wydaniu](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Klient webowy bez instalacji**: Nie wymaga instalacji. Po prostu otwórz [web.usbridge.io](https://web.usbridge.io), aby natychmiast połączyć się. *(Uwaga: Klient webowy działa z pewnymi ograniczeniami funkcji i wydajności z powodu zabezpieczeń przeglądarki i ograniczeń WebRTC. Aby uzyskać pełne, niezakłócone doświadczenie, użyj aplikacji natywnych).*
+🌐 **Klient internetowy bez instalacji**: Nie wymaga instalacji. Po prostu otwórz [web.usbridge.io](https://web.usbridge.io), aby natychmiast się połączyć. *(Uwaga: Klient internetowy działa z pewnymi ograniczeniami funkcji i wydajności z powodu zabezpieczeń przeglądarki i ograniczeń WebRTC. Aby uzyskać pełne, nieograniczone doświadczenie, użyj aplikacji natywnych).*
 
 ## Agent
 
-Agent działa na docelowej maszynie — serwerze lub komputerze, do którego chcesz uzyskać zdalny dostęp. Obsługuje przechwytywanie ekranu, wstrzykiwanie wejścia i sieciowanie Tailscale.
+Agent działa na docelowej maszynie — serwerze lub komputerze, do którego chcesz uzyskać zdalny dostęp. Obsługuje przechwytywanie ekranu, wstrzykiwanie wejścia oraz sieci Tailscale.
 
 | Architektura | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
@@ -75,13 +75,13 @@ Agent działa na docelowej maszynie — serwerze lub komputerze, do którego chc
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Jedno miejsce na wszystko** — Zunifikowałem przepływ pracy. Zarządzaj sprzętem USBridge KVM i agentami oprogramowania z jednego pulpitu. Dodaj maszynę, połącz się i już jesteś w środku.
+**Jedno miejsce na wszystko** — Ujednoliciłem przepływ pracy. Zarządzaj sprzętem USBridge KVM i agentami oprogramowania z jednego pulpitu. Dodaj maszynę, połącz się i już jesteś w środku.
 
-**Brak ograniczeń, brak subskrypcji** — Całkowicie za darmo. Brak limitów czasu sesji, brak ograniczeń połączeń i brak wymagań dotyczących konta na docelowej maszynie.
+**Brak ograniczeń, brak subskrypcji** — Całkowicie za darmo. Brak limitów czasu sesji, brak ograniczeń połączeń i brak konta wymagane na docelowej maszynie.
 
-**Wideo o niskiej latencji i integracja z Moonlight** — Ciesz się rozdzielczością do 2K z płynnością 240 FPS i zerowym opóźnieniem. Mój adaptacyjny silnik strumieniowy wykorzystuje natywną integrację z Moonlight, aby zapewnić niezrównaną wydajność zdalnego pulpitu o ultra-niskiej latencji.
+**Wideo o niskiej latencji i integracja z Moonlight** — Ciesz się rozdzielczością do 2K z płynnością 120 FPS i zerowym opóźnieniem. Mój adaptacyjny silnik strumieniowy wykorzystuje natywną integrację z Moonlight, aby zapewnić niezrównaną wydajność zdalnego pulpitu o ultra-niskiej latencji.
 
-**Integracja z Tailscale** — Wbudowane szyfrowane tunelowanie P2P. Połącz się z dowolną maszyną na całym świecie bez konieczności zabawy z przekierowaniem portów lub regułami zapory. Działa automatycznie w sieci LAN i przez internet.
+**Integracja z Tailscale** — Wbudowane szyfrowane tunelowanie P2P. Połącz się z dowolną maszyną na całym świecie bez konieczności manipulowania przekierowaniami portów lub zasadami zapory. Działa automatycznie w sieci LAN i przez internet.
 
 **Wspólny schowek** — Kopiuj i wklej bezproblemowo między swoją lokalną maszyną a zdalnymi celami. W pełni obsługuje tekst, obrazy i transfery plików od razu po zainstalowaniu.
 
@@ -92,11 +92,11 @@ Agent działa na docelowej maszynie — serwerze lub komputerze, do którego chc
 
 ---
 
-## Wsparcie dla Wayland (Bez monitów)
+## Wsparcie dla Wayland (Bez powiadomień)
 
-Większość agentów pulpitu zdalnego na Linuksie ma problemy z Wayland lub nieustannie bombarduje cię prośbami o pozwolenie i oknami potwierdzenia za każdym razem, gdy sesja się rozpoczyna. 
+Większość agentów zdalnego pulpitu na Linuksie ma problemy z Wayland lub ciągle bombarduje cię powiadomieniami o uprawnieniach i oknami potwierdzenia za każdym razem, gdy sesja się zaczyna. 
 
-Zaprojektowałem Agenta USBridge, aby natywnie wspierał Wayland. Obsługuje pełne przechwytywanie ekranu i wstrzykiwanie wejścia od razu po zainstalowaniu **bez irytujących monitów o pozwolenie** lub ręcznych potwierdzeń. Po prostu działa.
+Zaprojektowałem Agenta USBridge, aby natywnie wspierał Wayland. Obsługuje pełne przechwytywanie ekranu i wstrzykiwanie wejścia od razu po zainstalowaniu **bez irytujących powiadomień o uprawnieniach** lub ręcznych potwierdzeń. Po prostu działa.
 
 ---
 
@@ -106,21 +106,21 @@ Zaprojektowałem Agenta USBridge, aby natywnie wspierał Wayland. Obsługuje pe�
 
 2. **Zainstaluj Klienta** na swoim komputerze stacjonarnym, laptopie lub telefonie.
 
-3. **Dodaj połączenie** — wprowadź adres IP lub adres Tailscale wyświetlony w oknie Agenta. To wszystko.
+3. **Dodaj połączenie** — wprowadź adres IP lub adres Tailscale pokazany w oknie Agenta. To wszystko.
 
 ---
 
-##  Plan projektu
+##  Plan rozwoju projektu
 
-Zarządzam planami rozwoju oprogramowania i nadchodzącymi funkcjami w otwartym pulpicie. Jeśli chcesz zobaczyć, co jest obecnie rozwijane, co jest planowane lub śledzić status nadchodzących funkcji, sprawdź na żywo plan:
+Zarządzam planami rozwoju oprogramowania i nadchodzącymi funkcjami w otwartym pulpicie. Jeśli chcesz zobaczyć, co jest obecnie rozwijane, co jest planowane lub śledzić status nadchodzących funkcji, sprawdź na żywo plan rozwoju:
 
- **[Zobacz plan USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
+ **[Zobacz plan rozwoju USBridge Remote](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
 ---
 
 ## Społeczność i testowanie beta
 
-Dołącz do naszego Discord, aby uzyskać rolę **Beta Testera**, zgłaszać błędy i pomóc mi kształtować plan:
+Dołącz do naszego Discorda, aby uzyskać rolę **Beta Testera**, zgłaszać błędy i pomóc mi kształtować plan rozwoju:
 
 **[discord.com/invite/xqQ6ybkfWS](https://discord.com/invite/xqQ6ybkfWS)**
 

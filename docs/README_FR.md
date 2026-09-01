@@ -1,4 +1,4 @@
-# USBridge Remote (Bêta)
+# USBridge Remote (Beta)
 
 ![USBridge Remote](https://raw.githubusercontent.com/USBridge-Technologies/USBridge-Remote/main/assets/banner.png)
 
@@ -20,19 +20,19 @@
 
 ---
 
-**USBridge Remote** est un client unifié haute performance pour gérer des machines distantes. Je l'ai conçu pour combiner **l'accès BIOS au niveau matériel** (via les dispositifs USBridge KVM) et **le bureau à distance basé sur logiciel** dans une interface unique et rationalisée.
+**USBridge Remote** est un client unifié haute performance pour gérer des machines distantes. Je l'ai conçu pour combiner **l'accès BIOS au niveau matériel** (via les dispositifs USBridge KVM) et **le bureau à distance basé sur logiciel** dans une seule interface simplifiée.
 
- 🖥️ **Besoin d'un contrôle BIOS au niveau matériel avant le démarrage de l'OS ?**  
+ 🖥️ **Besoin de contrôle BIOS au niveau matériel avant le démarrage de l'OS ?**  
  USBridge Remote s'intègre nativement avec **USBridge-KVM 2.0** pour une gestion hors bande, au niveau métal.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **Logiciel Bêta** — Il s'agit d'une version préliminaire. Attendez-vous à des bugs. Veuillez signaler les problèmes via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou rejoignez notre [Discord](https://discord.com/invite/xqQ6ybkfWS) pour obtenir de l'aide.
+> ⚠️ **Logiciel Beta** — Il s'agit d'une version précoce. Attendez-vous à des bogues. Veuillez signaler les problèmes via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou rejoignez notre [Discord](https://discord.com/invite/xqQ6ybkfWS) pour obtenir de l'aide.
 > 
 > ℹ️ **Note concernant les faux positifs de Windows Defender / Antivirus :**  
 > Windows Defender peut signaler à tort `libva.dll` comme une menace (`Trojan:Win32/Wacatac.B!ml`) en raison de la détection heuristique/apprentissage automatique sur des binaires non signés. **C'est un faux positif.**  
-> Nous avons soumis le fichier à Microsoft Security Intelligence pour un examen officiel et une liste blanche. En attendant, si votre antivirus supprime `libva.dll`, veuillez le restaurer depuis la quarantaine ou ajouter le dossier USBridge à votre liste d'exclusion antivirus.
+> Nous avons soumis le fichier à Microsoft Security Intelligence pour un examen officiel et une liste blanche. En attendant, si votre antivirus supprime `libva.dll`, veuillez le restaurer depuis la Quarantaine ou ajouter le dossier USBridge à votre liste d'exclusion antivirus.
 
 ---
 
@@ -75,17 +75,17 @@ L'Agent s'exécute sur la machine cible — le serveur ou le PC que vous souhait
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**Un seul endroit pour tout** — J'ai unifié le flux de travail. Gérez le matériel USBridge KVM et les agents logiciels depuis un tableau de bord unique. Ajoutez une machine, connectez-vous et vous y êtes.
+**Un seul endroit pour tout** — J'ai unifié le flux de travail. Gérez le matériel USBridge KVM et les agents logiciels depuis un seul tableau de bord. Ajoutez une machine, connectez-vous, et c'est parti.
 
-**Pas de limites, pas d'abonnements** — Complètement gratuit. Pas de limites de temps de session, pas de plafonds de connexion, et aucun compte requis sur la machine cible.
+**Pas de limites, pas d'abonnements** — Entièrement gratuit. Pas de limites de temps de session, pas de plafonds de connexion, et aucun compte requis sur la machine cible.
 
-**Vidéo à faible latence & Intégration Moonlight** — Profitez d'une résolution allant jusqu'à 2K avec un 240 FPS fluide et zéro latence perceptible. Mon moteur de streaming adaptatif tire parti de l'intégration native de Moonlight pour offrir des performances de bureau à distance inégalées et ultra-basse latence.
+**Vidéo à faible latence & Intégration Moonlight** — Profitez d'une résolution allant jusqu'à 2K avec un 120 FPS fluide et zéro latence perceptible. Mon moteur de streaming adaptatif exploite l'intégration native de Moonlight pour offrir des performances de bureau à distance inégalées et ultra-basse latence.
 
-**Intégration Tailscale** — Tunnel P2P chiffré intégré. Connectez-vous à n'importe quelle machine dans le monde sans vous soucier du transfert de port ou des règles de pare-feu. Cela fonctionne sur le LAN et sur Internet automatiquement.
+**Intégration Tailscale** — Tunneling P2P crypté intégré. Connectez-vous à n'importe quelle machine dans le monde sans vous soucier du transfert de port ou des règles de pare-feu. Cela fonctionne sur le LAN et sur Internet automatiquement.
 
-**Presse-papiers partagé** — Copiez et collez sans effort entre votre machine locale et les cibles distantes. Il prend en charge entièrement le texte, les images et les transferts de fichiers dès la sortie de la boîte.
+**Presse-papiers partagé** — Copiez et collez sans effort entre votre machine locale et les cibles distantes. Il prend en charge entièrement le texte, les images et le transfert de fichiers dès la sortie de la boîte.
 
-**Support Multi-Écrans** — J'ai ajouté la possibilité de basculer entre plusieurs affichages. Si la machine cible a plusieurs moniteurs, vous pouvez maintenant facilement sélectionner celui à visualiser directement depuis les paramètres de connexion. 
+**Support multi-écrans** — J'ai ajouté la possibilité de basculer entre plusieurs affichages. Si la machine cible a plusieurs moniteurs, vous pouvez maintenant facilement sélectionner celui à visualiser directement depuis les paramètres de connexion.
 
 <img width="2080" height="1170" alt="Capture d'écran 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -94,7 +94,7 @@ L'Agent s'exécute sur la machine cible — le serveur ou le PC que vous souhait
 
 ## Support Wayland (Sans invites)
 
-La plupart des agents de bureau à distance sur Linux ont des difficultés avec Wayland ou vous bombardent constamment d'invites de permission et de fenêtres de confirmation chaque fois qu'une session commence.
+La plupart des agents de bureau à distance sur Linux ont des difficultés avec Wayland ou vous bombardent constamment d'invites de permission et de pop-ups de confirmation chaque fois qu'une session commence.
 
 J'ai conçu l'Agent USBridge pour prendre en charge Wayland nativement. Il gère la capture d'écran complète et l'injection d'entrée dès la sortie de la boîte **sans aucune invite de permission ennuyeuse** ou confirmations manuelles. Ça fonctionne tout simplement.
 
@@ -102,9 +102,9 @@ J'ai conçu l'Agent USBridge pour prendre en charge Wayland nativement. Il gère
 
 ## Démarrage rapide
 
-1. **Installez l'Agent** sur la machine que vous souhaitez accéder à distance. Lancez-le — il affichera un jeton de connexion et une adresse Tailscale. Connectez Tailscale si vous avez besoin d'un accès sur Internet.
+1. **Installez l'Agent** sur la machine que vous souhaitez accéder à distance. Lancez-le — il affichera un jeton de connexion et une adresse Tailscale. Connectez Tailscale si vous avez besoin d'accès via Internet.
 
-2. **Installez le Client** sur votre station de travail, ordinateur portable ou téléphone.
+2. **Installez le Client** sur votre station de travail, votre ordinateur portable ou votre téléphone.
 
 3. **Ajoutez une connexion** — entrez l'adresse IP ou l'adresse Tailscale affichée dans la fenêtre de l'Agent. C'est tout.
 
@@ -120,7 +120,7 @@ Je gère les plans de développement logiciel et les fonctionnalités à venir d
 
 ## Communauté & Test Beta
 
-Rejoignez notre Discord pour obtenir le rôle de **Testeur Bêta**, signaler des bugs et m'aider à façonner la feuille de route :
+Rejoignez notre Discord pour obtenir le rôle de **Testeur Beta**, signaler des bogues et m'aider à façonner la feuille de route :
 
 **[discord.com/invite/xqQ6ybkfWS](https://discord.com/invite/xqQ6ybkfWS)**
 
@@ -128,7 +128,7 @@ Rejoignez notre Discord pour obtenir le rôle de **Testeur Bêta**, signaler des
 
 ## Liens
 
-- 🌐 [Site Officiel](https://usbridge.io)
+- 🌐 [Site officiel](https://usbridge.io)
 - ❤️ [Page Patreon](https://www.patreon.com/USBridge_Technologies)
 - 🛒 [USBridge KVM 2.0 sur Crowd Supply](https://crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 - 💬 [Discord](https://discord.com/invite/xqQ6ybkfWS)

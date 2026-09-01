@@ -23,16 +23,16 @@
 **USBridge Remote** 是一个统一的高性能客户端，用于管理远程机器。我设计它以将 **硬件级 BIOS 访问**（通过 USBridge KVM 设备）和 **基于软件的远程桌面** 结合在一个简化的界面中。
 
  🖥️ **需要在操作系统启动之前进行硬件级 BIOS 控制吗？**  
- USBridge Remote 原生集成 **USBridge-KVM 2.0** 以进行带外的金属级管理。
+ USBridge Remote 与 **USBridge-KVM 2.0** 原生集成，用于带外的金属级管理。
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
 
 
-> ⚠️ **测试版软件** — 这是一个早期版本。请期待可能的错误。请通过 [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) 报告问题，或加入我们的 [Discord](https://discord.com/invite/xqQ6ybkfWS) 获取支持。
+> ⚠️ **测试版软件** — 这是一个早期版本。请预期会有错误。请通过 [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) 报告问题，或加入我们的 [Discord](https://discord.com/invite/xqQ6ybkfWS) 获取支持。
 > 
 > ℹ️ **关于 Windows Defender / 杀毒软件误报的说明：**  
 > Windows Defender 可能会错误地将 `libva.dll` 标记为威胁（`Trojan:Win32/Wacatac.B!ml`），这是由于对未签名二进制文件的启发式/机器学习检测。**这是一个误报。**  
-> 我们已将该文件提交给 Microsoft Security Intelligence 进行官方审核和白名单处理。在此期间，如果您的杀毒软件删除了 `libva.dll`，请从隔离区恢复它或将 USBridge 文件夹添加到您的杀毒软件排除列表中。
+> 我们已将该文件提交给 Microsoft Security Intelligence 进行官方审查和白名单处理。在此期间，如果您的杀毒软件删除了 `libva.dll`，请从隔离区恢复它或将 USBridge 文件夹添加到您的杀毒软件排除列表。
 
 ---
 
@@ -46,7 +46,7 @@
 | **x86_64** | [下载](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Windows-x86_64.zip) | — | [下载](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-Linux-x86_64.AppImage) | — | — | [打开应用](https://web.usbridge.io) |
 | **ARM64** | — | [下载](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest/download/USBridgeClient-macOS-arm64.dmg) | — | [Google Play](https://play.google.com/store/apps/details?id=io.usbridge.client) | [App Store](https://apps.apple.com/us/app/usbridge-client/id6787665935) | [打开应用](https://web.usbridge.io) |
 
-想要一个不需要 Play 商店账户的直接 APK 吗？自我更新的构建也发布在 [最新版本](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest)。
+想要没有 Play Store 账户的直接 APK 吗？一个自我更新的构建也发布在 [最新版本](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest)。
 
 🌐 **零安装 Web 客户端**：无需安装。只需打开 [web.usbridge.io](https://web.usbridge.io) 即可立即连接。*(注意：由于浏览器安全沙箱和 WebRTC 限制，Web 客户端在某些功能和性能上存在限制。要获得完整的无妥协体验，请使用原生应用)。*
 
@@ -65,27 +65,27 @@
 
 <div align="center">
   <a href="https://youtu.be/1pV9PJeBr7M">
-    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote Demo" style="max-width: 100%; border-radius: 8px;">
+    <img src="https://img.youtube.com/vi/1pV9PJeBr7M/maxresdefault.jpg" alt="USBridge Remote 演示" style="max-width: 100%; border-radius: 8px;">
   </a>
 </div>
 
 ---
 
-## 功能
+## 特性
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
-**一切尽在一个地方** — 我统一了工作流程。从一个仪表板管理 USBridge KVM 硬件和软件代理。添加一台机器，连接，您就可以使用了。
+**一切尽在一处** — 我统一了工作流程。从一个仪表板管理 USBridge KVM 硬件和软件代理。添加一台机器，连接，您就可以开始了。
 
 **没有限制，没有订阅** — 完全免费。没有会话时间限制，没有连接上限，也不需要在目标机器上创建账户。
 
-**低延迟视频和 Moonlight 集成** — 享受高达 2K 分辨率的流畅 240 FPS 和零可感知延迟。我的自适应流媒体引擎利用原生 Moonlight 集成提供无与伦比的超低延迟远程桌面性能。
+**低延迟视频与 Moonlight 集成** — 享受高达 2K 的分辨率，流畅的 120 FPS 和零可感知延迟。我的自适应流媒体引擎利用原生 Moonlight 集成提供无与伦比的超低延迟远程桌面性能。
 
-**Tailscale 集成** — 内置加密 P2P 隧道。无需处理端口转发或防火墙规则即可全球连接任何机器。它在局域网和互联网中自动工作。
+**Tailscale 集成** — 内置加密 P2P 隧道。无需处理端口转发或防火墙规则即可全球连接任何机器。它在局域网和互联网自动工作。
 
 **共享剪贴板** — 在本地机器和远程目标之间无缝复制和粘贴。它完全支持文本、图像和文件传输。
 
-**多显示器支持** — 我增加了在多个显示器之间切换的能力。如果目标机器有多个显示器，您现在可以轻松从连接设置中选择要查看的显示器。
+**多显示器支持** — 我添加了在多个显示器之间切换的能力。如果目标机器有多个显示器，您现在可以轻松选择要直接从连接设置中查看的显示器。
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
@@ -94,9 +94,9 @@
 
 ## Wayland 支持（无提示）
 
-大多数 Linux 上的远程桌面代理在 Wayland 上表现不佳，或者在每次会话开始时不断向您发送权限提示和确认弹窗。
+大多数 Linux 上的远程桌面代理在 Wayland 上都很挣扎，或者在每次会话开始时不断向您发送权限提示和确认弹窗。
 
-我设计的 USBridge 代理原生支持 Wayland。它开箱即用地处理全屏捕获和输入注入 **而无需任何烦人的权限提示** 或手动确认。它就是这么简单。
+我设计的 USBridge 代理原生支持 Wayland。它可以开箱即用地处理全屏捕获和输入注入 **而无需任何烦人的权限提示** 或手动确认。它就是这么简单。
 
 ---
 
@@ -112,7 +112,7 @@
 
 ## 项目路线图
 
-我在一个开放的仪表板上管理软件开发计划和即将推出的功能。如果您想查看当前正在开发的内容、计划中的内容或跟踪即将推出的功能的状态，请查看实时路线图：
+我在一个开放的仪表板上管理软件开发计划和即将推出的功能。如果您想查看当前正在开发的内容、计划的内容或跟踪即将推出的功能的状态，请查看实时路线图：
 
  **[查看 USBridge Remote 路线图](https://github.com/orgs/USBridge-Technologies/projects/3)**
 
@@ -120,7 +120,7 @@
 
 ## 社区与测试版测试
 
-加入我们的 Discord 获取 **测试版测试者** 角色，报告错误，并帮助我制定路线图：
+加入我们的 Discord 以获取 **测试版测试者** 角色，报告错误，并帮助我制定路线图：
 
 **[discord.com/invite/xqQ6ybkfWS](https://discord.com/invite/xqQ6ybkfWS)**
 
@@ -137,4 +137,4 @@
 
 ## 📜 许可证
 
-该项目根据 **GPLv3** 许可（见 [`LICENSE`](LICENSE)）。Android/Windows/macOS/Linux 客户端包含来自 `moonlight-common-c` 的代码（同样是 GPLv3）。
+该项目根据 **GPLv3** 许可（请参见 [`LICENSE`](LICENSE)）。Android/Windows/macOS/Linux 客户端包含来自 `moonlight-common-c` 的代码（同样是 GPLv3）。
