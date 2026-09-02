@@ -22,19 +22,39 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		return
 	}
 
+	internalTitle := "Internal storage"
 	internalValue := "0/0 GB"
 	internalPercent := "0%"
+	sdTitle := "SD card"
 	sdValue := "0/0 GB"
 	sdPercent := "0%"
 
 	if mw.storageStatus != nil {
-		if mw.storageStatus.EMMC.Total > 0 {
-			internalValue = models.FormatStorageSizeOnly(mw.storageStatus.EMMC.Used, mw.storageStatus.EMMC.Total)
-			internalPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.EMMC.Percent)
-		}
-		if mw.storageStatus.SDCard.Total > 0 {
-			sdValue = models.FormatStorageSizeOnly(mw.storageStatus.SDCard.Used, mw.storageStatus.SDCard.Total)
-			sdPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.SDCard.Percent)
+		if mw.storageStatus.BootDeviceIsSD {
+			// Booted from the SD slot: there's no separate onboard eMMC in
+			// play right now, and no free slot left for an external card
+			// either -- /mnt/emmc (what the API calls "EMMC") is actually
+			// *this same SD card's own* extra partition. Attribute it to
+			// "SD Card" instead of "Internal storage", and show the second
+			// block as not applicable rather than a confusing "0/0 GB" that
+			// looks like a missing/unmounted card.
+			internalTitle = "SD Card (booted from this card)"
+			if mw.storageStatus.EMMC.Total > 0 {
+				internalValue = models.FormatStorageSizeOnly(mw.storageStatus.EMMC.Used, mw.storageStatus.EMMC.Total)
+				internalPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.EMMC.Percent)
+			}
+			sdTitle = "External SD Card"
+			sdValue = "N/A"
+			sdPercent = "—"
+		} else {
+			if mw.storageStatus.EMMC.Total > 0 {
+				internalValue = models.FormatStorageSizeOnly(mw.storageStatus.EMMC.Used, mw.storageStatus.EMMC.Total)
+				internalPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.EMMC.Percent)
+			}
+			if mw.storageStatus.SDCard.Total > 0 {
+				sdValue = models.FormatStorageSizeOnly(mw.storageStatus.SDCard.Used, mw.storageStatus.SDCard.Total)
+				sdPercent = fmt.Sprintf("%.1f%%", mw.storageStatus.SDCard.Percent)
+			}
 		}
 	} else {
 		// Fallback to old behavior if new status is not yet available
@@ -103,8 +123,8 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		container.NewVBox(
 			titleBar,
 			view.NewInset(container.NewVBox(
-				buildBlock("Internal storage", internalValue, internalPercent),
-				view.NewInset(buildBlock("SD card", sdValue, sdPercent), 0, 0, 10, 0),
+				buildBlock(internalTitle, internalValue, internalPercent),
+				view.NewInset(buildBlock(sdTitle, sdValue, sdPercent), 0, 0, 10, 0),
 			), 0, 0, 16, 8),
 		),
 	)

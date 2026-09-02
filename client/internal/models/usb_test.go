@@ -83,3 +83,58 @@ func TestFormatStorageCompact(t *testing.T) {
 		t.Errorf("FormatStorageCompact(500TB, 1024TB, 51) = %q, want \"51%% 500/1024 TB\"", s3)
 	}
 }
+
+func TestStorageDisplayInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   StorageStatusData
+		wantOK   bool
+		wantUsed int64 // only checked when wantOK
+	}{
+		{
+			name: "normal SD card inserted (eMMC-boot board)",
+			status: StorageStatusData{
+				SDCard:         StorageInfo{Mounted: true, Total: 32e9, Used: 8e9},
+				EMMC:           StorageInfo{Mounted: true, Total: 16e9, Used: 4e9},
+				BootDeviceIsSD: false,
+			},
+			wantOK:   true,
+			wantUsed: 8e9, // must be the SDCard figures, not EMMC's
+		},
+		{
+			name: "eMMC-boot board with no SD card inserted -- nothing qualifies as 'SD'",
+			status: StorageStatusData{
+				SDCard:         StorageInfo{Mounted: false},
+				EMMC:           StorageInfo{Mounted: true, Total: 16e9, Used: 4e9},
+				BootDeviceIsSD: false,
+			},
+			wantOK: false, // must NOT fall back to showing eMMC usage under the SD icon
+		},
+		{
+			name: "booted from SD slot -- EMMC field is actually this card's own storage",
+			status: StorageStatusData{
+				SDCard:         StorageInfo{Mounted: false}, // no separate slot left
+				EMMC:           StorageInfo{Mounted: true, Total: 5e9, Used: 2e9},
+				BootDeviceIsSD: true,
+			},
+			wantOK:   true,
+			wantUsed: 2e9, // the EMMC figures, attributed to "SD"
+		},
+		{
+			name:   "no storage status at all",
+			status: StorageStatusData{},
+			wantOK: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, ok := tt.status.StorageDisplayInfo()
+			if ok != tt.wantOK {
+				t.Fatalf("StorageDisplayInfo() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if ok && info.Used != tt.wantUsed {
+				t.Errorf("StorageDisplayInfo() Used = %d, want %d", info.Used, tt.wantUsed)
+			}
+		})
+	}
+}
