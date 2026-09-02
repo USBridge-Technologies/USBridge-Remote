@@ -165,14 +165,28 @@ func (bw *BackupWidget) loadSnapshots() {
 // startPeriodicRefresh starts periodic snapshot refresh
 func (bw *BackupWidget) startPeriodicRefresh() {
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
+				// isClosing is a *temporary* pause flag here, not real
+				// teardown -- Close() is called on every disconnect
+				// (including a plain reconnect cycle, see
+				// main_window_connection.go) and UpdateClient() flips it
+				// back to false on the next connect, reusing this same
+				// widget instance for the app's whole lifetime. `return`ing
+				// here on a closed tick used to kill this goroutine for
+				// good on the *first* disconnect ever -- UpdateClient()
+				// resets the flag but never restarts the ticker, so from
+				// then on the only way snapshots ever refreshed was a
+				// direct loadSnapshots() call from UpdateClient() itself,
+				// i.e. only right after a reconnect (found 2026-09-02).
+				// Skip the tick instead of exiting; loadCurrentFlash()/
+				// loadSnapshots() already no-op correctly while closing.
 				if bw.isClosing.Load() {
-					return
+					continue
 				}
 				bw.Refresh()
 			}

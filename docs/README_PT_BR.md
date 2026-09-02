@@ -20,9 +20,9 @@
 
 ---
 
-**USBridge Remote** é um cliente unificado de alto desempenho para gerenciar máquinas remotas. Eu o projetei para combinar **acesso ao BIOS em nível de hardware** (via dispositivos USBridge KVM) e **desktop remoto baseado em software** em uma única interface simplificada.
+**USBridge Remote** é um cliente unificado de alto desempenho para gerenciar máquinas remotas. Eu o projetei para combinar **acesso ao BIOS em nível de hardware** (via dispositivos USBridge KVM) e **escrita remota baseada em software** em uma única interface simplificada.
 
- 🖥️ **Precisa de controle do BIOS em nível de hardware antes do boot do SO?**  
+ 🖥️ **Precisa de controle do BIOS em nível de hardware antes do sistema operacional iniciar?**  
  O USBridge Remote se integra nativamente com **USBridge-KVM 2.0** para gerenciamento fora de banda, em nível de metal.
 
 [![Crowd Supply KVM 2.0](https://img.shields.io/badge/Crowd_Supply-USBridge--KVM_2.0-2da44e?style=for-the-badge&logo=crowdsupply&logoColor=white)](https://www.crowdsupply.com/usbridge-technologies/usbridge-kvm-2-0)
@@ -30,16 +30,16 @@
 
 > ⚠️ **Software Beta** — Esta é uma versão inicial. Espere bugs. Por favor, relate problemas via [GitHub Issues](https://github.com/USBridge-Technologies/USBridge-Remote/issues) ou junte-se ao nosso [Discord](https://discord.com/invite/xqQ6ybkfWS) para suporte.
 > 
-> ℹ️ **Nota sobre Falsos Positivos do Windows Defender / Antivirus:**  
-> O Windows Defender pode sinalizar incorretamente `libva.dll` como uma ameaça (`Trojan:Win32/Wacatac.B!ml`) devido à detecção heurística/aprendizagem de máquina em binários não assinados. **Isso é um falso positivo.**  
-> Enviamos o arquivo para a Microsoft Security Intelligence para revisão oficial e inclusão na lista de permissões. Enquanto isso, se o seu antivirus remover `libva.dll`, por favor, restaure-o da Quarentena ou adicione a pasta USBridge à sua lista de exclusão do antivirus.
+> ℹ️ **Nota sobre Falsos Positivos do Windows Defender / Antivírus:**  
+> O Windows Defender pode sinalizar incorretamente `libva.dll` como uma ameaça (`Trojan:Win32/Wacatac.B!ml`) devido à detecção heurística/aprendizagem de máquina em binários não assinados. **Este é um falso positivo.**  
+> Nós enviamos o arquivo para a Microsoft Security Intelligence para revisão oficial e inclusão na lista de permissões. Enquanto isso, se o seu antivírus remover `libva.dll`, por favor, restaure-o da Quarentena ou adicione a pasta USBridge à lista de exclusão do seu antivírus.
 
 ---
 
 ## Download
 
 ### Cliente
-O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passthrough de dispositivos virtuais e registro de snapshots.
+O Cliente é a interface de controle — instalada em sua estação de trabalho ou laptop (ou executada diretamente em seu navegador). Ele gerencia conexões, desktop remoto ao vivo, passagem de dispositivos virtuais e registro de instantâneos.
 
 | Arquitetura | Windows | macOS | Linux | Android | iOS | Navegador Web |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -48,11 +48,11 @@ O Cliente é a interface de controle — instalada em sua estação de trabalho 
 
 Prefere um APK direto sem uma conta do Play Store? Uma versão autoatualizável também é publicada na [última versão](https://github.com/USBridge-Technologies/USBridge-Remote/releases/latest).
 
-🌐 **Cliente Web Zero-Install**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e às restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).*
+🌐 **Cliente Web Sem Instalação**: Nenhuma instalação necessária. Basta abrir [web.usbridge.io](https://web.usbridge.io) para se conectar instantaneamente. *(Nota: O cliente web opera com algumas limitações de recursos e desempenho devido à segurança do navegador e restrições do WebRTC. Para a experiência completa sem compromissos, use os aplicativos nativos).*
 
 ## Agente
 
-O Agente é executado na máquina alvo — o servidor ou PC que você deseja acessar remotamente. Ele lida com captura de tela, injeção de entrada e rede Tailscale.
+O Agente é executado na máquina alvo — o servidor ou PC que você deseja acessar remotamente. Ele gerencia captura de tela, injeção de entrada e rede Tailscale.
 
 | Arquitetura | Windows | macOS | Linux |
 | :--- | :---: | :---: | :---: |
@@ -71,40 +71,32 @@ O Agente é executado na máquina alvo — o servidor ou PC que você deseja ace
 
 ---
 
-## Na Mídia
-
-| Mídia | Destaque | Link |
-| :--- | :--- | :---: |
-| **IlSoftware.it** (Itália) | *"USBridge Remote desafia RustDesk e AnyDesk..."* — Revisão independente elogiando a sinergia do agente de software e hardware KVM, suporte nativo ao Wayland e arquitetura P2P. | [Leia o Artigo](https://www.ilsoftware.it/alternativa-rustdesk-anydesk-usbridge/) |
-
----
-
 ## Recursos
 
 <img width="2000" height="1046" alt="USBridge_ap4p" src="https://github.com/user-attachments/assets/2b4bfdf8-412f-4cd7-b4c4-3794d72475cc" />
 
 **Um lugar para tudo** — Eu unifiquei o fluxo de trabalho. Gerencie o hardware USBridge KVM e os agentes de software a partir de um único painel. Adicione uma máquina, conecte-se e você está dentro.
 
-**Sem limites, sem assinaturas** — Totalmente gratuito. Sem limites de tempo de sessão, sem limites de conexão e sem conta necessária na máquina alvo.
+**Sem limites, sem assinaturas** — Completamente gratuito. Sem limites de tempo de sessão, sem limites de conexão e nenhuma conta necessária na máquina alvo.
 
-**Vídeo de baixa latência & Integração com Moonlight** — Aproveite até 2K de resolução com 240 FPS suaves como manteiga e zero lag perceptível. Meu mecanismo de streaming adaptativo aproveita a integração nativa do Moonlight para oferecer um desempenho de desktop remoto ultra-baixa latência incomparável.
+**Vídeo de baixa latência & Integração com Moonlight** — Desfrute de até 2K de resolução com 120 FPS suaves como manteiga e zero lag perceptível. Meu mecanismo de streaming adaptativo aproveita a integração nativa do Moonlight para oferecer um desempenho de desktop remoto incomparável e de ultra-baixa latência.
 
-**Integração com Tailscale** — Tunelamento P2P criptografado embutido. Conecte-se a qualquer máquina globalmente sem se preocupar com encaminhamento de portas ou regras de firewall. Funciona na LAN e pela internet automaticamente.
+**Integração com Tailscale** — Tunelamento P2P criptografado embutido. Conecte-se a qualquer máquina globalmente sem se preocupar com redirecionamento de portas ou regras de firewall. Funciona na LAN e pela internet automaticamente.
 
-**Área de Transferência Compartilhada** — Copie e cole perfeitamente entre sua máquina local e os alvos remotos. Suporta totalmente texto, imagens e transferências de arquivos de forma nativa.
+**Área de Transferência Compartilhada** — Copie e cole sem problemas entre sua máquina local e os alvos remotos. Ele suporta totalmente texto, imagens e transferências de arquivos de forma nativa.
 
-**Suporte a Múltiplos Monitores** — Eu adicionei a capacidade de alternar entre várias telas. Se a máquina alvo tiver vários monitores, você agora pode selecionar facilmente qual deseja visualizar diretamente nas configurações de conexão. 
+**Suporte a Múltiplos Monitores** — Eu adicionei a capacidade de alternar entre várias telas. Se a máquina alvo tiver vários monitores, você agora pode facilmente selecionar qual deseja visualizar diretamente nas configurações de conexão. 
 
 <img width="2080" height="1170" alt="Screenshot 2026-05-03 20112н0" src="https://github.com/user-attachments/assets/06dc3de0-2be9-42f7-a897-830a0a6f2bc7" />
 
 
 ---
 
-## Suporte a Wayland (Sem Prompts)
+## Suporte a Wayland (Sem Solicitações)
 
-A maioria dos agentes de desktop remoto no Linux tem dificuldades com Wayland ou constantemente inundam você com prompts de permissão e pop-ups de confirmação toda vez que uma sessão começa. 
+A maioria dos agentes de desktop remoto no Linux tem dificuldades com Wayland ou constantemente o incomodam com solicitações de permissão e pop-ups de confirmação toda vez que uma sessão começa. 
 
-Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele lida com captura de tela completa e injeção de entrada de forma nativa **sem nenhum prompt de permissão irritante** ou confirmações manuais. Funciona perfeitamente.
+Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele gerencia captura de tela completa e injeção de entrada de forma nativa **sem nenhuma solicitação de permissão irritante** ou confirmações manuais. Funciona perfeitamente.
 
 ---
 
@@ -114,7 +106,7 @@ Eu projetei o Agente USBridge para suportar Wayland nativamente. Ele lida com ca
 
 2. **Instale o Cliente** em sua estação de trabalho, laptop ou telefone.
 
-3. **Adicione uma conexão** — insira o IP ou o endereço Tailscale mostrado na janela do Agente. É isso.
+3. **Adicione uma conexão** — insira o IP ou endereço Tailscale mostrado na janela do Agente. É isso.
 
 ---
 
@@ -145,4 +137,4 @@ Junte-se ao nosso Discord para obter o papel de **Beta Tester**, relatar bugs e 
 
 ## 📜 Licença
 
-Este projeto está licenciado sob a **GPLv3** (veja [`LICENSE`](LICENSE)). O cliente Android/Windows/macOS/Linux incorpora código de `moonlight-common-c` (também GPLv3).
+Este projeto está licenciado sob **GPLv3** (veja [`LICENSE`](LICENSE)). O cliente Android/Windows/macOS/Linux incorpora código de `moonlight-common-c` (também GPLv3).

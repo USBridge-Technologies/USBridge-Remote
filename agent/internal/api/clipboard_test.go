@@ -132,6 +132,9 @@ func (s *stubApp) RegisterTailscale(context.Context, string, string) (*Tailscale
 }
 func (s *stubApp) Clipboard() *clipboard.Manager { return s.clip }
 func (s *stubApp) ClipboardMaxBytes() int64      { return 0 }
+func (s *stubApp) QRLink() (string, string) {
+	return "usbridge://connect?master_key=stub-master-key", "stub-master-key"
+}
 
 // testClipboardClient plays the "other side" of the protocol using the same
 // signing/framing rules as the real client's ClipboardSync, without

@@ -349,6 +349,17 @@ func (mw *MainWindow) recreateContainers() {
 				time.AfterFunc(150*time.Millisecond, mw.videoWidget.RefreshViewportGeometry)
 			}
 		}
+		if tab != nil && tab.Text == snapshotsTabTitle {
+			// Snapshots otherwise only update via BackupWidget's 30s background
+			// ticker -- opening this tab right after a new snapshot lands on
+			// the device (e.g. via the on-device auto-snapshot daemon) could
+			// show stale data for up to 30s, easy to mistake for "doesn't
+			// update at all" since only a full reconnect forced an immediate
+			// fetch. Force one here too, same as Control's bootstrap above.
+			if mw.backupWidget != nil {
+				mw.backupWidget.Refresh()
+			}
+		}
 		logrus.Infof("📑 [Tabs] switched to %q in %v", tabName, time.Since(tabSwitchStart))
 	}
 

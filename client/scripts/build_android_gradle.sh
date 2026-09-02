@@ -243,11 +243,29 @@ ensure_go_tool() {
     # explicitly pin GOOS/GOARCH back to the host and drop the cross CC/CXX
     # for this one invocation so it always builds for the host regardless of
     # what's exported around it.
-    if ! env -u CC -u CXX -u CGO_LDFLAGS GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" go install "$pkg"; then
-        echo -e "${RED}❌ Failed to install $tool${NC}" >&2
-        echo "   Check network access and the command: go install $pkg" >&2
-        exit 1
-    fi
+    #
+    # Retried up to 3x: `go install` here resolves/verifies every dependency
+    # gomobile/gobind pull in (golang.org/x/mobile, x/tools, x/mod, ...)
+    # against sum.golang.org, and that checksum-database fetch has been seen
+    # to fail on GitHub-hosted runners with a transient HTTP/2 error
+    # ("stream error: ... INTERNAL_ERROR; received from peer") that has
+    # nothing to do with this repo's code or go.sum -- a bare retry after a
+    # short pause reliably succeeds once the runner's connection to
+    # sum.golang.org recovers, same as it would if a developer just ran the
+    # command again by hand.
+    local attempt
+    for attempt in 1 2 3; do
+        if env -u CC -u CXX -u CGO_LDFLAGS GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" go install "$pkg"; then
+            break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+            echo -e "${RED}❌ Failed to install $tool after $attempt attempts${NC}" >&2
+            echo "   Check network access and the command: go install $pkg" >&2
+            exit 1
+        fi
+        echo -e "${YELLOW}⚠${NC} go install $pkg failed (attempt $attempt/3), retrying in 5s..." >&2
+        sleep 5
+    done
 
     tool_path="$(find_go_tool "$tool" 2>/dev/null || true)"
     if [ -z "$tool_path" ]; then
@@ -331,13 +349,35 @@ if [ "$NEED_GOMOBILE" -eq 1 ]; then
     # four ABIs -- arm/arm64/x86/x86_64 -- since gomobile defaults to
     # every ABI it knows when none is named). This project only ever
     # ships arm64-v8a; the other three were pure wasted build time here.
-    $GOMOBILE_CMD bind -target android/arm64 -androidapi 26 -o "$AAR_OUT" ./androidbridge || {
-        echo -e "${RED}❌ gomobile bind failed. Install it manually:${NC}"
+    #
+    # Retried up to 3x: `gomobile bind` runs its own `go mod tidy` on
+    # ./androidbridge first, which (like ensure_go_tool's `go install`
+    # above) hits sum.golang.org to verify every dependency's checksum --
+    # seen failing on GitHub-hosted runners with a transient HTTP/2 error
+    # unrelated to this repo's code or go.sum ("go mod tidy failed: ...
+    # verifying go.mod: ... stream error ... INTERNAL_ERROR; received from
+    # peer"). A plain retry after a short pause is what fixes it by hand,
+    # so do that here instead of failing the whole CI job on a network
+    # blip.
+    GOMOBILE_BIND_OK=0
+    for attempt in 1 2 3; do
+        if $GOMOBILE_CMD bind -target android/arm64 -androidapi 26 -o "$AAR_OUT" ./androidbridge; then
+            GOMOBILE_BIND_OK=1
+            break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+            break
+        fi
+        echo -e "${YELLOW}⚠${NC} gomobile bind failed (attempt $attempt/3), retrying in 5s..." >&2
+        sleep 5
+    done
+    if [ "$GOMOBILE_BIND_OK" -ne 1 ]; then
+        echo -e "${RED}❌ gomobile bind failed after 3 attempts. Install it manually:${NC}"
         echo "   go install golang.org/x/mobile/cmd/gomobile@latest"
         echo "   gomobile init"
         echo "   $GOMOBILE_CMD bind -target android/arm64 -o $AAR_OUT ./androidbridge"
         exit 1
-    }
+    fi
 fi
 if ! aar_looks_valid "$AAR_OUT"; then
     echo -e "${RED}❌ gomobile bind produced an empty or corrupt androidbridge.aar${NC}"
