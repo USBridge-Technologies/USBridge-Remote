@@ -1273,18 +1273,26 @@ func (mw *MainWindow) updateStatusBar() {
 		if err == nil {
 			fyne.Do(func() {
 				mw.storageStatus = storageStatus
-				// Update the header progress bar if we have SD card info
-				if storageStatus.SDCard.Total > 0 {
-					mw.currentStorageTotal = storageStatus.SDCard.Total
-					mw.currentStorageAvailable = storageStatus.SDCard.Free
+				// Update the header progress bar with whichever storage
+				// actually represents "the SD card" right now -- normally
+				// the literal /mnt/sdcard figures, but when booted from the
+				// SD slot itself (no separate card slot free), that's the
+				// /mnt/emmc figures instead (this same card's own storage,
+				// see StorageDisplayInfo's doc comment). Previously this
+				// only ever checked SDCard.Total, so the header bar simply
+				// never appeared at all while running from SD.
+				display, _ := storageStatus.StorageDisplayInfo()
+				if display.Total > 0 {
+					mw.currentStorageTotal = display.Total
+					mw.currentStorageAvailable = display.Free
 
-					used := storageStatus.SDCard.Used
-					usedPct := storageStatus.SDCard.Percent / 100 // view.ProgressBar expects 0..1
+					used := display.Used
+					usedPct := display.Percent / 100 // view.ProgressBar expects 0..1
 
 					if mw.sdStorageProgress != nil {
 						mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
 						mw.sdStorageProgress.SetValue(usedPct)
-						mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, storageStatus.SDCard.Total))
+						mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, display.Total))
 						mw.sdStorageProgress.Show()
 						mw.refreshMainHeaderLayout()
 					}

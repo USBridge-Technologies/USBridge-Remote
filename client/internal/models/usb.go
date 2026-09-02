@@ -586,10 +586,40 @@ type StorageInfo struct {
 	Mounted    bool    `json:"mounted"`
 }
 
-// StorageStatusData detailed storage status
+// StorageStatusData detailed storage status.
+//
+// SDCard/EMMC are always the literal /mnt/sdcard and /mnt/emmc mountpoints
+// on the device. BootDeviceIsSD is true when the appliance is currently
+// running off its SD slot -- in that case there's no separate card slot
+// left for a removable card (SDCard stays unmounted/zero), and EMMC is
+// actually *this same SD card's own* extra partition, not a physically
+// separate onboard eMMC chip. UI code should attribute the EMMC figures to
+// "the SD card" (not "eMMC") whenever this is true -- see
+// StorageDisplayInfo below.
 type StorageStatusData struct {
-	SDCard StorageInfo `json:"sdcard"`
-	EMMC   StorageInfo `json:"emmc"`
+	SDCard         StorageInfo `json:"sdcard"`
+	EMMC           StorageInfo `json:"emmc"`
+	BootDeviceIsSD bool        `json:"boot_device_is_sd"`
+}
+
+// StorageDisplayInfo returns the StorageInfo that genuinely represents "the
+// SD card" for a single-figure, SD-labeled display (e.g. the header
+// progress bar, which only has an SD card icon -- there's no separate
+// eMMC one). ok is false when there's nothing that qualifies: a normal
+// eMMC-boot device with no removable card inserted has real onboard eMMC
+// usage, but that's not "the SD card" and showing it under an SD icon
+// would be its own mislabeling -- callers should just hide the display in
+// that case, same as before this field existed.
+func (s *StorageStatusData) StorageDisplayInfo() (info StorageInfo, ok bool) {
+	if s.BootDeviceIsSD {
+		// No separate card slot free right now -- /mnt/emmc is actually
+		// this same SD card's own storage (see the struct doc comment).
+		return s.EMMC, true
+	}
+	if s.SDCard.Mounted {
+		return s.SDCard, true
+	}
+	return StorageInfo{}, false
 }
 
 // ScriptInfo information about a script
