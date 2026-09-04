@@ -1155,6 +1155,11 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 
 	body := container.NewVBox()
 
+	// checkoutURLFallback: see its use in the "Buy a license" click handler
+	// below. Declared out here (not local to render) so it survives from
+	// the goroutine's fyne.Do callback into the next render() call.
+	var checkoutURLFallback string
+
 	var render func(st entitlement.Status)
 	render = func(st entitlement.Status) {
 		body.RemoveAll()
@@ -1282,18 +1287,48 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 				errText.TextStyle.Italic = true
 				body.Add(errText)
 			}
+			// checkoutURLFallback carries a URL that the click handler below
+			// obtained fine but couldn't hand to the OS browser itself (e.g.
+			// no default browser registered, a sandboxed/headless
+			// environment without xdg-open) -- previously that failure was
+			// silently swallowed ("_ = w.app.OpenURL(...)"), so the button
+			// visibly did nothing at all once the checkout link had already
+			// been fetched. Shown as a copyable link so the purchase can
+			// still be completed manually.
+			if checkoutURLFallback != "" {
+				linkURI, _ := url.Parse(checkoutURLFallback)
+				fallback := widget.NewLabel("Couldn't open your browser automatically. Checkout link:")
+				fallback.Wrapping = fyne.TextWrapWord
+				body.Add(fallback)
+				if linkURI != nil {
+					body.Add(widget.NewHyperlink(checkoutURLFallback, linkURI))
+				}
+			}
 
-			buyBtn := widget.NewButton("Buy a license", func() {
+			var buyBtn *widget.Button
+			buyBtn = widget.NewButton("Buy a license", func() {
+				checkoutURLFallback = ""
+				buyBtn.Disable()
+				buyBtn.SetText("Opening checkout…")
 				go func() {
 					checkoutURL, err := w.token.StartPurchase()
 					if err != nil {
+						// StartPurchase already recorded st.LastError -- the
+						// re-render below picks it up and shows it.
 						fyne.Do(func() { render(w.token.EntitlementStatus()) })
 						return
 					}
-					if parsed, err := url.Parse(checkoutURL); err == nil {
-						_ = w.app.OpenURL(parsed)
+					parsed, parseErr := url.Parse(checkoutURL)
+					openErr := parseErr
+					if parseErr == nil {
+						openErr = w.app.OpenURL(parsed)
 					}
-					fyne.Do(func() { render(w.token.EntitlementStatus()) })
+					fyne.Do(func() {
+						if openErr != nil {
+							checkoutURLFallback = checkoutURL
+						}
+						render(w.token.EntitlementStatus())
+					})
 				}()
 			})
 			buyBtn.Importance = widget.HighImportance
