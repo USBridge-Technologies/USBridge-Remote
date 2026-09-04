@@ -270,6 +270,13 @@ func (c *Client) StartPurchase() (string, error) {
 	return body.Value, nil
 }
 
+// CancelPurchase mirrors App.CancelPurchase's "always safe to call, no
+// error surfaced" contract -- the GUI's Cancel button doesn't need to know
+// or care whether a purchase was actually in flight on the engine side.
+func (c *Client) CancelPurchase() {
+	_ = c.do(http.MethodPost, "/token/cancel-purchase", nil, nil)
+}
+
 func (c *Client) ClearLicense() error {
 	return c.do(http.MethodPost, "/token/clear-license", nil, nil)
 }

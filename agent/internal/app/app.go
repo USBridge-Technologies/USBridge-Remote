@@ -1192,6 +1192,28 @@ func (a *App) StartPurchase() (string, error) {
 	return checkoutURL, nil
 }
 
+// CancelPurchase gives up on an in-flight StartPurchase: stops the
+// background pollForLicense loop and clears LinkInProgress so the GUI's
+// license dialog falls back to showing the trial/buy buttons again instead
+// of being stuck on "waiting for checkout" -- previously there was no way
+// out of that screen short of a completed purchase or pollForLicenseTimeout
+// (15 minutes), even across closing and reopening the dialog, since
+// LinkInProgress lives on entStatus (this App, not the dialog) and nothing
+// ever cleared it if the browser tab was simply closed without paying. Safe
+// to call even if nothing is in flight (entPollCancel nil, or already
+// finished) -- a no-op in that case, not an error, since the GUI can't
+// always tell which case it's in before offering a "Cancel" button.
+func (a *App) CancelPurchase() {
+	a.entMu.Lock()
+	if a.entPollCancel != nil {
+		a.entPollCancel()
+		a.entPollCancel = nil
+	}
+	a.entStatus.LinkInProgress = false
+	a.entStatus.LastError = ""
+	a.entMu.Unlock()
+}
+
 // pollForLicenseTimeout bounds how long pollForLicense keeps checking after
 // a checkout URL was opened -- generous (most Stripe webhooks land within
 // seconds, but this also covers someone taking their time entering card

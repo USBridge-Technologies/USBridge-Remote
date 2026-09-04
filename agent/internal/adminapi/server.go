@@ -49,6 +49,7 @@ type TokenBackend interface {
 	EntitlementStatus() entitlement.Status
 	StartFreeTrial() error
 	StartPurchase() (string, error)
+	CancelPurchase()
 	ClearLicense() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	CheckRustShineUpdateNow() error
@@ -184,6 +185,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/entitlement-status", s.handleEntitlementStatus)
 	mux.HandleFunc("POST /token/start-trial", s.handleStartTrial)
 	mux.HandleFunc("POST /token/start-purchase", s.handleStartPurchase)
+	mux.HandleFunc("POST /token/cancel-purchase", s.handleCancelPurchase)
 	mux.HandleFunc("POST /token/clear-license", s.handleClearLicense)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
@@ -420,6 +422,11 @@ func (s *Server) handleStartPurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stringBody{Value: url})
+}
+
+func (s *Server) handleCancelPurchase(w http.ResponseWriter, r *http.Request) {
+	s.token.CancelPurchase()
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (s *Server) handleClearLicense(w http.ResponseWriter, r *http.Request) {

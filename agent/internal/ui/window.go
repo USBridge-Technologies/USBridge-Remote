@@ -65,6 +65,7 @@ type TokenProvider interface {
 	EntitlementStatus() entitlement.Status
 	StartFreeTrial() error
 	StartPurchase() (string, error)
+	CancelPurchase()
 	ClearLicense() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	CheckRustShineUpdateNow() error
@@ -1168,6 +1169,22 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 		case st.LinkInProgress:
 			body.Add(widget.NewLabel("Waiting for checkout to complete in your browser…"))
 			body.Add(widget.NewProgressBarInfinite())
+			// Previously there was no way out of this screen short of an
+			// actual completed purchase or pollForLicenseTimeout (15
+			// minutes) -- closing the dialog and reopening it (even via a
+			// fresh "Support us" click) landed right back here, since
+			// LinkInProgress lives on the App's entStatus, not this dialog.
+			// A closed checkout tab with nothing bought had no way back to
+			// the trial/buy buttons at all. CancelPurchase abandons the
+			// background poll and clears LinkInProgress.
+			cancelBtn := widget.NewButton("Cancel", func() {
+				go func() {
+					w.token.CancelPurchase()
+					fyne.Do(func() { render(w.token.EntitlementStatus()) })
+				}()
+			})
+			cancelBtn.Importance = widget.LowImportance
+			body.Add(container.NewCenter(cancelBtn))
 
 		case st.DownloadInProgress:
 			body.Add(widget.NewLabel("Downloading RustShine…"))
@@ -1301,7 +1318,12 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 				fallback.Wrapping = fyne.TextWrapWord
 				body.Add(fallback)
 				if linkURI != nil {
-					body.Add(widget.NewHyperlink(checkoutURLFallback, linkURI))
+					link := widget.NewHyperlink(checkoutURLFallback, linkURI)
+					link.Wrapping = fyne.TextWrapBreak
+					copyBtn := newIconActionButton("Copy", theme.ContentCopyIcon(), func() {
+						parent.Clipboard().SetContent(checkoutURLFallback)
+					})
+					body.Add(container.NewBorder(nil, nil, nil, copyBtn, link))
 				}
 			}
 
