@@ -11,7 +11,7 @@ import (
 // toggleSwitch is a compact iOS-style on/off switch. Used where a two-state
 // choice reads more clearly as a physical switch than as a button whose
 // label flips between "Switch to X"/"Switch to Y" (see the RustShine/
-// Sunshine control in showPatreonDialog) -- Fyne has no built-in switch
+// Sunshine control in showLicenseDialog) -- Fyne has no built-in switch
 // widget, only widget.Check (a checkbox) and plain buttons.
 type toggleSwitch struct {
 	widget.BaseWidget

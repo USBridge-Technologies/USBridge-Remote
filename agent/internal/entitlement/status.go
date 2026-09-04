@@ -3,20 +3,31 @@ package entitlement
 import "time"
 
 // Status is what the GUI (and, over adminapi, a thin-client GUI attached to
-// a separate headless engine process) needs to render the "Support us on
-// Patreon" affordance and, once linked, the Sunshine/RustShine switch.
-// Deliberately provider-agnostic in shape (no "patreon" field names) even
-// though Patreon is the only backend provider today — mirrors the backend's
-// own provider-agnostic HTTP contract (see usbridge-entitlement-backend's
-// README).
+// a separate headless engine process) needs to render the "Buy a
+// license"/"Start free trial" affordance and, once entitled, the
+// Sunshine/RustShine switch.
 type Status struct {
-	// Linked is true once a verified, unexpired entitlement token is
-	// cached locally -- i.e. this install is currently allowed to run
-	// RustShine, independent of which backend is actually active right
-	// now (see ActiveBackend).
+	// Linked is true once a verified, unexpired, hardware-bound
+	// desktop-license or trial token is cached locally -- i.e. this
+	// install is currently allowed to run RustShine, independent of which
+	// backend is actually active right now (see ActiveBackend). The name
+	// predates the Patreon->Stripe/hardware-bound switch (see this
+	// package's doc comment) but the JSON field name is kept stable --
+	// nothing downstream needs to change just because what "linked" means
+	// underneath did.
 	Linked    bool      `json:"linked"`
-	Tier      string    `json:"tier,omitempty"`
+	Tier      string    `json:"tier,omitempty"` // "desktop-license" or "trial" -- see entitlement.Claims.Tier
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	// TrialAvailable is true when this hardware id has never started its
+	// one-time 7-day trial (StartTrial hasn't been called successfully
+	// yet, or was but the backend has no record of it -- e.g. a fresh
+	// install) -- the GUI uses this to decide whether to show a "Start
+	// free trial" button at all, as opposed to going straight to "Buy".
+	// Deliberately client-derived best-effort (this process's own last
+	// StartTrial/RefreshLicense result), not authoritative -- the backend
+	// remains the actual source of truth (see desktopLicense.ts) and will
+	// refuse a second trial regardless of what this field says.
+	TrialAvailable bool `json:"trial_available"`
 
 	// ActiveBackend is "sunshine" or "rustshine" -- which one is actually
 	// running right now, independent of Linked (a linked supporter can
@@ -29,8 +40,8 @@ type Status struct {
 	// RustShineVersion is whatever StagedVersion(stateDir) currently
 	// reports -- "" if never staged, or staged by a build of this agent
 	// that predated version tracking. Shown next to the RustShine row so a
-	// supporter can see what's actually installed without opening the
-	// Patreon dialog; the GUI's "Check for updates" button
+	// customer can see what's actually installed without opening the
+	// license dialog; the GUI's "Check for updates" button
 	// (CheckRustShineUpdateNow) is what refreshes this to a newer value.
 	RustShineVersion string `json:"rustshine_version,omitempty"`
 	// RustShineUpdateInProgress mirrors DownloadInProgress but specifically
@@ -54,8 +65,8 @@ type Status struct {
 	Progress           float64 `json:"progress"`
 
 	// LastError is a short, user-presentable message for the most recent
-	// failed operation (login denied, below tier, download failed, ...) —
-	// cleared on the next successful step. Empty string means "nothing to
-	// report."
+	// failed operation (checkout failed, trial already used, download
+	// failed, ...) — cleared on the next successful step. Empty string
+	// means "nothing to report."
 	LastError string `json:"last_error,omitempty"`
 }

@@ -1,20 +1,27 @@
 // Package entitlement talks to the usbridge-entitlement backend
 // (github.com/itsme228/usbridge-entitlement-backend, a stateless Cloudflare
 // Worker — see that repo's README for the full protocol) to let a paying
-// Patreon supporter switch the agent's active streamhost.Backend from the
-// free, open-source Sunshine build to the proprietary RustShine one.
+// customer switch the agent's active streamhost.Backend from the free,
+// open-source Sunshine build to the proprietary RustShine one, via a
+// one-time Stripe purchase OR a one-time 7-day free trial, both bound to
+// this specific machine's hardware id (see agent/internal/hwid). Replaces
+// an earlier Patreon-OAuth-linked, non-hardware-bound scheme (still
+// visible in git history) -- see VerifyForHardware's doc comment for why
+// binding to hardware, not an account, is what actually stops a copied
+// token file from working on a second machine.
 //
 // Security model mirrors internal/update almost exactly (see that
-// package's own doc comment): the backend signs entitlement tokens with an
-// Ed25519 private key that exists only as that Worker's own
+// package's own doc comment): the backend signs desktop-license/trial
+// tokens with an Ed25519 private key that exists only as that Worker's own
 // wrangler-secret env var; this package verifies every token against the
-// public key below before trusting a single field of it. A hand-edited
-// config.yaml claiming entitlement can't produce a token this package
-// accepts — forging one requires the private key. This is a DELIBERATELY
-// SEPARATE keypair from both the client/agent update-signing keys and any
-// future rust-shine-release-manifest key, so compromising one can't be
-// used to forge the others (see rust-shine/docs/RELEASE_SIGNING.md's docs
-// on the same principle for that third key).
+// public key below (signature, expiry, token kind, AND hardware id) before
+// trusting a single field of it. A hand-edited config.yaml claiming
+// entitlement can't produce a token this package accepts — forging one
+// requires the private key. This is a DELIBERATELY SEPARATE keypair from
+// both the client/agent update-signing keys and any future
+// rust-shine-release-manifest key, so compromising one can't be used to
+// forge the others (see rust-shine/docs/RELEASE_SIGNING.md's docs on the
+// same principle for that third key).
 //
 // This package never gates access to RustShine's *source* (it's a private
 // repo, not part of this build) or to a binary someone already has on

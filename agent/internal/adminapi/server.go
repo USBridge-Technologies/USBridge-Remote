@@ -44,10 +44,12 @@ type TokenBackend interface {
 	SunshineStreamHost() string
 	StreamerName() string
 
-	// Patreon-gated RustShine entitlement (see internal/entitlement).
+	// Hardware-bound RustShine entitlement (see internal/entitlement,
+	// internal/hwid).
 	EntitlementStatus() entitlement.Status
-	StartPatreonLink() (string, error)
-	UnlinkPatreon() error
+	StartFreeTrial() error
+	StartPurchase() (string, error)
+	ClearLicense() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
@@ -180,8 +182,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /token/sunshine-stream-host", s.handleSunshineStreamHost)
 	mux.HandleFunc("GET /token/streamer-name", s.handleStreamerName)
 	mux.HandleFunc("GET /token/entitlement-status", s.handleEntitlementStatus)
-	mux.HandleFunc("POST /token/patreon-link", s.handlePatreonLink)
-	mux.HandleFunc("POST /token/patreon-unlink", s.handlePatreonUnlink)
+	mux.HandleFunc("POST /token/start-trial", s.handleStartTrial)
+	mux.HandleFunc("POST /token/start-purchase", s.handleStartPurchase)
+	mux.HandleFunc("POST /token/clear-license", s.handleClearLicense)
 	mux.HandleFunc("POST /token/download-rustshine", s.handleDownloadRustShine)
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
@@ -402,8 +405,16 @@ func (s *Server) handleEntitlementStatus(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, s.token.EntitlementStatus())
 }
 
-func (s *Server) handlePatreonLink(w http.ResponseWriter, r *http.Request) {
-	url, err := s.token.StartPatreonLink()
+func (s *Server) handleStartTrial(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.StartFreeTrial(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleStartPurchase(w http.ResponseWriter, r *http.Request) {
+	url, err := s.token.StartPurchase()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -411,8 +422,8 @@ func (s *Server) handlePatreonLink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stringBody{Value: url})
 }
 
-func (s *Server) handlePatreonUnlink(w http.ResponseWriter, r *http.Request) {
-	if err := s.token.UnlinkPatreon(); err != nil {
+func (s *Server) handleClearLicense(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.ClearLicense(); err != nil {
 		writeError(w, err)
 		return
 	}

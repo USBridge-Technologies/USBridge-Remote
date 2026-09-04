@@ -39,123 +39,92 @@ func Platform() string {
 	}
 }
 
-type StartResult struct {
-	State         string `json:"state"`
-	AuthorizeURL  string `json:"authorize_url"`
-	ExpiresInSecs int    `json:"expires_in"`
+// IssueResult is the outcome of asking the backend for a license/trial
+// token bound to this machine's hwid.Get() value. Deliberately the same
+// shape for both StartTrial and RefreshLicense (mirrors
+// usbridge-entitlement-backend's own register/refresh being the same
+// handler) -- see each function's own doc comment for how NotLicensed vs.
+// TrialUsed differ in meaning.
+type IssueResult struct {
+	// NotLicensed: no purchase on record for this hardware id yet (or a
+	// prior purchase was refunded) -- RefreshLicense's own "not an error"
+	// outcome, expected for every install that hasn't bought a license.
+	NotLicensed bool
+	// TrialUsed: this hardware id's one-time 7-day trial window has
+	// already been granted AND has now passed -- StartTrial's own "not an
+	// error" outcome for a machine that already had its trial.
+	TrialUsed bool
+	Token     string
+	ExpiresIn int // seconds
 }
 
-// StartOAuth begins a login attempt. Callers open AuthorizeURL in the
-// system browser, then poll PollOAuth(State) until it resolves.
-func StartOAuth(ctx context.Context) (*StartResult, error) {
-	var out StartResult
-	if err := doJSON(ctx, http.MethodPost, "/v1/oauth/start", nil, "", &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-type PollStatus string
-
-const (
-	PollPending  PollStatus = "pending"
-	PollComplete PollStatus = "complete"
-	PollError    PollStatus = "error"
-	// PollExpired is synthesized locally (HTTP 404) -- the backend's own
-	// oauthstate.ts drops the KV entry after STATE_TTL_SECONDS, so an
-	// unknown state and an expired one are indistinguishable server-side;
-	// both mean "start over."
-	PollExpired PollStatus = "expired"
-)
-
-type PollResult struct {
-	Status               PollStatus
-	Reason               string // set when Status == PollError
-	EntitlementToken     string // set when Status == PollComplete
-	ProviderRefreshToken string // set when Status == PollComplete
-	EntitlementExpiresIn int    // seconds, set when Status == PollComplete
-}
-
-// PollOAuth checks a login attempt's status. Call every ~2s (short-poll,
-// not long-poll -- the backend runs on Cloudflare Workers, which has a
-// bounded per-invocation CPU budget that makes an in-handler wait
-// impractical) until it stops returning PollPending.
-func PollOAuth(ctx context.Context, state string) (*PollResult, error) {
-	req, err := newRequest(ctx, http.MethodGet, "/v1/oauth/poll?state="+url.QueryEscape(state), nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := httpClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("entitlement: poll request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return &PollResult{Status: PollExpired}, nil
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return nil, fmt.Errorf("entitlement: poll request: HTTP %d: %s", resp.StatusCode, truncate(body))
-	}
-
+// StartTrial grants (or, if already granted and still inside its window,
+// re-fetches) this machine's one-time 7-day trial -- safe to call on every
+// app launch before a purchase: the backend's own KV record is what makes
+// this a no-op past the first successful grant (see
+// usbridge-entitlement-backend's desktopLicense.ts issueOrRefreshTrial),
+// not anything client-side, so wiping local config and calling this again
+// does NOT grant a second trial.
+func StartTrial(ctx context.Context, hwID string) (*IssueResult, error) {
+	reqBody, _ := json.Marshal(map[string]string{"hw_id": hwID})
 	var raw struct {
-		Status               string `json:"status"`
-		Reason               string `json:"reason"`
-		Entitlement          string `json:"entitlement"`
-		ProviderRefreshToken string `json:"provider_refresh_token"`
-		ExpiresIn            int    `json:"expires_in"`
+		Status    string `json:"status"`
+		Trial     string `json:"trial"`
+		ExpiresIn int    `json:"expires_in"`
 	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("entitlement: parse poll response: %w", err)
-	}
-	return &PollResult{
-		Status:               PollStatus(raw.Status),
-		Reason:               raw.Reason,
-		EntitlementToken:     raw.Entitlement,
-		ProviderRefreshToken: raw.ProviderRefreshToken,
-		EntitlementExpiresIn: raw.ExpiresIn,
-	}, nil
-}
-
-type RefreshResult struct {
-	NotEntitled          bool
-	Reason               string
-	EntitlementToken     string
-	ProviderRefreshToken string
-	ExpiresIn            int
-}
-
-// RefreshEntitlement silently re-derives a fresh entitlement token from a
-// previously-saved provider refresh token, with no browser interaction --
-// this is what the agent's periodic watchdog and startup check both call.
-// NotEntitled covers both "membership lapsed" and "refresh token itself
-// was rejected" (revoked, expired) identically: either way, the caller
-// must downgrade to Sunshine, not keep retrying the same dead token.
-func RefreshEntitlement(ctx context.Context, providerRefreshToken string) (*RefreshResult, error) {
-	reqBody, _ := json.Marshal(map[string]string{"provider_refresh_token": providerRefreshToken})
-	var raw struct {
-		Status               string `json:"status"`
-		Reason               string `json:"reason"`
-		Entitlement          string `json:"entitlement"`
-		ProviderRefreshToken string `json:"provider_refresh_token"`
-		ExpiresIn            int    `json:"expires_in"`
-	}
-	if err := doJSON(ctx, http.MethodPost, "/v1/entitlement/refresh", reqBody, "", &raw); err != nil {
+	if err := doJSON(ctx, http.MethodPost, "/v1/desktop-license/trial-start", reqBody, "", &raw); err != nil {
 		return nil, err
 	}
-	if raw.Status == "not_entitled" {
-		return &RefreshResult{NotEntitled: true, Reason: raw.Reason}, nil
+	if raw.Status == "trial_used" {
+		return &IssueResult{TrialUsed: true}, nil
 	}
-	return &RefreshResult{
-		EntitlementToken:     raw.Entitlement,
-		ProviderRefreshToken: raw.ProviderRefreshToken,
-		ExpiresIn:            raw.ExpiresIn,
-	}, nil
+	return &IssueResult{Token: raw.Trial, ExpiresIn: raw.ExpiresIn}, nil
+}
+
+// RefreshLicense re-derives a fresh desktop-license token for this
+// machine's hardware id if (and only if) the backend currently has it on
+// record as licensed (i.e. a completed, not-since-refunded Stripe
+// purchase) -- called both right after StartCheckoutURL's flow completes
+// and on the periodic watchdog. No browser interaction, no stored
+// credential to refresh unlike the old Patreon flow's provider refresh
+// token -- hwID itself is the only correlating value, re-derived locally
+// (hwid.Get()) on every call rather than persisted.
+func RefreshLicense(ctx context.Context, hwID string) (*IssueResult, error) {
+	reqBody, _ := json.Marshal(map[string]string{"hw_id": hwID})
+	var raw struct {
+		Status    string `json:"status"`
+		License   string `json:"license"`
+		ExpiresIn int    `json:"expires_in"`
+	}
+	if err := doJSON(ctx, http.MethodPost, "/v1/desktop-license/refresh", reqBody, "", &raw); err != nil {
+		return nil, err
+	}
+	if raw.Status == "not_licensed" {
+		return &IssueResult{NotLicensed: true}, nil
+	}
+	return &IssueResult{Token: raw.License, ExpiresIn: raw.ExpiresIn}, nil
+}
+
+// StartCheckoutURL asks the backend for a Stripe Checkout Session URL tied
+// to this machine's hardware id -- open it in the system browser (or an
+// embedded webview; it's just an https:// URL either way). The backend's
+// webhook marks hwID licensed the moment payment completes; RefreshLicense
+// is what actually picks that up afterward -- there is no separate
+// "purchase complete" callback into this process the way the old OAuth
+// flow's poll loop had one; see app.go's pollForLicense for how the caller
+// bridges that gap.
+func StartCheckoutURL(ctx context.Context, hwID string) (string, error) {
+	reqBody, _ := json.Marshal(map[string]string{"hw_id": hwID})
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := doJSON(ctx, http.MethodPost, "/v1/desktop-billing/checkout", reqBody, "", &out); err != nil {
+		return "", err
+	}
+	if out.URL == "" {
+		return "", fmt.Errorf("entitlement: checkout response had no url")
+	}
+	return out.URL, nil
 }
 
 type DownloadInfo struct {

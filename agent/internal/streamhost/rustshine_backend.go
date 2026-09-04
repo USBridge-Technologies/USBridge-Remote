@@ -2,7 +2,7 @@
 // (bin/gamestream-server in the private itsme228/rust-shine repo) as an
 // alternate streamhost.Backend, constructed on demand by
 // App.SetStreamBackend once the agent's internal/entitlement package has
-// verified a paying Patreon supporter (see that package, and
+// verified a hardware-bound license or trial (see that package, and
 // agent/internal/entitlement/download.go for how the binary gets staged
 // into stateDir/rustshine/ in the first place -- deliberately not
 // exeDir/rustshine/, see that package's StagePath doc comment on why:
@@ -35,6 +35,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"usbridge_agent/internal/hwid"
 )
 
 // rustshineProcess abstracts the two ways gamestream-server can end up
@@ -464,6 +466,22 @@ func (b *rustshineBackend) Start(adminPort int) error {
 	// this package stays entitlement-agnostic, entitlement stays
 	// streamhost-agnostic. Always passed; harmless if unused.
 	args = append(args, "--entitlement-file", filepath.Join(b.stateDir, "rustshine", "entitlement.token"))
+	// This machine's hardware id, exactly as the entitlement token's own
+	// `sub` claim was bound to (see entitlement.VerifyForHardware) -- a
+	// desktop-entitlement build refuses to start without a matching
+	// --hardware-id (see rust-shine's license::entitlement module doc
+	// comment for why the token being checked against THIS value, computed
+	// independently rather than trusted from the token itself, is what
+	// makes a copied token file not work on a different machine). Omitted
+	// (not passed as an empty string) if hwid.Get() itself fails -- a
+	// desktop-entitlement build then fails closed on its own missing-flag
+	// check rather than this package silently sending an empty match-nothing
+	// value.
+	if id, err := hwid.Get(); err == nil {
+		args = append(args, "--hardware-id", id)
+	} else {
+		log.Printf("[streamhost] warning: could not determine hardware id, rustshine entitlement will fail to start: %v", err)
+	}
 	// Authenticates rustshine's own native WebRTC signaling endpoint
 	// (POST /webrtc/offer) against this agent's master key -- see
 	// SetSharedSecret's doc comment for how/when this gets set. Omitted

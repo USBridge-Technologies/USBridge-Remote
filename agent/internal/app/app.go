@@ -29,6 +29,7 @@ import (
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
+	"usbridge_agent/internal/hwid"
 	"usbridge_agent/internal/input"
 	"usbridge_agent/internal/netutil"
 	"usbridge_agent/internal/permissions"
@@ -97,7 +98,7 @@ type App struct {
 	// goroutine (user clicks) and entitlementWatchdog's background goroutine.
 	entMu         sync.Mutex
 	entStatus     entitlement.Status
-	entPollCancel context.CancelFunc // cancels an in-flight StartPatreonLink's poll loop, if any
+	entPollCancel context.CancelFunc // cancels an in-flight StartPurchase's post-checkout poll loop, if any
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -308,9 +309,11 @@ func New() (*App, error) {
 	// backend shortly after and downgrades to Sunshine if the cached token
 	// no longer holds up.
 	if cfg.PreferredBackend == "rustshine" {
-		if _, err := entitlement.Verify(cfg.EntitlementToken); err == nil {
-			if _, err := os.Stat(entitlement.StagePath(cfg.StateDir)); err == nil {
-				instance.streamKind = "rustshine"
+		if hwID, err := hwid.Get(); err == nil {
+			if _, err := entitlement.VerifyForHardware(cfg.EntitlementToken, hwID); err == nil {
+				if _, err := os.Stat(entitlement.StagePath(cfg.StateDir)); err == nil {
+					instance.streamKind = "rustshine"
+				}
 			}
 		}
 	}
@@ -422,10 +425,11 @@ func (a *App) Run(headless bool) error {
 	go a.sunshineWatchdog(ctx)
 	go a.x11SessionEnvWatchdog(ctx)
 	// Always started, even before ever linking -- recheckEntitlement no-ops
-	// immediately (no network call) whenever cfg.ProviderRefreshToken is
-	// empty, so this is cheap, and it means a link made mid-session (via
-	// StartPatreonLink, no restart) is covered by the same ticker without
-	// needing separate "start the watchdog now" bookkeeping.
+	// immediately (no network call) whenever cfg.EntitlementToken is
+	// empty, so this is cheap, and it means a purchase/trial made
+	// mid-session (via StartPurchase/StartFreeTrial, no restart) is
+	// covered by the same ticker without needing separate "start the
+	// watchdog now" bookkeeping.
 	go a.entitlementWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
@@ -936,7 +940,7 @@ func (a *App) RestartSunshine() error {
 // between "sunshine" and "rustshine" -- stops whichever is running, builds
 // the other, and starts it. No-op if kind is already active. "rustshine"
 // requires the binary to already be staged (see entitlement.StageRustShine)
-// -- this method never downloads it itself, so callers (the GUI's Patreon
+// -- this method never downloads it itself, so callers (the GUI's license
 // dialog) must download-then-switch, not switch-then-download.
 //
 // Persists the choice as cfg.PreferredBackend so a restart picks it back up
@@ -1025,7 +1029,23 @@ func (a *App) rustshineStaged() bool {
 func (a *App) refreshLocalEntitlementStatus() {
 	a.entMu.Lock()
 	defer a.entMu.Unlock()
-	if claims, err := entitlement.Verify(a.cfg.EntitlementToken); err == nil {
+
+	hwID, hwErr := hwid.Get()
+	if hwErr != nil {
+		// Can't determine this machine's own identity -- nothing to bind
+		// a token to, so there is no way this install can ever be
+		// considered entitled. Logged once per call (cheap, this isn't a
+		// hot path) rather than cached/silenced, since a persistently
+		// failing hwid.Get() is a real configuration problem worth seeing
+		// in logs (e.g. a locked-down registry on Windows).
+		log.Printf("[app] warning: could not determine hardware id, entitlement disabled: %v", hwErr)
+		a.entStatus.Linked = false
+		a.entStatus.Tier = ""
+		a.entStatus.ExpiresAt = time.Time{}
+		return
+	}
+
+	if claims, err := entitlement.VerifyForHardware(a.cfg.EntitlementToken, hwID); err == nil {
 		a.entStatus.Linked = true
 		a.entStatus.Tier = claims.Tier
 		a.entStatus.ExpiresAt = time.Unix(claims.ExpireAt, 0)
@@ -1039,12 +1059,12 @@ func (a *App) refreshLocalEntitlementStatus() {
 	}
 }
 
-// EntitlementStatus reports the current Patreon-entitlement state for the
-// GUI (and, over adminapi, a thin-client GUI attached to a separate
-// headless engine) to render the "Support us" affordance and, once linked,
-// the Sunshine/RustShine switch. Cheap enough to poll on the GUI's existing
-// 2s refresh ticker (see ui.Window.performRefresh) -- no push/SSE channel
-// needed for this.
+// EntitlementStatus reports the current license/trial state for the GUI
+// (and, over adminapi, a thin-client GUI attached to a separate headless
+// engine) to render the "Buy a license"/"Start free trial" affordance and,
+// once entitled, the Sunshine/RustShine switch. Cheap enough to poll on the
+// GUI's existing 2s refresh ticker (see ui.Window.performRefresh) -- no
+// push/SSE channel needed for this.
 func (a *App) EntitlementStatus() entitlement.Status {
 	a.entMu.Lock()
 	st := a.entStatus
@@ -1053,6 +1073,13 @@ func (a *App) EntitlementStatus() entitlement.Status {
 	st.RustShineStaged = a.rustshineStaged()
 	st.RustShineVersion = entitlement.StagedVersion(a.cfg.StateDir)
 	st.WebRTCEnabled = !a.cfg.RustShineWebRTCDisabled
+	// TrialAvailable is "not currently linked under a trial or license
+	// token" -- best-effort/client-derived, see its own doc comment.
+	// Deliberately not re-derived from a fresh backend call on every poll
+	// (that would mean a network round trip every 2s); StartFreeTrial's
+	// own TrialUsed result is what authoritatively updates this when it
+	// actually matters (the user clicking the button).
+	st.TrialAvailable = !st.Linked
 	return st
 }
 
@@ -1092,17 +1119,62 @@ func (a *App) setEntError(msg string) {
 	a.entMu.Unlock()
 }
 
-// StartPatreonLink begins a Patreon login attempt: asks the entitlement
-// backend for an authorize URL + correlation state, then polls for the
-// result in the background (see entitlement.StartOAuth/PollOAuth's own
-// docs on why this is a poll, not a local-loopback OAuth redirect).
-// Callers (the GUI) open the returned URL in the system browser;
-// EntitlementStatus reflects progress from here on -- no callback needed,
-// the GUI already polls it on its own refresh ticker.
-func (a *App) StartPatreonLink() (string, error) {
-	start, err := entitlement.StartOAuth(context.Background())
+// StartFreeTrial grants (or re-fetches) this machine's one-time 7-day
+// RustShine trial -- unlike the old Patreon login flow, this needs no
+// browser round trip at all, so it completes synchronously: one backend
+// call, bound to this machine's own hwid.Get() value. See
+// entitlement.StartTrial's doc comment for exactly why calling this
+// repeatedly (a fresh install, a config wipe, clicking the button twice)
+// can never grant a second window -- the backend's own record of this
+// hw_id, not anything client-side, is what enforces "once."
+func (a *App) StartFreeTrial() error {
+	hwID, err := hwid.Get()
 	if err != nil {
-		a.setEntError(fmt.Sprintf("could not start login: %v", err))
+		a.setEntError(fmt.Sprintf("could not determine this machine's hardware id: %v", err))
+		return err
+	}
+
+	a.entMu.Lock()
+	a.entStatus.LinkInProgress = true
+	a.entStatus.LastError = ""
+	a.entMu.Unlock()
+	defer func() {
+		a.entMu.Lock()
+		a.entStatus.LinkInProgress = false
+		a.entMu.Unlock()
+	}()
+
+	res, err := entitlement.StartTrial(context.Background(), hwID)
+	if err != nil {
+		a.setEntError(fmt.Sprintf("could not start trial: %v", err))
+		return err
+	}
+	if res.TrialUsed {
+		err := fmt.Errorf("this machine's one-time 7-day trial has already been used")
+		a.setEntError("This machine's free trial has already been used — buy a license to continue.")
+		return err
+	}
+
+	a.applyIssuedToken(res.Token, hwID)
+	return nil
+}
+
+// StartPurchase asks the backend for a Stripe Checkout Session URL bound to
+// this machine's hardware id and begins polling for the purchase to land
+// in the background. Callers (the GUI) open the returned URL in the system
+// browser; EntitlementStatus reflects progress from here on (the GUI
+// already polls it on its own refresh ticker) -- no separate "purchase
+// complete" callback into this process, see pollForLicense.
+func (a *App) StartPurchase() (string, error) {
+	hwID, err := hwid.Get()
+	if err != nil {
+		a.setEntError(fmt.Sprintf("could not determine this machine's hardware id: %v", err))
+		return "", err
+	}
+
+	checkoutURL, err := entitlement.StartCheckoutURL(context.Background(), hwID)
+	if err != nil {
+		a.setEntError(fmt.Sprintf("could not start checkout: %v", err))
 		return "", err
 	}
 
@@ -1116,11 +1188,28 @@ func (a *App) StartPatreonLink() (string, error) {
 	a.entStatus.LastError = ""
 	a.entMu.Unlock()
 
-	go a.pollPatreonLink(pollCtx, start.State)
-	return start.AuthorizeURL, nil
+	go a.pollForLicense(pollCtx, hwID)
+	return checkoutURL, nil
 }
 
-func (a *App) pollPatreonLink(ctx context.Context, state string) {
+// pollForLicenseTimeout bounds how long pollForLicense keeps checking after
+// a checkout URL was opened -- generous (most Stripe webhooks land within
+// seconds, but this also covers someone taking their time entering card
+// details) without polling forever if the browser tab was simply closed
+// without paying. The GUI's "Refresh" affordance (if the dialog is
+// reopened later) calls RefreshLicense directly and picks up a late
+// webhook regardless of whether this loop already gave up.
+const pollForLicenseTimeout = 15 * time.Minute
+
+// pollForLicense repeatedly asks the backend whether hwID is licensed yet,
+// every 2s, until it is, ctx is cancelled (a newer StartPurchase call
+// superseded this one), or pollForLicenseTimeout elapses. There is no
+// server-side correlation state the way the old OAuth poll had (no "state"
+// param) -- hwID itself is the only thing being polled for, which is also
+// why this is safe to just call again from the GUI's own "Refresh" button
+// without needing to restart a checkout.
+func (a *App) pollForLicense(ctx context.Context, hwID string) {
+	deadline := time.Now().Add(pollForLicenseTimeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1129,46 +1218,34 @@ func (a *App) pollPatreonLink(ctx context.Context, state string) {
 			return
 		case <-ticker.C:
 		}
-		res, err := entitlement.PollOAuth(ctx, state)
+		if time.Now().After(deadline) {
+			a.setEntError("Didn't detect a completed payment yet — if you finished checkout, try again in a moment.")
+			return
+		}
+		res, err := entitlement.RefreshLicense(ctx, hwID)
 		if err != nil {
-			continue // transient network hiccup -- keep polling until the state's own backend-side TTL expires (PollExpired) or ctx is cancelled
+			continue // transient network hiccup -- keep polling until the deadline or ctx cancellation
 		}
-		switch res.Status {
-		case entitlement.PollPending:
-			continue
-		case entitlement.PollComplete:
-			a.applyLinkSuccess(res.EntitlementToken, res.ProviderRefreshToken)
-			return
-		case entitlement.PollError:
-			a.setEntError(describePollError(res.Reason))
-			return
-		case entitlement.PollExpired:
-			a.setEntError("This login link expired — try again.")
-			return
+		if res.NotLicensed {
+			continue // payment not completed / webhook not landed yet
 		}
+		a.applyIssuedToken(res.Token, hwID)
+		return
 	}
 }
 
-func describePollError(reason string) string {
-	switch reason {
-	case "below_tier":
-		return "Your Patreon account isn't pledged at the required tier yet."
-	case "exchange_failed":
-		return "Could not complete Patreon login — try again."
-	default:
-		return "Login failed — try again."
-	}
-}
-
-func (a *App) applyLinkSuccess(entitlementToken, providerRefreshToken string) {
-	if _, err := entitlement.Verify(entitlementToken); err != nil {
-		a.setEntError("Received an invalid entitlement token — try again.")
+// applyIssuedToken is StartFreeTrial and pollForLicense's shared tail end:
+// verify (hardware-bound, see entitlement.VerifyForHardware), persist, and
+// kick off the first RustShine download so there's no separate "Download
+// RustShine" click required.
+func (a *App) applyIssuedToken(token, hwID string) {
+	if _, err := entitlement.VerifyForHardware(token, hwID); err != nil {
+		a.setEntError("Received an invalid license token — try again.")
 		return
 	}
 
 	next := a.cfg
-	next.EntitlementToken = entitlementToken
-	next.ProviderRefreshToken = providerRefreshToken
+	next.EntitlementToken = token
 	if err := a.SaveConfig(next); err != nil {
 		log.Printf("[app] warning: failed to persist entitlement token: %v", err)
 	}
@@ -1182,10 +1259,11 @@ func (a *App) applyLinkSuccess(entitlementToken, providerRefreshToken string) {
 	// Start the first RustShine download immediately -- no "Download
 	// RustShine" button click required -- rather than waiting for
 	// whatever's left of entitlementWatchdog's 6h cadence. Backgrounded:
-	// applyLinkSuccess returns to pollPatreonLink's polling loop, which a
-	// GUI is actively waiting on to stop showing its login spinner: it
-	// shouldn't also block on a multi-MB download completing first.
-	go a.ensureRustShineFresh(context.Background(), entitlementToken)
+	// applyIssuedToken returns to pollForLicense's polling loop (or
+	// StartFreeTrial's synchronous caller), either of which a GUI is
+	// actively waiting on to stop showing its spinner: it shouldn't also
+	// block on a multi-MB download completing first.
+	go a.ensureRustShineFresh(context.Background(), token)
 }
 
 // DownloadRustShine downloads and stages the RustShine build for this
@@ -1196,7 +1274,11 @@ func (a *App) applyLinkSuccess(entitlementToken, providerRefreshToken string) {
 // returns successfully.
 func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 	token := a.cfg.EntitlementToken
-	if _, err := entitlement.Verify(token); err != nil {
+	hwID, err := hwid.Get()
+	if err != nil {
+		return fmt.Errorf("could not determine this machine's hardware id: %w", err)
+	}
+	if _, err := entitlement.VerifyForHardware(token, hwID); err != nil {
 		return fmt.Errorf("not currently entitled: %w", err)
 	}
 
@@ -1236,11 +1318,11 @@ func (a *App) DownloadRustShine(onProgress entitlement.ProgressFunc) error {
 	return nil
 }
 
-// UnlinkPatreon clears the saved entitlement/refresh tokens and switches
-// back to Sunshine if RustShine was active. Does not delete the already-
-// staged RustShine binary -- a later re-link can reuse it without
+// ClearLicense clears the saved entitlement token and switches back to
+// Sunshine if RustShine was active. Does not delete the already-staged
+// RustShine binary -- buying/trialing again later can reuse it without
 // re-downloading (see rustshineBackend.BinaryPath's staged-file check).
-func (a *App) UnlinkPatreon() error {
+func (a *App) ClearLicense() error {
 	if a.currentStreamKind() == "rustshine" {
 		if err := a.SetStreamBackend("sunshine"); err != nil {
 			return err
@@ -1248,7 +1330,6 @@ func (a *App) UnlinkPatreon() error {
 	}
 	next := a.cfg
 	next.EntitlementToken = ""
-	next.ProviderRefreshToken = ""
 	next.PreferredBackend = ""
 	if err := a.SaveConfig(next); err != nil {
 		return err
@@ -1257,19 +1338,18 @@ func (a *App) UnlinkPatreon() error {
 	return nil
 }
 
-// downgradeToSunshine clears the saved entitlement/refresh tokens and
-// switches back to Sunshine if RustShine was active -- the shared tail end
-// of every path that decides entitlement no longer holds up (a lapsed
-// Patreon membership, a locally-expired cached token while offline). Does
-// NOT delete the staged RustShine binary or its mirrored token file (see
-// entitlement.WriteTokenFile) -- a later re-link can reuse the binary
-// without re-downloading, and a stale token file is harmless either way,
-// since it just won't get launched again from the Go side until a fresh
-// link succeeds anyway.
+// downgradeToSunshine clears the saved entitlement token and switches back
+// to Sunshine if RustShine was active -- the shared tail end of every path
+// that decides entitlement no longer holds up (a refunded purchase, a
+// locally-expired cached token/trial while offline). Does NOT delete the
+// staged RustShine binary or its mirrored token file (see
+// entitlement.WriteTokenFile) -- a later purchase/trial can reuse the
+// binary without re-downloading, and a stale token file is harmless
+// either way, since it just won't get launched again from the Go side
+// until a fresh license/trial succeeds anyway.
 func (a *App) downgradeToSunshine() {
 	next := a.cfg
 	next.EntitlementToken = ""
-	next.ProviderRefreshToken = ""
 	next.PreferredBackend = ""
 	_ = a.SaveConfig(next)
 	a.refreshLocalEntitlementStatus()
@@ -1279,18 +1359,20 @@ func (a *App) downgradeToSunshine() {
 }
 
 // entitlementRecheckInterval is how often entitlementWatchdog re-verifies a
-// linked supporter's membership against the backend. Far longer than
-// sunshineWatchdogInterval deliberately: there's no reason to check
-// membership more than a few times a day, and Patreon's own rate limits
-// (100 req/min per access token) make anything tighter pointless anyway.
+// licensed customer's purchase against the backend (a trial's validity is
+// entirely local -- see recheckEntitlement's own doc comment on why only a
+// license, not a trial, needs a network re-check at all). Far longer than
+// sunshineWatchdogInterval deliberately: there's no reason to check more
+// than a few times a day, and a refund is a rare, human-initiated event,
+// not something that needs sub-hour detection latency.
 const entitlementRecheckInterval = 6 * time.Hour
 
 // entitlementWatchdog periodically re-verifies entitlement and downgrades
-// to Sunshine the moment it no longer holds up (cancelled pledge, tier
-// dropped, revoked refresh token) -- mirrors sunshineWatchdog's shape. Run
-// also fires one immediate recheckEntitlement shortly after startup (not
-// gated on this ticker), so a lapsed subscription is caught quickly after a
-// restart instead of waiting up to a full interval.
+// to Sunshine the moment it no longer holds up (a refund, a trial that's
+// now expired) -- mirrors sunshineWatchdog's shape. Run also fires one
+// immediate recheckEntitlement shortly after startup (not gated on this
+// ticker), so a refund is caught quickly after a restart instead of
+// waiting up to a full interval.
 func (a *App) entitlementWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(entitlementRecheckInterval)
 	defer ticker.Stop()
@@ -1304,63 +1386,85 @@ func (a *App) entitlementWatchdog(ctx context.Context) {
 	}
 }
 
-// recheckEntitlement silently re-derives a fresh entitlement token from the
-// saved provider refresh token (no browser interaction) and downgrades to
-// Sunshine if it's no longer entitled. A no-op if there's no saved refresh
-// token (never linked, or already unlinked).
+// recheckEntitlement re-verifies whatever's currently cached in
+// cfg.EntitlementToken and downgrades to Sunshine if it no longer holds up.
+// A no-op if there's no cached token at all (never trialed/purchased, or
+// already cleared).
 //
-// A transient failure (network down, backend unreachable) does NOT
-// downgrade immediately by itself — but it also doesn't just do nothing:
-// it falls back to checking the *cached* token's own embedded expiry
-// locally (entitlement.Verify, no network needed) and downgrades once
-// *that* has passed. Without this fallback, a long-running agent process
-// that's offline for longer than the token's TTL would keep trusting an
-// already-locally-expired token forever (nothing else re-derives entStatus
-// continuously while already running — only at the next restart, via
-// New()'s own local check), silently breaking the "offline grace is
-// bounded by the token's TTL" guarantee this whole scheme is supposed to
-// provide. This closes that gap: the bound is enforced continuously, not
-// just at the next restart.
+// A cached LICENSE token gets a real network re-check (RefreshLicense) --
+// this is the only thing a refund can invalidate, so it's the only case
+// that needs to ask the backend at all. A cached TRIAL token does NOT get
+// a network call: a trial can't be revoked (there's nothing to refund), so
+// its validity is entirely captured by its own signed `exp`, which the
+// local hardware-bound verify below already checks -- asking the backend
+// again would only ever reproduce the same still-active trial or (once
+// past exp) a signature check that already failed locally anyway.
+//
+// A transient failure on the license path (network down, backend
+// unreachable) does NOT downgrade immediately by itself — but it also
+// doesn't just do nothing: it falls back to checking the *cached* token's
+// own embedded expiry locally (entitlement.VerifyForHardware, no network
+// needed) and downgrades once *that* has passed. Without this fallback, a
+// long-running agent process that's offline for longer than the token's
+// TTL would keep trusting an already-locally-expired token forever
+// (nothing else re-derives entStatus continuously while already running —
+// only at the next restart, via New()'s own local check), silently
+// breaking the "offline grace is bounded by the token's TTL" guarantee
+// this whole scheme is supposed to provide. This closes that gap: the
+// bound is enforced continuously, not just at the next restart.
 func (a *App) recheckEntitlement(ctx context.Context) {
-	refreshToken := a.cfg.ProviderRefreshToken
-	if strings.TrimSpace(refreshToken) == "" {
+	if strings.TrimSpace(a.cfg.EntitlementToken) == "" {
 		return
 	}
-	res, err := entitlement.RefreshEntitlement(ctx, refreshToken)
+	hwID, err := hwid.Get()
+	if err != nil {
+		log.Printf("[app] entitlement recheck: could not determine hardware id: %v", err)
+		return
+	}
+
+	claims, verifyErr := entitlement.VerifyForHardware(a.cfg.EntitlementToken, hwID)
+	if verifyErr != nil {
+		log.Printf("[app] cached entitlement token is no longer valid locally — switching back to Sunshine: %v", verifyErr)
+		a.downgradeToSunshine()
+		return
+	}
+	if claims.Provider == entitlement.ProviderDesktopTrial {
+		// Still locally valid (checked above) and not network-revocable
+		// -- nothing more to do until it expires on its own.
+		return
+	}
+
+	res, err := entitlement.RefreshLicense(ctx, hwID)
 	if err != nil {
 		log.Printf("[app] entitlement recheck failed (will retry next interval): %v", err)
-		if _, verifyErr := entitlement.Verify(a.cfg.EntitlementToken); verifyErr != nil {
-			log.Printf("[app] cached entitlement token has now expired locally while offline — switching back to Sunshine: %v", verifyErr)
-			a.downgradeToSunshine()
-		}
-		return
+		return // cached token already verified locally above -- keep trusting it until it actually expires or a retry succeeds
 	}
-	if res.NotEntitled {
-		log.Printf("[app] entitlement lapsed (%s) — switching back to Sunshine", res.Reason)
+	if res.NotLicensed {
+		log.Printf("[app] license no longer on record for this hardware (refunded?) — switching back to Sunshine")
 		a.downgradeToSunshine()
 		return
 	}
 
 	next := a.cfg
-	next.EntitlementToken = res.EntitlementToken
-	next.ProviderRefreshToken = res.ProviderRefreshToken
+	next.EntitlementToken = res.Token
 	if err := a.SaveConfig(next); err != nil {
 		log.Printf("[app] warning: failed to persist refreshed entitlement: %v", err)
 	}
 	a.refreshLocalEntitlementStatus()
-	a.ensureRustShineFresh(ctx, res.EntitlementToken)
+	a.ensureRustShineFresh(ctx, res.Token)
 }
 
-// ensureRustShineFresh makes sure a linked supporter always has the latest
-// staged RustShine build, with no manual "Download RustShine" click
-// required: called both right after a link succeeds (applyLinkSuccess, so a
-// brand-new supporter's download starts within seconds, not on whatever the
-// next 6h watchdog tick happens to be) and from recheckEntitlement's own
-// cadence afterward (so later releases keep reaching them). A no-op with no
-// observable effect whenever entitlementToken is empty -- i.e. never linked,
-// or already downgraded to Sunshine -- so an unentitled install never
-// downloads or updates RustShine at all, only ever runs Sunshine, exactly
-// like DownloadRustShine's own explicit entitlement.Verify gate.
+// ensureRustShineFresh makes sure a licensed/trialing customer always has
+// the latest staged RustShine build, with no manual "Download RustShine"
+// click required: called both right after a purchase/trial succeeds
+// (applyIssuedToken, so a brand-new customer's download starts within
+// seconds, not on whatever the next 6h watchdog tick happens to be) and
+// from recheckEntitlement's own cadence afterward (so later releases keep
+// reaching them). A no-op with no observable effect whenever
+// entitlementToken is empty -- i.e. never entitled, or already downgraded
+// to Sunshine -- so an unentitled install never downloads or updates
+// RustShine at all, only ever runs Sunshine, exactly like
+// DownloadRustShine's own explicit entitlement.VerifyForHardware gate.
 func (a *App) ensureRustShineFresh(ctx context.Context, entitlementToken string) {
 	if strings.TrimSpace(entitlementToken) == "" {
 		return
@@ -1460,7 +1564,7 @@ func (a *App) restartRustShineIfActive() {
 // StageRustShine pair, but synchronous-enough to report a real error back
 // to the click that triggered it, and unconditional on whether RustShine is
 // currently staged at all (the very first "Download RustShine" click in the
-// Patreon dialog covers that case already; this one is a no-op, not an
+// license dialog covers that case already; this one is a no-op, not an
 // error, if nothing's staged yet -- see CheckRustShineUpdate's own doc
 // comment). Hot-swaps in place via restartRustShineIfActive if an update
 // was actually found and applied.

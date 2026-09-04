@@ -258,16 +258,20 @@ func (c *Client) EntitlementStatus() entitlement.Status {
 	return status
 }
 
-func (c *Client) StartPatreonLink() (string, error) {
+func (c *Client) StartFreeTrial() error {
+	return c.do(http.MethodPost, "/token/start-trial", nil, nil)
+}
+
+func (c *Client) StartPurchase() (string, error) {
 	var body stringBody
-	if err := c.do(http.MethodPost, "/token/patreon-link", nil, &body); err != nil {
+	if err := c.do(http.MethodPost, "/token/start-purchase", nil, &body); err != nil {
 		return "", err
 	}
 	return body.Value, nil
 }
 
-func (c *Client) UnlinkPatreon() error {
-	return c.do(http.MethodPost, "/token/patreon-unlink", nil, nil)
+func (c *Client) ClearLicense() error {
+	return c.do(http.MethodPost, "/token/clear-license", nil, nil)
 }
 
 // DownloadRustShine ignores onProgress over the thin-client path -- the

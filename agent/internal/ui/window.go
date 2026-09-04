@@ -60,10 +60,12 @@ type TokenProvider interface {
 	AdminPass() string
 	StreamerName() string
 
-	// Patreon-gated RustShine entitlement (see internal/entitlement).
+	// Hardware-bound RustShine entitlement (see internal/entitlement,
+	// internal/hwid).
 	EntitlementStatus() entitlement.Status
-	StartPatreonLink() (string, error)
-	UnlinkPatreon() error
+	StartFreeTrial() error
+	StartPurchase() (string, error)
+	ClearLicense() error
 	DownloadRustShine(onProgress entitlement.ProgressFunc) error
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
@@ -156,7 +158,7 @@ type Window struct {
 
 	// rustshineWebRTCRow: shown only while RustShine is the active backend
 	// -- lets a supporter turn USBridge's browser/WASM web client on or off
-	// without needing to reopen the Patreon dialog. Sunshine has no
+	// without needing to reopen the license dialog. Sunshine has no
 	// equivalent surface (no WebRTC endpoint of its own).
 	rustshineWebRTCRow   *fyne.Container
 	rustshineWebRTCCheck *widget.Check
@@ -182,8 +184,8 @@ type Window struct {
 	// Lock GPU Clocks: Windows+NVIDIA only, see app.applyGPUClockLock.
 	gpuClockCheck *widget.Check
 
-	// supportBtn opens showPatreonDialog -- a single, low-emphasis entry
-	// point for the whole Patreon/RustShine flow, deliberately never
+	// supportBtn opens showLicenseDialog -- a single, low-emphasis entry
+	// point for the whole license/RustShine flow, deliberately never
 	// popped up on its own (unlike promptForUpdate's confirm dialog, which
 	// is functionally necessary on every launch) -- this is a monetization
 	// affordance, not something the agent should ever interrupt a session
@@ -209,7 +211,7 @@ type Window struct {
 	// rustshineUpdateBtn is a small "check for updates" affordance shown
 	// only while RustShine is both active and already staged (see
 	// refreshRustShineUI) -- there's nothing to "update" before the first
-	// "Download RustShine" click in the Patreon dialog, and Sunshine has
+	// "Download RustShine" click in the license dialog, and Sunshine has
 	// no manual update path at all (see streamerVersionLabel's doc
 	// comment on why), so this button never applies to it.
 	rustshineUpdateBtn *widget.Button
@@ -333,7 +335,7 @@ func (w *Window) refreshClipboardToolUI() {
 const rustshineWebURL = "https://web.usbridge.io"
 
 // refreshRustShineUI keeps the standalone WebRTC checkbox (moved out of
-// showPatreonDialog so it's visible without opening that popup) and the
+// showLicenseDialog so it's visible without opening that popup) and the
 // Status panel's web-UI row in sync with entitlement.Status on every
 // refresh tick.
 func (w *Window) refreshRustShineUI(st entitlement.Status) {
@@ -744,10 +746,10 @@ func (w *Window) ShowAndRun(onClose func()) {
 
 	// supportBtn sits on the OS row (not the Streamer row below it) so it's
 	// the first thing visible in the Status panel, one level up from the
-	// per-streamer details -- an entitlement/Patreon affordance, not
+	// per-streamer details -- an entitlement/license affordance, not
 	// specific to whichever streamer happens to be active.
 	w.supportBtn = newSupportButton("Support us", func() {
-		w.showPatreonDialog(win)
+		w.showLicenseDialog(win)
 	})
 	osLabel := container.NewHBox(makeStatusLabel("OS:"), widget.NewLabel(capture.GetOSInfo()), layout.NewSpacer(), w.supportBtn)
 
@@ -757,7 +759,7 @@ func (w *Window) ShowAndRun(onClose func()) {
 	// Fires the check in the engine process and returns immediately --
 	// refreshRustShineUI's own 2s poll of EntitlementStatus is what shows
 	// the "checking…"/new-version/error result, the same fire-and-forget
-	// shape the "Download RustShine" button in showPatreonDialog already
+	// shape the "Download RustShine" button in showLicenseDialog already
 	// uses (see CheckRustShineUpdateNow's doc comment for why this is safe
 	// to not wait on here).
 	w.rustshineUpdateBtn = widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
@@ -1118,12 +1120,13 @@ func (w *Window) refreshSupportButton(st entitlement.Status) {
 	}
 }
 
-// showPatreonDialog is the single entry point for the whole Patreon-gated
-// RustShine flow: connect, wait, download, switch, unlink — all as one
-// dialog that re-renders itself as entitlement.Status changes, rather than
-// a sequence of separate popups. Opened only by an explicit click on
-// supportBtn — never shown automatically.
-func (w *Window) showPatreonDialog(parent fyne.Window) {
+// showLicenseDialog is the single entry point for the whole hardware-bound
+// RustShine license flow: start a free trial or buy, wait, download,
+// switch, clear -- all as one dialog that re-renders itself as
+// entitlement.Status changes, rather than a sequence of separate popups.
+// Opened only by an explicit click on supportBtn — never shown
+// automatically.
+func (w *Window) showLicenseDialog(parent fyne.Window) {
 	if parent == nil || w.token == nil {
 		return
 	}
@@ -1158,7 +1161,7 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 
 		switch {
 		case st.LinkInProgress:
-			body.Add(widget.NewLabel("Waiting for you to approve access in your browser…"))
+			body.Add(widget.NewLabel("Waiting for checkout to complete in your browser…"))
 			body.Add(widget.NewProgressBarInfinite())
 
 		case st.DownloadInProgress:
@@ -1170,11 +1173,17 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 			body.Add(pb)
 
 		case st.Linked && st.RustShineStaged:
-			tier := st.Tier
-			if tier == "" {
-				tier = "supporter"
+			var headline string
+			switch st.Tier {
+			case "trial":
+				headline = "**Free trial active** 🎉"
+				if !st.ExpiresAt.IsZero() {
+					headline += fmt.Sprintf(" — ends %s", st.ExpiresAt.Format("Jan 2"))
+				}
+			default:
+				headline = "**Thanks for buying a USBridge license!** 🎉"
 			}
-			body.Add(widget.NewRichTextFromMarkdown(fmt.Sprintf("**Thanks for supporting USBridge!** 🎉 (%s)", tier)))
+			body.Add(widget.NewRichTextFromMarkdown(headline))
 
 			rustshineOn := st.ActiveBackend == "rustshine"
 			backendSwitch := newToggleSwitch(rustshineOn, func(on bool) {
@@ -1199,27 +1208,27 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 			// main window's Permissions column now (w.rustshineWebRTCRow),
 			// not here -- it's useful to reach without opening this dialog.
 
-			unlinkBtn := widget.NewButton("Unlink Patreon Account", func() {
+			clearBtn := widget.NewButton("Clear License", func() {
 				dialog.NewConfirm(
-					"Unlink Patreon?",
-					"This switches back to Sunshine and forgets your Patreon link. You can reconnect anytime.",
+					"Clear license?",
+					"This switches back to Sunshine and forgets this machine's license/trial locally. If you bought a license, buying again isn't needed — click \"Buy a license\" afterward and it'll be picked back up automatically for this hardware.",
 					func(confirmed bool) {
 						if !confirmed {
 							return
 						}
 						go func() {
-							_ = w.token.UnlinkPatreon()
+							_ = w.token.ClearLicense()
 							fyne.Do(func() { render(w.token.EntitlementStatus()) })
 						}()
 					},
 					parent,
 				).Show()
 			})
-			unlinkBtn.Importance = widget.LowImportance
-			body.Add(container.NewCenter(unlinkBtn))
+			clearBtn.Importance = widget.LowImportance
+			body.Add(container.NewCenter(clearBtn))
 
 		case st.Linked && !st.RustShineStaged:
-			body.Add(widget.NewRichTextFromMarkdown("**You're a supporter — thank you!** 🎉\n\nReady to download RustShine?"))
+			body.Add(widget.NewRichTextFromMarkdown("**You're all set!** 🎉\n\nReady to download RustShine?"))
 			if st.LastError != "" {
 				errText := canvas.NewText(st.LastError, design.ColorTextMuted)
 				errText.TextStyle.Italic = true
@@ -1262,8 +1271,8 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 			body.Add(widget.NewSeparator())
 
 			pricing := widget.NewRichTextFromMarkdown(
-				"Free for Sunshine (open source, unlimited). RustShine is a perk for **$5+/mo** " +
-					"Patreon supporters — switch back to Sunshine anytime, no strings attached.",
+				"Free for Sunshine (open source, unlimited). RustShine is a one-time purchase, " +
+					"licensed to this machine — or try it free for 7 days first, no purchase required.",
 			)
 			pricing.Wrapping = fyne.TextWrapWord
 			body.Add(pricing)
@@ -1273,21 +1282,33 @@ func (w *Window) showPatreonDialog(parent fyne.Window) {
 				errText.TextStyle.Italic = true
 				body.Add(errText)
 			}
-			connectBtn := widget.NewButton("Connect Patreon Account", func() {
+
+			buyBtn := widget.NewButton("Buy a license", func() {
 				go func() {
-					authURL, err := w.token.StartPatreonLink()
+					checkoutURL, err := w.token.StartPurchase()
 					if err != nil {
 						fyne.Do(func() { render(w.token.EntitlementStatus()) })
 						return
 					}
-					if parsed, err := url.Parse(authURL); err == nil {
+					if parsed, err := url.Parse(checkoutURL); err == nil {
 						_ = w.app.OpenURL(parsed)
 					}
 					fyne.Do(func() { render(w.token.EntitlementStatus()) })
 				}()
 			})
-			connectBtn.Importance = widget.HighImportance
-			body.Add(container.NewCenter(connectBtn))
+			buyBtn.Importance = widget.HighImportance
+
+			buttons := container.NewHBox(buyBtn)
+			if st.TrialAvailable {
+				trialBtn := widget.NewButton("Start free 7-day trial", func() {
+					go func() {
+						_ = w.token.StartFreeTrial()
+						fyne.Do(func() { render(w.token.EntitlementStatus()) })
+					}()
+				})
+				buttons = container.NewHBox(trialBtn, buyBtn)
+			}
+			body.Add(container.NewCenter(buttons))
 		}
 
 		body.Refresh()
