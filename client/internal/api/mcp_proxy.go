@@ -141,6 +141,21 @@ func (p *MCPProxy) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Local ui.parse offload (see local_ui_intercept.go): when enabled in
+	// settings, answer ui.parse ourselves via ONNX Runtime on this
+	// machine's CPU/iGPU instead of forwarding to the device's NPU. Every
+	// other tool call falls through to the normal forward path below
+	// unchanged.
+	if localResp, handled, localErr := tryLocalUIParse(client, bytes.TrimSpace(body)); handled {
+		if localErr != nil {
+			http.Error(w, fmt.Sprintf("local ui.parse error: %v", localErr), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(localResp)
+		return
+	}
+
 	// PostRawWithTimeout signs the request with HMAC and forwards to device
 	// /api/mcp, using mcpProxyTimeout rather than the app's general
 	// (shorter) APITimeout -- see mcpProxyTimeout's doc comment for why.

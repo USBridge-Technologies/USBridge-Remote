@@ -132,6 +132,28 @@ The client bridges the gap between touch devices and physical hardware interface
 - **Absolute Mode**: Maps the client screen directly to the remote screen coordinate space for instantaneous 1:1 pointing (great for tablets and styluses).
 - **Virtual On-Screen Controls**: Dynamic IME tracking and custom gamepad layouts for mobile devices.
 
+## 🧠 Local ui.parse Offload (experimental)
+
+The MCP `ui.parse` tool (icon detection + text detection/recognition for
+agent-driven UI automation) normally runs on the device's RK3566 NPU,
+which tiles text detection into several passes at 1080p and can take
+~20s. On a machine with a real CPU/GPU, the same three ONNX models
+(icon detector + DBNet + SVTR) can run locally in well under 5s instead,
+via ONNX Runtime (with the OpenVINO execution provider on Intel iGPUs).
+
+```bash
+./scripts/setup_localui.sh                # once per machine: fetches models + runtime libs into ~/.usbridge/localui
+# then enable it in your config:
+#   "local_ui_parse_enabled": true
+```
+
+When enabled, the MCP proxy (`internal/api/mcp_proxy.go`) answers
+`ui.parse` itself instead of forwarding to the device — see
+`internal/localui`'s package doc comment for the full pipeline, and
+`cmd/localui_bench` for a standalone benchmark/verification tool. Off by
+default; falls back to the device path automatically if models/runtime
+aren't installed.
+
 ## 🛠️ Build & Dependencies
 
 Detailed compilation instructions and environment setup for all target platforms (Linux, macOS, Windows, Android, iOS, WASM) are located in the `scripts/` folder.

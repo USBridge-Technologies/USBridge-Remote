@@ -70,6 +70,20 @@ type AppConfig struct {
 	// Clipboard sync (agent <-> client shared clipboard)
 	ClipboardSyncEnabled bool  `json:"clipboard_sync_enabled" mapstructure:"clipboard_sync_enabled"`
 	ClipboardMaxBytes    int64 `json:"clipboard_max_bytes" mapstructure:"clipboard_max_bytes"` // cap per image/file payload
+
+	// Local ui.parse offload: answer the MCP ui.parse tool locally (ONNX
+	// Runtime on this machine's CPU/Intel iGPU) instead of forwarding to
+	// the device's RK3566 NPU -- see internal/localui's package doc
+	// comment and internal/api/local_ui_intercept.go for the full
+	// rationale (device-side ui.parse tiles DBNet 6x at 1920x1080, ~20s;
+	// the same models here finish in well under 5s). Opt-in and off by
+	// default: it needs the ONNX models + a libonnxruntime.so present on
+	// this machine (see scripts/setup_localui.sh), and isn't validated on
+	// every platform/GPU this client runs on yet.
+	LocalUIParseEnabled  bool   `json:"local_ui_parse_enabled" mapstructure:"local_ui_parse_enabled"`
+	LocalUIParseGPU      bool   `json:"local_ui_parse_gpu" mapstructure:"local_ui_parse_gpu"`             // try the OpenVINO GPU execution provider (falls back to CPU automatically if unavailable)
+	LocalUIParseModelDir string `json:"local_ui_parse_model_dir" mapstructure:"local_ui_parse_model_dir"` // dir containing icon_detect.onnx/dbnet.onnx/svtr.onnx; "" resolves to ~/.usbridge/localui/models
+	LocalUIParseORTLib   string `json:"local_ui_parse_ort_lib" mapstructure:"local_ui_parse_ort_lib"`     // path to libonnxruntime.so; "" resolves to ~/.usbridge/localui/runtime/libonnxruntime.so
 }
 
 // DefaultConfig returns the default configuration
@@ -121,6 +135,10 @@ func DefaultConfig() *AppConfig {
 		// Clipboard sync
 		ClipboardSyncEnabled: true,
 		ClipboardMaxBytes:    200 * 1024 * 1024,
+
+		// Local ui.parse offload -- off by default (opt-in, see field docs)
+		LocalUIParseEnabled: false,
+		LocalUIParseGPU:     true,
 	}
 }
 
