@@ -55,6 +55,7 @@ type ScriptsTabWidget struct {
 	mcpURLLabel  *canvas.Text
 	mcpToggleBtn *widget.Button
 	mcpCopyBtn   *widget.Button
+	localUICheck *widget.Check
 }
 
 // NewScriptsTabWidget creates the widget and builds the persistent UI tree.
@@ -206,11 +207,30 @@ func (w *ScriptsTabWidget) buildMCPCard() fyne.CanvasObject {
 	descLabel.Wrapping = fyne.TextWrapWord
 	descLabel.Importance = widget.LowImportance
 
+	// Local ui.parse offload toggle: when checked, ui.parse calls are
+	// answered right here (ONNX Runtime on this machine's CPU/Intel iGPU)
+	// instead of being forwarded to the device's NPU -- see
+	// internal/localui and internal/api/local_ui_intercept.go. Every other
+	// MCP tool call is unaffected either way. State is remembered across
+	// restarts via Fyne preferences and applied immediately on toggle, no
+	// proxy restart needed (the interceptor checks it live per-request).
+	w.localUICheck = widget.NewCheck("Use local models (faster than device NPU)", func(checked bool) {
+		if app := fyne.CurrentApp(); app != nil {
+			app.Preferences().SetBool(localUIParseEnabledPrefKey, checked)
+		}
+		w.applyLocalUIParseSetting(checked)
+	})
+	if app := fyne.CurrentApp(); app != nil {
+		w.localUICheck.SetChecked(app.Preferences().Bool(localUIParseEnabledPrefKey))
+	}
+	w.applyLocalUIParseSetting(w.localUICheck.Checked)
+
 	urlRow := container.NewBorder(nil, nil, nil, w.mcpCopyBtn, w.mcpURLLabel)
 	toggleRow := container.NewHBox(layout.NewSpacer(), w.mcpToggleBtn)
 	body := view.NewInset(container.NewVBox(
 		view.NewInset(urlRow, 0, 0, 6, 0),
 		view.NewInset(descLabel, 0, 0, 6, 0),
+		view.NewInset(w.localUICheck, 0, 0, 6, 0),
 		view.NewInset(toggleRow, 0, 0, 6, 0),
 	), 8, 8, 4, 4)
 
@@ -247,6 +267,24 @@ func (w *ScriptsTabWidget) buildSectionCard(eyebrow string, trailingAction fyne.
 }
 
 // ─── MCP Proxy ────────────────────────────────────────────────────────────────
+
+const localUIParseEnabledPrefKey = "local_ui_parse_enabled"
+
+// applyLocalUIParseSetting wires (or unwires) the local ui.parse backend
+// immediately -- the MCP proxy's interceptor (tryLocalUIParse) reads the
+// installed parser live on every request, so no proxy restart is needed
+// either way. Building the ONNX sessions takes up to a few seconds, so
+// enabling runs in the background; ui.parse keeps forwarding to the device
+// until it's ready.
+func (w *ScriptsTabWidget) applyLocalUIParseSetting(enabled bool) {
+	if !enabled {
+		api.SetLocalUIParser(nil)
+		return
+	}
+	cfg := models.DefaultConfig()
+	cfg.LocalUIParseEnabled = true
+	api.InitLocalUIParseFromConfig(cfg)
+}
 
 func (w *ScriptsTabWidget) toggleMCPProxy() {
 	w.mu.Lock()
@@ -652,8 +690,6 @@ func (w *ScriptsTabWidget) showNewScriptDialog(dir string, onCreated func()) {
 		},
 	})
 }
-
-
 
 func (w *ScriptsTabWidget) showScriptEditor(path, name string, onClose func()) {
 	w.mu.Lock()
