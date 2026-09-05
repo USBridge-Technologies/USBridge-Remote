@@ -14,6 +14,18 @@ import (
 
 const DefaultMCPProxyPort = 8765
 
+// mcpProxyTimeout is how long a forwarded MCP call is allowed to run,
+// independent of AppConfig.APITimeout (15s default) -- that shorter budget
+// is tuned to fail fast on a genuinely offline device for the app's own
+// routine health/status polling, not for MCP tool calls the device can
+// legitimately take longer to answer. Confirmed live: ui.parse tiles the
+// screenshot server-side for text detection, and at 1920x1080 that's 6
+// tiles (vs 720p's single untiled pass), ~20s end to end -- the shared 15s
+// client cut this off every time with "device error: context deadline
+// exceeded" even though the device had, in fact, finished and was about to
+// answer.
+const mcpProxyTimeout = 30 * time.Second
+
 // MCPProxy runs a local HTTP server on 127.0.0.1 that forwards /api/mcp
 // requests to the device with HMAC signatures, letting local AI tools reach
 // MCP without needing to sign requests themselves.
@@ -129,8 +141,10 @@ func (p *MCPProxy) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PostRaw signs the request with HMAC and forwards to device /api/mcp.
-	resp, err := client.PostRaw("/api/mcp", bytes.TrimSpace(body))
+	// PostRawWithTimeout signs the request with HMAC and forwards to device
+	// /api/mcp, using mcpProxyTimeout rather than the app's general
+	// (shorter) APITimeout -- see mcpProxyTimeout's doc comment for why.
+	resp, err := client.PostRawWithTimeout("/api/mcp", bytes.TrimSpace(body), mcpProxyTimeout)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("device error: %v", err), http.StatusBadGateway)
 		return

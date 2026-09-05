@@ -795,8 +795,6 @@ func (c *USBClient) GetVideoDevices() ([]models.SystemDevice, error) {
 	return payload.Devices, nil
 }
 
-
-
 // GetAudioDevices returns available ALSA audio capture devices.
 func (c *USBClient) GetAudioDevices() ([]models.SystemDevice, error) {
 	resp, err := c.makeRequest("GET", "/api/audio/devices", nil)
@@ -962,6 +960,68 @@ func (c *USBClient) makeRequestWithHeaders(method, endpoint string, body []byte,
 // PostRaw sends a POST request with a raw JSON body and returns the raw response bytes.
 func (c *USBClient) PostRaw(endpoint string, body []byte) ([]byte, error) {
 	return c.makeRequest("POST", endpoint, body)
+}
+
+// PostRawWithTimeout is PostRaw but the actual HTTP round trip runs on a
+// dedicated one-off *http.Client using timeout, instead of c.httpClient's
+// own (shared, shorter) timeout -- and does NOT mutate c.httpClient, so
+// it's safe to call concurrently with any other request this same
+// *USBClient is making (e.g. video/status polling using the regular
+// APITimeout-based client at the same time).
+//
+// Added for MCPProxy: some MCP calls it forwards can legitimately run
+// longer than the app's general APITimeout (15s default), which exists to
+// fail FAST on a genuinely offline/unreachable device for routine
+// health/status polling elsewhere -- a different, shorter budget than what
+// a slow-but-working MCP call needs. Confirmed live: ui.parse tiles the
+// screenshot server-side for text detection (see the device repo's
+// modules/ui_parser/tile.go) and at 1920x1080 that's 6 tiles instead of
+// 720p's 0 (single-shot, no tiling needed under 960px), ~20s end to end --
+// which the shared 15s client cut off every time with a "device error:
+// context deadline exceeded" even though the device had, in fact, finished
+// and would have answered a few seconds later.
+func (c *USBClient) PostRawWithTimeout(endpoint string, body []byte, timeout time.Duration) ([]byte, error) {
+	url := c.baseURL + endpoint
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("request creation failed: %v", err)
+	}
+	if len(c.apiSecret) > 0 && endpoint != "/api/healthz" && !strings.HasPrefix(endpoint, "/api/auth/qr") {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		signature := CalculateHMACV2(http.MethodPost, endpoint, timestamp, string(body), c.apiSecret)
+		req.Header.Set("X-Auth-Signature", signature)
+		req.Header.Set("X-Auth-Timestamp", timestamp)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	oneOff := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy:        http.ProxyURL(nil),
+			TLSNextProto: make(map[string]func(authority string, conn *tls.Conn) http.RoundTripper),
+		},
+	}
+	resp, err := oneOff.Do(req)
+	if err != nil {
+		wrappedErr := fmt.Errorf("request failed: %v", err)
+		if c.transportErrorHandler != nil && c.shouldNotifyTransportError(wrappedErr) {
+			go c.transportErrorHandler(wrappedErr)
+		}
+		return nil, wrappedErr
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 // makeRequestWithAcceptStatuses makes HTTP request, accepting specified status codes as success
