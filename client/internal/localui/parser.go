@@ -2,8 +2,25 @@ package localui
 
 import (
 	"fmt"
+	"os"
 	"sync"
+	"time"
 )
+
+// debugTiming is set once from USBRIDGE_LOCALUI_DEBUG -- mirrors the
+// device-side USBRIDGE_UI_PARSER_DEBUG convention (see
+// usbridge/modules/ui_parser/parser.go's debugStats). When set, Parse
+// prints a phase-by-phase timing breakdown to stderr: how much of the
+// total is decode/encode, YOLO, DBNet (per tile), and SVTR (aggregate
+// over all recognized crops) -- the actual answer to "what's the 3-5s
+// bottleneck", not a guess.
+var debugTiming = os.Getenv("USBRIDGE_LOCALUI_DEBUG") != ""
+
+func debugf(format string, args ...interface{}) {
+	if debugTiming {
+		fmt.Fprintf(os.Stderr, "[localui] "+format+"\n", args...)
+	}
+}
 
 const iconInputSize = 640
 
@@ -73,7 +90,9 @@ func (p *Parser) Close() {
 func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	t0 := time.Now()
 
+	tDecode := time.Now()
 	original, err := decodeToRGB(imgBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode image: %w", err)
@@ -81,14 +100,18 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 	if original.W == 0 || original.H == 0 {
 		return nil, nil, fmt.Errorf("decode image: empty result")
 	}
+	debugf("decode PNG (%dx%d, %d bytes): %v", original.W, original.H, len(imgBytes), time.Since(tDecode))
 
 	res := &Result{ImageWidth: original.W, ImageHeight: original.H, Backend: backendLabel(p.gpu)}
 
 	// -- Icons --
+	tIcon := time.Now()
 	clahe := applyCLAHE(original)
 	claheLB, iconLBMeta := letterboxRGB(clahe, iconInputSize)
 	iconInput := claheLB.toNCHWFloat()
+	tIconPrep := time.Since(tIcon)
 
+	tIconInfer := time.Now()
 	iconOut, err := p.icon.run(iconInput)
 	if err != nil {
 		return nil, nil, fmt.Errorf("icon_detect inference: %w", err)
@@ -97,6 +120,7 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 		icon.Bbox = iconLBMeta.toOriginal(icon.Bbox)
 		res.Icons = append(res.Icons, icon)
 	}
+	debugf("icon_detect: prep(CLAHE+letterbox)=%v infer+decode=%v -> %d icons", tIconPrep, time.Since(tIconInfer), len(res.Icons))
 
 	// -- Text (tiled DBNet, see tile.go) --
 	tiles := tileRects(original.W, original.H, dbnetMapSize, dbnetTileOverlap)
@@ -104,6 +128,7 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 		tiles = []rect{{X1: 0, Y1: 0, X2: original.W, Y2: original.H}}
 	}
 
+	tDBNet := time.Now()
 	var allTextBoxes []Box
 	for _, t := range tiles {
 		boxes, err := p.detectTextInTile(original, t)
@@ -113,7 +138,9 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 		allTextBoxes = append(allTextBoxes, boxes...)
 	}
 	textBoxes := mergeOverlappingBoxes(allTextBoxes, 0.3)
+	debugf("dbnet: %d tiles, %v total (%v/tile avg) -> %d boxes after merge", len(tiles), time.Since(tDBNet), time.Since(tDBNet)/time.Duration(len(tiles)), len(textBoxes))
 
+	tSVTR := time.Now()
 	for _, boxOrig := range textBoxes {
 		text, conf, ok := p.recognizeBox(original, boxOrig)
 		if !ok || text == "" {
@@ -121,11 +148,23 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 		}
 		res.Text = append(res.Text, TextRegion{Bbox: boxOrig, Text: text, Confidence: conf})
 	}
+	svtrElapsed := time.Since(tSVTR)
+	perCrop := time.Duration(0)
+	if len(textBoxes) > 0 {
+		perCrop = svtrElapsed / time.Duration(len(textBoxes))
+	}
+	debugf("svtr: %d crops, %v total (%v/crop avg) -> %d texts recognized", len(textBoxes), svtrElapsed, perCrop, len(res.Text))
 
+	tAssoc := time.Now()
 	associateLabels(res.Icons, res.Text)
 	assignMarkIDs(res.Icons, res.Text)
+	debugf("associate+mark: %v", time.Since(tAssoc))
 
+	tDraw := time.Now()
 	markedPNG = drawResult(original, res)
+	debugf("draw+encode marked PNG (%d bytes): %v", len(markedPNG), time.Since(tDraw))
+
+	debugf("TOTAL: %v", time.Since(t0))
 	return markedPNG, res, nil
 }
 
