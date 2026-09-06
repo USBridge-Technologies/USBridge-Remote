@@ -7,6 +7,12 @@
 #     FFmpeg MinGW DLLs (avcodec, avutil, swscale, opus):
 #       Download: https://github.com/BtbN/FFmpeg-Builds/releases (ffmpeg-master-latest-win64-gpl-shared.zip)
 #       Extract and specify: export FFMPEG_ROOT="/path/to/ffmpeg-mingw"
+#   Optional:   python3 (pip) -- fetches the local ui.parse/AI Vision ONNX
+#               runtime DLL (see fetch_onnxruntime.sh); its absence only
+#               disables that one feature, the rest of the build is
+#               unaffected. Works whether this script runs on a Linux/macOS
+#               host cross-compiling via mingw-w64, or natively under
+#               MSYS2/Git Bash on Windows itself.
 #
 # GStreamer is not needed on Windows: Moonlight uses libavcodec (D3D11VA/SW)
 # and the QR scanner uses Media Foundation directly.
@@ -451,6 +457,36 @@ mkdir -p "$DIST_WIN_DLLS" "$DIST_WIN_BIN"
 
 
 cp "$BUILD_CACHE_APP_EXE" "$DIST_WIN_BIN/$APP_EXE_NAME"
+
+# local ui.parse ONNX offload (internal/localui, AI Vision's detector): the
+# runtime lib is dlopen'd at runtime (via onnxruntime_go), not link-time
+# linked, so the DLL dependency walk below (which only follows what the
+# .exe actually imports) can never see or bundle it -- it needs its own
+# explicit step, same as build_macos.sh's equivalent (see
+# fetch_onnxruntime.sh's doc comment for why a PyPI wheel and not a manual
+# download). Placed flat next to the .exe in $DIST_WIN_BIN, matching
+# local_ui_init.go's resolveLocalUIPath flat-layout candidate. Both
+# failures are non-fatal (warn and continue): local ui.parse/AI Vision is
+# an optional accelerator, never a hard dependency of the build.
+echo -e "${YELLOW}Bundling local ui.parse (ONNX Runtime + models) for AI Vision...${NC}"
+ORT_CACHE_DIR="$REPO_ROOT/.build-cache/onnxruntime-windows"
+if [ ! -f "$ORT_CACHE_DIR/onnxruntime.dll" ]; then
+    "$SCRIPTS_DIR/fetch_onnxruntime.sh" "$ORT_CACHE_DIR" windows || true
+fi
+if [ -f "$ORT_CACHE_DIR/onnxruntime.dll" ]; then
+    cp -L "$ORT_CACHE_DIR/onnxruntime.dll" "$DIST_WIN_BIN/onnxruntime.dll"
+    echo -e "${GREEN}✓${NC} bin/onnxruntime.dll"
+else
+    echo -e "${YELLOW}⚠${NC} Could not fetch onnxruntime.dll -- local ui.parse/AI Vision will stay unavailable in this build"
+fi
+LOCALUI_MODELS_SRC="$REPO_ROOT/internal/localui/models"
+if [ -f "$LOCALUI_MODELS_SRC/icon_detect.onnx" ]; then
+    mkdir -p "$DIST_WIN_BIN/localui/models"
+    cp "$LOCALUI_MODELS_SRC"/*.onnx "$DIST_WIN_BIN/localui/models/"
+    echo -e "${GREEN}✓${NC} bin/localui/models/ ($(du -sh "$DIST_WIN_BIN/localui/models" | cut -f1))"
+else
+    echo -e "${YELLOW}⚠${NC} $LOCALUI_MODELS_SRC has no .onnx files -- local ui.parse/AI Vision will stay unavailable in this build"
+fi
 
 # Create a relative shortcut using explorer.exe
 echo "Creating shortcut..."
