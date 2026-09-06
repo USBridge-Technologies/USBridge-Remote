@@ -168,13 +168,23 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
         ANDROID_CMAKE_BUILD="${ANDROID_OUT}/cmake-build"
         mkdir -p "${ANDROID_CMAKE_BUILD}"
 
+        # MOONLIGHT_CMAKE_BUILD_TYPE lets a one-off debug build opt into
+        # moonlight-common-c's own BUILD_TYPE=XDEBUG (see its CMakeLists.txt
+        # -- it derives BUILD_TYPE from CMAKE_BUILD_TYPE via
+        # `string(TOUPPER "x${CMAKE_BUILD_TYPE}" BUILD_TYPE)`, so passing
+        # CMAKE_BUILD_TYPE=Debug is what's actually needed, not a
+        # standalone -DBUILD_TYPE=). CMAKE_BUILD_TYPE=Debug is what compiles
+        # in LC_DEBUG and, with it, RtpVideoQueue.c's FEC_VALIDATION_MODE
+        # (synthetic per-frame drop + recovery, for exercising real
+        # FEC-recovery smoothness without touching the actual network).
+        # Defaults to Release, this project's normal shipping configuration.
         cmake "${BUILD_DIR}" \
             -B "${ANDROID_CMAKE_BUILD}" \
             -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_TYPE="${MOONLIGHT_CMAKE_BUILD_TYPE:-Release}" \
             -DOPENSSL_ROOT_DIR="${OPENSSL_OUT}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_OUT}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_OUT}/lib/libcrypto.a" \
