@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"usbridge-client/internal/account"
 	"usbridge-client/internal/gui/controller"
 
 	"fyne.io/fyne/v2"
@@ -12,6 +13,31 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 )
+
+// accountDialogSnapshot is the subset of AccountManager state that actually
+// changes what showAccountDialog's body needs to look like -- compared
+// tick-to-tick by the background poller (see showAccountDialog) so a
+// render only happens on a REAL transition (login started/finished/failed,
+// logged out), never unconditionally on every 2s tick. Rebuilding the
+// whole body on every tick regardless of whether anything changed is what
+// caused the dialog to visibly flicker ("No licenses" flashing in and out)
+// and, worse, wiped out the sync-passphrase Entry's in-progress text on
+// every tick -- widget.NewPasswordEntry() started over from empty each
+// time body.RemoveAll() ran, so a passphrase could never actually be typed
+// in before the next tick erased it.
+type accountDialogSnapshot struct {
+	loginInProgress bool
+	loggedIn        bool
+	lastError       string
+}
+
+func newAccountDialogSnapshot(am *controller.AccountManager) accountDialogSnapshot {
+	return accountDialogSnapshot{
+		loginInProgress: am.LoginInProgress(),
+		loggedIn:        am.LoggedIn(),
+		lastError:       am.LastError(),
+	}
+}
 
 // showAccountDialog is the client's account button's single entry point --
 // mirrors the Go agent's showLicenseDialog in spirit (a small
@@ -28,6 +54,13 @@ func (mw *MainWindow) showAccountDialog() {
 	am := mw.connectionManager.Account
 
 	body := container.NewVBox()
+	// licensesLoaded/licensesCache/licensesErr: fetched exactly ONCE per
+	// dialog open (the first time render() reaches the LoggedIn case), not
+	// re-fetched on every render -- see accountLicensesList below.
+	var licensesLoaded bool
+	var licensesCache []account.License
+	var licensesErr error
+
 	var render func()
 	render = func() {
 		body.RemoveAll()
@@ -49,12 +82,20 @@ func (mw *MainWindow) showAccountDialog() {
 				body.Add(widget.NewLabel(errMsg))
 			}
 			body.Add(widget.NewSeparator())
-			body.Add(accountLicensesList(am))
+			body.Add(accountLicensesList(am, &licensesLoaded, &licensesCache, &licensesErr, render))
 			body.Add(widget.NewSeparator())
 			body.Add(accountSyncPassphraseSection(am, render))
 
 			logoutBtn := widget.NewButton("Log out", func() {
 				am.Logout()
+				// Forget the cached license list too -- otherwise logging
+				// back in within the same dialog session (LoggedIn()
+				// flips true again on the next poll tick) would show the
+				// PREVIOUS login's stale cached licenses instead of
+				// re-fetching for the new one.
+				licensesLoaded = false
+				licensesCache = nil
+				licensesErr = nil
 				render()
 			})
 			logoutBtn.Importance = widget.LowImportance
@@ -95,8 +136,13 @@ func (mw *MainWindow) showAccountDialog() {
 
 	// Polls while the dialog is open (same 2s cadence the agent's own
 	// license dialog uses) so a login completing in the browser is
-	// reflected without needing to close and reopen this dialog.
+	// reflected without needing to close and reopen this dialog -- but
+	// only actually re-renders (rebuilding every widget, including
+	// whatever Entry the human might be mid-typing into) when the
+	// snapshot genuinely changed since the last tick. See
+	// accountDialogSnapshot's own doc comment for why this matters.
 	go func() {
+		last := newAccountDialogSnapshot(am)
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -104,36 +150,51 @@ func (mw *MainWindow) showAccountDialog() {
 			case <-stop:
 				return
 			case <-ticker.C:
-				fyne.Do(render)
 			}
+			next := newAccountDialogSnapshot(am)
+			if next == last {
+				continue
+			}
+			last = next
+			fyne.Do(render)
 		}
 	}()
 }
 
-// accountLicensesList fetches and renders the logged-in account's licenses
-// -- kept as its own function so showAccountDialog's switch above stays
-// readable. Fetched once per dialog open (not on the 2s poll -- these
-// rarely change mid-dialog and a license list is a much heavier call than
-// the local status render's).
-func accountLicensesList(am *controller.AccountManager) fyne.CanvasObject {
+// accountLicensesList fetches the logged-in account's licenses exactly
+// once per dialog open (guarded by *loaded) and renders from the cached
+// result on every subsequent render() call -- render() itself only runs on
+// a real state transition now (see accountDialogSnapshot), but this cache
+// also means a manual re-render (e.g. after setting a sync passphrase)
+// doesn't refire an unnecessary network call.
+func accountLicensesList(am *controller.AccountManager, loaded *bool, cache *[]account.License, cacheErr *error, render func()) fyne.CanvasObject {
+	if *loaded {
+		return renderLicenses(*cache, *cacheErr)
+	}
+
 	box := container.NewVBox(widget.NewLabel("Loading your licenses…"))
 	go func() {
 		licenses, err := am.Licenses(context.Background())
-		fyne.Do(func() {
-			box.RemoveAll()
-			switch {
-			case err != nil:
-				box.Add(widget.NewLabel(fmt.Sprintf("Could not load licenses: %v", err)))
-			case len(licenses) == 0:
-				box.Add(widget.NewLabel("No licenses on this account yet."))
-			default:
-				for _, lic := range licenses {
-					box.Add(widget.NewLabel(fmt.Sprintf("[%s] %s — %s", lic.Kind, lic.Identifier, lic.Status)))
-				}
-			}
-			box.Refresh()
-		})
+		*cache = licenses
+		*cacheErr = err
+		*loaded = true
+		fyne.Do(render)
 	}()
+	return box
+}
+
+func renderLicenses(licenses []account.License, err error) fyne.CanvasObject {
+	box := container.NewVBox()
+	switch {
+	case err != nil:
+		box.Add(widget.NewLabel(fmt.Sprintf("Could not load licenses: %v", err)))
+	case len(licenses) == 0:
+		box.Add(widget.NewLabel("No licenses on this account yet."))
+	default:
+		for _, lic := range licenses {
+			box.Add(widget.NewLabel(fmt.Sprintf("[%s] %s — %s", lic.Kind, lic.Identifier, lic.Status)))
+		}
+	}
 	return box
 }
 
