@@ -89,6 +89,22 @@ Link flags: `-lmediandk -laaudio -landroid -lvulkan`
 
 Note: moonlight-common-c must be compiled for Android ARM64 (NDK toolchain).
 
+## AI Vision live overlay
+
+The "AI Vision" checkbox (video start dialog) reuses the local ui.parse
+ONNX pipeline (see the client README's "Local ui.parse Offload" section)
+against the live video feed instead of a static screenshot. How the
+resulting detection boxes reach the screen depends on whether a
+platform's decode path above ever produces a CPU-writable frame:
+
+| Platform | Video path | Overlay mechanism |
+|----------|-----------|--------------------|
+| Linux | Vulkan (CPU RGBA uploaded to a texture each frame) | Drawn in place into the RGBA buffer before `vk_video_try_submit` (`ai_vision.go`'s `ApplyAIVisionOverlay`) |
+| macOS, CPU-fallback decode | Only taken when `metal_video_try_submit` declines | Same in-place RGBA drawing, in `vt_callback`'s fallback branch |
+| macOS, Metal fast path (common case) | Zero-copy IOSurface → `CVMetalTextureCache`, no CPU pixel access ever | A second transparent `CALayer` (`g_overlay_layer` in `metal_video_impl_darwin.m`) stacked above the video IOSurface layer, updated only once per completed detection pass (~every 2s) — Core Animation composites it on the GPU for free every frame in between. Kicking off a fresh detection pass costs one occasional CPU readback of the `CVPixelBufferRef` (gated by `goAIVisionShouldSample`), not a per-frame cost. |
+| Android / Windows (Vulkan `AHardwareBuffer` zero-copy) | Zero-copy, no CPU pixel access | Not wired up yet — would need the same native-compositor-layer approach as macOS's Metal path (see `VulkanOverlayBridge.kt`'s cursor overlay for the existing Android pattern to extend) |
+| iOS | Metal, same zero-copy shape as macOS | Not wired up yet |
+
 ## Performance
 
 | Metric | New Native Pipeline (Vulkan/Metal) |

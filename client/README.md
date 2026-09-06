@@ -141,6 +141,14 @@ which tiles text detection into several passes at 1080p and can take
 (icon detector + DBNet + SVTR) can run locally in well under 5s instead,
 via ONNX Runtime (with the OpenVINO execution provider on Intel iGPUs).
 
+A packaged macOS build (`scripts/build_macos.sh`) already bundles a
+redistributable ONNX Runtime + the models straight into the `.app` —
+turning on `local_ui_parse_enabled` just works, no per-machine setup, no
+Homebrew (see `scripts/fetch_onnxruntime.sh`). `build_linux.sh` /
+`build_windows.sh` bundle the same way but that path isn't independently
+verified on real Linux/Windows machines yet. Building from source, or on
+a platform not bundling yet, run the setup script once instead:
+
 ```bash
 ./scripts/setup_localui.sh                # once per machine: fetches models + runtime libs into ~/.usbridge/localui
 # then enable it in your config:
@@ -153,6 +161,26 @@ When enabled, the MCP proxy (`internal/api/mcp_proxy.go`) answers
 `cmd/localui_bench` for a standalone benchmark/verification tool. Off by
 default; falls back to the device path automatically if models/runtime
 aren't installed.
+
+### AI Vision live overlay
+
+With local ui.parse offload enabled, the "AI Vision" checkbox next to
+resolution/bitrate in the video start dialog burns the same Set-of-Mark
+detection boxes + hex ids onto the *live* video feed (throttled to one
+detection pass every ~2s — see `internal/service/ai_vision.go`) instead of
+just a static screenshot: you see exactly what an agent's `ui.parse` call
+would see and how it would address each element, overlaid on the moving
+picture. Off by default.
+
+How it reaches the screen depends on whether the platform's video path is
+zero-copy: Linux (Vulkan) and macOS's CPU-fallback decode path draw
+straight into the CPU-owned RGBA frame buffer before it reaches the GPU.
+macOS's normal zero-copy Metal path (`metal_video_try_submit`, the common
+case) never produces a CPU-writable frame at all — that path composites
+the detection as its own transparent `CALayer` stacked above the video
+IOSurface layer instead (see `metal_video_impl_darwin.m`'s
+`g_overlay_layer`), at zero per-frame cost. Not yet wired into Android's
+or Windows' Vulkan zero-copy paths, or iOS.
 
 ## 🛠️ Build & Dependencies
 
