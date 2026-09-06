@@ -31,6 +31,18 @@ func newTestAccountManager(t *testing.T) *AccountManager {
 	return am
 }
 
+// newTestConnectionManager builds a *ConnectionManager with just the
+// fields ResetSyncPassphrase/setSyncVersion touch -- `app` is required
+// since setSyncVersion persists via cm.app.Storage() (see
+// connection_manager_sync.go's syncStateStorageURI). Same os.TempDir()
+// caveat as newTestAccountManager above applies to the persisted
+// connections_sync_state.json file, hence the matching cleanup.
+func newTestConnectionManager(t *testing.T, am *AccountManager, connections []SavedConnection) *ConnectionManager {
+	t.Helper()
+	t.Cleanup(func() { _ = os.Remove(filepath.Join(os.TempDir(), "connections_sync_state.json")) })
+	return &ConnectionManager{app: test.NewApp(), Account: am, connections: connections}
+}
+
 // fakeSyncBackendWithSeed mirrors usbridge-entitlement-backend's
 // /v1/sync/:kind{,/meta} routes closely enough to exercise
 // ResetSyncPassphrase end-to-end (see syncconn's own test file for the
@@ -125,7 +137,7 @@ func TestResetSyncPassphrase_SucceedsAndDerivesANewKey(t *testing.T) {
 	am := newTestAccountManager(t)
 	am.email = "a@b.com"
 	am.accountToken = "tok123"
-	cm := &ConnectionManager{Account: am, connections: []SavedConnection{{Name: "office", Host: "10.0.0.5", MasterKey: "secret"}}}
+	cm := newTestConnectionManager(t, am, []SavedConnection{{Name: "office", Host: "10.0.0.5", MasterKey: "secret"}})
 
 	if err := cm.ResetSyncPassphrase(context.Background(), "brand-new-passphrase"); err != nil {
 		t.Fatalf("ResetSyncPassphrase: %v", err)
@@ -144,7 +156,7 @@ func TestResetSyncPassphrase_OverwritesEvenWithPreExistingUnreadableData(t *test
 	am := newTestAccountManager(t)
 	am.email = "a@b.com"
 	am.accountToken = "tok123"
-	cm := &ConnectionManager{Account: am, connections: []SavedConnection{{Name: "home", Host: "1.2.3.4", MasterKey: "s"}}}
+	cm := newTestConnectionManager(t, am, []SavedConnection{{Name: "home", Host: "1.2.3.4", MasterKey: "s"}})
 
 	// Simulate a blob already present at version 5, encrypted under some
 	// OTHER (now-forgotten) passphrase this test never derives -- Reset
@@ -164,9 +176,77 @@ func TestResetSyncPassphrase_OverwritesEvenWithPreExistingUnreadableData(t *test
 func TestResetSyncPassphrase_NotLoggedInFails(t *testing.T) {
 	fakeSyncBackendWithSeed(t)
 	am := newTestAccountManager(t)
-	cm := &ConnectionManager{Account: am}
+	cm := newTestConnectionManager(t, am, nil)
 
 	if err := cm.ResetSyncPassphrase(context.Background(), "whatever"); err == nil {
 		t.Fatal("expected an error when not logged in, got nil")
+	}
+}
+
+// TestTrySyncPullAndMerge_DoesNotResurrectADeletionOnceAlreadySynced is the
+// regression test for the actual bug reported live: delete a synced
+// connection, and it comes back. Root cause was mergeSavedConnections
+// treating "present locally, absent from the just-pulled remote copy" as
+// always meaning "not pushed yet, keep it" -- which is also exactly what a
+// STALE local copy of something already deleted (and successfully pushed
+// away) looks like. Once this device has completed a real sync before
+// (see loadPersistedSyncVersion), trySyncPullAndMerge must trust remote
+// outright instead of re-merging a stale local leftover back in (and,
+// worse, pushing it right back up).
+func TestTrySyncPullAndMerge_DoesNotResurrectADeletionOnceAlreadySynced(t *testing.T) {
+	am := newTestAccountManager(t)
+	am.email = "a@b.com"
+	am.accountToken = "tok123"
+	am.SetSyncPassphrase("test-pass-112233")
+	_, key, ok := am.SyncCredentials()
+	if !ok {
+		t.Fatal("expected sync credentials to be configured")
+	}
+
+	// Remote already reflects a successful deletion -- "111" is gone,
+	// only "112" remains, at version 2 (some earlier push removed it).
+	remotePlaintext, _ := json.Marshal([]SavedConnection{{Name: "112", Host: "10.0.0.6", MasterKey: "k2"}})
+	ciphertext, nonce, err := syncconn.Encrypt(key, remotePlaintext)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	pushCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/sync/connections/meta", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"version": 2, "updated_at": nil})
+	})
+	mux.HandleFunc("GET /v1/sync/connections", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ciphertext": ciphertext, "nonce": nonce, "version": 2})
+	})
+	mux.HandleFunc("PUT /v1/sync/connections", func(w http.ResponseWriter, r *http.Request) {
+		pushCalled = true
+		_ = json.NewEncoder(w).Encode(map[string]int{"version": 3})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	prev := syncconn.TestSetBackendBaseURL(srv.URL)
+	t.Cleanup(func() { syncconn.TestSetBackendBaseURL(prev) })
+
+	// A STALE local copy that still has the already-deleted "111" --
+	// standing in for whatever caused it to still be present (the
+	// specific trigger matters less than the underlying bug: this state
+	// is possible, and must not resurrect/repropagate "111").
+	cm := newTestConnectionManager(t, am, []SavedConnection{
+		{Name: "111", Host: "1.1.1.1", MasterKey: "k1"},
+		{Name: "112", Host: "10.0.0.6", MasterKey: "k2"},
+	})
+	// Mark this device as having already completed a real sync before
+	// (persists version 2, matching remote) -- this is the condition that
+	// makes trySyncPullAndMerge trust remote instead of merging.
+	cm.setSyncVersion(2)
+
+	cm.trySyncPullAndMerge()
+
+	if len(cm.connections) != 1 || cm.connections[0].Name != "112" {
+		t.Fatalf("expected only remote's \"112\" to survive, got %+v", cm.connections)
+	}
+	if pushCalled {
+		t.Fatal("adopting remote wholesale must not also push \"111\" back up to the server")
 	}
 }
