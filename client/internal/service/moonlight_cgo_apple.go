@@ -19,6 +19,8 @@ extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
 extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
+extern int  goAIVisionShouldSample(void);
+extern void goAIVisionSample(uint8_t *rgba, int width, int height, int stride);
 
 // Metal overlay fast path (macOS: metal_video_darwin.go, iOS: metal_video_ios.go).
 extern int metal_video_try_submit(CVImageBufferRef img);
@@ -373,6 +375,38 @@ static void vt_callback(
         // call itself.
         int w = (int)CVPixelBufferGetWidth(img);
         int h = (int)CVPixelBufferGetHeight(img);
+
+        // AI Vision on the zero-copy Metal path: goAIVisionShouldSample is a
+        // pure-atomics check (no pixel access), true on roughly one frame
+        // every aiVisionInterval -- only then do we pay for a CPU readback
+        // of this one frame, converted BGRA->RGBA into the same scratch
+        // buffer the CPU-fallback path below reuses. The completed
+        // detection reaches the screen via a separate compositor overlay
+        // layer (see metal_video_impl_darwin.m's g_overlay_layer), not by
+        // drawing into this buffer -- it's discarded right after.
+        if (goAIVisionShouldSample()) {
+            CVPixelBufferLockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+            size_t bpr = CVPixelBufferGetBytesPerRow(img);
+            const uint8_t *src = (const uint8_t *)CVPixelBufferGetBaseAddress(img);
+            size_t needed = (size_t)w * (size_t)h * 4;
+            if (needed > g_vt_rgba_buf_size) {
+                free(g_vt_rgba_buf);
+                g_vt_rgba_buf = (uint8_t *)malloc(needed);
+                g_vt_rgba_buf_size = g_vt_rgba_buf ? needed : 0;
+            }
+            if (g_vt_rgba_buf) {
+                for (int y = 0; y < h; y++) {
+                    const uint8_t *row = src + (size_t)y * bpr;
+                    uint8_t *dst = g_vt_rgba_buf + (size_t)y * (size_t)w * 4;
+                    for (int x = 0; x < w; x++, row += 4, dst += 4) {
+                        dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
+                    }
+                }
+                goAIVisionSample(g_vt_rgba_buf, w, h, w * 4);
+            }
+            CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);
+        }
+
         goVTFrame(NULL, w, h, 0);
         return;
     }

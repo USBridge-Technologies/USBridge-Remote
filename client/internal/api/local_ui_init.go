@@ -29,7 +29,7 @@ func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 		}
 		ortLib := cfg.LocalUIParseORTLib
 		if ortLib == "" {
-			ortLib = filepath.Join(defaultLocalUIDir("runtime"), "libonnxruntime.so")
+			ortLib = filepath.Join(defaultLocalUIDir("runtime"), localui.DefaultRuntimeLibName())
 		}
 
 		lcfg := localui.Config{

@@ -2,10 +2,30 @@ package localui
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
+
+// DefaultRuntimeLibName returns the ONNX Runtime shared library's filename
+// on this platform -- callers that resolve a default path under
+// ~/.usbridge/localui/runtime (internal/api/local_ui_init.go,
+// cmd/localui_bench) join this onto that directory instead of hardcoding
+// the Linux ".so" name, which silently never matched on macOS (Homebrew's
+// onnxruntime, or scripts/setup_localui.sh's own output once it grows a
+// macOS branch, installs "libonnxruntime.dylib" there) and left
+// LocalUIParseEnabled looking "not available" with no indication why.
+func DefaultRuntimeLibName() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "libonnxruntime.dylib"
+	case "windows":
+		return "onnxruntime.dll"
+	default:
+		return "libonnxruntime.so"
+	}
+}
 
 var initOnce sync.Once
 var initErr error

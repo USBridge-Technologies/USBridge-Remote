@@ -42,6 +42,18 @@ var (
 	aiVisionResult *localui.Result
 )
 
+// aiVisionMetalPush and aiVisionMetalClear are wired up by
+// metal_video_darwin.go's init() on macOS (Metal's zero-copy decode path
+// never produces a CPU-writable frame buffer for drawCachedOverlay to draw
+// into -- see that file's pushAIVisionOverlayToMetal doc comment for the
+// native-compositor-layer alternative it uses instead). Left nil on every
+// other platform, where drawCachedOverlay's in-place pixel drawing is the
+// only mechanism and there is nothing else to notify.
+var (
+	aiVisionMetalPush  func(result *localui.Result, w, h int)
+	aiVisionMetalClear func()
+)
+
 // SetAIVisionEnabled turns the live detection overlay on or off. Wired to
 // the "AI Vision" checkbox in the video settings popup (see
 // gui/view/video_start_dialog.go) -- takes effect immediately, independent
@@ -54,6 +66,9 @@ func SetAIVisionEnabled(enabled bool) {
 		aiVisionMu.Lock()
 		aiVisionResult = nil
 		aiVisionMu.Unlock()
+		if clear := aiVisionMetalClear; clear != nil {
+			clear()
+		}
 	}
 	if wasEnabled != enabled {
 		logrus.Infof("🔎 [AI Vision] %s", map[bool]string{true: "enabled", false: "disabled"}[enabled])
@@ -122,6 +137,14 @@ func maybeKickDetection(rgba []byte, w, h, stride int) {
 		aiVisionMu.Lock()
 		aiVisionResult = result
 		aiVisionMu.Unlock()
+		// macOS Metal fast path only: also push the result to the native
+		// compositor overlay layer, since that path never runs
+		// drawCachedOverlay (see aiVisionMetalPush's doc comment above).
+		// A no-op (nil check inside) when Metal isn't the active renderer.
+		if push := aiVisionMetalPush; push != nil {
+			b := frame.Bounds()
+			push(result, b.Dx(), b.Dy())
+		}
 	}()
 }
 

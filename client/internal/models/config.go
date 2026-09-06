@@ -83,7 +83,7 @@ type AppConfig struct {
 	LocalUIParseEnabled  bool   `json:"local_ui_parse_enabled" mapstructure:"local_ui_parse_enabled"`
 	LocalUIParseGPU      bool   `json:"local_ui_parse_gpu" mapstructure:"local_ui_parse_gpu"`             // try the OpenVINO GPU execution provider (falls back to CPU automatically if unavailable)
 	LocalUIParseModelDir string `json:"local_ui_parse_model_dir" mapstructure:"local_ui_parse_model_dir"` // dir containing icon_detect.onnx/dbnet.onnx/svtr.onnx; "" resolves to ~/.usbridge/localui/models
-	LocalUIParseORTLib   string `json:"local_ui_parse_ort_lib" mapstructure:"local_ui_parse_ort_lib"`     // path to libonnxruntime.so; "" resolves to ~/.usbridge/localui/runtime/libonnxruntime.so
+	LocalUIParseORTLib   string `json:"local_ui_parse_ort_lib" mapstructure:"local_ui_parse_ort_lib"`     // path to the ONNX Runtime shared lib; "" resolves to ~/.usbridge/localui/runtime/<localui.DefaultRuntimeLibName()>
 }
 
 // DefaultConfig returns the default configuration
