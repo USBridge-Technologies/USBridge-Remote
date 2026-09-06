@@ -36,9 +36,11 @@ var (
 	ColorTailscaleChipBorder = color.NRGBA{R: 0xe5, G: 0xf5, B: 0xb4, A: 0xff}
 	ColorTailscaleChipLabel  = color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff}
 
-	// ColorLogoWordmark is the "USBridge" wordmark color next to the logo
-	// mark in the app's header bars.
-	ColorLogoWordmark = color.NRGBA{R: 0xe7, G: 0xfb, B: 0xba, A: 0xff}
+	// ColorHeaderAccentLine is the brand accent color for the thin line under
+	// the connections screen's header bar (previously also the standalone
+	// "USBridge" wordmark's text color, before that got folded into the
+	// combined logo+wordmark lockup image).
+	ColorHeaderAccentLine = color.NRGBA{R: 0xe7, G: 0xfb, B: 0xba, A: 0xff}
 )
 
 const RadiusMD float32 = 8

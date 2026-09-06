@@ -81,6 +81,8 @@ var (
 	usbridgeIcon []byte
 	//go:embed LogoUSBridge.svg
 	logoUSBridgeIcon []byte
+	//go:embed LogoUSBridge2.0.svg
+	logoUSBridgeLockup []byte
 	//go:embed linux-svgrepo-com.svg
 	linuxOSIcon []byte
 	//go:embed windows-svgrepo-com.svg
@@ -99,8 +101,17 @@ var (
 	DiscordIconDim     = fyne.NewStaticResource("message-chat-square-svgrepo-com-dim.svg", recolorStrokeIcon(messageChatSquareIcon, "#8E8E8E", "1.9"))
 	DiscordIcon        = fyne.NewStaticResource("message-chat-square-svgrepo-com.svg", recolorStrokeIcon(messageChatSquareIcon, "#F5F5F5", "1.9"))
 	DiscordIconHeader  = fyne.NewStaticResource("message-chat-square-svgrepo-com-header.svg", recolorStrokeIcon(messageChatSquareIcon, "#c3c6b4", "1.9"))
-	LanguageIconHeader = fyne.NewStaticResource("language-svgrepo-com-header.svg", recolorStrokeIcon(languageIcon, "#c3c6b4", "1.9"))
-	QuestionIconHeader = fyne.NewStaticResource("question-svgrepo-com-header.svg", recolorStrokeIcon(questionIcon, "#c3c6b4", "2.6"))
+	// LanguageIconHeader: language-svgrepo-com.svg is a filled shape (root
+	// <svg fill="#000000">, no stroke attribute at all) -- recolorStrokeIcon
+	// had nothing to match here, so this rendered solid black regardless of
+	// the color passed in. Every other Language* variant already uses
+	// recolorFillIcon; this one just hadn't been fixed to match.
+	LanguageIconHeader = fyne.NewStaticResource("language-svgrepo-com-header.svg", recolorFillIcon(languageIcon, "#c3c6b4"))
+	// QuestionIconHeader: question-svgrepo-com.svg mixes a stroked circle
+	// (stroke="#000000") with a filled "?" glyph (fill="#000000") in the same
+	// file -- recolorStrokeIcon only recolored the circle, leaving the
+	// question mark itself black. recolorMonoIcon recolors both.
+	QuestionIconHeader = fyne.NewStaticResource("question-svgrepo-com-header.svg", recolorMonoIcon(questionIcon, "#c3c6b4", "2.6"))
 	DiscordIconActive  = fyne.NewStaticResource("message-chat-square-svgrepo-com-active.svg", recolorStrokeIcon(messageChatSquareIcon, "#93C572", "1.9"))
 	LanguageIconDim    = fyne.NewStaticResource("language-svgrepo-com-dim.svg", recolorFillIcon(languageIcon, "#8E8E8E"))
 	LanguageIconMuted  = fyne.NewStaticResource("language-svgrepo-com-muted.svg", recolorFillIcon(languageIcon, "#C9C9C9"))
@@ -115,9 +126,12 @@ var (
 	// black video area rather than a light button background.
 	VideoConnectingFrames      = buildLoadingFrames(loadingIcon, "#F5F5F5")
 	VideoConnectingGearFrames  = buildGearFrames("#F5F5F5")
-	QuestionIconDim            = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorStrokeIcon(questionIcon, "#8E8E8E", "2.6"))
-	QuestionIconMuted          = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorStrokeIcon(questionIcon, "#C9C9C9", "2.6"))
-	QuestionIcon               = fyne.NewStaticResource("question-svgrepo-com.svg", recolorStrokeIcon(questionIcon, "#F5F5F5", "2.6"))
+	// recolorMonoIcon, not recolorStrokeIcon: question-svgrepo-com.svg mixes
+	// a stroked circle with a filled "?" glyph -- see QuestionIconHeader's
+	// comment above for the full explanation.
+	QuestionIconDim            = fyne.NewStaticResource("question-svgrepo-com-dim.svg", recolorMonoIcon(questionIcon, "#8E8E8E", "2.6"))
+	QuestionIconMuted          = fyne.NewStaticResource("question-svgrepo-com-muted.svg", recolorMonoIcon(questionIcon, "#C9C9C9", "2.6"))
+	QuestionIcon               = fyne.NewStaticResource("question-svgrepo-com.svg", recolorMonoIcon(questionIcon, "#F5F5F5", "2.6"))
 	QRCodeIcon                 = fyne.NewStaticResource("Qr-Code--Streamline-Atlas.svg", qrCodeIcon)
 	QRCodeMuted                = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-muted.svg", recolorStrokeIcon(qrCodeIcon, "#656565", "1.3"))
 	QRCodeLight                = fyne.NewStaticResource("Qr-Code--Streamline-Atlas-light.svg", recolorStrokeIcon(qrCodeIcon, "#C9C9C9", "1.3"))
@@ -178,6 +192,12 @@ var (
 	ConnectionEditIconMuted    = fyne.NewStaticResource("connection-edit-muted.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#4E4E4E"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13z"/></svg>`))
 	USBridgeOSIcon             = fyne.NewStaticResource("USBridge-os.svg", recolorMonoIcon(usbridgeIcon, "#C9C9C9", "1.8"))
 	LogoUSBridgeIcon = fyne.NewStaticResource("LogoUSBridge.svg", recolorFillIcon(logoUSBridgeIcon, "#e7fbba"))
+	// LogoUSBridgeLockup is the combined logo mark + "USBridge" wordmark
+	// (Figma export) used in header bars in place of a separate icon +
+	// canvas.Text pair. Already fully colored in the source file -- unlike
+	// every other resource here, deliberately embedded raw, with no
+	// recolorFillIcon/recolorStrokeIcon pass.
+	LogoUSBridgeLockup        = fyne.NewStaticResource("LogoUSBridge2.0.svg", logoUSBridgeLockup)
 	LinuxOSIcon                = fyne.NewStaticResource("linux-svgrepo-com-os.svg", recolorMonoIcon(linuxOSIcon, "#C9C9C9", "1.8"))
 	WindowsOSIcon              = fyne.NewStaticResource("windows-svgrepo-com-os.svg", recolorMonoIcon(windowsOSIcon, "#C9C9C9", "1.8"))
 	MacOSIcon                  = fyne.NewStaticResource("macos-svgrepo-com-os.svg", recolorMonoIcon(macosOSIcon, "#C9C9C9", "1.8"))

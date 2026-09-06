@@ -50,9 +50,16 @@ func (h *ConnectionHeaderHandle) SetTailscaleState(status, authLabel string) {
 	h.toggle.SetDisabled(loading) // Block button during transition
 }
 
+// headerCompactButtonSize is how big the info/community/language buttons
+// render in this header -- smaller and closer together than
+// headerStatusBadgeButton's own 36x36 default (used as-is by the connected
+// screen's video/audio status buttons), which is why each one here is
+// wrapped in a GridWrap rather than changing that shared default.
+var headerCompactButtonSize = fyne.NewSize(28, 28)
+
 // newConnectionHeader builds the top bar shown on the connections screen
-// (before a device is connected): logo + wordmark on the left, and on the
-// right the Tailscale toggle, info, community and language buttons. The
+// (before a device is connected): logo+wordmark lockup on the left, and on
+// the right the Tailscale toggle, info, community and language buttons. The
 // returned handle is how the controller later pushes Tailscale status into
 // the toggle it just built.
 //
@@ -60,15 +67,11 @@ func (h *ConnectionHeaderHandle) SetTailscaleState(status, authLabel string) {
 // this component yet. When one exists, the choice between them belongs in
 // the caller (createConnectionAddressBar), not inside this component.
 func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *ConnectionHeaderHandle) {
-	logo := canvas.NewImageFromResource(assets.LogoUSBridgeIcon)
-	logo.SetMinSize(fyne.NewSize(24, 24))
-	logo.FillMode = canvas.ImageFillContain
-
-	title := canvas.NewText("USBridge", design.ColorLogoWordmark)
-	title.TextSize = 14
-	title.TextStyle = fyne.TextStyle{Bold: true}
-
-	leftRow := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, logo, title)
+	logoLockup := canvas.NewImageFromResource(assets.LogoUSBridgeLockup)
+	logoLockup.FillMode = canvas.ImageFillContain
+	const logoAspectRatio = 951.0 / 236.0
+	const logoHeight = 28
+	logoLockup.SetMinSize(fyne.NewSize(logoHeight*logoAspectRatio, logoHeight))
 
 	var langBtn *headerStatusBadgeButton
 	langBtn = newHeaderStatusBadgeButton(assets.LanguageIconHeader, func() {
@@ -77,7 +80,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		}
 	})
 	langBtn.SetBadgeText("")
-	langBtn.SetIconSize(fyne.NewSize(16, 16))
+	langBtn.SetIconSize(fyne.NewSize(15, 15))
 
 	communityBtn := newHeaderStatusBadgeButton(assets.DiscordIconHeader, func() {
 		if actions.OnOpenCommunity != nil {
@@ -85,7 +88,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		}
 	})
 	communityBtn.SetBadgeText("")
-	communityBtn.SetIconSize(fyne.NewSize(16, 16))
+	communityBtn.SetIconSize(fyne.NewSize(15, 15))
 
 	infoBtn := newHeaderStatusBadgeButton(assets.QuestionIconHeader, func() {
 		if actions.OnOpenInfo != nil {
@@ -93,7 +96,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		}
 	})
 	infoBtn.SetBadgeText("")
-	infoBtn.SetIconSize(fyne.NewSize(16, 16))
+	infoBtn.SetIconSize(fyne.NewSize(15, 15))
 
 	var tailscaleAccessory fyne.CanvasObject
 	handle := &ConnectionHeaderHandle{}
@@ -109,14 +112,24 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		tailscaleAccessory = toggle
 	}
 
-	rightRow := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, tailscaleAccessory, infoBtn, communityBtn, langBtn)
+	rightRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+		tailscaleAccessory,
+		container.NewGridWrap(headerCompactButtonSize, infoBtn),
+		container.NewGridWrap(headerCompactButtonSize, communityBtn),
+		container.NewGridWrap(headerCompactButtonSize, langBtn),
+	)
 
-	row := container.NewHBox(leftRow, layout.NewSpacer(), rightRow)
+	row := container.NewHBox(logoLockup, layout.NewSpacer(), rightRow)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	paddedRow := view.NewInset(row, 16, 16, 2, 2)
 
-	return container.NewStack(bg, paddedRow), handle
+	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	accentLine.SetMinSize(fyne.NewSize(1, 2))
+
+	content := container.NewBorder(nil, accentLine, nil, nil, paddedRow)
+
+	return container.NewStack(bg, content), handle
 }
 
 // summarizeTailscaleState turns the tsnet polling loop's free-form status
