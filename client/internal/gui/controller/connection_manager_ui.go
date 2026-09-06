@@ -114,10 +114,14 @@ func (cm *ConnectionManager) refreshConnectionsList() {
 	}
 
 	rows := make([]*fyne.Container, 0, len(cm.connections))
+	cards := make([]fyne.CanvasObject, 0, len(cm.connections))
+	remoteOSValues := make([]string, 0, len(cm.connections))
 	for i, conn := range cm.connections {
 		rows = append(rows, cm.createConnectionRow(conn, i))
+		cards = append(cards, cm.createConnectionGridCard(conn, i))
+		remoteOSValues = append(remoteOSValues, conn.RemoteOS)
 	}
-	cm.ui.SetRows(rows)
+	cm.ui.SetRows(rows, cards, view.SummarizeConnections(remoteOSValues))
 	cm.notifyConnectionsState()
 }
 
@@ -201,6 +205,76 @@ func (cm *ConnectionManager) createConnectionRow(conn SavedConnection, idx int) 
 				if cm.selectedIndex == idx && cm.onSelect != nil {
 					cm.onSelect(checked)
 				}
+			},
+		},
+	)
+}
+
+// createConnectionGridCard builds the same connection's Grid-mode card
+// (NewConnectionGridCard), mirroring createConnectionRow's data/actions so
+// the Grid/List toggle shows equivalent content either way.
+func (cm *ConnectionManager) createConnectionGridCard(conn SavedConnection, idx int) fyne.CanvasObject {
+	conn.Protocol = normalizeConnectionProtocol(conn.Protocol)
+	internalHost, tailscaleHost := classifyConnectionHosts(conn)
+	rowState := view.ConnectionRowState{
+		Disabled: cm.connectionPending,
+		Loading:  cm.connectionPending && cm.activeConnectionIndex == idx,
+	}
+
+	fillForm := func() {
+		if cm.connectionPending {
+			return
+		}
+
+		fyne.Do(func() {
+			cm.SelectConnection(idx)
+		})
+	}
+
+	return view.NewConnectionGridCard(
+		view.ConnectionCardData{
+			Name:             conn.Name,
+			RemoteOS:         conn.RemoteOS,
+			LANAddress:       internalHost,
+			TailscaleAddress: tailscaleHost,
+			ProtocolBadge:    connectionProtocolBadge(conn.Protocol),
+			ProtocolOptions: []string{
+				connectionProtocolBadge(models.ConnectionProtocolAuto),
+				connectionProtocolBadge(models.ConnectionProtocolTailscale),
+				connectionProtocolBadge(models.ConnectionProtocolDirect),
+			},
+		},
+		rowState,
+		view.ConnectionCardActions{
+			OnSelect: fillForm,
+			OnEdit: func() {
+				if cm.connectionPending {
+					return
+				}
+				cm.showEditDialog(idx)
+			},
+			OnUse: func() {
+				if !cm.beginConnectionFromRow(idx) {
+					return
+				}
+
+				fyne.Do(func() {
+					cm.SelectConnection(idx)
+					if cm.onConnect != nil {
+						conn := cm.connections[idx]
+						protocol := normalizeConnectionProtocol(conn.Protocol)
+						host := cm.resolveHostForProtocol(conn, protocol)
+						cm.onConnect(host, conn.MasterKey, protocol, conn.TailscaleRegister)
+						return
+					}
+					cm.SetConnectionPending(false)
+				})
+			},
+			OnProtocolChange: func(label string) {
+				if cm.connectionPending {
+					return
+				}
+				cm.updateConnectionProtocol(idx, connectionProtocolFromBadge(label))
 			},
 		},
 	)

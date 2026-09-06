@@ -18,8 +18,8 @@ var (
 	ColorTextMuted          = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
 	ColorBorder             = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
 	ColorSurfaceLight       = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff} // --cs-surface-light
-	ColorGray900            = color.NRGBA{R: 0x16, G: 0x1b, B: 0x22, A: 0xff} // --cs-gray-900 (Header)
-	ColorGray950            = color.NRGBA{R: 0x0d, G: 0x11, B: 0x17, A: 0xff} // --cs-gray-950 (Window)
+	ColorGray900            = color.NRGBA{R: 0x18, G: 0x1c, B: 0x1f, A: 0xff} // --cs-gray-900 (Header)
+	ColorGray950            = color.NRGBA{R: 0x0b, G: 0x0f, B: 0x12, A: 0xff} // --cs-gray-950 (Window)
 	ColorGray400            = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff} // --cs-gray-400
 	ColorAlphaWhite07       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x12} // --cs-alpha-white-07
 	ColorAlphaWhite12       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1f} // --cs-alpha-white-12
@@ -30,20 +30,65 @@ var (
 	ColorAlphaAccentHover55 = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0x8c} // --cs-alpha-accent-hover-55
 	ColorWhite              = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 
-	// Tailscale header chip: a slightly desaturated accent pair, distinct from
-	// the main ColorAccent/ColorAccentHover used everywhere else, used only by
-	// the Tailscale toggle border/label in its default (off, enabled) state.
-	ColorTailscaleChipBorder = color.NRGBA{R: 0xe5, G: 0xf5, B: 0xb4, A: 0xff}
+	// Tailscale header chip: distinct from the main ColorAccent/ColorAccentHover
+	// used everywhere else, used only by the Tailscale toggle border/label in
+	// its default (off, enabled) state.
+	ColorTailscaleChipBorder = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff} // was #e5f5b4
 	ColorTailscaleChipLabel  = color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff}
 
 	// ColorHeaderAccentLine is the brand accent color for the thin line under
 	// the connections screen's header bar (previously also the standalone
 	// "USBridge" wordmark's text color, before that got folded into the
-	// combined logo+wordmark lockup image).
-	ColorHeaderAccentLine = color.NRGBA{R: 0xe7, G: 0xfb, B: 0xba, A: 0xff}
+	// combined logo+wordmark lockup image). Also used for the thin line under
+	// the connections section header (ConnectionsSummary badges + actions).
+	ColorHeaderAccentLine = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff} // was #e7fbba
+
+	// Connections section header's category-count badges ("2 Agent",
+	// "3 KVM"): border, solid fill, and text are three independent colors
+	// now (was border+fill both derived from one accent, at #30d4bd). Border
+	// happens to match ColorHeaderAccentLine's value -- kept as its own
+	// token since it's a different role that could diverge later.
+	ColorConnectionBadgeBorder = color.NRGBA{R: 0x42, G: 0x46, B: 0x38, A: 0xff}
+	ColorConnectionBadgeFill   = color.NRGBA{R: 0x1c, G: 0x20, B: 0x23, A: 0xff}
+	ColorConnectionBadgeText   = color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0xff} // was #30d4bd
+
+	// ColorConnectionAddFill/Hover are the connections section header's "+"
+	// button -- deliberately light-on-dark inverted from every other button
+	// in this app (see iconChromeButtonSpec.LabelColor). Hover shade is a
+	// placeholder guess (lightened fill) pending design review.
+	ColorConnectionAddFill      = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff} // was #c3f270
+	ColorConnectionAddFillHover = color.NRGBA{R: 0xd6, G: 0xf7, B: 0x9c, A: 0xff}
+
+	// ColorConnectionsSectionIcon tints the QR/paste-link icons in the
+	// connections section header. Their border reuses ColorHeaderAccentLine
+	// (same #424638) rather than a separate token, since it's the same role.
+	ColorConnectionsSectionIcon = color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff}
+
+	// ColorConnectionsSectionTitle/Subtitle are the "Connections" title and
+	// the "Your active..." line under it.
+	ColorConnectionsSectionTitle    = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+	ColorConnectionsSectionSubtitle = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff} // was #e9fdbb
+
+	// ColorConnectionsSectionMutedText is shared by the subtitle's tone and
+	// the Grid/List toggle's inactive side -- same #c5c8b5 as
+	// ColorConnectionsSectionSubtitle, kept separate since they're different
+	// roles.
+	ColorConnectionsSectionMutedText = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+
+	// ColorConnectionsSectionUnderline is the thin line under the
+	// connections section header -- its own color, distinct from
+	// ColorHeaderAccentLine (the app header's equivalent line).
+	ColorConnectionsSectionUnderline = color.NRGBA{R: 0x26, G: 0x29, B: 0x24, A: 0xff}
+
+	// ColorLoginAvatarBg/Text are the placeholder account/login avatar in
+	// the app header (connection_header.go's loginAvatarButton). Border
+	// reuses ColorHeaderAccentLine.
+	ColorLoginAvatarBg   = color.NRGBA{R: 0x2d, G: 0x2f, B: 0x34, A: 0xff}
+	ColorLoginAvatarText = color.NRGBA{R: 0xe9, G: 0xfd, B: 0xbb, A: 0xff}
 )
 
 const RadiusMD float32 = 8
+const RadiusLG float32 = 10
 
 const (
 	ColorNameCodeKeyword fyne.ThemeColorName = "code-keyword"

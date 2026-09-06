@@ -46,8 +46,15 @@ type HeaderDropdown struct {
 	Options    []string
 	Selected   string
 	OnSelected func(string)
-	MinWidth   float32
-	Compact    bool
+	MinWidth         float32
+	Compact          bool
+	UltraCompact     bool
+	BorderColor      color.Color
+	CornerRadius     float32
+	TextColor        color.Color
+	TextSize         float32
+	HoverBorderColor color.Color
+	HoverFillColor   color.Color
 
 	disabled bool
 	hovered  bool
@@ -65,9 +72,15 @@ type HeaderDropdown struct {
 
 func NewHeaderDropdown(options []string, selected string, onSelected func(string)) *HeaderDropdown {
 	d := &HeaderDropdown{
-		Options:    append([]string(nil), options...),
-		Selected:   selected,
-		OnSelected: onSelected,
+		Options:          append([]string(nil), options...),
+		Selected:         selected,
+		OnSelected:       onSelected,
+		BorderColor:      design.ColorBorder,
+		CornerRadius:     design.RadiusMD,
+		TextColor:        design.ColorTextLight,
+		TextSize:         14,
+		HoverBorderColor: design.ColorBorder,
+		HoverFillColor:   design.ColorSurfaceLight,
 	}
 	d.updateMinWidth()
 	d.ExtendBaseWidget(d)
@@ -76,15 +89,18 @@ func NewHeaderDropdown(options []string, selected string, onSelected func(string
 
 func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 	d.bg = canvas.NewRectangle(design.ColorSurface)
-	d.bg.CornerRadius = design.RadiusMD
+	d.bg.CornerRadius = d.CornerRadius
 
 	d.border = canvas.NewRectangle(color.Transparent)
-	d.border.CornerRadius = design.RadiusMD
-	d.border.StrokeColor = design.ColorBorder
+	d.border.CornerRadius = d.CornerRadius
+	d.border.StrokeColor = d.BorderColor
 	d.border.StrokeWidth = 1
 
-	d.label = canvas.NewText(d.Selected, design.ColorTextLight)
-	d.label.TextSize = 14
+	d.label = canvas.NewText(d.Selected, d.TextColor)
+	d.label.TextSize = d.TextSize
+	if d.UltraCompact {
+		d.label.TextStyle.Monospace = true
+	}
 
 	d.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
 	d.icon.FillMode = canvas.ImageFillContain
@@ -104,8 +120,11 @@ func (d *HeaderDropdown) MinSize() fyne.Size {
 	if d.MinWidth > 0 {
 		return fyne.NewSize(d.MinWidth, height)
 	}
-	label := canvas.NewText(d.Selected, design.ColorTextLight)
-	label.TextSize = 14
+	label := canvas.NewText(d.Selected, d.TextColor)
+	label.TextSize = d.TextSize
+	if d.UltraCompact {
+		label.TextStyle.Monospace = true
+	}
 	width := label.MinSize().Width + d.horizontalPadding()
 	minWidth := d.minimumWidth()
 	if width < minWidth {
@@ -160,8 +179,11 @@ func (d *HeaderDropdown) updateMinWidth() {
 		}
 	}
 
-	label := canvas.NewText(longest, design.ColorTextLight)
-	label.TextSize = 14
+	label := canvas.NewText(longest, d.TextColor)
+	label.TextSize = d.TextSize
+	if d.UltraCompact {
+		label.TextStyle.Monospace = true
+	}
 	width := label.MinSize().Width + d.horizontalPadding()
 	if width < d.minimumWidth() {
 		width = d.minimumWidth()
@@ -200,13 +222,17 @@ func (d *HeaderDropdown) openPopup() {
 	rows := make([]fyne.CanvasObject, 0, len(d.Options))
 	for _, option := range d.Options {
 		value := option
-		rows = append(rows, newDropdownItem(value, "", value == d.Selected, func() {
+		item := newDropdownItem(value, "", value == d.Selected, func() {
 			d.SetSelected(value)
 			d.closePopup()
 			if d.OnSelected != nil {
 				d.OnSelected(value)
 			}
-		}))
+		})
+		item.textColor = d.TextColor
+		item.textSize = d.TextSize
+		item.monospace = d.UltraCompact
+		rows = append(rows, item)
 	}
 
 	menuBG := canvas.NewRectangle(design.ColorGray950)
@@ -214,7 +240,7 @@ func (d *HeaderDropdown) openPopup() {
 
 	menuBorder := canvas.NewRectangle(color.Transparent)
 	menuBorder.CornerRadius = design.RadiusMD
-	menuBorder.StrokeColor = design.ColorBorder
+	menuBorder.StrokeColor = d.BorderColor
 	menuBorder.StrokeWidth = 1
 
 	menuList := container.NewVBox(rows...)
@@ -330,8 +356,9 @@ func (d *HeaderDropdown) refreshVisuals() {
 		return
 	}
 
-	fill := design.ColorGray900
-	textColor := design.ColorTextLight
+	var fill color.Color = design.ColorGray900
+	textColor := d.TextColor
+	borderColor := d.BorderColor
 	iconResource := theme.Icon(theme.IconNameArrowDropDown)
 	iconTranslucency := float64(0)
 	if d.opened {
@@ -344,12 +371,15 @@ func (d *HeaderDropdown) refreshVisuals() {
 		textColor = design.ColorBorder
 		iconTranslucency = 0.35
 	case d.opened:
-		fill = design.ColorSurfaceLight
+		fill = d.HoverFillColor
+		borderColor = d.HoverBorderColor
 	case d.hovered:
-		fill = design.ColorSurfaceLight
+		fill = d.HoverFillColor
+		borderColor = d.HoverBorderColor
 	}
 
 	d.bg.FillColor = fill
+	d.border.StrokeColor = borderColor
 	d.label.Text = d.Selected
 	d.label.Color = textColor
 	d.icon.Resource = iconResource
@@ -361,6 +391,9 @@ func (d *HeaderDropdown) refreshVisuals() {
 }
 
 func (d *HeaderDropdown) controlHeight() float32 {
+	if d.UltraCompact {
+		return 26
+	}
 	if d.Compact {
 		return 32
 	}
@@ -368,6 +401,9 @@ func (d *HeaderDropdown) controlHeight() float32 {
 }
 
 func (d *HeaderDropdown) horizontalPadding() float32 {
+	if d.UltraCompact {
+		return 24
+	}
 	if d.Compact {
 		return 40
 	}
@@ -375,6 +411,9 @@ func (d *HeaderDropdown) horizontalPadding() float32 {
 }
 
 func (d *HeaderDropdown) minimumWidth() float32 {
+	if d.UltraCompact {
+		return 48
+	}
 	if d.Compact {
 		return 74
 	}
@@ -447,10 +486,20 @@ type dropdownItem struct {
 	bg             *canvas.Rectangle
 	label          *canvas.Text
 	secondaryLabel *canvas.Text
+	textColor      color.Color
+	textSize       float32
+	monospace      bool
 }
 
 func newDropdownItem(text, secondary string, selected bool, onTap func()) *dropdownItem {
-	i := &dropdownItem{text: text, secondary: secondary, selected: selected, onTap: onTap}
+	i := &dropdownItem{
+		text:      text,
+		secondary: secondary,
+		selected:  selected,
+		onTap:     onTap,
+		textColor: design.ColorTextLight,
+		textSize:  14,
+	}
 	i.ExtendBaseWidget(i)
 	return i
 }
@@ -458,10 +507,16 @@ func newDropdownItem(text, secondary string, selected bool, onTap func()) *dropd
 func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 	i.bg = canvas.NewRectangle(color.Transparent)
 	i.bg.CornerRadius = design.RadiusMD
-	i.label = canvas.NewText(i.text, design.ColorTextLight)
-	i.label.TextSize = 14
+	i.label = canvas.NewText(i.text, i.textColor)
+	i.label.TextSize = i.textSize
+	if i.monospace {
+		i.label.TextStyle.Monospace = true
+	}
 	i.secondaryLabel = canvas.NewText(i.secondary, design.ColorTextMuted)
-	i.secondaryLabel.TextSize = 14
+	i.secondaryLabel.TextSize = i.textSize
+	if i.monospace {
+		i.secondaryLabel.TextStyle.Monospace = true
+	}
 	r := &dropdownItemRenderer{
 		item:    i,
 		objects: []fyne.CanvasObject{container.NewWithoutLayout(i.bg, i.label, i.secondaryLabel)},
@@ -471,12 +526,18 @@ func (i *dropdownItem) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (i *dropdownItem) MinSize() fyne.Size {
-	label := canvas.NewText(i.text, design.ColorTextLight)
-	label.TextSize = 14
+	label := canvas.NewText(i.text, i.textColor)
+	label.TextSize = i.textSize
+	if i.monospace {
+		label.TextStyle.Monospace = true
+	}
 	width := label.MinSize().Width + 28
 	if i.secondary != "" {
 		secondary := canvas.NewText(i.secondary, design.ColorTextMuted)
-		secondary.TextSize = 14
+		secondary.TextSize = i.textSize
+		if i.monospace {
+			secondary.TextStyle.Monospace = true
+		}
 		width += secondary.MinSize().Width + 18
 	}
 	if width < 72 {
@@ -547,7 +608,9 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 		labelWidth = 24
 	}
 	labelX := float32(16)
-	if d.Compact {
+	if d.UltraCompact {
+		labelX = 8
+	} else if d.Compact {
 		labelX = 12
 	}
 	d.label.Move(fyne.NewPos(labelX, (size.Height-labelMin.Height)/2))
@@ -556,7 +619,9 @@ func (r *headerDropdownRenderer) Layout(size fyne.Size) {
 	iconSize := fyne.NewSize(16, 16)
 	d.icon.Resize(iconSize)
 	iconX := size.Width - 28
-	if d.Compact {
+	if d.UltraCompact {
+		iconX = size.Width - 20
+	} else if d.Compact {
 		iconX = size.Width - 24
 	}
 	d.icon.Move(fyne.NewPos(iconX, (size.Height-iconSize.Height)/2))

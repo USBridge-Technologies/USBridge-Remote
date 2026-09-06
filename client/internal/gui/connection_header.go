@@ -98,6 +98,10 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	infoBtn.SetBadgeText("")
 	infoBtn.SetIconSize(fyne.NewSize(15, 15))
 
+	// Placeholder account/login avatar -- no functionality yet (empty
+	// onTapped), just the mark next to the language icon.
+	loginBtn := newLoginAvatarButton("U", func() {})
+
 	var tailscaleAccessory fyne.CanvasObject
 	handle := &ConnectionHeaderHandle{}
 	if runtime.GOOS == "js" {
@@ -117,6 +121,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 		container.NewGridWrap(headerCompactButtonSize, infoBtn),
 		container.NewGridWrap(headerCompactButtonSize, communityBtn),
 		container.NewGridWrap(headerCompactButtonSize, langBtn),
+		container.NewGridWrap(headerCompactButtonSize, loginBtn),
 	)
 
 	row := container.NewHBox(logoLockup, layout.NewSpacer(), rightRow)
@@ -125,7 +130,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	paddedRow := view.NewInset(row, 16, 16, 2, 2)
 
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
-	accentLine.SetMinSize(fyne.NewSize(1, 2))
+	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
 
 	content := container.NewBorder(nil, accentLine, nil, nil, paddedRow)
 
@@ -167,14 +172,11 @@ type tailscaleHeaderToggle struct {
 	disabled bool
 	hovered  bool
 
-	bg      *canvas.Rectangle
-	border  *canvas.Rectangle
-	label   *canvas.Text
-	track   *canvas.Rectangle
-	thumb   *canvas.Circle
-	spinner *canvas.Image
-
-	anim view.SpinnerAnimator
+	bg     *canvas.Rectangle
+	border *canvas.Rectangle
+	label  *canvas.Text
+	track  *canvas.Rectangle
+	thumb  *canvas.Circle
 }
 
 func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
@@ -269,16 +271,12 @@ func (t *tailscaleHeaderToggle) CreateRenderer() fyne.WidgetRenderer {
 
 	t.thumb = canvas.NewCircle(design.ColorGray400)
 
-	t.spinner = canvas.NewImageFromResource(assets.LoadingGrayFrames[0])
-	t.spinner.FillMode = canvas.ImageFillContain
-	t.spinner.Hidden = true
-
 	t.refreshVisuals()
 	return &tailscaleHeaderToggleRenderer{toggle: t}
 }
 
 func (t *tailscaleHeaderToggle) refreshVisuals() {
-	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil || t.spinner == nil {
+	if t.bg == nil || t.border == nil || t.label == nil || t.track == nil || t.thumb == nil {
 		return
 	}
 
@@ -294,6 +292,9 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 		thumbColor = design.ColorWhite
 	}
 	if t.disabled {
+		// Loading always sets disabled too (see ConnectionHeaderHandle.
+		// SetTailscaleState) -- this is the toggle's only "thinking" cue: no
+		// spinner, just the track/thumb dimming and going unclickable.
 		labelColor = design.ColorGray400
 		trackColor = design.ColorGray950
 		borderColor = design.ColorGray900
@@ -304,8 +305,6 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	t.border.StrokeWidth = 1
 	t.label.Color = labelColor
 
-	t.track.Hidden = t.loading
-	t.thumb.Hidden = t.loading
 	t.track.FillColor = trackColor
 	t.thumb.FillColor = thumbColor
 
@@ -318,24 +317,6 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 	t.label.Refresh()
 	t.track.Refresh()
 	t.thumb.Refresh()
-
-	t.spinner.Hidden = !t.loading
-	t.spinner.Refresh()
-	switch {
-	case t.loading && !t.anim.IsRunning():
-		// Unlike the other spinner-driven buttons, don't restart from frame 0
-		// on every refresh -- refreshVisuals runs on every SetOn/SetDisabled
-		// too, which fire far more often than the animation's own frame tick.
-		t.anim.Start(assets.LoadingGrayFrames, func(frame fyne.Resource) {
-			if t.spinner == nil {
-				return
-			}
-			t.spinner.Resource = frame
-			t.spinner.Refresh()
-		})
-	case !t.loading:
-		t.anim.Stop()
-	}
 }
 
 type tailscaleHeaderToggleRenderer struct {
@@ -343,7 +324,7 @@ type tailscaleHeaderToggleRenderer struct {
 }
 
 func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
-	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil || r.toggle.spinner == nil {
+	if r.toggle.bg == nil || r.toggle.border == nil || r.toggle.label == nil || r.toggle.track == nil || r.toggle.thumb == nil {
 		return
 	}
 
@@ -369,10 +350,6 @@ func (r *tailscaleHeaderToggleRenderer) Layout(size fyne.Size) {
 	}
 	r.toggle.thumb.Move(fyne.NewPos(thumbX, thumbY))
 	r.toggle.thumb.Resize(fyne.NewSize(thumbSize, thumbSize))
-
-	spinnerSize := float32(14)
-	r.toggle.spinner.Move(fyne.NewPos(trackX+(trackSize.Width-spinnerSize)/2, trackY))
-	r.toggle.spinner.Resize(fyne.NewSize(spinnerSize, spinnerSize))
 }
 
 func (r *tailscaleHeaderToggleRenderer) MinSize() fyne.Size {
@@ -384,12 +361,10 @@ func (r *tailscaleHeaderToggleRenderer) Refresh() {
 	r.Layout(r.toggle.Size())
 }
 
-func (r *tailscaleHeaderToggleRenderer) Destroy() {
-	r.toggle.anim.Stop()
-}
+func (r *tailscaleHeaderToggleRenderer) Destroy() {}
 
 func (r *tailscaleHeaderToggleRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.spinner, r.toggle.border}
+	return []fyne.CanvasObject{r.toggle.bg, r.toggle.label, r.toggle.track, r.toggle.thumb, r.toggle.border}
 }
 
 func (r *tailscaleHeaderToggleRenderer) BackgroundColor() color.Color {
@@ -400,4 +375,83 @@ var (
 	_ fyne.Tappable     = (*tailscaleHeaderToggle)(nil)
 	_ desktop.Hoverable = (*tailscaleHeaderToggle)(nil)
 	_ fyne.Widget       = (*tailscaleHeaderToggle)(nil)
+	_ fyne.Tappable     = (*loginAvatarButton)(nil)
+	_ desktop.Hoverable = (*loginAvatarButton)(nil)
+	_ fyne.Widget       = (*loginAvatarButton)(nil)
 )
+
+// loginAvatarButton is the connections screen's placeholder account/login
+// avatar (circle + initial letter) shown next to the language icon -- no
+// functionality yet. A dedicated widget rather than headerStatusBadgeButton
+// for two reasons: that widget's hover fill is a rounded *square*, wrong
+// behind a circular avatar, and Fyne's SVG renderer doesn't support <text>
+// elements at all -- an SVG-baked letter silently never draws, so it has to
+// be a real canvas.Text instead.
+type loginAvatarButton struct {
+	widget.BaseWidget
+
+	letterText string
+	onTapped   func()
+	hovered    bool
+
+	circle *canvas.Circle
+	letter *canvas.Text
+}
+
+func newLoginAvatarButton(letterText string, onTapped func()) *loginAvatarButton {
+	b := &loginAvatarButton{letterText: letterText, onTapped: onTapped}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *loginAvatarButton) MinSize() fyne.Size {
+	return fyne.NewSize(24, 24)
+}
+
+func (b *loginAvatarButton) CreateRenderer() fyne.WidgetRenderer {
+	b.circle = canvas.NewCircle(design.ColorLoginAvatarBg)
+	b.circle.StrokeColor = design.ColorHeaderAccentLine
+	b.circle.StrokeWidth = 1.5
+
+	b.letter = canvas.NewText(b.letterText, design.ColorLoginAvatarText)
+	b.letter.TextSize = 11
+	b.letter.TextStyle = fyne.TextStyle{Bold: true}
+	b.letter.Alignment = fyne.TextAlignCenter
+
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewStack(b.circle, container.NewCenter(b.letter)))
+}
+
+func (b *loginAvatarButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *loginAvatarButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *loginAvatarButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
+}
+
+func (b *loginAvatarButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *loginAvatarButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
+}
+
+// refreshVisuals only ever changes the circle's own fill -- never adds a
+// separate hover shape -- so the hover state stays circular no matter what.
+func (b *loginAvatarButton) refreshVisuals() {
+	if b.circle == nil {
+		return
+	}
+	fill := design.ColorLoginAvatarBg
+	if b.hovered {
+		fill = design.ColorSurfaceLight
+	}
+	b.circle.FillColor = fill
+	b.circle.Refresh()
+}
