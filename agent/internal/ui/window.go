@@ -252,6 +252,43 @@ type uiStatus struct {
 	moonlightCount int
 }
 
+// accountSnapshot is the comparable (== usable) subset of account.Status --
+// that type itself carries a []account.License slice, which Go won't let
+// you compare with ==, so showLicenseDialog's poll loop builds one of
+// these each tick to detect an actual change cheaply instead of
+// unconditionally re-rendering. licensesKey folds the license list into
+// one string precisely so a licenses-only change (a fresh
+// RefreshAccountLicenses result) still counts as "changed" even though
+// none of the scalar fields above it did.
+type accountSnapshot struct {
+	loggedIn         bool
+	email            string
+	loginInProgress  bool
+	rebindInProgress bool
+	lastError        string
+	licensesKey      string
+}
+
+func newAccountSnapshot(acc account.Status) accountSnapshot {
+	var licensesKey strings.Builder
+	for _, lic := range acc.Licenses {
+		licensesKey.WriteString(lic.Identifier)
+		licensesKey.WriteByte(':')
+		licensesKey.WriteString(lic.Status)
+		licensesKey.WriteByte(':')
+		licensesKey.WriteString(lic.Tier)
+		licensesKey.WriteByte('|')
+	}
+	return accountSnapshot{
+		loggedIn:         acc.LoggedIn,
+		email:            acc.Email,
+		loginInProgress:  acc.LoginInProgress,
+		rebindInProgress: acc.RebindInProgress,
+		lastError:        acc.LastError,
+		licensesKey:      licensesKey.String(),
+	}
+}
+
 func NewWindow(app fyne.App, cfg config.Config, perms PermsProvider, ts TailscaleProvider, tokenManager TokenProvider) *Window {
 	return &Window{app: app, cfg: cfg, perms: perms, ts: ts, token: tokenManager}
 }
@@ -1510,22 +1547,43 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 	// (and the account login/rebind's own in-progress flags) advance to
 	// their next state on their own (a link completing in the browser, a
 	// download finishing) without the user needing to close and reopen
-	// this dialog to see it.
+	// this dialog to see it. Only actually re-renders a section when its
+	// own snapshot changed since the last tick -- rebuilding every widget
+	// unconditionally every 2s (the original version of this loop) is
+	// wasteful and visibly flickers; the client's equivalent dialog had
+	// the same pattern and it was actively destructive there (wiped an
+	// in-progress sync-passphrase Entry on every tick, see
+	// client/internal/gui/main_window_account.go's accountDialogSnapshot)
+	// -- this dialog has no text Entry to lose, but the same fix still
+	// removes the pointless flicker.
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		lastSt := w.token.EntitlementStatus()
+		lastAcc := newAccountSnapshot(w.token.AccountStatus())
 		for {
 			select {
 			case <-stopPoll:
 				return
 			case <-ticker.C:
-				st := w.token.EntitlementStatus()
-				acc := w.token.AccountStatus()
-				fyne.Do(func() {
-					render(st)
-					renderAccount(acc)
-				})
 			}
+			st := w.token.EntitlementStatus()
+			acc := w.token.AccountStatus()
+			accSnap := newAccountSnapshot(acc)
+			stChanged := st != lastSt
+			accChanged := accSnap != lastAcc
+			if !stChanged && !accChanged {
+				continue
+			}
+			lastSt, lastAcc = st, accSnap
+			fyne.Do(func() {
+				if stChanged {
+					render(st)
+				}
+				if accChanged {
+					renderAccount(acc)
+				}
+			})
 		}
 	}()
 }
