@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -86,6 +88,77 @@ func TestMCPProxyRejectsOrigin(t *testing.T) {
 			t.Fatal("a legitimate native-tool request (no Origin) never reached the device")
 		}
 	})
+}
+
+// TestMCPProxySurfacesDeviceAuthFailureAsJSON is the regression test for the
+// bug where a device-side auth failure reached the MCP client as raw text
+// mislabeled application/json. The device's HMAC middleware (see the device
+// repo's web/security.go) replies 401 with a plain-text body like
+// "Unauthorized: Invalid signature" -- e.g. after clock skew or a stale
+// paired key. PostRawWithTimeout used to return that text as a normal
+// (err == nil) response, and handle() wrote it straight back with
+// Content-Type: application/json, so the MCP client's JSON-RPC parser choked
+// on "Unexpected identifier Unauthorized" with nothing to act on. It should
+// instead surface as a spec-shaped JSON-RPC error object the client can
+// actually parse and log.
+func TestMCPProxySurfacesDeviceAuthFailureAsJSON(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Unauthorized: Invalid signature", http.StatusUnauthorized)
+	}))
+	defer upstream.Close()
+
+	host, portStr, err := splitHostPortHelper(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse upstream port: %v", err)
+	}
+
+	client := NewUSBClient(host, port, 5)
+
+	const testPort = 18766
+	proxy := &MCPProxy{}
+	if err := proxy.Start(testPort, client); err != nil {
+		t.Fatalf("start proxy: %v", err)
+	}
+	defer proxy.Stop()
+
+	proxyURL := "http://127.0.0.1:" + strconv.Itoa(testPort) + "/api/mcp"
+	req, _ := http.NewRequest(http.MethodPost, proxyURL, strings.NewReader(`{"jsonrpc":"2.0","id":7,"method":"initialize","params":{}}`))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", ct)
+	}
+
+	var parsed struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      int    `json:"id"`
+		Error   struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bodyBytes, &parsed); err != nil {
+		t.Fatalf("response body is not valid JSON (the bug this test guards against): %v\nbody: %s", err, bodyBytes)
+	}
+	if parsed.ID != 7 {
+		t.Fatalf("id = %d, want 7 (echoed from the request)", parsed.ID)
+	}
+	if !strings.Contains(parsed.Error.Message, "Unauthorized") {
+		t.Fatalf("error.message = %q, want it to mention the device's Unauthorized reason", parsed.Error.Message)
+	}
 }
 
 // splitHostPortHelper pulls "host" and "port" out of an httptest.Server URL

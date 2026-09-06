@@ -1021,7 +1021,27 @@ func (c *USBClient) PostRawWithTimeout(endpoint string, body []byte, timeout tim
 		return nil, wrappedErr
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("response read failed: %v", err)
+	}
+
+	// Unlike makeRequest's shared path, this one-off client used to return
+	// respBody unchecked regardless of status code. That let a device-side
+	// auth failure (401 "Unauthorized: Invalid signature", plain text, not
+	// JSON) sail through PostRawWithTimeout as if it were a normal 200
+	// response body -- MCPProxy.handle then wrote that text back to the MCP
+	// client labeled Content-Type: application/json, which broke the
+	// client's JSON-RPC parser with an opaque "Unexpected identifier
+	// Unauthorized" instead of a diagnosable error. Match makeRequest's
+	// behavior so callers (MCPProxy) get a real Go error to report instead.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	c.noteSuccessfulTransportRequest()
+	return respBody, nil
 }
 
 // makeRequestWithAcceptStatuses makes HTTP request, accepting specified status codes as success

@@ -84,6 +84,15 @@ func (w *ScriptsTabWidget) SetClient(c *api.USBClient) {
 	w.agentOS = ""
 	w.mu.Unlock()
 
+	// Keep an already-running proxy pointed at the current device
+	// connection. Start() only wires p.client in on first launch (a manual
+	// "enable" toggle) and no-ops on every later call, so without this an
+	// already-running proxy would keep signing/forwarding MCP calls with
+	// whatever client (and master key) was active when it was first
+	// started -- surviving reconnects and even a key change in the
+	// connection manager.
+	w.mcpProxy.UpdateClient(c)
+
 	fyne.Do(func() {
 		w.refreshMCPStatus()
 	})
