@@ -69,6 +69,18 @@ type Config struct {
 	// matching gamestream-server's own default) so existing installs keep
 	// the web client working without needing to opt in.
 	RustShineWebRTCDisabled bool `yaml:"rustshine_webrtc_disabled,omitempty"`
+
+	// Account login (see agent/internal/account) -- a SEPARATE identity
+	// from EntitlementToken above: this is "which USBridge account (Google
+	// login) is the human running this agent signed into", used only to
+	// list/rebind THAT account's desktop licenses (App.RebindLicenseToThisDevice).
+	// It never gates RustShine on its own -- EntitlementToken (hardware-bound)
+	// remains the only thing that does, same trust level as MasterKey/
+	// EntitlementToken: plain YAML, no separate encryption. AccountToken is
+	// a long-lived (30-day) Bearer token; AccountLoginToken() re-logs-in
+	// once it's rejected rather than trying to refresh it silently.
+	AccountEmail string `yaml:"account_email,omitempty"`
+	AccountToken string `yaml:"account_token,omitempty"`
 }
 
 func Default() Config {

@@ -28,6 +28,9 @@ type connectionHeaderActions struct {
 	OnOpenCommunity    func()
 	OnOpenInfo         func()
 	OnToggleTailscale  func()
+	// OnOpenAccount opens the account login/sync dialog (see
+	// MainWindow.showAccountDialog) -- fired by the login avatar button.
+	OnOpenAccount func()
 }
 
 // ConnectionHeaderHandle lets the controller push live Tailscale status into
@@ -98,9 +101,14 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	infoBtn.SetBadgeText("")
 	infoBtn.SetIconSize(fyne.NewSize(15, 15))
 
-	// Placeholder account/login avatar -- no functionality yet (empty
-	// onTapped), just the mark next to the language icon.
-	loginBtn := newLoginAvatarButton("U", func() {})
+	// Account/login avatar -- opens the account login/sync dialog (see
+	// connectionHeaderActions.OnOpenAccount, wired by createConnectionAddressBar
+	// to MainWindow.showAccountDialog).
+	loginBtn := newLoginAvatarButton("U", func() {
+		if actions.OnOpenAccount != nil {
+			actions.OnOpenAccount()
+		}
+	})
 
 	var tailscaleAccessory fyne.CanvasObject
 	handle := &ConnectionHeaderHandle{}

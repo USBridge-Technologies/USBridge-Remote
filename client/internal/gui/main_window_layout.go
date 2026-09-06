@@ -425,6 +425,9 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 				mw.connectionManager.ToggleTailscale()
 			}
 		},
+		OnOpenAccount: func() {
+			mw.showAccountDialog()
+		},
 	})
 
 	// The header owns the Tailscale toggle widget now; hand the controller a
