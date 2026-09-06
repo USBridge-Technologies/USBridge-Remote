@@ -12,6 +12,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
@@ -55,6 +56,15 @@ type TokenBackend interface {
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+
+	// Account login (see internal/account) -- see internal/ui.TokenProvider's
+	// own copy of this same doc comment.
+	AccountStatus() account.Status
+	StartAccountLogin() (string, error)
+	CancelAccountLogin()
+	RefreshAccountLicenses()
+	RebindLicenseToThisDevice(oldIdentifier string) error
+	LogoutAccount() error
 }
 
 // PermsBackend mirrors internal/permissions.Service's methods.
@@ -191,6 +201,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /token/check-rustshine-update", s.handleCheckRustShineUpdateNow)
 	mux.HandleFunc("POST /token/set-stream-backend", s.handleSetStreamBackend)
 	mux.HandleFunc("POST /token/set-rustshine-webrtc-enabled", s.handleSetRustShineWebRTCEnabled)
+	mux.HandleFunc("GET /token/account-status", s.handleAccountStatus)
+	mux.HandleFunc("POST /token/start-account-login", s.handleStartAccountLogin)
+	mux.HandleFunc("POST /token/cancel-account-login", s.handleCancelAccountLogin)
+	mux.HandleFunc("POST /token/refresh-account-licenses", s.handleRefreshAccountLicenses)
+	mux.HandleFunc("POST /token/rebind-license", s.handleRebindLicense)
+	mux.HandleFunc("POST /token/logout-account", s.handleLogoutAccount)
 
 	mux.HandleFunc("GET /perms/accessibility", s.handlePermsBool(func() bool { return s.perms.AccessibilityGranted() }))
 	mux.HandleFunc("GET /perms/screen-recording", s.handlePermsBool(func() bool { return s.perms.ScreenRecordingGranted() }))
@@ -431,6 +447,52 @@ func (s *Server) handleCancelPurchase(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClearLicense(w http.ResponseWriter, r *http.Request) {
 	if err := s.token.ClearLicense(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.token.AccountStatus())
+}
+
+func (s *Server) handleStartAccountLogin(w http.ResponseWriter, r *http.Request) {
+	url, err := s.token.StartAccountLogin()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stringBody{Value: url})
+}
+
+func (s *Server) handleCancelAccountLogin(w http.ResponseWriter, r *http.Request) {
+	s.token.CancelAccountLogin()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleRefreshAccountLicenses(w http.ResponseWriter, r *http.Request) {
+	s.token.RefreshAccountLicenses()
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleRebindLicense(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OldIdentifier string `json:"old_identifier"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.token.RebindLicenseToThisDevice(body.OldIdentifier); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
+}
+
+func (s *Server) handleLogoutAccount(w http.ResponseWriter, r *http.Request) {
+	if err := s.token.LogoutAccount(); err != nil {
 		writeError(w, err)
 		return
 	}

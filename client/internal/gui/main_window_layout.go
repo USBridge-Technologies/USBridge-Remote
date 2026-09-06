@@ -419,7 +419,19 @@ func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
 	discordBtn.SetBadgeText("")
 	discordBtn.SetIconSize(fyne.NewSize(18, 18))
 
-	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
+	// accountBtn opens showAccountDialog (main_window_account.go) -- login
+	// with the same Google account used at checkout (see
+	// internal/account's package doc comment) to see USBridge
+	// licenses/set up cross-device connections sync. theme.AccountIcon()
+	// is Fyne's own built-in glyph, not a custom asset -- consistent
+	// enough here without needing new SVG art alongside Discord/Language's.
+	accountBtn := newHeaderStatusBadgeButton(fynetheme.AccountIcon(), func() {
+		mw.showAccountDialog()
+	})
+	accountBtn.SetBadgeText("")
+	accountBtn.SetIconSize(fyne.NewSize(18, 18))
+
+	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, accountBtn, discordBtn, langBtn)
 	var rightAccessory fyne.CanvasObject = canvas.NewRectangle(color.Transparent)
 	if mw.connectionManager != nil && mw.connectionManager.HeaderAccessory() != nil {
 		rightAccessory = mw.connectionManager.HeaderAccessory()

@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	qrcode "github.com/skip2/go-qrcode"
 
+	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/autostart"
 	"usbridge_agent/internal/capture"
 	"usbridge_agent/internal/config"
@@ -71,6 +72,17 @@ type TokenProvider interface {
 	CheckRustShineUpdateNow() error
 	SetStreamBackend(kind string) error
 	SetRustShineWebRTCEnabled(enabled bool) error
+
+	// Account login (see internal/account) -- a separate identity from the
+	// hardware-bound entitlement above, used only to pick which of the
+	// logged-in account's own desktop licenses to rebind onto this
+	// machine. See account.Status's own doc comment.
+	AccountStatus() account.Status
+	StartAccountLogin() (string, error)
+	CancelAccountLogin()
+	RefreshAccountLicenses()
+	RebindLicenseToThisDevice(oldIdentifier string) error
+	LogoutAccount() error
 }
 
 // PermsProvider is satisfied by *permissions.Service (embedded engine) or
@@ -238,6 +250,43 @@ type uiStatus struct {
 	tsStatus       *tailscale.Status
 	accessGranted  bool
 	moonlightCount int
+}
+
+// accountSnapshot is the comparable (== usable) subset of account.Status --
+// that type itself carries a []account.License slice, which Go won't let
+// you compare with ==, so showLicenseDialog's poll loop builds one of
+// these each tick to detect an actual change cheaply instead of
+// unconditionally re-rendering. licensesKey folds the license list into
+// one string precisely so a licenses-only change (a fresh
+// RefreshAccountLicenses result) still counts as "changed" even though
+// none of the scalar fields above it did.
+type accountSnapshot struct {
+	loggedIn         bool
+	email            string
+	loginInProgress  bool
+	rebindInProgress bool
+	lastError        string
+	licensesKey      string
+}
+
+func newAccountSnapshot(acc account.Status) accountSnapshot {
+	var licensesKey strings.Builder
+	for _, lic := range acc.Licenses {
+		licensesKey.WriteString(lic.Identifier)
+		licensesKey.WriteByte(':')
+		licensesKey.WriteString(lic.Status)
+		licensesKey.WriteByte(':')
+		licensesKey.WriteString(lic.Tier)
+		licensesKey.WriteByte('|')
+	}
+	return accountSnapshot{
+		loggedIn:         acc.LoggedIn,
+		email:            acc.Email,
+		loginInProgress:  acc.LoginInProgress,
+		rebindInProgress: acc.RebindInProgress,
+		lastError:        acc.LastError,
+		licensesKey:      licensesKey.String(),
+	}
 }
 
 func NewWindow(app fyne.App, cfg config.Config, perms PermsProvider, ts TailscaleProvider, tokenManager TokenProvider) *Window {
@@ -1373,27 +1422,168 @@ func (w *Window) showLicenseDialog(parent fyne.Window) {
 
 	render(w.token.EntitlementStatus())
 
-	content := container.NewVBox(titleRow, minWidth, widget.NewSeparator(), body)
+	// accountBody: the account-login/rebind section (see internal/account),
+	// deliberately its own block below the entitlement one above rather
+	// than folded into render's switch -- account login is orthogonal to
+	// which entitlement state (trial/licensed/unlicensed) this machine is
+	// currently in, and stays visible/interactable regardless of it (e.g.
+	// logging in to pick up a purchased license while this machine is
+	// still shown as "unlicensed" above, right up until the rebind lands).
+	accountBody := container.NewVBox()
+	var accountLoginURLFallback string
+	var renderAccount func(acc account.Status)
+	renderAccount = func(acc account.Status) {
+		accountBody.RemoveAll()
+		accountBody.Add(widget.NewSeparator())
+
+		switch {
+		case acc.LoginInProgress:
+			accountBody.Add(widget.NewLabel("Waiting for Google login to complete in your browser…"))
+			accountBody.Add(widget.NewProgressBarInfinite())
+			cancelBtn := widget.NewButton("Cancel", func() {
+				w.token.CancelAccountLogin()
+				fyne.Do(func() { renderAccount(w.token.AccountStatus()) })
+			})
+			cancelBtn.Importance = widget.LowImportance
+			accountBody.Add(container.NewCenter(cancelBtn))
+			if accountLoginURLFallback != "" {
+				linkURI, _ := url.Parse(accountLoginURLFallback)
+				fallback := widget.NewLabel("Couldn't open your browser automatically. Login link:")
+				fallback.Wrapping = fyne.TextWrapWord
+				accountBody.Add(fallback)
+				if linkURI != nil {
+					link := widget.NewHyperlink(accountLoginURLFallback, linkURI)
+					link.Wrapping = fyne.TextWrapBreak
+					accountBody.Add(link)
+				}
+			}
+
+		case acc.LoggedIn:
+			accountBody.Add(widget.NewLabel(fmt.Sprintf("Signed in as %s", acc.Email)))
+			if acc.LastError != "" {
+				errText := canvas.NewText(acc.LastError, design.ColorTextMuted)
+				errText.TextStyle.Italic = true
+				accountBody.Add(errText)
+			}
+			if len(acc.Licenses) == 0 {
+				accountBody.Add(widget.NewLabel("No desktop licenses on this account yet."))
+			}
+			for _, lic := range acc.Licenses {
+				lic := lic
+				row := widget.NewLabel(fmt.Sprintf("%s — %s", lic.Identifier, lic.Status))
+				useBtn := widget.NewButton("Use this license on this device", func() {
+					go func() {
+						_ = w.token.RebindLicenseToThisDevice(lic.Identifier)
+						fyne.Do(func() {
+							renderAccount(w.token.AccountStatus())
+							render(w.token.EntitlementStatus())
+						})
+					}()
+				})
+				useBtn.Importance = widget.LowImportance
+				if lic.Status != "licensed" || acc.RebindInProgress {
+					useBtn.Disable()
+				}
+				accountBody.Add(container.NewBorder(nil, nil, nil, useBtn, row))
+			}
+			logoutBtn := widget.NewButton("Log out", func() {
+				go func() {
+					_ = w.token.LogoutAccount()
+					fyne.Do(func() { renderAccount(w.token.AccountStatus()) })
+				}()
+			})
+			logoutBtn.Importance = widget.LowImportance
+			accountBody.Add(container.NewCenter(logoutBtn))
+
+		default:
+			intro := widget.NewLabel("Already bought a license on another machine? Log in to move it here.")
+			intro.Wrapping = fyne.TextWrapWord
+			accountBody.Add(intro)
+			if acc.LastError != "" {
+				errText := canvas.NewText(acc.LastError, design.ColorTextMuted)
+				errText.TextStyle.Italic = true
+				accountBody.Add(errText)
+			}
+			loginBtn := widget.NewButton("Log in with Google account", func() {
+				accountLoginURLFallback = ""
+				go func() {
+					loginURL, err := w.token.StartAccountLogin()
+					if err != nil {
+						fyne.Do(func() { renderAccount(w.token.AccountStatus()) })
+						return
+					}
+					parsed, parseErr := url.Parse(loginURL)
+					openErr := parseErr
+					if parseErr == nil {
+						openErr = w.app.OpenURL(parsed)
+					}
+					fyne.Do(func() {
+						if openErr != nil {
+							accountLoginURLFallback = loginURL
+						}
+						renderAccount(w.token.AccountStatus())
+					})
+				}()
+			})
+			loginBtn.Importance = widget.LowImportance
+			accountBody.Add(container.NewCenter(loginBtn))
+		}
+
+		accountBody.Refresh()
+	}
+	initialAccStatus := w.token.AccountStatus()
+	renderAccount(initialAccStatus)
+	if initialAccStatus.LoggedIn {
+		w.token.RefreshAccountLicenses()
+	}
+
+	content := container.NewVBox(titleRow, minWidth, widget.NewSeparator(), body, accountBody)
 	cardBG := canvas.NewRectangle(design.ColorPanel)
 	card := container.NewStack(cardBG, container.NewPadded(content))
 	dlg = widget.NewModalPopUp(container.NewCenter(card), parent.Canvas())
 	dlg.Show()
 
 	// Polls while the dialog is open so LinkInProgress/DownloadInProgress
-	// advance to their next state on their own (a link completing in the
-	// browser, a download finishing) without the user needing to close and
-	// reopen this dialog to see it.
+	// (and the account login/rebind's own in-progress flags) advance to
+	// their next state on their own (a link completing in the browser, a
+	// download finishing) without the user needing to close and reopen
+	// this dialog to see it. Only actually re-renders a section when its
+	// own snapshot changed since the last tick -- rebuilding every widget
+	// unconditionally every 2s (the original version of this loop) is
+	// wasteful and visibly flickers; the client's equivalent dialog had
+	// the same pattern and it was actively destructive there (wiped an
+	// in-progress sync-passphrase Entry on every tick, see
+	// client/internal/gui/main_window_account.go's accountDialogSnapshot)
+	// -- this dialog has no text Entry to lose, but the same fix still
+	// removes the pointless flicker.
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		lastSt := w.token.EntitlementStatus()
+		lastAcc := newAccountSnapshot(w.token.AccountStatus())
 		for {
 			select {
 			case <-stopPoll:
 				return
 			case <-ticker.C:
-				st := w.token.EntitlementStatus()
-				fyne.Do(func() { render(st) })
 			}
+			st := w.token.EntitlementStatus()
+			acc := w.token.AccountStatus()
+			accSnap := newAccountSnapshot(acc)
+			stChanged := st != lastSt
+			accChanged := accSnap != lastAcc
+			if !stChanged && !accChanged {
+				continue
+			}
+			lastSt, lastAcc = st, accSnap
+			fyne.Do(func() {
+				if stChanged {
+					render(st)
+				}
+				if accChanged {
+					renderAccount(acc)
+				}
+			})
 		}
 	}()
 }

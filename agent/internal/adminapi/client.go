@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/config"
 	"usbridge_agent/internal/entitlement"
 	"usbridge_agent/internal/streamhost"
@@ -304,6 +305,38 @@ func (c *Client) SetStreamBackend(kind string) error {
 
 func (c *Client) SetRustShineWebRTCEnabled(enabled bool) error {
 	return c.do(http.MethodPost, "/token/set-rustshine-webrtc-enabled", map[string]bool{"enabled": enabled}, nil)
+}
+
+func (c *Client) AccountStatus() account.Status {
+	var status account.Status
+	_ = c.do(http.MethodGet, "/token/account-status", nil, &status)
+	return status
+}
+
+func (c *Client) StartAccountLogin() (string, error) {
+	var body stringBody
+	if err := c.do(http.MethodPost, "/token/start-account-login", nil, &body); err != nil {
+		return "", err
+	}
+	return body.Value, nil
+}
+
+// CancelAccountLogin mirrors CancelPurchase's own "always safe to call, no
+// error surfaced" contract -- see that method's doc comment above.
+func (c *Client) CancelAccountLogin() {
+	_ = c.do(http.MethodPost, "/token/cancel-account-login", nil, nil)
+}
+
+func (c *Client) RefreshAccountLicenses() {
+	_ = c.do(http.MethodPost, "/token/refresh-account-licenses", nil, nil)
+}
+
+func (c *Client) RebindLicenseToThisDevice(oldIdentifier string) error {
+	return c.do(http.MethodPost, "/token/rebind-license", map[string]string{"old_identifier": oldIdentifier}, nil)
+}
+
+func (c *Client) LogoutAccount() error {
+	return c.do(http.MethodPost, "/token/logout-account", nil, nil)
 }
 
 // --- PermsBackend ---
