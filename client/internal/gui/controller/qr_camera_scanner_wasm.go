@@ -369,10 +369,10 @@ func (q *QRCameraScanner) detectNative() (contents string, found bool, err error
 // necessary, not redundant: on several Android Chrome/WebView builds the
 // focusMode passed inside the initial getUserMedia() call is silently
 // dropped (the camera locks focus at whatever it happened to be on at
-// first frame -- exactly the "не фокусировалась вообще, видела мазанину"
-// [never focused at all, just saw a blur] symptom, no error, nothing to
-// catch), while the identical constraint applied to the already-live
-// MediaStreamTrack via applyConstraints() after the fact reliably takes.
+// first frame -- exactly the "never focused at all, just saw a blur"
+// symptom, no error, nothing to catch), while the identical constraint
+// applied to the already-live MediaStreamTrack via applyConstraints()
+// after the fact reliably takes.
 // getCapabilities()/focusMode is Chrome-only and only appears on tracks
 // whose hardware actually exposes focus control -- both silently absent
 // (empty/undefined) everywhere else, so this is a no-op there rather than

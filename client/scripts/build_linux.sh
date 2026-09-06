@@ -12,6 +12,9 @@
 # Build deps (install before running this script):
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
 #   Moonlight core:       opus openssl pkg-config cmake
+#   Optional:             python3 (pip) -- fetches the local ui.parse/AI
+#                          Vision ONNX runtime lib (see fetch_onnxruntime.sh);
+#                          its absence only disables that one feature.
 #
 # One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
 #              libopus-dev libssl-dev pkg-config cmake
@@ -68,6 +71,36 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 cp "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"
+
+# local ui.parse ONNX offload (internal/localui, AI Vision's detector): the
+# runtime lib is dlopen'd at runtime (via onnxruntime_go), not link-time
+# linked, so linuxdeploy's ldd-based dependency walk below can never see or
+# bundle it -- it needs its own explicit step, same as build_macos.sh's
+# equivalent (see fetch_onnxruntime.sh's doc comment for why a PyPI wheel
+# and not an apt package). Placed flat next to the executable in usr/bin/,
+# matching local_ui_init.go's resolveLocalUIPath flat-layout candidate.
+# Both failures are non-fatal (warn and continue): local ui.parse/AI Vision
+# is an optional accelerator, never a hard dependency of the build.
+echo -e "${YELLOW}Bundling local ui.parse (ONNX Runtime + models) for AI Vision...${NC}"
+ORT_CACHE_DIR="$REPO_ROOT/.build-cache/onnxruntime-linux"
+if [ ! -f "$ORT_CACHE_DIR/libonnxruntime.so" ]; then
+    "$SCRIPT_DIR/fetch_onnxruntime.sh" "$ORT_CACHE_DIR" linux || true
+fi
+if [ -f "$ORT_CACHE_DIR/libonnxruntime.so" ]; then
+    cp -L "$ORT_CACHE_DIR/libonnxruntime.so" "$APPDIR/usr/bin/libonnxruntime.so"
+    chmod 755 "$APPDIR/usr/bin/libonnxruntime.so"
+    echo -e "${GREEN}✓${NC} usr/bin/libonnxruntime.so"
+else
+    echo -e "${YELLOW}⚠${NC} Could not fetch libonnxruntime.so -- local ui.parse/AI Vision will stay unavailable in this build"
+fi
+LOCALUI_MODELS_SRC="$REPO_ROOT/internal/localui/models"
+if [ -f "$LOCALUI_MODELS_SRC/icon_detect.onnx" ]; then
+    mkdir -p "$APPDIR/usr/bin/localui/models"
+    cp "$LOCALUI_MODELS_SRC"/*.onnx "$APPDIR/usr/bin/localui/models/"
+    echo -e "${GREEN}✓${NC} usr/bin/localui/models/ ($(du -sh "$APPDIR/usr/bin/localui/models" | cut -f1))"
+else
+    echo -e "${YELLOW}⚠${NC} $LOCALUI_MODELS_SRC has no .onnx files -- local ui.parse/AI Vision will stay unavailable in this build"
+fi
 
 # Icon
 ICON_SRC="$REPO_ROOT/Icon.png"

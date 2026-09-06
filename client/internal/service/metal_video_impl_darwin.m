@@ -25,6 +25,18 @@ extern void goMetalLog(char *msg, int level);
 static NSView  *g_view   = nil;
 static CALayer *g_layer  = nil;
 
+// AI Vision overlay layer, stacked directly above g_layer (the video
+// IOSurface layer) and sharing its frame/gravity so a box drawn at pixel
+// (x,y) of the detected frame lands on the exact same screen pixel the
+// video content does, regardless of aspect-fit scaling. Populated via
+// metal_video_set_overlay (see ai_vision.go's pushAIVisionOverlayToMetal)
+// with a mostly-transparent RGBA image -- Core Animation composites it on
+// the GPU for free every frame, so unlike the CPU-fallback decode path
+// (moonlight_cgo_apple.go's vt_callback, which burns boxes directly into
+// pixels via goAIVisionOverlay) this needs no per-frame CPU work at all:
+// the image only changes once per completed detection pass.
+static CALayer *g_overlay_layer = nil;
+
 static volatile atomic_int g_active           = 0;
 
 // Display link — drives rendering at the display refresh rate, decoupled from VT decode timing.
@@ -182,6 +194,49 @@ int metal_video_try_submit(CVImageBufferRef img) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AI Vision overlay — composited as its own CALayer (see g_overlay_layer's
+// doc comment) instead of touching pixels, since metal_video_try_submit's
+// IOSurface path never produces a CPU-writable frame buffer to draw into.
+// rgba must be straight/premultiplied-equivalent RGBA (alpha 0 or 255 only,
+// which both are the same thing) at stride*h bytes -- exactly what
+// image.RGBA produces, see ai_vision.go's pushAIVisionOverlayToMetal.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void metal_video_set_overlay(const uint8_t *rgba, int w, int h, int stride) {
+    if (!atomic_load(&g_active) || !rgba || w <= 0 || h <= 0 || stride <= 0) return;
+
+    // Copy now (NSData:dataWithBytes: copies) — the caller's buffer is a Go
+    // slice only valid for the duration of this call.
+    NSData *data = [NSData dataWithBytes:rgba length:(size_t)stride * (size_t)h];
+
+    dispatch_block_t blk = ^{
+        if (!g_overlay_layer) return;
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)data);
+        CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)stride, cs,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault,
+            provider, NULL, false, kCGRenderingIntentDefault);
+        CGDataProviderRelease(provider);
+        CGColorSpaceRelease(cs);
+        if (!img) return;
+
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        g_overlay_layer.contents = (__bridge id)img; // CALayer retains it internally
+        [CATransaction commit];
+        CGImageRelease(img);
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+void metal_video_clear_overlay(void) {
+    dispatch_block_t blk = ^{
+        if (g_overlay_layer) g_overlay_layer.contents = nil;
+    };
+    if ([NSThread isMainThread]) blk(); else dispatch_async(dispatch_get_main_queue(), blk);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Mouse event queue — same ring-buffer pattern as vk_video_impl_linux.c.
 // USBridgeMetalView enqueues all pointer events; Go polls via metal_video_next_event.
 // Thread-safe: AppKit main thread writes, CGO goroutine reads.
@@ -285,6 +340,7 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
             [g_view removeFromSuperview];
             g_view  = nil;
             g_layer = nil;
+            g_overlay_layer = nil;
         }
 
         g_fullWindow = (w <= 0 || h <= 0);
@@ -303,10 +359,19 @@ int metal_video_create(uintptr_t nsWinPtr, float x, float y, float w, float h) {
         vl.backgroundColor = CGColorGetConstantColor(kCGColorBlack);
         vl.contentsScale   = NSScreen.mainScreen.backingScaleFactor;
         [ov.layer addSublayer:vl];
+
+        CALayer *ol = [CALayer layer];
+        ol.frame = ov.bounds;
+        ol.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+        ol.contentsGravity = kCAGravityResizeAspect;
+        ol.contentsScale   = NSScreen.mainScreen.backingScaleFactor;
+        [ov.layer addSublayer:ol]; // above vl -> boxes render on top of video
+
         [cv addSubview:ov];
 
         g_view  = ov;
         g_layer = vl;
+        g_overlay_layer = ol;
 
         g_submitCount = 0; g_renderCount = 0;
         g_fpsFrames = 0;   g_fpsStart = 0;   g_lastKnownFps = 0.0;
@@ -430,6 +495,7 @@ void metal_video_destroy(void) {
             [g_view removeFromSuperview];
             g_view  = nil;
             g_layer = nil;
+            g_overlay_layer = nil;
         }
         pthread_mutex_lock(&g_mu);
         CVPixelBufferRef old = g_pendingBuf;

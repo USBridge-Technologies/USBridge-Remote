@@ -399,6 +399,10 @@ jobs:
         with:
           msystem: UCRT64
           update: true
+          # python + unzip: fetch_onnxruntime.sh uses these to pull the local
+          # ui.parse/AI Vision ONNX runtime DLL from PyPI (see that script's
+          # doc comment) -- optional, build_windows.sh warns and continues
+          # without it if either is missing, but CI should have the real thing.
           install: >-
             mingw-w64-ucrt-x86_64-go
             mingw-w64-ucrt-x86_64-gcc
@@ -409,7 +413,9 @@ jobs:
             mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-vulkan-headers
             mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-python
             zip
+            unzip
       - name: Shim cross-compiler binary names
         # build_windows.sh looks for x86_64-w64-mingw32-{gcc,g++,pkg-config}
         # (the Debian/Ubuntu cross-compiler naming convention). Under MSYS2

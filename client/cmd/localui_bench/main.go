@@ -37,7 +37,7 @@ func main() {
 		IconONNXPath:  filepath.Join(*dir, "models", "icon_detect.onnx"),
 		DBNetONNXPath: filepath.Join(*dir, "models", "dbnet.onnx"),
 		SVTRONNXPath:  filepath.Join(*dir, "models", "svtr.onnx"),
-		SharedLibPath: filepath.Join(*dir, "runtime", "libonnxruntime.so"),
+		SharedLibPath: filepath.Join(*dir, "runtime", localui.DefaultRuntimeLibName()),
 		UseGPU:        *gpu,
 	}
 

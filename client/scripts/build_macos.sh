@@ -1,10 +1,17 @@
 #!/bin/bash
 # Build USBridgeClient for macOS as a self-contained .app bundle.
 # All required Homebrew dylibs are copied into Contents/Frameworks/ so the
-# app runs on machines without Homebrew installed.
+# app runs on machines without Homebrew installed. The local ui.parse ONNX
+# runtime is the one exception that does NOT come from Homebrew at all --
+# see fetch_onnxruntime.sh's doc comment for why -- it's fetched from the
+# official PyPI wheel instead, also landing in Contents/Frameworks/.
 #
 # Requirements:
 #   Required:  Go, Xcode Command Line Tools
+#   Optional:  python3 (pip) -- fetches the local ui.parse/AI Vision ONNX
+#              runtime lib (see fetch_onnxruntime.sh); its absence only
+#              disables that one optional feature, the rest of the build
+#              is unaffected.
 #   Moonlight streaming uses VideoToolbox + CoreAudio — no GStreamer needed.
 
 set -e
@@ -329,6 +336,39 @@ if [ -n "$_ts_src" ]; then
     echo -e "${GREEN}✓${NC} MacOS/tailscale"
 else
     :
+fi
+
+# 5d. Bundle the local ui.parse ONNX offload (internal/localui, AI Vision's
+# detector): the runtime lib comes from fetch_onnxruntime.sh's redistributable
+# PyPI build (self-contained -- no Homebrew, no protobuf-version footgun, see
+# that script's doc comment for the incident that motivated it) instead of
+# whatever happens to be `brew install`ed on the build machine; the three
+# ONNX models are already committed under internal/localui/models/ (see that
+# directory's README), just copied in. Together with local_ui_init.go's
+# bundle-relative path resolution (Contents/Frameworks + Contents/Resources),
+# this means a machine with local_ui_parse_enabled turned on works the
+# instant it launches the .app -- no scripts/setup_localui.sh, no Homebrew,
+# no manual config -- while staying an optional accelerator: any failure here
+# only warns, it never fails the build, matching ffmpeg/tailscale/qemu above.
+echo -e "\n${YELLOW}🔎 Bundling local ui.parse (ONNX Runtime + models) for AI Vision...${NC}"
+ORT_CACHE_DIR="$REPO_ROOT/.build-cache/onnxruntime-macos"
+if [ ! -f "$ORT_CACHE_DIR/libonnxruntime.dylib" ]; then
+    "$SCRIPTS_DIR/fetch_onnxruntime.sh" "$ORT_CACHE_DIR" || true
+fi
+if [ -f "$ORT_CACHE_DIR/libonnxruntime.dylib" ]; then
+    cp -L "$ORT_CACHE_DIR/libonnxruntime.dylib" "$APP_FRAMEWORKS_DIR/libonnxruntime.dylib"
+    chmod 755 "$APP_FRAMEWORKS_DIR/libonnxruntime.dylib"
+    echo -e "   ${GREEN}✓${NC} Frameworks/libonnxruntime.dylib"
+else
+    echo -e "   ${YELLOW}⚠${NC} Could not fetch libonnxruntime.dylib -- local ui.parse/AI Vision will stay unavailable in this build"
+fi
+LOCALUI_MODELS_SRC="$REPO_ROOT/internal/localui/models"
+if [ -f "$LOCALUI_MODELS_SRC/icon_detect.onnx" ]; then
+    mkdir -p "$APP_RESOURCES_DIR/localui/models"
+    cp "$LOCALUI_MODELS_SRC"/*.onnx "$APP_RESOURCES_DIR/localui/models/"
+    echo -e "   ${GREEN}✓${NC} Resources/localui/models/ ($(du -sh "$APP_RESOURCES_DIR/localui/models" | cut -f1))"
+else
+    echo -e "   ${YELLOW}⚠${NC} $LOCALUI_MODELS_SRC has no .onnx files -- local ui.parse/AI Vision will stay unavailable in this build"
 fi
 
 # 6. Info.plist (written after bundling so icons/plist don't interfere with lib walk)

@@ -505,6 +505,82 @@ func goVTLog(msg *C.char) {
 	logrus.Infof("🎬 [Moonlight/HW] %s", C.GoString(msg))
 }
 
+// goAIVisionOverlay is the cgo entry point for the AI Vision live overlay
+// (see ai_vision.go): called from deliver_frame in moonlight_cgo_linux.go
+// (before the frame reaches vk_video_try_submit/gl_video_try_submit) and
+// from the CPU-fallback decode path in moonlight_cgo_apple.go, on the
+// exact RGBA buffer that's about to be displayed. wrapRGBA below is a
+// zero-copy view over the C-owned memory -- ApplyAIVisionOverlay draws
+// into it in place -- valid only for the duration of this call, which
+// matches how long the C side guarantees the buffer stays alive.
+//
+// Not wired into the CVImageBufferRef fast path metal_video_try_submit
+// takes on macOS when it succeeds (see goAIVisionShouldSample/goAIVisionSample
+// below for that path instead), nor into the AHardwareBuffer path on
+// Android/Windows-Vulkan/iOS: those hand decoded frames to the GPU without
+// ever producing a CPU-readable buffer on every frame, so overlaying them
+// needs an actual native compositing layer (macOS: metal_video_impl_darwin.m's
+// g_overlay_layer; Android's cursor uses the same pattern, see
+// VulkanOverlayBridge.kt) rather than pixel writes here.
+//
+//export goAIVisionOverlay
+func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
+	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
+		return
+	}
+	if !aiVisionEnabled.Load() {
+		return
+	}
+	w, h, s := int(width), int(height), int(stride)
+	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
+	ApplyAIVisionOverlay(buf, w, h, s)
+}
+
+// goAIVisionShouldSample is a cheap (atomics + one time comparison, no
+// pixel access) pre-check called every frame from vt_callback's Metal
+// fast-path branch in moonlight_cgo_apple.go: it lets the C side skip the
+// BGRA→RGBA CVPixelBuffer readback entirely on the (overwhelming) majority
+// of frames where a fresh detection pass isn't due yet, so the zero-copy
+// path stays zero-copy except for the one frame every aiVisionInterval
+// that actually needs to feed the detector. Mirrors (but does not replace)
+// the authoritative gating inside maybeKickDetection's CompareAndSwap --
+// a false positive here just means one wasted conversion, never a
+// correctness issue.
+//
+//export goAIVisionShouldSample
+func goAIVisionShouldSample() C.int {
+	if !aiVisionEnabled.Load() || aiVisionBusy.Load() {
+		return 0
+	}
+	if time.Now().UnixNano()-aiVisionLastRun.Load() < int64(aiVisionInterval) {
+		return 0
+	}
+	return 1
+}
+
+// goAIVisionSample is the macOS Metal fast-path counterpart to
+// goAIVisionOverlay: called only on the rare frame goAIVisionShouldSample
+// green-lit, with a CPU readback of that one frame converted to RGBA. It
+// only feeds the detector (maybeKickDetection) -- it must NOT draw into
+// buf, unlike goAIVisionOverlay's ApplyAIVisionOverlay, because this buffer
+// is a throwaway conversion scratch space, never the one actually
+// displayed (Metal renders the CVImageBufferRef's IOSurface directly). The
+// completed result reaches the screen via pushAIVisionOverlayToMetal's
+// separate compositor-layer path instead (see aiVisionMetalPush).
+//
+//export goAIVisionSample
+func goAIVisionSample(rgba *C.uint8_t, width, height, stride C.int) {
+	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
+		return
+	}
+	if !aiVisionEnabled.Load() {
+		return
+	}
+	w, h, s := int(width), int(height), int(stride)
+	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
+	maybeKickDetection(buf, w, h, s)
+}
+
 var vtFrameCount int64
 
 //export goVTFrame

@@ -19,6 +19,8 @@ extern double metal_video_last_fps(void);
 extern void metal_video_set_hidden(int hidden);
 extern int  metal_video_get_last_frame_rgba(int *outW, int *outH, uint8_t **out);
 extern int  metal_video_next_event(int *type_out, float *x_out, float *y_out, int *btn_out);
+extern void metal_video_set_overlay(const uint8_t *rgba, int w, int h, int stride);
+extern void metal_video_clear_overlay(void);
 
 // Forward declaration matching the CGO-generated export signature (char*, not const char*).
 extern void goMetalLog(char *msg, int level);
@@ -30,7 +32,58 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+
+	"usbridge-client/internal/localui"
 )
+
+// init wires the AI Vision overlay (ai_vision.go) to this platform's
+// zero-copy Metal compositor -- see pushAIVisionOverlayToMetal's doc
+// comment for why the CPU pixel-drawing approach ai_vision.go otherwise
+// uses (drawCachedOverlay) doesn't reach frames that took the Metal fast
+// path. nil on every platform without a metal_video_darwin.go (Linux,
+// Windows, Android, iOS), where ai_vision.go's own in-place drawing is the
+// only mechanism and these hooks are simply never set.
+func init() {
+	aiVisionMetalPush = pushAIVisionOverlayToMetal
+	aiVisionMetalClear = MetalVideoClearOverlay
+}
+
+// pushAIVisionOverlayToMetal renders a just-completed AI Vision detection
+// result onto a transparent w×h canvas and hands it to the native
+// compositor layer (metal_video_impl_darwin.m's g_overlay_layer), which
+// Core Animation then composites on top of the video IOSurface layer at
+// zero per-frame CPU cost. Called once per completed detection pass (every
+// aiVisionInterval, see ai_vision.go), not per frame -- unlike
+// drawCachedOverlay's in-place pixel writes, which only run on paths that
+// already produce a CPU-writable buffer (Linux, the CPU decode fallback
+// here) and never on this one.
+func pushAIVisionOverlayToMetal(result *localui.Result, w, h int) {
+	if !MetalVideoIsActive() {
+		return // Metal fast path isn't the active renderer right now (e.g. CPU fallback) -- nothing to do.
+	}
+	img := buildAIVisionOverlayImage(result, w, h)
+	MetalVideoSetOverlay(img.Pix, w, h, img.Stride)
+}
+
+// buildAIVisionOverlayImage draws result's boxes+tags onto a fully
+// transparent w×h RGBA canvas using the exact same drawing code as the
+// static ui.parse annotated screenshot and the CPU-buffer live overlay
+// (localui.DrawDetectionBox/Tag) -- every color those use is fully opaque
+// (alpha 255, see draw.go), so untouched pixels stay alpha 0 and this is
+// trivially already in the premultiplied form CGImage needs, no separate
+// conversion required.
+func buildAIVisionOverlayImage(result *localui.Result, w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for _, icon := range result.Icons {
+		localui.DrawDetectionBox(img, icon.Bbox, false)
+		localui.DrawDetectionTag(img, icon.ID, icon.Bbox)
+	}
+	for _, t := range result.Text {
+		localui.DrawDetectionBox(img, t.Bbox, true)
+		localui.DrawDetectionTag(img, t.ID, t.Bbox)
+	}
+	return img
+}
 
 // goMetalLog is called from C (metal_video_impl_darwin.m) to log via logrus.
 //
@@ -93,6 +146,26 @@ func MetalVideoGetLastFrameRGBA() *image.RGBA {
 		Stride: width * 4,
 		Rect:   image.Rect(0, 0, width, height),
 	}
+}
+
+// MetalVideoSetOverlay uploads an AI Vision detection overlay (a mostly-
+// transparent RGBA image the same pixel size as the video frame) onto the
+// native compositor's overlay CALayer, stacked above the video IOSurface
+// layer -- see pushAIVisionOverlayToMetal. rgba must be non-empty and w/h/
+// stride must describe it; a no-op call is silently ignored so a stray
+// empty detection result can't crash into the cgo boundary.
+func MetalVideoSetOverlay(rgba []byte, w, h, stride int) {
+	if len(rgba) == 0 || w <= 0 || h <= 0 || stride <= 0 {
+		return
+	}
+	C.metal_video_set_overlay((*C.uint8_t)(unsafe.Pointer(&rgba[0])), C.int(w), C.int(h), C.int(stride))
+}
+
+// MetalVideoClearOverlay removes the AI Vision overlay image (checkbox
+// turned off, or a fresh detection found nothing) without touching the
+// video layer underneath.
+func MetalVideoClearOverlay() {
+	C.metal_video_clear_overlay()
 }
 
 // MetalVideoSetHidden hides or shows the Metal overlay NSView without destroying it.

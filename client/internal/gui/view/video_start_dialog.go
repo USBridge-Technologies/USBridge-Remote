@@ -10,6 +10,7 @@ import (
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/models"
+	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -51,6 +52,8 @@ type VideoStartDialog struct {
 	jpegHint          *widget.Label
 	deviceLabel       *widget.Label
 	vsyncCheck        *widget.Check
+	aiVisionCheck     *widget.Check
+	aiVisionHint      *widget.Label
 
 	startBtn  *widget.Button
 	cancelBtn *widget.Button
@@ -536,6 +539,17 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.vsyncCheck = widget.NewCheck(i18n.Current.EnableVSync, nil)
 	vsd.vsyncCheck.SetChecked(true)
 
+	// AI Vision: off by default, takes effect immediately (not gated behind
+	// Start/Apply) since it's a pure local-rendering overlay -- see
+	// service.SetAIVisionEnabled's doc comment.
+	vsd.aiVisionCheck = widget.NewCheck(i18n.Current.AIVision, func(checked bool) {
+		service.SetAIVisionEnabled(checked)
+	})
+	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
+	vsd.aiVisionHint = widget.NewLabel(i18n.Current.AIVisionHint)
+	vsd.aiVisionHint.Wrapping = fyne.TextWrapWord
+	vsd.aiVisionHint.TextStyle = fyne.TextStyle{Italic: true}
+
 	vsd.startBtn = widget.NewButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.startBtn.Importance = widget.HighImportance
 	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
@@ -588,6 +602,8 @@ func (vsd *VideoStartDialog) createInterface() {
 		),
 		vsd.modeDetailsSlot,
 		vsd.vsyncCheck,
+		vsd.aiVisionCheck,
+		vsd.aiVisionHint,
 	)
 	footer := container.NewVBox(
 		vsd.extraBtn,
@@ -785,6 +801,7 @@ func (vsd *VideoStartDialog) Show(onApply func(request *models.VideoStartRequest
 	vsd.onApply = onApply
 	vsd.startBtn.Enable()
 	vsd.cancelBtn.Enable()
+	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
 	if vsd.dialog != nil && vsd.parent != nil {
 		vsd.dialog.Move(fyne.NewPos(0, 0))
 		vsd.dialog.Resize(vsd.parent.Canvas().Size())

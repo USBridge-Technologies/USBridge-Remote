@@ -2,18 +2,24 @@
 # Sets up the local ui.parse offload (see internal/localui's package doc
 # comment and internal/api/local_ui_intercept.go): installs the ONNX
 # Runtime shared library (+ OpenVINO execution provider, for Intel iGPU
-# acceleration) and the three ONNX models (icon_detect, dbnet, svtr) into
-# ~/.usbridge/localui/{runtime,models}, the default paths
-# AppConfig.LocalUIParse{ORTLib,ModelDir} resolve to when left empty.
+# acceleration) into ~/.usbridge/localui/runtime (the default path
+# AppConfig.LocalUIParseORTLib resolves to when left empty) and the three
+# ONNX models (icon_detect, dbnet, svtr) into both
+# internal/localui/models/ (committed to git -- see that directory's
+# README for why) and ~/.usbridge/localui/models, so a plain checkout is
+# already runnable and re-running this script after an upstream model
+# update refreshes the committed copy too.
 #
-# Not committed to git: the runtime lib (~30MB) and models (~90MB) are
-# sizable binary blobs better fetched/built once per machine than carried
-# in every clone. This script is the reproducible record of where they
-# come from -- see usbridge/models/ui_parser/README.md's "Provenance"
-# section for how the .rknn device-side versions of the same three models
-# were produced; these ONNX exports are the same upstream sources
-# (PP-OCRv3 multilingual det / cyrillic rec, OmniParser-v2 icon_detect)
-# taken one step earlier in that pipeline, before RKNN compilation.
+# The runtime lib (~30MB of .so files) stays fetch-on-demand -- unlike the
+# models, it's an OS/arch-specific native binary blob, not something a
+# git checkout on a different platform could use anyway.
+#
+# This script is the reproducible record of where the models come from --
+# see usbridge/models/ui_parser/README.md's "Provenance" section for how
+# the .rknn device-side versions of the same three models were produced;
+# these ONNX exports are the same upstream sources (PP-OCRv3 multilingual
+# det / cyrillic rec, OmniParser-v2 icon_detect) taken one step earlier in
+# that pipeline, before RKNN compilation.
 #
 # Usage: ./scripts/setup_localui.sh
 # Requires: docker (for the Paddle->ONNX conversion stage, reusing
@@ -86,4 +92,9 @@ docker run --rm -v "$WORK:/work" -w /work usbridge-ui-parser-export \
 cp "$WORK/icon_detect.onnx" "$MODELS_DIR/"
 
 echo "    -> $MODELS_DIR ($(du -sh "$MODELS_DIR" | cut -f1))"
+
+REPO_MODELS_DIR="$REPO_ROOT/internal/localui/models"
+cp "$MODELS_DIR/icon_detect.onnx" "$MODELS_DIR/dbnet.onnx" "$MODELS_DIR/svtr.onnx" "$REPO_MODELS_DIR/"
+echo "    -> also refreshed committed copy at $REPO_MODELS_DIR (review/commit that diff if this was an upstream model update)"
+
 echo "==> Done. Set local_ui_parse_enabled: true in your config (or AppConfig.LocalUIParseEnabled) to use it."
