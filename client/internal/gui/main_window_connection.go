@@ -750,7 +750,22 @@ func (mw *MainWindow) verifyActiveConnectionWithContext(ctx context.Context) err
 		return fmt.Errorf("usb client is not initialized")
 	}
 
-	return mw.usbClient.TestConnectionWithContext(ctx)
+	// Deliberately NOT TestConnectionWithContext: that hits /api/healthz,
+	// which the agent registers as sec.Public (see
+	// agent/internal/api/security.go's isPublicPath) -- it proves the host
+	// is reachable, not that mw.activeAPISecret is the right master key.
+	// A wrong key's master-sync call earlier already gets a real 401, but
+	// doConnect treats that as non-fatal for direct/auto protocols (the
+	// secret is still wired into mw.usbClient via attachUSBClient, in case
+	// sync merely had a transient hiccup on an otherwise-correct key) -- so
+	// this was the only remaining gate before the client declared itself
+	// connected, and reusing the public endpoint here meant a bad password
+	// sailed straight through it: the app would show "connected" while
+	// every actually-authenticated call (screen, PC panel, disk, scripts)
+	// kept silently failing with 401. GetDeviceInfo requires a valid HMAC
+	// signature, so a wrong key fails right here instead.
+	_, err := mw.usbClient.GetDeviceInfoWithContext(ctx)
+	return err
 }
 
 func (mw *MainWindow) verifyActiveConnection() error {
