@@ -21,6 +21,7 @@ import (
 	fyneapp "fyne.io/fyne/v2/app"
 
 	"usbridge_agent/assets"
+	"usbridge_agent/internal/account"
 	"usbridge_agent/internal/adminapi"
 	"usbridge_agent/internal/api"
 	"usbridge_agent/internal/audio"
@@ -99,6 +100,15 @@ type App struct {
 	entMu         sync.Mutex
 	entStatus     entitlement.Status
 	entPollCancel context.CancelFunc // cancels an in-flight StartPurchase's post-checkout poll loop, if any
+
+	// accMu guards the account-login fields below -- see StartAccountLogin's
+	// doc comment. Separate mutex/status from entMu above: this is a
+	// different login entirely (account.Status, not entitlement.Status),
+	// touched from the same GUI goroutine but never from
+	// entitlementWatchdog's background one.
+	accMu         sync.Mutex
+	accStatus     account.Status
+	accPollCancel context.CancelFunc
 }
 
 // Start is the sole entry point from main(). It decides, based on mode and
@@ -341,6 +351,13 @@ func New() (*App, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	instance.refreshLocalEntitlementStatus()
+	if cfg.AccountToken != "" {
+		instance.accStatus.LoggedIn = true
+		instance.accStatus.Email = cfg.AccountEmail
+		// Licenses populated lazily -- the License dialog's own open
+		// triggers a refresh (see window.go), no need to hit the backend
+		// on every agent launch before anyone's even looked.
+	}
 	return instance, nil
 }
 
@@ -1286,6 +1303,224 @@ func (a *App) applyIssuedToken(token, hwID string) {
 	// actively waiting on to stop showing its spinner: it shouldn't also
 	// block on a multi-MB download completing first.
 	go a.ensureRustShineFresh(context.Background(), token)
+}
+
+// AccountStatus returns a snapshot of the account-login state (see
+// account.Status) for the GUI to render -- same "poll a status struct on a
+// refresh ticker" pattern EntitlementStatus already uses, just for the
+// separate account login.
+func (a *App) AccountStatus() account.Status {
+	a.accMu.Lock()
+	defer a.accMu.Unlock()
+	return a.accStatus
+}
+
+func (a *App) setAccError(msg string) {
+	a.accMu.Lock()
+	a.accStatus.LoginInProgress = false
+	a.accStatus.RebindInProgress = false
+	a.accStatus.LastError = msg
+	a.accMu.Unlock()
+}
+
+// StartAccountLogin begins a device-code login (see internal/account's
+// package doc comment) and returns the URL to open in the system browser.
+// Mirrors StartPurchase's shape: kicks off a background poll goroutine and
+// returns immediately, LoginInProgress on accStatus is what the GUI's
+// refresh ticker watches.
+func (a *App) StartAccountLogin() (string, error) {
+	start, err := account.StartLogin(context.Background())
+	if err != nil {
+		a.setAccError(fmt.Sprintf("could not start login: %v", err))
+		return "", err
+	}
+
+	a.accMu.Lock()
+	if a.accPollCancel != nil {
+		a.accPollCancel() // a previous attempt's poll loop, if any, is now stale
+	}
+	pollCtx, cancel := context.WithCancel(context.Background())
+	a.accPollCancel = cancel
+	a.accStatus.LoginInProgress = true
+	a.accStatus.LastError = ""
+	a.accMu.Unlock()
+
+	go a.pollAccountLogin(pollCtx, start.Code)
+	return start.VerificationURL, nil
+}
+
+// CancelAccountLogin mirrors CancelPurchase's doc comment exactly, for the
+// account login's own in-flight poll instead of the entitlement one.
+func (a *App) CancelAccountLogin() {
+	a.accMu.Lock()
+	if a.accPollCancel != nil {
+		a.accPollCancel()
+		a.accPollCancel = nil
+	}
+	a.accStatus.LoginInProgress = false
+	a.accStatus.LastError = ""
+	a.accMu.Unlock()
+}
+
+// accountLoginPollTimeout bounds how long pollAccountLogin keeps checking
+// after the verification URL was opened -- mirrors
+// pollForLicenseTimeout's own reasoning, just shorter: a Google login
+// round trip is seconds, not "however long it takes to enter card details".
+const accountLoginPollTimeout = 5 * time.Minute
+
+// pollAccountLogin mirrors pollForLicense's shape exactly (see that
+// function's doc comment) for the device-code login instead of the Stripe
+// checkout poll.
+func (a *App) pollAccountLogin(ctx context.Context, code string) {
+	deadline := time.Now().Add(accountLoginPollTimeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if time.Now().After(deadline) {
+			a.setAccError("Didn't detect a completed login yet — if you finished signing in, try \"Log in\" again.")
+			return
+		}
+		result, err := account.Poll(ctx, code)
+		if err != nil {
+			continue // transient network hiccup -- keep polling until the deadline or ctx cancellation
+		}
+		if result.Status == "expired" {
+			a.setAccError("Login link expired — click \"Log in\" again.")
+			return
+		}
+		if result.Status != "complete" {
+			continue // still pending -- human hasn't finished the browser step yet
+		}
+
+		next := a.cfg
+		next.AccountEmail = result.Email
+		next.AccountToken = result.AccountToken
+		if err := a.SaveConfig(next); err != nil {
+			log.Printf("[app] warning: failed to persist account token: %v", err)
+		}
+
+		a.accMu.Lock()
+		a.accStatus.LoggedIn = true
+		a.accStatus.Email = result.Email
+		a.accStatus.LoginInProgress = false
+		a.accStatus.LastError = ""
+		a.accMu.Unlock()
+
+		a.refreshAccountLicenses(context.Background())
+		return
+	}
+}
+
+// refreshAccountLicenses re-fetches the logged-in account's desktop
+// licenses -- called right after login completes and again after a
+// successful Rebind (so the GUI's list reflects the new owner immediately
+// rather than waiting for the dialog to be reopened).
+func (a *App) refreshAccountLicenses(ctx context.Context) {
+	// a.cfg.AccountToken, not accStatus -- same convention every other
+	// entitlement/account field on App follows (see DownloadRustShine's
+	// own `token := a.cfg.EntitlementToken`): the persisted config is the
+	// source of truth, accStatus is only ever a read-optimized mirror of
+	// it for the GUI.
+	token := a.cfg.AccountToken
+	if token == "" {
+		return
+	}
+
+	licenses, err := account.ListLicenses(ctx, token)
+	if err != nil {
+		a.setAccError(fmt.Sprintf("could not load your licenses: %v", err))
+		return
+	}
+	a.accMu.Lock()
+	a.accStatus.Licenses = licenses
+	a.accMu.Unlock()
+}
+
+// RebindLicenseToThisDevice moves oldIdentifier (one of the logged-in
+// account's own desktop licenses, per accStatus.Licenses) onto this
+// machine's hardware id -- the account-login replacement for the manual
+// "paste the old machine's token" rebind flow (see internal/entitlement's
+// StartCheckoutURL-adjacent flows; that one is untouched and still works).
+// Applies the freshly-rebound license locally exactly like applyIssuedToken
+// would, except there's no fresh token to verify here: RefreshLicense
+// (below) is what actually confirms the backend now considers this
+// hardware id licensed and returns a real, hardware-bound token for it.
+func (a *App) RebindLicenseToThisDevice(oldIdentifier string) error {
+	hwID, err := hwid.Get()
+	if err != nil {
+		a.setAccError(fmt.Sprintf("could not determine this machine's hardware id: %v", err))
+		return err
+	}
+
+	token := a.cfg.AccountToken
+	a.accMu.Lock()
+	a.accStatus.RebindInProgress = true
+	a.accStatus.LastError = ""
+	a.accMu.Unlock()
+	defer func() {
+		a.accMu.Lock()
+		a.accStatus.RebindInProgress = false
+		a.accMu.Unlock()
+	}()
+	if token == "" {
+		err := fmt.Errorf("not logged in")
+		a.setAccError("Log in first.")
+		return err
+	}
+
+	if err := account.Rebind(context.Background(), token, oldIdentifier, hwID); err != nil {
+		a.setAccError(fmt.Sprintf("could not rebind license: %v", err))
+		return err
+	}
+
+	res, err := entitlement.RefreshLicense(context.Background(), hwID)
+	if err != nil || res.NotLicensed {
+		// The rebind itself succeeded (backend confirmed it above) -- a
+		// failure here just means this machine hasn't picked up the fresh
+		// token yet (KV read lag, or a transient network hiccup);
+		// entitlementWatchdog's own periodic RefreshLicense call will catch
+		// up shortly, and the GUI's "Refresh" affordance re-drives this
+		// same path on demand.
+		log.Printf("[app] rebind succeeded but refresh-license didn't pick it up yet: err=%v", err)
+	} else {
+		a.applyIssuedToken(res.Token, hwID)
+	}
+
+	a.refreshAccountLicenses(context.Background())
+	return nil
+}
+
+// RefreshAccountLicenses re-fetches the logged-in account's licenses in the
+// background -- exported so the GUI can drive it on demand (opening the
+// License dialog, a "Refresh" click) via the TokenProvider interface,
+// mirroring refreshAccountLicenses's unexported synchronous version used
+// internally right after a login/rebind completes.
+func (a *App) RefreshAccountLicenses() {
+	go a.refreshAccountLicenses(context.Background())
+}
+
+// LogoutAccount forgets the locally-stored account login -- purely local
+// (there's no server-side session to invalidate: the Bearer account token
+// simply expires on its own after 30 days, see deviceAuth.ts's
+// ACCOUNT_TOKEN_TTL_SECONDS). Does not touch EntitlementToken/PreferredBackend
+// -- RustShine keeps running under whatever hardware-bound license/trial it
+// already had; only the account identity used for rebinding is cleared.
+func (a *App) LogoutAccount() error {
+	next := a.cfg
+	next.AccountEmail = ""
+	next.AccountToken = ""
+	if err := a.SaveConfig(next); err != nil {
+		return err
+	}
+	a.accMu.Lock()
+	a.accStatus = account.Status{}
+	a.accMu.Unlock()
+	return nil
 }
 
 // DownloadRustShine downloads and stages the RustShine build for this

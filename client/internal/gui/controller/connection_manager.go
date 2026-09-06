@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -65,6 +66,19 @@ type ConnectionManager struct {
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
 	tsPollStop               chan struct{}
+
+	// Account owns the account login + sync passphrase this connections
+	// list is end-to-end synced under -- see account_manager.go and
+	// connection_manager_sync.go. nil is a valid state (no account
+	// features wired up, e.g. some future embedded/CI build): every sync
+	// call site checks for it.
+	Account *AccountManager
+
+	// syncMu guards the fields below -- see connection_manager_sync.go.
+	syncMu        sync.Mutex
+	syncVersion   int // last version this device knows the backend to be at; 0 = never successfully synced
+	syncPushTimer *time.Timer
+	syncLastError string
 }
 
 func (cm *ConnectionManager) ResolveMasterKey(host, currentMasterKey string) string {
@@ -196,6 +210,16 @@ func NewConnectionManager(app fyne.App, window fyne.Window, config *models.AppCo
 	cm.loadConnections()
 	cm.createInterface()
 	cm.startTailscaleStatusPolling()
+
+	cm.Account = NewAccountManager(app, func() {
+		// Fires on every login/passphrase/logout change -- cheap to call
+		// unconditionally (trySyncPullAndMerge no-ops the instant sync
+		// credentials aren't both set yet) and is exactly the moment a
+		// fresh set of credentials becomes available worth reconciling
+		// against, e.g. right after SetSyncPassphrase on a second device.
+		go cm.trySyncPullAndMerge()
+	})
+	go cm.trySyncPullAndMerge()
 	return cm
 }
 

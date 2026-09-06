@@ -153,8 +153,23 @@ func (cm *ConnectionManager) getStorageURI() fyne.URI {
 	return uri
 }
 
-// saveConnections saves connections to a file
+// saveConnections saves connections to a file and, if sync is configured
+// (see connection_manager_sync.go), schedules pushing the new list to the
+// account's synced copy. Every mutating method on ConnectionManager
+// (SaveConnection, RememberResolvedTailscaleHost, UpdateConnectionOS,
+// edits/deletes in connection_manager_dialogs.go) already funnels through
+// this one function to persist locally -- hooking the sync push here
+// covers all of them uniformly instead of needing a call at each site.
 func (cm *ConnectionManager) saveConnections() {
+	cm.saveConnectionsLocalOnly()
+	cm.scheduleSyncPush()
+}
+
+// saveConnectionsLocalOnly is saveConnections without the sync push --
+// used by trySyncPullAndMerge for the (common) case where a pull found
+// nothing new to merge: the local file is already correct, so there's
+// nothing worth pushing back up over it.
+func (cm *ConnectionManager) saveConnectionsLocalOnly() {
 	data, err := json.MarshalIndent(cm.connections, "", "  ")
 	if err != nil {
 		logrus.Errorf("Serialization error: %v", err)
