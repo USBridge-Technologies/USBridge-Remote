@@ -24,6 +24,7 @@ import (
 func main() {
 	gpu := flag.Bool("gpu", true, "try the OpenVINO GPU execution provider (falls back to CPU automatically)")
 	dir := flag.String("dir", defaultLocalUIDir(), "~/.usbridge/localui equivalent (must contain models/ and runtime/)")
+	runs := flag.Int("runs", 1, "call Parse this many times on the same image, printing timing for each -- the first run pays one-time ONNX Runtime/OpenVINO graph-compile costs that later calls don't")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
@@ -55,13 +56,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	t0 = time.Now()
-	marked, result, err := p.Parse(imgBytes)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Parse: %v\n", err)
-		os.Exit(1)
+	var marked []byte
+	var result *localui.Result
+	for run := 1; run <= *runs; run++ {
+		t0 = time.Now()
+		marked, result, err = p.Parse(imgBytes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Parse: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Parse run %d/%d: %v -- icons=%d text=%d backend=%s\n", run, *runs, time.Since(t0), len(result.Icons), len(result.Text), result.Backend)
 	}
-	fmt.Printf("Parse: %v -- icons=%d text=%d backend=%s\n", time.Since(t0), len(result.Icons), len(result.Text), result.Backend)
 
 	for _, t := range result.Text {
 		fmt.Printf("  [%s] conf=%.2f %q\n", t.ID, t.Confidence, t.Text)

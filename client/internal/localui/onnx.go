@@ -120,3 +120,89 @@ func (s *session) Close() {
 		s.outputT.Destroy()
 	}
 }
+
+// batchedSession wraps a DynamicAdvancedSession -- unlike session (fixed
+// shape, bound once at creation), this accepts a fresh input tensor with a
+// different batch size on every call, output auto-allocated by ONNX
+// Runtime. Built for SVTR: a real ui.parse call recognizes anywhere from a
+// handful to a couple hundred text crops, and running them one at a time
+// (a plain `session`, batch=1 always) spends most of its wall time on
+// per-Run() overhead rather than actual compute -- benchmarked live
+// (see internal/localui's package doc comment) at ~20ms/crop for 145
+// crops serially (2.9s of a 4.1s total Parse call) vs. the same graph's
+// isolated 7.2ms/crop at batch=1. Batching amortizes that overhead: at
+// batch=16 on the OpenVINO GPU EP, throughput stabilizes at ~6.15ms/crop
+// (vs. plain CPU actually getting WORSE per-crop above batch=8 for this
+// model -- 14.6ms/crop at batch=16, 23.7ms/crop at batch=32, so GPU is
+// used here even though single-crop SVTR was faster on CPU).
+type batchedSession struct {
+	s          *ort.DynamicAdvancedSession
+	inputName  string
+	outputName string
+}
+
+// svtrBatchSize is the batch size batchRecognizeSVTR groups crops into.
+// Chosen from the benchmarked GPU numbers above: 16 is close to the
+// per-crop-time knee (6.15ms/crop at 16 vs. 6.73ms/crop at 32, and higher
+// batches mean more wasted compute padding out a call when the crop count
+// doesn't divide evenly).
+const svtrBatchSize = 16
+
+func newBatchedSession(onnxPath string, useGPU bool) (*batchedSession, error) {
+	inputName, outputName, err := ort.GetInputOutputInfo(onnxPath)
+	if err != nil {
+		return nil, fmt.Errorf("inspect model %s: %w", onnxPath, err)
+	}
+	if len(inputName) != 1 || len(outputName) != 1 {
+		return nil, fmt.Errorf("model %s: expected exactly 1 input and 1 output, got %d/%d", onnxPath, len(inputName), len(outputName))
+	}
+
+	opts, err := ort.NewSessionOptions()
+	if err != nil {
+		return nil, fmt.Errorf("session options: %w", err)
+	}
+	defer opts.Destroy()
+	if useGPU {
+		if err := opts.AppendExecutionProviderOpenVINO(map[string]string{"device_type": "GPU"}); err != nil {
+			// Fall back to CPU silently, same as newSession.
+			useGPU = false
+		}
+	}
+
+	s, err := ort.NewDynamicAdvancedSession(onnxPath,
+		[]string{inputName[0].Name}, []string{outputName[0].Name}, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &batchedSession{s: s, inputName: inputName[0].Name, outputName: outputName[0].Name}, nil
+}
+
+// run executes one batch: data must hold exactly batch*3*height*width
+// float32 values (NCHW, batch outermost). Returns the flat output
+// (batch*outPerItem floats) and lets the caller slice per-item.
+func (b *batchedSession) run(data []float32, batch, channels, height, width int) ([]float32, error) {
+	inShape := ort.NewShape(int64(batch), int64(channels), int64(height), int64(width))
+	inputT, err := ort.NewTensor(inShape, data)
+	if err != nil {
+		return nil, fmt.Errorf("alloc batch input tensor: %w", err)
+	}
+	defer inputT.Destroy()
+
+	outputs := []ort.Value{nil}
+	if err := b.s.Run([]ort.Value{inputT}, outputs); err != nil {
+		return nil, err
+	}
+	outT, ok := outputs[0].(*ort.Tensor[float32])
+	if !ok {
+		outputs[0].Destroy()
+		return nil, fmt.Errorf("unexpected output tensor type %T", outputs[0])
+	}
+	defer outT.Destroy()
+	return append([]float32(nil), outT.GetData()...), nil
+}
+
+func (b *batchedSession) Close() {
+	if b.s != nil {
+		b.s.Destroy()
+	}
+}

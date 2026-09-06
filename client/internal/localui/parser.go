@@ -31,7 +31,7 @@ type Parser struct {
 	mu    sync.Mutex
 	icon  *session
 	dbnet *session
-	svtr  *session
+	svtr  *batchedSession
 	dict  []string
 	gpu   bool // whether icon/dbnet actually ended up on the OpenVINO GPU EP
 }
@@ -46,11 +46,14 @@ type Config struct {
 	UseGPU        bool   // try OpenVINO GPU EP for icon_detect+dbnet (SVTR stays CPU -- see NewParser)
 }
 
-// NewParser loads all three ONNX models. icon_detect and dbnet are the
-// expensive, GPU-worthwhile passes (see runtime.go's benchmarked
-// rationale); SVTR runs dozens of times per call on tiny 48x320 crops
-// where OpenVINO's GPU dispatch overhead measured slower than plain CPU,
-// so it's always CPU regardless of Config.UseGPU.
+// NewParser loads all three ONNX models. All three now try the OpenVINO
+// GPU EP when Config.UseGPU is set: SVTR used to be pinned to CPU (a
+// single crop's GPU dispatch overhead measured slower than CPU), but
+// batching crops together (see batchRecognizeSVTR/batchedSession) changes
+// that -- at batch>=16 the GPU EP's per-crop time keeps dropping while
+// plain CPU's gets WORSE past batch=8 for this model, so batched SVTR is
+// GPU-worthwhile after all. See batchedSession's doc comment for the
+// benchmarked numbers behind this.
 func NewParser(cfg Config) (*Parser, error) {
 	if err := initRuntime(cfg.SharedLibPath); err != nil {
 		return nil, fmt.Errorf("init onnxruntime: %w", err)
@@ -65,7 +68,7 @@ func NewParser(cfg Config) (*Parser, error) {
 		icon.Close()
 		return nil, fmt.Errorf("load paddle_dbnet: %w", err)
 	}
-	svtr, err := newSession(cfg.SVTRONNXPath, []int64{1, 3, svtrHeight, svtrWidth}, []int64{1, svtrTimeSteps, svtrNumClasses}, false)
+	svtr, err := newBatchedSession(cfg.SVTRONNXPath, cfg.UseGPU)
 	if err != nil {
 		icon.Close()
 		dbnet.Close()
@@ -141,13 +144,7 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 	debugf("dbnet: %d tiles, %v total (%v/tile avg) -> %d boxes after merge", len(tiles), time.Since(tDBNet), time.Since(tDBNet)/time.Duration(len(tiles)), len(textBoxes))
 
 	tSVTR := time.Now()
-	for _, boxOrig := range textBoxes {
-		text, conf, ok := p.recognizeBox(original, boxOrig)
-		if !ok || text == "" {
-			continue
-		}
-		res.Text = append(res.Text, TextRegion{Bbox: boxOrig, Text: text, Confidence: conf})
-	}
+	res.Text = p.batchRecognizeSVTR(original, textBoxes)
 	svtrElapsed := time.Since(tSVTR)
 	perCrop := time.Duration(0)
 	if len(textBoxes) > 0 {
@@ -208,20 +205,34 @@ func prepareDBNetTile(original *rgbImage, t rect, size int) (*rgbImage, letterbo
 
 const maxSVTRAspect = 6.0
 
-func (p *Parser) recognizeBox(original *rgbImage, box Box) (string, float64, bool) {
+// svtrJob is one SVTR crop queued for batched recognition: either a whole
+// text box, or one chunk of a box too wide for a single 48x320 SVTR pass
+// (see planSVTRCrops). textIdx groups chunks back to their original box
+// after decoding, the same way the old per-box recognizeBox loop did
+// inline -- just decoupled from the actual inference call so many jobs
+// across many boxes can share one batched Run().
+type svtrJob struct {
+	textIdx int // index into the textBoxes slice this crop belongs to
+	crop    Box
+}
+
+// planSVTRCrops returns the SVTR crop(s) for one detected text box: the
+// box itself if its aspect ratio fits in one 48x320 pass, or several
+// overlapping chunks otherwise -- identical splitting logic to the old
+// recognizeBox, just returning the plan instead of immediately running
+// inference on it.
+func planSVTRCrops(box Box) []Box {
 	w := box.X2 - box.X1
 	h := box.Y2 - box.Y1
 	if h <= 0 || w/h <= maxSVTRAspect {
-		return p.recognizeCrop(original, box)
+		return []Box{box}
 	}
 
 	chunkW := maxSVTRAspect * h
 	overlap := chunkW * 0.15
 	n := int(w/(chunkW-overlap)) + 1
 
-	var parts []string
-	var confSum float64
-	var confCount int
+	var chunks []Box
 	for i := 0; i < n; i++ {
 		x1 := box.X1 + float64(i)*(chunkW-overlap)
 		x2 := x1 + chunkW
@@ -231,32 +242,85 @@ func (p *Parser) recognizeBox(original *rgbImage, box Box) (string, float64, boo
 		if x2-x1 < h {
 			continue
 		}
-		text, conf, ok := p.recognizeCrop(original, Box{X1: x1, Y1: box.Y1, X2: x2, Y2: box.Y2})
-		if !ok || text == "" {
-			continue
-		}
-		parts = append(parts, text)
-		confSum += conf
-		confCount++
+		chunks = append(chunks, Box{X1: x1, Y1: box.Y1, X2: x2, Y2: box.Y2})
 	}
-	if confCount == 0 {
-		return "", 0, false
-	}
-	return joinChunks(parts), confSum / float64(confCount), true
+	return chunks
 }
 
-func (p *Parser) recognizeCrop(original *rgbImage, box Box) (string, float64, bool) {
-	crop, ok := safeCrop(original, box)
-	if !ok {
-		return "", 0, false
+// batchRecognizeSVTR runs SVTR over every detected text box, batching
+// crops svtrBatchSize at a time instead of one Run() call per crop -- see
+// batchedSession's doc comment for why (per-call overhead, not compute,
+// dominated the old serial loop).
+func (p *Parser) batchRecognizeSVTR(original *rgbImage, textBoxes []Box) []TextRegion {
+	var jobs []svtrJob
+	for i, box := range textBoxes {
+		for _, crop := range planSVTRCrops(box) {
+			jobs = append(jobs, svtrJob{textIdx: i, crop: crop})
+		}
 	}
-	svtrInput := preprocessSVTRCrop(crop)
-	svtrOut, err := p.svtr.run(svtrInput)
-	if err != nil {
-		return "", 0, false
+	if len(jobs) == 0 {
+		return nil
 	}
-	text, conf := ctcGreedyDecodeSVTR(svtrOut, p.dict)
-	return text, conf, true
+
+	const itemFloats = 3 * svtrHeight * svtrWidth
+	const outFloats = svtrTimeSteps * svtrNumClasses
+
+	type partial struct {
+		text string
+		conf float64
+	}
+	parts := make(map[int][]partial, len(textBoxes))
+
+	for start := 0; start < len(jobs); start += svtrBatchSize {
+		end := start + svtrBatchSize
+		if end > len(jobs) {
+			end = len(jobs)
+		}
+		batch := jobs[start:end]
+
+		buf := make([]float32, len(batch)*itemFloats)
+		valid := make([]bool, len(batch))
+		for i, j := range batch {
+			crop, ok := safeCrop(original, j.crop)
+			if !ok {
+				continue
+			}
+			copy(buf[i*itemFloats:(i+1)*itemFloats], preprocessSVTRCrop(crop))
+			valid[i] = true
+		}
+
+		out, err := p.svtr.run(buf, len(batch), 3, svtrHeight, svtrWidth)
+		if err != nil {
+			continue // this batch's crops just contribute no text, rest of Parse still succeeds
+		}
+		for i, j := range batch {
+			if !valid[i] {
+				continue
+			}
+			logits := out[i*outFloats : (i+1)*outFloats]
+			text, conf := ctcGreedyDecodeSVTR(logits, p.dict)
+			if text == "" {
+				continue
+			}
+			parts[j.textIdx] = append(parts[j.textIdx], partial{text: text, conf: conf})
+		}
+	}
+
+	var out []TextRegion
+	for i, box := range textBoxes {
+		ps := parts[i]
+		if len(ps) == 0 {
+			continue
+		}
+		texts := make([]string, len(ps))
+		var confSum float64
+		for k, pt := range ps {
+			texts[k] = pt.text
+			confSum += pt.conf
+		}
+		out = append(out, TextRegion{Bbox: box, Text: joinChunks(texts), Confidence: confSum / float64(len(ps))})
+	}
+	return out
 }
 
 func safeCrop(img *rgbImage, box Box) (*rgbImage, bool) {
