@@ -1542,18 +1542,92 @@ func newConnectionInlineIconButton(icon fyne.Resource, onTapped func(), disabled
 	})
 }
 
+// SpinnerAnimator drives the small looping icon-swap animation shared by
+// every button-like widget in this file that shows a loading spinner
+// (connection use button, Tailscale header toggle, primary button,
+// icon-chrome button). Embed it and call Start/Stop instead of hand-rolling
+// a ticker goroutine per widget.
+type SpinnerAnimator struct {
+	mu   sync.Mutex
+	stop chan struct{}
+	step int
+}
+
+// Start begins looping through frames at a fixed interval, invoking onFrame
+// (on the Fyne UI goroutine) for each frame, starting immediately with frame
+// 0. Calling Start again while already running replaces the animation and
+// restarts at frame 0; use IsRunning to avoid that when a caller wants
+// repeated Start calls to be a no-op instead.
+func (s *SpinnerAnimator) Start(frames []fyne.Resource, onFrame func(fyne.Resource)) {
+	if len(frames) == 0 || onFrame == nil {
+		return
+	}
+	s.Stop()
+
+	stop := make(chan struct{})
+	s.mu.Lock()
+	s.stop = stop
+	s.step = 0
+	s.mu.Unlock()
+
+	onFrame(frames[0])
+
+	go func() {
+		ticker := time.NewTicker(140 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				fyne.Do(func() {
+					s.mu.Lock()
+					active := s.stop == stop
+					if active {
+						s.step = (s.step + 1) % len(frames)
+					}
+					step := s.step
+					s.mu.Unlock()
+					if !active {
+						return
+					}
+					onFrame(frames[step])
+				})
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+// Stop ends any running animation. Safe to call when nothing is running.
+func (s *SpinnerAnimator) Stop() {
+	s.mu.Lock()
+	stop := s.stop
+	s.stop = nil
+	s.mu.Unlock()
+
+	if stop != nil {
+		close(stop)
+	}
+}
+
+// IsRunning reports whether an animation is currently looping.
+func (s *SpinnerAnimator) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stop != nil
+}
+
 type connectionActionIconButton struct {
 	widget.BaseWidget
 
-	onTapped    func()
-	disabled    bool
-	loading     bool
-	hovered     bool
-	bg          *canvas.Rectangle
-	icon        *canvas.Image
-	spinnerMu   sync.Mutex
-	spinnerStop chan struct{}
-	spinnerStep int
+	onTapped func()
+	disabled bool
+	loading  bool
+	hovered  bool
+	bg       *canvas.Rectangle
+	icon     *canvas.Image
+	anim     SpinnerAnimator
 }
 
 func newConnectionActionIconButton(onTapped func()) *connectionActionIconButton {
@@ -1648,69 +1722,20 @@ func (b *connectionActionIconButton) refreshVisuals() {
 	b.icon.Refresh()
 
 	if b.loading {
-		b.startSpinner()
-		return
-	}
-	b.stopSpinner()
-}
-
-func (b *connectionActionIconButton) startSpinner() {
-	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
-		return
-	}
-
-	b.stopSpinner()
-	stop := make(chan struct{})
-
-	b.spinnerMu.Lock()
-	b.spinnerStop = stop
-	b.spinnerStep = 0
-	b.spinnerMu.Unlock()
-
-	b.icon.Resource = assets.LoadingGrayFrames[0]
-	b.icon.Refresh()
-
-	go func() {
-		ticker := time.NewTicker(140 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				fyne.Do(func() {
-					b.spinnerMu.Lock()
-					active := b.spinnerStop == stop
-					if active {
-						b.spinnerStep = (b.spinnerStep + 1) % len(assets.LoadingGrayFrames)
-					}
-					step := b.spinnerStep
-					b.spinnerMu.Unlock()
-					if !active || b.icon == nil {
-						return
-					}
-					b.icon.Resource = assets.LoadingGrayFrames[step]
-					b.icon.Refresh()
-				})
-			case <-stop:
+		b.anim.Start(assets.LoadingGrayFrames, func(frame fyne.Resource) {
+			if b.icon == nil {
 				return
 			}
-		}
-	}()
-}
-
-func (b *connectionActionIconButton) stopSpinner() {
-	b.spinnerMu.Lock()
-	stop := b.spinnerStop
-	b.spinnerStop = nil
-	b.spinnerMu.Unlock()
-
-	if stop != nil {
-		close(stop)
+			b.icon.Resource = frame
+			b.icon.Refresh()
+		})
+		return
 	}
+	b.anim.Stop()
 }
 
 func (b *connectionActionIconButton) StopAnimations() {
-	b.stopSpinner()
+	b.anim.Stop()
 }
 
 func compactAddActionLabel(label string) string {
@@ -1903,9 +1928,7 @@ type tailscaleHeaderToggle struct {
 	thumb   *canvas.Circle
 	spinner *canvas.Image
 
-	spinnerMu   sync.Mutex
-	spinnerStop chan struct{}
-	spinnerStep int
+	anim SpinnerAnimator
 }
 
 func newTailscaleHeaderToggle(onTapped func()) *tailscaleHeaderToggle {
@@ -2035,70 +2058,20 @@ func (t *tailscaleHeaderToggle) refreshVisuals() {
 
 	t.spinner.Hidden = !t.loading
 	t.spinner.Refresh()
-	if t.loading {
-		t.startSpinner()
-	} else {
-		t.stopSpinner()
-	}
-}
-
-func (t *tailscaleHeaderToggle) startSpinner() {
-	if len(assets.LoadingGrayFrames) == 0 || t.spinner == nil {
-		return
-	}
-
-	t.spinnerMu.Lock()
-	alreadyRunning := t.spinnerStop != nil
-	t.spinnerMu.Unlock()
-	if alreadyRunning {
-		return
-	}
-
-	stop := make(chan struct{})
-	t.spinnerMu.Lock()
-	t.spinnerStop = stop
-	t.spinnerStep = 0
-	t.spinnerMu.Unlock()
-
-	t.spinner.Resource = assets.LoadingGrayFrames[0]
-	t.spinner.Refresh()
-
-	go func() {
-		ticker := time.NewTicker(140 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				fyne.Do(func() {
-					t.spinnerMu.Lock()
-					active := t.spinnerStop == stop
-					if active {
-						t.spinnerStep = (t.spinnerStep + 1) % len(assets.LoadingGrayFrames)
-					}
-					step := t.spinnerStep
-					t.spinnerMu.Unlock()
-					if !active || t.spinner == nil {
-						return
-					}
-					t.spinner.Resource = assets.LoadingGrayFrames[step]
-					t.spinner.Refresh()
-				})
-			case <-stop:
+	switch {
+	case t.loading && !t.anim.IsRunning():
+		// Unlike the other spinner-driven buttons, don't restart from frame 0
+		// on every refresh -- refreshVisuals runs on every SetOn/SetDisabled
+		// too, which fire far more often than the animation's own frame tick.
+		t.anim.Start(assets.LoadingGrayFrames, func(frame fyne.Resource) {
+			if t.spinner == nil {
 				return
 			}
-		}
-	}()
-}
-
-func (t *tailscaleHeaderToggle) stopSpinner() {
-	t.spinnerMu.Lock()
-	stop := t.spinnerStop
-	t.spinnerStop = nil
-	t.spinnerMu.Unlock()
-
-	if stop != nil {
-		close(stop)
+			t.spinner.Resource = frame
+			t.spinner.Refresh()
+		})
+	case !t.loading:
+		t.anim.Stop()
 	}
 }
 
@@ -2152,7 +2125,7 @@ func (r *tailscaleHeaderToggleRenderer) Refresh() {
 }
 
 func (r *tailscaleHeaderToggleRenderer) Destroy() {
-	r.toggle.stopSpinner()
+	r.toggle.anim.Stop()
 }
 
 func (r *tailscaleHeaderToggleRenderer) Objects() []fyne.CanvasObject {
@@ -2174,12 +2147,10 @@ type ConnectionPrimaryButton struct {
 	loading   bool
 	hovered   bool
 
-	bg          *canvas.Rectangle
-	label       *canvas.Text
-	icon        *canvas.Image
-	spinnerMu   sync.Mutex
-	spinnerStop chan struct{}
-	spinnerStep int
+	bg    *canvas.Rectangle
+	label *canvas.Text
+	icon  *canvas.Image
+	anim  SpinnerAnimator
 }
 
 func NewConnectionPrimaryButton(label string, onTapped func()) *ConnectionPrimaryButton {
@@ -2331,73 +2302,23 @@ func (b *ConnectionPrimaryButton) refreshVisuals() {
 	if b.loading {
 		b.label.Hide()
 		b.icon.Show()
-		b.startSpinner()
+		b.anim.Start(assets.LoadingGrayFrames, func(frame fyne.Resource) {
+			if b.icon == nil {
+				return
+			}
+			b.icon.Resource = frame
+			b.icon.Refresh()
+		})
 		return
 	}
 
-	b.stopSpinner()
+	b.anim.Stop()
 	b.icon.Hide()
 	b.label.Show()
 }
 
-func (b *ConnectionPrimaryButton) startSpinner() {
-	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
-		return
-	}
-
-	b.stopSpinner()
-
-	stop := make(chan struct{})
-
-	b.spinnerMu.Lock()
-	b.spinnerStop = stop
-	b.spinnerStep = 0
-	b.spinnerMu.Unlock()
-
-	b.icon.Resource = assets.LoadingGrayFrames[0]
-	b.icon.Refresh()
-
-	go func() {
-		ticker := time.NewTicker(140 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				fyne.Do(func() {
-					b.spinnerMu.Lock()
-					active := b.spinnerStop == stop
-					if active {
-						b.spinnerStep = (b.spinnerStep + 1) % len(assets.LoadingGrayFrames)
-					}
-					step := b.spinnerStep
-					b.spinnerMu.Unlock()
-					if !active || b.icon == nil {
-						return
-					}
-					b.icon.Resource = assets.LoadingGrayFrames[step]
-					b.icon.Refresh()
-				})
-			case <-stop:
-				return
-			}
-		}
-	}()
-}
-
-func (b *ConnectionPrimaryButton) stopSpinner() {
-	b.spinnerMu.Lock()
-	stop := b.spinnerStop
-	b.spinnerStop = nil
-	b.spinnerMu.Unlock()
-
-	if stop != nil {
-		close(stop)
-	}
-}
-
 func (b *ConnectionPrimaryButton) StopAnimations() {
-	b.stopSpinner()
+	b.anim.Stop()
 }
 
 func centerSpacer(width float32) fyne.CanvasObject {
@@ -2515,17 +2436,15 @@ type iconChromeButtonSpec struct {
 type iconChromeButton struct {
 	widget.BaseWidget
 
-	spec        iconChromeButtonSpec
-	hovered     bool
-	loading     bool
-	bg          *canvas.Rectangle
-	border      *canvas.Rectangle
-	icon        *canvas.Image
-	label       *canvas.Text
-	text        string
-	spinnerMu   sync.Mutex
-	spinnerStop chan struct{}
-	spinnerStep int
+	spec    iconChromeButtonSpec
+	hovered bool
+	loading bool
+	bg      *canvas.Rectangle
+	border  *canvas.Rectangle
+	icon    *canvas.Image
+	label   *canvas.Text
+	text    string
+	anim    SpinnerAnimator
 }
 
 func newIconChromeButton(spec iconChromeButtonSpec) *iconChromeButton {
@@ -2572,7 +2491,7 @@ func (b *iconChromeButton) SetLoading(loading bool) {
 }
 
 func (b *iconChromeButton) StopAnimations() {
-	b.iconChromeStopSpinner()
+	b.anim.Stop()
 }
 
 func (b *iconChromeButton) Tapped(*fyne.PointEvent) {
@@ -2662,9 +2581,15 @@ func (b *iconChromeButton) refreshVisuals() {
 	}
 
 	if b.loading {
-		b.iconChromeStartSpinner()
+		b.anim.Start(assets.LoadingGrayFrames, func(frame fyne.Resource) {
+			if b.icon == nil {
+				return
+			}
+			b.icon.Resource = frame
+			b.icon.Refresh()
+		})
 	} else {
-		b.iconChromeStopSpinner()
+		b.anim.Stop()
 	}
 
 	if b.text != "" {
@@ -2681,56 +2606,6 @@ func (b *iconChromeButton) refreshVisuals() {
 	b.label.Refresh()
 }
 
-func (b *iconChromeButton) iconChromeStartSpinner() {
-	if len(assets.LoadingGrayFrames) == 0 || b.icon == nil {
-		return
-	}
-	b.iconChromeStopSpinner()
-	stop := make(chan struct{})
-	b.spinnerMu.Lock()
-	b.spinnerStop = stop
-	b.spinnerStep = 0
-	b.spinnerMu.Unlock()
-
-	b.icon.Resource = assets.LoadingGrayFrames[0]
-	b.icon.Refresh()
-
-	go func() {
-		ticker := time.NewTicker(140 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				fyne.Do(func() {
-					b.spinnerMu.Lock()
-					active := b.spinnerStop == stop
-					if active {
-						b.spinnerStep = (b.spinnerStep + 1) % len(assets.LoadingGrayFrames)
-					}
-					step := b.spinnerStep
-					b.spinnerMu.Unlock()
-					if !active || b.icon == nil {
-						return
-					}
-					b.icon.Resource = assets.LoadingGrayFrames[step]
-					b.icon.Refresh()
-				})
-			case <-stop:
-				return
-			}
-		}
-	}()
-}
-
-func (b *iconChromeButton) iconChromeStopSpinner() {
-	b.spinnerMu.Lock()
-	stop := b.spinnerStop
-	b.spinnerStop = nil
-	b.spinnerMu.Unlock()
-	if stop != nil {
-		close(stop)
-	}
-}
 
 func NewFooterIconButton(normalIcon fyne.Resource, hoverIcon fyne.Resource, iconSize fyne.Size, onTapped func()) fyne.CanvasObject {
 	return newIconChromeButton(iconChromeButtonSpec{

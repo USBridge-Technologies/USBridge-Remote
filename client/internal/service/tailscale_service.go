@@ -234,6 +234,18 @@ func (s *TailscaleService) StartLogin(ctx context.Context) (string, error) {
 		status, err := lc.Status(ctx)
 		if err == nil && status != nil {
 			if url := strings.TrimSpace(status.AuthURL); url != "" {
+				// Feed it through the same setLatestAuthURL/authURLHandler
+				// path SetAuthURLHandler's callers rely on, instead of
+				// leaving them dependent on handleUserLogf scraping this
+				// same URL back out of tsnet's log stream -- which it does
+				// via UserLogf, but a fresh interactive login triggered by
+				// an explicit re-login (as opposed to tsnet's own
+				// once-per-process-lifetime auto-login) can log the AuthURL
+				// through the internal Logf stream instead, which
+				// handleUserLogf never sees. Status() here is the actual
+				// source of truth either way, so use it directly rather
+				// than hoping the log line shows up on the right stream.
+				s.setLatestAuthURL(url)
 				return url, nil
 			}
 			if strings.TrimSpace(status.BackendState) == "Running" {
