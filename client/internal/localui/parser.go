@@ -155,6 +155,7 @@ func (p *Parser) Parse(imgBytes []byte) (markedPNG []byte, result *Result, err e
 	tAssoc := time.Now()
 	associateLabels(res.Icons, res.Text)
 	assignMarkIDs(res.Icons, res.Text)
+	res.ZoomHints = findZoomHints(res.Icons)
 	debugf("associate+mark: %v", time.Since(tAssoc))
 
 	tDraw := time.Now()

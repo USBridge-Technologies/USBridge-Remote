@@ -56,4 +56,12 @@ type Result struct {
 	// tell a locally-computed ui.parse apart from a device one. The MCP
 	// proxy interceptor only ever adds this field; it never expects one back.
 	Backend string `json:"_backend,omitempty"`
+
+	// ZoomHints -- see usbridge/modules/ui_parser/types.go's Result.ZoomHints
+	// and density.go's findZoomHints. Ported so a caller sees identical
+	// zoom_hints behavior whether the device or this local offload
+	// answered ui.parse; the client never intercepts the ui.zoom tool
+	// itself (it always forwards to the device, which is the only place
+	// that can actually re-crop+re-detect a live screen region).
+	ZoomHints []Box `json:"zoom_hints,omitempty"`
 }
