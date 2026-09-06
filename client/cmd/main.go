@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"usbridge-client/internal/api"
 	"usbridge-client/internal/gui"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
@@ -86,6 +87,11 @@ func main() {
 
 	logrus.Infof("Configuration loaded")
 	logrus.Infof("NBD port: %d", config.NBDPort)
+
+	// Opt-in local ui.parse offload (ONNX Runtime on this machine's CPU/
+	// Intel iGPU instead of the device's NPU) -- no-op unless
+	// LocalUIParseEnabled is set, see internal/api/local_ui_init.go.
+	api.InitLocalUIParseFromConfig(config)
 
 	gui.SetAppVersion(version)
 	view.SetAppVersion(version)
