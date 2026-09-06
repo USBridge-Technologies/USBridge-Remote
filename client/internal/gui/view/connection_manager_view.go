@@ -286,7 +286,10 @@ var connectionActionBlockedFill = design.ColorGray900
 
 func NewConnectionManagerUI(onQR func(), onAdd func(), onHelp func(), onPromo func(), onPasteLink func()) *ConnectionManagerUI {
 	connectionsBox := container.NewVBox()
-	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, 6, 6, 0, 0))
+	// Side margins match connectionsHeaderSideMargin (the section header
+	// above) so List rows/Grid cards line up with the header's own edges
+	// instead of hugging the window's raw edge.
+	connectionsScroll := container.NewVScroll(NewInset(connectionsBox, connectionsHeaderSideMargin, connectionsHeaderSideMargin, 8, 12))
 	connectionsScroll.SetMinSize(fyne.NewSize(0, 0))
 
 	var topHelpBtn fyne.CanvasObject
@@ -353,7 +356,16 @@ func (ui *ConnectionManagerUI) applyConnectionsContent() {
 	stopCanvasAnimations(ui.ConnectionsBox)
 	ui.ConnectionsBox.RemoveAll()
 	if ui.viewMode == "grid" && len(ui.lastCards) > 0 {
-		grid := container.NewGridWrap(fyne.NewSize(connectionCardWidth, connectionCardHeight), ui.lastCards...)
+		// Each card sits inset by half the gap on every side, so adjacent
+		// cards end up connectionCardGridGap apart without needing a custom
+		// grid layout -- GridWrap itself has no configurable spacing.
+		const gap = connectionCardGridGap
+		padded := make([]fyne.CanvasObject, len(ui.lastCards))
+		for i, card := range ui.lastCards {
+			padded[i] = NewInset(card, gap/2, gap/2, gap/2, gap/2)
+		}
+		cellSize := fyne.NewSize(connectionCardWidth+gap, connectionCardHeight+gap)
+		grid := container.NewGridWrap(cellSize, padded...)
 		ui.ConnectionsBox.Add(grid)
 	} else {
 		for _, row := range ui.lastRows {
