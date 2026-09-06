@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Разрешения -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
-    <!-- Разрешения для хранения -->
+    <!-- Storage permissions -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
-    <!-- Для работы в фоновом режиме -->
+    <!-- For running in the background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- WebRTC требует камеру и микрофон (опционально) -->
+    <!-- WebRTC needs the camera and microphone (optional) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -31,7 +31,7 @@
          never compiles the self-update code path in at all
          (internal/update/apply_android.go / internal/platform/update_android.go). -->
 
-    <!-- Возможности устройства -->
+    <!-- Device features -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -48,7 +48,7 @@
         android:largeHeap="true"
         android:supportsRtl="true">
 
-        <!-- Главная активность - MainActivity extends GoNativeActivity, камера/QR/SAF -->
+        <!-- Main activity - MainActivity extends GoNativeActivity, camera/QR/SAF -->
         <activity
             android:name="io.usbridge.client.MainActivity"
             android:label="USBridge Client"
@@ -63,7 +63,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep linking (опционально) -->
+            <!-- Deep linking (optional) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -72,15 +72,15 @@
             </intent-filter>
         </activity>
 
-        <!-- QR Scanner — live viewfinder, как в Telegram -->
+        <!-- QR Scanner — live viewfinder, like Telegram -->
         <activity
             android:name="io.usbridge.client.QRScannerActivity"
-            android:label="Сканирование QR"
+            android:label="QR Scanner"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="false" />
 
-        <!-- Провайдер файлов для Android 7.0+ -->
+        <!-- File provider for Android 7.0+ -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="io.usbridge.client.fileprovider"

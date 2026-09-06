@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.usbridge.client">
 
-    <!-- Разрешения -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
@@ -14,7 +14,7 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application>
-        <!-- Главная активность с полноэкранным режимом -->
+        <!-- Main activity, fullscreen mode -->
         <activity
             android:name="org.golang.app.GoNativeActivity"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
@@ -23,22 +23,22 @@
             android:launchMode="singleTask"
             android:exported="true">
 
-            <!-- Meta-data для Go библиотеки -->
+            <!-- Meta-data for the Go library -->
             <meta-data android:name="android.app.lib_name" android:value="USBridge_Client" />
 
-            <!-- Intent filter для отображения в списке приложений -->
+            <!-- Intent filter to show up in the app list -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Intent filter для deep links -->
+            <!-- Intent filter for deep links -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <!-- Кастомная схема usbridge:// -->
+                <!-- Custom usbridge:// scheme -->
                 <data android:scheme="usbridge" android:host="connect" />
             </intent-filter>
         </activity>

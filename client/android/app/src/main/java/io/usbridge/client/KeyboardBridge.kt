@@ -1,12 +1,12 @@
 package io.usbridge.client
 
 /**
- * Передаёт точную высоту Android IME (системной клавиатуры) в Go через JNI.
- * Паттерн аналогичен GestureBridge: external-функции объявлены здесь,
- * реализация JNI-обёрток — в keyboard_ime_android.go (CGo).
+ * Delivers the exact Android IME (system keyboard) height to Go via JNI.
+ * Same pattern as GestureBridge: the external functions are declared here,
+ * the JNI wrapper implementation lives in keyboard_ime_android.go (CGo).
  *
- * @param imeHeightPx  высота клавиатуры в пикселях (0 когда скрыта)
- * @param screenHeightPx полная высота окна (decorView) в пикселях
+ * @param imeHeightPx  keyboard height in pixels (0 when hidden)
+ * @param screenHeightPx full window (decorView) height in pixels
  */
 object KeyboardBridge {
     @JvmStatic

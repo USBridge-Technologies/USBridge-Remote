@@ -679,7 +679,7 @@ class MainActivity : GoNativeActivity() {
 
     /**
      * Launch QR code scanner - like Telegram
-     * 1. Запрашивает разрешение CAMERA если нужно (Android 6+)
+     * 1. Requests the CAMERA permission if needed (Android 6+)
      * 2. Tries ZXing Barcode Scanner (in-app camera view) if installed
      * 3. Falls back to system camera to take photo if ZXing not available
      */
@@ -690,7 +690,7 @@ class MainActivity : GoNativeActivity() {
 
         runOnUiThread {
             try {
-                // Проверяем и запрашиваем разрешение камеры (Android 6+)
+                // Check and request the camera permission (Android 6+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     when (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA)) {
                         PackageManager.PERMISSION_GRANTED -> {
@@ -742,7 +742,7 @@ class MainActivity : GoNativeActivity() {
 
     private fun doLaunchQRScanner() {
         try {
-            // Встроенное окно с live viewfinder — наводишь камеру на QR, считывает автоматически (как в Telegram)
+            // In-app window with a live viewfinder — point the camera at the QR code, it scans automatically (like Telegram)
             Log.i(TAG, "✅ [QR-SCANNER] Launching in-app QR scanner (live viewfinder)...")
             startActivityForResult(Intent(this@MainActivity, QRScannerActivity::class.java), QR_SCAN_REQUEST_CODE)
         } catch (e: Exception) {
@@ -751,7 +751,7 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
-    /** Передаёт отмену в main app через JNI (без libgojni) */
+    /** Delivers the cancellation to the main app via JNI (without libgojni) */
     private fun callGoQRCancel() {
         try {
             QRResultBridge.deliverQRCancel()
@@ -765,7 +765,7 @@ class MainActivity : GoNativeActivity() {
             val contents = data.getStringExtra(QRScannerActivity.EXTRA_QR_CONTENTS)
             if (!contents.isNullOrBlank()) {
                 Log.i(TAG, "✅ [QR-RESULT] Scanned: $contents")
-                // Копируем строку чтобы она не зависела от Intent
+                // Copy the string so it doesn't stay tied to the Intent
                 val contentsCopy = String(contents.toCharArray())
                 callGoQRSuccess(contentsCopy)
             } else {
@@ -778,7 +778,7 @@ class MainActivity : GoNativeActivity() {
         }
     }
 
-    /** Передаёт результат в main app через JNI (без libgojni) */
+    /** Delivers the result to the main app via JNI (without libgojni) */
     private fun callGoQRSuccess(contents: String) {
         try {
             QRResultBridge.deliverQRResult(contents)

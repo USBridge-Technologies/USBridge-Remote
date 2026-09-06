@@ -13,8 +13,8 @@ import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import java.util.Arrays
 
 /**
- * Окно с live viewfinder камеры — наводишь на QR, считывает автоматически (как в Telegram).
- * Результат возвращается через setResult — MainActivity обрабатывает в onActivityResult.
+ * A window with a live camera viewfinder — point it at a QR code, it scans automatically (like Telegram).
+ * The result comes back via setResult -- MainActivity handles it in onActivityResult.
  */
 class QRScannerActivity : AppCompatActivity() {
 
@@ -31,8 +31,8 @@ class QRScannerActivity : AppCompatActivity() {
         if (text == lastText) return@BarcodeCallback
         lastText = text
 
-        Log.i(TAG, "✅ QR отсканирован: $text")
-        // Callback из фонового потока ZXing — setResult и finish только на UI
+        Log.i(TAG, "✅ QR scanned: $text")
+        // Callback from ZXing's background thread -- setResult and finish only on the UI thread
         runOnUiThread {
             barcodeView.pause()
             setResult(RESULT_OK, Intent().putExtra(EXTRA_QR_CONTENTS, text))
@@ -52,7 +52,7 @@ class QRScannerActivity : AppCompatActivity() {
         barcodeView.decodeContinuous(barcodeCallback)
 
         findViewById<Button>(R.id.btn_close).setOnClickListener {
-            Log.i(TAG, "Пользователь закрыл сканер")
+            Log.i(TAG, "User closed the scanner")
             setResult(RESULT_CANCELED)
             finish()
         }
