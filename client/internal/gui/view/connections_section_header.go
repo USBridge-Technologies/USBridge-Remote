@@ -158,16 +158,24 @@ func newConnectionsHeader(summary ConnectionsSummary, actions connectionsHeaderA
 
 	viewToggle := newConnectionsViewModeToggle(viewMode, actions.OnViewModeChange)
 
+	plusSVG := `<svg viewBox="0 0 24 24" fill="#4c6803"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`
+	plusIcon := fyne.NewStaticResource("add.svg", []byte(plusSVG))
+
 	addBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   design.ColorConnectionAddFill,
 		HoverFill:    design.ColorConnectionAddFillHover,
 		DisabledFill: connectionActionBlockedFill,
 		Stroke:       color.Transparent,
-		LabelColor:   design.ColorBackground, // black
+		LabelColor:   color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
+		LabelSize:    10,
+		LabelBold:    true,
+		NormalIcon:   plusIcon,
+		HoverIcon:    plusIcon,
+		IconSize:     fyne.NewSize(18, 18),
 		ButtonSize:   fyne.NewSize(0, headerAddButtonHeight),
 		OnTapped:     actions.OnAdd,
 	})
-	addBtn.SetText("+ " + strings.TrimSpace(i18n.Current.AddConnectionTitle))
+	addBtn.SetText(strings.TrimSpace(i18n.Current.AddConnectionTitle))
 
 	// QR and paste-link buttons used to live here too. Dropped: QR is still
 	// reachable from inside the Add Connection dialog itself

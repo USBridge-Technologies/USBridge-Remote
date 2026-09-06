@@ -1611,6 +1611,7 @@ type iconChromeButtonSpec struct {
 	// smaller-than-default rounding.
 	CornerRadius float32
 	OnHover      func(bool)
+	LabelSize    float32
 }
 
 type iconChromeButton struct {
@@ -1651,6 +1652,9 @@ func (b *iconChromeButton) CreateRenderer() fyne.WidgetRenderer {
 
 	b.label = canvas.NewText("", design.ColorTextLight)
 	b.label.TextSize = 12
+	if b.spec.LabelSize > 0 {
+		b.label.TextSize = b.spec.LabelSize
+	}
 	b.label.TextStyle = fyne.TextStyle{Bold: b.spec.LabelBold}
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -1681,6 +1685,9 @@ func (b *iconChromeButton) MinSize() fyne.Size {
 		// below.
 		measure := canvas.NewText(b.text, design.ColorTextLight)
 		measure.TextSize = 12
+		if b.spec.LabelSize > 0 {
+			measure.TextSize = b.spec.LabelSize
+		}
 		measure.TextStyle = fyne.TextStyle{Bold: b.spec.LabelBold}
 		width := measure.MinSize().Width + 18
 		if b.spec.NormalIcon != nil {

@@ -98,7 +98,9 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		OnTapped:   actions.OnEdit,
 	})
 
-	topRow := container.New(&DeviceRowControlsLayout{Gap: 8}, statusIndicator, nameText, editBtn)
+	leftTopControls := container.New(&DeviceRowControlsLayout{Gap: 8}, statusIndicator, nameText, editBtn)
+	typeBadge := newConnectionTypeBadge(isAgent, isKVM, accent)
+	topRow := container.NewBorder(nil, nil, leftTopControls, typeBadge)
 
 	platformLabel := strings.TrimSpace(data.PlatformLabel)
 	if platformLabel == "" {
@@ -116,7 +118,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			platformLabel = "Awaiting connection..."
 		}
 	}
-	chipsRow := NewInset(newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent), 0, 0, 0, 8)
+	chipsRow := NewInset(newConnectionCardChipsRow(platformLabel, strings.TrimSpace(data.CapabilityText), accent), 0, 0, 4, 8)
 
 	statsBox := newConnectionCardStatsBox(data.LANAddress, data.TailscaleAddress)
 
@@ -140,15 +142,18 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 
+	connectIconColored := strings.ReplaceAll(string(assets.ConnectIconBoldBlack.Content()), "#111111", "#4c6803")
+	connectIconResource := fyne.NewStaticResource("custom-connect.svg", []byte(connectIconColored))
+
 	connectBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   connectColor,
 		HoverFill:    connectHover,
 		DisabledFill: connectionActionBlockedFill,
 		Stroke:       color.Transparent,
-		LabelColor:   design.ColorBackground,
+		LabelColor:   color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
 		LabelBold:    true,
 		CornerRadius: 6,
-		NormalIcon:   assets.ConnectIconBoldBlack,
+		NormalIcon:   connectIconResource,
 		IconSize:     fyne.NewSize(14, 14),
 		ButtonSize:   fyne.NewSize(0, 26),
 		OnTapped:     actions.OnUse,
@@ -416,4 +421,66 @@ func (l *gridBottomRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	}
 	right.Resize(fyne.NewSize(rightW, size.Height))
 	right.Move(fyne.NewPos(leftW+12, 0))
+}
+
+type typeBadgeLayout struct{}
+
+func (l *typeBadgeLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 3 {
+		return fyne.NewSize(0, 0)
+	}
+	labelSize := objects[2].MinSize()
+	return fyne.NewSize(labelSize.Width+20, 18) // 18px height, 20px extra width for padding
+}
+
+func (l *typeBadgeLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 3 {
+		return
+	}
+	// bg
+	objects[0].Resize(size)
+	objects[0].Move(fyne.NewPos(0, 0))
+
+	// dot
+	dotSize := fyne.NewSize(4, 4)
+	objects[1].Resize(dotSize)
+	objects[1].Move(fyne.NewPos(6, (size.Height-dotSize.Height)/2))
+
+	// label
+	labelSize := objects[2].MinSize()
+	objects[2].Resize(labelSize)
+	objects[2].Move(fyne.NewPos(14, (size.Height-labelSize.Height)/2))
+}
+
+// newConnectionTypeBadge is the small "KVM"/"Agent"/"Unknown" chip in the
+// card's top-right corner. isAgent/isKVM is the same ClassifyConnectionRemoteOS
+// result the rest of the card already uses; accent is the caller's already-
+// computed Agent/KVM color (design.ColorConnectionBadgeText for an Agent),
+// passed in rather than recomputed so this stays in sync with the platform
+// chip/Connect button's own coloring.
+func newConnectionTypeBadge(isAgent, isKVM bool, accent color.Color) fyne.CanvasObject {
+	text := "Unknown"
+	badgeColor := color.Color(design.ColorBorder) // gray -- no RemoteOS yet
+	switch {
+	case isKVM:
+		text = "KVM"
+		badgeColor = design.ColorConnectionAddFill // same lime as the Add button
+	case isAgent:
+		text = "Agent"
+		badgeColor = accent
+	}
+
+	dot := canvas.NewCircle(badgeColor)
+
+	label := canvas.NewText(text, badgeColor)
+	label.TextSize = 9
+	label.TextStyle.Monospace = true
+
+	bg := canvas.NewRectangle(color.Transparent)
+	bg.CornerRadius = 3
+	bg.StrokeColor = design.ColorTailscaleChipBorder
+	bg.StrokeWidth = 1
+
+	chip := container.New(&typeBadgeLayout{}, bg, dot, label)
+	return container.NewCenter(chip)
 }
