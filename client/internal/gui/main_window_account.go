@@ -51,7 +51,8 @@ func (mw *MainWindow) showAccountDialog() {
 	if mw.connectionManager == nil || mw.connectionManager.Account == nil {
 		return
 	}
-	am := mw.connectionManager.Account
+	cm := mw.connectionManager
+	am := cm.Account
 
 	body := container.NewVBox()
 	// licensesLoaded/licensesCache/licensesErr: fetched exactly ONCE per
@@ -60,6 +61,13 @@ func (mw *MainWindow) showAccountDialog() {
 	var licensesLoaded bool
 	var licensesCache []account.License
 	var licensesErr error
+	// resettingSyncPassphrase: true while the "Forgot passphrase? Reset
+	// it" flow (see accountSyncPassphraseSection) is showing its
+	// new-passphrase entry -- a UI-only flag, not part of AccountManager's
+	// own state, so it has to be threaded through the same way
+	// licensesLoaded above is (render() rebuilds the whole body on every
+	// call, so anything that must survive across renders lives out here).
+	var resettingSyncPassphrase bool
 
 	var render func()
 	render = func() {
@@ -84,7 +92,7 @@ func (mw *MainWindow) showAccountDialog() {
 			body.Add(widget.NewSeparator())
 			body.Add(accountLicensesList(am, &licensesLoaded, &licensesCache, &licensesErr, render))
 			body.Add(widget.NewSeparator())
-			body.Add(accountSyncPassphraseSection(am, render))
+			body.Add(accountSyncPassphraseSection(cm, am, &resettingSyncPassphrase, render))
 
 			logoutBtn := widget.NewButton("Log out", func() {
 				am.Logout()
@@ -96,6 +104,7 @@ func (mw *MainWindow) showAccountDialog() {
 				licensesLoaded = false
 				licensesCache = nil
 				licensesErr = nil
+				resettingSyncPassphrase = false
 				render()
 			})
 			logoutBtn.Importance = widget.LowImportance
@@ -202,10 +211,66 @@ func renderLicenses(licenses []account.License, err error) fyne.CanvasObject {
 // re-enter the same one they used on the first) the passphrase that
 // derives this device's connections-sync encryption key -- see
 // internal/syncconn's doc comment for why this is a SEPARATE secret from
-// the Google login above, never sent to any server.
-func accountSyncPassphraseSection(am *controller.AccountManager, render func()) fyne.CanvasObject {
-	if am.HasSyncKey() {
-		return widget.NewLabel("Connections sync: on")
+// the Google login above, never sent to any server. Also covers the
+// "I forgot my passphrase" recovery path, gated by *resetting -- see
+// ResetSyncPassphrase's own doc comment for why that's a genuinely
+// different operation from the normal set-passphrase one below (it
+// deliberately overwrites the account's synced data instead of merging
+// with it, since nothing can decrypt the old blob anymore once its
+// passphrase is forgotten).
+func accountSyncPassphraseSection(cm *controller.ConnectionManager, am *controller.AccountManager, resetting *bool, render func()) fyne.CanvasObject {
+	if am.HasSyncKey() && !*resetting {
+		status := widget.NewLabel("Connections sync: on")
+		forgotBtn := widget.NewButton("Forgot passphrase? Reset it", func() {
+			*resetting = true
+			render()
+		})
+		forgotBtn.Importance = widget.LowImportance
+		return container.NewVBox(status, container.NewCenter(forgotBtn))
+	}
+
+	if *resetting {
+		warn := widget.NewLabel(
+			"Resetting starts fresh: this device's own saved connections will overwrite whatever is " +
+				"currently synced on this account under the old passphrase -- that old synced data becomes " +
+				"permanently unreadable the moment you do this. Enter a new passphrase:",
+		)
+		warn.Wrapping = fyne.TextWrapWord
+		entry := widget.NewPasswordEntry()
+		entry.SetPlaceHolder("New sync passphrase")
+		statusLabel := widget.NewLabel("")
+
+		resetBtn := widget.NewButton("Reset & overwrite", func() {
+			if entry.Text == "" {
+				return
+			}
+			statusLabel.SetText("Resetting…")
+			go func() {
+				err := cm.ResetSyncPassphrase(context.Background(), entry.Text)
+				*resetting = false
+				if err != nil {
+					// The new key is already set locally either way (see
+					// ResetSyncPassphrase) -- a failed overwrite here just
+					// means try "Forgot passphrase?" again to retry the
+					// push, not start over from scratch.
+					fyne.Do(func() {
+						statusLabel.SetText(fmt.Sprintf("Reset failed: %v", err))
+						render()
+					})
+					return
+				}
+				fyne.Do(render)
+			}()
+		})
+		resetBtn.Importance = widget.DangerImportance
+
+		cancelBtn := widget.NewButton("Cancel", func() {
+			*resetting = false
+			render()
+		})
+		cancelBtn.Importance = widget.LowImportance
+
+		return container.NewVBox(warn, entry, statusLabel, container.NewHBox(resetBtn, cancelBtn))
 	}
 
 	label := widget.NewLabel("Set a sync passphrase to sync your saved connections across devices (never sent to our servers):")

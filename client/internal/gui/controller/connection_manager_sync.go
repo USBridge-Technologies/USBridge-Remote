@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -221,4 +222,68 @@ func (cm *ConnectionManager) reconcileConflict(conflict *syncconn.ErrConflict) {
 	cm.syncMu.Unlock()
 	fyne.Do(func() { cm.refreshConnectionsList() })
 	cm.saveConnections()
+}
+
+// ResetSyncPassphrase is the "I forgot my sync passphrase" recovery path
+// (see the account dialog's "Forgot passphrase? Reset it" button,
+// main_window_account.go). Unlike the normal AccountManager.SetSyncPassphrase
+// + trySyncPullAndMerge path (used when joining sync for the first time,
+// including on a second device with the CORRECT existing passphrase --
+// see that flow's own doc comment), this deliberately does NOT try to pull
+// and merge whatever's already synced: by definition, if the passphrase is
+// forgotten, nothing on this device can ever decrypt that old blob again,
+// so it's permanently orphaned the moment a new passphrase is chosen. This
+// makes that explicit and immediate -- this device's own current
+// connections list overwrites the account's synced copy under the new
+// key -- rather than leaving the account stuck in the permanent
+// decrypt-conflict loop reconcileConflict would otherwise hit forever
+// (every future pull/push failing against ciphertext nobody can open
+// anymore).
+//
+// Meta (not Pull) is what makes this possible without the old passphrase
+// at all: it only reports {version, updated_at}, never touching
+// ciphertext, so the current version number needed for Push's
+// optimistic-concurrency check is available regardless of which key (if
+// any) can decrypt what's currently stored there.
+func (cm *ConnectionManager) ResetSyncPassphrase(ctx context.Context, newPassphrase string) error {
+	if cm.Account == nil {
+		return fmt.Errorf("no account configured")
+	}
+	token, ok := cm.Account.AccountToken()
+	if !ok {
+		return fmt.Errorf("not logged in")
+	}
+
+	// Forget the old (now-useless) key before deriving the new one, so
+	// nothing else briefly observes a half-updated state.
+	cm.Account.ClearSyncKey()
+	cm.Account.SetSyncPassphrase(newPassphrase)
+	_, key, ok := cm.Account.SyncCredentials()
+	if !ok {
+		return fmt.Errorf("failed to derive the new sync key")
+	}
+
+	version, _, err := syncconn.Meta(ctx, token, connectionsSyncKind)
+	if err != nil {
+		return fmt.Errorf("could not check the current sync version: %w", err)
+	}
+
+	plaintext, err := json.Marshal(cm.connections)
+	if err != nil {
+		return err
+	}
+	newVersion, err := syncconn.Push(ctx, token, connectionsSyncKind, key, plaintext, version)
+	if err != nil {
+		// A conflict here would mean another device pushed between the
+		// Meta call above and this one -- rare for a personal connections
+		// list, and the human can just click "Reset" again to retry
+		// against whatever version is current now.
+		return fmt.Errorf("could not overwrite the synced data under the new passphrase: %w", err)
+	}
+
+	cm.syncMu.Lock()
+	cm.syncVersion = newVersion
+	cm.syncLastError = ""
+	cm.syncMu.Unlock()
+	return nil
 }

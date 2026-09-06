@@ -182,6 +182,19 @@ func (am *AccountManager) SyncCredentials() (accountToken string, key []byte, ok
 	return am.accountToken, am.syncKey, true
 }
 
+// AccountToken returns just the Bearer login token (no sync key needed) --
+// used by ResetSyncPassphrase (connection_manager_sync.go), which has to
+// talk to the backend BEFORE a new key exists yet, unlike SyncCredentials
+// above which requires both.
+func (am *AccountManager) AccountToken() (token string, ok bool) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	if am.accountToken == "" {
+		return "", false
+	}
+	return am.accountToken, true
+}
+
 func (am *AccountManager) setError(msg string) {
 	am.mu.Lock()
 	am.loginInProgress = false
