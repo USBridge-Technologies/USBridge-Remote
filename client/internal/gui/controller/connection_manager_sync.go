@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	"usbridge-client/internal/syncconn"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/storage"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,15 +62,104 @@ func mergeSavedConnections(remote, local []SavedConnection) (merged []SavedConne
 	return merged, changed
 }
 
+// syncStateFile persists JUST the last version this device is known to
+// have fully synced to -- separate from connections.json (which stays a
+// plain array on disk for backward compatibility with every existing
+// install) and separate from account.json (that's the account/key, not
+// per-kind sync bookkeeping; a future second synced "kind" would want its
+// own version, not share this one). See trySyncPullAndMerge's doc comment
+// for why THIS surviving an app restart is what actually fixes the
+// resurrected-deletion bug it describes.
+type syncStateFile struct {
+	Version int `json:"version"`
+}
+
+func (cm *ConnectionManager) syncStateStorageURI() fyne.URI {
+	uri, err := storage.Child(cm.app.Storage().RootURI(), "connections_sync_state.json")
+	if err != nil {
+		u, _ := url.Parse("file://connections_sync_state.json")
+		return storage.NewFileURI(u.String())
+	}
+	return uri
+}
+
+// loadPersistedSyncVersion reads back whatever setSyncVersion last wrote --
+// 0 if this device has never completed a real sync round-trip (a fresh
+// install, or one that's never logged in/set a passphrase).
+func (cm *ConnectionManager) loadPersistedSyncVersion() int {
+	reader, err := storage.Reader(cm.syncStateStorageURI())
+	if err != nil {
+		return 0
+	}
+	defer reader.Close()
+	var data []byte
+	buf := make([]byte, 256)
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+	var state syncStateFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0
+	}
+	return state.Version
+}
+
+// setSyncVersion is the ONLY place cm.syncVersion should ever be written --
+// every call site that used to assign it directly now goes through this,
+// so the persisted copy (loadPersistedSyncVersion) can never drift from
+// the in-memory one across an app restart.
+func (cm *ConnectionManager) setSyncVersion(version int) {
+	cm.syncMu.Lock()
+	cm.syncVersion = version
+	cm.syncMu.Unlock()
+
+	data, err := json.Marshal(syncStateFile{Version: version})
+	if err != nil {
+		return
+	}
+	writer, err := storage.Writer(cm.syncStateStorageURI())
+	if err != nil {
+		logrus.Warnf("connection sync: could not persist sync version: %v", err)
+		return
+	}
+	defer writer.Close()
+	_, _ = writer.Write(data)
+}
+
 // trySyncPullAndMerge fetches this account's synced connections list (if
 // sync is configured at all -- see AccountManager.SyncCredentials) and
-// merges it with whatever's already saved locally. Called once at startup
-// and again every time the account/passphrase state changes (see
+// reconciles it with whatever's already saved locally. Called once at
+// startup and again every time the account/passphrase state changes (see
 // NewConnectionManager's AccountManager onChange callback) -- deliberately
 // NOT on a recurring timer: nothing here polls the backend continuously,
 // keeping this feature's request volume tied to actual human actions
 // (logging in, setting a passphrase, editing the connections list) rather
 // than a background loop.
+//
+// Whether this ADDITIVELY MERGES with the local list or simply ADOPTS the
+// remote list wholesale depends on loadPersistedSyncVersion: additive
+// merge only ever happens the FIRST time this device joins sync (no
+// persisted version yet) -- appropriate there, since a fresh install
+// joining an established account, or an existing device's pre-existing
+// local-only list joining sync for the first time, both want their
+// existing local entries preserved rather than discarded. Every
+// SUBSEQUENT pull on an already-synced device instead treats remote as
+// simply authoritative and replaces the local list outright. This is the
+// fix for a real bug: additive merge has no way to tell "this device
+// added something locally that hasn't been pushed yet" apart from "this
+// device deleted something that's still sitting in a stale local copy" --
+// both look identical (present locally, absent from remote). Once a
+// device has completed one real sync, the second case is far more likely
+// (a delete whose debounced push simply hadn't landed yet by the time
+// this pull ran), and additive merge was resurrecting deleted entries
+// right back onto the server on every subsequent pull -- forever, since
+// nothing ever removed them again.
 func (cm *ConnectionManager) trySyncPullAndMerge() {
 	if cm.Account == nil {
 		return
@@ -77,6 +168,7 @@ func (cm *ConnectionManager) trySyncPullAndMerge() {
 	if !ok {
 		return
 	}
+	hasSyncedBefore := cm.loadPersistedSyncVersion() > 0
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -87,9 +179,7 @@ func (cm *ConnectionManager) trySyncPullAndMerge() {
 			// Nothing pushed for this account yet -- seed it with whatever
 			// this device already has locally (a harmless no-op if this
 			// device also has nothing saved).
-			cm.syncMu.Lock()
-			cm.syncVersion = 0
-			cm.syncMu.Unlock()
+			cm.setSyncVersion(0)
 			cm.scheduleSyncPush()
 			return
 		}
@@ -106,10 +196,17 @@ func (cm *ConnectionManager) trySyncPullAndMerge() {
 		return
 	}
 
+	cm.setSyncVersion(version)
 	cm.syncMu.Lock()
-	cm.syncVersion = version
 	cm.syncLastError = ""
 	cm.syncMu.Unlock()
+
+	if hasSyncedBefore {
+		cm.connections = remote
+		fyne.Do(func() { cm.refreshConnectionsList() })
+		cm.saveConnectionsLocalOnly()
+		return
+	}
 
 	merged, changed := mergeSavedConnections(remote, cm.connections)
 	cm.connections = merged
@@ -181,8 +278,8 @@ func (cm *ConnectionManager) doSyncPush() {
 		return
 	}
 
+	cm.setSyncVersion(newVersion)
 	cm.syncMu.Lock()
-	cm.syncVersion = newVersion
 	cm.syncLastError = ""
 	cm.syncMu.Unlock()
 }
@@ -217,9 +314,7 @@ func (cm *ConnectionManager) reconcileConflict(conflict *syncconn.ErrConflict) {
 
 	merged, _ := mergeSavedConnections(remote, cm.connections)
 	cm.connections = merged
-	cm.syncMu.Lock()
-	cm.syncVersion = conflict.Conflict.Version
-	cm.syncMu.Unlock()
+	cm.setSyncVersion(conflict.Conflict.Version)
 	fyne.Do(func() { cm.refreshConnectionsList() })
 	cm.saveConnections()
 }
@@ -281,8 +376,8 @@ func (cm *ConnectionManager) ResetSyncPassphrase(ctx context.Context, newPassphr
 		return fmt.Errorf("could not overwrite the synced data under the new passphrase: %w", err)
 	}
 
+	cm.setSyncVersion(newVersion)
 	cm.syncMu.Lock()
-	cm.syncVersion = newVersion
 	cm.syncLastError = ""
 	cm.syncMu.Unlock()
 	return nil

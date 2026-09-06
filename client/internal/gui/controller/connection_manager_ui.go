@@ -97,6 +97,15 @@ func (cm *ConnectionManager) RefreshList() {
 }
 
 func (cm *ConnectionManager) refreshConnectionsList() {
+	if cm.ui == nil {
+		// Guards a ConnectionManager built without going through
+		// NewConnectionManager's createInterface() step -- every real
+		// caller does, but connection_manager_sync.go's background
+		// goroutines (trySyncPullAndMerge, reconcileConflict) call this
+		// too, and their unit tests construct a bare ConnectionManager
+		// struct literal with no UI at all.
+		return
+	}
 	if len(cm.connections) == 0 {
 		cm.ui.SetEmptyState()
 		cm.notifyConnectionsState()
