@@ -25,11 +25,20 @@ func InitLocalUIParseFromConfig(cfg *models.AppConfig) {
 	go func() {
 		modelDir := cfg.LocalUIParseModelDir
 		if modelDir == "" {
-			modelDir = defaultLocalUIDir("models")
+			modelDir = resolveLocalUIPath(
+				filepath.Join("..", "Resources", "localui", "models"), // macOS .app: Contents/MacOS/../Resources/localui/models
+				filepath.Join("localui", "models"),                    // flat layout: next to the executable
+				defaultLocalUIDir("models"),
+			)
 		}
 		ortLib := cfg.LocalUIParseORTLib
 		if ortLib == "" {
-			ortLib = filepath.Join(defaultLocalUIDir("runtime"), localui.DefaultRuntimeLibName())
+			libName := localui.DefaultRuntimeLibName()
+			ortLib = resolveLocalUIPath(
+				filepath.Join("..", "Frameworks", libName), // macOS .app: Contents/MacOS/../Frameworks/<lib>
+				libName, // flat layout: next to the executable
+				filepath.Join(defaultLocalUIDir("runtime"), libName),
+			)
 		}
 
 		lcfg := localui.Config{
@@ -57,4 +66,38 @@ func defaultLocalUIDir(sub string) string {
 		return filepath.Join(".usbridge", "localui", sub)
 	}
 	return filepath.Join(home, ".usbridge", "localui", sub)
+}
+
+// resolveLocalUIPath picks a default model dir / ORT runtime lib path when
+// the user's config leaves one unset: it prefers whatever a packaged build
+// bundled next to the running executable (so a fresh install works without
+// the user ever running scripts/setup_localui.sh) over the older
+// ~/.usbridge/localui dev-setup convention.
+//
+// bundleRel is checked relative to a macOS .app's Contents/MacOS/ (i.e.
+// "../Resources/..." or "../Frameworks/..." reaches Contents/Resources or
+// Contents/Frameworks -- see build_macos.sh, which now populates both with
+// fetch_onnxruntime.sh's redistributable runtime lib and the ONNX models
+// already committed under internal/localui/models/). flatRel is checked
+// directly next to the executable, for a flat layout (Linux AppImage,
+// Windows install dir) once those build scripts grow the same bundling
+// step. fallback is the pre-existing ~/.usbridge/localui/<sub> path, used
+// as-is if neither candidate exists on disk -- e.g. a `go run` dev build
+// with no bundle around it at all, where setup_localui.sh's manual flow
+// still applies.
+//
+// Mirrors the "check next to the executable first" pattern
+// h264_decoder.go's findFFmpeg already uses for the bundled ffmpeg binary.
+func resolveLocalUIPath(bundleRel, flatRel, fallback string) string {
+	execPath, err := os.Executable()
+	if err == nil {
+		execDir := filepath.Dir(execPath)
+		for _, rel := range []string{bundleRel, flatRel} {
+			candidate := filepath.Join(execDir, rel)
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				return candidate
+			}
+		}
+	}
+	return fallback
 }
