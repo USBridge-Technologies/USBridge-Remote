@@ -1610,6 +1610,7 @@ type iconChromeButtonSpec struct {
 	// request literally-0/square corners through this field, only a
 	// smaller-than-default rounding.
 	CornerRadius float32
+	OnHover      func(bool)
 }
 
 type iconChromeButton struct {
@@ -1755,6 +1756,9 @@ func (b *iconChromeButton) MouseIn(*desktop.MouseEvent) {
 
 	b.hovered = true
 	b.refreshVisuals()
+	if b.spec.OnHover != nil {
+		b.spec.OnHover(true)
+	}
 }
 
 func (b *iconChromeButton) MouseMoved(*desktop.MouseEvent) {}
@@ -1766,6 +1770,9 @@ func (b *iconChromeButton) MouseOut() {
 
 	b.hovered = false
 	b.refreshVisuals()
+	if b.spec.OnHover != nil {
+		b.spec.OnHover(false)
+	}
 }
 
 func (b *iconChromeButton) refreshVisuals() {

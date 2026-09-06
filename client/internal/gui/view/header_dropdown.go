@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"time"
@@ -55,6 +56,8 @@ type HeaderDropdown struct {
 	TextSize         float32
 	HoverBorderColor color.Color
 	HoverFillColor   color.Color
+	IconColor        color.Color
+	OnHover          func(bool)
 
 	disabled bool
 	hovered  bool
@@ -102,7 +105,8 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 		d.label.TextStyle.Monospace = true
 	}
 
-	d.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
+	var res fyne.Resource = coloredArrowDown(d.IconColor)
+	d.icon = canvas.NewImageFromResource(res)
 	d.icon.FillMode = canvas.ImageFillContain
 	d.icon.SetMinSize(fyne.NewSize(16, 16))
 
@@ -149,6 +153,9 @@ func (d *HeaderDropdown) TappedSecondary(*fyne.PointEvent) {}
 func (d *HeaderDropdown) MouseIn(*desktop.MouseEvent) {
 	d.hovered = true
 	d.refreshVisuals()
+	if d.OnHover != nil {
+		d.OnHover(true)
+	}
 }
 
 func (d *HeaderDropdown) MouseMoved(*desktop.MouseEvent) {}
@@ -156,6 +163,9 @@ func (d *HeaderDropdown) MouseMoved(*desktop.MouseEvent) {}
 func (d *HeaderDropdown) MouseOut() {
 	d.hovered = false
 	d.refreshVisuals()
+	if d.OnHover != nil {
+		d.OnHover(false)
+	}
 }
 
 func (d *HeaderDropdown) SetOptions(options []string) {
@@ -325,9 +335,12 @@ func (d *HeaderDropdown) openPopup() {
 		d.popupDismissed,
 	)
 
+	downIcon := coloredArrowDown(d.IconColor)
+	upIcon := coloredArrowUp(d.IconColor)
+
 	d.popup.ShowAtPosition(fyne.NewPos(popupX, popupY))
 	d.opened = true
-	d.animateArrow(theme.Icon(theme.IconNameArrowDropDown), theme.Icon(theme.IconNameArrowDropUp))
+	d.animateArrow(downIcon, upIcon)
 	d.Refresh()
 }
 
@@ -337,9 +350,13 @@ func (d *HeaderDropdown) closePopup() {
 		d.popup.Hide()
 		d.popup = nil
 	}
+	
+	downIcon := coloredArrowDown(d.IconColor)
+	upIcon := coloredArrowUp(d.IconColor)
+
 	d.opened = false
 	d.hovered = false
-	d.animateArrow(theme.Icon(theme.IconNameArrowDropUp), theme.Icon(theme.IconNameArrowDropDown))
+	d.animateArrow(upIcon, downIcon)
 	d.Refresh()
 }
 
@@ -359,11 +376,13 @@ func (d *HeaderDropdown) refreshVisuals() {
 	var fill color.Color = design.ColorGray900
 	textColor := d.TextColor
 	borderColor := d.BorderColor
-	iconResource := theme.Icon(theme.IconNameArrowDropDown)
-	iconTranslucency := float64(0)
+	var iconResource fyne.Resource
 	if d.opened {
-		iconResource = theme.Icon(theme.IconNameArrowDropUp)
+		iconResource = coloredArrowUp(d.IconColor)
+	} else {
+		iconResource = coloredArrowDown(d.IconColor)
 	}
+	iconTranslucency := float64(0)
 
 	switch {
 	case d.disabled:
@@ -402,7 +421,7 @@ func (d *HeaderDropdown) controlHeight() float32 {
 
 func (d *HeaderDropdown) horizontalPadding() float32 {
 	if d.UltraCompact {
-		return 24
+		return 32
 	}
 	if d.Compact {
 		return 40
@@ -412,7 +431,7 @@ func (d *HeaderDropdown) horizontalPadding() float32 {
 
 func (d *HeaderDropdown) minimumWidth() float32 {
 	if d.UltraCompact {
-		return 48
+		return 64
 	}
 	if d.Compact {
 		return 74
@@ -1011,3 +1030,22 @@ var (
 	_ fyne.Tappable     = (*dropdownItem)(nil)
 	_ desktop.Hoverable = (*dropdownItem)(nil)
 )
+func coloredArrowDown(c color.Color) fyne.Resource {
+	if c == nil {
+		return theme.Icon(theme.IconNameArrowDropDown)
+	}
+	r, g, b, _ := c.RGBA()
+	colorStr := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	svg := fmt.Sprintf("<svg viewBox=\"0 0 24 24\" fill=\"%s\"><path d=\"M7 10l5 5 5-5z\"/></svg>", colorStr)
+	return fyne.NewStaticResource("custom_arrow_down.svg", []byte(svg))
+}
+
+func coloredArrowUp(c color.Color) fyne.Resource {
+	if c == nil {
+		return theme.Icon(theme.IconNameArrowDropUp)
+	}
+	r, g, b, _ := c.RGBA()
+	colorStr := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	svg := fmt.Sprintf("<svg viewBox=\"0 0 24 24\" fill=\"%s\"><path d=\"M7 14l5-5 5 5z\"/></svg>", colorStr)
+	return fyne.NewStaticResource("custom_arrow_up.svg", []byte(svg))
+}

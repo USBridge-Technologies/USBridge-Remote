@@ -15,6 +15,7 @@ package view
 import (
 	"image/color"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -65,7 +66,7 @@ type ConnectionCardActions struct {
 // connectionCardWidth, connectionCardHeight), ...) (or similar) to actually
 // get that many per row.
 const (
-	connectionCardWidth  float32 = 255
+	connectionCardWidth  float32 = 280
 	connectionCardHeight float32 = 205
 	// connectionCardGridGap is the empty space ConnectionManagerUI.
 	// applyConnectionsContent leaves between adjacent cards (and between a
@@ -86,7 +87,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 
 	nameText := NewBrandText(strings.TrimSpace(data.Name), 12, design.ColorTextLight, true)
 
-	editIcon := fyne.NewStaticResource("connection-edit-title.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e0e3e7"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13z"/></svg>`))
+	editIcon := fyne.NewStaticResource("connection-edit-title.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l9.06-9.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42L18.37 3.29a1.003 1.003 0 0 0-1.42 0l-1.13 1.13 3.75 3.75 1.14-1.13z"/></svg>`))
 	editBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
@@ -119,7 +120,8 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 
 	statsBox := newConnectionCardStatsBox(data.LANAddress, data.TailscaleAddress)
 
-	dividerLine := canvas.NewRectangle(design.ColorTailscaleChipBorder)
+	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
+	dividerLine := canvas.NewRectangle(dividerColor)
 	dividerLine.SetMinSize(fyne.NewSize(1, 1))
 	divider := NewInset(dividerLine, 0, 0, 4, 4)
 
@@ -128,6 +130,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	protocolDropdown.CornerRadius = 6
 	protocolDropdown.BorderColor = design.ColorTailscaleChipBorder
 	protocolDropdown.TextColor = design.ColorConnectionBadgeText
+	protocolDropdown.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	protocolDropdown.TextSize = 10
 	protocolDropdown.HoverBorderColor = design.ColorConnectionBadgeText
 	protocolDropdown.HoverFillColor = design.ColorGray900
@@ -135,7 +138,7 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 	protocolDropdown.SetDisabled(state.Disabled)
 
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
-	connectHover := color.NRGBA{R: 0xb4, G: 0xd7, B: 0x6a, A: 0xff}
+	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 
 	connectBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   connectColor,
@@ -172,17 +175,32 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 
 	card := container.NewStack(cardBg, content)
 
-	// Hover swaps the card's own border to the brand teal -- underneath the
-	// card, not on top: on top would swallow clicks meant for the dropdown/
-	// Connect button stacked above it.
-	overlay := newConnectionCardOverlay(actions.OnSelect, func(hovered bool) {
+	var hoverTimer *time.Timer
+	setCardHovered := func(hovered bool) {
 		if hovered {
+			if hoverTimer != nil {
+				hoverTimer.Stop()
+				hoverTimer = nil
+			}
 			cardBg.StrokeColor = design.ColorConnectionBadgeText
+			cardBg.Refresh()
 		} else {
-			cardBg.StrokeColor = design.ColorTailscaleChipBorder
+			if hoverTimer != nil {
+				hoverTimer.Stop()
+			}
+			hoverTimer = time.AfterFunc(50*time.Millisecond, func() {
+				cardBg.StrokeColor = design.ColorTailscaleChipBorder
+				cardBg.Refresh()
+			})
 		}
-		cardBg.Refresh()
-	})
+	}
+
+	protocolDropdown.OnHover = setCardHovered
+	connectBtn.spec.OnHover = setCardHovered
+	editBtn.spec.OnHover = setCardHovered
+
+	overlay := newConnectionCardOverlay(actions.OnSelect, setCardHovered)
+
 	return container.NewStack(overlay, card)
 }
 
@@ -316,7 +334,8 @@ func (l *tightPlatformChipLayout) Layout(objects []fyne.CanvasObject, size fyne.
 }
 
 func newConnectionPlatformChip(text string) fyne.CanvasObject {
-	label := canvas.NewText(text, design.ColorTextMuted)
+	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	label := canvas.NewText(text, c5c8b5Color)
 	label.TextSize = 8
 	label.TextStyle.Monospace = true
 
@@ -331,10 +350,12 @@ func newConnectionPlatformChip(text string) fyne.CanvasObject {
 
 // newConnectionCardStatsBox is the dark LAN/TS readout.
 func newConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasObject {
-	lanRow := newConnectionStatRow("LAN", connectionCardAddressOrNone(lanAddress))
-	tsRow := newConnectionStatRow("TS", connectionCardAddressOrNone(tailscaleAddress))
+	tsValueColor := color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
+	lanRow := newConnectionStatRow("LAN", connectionCardAddressOrNone(lanAddress), design.ColorTextLight)
+	tsRow := newConnectionStatRow("TS", connectionCardAddressOrNone(tailscaleAddress), tsValueColor)
 	
-	sep := canvas.NewRectangle(design.ColorTailscaleChipBorder)
+	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
+	sep := canvas.NewRectangle(dividerColor)
 	sep.SetMinSize(fyne.NewSize(1, 1))
 
 	rows := []fyne.CanvasObject{lanRow, sep, tsRow}
@@ -347,12 +368,13 @@ func newConnectionCardStatsBox(lanAddress, tailscaleAddress string) fyne.CanvasO
 	return container.NewStack(bg, NewInset(container.NewVBox(rows...), 12, 12, 8, 8))
 }
 
-func newConnectionStatRow(label, value string) fyne.CanvasObject {
-	labelText := canvas.NewText(label, design.ColorTextMuted)
+func newConnectionStatRow(label, value string, valueColor color.Color) fyne.CanvasObject {
+	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	labelText := canvas.NewText(label, c5c8b5Color)
 	labelText.TextSize = 10
 	labelText.TextStyle.Monospace = true
 
-	valueText := canvas.NewText(value, design.ColorTextLight)
+	valueText := canvas.NewText(value, valueColor)
 	valueText.TextSize = 10
 	valueText.TextStyle.Monospace = true
 	valueText.Alignment = fyne.TextAlignTrailing
@@ -374,7 +396,7 @@ func (l *gridBottomRowLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	if len(objects) < 2 {
 		return fyne.NewSize(0, 0)
 	}
-	return fyne.NewSize(objects[0].MinSize().Width+4+objects[1].MinSize().Width, 28)
+	return fyne.NewSize(objects[0].MinSize().Width+12+objects[1].MinSize().Width, 28)
 }
 
 func (l *gridBottomRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -388,10 +410,10 @@ func (l *gridBottomRowLayout) Layout(objects []fyne.CanvasObject, size fyne.Size
 	left.Resize(fyne.NewSize(leftW, size.Height))
 	left.Move(fyne.NewPos(0, 0))
 	
-	rightW := size.Width - leftW - 4
+	rightW := size.Width - leftW - 12
 	if rightW < 0 {
 		rightW = 0
 	}
 	right.Resize(fyne.NewSize(rightW, size.Height))
-	right.Move(fyne.NewPos(leftW+4, 0))
+	right.Move(fyne.NewPos(leftW+12, 0))
 }
