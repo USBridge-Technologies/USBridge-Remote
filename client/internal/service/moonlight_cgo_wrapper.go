@@ -505,6 +505,35 @@ func goVTLog(msg *C.char) {
 	logrus.Infof("🎬 [Moonlight/HW] %s", C.GoString(msg))
 }
 
+// goAIVisionOverlay is the cgo entry point for the AI Vision live overlay
+// (see ai_vision.go): called from deliver_frame in moonlight_cgo_linux.go
+// (before the frame reaches vk_video_try_submit/gl_video_try_submit) and
+// from the CPU-fallback decode path in moonlight_cgo_apple.go, on the
+// exact RGBA buffer that's about to be displayed. wrapRGBA below is a
+// zero-copy view over the C-owned memory -- ApplyAIVisionOverlay draws
+// into it in place -- valid only for the duration of this call, which
+// matches how long the C side guarantees the buffer stays alive.
+//
+// Not wired into the CVImageBufferRef fast path metal_video_try_submit
+// takes on macOS/iOS when it succeeds, nor into the AHardwareBuffer path
+// on Android/Windows-Vulkan: those hand decoded frames to the GPU without
+// ever producing a CPU-readable buffer, so overlaying them needs an actual
+// native compositing layer (see VulkanOverlayBridge.kt for the pattern
+// already used there for the cursor) rather than pixel writes here.
+//
+//export goAIVisionOverlay
+func goAIVisionOverlay(rgba *C.uint8_t, width, height, stride C.int) {
+	if rgba == nil || width <= 0 || height <= 0 || stride <= 0 {
+		return
+	}
+	if !aiVisionEnabled.Load() {
+		return
+	}
+	w, h, s := int(width), int(height), int(stride)
+	buf := unsafe.Slice((*byte)(unsafe.Pointer(rgba)), s*h)
+	ApplyAIVisionOverlay(buf, w, h, s)
+}
+
 var vtFrameCount int64
 
 //export goVTFrame

@@ -92,6 +92,19 @@ func LocalUIParserActive() bool {
 	return globalLocalUI.enabled
 }
 
+// GetLocalUIParser returns the currently installed local ui.parse backend,
+// or nil if none is active (see SetLocalUIParser). Exposed so other
+// features can reuse the already-loaded ONNX models instead of duplicating
+// the "optional accelerator, load once at startup" lifecycle handled here
+// -- e.g. the AI Vision live video overlay (internal/service/ai_vision.go),
+// which runs the exact same detector against live frames instead of a
+// screenshot fetched on demand.
+func GetLocalUIParser() *localui.Parser {
+	globalLocalUI.mu.RLock()
+	defer globalLocalUI.mu.RUnlock()
+	return globalLocalUI.parser
+}
+
 // tryLocalUIParse intercepts a tools/call request for "ui.parse" and
 // answers it locally if enabled. Returns (responseBody, true, nil) on a
 // successful local answer, (nil, false, nil) if this request isn't a

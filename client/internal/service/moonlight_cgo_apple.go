@@ -18,6 +18,7 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
+extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // Metal overlay fast path (macOS: metal_video_darwin.go, iOS: metal_video_ios.go).
 extern int metal_video_try_submit(CVImageBufferRef img);
@@ -400,6 +401,12 @@ static void vt_callback(
                 dst[0] = row[2]; dst[1] = row[1]; dst[2] = row[0]; dst[3] = row[3];
             }
         }
+        // AI Vision overlay: no-op unless enabled (single atomic load in the
+        // common case) -- burns detection boxes+ids into the buffer in
+        // place before it's handed off. Only reachable on this CPU
+        // fallback path, not the zero-copy Metal fast path above (see
+        // goAIVisionOverlay's doc comment in moonlight_cgo_wrapper.go).
+        goAIVisionOverlay(g_vt_rgba_buf, w, h, w * 4);
         goVTFrame(g_vt_rgba_buf, w, h, w * 4);
     }
     CVPixelBufferUnlockBaseAddress(img, kCVPixelBufferLock_ReadOnly);

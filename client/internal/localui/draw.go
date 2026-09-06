@@ -33,17 +33,39 @@ func drawResult(src *rgbImage, result *Result) []byte {
 	}
 
 	for _, icon := range result.Icons {
-		drawRect(img, icon.Bbox, iconColor)
-		drawMarkTag(img, icon.ID, int(icon.Bbox.X1), int(icon.Bbox.Y1))
+		DrawDetectionBox(img, icon.Bbox, false)
+		DrawDetectionTag(img, icon.ID, icon.Bbox)
 	}
 	for _, t := range result.Text {
-		drawRect(img, t.Bbox, textColor)
-		drawMarkTag(img, t.ID, int(t.Bbox.X1), int(t.Bbox.Y1))
+		DrawDetectionBox(img, t.Bbox, true)
+		DrawDetectionTag(img, t.ID, t.Bbox)
 	}
 
 	var buf bytes.Buffer
 	png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+// DrawDetectionBox draws one detection's Set-of-Mark rectangle directly
+// onto img -- red for a UI-element/icon box, green for a text box, same
+// palette drawResult uses for the static ui.parse annotated screenshot.
+// Exported so a caller compositing onto something other than a freshly
+// decoded screenshot (e.g. the AI Vision live video overlay in
+// internal/service/ai_vision.go, drawing straight into the RGBA frame
+// buffer about to reach the native Vulkan/Metal/GL renderer) can reuse the
+// exact same drawing code instead of re-implementing it.
+func DrawDetectionBox(img *image.RGBA, box Box, isText bool) {
+	c := iconColor
+	if isText {
+		c = textColor
+	}
+	drawRect(img, box, c)
+}
+
+// DrawDetectionTag draws one detection's Set-of-Mark hex-id tag anchored
+// to its box -- see drawMarkTag and DrawDetectionBox's doc comment.
+func DrawDetectionTag(img *image.RGBA, id string, box Box) {
+	drawMarkTag(img, id, int(box.X1), int(box.Y1))
 }
 
 func drawRect(img *image.RGBA, b Box, c color.RGBA) {

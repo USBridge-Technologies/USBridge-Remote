@@ -27,6 +27,7 @@ extern void goMoonlightTerminated(int errCode);
 extern void goVTLog(char *msg);
 extern void goVTFrame(uint8_t *rgba, int width, int height, int stride);
 extern void goVideoFormatNegotiated(int videoFormat);
+extern void goAIVisionOverlay(uint8_t *rgba, int width, int height, int stride);
 
 // GL overlay fast path (defined in gl_video_impl_linux.c).
 extern int gl_video_is_active(void);
@@ -309,6 +310,11 @@ static void deliver_frame(AVFrame *frame) {
             if (++g_av_frame_cnt == 1)
                 goVTLog((char*)"libavcodec: first RGBA frame decoded");
             maybe_dump_frame_ppm(rgba, w, h);
+            // AI Vision overlay: no-op unless the checkbox in the video
+            // settings popup is on (checked internally, single atomic load
+            // in the common case) -- burns detection boxes+ids into rgba
+            // in place, before it reaches either native fast path.
+            goAIVisionOverlay(rgba, w, h, w * 4);
             // Native overlay fast path: VK preferred, GL fallback.
             // goVTFrame is still called so Go-side stats/callbacks run.
             if (vk_video_is_active())

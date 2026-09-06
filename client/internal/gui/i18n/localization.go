@@ -323,6 +323,8 @@ type LocalizedStrings struct {
 	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
 	ClipboardSyncEnabled      string // "Shared Clipboard" (toggle clipboard sync with the agent)
 	EnableVSync               string // "VSync" (enable vsync for capture card)
+	AIVision                  string // "AI Vision" (live Set-of-Mark detection overlay checkbox)
+	AIVisionHint              string // hint shown under the AI Vision checkbox
 	MuteAudio                 string // "Mute Audio"
 	UnmuteAudio               string // "Unmute Audio"
 	DeviceAudio               string // "Audio"
@@ -707,6 +709,8 @@ func EN() *LocalizedStrings {
 		ShowMouseCursor:           "Show Mouse",
 		ClipboardSyncEnabled:      "Shared Clipboard",
 		EnableVSync:               "VSync",
+		AIVision:                  "AI Vision",
+		AIVisionHint:              "Overlays live object detection (Set-of-Mark boxes + hex ids) on the video, as an agent's ui.parse call would see it.",
 		MuteAudio:                 "Mute Audio",
 		UnmuteAudio:               "Unmute Audio",
 		DeviceAudio:               "Audio",
