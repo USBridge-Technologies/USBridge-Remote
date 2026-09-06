@@ -18,14 +18,27 @@ var (
 	ColorTextMuted          = color.NRGBA{R: 0xc9, G: 0xc9, B: 0xc9, A: 0xff} // --cs-text-muted
 	ColorBorder             = color.NRGBA{R: 0x65, G: 0x65, B: 0x65, A: 0xff} // --cs-border-color
 	ColorSurfaceLight       = color.NRGBA{R: 0x35, G: 0x35, B: 0x35, A: 0xff} // --cs-surface-light
-	ColorGray900            = color.NRGBA{R: 0x2c, G: 0x2c, B: 0x2c, A: 0xff} // --cs-gray-900
-	ColorGray950            = color.NRGBA{R: 0x1d, G: 0x1d, B: 0x1d, A: 0xff} // --cs-gray-950
+	ColorGray900            = color.NRGBA{R: 0x16, G: 0x1b, B: 0x22, A: 0xff} // --cs-gray-900 (Header)
+	ColorGray950            = color.NRGBA{R: 0x0d, G: 0x11, B: 0x17, A: 0xff} // --cs-gray-950 (Window)
 	ColorGray400            = color.NRGBA{R: 0xc8, G: 0xc8, B: 0xc8, A: 0xff} // --cs-gray-400
+	ColorAlphaWhite07       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x12} // --cs-alpha-white-07
+	ColorAlphaWhite12       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1f} // --cs-alpha-white-12
 	ColorAlphaWhite15       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x26} // --cs-alpha-white-15
 	ColorAlphaWhite24       = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x3d} // --cs-alpha-white-24
 	ColorAlphaAccent22      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x38} // --cs-alpha-accent-22
 	ColorAlphaAccent55      = color.NRGBA{R: 0x93, G: 0xc5, B: 0x72, A: 0x8c} // --cs-alpha-accent-55
 	ColorAlphaAccentHover55 = color.NRGBA{R: 0xb6, G: 0xea, B: 0x93, A: 0x8c} // --cs-alpha-accent-hover-55
+	ColorWhite              = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+
+	// Tailscale header chip: a slightly desaturated accent pair, distinct from
+	// the main ColorAccent/ColorAccentHover used everywhere else, used only by
+	// the Tailscale toggle border/label in its default (off, enabled) state.
+	ColorTailscaleChipBorder = color.NRGBA{R: 0xe5, G: 0xf5, B: 0xb4, A: 0xff}
+	ColorTailscaleChipLabel  = color.NRGBA{R: 0xc3, G: 0xc6, B: 0xb4, A: 0xff}
+
+	// ColorLogoWordmark is the "USBridge" wordmark color next to the logo
+	// mark in the app's header bars.
+	ColorLogoWordmark = color.NRGBA{R: 0xe7, G: 0xfb, B: 0xba, A: 0xff}
 )
 
 const RadiusMD float32 = 8

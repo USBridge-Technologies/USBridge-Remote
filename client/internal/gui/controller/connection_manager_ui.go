@@ -14,9 +14,9 @@ func (cm *ConnectionManager) createInterface() {
 	cm.ui = view.NewConnectionManagerUI(
 		cm.handleQRScan,
 		cm.showAddDialog,
-		cm.openQuickStartDocs,
+		cm.openInfoPage,
 		cm.openHardwarePromo,
-		cm.handleTailscaleToggleAction,
+		cm.handlePasteLink,
 	)
 	cm.refreshConnectionsList()
 	cm.initTailscaleMode()
@@ -72,6 +72,16 @@ func (cm *ConnectionManager) openQuickStartDocs() {
 	const docsURL = "https://www.usbridge.io/docs/getting-started/quick-start-guide/"
 
 	cm.openExternalLink(docsURL, "docs URL")
+}
+
+// openInfoPage opens the USBridge Remote product page -- the destination for
+// the connections screen's own "?" footer icon (distinct from the header's
+// helpBtn in main_window_layout.go, which links here too, and from
+// openQuickStartDocs' getting-started guide).
+func (cm *ConnectionManager) openInfoPage() {
+	const infoURL = "https://www.usbridge.io/usbridge-remote"
+
+	cm.openExternalLink(infoURL, "info URL")
 }
 
 func (cm *ConnectionManager) openDiscordInvite() {

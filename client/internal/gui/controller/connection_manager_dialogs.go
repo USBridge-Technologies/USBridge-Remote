@@ -1,4 +1,4 @@
-package controller
+﻿package controller
 
 import (
 	"fmt"
@@ -1416,5 +1416,11 @@ func showPasteLinkDialog(parent fyne.Window, onApply func(internalHost, tailscal
 			h := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-48)
 			return fyne.NewSize(w, h)
 		},
+	})
+}
+
+func (cm *ConnectionManager) handlePasteLink() {
+	showPasteLinkDialog(cm.window, func(ih, th, mk string) {
+		cm.showPrefilledAddDialog("", ih, th, mk, "", false)
 	})
 }

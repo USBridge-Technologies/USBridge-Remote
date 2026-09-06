@@ -20,7 +20,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -400,32 +399,42 @@ func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 	_ = activeIndex
 }
 
-// createConnectionAddressBar creates the connection address bar.
+// createConnectionAddressBar creates the connection screen's header bar (see
+// connection_header.go for the component itself). This is only the
+// composition point: it owns nothing visual, just wires the header's
+// reported actions to the real controller calls.
 func (mw *MainWindow) createConnectionAddressBar() *fyne.Container {
-	var langBtn *headerStatusBadgeButton
-	langBtn = newHeaderStatusBadgeButton(assets.LanguageIconActive, func() {
-		if mw.connectionManager != nil {
-			mw.connectionManager.ShowLanguageMenu(langBtn)
-		}
+	band, handle := newConnectionHeader(connectionHeaderActions{
+		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
+			if mw.connectionManager != nil {
+				mw.connectionManager.ShowLanguageMenu(anchor)
+			}
+		},
+		OnOpenCommunity: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenDiscordInvite()
+			}
+		},
+		OnOpenInfo: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenInfoPage()
+			}
+		},
+		OnToggleTailscale: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.ToggleTailscale()
+			}
+		},
 	})
-	langBtn.SetBadgeText("")
-	langBtn.SetIconSize(fyne.NewSize(16, 16))
 
-	discordBtn := newHeaderStatusBadgeButton(assets.DiscordIconActive, func() {
-		if mw.connectionManager != nil {
-			mw.connectionManager.OpenDiscordInvite()
-		}
-	})
-	discordBtn.SetBadgeText("")
-	discordBtn.SetIconSize(fyne.NewSize(18, 18))
-
-	leftRow := container.New(&centeredInlineLayout{gap: 4, minGap: 2}, discordBtn, langBtn)
-	var rightAccessory fyne.CanvasObject = canvas.NewRectangle(color.Transparent)
-	if mw.connectionManager != nil && mw.connectionManager.HeaderAccessory() != nil {
-		rightAccessory = mw.connectionManager.HeaderAccessory()
+	// The header owns the Tailscale toggle widget now; hand the controller a
+	// way to push live status into it without either side knowing the
+	// other's types (see ConnectionHeaderHandle).
+	if mw.connectionManager != nil {
+		mw.connectionManager.SetTailscaleStatusSink(handle.SetTailscaleState)
 	}
-	row := container.NewHBox(leftRow, layout.NewSpacer(), rightAccessory)
-	return view.NewHeaderBand("", row)
+
+	return band
 }
 
 // createMainAddressBar creates the main address bar.

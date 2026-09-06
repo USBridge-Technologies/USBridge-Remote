@@ -65,6 +65,13 @@ type ConnectionManager struct {
 	onLanguageChange         func()
 	onConnectionsStateChange func(bool)
 	tsPollStop               chan struct{}
+
+	// tsStatusSink pushes raw Tailscale status text into the connection
+	// header's toggle (see gui.ConnectionHeaderHandle.SetTailscaleState).
+	// Set once by MainWindow after it builds that header -- this package
+	// never references the header's own type, only this callback shape, so
+	// there's no import cycle back to package gui.
+	tsStatusSink func(status, authLabel string)
 }
 
 func (cm *ConnectionManager) ResolveMasterKey(host, currentMasterKey string) string {
@@ -445,8 +452,8 @@ func (cm *ConnectionManager) resolveHostForProtocol(conn SavedConnection, protoc
 func normalizeConnectionProtocol(protocol string) string {
 	if runtime.GOOS == "js" {
 		// No embedded tsnet in a browser tab (tailscale_service_wasm.go is
-		// a stub, same reasoning as HeaderAccessory's own Tailscale-toggle
-		// omission above) -- always dial over plain LAN, regardless of
+		// a stub, same reasoning as newConnectionHeader's own Tailscale-toggle
+		// omission on wasm, in package gui) -- always dial over plain LAN, regardless of
 		// what a connection saved on a native client set this to, or what
 		// a stale saved value in localStorage says. Single choke point:
 		// every caller (resolveHostForProtocol, connectionProtocolBadge,
@@ -504,18 +511,22 @@ func (cm *ConnectionManager) OpenDiscordInvite() {
 	cm.openDiscordInvite()
 }
 
-func (cm *ConnectionManager) HeaderAccessory() fyne.CanvasObject {
-	if cm == nil || cm.ui == nil {
-		return nil
-	}
-	if runtime.GOOS == "js" {
-		// No embedded tsnet in a browser tab (tailscale_service_wasm.go is
-		// a stub) -- the "Sign In With Google" Tailscale toggle has nothing
-		// to do here, so don't show it at all rather than show a button
-		// that can't function.
-		return nil
-	}
-	return cm.ui.HeaderAccessory()
+func (cm *ConnectionManager) OpenInfoPage() {
+	cm.openInfoPage()
+}
+
+// SetTailscaleStatusSink registers where live Tailscale status text goes --
+// normally the connection header's toggle, wired up once by MainWindow right
+// after it builds that header (see connection_header.go's
+// ConnectionHeaderHandle.SetTailscaleState).
+func (cm *ConnectionManager) SetTailscaleStatusSink(sink func(status, authLabel string)) {
+	cm.tsStatusSink = sink
+}
+
+// ToggleTailscale runs the same sign-in/sign-out flow the connection
+// header's Tailscale toggle triggers on tap.
+func (cm *ConnectionManager) ToggleTailscale() {
+	cm.handleTailscaleToggleAction()
 }
 
 func (cm *ConnectionManager) startTailscaleStatusPolling() {
@@ -595,11 +606,11 @@ func (cm *ConnectionManager) refreshTailscaleStatus() {
 }
 
 func (cm *ConnectionManager) setTailscaleStateAsync(header, subHeader, addr, button string) {
-	if cm.ui == nil {
+	if cm.tsStatusSink == nil {
 		return
 	}
 	fyne.Do(func() {
-		cm.ui.SetTailscaleState(header, subHeader, addr, button)
+		cm.tsStatusSink(header, button)
 	})
 }
 
