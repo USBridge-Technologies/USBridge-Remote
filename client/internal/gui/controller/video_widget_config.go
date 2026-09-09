@@ -452,6 +452,59 @@ func (vw *VideoWidget) ShowCurrentVideoSettings(showFullscreen bool) {
 	vw.ShowVideoDeviceSettings(cfg.DevicePath, true, false)
 }
 
+// AvailableCaptureModes returns the current device's known capture modes
+// (each a resolution with its own supported fps list) and its live config,
+// the same data video_start_dialog.go's own Configure builds its
+// resolution/fps pickers from -- for the Control header's own quick FPS/
+// resolution dropdowns (main_window_status_indicator_bar.go's
+// showVideoFPSMenu/showVideoResolutionMenu), which apply a change directly
+// via ApplyVideoFPS/ApplyVideoResolution instead of opening that dialog.
+// Blocks on network I/O (fetchVideoInfoForStartDialog retries up to 5
+// times) -- callers must not call this from the Fyne main goroutine.
+func (vw *VideoWidget) AvailableCaptureModes() ([]models.VideoCaptureMode, models.VideoDeviceConfig, error) {
+	cfg, err := vw.resolvePreferredVideoConfig()
+	if err != nil {
+		return nil, models.VideoDeviceConfig{}, err
+	}
+	info := vw.fetchVideoInfoForStartDialog(cfg.DevicePath)
+	var modes []models.VideoCaptureMode
+	if info != nil && len(info.CaptureModes) > 0 {
+		modes = info.CaptureModes
+	}
+	if len(modes) == 0 {
+		modes = []models.VideoCaptureMode{{Width: cfg.VideoWidth, Height: cfg.VideoHeight, FPS: []int{cfg.VideoFPS}}}
+	}
+	return modes, cfg, nil
+}
+
+// ApplyVideoFPS restarts the current stream with a new fps, keeping every
+// other current setting (resolution, bitrate, mode, pixel format...) as-is
+// -- see AvailableCaptureModes' own doc comment.
+func (vw *VideoWidget) ApplyVideoFPS(fps int) error {
+	cfg, err := vw.resolvePreferredVideoConfig()
+	if err != nil {
+		return err
+	}
+	cfg.VideoFPS = fps
+	return vw.applyVideoDeviceConfig(cfg, true)
+}
+
+// ApplyVideoResolution restarts the current stream at a new resolution,
+// keeping every other current setting as-is -- see AvailableCaptureModes'
+// own doc comment. Does not change fps even if the new resolution doesn't
+// actually support the current one; the server is the authority on that
+// and the fps dropdown will show whatever it reports as valid next time
+// it's opened.
+func (vw *VideoWidget) ApplyVideoResolution(width, height int) error {
+	cfg, err := vw.resolvePreferredVideoConfig()
+	if err != nil {
+		return err
+	}
+	cfg.VideoWidth = width
+	cfg.VideoHeight = height
+	return vw.applyVideoDeviceConfig(cfg, true)
+}
+
 func (vw *VideoWidget) ShowVideoDeviceSettings(devicePath string, restartOnApply bool, showFullscreen bool) {
 	if vw.usbClient == nil || vw.parentWindow == nil {
 		logrus.Warn("⚠️ cannot show video settings: usbClient or parentWindow is nil")

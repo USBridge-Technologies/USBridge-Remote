@@ -10,16 +10,23 @@ package gui
 // middleGroup with no shared background/border of its own.
 
 import (
+	"fmt"
 	"image/color"
+	"sort"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
+	"usbridge-client/internal/models"
+
+	"github.com/sirupsen/logrus"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
 )
 
 // statusBarIconBoxSize is every icon button's own clickable box inside this
@@ -114,16 +121,97 @@ func newStatusBarDot() fyne.CanvasObject {
 	return container.NewGridWrap(fyne.NewSize(statusIndicatorDotSize, statusIndicatorDotSize), container.NewCenter(dot))
 }
 
-// newFixedWidthFPSText wraps mw.videoFPSText in a box wide enough for the
-// worst case ("888 FPS", 3 digits) so the group's own gap/dot/resolution
-// text after it don't shift left/right every time the fps digit count
-// changes (1 -> 2 -> 3 digits as the stream ramps up).
-func newFixedWidthFPSText(text *canvas.Text) fyne.CanvasObject {
-	sample := canvas.NewText("888 FPS", text.Color)
-	sample.TextSize = text.TextSize
-	sampleSize := sample.MinSize()
-	return container.NewGridWrap(sampleSize, text)
+// newFixedWidthFPSText sizes a box wide enough for the worst case fps text
+// ("888 FPS", 3 digits) so the group's own gap/dot/resolution text after it
+// don't shift left/right every time the fps digit count changes (1 -> 2 ->
+// 3 digits as the stream ramps up). sample supplies the color/size to
+// measure against; wrapped is what actually goes in the box -- now that
+// the fps text is clickable (see statusBarTextButton below), that's the
+// button wrapping it, not the bare *canvas.Text itself.
+func newFixedWidthFPSText(sample *canvas.Text, wrapped fyne.CanvasObject) fyne.CanvasObject {
+	measure := canvas.NewText("888 FPS", sample.Color)
+	measure.TextSize = sample.TextSize
+	return container.NewGridWrap(measure.MinSize(), wrapped)
 }
+
+// statusBarTextButton is a plain canvas.Text with tap and the same hover
+// chip as this strip's icon buttons (design.ColorStatusBarIconChip, no
+// background at rest) -- the video group's fps/resolution labels, tappable
+// to open a quick value picker (showVideoFPSMenu/showVideoResolutionMenu)
+// styled like every other header dropdown (view.ShowStyledMenuTeal).
+type statusBarTextButton struct {
+	widget.BaseWidget
+	label    *canvas.Text
+	onTapped func()
+	hovered  bool
+	bg       *canvas.Rectangle
+}
+
+func newStatusBarTextButton(label *canvas.Text, onTapped func()) *statusBarTextButton {
+	b := &statusBarTextButton{label: label, onTapped: onTapped}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *statusBarTextButton) Tapped(*fyne.PointEvent) {
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *statusBarTextButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *statusBarTextButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+
+func (b *statusBarTextButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *statusBarTextButton) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+
+func (b *statusBarTextButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = statusBarIconHoverRadius
+	r := &statusBarTextButtonRenderer{btn: b, objects: []fyne.CanvasObject{b.bg, b.label}}
+	r.Refresh()
+	return r
+}
+
+type statusBarTextButtonRenderer struct {
+	btn     *statusBarTextButton
+	objects []fyne.CanvasObject
+}
+
+func (r *statusBarTextButtonRenderer) Layout(size fyne.Size) {
+	r.btn.bg.Resize(size)
+	r.btn.bg.Move(fyne.NewPos(0, 0))
+	labelMin := r.btn.label.MinSize()
+	r.btn.label.Resize(labelMin)
+	r.btn.label.Move(fyne.NewPos((size.Width-labelMin.Width)/2, (size.Height-labelMin.Height)/2))
+}
+
+func (r *statusBarTextButtonRenderer) MinSize() fyne.Size {
+	return r.btn.label.MinSize()
+}
+
+func (r *statusBarTextButtonRenderer) Refresh() {
+	r.btn.bg.FillColor = color.Transparent
+	if r.btn.hovered {
+		r.btn.bg.FillColor = design.ColorStatusBarIconChip
+	}
+	r.btn.bg.Refresh()
+	canvas.Refresh(r.btn.label)
+}
+
+func (r *statusBarTextButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *statusBarTextButtonRenderer) Destroy() {}
 
 // syncStorageChipVisibility shows/hides mw.sdStorageProgress and the
 // divider right before it together -- callers that used to just call
@@ -197,11 +285,24 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
 
+	// fps/resolution are both tappable now -- each opens a quick picker
+	// (styled like every other header dropdown, view.ShowStyledMenuTeal)
+	// sourced from the same capture-mode data the video settings dialog
+	// itself uses (see showVideoFPSMenu/showVideoResolutionMenu), applying
+	// the change directly without opening that dialog.
+	var fpsBtn, resBtn *statusBarTextButton
+	fpsBtn = newStatusBarTextButton(mw.videoFPSText, func() {
+		mw.showVideoFPSMenu(fpsBtn)
+	})
+	resBtn = newStatusBarTextButton(mw.videoResolutionText, func() {
+		mw.showVideoResolutionMenu(resBtn)
+	})
+
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2},
 		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
-		newFixedWidthFPSText(mw.videoFPSText),
+		newFixedWidthFPSText(mw.videoFPSText, fpsBtn),
 		newStatusBarDot(),
-		mw.videoResolutionText,
+		resBtn,
 		container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon),
 	)
 	mw.videoStatusGroup.Hide()
@@ -236,4 +337,129 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	bg.CornerRadius = design.RadiusMD
 
 	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, statusIndicatorBarPadY, statusIndicatorBarPadY))
+}
+
+// showVideoFPSMenu opens a teal dropdown (view.ShowStyledMenuTeal, the same
+// style every other header menu uses) listing the fps values the current
+// resolution actually supports, sourced from VideoWidget.AvailableCaptureModes
+// -- the same capture-mode data the video settings dialog uses, without
+// opening that dialog. Selecting one calls VideoWidget.ApplyVideoFPS
+// directly, keeping every other current setting untouched.
+func (mw *MainWindow) showVideoFPSMenu(anchor fyne.CanvasObject) {
+	if mw.videoWidget == nil || anchor == nil {
+		return
+	}
+	go func() {
+		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
+		if err != nil {
+			logrus.Warnf("⚠️ cannot load fps options: %v", err)
+			return
+		}
+		fpsOptions := captureModeFPS(modes, cfg.VideoWidth, cfg.VideoHeight)
+		if len(fpsOptions) == 0 {
+			return
+		}
+		fyne.Do(func() {
+			items := make([]view.StyledMenuItem, 0, len(fpsOptions))
+			for _, fps := range fpsOptions {
+				fps := fps
+				items = append(items, view.StyledMenuItem{
+					Label:    fmt.Sprintf("%d FPS", fps),
+					Selected: fps == cfg.VideoFPS,
+					OnTap: func() {
+						go func() {
+							if err := mw.videoWidget.ApplyVideoFPS(fps); err != nil {
+								logrus.Warnf("⚠️ failed to apply fps %d from header menu: %v", fps, err)
+							}
+						}()
+					},
+				})
+			}
+			view.ShowStyledMenuTeal(anchor, items)
+		})
+	}()
+}
+
+// showVideoResolutionMenu is showVideoFPSMenu's own counterpart for
+// resolution -- every distinct width/height AvailableCaptureModes reports,
+// applied via VideoWidget.ApplyVideoResolution.
+func (mw *MainWindow) showVideoResolutionMenu(anchor fyne.CanvasObject) {
+	if mw.videoWidget == nil || anchor == nil {
+		return
+	}
+	go func() {
+		modes, cfg, err := mw.videoWidget.AvailableCaptureModes()
+		if err != nil {
+			logrus.Warnf("⚠️ cannot load resolution options: %v", err)
+			return
+		}
+		options := distinctCaptureResolutions(modes)
+		if len(options) == 0 {
+			return
+		}
+		fyne.Do(func() {
+			items := make([]view.StyledMenuItem, 0, len(options))
+			for _, opt := range options {
+				width, height := opt.width, opt.height
+				items = append(items, view.StyledMenuItem{
+					Label:    fmt.Sprintf("%d x %d", width, height),
+					Selected: width == cfg.VideoWidth && height == cfg.VideoHeight,
+					OnTap: func() {
+						go func() {
+							if err := mw.videoWidget.ApplyVideoResolution(width, height); err != nil {
+								logrus.Warnf("⚠️ failed to apply resolution %dx%d from header menu: %v", width, height, err)
+							}
+						}()
+					},
+				})
+			}
+			view.ShowStyledMenuTeal(anchor, items)
+		})
+	}()
+}
+
+// captureModeFPS returns the fps list for whichever mode in modes matches
+// width/height, falling back to the first mode's own list if none match
+// (e.g. the current resolution isn't itself one of the reported modes).
+func captureModeFPS(modes []models.VideoCaptureMode, width, height int) []int {
+	for _, m := range modes {
+		if m.Width == width && m.Height == height {
+			return m.FPS
+		}
+	}
+	if len(modes) > 0 {
+		return modes[0].FPS
+	}
+	return nil
+}
+
+type captureResolution struct {
+	width, height int
+}
+
+// distinctCaptureResolutions dedupes modes down to one entry per distinct
+// width/height (the same capture card can list a resolution once per pixel
+// format -- see video_start_dialog.go's own Configure, which keeps those as
+// separate rows for its format picker; this menu only offers a resolution
+// choice, so one row per size is enough), sorted smallest to largest.
+func distinctCaptureResolutions(modes []models.VideoCaptureMode) []captureResolution {
+	seen := make(map[captureResolution]bool, len(modes))
+	options := make([]captureResolution, 0, len(modes))
+	for _, m := range modes {
+		key := captureResolution{m.Width, m.Height}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		options = append(options, key)
+	}
+	sort.Slice(options, func(i, j int) bool {
+		areaI := options[i].width * options[i].height
+		areaJ := options[j].width * options[j].height
+		if areaI != areaJ {
+			return areaI < areaJ
+		}
+		return options[i].width < options[j].width
+	})
+	return options
 }
