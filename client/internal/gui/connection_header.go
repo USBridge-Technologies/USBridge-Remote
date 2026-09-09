@@ -217,11 +217,11 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	row := container.NewHBox(logoLockup, layout.NewSpacer(), rightRow)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
-	// Bottom inset 0, not 2 -- with the accent line's own 0.5px reserved
-	// right below this (see accentLine/content below), a symmetric 2/2
-	// left visibly more free space under the row than above it, and the
-	// whole band a couple px taller than it needed to be.
-	paddedRow := view.NewInset(row, 16, 16, 2, 0)
+	// Top/bottom inset both 0 now (was 2/2, then 2/0) -- row's own content
+	// (28px logo/buttons) is what actually sets this band's height; any
+	// vertical inset here just pads it out further, and bottom already
+	// runs into the accent line's own reserved 0.5px right under it.
+	paddedRow := view.NewInset(row, 16, 16, 0, 0)
 
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
