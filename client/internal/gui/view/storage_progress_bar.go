@@ -143,10 +143,17 @@ type storageProgressBarRenderer struct {
 }
 
 const (
-	padH      = float32(8)
-	padV      = float32(4)
-	rowGap    = float32(1)
-	iconSize  = float32(12)
+	padH = float32(8)
+	// padV/iconSize/rowGap were trimmed from 4/12/1 -- at those values this
+	// chip's own MinSize (padV + iconSize + rowGap + text-line-height + padV)
+	// came out taller than 28px, the header row height every other element
+	// in this chip's own row (main_window_layout.go's createMainAddressBar
+	// middleGroup) targets (see headerCompactButtonSize) -- the one part of
+	// that row not already capped by a GridWrap, so it alone kept the
+	// Control header taller than the connections screen's own.
+	padV      = float32(1)
+	rowGap    = float32(0)
+	iconSize  = float32(10)
 	iconGap   = float32(6)
 	barHeight = float32(4)
 	barMaxW   = float32(58)

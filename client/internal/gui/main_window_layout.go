@@ -1091,10 +1091,18 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.videoIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
 		mw.showVideoMenu()
 	})
+	// 18x18, not headerStatusBadgeButton's own 22x22 default -- this button
+	// (like every other one in mw.statusPanel, see the GridWrap wrapping in
+	// buildHeaderStatusIndicators's own caller below) is capped to
+	// headerCompactButtonSize (28px) regardless of its own MinSize, so the
+	// default icon size left almost no margin once actually squeezed down
+	// to that size.
+	mw.videoIcon.SetIconSize(fyne.NewSize(18, 18))
 	mw.videoIcon.Hide()
 	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
 		mw.showAudioMenu()
 	})
+	mw.audioIcon.SetIconSize(fyne.NewSize(18, 18))
 	mw.audioIcon.SetBadgeText("")
 	mw.audioIcon.Hide()
 	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
@@ -1153,17 +1161,29 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
+	// Every one of these except mw.backupIcon (already 28px via
+	// newHeaderPassiveIndicator's own GridWrap) is either a
+	// headerStatusBadgeButton (36x36 MinSize, hardcoded, ignores its own
+	// icon size) or a plain widget.NewButtonWithIcon (Fyne's own default
+	// theme padding puts it well past 28px too) -- once actually connected
+	// and several of these go from Hidden to Shown, whichever was tallest
+	// stretched this whole row, and with it createMainAddressBar's header
+	// band, past the connections screen's own 28px-tall header. GridWrap
+	// forces each down to headerCompactButtonSize regardless of what its
+	// own MinSize would otherwise report -- the same trick
+	// connection_header.go already uses for that header's own
+	// info/community/language buttons (also headerStatusBadgeButton).
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
 		mw.backupIcon,
-		mw.videoIcon,
-		mw.audioIcon,
-		mw.cdromIcon,
-		mw.keyboardIcon,
-		mw.mouseIcon,
-		mw.rndisIcon,
-		mw.gamepadIcon,
-		mw.snapshotIcon,
-		mw.scriptIcon,
+		container.NewGridWrap(headerCompactButtonSize, mw.videoIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.audioIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.cdromIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.keyboardIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.mouseIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.rndisIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.gamepadIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.snapshotIcon),
+		container.NewGridWrap(headerCompactButtonSize, mw.scriptIcon),
 	)
 	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
 
