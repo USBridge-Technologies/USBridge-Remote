@@ -1063,7 +1063,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 			mw.videoWidget.ShowFullscreen()
 		}
 	})
-	mw.fullscreenIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.fullscreenIcon.SetIconSize(fyne.NewSize(12, 12))
 	// newHeaderStatusBadgeButton defaults badgeText to "0" (the video icon's
 	// own fps badge, before that moved to mw.videoFPSText next to it -- see
 	// updateVideoIconLabel) -- this button has nothing to badge, so it was
@@ -1556,7 +1556,7 @@ func (mw *MainWindow) showAudioMenu() {
 		},
 	}
 
-	view.ShowStyledMenu(mw.audioIcon, items)
+	view.ShowStyledMenuTeal(mw.audioIcon, items)
 }
 
 func (mw *MainWindow) isAudioMuted() bool {
@@ -1658,7 +1658,7 @@ func (mw *MainWindow) showMouseModeMenu() {
 		},
 	})
 
-	view.ShowStyledMenu(mw.mouseIcon, items)
+	view.ShowStyledMenuTeal(mw.mouseIcon, items)
 }
 
 func (mw *MainWindow) showRNDISModeMenu() {
@@ -1698,7 +1698,7 @@ func (mw *MainWindow) showRNDISModeMenu() {
 		},
 	}
 
-	view.ShowStyledMenu(mw.rndisIcon, items)
+	view.ShowStyledMenuTeal(mw.rndisIcon, items)
 }
 
 func (mw *MainWindow) showScriptRunningMenu() {
