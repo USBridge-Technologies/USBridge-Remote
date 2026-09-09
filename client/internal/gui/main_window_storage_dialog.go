@@ -89,12 +89,12 @@ func (mw *MainWindow) showStorageInfoDialog() {
 	// value/percent still at 10px, matching every other header dropdown's
 	// own row text (ShowStyledMenuTeal).
 	buildBlock := func(title, value, percent string) fyne.CanvasObject {
-		titleText := view.NewBrandText(strings.ToUpper(title), 9, design.ColorConnectionBadgeText, false)
+		titleText := view.NewBrandText(strings.ToUpper(title), 8, design.ColorConnectionBadgeText, false)
 		valueText := view.NewBrandText(value, 10, design.ColorTextLight, true)
 		percentText := view.NewBrandText(percent, 10, design.ColorTextLight, true)
 		return container.NewVBox(
 			titleText,
-			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 1, 0),
+			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 0, 0),
 		)
 	}
 
