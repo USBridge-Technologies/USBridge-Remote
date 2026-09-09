@@ -16,6 +16,7 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
@@ -115,22 +116,30 @@ type MainWindow struct {
 	lifecycleOps chan func()
 
 	// Status icons
-	connectionIcon    *widget.Button
-	nbdIcon           *widget.Button
-	videoIcon         *headerStatusBadgeButton
-	audioIcon         *headerStatusBadgeButton
-	captureIcon       *widget.Button
-	keyboardIcon      *widget.Button
-	mouseIcon         *widget.Button
-	rndisIcon         *widget.Button
-	gamepadIcon       *widget.Button
-	cdromIcon         *widget.Button
-	backupIcon        fyne.CanvasObject
-	snapshotIcon      *widget.Button
-	scriptIcon        *widget.Button
-	runningScriptPath string
-	runningScriptName string
-	statusPanel       *fyne.Container
+	connectionIcon *widget.Button
+	nbdIcon        *widget.Button
+	videoIcon      *headerStatusBadgeButton
+	// videoFPSText/videoResolutionText/videoStatusGroup back the Control
+	// header's status-indicator strip (main_window_status_indicator_bar.go):
+	// the fps/resolution text next to videoIcon, and the container the three
+	// are grouped in -- shown/hidden together with videoIcon itself (see
+	// updateStatusBarUI).
+	videoFPSText        *canvas.Text
+	videoResolutionText *canvas.Text
+	videoStatusGroup    *fyne.Container
+	audioIcon           *headerStatusBadgeButton
+	captureIcon         *widget.Button
+	keyboardIcon        *widget.Button
+	mouseIcon           *widget.Button
+	rndisIcon           *widget.Button
+	gamepadIcon         *widget.Button
+	cdromIcon           *widget.Button
+	backupIcon          fyne.CanvasObject
+	snapshotIcon        *widget.Button
+	scriptIcon          *widget.Button
+	runningScriptPath   string
+	runningScriptName   string
+	statusPanel         *fyne.Container
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool

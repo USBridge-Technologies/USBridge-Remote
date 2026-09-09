@@ -14,7 +14,6 @@ import (
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
-	"usbridge-client/internal/service"
 
 	"github.com/sirupsen/logrus"
 
@@ -502,7 +501,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		settingsBtn,
 		mw.mainExitBtn,
 	)
-	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
+	middleGroup := mw.buildStatusIndicatorBar()
 	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
 	// run out of horizontal space for the SD-progress + status readout,
 	// but they're passive indicators, not something worth navigating to --
@@ -1125,9 +1124,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	// own MinSize would otherwise report -- the same trick
 	// connection_header.go already uses for that header's own
 	// info/community/language buttons (also headerStatusBadgeButton).
+	// mw.videoIcon is not in this row -- it moved into its own
+	// icon+fps+resolution group inside buildStatusIndicatorBar.
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
 		mw.backupIcon,
-		container.NewGridWrap(headerCompactButtonSize, mw.videoIcon),
 		container.NewGridWrap(headerCompactButtonSize, mw.audioIcon),
 		container.NewGridWrap(headerCompactButtonSize, mw.cdromIcon),
 		container.NewGridWrap(headerCompactButtonSize, mw.keyboardIcon),
@@ -1178,10 +1178,9 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	}
 }
 
-func buildHeaderStatusIndicators(backupIndicator, captureButton, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton, scriptButton fyne.CanvasObject) []fyne.CanvasObject {
+func buildHeaderStatusIndicators(backupIndicator, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton, scriptButton fyne.CanvasObject) []fyne.CanvasObject {
 	return []fyne.CanvasObject{
 		backupIndicator,
-		captureButton,
 		audioButton,
 		cdromButton,
 		keyboardButton,
@@ -1363,13 +1362,20 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.videoIcon != nil {
 			if videoStreaming {
-				mw.videoIcon.SetIcon(assets.CameraIconActive)
+				mw.videoIcon.SetIcon(assets.CameraIconStatusBar)
 				mw.videoIcon.Show()
 			} else {
 				mw.videoIcon.SetIcon(assets.CameraIcon)
 				mw.videoIcon.Hide()
 			}
 			mw.videoIcon.Refresh()
+		}
+		if mw.videoStatusGroup != nil {
+			if videoStreaming {
+				mw.videoStatusGroup.Show()
+			} else {
+				mw.videoStatusGroup.Hide()
+			}
 		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
@@ -1454,31 +1460,51 @@ func (mw *MainWindow) refreshMainHeaderLayout() {
 	}
 }
 
-// updateVideoIconLabel refreshes both badges on the video icon: the
-// top-left video fps (unchanged) and the bottom-right detection fps --
-// service.DetectionFPS's measured rate for the local ui.parse/AI Vision
-// pipeline (see ai_vision.go's DetectionFPS doc comment), 0/hidden
-// whenever AI Vision's live overlay is off or hasn't completed a pass yet.
-// Both are driven from the same 1Hz callback (videoWidget.SetOnFPSChanged,
-// see updateStats), so the two numbers refresh in lockstep.
+// videoResolutionLabel formats the status-indicator strip's "1080p@60Hz"
+// text from the configured capture height/target fps -- e.g. 1080 -> "1080p",
+// plus "@60Hz" when a target fps is set.
+func videoResolutionLabel(height, fps int) string {
+	if height <= 0 {
+		return ""
+	}
+	label := fmt.Sprintf("%dp", height)
+	if fps > 0 {
+		label += fmt.Sprintf("@%dHz", fps)
+	}
+	return label
+}
+
+// updateVideoIconLabel refreshes the status-indicator strip's fps/resolution
+// text next to the video icon (see buildStatusIndicatorBar) -- no more
+// floating corner badges on the icon itself. Driven from the same 1Hz
+// callback (videoWidget.SetOnFPSChanged, see updateStats) that used to feed
+// the old badge text.
 func (mw *MainWindow) updateVideoIconLabel() {
 	if mw.videoIcon == nil {
 		return
 	}
 
-	label := ""
+	fpsLabel := ""
 	if mw.currentVideoFPS > 0 {
-		label = fmt.Sprintf("%.0f", math.Round(mw.currentVideoFPS))
+		fpsLabel = fmt.Sprintf("%.0f FPS", math.Round(mw.currentVideoFPS))
 	}
 
-	detectionLabel := ""
-	if detFPS := service.DetectionFPS(); detFPS > 0 {
-		detectionLabel = fmt.Sprintf("%.1f", detFPS)
+	resLabel := ""
+	if mw.config != nil {
+		resLabel = videoResolutionLabel(mw.config.VideoHeight, mw.config.VideoFPS)
 	}
 
 	fyne.Do(func() {
-		mw.videoIcon.SetBadgeText(label)
-		mw.videoIcon.SetSecondaryBadgeText(detectionLabel)
+		mw.videoIcon.SetBadgeText("")
+		mw.videoIcon.SetSecondaryBadgeText("")
+		if mw.videoFPSText != nil {
+			mw.videoFPSText.Text = fpsLabel
+			mw.videoFPSText.Refresh()
+		}
+		if mw.videoResolutionText != nil {
+			mw.videoResolutionText.Text = resLabel
+			mw.videoResolutionText.Refresh()
+		}
 	})
 }
 

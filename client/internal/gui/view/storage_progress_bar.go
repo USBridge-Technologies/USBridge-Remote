@@ -87,16 +87,11 @@ func (s *StorageProgressBar) MouseOut() {
 	s.Refresh()
 }
 
-// colorByUsedPercent returns a color based on how full the disk is
-func colorByUsedPercent(pct float64) color.Color {
-	if pct < 60 {
-		return color.NRGBA{R: 76, G: 175, B: 80, A: 255}
-	}
-	if pct < 85 {
-		return color.NRGBA{R: 255, G: 152, B: 0, A: 255}
-	}
-	return color.NRGBA{R: 244, G: 67, B: 54, A: 255}
-}
+// storageBarFillColor is the used-space fill's own color -- a fixed
+// turquoise (matches design.ColorConnectionBadgeText) rather than the
+// red/orange/green usage-tier scheme this used to have, per the Control
+// header's own status-indicator-strip design.
+var storageBarFillColor color.Color = design.ColorConnectionBadgeText
 
 // CreateRenderer creates the renderer
 func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
@@ -111,7 +106,7 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	icon.SetMinSize(fyne.NewSize(iconSize, iconSize))
 	track := canvas.NewRectangle(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c})
 	track.CornerRadius = design.RadiusMD
-	fill := canvas.NewRectangle(colorByUsedPercent(s.usedPercent))
+	fill := canvas.NewRectangle(storageBarFillColor)
 	fill.CornerRadius = design.RadiusMD
 
 	sizeText := canvas.NewText(s.sizeText, fgColor)
@@ -234,7 +229,7 @@ func (r *storageProgressBarRenderer) Refresh() {
 		r.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
 	}
 	r.track.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x1c}
-	r.fill.FillColor = colorByUsedPercent(r.s.usedPercent)
+	r.fill.FillColor = storageBarFillColor
 	if r.s.iconRes == nil {
 		r.s.iconRes = assets.MemoryChipIcon
 	}

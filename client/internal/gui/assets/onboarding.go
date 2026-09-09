@@ -197,17 +197,22 @@ var (
 	// header's own tab-selector never had a Scripts icon asset before (the
 	// status-panel script icon just uses fynetheme.MediaPlayIcon(), which
 	// can't be recolored the way these can).
-	ScriptsTabIconMuted        = fyne.NewStaticResource("play-svgrepo-com-muted.svg", recolorStrokeIcon(playTabIcon, "#c5c8b5", "2"))
-	ScriptsTabIconSelected     = fyne.NewStaticResource("play-svgrepo-com-selected.svg", recolorStrokeIcon(playTabIcon, "#ebffbc", "2"))
-	ScriptsTabIconHover        = fyne.NewStaticResource("play-svgrepo-com-hover.svg", recolorStrokeIcon(playTabIcon, "#e0e3e7", "2"))
-	FolderIcon                 = fyne.NewStaticResource("folder-svgrepo-com.svg", recolorFillIcon(folderIcon, "#C9C9C9"))
-	FolderIconActive           = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
-	DiscIcon                   = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))
-	DiscIconActive             = fyne.NewStaticResource("disc-svgrepo-com-active.svg", recolorFillIcon(discIcon, "#93C572"))
-	UploadIcon                 = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
-	UploadIconMuted            = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
-	CameraIcon                 = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
-	CameraIconActive           = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
+	ScriptsTabIconMuted    = fyne.NewStaticResource("play-svgrepo-com-muted.svg", recolorStrokeIcon(playTabIcon, "#c5c8b5", "2"))
+	ScriptsTabIconSelected = fyne.NewStaticResource("play-svgrepo-com-selected.svg", recolorStrokeIcon(playTabIcon, "#ebffbc", "2"))
+	ScriptsTabIconHover    = fyne.NewStaticResource("play-svgrepo-com-hover.svg", recolorStrokeIcon(playTabIcon, "#e0e3e7", "2"))
+	FolderIcon             = fyne.NewStaticResource("folder-svgrepo-com.svg", recolorFillIcon(folderIcon, "#C9C9C9"))
+	FolderIconActive       = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
+	DiscIcon               = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))
+	DiscIconActive         = fyne.NewStaticResource("disc-svgrepo-com-active.svg", recolorFillIcon(discIcon, "#93C572"))
+	UploadIcon             = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
+	UploadIconMuted        = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
+	CameraIcon             = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
+	CameraIconActive       = fyne.NewStaticResource("cam-svgrepo-com-active.svg", recolorStrokeIcon(cameraIcon, "#93C572", "1.8"))
+	// CameraIconStatusBar is the Control header's own video/fps/resolution
+	// strip (main_window_status_indicator_bar.go) -- its own accent
+	// (#c4e77a) instead of CameraIconActive's green, to match that strip's
+	// fps text color.
+	CameraIconStatusBar        = fyne.NewStaticResource("cam-svgrepo-com-statusbar.svg", recolorStrokeIcon(cameraIcon, "#c4e77a", "1.8"))
 	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
 	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))

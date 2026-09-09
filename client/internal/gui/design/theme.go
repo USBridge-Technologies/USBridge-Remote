@@ -91,6 +91,22 @@ var (
 	// rather than a harsh saturated red, to match this palette's generally
 	// desaturated tones (compare ColorAlert's muted orange).
 	ColorDanger = color.NRGBA{R: 0xd9, G: 0x5c, B: 0x5c, A: 0xff}
+
+	// ColorStatusBarBorder/Fill/Divider are the Control header's own
+	// video/peripherals/storage indicator strip (main_window_status_indicator_bar.go)
+	// -- its own bordered pill, distinct from every other header surface, so
+	// kept as its own tokens even though Border/Divider share one value.
+	ColorStatusBarBorder  = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
+	ColorStatusBarFill    = color.NRGBA{R: 0x12, G: 0x17, B: 0x1a, A: 0xff}
+	ColorStatusBarDivider = color.NRGBA{R: 0x44, G: 0x48, B: 0x39, A: 0xff}
+
+	// ColorStatusBarAccent is the video icon + fps text color inside that
+	// strip -- same hex as ColorConnectionAddFill but a different role, kept
+	// separate the way ColorConnectionBadgeBorder/ColorHeaderAccentLine are.
+	ColorStatusBarAccent = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
+
+	// ColorStatusBarResolutionText is that strip's "1080p@60Hz" label.
+	ColorStatusBarResolutionText = color.NRGBA{R: 0xcb, G: 0xd5, B: 0xe1, A: 0xff}
 )
 
 const RadiusMD float32 = 8
