@@ -53,6 +53,11 @@ type MainWindow struct {
 	deviceUnmountBtn    fyne.CanvasObject
 	mainExitBtn         *view.HeaderActionButton
 	connectionFooterBar *fyne.Container
+	// statusBarStorageDivider is the status-indicator strip's own divider
+	// right before mw.sdStorageProgress (main_window_status_indicator_bar.go)
+	// -- shown/hidden together with it so an agent connection with no SD
+	// card doesn't leave a dangling divider with nothing after it.
+	statusBarStorageDivider fyne.CanvasObject
 
 	// Services
 	nbdServer        *service.NBDServer

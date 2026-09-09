@@ -171,6 +171,11 @@ var (
 	MonitorTabIconActive   = fyne.NewStaticResource("monitor-svgrepo-com-active.svg", recolorStrokeIcon(monitorTabIcon, "#93C572", "1.9"))
 	SnapshotsTabIcon       = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com.svg", recolorFillIcon(snapshotsTabIcon, "#F5F5F5"))
 	SnapshotsTabIconActive = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-active.svg", recolorFillIcon(snapshotsTabIcon, "#93C572"))
+	// SnapshotsIconStatusBar is the status-indicator strip's own snapshot
+	// icon (main_window_status_indicator_bar.go) -- same #c4e77a accent as
+	// its other peripheral icons there, distinct from SnapshotsTabIconActive
+	// above (a different surface's green).
+	SnapshotsIconStatusBar = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-statusbar.svg", recolorFillIcon(snapshotsTabIcon, "#c4e77a"))
 
 	// MonitorTabIcon/USBTabIcon/SnapshotsTabIcon{Muted,Selected,Hover} are
 	// this same trio of icons in the header's own Control/Devices/Snapshots
@@ -204,6 +209,7 @@ var (
 	FolderIconActive       = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
 	DiscIcon               = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))
 	DiscIconActive         = fyne.NewStaticResource("disc-svgrepo-com-active.svg", recolorFillIcon(discIcon, "#93C572"))
+	DiscIconStatusBar      = fyne.NewStaticResource("disc-svgrepo-com-statusbar.svg", recolorFillIcon(discIcon, "#c4e77a"))
 	UploadIcon             = fyne.NewStaticResource("upload-svgrepo-com.svg", recolorStrokeIcon(uploadIcon, "#F5F5F5", "2"))
 	UploadIconMuted        = fyne.NewStaticResource("upload-svgrepo-com-muted.svg", recolorStrokeIcon(uploadIcon, "#8E8E8E", "2"))
 	CameraIcon             = fyne.NewStaticResource("cam-svgrepo-com.svg", recolorStrokeIcon(cameraIcon, "#C9C9C9", "1.8"))
@@ -215,19 +221,25 @@ var (
 	CameraIconStatusBar        = fyne.NewStaticResource("cam-svgrepo-com-statusbar.svg", recolorStrokeIcon(cameraIcon, "#c4e77a", "1.8"))
 	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
 	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
+	KeyboardIconStatusBar      = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))
 	MouseIcon                  = fyne.NewStaticResource("mouse-svgrepo-com.svg", recolorFillIcon(mouseIcon, "#C9C9C9"))
 	MouseIconActive            = fyne.NewStaticResource("mouse-svgrepo-com-active.svg", recolorFillIcon(mouseIcon, "#93C572"))
+	MouseIconStatusBar         = fyne.NewStaticResource("mouse-svgrepo-com-statusbar.svg", recolorFillIcon(mouseIcon, "#c4e77a"))
 	CursorPointerSVG           = cursorPointerIcon // raw SVG bytes for Vulkan cursor rasterization
 	GamepadIcon                = fyne.NewStaticResource("gamepad-svgrepo-com.svg", recolorStrokeIcon(gamepadIcon, "#C9C9C9", "1.8"))
 	GamepadIconActive          = fyne.NewStaticResource("gamepad-svgrepo-com-active.svg", recolorStrokeIcon(gamepadIcon, "#93C572", "1.8"))
+	GamepadIconStatusBar       = fyne.NewStaticResource("gamepad-svgrepo-com-statusbar.svg", recolorStrokeIcon(gamepadIcon, "#c4e77a", "1.8"))
 	AudioIcon                  = fyne.NewStaticResource("audio-svgrepo-com.svg", recolorFillIcon(audioIcon, "#C9C9C9"))
 	AudioIconActive            = fyne.NewStaticResource("audio-svgrepo-com-active.svg", recolorFillIcon(audioIcon, "#93C572"))
+	AudioIconStatusBar         = fyne.NewStaticResource("audio-svgrepo-com-statusbar.svg", recolorFillIcon(audioIcon, "#c4e77a"))
 	AudioMuteIcon              = fyne.NewStaticResource("audio-mute-svgrepo-com.svg", recolorFillIcon(audioMuteIcon, "#C9C9C9"))
 	AudioMuteIconActive        = fyne.NewStaticResource("audio-mute-svgrepo-com-active.svg", recolorFillIcon(audioMuteIcon, "#d66d6d"))
 	NetworkIcon                = fyne.NewStaticResource("network-backup-svgrepo-com.svg", recolorFillIcon(networkIcon, "#C9C9C9"))
 	NetworkIconActive          = fyne.NewStaticResource("network-backup-svgrepo-com-active.svg", recolorFillIcon(networkIcon, "#93C572"))
+	NetworkIconStatusBar       = fyne.NewStaticResource("network-backup-svgrepo-com-statusbar.svg", recolorFillIcon(networkIcon, "#c4e77a"))
 	SDCardIcon                 = fyne.NewStaticResource("sd-card-svgrepo-com.svg", recolorFillIcon(sdCardIcon, "#C9C9C9"))
 	SDCardIconActive           = fyne.NewStaticResource("sd-card-svgrepo-com-active.svg", recolorFillIcon(sdCardIcon, "#93C572"))
+	SDCardIconStatusBar        = fyne.NewStaticResource("sd-card-svgrepo-com-statusbar.svg", recolorFillIcon(sdCardIcon, "#c4e77a"))
 	MemoryChipIcon             = fyne.NewStaticResource("memory-chip-svgrepo-com.svg", recolorMemoryChipIcon(memoryChipIcon, "#F5F5F5"))
 	WarningTriangleIcon        = fyne.NewStaticResource("warning-triangle-svgrepo-com.svg", recolorFillIcon(warningTriangleIcon, "#F2C14E"))
 	WarningInfoIcon            = fyne.NewStaticResource("warning-svgrepo-com.svg", recolorFillIcon(warningInfoIcon, "#4DA3FF"))

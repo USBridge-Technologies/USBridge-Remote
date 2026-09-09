@@ -18,16 +18,18 @@ import (
 	"fyne.io/fyne/v2/container"
 )
 
+// statusBarIconBoxSize is every icon button's own clickable box inside this
+// strip (video + peripherals) -- smaller than headerCompactButtonSize (28,
+// shared with the connections header's own buttons) specifically so each
+// icon isn't touching its own box's edge, which read as "stuck to the
+// frame" once this strip got its own visible border. 22 + the strip's own
+// 3px top/bottom padding (statusIndicatorBarPadY) lands back on the same
+// 28px total row height as before.
+var statusBarIconBoxSize = fyne.NewSize(22, 22)
+
 const (
-	// statusIndicatorBarPadY is 0, not a few px like most other chips in
-	// this header -- this strip's tallest child (the 28px video-icon
-	// GridWrap, headerCompactButtonSize) already matches the Control
-	// header's own overall target height (28px, same as the connections
-	// screen's header -- see createMainAddressBar/headerCompactButtonSize's
-	// own doc comments for why that number is load-bearing); any added
-	// vertical padding here would push this row taller than that again.
 	statusIndicatorBarPadX     = float32(10)
-	statusIndicatorBarPadY     = float32(0)
+	statusIndicatorBarPadY     = float32(3)
 	statusIndicatorBarGap      = float32(8)
 	statusIndicatorGroupGap    = float32(4)
 	statusIndicatorDividerH    = float32(16)
@@ -43,11 +45,34 @@ func newStatusBarDivider() fyne.CanvasObject {
 }
 
 // newStatusBarDot is the small separator dot between the video group's fps
-// and resolution text (e.g. "89 FPS · 1080p@60Hz").
+// and resolution text (e.g. "89 FPS · 1280 x 720").
 func newStatusBarDot() fyne.CanvasObject {
 	dot := canvas.NewRectangle(design.ColorStatusBarDivider)
 	dot.CornerRadius = statusIndicatorDotSize / 2
 	return container.NewGridWrap(fyne.NewSize(statusIndicatorDotSize, statusIndicatorDotSize), container.NewCenter(dot))
+}
+
+// syncStorageChipVisibility shows/hides mw.sdStorageProgress and the
+// divider right before it together -- callers that used to just call
+// mw.sdStorageProgress.Show()/Hide() directly (main_window_layout.go) now
+// go through this instead, so the divider never gets left dangling when
+// there's no SD card to show (e.g. an agent connection with none).
+func (mw *MainWindow) syncStorageChipVisibility(visible bool) {
+	if mw.sdStorageProgress == nil {
+		return
+	}
+	if visible {
+		mw.sdStorageProgress.Show()
+	} else {
+		mw.sdStorageProgress.Hide()
+	}
+	if mw.statusBarStorageDivider != nil {
+		if visible {
+			mw.statusBarStorageDivider.Show()
+		} else {
+			mw.statusBarStorageDivider.Hide()
+		}
+	}
 }
 
 // buildStatusIndicatorBar assembles the bordered strip itself. mw.videoIcon,
@@ -60,18 +85,25 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
 
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2},
-		container.NewGridWrap(headerCompactButtonSize, mw.videoIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
 		mw.videoFPSText,
 		newStatusBarDot(),
 		mw.videoResolutionText,
 	)
 	mw.videoStatusGroup.Hide()
 
+	// statusBarStorageDivider sits only between the peripherals group and
+	// mw.sdStorageProgress -- hidden together with it (see
+	// syncStorageChipVisibility) so an agent connection with no SD card at
+	// all doesn't leave a dangling divider with nothing after it.
+	mw.statusBarStorageDivider = newStatusBarDivider()
+	mw.statusBarStorageDivider.Hide()
+
 	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
 		mw.videoStatusGroup,
 		newStatusBarDivider(),
 		mw.statusPanel,
-		newStatusBarDivider(),
+		mw.statusBarStorageDivider,
 		mw.sdStorageProgress,
 	)
 

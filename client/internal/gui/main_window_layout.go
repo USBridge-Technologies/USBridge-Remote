@@ -116,7 +116,7 @@ func (mw *MainWindow) createInterface() {
 
 	mw.sdStorageProgress = view.NewStorageProgressBar()
 	mw.sdStorageProgress.SetOnTapped(mw.showStorageInfoDialog)
-	mw.sdStorageProgress.Hide()
+	mw.syncStorageChipVisibility(false)
 
 	if mw.backupWidget != nil {
 		mw.backupWidget.UpdateHostEntry(mw.hostEntry)
@@ -190,7 +190,7 @@ func (mw *MainWindow) recreateContainers() {
 				return
 			}
 			if total <= 0 {
-				mw.sdStorageProgress.Hide()
+				mw.syncStorageChipVisibility(false)
 				return
 			}
 			mw.currentStorageTotal = total
@@ -213,7 +213,7 @@ func (mw *MainWindow) recreateContainers() {
 				used = 0
 			}
 			mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, total))
-			mw.sdStorageProgress.Show()
+			mw.syncStorageChipVisibility(true)
 			mw.refreshMainHeaderLayout()
 		})
 	}
@@ -536,9 +536,9 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 func newHeaderPassiveIndicator(icon fyne.Resource) fyne.CanvasObject {
 	image := canvas.NewImageFromResource(icon)
 	image.FillMode = canvas.ImageFillContain
-	image.SetMinSize(fyne.NewSize(18, 18))
+	image.SetMinSize(fyne.NewSize(14, 14))
 	return container.NewGridWrap(
-		fyne.NewSize(28, 28),
+		statusBarIconBoxSize,
 		container.NewCenter(image),
 	)
 }
@@ -1042,18 +1042,18 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.videoIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
 		mw.showVideoMenu()
 	})
-	// 18x18, not headerStatusBadgeButton's own 22x22 default -- this button
+	// 14x14, not headerStatusBadgeButton's own 22x22 default -- this button
 	// (like every other one in mw.statusPanel, see the GridWrap wrapping in
 	// buildHeaderStatusIndicators's own caller below) is capped to
-	// headerCompactButtonSize (28px) regardless of its own MinSize, so the
+	// statusBarIconBoxSize (22px) regardless of its own MinSize, so the
 	// default icon size left almost no margin once actually squeezed down
 	// to that size.
-	mw.videoIcon.SetIconSize(fyne.NewSize(18, 18))
+	mw.videoIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.videoIcon.Hide()
 	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
 		mw.showAudioMenu()
 	})
-	mw.audioIcon.SetIconSize(fyne.NewSize(18, 18))
+	mw.audioIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.audioIcon.SetBadgeText("")
 	mw.audioIcon.Hide()
 	mw.captureIcon = widget.NewButtonWithIcon("", assets.CameraIcon, func() {
@@ -1082,7 +1082,7 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.rndisIcon.Importance = widget.LowImportance
 	mw.rndisIcon.Hide()
-	mw.gamepadIcon = widget.NewButtonWithIcon("", assets.GamepadIconActive, func() {
+	mw.gamepadIcon = widget.NewButtonWithIcon("", assets.GamepadIconStatusBar, func() {
 		if mw.tabs != nil && len(mw.tabs.Items) > mw.devicesTabIndex() {
 			mw.tabs.Select(mw.tabs.Items[mw.devicesTabIndex()])
 		}
@@ -1096,9 +1096,9 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.cdromIcon.Importance = widget.LowImportance
 	mw.cdromIcon.Hide()
-	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconActive)
+	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconStatusBar)
 	mw.backupIcon.Hide()
-	mw.snapshotIcon = widget.NewButtonWithIcon("", assets.SnapshotsTabIconActive, func() {
+	mw.snapshotIcon = widget.NewButtonWithIcon("", assets.SnapshotsIconStatusBar, func() {
 		if mw.tabs != nil && len(mw.tabs.Items) > mw.snapshotsTabIndex() {
 			mw.tabs.Select(mw.tabs.Items[mw.snapshotsTabIndex()])
 		}
@@ -1112,30 +1112,31 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
-	// Every one of these except mw.backupIcon (already 28px via
+	// Every one of these except mw.backupIcon (already sized via
 	// newHeaderPassiveIndicator's own GridWrap) is either a
 	// headerStatusBadgeButton (36x36 MinSize, hardcoded, ignores its own
 	// icon size) or a plain widget.NewButtonWithIcon (Fyne's own default
-	// theme padding puts it well past 28px too) -- once actually connected
+	// theme padding puts it well past that too) -- once actually connected
 	// and several of these go from Hidden to Shown, whichever was tallest
 	// stretched this whole row, and with it createMainAddressBar's header
 	// band, past the connections screen's own 28px-tall header. GridWrap
-	// forces each down to headerCompactButtonSize regardless of what its
-	// own MinSize would otherwise report -- the same trick
-	// connection_header.go already uses for that header's own
-	// info/community/language buttons (also headerStatusBadgeButton).
+	// forces each down to statusBarIconBoxSize regardless of what its own
+	// MinSize would otherwise report -- the same trick connection_header.go
+	// already uses for that header's own info/community/language buttons
+	// (also headerStatusBadgeButton), just this strip's own smaller size
+	// (see statusBarIconBoxSize's own doc comment).
 	// mw.videoIcon is not in this row -- it moved into its own
 	// icon+fps+resolution group inside buildStatusIndicatorBar.
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
 		mw.backupIcon,
-		container.NewGridWrap(headerCompactButtonSize, mw.audioIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.cdromIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.keyboardIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.mouseIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.rndisIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.gamepadIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.snapshotIcon),
-		container.NewGridWrap(headerCompactButtonSize, mw.scriptIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.keyboardIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.mouseIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.gamepadIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.snapshotIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
 	)
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
@@ -1329,7 +1330,7 @@ func (mw *MainWindow) updateStatusBar() {
 						mw.sdStorageProgress.SetIcon(assets.SDCardIcon)
 						mw.sdStorageProgress.SetValue(usedPct)
 						mw.sdStorageProgress.SetSizeText(models.FormatStorageSizeOnly(used, display.Total))
-						mw.sdStorageProgress.Show()
+						mw.syncStorageChipVisibility(true)
 						mw.refreshMainHeaderLayout()
 					}
 				}
@@ -1342,7 +1343,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 	fyne.Do(func() {
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
-				mw.keyboardIcon.SetIcon(assets.KeyboardIconActive)
+				mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
 				mw.keyboardIcon.Show()
 			} else {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
@@ -1352,7 +1353,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.mouseIcon != nil {
 			if mouseConnected {
-				mw.mouseIcon.SetIcon(assets.MouseIconActive)
+				mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
 				mw.mouseIcon.Show()
 			} else {
 				mw.mouseIcon.SetIcon(assets.MouseIcon)
@@ -1379,7 +1380,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
-				mw.audioIcon.SetIcon(assets.AudioIconActive)
+				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
 				mw.audioIcon.Show()
 			} else {
 				mw.audioIcon.SetIcon(assets.AudioIcon)
@@ -1389,7 +1390,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.cdromIcon != nil {
 			if cdromConnected {
-				mw.cdromIcon.SetIcon(assets.DiscIconActive)
+				mw.cdromIcon.SetIcon(assets.DiscIconStatusBar)
 				mw.cdromIcon.Show()
 			} else {
 				mw.cdromIcon.SetIcon(assets.DiscIcon)
@@ -1399,7 +1400,7 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
-				mw.rndisIcon.SetIcon(assets.NetworkIconActive)
+				mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
 				mw.rndisIcon.Show()
 			} else {
 				mw.rndisIcon.SetIcon(assets.NetworkIcon)
@@ -1460,18 +1461,14 @@ func (mw *MainWindow) refreshMainHeaderLayout() {
 	}
 }
 
-// videoResolutionLabel formats the status-indicator strip's "1080p@60Hz"
-// text from the configured capture height/target fps -- e.g. 1080 -> "1080p",
-// plus "@60Hz" when a target fps is set.
-func videoResolutionLabel(height, fps int) string {
-	if height <= 0 {
+// videoResolutionLabel formats the status-indicator strip's "1280 x 720"
+// text from the configured capture width/height -- no "Hz"/fps in this
+// label, that's what the group's own fps text right before it is for.
+func videoResolutionLabel(width, height int) string {
+	if width <= 0 || height <= 0 {
 		return ""
 	}
-	label := fmt.Sprintf("%dp", height)
-	if fps > 0 {
-		label += fmt.Sprintf("@%dHz", fps)
-	}
-	return label
+	return fmt.Sprintf("%d x %d", width, height)
 }
 
 // updateVideoIconLabel refreshes the status-indicator strip's fps/resolution
@@ -1491,7 +1488,7 @@ func (mw *MainWindow) updateVideoIconLabel() {
 
 	resLabel := ""
 	if mw.config != nil {
-		resLabel = videoResolutionLabel(mw.config.VideoHeight, mw.config.VideoFPS)
+		resLabel = videoResolutionLabel(mw.config.VideoWidth, mw.config.VideoHeight)
 	}
 
 	fyne.Do(func() {
