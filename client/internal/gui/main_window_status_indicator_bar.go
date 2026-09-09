@@ -10,15 +10,12 @@ package gui
 // middleGroup with no shared background/border of its own.
 
 import (
-	"image/color"
-
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 )
 
 // statusBarIconBoxSize is every icon button's own clickable box inside this
@@ -42,52 +39,7 @@ const (
 	// (8, the app's usual chip/panel radius) -- at RadiusMD a 22px icon's
 	// hover highlight reads as too rounded for its size.
 	statusBarIconHoverRadius = float32(4)
-	// statusBarPeripheralIconSize overrides theme.SizeNameInlineIcon (via
-	// statusBarPeripheralTheme below) for every plain widget.Button icon in
-	// mw.statusPanel, matching mw.videoIcon/mw.audioIcon's own explicit
-	// SetIconSize(14, 14).
-	statusBarPeripheralIconSize = float32(14)
 )
-
-// statusBarPeripheralTheme is scoped to mw.statusPanel only (via
-// container.NewThemeOverride in buildStatusIndicatorBar), so it doesn't
-// touch any other button's icon size or hover color in the app:
-//   - theme.SizeNameInlineIcon -> 14px, matching mw.videoIcon/mw.audioIcon's
-//     own SetIconSize(14, 14) (plain widget.Button has no per-instance
-//     equivalent setter).
-//   - theme.SizeNameInputRadius -> statusBarIconHoverRadius, the corner
-//     radius Fyne's own button renderer uses for its hover-highlight rect.
-//   - theme.ColorNameButton -> transparent, theme.ColorNameHover ->
-//     design.ColorStatusBarIconChip: LowImportance buttons (every icon
-//     here) are already background-less at rest and only paint
-//     ColorNameButton blended with ColorNameHover while actually hovered
-//     (see fyne's widget/button.go buttonColorNames) -- so this makes that
-//     hover highlight design.ColorStatusBarIconChip instead of the app's
-//     default translucent-white hover, matching mw.videoIcon/mw.audioIcon's
-//     own SetHoverStyle below. There is no persistent background at rest.
-type statusBarPeripheralTheme struct {
-	fyne.Theme
-}
-
-func (t *statusBarPeripheralTheme) Size(name fyne.ThemeSizeName) float32 {
-	switch name {
-	case theme.SizeNameInlineIcon:
-		return statusBarPeripheralIconSize
-	case theme.SizeNameInputRadius:
-		return statusBarIconHoverRadius
-	}
-	return t.Theme.Size(name)
-}
-
-func (t *statusBarPeripheralTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	switch name {
-	case theme.ColorNameButton:
-		return color.Transparent
-	case theme.ColorNameHover:
-		return design.ColorStatusBarIconChip
-	}
-	return t.Theme.Color(name, variant)
-}
 
 // newStatusBarDivider is the thin vertical rule between this strip's
 // video/peripherals/storage groups.
@@ -175,8 +127,6 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	)
 	mw.videoStatusGroup.Hide()
 
-	peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
-
 	// statusBarPeripheralsDivider sits between the video group and the
 	// peripherals group -- hidden whenever either side is empty (see
 	// syncStatusBarDividers) so it never appears with nothing to separate
@@ -194,7 +144,7 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	content := container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
 		mw.videoStatusGroup,
 		mw.statusBarPeripheralsDivider,
-		peripheralsSized,
+		mw.statusPanel,
 		mw.statusBarStorageDivider,
 		mw.sdStorageProgress,
 	)
