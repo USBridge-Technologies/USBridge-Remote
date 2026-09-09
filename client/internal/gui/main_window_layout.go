@@ -1124,11 +1124,10 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	// forces each down to statusBarIconBoxSize regardless of what its own
 	// MinSize would otherwise report -- the same trick connection_header.go
 	// already uses for that header's own info/community/language buttons
-	// (also headerStatusBadgeButton). These plain widget.Button icons keep
-	// Fyne's own default icon size/hover color -- a container.NewThemeOverride
-	// wrapping mw.statusPanel used to scope a smaller size/custom hover color
-	// to just this row, but it inflated this whole header's height badly
-	// (root cause not fully pinned down; removed rather than chased further).
+	// (also headerStatusBadgeButton). Actual icon *size* and hover color
+	// for these plain widget.Button icons are handled separately, by
+	// wrapping mw.statusPanel itself in a theme override (see
+	// statusBarPeripheralTheme, applied in buildStatusIndicatorBar).
 	// mw.videoIcon is not in this row -- it moved into its own
 	// icon+fps+resolution group inside buildStatusIndicatorBar.
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(

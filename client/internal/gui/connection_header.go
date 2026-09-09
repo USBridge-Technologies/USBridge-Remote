@@ -222,7 +222,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
 
-	content := container.NewBorder(nil, accentLine, nil, nil, paddedRow)
+	content := view.NewBottomLine(paddedRow, accentLine)
 
 	return container.NewStack(bg, content), handle
 }
