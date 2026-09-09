@@ -62,37 +62,6 @@ func protocolDropdownValue(label string) string {
 	}
 }
 
-type tabsTheme struct {
-	base fyne.Theme
-}
-
-func (t *tabsTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	switch name {
-	case fynetheme.ColorNameHover, fynetheme.ColorNamePressed, fynetheme.ColorNameFocus:
-		return color.Transparent
-	case fynetheme.ColorNameShadow, fynetheme.ColorNameSeparator:
-		return color.Transparent
-	default:
-		return t.base.Color(name, variant)
-	}
-}
-
-func (t *tabsTheme) Font(style fyne.TextStyle) fyne.Resource {
-	return t.base.Font(style)
-}
-
-func (t *tabsTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	return t.base.Icon(name)
-}
-
-func (t *tabsTheme) Size(name fyne.ThemeSizeName) float32 {
-	switch name {
-	case fynetheme.SizeNamePadding:
-		return 2
-	}
-	return t.base.Size(name)
-}
-
 // createInterface initializes the address bar fields.
 func (mw *MainWindow) createInterface() {
 	mw.hostEntry = widget.NewEntry()
@@ -371,7 +340,18 @@ func (mw *MainWindow) recreateContainers() {
 	}
 
 	deviceFooterOverlay := container.NewBorder(nil, mainFooter, nil, nil, nil)
-	tabsWithTheme := container.NewThemeOverride(mw.tabs, &tabsTheme{base: design.NewBrandTheme()})
+	// mw.tabs itself is never added to the visible tree -- its own native
+	// tab strip is what tabHeaderButtons (createMainAddressBar's own left
+	// zone) replaces. Its four Content objects (already each wrapped in
+	// their own ThemeOverride above) are what actually render, stacked and
+	// shown/hidden by applyTabVisualState instead of by AppTabs' own
+	// renderer -- see MainWindow.tabContentStack's own doc comment.
+	mw.tabContentStack = container.NewStack(
+		mw.tabs.Items[0].Content,
+		mw.tabs.Items[1].Content,
+		mw.tabs.Items[2].Content,
+		mw.tabs.Items[3].Content,
+	)
 
 	mainBg := canvas.NewRectangle(design.ColorGray950)
 	mw.mainContent = container.NewStack(
@@ -381,7 +361,7 @@ func (mw *MainWindow) recreateContainers() {
 			nil,
 			nil,
 			nil,
-			container.NewStack(tabsWithTheme, deviceFooterOverlay),
+			container.NewStack(mw.tabContentStack, deviceFooterOverlay),
 		),
 	)
 
@@ -401,11 +381,35 @@ func (mw *MainWindow) recreateContainers() {
 	mw.onMainContent = false
 }
 
+// applyTabVisualState is what actually switches which tab is showing, now
+// that mw.tabs itself is never rendered (see MainWindow.tabContentStack's
+// own doc comment): shows activeIndex's own Content inside
+// mw.tabContentStack and hides the other three, and updates
+// mw.tabHeaderButtons' selected look to match. Every mw.tabs.OnSelected
+// caller (this file's own OnSelected handler, plus every tab-jump shortcut
+// like mouseIcon/gamepadIcon/snapshotIcon) already goes through
+// mw.tabs.Select/SelectIndex, which is what fires OnSelected -- so nothing
+// else needs to call this directly.
 func (mw *MainWindow) applyTabVisualState(activeIndex int) {
 	if mw == nil || mw.tabs == nil || len(mw.tabs.Items) < 3 {
 		return
 	}
-	_ = activeIndex
+	for i, item := range mw.tabs.Items {
+		if item == nil || item.Content == nil {
+			continue
+		}
+		if i == activeIndex {
+			item.Content.Show()
+		} else {
+			item.Content.Hide()
+		}
+	}
+	for i, btn := range mw.tabHeaderButtons {
+		if btn == nil {
+			continue
+		}
+		btn.SetSelected(i == activeIndex)
+	}
 }
 
 // createConnectionAddressBar creates the connection screen's header bar (see
@@ -479,6 +483,11 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	// existing protocol-badge-over-exit-button positioning math stays
 	// untouched.
 	settingsBtn := newHeaderSettingsMenuButton(headerSettingsMenuActions{
+		OnPowerReset: func() {
+			if mw.pcpanelWidget != nil {
+				mw.pcpanelWidget.ShowPowerMenu()
+			}
+		},
 		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
 			if mw.connectionManager != nil {
 				mw.connectionManager.ShowLanguageMenu(anchor)
@@ -516,9 +525,12 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	// working exactly the same way, it just quietly clips whatever
 	// overflows instead of exposing a scrollbar for it.
 	middleClip := container.NewClip(middleGroup)
+	// mw.pcpanelWidget's own container used to sit here (the power/reset
+	// button) -- it's the gear menu's "Power Reset" row now (see
+	// OnPowerReset above), freeing this left zone for the tab selector.
 	row := container.New(
 		&mainHeaderBarLayout{edgeInset: 0, sideGap: 10},
-		mw.pcpanelWidget.GetContainer(),
+		mw.buildTabHeaderButtons(),
 		middleClip,
 		rightGroup,
 	)

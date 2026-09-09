@@ -999,6 +999,16 @@ func (p *PCPanelWidget) onActionClick() {
 	p.showPowerActionDialog()
 }
 
+// ShowPowerMenu opens the same Power controls popup the header's own
+// power/reset button used to trigger directly (see p.actionBtn) -- now the
+// "Power Reset" entry in the gear-icon settings menu instead
+// (gui.newHeaderSettingsMenuButton), since this widget's container no
+// longer sits in the header at all. A no-op with nothing connected, exactly
+// like the old button was: it just never rendered enabled/visible then.
+func (p *PCPanelWidget) ShowPowerMenu() {
+	p.onActionClick()
+}
+
 func (p *PCPanelWidget) showPowerActionDialog() {
 	if p.window == nil {
 		return

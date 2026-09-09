@@ -81,10 +81,16 @@ var headerCompactButtonSize = fyne.NewSize(28, 28)
 var gearIconHeader = fyne.NewStaticResource("gear-header.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c3c6b4"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>`))
 
 // headerSettingsMenuActions is connectionHeaderActions minus
-// OnToggleTailscale -- newHeaderSettingsMenuButton's caller (Control's own
-// header, see createMainAddressBar) has no Tailscale toggle to wire, unlike
-// the connections screen's full newConnectionHeader.
+// OnToggleTailscale (newHeaderSettingsMenuButton's caller -- Control's own
+// header, see createMainAddressBar -- has no Tailscale toggle to wire,
+// unlike the connections screen's full newConnectionHeader) plus
+// OnPowerReset, Control's own addition: the PC-panel power/reset button
+// (controller.PCPanelWidget) used to sit in the header as its own icon;
+// it's now this menu's first row instead (see PCPanelWidget.ShowPowerMenu),
+// freeing that space for the Control/Devices/Snapshots/Scripts selector
+// (mainWindowLayout's own tabHeaderButtons).
 type headerSettingsMenuActions struct {
+	OnPowerReset       func()
 	OnShowLanguageMenu func(anchor fyne.CanvasObject)
 	OnOpenCommunity    func()
 	OnOpenInfo         func()
@@ -94,16 +100,21 @@ type headerSettingsMenuActions struct {
 // newHeaderSettingsMenuButton builds a single gear-icon button that opens a
 // ShowStyledMenuTeal dropdown (the same teal/10px look as the language
 // menu's own popup -- see connection_manager_ui.go's showLanguageMenu)
-// listing Info/Community/Language/Account -- Control's own reuse of
-// newConnectionHeader's accessory row (see createMainAddressBar), collapsed
-// into one button instead of four separate ones so they don't compete for
-// space with Control's pcpanel/status-icon row. Language's own row just
-// forwards to actions.OnShowLanguageMenu, opening that same language popup
-// anchored to this gear button.
+// listing Power Reset/Info/Community/Language/Account -- Control's own
+// reuse of newConnectionHeader's accessory row (see createMainAddressBar),
+// collapsed into one button instead of several separate ones so they don't
+// compete for space with Control's own tab-selector/status-icon row.
+// Language's own row just forwards to actions.OnShowLanguageMenu, opening
+// that same language popup anchored to this gear button.
 func newHeaderSettingsMenuButton(actions headerSettingsMenuActions) fyne.CanvasObject {
 	var btn *headerStatusBadgeButton
 	btn = newHeaderStatusBadgeButton(gearIconHeader, func() {
 		view.ShowStyledMenuTeal(btn, []view.StyledMenuItem{
+			{Label: "Power Reset", OnTap: func() {
+				if actions.OnPowerReset != nil {
+					actions.OnPowerReset()
+				}
+			}},
 			{Label: "Info", OnTap: func() {
 				if actions.OnOpenInfo != nil {
 					actions.OnOpenInfo()

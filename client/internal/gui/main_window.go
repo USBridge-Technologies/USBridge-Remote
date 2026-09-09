@@ -33,7 +33,19 @@ type MainWindow struct {
 	connectionManager   *controller.ConnectionManager
 	mainContent         *fyne.Container
 	connectionContent   *fyne.Container
-	tabs                *container.AppTabs
+	tabs *container.AppTabs
+	// tabHeaderButtons is the Control/Devices/Snapshots/Scripts selector now
+	// living in createMainAddressBar's own left zone (mainHeaderBarLayout)
+	// instead of mw.tabs' own native tab strip -- see applyTabVisualState,
+	// which drives both these buttons' selected look and which of
+	// mw.tabs.Items[i].Content is actually shown. mw.tabs itself is built
+	// exactly as before (still the source of truth for SelectedIndex/Select/
+	// Items/OnSelected, still what every other tab-jump call site in this
+	// package uses) but is never added to the visible widget tree anymore --
+	// tabContentStack, not mw.tabs itself, is what recreateContainers
+	// actually places into mw.mainContent.
+	tabHeaderButtons    [4]*headerTabButton
+	tabContentStack     *fyne.Container
 	deviceButtonsPanel  *fyne.Container
 	deviceFooterBar     *fyne.Container
 	deviceMountBtn      fyne.CanvasObject
