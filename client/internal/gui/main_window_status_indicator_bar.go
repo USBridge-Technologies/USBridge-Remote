@@ -418,19 +418,42 @@ func (mw *MainWindow) showVideoResolutionMenu(anchor fyne.CanvasObject) {
 	}()
 }
 
+// maxSelectableFPS mirrors video_start_dialog.go's own refreshFPSOptions:
+// a server-reported capture mode can list far higher values (e.g. a
+// virtual/display capture reporting 240) than the encode pipeline can
+// actually sustain at this resolution/bitrate -- picking one that high
+// overloads the hardware encoder (multi-hundred-ms keyframe stalls,
+// IDR-request storms) and can drive the session into a disconnect/
+// reconnect loop that never recovers, since the request stays the same on
+// every automatic retry. Kept in sync with that dialog's own constant by
+// hand since the two menus are built independently (this header dropdown
+// deliberately doesn't go through that dialog at all -- see
+// VideoWidget.AvailableCaptureModes' own doc comment).
+const maxSelectableFPS = 120
+
 // captureModeFPS returns the fps list for whichever mode in modes matches
-// width/height, falling back to the first mode's own list if none match
-// (e.g. the current resolution isn't itself one of the reported modes).
+// width/height (capped at maxSelectableFPS), falling back to the first
+// mode's own list if none match (e.g. the current resolution isn't itself
+// one of the reported modes).
 func captureModeFPS(modes []models.VideoCaptureMode, width, height int) []int {
+	var all []int
 	for _, m := range modes {
 		if m.Width == width && m.Height == height {
-			return m.FPS
+			all = m.FPS
+			break
 		}
 	}
-	if len(modes) > 0 {
-		return modes[0].FPS
+	if all == nil && len(modes) > 0 {
+		all = modes[0].FPS
 	}
-	return nil
+
+	fps := make([]int, 0, len(all))
+	for _, f := range all {
+		if f <= maxSelectableFPS {
+			fps = append(fps, f)
+		}
+	}
+	return fps
 }
 
 type captureResolution struct {
