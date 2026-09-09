@@ -30,6 +30,15 @@ const (
 	statusIconSize       float32 = 18
 )
 
+// debugForceAllStatusIndicators, when true, makes updateStatusBar report
+// every peripheral/backup/snapshot/gamepad/audio/script indicator and the SD
+// storage chip as present with plausible fake values, regardless of what's
+// actually plugged into the connected device -- so the Control header's
+// full icon set can be tuned visually without physically attaching an SD
+// card, keyboard, mouse, gamepad, etc. Flip back to false before shipping;
+// it only affects display, never any real device/API call.
+const debugForceAllStatusIndicators = true
+
 func protocolDropdownLabel(protocol string) string {
 	switch strings.TrimSpace(protocol) {
 	case models.ConnectionProtocolTailscale:
@@ -1279,6 +1288,18 @@ func (mw *MainWindow) updateStatusBar() {
 		if info, err := client.GetAudioInfo(); err == nil && info != nil {
 			audioStreaming = info.Streaming
 		}
+
+		if debugForceAllStatusIndicators {
+			keyboardConnected = true
+			mouseConnected = true
+			rndisConnected = true
+			cdromConnected = true
+			backupConnected = true
+			snapshotConnected = true
+			gamepadConnected = true
+			audioStreaming = true
+		}
+
 		mw.updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming)
 
 		if scriptStatuses, err := client.GetScriptStatus(); err == nil {
@@ -1289,6 +1310,10 @@ func (mw *MainWindow) updateStatusBar() {
 					runningName = filepath.Base(st.Path)
 					break
 				}
+			}
+			if debugForceAllStatusIndicators && runningPath == "" {
+				runningPath = "debug.sh"
+				runningName = "debug.sh"
 			}
 			fyne.Do(func() {
 				mw.runningScriptPath = runningPath
@@ -1318,7 +1343,10 @@ func (mw *MainWindow) updateStatusBar() {
 				// see StorageDisplayInfo's doc comment). Previously this
 				// only ever checked SDCard.Total, so the header bar simply
 				// never appeared at all while running from SD.
-				display, _ := storageStatus.StorageDisplayInfo()
+				display, ok := storageStatus.StorageDisplayInfo()
+				if debugForceAllStatusIndicators && !ok {
+					display = models.StorageInfo{Total: 32 << 30, Used: 20 << 30, Free: 12 << 30, Percent: 62.5}
+				}
 				if display.Total > 0 {
 					mw.currentStorageTotal = display.Total
 					mw.currentStorageAvailable = display.Free
