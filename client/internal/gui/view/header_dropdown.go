@@ -958,6 +958,66 @@ func showStyledMenu(anchor fyne.CanvasObject, items []StyledMenuItem, options St
 	}
 }
 
+// ShowStyledInfoDropdown pops up content below anchor in the same shell
+// ShowStyledMenu's own popup uses (design.ColorGray950 background,
+// design.ColorBorder outline, RadiusMD corners) -- but content is whatever
+// the caller built and is purely informational: no rows, no hover, no tap
+// handling of its own. Dismisses on an outside click/tap like any other
+// dropdown popup here (dropdownPopup.Tapped). Used by the Control header's
+// storage chip (main_window_storage_dialog.go) instead of a modal dialog.
+func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject, minWidth float32) {
+	if anchor == nil || content == nil {
+		return
+	}
+
+	menuBG := canvas.NewRectangle(design.ColorGray950)
+	menuBG.CornerRadius = design.RadiusMD
+
+	menuBorder := canvas.NewRectangle(color.Transparent)
+	menuBorder.CornerRadius = design.RadiusMD
+	menuBorder.StrokeColor = design.ColorBorder
+	menuBorder.StrokeWidth = 1
+
+	menu := container.NewThemeOverride(
+		container.NewStack(menuBG, NewInset(content, 14, 14, 12, 12), menuBorder),
+		&dropdownMenuTheme{base: design.NewBrandTheme()},
+	)
+
+	canvasForObj := fyne.CurrentApp().Driver().CanvasForObject(anchor)
+	if canvasForObj == nil {
+		return
+	}
+
+	menuMin := menu.MinSize()
+	width := menuMin.Width
+	if minWidth > width {
+		width = minWidth
+	}
+	height := menuMin.Height
+
+	popup := newDropdownPopup(menu, canvasForObj, fyne.NewSize(width, height), nil)
+
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
+	popupPos := fyne.NewPos(
+		pos.X+(anchor.Size().Width-width)/2,
+		pos.Y+anchor.Size().Height+6,
+	)
+	canvasSize := canvasForObj.Size()
+	if popupPos.X < 8 {
+		popupPos.X = 8
+	}
+	if popupPos.X+width > canvasSize.Width-8 {
+		popupPos.X = canvasSize.Width - width - 8
+	}
+	if popupPos.Y+height > canvasSize.Height-8 {
+		popupPos.Y = canvasSize.Height - height - 8
+	}
+	if popupPos.Y < 8 {
+		popupPos.Y = 8
+	}
+	popup.ShowAtPosition(popupPos)
+}
+
 func (p *dropdownPopup) CreateRenderer() fyne.WidgetRenderer {
 	return &dropdownPopupRenderer{
 		popup:   p,

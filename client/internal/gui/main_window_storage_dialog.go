@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 
 	"usbridge-client/internal/gui/design"
@@ -13,12 +12,16 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
-	"fyne.io/fyne/v2/widget"
 )
 
+// showStorageInfoDialog pops up a small, informational-only dropdown under
+// the header's storage chip (mw.sdStorageProgress) -- Internal Storage and
+// SD Card, each with a "used/total GB" + percent line, in the same popup
+// shell as this header's other dropdowns (view.ShowStyledInfoDropdown) --
+// no rows to select, no hover reaction, just the numbers. Replaces the old
+// modal (view.NewOverlayPopup) version.
 func (mw *MainWindow) showStorageInfoDialog() {
-	if mw == nil || mw.window == nil {
+	if mw == nil || mw.window == nil || mw.sdStorageProgress == nil {
 		return
 	}
 
@@ -82,85 +85,25 @@ func (mw *MainWindow) showStorageInfoDialog() {
 	}
 
 	buildBlock := func(title, value, percent string) fyne.CanvasObject {
-		titleText := view.NewBrandText(strings.ToUpper(title), 11, design.ColorTextMuted, true)
-		valueText := view.NewBrandText(value, 16, design.ColorTextLight, true)
-		percentText := view.NewBrandText(percent, 16, design.ColorAccent, true)
-		return view.NewCompactSurfacePanel(
-			view.NewInset(container.NewVBox(
-				titleText,
-				view.NewInset(container.NewHBox(
-					valueText,
-					layout.NewSpacer(),
-					percentText,
-				), 0, 0, 6, 0),
-			), 12, 12, 12, 12),
-			design.ColorGray950,
-			design.RadiusMD,
+		titleText := view.NewBrandText(strings.ToUpper(title), 11, design.ColorConnectionBadgeText, true)
+		valueText := view.NewBrandText(value, 15, design.ColorTextLight, true)
+		percentText := view.NewBrandText(percent, 15, design.ColorTextLight, true)
+		return container.NewVBox(
+			titleText,
+			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 4, 0),
 		)
 	}
 
-	var popup *widget.PopUp
-	closePopup := func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	}
+	divider := canvas.NewRectangle(design.ColorStatusBarDivider)
+	divider.SetMinSize(fyne.NewSize(0, 1))
 
-	title := view.NewBrandText("Storage Info", 19, design.ColorTextLight, true)
-	title.Alignment = fyne.TextAlignCenter
-	closeBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), closePopup)
-	closeBtn.Importance = widget.LowImportance
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(title))
-
-	okBtn := widget.NewButton("OK", closePopup)
-	okBtn.Importance = widget.MediumImportance
-
-	body := container.NewBorder(
-		nil,
-		container.NewCenter(container.NewGridWrap(fyne.NewSize(160, 44), okBtn)),
-		nil,
-		nil,
-		container.NewVBox(
-			titleBar,
-			view.NewInset(container.NewVBox(
-				buildBlock(internalTitle, internalValue, internalPercent),
-				view.NewInset(buildBlock(sdTitle, sdValue, sdPercent), 0, 0, 10, 0),
-			), 0, 0, 16, 8),
-		),
+	content := container.NewVBox(
+		buildBlock(internalTitle, internalValue, internalPercent),
+		view.NewInset(divider, 0, 0, 10, 10),
+		buildBlock(sdTitle, sdValue, sdPercent),
 	)
 
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
-	panel := container.NewStack(
-		bg,
-		view.NewInset(body, 18, 18, 16, 16),
-		border,
-	)
-
-	popup = view.NewOverlayPopup(mw.window, view.OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			margin := float32(24)
-			maxWidth := canvasSize.Width - margin*2
-			maxHeight := canvasSize.Height - margin*2
-			if maxWidth <= 0 {
-				maxWidth = canvasSize.Width
-			}
-			if maxHeight <= 0 {
-				maxHeight = canvasSize.Height
-			}
-			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 420), maxWidth)
-			panelHeight := minFloat32(maxFloat32(panelMin.Height, 280), maxHeight)
-			return fyne.NewSize(panelWidth, panelHeight)
-		},
-	})
-	popup.Show()
+	view.ShowStyledInfoDropdown(mw.sdStorageProgress, content, 220)
 }
 
 func formatStoragePercent(used, total int64) string {
