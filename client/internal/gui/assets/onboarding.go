@@ -3,7 +3,6 @@ package assets
 import (
 	_ "embed"
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 
@@ -124,14 +123,18 @@ var (
 	LanguageIcon       = fyne.NewStaticResource("language-svgrepo-com.svg", recolorFillIcon(languageIcon, "#F5F5F5"))
 	LanguageIconActive = fyne.NewStaticResource("language-svgrepo-com-active.svg", recolorFillIcon(languageIcon, "#93C572"))
 	LoadingGrayFrames  = buildLoadingFrames(loadingIcon, "#111111")
-	// VideoConnectingFrames/VideoConnectingGearFrames are the same
-	// spinner shapes as LoadingGrayFrames but sized and colored for the
-	// video overlay shown while a stream is connecting (VideoWidget's
-	// spinnerIcon, see video_widget_spinner.go) -- white-on-transparent
-	// rather than the header button's dark fill, since this sits over a
-	// black video area rather than a light button background.
-	VideoConnectingFrames     = buildLoadingFrames(loadingIcon, "#F5F5F5")
-	VideoConnectingGearFrames = buildGearFrames("#F5F5F5")
+	// VideoConnectingFramesAgent/VideoConnectingFramesKVM are the same dot
+	// spinner shape as LoadingGrayFrames, for the video overlay shown while
+	// a stream is connecting (VideoWidget's spinnerIcon, see
+	// video_widget_spinner.go) -- colored by what's on the other end
+	// (isUSBridgeAgentOS): lime (#c4e77a, this app's usual KVM-hardware
+	// accent) for real USBridge hardware, turquoise (#41e0c3,
+	// design.ColorConnectionBadgeText) for a plain OS agent (Windows/Linux/
+	// macOS) or anything else. This used to also switch to a rotating gear
+	// shape for the USBridge case (buildGearFrames, removed) -- one shape,
+	// two colors, is simpler and was what actually got asked for.
+	VideoConnectingFramesAgent = buildLoadingFrames(loadingIcon, "#41e0c3")
+	VideoConnectingFramesKVM   = buildLoadingFrames(loadingIcon, "#c4e77a")
 	// recolorMonoIcon, not recolorStrokeIcon: question-svgrepo-com.svg mixes
 	// a stroked circle with a filled "?" glyph -- see QuestionIconHeader's
 	// comment above for the full explanation.
@@ -387,28 +390,12 @@ func boldenServerIcon(source []byte, stroke string, width string) []byte {
 	return []byte(svg)
 }
 
-// buildGearFrames renders a simple rotating gear/cog icon as a sequence of
-// SVG frames, one per step around a full rotation -- the same
-// procedural-frames approach buildLoadingFrames already uses, so it drives
-// through the exact same frame-cycling code (see
-// video_widget_spinner.go). Shown in place of the plain dot spinner while
-// connecting to a device identified as USBridge/rust-shine hardware
-// (isUSBridgeAgentOS) rather than a generic/manual Sunshine host, per the
-// distinction that already exists for scripts/backup/pcpanel gating
-// elsewhere in this package -- rust-shine is this project's own backend,
-// so it gets its own icon instead of the generic Moonlight-style dots.
-//
-// Deliberately a plain generic gear, not the trademarked Rust logo (which
-// is also visually a gear+"R" combination) -- redistributing that mark in
-// a commercial client risks a trademark issue neither this shape nor its
-// use here needs to run.
 // spinnerBackdropSVG is a soft, semi-transparent dark disc baked directly
-// into every connecting-spinner frame (gear and dot variants alike), behind
-// the actual icon shape. Turns "some dots/a gear floating in an empty rect"
-// into a deliberate, modern-looking loading badge, and keeps the spinner
-// readable mid-transition (e.g. the instant the DOM video overlay reveals a
-// bright frame right where the spinner still sits, one paint before it's
-// hidden).
+// into every connecting-spinner frame, behind the actual dots. Turns "some
+// dots floating in an empty rect" into a deliberate, modern-looking loading
+// badge, and keeps the spinner readable mid-transition (e.g. the instant
+// the DOM video overlay reveals a bright frame right where the spinner
+// still sits, one paint before it's hidden).
 //
 // This lives inside the icon's own SVG rather than as a separate Fyne
 // canvas.Circle/canvas.Image layered underneath it in
@@ -417,54 +404,8 @@ func boldenServerIcon(source []byte, stroke string, width string) []byte {
 // canvas.Image used purely to give the surrounding Stack a MinSize
 // apparently doesn't render as invisible in the wasm canvas backend).
 // Baking the backdrop into the same already-proven SVG-resource pipeline
-// used for the dots/gear themselves sidesteps that entirely.
+// used for the dots themselves sidesteps that entirely.
 const spinnerBackdropSVG = `<circle cx="8" cy="8" r="7.6" fill="#000000" fill-opacity="0.55"/>`
-
-func buildGearFrames(fill string) []fyne.Resource {
-	const steps = 12 // animation frames per full rotation
-	const teeth = 8  // gear teeth
-	const cx, cy = 8.0, 8.0
-	const outerR, innerR = 6.6, 4.6 // tooth tip / root radius
-	const holeCutoutR = 2.0         // punched-out center hole
-
-	frames := make([]fyne.Resource, steps)
-	for frame := range frames {
-		angleOffset := float64(frame) * (360.0 / float64(steps))
-		var path strings.Builder
-		for t := 0; t < teeth*2; t++ {
-			angle := (angleOffset + float64(t)*(360.0/float64(teeth*2))) * math.Pi / 180
-			r := outerR
-			if t%2 == 1 {
-				r = innerR
-			}
-			x := cx + r*math.Cos(angle)
-			y := cy + r*math.Sin(angle)
-			if t == 0 {
-				path.WriteString(fmt.Sprintf("M%.2f %.2f", x, y))
-			} else {
-				path.WriteString(fmt.Sprintf(" L%.2f %.2f", x, y))
-			}
-		}
-		path.WriteString(" Z")
-		// Add inner hole. sweep-flag=0 (CCW) punches a hole using nonzero winding.
-		path.WriteString(fmt.Sprintf(" M%.2f %.2f", cx+holeCutoutR, cy))
-		path.WriteString(fmt.Sprintf(" A%.2f %.2f 0 1 0 %.2f %.2f", holeCutoutR, holeCutoutR, cx-holeCutoutR, cy))
-		path.WriteString(fmt.Sprintf(" A%.2f %.2f 0 1 0 %.2f %.2f", holeCutoutR, holeCutoutR, cx+holeCutoutR, cy))
-		path.WriteString(" Z")
-
-		frames[frame] = fyne.NewStaticResource(
-			fmt.Sprintf("gear-spinner-%02d.svg", frame),
-			[]byte(fmt.Sprintf(
-				`<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">`+
-					spinnerBackdropSVG+
-					`<path d="%s" fill="%s" fill-rule="evenodd"/>`+
-					`</svg>`,
-				path.String(), fill,
-			)),
-		)
-	}
-	return frames
-}
 
 func buildLoadingFrames(_ []byte, fill string) []fyne.Resource {
 	type dot struct {

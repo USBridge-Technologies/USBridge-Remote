@@ -34,9 +34,13 @@ type VideoWidget struct {
 
 	// spinnerStop/spinnerMu drive the connecting-spinner frame-cycling
 	// goroutine -- see video_widget_spinner.go. Same stop-channel-swap
-	// pattern HeaderActionButton.startSpinner already uses.
-	spinnerMu   sync.Mutex
-	spinnerStop chan struct{}
+	// pattern HeaderActionButton.startSpinner already uses. spinnerIsKVM
+	// tracks which color variant that goroutine is currently cycling
+	// through (see showConnectingSpinner's own doc comment for why this
+	// needs tracking at all, not just re-picking frames on every call).
+	spinnerMu    sync.Mutex
+	spinnerStop  chan struct{}
+	spinnerIsKVM bool
 
 	// clearVideoMu serializes clearVideo() (and therefore stopMetalVideo() /
 	// the native overlay teardown). Needed because the native Android destroy

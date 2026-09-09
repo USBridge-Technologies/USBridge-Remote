@@ -57,19 +57,20 @@ func NewVideoWidgetUI(touchpad fyne.CanvasObject, keyboardCapture fyne.CanvasObj
 	// rather than depending on incidental browser default styling.
 	videoBackground := canvas.NewRectangle(design.ColorBackground)
 
-	// The spinner's own SVG frames (assets.VideoConnectingFrames /
-	// VideoConnectingGearFrames) already bake in a soft, semi-transparent
-	// dark backdrop disc behind the dots/gear shape -- see
-	// spinnerBackdropSVG in assets/onboarding.go. That replaced an
-	// earlier attempt to layer a separate canvas.Circle (sized via a
-	// nil-resource canvas.Image MinSize hack) underneath the icon here,
-	// which instead produced a stray opaque white square in the wasm
-	// canvas backend. Sizing the icon up to 84x84 (vs. the underlying
-	// 16x16 viewBox's icon-only content) is what makes that baked-in
-	// backdrop actually read as a badge rather than a tight halo.
+	// The spinner's own SVG frames (assets.VideoConnectingFramesAgent /
+	// VideoConnectingFramesKVM) already bake in a soft, semi-transparent
+	// dark backdrop disc behind the dots -- see spinnerBackdropSVG in
+	// assets/onboarding.go. That replaced an earlier attempt to layer a
+	// separate canvas.Circle (sized via a nil-resource canvas.Image MinSize
+	// hack) underneath the icon here, which instead produced a stray opaque
+	// white square in the wasm canvas backend. Sizing the icon up (vs. the
+	// underlying 16x16 viewBox's icon-only content) is what makes that
+	// baked-in backdrop actually read as a badge rather than a tight halo --
+	// 42x42, half the original 84x84 (was reading oversized against the
+	// video area).
 	spinnerIcon := canvas.NewImageFromResource(nil)
 	spinnerIcon.FillMode = canvas.ImageFillContain
-	spinnerIcon.SetMinSize(fyne.NewSize(84, 84))
+	spinnerIcon.SetMinSize(fyne.NewSize(42, 42))
 
 	spinnerOverlay := container.NewCenter(spinnerIcon)
 	spinnerOverlay.Hide()
