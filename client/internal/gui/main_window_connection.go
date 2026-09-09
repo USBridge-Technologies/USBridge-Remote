@@ -919,7 +919,7 @@ func (mw *MainWindow) handleDisconnect() {
 				Stroke:          design.ColorExitButtonBorder,
 				StrokeWidth:     1.2,
 				Icon:            assets.ExitIcon,
-				IconSize:        fyne.NewSize(14, 14),
+				IconSize:        fyne.NewSize(12, 12),
 				HoverFill:       design.ColorExitButtonHoverFill,
 				HoverStroke:     design.ColorExitButtonHoverBorder,
 				HoverForeground: design.ColorExitButtonHoverText,

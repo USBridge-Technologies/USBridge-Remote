@@ -123,7 +123,7 @@ func (b *HeaderActionButton) MouseOut() {
 // enough that the whole button stays compact rather than the old fixed
 // 36x36 square every caller got regardless of content.
 const (
-	headerActionButtonTextSize = float32(10)
+	headerActionButtonTextSize = float32(9)
 	headerActionButtonGap      = float32(6)
 	headerActionButtonPadX     = float32(10)
 	// headerActionButtonPadY was 2 -- 0 shaves ~4px off the button's total

@@ -458,7 +458,7 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 			Stroke:          design.ColorExitButtonBorder,
 			StrokeWidth:     1.2,
 			Icon:            assets.ExitIcon,
-			IconSize:        fyne.NewSize(14, 14),
+			IconSize:        fyne.NewSize(12, 12),
 			Text:            connectionProtocolLabel(mw.connectedProtocol),
 			HoverFill:       design.ColorExitButtonHoverFill,
 			HoverStroke:     design.ColorExitButtonHoverBorder,
@@ -1486,7 +1486,7 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		return
 	}
 
-	fpsLabel := ""
+	fpsLabel := "FPS"
 	if mw.currentVideoFPS > 0 {
 		fpsLabel = fmt.Sprintf("%.0f FPS", math.Round(mw.currentVideoFPS))
 	}
