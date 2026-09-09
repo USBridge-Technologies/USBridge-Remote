@@ -346,10 +346,8 @@ func (mw *MainWindow) recreateContainers() {
 	mainBg := canvas.NewRectangle(design.ColorGray950)
 	mw.mainContent = container.NewStack(
 		mainBg,
-		container.NewBorder(
+		view.NewEdgeStack(
 			mainAddressBar,
-			nil,
-			nil,
 			nil,
 			container.NewStack(mw.tabContentStack, deviceFooterOverlay),
 		),
@@ -358,11 +356,9 @@ func (mw *MainWindow) recreateContainers() {
 	connBg := canvas.NewRectangle(design.ColorGray950)
 	mw.connectionContent = container.NewStack(
 		connBg,
-		container.NewBorder(
+		view.NewEdgeStack(
 			connectionAddressBar,
 			connectionFooter,
-			nil,
-			nil,
 			mw.connectionManager.GetContainer(),
 		),
 	)

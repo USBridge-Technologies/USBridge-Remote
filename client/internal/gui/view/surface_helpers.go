@@ -113,6 +113,96 @@ func NewBottomLine(content, line fyne.CanvasObject) *fyne.Container {
 	return container.New(&bottomLineLayout{}, content, line)
 }
 
+// edgeStackLayout is NewEdgeStack's own layout: top pinned to its own
+// MinSize height, bottom pinned to its own MinSize height, content filling
+// whatever's left between them -- zero gap anywhere, same reasoning as
+// insetLayout/bottomLineLayout (see insetLayout's own doc comment for the
+// general container.NewBorder pitfall this avoids). This is what
+// createMainAddressBar/createConnectionAddressBar's own header band used to
+// sit in via plain container.NewBorder(header, footer, nil, nil, content) --
+// which silently left a theme.Padding() (4px) gap of raw background color
+// between the header's own bottom accent line and the tab content under it,
+// visible as a thin grey strip whenever that content itself was black
+// (e.g. Control's video area with no stream yet).
+type edgeStackLayout struct {
+	hasTop, hasBottom bool
+}
+
+func (l *edgeStackLayout) split(objects []fyne.CanvasObject) (top, bottom, content fyne.CanvasObject) {
+	idx := 0
+	if l.hasTop {
+		top = objects[idx]
+		idx++
+	}
+	if l.hasBottom {
+		bottom = objects[idx]
+		idx++
+	}
+	content = objects[idx]
+	return
+}
+
+func (l *edgeStackLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	top, bottom, content := l.split(objects)
+
+	var topHeight, bottomHeight float32
+	if top != nil {
+		topHeight = top.MinSize().Height
+		top.Move(fyne.NewPos(0, 0))
+		top.Resize(fyne.NewSize(size.Width, topHeight))
+	}
+	if bottom != nil {
+		bottomHeight = bottom.MinSize().Height
+		bottom.Move(fyne.NewPos(0, size.Height-bottomHeight))
+		bottom.Resize(fyne.NewSize(size.Width, bottomHeight))
+	}
+
+	contentHeight := size.Height - topHeight - bottomHeight
+	if contentHeight < 0 {
+		contentHeight = 0
+	}
+	content.Move(fyne.NewPos(0, topHeight))
+	content.Resize(fyne.NewSize(size.Width, contentHeight))
+}
+
+func (l *edgeStackLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	top, bottom, content := l.split(objects)
+
+	contentMin := content.MinSize()
+	width, height := contentMin.Width, contentMin.Height
+	if top != nil {
+		topMin := top.MinSize()
+		height += topMin.Height
+		if topMin.Width > width {
+			width = topMin.Width
+		}
+	}
+	if bottom != nil {
+		bottomMin := bottom.MinSize()
+		height += bottomMin.Height
+		if bottomMin.Width > width {
+			width = bottomMin.Width
+		}
+	}
+	return fyne.NewSize(width, height)
+}
+
+// NewEdgeStack stacks an optional top (its own MinSize height), an optional
+// bottom (its own MinSize height), and content filling the rest, with no
+// gap between any of them -- top/bottom may be nil to omit that edge.
+func NewEdgeStack(top, bottom, content fyne.CanvasObject) *fyne.Container {
+	l := &edgeStackLayout{hasTop: top != nil, hasBottom: bottom != nil}
+	objects := make([]fyne.CanvasObject, 0, 3)
+	if top != nil {
+		objects = append(objects, top)
+	}
+	if bottom != nil {
+		objects = append(objects, bottom)
+	}
+	objects = append(objects, content)
+	return container.New(l, objects...)
+}
+
 func NewSurfacePanel(content fyne.CanvasObject, fill color.Color, radius float32) *fyne.Container {
 	bg := canvas.NewRectangle(fill)
 	bg.CornerRadius = radius
