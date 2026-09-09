@@ -914,12 +914,16 @@ func (mw *MainWindow) handleDisconnect() {
 		mw.showConnectionManager()
 		if mw.mainExitBtn != nil {
 			mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
-				Fill:        design.ColorSurfaceLight,
-				Foreground:  design.ColorTextLight,
-				Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
-				StrokeWidth: 1.2,
-				Icon:        assets.ExitIcon,
-				IconSize:    fyne.NewSize(24, 24),
+				Fill:            design.ColorExitButtonFill,
+				Foreground:      design.ColorExitButtonText,
+				Stroke:          design.ColorExitButtonBorder,
+				StrokeWidth:     1.2,
+				Icon:            assets.ExitIcon,
+				IconSize:        fyne.NewSize(14, 14),
+				HoverFill:       design.ColorExitButtonHoverFill,
+				HoverStroke:     design.ColorExitButtonHoverBorder,
+				HoverForeground: design.ColorExitButtonHoverText,
+				HoverIcon:       assets.ExitIconHover,
 			})
 		}
 

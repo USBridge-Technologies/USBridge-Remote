@@ -453,13 +453,17 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 	if mw.mainExitBtn == nil {
 		mw.mainExitBtn = view.NewHeaderActionButton(mw.handleConnectionToggle)
 		mw.mainExitBtn.ApplySpec(view.HeaderActionButtonSpec{
-			Fill:        design.ColorSurfaceLight,
-			Foreground:  design.ColorTextLight,
-			Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
-			StrokeWidth: 1.2,
-			Icon:        assets.ExitIcon,
-			IconSize:    fyne.NewSize(16, 16),
-			Text:        connectionProtocolLabel(mw.connectedProtocol),
+			Fill:            design.ColorExitButtonFill,
+			Foreground:      design.ColorExitButtonText,
+			Stroke:          design.ColorExitButtonBorder,
+			StrokeWidth:     1.2,
+			Icon:            assets.ExitIcon,
+			IconSize:        fyne.NewSize(14, 14),
+			Text:            connectionProtocolLabel(mw.connectedProtocol),
+			HoverFill:       design.ColorExitButtonHoverFill,
+			HoverStroke:     design.ColorExitButtonHoverBorder,
+			HoverForeground: design.ColorExitButtonHoverText,
+			HoverIcon:       assets.ExitIconHover,
 		})
 	}
 	// Control's own reuse of the connections screen's header accessories

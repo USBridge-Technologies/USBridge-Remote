@@ -108,10 +108,23 @@ var (
 	// ColorStatusBarResolutionText is that strip's "1080p@60Hz" label.
 	ColorStatusBarResolutionText = color.NRGBA{R: 0xcb, G: 0xd5, B: 0xe1, A: 0xff}
 
-	// ColorStatusBarIconChip is the background behind every icon button in
-	// that strip (video + every peripheral) -- one shared color so none of
-	// them reads as a mismatched button chrome next to the others.
+	// ColorStatusBarIconChip is the hover highlight behind every icon
+	// button in that strip (video + every peripheral) -- one shared color
+	// so none of them reads as a mismatched hover color next to the others.
+	// No background at rest (see main_window_status_indicator_bar.go).
 	ColorStatusBarIconChip = color.NRGBA{R: 0x21, G: 0x26, B: 0x28, A: 0xff}
+
+	// ColorExitButton{Border,Fill,Text} are the Control header's Exit
+	// (LAN/Tailscale) button in its resting state; ColorExitButtonHover*
+	// are the same three roles while hovered -- a shift toward red/danger
+	// tones, distinct from every other button's hover treatment in this
+	// app since Exit is a destructive-ish action.
+	ColorExitButtonBorder      = color.NRGBA{R: 0x35, G: 0x39, B: 0x31, A: 0xff}
+	ColorExitButtonFill        = color.NRGBA{R: 0x23, G: 0x27, B: 0x2a, A: 0xff}
+	ColorExitButtonText        = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+	ColorExitButtonHoverBorder = color.NRGBA{R: 0x4e, G: 0x13, B: 0x28, A: 0xff}
+	ColorExitButtonHoverFill   = color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff}
+	ColorExitButtonHoverText   = color.NRGBA{R: 0xf4, G: 0x6e, B: 0x81, A: 0xff}
 )
 
 const RadiusMD float32 = 8
