@@ -461,7 +461,40 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 		})
 	}
 	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
-	rightGroup := container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel)
+	// Control's own reuse of the connections screen's header accessories
+	// (see connection_header.go's newHeaderSettingsMenuButton) -- same
+	// Info/Community/Language/Account actions as createConnectionAddressBar
+	// wires into newConnectionHeader, just collapsed into one gear-icon
+	// dropdown instead of four separate buttons so they don't crowd this
+	// row's pcpanel/status-icon/protocol/exit elements. Sits outside
+	// exitStatusOverlayLayout (left of exitPanel in a plain HBox) rather
+	// than folded into that layout's own two-object contract, so its
+	// existing protocol-badge-over-exit-button positioning math stays
+	// untouched.
+	settingsBtn := newHeaderSettingsMenuButton(headerSettingsMenuActions{
+		OnShowLanguageMenu: func(anchor fyne.CanvasObject) {
+			if mw.connectionManager != nil {
+				mw.connectionManager.ShowLanguageMenu(anchor)
+			}
+		},
+		OnOpenCommunity: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenDiscordInvite()
+			}
+		},
+		OnOpenInfo: func() {
+			if mw.connectionManager != nil {
+				mw.connectionManager.OpenInfoPage()
+			}
+		},
+		OnOpenAccount: func() {
+			mw.showAccountDialog()
+		},
+	})
+	rightGroup := container.NewHBox(
+		settingsBtn,
+		container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel),
+	)
 	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
 	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
 	// run out of horizontal space for the SD-progress + status readout,
