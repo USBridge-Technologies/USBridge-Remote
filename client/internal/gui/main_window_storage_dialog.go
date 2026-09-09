@@ -84,16 +84,17 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		}
 	}
 
-	// 10px, matching every other header dropdown's own row text
-	// (ShowStyledMenuTeal) -- this one was left at the old modal dialog's
-	// much bigger 11/15px and read as oversized next to them.
+	// Title (not bold, smaller than the value/percent line -- an eyebrow
+	// label, not something meant to compete with the actual numbers) vs.
+	// value/percent still at 10px, matching every other header dropdown's
+	// own row text (ShowStyledMenuTeal).
 	buildBlock := func(title, value, percent string) fyne.CanvasObject {
-		titleText := view.NewBrandText(strings.ToUpper(title), 10, design.ColorConnectionBadgeText, true)
+		titleText := view.NewBrandText(strings.ToUpper(title), 9, design.ColorConnectionBadgeText, false)
 		valueText := view.NewBrandText(value, 10, design.ColorTextLight, true)
 		percentText := view.NewBrandText(percent, 10, design.ColorTextLight, true)
 		return container.NewVBox(
 			titleText,
-			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 2, 0),
+			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 1, 0),
 		)
 	}
 
@@ -102,7 +103,7 @@ func (mw *MainWindow) showStorageInfoDialog() {
 
 	content := container.NewVBox(
 		buildBlock(internalTitle, internalValue, internalPercent),
-		view.NewInset(divider, 0, 0, 6, 6),
+		view.NewInset(divider, 0, 0, 4, 4),
 		buildBlock(sdTitle, sdValue, sdPercent),
 	)
 
