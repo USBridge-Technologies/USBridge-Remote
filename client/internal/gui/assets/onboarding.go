@@ -31,6 +31,10 @@ var (
 	monitorTabIcon []byte
 	//go:embed disk-floppy-save-storage-data-svgrepo-com.svg
 	snapshotsTabIcon []byte
+	//go:embed save-svgrepo-com.svg
+	saveTabIcon []byte
+	//go:embed play-svgrepo-com.svg
+	playTabIcon []byte
 	//go:embed folder-svgrepo-com.svg
 	folderIcon []byte
 	//go:embed disc-svgrepo-com.svg
@@ -175,22 +179,27 @@ var (
 	// (F5F5F5/93C572, still used by the status-panel snapshot icon and
 	// backup_widget_ui.go) since that's a different surface with its own
 	// color language.
-	MonitorTabIconMuted      = fyne.NewStaticResource("monitor-svgrepo-com-muted.svg", recolorStrokeIcon(monitorTabIcon, "#c5c8b5", "1.9"))
-	MonitorTabIconSelected   = fyne.NewStaticResource("monitor-svgrepo-com-selected.svg", recolorStrokeIcon(monitorTabIcon, "#ebffbc", "1.9"))
-	MonitorTabIconHover      = fyne.NewStaticResource("monitor-svgrepo-com-hover.svg", recolorStrokeIcon(monitorTabIcon, "#e0e3e7", "1.9"))
-	USBTabIconMuted          = fyne.NewStaticResource("usb-svgrepo-com-muted2.svg", recolorFillIcon(usbTabIcon, "#c5c8b5"))
-	USBTabIconSelected       = fyne.NewStaticResource("usb-svgrepo-com-selected.svg", recolorFillIcon(usbTabIcon, "#ebffbc"))
-	USBTabIconHover          = fyne.NewStaticResource("usb-svgrepo-com-hover.svg", recolorFillIcon(usbTabIcon, "#e0e3e7"))
-	SnapshotsTabIconMuted    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-muted2.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
-	SnapshotsTabIconSelected = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-selected.svg", recolorFillIcon(snapshotsTabIcon, "#ebffbc"))
-	SnapshotsTabIconHover    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-hover.svg", recolorFillIcon(snapshotsTabIcon, "#e0e3e7"))
-	// ScriptsTabIcon{Muted,Selected,Hover} -- a plain play-triangle glyph,
-	// this header's own tab-selector never had a Scripts icon asset before
-	// (the status-panel script icon just uses fynetheme.MediaPlayIcon(),
-	// which can't be recolored the way these can).
-	ScriptsTabIconMuted        = fyne.NewStaticResource("scripts-tab-muted.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M8 5v14l11-7z"/></svg>`))
-	ScriptsTabIconSelected     = fyne.NewStaticResource("scripts-tab-selected.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ebffbc"><path d="M8 5v14l11-7z"/></svg>`))
-	ScriptsTabIconHover        = fyne.NewStaticResource("scripts-tab-hover.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e0e3e7"><path d="M8 5v14l11-7z"/></svg>`))
+	MonitorTabIconMuted    = fyne.NewStaticResource("monitor-svgrepo-com-muted.svg", recolorStrokeIcon(monitorTabIcon, "#c5c8b5", "1.9"))
+	MonitorTabIconSelected = fyne.NewStaticResource("monitor-svgrepo-com-selected.svg", recolorStrokeIcon(monitorTabIcon, "#ebffbc", "1.9"))
+	MonitorTabIconHover    = fyne.NewStaticResource("monitor-svgrepo-com-hover.svg", recolorStrokeIcon(monitorTabIcon, "#e0e3e7", "1.9"))
+	USBTabIconMuted        = fyne.NewStaticResource("usb-svgrepo-com-muted2.svg", recolorFillIcon(usbTabIcon, "#c5c8b5"))
+	USBTabIconSelected     = fyne.NewStaticResource("usb-svgrepo-com-selected.svg", recolorFillIcon(usbTabIcon, "#ebffbc"))
+	USBTabIconHover        = fyne.NewStaticResource("usb-svgrepo-com-hover.svg", recolorFillIcon(usbTabIcon, "#e0e3e7"))
+	// SnapshotsTabIcon{Muted,Selected,Hover} -- save-svgrepo-com.svg (a save
+	// icon) instead of the disk-floppy icon SnapshotsTabIcon/IconActive
+	// above still use elsewhere -- swapped in for this header's own tab
+	// selector specifically.
+	SnapshotsTabIconMuted    = fyne.NewStaticResource("save-svgrepo-com-muted.svg", recolorFillIcon(saveTabIcon, "#c5c8b5"))
+	SnapshotsTabIconSelected = fyne.NewStaticResource("save-svgrepo-com-selected.svg", recolorFillIcon(saveTabIcon, "#ebffbc"))
+	SnapshotsTabIconHover    = fyne.NewStaticResource("save-svgrepo-com-hover.svg", recolorFillIcon(saveTabIcon, "#e0e3e7"))
+	// ScriptsTabIcon{Muted,Selected,Hover} -- play-svgrepo-com.svg (a
+	// stroked play triangle) instead of the earlier inline glyph; this
+	// header's own tab-selector never had a Scripts icon asset before (the
+	// status-panel script icon just uses fynetheme.MediaPlayIcon(), which
+	// can't be recolored the way these can).
+	ScriptsTabIconMuted        = fyne.NewStaticResource("play-svgrepo-com-muted.svg", recolorStrokeIcon(playTabIcon, "#c5c8b5", "2"))
+	ScriptsTabIconSelected     = fyne.NewStaticResource("play-svgrepo-com-selected.svg", recolorStrokeIcon(playTabIcon, "#ebffbc", "2"))
+	ScriptsTabIconHover        = fyne.NewStaticResource("play-svgrepo-com-hover.svg", recolorStrokeIcon(playTabIcon, "#e0e3e7", "2"))
 	FolderIcon                 = fyne.NewStaticResource("folder-svgrepo-com.svg", recolorFillIcon(folderIcon, "#C9C9C9"))
 	FolderIconActive           = fyne.NewStaticResource("folder-svgrepo-com-active.svg", recolorFillIcon(folderIcon, "#93C572"))
 	DiscIcon                   = fyne.NewStaticResource("disc-svgrepo-com.svg", recolorFillIcon(discIcon, "#C9C9C9"))

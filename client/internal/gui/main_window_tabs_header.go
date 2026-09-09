@@ -34,7 +34,7 @@ var (
 const (
 	headerTabButtonIconSize     = float32(15)
 	headerTabButtonTextSize     = float32(10)
-	headerTabButtonGap          = float32(6)
+	headerTabButtonGap          = float32(5)
 	headerTabButtonUnderlineGap = float32(4)
 	headerTabButtonUnderlineH   = float32(1)
 )
