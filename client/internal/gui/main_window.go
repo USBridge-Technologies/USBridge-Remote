@@ -61,6 +61,14 @@ type MainWindow struct {
 	// statusBarPeripheralsDivider is that same strip's divider between the
 	// video group and the peripherals group -- see syncStatusBarDividers.
 	statusBarPeripheralsDivider fyne.CanvasObject
+	// statusBarIndicatorsDivider is the divider *inside* the peripherals
+	// group, between mw.statusBarButtonsGroup (audio/keyboard/mouse/rndis/
+	// script -- real actions) and mw.statusBarIndicatorsGroup (SD card, SD
+	// disk, gamepad, snapshots -- display-only, never react to clicks) --
+	// see syncStatusBarDividers.
+	statusBarIndicatorsDivider fyne.CanvasObject
+	statusBarButtonsGroup      *fyne.Container
+	statusBarIndicatorsGroup   *fyne.Container
 
 	// Services
 	nbdServer        *service.NBDServer
@@ -140,14 +148,19 @@ type MainWindow struct {
 	keyboardIcon        *widget.Button
 	mouseIcon           *widget.Button
 	rndisIcon           *widget.Button
-	gamepadIcon         *widget.Button
-	cdromIcon           *widget.Button
-	backupIcon          fyne.CanvasObject
-	snapshotIcon        *widget.Button
-	scriptIcon          *widget.Button
-	runningScriptPath   string
-	runningScriptName   string
-	statusPanel         *fyne.Container
+	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
+	// *passive* indicators (main_window_status_indicator_bar.go's
+	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not
+	// widget.Button, so they never react to hover/click (they used to
+	// double as tab-switch shortcuts, which the header shouldn't do).
+	gamepadIcon       fyne.CanvasObject
+	cdromIcon         fyne.CanvasObject
+	backupIcon        fyne.CanvasObject
+	snapshotIcon      fyne.CanvasObject
+	scriptIcon        *widget.Button
+	runningScriptPath string
+	runningScriptName string
+	statusPanel       *fyne.Container
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool

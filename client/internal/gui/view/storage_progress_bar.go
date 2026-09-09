@@ -10,7 +10,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -95,10 +94,6 @@ var storageBarFillColor color.Color = design.ColorConnectionBadgeText
 
 // CreateRenderer creates the renderer
 func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
-	t := s.Theme()
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
-	fgColor := t.Color(theme.ColorNameForeground, variant)
-
 	bg := canvas.NewRectangle(color.Transparent)
 	bg.CornerRadius = design.RadiusMD
 	icon := canvas.NewImageFromResource(s.iconRes)
@@ -109,8 +104,8 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	fill := canvas.NewRectangle(storageBarFillColor)
 	fill.CornerRadius = design.RadiusMD
 
-	sizeText := canvas.NewText(s.sizeText, fgColor)
-	sizeText.TextSize = theme.TextSize() * 10 / 14
+	sizeText := canvas.NewText(s.sizeText, design.ColorStatusBarIndicatorText)
+	sizeText.TextSize = 9
 	sizeText.TextStyle.Bold = false
 
 	topRow := container.NewWithoutLayout(icon, track, fill)
@@ -222,8 +217,6 @@ func (r *storageProgressBarRenderer) MinSize() fyne.Size {
 }
 
 func (r *storageProgressBarRenderer) Refresh() {
-	t := r.s.Theme()
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
 	r.bg.FillColor = color.Transparent
 	if r.s.hovered && r.s.onTapped != nil {
 		r.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
@@ -235,8 +228,7 @@ func (r *storageProgressBarRenderer) Refresh() {
 	}
 	r.icon.Resource = r.s.iconRes
 
-	fg := t.Color(theme.ColorNameForeground, variant)
-	r.sizeText.Color = fg
+	r.sizeText.Color = design.ColorStatusBarIndicatorText
 	r.sizeText.Text = r.s.sizeText
 
 	if sz := r.s.Size(); sz.Width > 0 {

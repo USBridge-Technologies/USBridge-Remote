@@ -114,6 +114,12 @@ var (
 	// No background at rest (see main_window_status_indicator_bar.go).
 	ColorStatusBarIconChip = color.NRGBA{R: 0x21, G: 0x26, B: 0x28, A: 0xff}
 
+	// ColorStatusBarIndicatorText is the storage chip's "12/32 GB" line and
+	// the muted tone of that strip's passive-indicator icons (SD card, SD
+	// disk, gamepad, snapshots -- see assets.SDCardIconIndicator etc.) --
+	// same #c5c8b5 muted tone as MonitorTabIconMuted elsewhere in the app.
+	ColorStatusBarIndicatorText = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+
 	// ColorExitButton{Border,Fill,Text} are the Control header's Exit
 	// (LAN/Tailscale) button in its resting state; ColorExitButtonHover*
 	// are the same three roles while hovered -- a shift toward red/danger

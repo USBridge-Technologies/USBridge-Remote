@@ -148,6 +148,16 @@ func (mw *MainWindow) syncStorageChipVisibility(visible bool) {
 // separate -- called at the end of updateStatusBarUI, after every icon's
 // own show/hide for this tick has already been applied.
 func (mw *MainWindow) syncStatusBarDividers() {
+	if mw.statusBarIndicatorsDivider != nil {
+		buttonsVisible := mw.statusBarButtonsGroup != nil && hasVisibleContent(mw.statusBarButtonsGroup)
+		indicatorsVisible := mw.statusBarIndicatorsGroup != nil && hasVisibleContent(mw.statusBarIndicatorsGroup)
+		if buttonsVisible && indicatorsVisible {
+			mw.statusBarIndicatorsDivider.Show()
+		} else {
+			mw.statusBarIndicatorsDivider.Hide()
+		}
+	}
+
 	if mw.statusBarPeripheralsDivider == nil {
 		return
 	}
@@ -209,5 +219,5 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	bg.StrokeWidth = 1
 	bg.CornerRadius = design.RadiusMD
 
-	return container.NewStack(bg, view.NewInset(content, statusIndicatorBarPadX, statusIndicatorBarPadX, statusIndicatorBarPadY, statusIndicatorBarPadY))
+	return container.NewStack(bg, view.NewInsetExact(content, statusIndicatorBarPadX, statusIndicatorBarPadX, statusIndicatorBarPadY, statusIndicatorBarPadY))
 }

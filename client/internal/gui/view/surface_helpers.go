@@ -18,21 +18,18 @@ const (
 	headerBandBodyBottomInset float32 = 5
 )
 
-// insetLayout is NewInset's own layout: a plain fyne.Layout that insets its
-// one child by exact left/right/top/bottom pixels.
-//
-// This used to be built on container.NewBorder (a transparent spacer
-// rectangle per non-zero side, passed as Border's top/bottom/left/right).
-// That silently adds theme.Padding() (4px by default) *again* for every one
-// of those sides on top of the spacer's own size (see Fyne's
-// layout/borderlayout.go: borderLayout.Layout/MinSize both do
-// `topHeight+padding`/`bottomHeight+padding`/etc. unconditionally whenever
-// that slot is non-nil) -- so e.g. NewInset(x, 10, 10, 3, 3) was actually
-// adding 3+4=7px top and bottom, 10+4=14px left and right, not the 3/10
-// asked for, and every nested NewInset compounded the same hidden extra
-// again. That compounding is what was making the Control header's status
-// strip (and the header band wrapping it) run visibly taller than its own
-// padding constants implied, no matter how those constants were tuned.
+// insetLayout is NewInsetExact's own layout: a plain fyne.Layout that insets
+// its one child by exact left/right/top/bottom pixels, with none of
+// container.NewBorder's own hidden extra (see NewInset's own doc comment for
+// what that extra is). Only for the handful of call sites that actually
+// need that exactness -- NewHeaderBand's own body/title wrapping and the
+// Control header's status-indicator strip (main_window_status_indicator_bar.go)
+// and connection row (connection_header.go) -- since those are what this
+// exactness was diagnosed and fixed for. Every other NewInset call site in
+// the app (there are dozens: cards, tables, dialogs, menus...) was visually
+// tuned against NewInset's own +theme.Padding()-per-side behavior, so
+// switching them to this too would detune every one of them at once -- use
+// plain NewInset there.
 type insetLayout struct {
 	left, right, top, bottom float32
 }
@@ -62,8 +59,50 @@ func (l *insetLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(min.Width+l.left+l.right, min.Height+l.top+l.bottom)
 }
 
-func NewInset(content fyne.CanvasObject, left, right, top, bottom float32) *fyne.Container {
+// NewInsetExact insets content by the exact left/right/top/bottom pixels
+// given, no more -- see insetLayout's own doc comment for which few call
+// sites should actually use this instead of plain NewInset.
+func NewInsetExact(content fyne.CanvasObject, left, right, top, bottom float32) *fyne.Container {
 	return container.New(&insetLayout{left: left, right: right, top: top, bottom: bottom}, content)
+}
+
+// NewInset insets content via container.NewBorder -- a transparent spacer
+// rectangle per non-zero side, passed as Border's own top/bottom/left/right.
+// Fyne's own border layout (layout/borderlayout.go) silently adds
+// theme.Padding() (4px by default) *again* on top of each spacer's own size
+// for every side that's non-nil -- so NewInset(x, 10, 10, 3, 3) actually
+// renders as 3+4=7px top/bottom, 10+4=14px left/right, not the exact 3/10
+// asked for. That's a genuine Fyne quirk, not a deliberate design -- but
+// every one of this app's dozens of NewInset call sites (cards, tables,
+// dialogs, menus, the account panel...) was visually tuned with that extra
+// padding already baked in, so this stays as-is rather than "fixed": doing
+// so once shrank every one of those elements' padding at once (found only
+// after the fact, from the Control header's own status strip and
+// NewHeaderBand needing pixel-exact math -- see NewInsetExact instead for
+// those specific, narrow cases).
+func NewInset(content fyne.CanvasObject, left, right, top, bottom float32) *fyne.Container {
+	var topSpacer, bottomSpacer, leftSpacer, rightSpacer fyne.CanvasObject
+	if top > 0 {
+		s := canvas.NewRectangle(color.Transparent)
+		s.SetMinSize(fyne.NewSize(0, top))
+		topSpacer = s
+	}
+	if bottom > 0 {
+		s := canvas.NewRectangle(color.Transparent)
+		s.SetMinSize(fyne.NewSize(0, bottom))
+		bottomSpacer = s
+	}
+	if left > 0 {
+		s := canvas.NewRectangle(color.Transparent)
+		s.SetMinSize(fyne.NewSize(left, 0))
+		leftSpacer = s
+	}
+	if right > 0 {
+		s := canvas.NewRectangle(color.Transparent)
+		s.SetMinSize(fyne.NewSize(right, 0))
+		rightSpacer = s
+	}
+	return container.NewBorder(topSpacer, bottomSpacer, leftSpacer, rightSpacer, content)
 }
 
 // bottomLineLayout is NewBottomLine's own layout -- content on top, a thin
@@ -360,11 +399,11 @@ func (l *fixedHeightLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 func NewHeaderBand(title string, content fyne.CanvasObject) *fyne.Container {
 	bg := canvas.NewRectangle(design.ColorGray900)
 
-	body := NewInset(content, headerBandHorizontalInset, headerBandHorizontalInset, headerBandBodyTopInset, headerBandBodyBottomInset)
+	body := NewInsetExact(content, headerBandHorizontalInset, headerBandHorizontalInset, headerBandBodyTopInset, headerBandBodyBottomInset)
 	if strings.TrimSpace(title) != "" {
 		titleText := NewBrandText(strings.ToUpper(strings.TrimSpace(title)), 12, design.ColorTextMuted, true)
-		titleWrap := NewInset(titleText, headerBandHorizontalInset, headerBandHorizontalInset, headerBandTitleTopInset, 4)
-		body = container.NewVBox(titleWrap, NewInset(content, headerBandHorizontalInset, headerBandHorizontalInset, 8, headerBandBodyBottomInset))
+		titleWrap := NewInsetExact(titleText, headerBandHorizontalInset, headerBandHorizontalInset, headerBandTitleTopInset, 4)
+		body = container.NewVBox(titleWrap, NewInsetExact(content, headerBandHorizontalInset, headerBandHorizontalInset, 8, headerBandBodyBottomInset))
 	}
 
 	// Same hairline accent under the band as the connections screen's own

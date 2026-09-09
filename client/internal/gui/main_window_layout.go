@@ -1088,28 +1088,19 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	})
 	mw.rndisIcon.Importance = widget.LowImportance
 	mw.rndisIcon.Hide()
-	mw.gamepadIcon = widget.NewButtonWithIcon("", assets.GamepadIconStatusBar, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > mw.devicesTabIndex() {
-			mw.tabs.Select(mw.tabs.Items[mw.devicesTabIndex()])
-		}
-	})
-	mw.gamepadIcon.Importance = widget.LowImportance
+	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are plain display-only
+	// indicators (newHeaderPassiveIndicator -- a bare canvas.Image, not a
+	// widget.Button) -- they used to be tappable shortcuts into the Devices/
+	// Snapshots tab, which made them flash a hover/press background despite
+	// not being (and not looking like) real header buttons. They're grouped
+	// separately from mw.statusBarButtonsGroup below for the same reason.
+	mw.gamepadIcon = newHeaderPassiveIndicator(assets.GamepadIconIndicator)
 	mw.gamepadIcon.Hide()
-	mw.cdromIcon = widget.NewButtonWithIcon("", assets.DiscIcon, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > mw.devicesTabIndex() {
-			mw.tabs.Select(mw.tabs.Items[mw.devicesTabIndex()])
-		}
-	})
-	mw.cdromIcon.Importance = widget.LowImportance
+	mw.cdromIcon = newHeaderPassiveIndicator(assets.DiscIconIndicator)
 	mw.cdromIcon.Hide()
-	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconStatusBar)
+	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconIndicator)
 	mw.backupIcon.Hide()
-	mw.snapshotIcon = widget.NewButtonWithIcon("", assets.SnapshotsIconStatusBar, func() {
-		if mw.tabs != nil && len(mw.tabs.Items) > mw.snapshotsTabIndex() {
-			mw.tabs.Select(mw.tabs.Items[mw.snapshotsTabIndex()])
-		}
-	})
-	mw.snapshotIcon.Importance = widget.LowImportance
+	mw.snapshotIcon = newHeaderPassiveIndicator(assets.SnapshotsIconIndicator)
 	mw.snapshotIcon.Hide()
 	mw.scriptIcon = widget.NewButtonWithIcon("", fynetheme.MediaPlayIcon(), func() {
 		mw.showScriptRunningMenu()
@@ -1117,34 +1108,38 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Importance = widget.LowImportance
 	mw.scriptIcon.Hide()
 
-	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
-	// Every one of these except mw.backupIcon (already sized via
-	// newHeaderPassiveIndicator's own GridWrap) is either a
-	// headerStatusBadgeButton (36x36 MinSize, hardcoded, ignores its own
-	// icon size) or a plain widget.NewButtonWithIcon (Fyne's own default
-	// theme padding puts it well past that too) -- once actually connected
-	// and several of these go from Hidden to Shown, whichever was tallest
-	// stretched this whole row, and with it createMainAddressBar's header
-	// band, past the connections screen's own 28px-tall header. GridWrap
-	// forces each down to statusBarIconBoxSize regardless of what its own
-	// MinSize would otherwise report -- the same trick connection_header.go
-	// already uses for that header's own info/community/language buttons
-	// (also headerStatusBadgeButton). Actual icon *size* and hover color
-	// for these plain widget.Button icons are handled separately, by
-	// wrapping mw.statusPanel itself in a theme override (see
-	// statusBarPeripheralTheme, applied in buildStatusIndicatorBar).
+	// Every button here (headerStatusBadgeButton or a plain
+	// widget.NewButtonWithIcon -- Fyne's own default theme padding puts it
+	// well past statusBarIconBoxSize too) gets GridWrap-forced down to that
+	// size regardless of its own MinSize -- once actually connected and
+	// several of these go from Hidden to Shown, whichever was tallest used
+	// to stretch this whole row, and with it createMainAddressBar's header
+	// band, past the connections screen's own 28px-tall header. Icon *size*
+	// and hover color for the plain widget.Button ones are handled
+	// separately, by wrapping mw.statusPanel itself in a theme override
+	// (see statusBarPeripheralTheme, applied in buildStatusIndicatorBar).
 	// mw.videoIcon is not in this row -- it moved into its own
 	// icon+fps+resolution group inside buildStatusIndicatorBar.
-	mw.statusPanel.Objects = buildHeaderStatusIndicators(
-		container.NewGridWrap(statusBarIconBoxSize, mw.backupIcon),
+	mw.statusBarButtonsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
 		container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
 		container.NewGridWrap(statusBarIconBoxSize, mw.keyboardIcon),
 		container.NewGridWrap(statusBarIconBoxSize, mw.mouseIcon),
 		container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
+	)
+	mw.statusBarIndicatorsGroup = container.New(&centeredInlineLayout{gap: 4, minGap: 2},
+		container.NewGridWrap(statusBarIconBoxSize, mw.backupIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
 		container.NewGridWrap(statusBarIconBoxSize, mw.gamepadIcon),
 		container.NewGridWrap(statusBarIconBoxSize, mw.snapshotIcon),
-		container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
+	)
+	mw.statusBarIndicatorsDivider = newStatusBarDivider()
+	mw.statusBarIndicatorsDivider.Hide()
+
+	mw.statusPanel = container.New(&centeredInlineLayout{gap: statusIndicatorBarGap, minGap: 4},
+		mw.statusBarButtonsGroup,
+		mw.statusBarIndicatorsDivider,
+		mw.statusBarIndicatorsGroup,
 	)
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
@@ -1184,20 +1179,6 @@ func (mw *MainWindow) refreshDeviceFooterButtons() {
 	mw.deviceButtonsPanel.Refresh()
 	if mw.deviceFooterBar != nil {
 		mw.deviceFooterBar.Refresh()
-	}
-}
-
-func buildHeaderStatusIndicators(backupIndicator, audioButton, cdromButton, keyboardButton, mouseButton, rndisButton, gamepadButton, snapshotButton, scriptButton fyne.CanvasObject) []fyne.CanvasObject {
-	return []fyne.CanvasObject{
-		backupIndicator,
-		audioButton,
-		cdromButton,
-		keyboardButton,
-		mouseButton,
-		rndisButton,
-		gamepadButton,
-		snapshotButton,
-		scriptButton,
 	}
 }
 
@@ -1418,10 +1399,8 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		}
 		if mw.cdromIcon != nil {
 			if cdromConnected {
-				mw.cdromIcon.SetIcon(assets.DiscIconStatusBar)
 				mw.cdromIcon.Show()
 			} else {
-				mw.cdromIcon.SetIcon(assets.DiscIcon)
 				mw.cdromIcon.Hide()
 			}
 			mw.cdromIcon.Refresh()

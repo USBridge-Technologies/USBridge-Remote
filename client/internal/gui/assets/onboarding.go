@@ -177,6 +177,18 @@ var (
 	// above (a different surface's green).
 	SnapshotsIconStatusBar = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-statusbar.svg", recolorFillIcon(snapshotsTabIcon, "#c4e77a"))
 
+	// SnapshotsIconIndicator/DiscIconIndicator/GamepadIconIndicator/
+	// SDCardIconIndicator are the status-indicator strip's own *passive*
+	// sub-group (main_window_status_indicator_bar.go's "indicators" block,
+	// separated from its buttons by their own divider) -- #c5c8b5, this
+	// app's other muted/passive tone (see MonitorTabIconMuted etc. below),
+	// instead of the #c4e77a accent their *StatusBar button siblings use,
+	// since these four never react to clicks/hover.
+	SnapshotsIconIndicator = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-indicator.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
+	DiscIconIndicator      = fyne.NewStaticResource("disc-svgrepo-com-indicator.svg", recolorFillIcon(discIcon, "#c5c8b5"))
+	GamepadIconIndicator   = fyne.NewStaticResource("gamepad-svgrepo-com-indicator.svg", recolorStrokeIcon(gamepadIcon, "#c5c8b5", "1.8"))
+	SDCardIconIndicator    = fyne.NewStaticResource("sd-card-svgrepo-com-indicator.svg", recolorFillIcon(sdCardIcon, "#c5c8b5"))
+
 	// MonitorTabIcon/USBTabIcon/SnapshotsTabIcon{Muted,Selected,Hover} are
 	// this same trio of icons in the header's own Control/Devices/Snapshots
 	// tab-selector color scheme (gui/main_window_tabs_header.go) --
