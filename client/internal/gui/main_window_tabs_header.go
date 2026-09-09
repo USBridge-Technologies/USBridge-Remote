@@ -33,7 +33,7 @@ var (
 
 const (
 	headerTabButtonIconSize     = float32(15)
-	headerTabButtonTextSize     = float32(12)
+	headerTabButtonTextSize     = float32(10)
 	headerTabButtonGap          = float32(6)
 	headerTabButtonUnderlineGap = float32(4)
 	headerTabButtonUnderlineH   = float32(2)
@@ -137,6 +137,9 @@ func (b *headerTabButton) refreshVisuals() {
 	}
 
 	b.text.Color = textColor
+	// Bold only while selected -- an unselected tab (muted or hovered) stays
+	// regular weight, so the active one is the only one that reads as bold.
+	b.text.TextStyle.Bold = b.selected
 	b.text.Refresh()
 	b.icon.Resource = iconRes
 	b.icon.Refresh()
