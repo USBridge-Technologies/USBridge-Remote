@@ -61,22 +61,6 @@ type MainWindow struct {
 	// statusBarPeripheralsDivider is that same strip's divider between the
 	// video group and the peripherals group -- see syncStatusBarDividers.
 	statusBarPeripheralsDivider fyne.CanvasObject
-	// statusBar*Chip are each peripheral icon's own newStatusBarIconChip
-	// wrapper (icon + background box) -- updateStatusBarUI shows/hides
-	// these, not the bare icon widgets, because a hidden icon inside an
-	// otherwise-visible chip would still leave that chip's background
-	// square drawn with nothing in it (hasVisibleContent's outer Visible()
-	// check on the chip itself is what actually collapses its layout slot
-	// and stops it from rendering).
-	statusBarBackupChip   fyne.CanvasObject
-	statusBarAudioChip    fyne.CanvasObject
-	statusBarCdromChip    fyne.CanvasObject
-	statusBarKeyboardChip fyne.CanvasObject
-	statusBarMouseChip    fyne.CanvasObject
-	statusBarRndisChip    fyne.CanvasObject
-	statusBarGamepadChip  fyne.CanvasObject
-	statusBarSnapshotChip fyne.CanvasObject
-	statusBarScriptChip   fyne.CanvasObject
 
 	// Services
 	nbdServer        *service.NBDServer

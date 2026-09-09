@@ -533,9 +533,6 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 	return spacer
 }
 
-// newHeaderPassiveIndicator's only caller (mw.backupIcon) wraps this in its
-// own newStatusBarIconChip for background/box sizing, so this just builds
-// the bare centered icon.
 func newHeaderPassiveIndicator(icon fyne.Resource) fyne.CanvasObject {
 	image := canvas.NewImageFromResource(icon)
 	image.FillMode = canvas.ImageFillContain
@@ -1112,46 +1109,33 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.scriptIcon.Hide()
 
 	mw.statusPanel = container.New(&centeredInlineLayout{gap: 4, minGap: 2})
-	// Every one of these (mw.backupIcon included) goes through
-	// newStatusBarIconChip -- same background/box/radius as mw.videoIcon,
-	// instead of a plain widget.Button's own default theme chrome (or no
-	// chrome at all) bleeding through inconsistently. Actual icon size for
-	// these plain widget.Button icons is handled separately, by wrapping
-	// mw.statusPanel itself in a theme.SizeNameInlineIcon override (see
-	// statusBarIconSizeTheme, applied in buildStatusIndicatorBar) -- there's
-	// no per-instance SetIconSize on widget.Button the way
-	// headerStatusBadgeButton (mw.videoIcon/mw.audioIcon) has.
+	// Every one of these except mw.backupIcon (already sized via
+	// newHeaderPassiveIndicator's own GridWrap) is either a
+	// headerStatusBadgeButton (36x36 MinSize, hardcoded, ignores its own
+	// icon size) or a plain widget.NewButtonWithIcon (Fyne's own default
+	// theme padding puts it well past that too) -- once actually connected
+	// and several of these go from Hidden to Shown, whichever was tallest
+	// stretched this whole row, and with it createMainAddressBar's header
+	// band, past the connections screen's own 28px-tall header. GridWrap
+	// forces each down to statusBarIconBoxSize regardless of what its own
+	// MinSize would otherwise report -- the same trick connection_header.go
+	// already uses for that header's own info/community/language buttons
+	// (also headerStatusBadgeButton). Actual icon *size* and hover color
+	// for these plain widget.Button icons are handled separately, by
+	// wrapping mw.statusPanel itself in a theme override (see
+	// statusBarPeripheralTheme, applied in buildStatusIndicatorBar).
 	// mw.videoIcon is not in this row -- it moved into its own
 	// icon+fps+resolution group inside buildStatusIndicatorBar.
-	mw.statusBarBackupChip = newStatusBarIconChip(mw.backupIcon)
-	mw.statusBarAudioChip = newStatusBarIconChip(mw.audioIcon)
-	mw.statusBarCdromChip = newStatusBarIconChip(mw.cdromIcon)
-	mw.statusBarKeyboardChip = newStatusBarIconChip(mw.keyboardIcon)
-	mw.statusBarMouseChip = newStatusBarIconChip(mw.mouseIcon)
-	mw.statusBarRndisChip = newStatusBarIconChip(mw.rndisIcon)
-	mw.statusBarGamepadChip = newStatusBarIconChip(mw.gamepadIcon)
-	mw.statusBarSnapshotChip = newStatusBarIconChip(mw.snapshotIcon)
-	mw.statusBarScriptChip = newStatusBarIconChip(mw.scriptIcon)
-	// Every icon above starts disconnected/hidden -- hide its chip too, or
-	// the chip's own background square would show up empty until the first
-	// updateStatusBarUI tick.
-	for _, chip := range []fyne.CanvasObject{
-		mw.statusBarBackupChip, mw.statusBarAudioChip, mw.statusBarCdromChip,
-		mw.statusBarKeyboardChip, mw.statusBarMouseChip, mw.statusBarRndisChip,
-		mw.statusBarGamepadChip, mw.statusBarSnapshotChip, mw.statusBarScriptChip,
-	} {
-		chip.Hide()
-	}
 	mw.statusPanel.Objects = buildHeaderStatusIndicators(
-		mw.statusBarBackupChip,
-		mw.statusBarAudioChip,
-		mw.statusBarCdromChip,
-		mw.statusBarKeyboardChip,
-		mw.statusBarMouseChip,
-		mw.statusBarRndisChip,
-		mw.statusBarGamepadChip,
-		mw.statusBarSnapshotChip,
-		mw.statusBarScriptChip,
+		container.NewGridWrap(statusBarIconBoxSize, mw.backupIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.audioIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.cdromIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.keyboardIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.mouseIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.rndisIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.gamepadIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.snapshotIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.scriptIcon),
 	)
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
@@ -1310,10 +1294,10 @@ func (mw *MainWindow) updateStatusBar() {
 				mw.runningScriptPath = runningPath
 				mw.runningScriptName = runningName
 				if mw.scriptIcon != nil {
-					if runningPath != "" && mw.statusBarScriptChip != nil {
-						mw.statusBarScriptChip.Show()
-					} else if mw.statusBarScriptChip != nil {
-						mw.statusBarScriptChip.Hide()
+					if runningPath != "" {
+						mw.scriptIcon.Show()
+					} else {
+						mw.scriptIcon.Hide()
 					}
 					mw.scriptIcon.Refresh()
 					mw.syncStatusBarDividers()
@@ -1357,28 +1341,23 @@ func (mw *MainWindow) updateStatusBar() {
 
 func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndisConnected, cdromConnected, backupConnected, snapshotConnected, videoStreaming, gamepadConnected, audioStreaming bool) {
 	fyne.Do(func() {
-		// Every branch below shows/hides that icon's own statusBar*Chip
-		// wrapper (main_window_status_indicator_bar.go), not the bare icon
-		// widget -- see statusBar*Chip's own doc comment on MainWindow for
-		// why (a hidden icon inside an otherwise-visible chip would still
-		// leave that chip's background square drawn empty).
 		if mw.keyboardIcon != nil {
 			if keyboardConnected {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIconStatusBar)
-				showIfNotNil(mw.statusBarKeyboardChip)
+				mw.keyboardIcon.Show()
 			} else {
 				mw.keyboardIcon.SetIcon(assets.KeyboardIcon)
-				hideIfNotNil(mw.statusBarKeyboardChip)
+				mw.keyboardIcon.Hide()
 			}
 			mw.keyboardIcon.Refresh()
 		}
 		if mw.mouseIcon != nil {
 			if mouseConnected {
 				mw.mouseIcon.SetIcon(assets.MouseIconStatusBar)
-				showIfNotNil(mw.statusBarMouseChip)
+				mw.mouseIcon.Show()
 			} else {
 				mw.mouseIcon.SetIcon(assets.MouseIcon)
-				hideIfNotNil(mw.statusBarMouseChip)
+				mw.mouseIcon.Hide()
 			}
 			mw.mouseIcon.Refresh()
 		}
@@ -1400,54 +1379,54 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		if mw.audioIcon != nil {
 			if audioStreaming {
 				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
-				showIfNotNil(mw.statusBarAudioChip)
+				mw.audioIcon.Show()
 			} else {
 				mw.audioIcon.SetIcon(assets.AudioIcon)
-				hideIfNotNil(mw.statusBarAudioChip)
+				mw.audioIcon.Hide()
 			}
 			mw.audioIcon.Refresh()
 		}
 		if mw.cdromIcon != nil {
 			if cdromConnected {
 				mw.cdromIcon.SetIcon(assets.DiscIconStatusBar)
-				showIfNotNil(mw.statusBarCdromChip)
+				mw.cdromIcon.Show()
 			} else {
 				mw.cdromIcon.SetIcon(assets.DiscIcon)
-				hideIfNotNil(mw.statusBarCdromChip)
+				mw.cdromIcon.Hide()
 			}
 			mw.cdromIcon.Refresh()
 		}
 		if mw.rndisIcon != nil {
 			if rndisConnected {
 				mw.rndisIcon.SetIcon(assets.NetworkIconStatusBar)
-				showIfNotNil(mw.statusBarRndisChip)
+				mw.rndisIcon.Show()
 			} else {
 				mw.rndisIcon.SetIcon(assets.NetworkIcon)
-				hideIfNotNil(mw.statusBarRndisChip)
+				mw.rndisIcon.Hide()
 			}
 			mw.rndisIcon.Refresh()
 		}
 		if mw.gamepadIcon != nil {
 			if gamepadConnected {
-				showIfNotNil(mw.statusBarGamepadChip)
+				mw.gamepadIcon.Show()
 			} else {
-				hideIfNotNil(mw.statusBarGamepadChip)
+				mw.gamepadIcon.Hide()
 			}
 			mw.gamepadIcon.Refresh()
 		}
 		if mw.backupIcon != nil {
 			if backupConnected {
-				showIfNotNil(mw.statusBarBackupChip)
+				mw.backupIcon.Show()
 			} else {
-				hideIfNotNil(mw.statusBarBackupChip)
+				mw.backupIcon.Hide()
 			}
 			mw.backupIcon.Refresh()
 		}
 		if mw.snapshotIcon != nil {
 			if snapshotConnected {
-				showIfNotNil(mw.statusBarSnapshotChip)
+				mw.snapshotIcon.Show()
 			} else {
-				hideIfNotNil(mw.statusBarSnapshotChip)
+				mw.snapshotIcon.Hide()
 			}
 			mw.snapshotIcon.Refresh()
 		}

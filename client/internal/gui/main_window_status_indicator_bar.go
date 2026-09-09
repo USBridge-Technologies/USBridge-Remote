@@ -10,6 +10,8 @@ package gui
 // middleGroup with no shared background/border of its own.
 
 import (
+	"image/color"
+
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 
@@ -36,45 +38,55 @@ const (
 	statusIndicatorDividerH    = float32(16)
 	statusIndicatorDotSize     = float32(3)
 	statusIndicatorFPSTextSize = float32(11)
-	// statusBarIconChipRadius is deliberately smaller than design.RadiusMD
-	// (8, the app's usual chip/panel radius) -- at RadiusMD the 22px icon
-	// chips read as too rounded for their size.
-	statusBarIconChipRadius = float32(4)
+	// statusBarIconHoverRadius is deliberately smaller than design.RadiusMD
+	// (8, the app's usual chip/panel radius) -- at RadiusMD a 22px icon's
+	// hover highlight reads as too rounded for its size.
+	statusBarIconHoverRadius = float32(4)
 	// statusBarPeripheralIconSize overrides theme.SizeNameInlineIcon (via
-	// statusBarIconSizeTheme below) for every plain widget.Button icon in
+	// statusBarPeripheralTheme below) for every plain widget.Button icon in
 	// mw.statusPanel, matching mw.videoIcon/mw.audioIcon's own explicit
 	// SetIconSize(14, 14).
 	statusBarPeripheralIconSize = float32(14)
 )
 
-// statusBarIconSizeTheme overrides theme.SizeNameInlineIcon so every plain
-// widget.Button in mw.statusPanel (keyboard/mouse/gamepad/rndis/cdrom/
-// snapshot/script -- none of which expose a per-instance icon size setter,
-// unlike headerStatusBadgeButton's own SetIconSize) renders its icon at the
-// same 14px as mw.videoIcon/mw.audioIcon. Wraps mw.statusPanel itself via
-// container.NewThemeOverride in buildStatusIndicatorBar.
-type statusBarIconSizeTheme struct {
+// statusBarPeripheralTheme is scoped to mw.statusPanel only (via
+// container.NewThemeOverride in buildStatusIndicatorBar), so it doesn't
+// touch any other button's icon size or hover color in the app:
+//   - theme.SizeNameInlineIcon -> 14px, matching mw.videoIcon/mw.audioIcon's
+//     own SetIconSize(14, 14) (plain widget.Button has no per-instance
+//     equivalent setter).
+//   - theme.SizeNameInputRadius -> statusBarIconHoverRadius, the corner
+//     radius Fyne's own button renderer uses for its hover-highlight rect.
+//   - theme.ColorNameButton -> transparent, theme.ColorNameHover ->
+//     design.ColorStatusBarIconChip: LowImportance buttons (every icon
+//     here) are already background-less at rest and only paint
+//     ColorNameButton blended with ColorNameHover while actually hovered
+//     (see fyne's widget/button.go buttonColorNames) -- so this makes that
+//     hover highlight design.ColorStatusBarIconChip instead of the app's
+//     default translucent-white hover, matching mw.videoIcon/mw.audioIcon's
+//     own SetHoverStyle below. There is no persistent background at rest.
+type statusBarPeripheralTheme struct {
 	fyne.Theme
 }
 
-func (t *statusBarIconSizeTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameInlineIcon {
+func (t *statusBarPeripheralTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameInlineIcon:
 		return statusBarPeripheralIconSize
+	case theme.SizeNameInputRadius:
+		return statusBarIconHoverRadius
 	}
 	return t.Theme.Size(name)
 }
 
-// newStatusBarIconChip wraps one status icon in this strip's own background
-// (design.ColorStatusBarIconChip, a smaller-than-usual corner radius) and
-// its fixed clickable box (statusBarIconBoxSize) -- shared by the video
-// icon and every peripheral icon so they all read as the same kind of
-// button, not headerStatusBadgeButton's own (transparent-at-rest) chrome
-// bleeding through on some and a plain widget.Button's default theme chrome
-// on others.
-func newStatusBarIconChip(content fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(design.ColorStatusBarIconChip)
-	bg.CornerRadius = statusBarIconChipRadius
-	return container.NewGridWrap(statusBarIconBoxSize, container.NewStack(bg, content))
+func (t *statusBarPeripheralTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameButton:
+		return color.Transparent
+	case theme.ColorNameHover:
+		return design.ColorStatusBarIconChip
+	}
+	return t.Theme.Color(name, variant)
 }
 
 // newStatusBarDivider is the thin vertical rule between this strip's
@@ -101,21 +113,6 @@ func newFixedWidthFPSText(text *canvas.Text) fyne.CanvasObject {
 	sample.TextSize = text.TextSize
 	sampleSize := sample.MinSize()
 	return container.NewGridWrap(sampleSize, text)
-}
-
-// showIfNotNil/hideIfNotNil are tiny nil-guards for the statusBar*Chip
-// fields (main_window.go), which stay nil until buildStatusIndicatorBar has
-// run once but get toggled from update paths that may fire before that.
-func showIfNotNil(obj fyne.CanvasObject) {
-	if obj != nil {
-		obj.Show()
-	}
-}
-
-func hideIfNotNil(obj fyne.CanvasObject) {
-	if obj != nil {
-		obj.Hide()
-	}
 }
 
 // syncStorageChipVisibility shows/hides mw.sdStorageProgress and the
@@ -162,20 +159,23 @@ func (mw *MainWindow) syncStatusBarDividers() {
 // mw.statusPanel and mw.sdStorageProgress must already exist (built by
 // createStatusBar) before this is called.
 func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
+	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+
 	mw.videoFPSText = canvas.NewText("", design.ColorStatusBarAccent)
 	mw.videoFPSText.TextSize = statusIndicatorFPSTextSize
 	mw.videoResolutionText = canvas.NewText("", design.ColorStatusBarResolutionText)
 	mw.videoResolutionText.TextSize = statusIndicatorFPSTextSize
 
 	mw.videoStatusGroup = container.New(&centeredInlineLayout{gap: statusIndicatorGroupGap, minGap: 2},
-		newStatusBarIconChip(mw.videoIcon),
+		container.NewGridWrap(statusBarIconBoxSize, mw.videoIcon),
 		newFixedWidthFPSText(mw.videoFPSText),
 		newStatusBarDot(),
 		mw.videoResolutionText,
 	)
 	mw.videoStatusGroup.Hide()
 
-	peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarIconSizeTheme{Theme: design.NewBrandTheme()})
+	peripheralsSized := container.NewThemeOverride(mw.statusPanel, &statusBarPeripheralTheme{Theme: design.NewBrandTheme()})
 
 	// statusBarPeripheralsDivider sits between the video group and the
 	// peripherals group -- hidden whenever either side is empty (see

@@ -31,6 +31,14 @@ type headerStatusBadgeButton struct {
 	onTapped           func()
 	hovered            bool
 	iconSize           fyne.Size
+	// hoverColor/hoverRadius override the default hover highlight (a faint
+	// white overlay, RadiusMD corners) -- nil/0 keeps that default, so
+	// connection_header.go's gear/language/community/info buttons (which
+	// never call SetHoverStyle) are unaffected. Only the status-indicator
+	// strip's video/audio icons set these, to match that strip's own
+	// peripheral-icon hover color (main_window_status_indicator_bar.go).
+	hoverColor  color.Color
+	hoverRadius float32
 
 	bg        *canvas.Rectangle
 	icon      *canvas.Image
@@ -49,6 +57,14 @@ func newHeaderStatusBadgeButton(icon fyne.Resource, onTapped func()) *headerStat
 	}
 	b.ExtendBaseWidget(b)
 	return b
+}
+
+// SetHoverStyle overrides this button's hover highlight color/corner
+// radius -- see the hoverColor/hoverRadius field doc comment.
+func (b *headerStatusBadgeButton) SetHoverStyle(hoverColor color.Color, radius float32) {
+	b.hoverColor = hoverColor
+	b.hoverRadius = radius
+	b.Refresh()
 }
 
 func (b *headerStatusBadgeButton) SetIcon(icon fyne.Resource) {
@@ -193,9 +209,18 @@ func (r *headerStatusBadgeButtonRenderer) MinSize() fyne.Size {
 }
 
 func (r *headerStatusBadgeButtonRenderer) Refresh() {
+	radius := design.RadiusMD
+	if r.button.hoverRadius > 0 {
+		radius = r.button.hoverRadius
+	}
+	r.button.bg.CornerRadius = radius
+
 	r.button.bg.FillColor = color.Transparent
 	if r.button.hovered {
 		r.button.bg.FillColor = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+		if r.button.hoverColor != nil {
+			r.button.bg.FillColor = r.button.hoverColor
+		}
 	}
 	r.button.bg.Refresh()
 
