@@ -217,7 +217,7 @@ func newConnectionHeader(actions connectionHeaderActions) (*fyne.Container, *Con
 	row := container.NewHBox(logoLockup, layout.NewSpacer(), rightRow)
 
 	bg := canvas.NewRectangle(design.ColorGray900)
-	paddedRow := view.NewInset(row, 16, 16, 2, 2)
+	paddedRow := view.NewInset(row, 16, 16, 4, 4)
 
 	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
 	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
