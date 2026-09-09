@@ -37,7 +37,7 @@ const (
 // full icon set can be tuned visually without physically attaching an SD
 // card, keyboard, mouse, gamepad, etc. Flip back to false before shipping;
 // it only affects display, never any real device/API call.
-const debugForceAllStatusIndicators = true
+const debugForceAllStatusIndicators = false
 
 func protocolDropdownLabel(protocol string) string {
 	switch strings.TrimSpace(protocol) {
