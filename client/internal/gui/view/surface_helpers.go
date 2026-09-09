@@ -209,7 +209,15 @@ func NewHeaderBand(title string, content fyne.CanvasObject) *fyne.Container {
 		body = container.NewVBox(titleWrap, NewInset(content, headerBandHorizontalInset, headerBandHorizontalInset, 8, headerBandBodyBottomInset))
 	}
 
-	return container.NewStack(bg, body)
+	// Same hairline accent under the band as the connections screen's own
+	// header (connection_header.go's newConnectionHeader) -- this used to be
+	// missing here, the one visible difference once Control's header
+	// (createMainAddressBar, this function's only caller) started reusing
+	// that header's own accessory menu.
+	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
+
+	return container.NewStack(bg, container.NewBorder(nil, accentLine, nil, nil, body))
 }
 
 // MobileFooterBottomInset adds padding to the bottom of the container on mobile devices

@@ -26,9 +26,16 @@ import (
 )
 
 const (
-	addressBarGap        float32 = 10
-	addressBarControlH   float32 = 36
-	addressBarActionBtn  float32 = 36
+	addressBarGap float32 = 10
+	// addressBarControlH/addressBarActionBtn size the Exit button -- 28, not
+	// the original 36, to match headerCompactButtonSize (connection_header.go),
+	// the connections screen's own header buttons. At 36 this row's own
+	// MinSize().Height came out taller than that header's, so Control's
+	// header band ended up visibly taller than the connections screen's
+	// despite both going through view.NewHeaderBand/newConnectionHeader's
+	// near-identical padding.
+	addressBarControlH   float32 = 28
+	addressBarActionBtn  float32 = 28
 	addressBarHostHideAt float32 = 180
 	statusIconSize       float32 = 18
 )
