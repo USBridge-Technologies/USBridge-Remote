@@ -1364,8 +1364,10 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		if mw.videoIcon != nil {
 			if videoStreaming {
 				mw.videoIcon.SetIcon(assets.CameraIconStatusBar)
+				mw.videoIcon.Show()
 			} else {
 				mw.videoIcon.SetIcon(assets.CameraIcon)
+				mw.videoIcon.Hide()
 			}
 			mw.videoIcon.Refresh()
 		}
