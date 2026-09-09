@@ -26,16 +26,7 @@ import (
 )
 
 const (
-	addressBarGap float32 = 10
-	// addressBarControlH/addressBarActionBtn size the Exit button -- 28, not
-	// the original 36, to match headerCompactButtonSize (connection_header.go),
-	// the connections screen's own header buttons. At 36 this row's own
-	// MinSize().Height came out taller than that header's, so Control's
-	// header band ended up visibly taller than the connections screen's
-	// despite both going through view.NewHeaderBand/newConnectionHeader's
-	// near-identical padding.
-	addressBarControlH   float32 = 28
-	addressBarActionBtn  float32 = 28
+	addressBarGap        float32 = 10
 	addressBarHostHideAt float32 = 180
 	statusIconSize       float32 = 18
 )
@@ -468,20 +459,16 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 			Stroke:      color.NRGBA{R: 0xd6, G: 0x6d, B: 0x6d, A: 0xff},
 			StrokeWidth: 1.2,
 			Icon:        assets.ExitIcon,
-			IconSize:    fyne.NewSize(24, 24),
+			IconSize:    fyne.NewSize(16, 16),
+			Text:        connectionProtocolLabel(mw.connectedProtocol),
 		})
 	}
-	exitPanel := container.NewGridWrap(fyne.NewSize(addressBarActionBtn, addressBarControlH), mw.mainExitBtn)
 	// Control's own reuse of the connections screen's header accessories
 	// (see connection_header.go's newHeaderSettingsMenuButton) -- same
 	// Info/Community/Language/Account actions as createConnectionAddressBar
 	// wires into newConnectionHeader, just collapsed into one gear-icon
 	// dropdown instead of four separate buttons so they don't crowd this
-	// row's pcpanel/status-icon/protocol/exit elements. Sits outside
-	// exitStatusOverlayLayout (left of exitPanel in a plain HBox) rather
-	// than folded into that layout's own two-object contract, so its
-	// existing protocol-badge-over-exit-button positioning math stays
-	// untouched.
+	// row's pcpanel/status-icon/protocol/exit elements.
 	settingsBtn := newHeaderSettingsMenuButton(headerSettingsMenuActions{
 		OnPowerReset: func() {
 			if mw.pcpanelWidget != nil {
@@ -507,9 +494,13 @@ func (mw *MainWindow) createMainAddressBar() *fyne.Container {
 			mw.showAccountDialog()
 		},
 	})
+	// mw.mainExitBtn no longer has a protocol badge stuck on top of it (see
+	// connectionProtocolLabel) -- it just sizes itself to its own icon+text
+	// content now (view.HeaderActionButton.MinSize), so it sits here
+	// directly instead of behind an overlay layout.
 	rightGroup := container.NewHBox(
 		settingsBtn,
-		container.New(&exitStatusOverlayLayout{badgeInsetX: -7, badgeInsetY: -3}, exitPanel, mw.protocolPanel),
+		mw.mainExitBtn,
 	)
 	middleGroup := container.New(&centeredInlineLayout{gap: 8, minGap: 4}, mw.sdStorageProgress, mw.statusPanel)
 	// Clip, not Scroll: on a narrow/mobile window this row can genuinely
@@ -604,10 +595,6 @@ type mainHeaderBarLayout struct {
 	edgeInset float32
 	sideGap   float32
 }
-type exitStatusOverlayLayout struct {
-	badgeInsetX float32
-	badgeInsetY float32
-}
 type centeredInlineLayout struct {
 	gap    float32
 	minGap float32
@@ -643,32 +630,16 @@ func newProtocolIndicator(protocol string) fyne.CanvasObject {
 	return container.NewCenter(label)
 }
 
-func newProtocolBadge(protocol string) fyne.CanvasObject {
-	text, fill, foreground := protocolButtonState(protocol)
-	if strings.TrimSpace(protocol) == "" {
-		fill = design.ColorBorder
-		foreground = design.ColorTextLight
-		text = ""
+// connectionProtocolLabel is the Exit button's own LAN/Tailscale text (see
+// createMainAddressBar/updateStatusBarUI) -- replaces the old floating
+// "online"/"tailscale" badge stuck on top of that button
+// (newProtocolBadge, since removed) with plain text baked into the button
+// itself instead.
+func connectionProtocolLabel(protocol string) string {
+	if protocol == models.ConnectionProtocolTailscale {
+		return "Tailscale"
 	}
-
-	bg := canvas.NewRectangle(fill)
-	bg.CornerRadius = 7
-	bg.StrokeColor = design.ColorBackground
-	bg.StrokeWidth = 1.2
-
-	label := canvas.NewText(strings.TrimSpace(text), foreground)
-	label.TextSize = 8
-	label.TextStyle.Bold = true
-
-	badgeWidth := fyne.MeasureText(strings.TrimSpace(text), 8, fyne.TextStyle{Bold: true}).Width + 8
-	if badgeWidth < 20 {
-		badgeWidth = 20
-	}
-
-	return container.NewGridWrap(
-		fyne.NewSize(badgeWidth, 14),
-		container.NewMax(bg, container.NewCenter(label)),
-	)
+	return "LAN"
 }
 
 func minFloat32(a, b float32) float32 {
@@ -815,37 +786,6 @@ func headerCenterContentMinSize(center fyne.CanvasObject) fyne.Size {
 		return cl.Content.MinSize()
 	}
 	return center.MinSize()
-}
-
-func (l *exitStatusOverlayLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) == 0 {
-		return
-	}
-
-	base := objects[0]
-	base.Resize(size)
-	base.Move(fyne.NewPos(0, 0))
-
-	if len(objects) < 2 || !hasVisibleContent(objects[1]) {
-		return
-	}
-
-	badge := objects[1]
-	badgeMin := badge.MinSize()
-	baseWidth := base.MinSize().Width
-	if baseWidth <= 0 || baseWidth > size.Width {
-		baseWidth = size.Width
-	}
-	badgeX := (baseWidth - badgeMin.Width) / 2
-	badge.Move(fyne.NewPos(badgeX, l.badgeInsetY))
-	badge.Resize(badgeMin)
-}
-
-func (l *exitStatusOverlayLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) == 0 {
-		return fyne.NewSize(0, 0)
-	}
-	return objects[0].MinSize()
 }
 
 func (l *centeredInlineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -1197,8 +1137,6 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		container.NewGridWrap(headerCompactButtonSize, mw.snapshotIcon),
 		container.NewGridWrap(headerCompactButtonSize, mw.scriptIcon),
 	)
-	mw.protocolPanel = container.NewHBox(newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)))
-
 	mountBtn, unmountBtn, _ := mw.diskWidget.GetButtons()
 	mw.deviceMountBtn = mountBtn
 	mw.deviceUnmountBtn = unmountBtn
@@ -1491,11 +1429,8 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 		if mw.statusPanel != nil {
 			mw.statusPanel.Refresh()
 		}
-		if mw.protocolPanel != nil {
-			mw.protocolPanel.Objects = []fyne.CanvasObject{
-				newProtocolBadge(strings.TrimSpace(mw.connectedProtocol)),
-			}
-			mw.protocolPanel.Refresh()
+		if mw.mainExitBtn != nil {
+			mw.mainExitBtn.SetText(connectionProtocolLabel(mw.connectedProtocol))
 		}
 		mw.refreshMainHeaderLayout()
 	})
@@ -1510,9 +1445,6 @@ func (mw *MainWindow) refreshMainHeaderLayout() {
 	}
 	if mw.statusPanel != nil {
 		mw.statusPanel.Refresh()
-	}
-	if mw.protocolPanel != nil {
-		mw.protocolPanel.Refresh()
 	}
 	if mw.mainContent != nil {
 		mw.mainContent.Refresh()

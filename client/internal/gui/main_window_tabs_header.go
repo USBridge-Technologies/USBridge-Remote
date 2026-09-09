@@ -36,7 +36,7 @@ const (
 	headerTabButtonTextSize     = float32(10)
 	headerTabButtonGap          = float32(6)
 	headerTabButtonUnderlineGap = float32(4)
-	headerTabButtonUnderlineH   = float32(2)
+	headerTabButtonUnderlineH   = float32(1)
 )
 
 // headerTabButton is one entry in the header's tab selector -- an icon next
@@ -105,7 +105,11 @@ func (b *headerTabButton) CreateRenderer() fyne.WidgetRenderer {
 	b.icon.FillMode = canvas.ImageFillContain
 	b.icon.SetMinSize(fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize))
 
-	b.text = view.NewBrandText(b.label, headerTabButtonTextSize, headerTabButtonMuted, true)
+	// Never bold -- toggling weight by selected state used to shift each
+	// button's own width (and everything after it) slightly on every tab
+	// switch, so every state stays the same regular weight now; only the
+	// color and the underline change.
+	b.text = view.NewBrandText(b.label, headerTabButtonTextSize, headerTabButtonMuted, false)
 
 	b.underline = canvas.NewRectangle(headerTabButtonSelected)
 	b.underline.Hide()
@@ -137,9 +141,6 @@ func (b *headerTabButton) refreshVisuals() {
 	}
 
 	b.text.Color = textColor
-	// Bold only while selected -- an unselected tab (muted or hovered) stays
-	// regular weight, so the active one is the only one that reads as bold.
-	b.text.TextStyle.Bold = b.selected
 	b.text.Refresh()
 	b.icon.Resource = iconRes
 	b.icon.Refresh()

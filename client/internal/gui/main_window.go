@@ -131,7 +131,6 @@ type MainWindow struct {
 	runningScriptPath string
 	runningScriptName string
 	statusPanel       *fyne.Container
-	protocolPanel     *fyne.Container
 
 	connectionLossInProgress atomic.Bool
 	shutdownInProgress       atomic.Bool

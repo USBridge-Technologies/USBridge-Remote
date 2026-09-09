@@ -72,6 +72,17 @@ func (b *HeaderActionButton) Disabled() bool {
 	return b.spec.Disabled
 }
 
+// SetText updates just the label (e.g. the Exit button's own LAN/Tailscale
+// text -- see main_window_layout.go's updateStatusBarUI, called whenever
+// mw.connectedProtocol changes) without touching Fill/Stroke/Icon/etc., so
+// a caller doesn't have to reconstruct and reapply the whole spec just to
+// change this one field.
+func (b *HeaderActionButton) SetText(text string) {
+	b.spec.Text = text
+	b.syncVisuals()
+	b.Refresh()
+}
+
 func (b *HeaderActionButton) Tapped(*fyne.PointEvent) {
 	if b.spec.Disabled || b.onTapped == nil {
 		return
@@ -81,8 +92,50 @@ func (b *HeaderActionButton) Tapped(*fyne.PointEvent) {
 
 func (b *HeaderActionButton) TappedSecondary(*fyne.PointEvent) {}
 
+// headerActionButtonTextSize/Gap/PadX/PadY size this button's content when
+// it's showing icon+text together (e.g. the Exit button's own LAN/Tailscale
+// label -- see main_window_layout.go's createMainAddressBar) -- small
+// enough that the whole button stays compact rather than the old fixed
+// 36x36 square every caller got regardless of content.
+const (
+	headerActionButtonTextSize = float32(11)
+	headerActionButtonGap      = float32(6)
+	headerActionButtonPadX     = float32(10)
+	headerActionButtonPadY     = float32(2)
+)
+
+// MinSize sizes the button to its actual content (icon and/or text, side by
+// side, plus padding) instead of a fixed square -- a button with both grows
+// as wide as its label needs (see spec.Text), not just its icon's own
+// width, and a shorter/taller icon changes the button's height too instead
+// of always reporting the same fixed value regardless of spec.IconSize.
 func (b *HeaderActionButton) MinSize() fyne.Size {
-	return fyne.NewSize(36, 36)
+	iconSize := b.spec.IconSize
+	if iconSize.Width <= 0 || iconSize.Height <= 0 {
+		iconSize = fyne.NewSize(22, 22)
+	}
+	hasIcon := b.spec.Icon != nil || len(b.spec.SpinnerFrames) > 0
+	hasText := b.spec.Text != ""
+
+	var width, height float32
+	if hasIcon {
+		width += iconSize.Width
+		height = iconSize.Height
+	}
+	if hasText {
+		textSize := fyne.MeasureText(b.spec.Text, headerActionButtonTextSize, fyne.TextStyle{Bold: true})
+		if hasIcon {
+			width += headerActionButtonGap
+		}
+		width += textSize.Width
+		if textSize.Height > height {
+			height = textSize.Height
+		}
+	}
+	if !hasIcon && !hasText {
+		width, height = 22, 22
+	}
+	return fyne.NewSize(width+headerActionButtonPadX*2, height+headerActionButtonPadY*2)
 }
 
 func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
@@ -103,10 +156,15 @@ func (b *HeaderActionButton) CreateRenderer() fyne.WidgetRenderer {
 	b.icon.SetMinSize(iconSize)
 
 	b.label = canvas.NewText("", b.spec.Foreground)
-	b.label.TextSize = 18
+	b.label.TextSize = headerActionButtonTextSize
 	b.label.TextStyle.Bold = true
 
-	content := container.NewCenter(container.NewStack(b.icon, b.label))
+	// DeviceRowControlsLayout (icon then label, left to right, skipping
+	// whichever one is hidden) instead of the old Stack -- icon and label
+	// used to be mutually exclusive (see syncVisuals' old forced
+	// b.icon.Hide() whenever spec.Text was set) and so could just sit on
+	// top of each other; now both can show at once.
+	content := container.NewCenter(container.New(&DeviceRowControlsLayout{Gap: headerActionButtonGap}, b.icon, b.label))
 	renderer := widget.NewSimpleRenderer(container.NewMax(b.bg, content, b.border))
 	b.syncVisuals()
 	return renderer
@@ -151,10 +209,6 @@ func (b *HeaderActionButton) syncVisuals() {
 		b.icon.SetMinSize(b.spec.IconSize)
 	} else {
 		b.icon.SetMinSize(fyne.NewSize(22, 22))
-	}
-
-	if b.spec.Text != "" {
-		b.icon.Hide()
 	}
 }
 
