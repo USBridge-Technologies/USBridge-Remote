@@ -1064,6 +1064,11 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		}
 	})
 	mw.fullscreenIcon.SetIconSize(fyne.NewSize(14, 14))
+	// newHeaderStatusBadgeButton defaults badgeText to "0" (the video icon's
+	// own fps badge, before that moved to mw.videoFPSText next to it -- see
+	// updateVideoIconLabel) -- this button has nothing to badge, so it was
+	// showing a stray green "0" circle until explicitly cleared here.
+	mw.fullscreenIcon.SetBadgeText("")
 	mw.fullscreenIcon.Hide()
 	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
 		mw.showAudioMenu()
