@@ -11,55 +11,73 @@ import (
 	"image/color"
 
 	"usbridge-client/internal/gui/assets"
-	"usbridge-client/internal/gui/design"
+	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
-// headerTabButton is one entry in the header's tab selector -- an icon-only
-// button (headerCompactButtonSize, same as this header's other buttons)
-// that swaps to iconActive and gets a persistent background fill while
-// SetSelected(true), on top of the same transient hover fill every other
-// button in this header already uses.
+// headerTabButtonMuted/Selected/Hover are this button's own icon+text color
+// scheme -- no background fill at all (unlike this header's other buttons),
+// just these three text/icon colors plus a persistent underline while
+// selected, matching a reference design handed over for this row
+// specifically.
+var (
+	headerTabButtonMuted    = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	headerTabButtonSelected = color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff}
+	headerTabButtonHover    = color.NRGBA{R: 0xe0, G: 0xe3, B: 0xe7, A: 0xff}
+)
+
+const (
+	headerTabButtonIconSize     = float32(15)
+	headerTabButtonTextSize     = float32(12)
+	headerTabButtonGap          = float32(6)
+	headerTabButtonUnderlineGap = float32(4)
+	headerTabButtonUnderlineH   = float32(2)
+)
+
+// headerTabButton is one entry in the header's tab selector -- an icon next
+// to a text label, colored (not backgrounded) for its normal/hovered/
+// selected state, with a persistent underline while selected.
 type headerTabButton struct {
 	widget.BaseWidget
 
-	iconNormal fyne.Resource
-	// iconActive is nil for tabs with no distinct "selected" icon asset
-	// (Scripts, see buildTabHeaderButtons) -- the background fill alone
-	// still carries the selected state then.
-	iconActive fyne.Resource
-	onTapped   func()
-	selected   bool
-	hovered    bool
+	iconMuted    fyne.Resource
+	iconSelected fyne.Resource
+	iconHover    fyne.Resource
+	label        string
+	onTapped     func()
+	selected     bool
+	hovered      bool
 
-	bg   *canvas.Rectangle
-	icon *canvas.Image
+	icon      *canvas.Image
+	text      *canvas.Text
+	underline *canvas.Rectangle
 }
 
-func newHeaderTabButton(iconNormal, iconActive fyne.Resource, onTapped func()) *headerTabButton {
-	b := &headerTabButton{iconNormal: iconNormal, iconActive: iconActive, onTapped: onTapped}
+func newHeaderTabButton(iconMuted, iconSelected, iconHover fyne.Resource, label string, onTapped func()) *headerTabButton {
+	b := &headerTabButton{
+		iconMuted:    iconMuted,
+		iconSelected: iconSelected,
+		iconHover:    iconHover,
+		label:        label,
+		onTapped:     onTapped,
+	}
 	b.ExtendBaseWidget(b)
 	return b
 }
 
 // SetSelected reflects applyTabVisualState's own activeIndex onto this
-// button's persistent highlight/active-icon look.
+// button's color/underline.
 func (b *headerTabButton) SetSelected(selected bool) {
 	if b.selected == selected {
 		return
 	}
 	b.selected = selected
 	b.refreshVisuals()
-}
-
-func (b *headerTabButton) MinSize() fyne.Size {
-	return headerCompactButtonSize
 }
 
 func (b *headerTabButton) Tapped(*fyne.PointEvent) {
@@ -83,39 +101,117 @@ func (b *headerTabButton) MouseOut() {
 }
 
 func (b *headerTabButton) CreateRenderer() fyne.WidgetRenderer {
-	b.bg = canvas.NewRectangle(color.Transparent)
-	b.bg.CornerRadius = design.RadiusMD
-
-	b.icon = canvas.NewImageFromResource(b.iconNormal)
+	b.icon = canvas.NewImageFromResource(b.iconMuted)
 	b.icon.FillMode = canvas.ImageFillContain
-	b.icon.SetMinSize(fyne.NewSize(16, 16))
+	b.icon.SetMinSize(fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize))
 
+	b.text = view.NewBrandText(b.label, headerTabButtonTextSize, headerTabButtonMuted, true)
+
+	b.underline = canvas.NewRectangle(headerTabButtonSelected)
+	b.underline.Hide()
+
+	r := &headerTabButtonRenderer{
+		button:  b,
+		objects: []fyne.CanvasObject{b.icon, b.text, b.underline},
+	}
 	b.refreshVisuals()
-	return widget.NewSimpleRenderer(container.NewStack(b.bg, container.NewCenter(b.icon)))
+	return r
 }
 
 func (b *headerTabButton) refreshVisuals() {
-	if b.bg == nil || b.icon == nil {
+	if b.icon == nil || b.text == nil || b.underline == nil {
 		return
 	}
 
-	fill := color.Color(color.Transparent)
-	iconRes := b.iconNormal
+	textColor := headerTabButtonMuted
+	iconRes := b.iconMuted
 	switch {
 	case b.selected:
-		fill = design.ColorSurfaceLight
-		if b.iconActive != nil {
-			iconRes = b.iconActive
-		}
+		textColor = headerTabButtonSelected
+		iconRes = b.iconSelected
 	case b.hovered:
-		fill = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x10}
+		textColor = headerTabButtonHover
+		if b.iconHover != nil {
+			iconRes = b.iconHover
+		}
 	}
 
-	b.bg.FillColor = fill
+	b.text.Color = textColor
+	b.text.Refresh()
 	b.icon.Resource = iconRes
-	b.bg.Refresh()
 	b.icon.Refresh()
+
+	if b.selected {
+		b.underline.Show()
+	} else {
+		b.underline.Hide()
+	}
+	b.underline.Refresh()
 }
+
+type headerTabButtonRenderer struct {
+	button  *headerTabButton
+	objects []fyne.CanvasObject
+}
+
+func (r *headerTabButtonRenderer) contentSize() (iconSize, textSize fyne.Size) {
+	iconSize = fyne.NewSize(headerTabButtonIconSize, headerTabButtonIconSize)
+	textSize = r.button.text.MinSize()
+	return
+}
+
+func (r *headerTabButtonRenderer) Layout(size fyne.Size) {
+	iconSize, textSize := r.contentSize()
+	rowHeight := iconSize.Height
+	if textSize.Height > rowHeight {
+		rowHeight = textSize.Height
+	}
+	rowWidth := iconSize.Width + headerTabButtonGap + textSize.Width
+
+	x := (size.Width - rowWidth) / 2
+	if x < 0 {
+		x = 0
+	}
+	rowY := float32(0)
+
+	r.button.icon.Move(fyne.NewPos(x, rowY+(rowHeight-iconSize.Height)/2))
+	r.button.icon.Resize(iconSize)
+
+	textX := x + iconSize.Width + headerTabButtonGap
+	r.button.text.Move(fyne.NewPos(textX, rowY+(rowHeight-textSize.Height)/2))
+	r.button.text.Resize(textSize)
+
+	underlineY := rowY + rowHeight + headerTabButtonUnderlineGap
+	r.button.underline.Move(fyne.NewPos(x, underlineY))
+	r.button.underline.Resize(fyne.NewSize(rowWidth, headerTabButtonUnderlineH))
+}
+
+func (r *headerTabButtonRenderer) MinSize() fyne.Size {
+	iconSize, textSize := r.contentSize()
+	rowHeight := iconSize.Height
+	if textSize.Height > rowHeight {
+		rowHeight = textSize.Height
+	}
+	rowWidth := iconSize.Width + headerTabButtonGap + textSize.Width
+	height := rowHeight + headerTabButtonUnderlineGap + headerTabButtonUnderlineH
+	return fyne.NewSize(rowWidth, height)
+}
+
+func (r *headerTabButtonRenderer) Refresh() {
+	r.button.refreshVisuals()
+	r.Layout(r.button.Size())
+	canvas.Refresh(r.button)
+}
+
+func (r *headerTabButtonRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *headerTabButtonRenderer) Objects() []fyne.CanvasObject {
+	return r.objects
+}
+
+func (r *headerTabButtonRenderer) Destroy() {}
 
 var (
 	_ fyne.Tappable     = (*headerTabButton)(nil)
@@ -130,29 +226,27 @@ var (
 // switch tabs at all rather than a shortcut into a native tab strip.
 func (mw *MainWindow) buildTabHeaderButtons() fyne.CanvasObject {
 	specs := [4]struct {
-		icon, iconActive fyne.Resource
-		index            func() int
+		iconMuted, iconSelected, iconHover fyne.Resource
+		label                              string
+		index                              func() int
 	}{
-		{assets.MonitorTabIcon, assets.MonitorTabIconActive, mw.controlTabIndex},
-		{assets.USBTabIcon, assets.USBTabIconActive, mw.devicesTabIndex},
-		{assets.SnapshotsTabIcon, assets.SnapshotsTabIconActive, mw.snapshotsTabIndex},
-		// No dedicated "active" scripts-tab asset (see mw.scriptIcon's own
-		// status-panel icon, fynetheme.MediaPlayIcon() -- same situation) --
-		// this button's selected background fill alone carries that state.
-		{fynetheme.MediaPlayIcon(), nil, mw.scriptsTabIndex},
+		{assets.MonitorTabIconMuted, assets.MonitorTabIconSelected, assets.MonitorTabIconHover, "Control", mw.controlTabIndex},
+		{assets.USBTabIconMuted, assets.USBTabIconSelected, assets.USBTabIconHover, "Devices", mw.devicesTabIndex},
+		{assets.SnapshotsTabIconMuted, assets.SnapshotsTabIconSelected, assets.SnapshotsTabIconHover, "Snapshots", mw.snapshotsTabIndex},
+		{assets.ScriptsTabIconMuted, assets.ScriptsTabIconSelected, assets.ScriptsTabIconHover, "Scripts", mw.scriptsTabIndex},
 	}
 
 	objs := make([]fyne.CanvasObject, 0, len(specs))
 	for i, spec := range specs {
 		idx := spec.index()
-		btn := newHeaderTabButton(spec.icon, spec.iconActive, func() {
+		btn := newHeaderTabButton(spec.iconMuted, spec.iconSelected, spec.iconHover, spec.label, func() {
 			if mw.tabs != nil && len(mw.tabs.Items) > idx {
 				mw.tabs.Select(mw.tabs.Items[idx])
 			}
 		})
 		mw.tabHeaderButtons[i] = btn
-		objs = append(objs, container.NewGridWrap(headerCompactButtonSize, btn))
+		objs = append(objs, btn)
 	}
 
-	return container.New(&centeredInlineLayout{gap: 4, minGap: 2}, objs...)
+	return container.New(&centeredInlineLayout{gap: 16, minGap: 8}, objs...)
 }
