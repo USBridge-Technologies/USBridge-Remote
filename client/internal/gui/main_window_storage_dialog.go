@@ -84,13 +84,16 @@ func (mw *MainWindow) showStorageInfoDialog() {
 		}
 	}
 
+	// 10px, matching every other header dropdown's own row text
+	// (ShowStyledMenuTeal) -- this one was left at the old modal dialog's
+	// much bigger 11/15px and read as oversized next to them.
 	buildBlock := func(title, value, percent string) fyne.CanvasObject {
-		titleText := view.NewBrandText(strings.ToUpper(title), 11, design.ColorConnectionBadgeText, true)
-		valueText := view.NewBrandText(value, 15, design.ColorTextLight, true)
-		percentText := view.NewBrandText(percent, 15, design.ColorTextLight, true)
+		titleText := view.NewBrandText(strings.ToUpper(title), 10, design.ColorConnectionBadgeText, true)
+		valueText := view.NewBrandText(value, 10, design.ColorTextLight, true)
+		percentText := view.NewBrandText(percent, 10, design.ColorTextLight, true)
 		return container.NewVBox(
 			titleText,
-			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 4, 0),
+			view.NewInset(container.NewHBox(valueText, layout.NewSpacer(), percentText), 0, 0, 2, 0),
 		)
 	}
 
@@ -99,11 +102,11 @@ func (mw *MainWindow) showStorageInfoDialog() {
 
 	content := container.NewVBox(
 		buildBlock(internalTitle, internalValue, internalPercent),
-		view.NewInset(divider, 0, 0, 10, 10),
+		view.NewInset(divider, 0, 0, 6, 6),
 		buildBlock(sdTitle, sdValue, sdPercent),
 	)
 
-	view.ShowStyledInfoDropdown(mw.sdStorageProgress, content, 220)
+	view.ShowStyledInfoDropdown(mw.sdStorageProgress, content, 180)
 }
 
 func formatStoragePercent(used, total int64) string {

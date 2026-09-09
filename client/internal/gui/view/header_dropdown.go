@@ -978,8 +978,11 @@ func ShowStyledInfoDropdown(anchor fyne.CanvasObject, content fyne.CanvasObject,
 	menuBorder.StrokeColor = design.ColorBorder
 	menuBorder.StrokeWidth = 1
 
+	// Same 6px inset showStyledMenu's own menuContent uses -- this popup
+	// should read as "one of this header's menus", not a bigger, more
+	// padded thing next to them.
 	menu := container.NewThemeOverride(
-		container.NewStack(menuBG, NewInset(content, 14, 14, 12, 12), menuBorder),
+		container.NewStack(menuBG, NewInset(content, 8, 8, 8, 8), menuBorder),
 		&dropdownMenuTheme{base: design.NewBrandTheme()},
 	)
 
