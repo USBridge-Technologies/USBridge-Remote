@@ -43,6 +43,8 @@ var (
 	uploadIcon []byte
 	//go:embed cam-svgrepo-com.svg
 	cameraIcon []byte
+	//go:embed fullscreen-svgrepo-com.svg
+	fullscreenIcon []byte
 	//go:embed keyboard-alt-1-svgrepo-com.svg
 	keyboardIcon []byte
 	//go:embed mouse-svgrepo-com.svg
@@ -230,7 +232,12 @@ var (
 	// strip (main_window_status_indicator_bar.go) -- its own accent
 	// (#c4e77a) instead of CameraIconActive's green, to match that strip's
 	// fps text color.
-	CameraIconStatusBar        = fyne.NewStaticResource("cam-svgrepo-com-statusbar.svg", recolorStrokeIcon(cameraIcon, "#c4e77a", "1.8"))
+	CameraIconStatusBar = fyne.NewStaticResource("cam-svgrepo-com-statusbar.svg", recolorStrokeIcon(cameraIcon, "#c4e77a", "1.8"))
+	// FullscreenIconStatusBar is that same strip's own fullscreen button
+	// (main_window_status_indicator_bar.go, after the resolution text) --
+	// #41e0c3, this app's one turquoise accent (design.ColorConnectionBadgeText),
+	// distinct from every other peripheral icon's #c4e77a there.
+	FullscreenIconStatusBar    = fyne.NewStaticResource("fullscreen-svgrepo-com-statusbar.svg", recolorFillIcon(fullscreenIcon, "#41e0c3"))
 	KeyboardIcon               = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com.svg", recolorStrokeIcon(keyboardIcon, "#C9C9C9", "1.8"))
 	KeyboardIconActive         = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-active.svg", recolorStrokeIcon(keyboardIcon, "#93C572", "1.8"))
 	KeyboardIconStatusBar      = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar.svg", recolorStrokeIcon(keyboardIcon, "#c4e77a", "1.8"))

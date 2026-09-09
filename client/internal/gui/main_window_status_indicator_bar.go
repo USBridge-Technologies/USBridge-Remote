@@ -176,6 +176,7 @@ func (mw *MainWindow) syncStatusBarDividers() {
 func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 	mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.fullscreenIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
 
 	mw.videoFPSText = canvas.NewText("", design.ColorStatusBarAccent)
 	mw.videoFPSText.TextSize = statusIndicatorFPSTextSize
@@ -187,6 +188,7 @@ func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 		newFixedWidthFPSText(mw.videoFPSText),
 		newStatusBarDot(),
 		mw.videoResolutionText,
+		container.NewGridWrap(statusBarIconBoxSize, mw.fullscreenIcon),
 	)
 	mw.videoStatusGroup.Hide()
 

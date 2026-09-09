@@ -1046,7 +1046,9 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	mw.nbdIcon = widget.NewButton("💿", func() {})
 	mw.nbdIcon.Importance = widget.LowImportance
 	mw.videoIcon = newHeaderStatusBadgeButton(assets.CameraIcon, func() {
-		mw.showVideoMenu()
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowCurrentVideoSettings(false)
+		}
 	})
 	// 14x14, not headerStatusBadgeButton's own 22x22 default -- this button
 	// (like every other one in mw.statusPanel, see the GridWrap wrapping in
@@ -1056,6 +1058,13 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	// to that size.
 	mw.videoIcon.SetIconSize(fyne.NewSize(14, 14))
 	mw.videoIcon.Hide()
+	mw.fullscreenIcon = newHeaderStatusBadgeButton(assets.FullscreenIconStatusBar, func() {
+		if mw.videoWidget != nil {
+			mw.videoWidget.ShowFullscreen()
+		}
+	})
+	mw.fullscreenIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.fullscreenIcon.Hide()
 	mw.audioIcon = newHeaderStatusBadgeButton(assets.AudioIcon, func() {
 		mw.showAudioMenu()
 	})
@@ -1387,6 +1396,14 @@ func (mw *MainWindow) updateStatusBarUI(keyboardConnected, mouseConnected, rndis
 				mw.videoStatusGroup.Hide()
 			}
 		}
+		if mw.fullscreenIcon != nil {
+			if videoStreaming {
+				mw.fullscreenIcon.Show()
+			} else {
+				mw.fullscreenIcon.Hide()
+			}
+			mw.fullscreenIcon.Refresh()
+		}
 		if mw.audioIcon != nil {
 			if audioStreaming {
 				mw.audioIcon.SetIcon(assets.AudioIconStatusBar)
@@ -1511,32 +1528,6 @@ func (mw *MainWindow) updateVideoIconLabel() {
 			mw.videoResolutionText.Refresh()
 		}
 	})
-}
-
-func (mw *MainWindow) showVideoMenu() {
-	if mw.videoIcon == nil || mw.videoWidget == nil {
-		return
-	}
-
-	items := []view.StyledMenuItem{
-		{
-			Label: i18n.Current.SettingsAction,
-			OnTap: func() {
-				mw.videoWidget.ShowCurrentVideoSettings(false)
-			},
-		},
-	}
-
-	if mw.videoWidget.IsStreaming() {
-		items = append(items, view.StyledMenuItem{
-			Label: i18n.Current.FullscreenAction,
-			OnTap: func() {
-				mw.videoWidget.ShowFullscreen()
-			},
-		})
-	}
-
-	view.ShowStyledMenu(mw.videoIcon, items)
 }
 
 func (mw *MainWindow) showAudioMenu() {
