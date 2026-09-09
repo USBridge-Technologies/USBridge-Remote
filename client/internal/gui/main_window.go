@@ -154,9 +154,9 @@ type MainWindow struct {
 	fullscreenIcon *headerStatusBadgeButton
 	audioIcon      *headerStatusBadgeButton
 	captureIcon    *widget.Button
-	keyboardIcon   *widget.Button
-	mouseIcon      *widget.Button
-	rndisIcon      *widget.Button
+	keyboardIcon   *headerStatusBadgeButton
+	mouseIcon      *headerStatusBadgeButton
+	rndisIcon      *headerStatusBadgeButton
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are that strip's own
 	// *passive* indicators (main_window_status_indicator_bar.go's
 	// "indicators" sub-group) -- bare newHeaderPassiveIndicator images, not

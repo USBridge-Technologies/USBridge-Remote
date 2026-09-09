@@ -31,8 +31,6 @@ var (
 	monitorTabIcon []byte
 	//go:embed disk-floppy-save-storage-data-svgrepo-com.svg
 	snapshotsTabIcon []byte
-	//go:embed save-svgrepo-com.svg
-	saveTabIcon []byte
 	//go:embed play-svgrepo-com.svg
 	playTabIcon []byte
 	//go:embed folder-svgrepo-com.svg
@@ -191,6 +189,21 @@ var (
 	GamepadIconIndicator   = fyne.NewStaticResource("gamepad-svgrepo-com-indicator.svg", recolorStrokeIcon(gamepadIcon, "#c5c8b5", "1.8"))
 	SDCardIconIndicator    = fyne.NewStaticResource("sd-card-svgrepo-com-indicator.svg", recolorFillIcon(sdCardIcon, "#c5c8b5"))
 
+	// CameraIconStatusBarHover/AudioIconStatusBarHover/KeyboardIconStatusBarHover/
+	// MouseIconStatusBarHover/NetworkIconStatusBarHover are those same
+	// status-strip buttons' icons while hovered (headerStatusBadgeButton's
+	// own SetHoverIcon) -- a lighter lime (#dff2a8, vs. their #c4e77a) since
+	// the hover chip's background (design.ColorStatusBarIconChip) alone is
+	// subtle enough that hover was hard to notice. FullscreenIconStatusBarHover
+	// is the same idea for that one button's own turquoise (#7ce9d4, vs.
+	// #41e0c3).
+	CameraIconStatusBarHover     = fyne.NewStaticResource("cam-svgrepo-com-statusbar-hover.svg", recolorStrokeIcon(cameraIcon, "#dff2a8", "1.8"))
+	AudioIconStatusBarHover      = fyne.NewStaticResource("audio-svgrepo-com-statusbar-hover.svg", recolorFillIcon(audioIcon, "#dff2a8"))
+	KeyboardIconStatusBarHover   = fyne.NewStaticResource("keyboard-alt-1-svgrepo-com-statusbar-hover.svg", recolorStrokeIcon(keyboardIcon, "#dff2a8", "1.8"))
+	MouseIconStatusBarHover      = fyne.NewStaticResource("mouse-svgrepo-com-statusbar-hover.svg", recolorFillIcon(mouseIcon, "#dff2a8"))
+	NetworkIconStatusBarHover    = fyne.NewStaticResource("network-backup-svgrepo-com-statusbar-hover.svg", recolorFillIcon(networkIcon, "#dff2a8"))
+	FullscreenIconStatusBarHover = fyne.NewStaticResource("fullscreen-svgrepo-com-statusbar-hover.svg", recolorFillIcon(fullscreenIcon, "#7ce9d4"))
+
 	// MonitorTabIcon/USBTabIcon/SnapshotsTabIcon{Muted,Selected,Hover} are
 	// this same trio of icons in the header's own Control/Devices/Snapshots
 	// tab-selector color scheme (gui/main_window_tabs_header.go) --
@@ -204,13 +217,17 @@ var (
 	USBTabIconMuted        = fyne.NewStaticResource("usb-svgrepo-com-muted2.svg", recolorFillIcon(usbTabIcon, "#c5c8b5"))
 	USBTabIconSelected     = fyne.NewStaticResource("usb-svgrepo-com-selected.svg", recolorFillIcon(usbTabIcon, "#ebffbc"))
 	USBTabIconHover        = fyne.NewStaticResource("usb-svgrepo-com-hover.svg", recolorFillIcon(usbTabIcon, "#e0e3e7"))
-	// SnapshotsTabIcon{Muted,Selected,Hover} -- save-svgrepo-com.svg (a save
-	// icon) instead of the disk-floppy icon SnapshotsTabIcon/IconActive
-	// above still use elsewhere -- swapped in for this header's own tab
-	// selector specifically.
-	SnapshotsTabIconMuted    = fyne.NewStaticResource("save-svgrepo-com-muted.svg", recolorFillIcon(saveTabIcon, "#c5c8b5"))
-	SnapshotsTabIconSelected = fyne.NewStaticResource("save-svgrepo-com-selected.svg", recolorFillIcon(saveTabIcon, "#ebffbc"))
-	SnapshotsTabIconHover    = fyne.NewStaticResource("save-svgrepo-com-hover.svg", recolorFillIcon(saveTabIcon, "#e0e3e7"))
+	// SnapshotsTabIcon{Muted,Selected,Hover} -- back to the disk-floppy
+	// source (snapshotsTabIcon, same as SnapshotsTabIcon/IconActive above)
+	// instead of save-svgrepo-com.svg: that one's single fill-rule="evenodd"
+	// path (the cutout for the disk's label area) didn't render its hole
+	// correctly at this tab icon's small size -- the top of the icon showed
+	// solid-filled instead of open. snapshotsTabIcon draws the same cutout
+	// as two separate plain-fill paths instead, which already renders
+	// correctly everywhere else it's used.
+	SnapshotsTabIconMuted    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-muted.svg", recolorFillIcon(snapshotsTabIcon, "#c5c8b5"))
+	SnapshotsTabIconSelected = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-selected.svg", recolorFillIcon(snapshotsTabIcon, "#ebffbc"))
+	SnapshotsTabIconHover    = fyne.NewStaticResource("disk-floppy-save-storage-data-svgrepo-com-tab-hover.svg", recolorFillIcon(snapshotsTabIcon, "#e0e3e7"))
 	// ScriptsTabIcon{Muted,Selected,Hover} -- play-svgrepo-com.svg (a
 	// stroked play triangle) instead of the earlier inline glyph; this
 	// header's own tab-selector never had a Scripts icon asset before (the

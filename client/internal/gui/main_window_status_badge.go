@@ -39,6 +39,12 @@ type headerStatusBadgeButton struct {
 	// peripheral-icon hover color (main_window_status_indicator_bar.go).
 	hoverColor  color.Color
 	hoverRadius float32
+	// hoverIconRes swaps the icon resource itself while hovered -- an SVG's
+	// color is baked in at asset build time, so hoverColor (the background
+	// chip) alone made hover hard to notice against this strip's already
+	// light background. nil keeps the icon unchanged on hover, so a caller
+	// that never calls SetHoverIcon is unaffected.
+	hoverIconRes fyne.Resource
 
 	bg        *canvas.Rectangle
 	icon      *canvas.Image
@@ -64,6 +70,13 @@ func newHeaderStatusBadgeButton(icon fyne.Resource, onTapped func()) *headerStat
 func (b *headerStatusBadgeButton) SetHoverStyle(hoverColor color.Color, radius float32) {
 	b.hoverColor = hoverColor
 	b.hoverRadius = radius
+	b.Refresh()
+}
+
+// SetHoverIcon sets the icon resource shown while hovered -- see the
+// hoverIconRes field doc comment.
+func (b *headerStatusBadgeButton) SetHoverIcon(icon fyne.Resource) {
+	b.hoverIconRes = icon
 	b.Refresh()
 }
 
@@ -225,6 +238,9 @@ func (r *headerStatusBadgeButtonRenderer) Refresh() {
 	r.button.bg.Refresh()
 
 	r.button.icon.Resource = r.button.iconRes
+	if r.button.hovered && r.button.hoverIconRes != nil {
+		r.button.icon.Resource = r.button.hoverIconRes
+	}
 	r.button.icon.Refresh()
 
 	r.button.badgeTxt.Text = r.button.badgeText

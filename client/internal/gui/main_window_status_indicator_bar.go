@@ -12,6 +12,7 @@ package gui
 import (
 	"image/color"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/view"
 
@@ -51,10 +52,14 @@ const (
 
 // statusBarPeripheralTheme is scoped to mw.statusPanel only (via
 // container.NewThemeOverride in buildStatusIndicatorBar), so it doesn't
-// touch any other button's icon size or hover color in the app:
-//   - theme.SizeNameInlineIcon -> 14px, matching mw.videoIcon/mw.audioIcon's
-//     own SetIconSize(14, 14) (plain widget.Button has no per-instance
-//     equivalent setter).
+// touch any other button's icon size or hover color in the app. Only
+// mw.scriptIcon is still a plain widget.Button by the time this runs --
+// audio/keyboard/mouse/rndis moved to headerStatusBadgeButton (their own
+// SetIconSize/SetHoverStyle/SetHoverIcon), so this override is now mostly
+// redundant for them (harmless -- headerStatusBadgeButton doesn't read
+// theme.SizeNameInlineIcon or ColorNameHover at all):
+//   - theme.SizeNameInlineIcon -> 14px, matching mw.scriptIcon's own size
+//     (plain widget.Button has no per-instance equivalent setter).
 //   - theme.SizeNameInputRadius -> statusBarIconHoverRadius, the corner
 //     radius Fyne's own button renderer uses for its hover-highlight rect.
 //   - theme.ColorNameButton -> transparent, theme.ColorNameHover ->
@@ -175,8 +180,17 @@ func (mw *MainWindow) syncStatusBarDividers() {
 // createStatusBar) before this is called.
 func (mw *MainWindow) buildStatusIndicatorBar() fyne.CanvasObject {
 	mw.videoIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.videoIcon.SetHoverIcon(assets.CameraIconStatusBarHover)
 	mw.audioIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.audioIcon.SetHoverIcon(assets.AudioIconStatusBarHover)
+	mw.keyboardIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.keyboardIcon.SetHoverIcon(assets.KeyboardIconStatusBarHover)
+	mw.mouseIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.mouseIcon.SetHoverIcon(assets.MouseIconStatusBarHover)
+	mw.rndisIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.rndisIcon.SetHoverIcon(assets.NetworkIconStatusBarHover)
 	mw.fullscreenIcon.SetHoverStyle(design.ColorStatusBarIconChip, statusBarIconHoverRadius)
+	mw.fullscreenIcon.SetHoverIcon(assets.FullscreenIconStatusBarHover)
 
 	mw.videoFPSText = canvas.NewText("", design.ColorStatusBarAccent)
 	mw.videoFPSText.TextSize = statusIndicatorFPSTextSize

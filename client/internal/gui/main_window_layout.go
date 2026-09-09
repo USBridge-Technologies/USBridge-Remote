@@ -542,10 +542,10 @@ func headerGapSpacer(width float32) fyne.CanvasObject {
 	return spacer
 }
 
-func newHeaderPassiveIndicator(icon fyne.Resource) fyne.CanvasObject {
+func newHeaderPassiveIndicator(icon fyne.Resource, size fyne.Size) fyne.CanvasObject {
 	image := canvas.NewImageFromResource(icon)
 	image.FillMode = canvas.ImageFillContain
-	image.SetMinSize(fyne.NewSize(14, 14))
+	image.SetMinSize(size)
 	return container.NewCenter(image)
 }
 
@@ -1082,7 +1082,12 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 		}
 	})
 	mw.captureIcon.Importance = widget.LowImportance
-	mw.keyboardIcon = widget.NewButtonWithIcon("", assets.KeyboardIcon, func() {
+	// keyboardIcon/mouseIcon/rndisIcon are headerStatusBadgeButton, not a
+	// plain widget.Button, so they get the same hover-lightens-the-icon
+	// treatment as videoIcon/audioIcon/fullscreenIcon (SetHoverIcon below,
+	// in buildStatusIndicatorBar) -- a stock widget.Button has no hook for
+	// swapping its own icon resource on hover.
+	mw.keyboardIcon = newHeaderStatusBadgeButton(assets.KeyboardIcon, func() {
 		if mw.tabs != nil && len(mw.tabs.Items) > mw.controlTabIndex() {
 			mw.tabs.Select(mw.tabs.Items[mw.controlTabIndex()])
 		}
@@ -1090,17 +1095,20 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 			mw.videoWidget.HandleVirtualKeyboard()
 		}
 	})
-	mw.keyboardIcon.Importance = widget.LowImportance
+	mw.keyboardIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.keyboardIcon.SetBadgeText("")
 	mw.keyboardIcon.Hide()
-	mw.mouseIcon = widget.NewButtonWithIcon("", assets.MouseIcon, func() {
+	mw.mouseIcon = newHeaderStatusBadgeButton(assets.MouseIcon, func() {
 		mw.showMouseModeMenu()
 	})
-	mw.mouseIcon.Importance = widget.LowImportance
+	mw.mouseIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.mouseIcon.SetBadgeText("")
 	mw.mouseIcon.Hide()
-	mw.rndisIcon = widget.NewButtonWithIcon("", assets.NetworkIcon, func() {
+	mw.rndisIcon = newHeaderStatusBadgeButton(assets.NetworkIcon, func() {
 		mw.showRNDISModeMenu()
 	})
-	mw.rndisIcon.Importance = widget.LowImportance
+	mw.rndisIcon.SetIconSize(fyne.NewSize(14, 14))
+	mw.rndisIcon.SetBadgeText("")
 	mw.rndisIcon.Hide()
 	// gamepadIcon/cdromIcon/backupIcon/snapshotIcon are plain display-only
 	// indicators (newHeaderPassiveIndicator -- a bare canvas.Image, not a
@@ -1108,13 +1116,16 @@ func (mw *MainWindow) createStatusBar() *fyne.Container {
 	// Snapshots tab, which made them flash a hover/press background despite
 	// not being (and not looking like) real header buttons. They're grouped
 	// separately from mw.statusBarButtonsGroup below for the same reason.
-	mw.gamepadIcon = newHeaderPassiveIndicator(assets.GamepadIconIndicator)
+	// backupIcon/snapshotIcon are 2px/1px smaller than the other two -- not
+	// buttons that need a consistent hit target, so nothing stops them
+	// reading a touch smaller for visual balance among the four.
+	mw.gamepadIcon = newHeaderPassiveIndicator(assets.GamepadIconIndicator, fyne.NewSize(14, 14))
 	mw.gamepadIcon.Hide()
-	mw.cdromIcon = newHeaderPassiveIndicator(assets.DiscIconIndicator)
+	mw.cdromIcon = newHeaderPassiveIndicator(assets.DiscIconIndicator, fyne.NewSize(14, 14))
 	mw.cdromIcon.Hide()
-	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconIndicator)
+	mw.backupIcon = newHeaderPassiveIndicator(assets.SDCardIconIndicator, fyne.NewSize(12, 12))
 	mw.backupIcon.Hide()
-	mw.snapshotIcon = newHeaderPassiveIndicator(assets.SnapshotsIconIndicator)
+	mw.snapshotIcon = newHeaderPassiveIndicator(assets.SnapshotsIconIndicator, fyne.NewSize(13, 13))
 	mw.snapshotIcon.Hide()
 	mw.scriptIcon = widget.NewButtonWithIcon("", fynetheme.MediaPlayIcon(), func() {
 		mw.showScriptRunningMenu()
