@@ -107,6 +107,11 @@ var (
 
 	// ColorStatusBarResolutionText is that strip's "1080p@60Hz" label.
 	ColorStatusBarResolutionText = color.NRGBA{R: 0xcb, G: 0xd5, B: 0xe1, A: 0xff}
+
+	// ColorStatusBarIconChip is the background behind every icon button in
+	// that strip (video + every peripheral) -- one shared color so none of
+	// them reads as a mismatched button chrome next to the others.
+	ColorStatusBarIconChip = color.NRGBA{R: 0x21, G: 0x26, B: 0x28, A: 0xff}
 )
 
 const RadiusMD float32 = 8
