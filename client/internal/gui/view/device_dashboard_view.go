@@ -508,6 +508,18 @@ var DeviceDashboardAccentLime = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 // for a header button's own hover fill.
 var deviceDashboardAccentLimeHover = color.NRGBA{R: 0xd9, G: 0xf2, B: 0xa3, A: 0xff}
 
+// DeviceDashboardFolderIconActive/DiscIconActive/SDCardIconActive recolor
+// the shared assets.FolderIconActive/DiscIconActive/SDCardIconActive
+// (#93C572, design.ColorAccent's green) to this card's own lime accent
+// (#c4e77a) instead -- driveIconResource (disk_widget_dashboard.go) uses
+// these for a mounted Storage row's icon, matching the lime its name text
+// already uses (see newDeviceDashboardRowLeftSized). The shared assets
+// themselves are left alone since the old list view (disk_widget_row.go's
+// configureDriveRow) still uses them with the original green.
+var DeviceDashboardFolderIconActive = fyne.NewStaticResource("device_dashboard_folder_active.svg", []byte(strings.ReplaceAll(string(assets.FolderIconActive.Content()), "#93C572", "#c4e77a")))
+var DeviceDashboardDiscIconActive = fyne.NewStaticResource("device_dashboard_disc_active.svg", []byte(strings.ReplaceAll(string(assets.DiscIconActive.Content()), "#93C572", "#c4e77a")))
+var DeviceDashboardSDCardIconActive = fyne.NewStaticResource("device_dashboard_sdcard_active.svg", []byte(strings.ReplaceAll(string(assets.SDCardIconActive.Content()), "#93C572", "#c4e77a")))
+
 // deviceDashboardHeaderButtonBusyFill is DeviceDashboardAccentLime
 // darkened -- a header button's own fill (e.g. "Mount New ISO") while its
 // action is in flight (the OS file picker is open). This is the only
@@ -784,15 +796,15 @@ var deviceDashboardConnectIconSVG = fyne.NewStaticResource("device_dashboard_plu
 // connection_list_table.go).
 var deviceDashboardConnectHoverFill = color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 
-// deviceDashboardDisconnectIconSVG reuses assets.ExitIcon's own path data
-// (the header's own "leave this session" icon, proven to render cleanly at
-// small sizes) recolored to #c5c8b5 -- debug-disconnect-svgrepo-com.svg,
-// tried first, rendered warped/blurry at this button's own small size.
-var deviceDashboardDisconnectIconSVG = fyne.NewStaticResource("device_dashboard_disconnect.svg", []byte(strings.ReplaceAll(string(assets.ExitIcon.Content()), "#e0e3e7", "#c5c8b5")))
+// deviceDashboardDisconnectIconSVG reuses assets.ConnectIconBoldBlack's own
+// path data (connect-svgrepo-com.svg's chain-link glyph, #111111) recolored
+// to #c5c8b5 -- both assets.ExitIcon and, before that,
+// debug-disconnect-svgrepo-com.svg were tried here first.
+var deviceDashboardDisconnectIconSVG = fyne.NewStaticResource("device_dashboard_disconnect.svg", []byte(strings.ReplaceAll(string(assets.ConnectIconBoldBlack.Content()), "#111111", "#c5c8b5")))
 
 // deviceDashboardDisconnectHoverIconSVG is the same shape recolored to
 // #e997a2 for the hover state.
-var deviceDashboardDisconnectHoverIconSVG = fyne.NewStaticResource("device_dashboard_disconnect_hover.svg", []byte(strings.ReplaceAll(string(assets.ExitIcon.Content()), "#e0e3e7", "#e997a2")))
+var deviceDashboardDisconnectHoverIconSVG = fyne.NewStaticResource("device_dashboard_disconnect_hover.svg", []byte(strings.ReplaceAll(string(assets.ConnectIconBoldBlack.Content()), "#111111", "#e997a2")))
 
 // deviceDashboardDisconnectHoverFill/Stroke are NewDeviceDashboardDisconnectButton's
 // own hover colors -- a dark maroon fill/border reading as a danger hover,

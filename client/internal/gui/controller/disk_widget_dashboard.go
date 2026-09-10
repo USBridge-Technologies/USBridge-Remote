@@ -322,13 +322,16 @@ func driveIconResource(drive DriveItem) fyne.Resource {
 	}
 
 	if useStorageIcon && drive.IsMounted {
+		// This dashboard's own lime (#c4e77a) instead of the shared
+		// assets.*Active constants' green (#93C572) -- matches the row's
+		// own name text color (see newDeviceDashboardRowLeftSized).
 		switch iconRes {
 		case assets.FolderIcon:
-			iconRes = assets.FolderIconActive
+			iconRes = view.DeviceDashboardFolderIconActive
 		case assets.SDCardIcon:
-			iconRes = assets.SDCardIconActive
+			iconRes = view.DeviceDashboardSDCardIconActive
 		default:
-			iconRes = assets.DiscIconActive
+			iconRes = view.DeviceDashboardDiscIconActive
 		}
 	}
 	return iconRes
