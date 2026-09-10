@@ -36,6 +36,16 @@ type DiskWidget struct {
 	compactMountBtn   *view.DeviceActionButton
 	compactUnmountBtn *view.DeviceActionButton
 
+	// Card-grid Devices tab (see disk_widget_dashboard.go) -- built lazily by
+	// GetDashboardContainer, nil until then. refreshDashboard no-ops while
+	// nil so the old list-based GetContainer keeps working untouched if the
+	// dashboard is never requested.
+	dashboardContainer fyne.CanvasObject
+	dashboardHID       *fyne.Container
+	dashboardVideo     *fyne.Container
+	dashboardAudio     *fyne.Container
+	dashboardStorage   *fyne.Container
+
 	// Data
 	localDrives    []*models.LocalDrive
 	localFiles     []*models.DiskInfo

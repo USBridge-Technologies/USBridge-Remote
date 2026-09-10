@@ -49,6 +49,7 @@ func (dw *DiskWidget) requestDevicesRefresh() {
 				dw.lastDrivesTraceSig = currentSig
 				dw.markDevicesRefresh()
 				dw.devicesList.Refresh()
+				dw.refreshDashboard()
 			}
 		})
 	}
