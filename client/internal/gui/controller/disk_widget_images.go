@@ -421,13 +421,13 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 	// now that only surfaced as an error *after* waiting through the
 	// whole upload. Warn up front whenever the last known free-space
 	// reading (dw.sdSpaceInfo, refreshed by loadISOSpace) already says
-	// it won't fit, using the same confirm-dialog chrome as everywhere
-	// else (ShowConfirmYesLeftDanger) rather than a one-off dialog.
+	// it won't fit -- the same light bottom toast (ShowConfirmToast) the
+	// Connections grid already uses for deleting a connection, not the
+	// heavier modal dialog.
 	if dw.window != nil && dw.sdSpaceInfo != nil && dw.sdSpaceInfo.AvailableSpace > 0 && drive.DiskInfo.Size > dw.sdSpaceInfo.AvailableSpace {
 		fyne.Do(func() {
-			view.ShowConfirmYesLeftDanger(
-				"Not enough storage space",
-				fmt.Sprintf("This file is %s, but only %s is free on the device. Continue anyway?", drive.DiskInfo.FormatSize(), dw.sdSpaceInfo.AvailableGB),
+			view.ShowConfirmToast(
+				fmt.Sprintf("Not enough storage space: %s needed, only %s free. Continue anyway?", drive.DiskInfo.FormatSize(), dw.sdSpaceInfo.AvailableGB),
 				func(confirmed bool) {
 					if confirmed {
 						showUploadConfirm()

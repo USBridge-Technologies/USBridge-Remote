@@ -124,17 +124,27 @@ func (dw *DiskWidget) refreshDashboard() {
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			// The "Connected" badge only shows up once the drive is
-			// actually mounted -- before that, Upload (if applicable) and
-			// Delete are the only actions; there's no separate "not yet
-			// connected" state to show.
-			var connectedBadge fyne.CanvasObject
+			// The same trailing slot shows the lime "Connected" badge
+			// once mounted, or -- while not yet mounted/mounting -- a
+			// plain teal "mount it" button; both drive the exact same
+			// toggleDriveMount, matching the old list's own per-row
+			// checkbox, which never cared whether the drive had come
+			// from the API/a local scan/the user's own upload.
+			var connectSlot fyne.CanvasObject
 			if drive.IsMounted {
-				connectedBadge = view.NewDeviceDashboardConnectedBadge(func() {
+				connectSlot = view.NewDeviceDashboardConnectedBadge(func() {
 					dw.toggleDriveMount(idx)
 				}, dw.dashboardStorageHover)
+			} else if !drive.IsMounting {
+				mountBtn := view.NewDeviceDashboardMountButton(func() {
+					if !dw.controlsLocked() {
+						dw.toggleDriveMount(idx)
+					}
+				}, dw.dashboardStorageHover)
+				mountBtn.SetDisabled(dw.controlsLocked())
+				connectSlot = mountBtn
 			}
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge, nil, drive.Size))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectSlot, nil, drive.Size))
 		}
 	}
 

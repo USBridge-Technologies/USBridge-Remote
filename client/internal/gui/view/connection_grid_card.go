@@ -485,9 +485,18 @@ func (l *tightPlatformChipLayout) Layout(objects []fyne.CanvasObject, size fyne.
 }
 
 func newConnectionPlatformChip(text string) fyne.CanvasObject {
+	return newConnectionPlatformChipSized(text, 8)
+}
+
+// newConnectionPlatformChipSized is newConnectionPlatformChip with an
+// explicit text size -- the Devices dashboard's own storage rows (see
+// newDeviceDashboardRowLeftSized in device_dashboard_view.go) want this
+// chip one size step smaller than the Connections table's own 8, since
+// that row already carries a name line right above it.
+func newConnectionPlatformChipSized(text string, textSize float32) fyne.CanvasObject {
 	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	label := canvas.NewText(text, c5c8b5Color)
-	label.TextSize = 8
+	label.TextSize = textSize
 	label.TextStyle.Monospace = true
 
 	bg := canvas.NewRectangle(color.Transparent)

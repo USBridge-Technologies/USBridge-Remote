@@ -267,26 +267,47 @@ func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyn
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, nameText)
 }
 
-// newDeviceDashboardRowLeftSized is newDeviceDashboardRowLeft plus an
-// optional small size badge underneath the name -- the exact same chip
-// style the Connections table's own name cell already uses for its
-// platform label (newConnectionPlatformChip in connection_grid_card.go).
-// sizeText empty means no badge (e.g. the drive's own size isn't known).
+// newDeviceDashboardRowLeftSized is a Storage row's own icon+name -- with an
+// optional size badge, in which case the icon sits once, vertically
+// centered, to the left of a two-line name/size column (not repeated above
+// each line the way newDeviceDashboardRowLeft's own single-line icon+name
+// row would read if just stacked with a badge underneath). sizeText empty
+// means no badge (e.g. the drive's own size isn't known) -- falls back to
+// the plain single-line row.
 func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool, sizeText string) fyne.CanvasObject {
-	nameRow := newDeviceDashboardRowLeft(icon, name, active)
 	if strings.TrimSpace(sizeText) == "" {
-		return nameRow
+		return newDeviceDashboardRowLeft(icon, name, active)
 	}
-	// Wrapped in DeviceRowControlsLayout (which sizes each child to its
-	// own natural width, not the container's) rather than stacked
+
+	nameColor := design.ColorTextLight
+	if active {
+		nameColor = design.ColorAccent
+	}
+	nameText := canvas.NewText(name, nameColor)
+	nameText.TextSize = 11
+
+	// Wrapped in DeviceRowControlsLayout (which sizes its child to its
+	// own natural width, not the container's) rather than placed
 	// directly -- tightStatsVBoxLayout below stretches every row to the
 	// width of the widest one (usually the name), and the chip's own
-	// container.NewCenter wrapper (newConnectionPlatformChip) would then
-	// center itself inside that extra width instead of hugging the left
-	// edge under the name. Same fix newConnectionCardChipsRow already
-	// relies on for the Connections table's own name-cell badge.
-	chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, newConnectionPlatformChip(sizeText))
-	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, chipRow)
+	// container.NewCenter wrapper (newConnectionPlatformChipSized) would
+	// then center itself inside that extra width instead of hugging the
+	// left edge under the name. Same fix newConnectionCardChipsRow
+	// already relies on for the Connections table's own name-cell badge.
+	// One size step smaller (7 vs. the Connections table's own 8) --
+	// this row already carries a name line right above it.
+	chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, newConnectionPlatformChipSized(sizeText, 7))
+	textColumn := container.New(&tightStatsVBoxLayout{Gap: 2}, nameText, chipRow)
+
+	if icon == nil {
+		return textColumn
+	}
+
+	iconImg := canvas.NewImageFromResource(icon)
+	iconImg.FillMode = canvas.ImageFillContain
+	iconImg.SetMinSize(fyne.NewSize(14, 14))
+
+	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, textColumn)
 }
 
 // NewDeviceDashboardEmptyState is the muted placeholder line a dashboard
@@ -748,6 +769,36 @@ func NewDeviceDashboardConnectedBadge(onTap func(), onHover func(bool)) *iconChr
 	})
 	btn.SetText("Connected")
 	return btn
+}
+
+// deviceDashboardMountIconSVG is deviceDashboardConnectIconSVG recolored to
+// black -- the same plug glyph, just for the plain teal "not yet mounted"
+// button below instead of the lime "Connected" badge.
+var deviceDashboardMountIconSVG = fyne.NewStaticResource("device_dashboard_mount_plug.svg", []byte(strings.ReplaceAll(string(deviceDashboardConnectIconSVG.Content()), "#4c6803", "#000000")))
+
+// deviceDashboardMountHoverFill lightens design.ColorConnectionBadgeText
+// (the app's own teal accent, also this card's own hover-border color) for
+// NewDeviceDashboardMountButton's own hover fill.
+var deviceDashboardMountHoverFill = color.NRGBA{R: 0x71, G: 0xea, B: 0xd6, A: 0xff}
+
+// NewDeviceDashboardMountButton is Storage's own "not yet mounted" action --
+// a plain square icon button (teal fill, black plug icon, no label), shown
+// in the same trailing slot NewDeviceDashboardConnectedBadge takes once the
+// drive is actually mounted (see disk_widget_dashboard.go's refreshDashboard).
+// Tapping it mounts the drive.
+func NewDeviceDashboardMountButton(onTap func(), onHover func(bool)) *iconChromeButton {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   design.ColorConnectionBadgeText,
+		HoverFill:    deviceDashboardMountHoverFill,
+		DisabledFill: connectionActionBlockedFill,
+		Stroke:       color.Transparent,
+		CornerRadius: 6,
+		NormalIcon:   deviceDashboardMountIconSVG,
+		IconSize:     fyne.NewSize(11, 11),
+		ButtonSize:   fyne.NewSize(23, 23),
+		OnTapped:     onTap,
+		OnHover:      onHover,
+	})
 }
 
 // NewDeviceDashboardStorageRow is NewDeviceDashboardRow's Storage-specific
