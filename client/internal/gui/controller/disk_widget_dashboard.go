@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"usbridge-client/internal/gui/assets"
-	"usbridge-client/internal/gui/design"
 	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
@@ -20,14 +19,16 @@ import (
 // NDIS Bridge below it), all styled after the Connections grid's own cards
 // (see view.NewDeviceDashboardCard).
 //
-// Storage/HID/Network rows carry a real connect/disconnect button (see
+// HID/Network rows carry an on/off toggle (view.DeviceToggle); Storage rows
+// carry Delete/Upload buttons plus a "Connected" badge once actually
+// mounted (view.NewDeviceDashboardConnectedBadge) -- both drive the same
 // toggleDriveMount, reusing the exact same handleMount/handleUnmount flow
-// the old selection-driven list used -- just pre-selecting the one row's
-// own index instead of requiring the user to select it first). Video/Audio
-// rows don't: those two kinds are excluded from that mount flow entirely
+// the old selection-driven list used, just pre-selecting the one row's own
+// index instead of requiring the user to select it first. Video/Audio rows
+// get neither: those two kinds are excluded from that mount flow entirely
 // (see handleMount/handleUnmount's own IsVideo/IsAudio checks) and are
 // driven by the Control tab's own start/stop and the header's audio menu
-// instead, so a connect button here would just be misleading.
+// instead, so a connect control here would just be misleading.
 func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	if dw.dashboardContainer != nil {
 		return dw.dashboardContainer
@@ -39,7 +40,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardStorage = container.NewVBox()
 	dw.dashboardNetworkRows = container.NewVBox()
 
-	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, design.ColorGray950)
+	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
 	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	dw.dashboardNetworkCard = view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", "", nil, dw.dashboardNetworkRows)
 	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
@@ -55,7 +56,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		view.NewDeviceDashboardCard(
 			view.DeviceDashboardStorageIconSVG,
 			"Virtual Mass Storage & ISO Media",
-			"Emulated OTG USB mass storage drive and CD-ROM devices",
+			"",
 			addImageBtn,
 			dw.dashboardStorage,
 		),
@@ -86,28 +87,30 @@ func (dw *DiskWidget) refreshDashboard() {
 		name := dw.deviceRowText(drive)
 		icon := driveIconResource(drive)
 
-		// Video/Audio aren't mount-toggle-able through this flow (see this
-		// method's own doc comment) -- their rows get no connect button at
-		// all.
-		var connectBtn fyne.CanvasObject
-		if !drive.IsVideo && !drive.IsAudio {
-			connectBtn = view.NewDeviceDashboardConnectButton(drive.IsMounted, func() {
-				dw.toggleDriveMount(idx)
-			})
-		}
-
 		switch {
 		case drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
-			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, connectBtn))
+			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive)))
 		case drive.IsVideo:
-			videoRows = append(videoRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, connectBtn))
+			// Excluded from the mount flow entirely (see this method's own
+			// doc comment) -- no toggle.
+			videoRows = append(videoRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, nil))
 		case drive.IsAudio || drive.IsUSBAudio:
-			audioRows = append(audioRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, connectBtn))
+			audioRows = append(audioRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, nil))
 		case drive.IsRNDIS:
-			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, connectBtn))
+			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive)))
 		default:
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectBtn))
+			// The "Connected" badge only shows up once the drive is
+			// actually mounted -- before that, Upload (if applicable) and
+			// Delete are the only actions; there's no separate "not yet
+			// connected" state to show.
+			var connectedBadge fyne.CanvasObject
+			if drive.IsMounted {
+				connectedBadge = view.NewDeviceDashboardConnectedBadge(func() {
+					dw.toggleDriveMount(idx)
+				})
+			}
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge))
 		}
 	}
 
@@ -305,6 +308,14 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 	}
 
 	return modePicker, deleteBtn, uploadBtn
+}
+
+// newDriveToggle builds a HID/Network row's own on/off switch, wired to
+// toggleDriveMount.
+func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem) *view.DeviceToggle {
+	return view.NewDeviceToggle(drive.IsMounted, func(bool) {
+		dw.toggleDriveMount(idx)
+	})
 }
 
 // toggleDriveMount mounts or unmounts exactly the one drive at index,
