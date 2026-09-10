@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,24 +37,22 @@ type VideoStartDialog struct {
 	resolutionLabels map[string]models.VideoCaptureMode
 	resolutionHints  map[string]string
 
-	currentModeID     string
-	modeButtons       map[string]*videoCodecButton
-	modeButtonsRow    *fyne.Container
-	modeDescription   *canvas.Text
-	resolutionSelect  *HeaderDropdown
-	resolutionMeta    *canvas.Text
-	fpsSelect         *HeaderDropdown
-	fpsMeta           *canvas.Text
-	bitrateSlider     *widget.Slider
-	bitrateValueLabel *widget.Label
-	bitrateBlock      *fyne.Container
-	bitrateHintsRow   *fyne.Container
-	modeDetailsSlot   *fyne.Container
-	jpegHint          *widget.Label
-	deviceLabel       *widget.Label
-	vsyncCheck        *widget.Check
-	aiVisionCheck     *widget.Check
-	aiVisionHint      *widget.Label
+	currentModeID    string
+	modeButtons      map[string]*videoCodecButton
+	modeButtonsRow   *fyne.Container
+	modeDescription  *canvas.Text
+	resolutionSelect *HeaderDropdown
+	resolutionMeta   *canvas.Text
+	fpsSelect        *HeaderDropdown
+	fpsMeta          *canvas.Text
+	bitrateSlider    *videoDialogBitrateSlider
+	bitrateBlock     *fyne.Container
+	modeDetailsSlot  *fyne.Container
+	jpegHint         *widget.Label
+	deviceLabel      *widget.Label
+	vsyncCheck       *widget.Check
+	aiVisionCheck    *widget.Check
+	aiVisionHint     *widget.Label
 	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade,
 	// placed right below the resolution picker and above the AI Vision
 	// checkbox. Only shown when the currently selected codec is H.265 AND
@@ -88,13 +87,6 @@ func (vsd *VideoStartDialog) SetLiveCodecProvider(provider func() (string, bool)
 
 type videoCodecButtonsLayout struct {
 	gap float32
-}
-
-type bitrateBlockLayout struct {
-	headerHeight float32
-	sliderTop    float32
-	sliderHeight float32
-	hintsTop     float32
 }
 
 type videoCodecButton struct {
@@ -144,55 +136,6 @@ func (l *videoCodecButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 		if min.Height > height {
 			height = min.Height
 		}
-	}
-
-	return fyne.NewSize(width, height)
-}
-
-func (l *bitrateBlockLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 3 {
-		return
-	}
-
-	header := objects[0]
-	slider := objects[1]
-	hints := objects[2]
-
-	header.Move(fyne.NewPos(0, 0))
-	header.Resize(fyne.NewSize(size.Width, l.headerHeight))
-
-	slider.Move(fyne.NewPos(0, l.sliderTop))
-	slider.Resize(fyne.NewSize(size.Width, l.sliderHeight))
-
-	hintsHeight := size.Height - l.hintsTop
-	if hintsHeight < 0 {
-		hintsHeight = 0
-	}
-	hints.Move(fyne.NewPos(0, l.hintsTop))
-	hints.Resize(fyne.NewSize(size.Width, hintsHeight))
-}
-
-func (l *bitrateBlockLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 3 {
-		return fyne.NewSize(0, 0)
-	}
-
-	headerMin := objects[0].MinSize()
-	sliderMin := objects[1].MinSize()
-	hintsMin := objects[2].MinSize()
-
-	width := headerMin.Width
-	if sliderMin.Width > width {
-		width = sliderMin.Width
-	}
-	if hintsMin.Width > width {
-		width = hintsMin.Width
-	}
-
-	height := l.hintsTop + hintsMin.Height
-	minHeight := l.sliderTop + sliderMin.Height
-	if minHeight > height {
-		height = minHeight
 	}
 
 	return fyne.NewSize(width, height)
@@ -556,6 +499,162 @@ func newVideoDialogTopAccentBar() fyne.CanvasObject {
 	return container.NewBorder(nil, nil, accentLeftFade, accentRightFade, accentMid)
 }
 
+// videoDialogBitrateSlider is a small custom slider matching this dialog's
+// own look (a thin gray track, a glowing teal thumb) -- Fyne's themed
+// widget.Slider has no way to recolor the track/thumb independently of the
+// app theme, so this draws them directly instead.
+type videoDialogBitrateSlider struct {
+	widget.BaseWidget
+
+	Min, Max, Step float64
+	Value          float64
+	OnChanged      func(float64)
+
+	track *canvas.Rectangle
+	glow  *canvas.Circle
+	thumb *canvas.Circle
+}
+
+const (
+	bitrateSliderThumbRadius = float32(9)
+	bitrateSliderGlowRadius  = float32(16)
+	bitrateSliderTrackHeight = float32(4)
+	bitrateSliderHeight      = float32(28)
+)
+
+func newVideoDialogBitrateSlider(min, max, step float64) *videoDialogBitrateSlider {
+	s := &videoDialogBitrateSlider{Min: min, Max: max, Step: step, Value: min}
+	s.ExtendBaseWidget(s)
+	return s
+}
+
+// SetValue clamps value to [Min, Max] and, if it actually changes Value,
+// redraws the thumb and fires OnChanged -- mirrors widget.Slider.SetValue's
+// own contract closely enough that Configure()'s existing call site needs no
+// changes.
+func (s *videoDialogBitrateSlider) SetValue(value float64) {
+	if value < s.Min {
+		value = s.Min
+	}
+	if value > s.Max {
+		value = s.Max
+	}
+	if value == s.Value {
+		return
+	}
+	s.Value = value
+	s.Refresh()
+	if s.OnChanged != nil {
+		s.OnChanged(s.Value)
+	}
+}
+
+func (s *videoDialogBitrateSlider) valueFraction() float32 {
+	if s.Max <= s.Min {
+		return 0
+	}
+	f := (s.Value - s.Min) / (s.Max - s.Min)
+	if f < 0 {
+		f = 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	return float32(f)
+}
+
+func (s *videoDialogBitrateSlider) setValueFromX(x float32) {
+	usable := s.Size().Width - bitrateSliderThumbRadius*2
+	if usable <= 0 {
+		return
+	}
+	rel := (x - bitrateSliderThumbRadius) / usable
+	if rel < 0 {
+		rel = 0
+	}
+	if rel > 1 {
+		rel = 1
+	}
+	value := s.Min + float64(rel)*(s.Max-s.Min)
+	if s.Step > 0 {
+		value = math.Round(value/s.Step) * s.Step
+	}
+	s.SetValue(value)
+}
+
+func (s *videoDialogBitrateSlider) Tapped(e *fyne.PointEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *videoDialogBitrateSlider) TappedSecondary(*fyne.PointEvent) {}
+
+func (s *videoDialogBitrateSlider) Dragged(e *fyne.DragEvent) {
+	s.setValueFromX(e.Position.X)
+}
+
+func (s *videoDialogBitrateSlider) DragEnd() {}
+
+func (s *videoDialogBitrateSlider) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (s *videoDialogBitrateSlider) MinSize() fyne.Size {
+	return fyne.NewSize(120, bitrateSliderHeight)
+}
+
+func (s *videoDialogBitrateSlider) CreateRenderer() fyne.WidgetRenderer {
+	s.track = canvas.NewRectangle(color.NRGBA{R: 0x31, G: 0x35, B: 0x39, A: 0xff})
+	s.track.CornerRadius = bitrateSliderTrackHeight / 2
+
+	s.glow = canvas.NewCircle(color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0x33})
+	s.thumb = canvas.NewCircle(design.ColorConnectionBadgeText)
+
+	return &videoDialogBitrateSliderRenderer{slider: s}
+}
+
+type videoDialogBitrateSliderRenderer struct {
+	slider *videoDialogBitrateSlider
+}
+
+func (r *videoDialogBitrateSliderRenderer) Layout(size fyne.Size) {
+	s := r.slider
+	trackY := (size.Height - bitrateSliderTrackHeight) / 2
+	trackWidth := size.Width - bitrateSliderThumbRadius*2
+	if trackWidth < 0 {
+		trackWidth = 0
+	}
+	s.track.Move(fyne.NewPos(bitrateSliderThumbRadius, trackY))
+	s.track.Resize(fyne.NewSize(trackWidth, bitrateSliderTrackHeight))
+
+	cx := bitrateSliderThumbRadius + s.valueFraction()*trackWidth
+	cy := size.Height / 2
+
+	s.glow.Move(fyne.NewPos(cx-bitrateSliderGlowRadius, cy-bitrateSliderGlowRadius))
+	s.glow.Resize(fyne.NewSize(bitrateSliderGlowRadius*2, bitrateSliderGlowRadius*2))
+
+	s.thumb.Move(fyne.NewPos(cx-bitrateSliderThumbRadius, cy-bitrateSliderThumbRadius))
+	s.thumb.Resize(fyne.NewSize(bitrateSliderThumbRadius*2, bitrateSliderThumbRadius*2))
+}
+
+func (r *videoDialogBitrateSliderRenderer) MinSize() fyne.Size {
+	return r.slider.MinSize()
+}
+
+func (r *videoDialogBitrateSliderRenderer) Refresh() {
+	r.Layout(r.slider.Size())
+	canvas.Refresh(r.slider)
+}
+
+func (r *videoDialogBitrateSliderRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogBitrateSliderRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.slider.track, r.slider.glow, r.slider.thumb}
+}
+
+func (r *videoDialogBitrateSliderRenderer) Destroy() {}
+
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
 		parent:           parent,
@@ -585,23 +684,8 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.fpsMeta.TextSize = videoDialogHintTextSize
 	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.bitrateSlider = widget.NewSlider(1000, 150000)
-	vsd.bitrateSlider.Step = 1000
+	vsd.bitrateSlider = newVideoDialogBitrateSlider(1000, 150000, 1000)
 	vsd.bitrateSlider.Value = 20000
-	vsd.bitrateValueLabel = widget.NewLabel("")
-	vsd.bitrateSlider.OnChanged = func(value float64) {
-		vsd.bitrateValueLabel.SetText(fmt.Sprintf("%.1f %s", value/1000, i18n.Current.UnitMbps))
-	}
-
-	lowQualityLabel := canvas.NewText("Low Quality", design.ColorTextMuted)
-	lowQualityLabel.TextSize = 11
-	highBandwidthLabel := canvas.NewText("High Bandwidth", design.ColorTextMuted)
-	highBandwidthLabel.TextSize = 11
-	bitrateHintSpacer := canvas.NewRectangle(color.Transparent)
-	vsd.bitrateHintsRow = NewInset(
-		container.NewBorder(nil, nil, lowQualityLabel, highBandwidthLabel, bitrateHintSpacer),
-		12, 12, 0, 0,
-	)
 
 	vsd.jpegHint = widget.NewLabel(i18n.Current.VideoJPEGRTPHint)
 	vsd.jpegHint.Wrapping = fyne.TextWrapWord
@@ -639,17 +723,55 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.extraBtn = newVideoDialogExtraButton()
 	vsd.extraBtn.Hide()
 
-	bitrateHeader := container.NewBorder(nil, nil,
-		widget.NewLabel(i18n.Current.Bitrate),
-		vsd.bitrateValueLabel,
-		nil,
+	// Bitrate card: bg #181c1f / border #33372f, a "TARGET BITRATE" caption
+	// with the live value in its own small pill (bg #0b0f12, same border),
+	// the teal-thumbed slider, and Low/High bound hints -- see the
+	// reference screenshot this restyle matches.
+	bitrateValueNumber := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+	bitrateValueNumber.TextSize = 15
+	bitrateValueNumber.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	bitrateValueUnit := canvas.NewText(i18n.Current.UnitMbps, color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
+	bitrateValueUnit.TextSize = 10
+	bitrateValueUnit.TextStyle = fyne.TextStyle{Monospace: true}
+	vsd.bitrateSlider.OnChanged = func(value float64) {
+		bitrateValueNumber.Text = fmt.Sprintf("%.1f", value/1000)
+		bitrateValueNumber.Refresh()
+	}
+
+	bitrateCardBorderColor := color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
+
+	valuePillBG := canvas.NewRectangle(design.ColorGray950)
+	valuePillBG.CornerRadius = 6
+	valuePillBorder := canvas.NewRectangle(color.Transparent)
+	valuePillBorder.CornerRadius = 6
+	valuePillBorder.StrokeColor = bitrateCardBorderColor
+	valuePillBorder.StrokeWidth = 1
+	valuePill := container.NewStack(valuePillBG, valuePillBorder,
+		NewInset(container.NewHBox(bitrateValueNumber, bitrateValueUnit), 10, 10, 5, 5),
 	)
-	vsd.bitrateBlock = container.New(&bitrateBlockLayout{
-		headerHeight: 28,
-		sliderTop:    20,
-		sliderHeight: 44,
-		hintsTop:     54,
-	}, bitrateHeader, vsd.bitrateSlider, vsd.bitrateHintsRow)
+
+	bitrateLabel := canvas.NewText(strings.ToUpper(i18n.Current.Bitrate), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
+	bitrateLabel.TextSize = 10
+	bitrateLabel.TextStyle.Bold = true
+	bitrateHeaderRow := container.NewBorder(nil, nil, bitrateLabel, valuePill, nil)
+
+	lowHint := canvas.NewText(fmt.Sprintf("Low Latency (%.1f %s)", vsd.bitrateSlider.Min/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	lowHint.TextSize = videoDialogHintTextSize
+	highHint := canvas.NewText(fmt.Sprintf("High Fidelity (%.1f %s)", vsd.bitrateSlider.Max/1000, i18n.Current.UnitMbps), videoDialogHintColor)
+	highHint.TextSize = videoDialogHintTextSize
+	bitrateHintsRow := container.NewBorder(nil, nil, lowHint, highHint, nil)
+
+	bitrateCardBG := canvas.NewRectangle(color.NRGBA{R: 0x18, G: 0x1c, B: 0x1f, A: 0xff})
+	bitrateCardBG.CornerRadius = design.RadiusMD
+	bitrateCardBorder := canvas.NewRectangle(color.Transparent)
+	bitrateCardBorder.CornerRadius = design.RadiusMD
+	bitrateCardBorder.StrokeColor = bitrateCardBorderColor
+	bitrateCardBorder.StrokeWidth = 1
+	bitrateCardContent := NewInset(container.NewVBox(bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow), 16, 16, 14, 14)
+	vsd.bitrateBlock = container.NewStack(bitrateCardBG, bitrateCardContent, bitrateCardBorder)
+
+	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
+
 	modeDetailsMinHeight := maxFloat32(vsd.bitrateBlock.MinSize().Height, vsd.jpegHint.MinSize().Height)
 	modeDetailsReserve := canvas.NewRectangle(color.Transparent)
 	modeDetailsReserve.SetMinSize(fyne.NewSize(0, modeDetailsMinHeight))
@@ -746,7 +868,6 @@ func (vsd *VideoStartDialog) createInterface() {
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
 	})
-	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
 }
 func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth, defaultHeight, defaultFPS int, defaultBitrate string) {
 	vsd.streamModes = nil
