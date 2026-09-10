@@ -38,10 +38,15 @@ func (l *DeviceDashboardColumnsLayout) Layout(objects []fyne.CanvasObject, size 
 	narrowWidth := avail / (ratio + 1)
 	wideWidth := avail - narrowWidth
 
+	// Each column gets its own natural (MinSize) height, not the shared
+	// size.Height -- forcing both to size.Height (the taller column's own
+	// height, since that's what MinSize below reports) used to stretch the
+	// shorter column's card to fill all the leftover space instead of
+	// sitting at whatever height its own content actually needs.
 	narrow.Move(fyne.NewPos(0, 0))
-	narrow.Resize(fyne.NewSize(narrowWidth, size.Height))
+	narrow.Resize(fyne.NewSize(narrowWidth, narrow.MinSize().Height))
 	wide.Move(fyne.NewPos(narrowWidth+l.Gap, 0))
-	wide.Resize(fyne.NewSize(wideWidth, size.Height))
+	wide.Resize(fyne.NewSize(wideWidth, wide.MinSize().Height))
 }
 
 func (l *DeviceDashboardColumnsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {

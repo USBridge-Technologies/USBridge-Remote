@@ -37,12 +37,12 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	)
 	wideColumn := view.NewDeviceDashboardCard(assets.SDCardIcon, "Virtual Mass Storage & ISO Media", nil, dw.dashboardStorage)
 
-	columns := container.New(&view.DeviceDashboardColumnsLayout{Gap: 16, Ratio: 2}, narrowColumn, wideColumn)
+	columns := container.New(&view.DeviceDashboardColumnsLayout{Gap: 16, Ratio: 1.4}, narrowColumn, wideColumn)
 	// Scrollable, matching the old list view (view.DevicesListView is a
 	// VScroll internally) -- the narrow column's three stacked cards plus
 	// the wide column's storage list can easily exceed the tab's visible
 	// height.
-	dw.dashboardContainer = container.NewVScroll(view.NewInset(columns, 4, 4, 4, 4))
+	dw.dashboardContainer = container.NewVScroll(view.NewInset(columns, 18, 18, 16, 16))
 	return dw.dashboardContainer
 }
 
