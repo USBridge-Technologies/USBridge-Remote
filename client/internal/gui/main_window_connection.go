@@ -927,6 +927,8 @@ func (mw *MainWindow) handleDisconnect() {
 		if diskWidget != nil {
 			logrus.Info("🛑 [shutdown] Stopping disk widget NBD servers...")
 			diskWidget.StopAllNBDServers()
+			logrus.Info("🛑 [shutdown] Stopping USB passthrough export...")
+			diskWidget.StopUSBPassthrough()
 		}
 	}()
 }

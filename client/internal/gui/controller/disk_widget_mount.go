@@ -595,6 +595,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 			dw.onAudioDisconnect()
 		}
 		usbpass.StopSession()
+		dw.usbPassSessions = nil
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ [UNMOUNT-ALL] Stop error: %v", err)
@@ -633,6 +634,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	}
 	if stopUSBPass {
 		usbpass.StopSession()
+		dw.usbPassSessions = nil
 	}
 
 	dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
@@ -672,6 +674,22 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 // unmount button was not used.
 func (dw *DiskWidget) StopAllNBDServers() {
 	dw.stopNBDAndCleanup(nil, true)
+}
+
+// StopUSBPassthrough tears down the local USB/IP export + broker attach and
+// clears the green mounted marker. Safe to call when nothing is mounted.
+func (dw *DiskWidget) StopUSBPassthrough() {
+	usbpass.StopSession()
+	fyne.Do(func() {
+		dw.usbPassSessions = nil
+		for i := range dw.allDrives {
+			if dw.allDrives[i].IsUSBPassthrough {
+				dw.allDrives[i].IsMounted = false
+			}
+		}
+		dw.updateButtons()
+		dw.requestDevicesRefresh()
+	})
 }
 
 // stopNBDAndCleanup stops NBD servers and releases resources.

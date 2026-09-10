@@ -652,8 +652,9 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			continue
 		}
 
-		// USB passthrough is not in GetDeviceInfo (gadget list) — green comes
-		// from the local export session and/or agent broker sessions.
+		// USB passthrough green = this client's local export is active.
+		// Do NOT use agent /status sessions alone: the broker historically
+		// left stale entries after detach, so disconnect looked still mounted.
 		if drive.IsUSBPassthrough {
 			if drive.USBPassthrough != nil {
 				bus := drive.USBPassthrough.BusID
@@ -661,14 +662,6 @@ func (dw *DiskWidget) updateDevicesStatus() {
 					if strings.EqualFold(id, bus) {
 						isMounted = true
 						break
-					}
-				}
-				if !isMounted {
-					for _, sess := range dw.usbPassSessions {
-						if usbPassSessionMatches(sess, drive.USBPassthrough) {
-							isMounted = true
-							break
-						}
 					}
 				}
 			}
