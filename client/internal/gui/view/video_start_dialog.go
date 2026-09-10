@@ -60,12 +60,11 @@ type VideoStartDialog struct {
 	// H.265 AND the agent's own video-info response says color444Available
 	// (hardware probe AND license tier, see
 	// models.VideoStatus.Color444Available's doc comment) -- see
-	// refreshModeUI, which drives all of this via setColor444State.
-	color444Check      *videoDialogCheckbox
-	color444Hint       *videoDialogWrapText
-	color444TitleText  *canvas.Text
-	color444BadgeLabel *canvas.Text
-	color444Available  bool
+	// refreshModeUI, which drives all of this via setColor444TitleEnabled.
+	color444Check     *videoDialogCheckbox
+	color444Hint      *videoDialogWrapText
+	color444TitleText *canvas.Text
+	color444Available bool
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -250,7 +249,7 @@ const videoDialogHintTextSize = float32(8)
 // reads as one family.
 func newVideoDialogFieldLabel(text string) *canvas.Text {
 	label := canvas.NewText(strings.ToUpper(text), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
-	label.TextSize = 10
+	label.TextSize = 9
 	label.TextStyle.Bold = true
 	return label
 }
@@ -1169,10 +1168,15 @@ func newVideoDialogRowTitle(text string) *canvas.Text {
 // stroke colors rather than pulling from the app theme.
 var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#c4e77a" viewBox="0 0 24 24"><path d="M9,15a1,1,0,1,0,1,1A1,1,0,0,0,9,15ZM2,14a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,2,14Zm20,0a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,22,14ZM17,7H13V5.72A2,2,0,0,0,14,4a2,2,0,0,0-4,0,2,2,0,0,0,1,1.72V7H7a3,3,0,0,0-3,3v9a3,3,0,0,0,3,3H17a3,3,0,0,0,3-3V10A3,3,0,0,0,17,7ZM13.72,9l-.5,2H10.78l-.5-2ZM18,19a1,1,0,0,1-1,1H7a1,1,0,0,1-1-1V10A1,1,0,0,1,7,9H8.22L9,12.24A1,1,0,0,0,10,13h4a1,1,0,0,0,1-.76L15.78,9H17a1,1,0,0,1,1,1Zm-3-4a1,1,0,1,0,1,1A1,1,0,0,0,15,15Z"/></svg>`))
 
+// videoDialogProColor is the purple used for the 4:4:4 row's star icon and
+// its "Pro" badge -- must match the hex inlined into videoDialogStarSVG
+// below (SVG resources can't reference a Go color value).
+var videoDialogProColor = color.NRGBA{R: 0x9c, G: 0x58, B: 0xf9, A: 0xff}
+
 // videoDialogStarSVG is a small star glyph shown before the 4:4:4 row's
-// title, colored purple (#aa42e0) to read as a distinct "Pro" indicator
+// title, colored to match videoDialogProColor -- a distinct "Pro" indicator
 // from AI Vision's lime robot.
-var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#aa42e0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
+var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9c58f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
 
 // newVideoDialogInlineIcon is a small, fixed-size icon glyph meant to sit
 // immediately before a toggle row's title text.
@@ -1372,9 +1376,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	// Start (unlike AI Vision, this is a real renegotiation with the
 	// server, not a pure local overlay) -- see models.VideoStartRequest.Color444's
 	// doc comment. Always shown (any codec) -- refreshModeUI grays it out via
-	// setColor444State instead of hiding it outright when it doesn't apply.
-	// Its text changes at runtime (see refreshModeUI), unlike VSync/AI
-	// Vision's static copy -- built with no spans yet here, since
+	// setColor444TitleEnabled instead of hiding it outright when it doesn't
+	// apply. Its text changes at runtime (see refreshModeUI), unlike
+	// VSync/AI Vision's static copy -- built with no spans yet here, since
 	// videoDialogWrapText.SetSpans is what actually fills it in, called by
 	// refreshModeUI before this dialog is ever shown.
 	vsd.color444Check = newVideoDialogCheckbox(false, nil)
@@ -1392,12 +1396,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	}
 	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidth(false), videoDialogHintTextSize, true)
 	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
-	color444Badge, color444BadgeLabel := newVideoDialogMutableBadge(i18n.Current.Color444Badge, videoDialogHintColor)
-	vsd.color444BadgeLabel = color444BadgeLabel
 	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
 		newVideoDialogIconTitleText(videoDialogStarSVG, vsd.color444TitleText),
-		color444Badge,
+		newVideoDialogBadge(i18n.Current.Color444Badge, videoDialogProColor),
 		vsd.color444Hint,
 	)
 
@@ -1440,7 +1442,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	)
 
 	bitrateLabel := canvas.NewText(strings.ToUpper(i18n.Current.Bitrate), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
-	bitrateLabel.TextSize = 10
+	bitrateLabel.TextSize = 9
 	bitrateLabel.TextStyle.Bold = true
 	bitrateHeaderRow := container.NewBorder(nil, nil, bitrateLabel, valuePill, nil)
 
@@ -1513,15 +1515,15 @@ func (vsd *VideoStartDialog) createInterface() {
 	codecCardBorder.CornerRadius = design.RadiusMD
 	codecCardBorder.StrokeColor = videoDialogBorderColor
 	codecCardBorder.StrokeWidth = 1
-	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 2, 2, 2, 2))
+	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 4, 4, 4, 4))
 
 	bodyContent := container.NewVBox(
 		newVideoDialogFieldLabel("Codec"),
 		codecCard,
 		container.NewCenter(vsd.modeDescription),
 		resolutionFPSRow,
-		vsd.modeDetailsSlot,
-		videoDialogVSpace(8), // breathing room before VSync
+		NewInsetExact(vsd.modeDetailsSlot, 0, 0, 2, 0), // was flush against resolutionFPSRow above
+		videoDialogVSpace(8),                           // breathing room before VSync
 		vsyncRow,
 		aiVisionRow,
 		color444Row,
@@ -1863,44 +1865,43 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 	}
 	vsd.modeDetailsSlot.Refresh()
 
-	// RustShine Pro 4:4:4 color: only meaningful for H.265 (this project's
+	// RustShine 4:4:4 color: only meaningful for H.265 (this project's
 	// hardware encode path has no H.264/AV1 4:4:4 profile, see
 	// service.moonlightVideoFormat's doc comment). The row itself always
 	// stays visible on every codec -- rather than disappearing when it
-	// doesn't apply, it grays out and its badge explains why (requires
-	// H.265, or requires RustShine Pro), which reads clearer than the
-	// choice silently vanishing.
+	// doesn't apply, it grays out (title + checkbox) while its description
+	// explains why (requires H.265, or requires RustShine Pro); the "Pro"
+	// badge itself stays constant (see its construction in createInterface)
+	// since it was already saying the same thing the title used to say too
+	// ("4:4:4 Color (RustShine Pro)") -- one "Pro" is enough.
 	switch {
 	case modeID != models.VideoModeH265:
 		vsd.color444Check.SetChecked(false)
 		vsd.color444Check.Disable()
 		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444RequiresH265Hint, Color: videoDialogHintColor})
-		vsd.setColor444State(false, i18n.Current.Color444CodecBadge)
+		vsd.setColor444TitleEnabled(false)
 	case vsd.color444Available:
 		vsd.color444Check.Enable()
 		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444Hint, Color: videoDialogHintColor})
-		vsd.setColor444State(true, i18n.Current.Color444Badge)
+		vsd.setColor444TitleEnabled(true)
 	default:
 		vsd.color444Check.SetChecked(false)
 		vsd.color444Check.Disable()
 		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444UnavailableHint, Color: videoDialogHintColor})
-		vsd.setColor444State(false, i18n.Current.Color444Badge)
+		vsd.setColor444TitleEnabled(false)
 	}
 }
 
-// setColor444State grays or restores the 4:4:4 row's title and swaps its
-// badge's wording -- see refreshModeUI's callers.
-func (vsd *VideoStartDialog) setColor444State(enabled bool, badgeText string) {
+// setColor444TitleEnabled grays or restores the 4:4:4 row's title -- see
+// refreshModeUI's callers. The "Pro" badge next to it doesn't change here;
+// it's always shown, in a fixed color, regardless of codec/availability.
+func (vsd *VideoStartDialog) setColor444TitleEnabled(enabled bool) {
 	if enabled {
 		vsd.color444TitleText.Color = design.ColorTextLight
-		vsd.color444BadgeLabel.Color = design.ColorConnectionBadgeText
 	} else {
 		vsd.color444TitleText.Color = videoDialogHintColor
-		vsd.color444BadgeLabel.Color = videoDialogHintColor
 	}
 	vsd.color444TitleText.Refresh()
-	vsd.color444BadgeLabel.Text = strings.ToUpper(badgeText)
-	vsd.color444BadgeLabel.Refresh()
 }
 
 func localizedVideoModeDescription(modeID string) string {

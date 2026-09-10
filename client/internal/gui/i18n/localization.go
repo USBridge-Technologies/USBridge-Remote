@@ -332,12 +332,11 @@ type LocalizedStrings struct {
 	AIVision                  string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
 	AIVisionHint              string // hint shown under the AI Vision checkbox
 	AIVisionBadge             string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
-	Color444                  string // "4:4:4 Color (Pro)" checkbox -- always shown, grayed out when it doesn't currently apply
+	Color444                  string // "4:4:4 Color (RustShine)" checkbox -- always shown, grayed out when it doesn't currently apply. Doesn't say "Pro" itself -- that's Color444Badge's job, right next to it
 	Color444Hint              string // hint under the checkbox when 4:4:4 is available (checked or not)
 	Color444UnavailableHint   string // hint under the (disabled, unchecked) checkbox when H.265 is selected but the agent doesn't currently offer 4:4:4
 	Color444RequiresH265Hint  string // hint under the (disabled, unchecked) checkbox when the selected codec isn't H.265
-	Color444Badge             string // badge next to the 4:4:4 title when it's actually available/relevant, e.g. "PRO"
-	Color444CodecBadge        string // badge replacing Color444Badge when the selected codec isn't H.265, e.g. "H.265 Only"
+	Color444Badge             string // badge next to the 4:4:4 title, always shown regardless of codec/availability, e.g. "PRO"
 	MuteAudio                 string // "Mute Audio"
 	UnmuteAudio               string // "Unmute Audio"
 	DeviceAudio               string // "Audio"
@@ -728,12 +727,11 @@ func EN() *LocalizedStrings {
 		AIVision:                  "AI Vision Detection Overlay",
 		AIVisionHint:              "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
 		AIVisionBadge:             "Experimental",
-		Color444:                  "4:4:4 Color (RustShine Pro)",
+		Color444:                  "4:4:4 Color (RustShine)",
 		Color444Hint:              "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
 		Color444UnavailableHint:   "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
 		Color444RequiresH265Hint:  "Only available with the H.265 codec -- select it above to use 4:4:4 color.",
 		Color444Badge:             "Pro",
-		Color444CodecBadge:        "H.265 Only",
 		MuteAudio:                 "Mute Audio",
 		UnmuteAudio:               "Unmute Audio",
 		DeviceAudio:               "Audio",
