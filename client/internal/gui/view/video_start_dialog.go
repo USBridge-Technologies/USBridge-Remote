@@ -516,10 +516,10 @@ type videoDialogBitrateSlider struct {
 }
 
 const (
-	bitrateSliderThumbRadius = float32(7)
-	bitrateSliderGlowRadius  = float32(11)
-	bitrateSliderTrackHeight = float32(4)
-	bitrateSliderHeight      = float32(24)
+	bitrateSliderThumbRadius = float32(6)
+	bitrateSliderGlowRadius  = float32(9)
+	bitrateSliderTrackHeight = float32(3)
+	bitrateSliderHeight      = float32(20)
 )
 
 func newVideoDialogBitrateSlider(min, max, step float64) *videoDialogBitrateSlider {
@@ -619,14 +619,18 @@ type videoDialogBitrateSliderRenderer struct {
 func (r *videoDialogBitrateSliderRenderer) Layout(size fyne.Size) {
 	s := r.slider
 	trackY := (size.Height - bitrateSliderTrackHeight) / 2
-	trackWidth := size.Width - bitrateSliderThumbRadius*2
-	if trackWidth < 0 {
-		trackWidth = 0
-	}
-	s.track.Move(fyne.NewPos(bitrateSliderThumbRadius, trackY))
-	s.track.Resize(fyne.NewSize(trackWidth, bitrateSliderTrackHeight))
+	// The track spans the full control width (not inset by the thumb
+	// radius) so its left/right edges line up with the label row above and
+	// the Low/High hint row below -- only the thumb's own travel range is
+	// inset, so it doesn't get visually clipped at either end.
+	s.track.Move(fyne.NewPos(0, trackY))
+	s.track.Resize(fyne.NewSize(size.Width, bitrateSliderTrackHeight))
 
-	cx := bitrateSliderThumbRadius + s.valueFraction()*trackWidth
+	thumbRange := size.Width - bitrateSliderThumbRadius*2
+	if thumbRange < 0 {
+		thumbRange = 0
+	}
+	cx := bitrateSliderThumbRadius + s.valueFraction()*thumbRange
 	cy := size.Height / 2
 
 	s.glow.Move(fyne.NewPos(cx-bitrateSliderGlowRadius, cy-bitrateSliderGlowRadius))
@@ -747,7 +751,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	valuePillBorder.StrokeColor = bitrateCardBorderColor
 	valuePillBorder.StrokeWidth = 1
 	valuePill := container.NewStack(valuePillBG, valuePillBorder,
-		NewInset(container.NewHBox(bitrateValueNumber, bitrateValueUnit), 10, 10, 5, 5),
+		NewInset(container.NewHBox(bitrateValueNumber, bitrateValueUnit), 10, 10, 2, 2),
 	)
 
 	bitrateLabel := canvas.NewText(strings.ToUpper(i18n.Current.Bitrate), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
@@ -863,7 +867,7 @@ func (vsd *VideoStartDialog) createInterface() {
 			}
 
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 460), maxWidth)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 368), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
