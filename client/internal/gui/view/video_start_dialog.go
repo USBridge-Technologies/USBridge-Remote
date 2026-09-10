@@ -516,10 +516,10 @@ type videoDialogBitrateSlider struct {
 }
 
 const (
-	bitrateSliderThumbRadius = float32(9)
-	bitrateSliderGlowRadius  = float32(16)
+	bitrateSliderThumbRadius = float32(7)
+	bitrateSliderGlowRadius  = float32(11)
 	bitrateSliderTrackHeight = float32(4)
-	bitrateSliderHeight      = float32(28)
+	bitrateSliderHeight      = float32(24)
 )
 
 func newVideoDialogBitrateSlider(min, max, step float64) *videoDialogBitrateSlider {
@@ -723,15 +723,15 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.extraBtn = newVideoDialogExtraButton()
 	vsd.extraBtn.Hide()
 
-	// Bitrate card: bg #181c1f / border #33372f, a "TARGET BITRATE" caption
+	// Bitrate card: bg #1e2225 / border #33372f, a "TARGET BITRATE" caption
 	// with the live value in its own small pill (bg #0b0f12, same border),
 	// the teal-thumbed slider, and Low/High bound hints -- see the
 	// reference screenshot this restyle matches.
 	bitrateValueNumber := canvas.NewText("", color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
-	bitrateValueNumber.TextSize = 15
+	bitrateValueNumber.TextSize = 10
 	bitrateValueNumber.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
 	bitrateValueUnit := canvas.NewText(i18n.Current.UnitMbps, color.NRGBA{R: 0xeb, G: 0xff, B: 0xbc, A: 0xff})
-	bitrateValueUnit.TextSize = 10
+	bitrateValueUnit.TextSize = 8
 	bitrateValueUnit.TextStyle = fyne.TextStyle{Monospace: true}
 	vsd.bitrateSlider.OnChanged = func(value float64) {
 		bitrateValueNumber.Text = fmt.Sprintf("%.1f", value/1000)
@@ -761,13 +761,13 @@ func (vsd *VideoStartDialog) createInterface() {
 	highHint.TextSize = videoDialogHintTextSize
 	bitrateHintsRow := container.NewBorder(nil, nil, lowHint, highHint, nil)
 
-	bitrateCardBG := canvas.NewRectangle(color.NRGBA{R: 0x18, G: 0x1c, B: 0x1f, A: 0xff})
+	bitrateCardBG := canvas.NewRectangle(color.NRGBA{R: 0x1e, G: 0x22, B: 0x25, A: 0xff})
 	bitrateCardBG.CornerRadius = design.RadiusMD
 	bitrateCardBorder := canvas.NewRectangle(color.Transparent)
 	bitrateCardBorder.CornerRadius = design.RadiusMD
 	bitrateCardBorder.StrokeColor = bitrateCardBorderColor
 	bitrateCardBorder.StrokeWidth = 1
-	bitrateCardContent := NewInset(container.NewVBox(bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow), 16, 16, 14, 14)
+	bitrateCardContent := NewInset(container.NewVBox(bitrateHeaderRow, vsd.bitrateSlider, bitrateHintsRow), 14, 14, 10, 10)
 	vsd.bitrateBlock = container.NewStack(bitrateCardBG, bitrateCardContent, bitrateCardBorder)
 
 	vsd.bitrateSlider.OnChanged(vsd.bitrateSlider.Value)
