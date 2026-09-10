@@ -279,6 +279,11 @@ func (mw *MainWindow) recreateContainers() {
 				mw.currentVideoFPS = fps
 				mw.updateVideoIconLabel()
 			})
+			mw.videoWidget.SetOnResolutionChanged(func(width, height int) {
+				mw.currentVideoWidth = width
+				mw.currentVideoHeight = height
+				mw.updateVideoIconLabel()
+			})
 		}
 	}
 	if mw.backupWidget != nil {
@@ -1527,10 +1532,18 @@ func (mw *MainWindow) updateVideoIconLabel() {
 		fpsLabel = fmt.Sprintf("%.0f FPS", math.Round(mw.currentVideoFPS))
 	}
 
-	resLabel := ""
-	if mw.config != nil {
-		resLabel = videoResolutionLabel(mw.config.VideoWidth, mw.config.VideoHeight)
+	// currentVideoWidth/Height (from VideoWidget.SetOnResolutionChanged) win
+	// once a real resolution change has actually happened; mw.config's own
+	// VideoWidth/Height is only ever the saved/default value from startup
+	// and never updates afterward, which is what made this label stick at
+	// its initial value (usually the 1280x720 default) forever.
+	resWidth, resHeight := mw.currentVideoWidth, mw.currentVideoHeight
+	if resWidth <= 0 || resHeight <= 0 {
+		if mw.config != nil {
+			resWidth, resHeight = mw.config.VideoWidth, mw.config.VideoHeight
+		}
 	}
+	resLabel := videoResolutionLabel(resWidth, resHeight)
 
 	fyne.Do(func() {
 		mw.videoIcon.SetBadgeText("")

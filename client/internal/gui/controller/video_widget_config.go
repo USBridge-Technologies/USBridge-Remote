@@ -342,6 +342,10 @@ func (vw *VideoWidget) applyVideoDeviceConfig(cfg models.VideoDeviceConfig, rest
 	saveVideoDeviceConfig(cfg)
 	resetVideoInfoCache()
 
+	if vw.onResolutionChanged != nil {
+		vw.onResolutionChanged(cfg.VideoWidth, cfg.VideoHeight)
+	}
+
 	if !restart {
 		return nil
 	}

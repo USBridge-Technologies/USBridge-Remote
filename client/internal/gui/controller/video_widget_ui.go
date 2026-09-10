@@ -1094,6 +1094,17 @@ func (vw *VideoWidget) SetOnFPSChanged(fn func(float64)) {
 	vw.onFPSChanged = fn
 }
 
+// SetOnResolutionChanged wires a callback fired with the newly applied
+// capture width/height every time applyVideoDeviceConfig actually applies
+// one -- both the header's own quick-pick menu (ApplyVideoResolution) and
+// the Video Parameters dialog's Apply button funnel through there. Without
+// this, the header's resolution label had no way to learn about a change:
+// it read a static, never-updated models.AppConfig field instead (see
+// MainWindow.updateVideoIconLabel).
+func (vw *VideoWidget) SetOnResolutionChanged(fn func(width, height int)) {
+	vw.onResolutionChanged = fn
+}
+
 // UpdateClient updates the USB client.
 func (vw *VideoWidget) UpdateClient(usbClient *api.USBClient) {
 	vw.usbClient = usbClient

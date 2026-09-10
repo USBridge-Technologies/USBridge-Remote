@@ -68,6 +68,7 @@ type VideoWidget struct {
 	bridgeInternalHost    string // LAN/internal IP of bridge; used to detect same-subnet direct path
 	updateStatus          func()
 	onFPSChanged          func(float64)
+	onResolutionChanged   func(width, height int)
 	videoOpMu             sync.Mutex
 	videoOpRunning        bool
 	desiredStreaming      bool

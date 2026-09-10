@@ -90,10 +90,16 @@ type MainWindow struct {
 	lastTailscaleAuthURL     string
 	tailscalePollCancel      context.CancelFunc
 	currentVideoFPS          float64
-	currentStorageDir        string
-	currentStorageTotal      int64
-	currentStorageAvailable  int64
-	storageStatus            *models.StorageStatusData
+	// currentVideoWidth/Height mirror the resolution actually applied via
+	// VideoWidget.SetOnResolutionChanged -- the header's own resolution
+	// label (updateVideoIconLabel) reads these instead of the static,
+	// never-updated mw.config.VideoWidth/Height.
+	currentVideoWidth       int
+	currentVideoHeight      int
+	currentStorageDir       string
+	currentStorageTotal     int64
+	currentStorageAvailable int64
+	storageStatus           *models.StorageStatusData
 
 	// connectingToast is the bottom "Connecting to X…" toast (see
 	// handleConnectingStateChange) -- nil whenever the toast isn't showing.
