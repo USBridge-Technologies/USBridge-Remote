@@ -1014,28 +1014,132 @@ func newVideoDialogRowTitle(text string) *canvas.Text {
 	return title
 }
 
-// videoDialogToggleIndent is the description line's left indent -- lines up
-// with the title text next to the checkbox (checkbox width + the gap the
-// title row's own HBox puts between them) without needing the description
-// to be nested inside that same HBox/Border, which left it without a real
-// wrap width until too late in layout and made it render far past where the
-// title indicated. A direct VBox child (title row, then indented
-// description) is the same reliable pattern this dialog's other wrapped
-// hint text already uses elsewhere.
-const videoDialogToggleIndent = videoDialogCheckboxSize + 8
+// videoDialogToggleIndent is the description line's left indent -- how far
+// the checkbox's own width plus the title's own gap reaches. Exposed as a
+// constant since videoDialogToggleDescWidth (used to pre-wrap descriptions,
+// see videoDialogPresizeWrap) needs to subtract exactly what
+// videoDialogToggleRow's own Layout will actually use.
+const videoDialogToggleIndent = videoDialogCheckboxSize + videoDialogToggleGap
+
+const (
+	videoDialogToggleGap     = float32(8) // checkbox -> title, and title -> badge
+	videoDialogToggleDescGap = float32(6) // title row -> description
+)
+
+// videoDialogToggleRow is a real custom widget for one checkbox+title+
+// badge+description row -- not a composition of generic Fyne containers.
+// Generic containers (HBox/VBox/Border/NewInset) kept introducing their own
+// padding/gap here that this dialog didn't ask for (theme.Padding() between
+// HBox children, NewInset's own extra Border padding on top of its spacer
+// rectangles -- see NewInset's doc comment) and repeatedly threw the
+// description out of alignment with its own title. A real Layout method
+// gives full, exact control over every position instead of stacking several
+// generic layouts' worth of assumptions on top of each other.
+type videoDialogToggleRow struct {
+	widget.BaseWidget
+
+	check       *videoDialogCheckbox
+	title       *canvas.Text
+	badge       fyne.CanvasObject
+	description fyne.CanvasObject
+}
 
 // newVideoDialogToggleRow lays out one checkbox row in the reference
 // design: the checkbox and a bold title (+ optional badge) share the first
 // line, and the description sits on its own line below, indented to the
-// title's own left edge (see videoDialogToggleIndent).
-func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
-	titleRowItems := []fyne.CanvasObject{check, titleText}
-	if badge != nil {
-		titleRowItems = append(titleRowItems, badge)
-	}
-	titleRow := container.NewHBox(titleRowItems...)
-	return container.NewVBox(titleRow, NewInset(description, videoDialogToggleIndent, 0, 4, 0))
+// title's own left edge.
+func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) *videoDialogToggleRow {
+	r := &videoDialogToggleRow{check: check, title: titleText, badge: badge, description: description}
+	r.ExtendBaseWidget(r)
+	return r
 }
+
+func (r *videoDialogToggleRow) indentX() float32 {
+	return r.check.MinSize().Width + videoDialogToggleGap
+}
+
+func (r *videoDialogToggleRow) titleRowHeight() float32 {
+	h := maxFloat32(r.check.MinSize().Height, r.title.MinSize().Height)
+	if r.badge != nil {
+		h = maxFloat32(h, r.badge.MinSize().Height)
+	}
+	return h
+}
+
+func (r *videoDialogToggleRow) MinSize() fyne.Size {
+	indent := r.indentX()
+	titleRowWidth := indent + r.title.MinSize().Width
+	if r.badge != nil {
+		titleRowWidth += videoDialogToggleGap + r.badge.MinSize().Width
+	}
+	// description's MinSize here relies on it already having been
+	// pre-Resized to its real final width via videoDialogPresizeWrap at
+	// construction -- otherwise this hits the same width-unknown-before-
+	// layout problem that Resize call exists to avoid, just one level up.
+	descSize := r.description.MinSize()
+	width := maxFloat32(titleRowWidth, indent+descSize.Width)
+	height := r.titleRowHeight() + videoDialogToggleDescGap + descSize.Height
+	return fyne.NewSize(width, height)
+}
+
+func (r *videoDialogToggleRow) CreateRenderer() fyne.WidgetRenderer {
+	objs := []fyne.CanvasObject{r.check, r.title, r.description}
+	if r.badge != nil {
+		objs = append(objs, r.badge)
+	}
+	return &videoDialogToggleRowRenderer{row: r, objs: objs}
+}
+
+type videoDialogToggleRowRenderer struct {
+	row  *videoDialogToggleRow
+	objs []fyne.CanvasObject
+}
+
+func (rr *videoDialogToggleRowRenderer) Layout(size fyne.Size) {
+	r := rr.row
+	checkSize := r.check.MinSize()
+	titleSize := r.title.MinSize()
+	rowHeight := r.titleRowHeight()
+
+	r.check.Move(fyne.NewPos(0, (rowHeight-checkSize.Height)/2))
+	r.check.Resize(checkSize)
+
+	indent := r.indentX()
+	r.title.Move(fyne.NewPos(indent, (rowHeight-titleSize.Height)/2))
+	r.title.Resize(titleSize)
+
+	if r.badge != nil {
+		badgeSize := r.badge.MinSize()
+		badgeX := indent + titleSize.Width + videoDialogToggleGap
+		r.badge.Move(fyne.NewPos(badgeX, (rowHeight-badgeSize.Height)/2))
+		r.badge.Resize(badgeSize)
+	}
+
+	descY := rowHeight + videoDialogToggleDescGap
+	descWidth := maxFloat32(0, size.Width-indent)
+	descHeight := maxFloat32(0, size.Height-descY)
+	r.description.Move(fyne.NewPos(indent, descY))
+	r.description.Resize(fyne.NewSize(descWidth, descHeight))
+}
+
+func (rr *videoDialogToggleRowRenderer) MinSize() fyne.Size {
+	return rr.row.MinSize()
+}
+
+func (rr *videoDialogToggleRowRenderer) Refresh() {
+	rr.Layout(rr.row.Size())
+	canvas.Refresh(rr.row)
+}
+
+func (rr *videoDialogToggleRowRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (rr *videoDialogToggleRowRenderer) Objects() []fyne.CanvasObject {
+	return rr.objs
+}
+
+func (rr *videoDialogToggleRowRenderer) Destroy() {}
 
 // newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
 // its own bordered card (same bg/border as the bitrate card) -- AI Vision's
