@@ -52,7 +52,7 @@ type VideoStartDialog struct {
 	deviceLabel      *widget.Label
 	vsyncCheck       *videoDialogCheckbox
 	aiVisionCheck    *videoDialogCheckbox
-	aiVisionHint     *widget.RichText
+	aiVisionHint     *videoDialogWrapText
 	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade.
 	// Unlike AI Vision this row is always shown, on any codec -- it just
 	// reads as an inactive/grayed item (dim title, disabled checkbox, a
@@ -63,7 +63,7 @@ type VideoStartDialog struct {
 	// models.VideoStatus.Color444Available's doc comment) -- see
 	// refreshModeUI, which drives all of this via setColor444State.
 	color444Check      *videoDialogCheckbox
-	color444Hint       *widget.Label
+	color444Hint       *videoDialogWrapText
 	color444TitleText  *canvas.Text
 	color444BadgeLabel *canvas.Text
 	color444Available  bool
@@ -842,53 +842,6 @@ func (r *videoDialogCheckboxRenderer) Destroy() {}
 // bordered card in this dialog reads as one family.
 var videoDialogCardBG = color.NRGBA{R: 0x1e, G: 0x22, B: 0x25, A: 0xff}
 
-// videoDialogMutedTheme recolors a themed widget's foreground text to this
-// dialog's own muted hint color -- widget.Label has no per-instance color
-// field (unlike canvas.Text), so wrapped description text goes through this
-// instead of losing word-wrap by switching to canvas.Text.
-type videoDialogMutedTheme struct {
-	fyne.Theme
-}
-
-func (t videoDialogMutedTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	if name == theme.ColorNameForeground {
-		return videoDialogHintColor
-	}
-	return t.Theme.Color(name, variant)
-}
-
-func (t videoDialogMutedTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameText {
-		return videoDialogHintTextSize
-	}
-	return t.Theme.Size(name)
-}
-
-// videoDialogRichTheme backs newVideoDialogRichDescription: it maps
-// ColorNameForeground to the muted hint color (plain text) and
-// ColorNamePrimary to the teal accent (inline code spans), so a single
-// widget.RichText can mix both within one wrapped, word-wrapping block.
-type videoDialogRichTheme struct {
-	fyne.Theme
-}
-
-func (t videoDialogRichTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	switch name {
-	case theme.ColorNameForeground:
-		return videoDialogHintColor
-	case theme.ColorNamePrimary:
-		return design.ColorConnectionBadgeText
-	}
-	return t.Theme.Color(name, variant)
-}
-
-func (t videoDialogRichTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameText {
-		return videoDialogHintTextSize
-	}
-	return t.Theme.Size(name)
-}
-
 // videoDialogPanelWidth/videoDialogBodyInsetLR/videoDialogBoxedInsetLR mirror
 // the actual layout constants used below (the panel's width floor in
 // PanelSize, bodyContent's own NewInset, and newVideoDialogBoxedToggleRow's
@@ -901,83 +854,216 @@ const (
 	videoDialogBoxedInsetLR = float32(12)
 )
 
+// videoDialogBodyInsetQuirk is NewInset's own extra theme.Padding() (4px by
+// default) added on top of every non-zero side it's given -- see NewInset's
+// doc comment. bodyContent (below) is wrapped with NewInset, not
+// NewInsetExact, so its real left/right inset is videoDialogBodyInsetLR
+// plus this, not videoDialogBodyInsetLR alone.
+const videoDialogBodyInsetQuirk = float32(4)
+
 // videoDialogToggleDescWidth is the width a toggle row's description text
 // actually ends up with once fully laid out -- plain rows (VSync, 4:4:4) vs.
-// AI Vision's own boxed row, which loses an extra 12px of padding on each
-// side. See videoDialogPresizeWrap for why this needs to be known up front.
+// AI Vision's own boxed row, which loses an extra 12px of exact padding on
+// each side (see newVideoDialogBoxedToggleRow's own NewInsetExact). Each
+// videoDialogWrapText description needs this width up front, at
+// construction/SetSpans time, since it wraps eagerly rather than lazily on
+// some future Resize.
 func videoDialogToggleDescWidth(boxed bool) float32 {
-	width := videoDialogPanelWidth - videoDialogBodyInsetLR*2 - videoDialogToggleIndent
+	width := videoDialogPanelWidth - (videoDialogBodyInsetLR+videoDialogBodyInsetQuirk)*2 - videoDialogToggleIndent
 	if boxed {
 		width -= videoDialogBoxedInsetLR * 2
 	}
 	return width
 }
 
-// videoDialogPresizeWrap forces a wrapping text widget (widget.Label or
-// widget.RichText, or a container.NewThemeOverride wrapping either) to
-// compute its correctly-wrapped height for width up front. Fyne's own wrap
-// calculation (RichText.updateRowBounds) is keyed off the widget's current
-// Size(), which is the zero value until its first real Resize call -- so
-// any ancestor container that queries MinSize() on the very first layout
-// pass (which is how Fyne decides how much vertical space to reserve for
-// this row before laying out whatever comes after it) gets a bogus answer,
-// and the wrapped text visually spills out of its row into whatever's next
-// instead. Since this dialog's panel width is fixed (see PanelSize below),
-// the eventual width is known ahead of time, so we just tell the widget
-// outright rather than waiting for Fyne's layout pass to discover it.
-func videoDialogPresizeWrap(obj fyne.CanvasObject, width float32) {
-	obj.Resize(fyne.NewSize(width, 1))
+// videoDialogWrapSpan is one differently-styled run of text within a
+// videoDialogWrapText -- e.g. a teal monospace "ui.parse()" inline in an
+// otherwise plain, muted sentence.
+type videoDialogWrapSpan struct {
+	Text      string
+	Color     color.Color
+	Monospace bool
 }
 
-// newVideoDialogPlainDescription is a wrapped, muted description line under
-// a toggle's title -- the VSync row's own plain (non-italic) style.
-func newVideoDialogPlainDescription(text string, width float32) fyne.CanvasObject {
-	label := widget.NewLabel(text)
-	label.Wrapping = fyne.TextWrapWord
-	wrapped := container.NewThemeOverride(label, videoDialogMutedTheme{Theme: design.NewBrandTheme()})
-	videoDialogPresizeWrap(wrapped, width)
-	return wrapped
+// videoDialogWrapText renders one or more styled spans as manually
+// word-wrapped canvas.Text lines, instead of widget.Label/widget.RichText.
+//
+// It replaces three separate failed attempts at getting a toggle row's
+// description positioned correctly under its title (HBox, then
+// container.NewBorder, then container.NewVBox+NewInset, then a hand-rolled
+// widget.BaseWidget wrapping widget.Label/RichText) -- every one of those
+// relied on Label/RichText recomputing their own wrapped line bounds at the
+// right moment relative to *two* separate "skip if size unchanged" guards
+// (widget.BaseWidget.Resize and RichText.Resize both no-op when the new
+// size equals the current one), so a description that needed a fresh wrap
+// after a presize trick or a runtime SetText could easily end up displayed
+// with stale bounds from an earlier (often placeholder-width-only) pass.
+//
+// This widget sidesteps that whole mechanism: since this dialog's panel
+// width is fixed, wrapping is computed eagerly, directly from a known
+// width, in SetSpans itself (not lazily on some future Resize/Refresh) --
+// there is no cache to go stale. CreateRenderer's Layout just repositions
+// the same already-wrapped lines, which is idempotent no matter how many
+// times or when it runs.
+type videoDialogWrapText struct {
+	widget.BaseWidget
+
+	textSize float32
+	italic   bool
+	width    float32
+
+	lineHeight float32
+	lines      [][]*canvas.Text
 }
 
-// newVideoDialogRichDescription is a wrapped, muted, italic description that
-// can mix in inline teal monospace code spans (see
-// videoDialogHighlightCode) -- the AI Vision/4:4:4 rows' own style.
-func newVideoDialogRichDescription(segments ...widget.RichTextSegment) *widget.RichText {
-	rt := widget.NewRichText(segments...)
-	rt.Wrapping = fyne.TextWrapWord
-	return rt
+func newVideoDialogWrapText(width, textSize float32, italic bool, spans ...videoDialogWrapSpan) *videoDialogWrapText {
+	t := &videoDialogWrapText{textSize: textSize, italic: italic, width: width}
+	t.ExtendBaseWidget(t)
+	t.SetSpans(spans...)
+	return t
 }
 
-// videoDialogHighlightCode splits text on every occurrence of code into
-// rich-text segments, rendering code inline as teal monospace and the rest
-// as plain text (italic if requested) -- used so a description can
-// reference a literal API call (e.g. "ui.parse()") inline without breaking
-// the sentence into separate, hard-to-translate string fields.
-func videoDialogHighlightCode(text, code string, italic bool) []widget.RichTextSegment {
-	// Inline: true on both styles is load-bearing -- a RichTextSegment
-	// defaults to block-level (Inline() returns Style.Inline, false by
-	// default), which forces a line break before *and* after every segment
-	// instead of flowing them together as one wrapped paragraph. Without
-	// this, "ui.parse()" rendered on its own isolated line.
-	plainStyle := widget.RichTextStyle{ColorName: theme.ColorNameForeground, TextStyle: fyne.TextStyle{Italic: italic}, Inline: true}
-	codeStyle := widget.RichTextStyle{ColorName: theme.ColorNamePrimary, TextStyle: fyne.TextStyle{Italic: italic, Monospace: true}, Inline: true}
+// SetSpans replaces the wrapped content and immediately recomputes and
+// repositions every line -- used by the 4:4:4 row, whose description text
+// changes at runtime (see refreshModeUI).
+func (t *videoDialogWrapText) SetSpans(spans ...videoDialogWrapSpan) {
+	style := fyne.TextStyle{Italic: t.italic}
+	t.lineHeight = fyne.MeasureText("M", t.textSize, style).Height
+	spaceWidth := fyne.MeasureText(" ", t.textSize, style).Width
 
-	segments := make([]widget.RichTextSegment, 0, 3)
+	type word struct {
+		txt   *canvas.Text
+		width float32
+	}
+	var words []word
+	for _, span := range spans {
+		wordStyle := style
+		wordStyle.Monospace = span.Monospace
+		for _, w := range strings.Fields(span.Text) {
+			txt := canvas.NewText(w, span.Color)
+			txt.TextSize = t.textSize
+			txt.TextStyle = wordStyle
+			words = append(words, word{txt: txt, width: fyne.MeasureText(w, t.textSize, wordStyle).Width})
+		}
+	}
+
+	var lines [][]*canvas.Text
+	var cur []*canvas.Text
+	curWidth := float32(0)
+	for _, w := range words {
+		add := w.width
+		if len(cur) > 0 {
+			add += spaceWidth
+		}
+		if len(cur) > 0 && curWidth+add > t.width {
+			lines = append(lines, cur)
+			cur = nil
+			curWidth = 0
+			add = w.width
+		}
+		cur = append(cur, w.txt)
+		curWidth += add
+	}
+	if len(cur) > 0 {
+		lines = append(lines, cur)
+	}
+	t.lines = lines
+	t.layoutLines()
+	t.Refresh()
+}
+
+// layoutLines positions every already-wrapped word at its final (x, y) --
+// called eagerly from SetSpans (so the widget is correctly laid out even
+// before Fyne ever calls its renderer) and again, redundantly but
+// harmlessly, from the renderer's own Layout.
+func (t *videoDialogWrapText) layoutLines() {
+	style := fyne.TextStyle{Italic: t.italic}
+	spaceWidth := fyne.MeasureText(" ", t.textSize, style).Width
+	y := float32(0)
+	for _, line := range t.lines {
+		x := float32(0)
+		for _, word := range line {
+			size := word.MinSize()
+			word.Move(fyne.NewPos(x, y))
+			word.Resize(size)
+			x += size.Width + spaceWidth
+		}
+		y += t.lineHeight
+	}
+}
+
+func (t *videoDialogWrapText) MinSize() fyne.Size {
+	if len(t.lines) == 0 {
+		return fyne.NewSize(t.width, 0)
+	}
+	return fyne.NewSize(t.width, float32(len(t.lines))*t.lineHeight)
+}
+
+func (t *videoDialogWrapText) CreateRenderer() fyne.WidgetRenderer {
+	return &videoDialogWrapTextRenderer{t: t}
+}
+
+type videoDialogWrapTextRenderer struct {
+	t *videoDialogWrapText
+}
+
+func (r *videoDialogWrapTextRenderer) Layout(fyne.Size) {
+	r.t.layoutLines()
+}
+
+func (r *videoDialogWrapTextRenderer) MinSize() fyne.Size {
+	return r.t.MinSize()
+}
+
+func (r *videoDialogWrapTextRenderer) Refresh() {
+	canvas.Refresh(r.t)
+}
+
+func (r *videoDialogWrapTextRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogWrapTextRenderer) Objects() []fyne.CanvasObject {
+	objs := make([]fyne.CanvasObject, 0, len(r.t.lines)*4)
+	for _, line := range r.t.lines {
+		for _, w := range line {
+			objs = append(objs, w)
+		}
+	}
+	return objs
+}
+
+func (r *videoDialogWrapTextRenderer) Destroy() {}
+
+// newVideoDialogDescription is a wrapped, muted description line under a
+// toggle's title -- the VSync/4:4:4 rows' own plain (non-italic) style.
+func newVideoDialogDescription(text string, width float32) *videoDialogWrapText {
+	return newVideoDialogWrapText(width, videoDialogHintTextSize, false, videoDialogWrapSpan{Text: text, Color: videoDialogHintColor})
+}
+
+// newVideoDialogHighlightDescription is a wrapped, muted, italic
+// description that highlights every occurrence of code inline as teal
+// monospace -- the AI Vision row's own style, so it can reference a literal
+// API call (e.g. "ui.parse()") inline without breaking the sentence into
+// separate, hard-to-translate string fields.
+func newVideoDialogHighlightDescription(text, code string, width float32) *videoDialogWrapText {
+	spans := make([]videoDialogWrapSpan, 0, 3)
 	rest := text
 	for {
 		idx := strings.Index(rest, code)
 		if idx < 0 {
 			if rest != "" {
-				segments = append(segments, &widget.TextSegment{Text: rest, Style: plainStyle})
+				spans = append(spans, videoDialogWrapSpan{Text: rest, Color: videoDialogHintColor})
 			}
-			return segments
+			break
 		}
 		if idx > 0 {
-			segments = append(segments, &widget.TextSegment{Text: rest[:idx], Style: plainStyle})
+			spans = append(spans, videoDialogWrapSpan{Text: rest[:idx], Color: videoDialogHintColor})
 		}
-		segments = append(segments, &widget.TextSegment{Text: code, Style: codeStyle})
+		spans = append(spans, videoDialogWrapSpan{Text: code, Color: design.ColorConnectionBadgeText, Monospace: true})
 		rest = rest[idx+len(code):]
 	}
+	return newVideoDialogWrapText(width, videoDialogHintTextSize, true, spans...)
 }
 
 // newVideoDialogMutableBadge is the small uppercase pill shown next to a
@@ -1016,9 +1102,9 @@ func newVideoDialogRowTitle(text string) *canvas.Text {
 
 // videoDialogToggleIndent is the description line's left indent -- how far
 // the checkbox's own width plus the title's own gap reaches. Exposed as a
-// constant since videoDialogToggleDescWidth (used to pre-wrap descriptions,
-// see videoDialogPresizeWrap) needs to subtract exactly what
-// videoDialogToggleRow's own Layout will actually use.
+// constant since videoDialogToggleDescWidth (used to eagerly wrap
+// descriptions to their final width, see videoDialogWrapText) needs to
+// subtract exactly what videoDialogToggleLayout will actually use.
 const videoDialogToggleIndent = videoDialogCheckboxSize + videoDialogToggleGap
 
 const (
@@ -1026,120 +1112,74 @@ const (
 	videoDialogToggleDescGap = float32(6) // title row -> description
 )
 
-// videoDialogToggleRow is a real custom widget for one checkbox+title+
-// badge+description row -- not a composition of generic Fyne containers.
-// Generic containers (HBox/VBox/Border/NewInset) kept introducing their own
-// padding/gap here that this dialog didn't ask for (theme.Padding() between
-// HBox children, NewInset's own extra Border padding on top of its spacer
-// rectangles -- see NewInset's doc comment) and repeatedly threw the
-// description out of alignment with its own title. A real Layout method
-// gives full, exact control over every position instead of stacking several
-// generic layouts' worth of assumptions on top of each other.
-type videoDialogToggleRow struct {
-	widget.BaseWidget
+// videoDialogToggleLayout is a plain fyne.Layout (not a widget) for one
+// checkbox+title+badge+description row -- not a composition of generic
+// Fyne containers. Generic containers (HBox/VBox/Border/NewInset) kept
+// introducing their own padding/gap here that this dialog didn't ask for
+// (theme.Padding() between HBox children, NewInset's own extra Border
+// padding on top of its spacer rectangles -- see NewInset's doc comment)
+// and repeatedly threw the description out of alignment with its own
+// title. A plain fyne.Layout, used via container.New, gives full, exact
+// control over every position -- and, unlike an earlier attempt at this
+// same fix that wrapped a widget.BaseWidget around a hand-rolled renderer,
+// doesn't add its own extra layer of widget.BaseWidget/cache.Renderer
+// machinery for Fyne to schedule around; container.New's caller-visible
+// *fyne.Container already does the minimum necessary itself.
+//
+// Objects must always be exactly [check, title, badge, description].
+type videoDialogToggleLayout struct{}
 
-	check       *videoDialogCheckbox
-	title       *canvas.Text
-	badge       fyne.CanvasObject
-	description fyne.CanvasObject
+func (l *videoDialogToggleLayout) titleRowHeight(objs []fyne.CanvasObject) float32 {
+	check, title, badge := objs[0], objs[1], objs[2]
+	return maxFloat32(check.MinSize().Height, maxFloat32(title.MinSize().Height, badge.MinSize().Height))
 }
 
-// newVideoDialogToggleRow lays out one checkbox row in the reference
-// design: the checkbox and a bold title (+ optional badge) share the first
-// line, and the description sits on its own line below, indented to the
-// title's own left edge.
-func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) *videoDialogToggleRow {
-	r := &videoDialogToggleRow{check: check, title: titleText, badge: badge, description: description}
-	r.ExtendBaseWidget(r)
-	return r
+func (l *videoDialogToggleLayout) indentX(objs []fyne.CanvasObject) float32 {
+	return objs[0].MinSize().Width + videoDialogToggleGap
 }
 
-func (r *videoDialogToggleRow) indentX() float32 {
-	return r.check.MinSize().Width + videoDialogToggleGap
-}
-
-func (r *videoDialogToggleRow) titleRowHeight() float32 {
-	h := maxFloat32(r.check.MinSize().Height, r.title.MinSize().Height)
-	if r.badge != nil {
-		h = maxFloat32(h, r.badge.MinSize().Height)
-	}
-	return h
-}
-
-func (r *videoDialogToggleRow) MinSize() fyne.Size {
-	indent := r.indentX()
-	titleRowWidth := indent + r.title.MinSize().Width
-	if r.badge != nil {
-		titleRowWidth += videoDialogToggleGap + r.badge.MinSize().Width
-	}
-	// description's MinSize here relies on it already having been
-	// pre-Resized to its real final width via videoDialogPresizeWrap at
-	// construction -- otherwise this hits the same width-unknown-before-
-	// layout problem that Resize call exists to avoid, just one level up.
-	descSize := r.description.MinSize()
+func (l *videoDialogToggleLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	title, badge, desc := objs[1], objs[2], objs[3]
+	indent := l.indentX(objs)
+	titleRowWidth := indent + title.MinSize().Width + videoDialogToggleGap + badge.MinSize().Width
+	descSize := desc.MinSize()
 	width := maxFloat32(titleRowWidth, indent+descSize.Width)
-	height := r.titleRowHeight() + videoDialogToggleDescGap + descSize.Height
+	height := l.titleRowHeight(objs) + videoDialogToggleDescGap + descSize.Height
 	return fyne.NewSize(width, height)
 }
 
-func (r *videoDialogToggleRow) CreateRenderer() fyne.WidgetRenderer {
-	objs := []fyne.CanvasObject{r.check, r.title, r.description}
-	if r.badge != nil {
-		objs = append(objs, r.badge)
-	}
-	return &videoDialogToggleRowRenderer{row: r, objs: objs}
-}
+func (l *videoDialogToggleLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	check, title, badge, desc := objs[0], objs[1], objs[2], objs[3]
+	rowHeight := l.titleRowHeight(objs)
 
-type videoDialogToggleRowRenderer struct {
-	row  *videoDialogToggleRow
-	objs []fyne.CanvasObject
-}
+	checkSize := check.MinSize()
+	check.Move(fyne.NewPos(0, (rowHeight-checkSize.Height)/2))
+	check.Resize(checkSize)
 
-func (rr *videoDialogToggleRowRenderer) Layout(size fyne.Size) {
-	r := rr.row
-	checkSize := r.check.MinSize()
-	titleSize := r.title.MinSize()
-	rowHeight := r.titleRowHeight()
+	indent := l.indentX(objs)
+	titleSize := title.MinSize()
+	title.Move(fyne.NewPos(indent, (rowHeight-titleSize.Height)/2))
+	title.Resize(titleSize)
 
-	r.check.Move(fyne.NewPos(0, (rowHeight-checkSize.Height)/2))
-	r.check.Resize(checkSize)
-
-	indent := r.indentX()
-	r.title.Move(fyne.NewPos(indent, (rowHeight-titleSize.Height)/2))
-	r.title.Resize(titleSize)
-
-	if r.badge != nil {
-		badgeSize := r.badge.MinSize()
-		badgeX := indent + titleSize.Width + videoDialogToggleGap
-		r.badge.Move(fyne.NewPos(badgeX, (rowHeight-badgeSize.Height)/2))
-		r.badge.Resize(badgeSize)
-	}
+	badgeSize := badge.MinSize()
+	badgeX := indent + titleSize.Width + videoDialogToggleGap
+	badge.Move(fyne.NewPos(badgeX, (rowHeight-badgeSize.Height)/2))
+	badge.Resize(badgeSize)
 
 	descY := rowHeight + videoDialogToggleDescGap
 	descWidth := maxFloat32(0, size.Width-indent)
 	descHeight := maxFloat32(0, size.Height-descY)
-	r.description.Move(fyne.NewPos(indent, descY))
-	r.description.Resize(fyne.NewSize(descWidth, descHeight))
+	desc.Move(fyne.NewPos(indent, descY))
+	desc.Resize(fyne.NewSize(descWidth, descHeight))
 }
 
-func (rr *videoDialogToggleRowRenderer) MinSize() fyne.Size {
-	return rr.row.MinSize()
+// newVideoDialogToggleRow lays out one checkbox row in the reference
+// design: the checkbox and a bold title + badge share the first line, and
+// the description sits on its own line below, indented to the title's own
+// left edge.
+func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+	return container.New(&videoDialogToggleLayout{}, check, titleText, badge, description)
 }
-
-func (rr *videoDialogToggleRowRenderer) Refresh() {
-	rr.Layout(rr.row.Size())
-	canvas.Refresh(rr.row)
-}
-
-func (rr *videoDialogToggleRowRenderer) BackgroundColor() color.Color {
-	return color.Transparent
-}
-
-func (rr *videoDialogToggleRowRenderer) Objects() []fyne.CanvasObject {
-	return rr.objs
-}
-
-func (rr *videoDialogToggleRowRenderer) Destroy() {}
 
 // newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
 // its own bordered card (same bg/border as the bitrate card) -- AI Vision's
@@ -1154,7 +1194,12 @@ func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText *canvas.
 	cardBorder.StrokeColor = videoDialogBorderColor
 	cardBorder.StrokeWidth = 1
 	row := newVideoDialogToggleRow(check, titleText, badge, description)
-	return container.NewStack(cardBG, cardBorder, NewInset(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 10, 10))
+	// NewInsetExact, not NewInset -- this padding needs to match
+	// videoDialogToggleDescWidth's own subtraction exactly (see that
+	// function's doc comment); NewInset's extra, undocumented
+	// theme.Padding() on top of what's asked would silently widen the gap
+	// between this formula and the row's real available width.
+	return container.NewStack(cardBG, cardBorder, NewInsetExact(row, videoDialogBoxedInsetLR, videoDialogBoxedInsetLR, 10, 10))
 }
 
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
@@ -1199,7 +1244,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.vsyncCheck,
 		newVideoDialogRowTitle(i18n.Current.EnableVSync),
 		newVideoDialogBadge(i18n.Current.EnableVSyncBadge),
-		newVideoDialogPlainDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidth(false)),
+		newVideoDialogDescription(i18n.Current.EnableVSyncHint, videoDialogToggleDescWidth(false)),
 	)
 
 	// AI Vision: off by default, takes effect immediately (not gated behind
@@ -1208,14 +1253,12 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
 		service.SetAIVisionEnabled(checked)
 	})
-	vsd.aiVisionHint = newVideoDialogRichDescription(videoDialogHighlightCode(i18n.Current.AIVisionHint, "ui.parse()", true)...)
-	aiVisionDesc := container.NewThemeOverride(vsd.aiVisionHint, videoDialogRichTheme{Theme: design.NewBrandTheme()})
-	videoDialogPresizeWrap(aiVisionDesc, videoDialogToggleDescWidth(true))
+	vsd.aiVisionHint = newVideoDialogHighlightDescription(i18n.Current.AIVisionHint, "ui.parse()", videoDialogToggleDescWidth(true))
 	aiVisionRow := newVideoDialogBoxedToggleRow(
 		vsd.aiVisionCheck,
 		newVideoDialogRowTitle(i18n.Current.AIVision),
 		newVideoDialogBadge(i18n.Current.AIVisionBadge),
-		aiVisionDesc,
+		vsd.aiVisionHint,
 	)
 
 	// RustShine Pro 4:4:4 color: off by default, takes effect on the next
@@ -1223,12 +1266,12 @@ func (vsd *VideoStartDialog) createInterface() {
 	// server, not a pure local overlay) -- see models.VideoStartRequest.Color444's
 	// doc comment. Always shown (any codec) -- refreshModeUI grays it out via
 	// setColor444State instead of hiding it outright when it doesn't apply.
+	// Its text changes at runtime (see refreshModeUI), unlike VSync/AI
+	// Vision's static copy -- built with no spans yet here, since
+	// videoDialogWrapText.SetSpans is what actually fills it in, called by
+	// refreshModeUI before this dialog is ever shown.
 	vsd.color444Check = newVideoDialogCheckbox(false, nil)
-	vsd.color444Hint = widget.NewLabel("")
-	vsd.color444Hint.Wrapping = fyne.TextWrapWord
-	vsd.color444Hint.TextStyle = fyne.TextStyle{Italic: true}
-	color444Desc := container.NewThemeOverride(vsd.color444Hint, videoDialogMutedTheme{Theme: design.NewBrandTheme()})
-	videoDialogPresizeWrap(color444Desc, videoDialogToggleDescWidth(false))
+	vsd.color444Hint = newVideoDialogWrapText(videoDialogToggleDescWidth(false), videoDialogHintTextSize, true)
 	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
 	color444Badge, color444BadgeLabel := newVideoDialogMutableBadge(i18n.Current.Color444Badge)
 	vsd.color444BadgeLabel = color444BadgeLabel
@@ -1236,7 +1279,7 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.color444Check,
 		vsd.color444TitleText,
 		color444Badge,
-		color444Desc,
+		vsd.color444Hint,
 	)
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
@@ -1685,16 +1728,16 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 	case modeID != models.VideoModeH265:
 		vsd.color444Check.SetChecked(false)
 		vsd.color444Check.Disable()
-		vsd.color444Hint.SetText(i18n.Current.Color444RequiresH265Hint)
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444RequiresH265Hint, Color: videoDialogHintColor})
 		vsd.setColor444State(false, i18n.Current.Color444CodecBadge)
 	case vsd.color444Available:
 		vsd.color444Check.Enable()
-		vsd.color444Hint.SetText(i18n.Current.Color444Hint)
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444Hint, Color: videoDialogHintColor})
 		vsd.setColor444State(true, i18n.Current.Color444Badge)
 	default:
 		vsd.color444Check.SetChecked(false)
 		vsd.color444Check.Disable()
-		vsd.color444Hint.SetText(i18n.Current.Color444UnavailableHint)
+		vsd.color444Hint.SetSpans(videoDialogWrapSpan{Text: i18n.Current.Color444UnavailableHint, Color: videoDialogHintColor})
 		vsd.setColor444State(false, i18n.Current.Color444Badge)
 	}
 }
