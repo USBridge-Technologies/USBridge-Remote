@@ -73,6 +73,7 @@ func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
 	var newAgentOS string
+	var newPassSessions []string
 
 	if dw.usbClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -96,6 +97,10 @@ func (dw *DiskWidget) endOperation() {
 		} else {
 			logrus.Errorf("endOperation: GetLocalDrives: %v", err)
 		}
+
+		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+			newPassSessions = append([]string(nil), st.Sessions...)
+		}
 	}
 
 	// All changes happen in one fyne.Do — atomic from the event loop's point of view.
@@ -109,6 +114,7 @@ func (dw *DiskWidget) endOperation() {
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives
 		}
+		dw.usbPassSessions = newPassSessions
 		// Reset all mounting animations
 		for i := range dw.allDrives {
 			dw.allDrives[i].IsMounting = false
@@ -588,6 +594,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		usbpass.StopSession()
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ [UNMOUNT-ALL] Stop error: %v", err)
@@ -608,6 +615,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	}
 
 	drivesToUnmount := make([]DriveItem, 0, len(selectedIndices))
+	stopUSBPass := false
 	for idx := range selectedIndices {
 		if idx >= len(dw.allDrives) {
 			continue
@@ -618,7 +626,13 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.allDrives[idx].IsAudio && dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		if dw.allDrives[idx].IsUSBPassthrough {
+			stopUSBPass = true
+		}
 		drivesToUnmount = append(drivesToUnmount, dw.allDrives[idx])
+	}
+	if stopUSBPass {
+		usbpass.StopSession()
 	}
 
 	dw.updateStatusAsync(i18n.Current.StoppingAllDevices)

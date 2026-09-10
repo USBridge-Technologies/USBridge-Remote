@@ -14,6 +14,7 @@ type Session struct {
 	mu     sync.Mutex
 	server *Server
 	addr   string
+	busIDs []string
 }
 
 var (
@@ -34,6 +35,24 @@ func closeExported(devs []*ExportedDevice) {
 	}
 }
 
+// ActiveBusIDs returns Linux busids currently exported by the local session
+// (empty when nothing is mounted). Used by the Devices UI for the green
+// "mounted" marker — gadget devices come from GetDeviceInfo, passthrough
+// does not.
+func ActiveBusIDs() []string {
+	sessionMu.Lock()
+	s := active
+	sessionMu.Unlock()
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.busIDs))
+	copy(out, s.busIDs)
+	return out
+}
+
 // StartSession exports the given passthrough devices on listenAddr
 // (default 0.0.0.0:3240) and stores the session globally.
 func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Session, error) {
@@ -46,6 +65,7 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 
 	var exported []*ExportedDevice
 	var accessRefs []usbDevRef
+	var busIDs []string
 	for _, d := range devices {
 		if d.Protected {
 			return nil, fmt.Errorf("refusing protected device %s:%s", d.VID, d.PID)
@@ -61,6 +81,7 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 		ed := NewExportedFromVIDPID(busID, vid, pid)
 		accessRefs = append(accessRefs, usbDevRef{BusID: busID, Busnum: ed.Busnum, Devnum: ed.Devnum})
 		exported = append(exported, ed)
+		busIDs = append(busIDs, busID)
 	}
 	if len(exported) == 0 {
 		return nil, fmt.Errorf("no devices to export")
@@ -104,7 +125,7 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 		closeExported(exported)
 		return nil, err
 	}
-	s := &Session{server: srv, addr: listenAddr}
+	s := &Session{server: srv, addr: listenAddr, busIDs: busIDs}
 	sessionMu.Lock()
 	active = s
 	sessionMu.Unlock()

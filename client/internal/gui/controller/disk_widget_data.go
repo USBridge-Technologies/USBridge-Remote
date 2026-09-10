@@ -550,13 +550,20 @@ func (dw *DiskWidget) loadMountedDevices() {
 			return
 		}
 
-		logrus.Debugf("Loaded %d mounted devices, agentOS='%s'", len(deviceInfo.Devices), deviceInfo.AgentOS)
+		var passSessions []string
+		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+			passSessions = append([]string(nil), st.Sessions...)
+		}
+
+		logrus.Debugf("Loaded %d mounted devices, agentOS='%s', usbpass_sessions=%d",
+			len(deviceInfo.Devices), deviceInfo.AgentOS, len(passSessions))
 		dw.updateUIAsync(func() {
 			dw.mountedDevices = make([]*models.DeviceInfo, len(deviceInfo.Devices))
 			for i := range deviceInfo.Devices {
 				dw.mountedDevices[i] = &deviceInfo.Devices[i]
 			}
 			dw.agentOS = deviceInfo.AgentOS
+			dw.usbPassSessions = passSessions
 			// Only propagate the server's MountInProgress flag when no local user
 			// operation is in flight — a stale poll response must not re-lock the UI
 			// after endOperation() already cleared the flag.
@@ -645,6 +652,31 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			continue
 		}
 
+		// USB passthrough is not in GetDeviceInfo (gadget list) — green comes
+		// from the local export session and/or agent broker sessions.
+		if drive.IsUSBPassthrough {
+			if drive.USBPassthrough != nil {
+				bus := drive.USBPassthrough.BusID
+				for _, id := range usbpass.ActiveBusIDs() {
+					if strings.EqualFold(id, bus) {
+						isMounted = true
+						break
+					}
+				}
+				if !isMounted {
+					for _, sess := range dw.usbPassSessions {
+						if usbPassSessionMatches(sess, drive.USBPassthrough) {
+							isMounted = true
+							break
+						}
+					}
+				}
+			}
+			drive.IsMounted = isMounted
+			logrus.Debugf("🔌 %s (usbpass): %v -> %v", drive.Name, oldStatus, drive.IsMounted)
+			continue
+		}
+
 		for j, device := range dw.mountedDevices {
 			if device.Status != "connected" {
 				continue
@@ -694,7 +726,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			// block below — not from mountedDevices, which reflects USB gadget presence
 			// (stale) rather than which source PulseAudio is actually streaming.
 
-			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio || drive.IsUSBPassthrough {
+			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio {
 				continue
 			}
 
@@ -832,3 +864,29 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	dw.updateButtons()
 	dw.syncGamepadCaptures()
 }
+
+// usbPassSessionMatches reports whether an agent broker session string
+// (e.g. "24A9:205A 2-3") refers to the local passthrough device.
+func usbPassSessionMatches(session string, d *models.USBPassthroughDevice) bool {
+	if d == nil {
+		return false
+	}
+	s := strings.ToUpper(strings.TrimSpace(session))
+	if s == "" {
+		return false
+	}
+	bus := strings.ToUpper(strings.TrimSpace(d.BusID))
+	if bus != "" && (s == bus || strings.HasSuffix(s, " "+bus) || strings.Contains(s, " "+bus) || strings.HasPrefix(s, bus+" ")) {
+		return true
+	}
+	vid := strings.ToUpper(strings.TrimSpace(d.VID))
+	pid := strings.ToUpper(strings.TrimSpace(d.PID))
+	if vid != "" && pid != "" {
+		vp := vid + ":" + pid
+		if strings.Contains(s, vp) {
+			return true
+		}
+	}
+	return false
+}
+

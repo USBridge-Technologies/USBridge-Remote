@@ -43,6 +43,10 @@ type DiskWidget struct {
 	audioDevices   []models.SystemDevice
 	gamepadDevices []platform.GamepadDevice
 	usbPassDevices []models.USBPassthroughDevice
+	// usbPassSessions is the latest /api/usb/passthrough/status Sessions
+	// list from the agent (e.g. "24A9:205A 2-3"). Used with
+	// usbpass.ActiveBusIDs for the green mounted marker.
+	usbPassSessions []string
 	sdSpaceInfo    *models.ISOSpaceInfo
 
 	// Gamepad capture
