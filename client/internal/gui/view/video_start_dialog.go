@@ -687,6 +687,13 @@ func (t videoDialogMutedTheme) Color(name fyne.ThemeColorName, variant fyne.Them
 	return t.Theme.Color(name, variant)
 }
 
+func (t videoDialogMutedTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText {
+		return videoDialogHintTextSize
+	}
+	return t.Theme.Size(name)
+}
+
 // videoDialogRichTheme backs newVideoDialogRichDescription: it maps
 // ColorNameForeground to the muted hint color (plain text) and
 // ColorNamePrimary to the teal accent (inline code spans), so a single
@@ -703,6 +710,13 @@ func (t videoDialogRichTheme) Color(name fyne.ThemeColorName, variant fyne.Theme
 		return design.ColorConnectionBadgeText
 	}
 	return t.Theme.Color(name, variant)
+}
+
+func (t videoDialogRichTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == theme.SizeNameText {
+		return videoDialogHintTextSize
+	}
+	return t.Theme.Size(name)
 }
 
 // newVideoDialogPlainDescription is a wrapped, muted description line under
@@ -771,7 +785,7 @@ func newVideoDialogBadge(text string) fyne.CanvasObject {
 // being indented separately from the title.
 func newVideoDialogToggleRow(check *widget.Check, title string, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
 	titleText := canvas.NewText(title, design.ColorTextLight)
-	titleText.TextSize = 12
+	titleText.TextSize = 10
 	titleText.TextStyle.Bold = true
 
 	titleRowItems := []fyne.CanvasObject{titleText}
@@ -780,7 +794,11 @@ func newVideoDialogToggleRow(check *widget.Check, title string, badge fyne.Canva
 	}
 
 	content := container.NewVBox(container.NewHBox(titleRowItems...), description)
-	return container.NewHBox(check, content)
+	// Border, not HBox: HBox never stretches its last child, so the
+	// description's Label/RichText got no bounded width to wrap against and
+	// grew to its full unwrapped size instead -- Border's center slot fills
+	// whatever width remains after the checkbox's own natural width.
+	return container.NewBorder(nil, nil, check, nil, content)
 }
 
 // newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
@@ -852,11 +870,12 @@ func (vsd *VideoStartDialog) createInterface() {
 	})
 	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
 	vsd.aiVisionHint = newVideoDialogRichDescription(videoDialogHighlightCode(i18n.Current.AIVisionHint, "ui.parse()", true)...)
+	aiVisionDesc := container.NewThemeOverride(vsd.aiVisionHint, videoDialogRichTheme{Theme: design.NewBrandTheme()})
 	aiVisionRow := newVideoDialogBoxedToggleRow(
 		vsd.aiVisionCheck,
 		i18n.Current.AIVision,
 		newVideoDialogBadge(i18n.Current.AIVisionBadge),
-		vsd.aiVisionHint,
+		aiVisionDesc,
 	)
 
 	// RustShine Pro 4:4:4 color: off by default, takes effect on the next
