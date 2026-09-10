@@ -326,12 +326,16 @@ type LocalizedStrings struct {
 	XInputIncompatibleWithHID string // error: XInput + keyboard/mouse
 	ShowMouseCursor           string // "Show Mouse" (show cursor in captured video)
 	ClipboardSyncEnabled      string // "Shared Clipboard" (toggle clipboard sync with the agent)
-	EnableVSync               string // "VSync" (enable vsync for capture card)
-	AIVision                  string // "AI Vision" (live Set-of-Mark detection overlay checkbox)
+	EnableVSync               string // "VSync (Vertical Sync)" checkbox title, video parameters dialog
+	EnableVSyncHint           string // description shown under the VSync checkbox
+	EnableVSyncBadge          string // small badge next to the VSync title, e.g. "RECOMMENDED"
+	AIVision                  string // "AI Vision Detection Overlay" checkbox title, video parameters dialog
 	AIVisionHint              string // hint shown under the AI Vision checkbox
+	AIVisionBadge             string // small badge next to the AI Vision title, e.g. "EXPERIMENTAL"
 	Color444                  string // "4:4:4 Color (Pro)" checkbox, shown only when H.265 is selected
 	Color444Hint              string // hint under the checkbox when 4:4:4 is available (checked or not)
 	Color444UnavailableHint   string // hint under the (disabled, unchecked) checkbox when the agent doesn't currently offer 4:4:4
+	Color444Badge             string // small badge next to the 4:4:4 title, e.g. "PRO"
 	MuteAudio                 string // "Mute Audio"
 	UnmuteAudio               string // "Unmute Audio"
 	DeviceAudio               string // "Audio"
@@ -716,12 +720,16 @@ func EN() *LocalizedStrings {
 		XInputIncompatibleWithHID: "XInput gamepad cannot be used together with keyboard or mouse. Connect gamepad separately.",
 		ShowMouseCursor:           "Show Mouse",
 		ClipboardSyncEnabled:      "Shared Clipboard",
-		EnableVSync:               "VSync",
-		AIVision:                  "AI Vision",
-		AIVisionHint:              "Overlays live object detection (Set-of-Mark boxes + hex ids) on the video, as an agent's ui.parse call would see it.",
+		EnableVSync:               "VSync (Vertical Sync)",
+		EnableVSyncHint:           "Synchronizes frame delivery with the host display's refresh rate to eliminate tearing during fast motion.",
+		EnableVSyncBadge:          "Recommended",
+		AIVision:                  "AI Vision Detection Overlay",
+		AIVisionHint:              "Overlays live object detection (Set-of-Mark bounding boxes + hex IDs) on the video feed, mirroring an agent's ui.parse() telemetry call.",
+		AIVisionBadge:             "Experimental",
 		Color444:                  "4:4:4 Color (RustShine Pro)",
-		Color444Hint:              "Full-resolution color instead of the usual 4:2:0 -- sharper text and fine detail, at a higher bitrate cost.",
+		Color444Hint:              "Captures full-resolution chroma instead of the usual 4:2:0 subsampling -- sharper on-screen text and fine detail, at a higher bitrate cost.",
 		Color444UnavailableHint:   "Requires RustShine Pro and a GPU with HEVC 4:4:4 hardware encode.",
+		Color444Badge:             "Pro",
 		MuteAudio:                 "Mute Audio",
 		UnmuteAudio:               "Unmute Audio",
 		DeviceAudio:               "Audio",
@@ -877,7 +885,6 @@ func ES() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Tarjeta de red (RNDIS)"
 	locale.ShowMouseCursor = "Mostrar ratón"
 	locale.ClipboardSyncEnabled = "Portapapeles compartido"
-	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Direccion del servidor:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Deseas conectarte a este servidor?\n\nElige una accion:"
@@ -1021,7 +1028,6 @@ func UKProper() *LocalizedStrings {
 	locale.DeviceNetworkCard = "Мережева карта (RNDIS)"
 	locale.ShowMouseCursor = "Показувати курсор"
 	locale.ClipboardSyncEnabled = "Спільний буфер обміну"
-	locale.EnableVSync = "VSync"
 	locale.DeepLinkServerAddress = "Адреса сервера:"
 	locale.DeepLinkToken = "Master Key:"
 	locale.DeepLinkConnectPrompt = "Хочете підключитися до цього сервера?\n\nВиберіть дію:"
