@@ -17,7 +17,8 @@ import (
 // one another, and a wide right column (Virtual Mass Storage & ISO Media,
 // and -- once a KVM/agent session actually offers one -- Virtual Network &
 // NDIS Bridge below it), all styled after the Connections grid's own cards
-// (see view.NewDeviceDashboardCard).
+// (see view.NewDeviceDashboardCard), including their own teal-on-hover
+// border.
 //
 // HID/Network rows carry an on/off toggle (view.DeviceToggle); Storage rows
 // carry Delete/Upload buttons plus a "Connected" badge once actually
@@ -40,17 +41,34 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardStorage = container.NewVBox()
 	dw.dashboardNetworkRows = container.NewVBox()
 
+	// Each card's own hover cell (see view.NewDeviceDashboardHoverCell's
+	// doc comment) is created up front -- refreshDashboard rebuilds every
+	// row's buttons/toggles from scratch on every call, and each of those
+	// needs the SAME onHover reference the card it lives in was bound to,
+	// not a fresh one every refresh.
+	var hidBind, videoBind, audioBind, storageBind, networkBind func(func(bool))
+	dw.dashboardHIDHover, hidBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardVideoHover, videoBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardAudioHover, audioBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardStorageHover, storageBind = view.NewDeviceDashboardHoverCell()
+	dw.dashboardNetworkHover, networkBind = view.NewDeviceDashboardHoverCell()
+
 	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
 	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
-	dw.dashboardNetworkCard = view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", "", nil, dw.dashboardNetworkRows)
-	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
+	addImageBtn.OnHover = dw.dashboardStorageHover
 
 	dw.refreshDashboard()
 
+	dashboardNetworkCard := view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", "", nil, dw.dashboardNetworkRows, networkBind)
+	dw.dashboardNetworkCard = dashboardNetworkCard
+	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
+
 	narrowColumn := container.NewVBox(
-		view.NewDeviceDashboardCard(assets.KeyboardIcon, "HID & Input Hub", "", nil, dw.dashboardHID),
-		view.NewDeviceDashboardCard(assets.MonitorTabIcon, "Video Pipe & EDID", "", nil, dw.dashboardVideo),
-		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio),
+		view.NewDeviceDashboardCard(assets.KeyboardIcon, "HID & Input Hub", "", nil, dw.dashboardHID, hidBind),
+		view.NewDeviceDashboardCardGap(),
+		view.NewDeviceDashboardCard(assets.MonitorTabIcon, "Video Pipe & EDID", "", nil, dw.dashboardVideo, videoBind),
+		view.NewDeviceDashboardCardGap(),
+		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind),
 	)
 	dw.dashboardWideColumn = container.NewVBox(
 		view.NewDeviceDashboardCard(
@@ -59,7 +77,9 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 			"",
 			addImageBtn,
 			dw.dashboardStorage,
+			storageBind,
 		),
+		view.NewDeviceDashboardCardGap(),
 		dw.dashboardNetworkCard,
 	)
 
@@ -89,7 +109,7 @@ func (dw *DiskWidget) refreshDashboard() {
 
 		switch {
 		case drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
-			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive)))
+			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive, dw.dashboardHIDHover)))
 		case drive.IsVideo:
 			// Excluded from the mount flow entirely (see this method's own
 			// doc comment) -- no toggle.
@@ -97,8 +117,12 @@ func (dw *DiskWidget) refreshDashboard() {
 		case drive.IsAudio || drive.IsUSBAudio:
 			audioRows = append(audioRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, nil))
 		case drive.IsRNDIS:
-			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive)))
+			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive, dw.dashboardNetworkHover)))
 		default:
+			if drive.IsUploading {
+				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress)))
+				continue
+			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
 			// The "Connected" badge only shows up once the drive is
 			// actually mounted -- before that, Upload (if applicable) and
@@ -108,9 +132,9 @@ func (dw *DiskWidget) refreshDashboard() {
 			if drive.IsMounted {
 				connectedBadge = view.NewDeviceDashboardConnectedBadge(func() {
 					dw.toggleDriveMount(idx)
-				})
+				}, dw.dashboardStorageHover)
 			}
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge, nil))
 		}
 	}
 
@@ -232,7 +256,8 @@ func driveIconResource(drive DriveItem) fyne.Resource {
 // isn't the user's own upload gets no delete button unless it's not the
 // backup flash). The upload button only shows up before the file is
 // mounted -- once mounted, the row's own connect button (bright "Connected")
-// already speaks for it.
+// already speaks for it. Not called at all while the drive is actively
+// uploading -- see refreshDashboard, which shows a progress bar instead.
 func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicker, deleteBtn, uploadBtn fyne.CanvasObject) {
 	isAPIISODrive := drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType != "mtp"
 	isNBDISODrive := (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil &&
@@ -242,7 +267,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 		if drive.DriveMode == "cdrom" {
 			selected = i18n.Current.DriveModeCDROM
 		}
-		modePicker = view.NewDeviceDashboardModePicker(
+		picker := view.NewDeviceDashboardModePicker(
 			[]string{i18n.Current.DriveModeDisk, i18n.Current.DriveModeCDROM},
 			selected,
 			func(s string) {
@@ -259,6 +284,8 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 				dw.allDrives[idx].DriveMode = mode
 			},
 		)
+		picker.OnHover = dw.dashboardStorageHover
+		modePicker = picker
 	}
 
 	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting && !drive.IsMounted {
@@ -266,7 +293,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 			if !dw.controlsLocked() {
 				dw.handleUploadImage(idx)
 			}
-		})
+		}, dw.dashboardStorageHover)
 		btn.SetDisabled(drive.IsUploading || dw.controlsLocked())
 		uploadBtn = btn
 	}
@@ -302,7 +329,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 				}
 			}
 		}
-		btn := view.NewDeviceDashboardDeleteButton(onTap)
+		btn := view.NewDeviceDashboardDeleteButton(onTap, dw.dashboardStorageHover)
 		btn.SetDisabled(dw.controlsLocked())
 		deleteBtn = btn
 	}
@@ -311,11 +338,14 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 }
 
 // newDriveToggle builds a HID/Network row's own on/off switch, wired to
-// toggleDriveMount.
-func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem) *view.DeviceToggle {
-	return view.NewDeviceToggle(drive.IsMounted, func(bool) {
+// toggleDriveMount and to cardHover (that row's own card's onHover cell --
+// see view.NewDeviceDashboardHoverCell).
+func (dw *DiskWidget) newDriveToggle(idx int, drive DriveItem, cardHover func(bool)) *view.DeviceToggle {
+	t := view.NewDeviceToggle(drive.IsMounted, func(bool) {
 		dw.toggleDriveMount(idx)
 	})
+	t.OnHover = cardHover
+	return t
 }
 
 // toggleDriveMount mounts or unmounts exactly the one drive at index,

@@ -53,6 +53,17 @@ type DiskWidget struct {
 	// Refresh() the parent to actually reserve/collapse the card's space.
 	dashboardNetworkCard fyne.CanvasObject
 	dashboardWideColumn  *fyne.Container
+	// dashboardXHover is card X's own onHover cell (view.NewDeviceDashboardHoverCell),
+	// created once in GetDashboardContainer and reused by every refreshDashboard
+	// call so each rebuilt row's own buttons/toggles can still be wired to
+	// the same card's hover-border logic (see NewDeviceDashboardCard's own
+	// doc comment for why a stable cell is needed instead of wiring hover
+	// directly).
+	dashboardHIDHover     func(bool)
+	dashboardVideoHover   func(bool)
+	dashboardAudioHover   func(bool)
+	dashboardStorageHover func(bool)
+	dashboardNetworkHover func(bool)
 
 	// Data
 	localDrives    []*models.LocalDrive

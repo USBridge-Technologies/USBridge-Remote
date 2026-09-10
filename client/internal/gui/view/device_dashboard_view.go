@@ -6,8 +6,10 @@
 package view
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
+	"time"
 
 	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
@@ -101,14 +103,41 @@ var deviceDashboardCardSep = color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
 // CD-ROM Devices").
 var deviceDashboardDescColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 
+// NewDeviceDashboardHoverCell returns a stable onHover callback -- safe to
+// hand to buttons/rows built before the thing that ultimately reacts to it
+// exists -- plus a bind function that wires it to a real implementation
+// later. NewDeviceDashboardCard's own caller needs this: it builds a
+// card's row-level buttons (Delete/Upload/Connect/toggle/mode-picker)
+// before the card that will contain them, unlike connection_grid_card.go's
+// own cards, which build everything in one function and can wire hover
+// directly. Every interactive control inside the card should have its own
+// OnHover set to the returned onHover -- otherwise hovering it flickers
+// the card's border off and back on instead of it staying teal
+// continuously the whole time the cursor is anywhere over the card (see
+// connection_grid_card.go's own identical per-button wiring).
+func NewDeviceDashboardHoverCell() (onHover func(bool), bind func(func(bool))) {
+	var real func(bool)
+	onHover = func(hovered bool) {
+		if real != nil {
+			real(hovered)
+		}
+	}
+	bind = func(fn func(bool)) { real = fn }
+	return onHover, bind
+}
+
 // NewDeviceDashboardCard builds one dashboard card in the Connections
 // grid's own visual language: a dark rounded panel (design.ColorGray900,
-// design.RadiusLG, a muted border) with an icon+title header (an optional
-// element on the header's right edge, e.g. a header button) and an
-// optional one-line description below it, a full-width hairline divider,
-// then content -- the header/content each carry their own padding
-// independently so the divider between them can span edge to edge.
-func NewDeviceDashboardCard(icon fyne.Resource, title string, description string, headerRight fyne.CanvasObject, content fyne.CanvasObject) fyne.CanvasObject {
+// design.RadiusLG, a muted border that brightens to teal on hover -- see
+// connection_grid_card.go's own cards) with an icon+title header (an
+// optional element on the header's right edge, e.g. a header button) and
+// an optional one-line description below it, a full-width hairline
+// divider, then content -- the header/content each carry their own
+// padding independently so the divider between them can span edge to
+// edge. bindHover, from NewDeviceDashboardHoverCell, wires this card's own
+// hover-border logic to the onHover cell every interactive control inside
+// content was already built with.
+func NewDeviceDashboardCard(icon fyne.Resource, title string, description string, headerRight fyne.CanvasObject, content fyne.CanvasObject, bindHover func(func(bool))) fyne.CanvasObject {
 	iconImg := canvas.NewImageFromResource(icon)
 	iconImg.FillMode = canvas.ImageFillContain
 	iconImg.SetMinSize(fyne.NewSize(16, 16))
@@ -139,7 +168,9 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 	body := container.NewVBox(
 		NewInset(headerBlock, 14, 14, 7, 5),
 		sep,
-		NewInset(content, 14, 14, 8, 12),
+		// Top padding trimmed (was 8) -- the row list read like it was
+		// sitting noticeably lower than the divider above it.
+		NewInset(content, 14, 14, 3, 12),
 	)
 
 	cardBg := canvas.NewRectangle(design.ColorGray900)
@@ -147,7 +178,38 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 	cardBg.StrokeColor = design.ColorTailscaleChipBorder
 	cardBg.StrokeWidth = 1
 
-	return container.NewStack(cardBg, body)
+	// Same debounced hover-border technique as connection_grid_card.go's
+	// own cards: a 50ms grace period before actually applying "unhovered"
+	// so a quick transition from the overlay (or one interactive control)
+	// straight into another (both routed through this same onHover cell)
+	// never visibly flickers the border off.
+	var hoverTimer *time.Timer
+	setCardHovered := func(hovered bool) {
+		if hovered {
+			if hoverTimer != nil {
+				hoverTimer.Stop()
+				hoverTimer = nil
+			}
+			cardBg.StrokeColor = design.ColorConnectionBadgeText
+			cardBg.Refresh()
+		} else {
+			if hoverTimer != nil {
+				hoverTimer.Stop()
+			}
+			hoverTimer = time.AfterFunc(50*time.Millisecond, func() {
+				cardBg.StrokeColor = design.ColorTailscaleChipBorder
+				cardBg.Refresh()
+			})
+		}
+	}
+	bindHover(setCardHovered)
+
+	// Covers whatever part of the card no interactive control already
+	// claims (e.g. the header/divider area) -- placed behind the actual
+	// content so a button on top still gets first claim on the cursor.
+	overlay := newConnectionCardOverlay(nil, setCardHovered)
+
+	return container.NewStack(overlay, cardBg, body)
 }
 
 // NewDeviceDashboardRowSeparator is a thin divider between two rows inside
@@ -158,6 +220,16 @@ func NewDeviceDashboardRowSeparator() fyne.CanvasObject {
 	sep := canvas.NewRectangle(deviceDashboardCardSep)
 	sep.SetMinSize(fyne.NewSize(0, 1))
 	return NewInsetExact(sep, 6, 6, 0, 0)
+}
+
+// NewDeviceDashboardCardGap is blank (no divider line) breathing room
+// between two stacked cards in the same column -- a plain VBox's own
+// default theme.Padding() gap read as the cards sitting flush against
+// each other.
+func NewDeviceDashboardCardGap() fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(0, 10))
+	return spacer
 }
 
 // NewDeviceDashboardRow is one compact device line inside a dashboard card:
@@ -222,6 +294,11 @@ type DeviceToggle struct {
 
 	Active    bool
 	OnChanged func(bool)
+	// OnHover, when set, is called with the pointer's hover state -- wire
+	// it to a card's own onHover cell (NewDeviceDashboardHoverCell) so
+	// hovering this toggle keeps that card's border teal instead of
+	// flickering it off and back on.
+	OnHover func(bool)
 
 	disabled bool
 	hovered  bool
@@ -270,6 +347,9 @@ func (t *DeviceToggle) TappedSecondary(*fyne.PointEvent) {}
 func (t *DeviceToggle) MouseIn(*desktop.MouseEvent) {
 	t.hovered = true
 	t.Refresh()
+	if t.OnHover != nil {
+		t.OnHover(true)
+	}
 }
 
 func (t *DeviceToggle) MouseMoved(*desktop.MouseEvent) {}
@@ -277,6 +357,9 @@ func (t *DeviceToggle) MouseMoved(*desktop.MouseEvent) {}
 func (t *DeviceToggle) MouseOut() {
 	t.hovered = false
 	t.Refresh()
+	if t.OnHover != nil {
+		t.OnHover(false)
+	}
 }
 
 func (t *DeviceToggle) Cursor() desktop.Cursor {
@@ -407,6 +490,10 @@ type DeviceDashboardHeaderButton struct {
 	onTap   func()
 	hovered bool
 
+	// OnHover, when set, is called with the pointer's hover state -- see
+	// DeviceToggle.OnHover's own doc comment.
+	OnHover func(bool)
+
 	bg *canvas.Rectangle
 }
 
@@ -434,6 +521,9 @@ func (b *DeviceDashboardHeaderButton) Cursor() desktop.Cursor {
 func (b *DeviceDashboardHeaderButton) MouseIn(*desktop.MouseEvent) {
 	b.hovered = true
 	b.refreshVisuals()
+	if b.OnHover != nil {
+		b.OnHover(true)
+	}
 }
 
 func (b *DeviceDashboardHeaderButton) MouseMoved(*desktop.MouseEvent) {}
@@ -441,6 +531,9 @@ func (b *DeviceDashboardHeaderButton) MouseMoved(*desktop.MouseEvent) {}
 func (b *DeviceDashboardHeaderButton) MouseOut() {
 	b.hovered = false
 	b.refreshVisuals()
+	if b.OnHover != nil {
+		b.OnHover(false)
+	}
 }
 
 func (b *DeviceDashboardHeaderButton) refreshVisuals() {
@@ -511,8 +604,9 @@ var deviceDashboardDeleteIconSVG = fyne.NewStaticResource("device_dashboard_dele
 // NewDeviceDashboardDeleteButton matches the Connections table's own
 // delete button (connection_list_table.go) exactly -- same icon, fill,
 // border, and size -- so a Storage row's delete action reads as the same
-// family instead of a one-off.
-func NewDeviceDashboardDeleteButton(onTap func()) *iconChromeButton {
+// family instead of a one-off. onHover may be nil; see DeviceToggle.OnHover's
+// own doc comment for what it's for.
+func NewDeviceDashboardDeleteButton(onTap func(), onHover func(bool)) *iconChromeButton {
 	return newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
@@ -524,13 +618,23 @@ func NewDeviceDashboardDeleteButton(onTap func()) *iconChromeButton {
 		IconSize:     fyne.NewSize(11, 11),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,
+		OnHover:      onHover,
 	})
 }
 
+// deviceDashboardUploadIconSVG recolors assets.UploadIcon to #c5c8b5, the
+// same muted color deviceDashboardDeleteIconSVG's own fill uses --
+// assets.UploadIcon's own baked-in #F5F5F5 read as a different, brighter
+// color than the delete icon right next to it. Same recoloring technique
+// connection_list_table.go's own connectIconColored already uses (grab
+// the existing resource's content, replace its hex).
+var deviceDashboardUploadIconSVG = fyne.NewStaticResource("device_dashboard_upload.svg", []byte(strings.ReplaceAll(string(assets.UploadIcon.Content()), "#F5F5F5", "#c5c8b5")))
+
 // NewDeviceDashboardUploadButton is NewDeviceDashboardDeleteButton's own
 // chrome (same fill/border/hover/size) with an upload glyph instead --
-// Storage's own Upload action, styled as the same button family.
-func NewDeviceDashboardUploadButton(onTap func()) *iconChromeButton {
+// Storage's own Upload action, styled as the same button family. onHover
+// may be nil; see DeviceToggle.OnHover's own doc comment.
+func NewDeviceDashboardUploadButton(onTap func(), onHover func(bool)) *iconChromeButton {
 	return newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
@@ -538,13 +642,38 @@ func NewDeviceDashboardUploadButton(onTap func()) *iconChromeButton {
 		Stroke:       design.ColorTailscaleChipBorder,
 		StrokeWidth:  1,
 		CornerRadius: 6,
-		NormalIcon:   assets.UploadIcon,
-		HoverIcon:    assets.UploadIcon,
+		NormalIcon:   deviceDashboardUploadIconSVG,
+		HoverIcon:    deviceDashboardUploadIconSVG,
 		DisabledIcon: assets.UploadIconMuted,
 		IconSize:     fyne.NewSize(11, 11),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,
+		OnHover:      onHover,
 	})
+}
+
+// deviceDashboardUploadProgressWidth is how wide Storage's own upload
+// progress bar reads at -- shorter than ShowConnectingToast's own
+// (dialog_helper.go's connectingProgressBar, which stretches to fill
+// whatever width it's given); a fixed GridWrap here keeps it compact
+// inside a row instead.
+const deviceDashboardUploadProgressWidth = float32(50)
+
+// NewDeviceDashboardUploadProgress is Storage's own upload-in-progress
+// indicator -- reuses ShowConnectingToast's own teal-to-lime gradient
+// progress bar (dialog_helper.go's connectingProgressBar) at a fixed,
+// shorter width, plus a percentage label, shown in place of the mode
+// picker/Delete/Upload controls while a file is actively uploading (see
+// disk_widget_dashboard.go's buildStorageRowExtras).
+func NewDeviceDashboardUploadProgress(progressPercent float64) fyne.CanvasObject {
+	bar := newConnectingProgressBar()
+	bar.SetProgress(float32(progressPercent / 100))
+	barBox := container.NewGridWrap(fyne.NewSize(deviceDashboardUploadProgressWidth, connectingProgressBarHeight), bar)
+
+	label := canvas.NewText(fmt.Sprintf("%.0f%%", progressPercent), deviceDashboardDescColor)
+	label.TextSize = 9
+
+	return container.New(&DeviceRowControlsLayout{Gap: 6}, barBox, label)
 }
 
 // deviceDashboardConnectIconSVG is the plug glyph on Storage's own
@@ -567,7 +696,7 @@ var deviceDashboardConnectHoverFill = color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 
 // styled exactly like the Connections table's own Connect button
 // (connection_list_table.go: fill DeviceDashboardAccentLime, dark olive
 // label). Tapping it disconnects (unmounts) the drive.
-func NewDeviceDashboardConnectedBadge(onTap func()) *iconChromeButton {
+func NewDeviceDashboardConnectedBadge(onTap func(), onHover func(bool)) *iconChromeButton {
 	btn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   DeviceDashboardAccentLime,
 		HoverFill:    deviceDashboardConnectHoverFill,
@@ -581,6 +710,7 @@ func NewDeviceDashboardConnectedBadge(onTap func()) *iconChromeButton {
 		IconSize:     fyne.NewSize(10, 10),
 		ButtonSize:   fyne.NewSize(0, 23),
 		OnTapped:     onTap,
+		OnHover:      onHover,
 	})
 	btn.SetText("Connected")
 	return btn
@@ -591,21 +721,29 @@ func NewDeviceDashboardConnectedBadge(onTap func()) *iconChromeButton {
 // a USB Stick/CD-ROM mode picker and Delete/Upload icon buttons -- any of
 // which may be nil to omit it -- alongside the same connect button every
 // other mountable row has.
-func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker fyne.CanvasObject, deleteBtn fyne.CanvasObject, uploadBtn fyne.CanvasObject, connectBtn fyne.CanvasObject) fyne.CanvasObject {
+// uploadProgress, when non-nil (see NewDeviceDashboardUploadProgress),
+// replaces every other right-side control while a file is actively
+// uploading -- the caller is expected to pass nil for
+// modePicker/deleteBtn/uploadBtn/connectBtn in that case.
+func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject) fyne.CanvasObject {
 	left := newDeviceDashboardRowLeft(icon, name, active)
 
 	var rightParts []fyne.CanvasObject
-	if modePicker != nil {
-		rightParts = append(rightParts, modePicker)
-	}
-	if deleteBtn != nil {
-		rightParts = append(rightParts, deleteBtn)
-	}
-	if uploadBtn != nil {
-		rightParts = append(rightParts, uploadBtn)
-	}
-	if connectBtn != nil {
-		rightParts = append(rightParts, connectBtn)
+	if uploadProgress != nil {
+		rightParts = append(rightParts, uploadProgress)
+	} else {
+		if modePicker != nil {
+			rightParts = append(rightParts, modePicker)
+		}
+		if deleteBtn != nil {
+			rightParts = append(rightParts, deleteBtn)
+		}
+		if uploadBtn != nil {
+			rightParts = append(rightParts, uploadBtn)
+		}
+		if connectBtn != nil {
+			rightParts = append(rightParts, connectBtn)
+		}
 	}
 	right := container.New(&DeviceRowControlsLayout{Gap: 8}, rightParts...)
 
