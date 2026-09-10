@@ -277,8 +277,16 @@ func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool
 	if strings.TrimSpace(sizeText) == "" {
 		return nameRow
 	}
-	chip := newConnectionPlatformChip(sizeText)
-	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, chip)
+	// Wrapped in DeviceRowControlsLayout (which sizes each child to its
+	// own natural width, not the container's) rather than stacked
+	// directly -- tightStatsVBoxLayout below stretches every row to the
+	// width of the widest one (usually the name), and the chip's own
+	// container.NewCenter wrapper (newConnectionPlatformChip) would then
+	// center itself inside that extra width instead of hugging the left
+	// edge under the name. Same fix newConnectionCardChipsRow already
+	// relies on for the Connections table's own name-cell badge.
+	chipRow := container.New(&DeviceRowControlsLayout{Gap: 0}, newConnectionPlatformChip(sizeText))
+	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, chipRow)
 }
 
 // NewDeviceDashboardEmptyState is the muted placeholder line a dashboard

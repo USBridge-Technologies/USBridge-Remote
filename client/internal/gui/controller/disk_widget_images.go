@@ -400,7 +400,10 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 		return
 	}
 
-	if dw.window != nil {
+	showUploadConfirm := func() {
+		if dw.window == nil {
+			return
+		}
 		fyne.Do(func() {
 			view.ShowUploadImageConfirm(
 				drive.Name,
@@ -413,6 +416,30 @@ func (dw *DiskWidget) handleUploadImage(driveIndex int) {
 			)
 		})
 	}
+
+	// The device's own SD card can run out of room mid-upload -- until
+	// now that only surfaced as an error *after* waiting through the
+	// whole upload. Warn up front whenever the last known free-space
+	// reading (dw.sdSpaceInfo, refreshed by loadISOSpace) already says
+	// it won't fit, using the same confirm-dialog chrome as everywhere
+	// else (ShowConfirmYesLeftDanger) rather than a one-off dialog.
+	if dw.window != nil && dw.sdSpaceInfo != nil && dw.sdSpaceInfo.AvailableSpace > 0 && drive.DiskInfo.Size > dw.sdSpaceInfo.AvailableSpace {
+		fyne.Do(func() {
+			view.ShowConfirmYesLeftDanger(
+				"Not enough storage space",
+				fmt.Sprintf("This file is %s, but only %s is free on the device. Continue anyway?", drive.DiskInfo.FormatSize(), dw.sdSpaceInfo.AvailableGB),
+				func(confirmed bool) {
+					if confirmed {
+						showUploadConfirm()
+					}
+				},
+				dw.window,
+			)
+		})
+		return
+	}
+
+	showUploadConfirm()
 }
 
 // uploadImageToDevice uploads an image to the device.
