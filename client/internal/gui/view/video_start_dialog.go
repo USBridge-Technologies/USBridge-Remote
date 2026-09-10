@@ -40,9 +40,9 @@ type VideoStartDialog struct {
 	modeButtons       map[string]*videoCodecButton
 	modeButtonsRow    *fyne.Container
 	modeDescription   *canvas.Text
-	resolutionSelect  *videoDialogSelect
+	resolutionSelect  *HeaderDropdown
 	resolutionMeta    *canvas.Text
-	fpsSelect         *videoDialogSelect
+	fpsSelect         *HeaderDropdown
 	fpsMeta           *canvas.Text
 	bitrateSlider     *widget.Slider
 	bitrateValueLabel *widget.Label
@@ -64,9 +64,9 @@ type VideoStartDialog struct {
 	color444Hint      *widget.Label
 	color444Available bool
 
-	startBtn  *widget.Button
-	cancelBtn *widget.Button
-	extraBtn  *widget.Button
+	startBtn  *videoDialogPillButton
+	cancelBtn *videoDialogPillButton
+	extraBtn  *videoDialogPillButton
 
 	onApply func(request *models.VideoStartRequest)
 
@@ -84,10 +84,6 @@ type VideoStartDialog struct {
 // reflects what the server actually accepted, not what was requested.
 func (vsd *VideoStartDialog) SetLiveCodecProvider(provider func() (string, bool)) {
 	vsd.liveCodecProvider = provider
-}
-
-type videoDialogButtonsLayout struct {
-	gap float32
 }
 
 type videoCodecButtonsLayout struct {
@@ -111,51 +107,6 @@ type videoCodecButton struct {
 
 	bg    *canvas.Rectangle
 	label *canvas.Text
-}
-
-type videoDialogSelect struct {
-	widget.BaseWidget
-
-	options     []string
-	selected    string
-	placeHolder string
-	onSelected  func(string)
-	details     map[string]string
-	hovered     bool
-
-	bg     *canvas.Rectangle
-	border *canvas.Rectangle
-	label  *canvas.Text
-	icon   *canvas.Image
-}
-
-func (l *videoDialogButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
-	if len(objects) < 2 {
-		return
-	}
-	left := objects[0]
-	right := objects[1]
-	width := (size.Width - l.gap) / 2
-	if width < 0 {
-		width = 0
-	}
-	left.Move(fyne.NewPos(0, 0))
-	left.Resize(fyne.NewSize(width, size.Height))
-	right.Move(fyne.NewPos(width+l.gap, 0))
-	right.Resize(fyne.NewSize(width, size.Height))
-}
-
-func (l *videoDialogButtonsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
-	if len(objects) < 2 {
-		return fyne.NewSize(0, 0)
-	}
-	left := objects[0].MinSize()
-	right := objects[1].MinSize()
-	height := left.Height
-	if right.Height > height {
-		height = right.Height
-	}
-	return fyne.NewSize(left.Width+right.Width+l.gap, height)
 }
 
 func (l *videoCodecButtonsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -309,15 +260,22 @@ func (b *videoCodecButton) refreshVisuals() {
 	}
 
 	if b.active {
-		b.bg.FillColor = design.ColorAccent
-		b.bg.StrokeColor = design.ColorAccent
-		b.label.Color = design.ColorBackground
+		// Selected codec reads like the dialog's own teal Apply button
+		// (design.ColorConnectionBadgeText fill, dark text) -- ties codec
+		// selection to the same accent color used elsewhere in this dialog.
+		b.bg.FillColor = design.ColorConnectionBadgeText
+		b.bg.StrokeColor = color.Transparent
+		b.label.Color = design.ColorGray950
 	} else {
-		b.bg.FillColor = design.ColorSurfaceLight
-		b.bg.StrokeColor = design.ColorBorder
+		// Unselected look matches the Add Connection dialog's Scan QR/Paste
+		// Link pills: transparent fill, muted border, hover fills dark gray
+		// and the border lights up teal.
+		b.bg.FillColor = color.Transparent
+		b.bg.StrokeColor = design.ColorTailscaleChipBorder
 		b.label.Color = design.ColorTextLight
 		if b.hovered {
-			b.bg.FillColor = design.ColorGray900
+			b.bg.FillColor = color.NRGBA{R: 0x26, G: 0x2a, B: 0x2e, A: 0xff}
+			b.bg.StrokeColor = design.ColorConnectionBadgeText
 		}
 	}
 
@@ -325,173 +283,262 @@ func (b *videoCodecButton) refreshVisuals() {
 	b.label.Refresh()
 }
 
-func newVideoDialogSelect(placeHolder string, onSelected func(string)) *videoDialogSelect {
-	selectWidget := &videoDialogSelect{
-		placeHolder: placeHolder,
-		onSelected:  onSelected,
+// newVideoDialogPicker builds a small teal pill dropdown matching the
+// per-connection AUTO/TS/LAN protocol picker's own look (an UltraCompact
+// HeaderDropdown -- see connection_grid_card.go's protocolDropdown), reused
+// here for the resolution and FPS pickers so this dialog's controls read as
+// one family with the rest of the app instead of a bespoke widget.
+func newVideoDialogPicker(onSelected func(string)) *HeaderDropdown {
+	d := NewHeaderDropdown(nil, "", onSelected)
+	d.UltraCompact = true
+	d.CornerRadius = 6
+	d.BorderColor = design.ColorTailscaleChipBorder
+	d.TextColor = design.ColorConnectionBadgeText
+	d.IconColor = color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
+	d.TextSize = 10
+	d.HoverBorderColor = design.ColorConnectionBadgeText
+	d.HoverFillColor = design.ColorGray900
+	return d
+}
+
+// videoDialogPillButton is the small compact bordered pill button used for
+// this dialog's Cancel/Apply/extra footer actions -- matching the look of
+// the Add Connection dialog's own footer buttons (Cancel, Save), whose
+// widget lives in the controller package and isn't exported for reuse here.
+type videoDialogPillButton struct {
+	widget.BaseWidget
+
+	text     string
+	OnTapped func()
+	hovered  bool
+	disabled bool
+
+	fillColor         color.Color
+	hoverFillColor    color.Color
+	disabledFillColor color.Color
+	borderColor       color.Color
+	hoverBorderColor  color.Color
+	textColor         color.Color
+	hoverTextColor    color.Color
+	disabledTextColor color.Color
+
+	bg     *canvas.Rectangle
+	border *canvas.Rectangle
+	label  *canvas.Text
+}
+
+const (
+	videoDialogPillTextSize = float32(9.5)
+	videoDialogPillHeight   = float32(32)
+	videoDialogPillPadX     = float32(15)
+)
+
+// newVideoDialogCancelButton matches the Add Connection dialog's Cancel
+// button: no fill/border, muted gray text that lightens on hover.
+func newVideoDialogCancelButton(text string, onTap func()) *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		text:           text,
+		OnTapped:       onTap,
+		fillColor:      color.Transparent,
+		borderColor:    color.Transparent,
+		textColor:      color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff},
+		hoverTextColor: design.ColorTextLight,
 	}
-	selectWidget.ExtendBaseWidget(selectWidget)
-	return selectWidget
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) SetOptions(options []string) {
-	s.options = append([]string(nil), options...)
-	s.Refresh()
-}
-
-func (s *videoDialogSelect) SetDetails(details map[string]string) {
-	s.details = make(map[string]string, len(details))
-	for key, value := range details {
-		s.details[key] = value
+// newVideoDialogApplyButton matches the Add Connection dialog's Save
+// button: a solid teal pill with dark text, lightening on hover.
+func newVideoDialogApplyButton(text string, onTap func()) *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		text:           text,
+		OnTapped:       onTap,
+		fillColor:      design.ColorConnectionBadgeText,
+		borderColor:    color.Transparent,
+		textColor:      design.ColorGray950,
+		hoverFillColor: color.NRGBA{R: 0x61, G: 0xf0, B: 0xd3, A: 0xff},
+		hoverTextColor: design.ColorGray950,
+		// Mirrors connectionDialogTealDisabled: a darker shade of this same
+		// teal instead of switching to a neutral gray while disabled.
+		disabledFillColor: color.NRGBA{R: 0x31, G: 0xa6, B: 0x94, A: 0xff},
+		disabledTextColor: design.ColorGray950,
 	}
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) SetSelected(value string) {
-	s.selected = value
-	s.Refresh()
+// newVideoDialogExtraButton is the optional extra footer action (see
+// SetExtraAction) -- a neutral bordered pill, same border/hover treatment as
+// the unselected codec buttons.
+func newVideoDialogExtraButton() *videoDialogPillButton {
+	b := &videoDialogPillButton{
+		fillColor:        color.Transparent,
+		borderColor:      design.ColorTailscaleChipBorder,
+		textColor:        design.ColorTextLight,
+		hoverFillColor:   color.NRGBA{R: 0x26, G: 0x2a, B: 0x2e, A: 0xff},
+		hoverBorderColor: design.ColorConnectionBadgeText,
+		hoverTextColor:   design.ColorTextLight,
+	}
+	b.ExtendBaseWidget(b)
+	return b
 }
 
-func (s *videoDialogSelect) Selected() string {
-	return s.selected
+func (b *videoDialogPillButton) SetText(text string) {
+	b.text = text
+	if b.label != nil {
+		b.label.Text = text
+		b.label.Refresh()
+	}
+	b.Refresh()
 }
 
-func (s *videoDialogSelect) Tapped(*fyne.PointEvent) {
-	if len(s.options) == 0 {
+func (b *videoDialogPillButton) Enable() {
+	if !b.disabled {
 		return
 	}
+	b.disabled = false
+	b.refreshVisuals()
+}
 
-	items := make([]StyledMenuItem, 0, len(s.options))
-	for _, option := range s.options {
-		value := option
-		items = append(items, StyledMenuItem{
-			Label:          value,
-			SecondaryLabel: s.details[value],
-			Selected:       value == s.selected,
-			OnTap: func() {
-				s.SetSelected(value)
-				if s.onSelected != nil {
-					s.onSelected(value)
-				}
-			},
-		})
+func (b *videoDialogPillButton) Disable() {
+	if b.disabled {
+		return
 	}
+	b.disabled = true
+	b.refreshVisuals()
+}
 
-	menuWidth := s.Size().Width
-	if menuWidth < 220 {
-		menuWidth = 220
+func (b *videoDialogPillButton) Tapped(*fyne.PointEvent) {
+	if b.disabled || b.OnTapped == nil {
+		return
 	}
-	ShowStyledMenuCentered(s, items, menuWidth, 280)
+	b.OnTapped()
 }
 
-func (s *videoDialogSelect) TappedSecondary(*fyne.PointEvent) {}
+func (b *videoDialogPillButton) TappedSecondary(*fyne.PointEvent) {}
 
-func (s *videoDialogSelect) MouseIn(*desktop.MouseEvent) {
-	s.hovered = true
-	s.Refresh()
+func (b *videoDialogPillButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.refreshVisuals()
 }
 
-func (s *videoDialogSelect) MouseMoved(*desktop.MouseEvent) {}
+func (b *videoDialogPillButton) MouseMoved(*desktop.MouseEvent) {}
 
-func (s *videoDialogSelect) MouseOut() {
-	s.hovered = false
-	s.Refresh()
+func (b *videoDialogPillButton) MouseOut() {
+	b.hovered = false
+	b.refreshVisuals()
 }
 
-func (s *videoDialogSelect) Cursor() desktop.Cursor {
+func (b *videoDialogPillButton) Cursor() desktop.Cursor {
 	return desktop.PointerCursor
 }
 
-func (s *videoDialogSelect) MinSize() fyne.Size {
-	return fyne.NewSize(220, 42)
+func (b *videoDialogPillButton) MinSize() fyne.Size {
+	measure := canvas.NewText(b.text, color.Black)
+	measure.TextSize = videoDialogPillTextSize
+	measure.TextStyle.Bold = true
+	width := measure.MinSize().Width + videoDialogPillPadX*2
+	return fyne.NewSize(width, videoDialogPillHeight)
 }
 
-func (s *videoDialogSelect) CreateRenderer() fyne.WidgetRenderer {
-	s.bg = canvas.NewRectangle(color.Transparent)
-	s.bg.CornerRadius = design.RadiusMD
+func (b *videoDialogPillButton) CreateRenderer() fyne.WidgetRenderer {
+	b.bg = canvas.NewRectangle(color.Transparent)
+	b.bg.CornerRadius = design.RadiusMD
 
-	s.border = canvas.NewRectangle(color.Transparent)
-	s.border.CornerRadius = design.RadiusMD
-	s.border.StrokeColor = design.ColorBorder
-	s.border.StrokeWidth = 1
+	b.border = canvas.NewRectangle(color.Transparent)
+	b.border.CornerRadius = design.RadiusMD
+	b.border.StrokeWidth = 1
 
-	s.label = canvas.NewText("", design.ColorTextLight)
-	s.label.TextSize = 14
+	b.label = canvas.NewText(b.text, b.textColor)
+	b.label.TextSize = videoDialogPillTextSize
+	b.label.TextStyle.Bold = true
+	b.label.Alignment = fyne.TextAlignCenter
 
-	s.icon = canvas.NewImageFromResource(theme.Icon(theme.IconNameArrowDropDown))
-	s.icon.FillMode = canvas.ImageFillContain
-	s.icon.SetMinSize(fyne.NewSize(16, 16))
-
-	s.refreshVisuals()
-	return &videoDialogSelectRenderer{selectWidget: s}
+	b.refreshVisuals()
+	return widget.NewSimpleRenderer(container.NewStack(b.bg, container.NewCenter(b.label), b.border))
 }
 
-func (s *videoDialogSelect) refreshVisuals() {
-	if s.bg == nil || s.border == nil || s.label == nil || s.icon == nil {
+func (b *videoDialogPillButton) refreshVisuals() {
+	if b.bg == nil || b.border == nil || b.label == nil {
 		return
 	}
 
-	text := s.selected
-	textColor := design.ColorTextLight
-	if text == "" {
-		text = s.placeHolder
-		textColor = design.ColorTextMuted
+	fill := b.fillColor
+	border := b.borderColor
+	text := b.textColor
+
+	switch {
+	case b.disabled:
+		if b.disabledFillColor != nil {
+			fill = b.disabledFillColor
+		}
+		if b.disabledTextColor != nil {
+			text = b.disabledTextColor
+		}
+	case b.hovered:
+		if b.hoverFillColor != nil {
+			fill = b.hoverFillColor
+		}
+		if b.hoverBorderColor != nil {
+			border = b.hoverBorderColor
+		}
+		if b.hoverTextColor != nil {
+			text = b.hoverTextColor
+		}
 	}
 
-	var fill color.Color = color.Transparent
-	if s.hovered {
-		fill = design.ColorSurfaceLight
+	b.bg.FillColor = fill
+	b.border.StrokeColor = border
+	if border == nil || border == color.Transparent {
+		b.border.StrokeWidth = 0
+	} else {
+		b.border.StrokeWidth = 1
 	}
+	b.label.Color = text
 
-	s.label.Text = text
-	s.label.Color = textColor
-	s.bg.FillColor = fill
-	s.bg.Refresh()
-	s.border.Refresh()
-	s.label.Refresh()
-	s.icon.Refresh()
+	b.bg.Refresh()
+	b.border.Refresh()
+	b.label.Refresh()
 }
 
-type videoDialogSelectRenderer struct {
-	selectWidget *videoDialogSelect
+// videoDialogCornerButtonLayout pins its one child (the header's close X) a
+// fixed offset from the panel's own top-right corner, decoupled from the
+// title's own margin -- matching the Add Connection dialog's cornerBtn.
+type videoDialogCornerButtonLayout struct {
+	Top   float32
+	Right float32
 }
 
-func (r *videoDialogSelectRenderer) Layout(size fyne.Size) {
-	s := r.selectWidget
-	s.bg.Resize(size)
-	s.border.Resize(size)
-
-	labelMin := s.label.MinSize()
-	labelWidth := size.Width - 52
-	if labelWidth < 20 {
-		labelWidth = 20
+func (l *videoDialogCornerButtonLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) == 0 {
+		return
 	}
-	s.label.Move(fyne.NewPos(14, (size.Height-labelMin.Height)/2))
-	s.label.Resize(fyne.NewSize(labelWidth, labelMin.Height))
-
-	iconSize := fyne.NewSize(16, 16)
-	s.icon.Resize(iconSize)
-	s.icon.Move(fyne.NewPos(size.Width-28, (size.Height-iconSize.Height)/2))
+	obj := objects[0]
+	min := obj.MinSize()
+	obj.Resize(min)
+	obj.Move(fyne.NewPos(size.Width-l.Right-min.Width, l.Top))
 }
 
-func (r *videoDialogSelectRenderer) MinSize() fyne.Size {
-	return r.selectWidget.MinSize()
+func (l *videoDialogCornerButtonLayout) MinSize([]fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, 0)
 }
 
-func (r *videoDialogSelectRenderer) Refresh() {
-	r.selectWidget.refreshVisuals()
-	r.Layout(r.selectWidget.Size())
-	canvas.Refresh(r.selectWidget)
+// newVideoDialogTopAccentBar is the thin teal-to-lime fade hairline the Add
+// Connection dialog carries along its top edge -- faded to transparent at
+// both ends so it doesn't butt into the panel's rounded corners.
+func newVideoDialogTopAccentBar() fyne.CanvasObject {
+	teal := design.ColorConnectionBadgeText
+	lime := design.ColorConnectionAddFill
+	tealTransparent := color.NRGBA{R: 0x41, G: 0xe0, B: 0xc3, A: 0}
+	limeTransparent := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0}
+	accentLeftFade := canvas.NewHorizontalGradient(tealTransparent, teal)
+	accentLeftFade.SetMinSize(fyne.NewSize(70, 2))
+	accentRightFade := canvas.NewHorizontalGradient(lime, limeTransparent)
+	accentRightFade.SetMinSize(fyne.NewSize(70, 2))
+	accentMid := canvas.NewHorizontalGradient(teal, lime)
+	return container.NewBorder(nil, nil, accentLeftFade, accentRightFade, accentMid)
 }
-
-func (r *videoDialogSelectRenderer) BackgroundColor() color.Color {
-	return color.Transparent
-}
-
-func (r *videoDialogSelectRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.selectWidget.bg, r.selectWidget.border, r.selectWidget.label, r.selectWidget.icon}
-}
-
-func (r *videoDialogSelectRenderer) Destroy() {}
 
 func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 	vsd := &VideoStartDialog{
@@ -509,7 +556,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.modeDescription.Alignment = fyne.TextAlignCenter
 	vsd.modeButtonsRow = container.New(&videoCodecButtonsLayout{gap: 10})
 
-	vsd.resolutionSelect = newVideoDialogSelect("Select resolution", func(string) {
+	vsd.resolutionSelect = newVideoDialogPicker(func(string) {
 		vsd.refreshAvailableModes()
 		vsd.refreshFPSOptions()
 	})
@@ -517,7 +564,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.resolutionMeta.TextSize = 11
 	vsd.resolutionMeta.Alignment = fyne.TextAlignCenter
 
-	vsd.fpsSelect = newVideoDialogSelect("Select fps", nil)
+	vsd.fpsSelect = newVideoDialogPicker(nil)
 	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, design.ColorTextMuted)
 	vsd.fpsMeta.TextSize = 11
 	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
@@ -571,10 +618,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.color444Check.Hide()
 	vsd.color444Hint.Hide()
 
-	vsd.startBtn = widget.NewButton(i18n.Current.StartVideo, vsd.handleStart)
-	vsd.startBtn.Importance = widget.HighImportance
-	vsd.cancelBtn = widget.NewButton(i18n.Current.Cancel, vsd.handleCancel)
-	vsd.extraBtn = widget.NewButton("", nil)
+	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
+	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
+	vsd.extraBtn = newVideoDialogExtraButton()
 	vsd.extraBtn.Hide()
 
 	bitrateHeader := container.NewBorder(nil, nil,
@@ -593,8 +639,12 @@ func (vsd *VideoStartDialog) createInterface() {
 	modeDetailsReserve.SetMinSize(fyne.NewSize(0, modeDetailsMinHeight))
 	vsd.modeDetailsSlot = container.NewStack(modeDetailsReserve, vsd.bitrateBlock)
 
-	title := NewBrandText(i18n.Current.VideoParameters, 19, design.ColorTextLight, true)
-	title.Alignment = fyne.TextAlignCenter
+	// Header/footer chrome (top accent bar, corner-pinned close X, hairline
+	// separators, left-aligned title, right-grouped footer buttons) mirrors
+	// the Add Connection dialog's own panel -- see showAdaptiveConnectionDialog
+	// in controller/connection_manager_dialogs.go, whose pieces live in the
+	// controller package and aren't reusable here directly.
+	title := NewBrandText(i18n.Current.VideoParameters, 13, design.ColorTextLight, true)
 	closeBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
@@ -604,10 +654,16 @@ func (vsd *VideoStartDialog) createInterface() {
 		ButtonSize: fyne.NewSize(28, 28),
 		OnTapped:   vsd.handleCancel,
 	})
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(title))
+
+	headerSepLine := color.NRGBA{R: 0x30, G: 0x34, B: 0x2e, A: 0xff}
+	headerSep := canvas.NewRectangle(headerSepLine)
+	headerSep.SetMinSize(fyne.NewSize(0, 1))
+	footerSep := canvas.NewRectangle(headerSepLine)
+	footerSep.SetMinSize(fyne.NewSize(0, 1))
+
+	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(title, 21, 44, 9, 4), headerSep)
 
 	bodyContent := container.NewVBox(
-		titleBar,
 		widget.NewLabel("Codec"),
 		vsd.modeButtonsRow,
 		container.NewCenter(vsd.modeDescription),
@@ -628,11 +684,14 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.aiVisionCheck,
 		vsd.aiVisionHint,
 	)
-	footer := container.NewVBox(
-		vsd.extraBtn,
-		NewInset(container.New(&videoDialogButtonsLayout{gap: 12}, vsd.cancelBtn, vsd.startBtn), 0, 0, 8, 0),
-	)
-	form := container.NewBorder(nil, footer, nil, nil, bodyContent)
+
+	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
+	// DeviceRowControlsLayout skips extraBtn entirely while it's hidden, so
+	// the group collapses to just Apply when no extra action is set.
+	footerButtons := container.NewBorder(nil, nil, vsd.cancelBtn, container.New(&DeviceRowControlsLayout{Gap: 12}, vsd.extraBtn, vsd.startBtn))
+	footerBlock := container.NewVBox(footerSep, NewInset(footerButtons, 12, 18, 14, 0))
+
+	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(bodyContent, 18, 18, 12, 0))
 
 	bg := canvas.NewRectangle(design.ColorGray900)
 	bg.CornerRadius = design.RadiusMD
@@ -640,9 +699,11 @@ func (vsd *VideoStartDialog) createInterface() {
 	border.CornerRadius = design.RadiusMD
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
+	cornerBtn := container.New(&videoDialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
 	panel := container.NewStack(
 		bg,
-		NewInset(form, 18, 18, 16, 16),
+		form,
+		cornerBtn,
 		border,
 	)
 	vsd.dialog = NewOverlayPopup(vsd.parent, OverlayPopupSpec{
@@ -877,7 +938,7 @@ func (vsd *VideoStartDialog) Hide() {
 }
 
 func (vsd *VideoStartDialog) refreshFPSOptions() {
-	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	mode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	if !ok {
 		return
 	}
@@ -901,7 +962,7 @@ func (vsd *VideoStartDialog) refreshFPSOptions() {
 		options = []string{"30"}
 	}
 	vsd.fpsSelect.SetOptions(options)
-	if vsd.fpsSelect.Selected() == "" {
+	if vsd.fpsSelect.Selected == "" {
 		vsd.fpsSelect.SetSelected(options[0])
 	}
 }
@@ -910,7 +971,7 @@ func (vsd *VideoStartDialog) setDefaultFPS(defaultFPS int) {
 	if defaultFPS <= 0 {
 		return
 	}
-	for _, option := range vsd.fpsSelect.options {
+	for _, option := range vsd.fpsSelect.Options {
 		if option == strconv.Itoa(defaultFPS) {
 			vsd.fpsSelect.SetSelected(option)
 			return
@@ -1141,12 +1202,12 @@ func (vsd *VideoStartDialog) handleStart() {
 	vsd.cancelBtn.Disable()
 	vsd.startBtn.SetText("⏳ " + i18n.Current.Starting)
 
-	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	selectedMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	if !ok {
 		selectedMode = models.VideoCaptureMode{Width: 800, Height: 600, FPS: []int{30}}
 	}
 
-	fps, err := strconv.Atoi(vsd.fpsSelect.Selected())
+	fps, err := strconv.Atoi(vsd.fpsSelect.Selected)
 	if err != nil || fps <= 0 {
 		fps = 30
 	}
@@ -1188,7 +1249,7 @@ func formatFPSRange(values []int) string {
 }
 
 func (vsd *VideoStartDialog) refreshAvailableModes() {
-	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected()]
+	selectedCaptureMode, ok := vsd.resolutionLabels[vsd.resolutionSelect.Selected]
 	selectedFormat := ""
 	if ok {
 		selectedFormat = normalizePixelFormat(selectedCaptureMode.PixelFormat)

@@ -58,6 +58,11 @@ type HeaderDropdown struct {
 	HoverFillColor   color.Color
 	IconColor        color.Color
 	OnHover          func(bool)
+	// Details holds an optional per-option secondary hint line shown under
+	// its label in the popup (e.g. an aspect-ratio hint next to a
+	// resolution) -- nil, or a value with no entry, just renders no
+	// secondary line, same as before this field existed.
+	Details map[string]string
 
 	disabled bool
 	hovered  bool
@@ -180,6 +185,12 @@ func (d *HeaderDropdown) SetSelected(value string) {
 	d.Refresh()
 }
 
+// SetDetails sets the per-option secondary hint text shown in this
+// dropdown's popup -- see the Details field's doc comment.
+func (d *HeaderDropdown) SetDetails(details map[string]string) {
+	d.Details = details
+}
+
 func (d *HeaderDropdown) updateMinWidth() {
 	longest := strings.TrimSpace(d.Selected)
 	for _, option := range d.Options {
@@ -232,7 +243,7 @@ func (d *HeaderDropdown) openPopup() {
 	rows := make([]fyne.CanvasObject, 0, len(d.Options))
 	for _, option := range d.Options {
 		value := option
-		item := newDropdownItem(value, "", value == d.Selected, func() {
+		item := newDropdownItem(value, d.Details[value], value == d.Selected, func() {
 			d.SetSelected(value)
 			d.closePopup()
 			if d.OnSelected != nil {
