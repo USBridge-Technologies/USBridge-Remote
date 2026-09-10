@@ -1,11 +1,16 @@
 package controller
 
 import (
+	"path/filepath"
+	"strings"
+
 	"usbridge-client/internal/gui/assets"
+	"usbridge-client/internal/gui/i18n"
 	"usbridge-client/internal/gui/view"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 )
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
@@ -91,18 +96,18 @@ func (dw *DiskWidget) refreshDashboard() {
 			toggle = t
 		}
 
-		row := view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle)
 		switch {
 		case drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
-			hidRows = append(hidRows, row)
+			hidRows = append(hidRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
 		case drive.IsVideo:
-			videoRows = append(videoRows, row)
+			videoRows = append(videoRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
 		case drive.IsAudio || drive.IsUSBAudio:
-			audioRows = append(audioRows, row)
+			audioRows = append(audioRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
 		case drive.IsRNDIS:
-			networkRows = append(networkRows, row)
+			networkRows = append(networkRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
 		default:
-			storageRows = append(storageRows, row)
+			modePicker, uploadBtn, deleteBtn := dw.buildStorageRowExtras(idx, drive)
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(name, drive.IsMounted, badgeText, modePicker, uploadBtn, deleteBtn, toggle))
 		}
 	}
 
@@ -134,6 +139,90 @@ func setDashboardRows(target *fyne.Container, rows []fyne.CanvasObject, emptyTex
 	}
 	target.Objects = rows
 	target.Refresh()
+}
+
+// buildStorageRowExtras builds a Storage row's own USB Stick/CD-ROM mode
+// picker and Upload/Delete buttons, mirroring configureDriveRow's own
+// gating and wiring (disk_widget_row.go) exactly -- any return value may be
+// nil, meaning that row doesn't get that control (e.g. a plain local file
+// isn't ISO-compatible, so it gets no mode picker; an API/local drive that
+// isn't the user's own upload gets no delete button unless it's not the
+// backup flash).
+func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicker, uploadBtn, deleteBtn fyne.CanvasObject) {
+	isAPIISODrive := drive.Source == "api" && drive.LocalDrive != nil && drive.LocalDrive.SourceType != "mtp"
+	isNBDISODrive := (drive.Source == "local" || drive.Source == "user") && drive.DiskInfo != nil &&
+		isISOCompatibleExt(strings.ToLower(filepath.Ext(drive.DiskInfo.Path)))
+	if isAPIISODrive || isNBDISODrive {
+		selected := i18n.Current.DriveModeDisk
+		if drive.DriveMode == "cdrom" {
+			selected = i18n.Current.DriveModeCDROM
+		}
+		modePicker = view.NewDeviceDashboardModePicker(
+			[]string{i18n.Current.DriveModeDisk, i18n.Current.DriveModeCDROM},
+			selected,
+			func(s string) {
+				if dw.controlsLocked() || idx >= len(dw.allDrives) {
+					return
+				}
+				mode := "disk"
+				if s == i18n.Current.DriveModeCDROM {
+					mode = "cdrom"
+					// CD-ROM mode is always read-only (physical CD-ROMs
+					// cannot be written).
+					dw.allDrives[idx].ReadOnly = true
+				}
+				dw.allDrives[idx].DriveMode = mode
+			},
+		)
+	}
+
+	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting {
+		btn := view.NewDeviceDashboardIconButton(assets.UploadIcon, func() {
+			if !dw.controlsLocked() {
+				dw.handleUploadImage(idx)
+			}
+		})
+		btn.SetDisabled(drive.IsUploading || dw.controlsLocked())
+		uploadBtn = btn
+	}
+
+	shouldShowDelete := false
+	if !drive.IsMounting {
+		if drive.Source == "user" {
+			shouldShowDelete = true
+		} else if drive.Source == "api" || drive.Source == "local" {
+			isBackupFlash := drive.LocalDrive != nil && drive.LocalDrive.Name == "data" && drive.LocalDrive.SourceType == "mtp"
+			shouldShowDelete = !isBackupFlash
+		}
+	}
+	if shouldShowDelete {
+		var onTap func()
+		switch drive.Source {
+		case "user":
+			onTap = func() {
+				if !dw.controlsLocked() {
+					dw.removeUserImage(idx)
+				}
+			}
+		default: // "api" or "local"
+			filename := drive.Name
+			if drive.LocalDrive != nil {
+				filename = drive.LocalDrive.Name
+			} else if drive.DiskInfo != nil {
+				filename = drive.DiskInfo.Name
+			}
+			onTap = func() {
+				if !dw.controlsLocked() {
+					dw.handleDeleteImageFromDevice(idx, filename)
+				}
+			}
+		}
+		btn := view.NewDeviceDashboardIconButton(theme.DeleteIcon(), onTap)
+		btn.SetDisabled(dw.controlsLocked())
+		deleteBtn = btn
+	}
+
+	return modePicker, uploadBtn, deleteBtn
 }
 
 // toggleDriveMount mounts or unmounts exactly the one drive at index,

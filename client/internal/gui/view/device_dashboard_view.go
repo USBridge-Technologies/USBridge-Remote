@@ -341,7 +341,12 @@ var DeviceDashboardStorageIconSVG = fyne.NewStaticResource("device_dashboard_ssd
 // read against the button's own bright accent fill, same caveat as
 // DeviceDashboardStorageIconSVG above (a literal hex, not a Go color
 // value).
-var DeviceDashboardPlusCircleIconSVG = fyne.NewStaticResource("device_dashboard_plus_circle_dark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"><path fill="#0b0f12" fill-rule="evenodd" d="M10 3a7 7 0 100 14 7 7 0 000-14zm-9 7a9 9 0 1118 0 9 9 0 01-18 0zm14 .069a1 1 0 01-1 1h-2.931V14a1 1 0 11-2 0v-2.931H6a1 1 0 110-2h3.069V6a1 1 0 112 0v3.069H14a1 1 0 011 1z"/></svg>`))
+// Fill declared on the <svg> root, not the <path> (which carries only
+// fill-rule) -- matches videoDialogRobotSVG's own structure in
+// video_start_dialog.go, the one pattern in this codebase confirmed to
+// render correctly; fill="none" on the root with the path's own fill
+// overriding it (this icon's first version) rendered as fully invisible.
+var DeviceDashboardPlusCircleIconSVG = fyne.NewStaticResource("device_dashboard_plus_circle_dark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#0b0f12" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a7 7 0 100 14 7 7 0 000-14zm-9 7a9 9 0 1118 0 9 9 0 01-18 0zm14 .069a1 1 0 01-1 1h-2.931V14a1 1 0 11-2 0v-2.931H6a1 1 0 110-2h3.069V6a1 1 0 112 0v3.069H14a1 1 0 011 1z"/></svg>`))
 
 // DeviceDashboardAccentLime is the lime accent used for the Storage card's
 // SSD icon and as its "Mount New ISO" header button's own fill -- must
@@ -442,4 +447,148 @@ func (b *DeviceDashboardHeaderButton) CreateRenderer() fyne.WidgetRenderer {
 	// 4px top/bottom padding -- shorter than view.DeviceActionButton's own
 	// (unexported) padding, per this button's own "shorter" requirement.
 	return widget.NewSimpleRenderer(container.NewStack(b.bg, NewInsetExact(row, 10, 10, 4, 4)))
+}
+
+// NewDeviceDashboardModePicker is a Storage row's own USB Stick/CD-ROM
+// mode picker -- the same small teal pill dropdown style used elsewhere in
+// this app (see e.g. newVideoDialogPicker in video_start_dialog.go).
+func NewDeviceDashboardModePicker(options []string, selected string, onSelected func(string)) *HeaderDropdown {
+	d := NewHeaderDropdown(options, selected, onSelected)
+	d.UltraCompact = true
+	d.CornerRadius = 6
+	d.BorderColor = design.ColorTailscaleChipBorder
+	d.TextColor = design.ColorConnectionBadgeText
+	d.IconColor = deviceDashboardDescColor
+	d.TextSize = 9
+	d.HoverBorderColor = design.ColorConnectionBadgeText
+	d.HoverFillColor = design.ColorGray900
+	return d
+}
+
+// DeviceDashboardIconButton is a small icon-only tappable action for a
+// dashboard row (Storage's own Upload/Delete) -- muted by default,
+// brightens on hover, dims further and stops responding once disabled.
+// One neutral icon resource dimmed via Translucency for every state,
+// rather than several pre-recolored resource variants.
+type DeviceDashboardIconButton struct {
+	widget.BaseWidget
+
+	icon     fyne.Resource
+	onTap    func()
+	disabled bool
+	hovered  bool
+
+	img *canvas.Image
+}
+
+// NewDeviceDashboardIconButton builds an icon-only button showing icon,
+// calling onTap when tapped (unless disabled -- see SetDisabled).
+func NewDeviceDashboardIconButton(icon fyne.Resource, onTap func()) *DeviceDashboardIconButton {
+	b := &DeviceDashboardIconButton{icon: icon, onTap: onTap}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *DeviceDashboardIconButton) SetDisabled(disabled bool) {
+	if b.disabled == disabled {
+		return
+	}
+	b.disabled = disabled
+	b.Refresh()
+}
+
+func (b *DeviceDashboardIconButton) Tapped(*fyne.PointEvent) {
+	if b.disabled {
+		return
+	}
+	if b.onTap != nil {
+		b.onTap()
+	}
+}
+
+func (b *DeviceDashboardIconButton) TappedSecondary(*fyne.PointEvent) {}
+
+func (b *DeviceDashboardIconButton) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (b *DeviceDashboardIconButton) MouseIn(*desktop.MouseEvent) {
+	b.hovered = true
+	b.Refresh()
+}
+
+func (b *DeviceDashboardIconButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *DeviceDashboardIconButton) MouseOut() {
+	b.hovered = false
+	b.Refresh()
+}
+
+func (b *DeviceDashboardIconButton) MinSize() fyne.Size {
+	return fyne.NewSize(20, 20)
+}
+
+func (b *DeviceDashboardIconButton) CreateRenderer() fyne.WidgetRenderer {
+	b.img = canvas.NewImageFromResource(b.icon)
+	b.img.FillMode = canvas.ImageFillContain
+	b.img.SetMinSize(fyne.NewSize(14, 14))
+	b.applyState()
+	return widget.NewSimpleRenderer(container.NewCenter(b.img))
+}
+
+func (b *DeviceDashboardIconButton) Refresh() {
+	b.applyState()
+	b.BaseWidget.Refresh()
+}
+
+func (b *DeviceDashboardIconButton) applyState() {
+	if b.img == nil {
+		return
+	}
+	switch {
+	case b.disabled:
+		b.img.Translucency = 0.75
+	case b.hovered:
+		b.img.Translucency = 0
+	default:
+		b.img.Translucency = 0.4
+	}
+	b.img.Refresh()
+}
+
+// NewDeviceDashboardStorageRow is NewDeviceDashboardRow's Storage-specific
+// variant: the same dot+name+badge left side, but its right side can also
+// carry a USB Stick/CD-ROM mode picker and Upload/Delete icon buttons --
+// any of which may be nil to omit it -- alongside the same mount/unmount
+// toggle every other mountable row has.
+func NewDeviceDashboardStorageRow(name string, active bool, badgeText string, modePicker fyne.CanvasObject, uploadBtn fyne.CanvasObject, deleteBtn fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
+	dotColor := color.Color(videoDialogHintColor)
+	if active {
+		dotColor = design.ColorConnectionBadgeText
+	}
+	dot := canvas.NewCircle(dotColor)
+	dotWrap := container.NewGridWrap(fyne.NewSize(8, 8), dot)
+
+	nameText := canvas.NewText(name, design.ColorTextLight)
+	nameText.TextSize = 11
+
+	left := container.New(&DeviceRowControlsLayout{Gap: 8}, dotWrap, nameText)
+
+	rightParts := []fyne.CanvasObject{newConnectionPlatformChip(badgeText)}
+	if modePicker != nil {
+		rightParts = append(rightParts, modePicker)
+	}
+	if uploadBtn != nil {
+		rightParts = append(rightParts, uploadBtn)
+	}
+	if deleteBtn != nil {
+		rightParts = append(rightParts, deleteBtn)
+	}
+	if toggle != nil {
+		rightParts = append(rightParts, toggle)
+	}
+	right := container.New(&DeviceRowControlsLayout{Gap: 8}, rightParts...)
+
+	row := container.NewBorder(nil, nil, left, right)
+	return NewInset(row, 0, 0, 5, 5)
 }
