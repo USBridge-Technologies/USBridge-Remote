@@ -21,7 +21,8 @@ const (
 // AppConfig application configuration
 type AppConfig struct {
 	// USBridge 2 connection (as client)
-	USBPort    int `json:"usb_port" mapstructure:"usb_port"`       // USBridge 2 port (8080)
+	USBPort              int `json:"usb_port" mapstructure:"usb_port"`
+	USBPassthroughPort   int `json:"usb_passthrough_port" mapstructure:"usb_passthrough_port"`
 	APITimeout int `json:"api_timeout" mapstructure:"api_timeout"` // API request timeout
 
 	ConnectionProtocol string `json:"connection_protocol" mapstructure:"connection_protocol"`
@@ -90,7 +91,8 @@ type AppConfig struct {
 func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		// USBridge 2
-		USBPort:    8080,
+		USBPort:            8080,
+		USBPassthroughPort: 8090,
 		APITimeout: 15,
 
 		ConnectionProtocol: modelsafeProtocol(ConnectionProtocolAuto),

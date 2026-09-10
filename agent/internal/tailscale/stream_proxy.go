@@ -44,8 +44,8 @@ import (
 // 47989); HTTPS/control/RTSP ports are derived from it using Sunshine's fixed
 // offsets. Returns immediately; listeners come up in the background once
 // tsnet has a valid tailnet IP.
-func (s *Service) StartStreamProxy(basePort int) *StreamProxy {
-	p := &StreamProxy{svc: s, basePort: basePort, seenUDP: make(map[int]bool)}
+func (s *Service) StartStreamProxy(basePort int, extraTCP ...int) *StreamProxy {
+	p := &StreamProxy{svc: s, basePort: basePort, extraTCP: extraTCP, seenUDP: make(map[int]bool)}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	go p.run()
 	return p
@@ -54,6 +54,7 @@ func (s *Service) StartStreamProxy(basePort int) *StreamProxy {
 type StreamProxy struct {
 	svc      *Service
 	basePort int
+	extraTCP []int
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -144,6 +145,12 @@ func (p *StreamProxy) run() {
 	p.seenUDP[controlPort] = true
 	p.mu.Unlock()
 	p.startUDPRelay(controlPort)
+	for _, port := range p.extraTCP {
+		if port > 0 {
+			logrus.Infof("🛰️ [StreamProxy] relaying USB passthrough TCP :%d via tsnet (Direct/Tailscale same port)", port)
+			p.startTCPRelay(port, false)
+		}
+	}
 }
 
 func (p *StreamProxy) addListener(c io.Closer) bool {

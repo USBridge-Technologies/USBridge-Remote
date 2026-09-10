@@ -3,7 +3,7 @@
 #   .\scripts\fast_rebuild.ps1
 #
 # ~15-30s on cached build; only changed packages recompile.
-# For a full dist rebuild run scripts\build_windows.sh from UCRT64 shell.
+# For a full dist rebuild run .\scripts\build_windows.ps1 from PowerShell.
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent

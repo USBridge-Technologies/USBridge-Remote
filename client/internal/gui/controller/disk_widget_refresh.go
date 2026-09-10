@@ -119,6 +119,7 @@ func (dw *DiskWidget) startPeriodicRefresh() {
 		for range ticker.C {
 			dw.loadLocalDrives()
 			dw.loadMountedDevices()
+			dw.loadUSBPassthroughDevices()
 		}
 	}()
 }

@@ -10,6 +10,7 @@ import (
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/platform"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"github.com/sirupsen/logrus"
 )
@@ -453,6 +454,24 @@ func (dw *DiskWidget) combineDrives() {
 		dw.allDrives = append(dw.allDrives, usbAudioItem)
 	}
 
+	for i := range dw.usbPassDevices {
+		d := dw.usbPassDevices[i]
+		name := d.Description
+		if name == "" {
+			name = d.VID + ":" + d.PID
+		}
+		if d.Protected {
+			name = name + " (" + i18n.Current.USBPassthroughProtected + ")"
+		}
+		dw.allDrives = append(dw.allDrives, DriveItem{
+			Name:             name,
+			Size:             d.VID + ":" + d.PID,
+			Source:           "usbpass",
+			IsUSBPassthrough: true,
+			USBPassthrough:   &dw.usbPassDevices[i],
+		})
+	}
+
 	// Restore the upload and mount state
 	for i := range dw.allDrives {
 		if dw.allDrives[i].DiskInfo != nil {
@@ -496,6 +515,20 @@ func (dw *DiskWidget) loadGamepadDevices() {
 		dw.gamepadDevices = gamepads
 		dw.scheduleCombine()
 	})
+}
+
+func (dw *DiskWidget) loadUSBPassthroughDevices() {
+	go func() {
+		devs, err := usbpass.ListLocal()
+		if err != nil {
+			logrus.Debugf("usb passthrough list: %v", err)
+			devs = nil
+		}
+		dw.updateUIAsync(func() {
+			dw.usbPassDevices = devs
+			dw.scheduleCombine()
+		})
+	}()
 }
 
 // loadMountedDevices loads mounted devices via the API
@@ -661,7 +694,7 @@ func (dw *DiskWidget) updateDevicesStatus() {
 			// block below — not from mountedDevices, which reflects USB gadget presence
 			// (stale) rather than which source PulseAudio is actually streaming.
 
-			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio {
+			if drive.IsKeyboard || drive.IsMouse || drive.IsRNDIS || drive.IsGamepad || drive.IsUSBAudio || drive.IsUSBPassthrough {
 				continue
 			}
 

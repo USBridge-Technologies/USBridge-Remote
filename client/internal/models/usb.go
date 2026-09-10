@@ -42,7 +42,29 @@ type NBDStatus struct {
 	Export    string `json:"export"`
 }
 
-// USBDeviceInfo USB device information
+// USBPassthroughStatus is the thin REST view of rust-shine usb-broker.
+type USBPassthroughStatus struct {
+	Available   bool     `json:"available"`
+	Platform    string   `json:"platform"`
+	BrokerAlive bool     `json:"broker_alive"`
+	StubDriver  bool     `json:"stub_driver"`
+	VhciDriver  bool     `json:"vhci_driver"`
+	ListenPort  int      `json:"listen_port"`
+	Sessions    []string `json:"sessions"`
+	BrokerError string   `json:"broker_error,omitempty"`
+	DriverHint  string   `json:"driver_hint,omitempty"`
+}
+
+// USBPassthroughDevice is a local USB device listed by the closed broker.
+type USBPassthroughDevice struct {
+	BusID         string `json:"bus_id"`      // Linux-style USB/IP busid (N-M)
+	InstanceID    string `json:"instance_id"` // Windows SetupAPI instance id
+	VID           string `json:"vid"`
+	PID           string `json:"pid"`
+	Description   string `json:"description"`
+	Protected     bool   `json:"protected"`
+	PreferredTest bool   `json:"preferred_test"`
+}
 type USBDeviceInfo struct {
 	Connected       bool   `json:"connected"`
 	GadgetName      string `json:"gadget_name"`

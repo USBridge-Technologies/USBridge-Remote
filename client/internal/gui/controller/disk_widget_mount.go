@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -169,6 +173,23 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	logrus.Infof("📁 [MOUNT] mounted: %d, adding: %d", mountedGadgetCount, len(selectedDrives))
+
+	var pass []DriveItem
+	var rest []DriveItem
+	for _, d := range selectedDrives {
+		if d.IsUSBPassthrough {
+			pass = append(pass, d)
+		} else {
+			rest = append(rest, d)
+		}
+	}
+	if len(pass) > 0 {
+		dw.mountUSBPassthrough(pass)
+	}
+	if len(rest) == 0 {
+		return
+	}
+	selectedDrives = rest
 
 	// An XInput gamepad is incompatible with keyboard/mouse in the same composite device:
 	// Windows won't initialize the remaining HID interfaces under the Xbox VID/PID.
@@ -961,6 +982,70 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 		if dw.onMouseModeReconfigured != nil {
 			dw.onMouseModeReconfigured()
+		}
+	}()
+}
+
+func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
+	dw.beginOperation()
+	go func() {
+		defer dw.endOperation()
+		var devices []models.USBPassthroughDevice
+		for _, it := range items {
+			if it.USBPassthrough == nil {
+				continue
+			}
+			if it.USBPassthrough.Protected {
+				dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughProtected))
+				return
+			}
+			devices = append(devices, *it.USBPassthrough)
+		}
+		if len(devices) == 0 {
+			return
+		}
+		// Go client owns the USB/IP server (export). rust-shine on the agent
+		// is the USB/IP client (win2 VHCI).
+		exportPort := 3240
+		if _, err := usbpass.StartSession(fmt.Sprintf("0.0.0.0:%d", exportPort), devices); err != nil {
+			dw.showErrorAsync(fmt.Errorf("USB/IP export: %w", err))
+			return
+		}
+		if _, err := dw.usbClient.OpenUSBPassthroughSession(); err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(fmt.Errorf("%s: %w", i18n.Current.USBPassthroughEnterpriseHint, err))
+			return
+		}
+		base := dw.usbClient.GetBaseURL()
+		u, err := url.Parse(base)
+		if err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(err)
+			return
+		}
+		port := 8090
+		if dw.config != nil && dw.config.USBPassthroughPort > 0 {
+			port = dw.config.USBPassthroughPort
+		}
+		addr := net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
+		secret := string(dw.usbClient.APISecret())
+		for _, d := range devices {
+			inst := d.InstanceID
+			if inst == "" {
+				inst = d.BusID
+			}
+			if err := usbpass.Attach(usbpass.AttachOptions{
+				AgentAddr:       addr,
+				Secret:          secret,
+				InstanceID:      inst,
+				USBIPBusID:      d.BusID,
+				ExportService:   strconv.Itoa(exportPort),
+				AllowUnlicensed: true, // lab; enterprise gate is on the agent broker
+			}); err != nil {
+				usbpass.StopSession()
+				dw.showErrorAsync(err)
+				return
+			}
 		}
 	}()
 }

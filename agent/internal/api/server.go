@@ -17,6 +17,7 @@ import (
 
 	"usbridge_agent/internal/clipboard"
 	"usbridge_agent/internal/display"
+	"usbridge_agent/internal/usbpass"
 )
 
 type Application interface {
@@ -82,6 +83,8 @@ type Server struct {
 	masterKey    []byte
 	sunshinePort int
 	sec          *SecurityMiddleware
+
+	usb *usbpass.Service
 
 	clipboardBlobs *clipboardBlobStore
 }
@@ -186,6 +189,9 @@ func (s *Server) Routes() http.Handler {
 	// the client's MCP proxy (client/internal/api/mcp_proxy.go) forwards to
 	// whichever of the two it's paired with without needing to know which.
 	mux.HandleFunc("/api/mcp", sec.LimitPolling(s.mcp))
+	mux.HandleFunc("/api/usb/passthrough/status", sec.LimitPolling(s.usbPassthroughStatus))
+	mux.HandleFunc("/api/usb/passthrough/install", sec.LimitPolling(s.usbPassthroughInstall))
+	mux.HandleFunc("/api/usb/passthrough/session", sec.LimitPolling(s.usbPassthroughSession))
 
 	return s.withCORS(s.withLogging(s.withRecovery(mux)))
 }
