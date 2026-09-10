@@ -50,22 +50,23 @@ type VideoStartDialog struct {
 	modeDetailsSlot  *fyne.Container
 	jpegHint         *widget.Label
 	deviceLabel      *widget.Label
-	vsyncCheck       *widget.Check
-	aiVisionCheck    *widget.Check
+	vsyncCheck       *videoDialogCheckbox
+	aiVisionCheck    *videoDialogCheckbox
 	aiVisionHint     *widget.RichText
-	// color444Check/color444Hint/color444Row: the RustShine Pro 4:4:4 color
-	// upgrade, placed right below the resolution picker and above the AI
-	// Vision row. Only shown when the currently selected codec is H.265 AND
-	// the agent's own video-info response says color444Available (hardware
-	// probe AND license tier, see models.VideoStatus.Color444Available's
-	// doc comment) -- see refreshModeUI. color444Row is the whole boxed row
-	// (checkbox+title+badge+hint); refreshModeUI shows/hides that instead of
-	// the individual check/hint widgets, since hiding just those would leave
-	// the row's title/badge/card chrome visibly stranded.
-	color444Check     *widget.Check
-	color444Hint      *widget.Label
-	color444Row       *fyne.Container
-	color444Available bool
+	// color444Check/color444Hint: the RustShine Pro 4:4:4 color upgrade.
+	// Unlike AI Vision this row is always shown, on any codec -- it just
+	// reads as an inactive/grayed item (dim title, disabled checkbox, a
+	// badge explaining why) when it doesn't currently apply, rather than
+	// disappearing outright. It's enabled only when the selected codec is
+	// H.265 AND the agent's own video-info response says color444Available
+	// (hardware probe AND license tier, see
+	// models.VideoStatus.Color444Available's doc comment) -- see
+	// refreshModeUI, which drives all of this via setColor444State.
+	color444Check      *videoDialogCheckbox
+	color444Hint       *widget.Label
+	color444TitleText  *canvas.Text
+	color444BadgeLabel *canvas.Text
+	color444Available  bool
 
 	startBtn  *videoDialogPillButton
 	cancelBtn *videoDialogPillButton
@@ -667,6 +668,175 @@ func (r *videoDialogBitrateSliderRenderer) Destroy() {}
 // bordered cards (the bitrate card, the boxed toggle rows) and small badges.
 var videoDialogBorderColor = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
 
+// videoDialogCheckmarkSVG is a small dark checkmark glyph, drawn onto
+// videoDialogCheckbox's teal fill when checked.
+var videoDialogCheckmarkSVG = fyne.NewStaticResource("video_dialog_checkmark.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0b0f12" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12L10 18L20 6"/></svg>`))
+
+const (
+	videoDialogCheckboxSize   = float32(16)
+	videoDialogCheckboxRadius = float32(4)
+	videoDialogCheckboxMark   = float32(9)
+)
+
+// videoDialogCheckbox is a small custom checkbox matching this dialog's own
+// look (rounded teal square, a checkmark sized to fit) -- Fyne's themed
+// widget.Check has no way to recolor, resize, or round its box
+// independently of the app theme. Mirrors widget.Check's own API surface
+// (Checked field, OnChanged, SetChecked, Enable/Disable) closely enough
+// that this dialog's Configure/handleStart call sites needed no changes.
+type videoDialogCheckbox struct {
+	widget.BaseWidget
+
+	Checked   bool
+	OnChanged func(bool)
+
+	disabled bool
+	hovered  bool
+
+	bg    *canvas.Rectangle
+	check *canvas.Image
+}
+
+func newVideoDialogCheckbox(checked bool, onChanged func(bool)) *videoDialogCheckbox {
+	c := &videoDialogCheckbox{Checked: checked, OnChanged: onChanged}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *videoDialogCheckbox) SetChecked(checked bool) {
+	if c.Checked == checked {
+		return
+	}
+	c.Checked = checked
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Enable() {
+	if !c.disabled {
+		return
+	}
+	c.disabled = false
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Disable() {
+	if c.disabled {
+		return
+	}
+	c.disabled = true
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Disabled() bool {
+	return c.disabled
+}
+
+func (c *videoDialogCheckbox) Tapped(*fyne.PointEvent) {
+	if c.disabled {
+		return
+	}
+	c.Checked = !c.Checked
+	c.Refresh()
+	if c.OnChanged != nil {
+		c.OnChanged(c.Checked)
+	}
+}
+
+func (c *videoDialogCheckbox) TappedSecondary(*fyne.PointEvent) {}
+
+func (c *videoDialogCheckbox) MouseIn(*desktop.MouseEvent) {
+	c.hovered = true
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) MouseMoved(*desktop.MouseEvent) {}
+
+func (c *videoDialogCheckbox) MouseOut() {
+	c.hovered = false
+	c.Refresh()
+}
+
+func (c *videoDialogCheckbox) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (c *videoDialogCheckbox) MinSize() fyne.Size {
+	return fyne.NewSize(videoDialogCheckboxSize, videoDialogCheckboxSize)
+}
+
+func (c *videoDialogCheckbox) CreateRenderer() fyne.WidgetRenderer {
+	c.bg = canvas.NewRectangle(color.Transparent)
+	c.bg.CornerRadius = videoDialogCheckboxRadius
+	c.bg.StrokeWidth = 1
+
+	c.check = canvas.NewImageFromResource(videoDialogCheckmarkSVG)
+	c.check.FillMode = canvas.ImageFillContain
+
+	r := &videoDialogCheckboxRenderer{cb: c}
+	r.applyColors()
+	return r
+}
+
+type videoDialogCheckboxRenderer struct {
+	cb *videoDialogCheckbox
+}
+
+func (r *videoDialogCheckboxRenderer) Layout(size fyne.Size) {
+	cb := r.cb
+	boxPos := fyne.NewPos((size.Width-videoDialogCheckboxSize)/2, (size.Height-videoDialogCheckboxSize)/2)
+	cb.bg.Move(boxPos)
+	cb.bg.Resize(fyne.NewSize(videoDialogCheckboxSize, videoDialogCheckboxSize))
+
+	markPos := fyne.NewPos(boxPos.X+(videoDialogCheckboxSize-videoDialogCheckboxMark)/2, boxPos.Y+(videoDialogCheckboxSize-videoDialogCheckboxMark)/2)
+	cb.check.Move(markPos)
+	cb.check.Resize(fyne.NewSize(videoDialogCheckboxMark, videoDialogCheckboxMark))
+}
+
+func (r *videoDialogCheckboxRenderer) applyColors() {
+	cb := r.cb
+	switch {
+	case cb.disabled:
+		cb.bg.FillColor = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+		cb.bg.StrokeColor = videoDialogBorderColor
+		cb.check.Translucency = 0.6
+		cb.check.Hidden = !cb.Checked
+	case cb.Checked:
+		cb.bg.FillColor = design.ColorConnectionBadgeText
+		cb.bg.StrokeColor = color.Transparent
+		cb.check.Translucency = 0
+		cb.check.Hidden = false
+	default:
+		fill := color.Color(color.Transparent)
+		if cb.hovered {
+			fill = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+		}
+		cb.bg.FillColor = fill
+		cb.bg.StrokeColor = videoDialogBorderColor
+		cb.check.Hidden = true
+	}
+}
+
+func (r *videoDialogCheckboxRenderer) MinSize() fyne.Size {
+	return r.cb.MinSize()
+}
+
+func (r *videoDialogCheckboxRenderer) Refresh() {
+	r.applyColors()
+	r.Layout(r.cb.Size())
+	r.cb.bg.Refresh()
+	r.cb.check.Refresh()
+}
+
+func (r *videoDialogCheckboxRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *videoDialogCheckboxRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.cb.bg, r.cb.check}
+}
+
+func (r *videoDialogCheckboxRenderer) Destroy() {}
+
 // videoDialogCardBG is the same slightly-lightened card background as the
 // bitrate card, reused for the boxed AI Vision/4:4:4 toggle rows so every
 // bordered card in this dialog reads as one family.
@@ -763,9 +933,12 @@ func videoDialogHighlightCode(text, code string, italic bool) []widget.RichTextS
 	}
 }
 
-// newVideoDialogBadge is the small uppercase pill shown next to a toggle's
-// title (e.g. "RECOMMENDED", "EXPERIMENTAL", "PRO").
-func newVideoDialogBadge(text string) fyne.CanvasObject {
+// newVideoDialogMutableBadge is the small uppercase pill shown next to a
+// toggle's title (e.g. "RECOMMENDED", "EXPERIMENTAL", "PRO") -- it also
+// returns the label so a caller that needs to change the badge's wording
+// later (the 4:4:4 row, see setColor444State) can. Everyone else uses
+// newVideoDialogBadge, which just discards that second value.
+func newVideoDialogMutableBadge(text string) (fyne.CanvasObject, *canvas.Text) {
 	bg := canvas.NewRectangle(color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff})
 	bg.CornerRadius = 4
 	border := canvas.NewRectangle(color.Transparent)
@@ -773,46 +946,63 @@ func newVideoDialogBadge(text string) fyne.CanvasObject {
 	border.StrokeColor = videoDialogBorderColor
 	border.StrokeWidth = 1
 	label := canvas.NewText(strings.ToUpper(text), videoDialogHintColor)
-	label.TextSize = 8
+	label.TextSize = 7
 	label.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
-	return container.NewStack(bg, border, NewInset(label, 6, 6, 2, 2))
+	return container.NewStack(bg, border, NewInset(label, 6, 6, 1, 1)), label
 }
 
-// newVideoDialogToggleRow lays out one checkbox row in the reference
-// design: the checkbox at left, a bold title (+ optional badge) on the
-// first line to its right, and description below the title -- both title
-// and description share the same left edge, rather than the description
-// being indented separately from the title.
-func newVideoDialogToggleRow(check *widget.Check, title string, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
-	titleText := canvas.NewText(title, design.ColorTextLight)
-	titleText.TextSize = 10
-	titleText.TextStyle.Bold = true
+func newVideoDialogBadge(text string) fyne.CanvasObject {
+	badge, _ := newVideoDialogMutableBadge(text)
+	return badge
+}
 
-	titleRowItems := []fyne.CanvasObject{titleText}
+// newVideoDialogRowTitle is a toggle row's bold title text -- a plain
+// constructor (rather than building it inline in newVideoDialogToggleRow)
+// so a caller that needs to gray the title out later (the 4:4:4 row) can
+// keep its own reference.
+func newVideoDialogRowTitle(text string) *canvas.Text {
+	title := canvas.NewText(text, design.ColorTextLight)
+	title.TextSize = 10
+	title.TextStyle.Bold = true
+	return title
+}
+
+// videoDialogToggleIndent is the description line's left indent -- lines up
+// with the title text next to the checkbox (checkbox width + the gap the
+// title row's own HBox puts between them) without needing the description
+// to be nested inside that same HBox/Border, which left it without a real
+// wrap width until too late in layout and made it render far past where the
+// title indicated. A direct VBox child (title row, then indented
+// description) is the same reliable pattern this dialog's other wrapped
+// hint text already uses elsewhere.
+const videoDialogToggleIndent = videoDialogCheckboxSize + 8
+
+// newVideoDialogToggleRow lays out one checkbox row in the reference
+// design: the checkbox and a bold title (+ optional badge) share the first
+// line, and the description sits on its own line below, indented to the
+// title's own left edge (see videoDialogToggleIndent).
+func newVideoDialogToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) fyne.CanvasObject {
+	titleRowItems := []fyne.CanvasObject{check, titleText}
 	if badge != nil {
 		titleRowItems = append(titleRowItems, badge)
 	}
-
-	content := container.NewVBox(container.NewHBox(titleRowItems...), description)
-	// Border, not HBox: HBox never stretches its last child, so the
-	// description's Label/RichText got no bounded width to wrap against and
-	// grew to its full unwrapped size instead -- Border's center slot fills
-	// whatever width remains after the checkbox's own natural width.
-	return container.NewBorder(nil, nil, check, nil, content)
+	titleRow := container.NewHBox(titleRowItems...)
+	return container.NewVBox(titleRow, NewInset(description, videoDialogToggleIndent, 0, 4, 0))
 }
 
 // newVideoDialogBoxedToggleRow wraps newVideoDialogToggleRow's content in
-// its own bordered card (same bg/border as the bitrate card) -- the AI
-// Vision/4:4:4 rows' own "special" treatment, as opposed to VSync's plain
-// inline row.
-func newVideoDialogBoxedToggleRow(check *widget.Check, title string, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
+// its own bordered card (same bg/border as the bitrate card) -- AI Vision's
+// own "special" treatment. Every other toggle in this dialog (VSync, 4:4:4)
+// stays a plain inline row instead -- boxing every row made the whole
+// section too tall to fit comfortably.
+func newVideoDialogBoxedToggleRow(check *videoDialogCheckbox, titleText *canvas.Text, badge fyne.CanvasObject, description fyne.CanvasObject) *fyne.Container {
 	cardBG := canvas.NewRectangle(videoDialogCardBG)
 	cardBG.CornerRadius = design.RadiusMD
 	cardBorder := canvas.NewRectangle(color.Transparent)
 	cardBorder.CornerRadius = design.RadiusMD
 	cardBorder.StrokeColor = videoDialogBorderColor
 	cardBorder.StrokeWidth = 1
-	row := newVideoDialogToggleRow(check, title, badge, description)
+	row := newVideoDialogToggleRow(check, titleText, badge, description)
 	return container.NewStack(cardBG, cardBorder, NewInset(row, 12, 12, 10, 10))
 }
 
@@ -853,11 +1043,10 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.jpegHint.Alignment = fyne.TextAlignCenter
 	vsd.deviceLabel = widget.NewLabel("")
 	vsd.deviceLabel.Wrapping = fyne.TextWrapWord
-	vsd.vsyncCheck = widget.NewCheck("", nil)
-	vsd.vsyncCheck.SetChecked(true)
+	vsd.vsyncCheck = newVideoDialogCheckbox(true, nil)
 	vsyncRow := newVideoDialogToggleRow(
 		vsd.vsyncCheck,
-		i18n.Current.EnableVSync,
+		newVideoDialogRowTitle(i18n.Current.EnableVSync),
 		newVideoDialogBadge(i18n.Current.EnableVSyncBadge),
 		newVideoDialogPlainDescription(i18n.Current.EnableVSyncHint),
 	)
@@ -865,15 +1054,14 @@ func (vsd *VideoStartDialog) createInterface() {
 	// AI Vision: off by default, takes effect immediately (not gated behind
 	// Start/Apply) since it's a pure local-rendering overlay -- see
 	// service.SetAIVisionEnabled's doc comment.
-	vsd.aiVisionCheck = widget.NewCheck("", func(checked bool) {
+	vsd.aiVisionCheck = newVideoDialogCheckbox(service.AIVisionEnabled(), func(checked bool) {
 		service.SetAIVisionEnabled(checked)
 	})
-	vsd.aiVisionCheck.SetChecked(service.AIVisionEnabled())
 	vsd.aiVisionHint = newVideoDialogRichDescription(videoDialogHighlightCode(i18n.Current.AIVisionHint, "ui.parse()", true)...)
 	aiVisionDesc := container.NewThemeOverride(vsd.aiVisionHint, videoDialogRichTheme{Theme: design.NewBrandTheme()})
 	aiVisionRow := newVideoDialogBoxedToggleRow(
 		vsd.aiVisionCheck,
-		i18n.Current.AIVision,
+		newVideoDialogRowTitle(i18n.Current.AIVision),
 		newVideoDialogBadge(i18n.Current.AIVisionBadge),
 		aiVisionDesc,
 	)
@@ -881,21 +1069,22 @@ func (vsd *VideoStartDialog) createInterface() {
 	// RustShine Pro 4:4:4 color: off by default, takes effect on the next
 	// Start (unlike AI Vision, this is a real renegotiation with the
 	// server, not a pure local overlay) -- see models.VideoStartRequest.Color444's
-	// doc comment. Visibility/enabled state is entirely driven by
-	// refreshModeUI (codec == H.265 and the agent currently offers it), which
-	// shows/hides color444Row as a whole.
-	vsd.color444Check = widget.NewCheck("", nil)
+	// doc comment. Always shown (any codec) -- refreshModeUI grays it out via
+	// setColor444State instead of hiding it outright when it doesn't apply.
+	vsd.color444Check = newVideoDialogCheckbox(false, nil)
 	vsd.color444Hint = widget.NewLabel("")
 	vsd.color444Hint.Wrapping = fyne.TextWrapWord
 	vsd.color444Hint.TextStyle = fyne.TextStyle{Italic: true}
 	color444Desc := container.NewThemeOverride(vsd.color444Hint, videoDialogMutedTheme{Theme: design.NewBrandTheme()})
-	vsd.color444Row = newVideoDialogBoxedToggleRow(
+	vsd.color444TitleText = newVideoDialogRowTitle(i18n.Current.Color444)
+	color444Badge, color444BadgeLabel := newVideoDialogMutableBadge(i18n.Current.Color444Badge)
+	vsd.color444BadgeLabel = color444BadgeLabel
+	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
-		i18n.Current.Color444,
-		newVideoDialogBadge(i18n.Current.Color444Badge),
+		vsd.color444TitleText,
+		color444Badge,
 		color444Desc,
 	)
-	vsd.color444Row.Hide()
 
 	vsd.startBtn = newVideoDialogApplyButton(i18n.Current.StartVideo, vsd.handleStart)
 	vsd.cancelBtn = newVideoDialogCancelButton(i18n.Current.Cancel, vsd.handleCancel)
@@ -998,8 +1187,8 @@ func (vsd *VideoStartDialog) createInterface() {
 		resolutionFPSRow,
 		vsd.modeDetailsSlot,
 		vsyncRow,
-		vsd.color444Row,
 		aiVisionRow,
+		color444Row,
 	)
 
 	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
@@ -1042,7 +1231,7 @@ func (vsd *VideoStartDialog) createInterface() {
 			}
 
 			panelMin := panel.MinSize()
-			panelWidth := minFloat32(maxFloat32(panelMin.Width, 368), maxWidth)
+			panelWidth := minFloat32(maxFloat32(panelMin.Width, 408), maxWidth)
 			panelHeight := minFloat32(maxFloat32(panelMin.Height, 520), maxHeight)
 			return fyne.NewSize(panelWidth, panelHeight)
 		},
@@ -1334,23 +1523,40 @@ func (vsd *VideoStartDialog) refreshModeUI() {
 
 	// RustShine Pro 4:4:4 color: only meaningful for H.265 (this project's
 	// hardware encode path has no H.264/AV1 4:4:4 profile, see
-	// service.moonlightVideoFormat's doc comment) -- hidden entirely for
-	// every other codec rather than shown-disabled, since it's not a
-	// choice that could ever apply there.
-	if modeID == models.VideoModeH265 {
-		vsd.color444Check.Enable()
-		if vsd.color444Available {
-			vsd.color444Hint.SetText(i18n.Current.Color444Hint)
-		} else {
-			vsd.color444Check.SetChecked(false)
-			vsd.color444Check.Disable()
-			vsd.color444Hint.SetText(i18n.Current.Color444UnavailableHint)
-		}
-		vsd.color444Row.Show()
-	} else {
+	// service.moonlightVideoFormat's doc comment). The row itself always
+	// stays visible on every codec -- rather than disappearing when it
+	// doesn't apply, it grays out and its badge explains why (requires
+	// H.265, or requires RustShine Pro), which reads clearer than the
+	// choice silently vanishing.
+	switch {
+	case modeID != models.VideoModeH265:
 		vsd.color444Check.SetChecked(false)
-		vsd.color444Row.Hide()
+		vsd.color444Check.Disable()
+		vsd.color444Hint.SetText(i18n.Current.Color444RequiresH265Hint)
+		vsd.setColor444State(false, i18n.Current.Color444CodecBadge)
+	case vsd.color444Available:
+		vsd.color444Check.Enable()
+		vsd.color444Hint.SetText(i18n.Current.Color444Hint)
+		vsd.setColor444State(true, i18n.Current.Color444Badge)
+	default:
+		vsd.color444Check.SetChecked(false)
+		vsd.color444Check.Disable()
+		vsd.color444Hint.SetText(i18n.Current.Color444UnavailableHint)
+		vsd.setColor444State(false, i18n.Current.Color444Badge)
 	}
+}
+
+// setColor444State grays or restores the 4:4:4 row's title and swaps its
+// badge's wording -- see refreshModeUI's callers.
+func (vsd *VideoStartDialog) setColor444State(enabled bool, badgeText string) {
+	if enabled {
+		vsd.color444TitleText.Color = design.ColorTextLight
+	} else {
+		vsd.color444TitleText.Color = videoDialogHintColor
+	}
+	vsd.color444TitleText.Refresh()
+	vsd.color444BadgeLabel.Text = strings.ToUpper(badgeText)
+	vsd.color444BadgeLabel.Refresh()
 }
 
 func localizedVideoModeDescription(modeID string) string {
