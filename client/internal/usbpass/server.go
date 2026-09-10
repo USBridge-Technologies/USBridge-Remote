@@ -60,6 +60,7 @@ type Server struct {
 	mu       sync.Mutex
 	ln       net.Listener
 	devices  []*ExportedDevice
+	conns    []net.Conn
 	closing  bool
 	wg       sync.WaitGroup
 }
@@ -85,9 +86,14 @@ func (s *Server) Stop() {
 	s.closing = true
 	ln := s.ln
 	devs := append([]*ExportedDevice(nil), s.devices...)
+	conns := append([]net.Conn(nil), s.conns...)
+	s.conns = nil
 	s.mu.Unlock()
 	if ln != nil {
 		_ = ln.Close()
+	}
+	for _, c := range conns {
+		_ = c.Close()
 	}
 	for _, d := range devs {
 		if d.Backend != nil {
@@ -120,10 +126,23 @@ func (s *Server) acceptLoop() {
 			logrus.Debugf("usbpass: accept: %v", err)
 			continue
 		}
+		s.mu.Lock()
+		s.conns = append(s.conns, conn)
+		s.mu.Unlock()
 		s.wg.Add(1)
 		go func(c net.Conn) {
 			defer s.wg.Done()
-			defer c.Close()
+			defer func() {
+				_ = c.Close()
+				s.mu.Lock()
+				for i, x := range s.conns {
+					if x == c {
+						s.conns = append(s.conns[:i], s.conns[i+1:]...)
+						break
+					}
+				}
+				s.mu.Unlock()
+			}()
 			_ = c.SetDeadline(time.Now().Add(2 * time.Minute))
 			if err := s.handleConn(c); err != nil && err != io.EOF {
 				logrus.Debugf("usbpass: conn: %v", err)

@@ -57,6 +57,16 @@ func TestPackImportErr(t *testing.T) {
 	}
 }
 
+func TestResolveUSBSpeedMapping(t *testing.T) {
+	// No sysfs busid → HIGH default.
+	if got := resolveUSBSpeed(""); got != 3 {
+		t.Fatalf("empty busid speed=%d, want 3", got)
+	}
+	if got := resolveUSBSpeed("no-such-device-zz"); got != 3 {
+		t.Fatalf("missing sysfs speed=%d, want 3", got)
+	}
+}
+
 func TestDescGetDevice(t *testing.T) {
 	d := NewExportedFromVIDPID("1-92", 0x24a9, 0x205a)
 	setup := [8]byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00}

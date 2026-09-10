@@ -10,13 +10,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TryClaimGousb opens the device by VID/PID and replaces the descriptor
-// backend with a claim-capable one. Build with -tags usbpass_gousb and
-// link against libusb-1.0.
+// TryClaimGousb opens the device by VID/PID (preferring Busnum/Devnum when
+// set), detaches the kernel driver, claims the first interface, and replaces
+// the descriptor backend with live libusb control/bulk. Build with
+// -tags usbpass_gousb and link against libusb-1.0.
 func TryClaimGousb(dev *ExportedDevice) error {
 	ctx := gousb.NewContext()
 	devices, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
-		return uint16(desc.Vendor) == dev.VID && uint16(desc.Product) == dev.PID
+		if uint16(desc.Vendor) != dev.VID || uint16(desc.Product) != dev.PID {
+			return false
+		}
+		// When BusID is a real Linux busid, Busnum/Devnum are parsed from it
+		// and uniquely identify the stick (multiple same VID:PID otherwise).
+		if dev.Busnum != 0 && dev.Devnum != 0 {
+			return uint8(desc.Bus) == uint8(dev.Busnum) && uint8(desc.Address) == uint8(dev.Devnum)
+		}
+		return true
 	})
 	if err != nil {
 		_ = ctx.Close()
@@ -24,35 +33,138 @@ func TryClaimGousb(dev *ExportedDevice) error {
 	}
 	if len(devices) == 0 {
 		_ = ctx.Close()
-		return fmt.Errorf("gousb: no device %04x:%04x", dev.VID, dev.PID)
+		return fmt.Errorf("gousb: no device %04x:%04x bus=%d addr=%d", dev.VID, dev.PID, dev.Busnum, dev.Devnum)
 	}
 	d := devices[0]
 	for _, extra := range devices[1:] {
 		_ = extra.Close()
 	}
-	cfg, err := d.Config(1)
+	if err := d.SetAutoDetach(true); err != nil {
+		logrus.Warnf("usbpass: SetAutoDetach: %v", err)
+	}
+
+	cfgNum, err := d.ActiveConfigNum()
+	if err != nil || cfgNum == 0 {
+		cfgNum = 0
+		for _, c := range d.Desc.Configs {
+			if cfgNum == 0 || c.Number < cfgNum {
+				cfgNum = c.Number
+			}
+		}
+		if cfgNum == 0 {
+			cfgNum = 1
+		}
+	}
+	cfg, err := d.Config(cfgNum)
 	if err != nil {
 		_ = d.Close()
 		_ = ctx.Close()
-		return err
+		return fmt.Errorf("gousb config %d: %w", cfgNum, err)
 	}
-	intf, err := cfg.Interface(0, 0)
+
+	ifaceNum, alt := 0, 0
+	if cdesc, ok := d.Desc.Configs[cfgNum]; ok && len(cdesc.Interfaces) > 0 {
+		ifaceNum = cdesc.Interfaces[0].Number
+		if len(cdesc.Interfaces[0].AltSettings) > 0 {
+			alt = cdesc.Interfaces[0].AltSettings[0].Alternate
+		}
+	}
+	intf, err := cfg.Interface(ifaceNum, alt)
 	if err != nil {
 		_ = cfg.Close()
 		_ = d.Close()
 		_ = ctx.Close()
-		return err
+		return fmt.Errorf("gousb interface %d/%d: %w", ifaceNum, alt, err)
 	}
-	logrus.Infof("usbpass: gousb claimed %04x:%04x", dev.VID, dev.PID)
+
+	deviceDesc, err := readUSBDescriptor(d, 0x01, 0, 18)
+	if err != nil {
+		logrus.Warnf("usbpass: live device descriptor: %v (keeping synthetic)", err)
+		deviceDesc = dev.DeviceDesc
+	}
+	configDesc, err := readConfigDescriptor(d, cfgNum)
+	if err != nil {
+		logrus.Warnf("usbpass: live config descriptor: %v (keeping synthetic)", err)
+		configDesc = dev.ConfigDesc
+	} else {
+		dev.ConfigDesc = configDesc
+		dev.DeviceDesc = deviceDesc
+		dev.ConfigVal = uint8(cfgNum)
+		dev.Interfaces = interfacesFromConfigDesc(configDesc)
+	}
+	if len(deviceDesc) >= 14 {
+		dev.DeviceDesc = deviceDesc
+		dev.Class = deviceDesc[4]
+		dev.SubClass = deviceDesc[5]
+		dev.Protocol = deviceDesc[6]
+		dev.BCDDevice = binary.LittleEndian.Uint16(deviceDesc[12:14])
+		if len(deviceDesc) >= 18 {
+			dev.NumConfigs = deviceDesc[17]
+		}
+	}
+	// Prefer sysfs / gousb speed over the HIGH default — required for USB3 sticks.
+	if sp := resolveUSBSpeed(dev.BusID); sp != 0 {
+		dev.Speed = sp
+	}
+
+	logrus.Infof("usbpass: gousb claimed %04x:%04x bus=%d addr=%d cfg=%d iface=%d speed=%d",
+		dev.VID, dev.PID, d.Desc.Bus, d.Desc.Address, cfgNum, ifaceNum, dev.Speed)
 	dev.Backend = &gousbBackend{
 		ctx:        ctx,
 		dev:        d,
 		cfg:        cfg,
 		intf:       intf,
-		deviceDesc:  dev.DeviceDesc,
-		configDesc:  dev.ConfigDesc,
+		deviceDesc:  deviceDesc,
+		configDesc:  configDesc,
 	}
 	return nil
+}
+
+func readUSBDescriptor(d *gousb.Device, descType, index uint16, length int) ([]byte, error) {
+	buf := make([]byte, length)
+	n, err := d.Control(0x80, 0x06, descType<<8|index, 0, buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+func readConfigDescriptor(d *gousb.Device, cfgNum int) ([]byte, error) {
+	hdr := make([]byte, 9)
+	n, err := d.Control(0x80, 0x06, 0x0200|uint16(cfgNum-1), 0, hdr)
+	if err != nil || n < 4 {
+		// Some stacks want cfg index 0 for the first/active config.
+		n, err = d.Control(0x80, 0x06, 0x0200, 0, hdr)
+		if err != nil {
+			return nil, err
+		}
+	}
+	total := int(binary.LittleEndian.Uint16(hdr[2:4]))
+	if total < 9 {
+		total = 9
+	}
+	buf := make([]byte, total)
+	n, err = d.Control(0x80, 0x06, 0x0200, 0, buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+func interfacesFromConfigDesc(cfg []byte) [][3]uint8 {
+	var out [][3]uint8
+	i := 0
+	for i+2 <= len(cfg) {
+		length := int(cfg[i])
+		if length < 2 || i+length > len(cfg) {
+			break
+		}
+		if cfg[i+1] == 0x04 && length >= 9 { // INTERFACE
+			out = append(out, [3]uint8{cfg[i+5], cfg[i+6], cfg[i+7]})
+		}
+		i += length
+	}
+	return out
 }
 
 type gousbBackend struct {
@@ -65,8 +177,6 @@ type gousbBackend struct {
 }
 
 func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) {
-	// Prefer live control when possible; fall back to cached descriptors
-	// for standard GET_DESCRIPTOR during early enum.
 	bm := setup[0]
 	req := setup[1]
 	wValue := binary.LittleEndian.Uint16(setup[2:4])
@@ -83,14 +193,18 @@ func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte)
 			if uint8(wValue&0xff) == 0 {
 				src = []byte{4, 0x03, 0x09, 0x04}
 			} else {
-				src = []byte{2, 0x03}
+				// Fall through to live control for string descriptors.
+				goto live
 			}
 		}
-		if wLength < len(src) {
-			src = src[:wLength]
+		if src != nil {
+			if wLength < len(src) {
+				src = src[:wLength]
+			}
+			return 0, append([]byte(nil), src...)
 		}
-		return 0, append([]byte(nil), src...)
 	}
+live:
 	data := make([]byte, wLength)
 	n, err := b.dev.Control(bm, req, wValue, wIndex, data)
 	if err != nil {
@@ -100,12 +214,9 @@ func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte)
 }
 
 func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
-	addr := gousb.EndpointAddress(ep)
+	num := int(ep & 0x7f)
 	if dirIn {
-		addr |= 0x80
-	}
-	inep, err := b.intf.InEndpoint(int(addr & 0x7f))
-	if dirIn {
+		inep, err := b.intf.InEndpoint(num)
 		if err != nil {
 			return errnoEPIPE, nil
 		}
@@ -116,15 +227,13 @@ func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []by
 		}
 		return 0, buf[:n]
 	}
-	outep, err := b.intf.OutEndpoint(int(addr & 0x7f))
+	outep, err := b.intf.OutEndpoint(num)
 	if err != nil {
 		return errnoEPIPE, nil
 	}
-	n, err := outep.Write(outData)
-	if err != nil {
+	if _, err := outep.Write(outData); err != nil {
 		return errnoEPIPE, nil
 	}
-	_ = n
 	return 0, nil
 }
 

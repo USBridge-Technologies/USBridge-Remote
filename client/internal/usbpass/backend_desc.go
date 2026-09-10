@@ -3,6 +3,8 @@ package usbpass
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -11,15 +13,22 @@ import (
 // descriptor/control backend. Claim/bulk via gousb is layered on later
 // (build tag usbpass_gousb).
 func NewExportedFromVIDPID(busID string, vid, pid uint16) *ExportedDevice {
-	busnum, devnum := parseBusDev(busID)
+	busnum, devnum := resolveUSBBusDev(busID)
+	speed := resolveUSBSpeed(busID)
 	devDesc := syntheticDeviceDesc(vid, pid)
 	cfgDesc := syntheticMSCConfig()
+	path := "/sys/devices/usbridge/" + busID
+	if busID != "" {
+		if _, err := os.Stat(filepath.Join("/sys/bus/usb/devices", busID)); err == nil {
+			path = filepath.Join("/sys/bus/usb/devices", busID)
+		}
+	}
 	return &ExportedDevice{
 		BusID:      busID,
-		Path:       "/sys/devices/usbridge/" + busID,
+		Path:       path,
 		Busnum:     busnum,
 		Devnum:     devnum,
-		Speed:      3,
+		Speed:      speed,
 		VID:        vid,
 		PID:        pid,
 		BCDDevice:  0x0100,
@@ -38,6 +47,62 @@ func NewExportedFromVIDPID(busID string, vid, pid uint16) *ExportedDevice {
 	}
 }
 
+// resolveUSBSpeed maps Linux sysfs "speed" (Mbps) to USB/IP usb_device_speed.
+// Advertising HIGH (3) for a SuperSpeed stick while returning bcdUSB 3.x /
+// bMaxPacketSize0=9 makes Windows reject the descriptor (VID_0000&PID_0005).
+func resolveUSBSpeed(busID string) uint32 {
+	if busID == "" {
+		return 3 // HIGH — safe default for synthetic MSC
+	}
+	b, err := os.ReadFile(filepath.Join("/sys/bus/usb/devices", busID, "speed"))
+	if err != nil {
+		return 3
+	}
+	s := strings.TrimSpace(string(b))
+	mbps, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 3
+	}
+	switch {
+	case mbps >= 20000:
+		return 6 // SUPER_PLUS
+	case mbps >= 5000:
+		return 5 // SUPER
+	case mbps >= 480:
+		return 3 // HIGH
+	case mbps >= 12:
+		return 2 // FULL
+	case mbps > 0:
+		return 1 // LOW
+	default:
+		return 3
+	}
+}
+
+// resolveUSBBusDev returns the USB/IP busnum/devnum for busID.
+// On Linux, "2-3" is bus 2 / port 3 — NOT address 3. Real address is
+// /sys/bus/usb/devices/2-3/devnum (e.g. 4). Falling back to parsing the
+// busid string is only for synthetic/Windows hashed ids.
+func resolveUSBBusDev(busID string) (uint32, uint32) {
+	if busID != "" {
+		dir := filepath.Join("/sys/bus/usb/devices", busID)
+		if bus, err := readSysfsUint(filepath.Join(dir, "busnum")); err == nil {
+			if dev, err := readSysfsUint(filepath.Join(dir, "devnum")); err == nil {
+				return uint32(bus), uint32(dev)
+			}
+		}
+	}
+	return parseBusDev(busID)
+}
+
+func readSysfsUint(path string) (uint64, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseUint(strings.TrimSpace(string(b)), 10, 32)
+}
+
 func parseBusDev(busID string) (uint32, uint32) {
 	parts := strings.SplitN(busID, "-", 2)
 	var bus, dev uint64 = 1, 1
@@ -47,7 +112,13 @@ func parseBusDev(busID string) (uint32, uint32) {
 		}
 	}
 	if len(parts) >= 2 {
-		if v, err := strconv.ParseUint(parts[1], 10, 32); err == nil {
+		// Only the first path component (before '.') — still a port, not
+		// address; used only when sysfs is unavailable.
+		port := parts[1]
+		if i := strings.IndexByte(port, '.'); i >= 0 {
+			port = port[:i]
+		}
+		if v, err := strconv.ParseUint(port, 10, 32); err == nil {
 			dev = v
 		}
 	}

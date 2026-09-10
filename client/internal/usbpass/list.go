@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"usbridge-client/internal/models"
 )
 
@@ -26,10 +27,28 @@ func brokerName() string {
 
 func ResolveBroker() string {
 	if env := os.Getenv("USBRIDGE_USB_BROKER"); env != "" {
-		return env
+		if st, err := os.Stat(env); err == nil && !st.IsDir() {
+			return env
+		}
 	}
+	var dirs []string
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
+		dirs = append(dirs, filepath.Dir(exe))
+	}
+	// AppImage: os.Executable is inside the read-only squashfs mount; also
+	// look next to the .AppImage file and under APPDIR/usr/bin.
+	if appImage := os.Getenv("APPIMAGE"); appImage != "" {
+		dirs = append(dirs, filepath.Dir(appImage))
+	}
+	if appDir := os.Getenv("APPDIR"); appDir != "" {
+		dirs = append(dirs, filepath.Join(appDir, "usr", "bin"), appDir)
+	}
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		if dir == "" || seen[dir] {
+			continue
+		}
+		seen[dir] = true
 		for _, p := range []string{
 			filepath.Join(dir, "usb-broker", brokerName()),
 			filepath.Join(dir, brokerName()),
@@ -44,9 +63,24 @@ func ResolveBroker() string {
 
 func ListLocal() ([]models.USBPassthroughDevice, error) {
 	exe := ResolveBroker()
+	if exe != "" {
+		devices, err := listViaBroker(exe)
+		if err == nil {
+			return devices, nil
+		}
+		// Fall through to platform enumeration when the closed helper
+		// is present but --list fails (wrong arch, missing deps, …).
+	}
+	if runtime.GOOS == "linux" {
+		return listSysfs()
+	}
 	if exe == "" {
 		return nil, fmt.Errorf("usb-broker not staged")
 	}
+	return nil, fmt.Errorf("usb-broker --list failed")
+}
+
+func listViaBroker(exe string) ([]models.USBPassthroughDevice, error) {
 	cmd := exec.Command(exe, "--list")
 	out, err := cmd.Output()
 	if err != nil {
@@ -74,8 +108,14 @@ func ListLocal() ([]models.USBPassthroughDevice, error) {
 			vid, pid = vidpid[:i], vidpid[i+1:]
 		}
 		inst := parts[0]
+		busID := inst
+		// Windows SetupAPI instance ids are not USB/IP busids; hash them.
+		// Linux (and our broker --list on Linux) already emits N-M busids.
+		if runtime.GOOS == "windows" || strings.Contains(inst, "\\") || strings.Contains(strings.ToUpper(inst), "USB\\") {
+			busID = StableUSBIPBusID(inst)
+		}
 		devices = append(devices, models.USBPassthroughDevice{
-			BusID:         StableUSBIPBusID(inst),
+			BusID:         busID,
 			InstanceID:    inst,
 			VID:           vid,
 			PID:           pid,
@@ -114,12 +154,14 @@ var (
 	attachCmd  *exec.Cmd
 )
 
-// Attach starts rust-shine --role client and blocks until it exits.
-// The Go USB/IP export server must already be listening.
+// Attach starts rust-shine --role client in the background and returns once
+// the process has started. The broker stays up for the life of the session;
+// StopAttach / StopSession kill it. (Blocking on cmd.Run kept the Devices
+// UI locked in beginOperation for the entire passthrough lifetime.)
 func Attach(opts AttachOptions) error {
 	exe := ResolveBroker()
 	if exe == "" {
-		return fmt.Errorf("usb-broker not staged")
+		return fmt.Errorf("usbridge-usb-broker not staged next to the client (needed for AES attach to the Windows agent VHCI)")
 	}
 	if opts.ExportService == "" {
 		opts.ExportService = "3240"
@@ -127,6 +169,8 @@ func Attach(opts AttachOptions) error {
 	if opts.USBIPBusID == "" {
 		opts.USBIPBusID = StableUSBIPBusID(opts.InstanceID)
 	}
+	// Drop any previous attach (tracked + orphans) before starting a new one.
+	StopAttach()
 	args := []string{
 		"--role", "client",
 		"--agent-addr", opts.AgentAddr,
@@ -142,22 +186,39 @@ func Attach(opts AttachOptions) error {
 	cmd := exec.Command(exe, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	setAttachProcAttr(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start usb-broker client: %w", err)
+	}
 	attachMu.Lock()
 	attachCmd = cmd
 	attachMu.Unlock()
-	err := cmd.Run()
-	attachMu.Lock()
-	attachCmd = nil
-	attachMu.Unlock()
-	return err
+	go func() {
+		err := cmd.Wait()
+		attachMu.Lock()
+		if attachCmd == cmd {
+			attachCmd = nil
+		}
+		attachMu.Unlock()
+		if err != nil {
+			logrus.Warnf("usbpass: broker client exited: %v", err)
+		} else {
+			logrus.Infof("usbpass: broker client exited")
+		}
+	}()
+	logrus.Infof("usbpass: broker client started pid=%d agent=%s bus=%s usbip=%s",
+		cmd.Process.Pid, opts.AgentAddr, opts.InstanceID, opts.USBIPBusID)
+	return nil
 }
 
-// StopAttach kills a running rust client attach process, if any.
+// StopAttach kills a running rust client attach process (and orphans).
 func StopAttach() {
 	attachMu.Lock()
-	defer attachMu.Unlock()
-	if attachCmd != nil && attachCmd.Process != nil {
-		_ = attachCmd.Process.Kill()
-	}
+	cmd := attachCmd
 	attachCmd = nil
+	attachMu.Unlock()
+	if cmd != nil && cmd.Process != nil {
+		killAttachProcess(cmd.Process)
+	}
+	killOrphanClientBrokers()
 }
