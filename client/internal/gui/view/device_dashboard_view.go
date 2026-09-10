@@ -267,6 +267,20 @@ func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyn
 	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, nameText)
 }
 
+// newDeviceDashboardRowLeftSized is newDeviceDashboardRowLeft plus an
+// optional small size badge underneath the name -- the exact same chip
+// style the Connections table's own name cell already uses for its
+// platform label (newConnectionPlatformChip in connection_grid_card.go).
+// sizeText empty means no badge (e.g. the drive's own size isn't known).
+func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool, sizeText string) fyne.CanvasObject {
+	nameRow := newDeviceDashboardRowLeft(icon, name, active)
+	if strings.TrimSpace(sizeText) == "" {
+		return nameRow
+	}
+	chip := newConnectionPlatformChip(sizeText)
+	return container.New(&tightStatsVBoxLayout{Gap: 2}, nameRow, chip)
+}
+
 // NewDeviceDashboardEmptyState is the muted placeholder line a dashboard
 // card shows in place of its rows when it currently has no devices.
 func NewDeviceDashboardEmptyState(text string) fyne.CanvasObject {
@@ -463,9 +477,10 @@ var DeviceDashboardHeaderButtonTextColor = color.NRGBA{R: 0x4c, G: 0x68, B: 0x03
 // fully invisible or blending into the button's own fill across two
 // separate attempts (see this repo's own history); a shape this simple
 // doesn't need SVG parsing at all, which sidesteps whatever the actual
-// cause was. A thin (size/5) bar, not a bold one -- size/3 read too heavy.
+// cause was. A fixed, thin 1.2px bar -- size/5 (2px at size 10) still
+// read as bold.
 func NewDeviceDashboardPlusGlyph(size float32, col color.Color) fyne.CanvasObject {
-	thickness := size / 5
+	thickness := float32(1.2)
 	h := canvas.NewRectangle(col)
 	h.SetMinSize(fyne.NewSize(size, thickness))
 	v := canvas.NewRectangle(col)
@@ -673,7 +688,18 @@ func NewDeviceDashboardUploadProgress(progressPercent float64) fyne.CanvasObject
 	label := canvas.NewText(fmt.Sprintf("%.0f%%", progressPercent), deviceDashboardDescColor)
 	label.TextSize = 9
 
-	return container.New(&DeviceRowControlsLayout{Gap: 6}, barBox, label)
+	content := container.New(&DeviceRowControlsLayout{Gap: 6}, barBox, label)
+
+	// Fixed-height sizer keeps this row's own MinSize height equal to a
+	// normal button row's (23px, matching iconChromeButton's own
+	// ButtonSize height) -- without it, switching a row between its
+	// button state and this progress state changed the Storage card's
+	// total content height just enough to toggle the dashboard's own
+	// scrollbar on/off, which shrank the whole columns' available width
+	// and made every card/row visibly narrower while a file uploaded.
+	sizer := canvas.NewRectangle(color.Transparent)
+	sizer.SetMinSize(fyne.NewSize(0, 23))
+	return container.NewStack(sizer, content)
 }
 
 // deviceDashboardConnectIconSVG is the plug glyph on Storage's own
@@ -724,9 +750,12 @@ func NewDeviceDashboardConnectedBadge(onTap func(), onHover func(bool)) *iconChr
 // uploadProgress, when non-nil (see NewDeviceDashboardUploadProgress),
 // replaces every other right-side control while a file is actively
 // uploading -- the caller is expected to pass nil for
-// modePicker/deleteBtn/uploadBtn/connectBtn in that case.
-func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject) fyne.CanvasObject {
-	left := newDeviceDashboardRowLeft(icon, name, active)
+// modePicker/deleteBtn/uploadBtn/connectBtn in that case. sizeText, when
+// non-empty, shows a small chip with the drive's own size under its name
+// (see newDeviceDashboardRowLeftSized) -- empty for drives whose size
+// isn't known.
+func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, modePicker, deleteBtn, uploadBtn, connectBtn, uploadProgress fyne.CanvasObject, sizeText string) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeftSized(icon, name, active, sizeText)
 
 	var rightParts []fyne.CanvasObject
 	if uploadProgress != nil {

@@ -120,7 +120,7 @@ func (dw *DiskWidget) refreshDashboard() {
 			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, dw.newDriveToggle(idx, drive, dw.dashboardNetworkHover)))
 		default:
 			if drive.IsUploading {
-				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress)))
+				storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, nil, nil, nil, nil, view.NewDeviceDashboardUploadProgress(drive.UploadProgress), drive.Size))
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
@@ -134,7 +134,7 @@ func (dw *DiskWidget) refreshDashboard() {
 					dw.toggleDriveMount(idx)
 				}, dw.dashboardStorageHover)
 			}
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge, nil))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectedBadge, nil, drive.Size))
 		}
 	}
 
