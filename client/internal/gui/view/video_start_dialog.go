@@ -17,7 +17,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -185,7 +184,11 @@ func (b *videoCodecButton) Cursor() desktop.Cursor {
 }
 
 func (b *videoCodecButton) MinSize() fyne.Size {
-	return fyne.NewSize(90, 36)
+	// Slightly smaller than before (was 90x36) -- these now sit inside
+	// their own bordered card (see the codec card wrapper in
+	// createInterface) instead of directly in the body, which left them
+	// looking oversized for the tight padding around that card.
+	return fyne.NewSize(84, 30)
 }
 
 func (b *videoCodecButton) CreateRenderer() fyne.WidgetRenderer {
@@ -193,8 +196,11 @@ func (b *videoCodecButton) CreateRenderer() fyne.WidgetRenderer {
 	b.bg.CornerRadius = design.RadiusMD
 	b.bg.StrokeWidth = 1
 
+	// Matches the Apply/Cancel footer buttons' own text size
+	// (videoDialogPillTextSize) -- was 13, which read oversized next to
+	// everything else in this dialog.
 	b.label = canvas.NewText(b.text, design.ColorTextLight)
-	b.label.TextSize = 13
+	b.label.TextSize = videoDialogPillTextSize
 	b.label.TextStyle.Bold = true
 	b.label.Alignment = fyne.TextAlignCenter
 
@@ -239,11 +245,13 @@ var videoDialogHintColor = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
 const videoDialogHintTextSize = float32(8)
 
 // newVideoDialogFieldLabel is this dialog's field caption ("Codec",
-// "Resolution", "Frame Rate") -- smaller than the default widget.Label size
-// so it reads as a compact label, not a heading.
+// "Resolution", "Frame Rate") -- matches the Bitrate card's own caption
+// style (uppercase, bold, muted olive) so every field label in this dialog
+// reads as one family.
 func newVideoDialogFieldLabel(text string) *canvas.Text {
-	label := canvas.NewText(text, design.ColorTextLight)
+	label := canvas.NewText(strings.ToUpper(text), color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff})
 	label.TextSize = 10
+	label.TextStyle.Bold = true
 	return label
 }
 
@@ -504,6 +512,17 @@ func newVideoDialogTopAccentBar() fyne.CanvasObject {
 	return container.NewBorder(nil, nil, accentLeftFade, accentRightFade, accentMid)
 }
 
+// videoDialogVSpace is a fixed-height, invisible spacer for bodyContent's
+// VBox -- a plain zero-width rectangle with a forced MinSize, not
+// layout.NewSpacer() (which VBoxLayout instead stretches to fill any extra
+// room), so it reserves exactly height pixels of breathing room and no
+// more.
+func videoDialogVSpace(height float32) fyne.CanvasObject {
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(0, height))
+	return spacer
+}
+
 // videoDialogBitrateSlider is a small custom slider matching this dialog's
 // own look (a thin gray track, a glowing teal thumb) -- Fyne's themed
 // widget.Slider has no way to recolor the track/thumb independently of the
@@ -667,6 +686,14 @@ func (r *videoDialogBitrateSliderRenderer) Destroy() {}
 // videoDialogBorderColor is the muted olive border shared by this dialog's
 // bordered cards (the bitrate card, the boxed toggle rows) and small badges.
 var videoDialogBorderColor = color.NRGBA{R: 0x33, G: 0x37, B: 0x2f, A: 0xff}
+
+// videoDialogCancelIconSVG is the same muted-gray X glyph the Add
+// Connection dialog's own header close button uses (see
+// connectionDialogCancelIconRes in controller/connection_manager_dialogs.go
+// -- that copy is unexported and controller-package-private, so this
+// dialog needs its own identical resource rather than theme.CancelIcon(),
+// whose default stroke-style X reads differently).
+var videoDialogCancelIconSVG = fyne.NewStaticResource("video_dialog_cancel.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#8f9381"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`))
 
 // videoDialogCheckmarkSVG is a small dark checkmark glyph, drawn onto
 // videoDialogCheckbox's teal fill when checked.
@@ -1136,11 +1163,25 @@ func newVideoDialogRowTitle(text string) *canvas.Text {
 }
 
 // videoDialogRobotSVG is a small robot glyph shown before the AI Vision
-// row's title -- recolored to this dialog's lime/olive accent (must match
-// design.ColorAccent, #93c572), the same way videoDialogCheckmarkSVG/
-// videoDialogCrossmarkSVG inline their own fixed stroke colors rather than
-// pulling from the app theme.
-var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#93c572" viewBox="0 0 24 24"><path d="M9,15a1,1,0,1,0,1,1A1,1,0,0,0,9,15ZM2,14a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,2,14Zm20,0a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,22,14ZM17,7H13V5.72A2,2,0,0,0,14,4a2,2,0,0,0-4,0,2,2,0,0,0,1,1.72V7H7a3,3,0,0,0-3,3v9a3,3,0,0,0,3,3H17a3,3,0,0,0,3-3V10A3,3,0,0,0,17,7ZM13.72,9l-.5,2H10.78l-.5-2ZM18,19a1,1,0,0,1-1,1H7a1,1,0,0,1-1-1V10A1,1,0,0,1,7,9H8.22L9,12.24A1,1,0,0,0,10,13h4a1,1,0,0,0,1-.76L15.78,9H17a1,1,0,0,1,1,1Zm-3-4a1,1,0,1,0,1,1A1,1,0,0,0,15,15Z"/></svg>`))
+// row's title -- recolored to match its own "Experimental" badge
+// (design.ColorConnectionAddFill, #c4e77a), the same way
+// videoDialogCheckmarkSVG/videoDialogCrossmarkSVG inline their own fixed
+// stroke colors rather than pulling from the app theme.
+var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" fill="#c4e77a" viewBox="0 0 24 24"><path d="M9,15a1,1,0,1,0,1,1A1,1,0,0,0,9,15ZM2,14a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,2,14Zm20,0a1,1,0,0,0-1,1v2a1,1,0,0,0,2,0V15A1,1,0,0,0,22,14ZM17,7H13V5.72A2,2,0,0,0,14,4a2,2,0,0,0-4,0,2,2,0,0,0,1,1.72V7H7a3,3,0,0,0-3,3v9a3,3,0,0,0,3,3H17a3,3,0,0,0,3-3V10A3,3,0,0,0,17,7ZM13.72,9l-.5,2H10.78l-.5-2ZM18,19a1,1,0,0,1-1,1H7a1,1,0,0,1-1-1V10A1,1,0,0,1,7,9H8.22L9,12.24A1,1,0,0,0,10,13h4a1,1,0,0,0,1-.76L15.78,9H17a1,1,0,0,1,1,1Zm-3-4a1,1,0,1,0,1,1A1,1,0,0,0,15,15Z"/></svg>`))
+
+// videoDialogStarSVG is a small star glyph shown before the 4:4:4 row's
+// title, colored purple (#aa42e0) to read as a distinct "Pro" indicator
+// from AI Vision's lime robot.
+var videoDialogStarSVG = fyne.NewStaticResource("video_dialog_star.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#aa42e0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2691 4.41115C11.5006 3.89177 11.6164 3.63208 11.7776 3.55211C11.9176 3.48263 12.082 3.48263 12.222 3.55211C12.3832 3.63208 12.499 3.89177 12.7305 4.41115L14.5745 8.54808C14.643 8.70162 14.6772 8.77839 14.7302 8.83718C14.777 8.8892 14.8343 8.93081 14.8982 8.95929C14.9705 8.99149 15.0541 9.00031 15.2213 9.01795L19.7256 9.49336C20.2911 9.55304 20.5738 9.58288 20.6997 9.71147C20.809 9.82316 20.8598 9.97956 20.837 10.1342C20.8108 10.3122 20.5996 10.5025 20.1772 10.8832L16.8125 13.9154C16.6877 14.0279 16.6252 14.0842 16.5857 14.1527C16.5507 14.2134 16.5288 14.2807 16.5215 14.3503C16.5132 14.429 16.5306 14.5112 16.5655 14.6757L17.5053 19.1064C17.6233 19.6627 17.6823 19.9408 17.5989 20.1002C17.5264 20.2388 17.3934 20.3354 17.2393 20.3615C17.0619 20.3915 16.8156 20.2495 16.323 19.9654L12.3995 17.7024C12.2539 17.6184 12.1811 17.5765 12.1037 17.56C12.0352 17.5455 11.9644 17.5455 11.8959 17.56C11.8185 17.5765 11.7457 17.6184 11.6001 17.7024L7.67662 19.9654C7.18404 20.2495 6.93775 20.3915 6.76034 20.3615C6.60623 20.3354 6.47319 20.2388 6.40075 20.1002C6.31736 19.9408 6.37635 19.6627 6.49434 19.1064L7.4341 14.6757C7.46898 14.5112 7.48642 14.429 7.47814 14.3503C7.47081 14.2807 7.44894 14.2134 7.41394 14.1527C7.37439 14.0842 7.31195 14.0279 7.18708 13.9154L3.82246 10.8832C3.40005 10.5025 3.18884 10.3122 3.16258 10.1342C3.13978 9.97956 3.19059 9.82316 3.29993 9.71147C3.42581 9.58288 3.70856 9.55304 4.27406 9.49336L8.77835 9.01795C8.94553 9.00031 9.02911 8.99149 9.10139 8.95929C9.16534 8.93081 9.2226 8.8892 9.26946 8.83718C9.32241 8.77839 9.35663 8.70162 9.42508 8.54808L11.2691 4.41115Z"/></svg>`))
+
+// newVideoDialogInlineIcon is a small, fixed-size icon glyph meant to sit
+// immediately before a toggle row's title text.
+func newVideoDialogInlineIcon(icon fyne.Resource) *canvas.Image {
+	img := canvas.NewImageFromResource(icon)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(11, 11))
+	return img
+}
 
 // newVideoDialogIconTitle is a toggle row's title with a small icon glyph
 // immediately before the text, both on the row's first line -- the AI
@@ -1149,10 +1190,14 @@ var videoDialogRobotSVG = fyne.NewStaticResource("video_dialog_robot.svg", []byt
 // is fine here -- none of videoDialogWrapText's reasons for existing apply
 // to content that never needs to reflow.
 func newVideoDialogIconTitle(icon fyne.Resource, text string) fyne.CanvasObject {
-	img := canvas.NewImageFromResource(icon)
-	img.FillMode = canvas.ImageFillContain
-	img.SetMinSize(fyne.NewSize(11, 11))
-	return container.NewHBox(img, newVideoDialogRowTitle(text))
+	return container.NewHBox(newVideoDialogInlineIcon(icon), newVideoDialogRowTitle(text))
+}
+
+// newVideoDialogIconTitleText is newVideoDialogIconTitle's variant for a
+// title the caller already built and needs to keep mutating later -- the
+// 4:4:4 row's own title, grayed in and out by setColor444State.
+func newVideoDialogIconTitleText(icon fyne.Resource, title *canvas.Text) fyne.CanvasObject {
+	return container.NewHBox(newVideoDialogInlineIcon(icon), title)
 }
 
 // videoDialogToggleIndent is the description line's left indent -- how far
@@ -1319,7 +1364,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	aiVisionRow := newVideoDialogBoxedToggleRow(
 		vsd.aiVisionCheck,
 		newVideoDialogIconTitle(videoDialogRobotSVG, i18n.Current.AIVision),
-		newVideoDialogBadge(i18n.Current.AIVisionBadge, design.ColorAccent),
+		newVideoDialogBadge(i18n.Current.AIVisionBadge, design.ColorConnectionAddFill),
 		vsd.aiVisionHint,
 	)
 
@@ -1351,7 +1396,7 @@ func (vsd *VideoStartDialog) createInterface() {
 	vsd.color444BadgeLabel = color444BadgeLabel
 	color444Row := newVideoDialogToggleRow(
 		vsd.color444Check,
-		vsd.color444TitleText,
+		newVideoDialogIconTitleText(videoDialogStarSVG, vsd.color444TitleText),
 		color444Badge,
 		vsd.color444Hint,
 	)
@@ -1430,9 +1475,9 @@ func (vsd *VideoStartDialog) createInterface() {
 	closeBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill: color.Transparent,
 		HoverFill:  design.ColorSurfaceLight,
-		NormalIcon: theme.CancelIcon(),
-		HoverIcon:  theme.CancelIcon(),
-		IconSize:   fyne.NewSize(14, 14),
+		NormalIcon: videoDialogCancelIconSVG,
+		HoverIcon:  videoDialogCancelIconSVG,
+		IconSize:   fyne.NewSize(18, 18),
 		ButtonSize: fyne.NewSize(28, 28),
 		OnTapped:   vsd.handleCancel,
 	})
@@ -1458,22 +1503,40 @@ func (vsd *VideoStartDialog) createInterface() {
 		),
 	)
 
+	// Codec buttons get their own small bordered card (same border color as
+	// everywhere else in this dialog) instead of sitting bare in the body --
+	// see videoCodecButton.MinSize's own comment for why the buttons
+	// themselves shrank slightly to fit it.
+	codecCardBG := canvas.NewRectangle(design.ColorGray950)
+	codecCardBG.CornerRadius = design.RadiusMD
+	codecCardBorder := canvas.NewRectangle(color.Transparent)
+	codecCardBorder.CornerRadius = design.RadiusMD
+	codecCardBorder.StrokeColor = videoDialogBorderColor
+	codecCardBorder.StrokeWidth = 1
+	codecCard := container.NewStack(codecCardBG, codecCardBorder, NewInsetExact(vsd.modeButtonsRow, 2, 2, 2, 2))
+
 	bodyContent := container.NewVBox(
 		newVideoDialogFieldLabel("Codec"),
-		vsd.modeButtonsRow,
+		codecCard,
 		container.NewCenter(vsd.modeDescription),
 		resolutionFPSRow,
 		vsd.modeDetailsSlot,
+		videoDialogVSpace(8), // breathing room before VSync
 		vsyncRow,
 		aiVisionRow,
 		color444Row,
+		videoDialogVSpace(8), // breathing room after 4:4:4 Color
 	)
 
 	// Cancel sits opposite Apply/extra, same as the Add Connection footer --
 	// DeviceRowControlsLayout skips extraBtn entirely while it's hidden, so
 	// the group collapses to just Apply when no extra action is set.
 	footerButtons := container.NewBorder(nil, nil, container.NewCenter(vsd.cancelBtn), container.New(&DeviceRowControlsLayout{Gap: 12}, vsd.extraBtn, vsd.startBtn))
-	footerBlock := container.NewVBox(footerSep, NewInset(footerButtons, 12, 18, 14, 0))
+	// NewInsetExact, not NewInset -- was 12/18/14/0 through NewInset (whose
+	// own +4px-per-side quirk made the top inset an effective 18), trimmed
+	// down to shrink the whole footer band by roughly 20px total together
+	// with the panel's own bottom margin below.
+	footerBlock := container.NewVBox(footerSep, NewInsetExact(footerButtons, 12, 18, 6, 0))
 
 	form := container.NewBorder(headerBlock, footerBlock, nil, nil, NewInset(bodyContent, videoDialogBodyInsetLR, videoDialogBodyInsetLR, 12, 0))
 
@@ -1484,13 +1547,14 @@ func (vsd *VideoStartDialog) createInterface() {
 	border.StrokeColor = design.ColorBorder
 	border.StrokeWidth = 1
 	cornerBtn := container.New(&videoDialogCornerButtonLayout{Top: 12, Right: 12}, closeBtn)
-	// The 16px bottom margin here (matching showAdaptiveConnectionDialog's
-	// own panel) was missing before -- without it the footer buttons sat
-	// flush against the panel's bottom rounded corner with no breathing
-	// room, reading as "sunk" rather than resting in a padded footer band.
+	// A small bottom margin here (matching showAdaptiveConnectionDialog's
+	// own panel) keeps the footer buttons from sitting flush against the
+	// panel's bottom rounded corner -- trimmed down (was 16, +4 quirk via
+	// NewInset) together with footerBlock's own inset above, to cut the
+	// whole footer band down by roughly 20px total.
 	panel := container.NewStack(
 		bg,
-		NewInset(form, 0, 0, 0, 16),
+		NewInsetExact(form, 0, 0, 0, 8),
 		cornerBtn,
 		border,
 	)
