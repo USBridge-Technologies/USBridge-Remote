@@ -858,28 +858,3 @@ func (dw *DiskWidget) updateDevicesStatus() {
 	dw.syncGamepadCaptures()
 }
 
-// usbPassSessionMatches reports whether an agent broker session string
-// (e.g. "24A9:205A 2-3") refers to the local passthrough device.
-func usbPassSessionMatches(session string, d *models.USBPassthroughDevice) bool {
-	if d == nil {
-		return false
-	}
-	s := strings.ToUpper(strings.TrimSpace(session))
-	if s == "" {
-		return false
-	}
-	bus := strings.ToUpper(strings.TrimSpace(d.BusID))
-	if bus != "" && (s == bus || strings.HasSuffix(s, " "+bus) || strings.Contains(s, " "+bus) || strings.HasPrefix(s, bus+" ")) {
-		return true
-	}
-	vid := strings.ToUpper(strings.TrimSpace(d.VID))
-	pid := strings.ToUpper(strings.TrimSpace(d.PID))
-	if vid != "" && pid != "" {
-		vp := vid + ":" + pid
-		if strings.Contains(s, vp) {
-			return true
-		}
-	}
-	return false
-}
-
