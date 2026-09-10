@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"strings"
 
+	"usbridge-client/internal/gui/assets"
 	"usbridge-client/internal/gui/design"
 
 	"fyne.io/fyne/v2"
@@ -352,95 +353,49 @@ func NewDeviceDashboardModePicker(options []string, selected string, onSelected 
 	return d
 }
 
-// DeviceDashboardIconButton is a small icon-only tappable action for a
-// dashboard row (Storage's own Upload/Delete) -- muted by default,
-// brightens on hover, dims further and stops responding once disabled.
-// One neutral icon resource dimmed via Translucency for every state,
-// rather than several pre-recolored resource variants.
-type DeviceDashboardIconButton struct {
-	widget.BaseWidget
+// deviceDashboardDeleteIconSVG is the exact trash glyph the Connections
+// table's own delete button uses (connection_list_table.go) -- reused
+// directly so this button matches it exactly, not Fyne's own
+// theme.DeleteIcon(), which reads differently.
+var deviceDashboardDeleteIconSVG = fyne.NewStaticResource("device_dashboard_delete.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#c5c8b5"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`))
 
-	icon     fyne.Resource
-	onTap    func()
-	disabled bool
-	hovered  bool
-
-	img *canvas.Image
+// NewDeviceDashboardDeleteButton matches the Connections table's own
+// delete button (connection_list_table.go) exactly -- same icon, fill,
+// border, and size -- so a Storage row's delete action reads as the same
+// family instead of a one-off.
+func NewDeviceDashboardDeleteButton(onTap func()) *iconChromeButton {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    design.ColorSurfaceLight,
+		DisabledFill: connectionActionBlockedFill,
+		Stroke:       design.ColorTailscaleChipBorder,
+		StrokeWidth:  1,
+		CornerRadius: 6,
+		NormalIcon:   deviceDashboardDeleteIconSVG,
+		IconSize:     fyne.NewSize(11, 11),
+		ButtonSize:   fyne.NewSize(23, 23),
+		OnTapped:     onTap,
+	})
 }
 
-// NewDeviceDashboardIconButton builds an icon-only button showing icon,
-// calling onTap when tapped (unless disabled -- see SetDisabled).
-func NewDeviceDashboardIconButton(icon fyne.Resource, onTap func()) *DeviceDashboardIconButton {
-	b := &DeviceDashboardIconButton{icon: icon, onTap: onTap}
-	b.ExtendBaseWidget(b)
-	return b
-}
-
-func (b *DeviceDashboardIconButton) SetDisabled(disabled bool) {
-	if b.disabled == disabled {
-		return
-	}
-	b.disabled = disabled
-	b.Refresh()
-}
-
-func (b *DeviceDashboardIconButton) Tapped(*fyne.PointEvent) {
-	if b.disabled {
-		return
-	}
-	if b.onTap != nil {
-		b.onTap()
-	}
-}
-
-func (b *DeviceDashboardIconButton) TappedSecondary(*fyne.PointEvent) {}
-
-func (b *DeviceDashboardIconButton) Cursor() desktop.Cursor {
-	return desktop.PointerCursor
-}
-
-func (b *DeviceDashboardIconButton) MouseIn(*desktop.MouseEvent) {
-	b.hovered = true
-	b.Refresh()
-}
-
-func (b *DeviceDashboardIconButton) MouseMoved(*desktop.MouseEvent) {}
-
-func (b *DeviceDashboardIconButton) MouseOut() {
-	b.hovered = false
-	b.Refresh()
-}
-
-func (b *DeviceDashboardIconButton) MinSize() fyne.Size {
-	return fyne.NewSize(20, 20)
-}
-
-func (b *DeviceDashboardIconButton) CreateRenderer() fyne.WidgetRenderer {
-	b.img = canvas.NewImageFromResource(b.icon)
-	b.img.FillMode = canvas.ImageFillContain
-	b.img.SetMinSize(fyne.NewSize(14, 14))
-	b.applyState()
-	return widget.NewSimpleRenderer(container.NewCenter(b.img))
-}
-
-func (b *DeviceDashboardIconButton) Refresh() {
-	b.applyState()
-	b.BaseWidget.Refresh()
-}
-
-func (b *DeviceDashboardIconButton) applyState() {
-	if b.img == nil {
-		return
-	}
-	switch {
-	case b.disabled:
-		b.img.Translucency = 0.75
-	case b.hovered:
-		b.img.Translucency = 0
-	default:
-		b.img.Translucency = 0.4
-	}
-	b.img.Refresh()
+// NewDeviceDashboardUploadButton is NewDeviceDashboardDeleteButton's own
+// chrome (same fill/border/hover/size) with an upload glyph instead --
+// Storage's own Upload action, styled as the same button family.
+func NewDeviceDashboardUploadButton(onTap func()) *iconChromeButton {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    design.ColorSurfaceLight,
+		DisabledFill: connectionActionBlockedFill,
+		Stroke:       design.ColorTailscaleChipBorder,
+		StrokeWidth:  1,
+		CornerRadius: 6,
+		NormalIcon:   assets.UploadIcon,
+		HoverIcon:    assets.UploadIcon,
+		DisabledIcon: assets.UploadIconMuted,
+		IconSize:     fyne.NewSize(11, 11),
+		ButtonSize:   fyne.NewSize(23, 23),
+		OnTapped:     onTap,
+	})
 }
 
 // DeviceDashboardConnectButton is a row's own mount/unmount action --

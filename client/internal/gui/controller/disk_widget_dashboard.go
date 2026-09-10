@@ -11,7 +11,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 )
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
@@ -260,7 +259,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 	}
 
 	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting && !drive.IsMounted {
-		btn := view.NewDeviceDashboardIconButton(assets.UploadIcon, func() {
+		btn := view.NewDeviceDashboardUploadButton(func() {
 			if !dw.controlsLocked() {
 				dw.handleUploadImage(idx)
 			}
@@ -300,7 +299,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 				}
 			}
 		}
-		btn := view.NewDeviceDashboardIconButton(theme.DeleteIcon(), onTap)
+		btn := view.NewDeviceDashboardDeleteButton(onTap)
 		btn.SetDisabled(dw.controlsLocked())
 		deleteBtn = btn
 	}
