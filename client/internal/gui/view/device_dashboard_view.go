@@ -253,6 +253,16 @@ func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyn
 	if active {
 		nameColor = design.ColorAccent
 	}
+	return newDeviceDashboardRowLeftColored(icon, name, nameColor)
+}
+
+// newDeviceDashboardRowLeftColored is newDeviceDashboardRowLeft's own
+// icon+name composition with an explicit name color instead of the
+// HID/Video/Audio/Network "active" convention (design.ColorAccent) --
+// Storage rows use DeviceDashboardAccentLime instead (see
+// newDeviceDashboardRowLeftSized), matching the rest of that card's own
+// lime accent.
+func newDeviceDashboardRowLeftColored(icon fyne.Resource, name string, nameColor color.Color) fyne.CanvasObject {
 	nameText := canvas.NewText(name, nameColor)
 	nameText.TextSize = 11
 
@@ -275,14 +285,18 @@ func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyn
 // means no badge (e.g. the drive's own size isn't known) -- falls back to
 // the plain single-line row.
 func newDeviceDashboardRowLeftSized(icon fyne.Resource, name string, active bool, sizeText string) fyne.CanvasObject {
-	if strings.TrimSpace(sizeText) == "" {
-		return newDeviceDashboardRowLeft(icon, name, active)
-	}
-
+	// Lime (DeviceDashboardAccentLime), not the generic design.ColorAccent
+	// every other row kind uses -- matches the rest of this card's own
+	// lime accent (the SSD icon, "Mount New ISO", the mount button).
 	nameColor := design.ColorTextLight
 	if active {
-		nameColor = design.ColorAccent
+		nameColor = DeviceDashboardAccentLime
 	}
+
+	if strings.TrimSpace(sizeText) == "" {
+		return newDeviceDashboardRowLeftColored(icon, name, nameColor)
+	}
+
 	nameText := canvas.NewText(name, nameColor)
 	nameText.TextSize = 11
 
@@ -330,8 +344,9 @@ const (
 
 // DeviceToggle is a small on/off pill switch for a HID/Network row's own
 // mount/unmount action -- Storage rows use a proper button instead (see
-// NewDeviceDashboardConnectedBadge), but HID/Network keep this switch.
-// Fyne has no built-in switch widget (widget.Check is a checkbox).
+// NewDeviceDashboardMountButton/NewDeviceDashboardDisconnectButton), but
+// HID/Network keep this switch. Fyne has no built-in switch widget
+// (widget.Check is a checkbox).
 type DeviceToggle struct {
 	widget.BaseWidget
 
@@ -769,38 +784,55 @@ var deviceDashboardConnectIconSVG = fyne.NewStaticResource("device_dashboard_plu
 // connection_list_table.go).
 var deviceDashboardConnectHoverFill = color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 
-// NewDeviceDashboardConnectedBadge is Storage's own "already mounted"
-// indicator -- shown in place of the Upload button once a file is
-// actually mounted (see disk_widget_dashboard.go's buildStorageRowExtras),
-// styled exactly like the Connections table's own Connect button
-// (connection_list_table.go: fill DeviceDashboardAccentLime, dark olive
-// label). Tapping it disconnects (unmounts) the drive.
-func NewDeviceDashboardConnectedBadge(onTap func(), onHover func(bool)) *iconChromeButton {
-	btn := newIconChromeButton(iconChromeButtonSpec{
-		NormalFill:   DeviceDashboardAccentLime,
-		HoverFill:    deviceDashboardConnectHoverFill,
+// deviceDashboardDisconnectIconSVG is debug-disconnect-svgrepo-com.svg,
+// recolored to #c5c8b5 -- the same muted color deviceDashboardDeleteIconSVG
+// uses, since NewDeviceDashboardDisconnectButton's own normal state matches
+// the Delete button exactly.
+var deviceDashboardDisconnectIconSVG = fyne.NewStaticResource("device_dashboard_disconnect.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="#c5c8b5"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.617 3.844a2.87 2.87 0 0 0-.451-.868l1.354-1.36L13.904 1l-1.36 1.354a2.877 2.877 0 0 0-.868-.452 3.073 3.073 0 0 0-2.14.075 3.03 3.03 0 0 0-.991.664L7 4.192l4.327 4.328 1.552-1.545c.287-.287.508-.618.663-.992a3.074 3.074 0 0 0 .075-2.14zm-.889 1.804a2.15 2.15 0 0 1-.471.705l-.93.93-3.09-3.09.93-.93a2.15 2.15 0 0 1 .704-.472 2.134 2.134 0 0 1 1.689.007c.264.114.494.271.69.472.2.195.358.426.472.69a2.134 2.134 0 0 1 .007 1.688zm-4.824 4.994l1.484-1.545-.616-.622-1.49 1.551-1.86-1.859 1.491-1.552L6.291 6 4.808 7.545l-.616-.615-1.551 1.545a3 3 0 0 0-.663.998 3.023 3.023 0 0 0-.233 1.169c0 .332.05.656.15.97.105.31.258.597.459.862L1 13.834l.615.615 1.36-1.353c.265.2.552.353.862.458.314.1.638.15.97.15.406 0 .796-.077 1.17-.232.378-.155.71-.376.998-.663l1.545-1.552-.616-.615zm-2.262 2.023a2.16 2.16 0 0 1-.834.164c-.301 0-.586-.057-.855-.17a2.278 2.278 0 0 1-.697-.466 2.28 2.28 0 0 1-.465-.697 2.167 2.167 0 0 1-.17-.854 2.16 2.16 0 0 1 .642-1.545l.93-.93 3.09 3.09-.93.93a2.22 2.22 0 0 1-.711.478z"/></svg>`))
+
+// deviceDashboardDisconnectHoverIconSVG is deviceDashboardDisconnectIconSVG
+// recolored to #e997a2 for its own hover state (same recolor-an-existing-
+// resource technique as deviceDashboardUploadIconSVG).
+var deviceDashboardDisconnectHoverIconSVG = fyne.NewStaticResource("device_dashboard_disconnect_hover.svg", []byte(strings.ReplaceAll(string(deviceDashboardDisconnectIconSVG.Content()), "#c5c8b5", "#e997a2")))
+
+// deviceDashboardDisconnectHoverFill/Stroke are NewDeviceDashboardDisconnectButton's
+// own hover colors -- a dark maroon fill/border reading as a danger hover,
+// unlike Delete/Upload's neutral design.ColorSurfaceLight hover.
+var deviceDashboardDisconnectHoverFill = color.NRGBA{R: 0x2e, G: 0x20, B: 0x24, A: 0xff}
+var deviceDashboardDisconnectHoverStroke = color.NRGBA{R: 0x82, G: 0x34, B: 0x37, A: 0xff}
+
+// NewDeviceDashboardDisconnectButton is Storage's own "unmount this drive"
+// action, shown once a drive is actually mounted (see
+// disk_widget_dashboard.go's refreshDashboard) in the same trailing slot
+// NewDeviceDashboardMountButton takes before that. Normal state matches
+// NewDeviceDashboardDeleteButton exactly (transparent fill, muted icon,
+// design.ColorTailscaleChipBorder border); only on hover does it turn
+// danger-red, since unmounting isn't itself destructive the way deleting
+// is. No label -- the mounted state is instead read from the row's own
+// name/icon color (see newDeviceDashboardRowLeftSized).
+func NewDeviceDashboardDisconnectButton(onTap func(), onHover func(bool)) *iconChromeButton {
+	return newIconChromeButton(iconChromeButtonSpec{
+		NormalFill:   color.Transparent,
+		HoverFill:    deviceDashboardDisconnectHoverFill,
 		DisabledFill: connectionActionBlockedFill,
-		Stroke:       color.Transparent,
-		LabelColor:   DeviceDashboardHeaderButtonTextColor,
-		LabelBold:    true,
-		LabelSize:    10,
+		Stroke:       design.ColorTailscaleChipBorder,
+		HoverStroke:  deviceDashboardDisconnectHoverStroke,
+		StrokeWidth:  1,
 		CornerRadius: 6,
-		NormalIcon:   deviceDashboardConnectIconSVG,
-		IconSize:     fyne.NewSize(10, 10),
-		ButtonSize:   fyne.NewSize(0, 23),
+		NormalIcon:   deviceDashboardDisconnectIconSVG,
+		HoverIcon:    deviceDashboardDisconnectHoverIconSVG,
+		IconSize:     fyne.NewSize(11, 11),
+		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,
 		OnHover:      onHover,
 	})
-	btn.SetText("Connected")
-	return btn
 }
 
 // NewDeviceDashboardMountButton is Storage's own "not yet mounted" action --
 // a plain square icon button, no label, shown in the same trailing slot
-// NewDeviceDashboardConnectedBadge takes once the drive is actually
+// NewDeviceDashboardDisconnectButton takes once the drive is actually
 // mounted (see disk_widget_dashboard.go's refreshDashboard) -- same lime
-// fill/hover/icon recipe as that badge and "Mount New ISO", just without
-// the text label. Tapping it mounts the drive.
+// fill/hover/icon recipe as "Mount New ISO". Tapping it mounts the drive.
 func NewDeviceDashboardMountButton(onTap func(), onHover func(bool)) *iconChromeButton {
 	return newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   DeviceDashboardAccentLime,

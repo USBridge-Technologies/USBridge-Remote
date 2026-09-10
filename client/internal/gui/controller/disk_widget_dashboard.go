@@ -10,6 +10,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 )
 
 // GetDashboardContainer builds the card-grid Devices tab: a narrow left
@@ -21,8 +22,9 @@ import (
 // border.
 //
 // HID/Network rows carry an on/off toggle (view.DeviceToggle); Storage rows
-// carry Delete/Upload buttons plus a "Connected" badge once actually
-// mounted (view.NewDeviceDashboardConnectedBadge) -- both drive the same
+// carry Delete/Upload buttons plus a mount button, replaced by a disconnect
+// button once actually mounted (view.NewDeviceDashboardMountButton/
+// NewDeviceDashboardDisconnectButton) -- both drive the same
 // toggleDriveMount, reusing the exact same handleMount/handleUnmount flow
 // the old selection-driven list used, just pre-selecting the one row's own
 // index instead of requiring the user to select it first. Video/Audio rows
@@ -76,8 +78,11 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	// own SetMinSize every time instead of swapping the card's content
 	// object -- with dashboardStorage's own natural height as that
 	// min size, the Scroll is indistinguishable from a plain VBox until
-	// refreshDashboard caps it past dashboardStorageVisibleRows.
-	dw.dashboardStorageScroll = container.NewVScroll(dw.dashboardStorage)
+	// refreshDashboard caps it past dashboardStorageVisibleRows. A little
+	// right padding on the row list itself (not the Scroll) keeps its own
+	// mode-picker/Delete/Upload/mount buttons clear of where the vertical
+	// scrollbar thumb overlays once scrolling is actually active.
+	dw.dashboardStorageScroll = container.NewVScroll(view.NewInsetExact(dw.dashboardStorage, 0, 10, 0, 0))
 
 	dw.dashboardWideColumn = container.NewVBox(
 		view.NewDeviceDashboardCard(
@@ -141,17 +146,19 @@ func (dw *DiskWidget) refreshDashboard() {
 				continue
 			}
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
-			// The same trailing slot shows the lime "Connected" badge
-			// once mounted, or -- while not yet mounted/mounting -- a
-			// plain "mount it" button, both driving the exact same
-			// toggleDriveMount. Only for a drive already resident on the
-			// device (source "api"/"local") -- a "user" source file still
-			// sitting on the client's own PC has to be uploaded first
-			// (see the Upload button below), so it gets no mount/connect
-			// control until it re-appears as "local"/"api" after that.
+			// The same trailing slot shows a "disconnect" button once
+			// mounted (the mounted state itself is read off the row's
+			// own lime name/icon color, see newDeviceDashboardRowLeftSized),
+			// or -- while not yet mounted/mounting -- a plain "mount it"
+			// button; both drive the exact same toggleDriveMount. Only
+			// for a drive already resident on the device (source
+			// "api"/"local") -- a "user" source file still sitting on
+			// the client's own PC has to be uploaded first (see the
+			// Upload button below), so it gets no mount/connect control
+			// until it re-appears as "local"/"api" after that.
 			var connectSlot fyne.CanvasObject
 			if drive.IsMounted {
-				connectSlot = view.NewDeviceDashboardConnectedBadge(func() {
+				connectSlot = view.NewDeviceDashboardDisconnectButton(func() {
 					dw.toggleDriveMount(idx)
 				}, dw.dashboardStorageHover)
 			} else if !drive.IsMounting && drive.Source != "user" {
@@ -211,26 +218,28 @@ func (dw *DiskWidget) refreshDashboard() {
 const dashboardStorageVisibleRows = 6
 
 // dashboardStorageCapHeight returns the pixel height of the first
-// dashboardStorageVisibleRows rows plus the separators between them
-// (mirroring setDashboardRows's own interleaving), measured from the
-// actual row/separator widgets' own MinSize rather than a guessed
-// constant -- stays correct if a row's own height ever changes (e.g. the
-// two-line name/size layout). Returns 0 if there aren't more rows than
-// that, meaning the caller should leave the row list sized naturally
-// instead of capping it.
+// dashboardStorageVisibleRows rows plus the separators between them,
+// built the exact same way setDashboardRows interleaves the real list --
+// and measured via layout.NewVBoxLayout().MinSize() (dashboardStorage's
+// own layout) rather than just summing each item's own MinSize, since
+// VBoxLayout also adds theme.Padding() between every pair of children.
+// Missing that padding here previously undercounted the cap by about one
+// row's worth across 6 rows + 5 separators (10 gaps), so a 7th row made
+// the card actually shrink to fit only 5 fully instead of the intended 6.
+// Returns 0 if there aren't more rows than that, meaning the caller
+// should leave the row list sized naturally instead of capping it.
 func dashboardStorageCapHeight(rows []fyne.CanvasObject) float32 {
 	if len(rows) <= dashboardStorageVisibleRows {
 		return 0
 	}
-	sepHeight := view.NewDeviceDashboardRowSeparator().MinSize().Height
-	var height float32
+	items := make([]fyne.CanvasObject, 0, dashboardStorageVisibleRows*2-1)
 	for i := 0; i < dashboardStorageVisibleRows; i++ {
 		if i > 0 {
-			height += sepHeight
+			items = append(items, view.NewDeviceDashboardRowSeparator())
 		}
-		height += rows[i].MinSize().Height
+		items = append(items, rows[i])
 	}
-	return height
+	return layout.NewVBoxLayout().MinSize(items).Height
 }
 
 // setDashboardRows fills target with rows, separated by a short inset
