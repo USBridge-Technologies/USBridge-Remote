@@ -170,5 +170,15 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 	vw.videoRestartPending = false
 	vw.videoOpMu.Unlock()
 
+	// Fires the same callback applyVideoDeviceConfig uses for an explicit
+	// resolution change (see its own doc comment) -- reconcile is also how
+	// video starts on app launch/auto-connect, which never goes through
+	// applyVideoDeviceConfig at all, so without this the header's
+	// resolution label had no way to learn the real starting resolution
+	// and stuck at its stale default until the user changed it once.
+	if vw.onResolutionChanged != nil && cfg.VideoWidth > 0 && cfg.VideoHeight > 0 {
+		vw.onResolutionChanged(cfg.VideoWidth, cfg.VideoHeight)
+	}
+
 	vw.startVideoWithParamsInternal(cfg.ToVideoStartRequest())
 }
