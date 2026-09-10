@@ -283,6 +283,22 @@ func (b *videoCodecButton) refreshVisuals() {
 	b.label.Refresh()
 }
 
+// videoDialogHintColor/videoDialogHintTextSize style the small caption line
+// shown under a field (codec description, resolution/FPS meta) -- muted gray,
+// smaller than the field's own label.
+var videoDialogHintColor = color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+
+const videoDialogHintTextSize = float32(8)
+
+// newVideoDialogFieldLabel is this dialog's field caption ("Codec",
+// "Resolution", "Frame Rate") -- smaller than the default widget.Label size
+// so it reads as a compact label, not a heading.
+func newVideoDialogFieldLabel(text string) *canvas.Text {
+	label := canvas.NewText(text, design.ColorTextLight)
+	label.TextSize = 10
+	return label
+}
+
 // newVideoDialogPicker builds a small teal pill dropdown matching the
 // per-connection AUTO/TS/LAN protocol picker's own look (an UltraCompact
 // HeaderDropdown -- see connection_grid_card.go's protocolDropdown), reused
@@ -551,8 +567,8 @@ func NewVideoStartDialog(parent fyne.Window) *VideoStartDialog {
 }
 
 func (vsd *VideoStartDialog) createInterface() {
-	vsd.modeDescription = canvas.NewText("", design.ColorTextMuted)
-	vsd.modeDescription.TextSize = 12
+	vsd.modeDescription = canvas.NewText("", videoDialogHintColor)
+	vsd.modeDescription.TextSize = videoDialogHintTextSize
 	vsd.modeDescription.Alignment = fyne.TextAlignCenter
 	vsd.modeButtonsRow = container.New(&videoCodecButtonsLayout{gap: 10})
 
@@ -560,13 +576,13 @@ func (vsd *VideoStartDialog) createInterface() {
 		vsd.refreshAvailableModes()
 		vsd.refreshFPSOptions()
 	})
-	vsd.resolutionMeta = canvas.NewText("", design.ColorTextMuted)
-	vsd.resolutionMeta.TextSize = 11
+	vsd.resolutionMeta = canvas.NewText("", videoDialogHintColor)
+	vsd.resolutionMeta.TextSize = videoDialogHintTextSize
 	vsd.resolutionMeta.Alignment = fyne.TextAlignCenter
 
 	vsd.fpsSelect = newVideoDialogPicker(nil)
-	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, design.ColorTextMuted)
-	vsd.fpsMeta.TextSize = 11
+	vsd.fpsMeta = canvas.NewText(i18n.Current.FramesPerSecond, videoDialogHintColor)
+	vsd.fpsMeta.TextSize = videoDialogHintTextSize
 	vsd.fpsMeta.Alignment = fyne.TextAlignCenter
 
 	vsd.bitrateSlider = widget.NewSlider(1000, 150000)
@@ -663,20 +679,24 @@ func (vsd *VideoStartDialog) createInterface() {
 
 	headerBlock := container.NewVBox(newVideoDialogTopAccentBar(), NewInset(title, 21, 44, 9, 4), headerSep)
 
-	bodyContent := container.NewVBox(
-		widget.NewLabel("Codec"),
-		vsd.modeButtonsRow,
-		container.NewCenter(vsd.modeDescription),
+	resolutionFPSRow := container.NewGridWithColumns(2,
 		container.NewVBox(
-			widget.NewLabelWithStyle(i18n.Current.Resolution, fyne.TextAlignLeading, fyne.TextStyle{}),
+			newVideoDialogFieldLabel(i18n.Current.Resolution),
 			vsd.resolutionSelect,
 			container.NewCenter(vsd.resolutionMeta),
 		),
 		container.NewVBox(
-			widget.NewLabel(i18n.Current.FrameRate),
+			newVideoDialogFieldLabel(i18n.Current.FrameRate),
 			vsd.fpsSelect,
 			container.NewCenter(vsd.fpsMeta),
 		),
+	)
+
+	bodyContent := container.NewVBox(
+		newVideoDialogFieldLabel("Codec"),
+		vsd.modeButtonsRow,
+		container.NewCenter(vsd.modeDescription),
+		resolutionFPSRow,
 		vsd.modeDetailsSlot,
 		vsd.vsyncCheck,
 		vsd.color444Check,
@@ -809,6 +829,11 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	})
 
 	resolutionOptions := make([]string, 0, len(vsd.captureModes))
+	// resolutionShortLabels abbreviates the closed picker's display text
+	// (e.g. "1920x1080" instead of the full "1920 x 1080 (YUYV)" option/key)
+	// so the pill stays narrow enough for the Resolution/FPS row to sit side
+	// by side -- the popup's own rows still show the full option text.
+	resolutionShortLabels := make(map[string]string, len(vsd.captureModes))
 	defaultResolutionLabel := ""
 	hasMultipleFormats := false
 	formatsSeen := map[string]bool{}
@@ -821,6 +846,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 		label := formatResolutionBaseLabel(captureMode)
 		vsd.resolutionLabels[label] = captureMode
 		vsd.resolutionHints[label] = resolutionDescriptor(captureMode.Width, captureMode.Height)
+		resolutionShortLabels[label] = fmt.Sprintf("%dx%d", captureMode.Width, captureMode.Height)
 		resolutionOptions = append(resolutionOptions, label)
 		if captureMode.Width == defaultWidth && captureMode.Height == defaultHeight {
 			// Prefer the entry that matches the currently active capture format on the server.
@@ -840,6 +866,7 @@ func (vsd *VideoStartDialog) Configure(info *models.VideoInfoData, defaultWidth,
 	}
 	vsd.resolutionSelect.SetOptions(resolutionOptions)
 	vsd.resolutionSelect.SetDetails(vsd.resolutionHints)
+	vsd.resolutionSelect.SetShortLabels(resolutionShortLabels)
 
 	if defaultResolutionLabel == "" && len(resolutionOptions) > 0 {
 		defaultResolutionLabel = resolutionOptions[0]

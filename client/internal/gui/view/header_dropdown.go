@@ -63,6 +63,14 @@ type HeaderDropdown struct {
 	// resolution) -- nil, or a value with no entry, just renders no
 	// secondary line, same as before this field existed.
 	Details map[string]string
+	// ShortLabels holds an optional abbreviated display string per option
+	// (e.g. "1920x1080" for the full "1920 x 1080 (YUYV)" option/key), shown
+	// on the closed control and used to size it -- the popup's own rows
+	// always show the full option text via Options, and Selected/OnSelected
+	// still carry the real (long) value. nil, or a value with no entry,
+	// falls back to showing/measuring the value itself, same as before this
+	// field existed.
+	ShortLabels map[string]string
 
 	disabled bool
 	hovered  bool
@@ -104,7 +112,7 @@ func (d *HeaderDropdown) CreateRenderer() fyne.WidgetRenderer {
 	d.border.StrokeColor = d.BorderColor
 	d.border.StrokeWidth = 1
 
-	d.label = canvas.NewText(d.Selected, d.TextColor)
+	d.label = canvas.NewText(d.displayText(d.Selected), d.TextColor)
 	d.label.TextSize = d.TextSize
 	if d.UltraCompact {
 		d.label.TextStyle.Monospace = true
@@ -129,7 +137,7 @@ func (d *HeaderDropdown) MinSize() fyne.Size {
 	if d.MinWidth > 0 {
 		return fyne.NewSize(d.MinWidth, height)
 	}
-	label := canvas.NewText(d.Selected, d.TextColor)
+	label := canvas.NewText(d.displayText(d.Selected), d.TextColor)
 	label.TextSize = d.TextSize
 	if d.UltraCompact {
 		label.TextStyle.Monospace = true
@@ -140,6 +148,15 @@ func (d *HeaderDropdown) MinSize() fyne.Size {
 		width = minWidth
 	}
 	return fyne.NewSize(width, height)
+}
+
+// displayText returns value's abbreviated ShortLabels entry when one exists,
+// else value itself -- see the ShortLabels field's doc comment.
+func (d *HeaderDropdown) displayText(value string) string {
+	if short, ok := d.ShortLabels[value]; ok && short != "" {
+		return short
+	}
+	return value
 }
 
 func (d *HeaderDropdown) Tapped(*fyne.PointEvent) {
@@ -191,10 +208,18 @@ func (d *HeaderDropdown) SetDetails(details map[string]string) {
 	d.Details = details
 }
 
+// SetShortLabels sets the per-option abbreviated display text -- see the
+// ShortLabels field's doc comment.
+func (d *HeaderDropdown) SetShortLabels(labels map[string]string) {
+	d.ShortLabels = labels
+	d.updateMinWidth()
+	d.Refresh()
+}
+
 func (d *HeaderDropdown) updateMinWidth() {
-	longest := strings.TrimSpace(d.Selected)
+	longest := strings.TrimSpace(d.displayText(d.Selected))
 	for _, option := range d.Options {
-		option = strings.TrimSpace(option)
+		option = strings.TrimSpace(d.displayText(option))
 		if len(option) > len(longest) {
 			longest = option
 		}
@@ -416,7 +441,7 @@ func (d *HeaderDropdown) refreshVisuals() {
 
 	d.bg.FillColor = fill
 	d.border.StrokeColor = borderColor
-	d.label.Text = d.Selected
+	d.label.Text = d.displayText(d.Selected)
 	d.label.Color = textColor
 	d.icon.Resource = iconResource
 	d.icon.Translucency = iconTranslucency
