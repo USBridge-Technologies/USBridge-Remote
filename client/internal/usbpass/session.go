@@ -1,13 +1,23 @@
 package usbpass
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"usbridge-client/internal/models"
 )
+
+// claimTimeout bounds one libusb claim attempt. A stick that stopped
+// answering on the bus (interface left with no driver, descriptors
+// unreadable) blocks inside cgo forever, which froze the Devices panel with
+// no error and no way out.
+const claimTimeout = 20 * time.Second
+
+var errClaimTimeout = errors.New("libusb claim timed out")
 
 // Session owns the local USB/IP export for one (or more) mounted devices.
 type Session struct {
@@ -27,12 +37,76 @@ func isGousbDisabled(err error) bool {
 }
 
 func closeExported(devs []*ExportedDevice) {
-	for _, d := range devs {
+	closeExportedExcept(devs, -1)
+}
+
+// closeExportedExcept skips one index whose ownership has moved to the
+// watcher goroutine of an abandoned claim (see claimWithTimeout).
+func closeExportedExcept(devs []*ExportedDevice, skip int) {
+	for i, d := range devs {
+		if i == skip {
+			continue
+		}
 		if d != nil && d.Backend != nil {
 			_ = d.Backend.Close()
 			d.Backend = nil
 		}
 	}
+}
+
+// claimWithTimeout runs TryClaimGousb under claimTimeout. The libusb call
+// cannot be cancelled, so on timeout ed is handed to a watcher goroutine that
+// releases it if the claim ever completes; the caller must not touch ed again.
+func claimWithTimeout(ed *ExportedDevice) error {
+	done := make(chan error, 1)
+	go func() { done <- TryClaimGousb(ed) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(claimTimeout):
+		go func() {
+			if err := <-done; err == nil {
+				logrus.Warnf("usbpass: abandoned claim for %s completed late; releasing", ed.BusID)
+				if ed.Backend != nil {
+					_ = ed.Backend.Close()
+				}
+			}
+		}()
+		return errClaimTimeout
+	}
+}
+
+// claimDevice claims one device, retrying once behind a pkexec grant (udev
+// rule + kernel-driver unbind) when the first attempt fails. abandoned
+// reports that the libusb call is stuck and ed must not be reused.
+func claimDevice(ed *ExportedDevice, ref usbDevRef) (abandoned bool, err error) {
+	wedged := func() error {
+		return fmt.Errorf("libusb claim %s timed out after %s: the device stopped responding on the bus, unplug and replug it",
+			ed.BusID, claimTimeout)
+	}
+
+	logrus.Infof("usbpass: claiming %s (busnum=%d devnum=%d)", ed.BusID, ed.Busnum, ed.Devnum)
+	err = claimWithTimeout(ed)
+	if errors.Is(err, errClaimTimeout) {
+		return true, wedged()
+	}
+	if err != nil && !isGousbDisabled(err) {
+		logrus.Warnf("usbpass: claim %s failed (%v); requesting unbind/grant via pkexec", ed.BusID, err)
+		if !RequestUSBAccess([]usbDevRef{ref}) {
+			if msg := LastUSBAccessError(); msg != "" {
+				return false, fmt.Errorf("USB access: %s", msg)
+			}
+			return false, fmt.Errorf("USB access was not granted for %s", ed.BusID)
+		}
+		err = claimWithTimeout(ed)
+		if errors.Is(err, errClaimTimeout) {
+			return true, wedged()
+		}
+	}
+	if err != nil && !isGousbDisabled(err) {
+		return false, fmt.Errorf("libusb claim %s (busnum=%d devnum=%d): %w", ed.BusID, ed.Busnum, ed.Devnum, err)
+	}
+	return false, err
 }
 
 // ActiveBusIDs returns Linux busids currently exported by the local session
@@ -96,26 +170,19 @@ func StartSession(listenAddr string, devices []models.USBPassthroughDevice) (*Se
 	}
 	for i, ed := range exported {
 		busID := ed.BusID
-		err := TryClaimGousb(ed)
-		if err != nil && !isGousbDisabled(err) {
-			logrus.Warnf("usbpass: claim %s failed (%v); requesting unbind/grant via pkexec", busID, err)
-			if !RequestUSBAccess([]usbDevRef{accessRefs[i]}) {
-				closeExported(exported)
-				if msg := LastUSBAccessError(); msg != "" {
-					return nil, fmt.Errorf("USB access: %s", msg)
-				}
-				return nil, fmt.Errorf("USB access was not granted for %s", busID)
-			}
-			err = TryClaimGousb(ed)
-		}
+		abandoned, err := claimDevice(ed, accessRefs[i])
 		if err != nil {
 			if isGousbDisabled(err) {
 				logrus.Warnf("usbpass: descriptor-only export for %s (busnum=%d devnum=%d): %v — bulk URB will EPIPE",
 					busID, ed.Busnum, ed.Devnum, err)
 				continue
 			}
-			closeExported(exported)
-			return nil, fmt.Errorf("libusb claim %s (busnum=%d devnum=%d): %w", busID, ed.Busnum, ed.Devnum, err)
+			if abandoned {
+				closeExportedExcept(exported, i)
+			} else {
+				closeExported(exported)
+			}
+			return nil, err
 		}
 		logrus.Infof("usbpass: live libusb claim for %s (busnum=%d devnum=%d)", busID, ed.Busnum, ed.Devnum)
 	}
@@ -142,6 +209,17 @@ func StopSession() {
 	if s != nil {
 		s.server.Stop()
 	}
+}
+
+// Devices exposes the live exported devices for terminal diagnostics.
+func (s *Session) Devices() []*ExportedDevice {
+	s.mu.Lock()
+	srv := s.server
+	s.mu.Unlock()
+	if srv == nil {
+		return nil
+	}
+	return srv.Devices()
 }
 
 func (s *Session) Addr() string {

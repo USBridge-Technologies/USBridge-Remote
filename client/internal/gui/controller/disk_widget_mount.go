@@ -179,6 +179,14 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	logrus.Infof("📁 [MOUNT] mounted: %d, adding: %d", mountedGadgetCount, len(selectedDrives))
+	for _, d := range selectedDrives {
+		bus := ""
+		if d.USBPassthrough != nil {
+			bus = d.USBPassthrough.BusID
+		}
+		logrus.Infof("📁 [MOUNT] selected name=%q source=%q usbpass=%v bus=%q",
+			d.Name, d.Source, d.IsUSBPassthrough, bus)
+	}
 
 	var pass []DriveItem
 	var rest []DriveItem

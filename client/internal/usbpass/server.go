@@ -103,6 +103,15 @@ func (s *Server) Stop() {
 	s.wg.Wait()
 }
 
+// Devices returns the exported devices, so a terminal harness can talk to a
+// live backend directly and tell a broken libusb claim apart from a broken
+// USB/IP conversation.
+func (s *Server) Devices() []*ExportedDevice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*ExportedDevice(nil), s.devices...)
+}
+
 // Addr returns the bound listen address.
 func (s *Server) Addr() string {
 	s.mu.Lock()

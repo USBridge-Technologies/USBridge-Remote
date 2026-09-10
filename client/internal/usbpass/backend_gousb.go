@@ -118,6 +118,9 @@ func TryClaimGousb(dev *ExportedDevice) error {
 		intf:       intf,
 		deviceDesc:  deviceDesc,
 		configDesc:  configDesc,
+		configVal:  uint8(cfgNum),
+		ifaceNum:   uint8(ifaceNum),
+		altNum:     uint8(alt),
 	}
 	return nil
 }
@@ -176,6 +179,12 @@ type gousbBackend struct {
 	intf       *gousb.Interface
 	deviceDesc  []byte
 	configDesc  []byte
+
+	// What libusb actually claimed, used to answer configuration requests
+	// locally instead of forwarding them to the device.
+	configVal uint8
+	ifaceNum  uint8
+	altNum    uint8
 }
 
 func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte) {
@@ -183,6 +192,31 @@ func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte)
 	req := setup[1]
 	wValue := binary.LittleEndian.Uint16(setup[2:4])
 	wIndex := binary.LittleEndian.Uint16(setup[4:6])
+
+	// Configuration/alt-setting requests must never reach the wire: libusb
+	// already put the device into this exact configuration when we claimed
+	// it, and forwarding them makes the host controller tear down and rebuild
+	// the endpoint contexts of the claimed interface. After that every bulk
+	// transfer fails with "transfer failed" — Windows shows the stick as
+	// enumerated but no SCSI command ever completes, so no drive appears.
+	switch {
+	case bm == 0x00 && req == 0x09: // SET_CONFIGURATION
+		if uint8(wValue) != b.configVal {
+			logrus.Warnf("usbpass: ignoring SET_CONFIGURATION(%d), claimed config is %d", uint8(wValue), b.configVal)
+		}
+		return 0, nil
+	case bm == 0x01 && req == 0x0b: // SET_INTERFACE
+		if uint8(wIndex) != b.ifaceNum || uint8(wValue) != b.altNum {
+			logrus.Warnf("usbpass: ignoring SET_INTERFACE(iface=%d alt=%d), claimed %d/%d",
+				uint8(wIndex), uint8(wValue), b.ifaceNum, b.altNum)
+		}
+		return 0, nil
+	case bm == 0x80 && req == 0x08: // GET_CONFIGURATION
+		return 0, []byte{b.configVal}
+	case bm == 0x81 && req == 0x0a: // GET_INTERFACE
+		return 0, []byte{b.altNum}
+	}
+
 	if bm == 0x80 && req == 0x06 {
 		descType := uint8(wValue >> 8)
 		var src []byte
@@ -209,6 +243,8 @@ func (b *gousbBackend) HandleControl(setup [8]byte, wLength int) (int32, []byte)
 live:
 	data := make([]byte, wLength)
 	n, err := b.dev.Control(bm, req, wValue, wIndex, data)
+	logrus.Debugf("usbpass: control bm=%#02x req=%#02x wValue=%#04x wIndex=%#04x wLength=%d -> n=%d err=%v",
+		bm, req, wValue, wIndex, wLength, n, err)
 	if err != nil {
 		return errnoEPIPE, nil
 	}
