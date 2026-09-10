@@ -3,8 +3,10 @@
 package usbpass
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/google/gousb"
 	"github.com/sirupsen/logrus"
@@ -215,23 +217,51 @@ live:
 
 func (b *gousbBackend) HandleBulk(ep uint8, dirIn bool, length int, outData []byte) (int32, []byte) {
 	num := int(ep & 0x7f)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	if dirIn {
+		if length <= 0 {
+			return 0, nil
+		}
 		inep, err := b.intf.InEndpoint(num)
 		if err != nil {
+			logrus.Debugf("usbpass: bulk IN ep=%d: %v", num, err)
 			return errnoEPIPE, nil
 		}
 		buf := make([]byte, length)
-		n, err := inep.Read(buf)
-		if err != nil {
+		n, err := inep.ReadContext(ctx, buf)
+		if err != nil && n == 0 {
+			logrus.Debugf("usbpass: bulk IN ep=%d len=%d: %v", num, length, err)
 			return errnoEPIPE, nil
 		}
+		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
 	}
 	outep, err := b.intf.OutEndpoint(num)
 	if err != nil {
+		logrus.Debugf("usbpass: bulk OUT ep=%d: %v", num, err)
 		return errnoEPIPE, nil
 	}
-	if _, err := outep.Write(outData); err != nil {
+	// WriteContext may short-write; loop until all CBW/data bytes are out.
+	off := 0
+	for off < len(outData) {
+		n, err := outep.WriteContext(ctx, outData[off:])
+		if n > 0 {
+			off += n
+		}
+		if err != nil {
+			if off == 0 {
+				logrus.Debugf("usbpass: bulk OUT ep=%d len=%d: %v", num, len(outData), err)
+				return errnoEPIPE, nil
+			}
+			break
+		}
+		if n == 0 {
+			break
+		}
+	}
+	if off < len(outData) {
+		logrus.Debugf("usbpass: bulk OUT short %d/%d", off, len(outData))
 		return errnoEPIPE, nil
 	}
 	return 0, nil
