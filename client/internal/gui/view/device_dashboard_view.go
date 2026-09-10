@@ -144,6 +144,9 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 }
 
 // NewDeviceDashboardRow is one compact device line inside a dashboard card:
+// its type icon (see controller/disk_widget_dashboard.go's driveIconResource --
+// a folder/disc/SD-card/keyboard/... glyph matching the drive's own kind,
+// already brightened when active, same as the old list's own per-row icon),
 // a status dot, the device's display name, its small type badge (see
 // driveBadge in controller/disk_widget_sections.go), and an optional
 // mount/unmount toggle trailing on the right -- reuses the Connections
@@ -151,7 +154,21 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, description string
 // reads as the same family as a connection's platform chip. toggle is nil
 // for device kinds this dashboard doesn't drive mount/unmount for (Video,
 // Audio -- see disk_widget_mount.go's own IsVideo/IsAudio exclusions).
-func NewDeviceDashboardRow(name string, active bool, badgeText string, toggle fyne.CanvasObject) fyne.CanvasObject {
+func NewDeviceDashboardRow(icon fyne.Resource, name string, active bool, badgeText string, toggle fyne.CanvasObject) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeft(icon, name, active)
+
+	var right fyne.CanvasObject = newConnectionPlatformChip(badgeText)
+	if toggle != nil {
+		right = container.New(&DeviceRowControlsLayout{Gap: 10}, newConnectionPlatformChip(badgeText), toggle)
+	}
+
+	row := container.NewBorder(nil, nil, left, right)
+	return NewInset(row, 0, 0, 5, 5)
+}
+
+// newDeviceDashboardRowLeft is the icon+status-dot+name group shared by
+// NewDeviceDashboardRow and NewDeviceDashboardStorageRow.
+func newDeviceDashboardRowLeft(icon fyne.Resource, name string, active bool) fyne.CanvasObject {
 	dotColor := color.Color(videoDialogHintColor)
 	if active {
 		dotColor = design.ColorConnectionBadgeText
@@ -162,15 +179,15 @@ func NewDeviceDashboardRow(name string, active bool, badgeText string, toggle fy
 	nameText := canvas.NewText(name, design.ColorTextLight)
 	nameText.TextSize = 11
 
-	left := container.New(&DeviceRowControlsLayout{Gap: 8}, dotWrap, nameText)
-
-	var right fyne.CanvasObject = newConnectionPlatformChip(badgeText)
-	if toggle != nil {
-		right = container.New(&DeviceRowControlsLayout{Gap: 10}, newConnectionPlatformChip(badgeText), toggle)
+	if icon == nil {
+		return container.New(&DeviceRowControlsLayout{Gap: 8}, dotWrap, nameText)
 	}
 
-	row := container.NewBorder(nil, nil, left, right)
-	return NewInset(row, 0, 0, 5, 5)
+	iconImg := canvas.NewImageFromResource(icon)
+	iconImg.FillMode = canvas.ImageFillContain
+	iconImg.SetMinSize(fyne.NewSize(14, 14))
+
+	return container.New(&DeviceRowControlsLayout{Gap: 8}, iconImg, dotWrap, nameText)
 }
 
 // deviceToggleWidth/Height is the pill track's own footprint; deviceToggleKnob
@@ -561,18 +578,8 @@ func (b *DeviceDashboardIconButton) applyState() {
 // carry a USB Stick/CD-ROM mode picker and Upload/Delete icon buttons --
 // any of which may be nil to omit it -- alongside the same mount/unmount
 // toggle every other mountable row has.
-func NewDeviceDashboardStorageRow(name string, active bool, badgeText string, modePicker fyne.CanvasObject, uploadBtn fyne.CanvasObject, deleteBtn fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
-	dotColor := color.Color(videoDialogHintColor)
-	if active {
-		dotColor = design.ColorConnectionBadgeText
-	}
-	dot := canvas.NewCircle(dotColor)
-	dotWrap := container.NewGridWrap(fyne.NewSize(8, 8), dot)
-
-	nameText := canvas.NewText(name, design.ColorTextLight)
-	nameText.TextSize = 11
-
-	left := container.New(&DeviceRowControlsLayout{Gap: 8}, dotWrap, nameText)
+func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, badgeText string, modePicker fyne.CanvasObject, uploadBtn fyne.CanvasObject, deleteBtn fyne.CanvasObject, toggle fyne.CanvasObject) fyne.CanvasObject {
+	left := newDeviceDashboardRowLeft(icon, name, active)
 
 	rightParts := []fyne.CanvasObject{newConnectionPlatformChip(badgeText)}
 	if modePicker != nil {

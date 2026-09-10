@@ -84,6 +84,7 @@ func (dw *DiskWidget) refreshDashboard() {
 	for idx, drive := range dw.allDrives {
 		badgeText, _ := driveBadge(drive)
 		name := dw.deviceRowText(drive)
+		icon := driveIconResource(drive)
 
 		// Video/Audio aren't mount-toggle-able through this flow (see this
 		// method's own doc comment) -- their rows get no toggle at all.
@@ -98,16 +99,16 @@ func (dw *DiskWidget) refreshDashboard() {
 
 		switch {
 		case drive.IsKeyboard || drive.IsMouse || drive.IsGamepad:
-			hidRows = append(hidRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
+			hidRows = append(hidRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, badgeText, toggle))
 		case drive.IsVideo:
-			videoRows = append(videoRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
+			videoRows = append(videoRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, badgeText, toggle))
 		case drive.IsAudio || drive.IsUSBAudio:
-			audioRows = append(audioRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
+			audioRows = append(audioRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, badgeText, toggle))
 		case drive.IsRNDIS:
-			networkRows = append(networkRows, view.NewDeviceDashboardRow(name, drive.IsMounted, badgeText, toggle))
+			networkRows = append(networkRows, view.NewDeviceDashboardRow(icon, name, drive.IsMounted, badgeText, toggle))
 		default:
 			modePicker, uploadBtn, deleteBtn := dw.buildStorageRowExtras(idx, drive)
-			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(name, drive.IsMounted, badgeText, modePicker, uploadBtn, deleteBtn, toggle))
+			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, badgeText, modePicker, uploadBtn, deleteBtn, toggle))
 		}
 	}
 
@@ -139,6 +140,74 @@ func setDashboardRows(target *fyne.Container, rows []fyne.CanvasObject, emptyTex
 	}
 	target.Objects = rows
 	target.Refresh()
+}
+
+// driveIconResource picks a drive's own type icon (folder for the user's
+// own local files, disc for an API-provided ISO/drive, SD card for MTP,
+// keyboard/mouse/gamepad/network/camera/audio for the matching HID/video/
+// audio/network kind), brightened to its "Active" variant once mounted --
+// mirrors configureDriveRow's own icon switch (disk_widget_row.go) exactly,
+// just returning the resource instead of mutating a *canvas.Image in
+// place.
+func driveIconResource(drive DriveItem) fyne.Resource {
+	var iconRes fyne.Resource
+	useStorageIcon := false
+	switch drive.Source {
+	case "api":
+		useStorageIcon = true
+		if drive.LocalDrive != nil && drive.LocalDrive.SourceType == "mtp" {
+			iconRes = assets.SDCardIcon
+		} else {
+			iconRes = assets.DiscIcon
+		}
+	case "local", "user":
+		useStorageIcon = true
+		iconRes = assets.FolderIcon
+	case "keyboard":
+		iconRes = assets.KeyboardIcon
+		if drive.IsMounted {
+			iconRes = assets.KeyboardIconActive
+		}
+	case "mouse":
+		iconRes = assets.MouseIcon
+		if drive.IsMounted {
+			iconRes = assets.MouseIconActive
+		}
+	case "rndis":
+		iconRes = assets.NetworkIcon
+		if drive.IsMounted {
+			iconRes = assets.NetworkIconActive
+		}
+	case "gamepad":
+		iconRes = assets.GamepadIcon
+		if drive.IsMounted {
+			iconRes = assets.GamepadIconActive
+		}
+	case "video":
+		iconRes = assets.CameraIcon
+		if drive.IsMounted {
+			iconRes = assets.CameraIconActive
+		}
+	case "audio", "usbaudio":
+		iconRes = assets.AudioIcon
+		if drive.IsMounted {
+			iconRes = assets.AudioIconActive
+		}
+	default:
+		iconRes = assets.DiscIcon
+	}
+
+	if useStorageIcon && drive.IsMounted {
+		switch iconRes {
+		case assets.FolderIcon:
+			iconRes = assets.FolderIconActive
+		case assets.SDCardIcon:
+			iconRes = assets.SDCardIconActive
+		default:
+			iconRes = assets.DiscIconActive
+		}
+	}
+	return iconRes
 }
 
 // buildStorageRowExtras builds a Storage row's own USB Stick/CD-ROM mode
