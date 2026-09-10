@@ -34,19 +34,25 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	dw.dashboardStorage = container.NewVBox()
 	dw.dashboardNetworkRows = container.NewVBox()
 
-	addImageBtn := view.NewDeviceActionButton("+ Mount ISO", nil, dw.handleAddImage)
-	dw.dashboardNetworkCard = view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", nil, dw.dashboardNetworkRows)
+	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", view.DeviceDashboardPlusCircleIconSVG, view.DeviceDashboardAccentLime, dw.handleAddImage)
+	dw.dashboardNetworkCard = view.NewDeviceDashboardCard(assets.NetworkIcon, "Virtual Network & NDIS Bridge", "", nil, dw.dashboardNetworkRows)
 	dw.dashboardNetworkCard.Hide() // only shown once a real RNDIS device exists -- see refreshDashboard
 
 	dw.refreshDashboard()
 
 	narrowColumn := container.NewVBox(
-		view.NewDeviceDashboardCard(assets.KeyboardIcon, "HID & Input Hub", nil, dw.dashboardHID),
-		view.NewDeviceDashboardCard(assets.MonitorTabIcon, "Video Pipe & EDID", nil, dw.dashboardVideo),
-		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", nil, dw.dashboardAudio),
+		view.NewDeviceDashboardCard(assets.KeyboardIcon, "HID & Input Hub", "", nil, dw.dashboardHID),
+		view.NewDeviceDashboardCard(assets.MonitorTabIcon, "Video Pipe & EDID", "", nil, dw.dashboardVideo),
+		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio),
 	)
 	dw.dashboardWideColumn = container.NewVBox(
-		view.NewDeviceDashboardCard(assets.SDCardIcon, "Virtual Mass Storage & ISO Media", addImageBtn, dw.dashboardStorage),
+		view.NewDeviceDashboardCard(
+			view.DeviceDashboardStorageIconSVG,
+			"Virtual Mass Storage & ISO Media",
+			"Emulated OTG USB mass storage drive and CD-ROM devices",
+			addImageBtn,
+			dw.dashboardStorage,
+		),
 		dw.dashboardNetworkCard,
 	)
 
