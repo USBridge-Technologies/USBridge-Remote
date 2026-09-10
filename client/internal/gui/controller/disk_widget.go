@@ -40,11 +40,19 @@ type DiskWidget struct {
 	// GetDashboardContainer, nil until then. refreshDashboard no-ops while
 	// nil so the old list-based GetContainer keeps working untouched if the
 	// dashboard is never requested.
-	dashboardContainer fyne.CanvasObject
-	dashboardHID       *fyne.Container
-	dashboardVideo     *fyne.Container
-	dashboardAudio     *fyne.Container
-	dashboardStorage   *fyne.Container
+	dashboardContainer   fyne.CanvasObject
+	dashboardHID         *fyne.Container
+	dashboardVideo       *fyne.Container
+	dashboardAudio       *fyne.Container
+	dashboardStorage     *fyne.Container
+	dashboardNetworkRows *fyne.Container
+	// dashboardNetworkCard is only shown once a real RNDIS device exists --
+	// see refreshDashboard -- so it's kept by reference to Show()/Hide().
+	// dashboardWideColumn is its direct parent: Container.Show()/Hide()
+	// alone don't force a relayout, so refreshDashboard also has to
+	// Refresh() the parent to actually reserve/collapse the card's space.
+	dashboardNetworkCard fyne.CanvasObject
+	dashboardWideColumn  *fyne.Container
 
 	// Data
 	localDrives    []*models.LocalDrive

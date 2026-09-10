@@ -13,6 +13,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
 )
 
 // DeviceDashboardColumnsLayout arranges exactly two children side by side --
@@ -97,12 +99,14 @@ func NewDeviceDashboardCard(icon fyne.Resource, title string, headerRight fyne.C
 }
 
 // NewDeviceDashboardRow is one compact device line inside a dashboard card:
-// a status dot, the device's display name, and its small type badge (see
-// driveBadge in controller/disk_widget_sections.go) trailing on the right --
-// reuses the Connections grid's own chip style (newConnectionPlatformChip)
-// so a device's badge reads as the same family as a connection's platform
-// chip.
-func NewDeviceDashboardRow(name string, active bool, badgeText string) fyne.CanvasObject {
+// a status dot, the device's display name, its small type badge (see
+// driveBadge in controller/disk_widget_sections.go), and an optional
+// mount/unmount toggle trailing on the right -- reuses the Connections
+// grid's own chip style (newConnectionPlatformChip) so a device's badge
+// reads as the same family as a connection's platform chip. toggle is nil
+// for device kinds this dashboard doesn't drive mount/unmount for (Video,
+// Audio -- see disk_widget_mount.go's own IsVideo/IsAudio exclusions).
+func NewDeviceDashboardRow(name string, active bool, badgeText string, toggle fyne.CanvasObject) fyne.CanvasObject {
 	dotColor := color.Color(videoDialogHintColor)
 	if active {
 		dotColor = design.ColorConnectionBadgeText
@@ -115,9 +119,164 @@ func NewDeviceDashboardRow(name string, active bool, badgeText string) fyne.Canv
 
 	left := container.New(&DeviceRowControlsLayout{Gap: 8}, dotWrap, nameText)
 
-	row := container.NewBorder(nil, nil, left, newConnectionPlatformChip(badgeText))
+	var right fyne.CanvasObject = newConnectionPlatformChip(badgeText)
+	if toggle != nil {
+		right = container.New(&DeviceRowControlsLayout{Gap: 10}, newConnectionPlatformChip(badgeText), toggle)
+	}
+
+	row := container.NewBorder(nil, nil, left, right)
 	return NewInset(row, 0, 0, 5, 5)
 }
+
+// deviceToggleWidth/Height is the pill track's own footprint; deviceToggleKnob
+// is the round knob sliding inside it, deviceToggleInset its resting gap
+// from the track's own edge.
+const (
+	deviceToggleWidth  = float32(30)
+	deviceToggleHeight = float32(16)
+	deviceToggleKnob   = float32(12)
+	deviceToggleInset  = float32(2)
+)
+
+// DeviceToggle is a small on/off pill switch for a dashboard row's own
+// mount/unmount action -- Fyne has no built-in switch widget (widget.Check
+// is a checkbox), and this dialog's rows read better as a switch (matching
+// the reference mockup) than a checkbox would.
+type DeviceToggle struct {
+	widget.BaseWidget
+
+	Active    bool
+	OnChanged func(bool)
+
+	disabled bool
+	hovered  bool
+
+	track *canvas.Rectangle
+	knob  *canvas.Circle
+}
+
+// NewDeviceToggle builds a switch reflecting active, calling onChanged with
+// the new state whenever tapped (unless later disabled via SetEnabled).
+func NewDeviceToggle(active bool, onChanged func(bool)) *DeviceToggle {
+	t := &DeviceToggle{Active: active, OnChanged: onChanged}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *DeviceToggle) SetActive(active bool) {
+	if t.Active == active {
+		return
+	}
+	t.Active = active
+	t.Refresh()
+}
+
+func (t *DeviceToggle) SetEnabled(enabled bool) {
+	if t.disabled == !enabled {
+		return
+	}
+	t.disabled = !enabled
+	t.Refresh()
+}
+
+func (t *DeviceToggle) Tapped(*fyne.PointEvent) {
+	if t.disabled {
+		return
+	}
+	t.Active = !t.Active
+	t.Refresh()
+	if t.OnChanged != nil {
+		t.OnChanged(t.Active)
+	}
+}
+
+func (t *DeviceToggle) TappedSecondary(*fyne.PointEvent) {}
+
+func (t *DeviceToggle) MouseIn(*desktop.MouseEvent) {
+	t.hovered = true
+	t.Refresh()
+}
+
+func (t *DeviceToggle) MouseMoved(*desktop.MouseEvent) {}
+
+func (t *DeviceToggle) MouseOut() {
+	t.hovered = false
+	t.Refresh()
+}
+
+func (t *DeviceToggle) Cursor() desktop.Cursor {
+	return desktop.PointerCursor
+}
+
+func (t *DeviceToggle) MinSize() fyne.Size {
+	return fyne.NewSize(deviceToggleWidth, deviceToggleHeight)
+}
+
+func (t *DeviceToggle) CreateRenderer() fyne.WidgetRenderer {
+	t.track = canvas.NewRectangle(color.Transparent)
+	t.track.CornerRadius = deviceToggleHeight / 2
+	t.knob = canvas.NewCircle(color.White)
+	r := &deviceToggleRenderer{t: t}
+	r.applyColors()
+	return r
+}
+
+type deviceToggleRenderer struct {
+	t *DeviceToggle
+}
+
+func (r *deviceToggleRenderer) Layout(fyne.Size) {
+	t := r.t
+	t.track.Move(fyne.NewPos(0, 0))
+	t.track.Resize(fyne.NewSize(deviceToggleWidth, deviceToggleHeight))
+
+	knobY := (deviceToggleHeight - deviceToggleKnob) / 2
+	knobX := deviceToggleInset
+	if t.Active {
+		knobX = deviceToggleWidth - deviceToggleKnob - deviceToggleInset
+	}
+	t.knob.Move(fyne.NewPos(knobX, knobY))
+	t.knob.Resize(fyne.NewSize(deviceToggleKnob, deviceToggleKnob))
+}
+
+func (r *deviceToggleRenderer) applyColors() {
+	t := r.t
+	switch {
+	case t.disabled:
+		t.track.FillColor = color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff}
+		t.knob.FillColor = color.NRGBA{R: 0x55, G: 0x58, B: 0x52, A: 0xff}
+	case t.Active:
+		t.track.FillColor = design.ColorConnectionBadgeText
+		t.knob.FillColor = design.ColorGray950
+	default:
+		fill := color.Color(color.NRGBA{R: 0x22, G: 0x26, B: 0x2a, A: 0xff})
+		if t.hovered {
+			fill = color.NRGBA{R: 0x2c, G: 0x30, B: 0x34, A: 0xff}
+		}
+		t.track.FillColor = fill
+		t.knob.FillColor = videoDialogHintColor
+	}
+}
+
+func (r *deviceToggleRenderer) MinSize() fyne.Size {
+	return r.t.MinSize()
+}
+
+func (r *deviceToggleRenderer) Refresh() {
+	r.applyColors()
+	r.Layout(r.t.Size())
+	canvas.Refresh(r.t)
+}
+
+func (r *deviceToggleRenderer) BackgroundColor() color.Color {
+	return color.Transparent
+}
+
+func (r *deviceToggleRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.t.track, r.t.knob}
+}
+
+func (r *deviceToggleRenderer) Destroy() {}
 
 // NewDeviceDashboardEmptyState is the muted placeholder line a dashboard
 // card shows in place of its rows when it currently has no devices.
