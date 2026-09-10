@@ -417,9 +417,6 @@ func newConnectionListActionsCell(item ConnectionListItem) fyne.CanvasObject {
 	connectColor := color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 	connectHover := color.NRGBA{R: 0xd4, G: 0xf7, B: 0x8a, A: 0xff}
 
-	connectIconColored := strings.ReplaceAll(string(assets.ConnectIconBoldBlack.Content()), "#111111", "#4c6803")
-	connectIconResource := fyne.NewStaticResource("custom-connect.svg", []byte(connectIconColored))
-
 	connectBtn := newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:         connectColor,
 		HoverFill:          connectHover,
@@ -430,12 +427,12 @@ func newConnectionListActionsCell(item ConnectionListItem) fyne.CanvasObject {
 		LabelBold:          true,
 		LabelSize:          10,
 		CornerRadius:       6,
-		NormalIcon:         connectIconResource,
+		NormalIcon:         deviceDashboardConnectIconSVG,
 		IconSize:           fyne.NewSize(10, 10),
 		ButtonSize:         fyne.NewSize(0, 23),
 		OnTapped:           item.Actions.OnUse,
 		LoadingFill:        connectLoadingFill,
-		LoadingIcon:        assets.ConnectIconBoldBlack,
+		LoadingIcon:        deviceDashboardConnectIconSVG,
 		LoadingLabelColor:  color.Black,
 	})
 	connectBtn.SetText("Connect")

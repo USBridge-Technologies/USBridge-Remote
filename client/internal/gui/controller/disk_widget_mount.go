@@ -534,7 +534,7 @@ func (dw *DiskWidget) handleUnmount() {
 		snapSelected[k] = v
 	}
 
-	view.ShowConfirmYesLeft(i18n.Current.Confirmation, confirmMsg, func(ok bool) {
+	view.ShowConfirmToast(confirmMsg, func(ok bool) {
 		if !ok {
 			return
 		}

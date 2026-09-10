@@ -131,6 +131,11 @@ var (
 	ColorExitButtonHoverBorder = color.NRGBA{R: 0x4e, G: 0x13, B: 0x28, A: 0xff}
 	ColorExitButtonHoverFill   = color.NRGBA{R: 0x1d, G: 0x13, B: 0x1b, A: 0xff}
 	ColorExitButtonHoverText   = color.NRGBA{R: 0xf4, G: 0x6e, B: 0x81, A: 0xff}
+
+	// ColorScrollBar is the app-wide scrollbar thumb color (theme.ColorNameScrollBar) --
+	// Fyne themes this globally, with no per-Scroll-instance override, so this affects
+	// every scrollbar in the app (e.g. the Devices dashboard's own Storage card list).
+	ColorScrollBar = color.NRGBA{R: 0x32, G: 0x36, B: 0x2e, A: 0xff}
 )
 
 const RadiusMD float32 = 8
@@ -211,7 +216,7 @@ func (t *BrandTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.
 	case fynetheme.ColorNamePrimary:
 		return ColorAccent
 	case fynetheme.ColorNameScrollBar:
-		return ColorBorder
+		return ColorScrollBar
 	case fynetheme.ColorNameScrollBarBackground:
 		return ColorGray950
 	case fynetheme.ColorNameSelection:

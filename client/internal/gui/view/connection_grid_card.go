@@ -254,9 +254,6 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 		protocolDropdown.SetSelected(data.ProtocolBadge)
 		protocolDropdown.SetDisabled(state.Disabled)
 
-		connectIconColored := strings.ReplaceAll(string(assets.ConnectIconBoldBlack.Content()), "#111111", "#4c6803")
-		connectIconResource := fyne.NewStaticResource("custom-connect.svg", []byte(connectIconColored))
-
 		connectBtn = newIconChromeButton(iconChromeButtonSpec{
 			NormalFill:         connectColor,
 			HoverFill:          connectHover,
@@ -266,12 +263,12 @@ func NewConnectionGridCard(data ConnectionCardData, state ConnectionRowState, ac
 			LabelColor:         color.NRGBA{R: 0x4c, G: 0x68, B: 0x03, A: 0xff},
 			LabelBold:          true,
 			CornerRadius:       6,
-			NormalIcon:         connectIconResource,
+			NormalIcon:         deviceDashboardConnectIconSVG,
 			IconSize:           fyne.NewSize(14, 14),
 			ButtonSize:         fyne.NewSize(0, 26),
 			OnTapped:           actions.OnUse,
 			LoadingFill:        connectLoadingFill,
-			LoadingIcon:        assets.ConnectIconBoldBlack,
+			LoadingIcon:        deviceDashboardConnectIconSVG,
 			LoadingLabelColor:  color.Black,
 		})
 		connectBtn.SetText("Connect")

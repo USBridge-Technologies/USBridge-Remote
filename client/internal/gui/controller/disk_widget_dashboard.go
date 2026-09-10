@@ -116,12 +116,16 @@ func (dw *DiskWidget) refreshDashboard() {
 		return
 	}
 
-	// "Mount New ISO" darkens while its own file picker is open -- the
-	// row buttons elsewhere in the card deliberately don't (see
+	// "Mount New ISO" darkens while its own file picker is open -- and
+	// ONLY then, not while a mount/unmount is in flight (userOperationInFlight
+	// is shared by both, see beginOperation/endOperation in
+	// disk_widget_mount.go), which is why this reads imagePickerInFlight
+	// specifically instead. The row buttons elsewhere in the card
+	// deliberately don't visually react to any of this at all (see
 	// buildStorageRowExtras's own doc comment on why they skip
 	// SetDisabled(dw.controlsLocked())).
 	if dw.dashboardAddImageBtn != nil {
-		dw.dashboardAddImageBtn.SetBusy(dw.userOperationInFlight.Load())
+		dw.dashboardAddImageBtn.SetBusy(dw.imagePickerInFlight.Load())
 	}
 
 	var hidRows, videoRows, audioRows, storageRows, networkRows []fyne.CanvasObject
