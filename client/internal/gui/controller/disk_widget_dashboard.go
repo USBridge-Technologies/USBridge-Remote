@@ -56,6 +56,7 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 	plusGlyph := view.NewDeviceDashboardPlusGlyph(10, view.DeviceDashboardHeaderButtonTextColor)
 	addImageBtn := view.NewDeviceDashboardHeaderButton("Mount New ISO", plusGlyph, view.DeviceDashboardAccentLime, dw.handleAddImage)
 	addImageBtn.OnHover = dw.dashboardStorageHover
+	dw.dashboardAddImageBtn = addImageBtn
 
 	dw.refreshDashboard()
 
@@ -70,13 +71,21 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		view.NewDeviceDashboardCardGap(),
 		view.NewDeviceDashboardCard(assets.AudioIcon, "Audio Pipeline (UAC2)", "", nil, dw.dashboardAudio, audioBind),
 	)
+	// Wrapped in a Scroll from the start (rather than only once there
+	// happen to be enough drives) so refreshDashboard can just adjust its
+	// own SetMinSize every time instead of swapping the card's content
+	// object -- with dashboardStorage's own natural height as that
+	// min size, the Scroll is indistinguishable from a plain VBox until
+	// refreshDashboard caps it past dashboardStorageVisibleRows.
+	dw.dashboardStorageScroll = container.NewVScroll(dw.dashboardStorage)
+
 	dw.dashboardWideColumn = container.NewVBox(
 		view.NewDeviceDashboardCard(
 			view.DeviceDashboardStorageIconSVG,
 			"Virtual Mass Storage & ISO Media",
 			"",
 			addImageBtn,
-			dw.dashboardStorage,
+			dw.dashboardStorageScroll,
 			storageBind,
 		),
 		view.NewDeviceDashboardCardGap(),
@@ -100,6 +109,14 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 func (dw *DiskWidget) refreshDashboard() {
 	if dw.dashboardHID == nil {
 		return
+	}
+
+	// "Mount New ISO" darkens while its own file picker is open -- the
+	// row buttons elsewhere in the card deliberately don't (see
+	// buildStorageRowExtras's own doc comment on why they skip
+	// SetDisabled(dw.controlsLocked())).
+	if dw.dashboardAddImageBtn != nil {
+		dw.dashboardAddImageBtn.SetBusy(dw.userOperationInFlight.Load())
 	}
 
 	var hidRows, videoRows, audioRows, storageRows, networkRows []fyne.CanvasObject
@@ -126,23 +143,23 @@ func (dw *DiskWidget) refreshDashboard() {
 			modePicker, deleteBtn, uploadBtn := dw.buildStorageRowExtras(idx, drive)
 			// The same trailing slot shows the lime "Connected" badge
 			// once mounted, or -- while not yet mounted/mounting -- a
-			// plain teal "mount it" button; both drive the exact same
-			// toggleDriveMount, matching the old list's own per-row
-			// checkbox, which never cared whether the drive had come
-			// from the API/a local scan/the user's own upload.
+			// plain "mount it" button, both driving the exact same
+			// toggleDriveMount. Only for a drive already resident on the
+			// device (source "api"/"local") -- a "user" source file still
+			// sitting on the client's own PC has to be uploaded first
+			// (see the Upload button below), so it gets no mount/connect
+			// control until it re-appears as "local"/"api" after that.
 			var connectSlot fyne.CanvasObject
 			if drive.IsMounted {
 				connectSlot = view.NewDeviceDashboardConnectedBadge(func() {
 					dw.toggleDriveMount(idx)
 				}, dw.dashboardStorageHover)
-			} else if !drive.IsMounting {
-				mountBtn := view.NewDeviceDashboardMountButton(func() {
+			} else if !drive.IsMounting && drive.Source != "user" {
+				connectSlot = view.NewDeviceDashboardMountButton(func() {
 					if !dw.controlsLocked() {
 						dw.toggleDriveMount(idx)
 					}
 				}, dw.dashboardStorageHover)
-				mountBtn.SetDisabled(dw.controlsLocked())
-				connectSlot = mountBtn
 			}
 			storageRows = append(storageRows, view.NewDeviceDashboardStorageRow(icon, name, drive.IsMounted, modePicker, deleteBtn, uploadBtn, connectSlot, nil, drive.Size))
 		}
@@ -155,19 +172,65 @@ func (dw *DiskWidget) refreshDashboard() {
 	setDashboardRows(dw.dashboardNetworkRows, networkRows, "No network bridge devices")
 
 	if dw.dashboardNetworkCard != nil {
-		wasVisible := dw.dashboardNetworkCard.Visible()
 		if len(networkRows) > 0 {
 			dw.dashboardNetworkCard.Show()
 		} else {
 			dw.dashboardNetworkCard.Hide()
 		}
-		// Container.Show()/Hide() alone don't force a relayout -- without
-		// this, the wide column wouldn't actually reserve or collapse the
-		// card's space until something else happened to refresh it.
-		if dw.dashboardNetworkCard.Visible() != wasVisible && dw.dashboardWideColumn != nil {
-			dw.dashboardWideColumn.Refresh()
-		}
 	}
+
+	if dw.dashboardStorageScroll != nil {
+		// Past dashboardStorageVisibleRows, cap the Scroll's own height at
+		// exactly that many rows (dashboardStorageCapHeight) so the rest
+		// become internally scrollable instead of pushing the Video/Audio/
+		// HID cards in the other column further down the page; below that,
+		// give it the row list's own natural height so it reads exactly
+		// like a plain, non-scrolling list (see NewDeviceDashboardCard's
+		// content, wired to this Scroll in GetDashboardContainer).
+		height := dashboardStorageCapHeight(storageRows)
+		if height <= 0 {
+			height = dw.dashboardStorage.MinSize().Height
+		}
+		dw.dashboardStorageScroll.SetMinSize(fyne.NewSize(0, height))
+	}
+
+	// Container.Show()/Hide()/SetMinSize() alone don't force a relayout --
+	// without this, the wide column wouldn't actually reserve/collapse the
+	// network card's space or resize the storage scroll's own viewport
+	// until something else happened to refresh it.
+	if dw.dashboardWideColumn != nil {
+		dw.dashboardWideColumn.Refresh()
+	}
+}
+
+// dashboardStorageVisibleRows caps how many Storage rows show before the
+// card's own row list becomes internally scrollable (see refreshDashboard).
+// Enough to read as "several drives" without letting one Storage card with
+// many ISOs push the Video/Audio/HID cards in the other column far down
+// the page.
+const dashboardStorageVisibleRows = 6
+
+// dashboardStorageCapHeight returns the pixel height of the first
+// dashboardStorageVisibleRows rows plus the separators between them
+// (mirroring setDashboardRows's own interleaving), measured from the
+// actual row/separator widgets' own MinSize rather than a guessed
+// constant -- stays correct if a row's own height ever changes (e.g. the
+// two-line name/size layout). Returns 0 if there aren't more rows than
+// that, meaning the caller should leave the row list sized naturally
+// instead of capping it.
+func dashboardStorageCapHeight(rows []fyne.CanvasObject) float32 {
+	if len(rows) <= dashboardStorageVisibleRows {
+		return 0
+	}
+	sepHeight := view.NewDeviceDashboardRowSeparator().MinSize().Height
+	var height float32
+	for i := 0; i < dashboardStorageVisibleRows; i++ {
+		if i > 0 {
+			height += sepHeight
+		}
+		height += rows[i].MinSize().Height
+	}
+	return height
 }
 
 // setDashboardRows fills target with rows, separated by a short inset
@@ -299,13 +362,17 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 	}
 
 	if drive.Source == "user" && drive.DiskInfo != nil && !drive.IsMounting && !drive.IsMounted {
-		btn := view.NewDeviceDashboardUploadButton(func() {
+		// No SetDisabled(dw.controlsLocked()) here -- this row's own
+		// buttons deliberately keep their normal look even while e.g. the
+		// "Mount New ISO" file picker is open elsewhere in the card (see
+		// NewDeviceDashboardHeaderButton.SetBusy for that button's own
+		// feedback instead); the onTap closure above already guards
+		// against acting while locked.
+		uploadBtn = view.NewDeviceDashboardUploadButton(func() {
 			if !dw.controlsLocked() {
 				dw.handleUploadImage(idx)
 			}
 		}, dw.dashboardStorageHover)
-		btn.SetDisabled(drive.IsUploading || dw.controlsLocked())
-		uploadBtn = btn
 	}
 
 	shouldShowDelete := false
@@ -339,9 +406,7 @@ func (dw *DiskWidget) buildStorageRowExtras(idx int, drive DriveItem) (modePicke
 				}
 			}
 		}
-		btn := view.NewDeviceDashboardDeleteButton(onTap, dw.dashboardStorageHover)
-		btn.SetDisabled(dw.controlsLocked())
-		deleteBtn = btn
+		deleteBtn = view.NewDeviceDashboardDeleteButton(onTap, dw.dashboardStorageHover)
 	}
 
 	return modePicker, deleteBtn, uploadBtn

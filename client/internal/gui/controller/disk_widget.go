@@ -18,6 +18,7 @@ import (
 	"usbridge-client/internal/service"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/sirupsen/logrus"
 )
@@ -64,6 +65,16 @@ type DiskWidget struct {
 	dashboardAudioHover   func(bool)
 	dashboardStorageHover func(bool)
 	dashboardNetworkHover func(bool)
+
+	// dashboardAddImageBtn is Storage's own "Mount New ISO" header button --
+	// kept so refreshDashboard can darken it (SetBusy) while its own file
+	// picker is in flight, without rebuilding it every refresh.
+	dashboardAddImageBtn *view.DeviceDashboardHeaderButton
+
+	// dashboardStorageScroll wraps dashboardStorage (the Storage card's own
+	// row list) so it can become internally scrollable once there are more
+	// rows than fit comfortably -- see refreshDashboard's own height cap.
+	dashboardStorageScroll *container.Scroll
 
 	// Data
 	localDrives    []*models.LocalDrive

@@ -493,6 +493,14 @@ var DeviceDashboardAccentLime = color.NRGBA{R: 0xc4, G: 0xe7, B: 0x7a, A: 0xff}
 // for a header button's own hover fill.
 var deviceDashboardAccentLimeHover = color.NRGBA{R: 0xd9, G: 0xf2, B: 0xa3, A: 0xff}
 
+// deviceDashboardHeaderButtonBusyFill is DeviceDashboardAccentLime
+// darkened -- a header button's own fill (e.g. "Mount New ISO") while its
+// action is in flight (the OS file picker is open). This is the only
+// visual feedback for that state; the row's own Delete/Upload/mount
+// buttons deliberately stay exactly as they look normally instead of
+// graying out (see disk_widget_dashboard.go's refreshDashboard).
+var deviceDashboardHeaderButtonBusyFill = color.NRGBA{R: 0x75, G: 0x8a, B: 0x49, A: 0xff}
+
 // DeviceDashboardHeaderButtonTextColor is the dark olive-green text/icon
 // color read against a header button's own bright lime fill -- the same
 // #4c6803 the Connections table's own Connect button uses for its label
@@ -533,6 +541,7 @@ type DeviceDashboardHeaderButton struct {
 	accent  color.Color
 	onTap   func()
 	hovered bool
+	busy    bool
 
 	// OnHover, when set, is called with the pointer's hover state -- see
 	// DeviceToggle.OnHover's own doc comment.
@@ -554,6 +563,18 @@ func (b *DeviceDashboardHeaderButton) Tapped(*fyne.PointEvent) {
 	if b.onTap != nil {
 		b.onTap()
 	}
+}
+
+// SetBusy darkens the button while its own action is in flight (e.g. the
+// OS file picker is open for "Mount New ISO") -- purely visual, doesn't
+// disable tapping; the caller is expected to already guard re-entrancy
+// itself (handleAddImage's own imagePickerInFlight).
+func (b *DeviceDashboardHeaderButton) SetBusy(busy bool) {
+	if b.busy == busy {
+		return
+	}
+	b.busy = busy
+	b.refreshVisuals()
 }
 
 func (b *DeviceDashboardHeaderButton) TappedSecondary(*fyne.PointEvent) {}
@@ -585,7 +606,10 @@ func (b *DeviceDashboardHeaderButton) refreshVisuals() {
 		return
 	}
 	fill := b.accent
-	if b.hovered {
+	switch {
+	case b.busy:
+		fill = deviceDashboardHeaderButtonBusyFill
+	case b.hovered:
 		fill = deviceDashboardAccentLimeHover
 	}
 	b.bg.FillColor = fill
@@ -771,29 +795,20 @@ func NewDeviceDashboardConnectedBadge(onTap func(), onHover func(bool)) *iconChr
 	return btn
 }
 
-// deviceDashboardMountIconSVG is deviceDashboardConnectIconSVG recolored to
-// black -- the same plug glyph, just for the plain teal "not yet mounted"
-// button below instead of the lime "Connected" badge.
-var deviceDashboardMountIconSVG = fyne.NewStaticResource("device_dashboard_mount_plug.svg", []byte(strings.ReplaceAll(string(deviceDashboardConnectIconSVG.Content()), "#4c6803", "#000000")))
-
-// deviceDashboardMountHoverFill lightens design.ColorConnectionBadgeText
-// (the app's own teal accent, also this card's own hover-border color) for
-// NewDeviceDashboardMountButton's own hover fill.
-var deviceDashboardMountHoverFill = color.NRGBA{R: 0x71, G: 0xea, B: 0xd6, A: 0xff}
-
 // NewDeviceDashboardMountButton is Storage's own "not yet mounted" action --
-// a plain square icon button (teal fill, black plug icon, no label), shown
-// in the same trailing slot NewDeviceDashboardConnectedBadge takes once the
-// drive is actually mounted (see disk_widget_dashboard.go's refreshDashboard).
-// Tapping it mounts the drive.
+// a plain square icon button, no label, shown in the same trailing slot
+// NewDeviceDashboardConnectedBadge takes once the drive is actually
+// mounted (see disk_widget_dashboard.go's refreshDashboard) -- same lime
+// fill/hover/icon recipe as that badge and "Mount New ISO", just without
+// the text label. Tapping it mounts the drive.
 func NewDeviceDashboardMountButton(onTap func(), onHover func(bool)) *iconChromeButton {
 	return newIconChromeButton(iconChromeButtonSpec{
-		NormalFill:   design.ColorConnectionBadgeText,
-		HoverFill:    deviceDashboardMountHoverFill,
+		NormalFill:   DeviceDashboardAccentLime,
+		HoverFill:    deviceDashboardConnectHoverFill,
 		DisabledFill: connectionActionBlockedFill,
 		Stroke:       color.Transparent,
 		CornerRadius: 6,
-		NormalIcon:   deviceDashboardMountIconSVG,
+		NormalIcon:   deviceDashboardConnectIconSVG,
 		IconSize:     fyne.NewSize(11, 11),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     onTap,

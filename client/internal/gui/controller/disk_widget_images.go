@@ -142,9 +142,8 @@ func (dw *DiskWidget) handleDeleteImageFromDevice(driveIndex int, filename strin
 	}
 	drive := dw.allDrives[driveIndex]
 	if dw.window != nil {
-		view.ShowDeleteImageConfirm(
-			drive.Name,
-			false, // deletes the file from the server — irreversible
+		view.ShowConfirmToast(
+			fmt.Sprintf("Delete %s from the device? This cannot be undone.", drive.Name),
 			func(confirmed bool) {
 				if confirmed {
 					go dw.deleteImageFromDevice(filename, drive.Name)
@@ -339,9 +338,8 @@ func (dw *DiskWidget) removeUserImage(driveIndex int) {
 	}
 
 	if dw.window != nil {
-		view.ShowDeleteImageConfirm(
-			drive.Name,
-			true, // removes from list only — file on disk is not affected
+		view.ShowConfirmToast(
+			fmt.Sprintf("Remove %s from the list?", drive.Name),
 			func(confirmed bool) {
 				if confirmed {
 					dw.userImages = append(dw.userImages[:userImageIndex], dw.userImages[userImageIndex+1:]...)
