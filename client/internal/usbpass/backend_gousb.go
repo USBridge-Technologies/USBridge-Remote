@@ -675,6 +675,7 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		if isCSW {
 			actualResidue := binary.LittleEndian.Uint32(buf[8:12])
 			expectedResidue := b.lastCBWDatalen - b.lastCBWTransfer
+			logrus.Debugf("usbpass: CSW EVAL - actual=%d expected=%d transfer=%d datalen=%d", actualResidue, expectedResidue, b.lastCBWTransfer, b.lastCBWDatalen)
 			if b.lastCBWTransfer <= b.lastCBWDatalen && expectedResidue != actualResidue {
 				logrus.Debugf("usbpass: PATCHING CSW residue %d -> %d to prevent Windows phase error (transferred %d of %d)", actualResidue, expectedResidue, b.lastCBWTransfer, b.lastCBWDatalen)
 				binary.LittleEndian.PutUint32(buf[8:12], expectedResidue)
