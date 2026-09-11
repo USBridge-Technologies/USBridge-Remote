@@ -86,12 +86,21 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 
             if [ ! -d "${OPENSSL_SRC}" ]; then
                 TARBALL="${BUILD_DIR}/openssl-${OPENSSL_VERSION}.tar.gz"
+                if [ -f "${TARBALL}" ] && ! gzip -t "${TARBALL}" 2>/dev/null; then
+                    echo "  ⚠️ Existing OpenSSL tarball is corrupt/truncated, re-downloading..."
+                    rm -f "${TARBALL}"
+                fi
                 if [ ! -f "${TARBALL}" ]; then
                     echo "  Downloading OpenSSL ${OPENSSL_VERSION}..."
                     wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
                         -O "${TARBALL}" \
                         || curl -fsSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
                             -o "${TARBALL}"
+                    if ! gzip -t "${TARBALL}" 2>/dev/null; then
+                        echo "❌ Downloaded OpenSSL tarball is corrupt/truncated (network issue?)"
+                        rm -f "${TARBALL}"
+                        exit 1
+                    fi
                 fi
                 tar xzf "${TARBALL}" -C "${BUILD_DIR}"
             fi
@@ -131,12 +140,21 @@ if [ "${MOONLIGHT_ANDROID_TARGET:-0}" = "1" ] && [ -n "${ANDROID_NDK_HOME:-}" ] 
 
         if [ ! -d "${OPUS_SRC}" ]; then
             OPUS_TARBALL="${BUILD_DIR}/opus-${OPUS_VERSION}.tar.gz"
+            if [ -f "${OPUS_TARBALL}" ] && ! gzip -t "${OPUS_TARBALL}" 2>/dev/null; then
+                echo "  ⚠️ Existing Opus tarball is corrupt/truncated, re-downloading..."
+                rm -f "${OPUS_TARBALL}"
+            fi
             if [ ! -f "${OPUS_TARBALL}" ]; then
                 echo "  Downloading Opus ${OPUS_VERSION}..."
                 wget -q "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
                     -O "${OPUS_TARBALL}" \
                     || curl -fsSL "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
                         -o "${OPUS_TARBALL}"
+                if ! gzip -t "${OPUS_TARBALL}" 2>/dev/null; then
+                    echo "❌ Downloaded Opus tarball is corrupt/truncated (network issue?)"
+                    rm -f "${OPUS_TARBALL}"
+                    exit 1
+                fi
             fi
             tar xzf "${OPUS_TARBALL}" -C "${BUILD_DIR}"
         fi

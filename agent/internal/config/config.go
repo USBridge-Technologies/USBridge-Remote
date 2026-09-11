@@ -15,7 +15,7 @@ import (
 type Config struct {
 	AppName          string `yaml:"app_name"`
 	ListenHost       string `yaml:"listen_host"`
-	HTTPPort         int    `yaml:"http_port"`
+	UsbPassthroughPort int `yaml:"usb_passthrough_port"`
 	TailscaleEnabled bool   `yaml:"tailscale_enabled"`
 	NBDMountCommand  string `yaml:"nbd_mount_command"`
 	StateDir         string `yaml:"state_dir"`
@@ -87,7 +87,8 @@ func Default() Config {
 	return Config{
 		AppName:          "USBridge Agent",
 		ListenHost:       "0.0.0.0",
-		HTTPPort:         8080,
+		HTTPPort:           8080,
+		UsbPassthroughPort: 8090,
 		TailscaleEnabled: true,
 		NBDMountCommand:  "",
 		StateDir:         defaultStateDir(),

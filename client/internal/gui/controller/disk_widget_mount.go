@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"usbridge-client/internal/gui/view"
 	"usbridge-client/internal/models"
 	"usbridge-client/internal/service"
+	"usbridge-client/internal/usbpass"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -69,6 +73,7 @@ func (dw *DiskWidget) endOperation() {
 	var newMounted []*models.DeviceInfo
 	var newLocalDrives []*models.LocalDrive
 	var newAgentOS string
+	var newPassSessions []string
 
 	if dw.usbClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -92,6 +97,10 @@ func (dw *DiskWidget) endOperation() {
 		} else {
 			logrus.Errorf("endOperation: GetLocalDrives: %v", err)
 		}
+
+		if st, err := dw.usbClient.GetUSBPassthroughStatus(); err == nil && st != nil {
+			newPassSessions = append([]string(nil), st.Sessions...)
+		}
 	}
 
 	// All changes happen in one fyne.Do — atomic from the event loop's point of view.
@@ -105,6 +114,7 @@ func (dw *DiskWidget) endOperation() {
 		if newLocalDrives != nil {
 			dw.localDrives = newLocalDrives
 		}
+		dw.usbPassSessions = newPassSessions
 		// Reset all mounting animations
 		for i := range dw.allDrives {
 			dw.allDrives[i].IsMounting = false
@@ -169,6 +179,31 @@ func (dw *DiskWidget) handleMount() {
 	}
 
 	logrus.Infof("📁 [MOUNT] mounted: %d, adding: %d", mountedGadgetCount, len(selectedDrives))
+	for _, d := range selectedDrives {
+		bus := ""
+		if d.USBPassthrough != nil {
+			bus = d.USBPassthrough.BusID
+		}
+		logrus.Infof("📁 [MOUNT] selected name=%q source=%q usbpass=%v bus=%q",
+			d.Name, d.Source, d.IsUSBPassthrough, bus)
+	}
+
+	var pass []DriveItem
+	var rest []DriveItem
+	for _, d := range selectedDrives {
+		if d.IsUSBPassthrough {
+			pass = append(pass, d)
+		} else {
+			rest = append(rest, d)
+		}
+	}
+	if len(pass) > 0 {
+		dw.mountUSBPassthrough(pass)
+	}
+	if len(rest) == 0 {
+		return
+	}
+	selectedDrives = rest
 
 	// An XInput gamepad is incompatible with keyboard/mouse in the same composite device:
 	// Windows won't initialize the remaining HID interfaces under the Xbox VID/PID.
@@ -567,6 +602,8 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		usbpass.StopSession()
+		dw.usbPassSessions = nil
 		dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
 		if _, err := executeDeviceBatch(dw.usbClient, dw.startDevicesWithRetry, nil, false); err != nil {
 			logrus.Warnf("⚠️ [UNMOUNT-ALL] Stop error: %v", err)
@@ -587,6 +624,7 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 	}
 
 	drivesToUnmount := make([]DriveItem, 0, len(selectedIndices))
+	stopUSBPass := false
 	for idx := range selectedIndices {
 		if idx >= len(dw.allDrives) {
 			continue
@@ -597,7 +635,14 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 		if dw.allDrives[idx].IsAudio && dw.onAudioDisconnect != nil {
 			dw.onAudioDisconnect()
 		}
+		if dw.allDrives[idx].IsUSBPassthrough {
+			stopUSBPass = true
+		}
 		drivesToUnmount = append(drivesToUnmount, dw.allDrives[idx])
+	}
+	if stopUSBPass {
+		usbpass.StopSession()
+		dw.usbPassSessions = nil
 	}
 
 	dw.updateStatusAsync(i18n.Current.StoppingAllDevices)
@@ -637,6 +682,22 @@ func (dw *DiskWidget) doUnmount(unmountAll bool, selectedIndices map[int]bool, m
 // unmount button was not used.
 func (dw *DiskWidget) StopAllNBDServers() {
 	dw.stopNBDAndCleanup(nil, true)
+}
+
+// StopUSBPassthrough tears down the local USB/IP export + broker attach and
+// clears the green mounted marker. Safe to call when nothing is mounted.
+func (dw *DiskWidget) StopUSBPassthrough() {
+	usbpass.StopSession()
+	fyne.Do(func() {
+		dw.usbPassSessions = nil
+		for i := range dw.allDrives {
+			if dw.allDrives[i].IsUSBPassthrough {
+				dw.allDrives[i].IsMounted = false
+			}
+		}
+		dw.updateButtons()
+		dw.requestDevicesRefresh()
+	})
 }
 
 // stopNBDAndCleanup stops NBD servers and releases resources.
@@ -961,6 +1022,70 @@ func (dw *DiskWidget) reconfigureMountedDevicesForMouseMode(newMode string) {
 		}
 		if dw.onMouseModeReconfigured != nil {
 			dw.onMouseModeReconfigured()
+		}
+	}()
+}
+
+func (dw *DiskWidget) mountUSBPassthrough(items []DriveItem) {
+	dw.beginOperation()
+	go func() {
+		defer dw.endOperation()
+		var devices []models.USBPassthroughDevice
+		for _, it := range items {
+			if it.USBPassthrough == nil {
+				continue
+			}
+			if it.USBPassthrough.Protected {
+				dw.showErrorAsync(fmt.Errorf("%s", i18n.Current.USBPassthroughProtected))
+				return
+			}
+			devices = append(devices, *it.USBPassthrough)
+		}
+		if len(devices) == 0 {
+			return
+		}
+		// Go client owns the USB/IP server (export). rust-shine on the agent
+		// is the USB/IP client (win2 VHCI).
+		exportPort := 3240
+		if _, err := usbpass.StartSession(fmt.Sprintf("0.0.0.0:%d", exportPort), devices); err != nil {
+			dw.showErrorAsync(fmt.Errorf("USB/IP export: %w", err))
+			return
+		}
+		if _, err := dw.usbClient.OpenUSBPassthroughSession(); err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(fmt.Errorf("%s: %w", i18n.Current.USBPassthroughEnterpriseHint, err))
+			return
+		}
+		base := dw.usbClient.GetBaseURL()
+		u, err := url.Parse(base)
+		if err != nil {
+			usbpass.StopSession()
+			dw.showErrorAsync(err)
+			return
+		}
+		port := 8090
+		if dw.config != nil && dw.config.USBPassthroughPort > 0 {
+			port = dw.config.USBPassthroughPort
+		}
+		addr := net.JoinHostPort(u.Hostname(), strconv.Itoa(port))
+		secret := string(dw.usbClient.APISecret())
+		for _, d := range devices {
+			inst := d.InstanceID
+			if inst == "" {
+				inst = d.BusID
+			}
+			if err := usbpass.Attach(usbpass.AttachOptions{
+				AgentAddr:       addr,
+				Secret:          secret,
+				InstanceID:      inst,
+				USBIPBusID:      d.BusID,
+				ExportService:   strconv.Itoa(exportPort),
+				AllowUnlicensed: true, // lab; enterprise gate is on the agent broker
+			}); err != nil {
+				usbpass.StopSession()
+				dw.showErrorAsync(err)
+				return
+			}
 		}
 	}()
 }

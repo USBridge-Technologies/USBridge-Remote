@@ -1,23 +1,23 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Builds usbridge_agent for Windows, driving MSYS2 UCRT64 entirely from PowerShell.
+    Builds USBridge Client for Windows, driving MSYS2 UCRT64 entirely from PowerShell.
 
 .DESCRIPTION
-    build_windows.sh (the actual build logic: Go build, DLL bundling, Sunshine
-    staging) still runs inside the UCRT64 toolchain -- Go's cgo (needed for
-    Fyne/OpenGL) requires a GCC-compatible compiler, which on Windows means mingw-w64.
-    This script just removes the manual steps around that: no more opening an "MSYS2
-    UCRT64" terminal by hand and running pacman yourself. It installs MSYS2 itself (via
-    winget) if missing, installs whichever required UCRT64 packages aren't already
-    present, then invokes build_windows.sh non-interactively inside UCRT64 and streams
-    its output back here.
+    build_windows.sh (the actual build logic: Go/Fyne build, Moonlight, DLL
+    bundling) still runs inside the UCRT64 toolchain -- Go's cgo requires a
+    GCC-compatible compiler, which on Windows means mingw-w64.
+    This script just removes the manual steps around that: no more opening an
+    "MSYS2 UCRT64" terminal by hand and running pacman yourself. It installs
+    MSYS2 itself (via winget) if missing, installs whichever required UCRT64
+    packages aren't already present, then invokes build_windows.sh
+    non-interactively inside UCRT64 and streams its output back here.
 
 .PARAMETER Msys2Root
     Path to the MSYS2 install. Defaults to $env:MSYS2_ROOT or C:\msys64.
 
 .EXAMPLE
-    ./agent/scripts/build_windows.ps1
+    ./client/scripts/build_windows.ps1
 #>
 param(
     [string]$Msys2Root = $(if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { "C:\msys64" })
@@ -100,18 +100,28 @@ if (-not (Test-Path $bashExe)) {
 
 Restore-MsysCaBundle
 
-# mingw-w64-ucrt-x86_64-toolchain pulls in gcc/g++/windres/objdump/binutils together.
-# `zip` is the plain MSYS package (used only to zip the finished dist/ folder, no
-# Windows-target linking involved, so it doesn't need a ucrt64 variant).
+# Matches .github/workflows/release-all.yml client-windows, plus packages
+# build_windows.sh needs to bundle DLLs / qemu-nbd. toolchain covers
+# gcc/g++/windres/objdump; zip/unzip are plain MSYS packages.
 $requiredPkgs = @(
     "mingw-w64-ucrt-x86_64-toolchain",
     "mingw-w64-ucrt-x86_64-go",
-    "mingw-w64-ucrt-x86_64-rust",
-    "mingw-w64-ucrt-x86_64-openssl",
     "mingw-w64-ucrt-x86_64-opus",
+    "mingw-w64-ucrt-x86_64-openssl",
     "mingw-w64-ucrt-x86_64-pkgconf",
+    "mingw-w64-ucrt-x86_64-cmake",
+    "mingw-w64-ucrt-x86_64-glib2",
+    "mingw-w64-ucrt-x86_64-ffmpeg",
+    "mingw-w64-ucrt-x86_64-vulkan-headers",
+    "mingw-w64-ucrt-x86_64-vulkan-loader",
     "mingw-w64-ucrt-x86_64-python",
-    "zip"
+    "mingw-w64-ucrt-x86_64-qemu",
+    "mingw-w64-ucrt-x86_64-brotli",
+    "mingw-w64-ucrt-x86_64-libjxl",
+    "mingw-w64-ucrt-x86_64-libogg",
+    "zip",
+    "unzip",
+    "git"
 )
 
 Write-Step "Checking installed MSYS2/UCRT64 packages"
@@ -121,11 +131,10 @@ $missing = $requiredPkgs | Where-Object { $installed -notcontains $_ }
 
 if ($missing.Count -gt 0) {
     Write-Step "Installing missing packages: $($missing -join ', ')"
-    # `-Sy` (sync db without upgrading installed packages) risks a "partial upgrade":
-    # newly resolved deps for the missing packages can conflict with older versions of
-    # already-installed packages (e.g. gcc-libs vs. gcc-libgfortran). `-Syu` upgrades
-    # everything together, which pacman/MSYS2 requires. A core-package update (e.g.
-    # msys2-runtime) can terminate this shell mid-upgrade, so run it twice.
+    # `-Sy` (sync db without upgrading installed packages) risks a "partial upgrade".
+    # `-Syu` upgrades everything together, which pacman/MSYS2 requires. A
+    # core-package update (e.g. msys2-runtime) can terminate this shell
+    # mid-upgrade, so run it twice.
     $null = Invoke-Native -ScriptBlock { & $bashExe -lc "pacman -Syu --noconfirm" }
     Restore-MsysCaBundle
     $upgrade = Invoke-Native -ScriptBlock { & $bashExe -lc "pacman -Syu --noconfirm" }
@@ -138,13 +147,28 @@ if ($missing.Count -gt 0) {
     Write-Step "All required UCRT64 packages already installed"
 }
 
-# $PSScriptRoot is agent/scripts; build_windows.sh's own REPO_ROOT (the "agent" dir) is
-# one level up, matching how that script locates itself.
-$AgentDir = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot is client/scripts; build_windows.sh's REPO_ROOT is one level up.
+$ClientDir = Split-Path -Parent $PSScriptRoot
 
-Write-Step "Building usbridge_agent inside MSYS2 UCRT64"
+# build_windows.sh looks for x86_64-w64-mingw32-{gcc,g++,pkg-config} (Debian
+# cross-compiler names). Under UCRT64 the native gcc/g++/pkg-config already
+# target Windows, so alias them the same way CI does.
+Write-Step "Building USBridge Client inside MSYS2 UCRT64"
+$buildCmd = @'
+set -e
+BIN_DIR="$HOME/.local/bin-usbridge-shim"
+mkdir -p "$BIN_DIR"
+for pair in gcc:x86_64-w64-mingw32-gcc g++:x86_64-w64-mingw32-g++ pkg-config:x86_64-w64-mingw32-pkg-config; do
+  real="${pair%%:*}"
+  shim="${pair##*:}"
+  printf '#!/bin/bash\nexec %s "$@"\n' "$real" > "$BIN_DIR/$shim"
+  chmod +x "$BIN_DIR/$shim"
+done
+export PATH="$BIN_DIR:$PATH"
+./scripts/build_windows.sh
+'@
 $build = Invoke-Native -ScriptBlock {
-    & $msys2Shell -ucrt64 -defterm -no-start -where $AgentDir -c "./scripts/build_windows.sh"
+    & $msys2Shell -ucrt64 -defterm -no-start -where $ClientDir -c $buildCmd
 }
 if ($build.ExitCode -ne 0) {
     throw "Build failed (exit $($build.ExitCode))"

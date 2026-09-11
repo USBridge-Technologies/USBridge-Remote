@@ -12,12 +12,13 @@
 # Build deps (install before running this script):
 #   Moonlight HW decode:  libavcodec-dev libavutil-dev libswscale-dev libpulse-dev
 #   Moonlight core:       opus openssl pkg-config cmake
+#   USB passthrough:      libusb-1.0-0-dev (enables -tags usbpass_gousb claim path)
 #   Optional:             python3 (pip) -- fetches the local ui.parse/AI
 #                          Vision ONNX runtime lib (see fetch_onnxruntime.sh);
 #                          its absence only disables that one feature.
 #
 # One-liner: sudo apt-get install -y libavcodec-dev libavutil-dev libswscale-dev libpulse-dev \
-#              libopus-dev libssl-dev pkg-config cmake
+#              libopus-dev libssl-dev libusb-1.0-0-dev pkg-config cmake
 
 set -euo pipefail
 
@@ -59,9 +60,14 @@ for pkg in libavcodec libavutil libswscale libpulse-simple; do
         exit 1
     fi
 done
+if ! pkg-config --exists libusb-1.0 2>/dev/null; then
+    echo -e "${RED}❌ Missing build dep: libusb-1.0${NC}"
+    echo "   Install: sudo apt-get install -y libusb-1.0-0-dev"
+    exit 1
+fi
 
-echo -e "${YELLOW}Compiling client...${NC}"
-go build -ldflags "-X main.version=$VERSION" -o "$OUTPUT_PATH" ./cmd
+echo -e "${YELLOW}Compiling client (usbpass_gousb + libusb)...${NC}"
+CGO_ENABLED=1 go build -tags usbpass_gousb -ldflags "-X main.version=$VERSION" -o "$OUTPUT_PATH" ./cmd
 chmod +x "$OUTPUT_PATH"
 
 # ── Build AppImage ─────────────────────────────────────────────────────────────
@@ -71,6 +77,29 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 cp "$OUTPUT_PATH" "$APPDIR/usr/bin/$EXE_NAME"
+
+# Closed rust-shine USB passthrough AES helper (bin/usb-broker → usbridge-usb-broker).
+# Go client launches this with --role client on mount; export itself is in-process Go.
+# Prefer an explicit path, else a sibling rust-shine release build.
+USB_BROKER_SRC="${USBRIDGE_USB_BROKER:-}"
+if [[ -z "$USB_BROKER_SRC" || ! -f "$USB_BROKER_SRC" ]]; then
+    for cand in \
+        "$REPO_ROOT/../rust-shine/target/release/usbridge-usb-broker" \
+        "$HOME/Projects/rust-shine/target/release/usbridge-usb-broker"
+    do
+        if [[ -f "$cand" ]]; then
+            USB_BROKER_SRC="$cand"
+            break
+        fi
+    done
+fi
+if [[ -n "$USB_BROKER_SRC" && -f "$USB_BROKER_SRC" ]]; then
+    cp "$USB_BROKER_SRC" "$APPDIR/usr/bin/usbridge-usb-broker"
+    chmod 755 "$APPDIR/usr/bin/usbridge-usb-broker"
+    echo -e "${GREEN}✓${NC} usr/bin/usbridge-usb-broker (from $USB_BROKER_SRC)"
+else
+    echo -e "${YELLOW}⚠${NC} usbridge-usb-broker not found — USB passthrough attach will fail until you build rust-shine -p usb-broker and rebuild, or set USBRIDGE_USB_BROKER"
+fi
 
 # local ui.parse ONNX offload (internal/localui, AI Vision's detector): the
 # runtime lib is dlopen'd at runtime (via onnxruntime_go), not link-time
@@ -175,6 +204,18 @@ ARCH=x86_64 "$LINUXDEPLOY" \
     --executable "$APPDIR/usr/bin/$EXE_NAME" \
     --desktop-file "$APPDIR/$EXE_NAME.desktop" \
     --icon-file "$APPDIR/$EXE_NAME.png" 2>&1
+
+# libusb-1.0 is on linuxdeploy's blacklist (treated as "system"), so the
+# deploy step above skips it even though we link it for usbpass_gousb.
+# Bundle it explicitly so AppImage hosts without a distro libusb still claim.
+if ldd "$APPDIR/usr/bin/$EXE_NAME" 2>/dev/null | grep -q 'libusb-1.0.so'; then
+    USB_SO="$(ldd "$APPDIR/usr/bin/$EXE_NAME" | awk '/libusb-1.0.so/{print $3; exit}')"
+    if [[ -n "$USB_SO" && -f "$USB_SO" ]]; then
+        cp -L "$USB_SO" "$APPDIR/usr/lib/libusb-1.0.so.0"
+        chmod 755 "$APPDIR/usr/lib/libusb-1.0.so.0"
+        echo -e "${GREEN}✓${NC} usr/lib/libusb-1.0.so.0 (forced; linuxdeploy blacklists libusb)"
+    fi
+fi
 
 # libopenvino_intel_gpu_plugin.so is never a static ELF dependency of
 # anything (OpenVINO dlopen's it by convention, only once

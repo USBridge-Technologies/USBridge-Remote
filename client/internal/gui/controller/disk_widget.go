@@ -82,6 +82,11 @@ type DiskWidget struct {
 	videoDevices   []models.SystemDevice
 	audioDevices   []models.SystemDevice
 	gamepadDevices []platform.GamepadDevice
+	usbPassDevices []models.USBPassthroughDevice
+	// usbPassSessions is the latest /api/usb/passthrough/status Sessions
+	// list from the agent (e.g. "24A9:205A 2-3"). Used with
+	// usbpass.ActiveBusIDs for the green mounted marker.
+	usbPassSessions []string
 	sdSpaceInfo    *models.ISOSpaceInfo
 
 	// Gamepad capture
@@ -212,6 +217,8 @@ type DriveItem struct {
 	AudioDevice      *models.SystemDevice
 	IsUSBAudio       bool
 	USBAudioMode     string // "uac1" or "uac2"
+	IsUSBPassthrough bool
+	USBPassthrough   *models.USBPassthroughDevice
 	DriveMode        string // "" = auto, "cdrom" = CD-ROM, "disk" = USB stick
 	ReadOnly         bool
 	UploadProgress   float64
@@ -264,6 +271,7 @@ func NewDiskWidget(usbClient *api.USBClient, updateStatus func(), app fyne.App, 
 	dw.createInterface()
 	dw.startPeriodicRefresh()
 	go dw.loadGamepadDevices()
+	go dw.loadUSBPassthroughDevices()
 
 	return dw
 }
@@ -344,6 +352,8 @@ func (dw *DiskWidget) getDriveUniqueID(drive DriveItem) string {
 		return "audio:" + drive.AudioDevice.Path
 	case drive.IsUSBAudio:
 		return "usbaudio"
+	case drive.IsUSBPassthrough && drive.USBPassthrough != nil:
+		return "usbpass:" + drive.USBPassthrough.BusID
 	case drive.LocalDrive != nil:
 		return "api:" + drive.LocalDrive.Name + ":" + drive.LocalDrive.SourceType
 	case drive.DiskInfo != nil:

@@ -526,13 +526,12 @@ func (b *sunshineBackend) Start(adminPort int) error {
 		log.Printf("[sunshine] warning: could not set web_bind_address: %v", err)
 	}
 
-	// On Windows the portable build expects sunshine_state.json to already
+	// The portable build expects sunshine_state.json to already
 	// exist before --creds can write into it; create an empty-but-valid
-	// template so the file is there when --creds runs.
-	if runtime.GOOS == "windows" {
-		if err := b.ensureSunshineStateFile(); err != nil {
-			log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
-		}
+	// template so the file is there when --creds runs. This also heals
+	// 0-byte corrupt files on Linux that cause --creds to fail silently.
+	if err := b.ensureSunshineStateFile(); err != nil {
+		log.Printf("[sunshine] warning: could not pre-create sunshine_state.json: %v", err)
 	}
 
 	// Set a fresh random admin password before starting Sunshine so the

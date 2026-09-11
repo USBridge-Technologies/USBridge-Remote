@@ -115,6 +115,10 @@ type LocalizedStrings struct {
 	DevicesSectionConnectivityHint    string
 	DevicesSectionAudio               string
 	DevicesSectionAudioHint           string
+	DevicesSectionPassthrough         string
+	DevicesSectionPassthroughHint     string
+	USBPassthroughEnterpriseHint      string
+	USBPassthroughProtected           string
 	LocalDrives                       string
 	NetworkDrives                     string
 	MountButton                       string
@@ -510,6 +514,10 @@ func EN() *LocalizedStrings {
 		DevicesSectionConnectivityHint:    "RNDIS bridge and channel infrastructure used to link the remote host.",
 		DevicesSectionAudio:               "Audio",
 		DevicesSectionAudioHint:           "Audio capture sources and USB Audio Codec gadget.",
+		DevicesSectionPassthrough:         "USB Passthrough",
+		DevicesSectionPassthroughHint:     "Redirect a local USB device into the remote Windows session.",
+		USBPassthroughEnterpriseHint:      "Requires Enterprise on the Windows agent.",
+		USBPassthroughProtected:           "Protected (session input / capture)",
 		LocalDrives:                       "Local Drives",
 		NetworkDrives:                     "Network Drives",
 		MountButton:                       "🔌 Mount",

@@ -40,6 +40,7 @@ import (
 	"usbridge_agent/internal/ui"
 	"usbridge_agent/internal/ui/design"
 	"usbridge_agent/internal/update"
+	"usbridge_agent/internal/usbpass"
 )
 
 type deviceState struct {
@@ -67,7 +68,7 @@ type App struct {
 	apiServer *api.Server
 	fyneApp   fyne.App
 	clipboard *clipboard.Manager
-	adminSrv  *adminapi.Server
+	usbBroker *usbpass.Service
 
 	// gpuClockArmed records whether applyGPUClockLock has already launched
 	// the elevated lock daemon for this agent process, so repeated calls
@@ -339,6 +340,8 @@ func New() (*App, error) {
 	instance.syncSunshineCaptureMode()
 	instance.syncSunshineCapExec()
 	apiServer := api.NewServerWithAuth(instance, masterKeyBytes, cfg.SunshinePort)
+	instance.usbBroker = usbpass.New(instance.exeDir, cfg.StateDir, cfg.MasterKey, cfg.UsbPassthroughPort)
+	apiServer.SetUSBPassthrough(instance.usbBroker)
 	instance.apiServer = apiServer
 	handler := apiServer.Routes()
 	instance.handler = handler
@@ -451,6 +454,11 @@ func (a *App) Run(headless bool) error {
 	go a.entitlementWatchdog(ctx)
 	go a.recheckEntitlement(ctx) // one immediate check, don't wait a full entitlementRecheckInterval after a restart
 	go func() { _ = a.server.ListenAndServe() }()
+	if a.usbBroker != nil {
+		if err := a.usbBroker.Start(); err != nil {
+			log.Printf("[usbpass] broker not started: %v", err)
+		}
+	}
 	if a.clipboard != nil {
 		go a.clipboard.Run(ctx)
 	}
@@ -691,7 +699,11 @@ func (a *App) restartStreamProxy() {
 		return
 	}
 	basePort := a.cfg.SunshinePort - 1 // SunshinePort is the admin port; NvHTTP base = admin - 1
-	a.tsProxy = a.ts.StartStreamProxy(basePort)
+	usbPort := a.cfg.UsbPassthroughPort
+	if usbPort <= 0 {
+		usbPort = usbpass.DefaultURBPort
+	}
+	a.tsProxy = a.ts.StartStreamProxy(basePort, usbPort)
 }
 
 func (a *App) initTailscale(ctx context.Context) {
@@ -765,6 +777,9 @@ func (a *App) shutdownEngine() {
 	}
 	if a.stream != nil {
 		_ = a.stream.Stop()
+	}
+	if a.usbBroker != nil {
+		a.usbBroker.Stop()
 	}
 	if a.adminSrv != nil {
 		_ = a.adminSrv.Close()
