@@ -81,8 +81,19 @@ type DiskWidget struct {
 	dashboardFooterDisconnect *view.DeviceDashboardFooterTextButton
 
 	// dashboardBusySpinner is the lime footer spinner shown while a
-	// mount/unmount is in flight (beginOperation/endOperation).
+	// mount/unmount is in flight (beginOperation/endOperation), with
+	// "connecting device" next to the dots.
 	dashboardBusySpinner *view.DeviceDashboardBusySpinner
+
+	// dashboardScriptFooter is the shared script-run chip injected by
+	// MainWindow so Devices can show the same running/error/done state
+	// as the Scripts tab. May be nil until SetDashboardScriptFooter.
+	dashboardScriptFooter *view.ScriptFooterStatus
+
+	// connectingHints are extra "connecting device" spinners on Control /
+	// Scripts / Snapshots so gadget mount/unmount is visible from every
+	// connected-session tab, not only Devices.
+	connectingHints []*view.DeviceDashboardBusySpinner
 
 	// dashboardBackupSpace is the compact SD fill meter in the Backups
 	// card header (used/total + a short teal bar). Hidden until

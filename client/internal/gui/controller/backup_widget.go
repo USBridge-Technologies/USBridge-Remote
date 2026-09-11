@@ -101,6 +101,24 @@ func (bw *BackupWidget) GetContainer() *fyne.Container {
 	return bw.ui.Container
 }
 
+// SetScriptFooter injects the shared script-run chip into the Snapshots
+// footer so script status is visible while looking at snapshots.
+func (bw *BackupWidget) SetScriptFooter(chip *view.ScriptFooterStatus) {
+	if bw == nil || bw.ui == nil {
+		return
+	}
+	bw.ui.SetScriptFooter(chip)
+}
+
+// SetConnectingHint injects the shared gadget-connect spinner so Devices'
+// mount/unmount is visible from Snapshots too.
+func (bw *BackupWidget) SetConnectingHint(hint *view.DeviceDashboardBusySpinner) {
+	if bw == nil || bw.ui == nil {
+		return
+	}
+	bw.ui.SetConnectingHint(hint)
+}
+
 // Refresh updates the widget
 func (bw *BackupWidget) Refresh() {
 	bw.loadCurrentFlash()

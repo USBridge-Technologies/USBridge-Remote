@@ -52,14 +52,30 @@ func (dw *DiskWidget) startDevicesWithRetry(batchRequest models.DeviceStartBatch
 	return nil, lastErr
 }
 
+func (dw *DiskWidget) setConnectingHints(busy bool) {
+	hints := make([]*view.DeviceDashboardBusySpinner, 0, 1+len(dw.connectingHints))
+	if dw.dashboardBusySpinner != nil {
+		hints = append(hints, dw.dashboardBusySpinner)
+	}
+	hints = append(hints, dw.connectingHints...)
+	for _, hint := range hints {
+		if hint == nil {
+			continue
+		}
+		if busy {
+			hint.Start()
+			continue
+		}
+		hint.Stop()
+	}
+}
+
 // beginOperation locks the UI before starting a mount/unmount operation.
 // Called from the Fyne thread.
 func (dw *DiskWidget) beginOperation() {
 	dw.userOperationInFlight.Store(true)
 	dw.setButtonsEnabled(false)
-	if dw.dashboardBusySpinner != nil {
-		dw.dashboardBusySpinner.Start()
-	}
+	dw.setConnectingHints(true)
 	dw.refreshDashboard()
 	if dw.dashboardContainer != nil {
 		dw.dashboardContainer.Refresh()
@@ -130,9 +146,7 @@ func (dw *DiskWidget) endOperation() {
 		// so controlsLocked() returns false and buttons are guaranteed to re-enable.
 		dw.userOperationInFlight.Store(false)
 		dw.apiMountInProgress.Store(false)
-		if dw.dashboardBusySpinner != nil {
-			dw.dashboardBusySpinner.Stop()
-		}
+		dw.setConnectingHints(false)
 		if dw.dashboardContainer != nil {
 			dw.dashboardContainer.Refresh()
 		}

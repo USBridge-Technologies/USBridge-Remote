@@ -17,7 +17,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -35,15 +34,29 @@ type ScriptsTabWidget struct {
 
 	outerContainer *fyne.Container
 	body           *fyne.Container
-	busySpinner    *view.DeviceDashboardBusySpinner
+	busySpinner     *view.DeviceDashboardBusySpinner
+	connectingHint  *view.DeviceDashboardBusySpinner
+	footerChip      *view.ScriptFooterStatus
+	footerChips     []*view.ScriptFooterStatus
 
 	scripts          []models.ScriptInfo
 	lastStatus       map[string]models.ScriptRunStatus
 	lockedMessage    string
 	newScriptEnabled bool
+	footerWasRunning bool
+	footerShowDone   bool
+	footerDismissed  bool
 
 	// Per-script status updaters, keyed by path; rebuilt alongside the table.
 	rowUpdaters map[string]func(bool, string)
+
+	// editorStatusHook is set while the script editor is open so Run/Stop
+	// in that dialog can follow the same live status as the table row.
+	editorStatusHook func(path string, running bool, errStr string)
+
+	// ignoreErrorUntilRun suppresses a sticky device Error after the user
+	// taps Stop, until they start that script again.
+	ignoreErrorUntilRun map[string]bool
 
 	// Stop channel for the background script-status polling goroutine.
 	stopPollCh chan struct{}
@@ -53,10 +66,11 @@ type ScriptsTabWidget struct {
 // NewScriptsTabWidget creates the widget and builds the persistent UI tree.
 func NewScriptsTabWidget(window fyne.Window) *ScriptsTabWidget {
 	w := &ScriptsTabWidget{
-		window:      window,
-		mcpPort:     api.DefaultMCPProxyPort,
-		rowUpdaters: make(map[string]func(bool, string)),
-		lastStatus:  make(map[string]models.ScriptRunStatus),
+		window:              window,
+		mcpPort:             api.DefaultMCPProxyPort,
+		rowUpdaters:         make(map[string]func(bool, string)),
+		lastStatus:          make(map[string]models.ScriptRunStatus),
+		ignoreErrorUntilRun: make(map[string]bool),
 	}
 	w.build()
 	return w
@@ -65,6 +79,15 @@ func NewScriptsTabWidget(window fyne.Window) *ScriptsTabWidget {
 // GetContainer returns the permanent container used as the tab content.
 func (w *ScriptsTabWidget) GetContainer() *fyne.Container {
 	return w.outerContainer
+}
+
+// ConnectingHint is this tab's "connecting device" spinner, driven by
+// DiskWidget so gadget mount/unmount is visible from Scripts too.
+func (w *ScriptsTabWidget) ConnectingHint() *view.DeviceDashboardBusySpinner {
+	if w == nil {
+		return nil
+	}
+	return w.connectingHint
 }
 
 // SetClient updates the device client and refreshes the tab content.
@@ -145,16 +168,102 @@ func (w *ScriptsTabWidget) showScriptsLocked(msg string) {
 	w.newScriptEnabled = false
 	w.scripts = nil
 	w.rowUpdaters = make(map[string]func(bool, string))
+	w.mu.Lock()
+	w.lastStatus = make(map[string]models.ScriptRunStatus)
+	w.ignoreErrorUntilRun = make(map[string]bool)
+	w.footerWasRunning = false
+	w.footerShowDone = false
+	w.footerDismissed = false
+	w.mu.Unlock()
 	w.rebuild()
+	w.syncFooterStatus()
+}
+
+// AttachFooterStatus registers an extra footer chip (Devices / Snapshots /
+// Control) so script run state is visible from every connected-session tab.
+func (w *ScriptsTabWidget) AttachFooterStatus(chip *view.ScriptFooterStatus) {
+	if chip == nil {
+		return
+	}
+	chip.SetOnDismiss(w.dismissFooterHint)
+	w.mu.Lock()
+	w.footerChips = append(w.footerChips, chip)
+	kind := w.computeFooterKindLocked()
+	w.mu.Unlock()
+	chip.SetKind(kind)
+}
+
+func (w *ScriptsTabWidget) dismissFooterHint() {
+	w.mu.Lock()
+	w.footerDismissed = true
+	w.footerShowDone = false
+	w.footerWasRunning = false
+	w.mu.Unlock()
+	w.syncFooterStatus()
+}
+
+func (w *ScriptsTabWidget) computeFooterKindLocked() view.ScriptFooterKind {
+	anyRunning := false
+	anyErr := false
+	for _, st := range w.lastStatus {
+		if st.Running {
+			anyRunning = true
+			continue
+		}
+		if strings.TrimSpace(st.Error) != "" {
+			anyErr = true
+		}
+	}
+	if anyRunning {
+		w.footerDismissed = false
+		w.footerWasRunning = true
+		w.footerShowDone = false
+		return view.ScriptFooterRunning
+	}
+	if w.footerDismissed {
+		return view.ScriptFooterIdle
+	}
+	if anyErr {
+		w.footerWasRunning = false
+		w.footerShowDone = false
+		return view.ScriptFooterError
+	}
+	if w.footerWasRunning {
+		w.footerWasRunning = false
+		w.footerShowDone = true
+	}
+	if w.footerShowDone {
+		return view.ScriptFooterDone
+	}
+	return view.ScriptFooterIdle
+}
+
+func (w *ScriptsTabWidget) syncFooterStatus() {
+	w.mu.Lock()
+	kind := w.computeFooterKindLocked()
+	chip := w.footerChip
+	chips := append([]*view.ScriptFooterStatus(nil), w.footerChips...)
+	w.mu.Unlock()
+	if chip != nil {
+		chip.SetKind(kind)
+	}
+	for _, c := range chips {
+		if c != nil {
+			c.SetKind(kind)
+		}
+	}
 }
 
 // ─── Build ────────────────────────────────────────────────────────────────────
 
 func (w *ScriptsTabWidget) build() {
 	w.busySpinner = view.NewDeviceDashboardBusySpinner()
+	w.connectingHint = view.NewDeviceDashboardBusyHint("connecting device")
+	w.footerChip = view.NewScriptFooterStatus()
+	w.footerChip.SetOnDismiss(w.dismissFooterHint)
 	w.body = container.NewMax()
-	footer := view.NewDeviceDashboardFooter(view.AppVersion(), nil, w.busySpinner)
-	w.outerContainer = container.NewBorder(nil, footer, nil, nil, w.body)
+	footer := view.NewDeviceDashboardFooter(view.AppVersion(), nil, w.busySpinner, w.connectingHint, w.footerChip)
+	w.outerContainer = view.NewEdgeStack(nil, footer, w.body)
 	w.lockedMessage = "Not connected"
 	if app := fyne.CurrentApp(); app != nil {
 		w.applyLocalUIParseSetting(app.Preferences().Bool(localUIParseEnabledPrefKey))
@@ -282,7 +391,12 @@ func (w *ScriptsTabWidget) runScript(path string) {
 	}
 	if err := client.RunScript(path); err != nil {
 		view.ShowErrorDialog(err, w.window)
+		return
 	}
+	w.mu.Lock()
+	delete(w.ignoreErrorUntilRun, path)
+	w.mu.Unlock()
+	w.applyScriptStatus(path, true, "")
 }
 
 func (w *ScriptsTabWidget) stopScript(path string) {
@@ -292,9 +406,50 @@ func (w *ScriptsTabWidget) stopScript(path string) {
 	if client == nil {
 		return
 	}
-	if err := client.StopScript(path); err != nil {
+	if err := client.StopScript(path); err != nil && !isBenignScriptStopError(err) {
 		view.ShowErrorDialog(err, w.window)
 	}
+	w.mu.Lock()
+	if w.ignoreErrorUntilRun == nil {
+		w.ignoreErrorUntilRun = make(map[string]bool)
+	}
+	w.ignoreErrorUntilRun[path] = true
+	w.mu.Unlock()
+	w.applyScriptStatus(path, false, "")
+}
+
+func isBenignScriptStopError(err error) bool {
+	if err == nil {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "not running") ||
+		strings.Contains(s, "not found") ||
+		strings.Contains(s, "no such")
+}
+
+// applyScriptStatus paints one row (and the open editor, if any) immediately,
+// rather than waiting for the 2s status poll.
+func (w *ScriptsTabWidget) applyScriptStatus(path string, running bool, errStr string) {
+	w.mu.Lock()
+	if w.lastStatus == nil {
+		w.lastStatus = make(map[string]models.ScriptRunStatus)
+	}
+	st := w.lastStatus[path]
+	st.Path = path
+	st.Running = running
+	st.Error = errStr
+	w.lastStatus[path] = st
+	upd := w.rowUpdaters[path]
+	hook := w.editorStatusHook
+	w.mu.Unlock()
+	if upd != nil {
+		upd(running, errStr)
+	}
+	if hook != nil {
+		hook(path, running, errStr)
+	}
+	w.syncFooterStatus()
 }
 
 func (w *ScriptsTabWidget) openScriptLog(path, name string) {
@@ -302,7 +457,7 @@ func (w *ScriptsTabWidget) openScriptLog(path, name string) {
 		w.mu.Lock()
 		client := w.usbClient
 		w.mu.Unlock()
-		fyne.Do(func() { view.ShowScriptLogDialog(w.window, client, path, name) })
+		fyne.Do(func() { ShowScriptLogDialog(w.window, client, path, name) })
 	})
 }
 
@@ -448,15 +603,33 @@ func (w *ScriptsTabWidget) startStatusPoll() {
 					return
 				}
 				w.mu.Lock()
+				for path, st := range runMap {
+					if w.ignoreErrorUntilRun[path] {
+						if st.Running {
+							delete(w.ignoreErrorUntilRun, path)
+						} else {
+							st.Error = ""
+							runMap[path] = st
+						}
+					}
+				}
 				w.lastStatus = runMap
+				updaters := w.rowUpdaters
+				hook := w.editorStatusHook
 				w.mu.Unlock()
-				for path, upd := range w.rowUpdaters {
+				for path, upd := range updaters {
 					if st, ok := runMap[path]; ok {
 						upd(st.Running, st.Error)
 					} else {
 						upd(false, "")
 					}
 				}
+				if hook != nil {
+					for path, st := range runMap {
+						hook(path, st.Running, st.Error)
+					}
+				}
+				w.syncFooterStatus()
 			})
 		}
 	}()
@@ -505,40 +678,39 @@ func (w *ScriptsTabWidget) showNewScriptDialog(onCreated func(), sdCard bool) {
 	}
 
 	dir := "/mnt/emmc/scripts/"
-	title := "New eMMC Script"
+	title := "New eMMC script"
+	subtitle := "Starlark job stored on the device eMMC."
 	if sdCard {
 		dir = "/mnt/sdcard/scripts/"
-		title = "New SD Script"
+		title = "New SD script"
+		subtitle = "Starlark job stored on the SD card."
 	}
 
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("my_script")
+	fields, nameEntry, descEntry := view.NewScriptCreateFieldsBox()
 
-	descEntry := widget.NewEntry()
-	descEntry.SetPlaceHolder("What does this script do?")
+	hintColor := color.NRGBA{R: 0x8f, G: 0x93, B: 0x81, A: 0xff}
+	hintLabel := canvas.NewText("", hintColor)
+	hintLabel.TextSize = 9
 
-	hintLabel := canvas.NewText("", design.ColorTextMuted)
-	hintLabel.TextSize = 11
-
-	var createBtn *widget.Button
-	var popup *widget.PopUp
+	var createBtn *connectionDialogSecondaryButton
+	var closePopup func()
 
 	validateName := func(raw string) (safe string, ok bool) {
 		safe = scriptSafeName(raw)
 		if safe == "" || strings.Trim(safe, "_-") == "" {
 			hintLabel.Text = "Enter a valid name (letters, digits, _ -)"
-			hintLabel.Color = color.NRGBA{R: 0xff, G: 0x5a, B: 0x52, A: 0xff}
+			hintLabel.Color = hintColor
 			hintLabel.Refresh()
 			if createBtn != nil {
-				createBtn.Disable()
+				createBtn.SetDisabled(true)
 			}
 			return "", false
 		}
-		hintLabel.Text = "→ will be saved as:  " + safe + ".star"
-		hintLabel.Color = design.ColorTextMuted
+		hintLabel.Text = "will be saved as  " + safe + ".star"
+		hintLabel.Color = hintColor
 		hintLabel.Refresh()
 		if createBtn != nil {
-			createBtn.Enable()
+			createBtn.SetDisabled(false)
 		}
 		return safe, true
 	}
@@ -556,8 +728,8 @@ func (w *ScriptsTabWidget) showNewScriptDialog(onCreated func(), sdCard bool) {
 		}
 		path := dir + safe + ".star"
 		tmpl := fmt.Sprintf("# name: %s\n# desc: %s\n\ndef main():\n    pass\n\nmain()\n", safe, desc)
-		if popup != nil {
-			popup.Hide()
+		if closePopup != nil {
+			closePopup()
 		}
 		time.AfterFunc(50*time.Millisecond, func() {
 			fyne.Do(func() { w.showScriptEditorWithContent(path, safe, tmpl, onCreated) })
@@ -566,63 +738,24 @@ func (w *ScriptsTabWidget) showNewScriptDialog(onCreated func(), sdCard bool) {
 
 	nameEntry.OnSubmitted = func(_ string) { createScript() }
 
-	titleText := view.NewBrandText(title, 17, design.ColorTextLight, true)
-	titleText.Alignment = fyne.TextAlignCenter
-
+	createBtn = newScriptDialogTealButton("Create & Edit", nil, createScript)
+	createBtn.SetDisabled(true)
 	validateName("")
 
-	createBtn = widget.NewButton("Create & Edit", func() { createScript() })
-	createBtn.Importance = widget.HighImportance
-	createBtn.Disable()
-
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	})
-
-	closeBtn := view.NewDialogCloseButton(func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	})
-	titleBar := container.NewBorder(nil, nil, nil, closeBtn, container.NewCenter(titleText))
-
-	nameLbl := canvas.NewText("Name (.star)  *", design.ColorTextLight)
-	nameLbl.TextSize = 12
-	nameLbl.TextStyle = fyne.TextStyle{Bold: true}
-	descLbl := canvas.NewText("Description", design.ColorTextLight)
-	descLbl.TextSize = 12
-	descLbl.TextStyle = fyne.TextStyle{Bold: true}
-
-	body := container.NewVBox(
-		titleBar,
-		widget.NewSeparator(),
-		view.NewInset(container.NewVBox(
-			nameLbl, nameEntry, hintLabel,
-			widget.NewSeparator(),
-			descLbl, descEntry,
-		), 0, 0, 8, 4),
-		widget.NewSeparator(),
-		container.NewHBox(layout.NewSpacer(), cancelBtn, createBtn),
+	form := container.NewVBox(
+		fields,
+		view.NewInset(hintLabel, 0, 0, 8, 4),
 	)
 
-	bg := canvas.NewRectangle(design.ColorGray900)
-	bg.CornerRadius = design.RadiusMD
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = design.RadiusMD
-	border.StrokeColor = design.ColorBorder
-	border.StrokeWidth = 1
-	panel := container.NewStack(bg, view.NewInset(body, 18, 18, 16, 16), border)
-
-	popup = view.ShowOverlayPopup(w.window, view.OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x72},
-		PanelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
-			panelMin := panel.MinSize()
-			pw := minFloat32(maxFloat32(panelMin.Width, 360), canvasSize.Width-48)
-			ph := minFloat32(maxFloat32(panelMin.Height, 0), canvasSize.Height-48)
-			return fyne.NewSize(pw, ph)
+	_, closePopup = showBrandedOverlayDialog(brandedOverlayDialogSpec{
+		parent:        w.window,
+		title:         title,
+		subtitle:      subtitle,
+		body:          form,
+		rightButtons:  []fyne.CanvasObject{createBtn},
+		compactFooter: true,
+		panelSize: func(canvasSize fyne.Size, panel fyne.CanvasObject) fyne.Size {
+			return connectionDialogPanelSize(panel, canvasSize)
 		},
 	})
 }
@@ -648,27 +781,15 @@ func (w *ScriptsTabWidget) showScriptEditorWithContent(path, name, content strin
 		displayName = filepath.Base(path)
 	}
 
-	var popup *widget.PopUp
-	var debounceTimer *time.Timer
 	var editorScroll *container.Scroll
 
-	closePopup := func() {
-		if debounceTimer != nil {
-			debounceTimer.Stop()
-		}
-		if popup != nil {
-			popup.Hide()
-		}
-		if onClose != nil {
-			onClose()
-		}
-	}
-
-	editor := widget.NewMultiLineEntry()
-	editor.SetText(content)
-	editor.TextStyle = fyne.TextStyle{Monospace: true}
+	editor := &scriptEditorEntry{}
+	editor.MultiLine = true
 	editor.Wrapping = fyne.TextWrapOff
 	editor.Scroll = fyne.ScrollNone
+	editor.TextStyle = fyne.TextStyle{Monospace: true}
+	editor.ExtendBaseWidget(editor)
+	editor.SetText(content)
 
 	richView := widget.NewRichText()
 	richView.Wrapping = fyne.TextWrapOff
@@ -680,22 +801,72 @@ func (w *ScriptsTabWidget) showScriptEditorWithContent(path, name, content strin
 	refreshHighlight(content)
 
 	editor.OnChanged = func(text string) {
-		if debounceTimer != nil {
-			debounceTimer.Stop()
-		}
-		debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
-			fyne.Do(func() { refreshHighlight(text) })
-		})
+		refreshHighlight(text)
 	}
 
+	overlayTheme := &transparentEntryTheme{fyne.CurrentApp().Settings().Theme()}
+	caret := canvas.NewRectangle(design.ColorConnectionBadgeText)
+	caret.Hide()
+	editorBox := container.New(&scriptEditorStackLayout{entry: editor}, richView, editor, caret)
+
+	caretStop := make(chan struct{})
+	var caretOnce sync.Once
+	stopCaret := func() { caretOnce.Do(func() { close(caretStop) }) }
+	go func() {
+		ticker := time.NewTicker(530 * time.Millisecond)
+		defer ticker.Stop()
+		on := true
+		for {
+			select {
+			case <-caretStop:
+				return
+			case <-ticker.C:
+				on = !on
+				fyne.Do(func() {
+					if !editor.focused() {
+						caret.Hide()
+						caret.Refresh()
+						return
+					}
+					if on {
+						caret.Show()
+					} else {
+						caret.Hide()
+					}
+					caret.Refresh()
+				})
+			}
+		}
+	}()
+
+	placeCaret := func() {
+		lineH := fyne.MeasureText("M", scriptEditorTextSize, fyne.TextStyle{Monospace: true}).Height
+		if lineH < 10 {
+			lineH = 10
+		}
+		caret.Resize(fyne.NewSize(1.5, lineH))
+		caret.Move(editor.CursorPosition())
+		if editor.focused() {
+			caret.Show()
+		} else {
+			caret.Hide()
+		}
+		caret.Refresh()
+	}
+
+	var placingCaret bool
 	editor.OnCursorChanged = func() {
+		if placingCaret {
+			return
+		}
+		placingCaret = true
+		placeCaret()
+		placingCaret = false
 		if editorScroll == nil {
 			return
 		}
-		th := fyne.CurrentApp().Settings().Theme()
-		textSize := th.Size(theme.SizeNameText)
-		lineHeight := fyne.MeasureText("M", textSize, fyne.TextStyle{Monospace: true}).Height +
-			th.Size(theme.SizeNameLineSpacing)
+		lineHeight := fyne.MeasureText("M", scriptEditorTextSize, fyne.TextStyle{Monospace: true}).Height +
+			overlayTheme.Size(theme.SizeNameLineSpacing)
 		cursorTop := float32(editor.CursorRow) * lineHeight
 		cursorBot := cursorTop + lineHeight
 		off := editorScroll.Offset
@@ -707,99 +878,200 @@ func (w *ScriptsTabWidget) showScriptEditorWithContent(path, name, content strin
 		}
 	}
 
-	overlayTheme := &transparentEntryTheme{fyne.CurrentApp().Settings().Theme()}
-	editorStack := container.NewStack(richView, container.NewThemeOverride(editor, overlayTheme))
+	editorStack := container.NewThemeOverride(editorBox, overlayTheme)
 	editorScroll = container.NewScroll(editorStack)
 
-	titleLabel := view.NewBrandText("> "+displayName, 13, design.ColorAccent, true)
-	pathLabel := widget.NewLabel(path)
-	pathLabel.TextStyle = fyne.TextStyle{Monospace: true}
-	pathLabel.Importance = widget.LowImportance
+	pathLabel := canvas.NewText(path, design.ColorConnectionsSectionSubtitle)
+	pathLabel.TextSize = 10
+	pathLabel.TextStyle.Monospace = true
 
-	closeBtn := view.NewDialogCloseButton(func() {
-		if popup != nil {
-			popup.Hide()
+	savedText := content
+	saveScript := func() bool {
+		w.mu.Lock()
+		client := w.usbClient
+		w.mu.Unlock()
+		if client == nil {
+			return false
+		}
+		if err := client.SaveScript(path, editor.Text); err != nil {
+			view.ShowErrorDialog(err, w.window)
+			return false
+		}
+		savedText = editor.Text
+		return true
+	}
+
+	var closeEditor func()
+	saveBtn := newScriptDialogTealButton("Save", scriptDialogFloppyIcon, func() {
+		if !saveScript() {
+			return
+		}
+		if closeEditor != nil {
+			closeEditor()
 		}
 	})
-	headerContent := container.NewBorder(nil, nil, nil, closeBtn,
-		container.NewVBox(titleLabel, pathLabel),
+	runBtn := newScriptDialogLimeButton("Run", scriptDialogPlayIcon, func() {
+		if !saveScript() {
+			return
+		}
+		w.runScript(path)
+	})
+	stopBtn := newScriptDialogLimeButton("Stop", scriptDialogStopIcon, func() {
+		w.stopScript(path)
+	})
+	stopBtn.hoverIconRes = scriptDialogStopHoverIcon
+	stopBtn.hoverTextColor = color.NRGBA{R: 0xfd, G: 0xa4, B: 0xaf, A: 0xff}
+	stopBtn.hoverBorderColor = color.NRGBA{R: 0xfd, G: 0xa4, B: 0xaf, A: 0xff}
+	copyBtn := newScriptDialogCopyIconButton(func() {
+		if w.window != nil && w.window.Clipboard() != nil {
+			w.window.Clipboard().SetContent(editor.Text)
+		}
+	})
+	pasteBtn := newScriptDialogPasteIconButton(func() {
+		view.PasteClipboardIntoEntry(&editor.Entry)
+	})
+	setEditorRunState := func(running bool, errStr string) {
+		showStop := running || strings.TrimSpace(errStr) != ""
+		if showStop {
+			runBtn.Hide()
+			stopBtn.Show()
+		} else {
+			stopBtn.Hide()
+			runBtn.Show()
+		}
+		runBtn.Refresh()
+		stopBtn.Refresh()
+	}
+	w.mu.Lock()
+	st := w.lastStatus[path]
+	w.editorStatusHook = func(p string, running bool, errStr string) {
+		if p != path {
+			return
+		}
+		setEditorRunState(running, errStr)
+	}
+	w.mu.Unlock()
+	stopBtn.Hide()
+	setEditorRunState(st.Running, st.Error)
+
+	surface, setFocused := newScriptDialogFocusSurface(editorScroll)
+	editor.onFocusChanged = func(on bool) {
+		setFocused(on)
+		if on {
+			caret.Show()
+		} else {
+			caret.Hide()
+		}
+		caret.Refresh()
+	}
+
+	body := container.NewBorder(
+		view.NewInset(pathLabel, 0, 0, 0, 8),
+		nil, nil, nil,
+		surface,
 	)
-	headerDivider := canvas.NewRectangle(design.ColorBorder)
-	headerDivider.SetMinSize(fyne.NewSize(0, 1))
-	header := container.NewVBox(view.NewInset(headerContent, 0, 0, 8, 8), headerDivider)
 
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if popup != nil {
-			popup.Hide()
-		}
-	})
-
-	saveBtn := widget.NewButton("Save", func() {
-		w.mu.Lock()
-		client := w.usbClient
-		w.mu.Unlock()
-		if client == nil {
-			return
-		}
-		if err := client.SaveScript(path, editor.Text); err != nil {
-			view.ShowErrorDialog(err, w.window)
-		}
-	})
-
-	okBtn := widget.NewButton("OK", func() {
-		w.mu.Lock()
-		client := w.usbClient
-		w.mu.Unlock()
-		if client == nil {
-			return
-		}
-		if err := client.SaveScript(path, editor.Text); err != nil {
-			view.ShowErrorDialog(err, w.window)
-		} else {
-			closePopup()
-		}
-	})
-	okBtn.Importance = widget.HighImportance
-
-	runBtn := widget.NewButtonWithIcon("Run", theme.MediaPlayIcon(), func() {
-		w.mu.Lock()
-		client := w.usbClient
-		w.mu.Unlock()
-		if client == nil {
-			return
-		}
-		if err := client.SaveScript(path, editor.Text); err != nil {
-			view.ShowErrorDialog(err, w.window)
-			return
-		}
-		if err := client.RunScript(path); err != nil {
-			view.ShowErrorDialog(err, w.window)
-		} else {
-			closePopup()
-		}
-	})
-
-	footerDivider := canvas.NewRectangle(design.ColorBorder)
-	footerDivider.SetMinSize(fyne.NewSize(0, 1))
-	footerBtns := container.NewHBox(layout.NewSpacer(), cancelBtn, saveBtn, okBtn, runBtn)
-	footer := container.NewVBox(footerDivider, view.NewInset(footerBtns, 0, 0, 8, 8))
-
-	body := container.NewBorder(header, footer, nil, nil, editorScroll)
-
-	bg := canvas.NewRectangle(design.ColorGray950)
-	bg.CornerRadius = design.RadiusMD
-	accent := canvas.NewRectangle(color.Transparent)
-	accent.CornerRadius = design.RadiusMD
-	accent.StrokeColor = design.ColorAccent
-	accent.StrokeWidth = 1
-	panel := container.NewStack(bg, view.NewInset(body, 16, 16, 12, 12), accent)
-
-	popup = view.ShowOverlayPopup(w.window, view.OverlayPopupSpec{
-		Panel:    panel,
-		DimColor: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x88},
-		PanelSize: func(canvasSize fyne.Size, _ fyne.CanvasObject) fyne.Size {
-			const margin float32 = 16
-			return fyne.NewSize(canvasSize.Width-margin*2, canvasSize.Height-margin*2)
+	var confirmingClose bool
+	_, closeEditor = showBrandedOverlayDialog(brandedOverlayDialogSpec{
+		parent:       w.window,
+		title:        "Edit script",
+		subtitle:     displayName,
+		body:         body,
+		rightButtons: []fyne.CanvasObject{copyBtn, pasteBtn, saveBtn, runBtn, stopBtn},
+		beforeClose: func(proceed func()) {
+			if editor.Text == savedText {
+				proceed()
+				return
+			}
+			if confirmingClose {
+				return
+			}
+			confirmingClose = true
+			view.ShowConfirmToast("Changes will not be saved. Close anyway?", func(ok bool) {
+				confirmingClose = false
+				if ok {
+					proceed()
+				}
+			}, w.window)
+		},
+		onClose: func() {
+			w.mu.Lock()
+			w.editorStatusHook = nil
+			w.mu.Unlock()
+			stopCaret()
+			if onClose != nil {
+				onClose()
+			}
 		},
 	})
+	if w.window != nil && w.window.Canvas() != nil {
+		w.window.Canvas().Focus(editor)
+	}
+}
+
+type scriptEditorEntry struct {
+	widget.Entry
+	onFocusChanged func(bool)
+	hasFocus       bool
+}
+
+func (e *scriptEditorEntry) focused() bool { return e.hasFocus }
+
+func (e *scriptEditorEntry) FocusGained() {
+	e.hasFocus = true
+	e.Entry.FocusGained()
+	if e.onFocusChanged != nil {
+		e.onFocusChanged(true)
+	}
+}
+
+func (e *scriptEditorEntry) FocusLost() {
+	e.hasFocus = false
+	e.Entry.FocusLost()
+	if e.onFocusChanged != nil {
+		e.onFocusChanged(false)
+	}
+}
+
+type scriptEditorStackLayout struct {
+	entry *scriptEditorEntry
+}
+
+func (l *scriptEditorStackLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	n := len(objects)
+	for i, o := range objects {
+		if i == n-1 {
+			continue
+		}
+		o.Resize(size)
+		o.Move(fyne.NewPos(0, 0))
+	}
+	if n < 3 || l.entry == nil {
+		return
+	}
+	caret := objects[n-1]
+	lineH := fyne.MeasureText("M", scriptEditorTextSize, fyne.TextStyle{Monospace: true}).Height
+	if lineH < 10 {
+		lineH = 10
+	}
+	caret.Resize(fyne.NewSize(1.5, lineH))
+	caret.Move(l.entry.CursorPosition())
+}
+
+func (l *scriptEditorStackLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	min := fyne.NewSize(0, 0)
+	n := len(objects)
+	for i, o := range objects {
+		if i == n-1 {
+			continue
+		}
+		s := o.MinSize()
+		if s.Width > min.Width {
+			min.Width = s.Width
+		}
+		if s.Height > min.Height {
+			min.Height = s.Height
+		}
+	}
+	return min
 }

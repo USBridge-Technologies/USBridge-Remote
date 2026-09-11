@@ -1366,10 +1366,29 @@ type transparentEntryTheme struct {
 func (t *transparentEntryTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case theme.ColorNameInputBackground, theme.ColorNameInputBorder,
-		theme.ColorNameForeground, theme.ColorNamePlaceHolder:
+		theme.ColorNameForeground, theme.ColorNamePlaceHolder,
+		theme.ColorNameFocus, theme.ColorNameShadow:
 		return color.Transparent
+	case theme.ColorNamePrimary:
+		return design.ColorConnectionBadgeText
 	}
 	return t.Theme.Color(name, variant)
+}
+
+const scriptEditorTextSize float32 = 11
+
+func (t *transparentEntryTheme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameText:
+		return scriptEditorTextSize
+	case theme.SizeNameInputBorder:
+		return 0
+	case theme.SizeNameInnerPadding:
+		return 2
+	case theme.SizeNamePadding:
+		return 1
+	}
+	return t.Theme.Size(name)
 }
 
 func starlarkHighlight(code string) []widget.RichTextSegment {

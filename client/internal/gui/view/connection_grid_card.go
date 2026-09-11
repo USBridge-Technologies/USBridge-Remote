@@ -650,6 +650,36 @@ func NewConnectionCardEditableStatsBox(includeName bool, name, lanAddress, tails
 	return box, nameEntry, lanEntry, tailscaleEntry, tokenEntry
 }
 
+// NewScriptCreateFieldsBox is New script's Name/Description pair in the same
+// dark stats box Add Connection uses for Name/Token: inline entries, faint
+// turquoise chrome, copy/paste on Description.
+func NewScriptCreateFieldsBox() (box fyne.CanvasObject, nameEntry, descEntry *StyledEntry) {
+	nameEntry = newConnectionCardFieldEntry("", "my_script")
+	descEntry = newConnectionCardFieldEntry("", "What does this script do?")
+	descEntry.MultiLine = true
+	descEntry.Wrapping = fyne.TextWrapWord
+
+	dividerColor := color.NRGBA{R: 0x29, G: 0x2d, B: 0x27, A: 0xff}
+	sep := canvas.NewRectangle(dividerColor)
+	sep.SetMinSize(fyne.NewSize(1, 1))
+
+	labelW := fyne.MeasureText("Description", 10, fyne.TextStyle{Monospace: true}).Width + 8
+	if labelW < connectionStatEditRowLabelWidth {
+		labelW = connectionStatEditRowLabelWidth
+	}
+
+	nameRow := newConnectionStatEditRowCol("Name", nameEntry, 10, design.ColorTextLight, false, 0, false, labelW)
+	descRow := newConnectionStatEditRowCol("Description", descEntry, 8, design.ColorTextLight, true, 0, true, labelW)
+
+	bg := canvas.NewRectangle(design.ColorGray950)
+	bg.CornerRadius = 6
+	bg.StrokeColor = design.ColorTailscaleChipBorder
+	bg.StrokeWidth = 1
+
+	box = container.NewStack(bg, NewInset(container.New(&tightStatsVBoxLayout{Gap: 4}, nameRow, sep, descRow), 12, 12, 4, 4))
+	return box, nameEntry, descEntry
+}
+
 func newConnectionCardFieldEntry(value, placeholder string) *StyledEntry {
 	entry := NewStyledEntry()
 	entry.SetPlaceHolder(placeholder)
@@ -701,7 +731,7 @@ func newGridCardFieldActions(entry *widget.Entry) fyne.CanvasObject {
 		IconSize:     fyne.NewSize(9, 9),
 		ButtonSize:   fyne.NewSize(15, 15),
 		OnTapped: func() {
-			pasteClipboardIntoEntry(entry)
+			PasteClipboardIntoEntry(entry)
 		},
 	})
 	return container.New(&DeviceRowControlsLayout{Gap: 0}, copyBtn, pasteBtn)
@@ -768,6 +798,10 @@ func (l *fixedWidthLabelLayout) Layout(objects []fyne.CanvasObject, size fyne.Si
 }
 
 func newConnectionStatEditRow(label string, entry *StyledEntry, textSize float32, textColor color.Color, stackedActions bool, width float32, showActions bool) fyne.CanvasObject {
+	return newConnectionStatEditRowCol(label, entry, textSize, textColor, stackedActions, width, showActions, connectionStatEditRowLabelWidth)
+}
+
+func newConnectionStatEditRowCol(label string, entry *StyledEntry, textSize float32, textColor color.Color, stackedActions bool, width float32, showActions bool, labelColWidth float32) fyne.CanvasObject {
 	c5c8b5Color := color.NRGBA{R: 0xc5, G: 0xc8, B: 0xb5, A: 0xff}
 	labelText := canvas.NewText(label, c5c8b5Color)
 	labelText.TextSize = 10
@@ -775,7 +809,10 @@ func newConnectionStatEditRow(label string, entry *StyledEntry, textSize float32
 
 	entry.TextStyle.Monospace = true
 
-	labelCol := container.New(&fixedWidthLabelLayout{Width: connectionStatEditRowLabelWidth}, labelText)
+	if labelColWidth <= 0 {
+		labelColWidth = connectionStatEditRowLabelWidth
+	}
+	labelCol := container.New(&fixedWidthLabelLayout{Width: labelColWidth}, labelText)
 
 	// showActions is false for Name (see NewConnectionCardEditableStatsBox)
 	// -- nothing to copy/paste there the way an address or key benefits

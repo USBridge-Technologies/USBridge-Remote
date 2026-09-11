@@ -2,6 +2,7 @@ package view
 
 import (
 	"image/color"
+	"reflect"
 	"strings"
 
 	"usbridge-client/internal/gui/design"
@@ -10,6 +11,22 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 )
+
+// usableCanvasObject is true when obj can safely be asked Visible()/MinSize()
+// -- a typed-nil pointer stored in a fyne.CanvasObject interface is not
+// == nil, and calling Visible() on it panics (see BackupWidgetUI.rebuildFooter
+// passing a still-nil connectingHint).
+func usableCanvasObject(obj fyne.CanvasObject) bool {
+	if obj == nil {
+		return false
+	}
+	v := reflect.ValueOf(obj)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		return !v.IsNil()
+	}
+	return true
+}
 
 const (
 	headerBandHorizontalInset float32 = 10
@@ -150,6 +167,48 @@ func (l *bottomLineLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 // nil, nil, content).
 func NewBottomLine(content, line fyne.CanvasObject) *fyne.Container {
 	return container.New(&bottomLineLayout{}, content, line)
+}
+
+// topLineLayout is NewTopLine's own layout -- a thin line (its own
+// MinSize().Height) directly above content, with zero added padding.
+// Mirrors bottomLineLayout so the Devices/Scripts/Control footer can
+// wear the same hairline the app header has under it, without the
+// theme.Padding() gap container.NewBorder would insert.
+type topLineLayout struct{}
+
+func (l *topLineLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if len(objects) < 2 {
+		return
+	}
+	content, line := objects[0], objects[1]
+	lineHeight := line.MinSize().Height
+	contentHeight := size.Height - lineHeight
+	if contentHeight < 0 {
+		contentHeight = 0
+	}
+	line.Move(fyne.NewPos(0, 0))
+	line.Resize(fyne.NewSize(size.Width, lineHeight))
+	content.Move(fyne.NewPos(0, lineHeight))
+	content.Resize(fyne.NewSize(size.Width, contentHeight))
+}
+
+func (l *topLineLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) < 2 {
+		return fyne.NewSize(0, 0)
+	}
+	contentMin := objects[0].MinSize()
+	lineMin := objects[1].MinSize()
+	width := contentMin.Width
+	if lineMin.Width > width {
+		width = lineMin.Width
+	}
+	return fyne.NewSize(width, contentMin.Height+lineMin.Height)
+}
+
+// NewTopLine stacks a thin line above content with no padding between
+// them, pixel-exact -- the footer counterpart to NewBottomLine.
+func NewTopLine(content, line fyne.CanvasObject) *fyne.Container {
+	return container.New(&topLineLayout{}, content, line)
 }
 
 // edgeStackLayout is NewEdgeStack's own layout: top pinned to its own

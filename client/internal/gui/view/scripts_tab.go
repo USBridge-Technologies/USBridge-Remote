@@ -281,7 +281,7 @@ func NewScriptsMCPCard(data ScriptsMCPData) fyne.CanvasObject {
 	localRow := container.New(&DeviceRowControlsLayout{Gap: 8}, localToggle, container.NewCenter(localLabel))
 
 	startBtn := newScriptsMCPStartButton(data)
-	bottom := container.New(&gridBottomRowLayout{}, localRow, startBtn)
+	bottom := container.NewBorder(nil, nil, container.NewCenter(localRow), startBtn)
 
 	inner := container.New(&tightStatsVBoxLayout{Gap: 0},
 		topRow,
@@ -385,12 +385,12 @@ func newScriptsMCPStartButton(data ScriptsMCPData) *iconChromeButton {
 			CornerRadius:       6,
 			NormalIcon:         scriptsStopIconSVG,
 			HoverIcon:          scriptsStopHoverIconSVG,
-			IconSize:           fyne.NewSize(10, 10),
-			ButtonSize:         fyne.NewSize(0, 28),
+			IconSize:           fyne.NewSize(9, 9),
+			ButtonSize:         fyne.NewSize(0, 22),
 			OnTapped:           data.OnToggle,
 			LabelColor:         design.ColorTextLight,
 			HoverLabelColor:    color.NRGBA{R: 0xfd, G: 0xa4, B: 0xaf, A: 0xff},
-			LabelSize:          10,
+			LabelSize:          9,
 			LabelBold:          true,
 			MuteDisabledVisual: true,
 		})
@@ -409,12 +409,12 @@ func newScriptsMCPStartButton(data ScriptsMCPData) *iconChromeButton {
 		Stroke:             color.Transparent,
 		LabelColor:         design.ColorGray950,
 		LabelBold:          true,
-		LabelSize:          10,
+		LabelSize:          9,
 		CornerRadius:       6,
 		NormalIcon:         scriptsMCPPlayIconSVG,
 		HoverIcon:          scriptsMCPPlayIconSVG,
-		IconSize:           fyne.NewSize(10, 10),
-		ButtonSize:         fyne.NewSize(0, 28),
+		IconSize:           fyne.NewSize(9, 9),
+		ButtonSize:         fyne.NewSize(0, 22),
 		OnTapped:           data.OnToggle,
 	})
 	btn.SetText("Start")
@@ -513,7 +513,7 @@ func newScriptListRow(row ScriptTableRow, widths []float32) fyne.CanvasObject {
 		row.BindStatus(func(running bool, errStr string) {
 			nameCell.SetColor(scriptNameColor(running, errStr))
 			stateChip.Set(running, errStr)
-			actions.SetRunning(running)
+			actions.SetActive(running, errStr)
 		})
 	}
 
@@ -614,9 +614,12 @@ func scriptsStateAppearance(running bool, errStr string) (string, color.Color) {
 type scriptsActionsCell struct {
 	widget.BaseWidget
 
-	row     ScriptTableRow
-	runBtn  *iconChromeButton
-	stopBtn *iconChromeButton
+	row       ScriptTableRow
+	runBtn    *iconChromeButton
+	stopBtn   *iconChromeButton
+	editBtn   *iconChromeButton
+	deleteBtn *iconChromeButton
+	box       *fyne.Container
 }
 
 func newScriptsActionsCell(row ScriptTableRow) *scriptsActionsCell {
@@ -625,20 +628,37 @@ func newScriptsActionsCell(row ScriptTableRow) *scriptsActionsCell {
 	return c
 }
 
-func (c *scriptsActionsCell) SetRunning(running bool) {
+func (c *scriptsActionsCell) SetActive(running bool, errStr string) {
+	c.row.Running = running
+	c.row.Error = errStr
 	if c.runBtn == nil || c.stopBtn == nil {
-		c.row.Running = running
 		return
 	}
-	if running {
+	c.applyActionVisibility()
+	if c.box != nil {
+		c.box.Refresh()
+	}
+}
+
+func (c *scriptsActionsCell) applyActionVisibility() {
+	running := c.row.Running
+	showStop := running || strings.TrimSpace(c.row.Error) != ""
+	if showStop {
 		c.runBtn.Hide()
 		c.stopBtn.Show()
 	} else {
 		c.stopBtn.Hide()
 		c.runBtn.Show()
 	}
-	c.runBtn.Refresh()
-	c.stopBtn.Refresh()
+	if c.editBtn != nil && c.deleteBtn != nil {
+		if running {
+			c.editBtn.Hide()
+			c.deleteBtn.Hide()
+		} else {
+			c.editBtn.Show()
+			c.deleteBtn.Show()
+		}
+	}
 }
 
 func (c *scriptsActionsCell) CreateRenderer() fyne.WidgetRenderer {
@@ -654,7 +674,7 @@ func (c *scriptsActionsCell) CreateRenderer() fyne.WidgetRenderer {
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     c.row.OnLog,
 	})
-	editBtn := newIconChromeButton(iconChromeButtonSpec{
+	c.editBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
 		Stroke:       design.ColorTailscaleChipBorder,
@@ -666,7 +686,7 @@ func (c *scriptsActionsCell) CreateRenderer() fyne.WidgetRenderer {
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     c.row.OnEdit,
 	})
-	deleteBtn := newIconChromeButton(iconChromeButtonSpec{
+	c.deleteBtn = newIconChromeButton(iconChromeButtonSpec{
 		NormalFill:   color.Transparent,
 		HoverFill:    design.ColorSurfaceLight,
 		Stroke:       design.ColorTailscaleChipBorder,
@@ -700,15 +720,15 @@ func (c *scriptsActionsCell) CreateRenderer() fyne.WidgetRenderer {
 		StrokeWidth:  1,
 		CornerRadius: 6,
 		NormalIcon:   scriptsStopIconSVG,
-		HoverIcon:    scriptsStopIconSVG,
+		HoverIcon:    scriptsStopHoverIconSVG,
 		IconSize:     fyne.NewSize(9, 9),
 		ButtonSize:   fyne.NewSize(23, 23),
 		OnTapped:     c.row.OnStop,
 	})
-	c.SetRunning(c.row.Running)
+	c.applyActionVisibility()
 
-	row := container.New(&DeviceRowControlsLayout{Gap: 6}, deleteBtn, editBtn, logBtn, c.runBtn, c.stopBtn)
-	return widget.NewSimpleRenderer(row)
+	c.box = container.New(&DeviceRowControlsLayout{Gap: 6}, c.deleteBtn, c.editBtn, logBtn, c.runBtn, c.stopBtn)
+	return widget.NewSimpleRenderer(c.box)
 }
 
 const (

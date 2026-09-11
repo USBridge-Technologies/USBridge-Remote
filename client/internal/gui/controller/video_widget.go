@@ -81,6 +81,8 @@ type VideoWidget struct {
 	moveWorkerStarted     bool
 	videoOps              chan videoOperation
 	videoReconcilePending atomic.Bool
+	videoStartRetryMu     sync.Mutex
+	videoStartRetry       *time.Timer
 
 	// sendQueueMu/sendQueue/sendQueueWake/sendWorkerStarted back a small FIFO
 	// worker (see video_widget_input_queue.go's enqueueSend) that moves every
@@ -282,6 +284,9 @@ type VideoWidget struct {
 
 func (vw *VideoWidget) Close() {
 	vw.isClosing.Store(true)
+	vw.userStoppedVideo.Store(true)
+	vw.setDesiredStreaming(false)
+	vw.stopDelayedVideoRetry()
 }
 
 // MarkUserStopped records that the user explicitly asked to stop/disconnect,
@@ -293,6 +298,8 @@ func (vw *VideoWidget) Close() {
 // races against an already-pending bootstrap timer and can lose.
 func (vw *VideoWidget) MarkUserStopped() {
 	vw.userStoppedVideo.Store(true)
+	vw.setDesiredStreaming(false)
+	vw.stopDelayedVideoRetry()
 }
 
 func (vw *VideoWidget) setDesiredStreaming(streaming bool) {

@@ -105,7 +105,7 @@ func (s *StorageProgressBar) CreateRenderer() fyne.WidgetRenderer {
 	fill.CornerRadius = design.RadiusMD
 
 	sizeText := canvas.NewText(s.sizeText, design.ColorStatusBarIndicatorText)
-	sizeText.TextSize = 9
+	sizeText.TextSize = 7
 	sizeText.TextStyle.Bold = false
 
 	topRow := container.NewWithoutLayout(icon, track, fill)
@@ -134,17 +134,18 @@ type storageProgressBarRenderer struct {
 
 const (
 	padH = float32(8)
-	// padV/iconSize/rowGap were trimmed from 4/12/1 -- at those values this
-	// chip's own MinSize (padV + iconSize + rowGap + text-line-height + padV)
-	// came out taller than 28px, the header row height every other element
-	// in this chip's own row (main_window_layout.go's createMainAddressBar
-	// middleGroup) targets (see headerCompactButtonSize) -- the one part of
-	// that row not already capped by a GridWrap, so it alone kept the
-	// Control header taller than the connections screen's own.
+	// padV/iconSize/rowGap started at 4/12/1 and were trimmed so this
+	// chip's MinSize stays inside the status-indicator strip's 22px
+	// content slot (statusBarIconBoxSize) and does not stretch the
+	// Control header when the storage plaque appears.
 	padV      = float32(1)
 	rowGap    = float32(0)
-	iconSize  = float32(10)
+	iconSize  = float32(9)
 	iconGap   = float32(6)
+	// storageChipMaxH matches statusBarIconBoxSize.Height so this chip
+	// cannot push the Control header taller than the icon row when it
+	// appears (icon + "12/32 GB" used to overflow by a couple of pixels).
+	storageChipMaxH = float32(22)
 	barHeight = float32(4)
 	barMaxW   = float32(58)
 )
@@ -213,6 +214,9 @@ func (r *storageProgressBarRenderer) MinSize() fyne.Size {
 
 	width := textWidth + padH*2
 	height := padV + iconSize + rowGap + measure.MinSize().Height + padV
+	if height > storageChipMaxH {
+		height = storageChipMaxH
+	}
 	return fyne.NewSize(width, height)
 }
 

@@ -123,11 +123,30 @@ func (dw *DiskWidget) GetDashboardContainer() fyne.CanvasObject {
 		dw.selectedItemsMu.Unlock()
 		dw.handleUnmount()
 	})
-	dw.dashboardBusySpinner = view.NewDeviceDashboardBusySpinner()
-	footer := view.NewDeviceDashboardFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner)
-	dw.dashboardContainer = container.NewBorder(nil, footer, nil, nil, scroll)
+	dw.dashboardBusySpinner = view.NewDeviceDashboardBusyHint("connecting device")
+	footer := view.NewDeviceDashboardFooter(view.AppVersion(), dw.dashboardFooterDisconnect, dw.dashboardBusySpinner, dw.dashboardScriptFooter)
+	dw.dashboardContainer = view.NewEdgeStack(nil, footer, scroll)
 	dw.refreshDashboard()
 	return dw.dashboardContainer
+}
+
+// SetDashboardScriptFooter injects the shared script-run chip into the
+// Devices footer. Must be called before GetDashboardContainer builds the
+// tab, otherwise the chip is ignored until the next rebuild.
+func (dw *DiskWidget) SetDashboardScriptFooter(chip *view.ScriptFooterStatus) {
+	if dw == nil {
+		return
+	}
+	dw.dashboardScriptFooter = chip
+}
+
+// AttachConnectingHint registers another tab's "connecting device" spinner
+// so beginOperation/endOperation can drive it alongside Devices' own.
+func (dw *DiskWidget) AttachConnectingHint(hint *view.DeviceDashboardBusySpinner) {
+	if dw == nil || hint == nil {
+		return
+	}
+	dw.connectingHints = append(dw.connectingHints, hint)
 }
 
 // refreshDashboard repopulates each dashboard card's rows from dw.allDrives.

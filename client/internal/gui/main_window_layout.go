@@ -303,8 +303,32 @@ func (mw *MainWindow) recreateContainers() {
 	snapshotsTabTitle := "Snapshots"
 	scriptsTabTitle := "Scripts"
 
+	devicesScriptFooter := view.NewScriptFooterStatus()
+	snapshotsScriptFooter := view.NewScriptFooterStatus()
+	controlScriptFooter := view.NewScriptFooterStatus()
+	controlConnecting := view.NewDeviceDashboardBusyHint("connecting device")
+	snapshotsConnecting := view.NewDeviceDashboardBusyHint("connecting device")
+	if mw.diskWidget != nil {
+		mw.diskWidget.SetDashboardScriptFooter(devicesScriptFooter)
+		if mw.scriptsWidget != nil {
+			mw.diskWidget.AttachConnectingHint(mw.scriptsWidget.ConnectingHint())
+		}
+		mw.diskWidget.AttachConnectingHint(snapshotsConnecting)
+		mw.diskWidget.AttachConnectingHint(controlConnecting)
+	}
+	if mw.backupWidget != nil {
+		mw.backupWidget.SetScriptFooter(snapshotsScriptFooter)
+		mw.backupWidget.SetConnectingHint(snapshotsConnecting)
+	}
+	if mw.scriptsWidget != nil {
+		mw.scriptsWidget.AttachFooterStatus(devicesScriptFooter)
+		mw.scriptsWidget.AttachFooterStatus(snapshotsScriptFooter)
+		mw.scriptsWidget.AttachFooterStatus(controlScriptFooter)
+	}
+	controlContent := view.NewEdgeStack(nil, view.NewDeviceDashboardFooter(view.AppVersion(), nil, controlConnecting, controlScriptFooter), mw.videoWidget.GetContainer())
+
 	mw.tabs = container.NewAppTabs(
-		container.NewTabItem(controlTabTitle, container.NewThemeOverride(mw.videoWidget.GetContainer(), design.NewBrandTheme())),
+		container.NewTabItem(controlTabTitle, container.NewThemeOverride(controlContent, design.NewBrandTheme())),
 		container.NewTabItem(devicesTabTitle, container.NewThemeOverride(mw.diskWidget.GetDashboardContainer(), design.NewBrandTheme())),
 		container.NewTabItem(snapshotsTabTitle, container.NewThemeOverride(mw.createBackupFlashTab(), design.NewBrandTheme())),
 		container.NewTabItem(scriptsTabTitle, container.NewThemeOverride(mw.scriptsWidget.GetContainer(), design.NewBrandTheme())),
@@ -1747,7 +1771,7 @@ func (mw *MainWindow) showScriptRunningMenu() {
 		{
 			Label: "Log",
 			OnTap: func() {
-				view.ShowScriptLogDialog(mw.window, mw.usbClient, scriptPath, scriptName)
+				controller.ShowScriptLogDialog(mw.window, mw.usbClient, scriptPath, scriptName)
 			},
 		},
 	}

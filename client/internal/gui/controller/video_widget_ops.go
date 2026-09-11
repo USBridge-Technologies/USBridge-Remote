@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"fyne.io/fyne/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -63,6 +65,9 @@ func (vw *VideoWidget) runVideoOpSync(name string, fn func()) {
 }
 
 func (vw *VideoWidget) scheduleVideoReconcile(reason string) {
+	if vw.isClosing.Load() {
+		return
+	}
 	if !vw.videoReconcilePending.CompareAndSwap(false, true) {
 		logrus.Debugf("⏳ video reconcile already queued, coalescing reason=%s", reason)
 		return
@@ -70,13 +75,46 @@ func (vw *VideoWidget) scheduleVideoReconcile(reason string) {
 
 	vw.enqueueVideoOp("video-reconcile:"+reason, func() {
 		defer vw.videoReconcilePending.Store(false) // safety net: always resets on panic
-		vw.reconcileVideoState(reason)
+		immediateRetry := vw.reconcileVideoState(reason)
 		// Clear pending before the check so that scheduleVideoReconcile("coalesced")
 		// can succeed its CAS. Without this the defer runs too late and the coalesced
 		// reconcile is silently dropped, leaving desired≠streaming forever.
 		vw.videoReconcilePending.Store(false)
-		if vw.videoReconcileNeeded() {
+		if vw.isClosing.Load() {
+			return
+		}
+		if immediateRetry && vw.videoReconcileNeeded() {
 			vw.scheduleVideoReconcile("coalesced")
+		}
+	})
+}
+
+const videoStartRetryDelay = 2 * time.Second
+
+func (vw *VideoWidget) stopDelayedVideoRetry() {
+	vw.videoStartRetryMu.Lock()
+	defer vw.videoStartRetryMu.Unlock()
+	if vw.videoStartRetry != nil {
+		vw.videoStartRetry.Stop()
+		vw.videoStartRetry = nil
+	}
+}
+
+func (vw *VideoWidget) scheduleDelayedVideoRetry(reason string) {
+	if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
+		return
+	}
+	vw.videoStartRetryMu.Lock()
+	defer vw.videoStartRetryMu.Unlock()
+	if vw.videoStartRetry != nil {
+		vw.videoStartRetry.Stop()
+	}
+	vw.videoStartRetry = time.AfterFunc(videoStartRetryDelay, func() {
+		if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
+			return
+		}
+		if vw.videoReconcileNeeded() {
+			vw.scheduleVideoReconcile(reason)
 		}
 	})
 }
@@ -94,10 +132,13 @@ func (vw *VideoWidget) videoReconcileNeeded() bool {
 	return vw.desiredStreaming != vw.isStreaming
 }
 
-func (vw *VideoWidget) reconcileVideoState(reason string) {
+func (vw *VideoWidget) reconcileVideoState(reason string) bool {
+	if vw.isClosing.Load() {
+		return false
+	}
 	if !vw.beginVideoOperation() {
 		logrus.Debugf("⏳ reconcile skipped, video operation already running reason=%s", reason)
-		return
+		return false
 	}
 	defer vw.finishVideoOperation()
 
@@ -124,8 +165,10 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 				vw.isVideoConnected = false
 				vw.isMouseConnected = false
 				vw.clearVideo()
-				fyne.Do(func() { vw.updateButtons() })
-				vw.updateStatus()
+				if !vw.isClosing.Load() {
+					fyne.Do(func() { vw.updateButtons() })
+					vw.updateStatus()
+				}
 			}
 		}
 		// Clear restartPending: if we don't want streaming there's nothing to restart.
@@ -136,11 +179,11 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 			vw.videoRestartPending = false
 			vw.videoOpMu.Unlock()
 		}
-		return
+		return vw.videoReconcileNeeded()
 	}
 
 	if streaming && !restartPending {
-		return
+		return false
 	}
 
 	if streaming && restartPending {
@@ -158,12 +201,16 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 	cfg, err := vw.resolvePreferredVideoConfig()
 	if err != nil {
 		logrus.Warnf("⚠️ cannot resolve preferred video config during reconcile (%s): %v", reason, err)
-		if vw.statusLabel != nil {
+		if vw.statusLabel != nil && !vw.isClosing.Load() {
 			fyne.Do(func() {
 				vw.statusLabel.SetText("❌ " + err.Error())
 			})
 		}
-		return
+		// Missing capture devices used to coalesced-retry immediately
+		// (HTTP + fyne.Do several times a second) and keep the Fyne queue
+		// busy through Quit. Retry on a timer instead.
+		vw.scheduleDelayedVideoRetry("devices-retry")
+		return false
 	}
 
 	vw.videoOpMu.Lock()
@@ -181,4 +228,5 @@ func (vw *VideoWidget) reconcileVideoState(reason string) {
 	}
 
 	vw.startVideoWithParamsInternal(cfg.ToVideoStartRequest())
+	return false
 }

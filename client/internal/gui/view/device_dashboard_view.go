@@ -68,7 +68,7 @@ func (l *DeviceDashboardColumnsLayout) MinSize(objects []fyne.CanvasObject) fyne
 func visibleDashboardObjects(objects []fyne.CanvasObject) []fyne.CanvasObject {
 	visible := make([]fyne.CanvasObject, 0, len(objects))
 	for _, obj := range objects {
-		if obj != nil && obj.Visible() {
+		if usableCanvasObject(obj) && obj.Visible() {
 			visible = append(visible, obj)
 		}
 	}
@@ -1492,13 +1492,24 @@ func NewDeviceDashboardStorageRow(icon fyne.Resource, name string, active bool, 
 
 // NewDeviceDashboardFooter is the Devices tab's own small bottom strip:
 // a lime busy spinner on the left (hidden until a mount/unmount is in
-// flight), Disconnect All plus the build version on the right, aligned
-// with the dashboard's own 18px content inset. disconnectBtn and spinner
-// may be nil.
-func NewDeviceDashboardFooter(version string, disconnectBtn, spinner fyne.CanvasObject) fyne.CanvasObject {
+// flight), optional extra left chips (script run status), Disconnect All
+// plus the build version on the right, aligned with the dashboard's own
+// 18px content inset. A ColorHeaderAccentLine hairline sits on top --
+// the same stroke the app header wears underneath. disconnectBtn,
+// spinner, and extraLeft may be nil.
+func NewDeviceDashboardFooter(version string, disconnectBtn, spinner fyne.CanvasObject, extraLeft ...fyne.CanvasObject) fyne.CanvasObject {
+	leftParts := make([]fyne.CanvasObject, 0, 1+len(extraLeft))
+	if usableCanvasObject(spinner) {
+		leftParts = append(leftParts, spinner)
+	}
+	for _, extra := range extraLeft {
+		if usableCanvasObject(extra) {
+			leftParts = append(leftParts, extra)
+		}
+	}
 	var left fyne.CanvasObject
-	if spinner != nil {
-		left = container.New(&DeviceRowControlsLayout{Gap: 0}, spinner)
+	if len(leftParts) > 0 {
+		left = container.New(&DeviceRowControlsLayout{Gap: 10}, leftParts...)
 	}
 	var rightParts []fyne.CanvasObject
 	if disconnectBtn != nil {
@@ -1506,17 +1517,31 @@ func NewDeviceDashboardFooter(version string, disconnectBtn, spinner fyne.Canvas
 	}
 	if v := strings.TrimSpace(version); v != "" {
 		label := canvas.NewText("v"+v, design.ColorTextMuted)
-		label.TextSize = 10
+		label.TextSize = 9
 		rightParts = append(rightParts, label)
 	}
 	var right fyne.CanvasObject
 	if len(rightParts) > 0 {
 		right = container.New(&DeviceRowControlsLayout{Gap: 12}, rightParts...)
 	}
+	var row fyne.CanvasObject
 	if left == nil && right == nil {
-		return NewInsetExact(canvas.NewRectangle(color.Transparent), 18, 18, 4, 8)
+		row = canvas.NewRectangle(color.Transparent)
+	} else {
+		row = container.NewBorder(nil, nil, left, right)
 	}
-	return NewInsetExact(container.NewBorder(nil, nil, left, right), 18, 18, 4, 8)
+	// Spinner/chip are 14px; version text is ~9px. Hidden children are
+	// skipped by DeviceRowControlsLayout, so without a height lock the
+	// footer shrinks when idle and jumps when a hint appears.
+	heightLock := canvas.NewRectangle(color.Transparent)
+	heightLock.SetMinSize(fyne.NewSize(0, deviceDashboardBusySpinnerSize))
+	return newDeviceDashboardFooterStrip(NewInsetExact(container.NewMax(heightLock, row), 18, 18, 4, 6))
+}
+
+func newDeviceDashboardFooterStrip(inner fyne.CanvasObject) fyne.CanvasObject {
+	accentLine := canvas.NewRectangle(design.ColorHeaderAccentLine)
+	accentLine.SetMinSize(fyne.NewSize(1, 0.5))
+	return NewTopLine(inner, accentLine)
 }
 
 const deviceDashboardBusySpinnerSize = float32(14)
@@ -1524,9 +1549,15 @@ const deviceDashboardBusySpinnerInterval = 140 * time.Millisecond
 
 // DeviceDashboardBusySpinner is the Devices footer's lime (#c4e77a) dot
 // spinner -- shown while a gadget mount/unmount is in flight. Hidden and
-// stopped otherwise so it doesn't leave a hole in the footer.
+// stopped otherwise so it doesn't leave a hole in the footer. Optional
+// hint text (see NewDeviceDashboardBusyHint) sits to the right of the
+// dots in the same lime, e.g. "connecting device".
 type DeviceDashboardBusySpinner struct {
 	widget.BaseWidget
+
+	hint      string
+	hintLabel *canvas.Text
+	box       *fyne.Container
 
 	mu     sync.Mutex
 	stop   chan struct{}
@@ -1535,8 +1566,18 @@ type DeviceDashboardBusySpinner struct {
 }
 
 func NewDeviceDashboardBusySpinner() *DeviceDashboardBusySpinner {
-	s := &DeviceDashboardBusySpinner{}
+	return NewDeviceDashboardBusyHint("")
+}
+
+// NewDeviceDashboardBusyHint is the footer spinner with a lime status
+// label shown next to the dots while the spinner is active.
+func NewDeviceDashboardBusyHint(hint string) *DeviceDashboardBusySpinner {
+	s := &DeviceDashboardBusySpinner{hint: strings.TrimSpace(hint)}
 	s.ExtendBaseWidget(s)
+	if s.hint != "" {
+		s.hintLabel = canvas.NewText(s.hint, design.ColorConnectionAddFill)
+		s.hintLabel.TextSize = 9
+	}
 	s.Hide()
 	return s
 }
@@ -1607,7 +1648,15 @@ func (s *DeviceDashboardBusySpinner) Stop() {
 }
 
 func (s *DeviceDashboardBusySpinner) MinSize() fyne.Size {
-	return fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize)
+	if s.box != nil {
+		return s.box.MinSize()
+	}
+	base := fyne.NewSize(deviceDashboardBusySpinnerSize, deviceDashboardBusySpinnerSize)
+	if s.hintLabel == nil {
+		return base
+	}
+	textSize := s.hintLabel.MinSize()
+	return fyne.NewSize(base.Width+6+textSize.Width, maxFloat32(base.Height, textSize.Height))
 }
 
 func (s *DeviceDashboardBusySpinner) CreateRenderer() fyne.WidgetRenderer {
@@ -1617,7 +1666,11 @@ func (s *DeviceDashboardBusySpinner) CreateRenderer() fyne.WidgetRenderer {
 	if len(assets.LoadingLimeFrames) > 0 {
 		s.img.Resource = assets.LoadingLimeFrames[0]
 	}
-	return widget.NewSimpleRenderer(s.img)
+	if s.hintLabel == nil {
+		return widget.NewSimpleRenderer(s.img)
+	}
+	s.box = container.New(&DeviceRowControlsLayout{Gap: 6}, s.img, s.hintLabel)
+	return widget.NewSimpleRenderer(s.box)
 }
 
 // DeviceDashboardFooterTextButton is a miniature, no-chrome text action
@@ -1697,7 +1750,7 @@ func (b *DeviceDashboardFooterTextButton) refreshVisuals() {
 
 func (b *DeviceDashboardFooterTextButton) CreateRenderer() fyne.WidgetRenderer {
 	b.lbl = canvas.NewText(b.text, design.ColorTextMuted)
-	b.lbl.TextSize = 10
+	b.lbl.TextSize = 9
 	b.refreshVisuals()
 	return widget.NewSimpleRenderer(b.lbl)
 }

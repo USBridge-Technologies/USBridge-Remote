@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"os"
 	"time"
 
 	"usbridge-client/internal/api"
@@ -155,6 +156,9 @@ func (mw *MainWindow) scheduleControlBootstrap() {
 	}
 
 	runBootstrap := func(reason string) {
+		if mw.isClosing.Load() {
+			return
+		}
 		if mw.videoWidget == nil || mw.tabs == nil {
 			return
 		}
@@ -232,6 +236,13 @@ func (mw *MainWindow) handleClose() {
 
 			logrus.Info("[shutdown] handleClose: closing window")
 			mw.window.Close()
+		})
+		// If Fyne's loop stays busy (queued fyne.Do from video reconcile,
+		// native overlay teardown, etc.), ShowAndRun never returns and the
+		// process sits after "quitting app". Force the process out.
+		time.AfterFunc(2*time.Second, func() {
+			logrus.Warn("[shutdown] Quit did not exit the process, forcing exit")
+			os.Exit(0)
 		})
 	})
 }

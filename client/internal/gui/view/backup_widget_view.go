@@ -15,17 +15,21 @@ type BackupWidgetUI struct {
 	StatusLabel *widget.Label
 	BusySpinner *DeviceDashboardBusySpinner
 
-	body      *fyne.Container
-	onRebuild func()
+	body            *fyne.Container
+	footerHost      *fyne.Container
+	scriptFooter    *ScriptFooterStatus
+	connectingHint  *DeviceDashboardBusySpinner
+	onRebuild       func()
 }
 
 func NewBackupWidgetUI() *BackupWidgetUI {
-	spinner := NewDeviceDashboardBusySpinner()
+	spinner := NewDeviceDashboardBusyHint("connecting device")
 	body := container.NewMax()
-	footer := NewDeviceDashboardFooter(AppVersion(), nil, spinner)
+	footerHost := container.NewMax(NewDeviceDashboardFooter(AppVersion(), nil, spinner))
 	return &BackupWidgetUI{
-		Container:   container.NewBorder(nil, footer, nil, nil, body),
+		Container:   NewEdgeStack(nil, footerHost, body),
 		body:        body,
+		footerHost:  footerHost,
 		BusySpinner: spinner,
 		StatusLabel: widget.NewLabel(""),
 	}
@@ -59,6 +63,37 @@ func (ui *BackupWidgetUI) SetBusy(busy bool) {
 		return
 	}
 	ui.BusySpinner.Stop()
+}
+
+func (ui *BackupWidgetUI) rebuildFooter() {
+	if ui == nil || ui.footerHost == nil {
+		return
+	}
+	var extra []fyne.CanvasObject
+	if ui.connectingHint != nil {
+		extra = append(extra, ui.connectingHint)
+	}
+	if ui.scriptFooter != nil {
+		extra = append(extra, ui.scriptFooter)
+	}
+	ui.footerHost.Objects = []fyne.CanvasObject{NewDeviceDashboardFooter(AppVersion(), nil, ui.BusySpinner, extra...)}
+	ui.footerHost.Refresh()
+}
+
+func (ui *BackupWidgetUI) SetScriptFooter(chip *ScriptFooterStatus) {
+	if ui == nil {
+		return
+	}
+	ui.scriptFooter = chip
+	ui.rebuildFooter()
+}
+
+func (ui *BackupWidgetUI) SetConnectingHint(hint *DeviceDashboardBusySpinner) {
+	if ui == nil {
+		return
+	}
+	ui.connectingHint = hint
+	ui.rebuildFooter()
 }
 
 func (ui *BackupWidgetUI) Refresh() {

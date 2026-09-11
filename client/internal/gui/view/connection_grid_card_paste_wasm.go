@@ -9,12 +9,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// pasteClipboardIntoEntry is connection_grid_card_paste_default.go's browser
+// PasteClipboardIntoEntry is connection_grid_card_paste_default.go's browser
 // counterpart -- Fyne's own synchronous Clipboard().Content() is unreliable
 // under wasm (see controller.pasteClipboardInto's doc comment for the full
 // story, which this mirrors), so this routes through
 // navigator.clipboard.readText() instead.
-func pasteClipboardIntoEntry(entry *widget.Entry) {
+func PasteClipboardIntoEntry(entry *widget.Entry) {
 	if entry == nil {
 		return
 	}

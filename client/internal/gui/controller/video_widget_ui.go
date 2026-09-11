@@ -787,7 +787,7 @@ func (vw *VideoWidget) controlHIDReady() (bool, error) {
 }
 
 func (vw *VideoWidget) BootstrapControlSessionAsync() {
-	if vw.userStoppedVideo.Load() {
+	if vw.isClosing.Load() || vw.userStoppedVideo.Load() {
 		// The user explicitly pressed stop; this call is one of
 		// scheduleControlBootstrap's timers (main_window_lifecycle.go), which
 		// fire on a schedule tied to which tab is visible, not to user intent

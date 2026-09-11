@@ -223,7 +223,7 @@ type DeviceRowControlsLayout struct {
 func (l *DeviceRowControlsLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	x := float32(0)
 	for _, obj := range objects {
-		if obj == nil || !obj.Visible() {
+		if !usableCanvasObject(obj) || !obj.Visible() {
 			continue
 		}
 		childSize := obj.MinSize()
@@ -242,7 +242,7 @@ func (l *DeviceRowControlsLayout) MinSize(objects []fyne.CanvasObject) fyne.Size
 	height := float32(0)
 	visibleCount := 0
 	for _, obj := range objects {
-		if obj == nil || !obj.Visible() {
+		if !usableCanvasObject(obj) || !obj.Visible() {
 			continue
 		}
 		childSize := obj.MinSize()
