@@ -239,6 +239,9 @@ type gousbBackend struct {
 	shortCircuitTag  [4]byte
 	shortCircuitXfer uint32
 
+	lastCBWDatalen  uint32
+	lastCBWTransfer uint32
+
 	// bulkSem is a size-1 semaphore serializing the CBW/data/CSW steps of
 	// Bulk-Only Transport across the whole device: BOT is strictly one
 	// command in flight at a time on a given bulk pipe (the device has one
@@ -700,7 +703,15 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 			cycleDone = false // synthesized data/CSW phases for this command are still to come
 			return 0, nil
 		}
+
+		b.lastCBWDatalen = binary.LittleEndian.Uint32(outData[8:12])
+		b.lastCBWTransfer = 0
+	} else {
+		// Bulk OUT data phase (not a CBW).
+		cycleDone = false
+		b.lastCBWTransfer += uint32(len(outData))
 	}
+
 	outep, err := b.intf.OutEndpoint(num)
 	if err != nil {
 		logrus.Debugf("usbpass: bulk OUT ep=%d: %v", num, err)
