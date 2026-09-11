@@ -673,11 +673,19 @@ func (b *gousbBackend) HandleBulk(reqCtx context.Context, ep uint8, dirIn bool, 
 		// from a silently-wrong one.
 		isCSW := n == 13 && buf[0] == 'U' && buf[1] == 'S' && buf[2] == 'B' && buf[3] == 'S'
 		if isCSW {
-			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], binary.LittleEndian.Uint32(buf[8:12]))
+			actualResidue := binary.LittleEndian.Uint32(buf[8:12])
+			expectedResidue := b.lastCBWDatalen - b.lastCBWTransfer
+			if b.lastCBWTransfer <= b.lastCBWDatalen && expectedResidue != actualResidue {
+				logrus.Debugf("usbpass: PATCHING CSW residue %d -> %d to prevent Windows phase error (transferred %d of %d)", actualResidue, expectedResidue, b.lastCBWTransfer, b.lastCBWDatalen)
+				binary.LittleEndian.PutUint32(buf[8:12], expectedResidue)
+				actualResidue = expectedResidue
+			}
+			logrus.Debugf("usbpass: CSW status=%d residue=%d", buf[12], actualResidue)
 		} else {
 			// A data-in phase, not the CSW — the CSW read is still to come
 			// as its own URB; keep the cycle open for it.
 			cycleDone = false
+			b.lastCBWTransfer += uint32(n)
 		}
 		// Short reads are valid (ZLP / short packet); return what we got.
 		return 0, buf[:n]
