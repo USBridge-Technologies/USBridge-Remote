@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 )
 
 // usbAesInfo must match the Rust side's transport::INFO exactly.
@@ -48,6 +49,16 @@ type aeadStream struct {
 func newAeadStream(conn net.Conn, key [32]byte) (*aeadStream, error) {
 	if tc, ok := conn.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
+		// A dead agent (crashed, network drop, machine asleep) otherwise
+		// leaves recvFrame's blocking read parked forever in
+		// holdAttachSession, so the client never notices and never retries.
+		// Mirrors rust-shine's own TCP keepalive tuning on the agent side.
+		_ = tc.SetKeepAliveConfig(net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     10 * time.Second,
+			Interval: 5 * time.Second,
+			Count:    6,
+		})
 	}
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
